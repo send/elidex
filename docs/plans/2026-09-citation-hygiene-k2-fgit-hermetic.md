@@ -5,8 +5,9 @@
 **Companion**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`. It holds the
 measurements, corpus scripts, provenance of `ff6b99a3`'s commits and false premises. **Review
 record**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`, every plan-review round's
-dispositions and the terminators (split out of the companion unchanged). This memo holds only the live
-decisions.
+dispositions and the terminators (split out of the companion unchanged). **Corpus**:
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` ("corpus §6"), the corpus cells and the
+mutation records (split out of this memo's §6 unchanged). This memo holds only the live decisions.
 
 **Parent memo**: `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, #519's record (§8.2).
 
@@ -19,7 +20,7 @@ decisions.
 
 Draft 10 answers round 9, a Step-4.5 focused check of draft 9 (`d5dacd56`): Ax2 0/1/1, Ax3 0/1/3. Both
 IMPs were **implementation bugs in the prototype, not design defects**, and prototype **p11** fixes
-them with their cells (§6, companion §A.13):
+them with their cells (corpus §6, companion §A.13):
 - **A1: W3 failed open under SIGPIPE.** `grep … | head -3` under `pipefail` returned 141 on a long
   stderr, and `|| _fw_diag=""` emptied the diagnostic. It is now `grep -m 3`; only rc 1 means "none",
   and any other status is red (§3).
@@ -43,7 +44,7 @@ read the caller's HOME/XDG (companion §A.9, before-cells).
 The design therefore changed (orchestrating session, 2026-09-27). P now holds **by construction of
 the whole fixture-build window**. The detector, its four channels, its canaries, its nine labels and
 its records are **deleted**. Every claim below is a result from the recast corpus run on prototype
-**p6** (§6).
+**p6** (corpus §6).
 
 (Draft 6 called round 6 "focused". It ran as a full five-axis review; `…-reviews.md` §D.0 records it as it
 ran.)
@@ -88,7 +89,7 @@ A failure there means "this git cannot run here", so it stays under the old rule
 
 The **read** side is also out of scope. It keeps the old criterion, because `_git` preserves the
 caller's configuration on purpose (#501 R97). The window is a child process, so the parent's
-environment, and with it the read side, is untouched (the DO cell in §6).
+environment, and with it the read side, is untouched (the DO cell in corpus §6).
 
 ### §0.2 One slice, and where it is registered
 
@@ -100,7 +101,7 @@ The slice is property P for the fixture build: the window (§3), the postconditi
 (§4), and nothing else.
 
 - **C1/C2** are standalone prereq splits (§8.1).
-- **C4** gives the mutation runner a `harness` target (§6). It is required, because every record edits
+- **C4** gives the mutation runner a `harness` target (corpus §6). It is required, because every record edits
   the harness.
 - **C3**, record comments, is **not required** for writing records. It stands on its own: records that
   pin machine-dependent behaviour must say so at the record.
@@ -160,7 +161,7 @@ can drop an entry (companion §A.1). Refs belong in P, because `init.defaultBran
 - reads at control time.
 
 The corpus checks P **directly**: the recast cells compare every fixture's P to a clean build's P
-(§6).
+(corpus §6).
 
 ## §2 Measurements
 
@@ -317,7 +318,7 @@ What **is** pinned are the properties a record can observe:
 
 **A shell diagnostic in the fixtures file is red (W3; E4, AR).** An arithmetic-expansion error such as
 `$(( 1/0 ))` at the fixtures file's top level does **not** stop a sourced file under `set -e`, on either
-shell. The build completes, and on p8 the run was green (§6). The child's stderr is captured to a file
+shell. The build completes, and on p8 the run was green (corpus §6). The child's stderr is captured to a file
 and replayed. **Any line that begins with `./fixtures.sh:` or `./prelude.sh:`** — the window sources both from its own directory by those relative names (the fixtures file is copied there first), so the prefix does not depend on the checkout path, which could otherwise hold a newline that splits the name across two stderr records (PR #527 Codex R2)
 is W3. That is a property of where bash puts a diagnostic about a file, not a wording: it covers `…
 line N:`, 3.2's `… command substitution: line N:` and `… eval: line N:`, in any locale. (Draft 10
@@ -327,7 +328,7 @@ grep (141) and read as "no diagnostic" (round 9, Ax2). A non-zero `awk` status i
 measured on bash 3.2 and 5.3 on macOS; X9 confirms GNU bash. It is class (b) by the §0.3 property: a skipped line leaves a
 diagnostic.
 
-The before/after cells are in §6.
+The before/after cells are in corpus §6.
 
 **Two harness comments change in C5 (E4).** Both were measured on the prototype:
 - The window comment said every git the fixtures file starts "however it is spelled" inherits only this
@@ -341,7 +342,7 @@ helper is **gone**. That is one issue, one way. Measured: after the split, no `_
 outside the window. The postconditions, the only other caller, now run inside it.
 
 **What each allowlist entry buys.** Measured on git 2.55.0 and Apple 2.54.0; each is also pinned in
-§6.
+corpus §6.
 
 | entry | without it |
 |---|---|
@@ -363,7 +364,7 @@ longer creates it (companion §A.2).
 **errexit and state.** Every window state name (`_fw_rc`, `_fw_done`, `_fw_post_bad`, `_fw_why`) is
 assigned at harness top level, before anything reads it (`_fw_diag` and the W2 flag included). The
 child runs under `set -euo pipefail` with **no EXIT trap**. Each of those options is checked separately
-before the fixtures file (one record per option, §6), and all three are checked again after it (one
+before the fixtures file (one record per option, corpus §6), and all three are checked again after it (one
 record). So an abort there
 is a non-zero exit, which the parent reads as data. The verdict is written after `ctl_ok=0`
 (`controls.sh:738` at base), and an incomplete window ends the run right there.
@@ -382,7 +383,7 @@ behind the static census, and it is pinned by its own record. See §5.2 for the 
 Every git in the window whose inputs **no fixtures-file command altered** inherits the same
 environment and the same persisted state. So git's own answers inside the window describe every such
 git (§5.1 covers the rest). Each producer has its own label (defined in the controls file and passed
-in), and each label has its own record (§6).
+in), and each label has its own record (corpus §6).
 
 | id | label | assertion (inside the window) | liveness (its own label) |
 |---|---|---|---|
@@ -444,11 +445,11 @@ An accidental `--separate-git-dir` is class (b): it leaves a gitfile, so it is r
 Draft 8's p8 walked `$CTL/*/` and skipped any fixture whose `.git` was not a directory. A
 `--separate-git-dir` with a persisted `core.excludesFile` was **silently wrong** there (rc 0, P
 differs). This author's intermediate p9 still walked only the top level, and it missed a nested repo
-and a hidden one. Both were measured (§6).
+and a hidden one. Both were measured (corpus §6).
 
 - **Census:** today every fixture git dir's configuration equals the reference on both shells, `find`
   reports nothing, and the three declared directories are at their modes, so the clean and G cells
-  are green (§6). Legitimate fixture state (`badref`'s ref, `notcommitted`'s `info/exclude`, the
+  are green (corpus §6). Legitimate fixture state (`badref`'s ref, `notcommitted`'s `info/exclude`, the
   per-call identity) is not configuration, so it stays green.
 - **Cost:** measured as the census section's wall time on a clean tree (instrumented copies, companion
   §A.13): **0.76 s** on p11 against 1.45 s on p10, on both shells. Most of p11's figure is the one
@@ -481,7 +482,7 @@ on both shells:
 - `git -C . config core.excludesFile …`;
 - `git config include.path …`;
 - `--separate-git-dir`, with or without a persisted key; a nested, hidden or bare git dir with a
-  persisted key (draft 9, §6).
+  persisted key (draft 9, corpus §6).
 
 On p7 the first three were **silently wrong**. The fourth was red only through S (companion §A.11). P-g
 sees what is **still persisted when the build ends**. A form that persists and then reverts is class
@@ -578,182 +579,9 @@ failure a labelled verdict"):
 
 ## §6 The corpus — evidence, and the source of the records
 
-**Oracle, recast.** Under a hostile caller, a bypass spelling no longer has to go red. It has to go
-**green with P identical to the clean build's P**. P is dumped per fixture repo by a **prototype-only**
-hook (`K2_CORPUS_PDUMP`), which is not part of the design. It is passed into the window as a plain
-assignment, so P-f does not see it. Symlink targets are normalised for `$CTL` (companion §A.9).
-
-**Subjects.** All three are `git clone --local`s of `e8f78896`.
-- **p6** carries §3–§4 as in draft 6. It shows the window's own guarantee under hostile callers.
-- **p7** is p6 plus draft 7's fixes, including S, which is now deleted.
-- **p8** is p7 minus S, plus P-g, the `built` marker, the W reason text, W2 and the per-option checks.
-  Draft 8's claims are measured on p8.
-- **p9** is p8 plus `_control`'s W2 guard, W3, the options re-check, the named exit causes, the comment
-  fixes, and a top-level P-g shape check. It is superseded by p10 on P-g only.
-- **p10** is p9 with P-g's census over every git dir (§4). Draft 9's claims are measured on p10.
-- **p11** is p10 plus round 9's fixes: W3 without a pipe into `head`, the census opening the declared
-  directories, the `HEAD` + `objects`/`commondir` shape, no per-directory fork, and the cause marker.
-  Draft 10's claims, and the implementation, are measured against p11.
-
-**Subset and re-run recipe.** Scripts: `git show ff1322bb:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` §E.3 (scratch `c6/`). Run them from a directory holding the
-tree under test as `p6/` and, for the before-cells, `p5d/`:
-
-```sh
-python3 c6/gen6.py <dir>                                         # 190 cells
-tr '\n' '\0' < c6/jobs.tsv | xargs -0 -n1 -P2 c6/cell6.sh > c6/raw.tsv   # K2_CORPUS_OUT overrides the output dir
-c6/eval6.sh > c6/results.tsv                                     # verdicts, P compared per config
-```
-
-For X2/X5 on the implementing head, clone that head as `<dir>/p6`. The scripts take no other paths.
-
-**Draft 6's recast corpus** covered 190 cells on p6, across all four configurations. The cell list is
-in companion §A.9. It contains:
-- **G:** 11 hostile callers, including the DO cell;
-- **R:** 11 bypass spellings under a HOME `*.py` ignore, with two of them also run × every hostile
-  caller;
-- **RLOUD:** `_git`;
-- **RES:** 2 cells;
-- **P:** the records;
-- **INFO:** 2 cells;
-- **BEFORE:** cells on p5d.
-
-**Results.** Draft 6's corpus results are in companion §A.9:
-- G, R and RES were green with P equal on all four configurations;
-- the DO cell was green with P equal, so the read side still sees the caller's configuration;
-- round 5's four bypass spellings went from silently wrong on p5 to P-equal on p6;
-- the one INFO cell that stayed green is PATH-drop on git 2.54, which is equivalent there, as
-  predicted.
-
-**Draft 8's focused cells.** They ran on p7 (before) and p8 (after), on bash 5.3·git 2.55 and bash
-3.2·git 2.54. The scripts are in the history (companion §E, `453b7b0f` §E.5), and the full table is
-in companion §A.11, which also records their re-run with `HOME` set: unchanged.
-
-| cell | p7 (before) | p8 (after) |
-|---|---|---|
-| D2: `printf '[include]\n\tpath = <file>' >> .git/config` | rc 0, PASSED, P differs: **silently wrong** | rc 1, P-g |
-| D2: `printf '[core]\n\texcludesFile = <file>' >> .git/config` | **silently wrong** | rc 1, P-g |
-| D2: `git -C . config core.excludesFile <file>` | **silently wrong** | rc 1, P-g |
-| D2: `git config include.path <file>` | red only via S | rc 1, P-g |
-| D4: a top-level `return 0` early in the fixtures file | rc 1, **81** control lines: `done` certified the child, not the file | **rc 2, W alone** |
-| D4: `$CTL/odd/pipe` pre-created (the fixtures exit 2) | (draft 7: rc 2, W alone) | rc 2, W alone |
-| D4 record W2: incomplete-window `exit` removed, plus `odd/pipe` | — | rc 1, W2 printed |
-| D4 records: the prelude drops `nounset` / `pipefail` / `errexit` (one each) | — | each rc 2, W alone |
-| D3 residual, now a class-(c) example (§0.3): `git -C . -c include.path=<file> add -A` | — | rc 0, PASSED, Pdiff 50: **silent, declared** |
-| G: HOME `*.py` ignore; the DO cell | — | green, P equal |
-| P-a record with the §5.1-unit label | — | red with the label |
-
-**Draft 9's focused cells.** They ran on p8 (before) and p10 (after), on bash 5.3·git 2.55 and bash
-3.2·git 2.54, **with `HOME` set for every cell**. Every row is the same on both configurations. The
-scripts are in companion §E.6, and the full table is in companion §A.12.
-
-| cell | p8 (before) | p10 (after) |
-|---|---|---|
-| E2: `cachedir` built with `--separate-git-dir` plus a persisted `core.excludesFile` | rc 0, PASSED, P differs: **silently wrong** | rc 1, P-g: `cachedir:[.git is not a directory] .gd-cachedir:[a git dir not named .git]` |
-| E2: `cachedir` built with `--separate-git-dir` only (a gitfile) | rc 0, PASSED, P differs: **silently wrong** | rc 1, P-g, same two entries |
-| E2: a nested repo `zz/inner` with a persisted `core.excludesFile` | green: unseen | rc 1, P-g: `zz/inner:[local file:.git/config core.excludesfile=…]` |
-| E2: a hidden top-level repo `.hid`, same key | green: unseen | rc 1, P-g |
-| E2: a bare git dir `zbare`, same key | green: unseen | rc 1, P-g: `zbare:[a git dir not named .git]` |
-| E3 RO: the exit moved below the first control, plus `odd/pipe` | rc 2: W, plus the first control **misreported** as `green is reachable`; no W2 | **rc 2: W2, then W** |
-| E3 ROg: the exit moved below the first control, window complete | green, P equal | green, P equal |
-| AR: `_ar=$(( 1/0 ))` after the fixtures file's first line | rc 0, PASSED: **silent** | rc 1, W3 |
-| SE1: `set +e` before the fixtures file's `built` line | — | rc 2, W alone: "the fixtures file switched off errexit, nounset or pipefail" |
-| W2 record: the incomplete-window `exit` removed, plus `odd/pipe` | — | rc 1, W2 |
-| G: HOME `*.py` ignore; the DO cell | — | green, P equal |
-| clean | green | green, P equal |
-
-**Draft 10's cells.** They ran on p10 (before) and p11 (after), with `HOME` set for every cell. The
-scripts are in companion §E.7, and the full table is in companion §A.13.
-
-| cell | p10 (before) | p11 (after) |
-|---|---|---|
-| arnoise: `$(( 1/0 ))` plus 200 `[` diagnostics | green, PASSED: **W3 failed open** | rc 1, W3 |
-| noise1k: 1000 `[` diagnostics | green, PASSED: **W3 failed open** | rc 1, W3 |
-| ar: `$(( 1/0 ))` alone | rc 1, W3 | rc 1, W3 |
-| m2h: nested repo under `walk/sub`, outside `core.excludesFile`, gitlinked into `walk` (4 shell × git configs) | rc 0, PASSED, P differs where a reference exists: **silently wrong** | rc 1, P-g `walk/sub/inner:[local file:.git/config core.excludesfile=…]` |
-| wtmeta: a linked worktree removed, its `.git/worktrees/` entry left | rc 0, P differs: **silently wrong** | rc 1, P-g `zzw/.git/worktrees/zzw2:[a git dir not named .git]` |
-| nr: a `chmod 300` directory under `walk` | rc 1, P-g (census failed) | rc 1, P-g (census failed) |
-| rc5: `sh -c 'exit 5'` at the fixtures file's top level | rc 2, W **misnamed** "switched off errexit…" | rc 2, W "the window exited 5 before completing" |
-| draft 9's set: `--separate-git-dir`, nested, hidden, bare, RO, ROg, SE1, G, DO, W2 record | — | as draft 9: all PASS |
-
-Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.54 and bash 3.2·git 2.55.
-
-**Records: representative only.**
-
-| label | record | target |
-|---|---|---|
-| W | the child exits right after the prelude | harness |
-| W | the prelude drops `nounset` (`set -eo pipefail`) | harness |
-| W | the prelude drops `pipefail` (`set -eu`) | harness |
-| W | the prelude drops `errexit` (`set -uo pipefail`) | harness |
-| W | a top-level `return 0` early in the fixtures file | **fixtures** |
-| W2 | one `harness:` expression with two substitutions: the `exit` removed from `_fgit_window_incomplete_exit`, and the child's `done` marker renamed so the window stays incomplete. A record edits one file, so the draft's "plus the fixtures exit 2" is not expressible (`…-reviews.md` §13) | harness |
-| P-a | config appended to `_FGIT_ENV` | harness |
-| P-a liveness | the probe loses `-c a.b=c` | harness |
-| P-b | drop `GIT_CONFIG_NOSYSTEM` | harness |
-| P-b liveness | the probe loses `…NOSYSTEM=0` | harness |
-| P-c | plant a file in the void | harness |
-| P-d | drop `GIT_TEMPLATE_DIR` | harness |
-| P-e | inject `GIT_EXEC_PATH=/nonexistent-k2` | harness |
-| P-h | drop `"LC_ALL=C"` from `_FGIT_ENV` | harness |
-| W4 | `_seal_apply`'s `chmod` replaced by `false` | harness |
-| P-i | drop `GIT_DEFAULT_REF_FORMAT=files` from `_FGIT_ENV` | harness |
-| P-f | drop `-i` from the window's `env` | harness |
-| P-f | `env -0` fails **with** output and a line on stderr (`{ env -0; echo k2 >&2; false; }`): NOT EXERCISED, red — pins "stdout empty" alone (the fix-delta re-check #2 showed the earlier `{ env -0; false; }` also died on the stderr clause, so it pinned nothing of its own) | harness |
-| P-f | `env -0` fails silently (`false`): NOT EXERCISED, red — pins "says why on stderr" in the limitation predicate | harness |
-| P-f | `env -0` exits 0 with nothing on stdout and a line on stderr: NOT EXERCISED, red — pins "fails" | harness |
-| P-f | the `env` P-f runs is `/nonexistent-k2/env`, which cannot be started (measured exit 127 on bash 5.3, 1 on bash 3.2 inside the wire): NOT EXERCISED, red — pins "runs a command" | harness |
-| P-f | `env -0`'s output gains a last record with no NUL after it (`K2X=1`): red — pins reading that record | harness |
-| P-j | a relative entry after `$_FGIT_BIN` in the window's `PATH` | harness |
-| P-j | the window's `PATH` starts at `/usr/bin` instead of `$_FGIT_BIN` | harness |
-| P-g | the extra-lines `grep` reads a missing pattern file (exit 2): red — pins the status check | harness |
-| P-g | the missing-lines `grep` reads a missing pattern file (exit 2): red — pins the status check | harness |
-| P-c | a fixture writes an entry named only by a newline into the void | **fixtures** |
-| P-c | a fixture writes into the void, then makes it unreadable (`chmod 300`) | **fixtures** |
-| P-c | a fixture replaces the void with a symlink to an empty directory | **fixtures** |
-| P-c | a fixture writes into the void, then makes it readable but not searchable (`chmod 600`) | **fixtures** |
-| P-c | a fixture writes into the void and leaves `set -f` on | **fixtures** |
-| P-j | the wrapper is written as `gitx`, so the window's `git` is not the pinned one | harness |
-| P-g | a bare repo with a persisted `core.excludesFile` whose `HEAD` is a symlink to its branch ref (a form git reads) | **fixtures** |
-| P-g | a bare repo with a persisted `core.excludesFile` whose `HEAD` is renamed `head` | **fixtures** |
-| P-g | a gitfile named `.GIT` (separate git dir outside the fixture root) | **fixtures** |
-| P-g | a fixture adds a second `core.bare = false` (a repeated line) | **fixtures** |
-| P-g | a symlink under the fixture root to a bare repo (with a persisted key) outside it | **fixtures** |
-| P-g | a symlink under the fixture root to a directory with a bare repo two levels down | **fixtures** |
-| P-g | a symlink to a bare repo whose unborn `HEAD` is a dangling symlink (a form git accepts) | **fixtures** |
-| P-g | a symlink NAMED `HEAD` to a bare repo outside the fixture root | **fixtures** |
-| P-g | a value holding a newline shaped like another listing line (`core.bare` unset, `core.logallrefupdates` forged) | **fixtures** |
-| P-g | `.git/config` replaced by a symlink to a copy outside the fixture root | **fixtures** |
-| P-g | a fixture repo whose `.git/HEAD` is a FIFO (git is not run on it; it would block) | **fixtures** |
-| W3 | stderr without a newline, then a non-fatal diagnostic appended to that record | **fixtures** |
-| W | `set +e` before the fixtures file's `built` line | **fixtures** |
-| W3 | `_ar=$(( 1/0 ))` after the fixtures file's first line | **fixtures** |
-| P-g | `printf '[include]…' >> .git/config` in a fixture | **fixtures** |
-| P-g | one fixture's `git init` gains `--separate-git-dir` (a gitfile) | **fixtures** |
-| P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
-| P-g | a fixture unsets a key a plain init writes (`git config --unset core.filemode`) | **fixtures** |
-
-- **Totals:** **16 labels and 50 records** (how each came to be: `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
-  with no prefix edits the wire.
-- **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
-- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 50 (95 → 145).
-- **What is not a record:**
-  - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662` at `e8f78896`);
-  - the exit number, which is unpinnable (§3);
-  - the two INFO cells, which are informative;
-  - resolving relative `PATH` entries: it changes something only for a caller whose `PATH` has one, and a
-    record's run uses the caller's `PATH`. Measured by hand (Codex R23's shape, both shells): a `tools/bin`
-    `git` wrapper with a `#!/usr/bin/env` interpreter beside it — red on `cb8b0e09`, PASSED after.
-- **Records on a machine that cannot evaluate their postcondition** (a `machine_limits` line: P-b on git
-  before 2.42, P-f on an `env` without `-0`): the mutation run still runs them — a record pinning the
-  limitation test's own narrowness dies there — and a **survival** of one is reported as not exercisable
-  on that machine instead of counted (and the summary says how many); the labels are derived from the limitation's
-  ID. The excuse is per label, so on such a machine a regression in a record that would die there is excused
-  too — a machine with the capability (CI's GNU `env`) runs them all. A "killed for the wrong reason" (2)
-  is never excused: it is also how a harness break reports; a leaking caller can make it a false red.
-
-**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 50) record trials plus the generated
-population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
-opt-in and does not add to the always-run gate.
+Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6 ("the corpus file";
+touch-time split, text unchanged). It holds the recast oracle, the prototypes p6–p11, the re-run
+recipe, every focused cell table, and the mutation records with their totals and the ratchet.
 
 ## §7 What was deleted (draft 5 → 6)
 
@@ -950,8 +778,8 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | 5 | D | window state is assigned before it is read. Completion needs the fixtures file's own last line, with the options still on; an incomplete window ends the run with W alone, and `_control` itself refuses over an unbuilt tree (W2). Each child option is checked and recorded. With the parent's nounset off, the clean tree and eight red cells give the same verdicts (measured, §3; not a proof over every path) | §3, §5.2 |
 | 6 | D×E | the window is a child process, so the parent's environment, and with it the read side and every `_control`, is untouched | §0.1; DO cell |
 | 7 | E | the prelude passes plain assignments, never `declare -p`, so no `export` attribute enters the window | §3 |
-| 8 | E×D | producers live in the harness and labels in the controls file. Records target `harness`, plus `fixtures` for the W early-return, W options re-check, W3 and P-g records | §4, §6 |
-| 9 | D | one label per producer, one record per label; the ratchet stays at 21 | §6 |
+| 8 | E×D | producers live in the harness and labels in the controls file. Records target `harness`, plus `fixtures` for the W early-return, W options re-check, W3 and P-g records | §4, corpus §6 |
+| 9 | D | one label per producer, one record per label; the ratchet stays at 21 | corpus §6 |
 | 10 | A×C | P covers git's inputs only; the executable, the platform and the non-git commands are outside it | §0.1, §5.2 |
 | 11 | F | still one build, now in a child; the ci.yml line is re-derived by rule, and a change means STOP | §9 |
 
@@ -962,11 +790,11 @@ These run on both shells, and on both gits wherever the corpus has a column.
 | id | command | expected |
 |---|---|---|
 | X1 | the X1 block below | `rc=0`, `0`, `1` |
-| X2 | the §6 G cells (the recipe above, on the implementing head as `p6/`) | all PASS with P equal, 4 configs |
+| X2 | the corpus §6 G cells (its recipe, on the implementing head as `p6/`) | all PASS with P equal, 4 configs |
 | X3 | `WEBREF_WIRE_MUTANTS=1 $SH $W`, then `/usr/bin/grep -F -e 'entr(ies), 0 not killed as named' -e ', 0 neither killed nor argued equivalent' -e 'trip-wire PASSED'` | three hits in every column. C1–C3 are byte-identical to base |
 | X4 | C1/C2: X1's log at the parent commit and at the split commit, with scratch paths normalised by one `sed`, then `diff` | empty |
 | X4b | the X4b block below, over each file C1/C2 edit | empty |
-| X5 | the §6 R, RLOUD, RES and P cells, same recipe; and the draft-10 cells (companion §E.7) on the implementing head as `p11/` | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS |
+| X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; and the draft-10 cells (companion §E.7) on the implementing head as `p11/` | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS |
 | X6 | planting: a template `config`+`HEAD` in the void; a local `include.path` in a fixture | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
 | X8 | the ci.yml rule's derivation (§9) | method and verdict recorded; STOP on change |
 | X9 | `Layering trip-wires` on ubuntu (GNU), via route (a) or (b) of §9, chosen by the user at push time | SUCCESS. This is GNU evidence for `env -i`, `env -0`, the window and the prelude. If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |

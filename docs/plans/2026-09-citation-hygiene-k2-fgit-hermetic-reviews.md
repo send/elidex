@@ -345,7 +345,7 @@ X11  _x_lbl added: rc 1, "22 labels have no mutation record, against a ratchet o
 X9   not run: user's route choice at push time (§9)
 ```
 
-**Design statements that changed in implementation:** the W2 record shape (§6 table), X6's producers
+**Design statements that changed in implementation:** the W2 record shape (corpus §6 table, `…-k2-fgit-hermetic-corpus.md`), X6's producers
 (§11), and C4's scope (§9). The other deviations are procedural; companion §A.14 lists all seven.
 
 **The `/simplify` pass** (after `/pre-push` Stage 3; one commit on top of C5). Same verdicts; the
@@ -441,7 +441,7 @@ they are reachable through the PR.
 - **focused re-check #6 of `5a6f4367..a650b146`** (0 IMP): a link was checked at its target's top
   level only — now searched through (`find -L`, through a file so a SIGPIPE cannot read as a failed
   search); the mutation summary counts excused entries; why a 2 is never excused and why the excuse
-  is per label are stated in §6.
+  is per label are stated in corpus §6.
 - **Codex R19** (on `a650b146`): a link to a bare repo whose unborn `HEAD` is a dangling symlink
   escaped the top-level `-e HEAD` test; the `find -L` search (which lists a dangling link by its
   name) closes it — record added. The umbrella's status cell now names #527, which stays true after
