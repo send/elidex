@@ -265,9 +265,15 @@ EOF_PB
   # …and every SYMLINK: `find` does not follow them, so a link under `$CTL` to a
   # git dir OUTSIDE it (a fixture's `--separate-git-dir` target, say) would
   # never be censused (the re-check after Codex R17). A link that resolves to a
-  # directory is searched through (`find -L`, any depth): a `HEAD` or `.git`
-  # anywhere under it is red, and so is a search that fails (a loop). A link
-  # that does not resolve to a directory passes.
+  # directory is searched through (`find -L`, any depth), WHATEVER ITS NAME — a
+  # link named `HEAD` to a directory included (the re-check after Codex R19): a
+  # `HEAD` or `.git` anywhere under it is red, and so is a search that exits
+  # non-zero. GNU find exits 1 on a link loop (red); BSD find walks it silently
+  # (rc 0) — either way nothing under the loop is hidden. There is no time
+  # bound: a link to a huge tree makes the window run until the job's timeout
+  # ends it, red. A link to an in-root repo already censused is red too (fail-
+  # safe; no fixture makes one). A link that does not resolve to a directory is
+  # classified by its name below (`.git`, `HEAD`) or passes.
   find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"
   if [ -e "$_FW_DIR/pgpop.failed" ] || [ -s "$_FW_DIR/pgpop.err" ]; then
@@ -276,7 +282,7 @@ EOF_PB
   while IFS= read -r -d '' _pge; do
     if [ -L "$_pge" ]; then
       case "${_pge##*/}" in
-        [Hh][Ee][Aa][Dd]|.[Gg][Ii][Tt]) ;;            # classified below, as HEAD / .git entries
+        .[Gg][Ii][Tt]) ;;                             # classified below: any link named .git is red
         *) if [ -d "$_pge" ]; then
              # Through a FILE, not `| head -1`: under pipefail an early-closing
              # reader SIGPIPEs find, which would read as a failed search.
@@ -284,8 +290,11 @@ EOF_PB
              _pgls="$(head -1 "$_FW_DIR/pgls")" || _pgls=""
              if [ "$_pglsrc" -ne 0 ]; then _pg="$_pg ${_pge#"$CTL"/}:[the search through this symlink failed (exit $_pglsrc): ${_pgls}]"
              elif [ -n "$_pgls" ]; then _pg="$_pg ${_pge#"$CTL"/}:[a symlink to a tree holding a git dir: ${_pgls#"$_pge"/}]"; fi
+             continue
            fi
-           continue ;;
+           # not a directory: a `HEAD` link (to a ref) is classified below;
+           # any other name is not a git dir
+           case "${_pge##*/}" in [Hh][Ee][Aa][Dd]) ;; *) continue ;; esac ;;
       esac
     fi
     case "${_pge##*/}" in

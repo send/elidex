@@ -446,8 +446,12 @@ they are reachable through the PR.
   escaped the top-level `-e HEAD` test; the `find -L` search (which lists a dangling link by its
   name) closes it — record added. The umbrella's status cell now names #527, which stays true after
   the squash, instead of a branch and a future landing step.
+- **focused re-check #7 of `a650b146..8190c684`**: a link NAMED `HEAD` to a directory went to the
+  HEAD arm and was never searched — now any link resolving to a directory is searched; the census
+  comment states GNU/BSD loop behaviour, the absent time bound (the job timeout ends it, red) and the
+  fail-safe red for a link to an in-root repo.
 
-Records: **140** (`_MUT_RECORDS_MIN=140`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 45 records
+Records: **141** (`_MUT_RECORDS_MIN=141`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 46 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +6, P-g multiplicity +1, P-c +5.
+P-g census +7, P-g multiplicity +1, P-c +5.
