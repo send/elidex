@@ -688,7 +688,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | W4 | `_seal_apply`'s `chmod` replaced by `false` | harness |
 | P-i | drop `GIT_DEFAULT_REF_FORMAT=files` from `_FGIT_ENV` | harness |
 | P-f | drop `-i` from the window's `env` | harness |
-| P-f | `env -0` fails **with** output (`{ env -0; false; }`): NOT EXERCISED, red — pins "stdout empty" in the limitation predicate | harness |
+| P-f | `env -0` fails **with** output and a line on stderr (`{ env -0; echo k2 >&2; false; }`): NOT EXERCISED, red — pins "stdout empty" alone (the fix-delta re-check #2 showed the earlier `{ env -0; false; }` also died on the stderr clause, so it pinned nothing of its own) | harness |
 | P-f | `env -0` fails silently (`false`): NOT EXERCISED, red — pins "says why on stderr" in the limitation predicate | harness |
 | P-f | `env -0` exits 0 with nothing on stdout and a line on stderr: NOT EXERCISED, red — pins "fails" | harness |
 | P-f | the `env` P-f runs is `/nonexistent-k2/env` (exit 127): NOT EXERCISED, red — pins "runs a command" | harness |

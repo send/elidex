@@ -353,7 +353,7 @@ harness:s/ "LC_ALL=C")$/)/	the fixture build window reads in the wire's locale
 harness:s/ GIT_DEFAULT_REF_FORMAT=files / /	the fixture repos use the files ref format
 harness:s/chmod "[$]_sm" "[$]CTL\/[$]_sp" 2>\/dev\/null/false/	every mode restriction a fixture sealed was applied
 harness:s/"[$]_FGIT_ENVBIN" -i /"$_FGIT_ENVBIN" /	the fixture build window's environment holds only its allowlist
-harness:s/"[$]_pfenv" -0 > /{ "$_pfenv" -0; false; } > /	the fixture build window's environment holds only its allowlist
+harness:s/"[$]_pfenv" -0 > /{ "$_pfenv" -0; echo k2 >\&2; false; } > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /false > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's environment holds only its allowlist
 harness:s/_pfenv="[$]_FGIT_ENVBIN"/_pfenv=\/nonexistent-k2\/env/	the fixture build window's environment holds only its allowlist

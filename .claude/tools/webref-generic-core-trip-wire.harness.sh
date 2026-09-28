@@ -48,8 +48,9 @@ fi
 # nothing else.
 _FGIT_VOID="$SCRATCH/fgit-void"
 mkdir "$_FGIT_VOID" || exit 2
-_FGIT_ENVBIN="$(command -v env)"
-# Absolute, so the window — which runs in `$_FW_DIR`, not here — runs the `env`
+_FGIT_ENVBIN="$(type -P env)"
+# A FILE (`type -P`: an exported function or alias named `env` is not one), and
+# absolute, so the window — which runs in `$_FW_DIR`, not here — runs the `env`
 # resolved here: from a relative `PATH` entry (`bin`, `../x`) the same spelling
 # names another file, or none, from there (PR #527 fix-delta re-check).
 case "$_FGIT_ENVBIN" in /*) ;; */*) _FGIT_ENVBIN="$PWD/$_FGIT_ENVBIN" ;; esac
@@ -149,7 +150,9 @@ EOF_PB
      && "$_pfenv" "$BASH" -c : > /dev/null 2>&1; then
     printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout) but runs a command\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
   else
-    while IFS= read -r -d '' _rec; do
+    # `|| [ -n "$_rec" ]`: a last record with no NUL after it is still read,
+    # not dropped — a name the check never saw would be green.
+    while IFS= read -r -d '' _rec || [ -n "$_rec" ]; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
       case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
     done < "$_FW_DIR/env0"
