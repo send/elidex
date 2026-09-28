@@ -53,9 +53,15 @@ mkdir "$_FGIT_VOID" || exit 2
 # which means the current directory) would name other files, or none, from there:
 # the fixtures' `git` and P-f's `env` would not be the ones resolved here (PR #527
 # Codex R11 for `git`; the fix-delta re-check had found it for `env`). Each entry
-# is resolved against this directory once, here; `~` and `~/…` (which bash
-# expands in `PATH`) against this `HOME`, since the window's is the void. The
-# allowlist, `env`'s path and P-e's reference all use the result.
+# is resolved against this directory once, here. `~` and `~/…` go against this
+# `HOME` (the window's is the void): that is what bash's own lookup does with
+# them outside POSIX mode (measured, 5.3 and 3.2). A lookup that keeps them
+# literal — execvp, bash 5.3 in POSIX mode, dash (measured) — would take them as
+# cwd-relative instead, so the window's `git` can differ from such a lookup's.
+# That is not a gate input: which executable runs is outside P (memo §0.1, R1),
+# and the window and P-e's reference both read this one resolved PATH, so they
+# agree (PR #527 Codex R12). The allowlist, `env`'s path and P-e's reference all
+# use the result.
 _FGIT_PATH=""; _fp_rest="$PATH:"
 while [ -n "$_fp_rest" ]; do
   _fp_e="${_fp_rest%%:*}"; _fp_rest="${_fp_rest#*:}"
@@ -108,8 +114,12 @@ _fgit_postconditions() {
   _pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b" || return 1
   ( cd "$_pq/a" && git init -q . ) >/dev/null 2>&1 || true
   ( cd "$_pq/b" && git init -q --template="$_FGIT_VOID" . ) >/dev/null 2>&1 || true
-  _pa_live="$(cd "$_pq/a" && git -c a.b=c config --list --show-scope --show-origin 2>/dev/null | awk -F'\t' '$1=="command"{print "command"; exit}')" || _pa_live=""
-  _pa_bad="$(cd "$_pq/a" && git config --list --show-scope --show-origin 2>&1 | awk -F'\t' '!($1=="local" && $2=="file:.git/config")')" || _pa_bad="(config --list failed)"
+  # `--show-origin` only (git 2.8), not `--show-scope` (git 2.26; PR #527 Codex
+  # R12): the origin column already says what P-a asks — `command line:` for
+  # the live `-c`, `file:.git/config` for the repo's own file, and any other
+  # file for a layer outside it — so no version floor, and no limitation arm.
+  _pa_live="$(cd "$_pq/a" && git -c a.b=c config --list --show-origin 2>/dev/null | awk -F'\t' '$1=="command line:"{print "command"; exit}')" || _pa_live=""
+  _pa_bad="$(cd "$_pq/a" && git config --list --show-origin 2>&1 | awk -F'\t' '$1!="file:.git/config"')" || _pa_bad="(config --list failed)"
   if [ "$_pa_live" != command ]; then echo "!! CONTROL NOT EXERCISED ($_pal_lbl)" >&2; _fpv=1
   elif [ -n "$_pa_bad" ]; then echo "!! CONTROL FAILED ($_pa_lbl): $(printf '%s' "$_pa_bad" | tr '\n' ' ')" >&2; _fpv=1; fi
   # P-b asks `git var` INSIDE P-a's probe repo, so what it reads is that repo's
@@ -196,7 +206,7 @@ EOF_PB
   # — derived from git itself, per run, so no key list: anything a fixture
   # persisted beyond it is red.
   _pgref="$_FW_DIR/pgref.lines"
-  git -C "$_pq/a" config --list --show-scope --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
+  git -C "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
   _pg=""
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
   # Population by property: EVERY git dir the fixtures produced, anywhere under
@@ -229,7 +239,7 @@ EOF_PB
     if [ -L "$_pge" ] || [ ! -d "$_pge" ]; then _pg="$_pg $_pgl:[.git is not a directory]"; continue; fi
     # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
     # NOTHING and exits 0, so an empty listing is red, not "no extra key".
-    _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-scope --show-origin 2>&1)" || _pgrc=$?
+    _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-origin 2>&1)" || _pgrc=$?
     if [ "$_pgrc" -ne 0 ] || [ -z "$_pgc" ]; then
       _pg="$_pg $_pgl:[git lists no configuration here (exit $_pgrc)]"; continue
     fi
