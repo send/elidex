@@ -49,6 +49,10 @@ fi
 _FGIT_VOID="$SCRATCH/fgit-void"
 mkdir "$_FGIT_VOID" || exit 2
 _FGIT_ENVBIN="$(command -v env)"
+# Absolute, so the window — which runs in `$_FW_DIR`, not here — runs the `env`
+# resolved here: from a relative `PATH` entry (`bin`, `../x`) the same spelling
+# names another file, or none, from there (PR #527 fix-delta re-check).
+case "$_FGIT_ENVBIN" in /*) ;; */*) _FGIT_ENVBIN="$PWD/$_FGIT_ENVBIN" ;; esac
 _FGIT_BASH="$BASH"
 # `GIT_DEFAULT_REF_FORMAT=files`: a git whose COMPILED-IN default is reftable
 # (git 3.0's planned default, or a breaking-changes build) would otherwise make
@@ -130,17 +134,20 @@ EOF_PB
   # P-f: every record of `env -0`, through a FILE so its status is checked; a
   # failed `env -0`, or an empty population, is NOT EXERCISED and red. ONE
   # outcome is a MACHINE LIMITATION instead (`⚠ NOT EXERCISED on this machine`,
-  # green — as for the FIFO and file-permission controls and P-b): the POSITIVE
-  # sign of an `env` that does not know `-0` — it fails, writes nothing to
-  # stdout, and says why on stderr. Every other outcome stays red, so an unknown
-  # one falls on the fail-safe side (PR #527: the R6 probe sent "anything but
-  # one exact record" to green, which let an `env` wrapper that exports a name
-  # through, and shared the `-i` record's anchor, so that record survived).
+  # green — as for the FIFO and file-permission controls and P-b), and its test
+  # is the definition itself: THIS `env` runs, but refuses `-0` — `-0` fails,
+  # writes nothing to stdout and says why on stderr, while the same `env` runs a
+  # command. Every other outcome stays red, so an unknown one falls on the
+  # fail-safe side. Both calls go through `$_pfenv`, so one record can make the
+  # `env` unrunnable for both. (PR #527: the R6 probe sent "anything but one
+  # exact record" to green and shared the `-i` record's anchor; the next form
+  # read an `env` that could not be run at all — exit 127 — as "no -0".)
   # No line-based fallback: a value is never split on newlines (Codex R6).
-  _pf=""; _pfn=0; _pfrc=0
-  "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2> "$_FW_DIR/env0.err" || _pfrc=$?
-  if [ "$_pfrc" -ne 0 ] && [ ! -s "$_FW_DIR/env0" ] && [ -s "$_FW_DIR/env0.err" ]; then
-    printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout)\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
+  _pf=""; _pfn=0; _pfrc=0; _pfenv="$_FGIT_ENVBIN"
+  "$_pfenv" -0 > "$_FW_DIR/env0" 2> "$_FW_DIR/env0.err" || _pfrc=$?
+  if [ "$_pfrc" -ne 0 ] && [ ! -s "$_FW_DIR/env0" ] && [ -s "$_FW_DIR/env0.err" ] \
+     && "$_pfenv" "$BASH" -c : > /dev/null 2>&1; then
+    printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout) but runs a command\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
   else
     while IFS= read -r -d '' _rec; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
