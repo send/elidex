@@ -454,6 +454,11 @@ they are reachable through the PR.
   shells: no shape lets git read a git dir through a link while P-g is green): three statements
   narrowed to what was measured — a `HEAD` link to a directory is red by its own name; GNU find's
   loop exit is unmeasured; only CI has a job timeout. Clerical, so the re-check chain ends here.
+- **Codex R23** (on `cb8b0e09`): dropping every non-absolute `PATH` entry (R13) also dropped what a
+  `git` wrapper found through `tools/bin` needs — its `#!/usr/bin/env` interpreter beside it — so every
+  fixture `git` failed. R11–R13's real trouble was the `~` forms, whose meaning depends on the shell's
+  mode; relative and empty entries have one meaning given the directory. Those are now resolved
+  against the wire's directory; only `~` entries are dropped.
 
 Records: **141** (`_MUT_RECORDS_MIN=141`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 46 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1

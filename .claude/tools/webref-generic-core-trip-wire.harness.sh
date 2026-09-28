@@ -62,8 +62,8 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # absolute (`bin`, `../x`, `.`, an empty one, `~`, `~login/…`) names other
 # files, or none, from there — and what bash makes of the tilde forms depends
 # on its version and mode (measured, `~` and `~login` alike: bash 5.3 and 3.2
-# expand them, and so does 3.2 --posix; 5.3 --posix and dash do not). So the window does NOT re-interpret `PATH` (PR #527 Codex
-# R11–R13: an emulation of the lookup grew one case per round). Instead:
+# expand them, and so does 3.2 --posix; 5.3 --posix and dash do not). So the window does NOT emulate the lookup (PR #527 Codex
+# R11–R13: an emulation grew one case per round). Instead:
 # - `git` is resolved HERE, by this shell's own lookup, and pinned in
 #   `$_FGIT_BIN` as an `exec <absolute path>` wrapper, so the window, its
 #   fixtures, P-e's reference and the wire itself (`$_REAL_GIT`, which the
@@ -73,11 +73,17 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 #   else;
 # - `env` is resolved the same way and used by its absolute path (window
 #   launch, P-e's reference, P-f);
-# - the window's `PATH` is `$_FGIT_BIN` followed by the caller's ABSOLUTE
-#   entries only, so the fixtures' OTHER commands (`mkdir`, `ln`, `chmod` …)
-#   come from those entries alone — which of them runs is outside P (memo §1,
-#   "Outside P"). A tool the fixtures need that only a dropped entry provides
-#   makes the window fail, which is red. P-j checks this shape from inside.
+# - the window's `PATH` is `$_FGIT_BIN` followed by the caller's entries,
+#   each made ABSOLUTE where its meaning does not depend on the shell: an
+#   absolute entry as is; a relative or empty one (empty means the current
+#   directory) resolved against THIS directory, once — so a `git` wrapper
+#   found through `tools/bin` still finds its interpreter or helpers there
+#   (PR #527 Codex R23: dropping such entries made every fixture `git` fail).
+#   An entry starting with `~` is DROPPED: whether it is expanded depends on
+#   the shell and its mode (above), so no single reading is right; a tool only
+#   it provides makes the window fail, red. Which of the fixtures' other
+#   commands runs is outside P (memo §1, "Outside P"). P-j checks the shape
+#   (`$_FGIT_BIN` first, every entry absolute) from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
   _fr="$(type -P "$1")" || _fr=""
   case "$_fr" in /*|"") ;; *) _fr="$PWD/$_fr" ;; esac
@@ -95,7 +101,12 @@ fi
 _FGIT_PATH="$_FGIT_BIN"; _fp_rest="$PATH:"
 while [ -n "$_fp_rest" ]; do
   _fp_e="${_fp_rest%%:*}"; _fp_rest="${_fp_rest#*:}"
-  case "$_fp_e" in /*) _FGIT_PATH="$_FGIT_PATH:$_fp_e" ;; esac
+  case "$_fp_e" in
+    /*) _FGIT_PATH="$_FGIT_PATH:$_fp_e" ;;
+    "~"*) ;;
+    "") _FGIT_PATH="$_FGIT_PATH:$PWD" ;;
+    *) _FGIT_PATH="$_FGIT_PATH:$PWD/$_fp_e" ;;
+  esac
 done
 _FGIT_ENVBIN="$(_fgit_resolve env)"
 _FGIT_BASH="$BASH"

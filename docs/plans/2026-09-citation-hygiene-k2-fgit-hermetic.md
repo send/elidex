@@ -211,7 +211,7 @@ $HOME/.config/ is used".
 # harness — snapshots taken when the harness is sourced (the shape at head; the harness is the source)
 _FGIT_VOID="$SCRATCH/fgit-void"             # mkdir, checked
 _FGIT_BIN="$SCRATCH/fgit-bin"                # holds `git`: exec <this shell's `type -P git`, absolute>
-_FGIT_PATH="$_FGIT_BIN:<the caller's ABSOLUTE PATH entries only>"
+_FGIT_PATH="$_FGIT_BIN:<caller entries: absolute kept, relative/empty made absolute here, ~… dropped>"
 _FGIT_ENVBIN=<this shell's `type -P env`, absolute>; _FGIT_BASH="$BASH"
 _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 \
            "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
@@ -345,7 +345,7 @@ outside the window. The postconditions, the only other caller, now run inside it
 
 | entry | without it |
 |---|---|
-| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). It is `$_FGIT_BIN` — a wrapper that execs the `git` **this shell's own lookup** resolves (`_fgit_resolve`, the one resolver for every command that crosses the window boundary by path, `$_REAL_GIT` and `$_REAL_GREP` included) — followed by the caller's **absolute** entries only; the window never re-interprets `PATH`. Which `git` runs stays `PATH`'s (§0.1, R1); the fixtures' other commands come from the absolute entries alone (§1, "Outside P"). P-j pins the shape. History: `…-reviews.md` §13, PR #527 |
+| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). It is `$_FGIT_BIN` — a wrapper that execs the `git` **this shell's own lookup** resolves (`_fgit_resolve`, the one resolver for every command that crosses the window boundary by path, `$_REAL_GIT` and `$_REAL_GREP` included) — followed by the caller's entries made absolute where their meaning does not depend on the shell — an absolute entry as is, a relative or empty one resolved against the wire's directory (so a `git` wrapper's PATH-found interpreter still resolves; PR #527 Codex R23), an entry starting with `~` dropped (its expansion depends on the shell's mode). The lookup itself is never emulated. Which `git` runs stays `PATH`'s (§0.1, R1); the fixtures' other commands come from those entries (§1, "Outside P"). P-j pins the shape. History: `…-reviews.md` §13, PR #527 |
 | `HOME=$VOID` | an unset `HOME` also closes this on 2.55. The void is chosen because a future HOME-relative default then lands where P-c looks |
 | `GIT_CONFIG_NOSYSTEM=1` | the system layer is live here (`/opt/homebrew/etc/gitconfig`) |
 | `GIT_ATTR_NOSYSTEM=1` | undocumented at 2.55: 0 hits in all 207 man pages of 2.55.0 (command below; positive control: `CONFIG_NOSYSTEM` hits 2 pages). So it is pinned by `git var` (P-b) |
@@ -735,7 +735,10 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 - **What is not a record:**
   - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662` at `e8f78896`);
   - the exit number, which is unpinnable (§3);
-  - the two INFO cells, which are informative.
+  - the two INFO cells, which are informative;
+  - resolving relative `PATH` entries: it changes something only for a caller whose `PATH` has one, and a
+    record's run uses the caller's `PATH`. Measured by hand (Codex R23's shape, both shells): a `tools/bin`
+    `git` wrapper with a `#!/usr/bin/env` interpreter beside it — red on `cb8b0e09`, PASSED after.
 - **Records on a machine that cannot evaluate their postcondition** (a `machine_limits` line: P-b on git
   before 2.42, P-f on an `env` without `-0`): the mutation run still runs them — a record pinning the
   limitation test's own narrowness dies there — and a **survival** of one is reported as not exercisable
