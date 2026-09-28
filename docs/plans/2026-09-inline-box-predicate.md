@@ -8,7 +8,15 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 61** (2026-09-29) — folds the TERMINAL decision re-gate of revs 51–60 (after Codex R37/R38 dry on
+**Revision 62** (2026-09-29) — folds the TERMINAL decision re-gate over rev 61 (after Codex R39/R40 dry on
+`321a49a5`; IMP 2 / MIN 2). §0.6 item 16 records that E27 puts `#11-document-url-real-navigation`, a slot outside
+both programs, before IBP-classify and so before PR-1a (the item 6 idiom; owner the Layout lane by default, item 11's
+precedent; umbrella row A157), and that a "home = B1" answer makes PR-1a and the umbrella PRs after it wait for B1.
+The Document's CSP list is one fact, F19, a document-root component whose creation write IBP-sandbox builds; `#11-csp-base-uri` reads it, owns its `<meta>` pragma writer, and B1 req 2's policy
+container inherits it (item 4). Only a document component for the **document URL** supersedes the 2026-06-11 ruling
+(the about base URL is represented nowhere today). Item 15 cites S5-4 `:983-987` and the D1 audit's premise `:1018-1022`.
+
+Revision 61 (2026-09-29) — folds the TERMINAL decision re-gate of revs 51–60 (after Codex R37/R38 dry on
 `db0a579a`; CRIT 1 / IMP 3 / MIN 2) through two forks. **Fork 1 = (A)** (user-approved in advance, conditional on an
 independent reviewer's (Fable's) agreement, which it gave): revs 56–60's `DocumentUrl` is withdrawn — it contradicted
 the user's 2026-06-11 ruling (`current_url` per-VM until B1) and §0.5's d5 discriminator, and left the document URL
@@ -16,8 +24,8 @@ with two representations. The memo keeps only the decision that F6's step 13 and
 prerequisite (E27), supplies the document URL and the about base URL and wires the fallback base URL built from them
 (HTML §2.4.3) into `DocumentBaseUrl`'s maintenance, whose `<base>` side stays HEAD's D-31 mechanism. The slot's
 plan-review answers the two URLs' home,
-and either answer is the user's to ratify (a document component supersedes the 2026-06-11 ruling; B1 stalls
-IBP-classify). **Fork 2 =
+and either answer is the user's to ratify (a document component for the document URL supersedes the 2026-06-11
+ruling; B1 stalls IBP-classify, and through it PR-1a — §0.6 item 16). **Fork 2 =
 (B)** (USER DECIDED 2026-09-29, after Fable's verdict for it): F18 and CSP `sandbox` stay in IBP-sandbox — §0.6 item
 15 amends S5-4 §1.3 / §8-D1 and gives F18 one home. Also: §4's IBP-classify and IBP-sandbox rows; F4/F7's Home
 (`HtmlElementHandler`); §0.5's popup cite (`navigation.rs:147-163` is the service-worker wait loop; the URL-only
@@ -712,7 +720,7 @@ Each item is plan-review input for the surface it changes; its record ships with
 4. **B1 §5 req 2 and req 5** — user-approved (decision (iv), §0.5): the Window document's flag set is stamped at
    creation ahead of B1, at req 2's own write point, with the scripting-deciding sources (§0.5) — incl. the
    embedder→embeddee union that B1 req 2 names as its own pre-existing gap (`:424-426`), now built by IBP-sandbox
-   before B1 (B1 then inherits it) — and F18; req 5's cluster fold loses `sandbox_flags`. B1 also gains: re-keying F10's relevant-global resolution away from the World-wide
+   before B1 (B1 then inherits it) — and F18; the Document's CSP list (F19) likewise precedes B1, and req 2's policy-container creation parameter (§7.1.7) inherits it; req 5's cluster fold loses `sandbox_flags`. B1 also gains: re-keying F10's relevant-global resolution away from the World-wide
    `document_root` (§1 F10), with the named risk that a non-Node platform object such as `OffscreenCanvas` carries no
    node document to key on.
 5. **Umbrella ordering** — the umbrella orders "the predicate prereq" as one PR before PR-1a
@@ -964,19 +972,28 @@ Each item is plan-review input for the surface it changes; its record ships with
    §1.3's popup sandboxing-flag-set propagation, "S5-8/B1-bound (carve §8-D1)", `:145-148`, and its §2.4 restatement,
    "(flag-set propagation to the popup — S5-8, §1.3)", `:241-243`; §1.3's CSP `sandbox` directive, "compat surface, out of
    the S5-4 gated subset … no slot — demand-gated with the CSP program", `:165-167`, restated at `:1097-1098`; the §8-D1
-   fold, `:983-986`) — amended, not edited (A114 idiom). IBP-sandbox builds both as sources of F9's creation input: the
+   fold, `:983-987`, and its audit's premise that the facet "requires an auxiliary-browsing-context OBJECT that does not exist
+   pre-S5-8/B1", `:1018-1022`) — amended, not edited (A114 idiom). IBP-sandbox builds both as sources of F9's creation input: the
    popup sandboxing flag set (F18 — written at substep 9 of the rules for choosing a navigable's "create a new top-level
    traversable" option in step 8, for the traversables those rules create, noopener or auxiliary) and the CSP `sandbox` directive, with the sandboxed origin their final set
    implies. *Grounds*: §0.5 — both are F9's **definition** (every source that decides scripting), not a repair placed by
    item 7. **S5-4's compat label for CSP `sandbox` is withdrawn**: it is a document directive
    of CSP Level 3 (CSP3 §6.3.2, `webref dfn CSP3 sandbox`), a modern standard, not a legacy or quirks surface, so
-   CLAUDE.md's core/compat discipline places it in core. S5-4's reasons (no auxiliary-browsing-context object; no
+   CLAUDE.md's core/compat discipline places it in core; its owner moves from "the CSP program" (S5-4's "demand-gated with the
+   CSP program") to IBP-sandbox, with the Document's CSP list it reads (F19). S5-4's reasons (no auxiliary-browsing-context object; no
    CSP-policy plumbing) become IBP-sandbox's gate axes (§4: popup IPC; CSP-policy plumbing). S5-4 §1.3's other popup
    facets — *one permitted sandboxed navigator* and the rest of D1 — stay as ratified. **F18's one home**: built by
    IBP-sandbox on the browser-side navigable record (I5's exception); final home
    `#11-browsing-context-state-ecs-components`, which B1 §5 req 5 folds with the grain rule "per-navigable fact →
    navigable". The D1 fold into `#11-browsing-context-model-window-open-postmessage` is **superseded for F18** (the
    propagate-flag facet), re-pointed at the approval PR's landing, and keeps D1's other facets (§6).
+16. **Umbrella ordering — an out-of-program prerequisite** (the item 6 idiom): E27 orders
+   `#11-document-url-real-navigation` — a slot outside both programs (the M4-12 roadmap's "navigation infra (M4-13)") —
+   before IBP-classify, and so, through E4 → E5 → E10, before PR-1a: a change to the ratified PR-1a ordering (A152).
+   **Owner**: this Layout lane by default (item 11's precedent; the user may assign another), with no deadline beyond
+   the edge. **For the user's ratification of the slot's home** (§6): a "home = B1" answer makes IBP-classify — and
+   through it PR-1a and the umbrella PRs after it — wait for B1. Its record ships with the approval PR (umbrella ledger
+   row A157, §6).
 
 **Surfaced to the user** (information, recorded): d5 departed from a user-confirmed judgment; the grounds are
 §0.5; the user re-approved in form (iv).
@@ -1006,13 +1023,14 @@ One representation per spec fact; one composition per spec predicate; each repre
 | F16 | a media element **exposes a user interface** (§4.8.11.13) | elidex **policy**: exposes iff `controls` is present or scripting is disabled for the element (F10) — the spec's *should*; the *may* (controls without the attribute) is not taken | `elidex-ecs` (query) | — | IBP-classify |
 | F17 | the `scripting` media feature's value (mediaqueries-5 §9.1) | a `MediaEnvironment` field: `enabled` / `none` from F10's settings clause for the document whose styles are resolved; `initial-only` is not produced (a declared-subset choice) | `elidex-css` (`MediaEnvironment`, `media/types.rs:289`) | closed: the two `MediaEnvironment` producers — the cascade's (`elidex-style/src/lib.rs:366`) and `matchMedia`'s (`elidex-js/src/vm/host/media_query.rs:357`, marshalling only) — both reading F10 | IBP-css-machinery |
 | F18 | a top-level browsing context's **popup sandboxing flag set** (§7.1.5) | `PopupSandboxingFlagSet` (NEW), browsing-context state on the top-level navigable's browser-side record — never a document component, since each navigation builds a fresh `EcsDom` (§0.5 ground 2); final home `#11-browsing-context-state-ecs-components` (its one home, §0.6 item 15) | the shell's navigable state | one write, when the rules for choosing a navigable create a new top-level traversable — step 8's "create a new top-level traversable" option: noopener (substep 7) or auxiliary (substep 8), both reaching substep 9 — (the creating document's active set if its *propagates to auxiliary browsing contexts* flag is set, else empty; a `target=_blank` link absent `rel=opener` is implicitly noopener, HTML *get an element's noopener*, `content/link_nav.rs:51`); read into every creation input of that navigable's documents (§7.1.5 *determine the creation sandboxing flags*, embedder null) | IBP-sandbox |
+| F19 | a Document's **CSP list** (its policy container's, HTML §7.1.7) | **one** representation per Document, a **document-root component** (F9's and `DocumentBaseUrl`'s kind) — the source F9's CSP `sandbox` reads (CSP3 §6.3.2) and every later CSP consumer's (`#11-csp-base-uri`). d5: a document component written after creation has its precedent in `DocumentBaseUrl`, and CSP is not in the 2026-06-11 ruling's cluster | `elidex-ecs` (the document root) | IBP-sandbox: the creation write only (the policy container of *create and initialize a Document object*, §7.5.1); the `<meta http-equiv=content-security-policy>` pragma writer (HTML §4.2.5.3) is outside the program — its step 4 removes `sandbox`, so no program consumer reads what it writes, and by §0.5's rule (a source no program consumer reads goes to a slot) it is `#11-csp-base-uri`'s | IBP-sandbox |
 
 **Home grounds.** Every consumer (layout-block, layout, render, dom-api, api-observers, style) depends on
 `elidex-ecs`. `elidex-dom-api` cannot host these facts: `elidex-style` is a consumer (the pseudo prereq) and
 `elidex-dom-api` depends on `elidex-style` (`sed -n '/^\[dependencies\]/,/^\[/p' crates/dom/elidex-dom-api/Cargo.toml`
 lists `elidex-style.workspace = true`), so the edge would be a cycle. `elidex-ecs` already hosts small HTML
 predicates (`is_base_element`, `dom/mod.rs:235`). Identity is a live query (a marker would be a second copy of
-`TagType`/`Attributes`); F6 and F9 are components because no other component holds those facts. The document URL and about base URL have no row: they are the prerequisite slot `#11-document-url-real-navigation`'s (E27; §1 F6). The
+`TagType`/`Attributes`); F6, F9 and F19 are components because no other component holds those facts. The document URL and about base URL have no row: they are the prerequisite slot `#11-document-url-real-navigation`'s (E27; §1 F6). The
 `HtmlElementHandler` seam (`elidex-plugin/src/traits.rs:214`, built-ins in `elidex-plugin/src/handlers/html.rs`) has no production caller today; CLAUDE.md's *Plugin-first* rule and "dead code は接続するか削除" make it the home of the **element-identity** classifications — F4's identity part (which elements are replaced by kind), F7's widget and devolvability class and `uses_button_layout` — static-dispatched for built-ins, dynamic for extensions; the `EcsDom` queries (F4, F7) stay the reachable composition over that seam and the state components (F5, F6, F8, F10, F16). IBP-classify connects it.
 The F7 mapping move edits `elidex-form-core/src/lib.rs:232-279`, hunk-disjoint from the live L3 branch's
 `:173-180` and `:420-432` hunks (§4.1).
@@ -1119,7 +1137,7 @@ Cross-sub-PR pairs:
 | CSS UI 4 §7.2.1 Properties Disabling Native Appearance | devolution: author-origin cascaded value after revert/revert-layer rollback, 44 properties, devolvable vs non-devolvable (host language) | F8 (F7 for devolvability; F4's read of it conditional on the probe); the devolved rendering (primitive appearance): IBP-layout's widget-rendering condition — a CSS box and its control content without native chrome — measured for button layout, where HTML leaves it undefined (§15.5.3's note "Need to define the primitive appearance"); host-language exceptions (e.g. `select`'s drop-down devolved state, §15.5.16) per F7 | IBP-classify (F8); IBP-layout (the rendering) | ✓ | yes |
 | SVG2 §5.1.3 Definitions | *outermost svg element* | F4 (replaced: elidex's reading, probed) | IBP-classify | ✓ | yes |
 | WHATWG HTML §4.8.11.13 User interface | "should expose a user interface" | F16 (elidex policy) | IBP-classify ; omitted branch: the interface itself — no media-control renderer exists (`elidex-render/src/builder/walk.rs:368-426` paints only `ImageData`, `IframeDisplayList`, `FormControlState`), so an exposing `audio` is a sized blank replaced box; HEAD renders no controls either (A96) → `#11-media-controls-ui` (§6) | ✗ | yes |
-| WHATWG HTML §7.1.5 Sandboxing | active sandboxing flag set, per Document; popup sandboxing flag set, per top-level browsing context; creation sandboxing flags; the popup set's write (§7.3.1.7's rules for choosing a navigable, step 8's new-top-level-traversable option, substep 9 — noopener or auxiliary); CSP3 §6.3.2 `sandbox` | F9, F18 — read by every flag consumer, origin derivation included (sources that decide scripting: the iframe's `sandbox`, the embedder union, the popup set, CSP `sandbox`) | IBP-sandbox ; omitted branch: flags no program consumer reads — `#11-sandbox-flag-set-sources` (A96, §0.5) | ✗ | yes |
+| WHATWG HTML §7.1.5 Sandboxing | active sandboxing flag set, per Document; popup sandboxing flag set, per top-level browsing context; creation sandboxing flags; the popup set's write (§7.3.1.7's rules for choosing a navigable, step 8's new-top-level-traversable option, substep 9 — noopener or auxiliary); CSP3 §6.3.2 `sandbox`, read from the Document's CSP list (§7.1.7) | F9, F18, F19 — read by every flag consumer, origin derivation included (sources that decide scripting: the iframe's `sandbox`, the embedder union, the popup set, CSP `sandbox`) | IBP-sandbox ; omitted branch: flags no program consumer reads — `#11-sandbox-flag-set-sources` (A96, §0.5) | ✗ | yes |
 | WHATWG HTML §7.5.1 Shared document creation infrastructure | *create and initialize a Document object* | F9 write point | IBP-sandbox | ✓ | no |
 | WHATWG HTML §7.3.2.1 Creating browsing contexts | initial `about:blank` document | F9 write point | IBP-sandbox | ✓ | no |
 | WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings clause (Window only); node and Window clauses | F10, F10r | IBP-sandbox | ✓ | yes |
@@ -1177,7 +1195,7 @@ non-transformable boxes (its `table-column` arm's consequence is its own cell, �
 |---|---|---|---|
 | **IBP-split-ecs** | split `elidex-ecs/src/dom/mod.rs` (1075 lines) on its classification-query seam | 1000-line rule | terminal — pure move, no behaviour |
 | **IBP-split-parser** | split `elidex-html-parser/src/lib.rs` (1017 lines) on its in-file test seam (`#[cfg(test)]` modules at `:260`, `:291`) | 1000-line rule | terminal — pure move |
-| **IBP-sandbox** | F9 (its creation input from every scripting-deciding source — the embedder union, F18, CSP `sandbox` — and origin derivation from it, §0.5), F10, F10r, F11, F18 | d5 (iv); parser scripting mode; S5-4 §1.3's popup-propagation and CSP-`sandbox` non-goals, amended (§0.6 item 15) | **own plan-memo + review** (security gates × document creation × parser × VM/shell × browser-side navigable state and popup IPC (F18) × CSP-policy plumbing for CSP `sandbox` — parse / retain / hand to document creation) |
+| **IBP-sandbox** | F9 (its creation input from every scripting-deciding source — the embedder union, F18, CSP `sandbox` — and origin derivation from it, §0.5), F10, F10r, F11, F18, F19 | d5 (iv); parser scripting mode; S5-4 §1.3's popup-propagation and CSP-`sandbox` non-goals, amended (§0.6 item 15) | **own plan-memo + review** (security gates × document creation × parser × VM/shell × browser-side navigable state and popup IPC (F18) × CSP-policy plumbing for CSP `sandbox` — parse / retain / hand to document creation) |
 | **IBP-classify** | F4, F7 (classification by kind of HTML elements through the `HtmlElementHandler` plugin seam, which it connects; the `EcsDom` queries compose it); F6 (the marker and its whole writer set: the loader's outcome — a failure sets, a success clears — and the `src`-mutation transitions, reached from HTML §4.8.4.3.2's relevant mutations verbatim; `image_request_state`); F8, F16 + probe | reqs 3, 4, 5 (as amended), 6 | **own plan-memo + review** (identity × plugin seam × image request × relevant mutations × sandbox input × devolution × probe); prerequisite `#11-document-url-real-navigation` (E27) |
 | **IBP-layout** | F14; every presence-keyed site (I1's property — layout, paint and any other crate, switched together, each onto the predicate matching its purpose); F5 removal at steps 11/13 (§4.8.4.3.5); every consequence of its presence switch, derived, placed and repaired or registered (§0.6 item 7's one-owner rule) | req 5's routing note; req 2 for replacedness | **own plan-memo + review** (sizing × fragmentation × multicol × natural-size contract × image-data algorithm, with a probe) |
 | **IBP-predicate** | F1, F2, F3; `client*` | reqs 1, 2, 7; 3/4 composed side | **own plan-memo + review** (display × content model/pseudo domain × CSSOM `client*`) |
@@ -1449,10 +1467,10 @@ Each prereq's touch set is its own plan's; these are the files this program edit
 ## §6. Slots and ledger (program level)
 
 **Landing vehicle of this memo**: a docs-only approval PR carrying **this file and the umbrella's ledger rows for
-it** (the A114 idiom; the #515 precedent) — items 5–6, item 7's rule, item 11, item 12 and item 13, the table's
-approval-PR rows, drafted in this worktree as the umbrella's ledger rows **A152–A156** (appended after A151; they cite the umbrella by
-section and ledger id, not by line). This memo's umbrella line numbers are at `e2d62b9e`; the five inserted rows move
-every later umbrella line by +5. Its landing makes §0.6 item 5 (the ordering, with its two relaxations), item 6's existence, item 7's rule and
+it** (the A114 idiom; the #515 precedent) — items 5–6, item 7's rule, item 11, item 12, item 13 and item 16, the table's
+approval-PR rows, drafted in this worktree as the umbrella's ledger rows **A152–A157** (appended after A151; they cite the umbrella by
+section and ledger id, not by line). This memo's umbrella line numbers are at `e2d62b9e`; the six inserted rows move
+every later umbrella line by +6. Its landing makes §0.6 item 5 (the ordering, with its two relaxations), item 6's existence, item 7's rule and
 item 12's reading true. Memory lives outside the repo, so the memory re-points below happen **at the approval
 PR's landing**, not in it. Every other record ships with the sub-PR whose landing makes it true.
 
@@ -1463,6 +1481,7 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | Umbrella record: §0.6 item 11 — the `content-visibility` skip-contents program, not ordered ahead of any PR (item 12), with the pinned cells PR-1b, PR-1c and PR-1d carry (§0.6 item 11) | the approval PR (umbrella ledger row) |
 | Umbrella record: §0.6 item 13 — PR-1b 0 → 1, PR-1c 1 → 2, PR-1d 1 → 2 own deferrals, conditional on each pin firing at that PR's actual base | the approval PR (umbrella ledger row) |
 | Umbrella ledger amendment: §0.6 item 12 — A102's separator read as the size of the repair (a whole program with its own umbrella and slot), A102 standing | the approval PR (umbrella ledger row) |
+| Umbrella record: §0.6 item 16 — `#11-document-url-real-navigation` precedes IBP-classify (E27) and so PR-1a; owner the Layout lane by default; a "home = B1" answer makes PR-1a and the umbrella PRs after it wait for B1 | the approval PR (umbrella ledger row A157) |
 | Umbrella record: §0.6 items 1, 3 (req 5, req 3) | IBP-classify |
 | Umbrella record: §0.6 item 2 (req 2) | IBP-predicate |
 | Umbrella record: §0.6 item 14 (req 8) | IBP-transform |
@@ -1480,7 +1499,8 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | Register `#11-img-responsive-source-selection` (NEW). *Gap*: HTML's image source selection over `srcset` / `picture` `source` candidates (§4.8.4.3); elidex's selected source is `src` alone — in the loader (`elidex-navigation/src/resource.rs:197-220`), F6's writer and F4 alike — so a candidate-bearing `img` is classified, fetched and marked broken as its `src` alone says. *Why deferred*: A96 — HEAD ignores candidates the same way (its loader queues `src` only), so each cell (`<img alt=x srcset=ok.png>`, `srcset=""`, `src=404.png srcset=ok.png`) answers alike at HEAD and after the program; selection needs viewport and density inputs the loader does not carry. *Trigger*: responsive-image loading (`srcset` / `picture`) in the loader. *Re-eval*: 2026-11-01 | IBP-classify |
 | Register `#11-sandbox-flag-set-sources` (NEW). *Gap*: the §7.1.5 flags `IframeSandboxFlags` cannot hold that no program consumer reads (the flag-set sources that decide scripting, and origin derivation from the final set, are IBP-sandbox's, §0.5). *Why deferred*: A96 — HEAD represents none of them and no program PR reads them. *Trigger*: a flag-gated feature needing one, or the sandbox-enforcement lane's next PR. *Re-eval*: 2026-11-01 | IBP-sandbox |
 | Register `#11-media-controls-ui` (NEW). *Gap*: the media element user interface HTML §4.8.11.13 says an exposing `audio`/`video` should present; elidex has no media-control producer or paint path, so F16's exposing `audio` (replaced after `IBP-layout`) paints a blank box. *Why deferred*: A96 — HEAD renders no controls either, and the program changes only whether the element is a replaced box. *Trigger*: media playback or a media-controls paint path. *Re-eval*: 2026-11-01 | IBP-classify |
-| `#11-document-url-real-navigation` (existing, pre-existing class; its open-slot SoT entry registered 2026-09-29) becomes a **prerequisite of IBP-classify** (E27): it supplies the document URL and the about base URL (written only at creation, so d5-eligible, but kept with the document URL: the two are the inputs of one algorithm) and wires the fallback base URL built from them by HTML §2.4.3 into `DocumentBaseUrl`'s maintenance, which F6's step 13 and the loader read (§1 F6); `DocumentBaseUrl`'s `<base>` side stays HEAD's D-31 mechanism. Its own plan-review answers the two URLs' home, and **either answer is the user's to ratify**: a document component supersedes the user's 2026-06-11 ruling (`current_url` per-VM until B1); B1 makes IBP-classify wait for B1. This memo decides neither. Revs 56–60's analysis (writer set, same-document URL update sites, a same-task cell) is input to that plan, not a decision here | the approval PR's landing (memory) |
+| `#11-document-url-real-navigation` (existing, pre-existing class; its open-slot SoT entry registered 2026-09-29) becomes a **prerequisite of IBP-classify** (E27): it supplies the document URL and the about base URL (written only at creation, so d5-eligible, but kept with the document URL: the two are the inputs of one algorithm) and wires the fallback base URL built from them by HTML §2.4.3 into `DocumentBaseUrl`'s maintenance, which F6's step 13 and the loader read (§1 F6); `DocumentBaseUrl`'s `<base>` side stays HEAD's D-31 mechanism. Its own plan-review answers the two URLs' home, and **either answer is the user's to ratify**: a document component for the **document URL** supersedes the user's 2026-06-11 ruling (`current_url` per-VM until B1) — the about base URL, represented nowhere today and written only at creation, is outside it; B1 makes IBP-classify wait for B1, and with it PR-1a and the umbrella PRs after it (§0.6 item 16). This memo decides neither. **Owner**: this Layout lane by default (§0.6 item 16). Revs 56–60's analysis (writer set, same-document URL update sites, a same-task cell) is input to that plan, not a decision here | the approval PR's landing (memory) |
+| Re-scope `#11-csp-base-uri` (existing, M4-12 roadmap §H-7u, M4-13 CSP batch): its "Document-side policy storage" is F19, built by IBP-sandbox; the slot reads F19, owns F19's `<meta http-equiv=content-security-policy>` pragma writer (§1 F19), and keeps the `base-uri` check in the frozen-base-URL computation — so the CSP list has one home from the moment the decision is ratified | the approval PR's landing (memory) |
 | Register `#11-content-image-replacement` (NEW). *Gap*: CSS Content 3 §1's `<content-replacement>` — `content: url(…)` making an element or `::before`/`::after` image-valued replaced content; `ContentValue` has no image item and `parse_content` drops `url()`. *Why deferred*: A96 — HEAD renders none of it and no program PR changes that; F3's match stays total over `ContentValue`, so an image variant becomes a compile error, not a silent gap. *Trigger*: an image item added to `ContentValue` or `url()` accepted by `parse_content`. *Re-eval*: 2026-11-01 | IBP-predicate |
 | Register `#11-svg-layout-model` (NEW). *Gap*: elidex has no SVG layout or paint model — SVG elements lay out as CSS boxes; so Resize Observer §3.4.8 step 2's bounding-box size for an `SVGGraphicsElement` without a CSS box, and css-transforms-1 §1.2's SVG clause (F12), have nothing to read or gate. *Why deferred*: A96 — HEAD has neither, and the program changes no SVG cell beyond F4's outermost-`svg` answer. *Trigger*: an SVG layout or paint crate. *Re-eval*: 2026-11-01 | the approval PR's landing (memory; shared by IBP-transform's F12 and IBP-observer's F13, which §4 leaves unordered) |
 | Enrich `#11-form-control-ua-rendering-fidelity`: facet (1) (`input[type=hidden]`) is **discharged** by `IBP-layout` if its plan places the Hidden-state `display: none !important` rule A93 under §0.6 item 7's cell test (otherwise it stays A96 in the facet); the `i` attribute flag its facet (3) names is recorded by `IBP-css-machinery` (row below). *Why deferred* (facets (2), (3)): UA-declaration fidelity — which UA rule a button-type or mixed-case `type` input matches — author-visible today (A96); a UA rule `IBP-layout`'s plan places is recorded against the facet it discharges. Trigger and re-eval stay the SoT's (quoted in the next row); the trigger **fires at `IBP-layout`**, whose plan re-audits facets (2)/(3) by the landing 4-question audit (fold or keep) | IBP-layout |
