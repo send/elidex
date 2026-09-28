@@ -410,8 +410,8 @@ That is the fail-safe direction: any persisted entry beyond it is red, whether o
 **P-g's population, by property (E2; A2, A3).** It is every git dir the fixtures produced. One `find`
 from `$CTL`, with no per-directory fork, lists every `.git` entry and every `HEAD` entry, **of any type and in any letter case** (a
 case-insensitive filesystem lets git read `head` and `.GIT`; a case variant is red), and every symlink:
-`find` does not follow links, so a link that resolves to a directory holding a `HEAD` or a `.git` — a git
-dir outside the fixture root reached through the root — is red. It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
+`find` does not follow links, so a link that resolves to a directory is searched through (`find -L`, any
+depth), and a `HEAD` or `.git` anywhere under it is red, as is a search that fails (a loop). It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
 - A `.git` that is a real directory has its configuration compared.
 - A `.git` that is a gitfile, a symlink or anything else is red: `[.git is not a directory]`.
 - A `HEAD` whose directory is not a `.git` and holds an `objects` directory **or** a `commondir` file is
@@ -714,6 +714,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-g | a gitfile named `.GIT` (separate git dir outside the fixture root) | **fixtures** |
 | P-g | a fixture adds a second `core.bare = false` (a repeated line) | **fixtures** |
 | P-g | a symlink under the fixture root to a bare repo (with a persisted key) outside it | **fixtures** |
+| P-g | a symlink under the fixture root to a directory with a bare repo two levels down | **fixtures** |
 | W | `set +e` before the fixtures file's `built` line | **fixtures** |
 | W3 | `_ar=$(( 1/0 ))` after the fixtures file's first line | **fixtures** |
 | P-g | `printf '[include]…' >> .git/config` in a fixture | **fixtures** |
@@ -721,10 +722,10 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
 | P-g | a fixture unsets a key a plain init writes (`git config --unset core.filemode`) | **fixtures** |
 
-- **Totals:** **16 labels and 43 records** (how each came to be: `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
+- **Totals:** **16 labels and 44 records** (how each came to be: `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
   with no prefix edits the wire.
 - **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
-- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 43 (95 → 138).
+- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 44 (95 → 139).
 - **What is not a record:**
   - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662` at `e8f78896`);
   - the exit number, which is unpinnable (§3);
@@ -732,9 +733,12 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 - **Records on a machine that cannot evaluate their postcondition** (a `machine_limits` line: P-b on git
   before 2.42, P-f on an `env` without `-0`): the mutation run still runs them — a record pinning the
   limitation test's own narrowness dies there — and a **survival** of one is reported as not exercisable
-  on that machine instead of counted; the labels are derived from the limitation's ID.
+  on that machine instead of counted (and the summary says how many); the labels are derived from the limitation's
+  ID. The excuse is per label, so on such a machine a regression in a record that would die there is excused
+  too — a machine with the capability (CI's GNU `env`) runs them all. A "killed for the wrong reason" (2)
+  is never excused: it is also how a harness break reports; a leaking caller can make it a false red.
 
-**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 43) record trials plus the generated
+**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 44) record trials plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
@@ -868,7 +872,7 @@ reference with a file name, and **X4b** checks that **case-insensitively** (§11
 | C2 | mutations → mutations + mutgen; references qualified | prereq split | X1, X3, X4, X4b |
 | C3 | record comments | infra (§0.2) | X3 |
 | C4 | the `harness:` and `fixtures:` record targets with resolver and restore; the harness's `_shq` comment, which said the mutation set "has nothing to aim at", rewritten because C4 makes it false (`…-reviews.md` §13) | infra, required | X3 |
-| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (43 at head; how they came to be: `…-reviews.md` §13); §3's two comment texts; the ratchet population; §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
+| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (44 at head; how they came to be: `…-reviews.md` §13); §3's two comment texts; the ratchet population; §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
 
 **Cost, and `ci.yml`.** The base job comment "a wire that adds fixture self-tests re-derives this line
 in the same PR" is an in-file rule (`git show e8f78896:.github/workflows/ci.yml | sed -n

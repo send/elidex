@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=138
+_MUT_RECORDS_MIN=139
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -370,6 +370,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzlc" \&\& cd "
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zzuc" \&\& cd "$CTL\/zzuc" \&\& git init -q --separate-git-dir="$_FW_DIR\/gduc" . \&\& mv .git .GIT ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --add core.bare false; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzout" \&\& git -C "$_FW_DIR\/zzout" config core.excludesFile \/nonexistent-k2 \&\& ln -s "$_FW_DIR\/zzout" "$CTL\/zzlink" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzo2\/a" \&\& git init -q --bare "$_FW_DIR\/zzo2\/a\/r" \&\& ln -s "$_FW_DIR\/zzo2" "$CTL\/zzl2" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 harness:s/> "[$]_FGIT_BIN\/git" \&\& chmod +x "[$]_FGIT_BIN\/git"/> "$_FGIT_BIN\/gitx"/	the fixture build window runs the pinned git from absolute PATH entries only
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
@@ -637,7 +638,7 @@ _mut_run() {
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$CTL/.mutants"
-    _mut_n=0; _mut_bad=0
+    _mut_n=0; _mut_bad=0; _mut_exc=0
     while IFS="$(printf '\t')" read -r _mx _mwant; do
       [ -n "$_mx" ] || continue
       _mut_n=$((_mut_n + 1))
@@ -682,9 +683,14 @@ EOF_MLIM
       # is what a survived mutant did while this refactor was being written.
       _mrc2=0; _mut_trial "$_mut_n ($_mwant)" "$_mwant" || _mrc2=$?
       [ "$_mrc2" -ne 2 ] || { _mut_bad=$((_mut_bad + 1)); continue; }
+      # ⚠ ONLY A SURVIVAL (1) IS EXCUSED, never a 2: a 2 is also how a
+      # harness break (MATCHED NOTHING, a clobbered copy) reports, and
+      # excusing it would hide one. A limited machine whose caller leaks
+      # configuration can therefore report a record "killed for the wrong
+      # reason" — a false RED on an opt-in run, the fail-safe side.
       if [ "$_mrc2" -eq 1 ] && [ -n "$_mskip" ]; then
         echo "  mutant $_mut_n ($_mwant) survived, and is not exercisable on this machine: $_mskip is a machine limitation here"
-        continue
+        _mut_exc=$((_mut_exc + 1)); continue
       fi
       [ "$_mrc2" -ne 1 ] || {
         echo "!! MUTANT $_mut_n ($_mwant) SURVIVED: the wire still exited 0 with this" >&2
@@ -692,7 +698,7 @@ EOF_MLIM
         _mut_bad=$((_mut_bad + 1)); }
     done < "$CTL/.mutants"
     command rm -f "$CTL/.mutants"
-    echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named"
+    echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named, $_mut_exc not exercisable on this machine"
     # …and the population the wire's own regexes define, which no list here
     # enumerates. Run whatever the hand set did, so one run answers both
     # questions and a failure in either is reported before the exit.
@@ -701,7 +707,12 @@ EOF_MLIM
     echo "  generated boundary set: $_mut_gen_n mutant(s) from \$K2RE and \$K2RE_PATH, $_mut_gen_bad neither killed nor argued equivalent"
     _mut_rm_copies
     [ "$_mut_bad" -eq 0 ] && [ "$_mut_gen_bad" -eq 0 ] || exit 1
-    echo "  every entry above was shown to red, and to red for its own reason;"
+    if [ "$_mut_exc" -eq 0 ]; then
+      echo "  every entry above was shown to red, and to red for its own reason;"
+    else
+      echo "  every entry above but the $_mut_exc not exercisable here was shown to red,"
+      echo "  and to red for its own reason (a machine with that capability runs them all);"
+    fi
     echo "  generated: every class member, quantifier, alternation branch and"
     echo "  escape of those two regexes is pinned by a control. Widening a branch"
     echo "  list is not generated — only the hand records above reach it"

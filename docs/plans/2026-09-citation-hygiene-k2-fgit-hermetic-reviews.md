@@ -438,8 +438,12 @@ they are reachable through the PR.
   every record runs and only a survival is reported as not exercisable. The census also takes
   symlinks: a link under the root to a git dir outside it was never examined. The `ci.yml` verdict
   describes the PR's final tool code, so X8 is re-run at the final head before the merge.
+- **focused re-check #6 of `5a6f4367..a650b146`** (0 IMP): a link was checked at its target's top
+  level only — now searched through (`find -L`, through a file so a SIGPIPE cannot read as a failed
+  search); the mutation summary counts excused entries; why a 2 is never excused and why the excuse
+  is per label are stated in §6.
 
-Records: **138** (`_MUT_RECORDS_MIN=138`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 43 records
+Records: **139** (`_MUT_RECORDS_MIN=139`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 44 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +4, P-g multiplicity +1, P-c +5.
+P-g census +5, P-g multiplicity +1, P-c +5.

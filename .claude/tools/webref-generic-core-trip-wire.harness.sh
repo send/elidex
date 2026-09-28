@@ -265,8 +265,9 @@ EOF_PB
   # …and every SYMLINK: `find` does not follow them, so a link under `$CTL` to a
   # git dir OUTSIDE it (a fixture's `--separate-git-dir` target, say) would
   # never be censused (the re-check after Codex R17). A link that resolves to a
-  # directory holding a `HEAD` or a `.git` is red; any other link is not a git
-  # dir and passes.
+  # directory is searched through (`find -L`, any depth): a `HEAD` or `.git`
+  # anywhere under it is red, and so is a search that fails (a loop). A link
+  # that does not resolve to a directory passes.
   find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"
   if [ -e "$_FW_DIR/pgpop.failed" ] || [ -s "$_FW_DIR/pgpop.err" ]; then
@@ -276,8 +277,13 @@ EOF_PB
     if [ -L "$_pge" ]; then
       case "${_pge##*/}" in
         [Hh][Ee][Aa][Dd]|.[Gg][Ii][Tt]) ;;            # classified below, as HEAD / .git entries
-        *) if [ -d "$_pge" ] && { [ -e "$_pge/HEAD" ] || [ -e "$_pge/.git" ]; }; then
-             _pg="$_pg ${_pge#"$CTL"/}:[a symlink to a git dir]"
+        *) if [ -d "$_pge" ]; then
+             # Through a FILE, not `| head -1`: under pipefail an early-closing
+             # reader SIGPIPEs find, which would read as a failed search.
+             _pglsrc=0; find -L "$_pge" \( -iname HEAD -o -iname .git \) -print > "$_FW_DIR/pgls" 2>&1 || _pglsrc=$?
+             _pgls="$(head -1 "$_FW_DIR/pgls")" || _pgls=""
+             if [ "$_pglsrc" -ne 0 ]; then _pg="$_pg ${_pge#"$CTL"/}:[the search through this symlink failed (exit $_pglsrc): ${_pgls}]"
+             elif [ -n "$_pgls" ]; then _pg="$_pg ${_pge#"$CTL"/}:[a symlink to a tree holding a git dir: ${_pgls#"$_pge"/}]"; fi
            fi
            continue ;;
       esac
