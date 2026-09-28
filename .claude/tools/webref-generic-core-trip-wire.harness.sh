@@ -77,7 +77,7 @@ _FGIT_WIRE_LC="${LC_ALL:-}"
 # relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
 _fw_rc=0; _fw_done=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
-_fw_seal_bad=""; _fw_pb_skip=""
+_fw_seal_bad=""; _fw_limits=""
 # The postconditions, run INSIDE the window after the build. Their labels
 # (`$_pa_lbl` … `$_pg_lbl`, defined in the controls file) reach the window by
 # name through the prelude. Returns 1 if any reported.
@@ -104,7 +104,7 @@ _fgit_postconditions() {
     [ "$_prc" -ne 129 ] || _pbu="$_pbu $_v"
   done
   if [ -n "$_pbu" ]; then
-    printf '%s' "$_pbu" > "$_FW_DIR/pb_unsupported"
+    printf 'P-b (%s) — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pb_lbl" "$_pbu" >> "$_FW_DIR/machine_limits"
   else
     for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
       _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git -C "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
@@ -127,29 +127,25 @@ EOF_PB
   _o="$(git --exec-path 2>/dev/null)" || _o=""
   _o="$(_fgit_canon "$_o")"
   if [ -z "$_o" ] || [ "$_o" != "$_FGIT_WIRE_EXEC" ]; then echo "!! CONTROL FAILED ($_pe_lbl): [$_o] vs [$_FGIT_WIRE_EXEC]" >&2; _fpv=1; fi
-  # P-f: every record of `env -0`, through a FILE so its status is checked. An
-  # `env` without `-0` (older macOS and BSDs; PR #527 Codex R4) falls back to
-  # plain `env`, one record per line: a value holding a newline can only ADD a
-  # line — a spurious name, which is red — never hide one, since every variable
-  # still starts a line. A failed fallback, or an empty population, is NOT
-  # EXERCISED.
-  _pf=""; _pfn=0; _pfrc=0; _pfmode="env -0"
-  if "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2>/dev/null; then
+  # P-f: every record of `env -0`, through a FILE so its status is checked; a
+  # failed `env -0`, or an empty population, is NOT EXERCISED. An `env` without
+  # `-0` (older macOS and BSDs; PR #527 Codex R4) is a MACHINE LIMITATION under
+  # the capability rule P-b follows, not a red: the probe asks `env -0` for one
+  # known record and anything but exactly `K2CAP=1` NUL is "no -0". No line-based
+  # fallback — a value is never split on newlines (PR #527 Codex R6: the R4
+  # fallback read a PATH holding a newline as a second name and failed it).
+  if [ "$("$_FGIT_ENVBIN" -i K2CAP=1 "$_FGIT_ENVBIN" -0 2>/dev/null | od -An -c | tr -d ' \n')" != 'K2CAP=1\0' ]; then
+    printf 'P-f (%s) — this `env` has no -0 (GNU coreutils, FreeBSD and current macOS have it)\n' "$_pf_lbl" >> "$_FW_DIR/machine_limits"
+  else
+    _pf=""; _pfn=0; _pfrc=0
+    "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2>/dev/null || _pfrc=$?
     while IFS= read -r -d '' _rec; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
       case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
     done < "$_FW_DIR/env0"
-  else
-    _pfmode="env (no -0)"
-    "$_FGIT_ENVBIN" > "$_FW_DIR/env1" 2>/dev/null || _pfrc=$?
-    while IFS= read -r _rec || [ -n "$_rec" ]; do
-      case "$_rec" in *=*) : ;; *) continue ;; esac   # a continuation line of a multi-line value
-      _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
-      case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
-    done < "$_FW_DIR/env1"
+    if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
+    elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
   fi
-  if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`$_pfmode\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
-  elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
   # P-i: the window pins the files ref format, and its plain init has it. A git
   # without `--show-ref-format` (before 2.45) has no reftable, so its answer is
   # files by construction — but such a git does not fail: `rev-parse` echoes an
@@ -349,7 +345,7 @@ _fgit_window() {
   fi
   [ ! -e "$_FW_DIR/post_bad" ] || _fw_post_bad=1
   _fw_seal_bad="$(cat "$_FW_DIR/seal_failed" 2>/dev/null)" || _fw_seal_bad=""
-  _fw_pb_skip="$(cat "$_FW_DIR/pb_unsupported" 2>/dev/null)" || _fw_pb_skip=""
+  _fw_limits="$(cat "$_FW_DIR/machine_limits" 2>/dev/null)" || _fw_limits=""
   _FIX_FAILED="$(cat "$_FW_DIR/fix_failed" 2>/dev/null)" || _FIX_FAILED=""
   return 0
 }

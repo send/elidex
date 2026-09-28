@@ -138,11 +138,11 @@ if [ -n "$_fw_seal_bad" ]; then
   echo "!! CONTROL FAILED ($_fws_lbl): $(printf '%s' "$_fw_seal_bad" | tr '\n' ';')" >&2
   ctl_ok=1
 fi
-# `git var` cannot name the configuration files before git 2.42: a machine
-# limitation, reported below and not a red (the capability rule).
-_pb_line=""
-[ -z "$_fw_pb_skip" ] || _pb_line="            ⚠ NOT EXERCISED on this machine: P-b ($_pb_lbl) — this
-          git's \`git var\` cannot name$_fw_pb_skip (git 2.42 or later can)"
+# A postcondition this machine cannot evaluate (P-b: `git var` before git 2.42;
+# P-f: an `env` without -0) is a machine limitation, reported below and not a
+# red (the capability rule). The window writes one line per limitation.
+_limit_lines=""
+[ -z "$_fw_limits" ] || _limit_lines="$(printf '%s\n' "$_fw_limits" | sed 's/^/            ⚠ NOT EXERCISED on this machine: /')"
 _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1
 _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
 _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
@@ -401,5 +401,5 @@ echo "            own NAME, and on a symlinked entry script beside the scope; an
 echo "            scope fails closed"
 printf '%s\n' "$_fifo_line"
 printf '%s\n' "$_perm_line"
-[ -z "$_pb_line" ] || printf '%s\n' "$_pb_line"
+[ -z "$_limit_lines" ] || printf '%s\n' "$_limit_lines"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
