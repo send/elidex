@@ -194,8 +194,15 @@ EOF_PB
     if [ "$_pgrc" -ne 0 ] || [ -z "$_pgc" ]; then
       _pg="$_pg $_pgl:[git lists no configuration here (exit $_pgrc)]"; continue
     fi
+    # The listing must EQUAL the reference as a set: an entry beyond a plain init
+    # is an input the fixture persisted, and an entry a plain init writes but the
+    # fixture removed (`git config --unset core.filemode`) hands that setting to
+    # the platform default — either way P would depend on more than the fixture.
     _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || true
+    printf '%s\n' "$_pgc" > "$_FW_DIR/pgcur"
+    _pgm="$(grep -vxF -f "$_FW_DIR/pgcur" "$_pgref")" || true
     [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
+    [ -z "$_pgm" ] || _pg="$_pg $_pgl:[removed: $(printf '%s' "$_pgm" | tr '\t\n' ' ;')]"
   done < "$_pgpop"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
   if [ -n "$_pg" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg" >&2; _fpv=1; fi
