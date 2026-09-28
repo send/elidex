@@ -8,7 +8,12 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 51** (2026-09-28) — folds Codex R24 on #526 (`e510acc7`; P1 1). With F9 now the final flag set, origin
+**Revision 52** (2026-09-28) — folds Codex R26 on #526 (`bc182732`; P3 1 real, P2 1 FP; R25 on the same head was
+dry): §4 makes the docstring spec-citation table (Axis 4, plan side) every sub-PR plan-memo's obligation. FP: Resize
+Observer `observe()` step 1 calls `unobserve()` whenever the target is observed, same box or not (`webref body
+resize-observer-1 dom-resizeobserver-observe`) — no same-box early return.
+
+Revision 51 (2026-09-28) — folds Codex R24 on #526 (`e510acc7`; P1 1). With F9 now the final flag set, origin
 derivation reading the partial set would be a second, divergent representation of the same fact (§1's one-
 representation rule), so every consumer — F10r's gates and origin derivation (`load.rs:540-548`, `pipeline.rs:257-261`)
 — reads the one creation input; nested, CSP-sandboxed and auxiliary documents get the sandboxed origin their final set
@@ -1167,6 +1172,8 @@ and through F1 IBP-transform, IBP-observer and PR-1a — is downstream of IBP-la
 (the step-11/13 removal) is IBP-layout itself.
 
 ### Obligations per sub-PR (requirements, not mechanism; mechanism input is in the appendices)
+
+**Every sub-PR's plan-memo carries a docstring spec-citation table** (`.claude/skills/elidex-review/axes.md` Axis 4, plan side): each new engine-independent algorithm or query it introduces (`is_inline_box`, `is_replaced_element`, `image_request_state`, `is_native_widget`, `uses_button_layout`, `scripting_disabled_for`, `is_transformable_element`, …) mapped to the spec section and step its docstring cites, looked up with `webref`.
 
 **IBP-split-ecs / IBP-split-parser** — bodies byte-identical; each file under 1000 lines; no public path change.
 
