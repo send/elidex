@@ -673,6 +673,36 @@ probe12 above. The first `nltmp` run of the fix showed a false P-b red, the void
 newline; fixed before this verification by replacing the void with a token before splitting lines.
 Not taken, as decided: P-g's per-repo `git config` forks and `_mut_correspondence`'s greps.
 
+
+**The `/elidex-review` pass — verification** (code at `4357b963`, folded unchanged into the fix
+commit; scratch `HOME`; at most two wire runs at once; b53/b32 as above).
+
+```text
+X1/clean   b53, b32: rc=0 PASSED; the 7 caller conditions × b53, b32: every run rc=0 NE=0 CF=0 PASSED=1
+X11        b53, b32: rc 1, "22 labels have no mutation record, against a ratchet of 21", lists it
+P-i record alone (drop GIT_DEFAULT_REF_FORMAT=files): b53, b32 killed with its needle
+tripwires  bash scripts/trip-wires.sh from the repo root, b53 and b32: rc=0, generic-core PASSED
+X8         /usr/bin/time -p bash scripts/trip-wires.sh, alternated, base e8f78896 vs 4357b963:
+           base 17.64 17.13 17.12 s, head 18.91 19.83 18.19 s; the 5-min budget is unchanged
+nounset    NOU=1 (the wire's `set -euo pipefail` → `set -eo pipefail`) vs normal, b53, at 4357b963:
+           clean, sealfail, env0, garbagehead, w2rec, lblrename, w3ar, sealdotdot, reftable — every pair
+           has the same rc, NE/CF counts and verdict lines
+```
+
+| cell | before (`44ae6c57`) | after (`4357b963`) |
+|---|---|---|
+| `reftable`: a `git` that picks reftable unless the caller pins a format | rc 1: P-d, W3 (the fixtures' ref writes), `badref` NOT EXERCISED | rc 0, PASSED (b53, b32) |
+| `sealdotdot`: `_seal "$CTL/walk/../../../k2-sentinel"` | rc 1, W4 "chmod … failed" | rc 1, W4 "has a . or .. or empty component" (b53, b32) |
+| `sealsymlink`: a symlink under `walk` pointing out of the scratch root, then sealed | rc 1, W4 "chmod … failed" | rc 1, W4 "passes through a symlink" (b53, b32) |
+
+⚠ **What the seal cells did not show.** Both "before" runs failed their `chmod` instead of changing
+anything outside the scratch root: in this sandbox `mktemp -d` ignores `TMPDIR` (measured:
+`TMPDIR=<dir> mktemp -d` returned a `/var/folders/…` path), so the cells' sentinel path did not exist.
+The escape the review describes is therefore reasoned, not reproduced here; what the cells show is that
+the fix refuses both paths before any `chmod`, on both shells, with the sentinel unchanged.
+The one-failure-reported-once change (`_seal_apply` skipping a fixture already failed, `d2red`'s seal
+inside its chain) has no separate cell.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)

@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=116
+_MUT_RECORDS_MIN=117
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -333,8 +333,13 @@ fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/return 0/	the fixture build window com
 fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture build window completed
 # W2's record removes the incomplete-window exit AND leaves the window
 # incomplete (its `done` marker renamed), in one harness expression: a record
-# edits one file. It pins that W2 is reported when the exit is gone; it does not
-# tell `_control`'s first-statement check from the one after the controls.
+# edits one file. W2's producers are `_control`'s first statement and the gates
+# of the three non-`_control` blocks (relative scratch, fsmonitor, umask); the
+# record pins that W2 is reported when the exit is gone, which `_control`'s gate
+# alone satisfies. ⚠ A DECLARED GAP: removing one of the three block gates
+# survives this set — the block would run over the unbuilt tree, but W2 is
+# already reported by the first `_control` — so those gates are pinned only by
+# the traced `w2rec` cell (companion §A.14), not by a record.
 harness:/^_fgit_window_incomplete_exit()/,/^}/s/^  exit 2$/  :/;s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete fixture build window
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
@@ -345,6 +350,7 @@ harness:s/^mkdir "[$]_FGIT_VOID" || exit 2$/mkdir "$_FGIT_VOID" \&\& : > "$_FGIT
 harness:s/ "GIT_TEMPLATE_DIR=[$]_FGIT_VOID"//	the fixture git copies no template
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_EXEC_PATH=\/nonexistent-k2)/	no exec-path override reaches the fixture git
 harness:s/ "LC_ALL=C")$/)/	the fixture build window reads in the wire's locale
+harness:s/ GIT_DEFAULT_REF_FORMAT=files / /	the fixture repos use the files ref format
 harness:s/chmod "[$]_sm" "[$]CTL\/[$]_sp" 2>\/dev\/null/false/	every mode restriction a fixture sealed was applied
 harness:s/"[$]_FGIT_ENVBIN" -i /"$_FGIT_ENVBIN" /	the fixture build window's environment holds only its allowlist
 fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes

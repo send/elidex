@@ -50,11 +50,10 @@ ln -s "$CONTROL_K2" "$CTL/link/forbidden-target"
 # checkout. What the control still pins is that such an entry neither hangs
 # the walk nor suppresses the verdict over its siblings.
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/odd/ok.py"
-# ⚠ NOT a bare `|| mkfifo`: under the wire's `set -e` a post-probe failure
-# (EEXIST, ENOSPC, a race) aborts the sourced file with NO diagnostic at all —
-# no `$_fifo_line`, no `$_perm_line`, no summary — which is the "a diagnostic
-# about the wrong subject" failure this file exists to avoid, in its purest
-# form: no subject.
+# ⚠ NOT a bare `|| mkfifo`: under the window's `set -e` a post-probe failure
+# (EEXIST, ENOSPC, a race) would abort this file with nothing to say what
+# failed; W would report only that the window stopped. So the failure is named
+# here, and the `exit 2` ends the window, which the parent reports as W.
 if [ "$_fifo_ok" -eq 1 ] && ! mkfifo "$CTL/odd/pipe" 2>/dev/null; then
   echo "!! mkfifo succeeded as a probe and then failed for the fixture ($CTL/odd/pipe)." >&2
   echo "   The FIFO controls cannot be built, and this run is not reporting a wire defect." >&2
@@ -572,8 +571,8 @@ done
 ( cd "$CTL/d2red" && git init -q . >/dev/null 2>&1 && mkdir sub \
   && printf '# %s\n' "$CONTROL_CLEAN" > sub/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
   && git add -A >/dev/null 2>&1 \
-  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py ) || _fixture_failed d2red
-_seal "$CTL/d2red/sub" 0444 d2red
+  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py \
+  && _seal "$CTL/d2red/sub" 0444 d2red ) || _fixture_failed d2red
 # …and its green partners: a tracked directory deleted wholesale (every
 # ancestor below the root is missing), and one replaced by a regular FILE (the
 # nearest existing ancestor is not a directory).
@@ -667,9 +666,10 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
 #     uncommitted state that `--exclude-standard` honours and no other clone
 #     of the same commit shares. (The machine-wide `core.excludesFile` is the
-#     same code path; it is reproduced in #501 R92's thread rather than given
-#     a fixture, because neutralising the config layer above would also
-#     neutralise the fixture that tried to set it.)
+#     same code path, `--exclude-standard` honouring both. It has no fixture: a
+#     fixture is built in the window, whose HOME is the empty void, and cannot
+#     set the caller's configuration the controls' wire runs read; it is
+#     reproduced in #501 R92's thread.)
 ( cd "$CTL/notcommitted" && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
   && git add ok.py >/dev/null 2>&1 \
   && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \

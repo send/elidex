@@ -340,7 +340,7 @@ X5   gen11 AFTER + G + m2h + draft-9 set on the head (P-dump hook on the verific
 X6   template in the void: rc 1, P-c; include.path in `clean`: rc 1, P-g
 X8   /usr/bin/time -p bash scripts/trip-wires.sh, alternated: base 21.63 20.85 21.75 s,
      head 26.76 27.86 26.44 s; budget unchanged (5 min), paragraph added to ci.yml
-X10  $SH -n on every part: clean; parts 382/677/383/688/337 lines; the wire 1259, untouched
+X10  $SH -n on every part: clean; parts at C5 `386febc8` 382/677/383/688/337 lines; the wire 1259, untouched
 X11  _x_lbl added: rc 1, "22 labels have no mutation record, against a ratchet of 21", lists it
 X9   not run: user's route choice at push time (§9)
 ```
@@ -359,7 +359,7 @@ mechanism is simpler:
 - `_mut_target` derives every non-wire pair from the part name, `_MUT_TARGETS="harness fixtures"`, and
   `_mut_splice` writes through the resolved pair; the unreachable "no arm" branches are gone;
 - `_FGIT_ENV_NAMES` is derived from `_FGIT_ENV`; P-g's reference is P-a's init; P-e's reference is
-  `_git --exec-path`; the copies are removed by one `_mut_rm_copies`; history-narrating comments and the
+  `_git --exec-path` (⚠ superseded by the `/code-review` pass below: P-e re-scoped, same-env reference); the copies are removed by one `_mut_rm_copies`; history-narrating comments and the
   two `ci.yml` re-derivation paragraphs are collapsed to the method plus one verdict line.
 
 Its verification lines are in companion §A.14.

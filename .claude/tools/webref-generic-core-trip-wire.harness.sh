@@ -50,7 +50,12 @@ _FGIT_VOID="$SCRATCH/fgit-void"
 mkdir "$_FGIT_VOID" || exit 2
 _FGIT_ENVBIN="$(command -v env)"
 _FGIT_BASH="$BASH"
-_FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" "LC_ALL=C")
+# `GIT_DEFAULT_REF_FORMAT=files`: a git whose COMPILED-IN default is reftable
+# (git 3.0's planned default, or a breaking-changes build) would otherwise make
+# every init differ from every other (`reftable/*.ref` names are random) and
+# `badref` write refs a reftable repo does not read. Gits before 2.45 have no
+# reftable and ignore the name.
+_FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
 # Names the window's environment may hold: the allowlist above, derived from it,
 # plus what bash itself maintains for the processes it starts.
 _FGIT_ENV_NAMES="PWD OLDPWD SHLVL _"
@@ -132,6 +137,13 @@ EOF_PB
   done < "$_FW_DIR/env0"
   if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
   elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
+  # P-i: the window pins the files ref format, and its plain init has it. A git
+  # without `--show-ref-format` (before 2.45) has no reftable, so its answer is
+  # files by construction.
+  _rf="$(git -C "$_pq/a" rev-parse --show-ref-format 2>/dev/null)" || _rf=files
+  if [ "${GIT_DEFAULT_REF_FORMAT:-}" != files ] || [ "$_rf" != files ]; then
+    echo "!! CONTROL FAILED ($_pi_lbl): GIT_DEFAULT_REF_FORMAT is [${GIT_DEFAULT_REF_FORMAT:-}], a plain init has [$_rf]" >&2; _fpv=1
+  fi
   # P-h: the window reads in the wire's locale.
   if [ -z "$_FGIT_WIRE_LC" ] || [ "${LC_ALL:-}" != "$_FGIT_WIRE_LC" ]; then
     echo "!! CONTROL FAILED ($_ph_lbl): LC_ALL is [${LC_ALL:-}], the wire's is [$_FGIT_WIRE_LC]" >&2; _fpv=1
@@ -206,23 +218,41 @@ _fw_opts_on() {
 # A mode that is refused or cannot be applied is RED (`seal_failed`, label
 # `$_fws_lbl`), not only a failed fixture: controls gated on the mode having
 # taken effect would otherwise be skipped as a machine limitation.
+# ⚠ AND IT CAN NEVER REACH OUTSIDE `$CTL`: a path with a `.` or `..` component
+# is refused here, and `_seal_apply` refuses a path with a symlink ANYWHERE on
+# it (`chmod` follows symlinks, and fixtures hold them). A refusal marks the
+# fixture failed as well.
+_seal_refuse() { # $1 = fixture, $2 = why
+  _fixture_failed "$1"
+  printf '%s\n' "$1: $2" >> "$_FW_DIR/seal_failed"
+}
 _seal() {
   _sl_nl="$(printf '\nx')"; _sl_nl="${_sl_nl%x}"; _sl_tab="$(printf '\t')"
   case "$1" in
     "$CTL"/*) _sl_r="${1#"$CTL"/}" ;;
-    *) printf '%s\n' "$3: [$1] is outside the fixture root" >> "$_FW_DIR/seal_failed"; return 0 ;;
+    *) _seal_refuse "$3" "[$1] is outside the fixture root"; return 0 ;;
   esac
   case "$_sl_r" in *"$_sl_nl"*|*"$_sl_tab"*)
-    printf '%s\n' "$3: a path holding a newline or a TAB" >> "$_FW_DIR/seal_failed"; return 0 ;;
+    _seal_refuse "$3" "a path holding a newline or a TAB"; return 0 ;;
+  esac
+  case "/$_sl_r/" in */../*|*/./*|*//*)
+    _seal_refuse "$3" "[$_sl_r] has a . or .. or empty component"; return 0 ;;
   esac
   printf '%s\t%s\t%s\n' "$2" "$3" "$_sl_r" >> "$_FW_DIR/seal"
 }
 _seal_apply() {
   [ -e "$_FW_DIR/seal" ] || return 0
   while IFS="$(printf '\t')" read -r _sm _sf _sp; do
-    chmod "$_sm" "$CTL/$_sp" 2>/dev/null || {
-      _fixture_failed "$_sf"
-      printf '%s\n' "$_sf: chmod $_sm $_sp failed" >> "$_FW_DIR/seal_failed"; }
+    # A fixture whose chain already failed is reported once, by that failure.
+    case " $_FIX_FAILED " in *" $_sf "*) continue ;; esac
+    _sa_p="$CTL"; _sa_rest="$_sp"; _sa_link=""
+    while [ -n "$_sa_rest" ]; do
+      _sa_p="$_sa_p/${_sa_rest%%/*}"
+      [ ! -L "$_sa_p" ] || { _sa_link="$_sa_p"; break; }
+      case "$_sa_rest" in */*) _sa_rest="${_sa_rest#*/}" ;; *) _sa_rest="" ;; esac
+    done
+    if [ -n "$_sa_link" ]; then _seal_refuse "$_sf" "[$_sp] passes through a symlink"; continue; fi
+    chmod "$_sm" "$CTL/$_sp" 2>/dev/null || _seal_refuse "$_sf" "chmod $_sm $_sp failed"
   done < "$_FW_DIR/seal"
 }
 # Run the fixtures file in the window. $1 = fixtures file. Sets
@@ -252,7 +282,7 @@ _fgit_window() {
       fi
     done
     printf '_FIX_FAILED=""\n'
-    declare -f _fixture_failed _shq _fgit_canon _fw_opts_on _seal _seal_apply _fgit_postconditions
+    declare -f _fixture_failed _shq _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
   # The child writes WHY it stopped into `cause` itself, as the sentence W
   # prints, so an exit status a fixtures-file command produced under errexit
@@ -319,7 +349,9 @@ _fgit_window_incomplete_exit() { # $1 = the window label
 # reconstruct is available for free at the point of failure, for ALL of them —
 # so the population is every fixture, not the five somebody noticed.
 # `$_FIX_FAILED` itself lives in the window (the prelude starts it empty) and
-# comes back through a file; the parent reads it only after a complete window.
+# comes back through a file, which `_fgit_window` reads whatever the window's
+# outcome; the gate is at the consumer: `_control` reads it only after
+# `_fw_built_or_w2` has passed, i.e. over a complete window.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
