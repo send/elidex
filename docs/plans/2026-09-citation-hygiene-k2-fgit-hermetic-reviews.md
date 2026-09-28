@@ -461,8 +461,13 @@ they are reachable through the PR.
   against the wire's directory; only `~` entries are dropped — and relative/empty ones when that
   directory's path holds a `:`, which `PATH` cannot carry (focused re-check #9: a `co:lon` checkout
   split the entry and reddened P-j; `cb8b0e09` had been green there).
+- **Codex R24** (on `0116209d`): `~` entries are expanded as the wire's bash expands them (`$HOME`, a
+  validated login's home) — with `git` pinned, a differing reading can only add or miss a helper
+  directory, so a `~/bin` wrapper's helper is found again; P-g's authoritative comparison is of NUL
+  records from `--show-origin -z` (a newline-bearing value forged a matching line listing); a symlink
+  inside a `.git` dir is red (a `.git/config` link outside reported `file:.git/config`). Records +2.
 
-Records: **141** (`_MUT_RECORDS_MIN=141`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 46 records
+Records: **143** (`_MUT_RECORDS_MIN=143`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 48 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +7, P-g multiplicity +1, P-c +5.
+P-g census +8, P-g multiplicity/records +2, P-c +5.

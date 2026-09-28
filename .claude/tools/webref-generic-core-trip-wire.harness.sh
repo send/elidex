@@ -79,11 +79,16 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 #   directory) resolved against THIS directory, once — so a `git` wrapper
 #   found through `tools/bin` still finds its interpreter or helpers there
 #   (PR #527 Codex R23: dropping such entries made every fixture `git` fail).
-#   An entry starting with `~` is DROPPED: whether it is expanded depends on
-#   the shell and its mode (above), so no single reading is right. So is a
-#   relative or empty one when this directory's path holds a `:` — `PATH`
-#   cannot carry that path as one entry (the re-check after Codex R23). A tool
-#   only a dropped entry provides makes the window fail, red. Which of the fixtures' other
+#   An entry starting with `~` is expanded as THIS bash expands it in command
+#   lookup (outside POSIX mode): `~` and `~/…` against `$HOME`, `~login/…` by
+#   the shell's own tilde expansion of a validated login name — so a `git`
+#   wrapper's helper found through `~/bin` is still found (PR #527 Codex R24).
+#   `git` itself is pinned above, so a reading that differs from the caller's
+#   (5.3 --posix keeps `~` literal) can only add or miss a helper directory:
+#   the window then runs, or fails red — it never picks a different `git`.
+#   An entry that cannot be made one absolute `PATH` entry — a login that
+#   does not expand, or a result holding `:` (the re-check after Codex R23) —
+#   is dropped; a tool only it provides makes the window fail, red. Which of the fixtures' other
 #   commands runs is outside P (memo §1, "Outside P"). P-j checks the shape
 #   (`$_FGIT_BIN` first, every entry absolute) from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
@@ -105,7 +110,16 @@ while [ -n "$_fp_rest" ]; do
   _fp_e="${_fp_rest%%:*}"; _fp_rest="${_fp_rest#*:}"
   case "$_fp_e" in
     /*) _FGIT_PATH="$_FGIT_PATH:$_fp_e" ;;
-    "~"*) ;;
+    "~"*)
+      _fp_u="${_fp_e%%/*}"; _fp_r="${_fp_e#"$_fp_u"}"; _fp_u="${_fp_u#\~}"; _fp_h=""
+      case "$_fp_u" in
+        "") _fp_h="${HOME:-}" ;;
+        *[!A-Za-z0-9._-]*) ;;                        # not a login name: dropped
+        *) eval "_fp_h=~$_fp_u" ;;                   # validated name; an unknown one stays `~name`
+      esac
+      case "$_fp_h" in
+        /*) case "$_fp_h$_fp_r" in *:*) ;; *) _FGIT_PATH="$_FGIT_PATH:$_fp_h$_fp_r" ;; esac ;;
+      esac ;;                                        # no absolute home (unknown login, no HOME): dropped
     *) case "$PWD" in
          *:*) ;;                                     # unrepresentable in PATH: dropped
          *) if [ -z "$_fp_e" ]; then _FGIT_PATH="$_FGIT_PATH:$PWD"; else _FGIT_PATH="$_FGIT_PATH:$PWD/$_fp_e"; fi ;;
@@ -257,6 +271,21 @@ EOF_PB
   # persisted beyond it is red.
   _pgref="$_FW_DIR/pgref.lines"
   git -C "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
+  # `_pg_z <git dir> <out>`: the `-z` listing as sorted NUL records
+  # "origin<TAB>key<LF>value" — record boundaries a value cannot forge.
+  # An odd field count (a truncated listing) fails.
+  _pg_z() {
+    git -C "$1" config --list --show-origin -z > "$2.raw" || return $?
+    _pgzo=""; _pgzn=0
+    : > "$2.rec"
+    while IFS= read -r -d '' _pgzf; do
+      if [ $((_pgzn % 2)) -eq 0 ]; then _pgzo="$_pgzf"; else printf '%s\t%s\0' "$_pgzo" "$_pgzf" >> "$2.rec"; fi
+      _pgzn=$((_pgzn + 1))
+    done < "$2.raw"
+    [ $((_pgzn % 2)) -eq 0 ] && [ "$_pgzn" -gt 0 ] || return 3
+    sort -z "$2.rec" > "$2"
+  }
+  _pg_z "$_pq/a" "$_FW_DIR/pgref.z" || : > "$_FW_DIR/pgref.z"
   _pg=""
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
   # Population by property: EVERY git dir the fixtures produced, anywhere under
@@ -310,9 +339,15 @@ EOF_PB
              elif [ -n "$_pgls" ]; then _pg="$_pg ${_pge#"$CTL"/}:[a symlink to a tree holding a git dir: ${_pgls#"$_pge"/}]"; fi
              continue
            fi
-           # not a directory: a `HEAD` link (to a ref) is classified below;
-           # any other name is not a git dir
-           case "${_pge##*/}" in [Hh][Ee][Aa][Dd]) ;; *) continue ;; esac ;;
+           # not a directory: a `HEAD` link (to a ref) is classified below; any
+           # other link INSIDE a `.git` dir is red — git reads through it (a
+           # `.git/config` pointing outside still reports `file:.git/config`,
+           # PR #527 Codex R24); any other link is not part of a git dir
+           case "${_pge##*/}" in
+             [Hh][Ee][Aa][Dd]) ;;
+             *) case "$_pge" in */.[Gg][Ii][Tt]/*) _pg="$_pg ${_pge#"$CTL"/}:[a symlink inside a git dir]" ;; esac
+                continue ;;
+           esac ;;
       esac
     fi
     case "${_pge##*/}" in
@@ -352,15 +387,18 @@ EOF_PB
     fi
     [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
     [ -z "$_pgm" ] || _pg="$_pg $_pgl:[removed: $(printf '%s' "$_pgm" | tr '\t\n' ' ;')]"
-    # MULTIPLICITY: the two greps compare membership, so a line written twice
-    # (meaningful for a multi-valued key) passed them (PR #527 Codex R17). The
-    # SORTED listings must be byte-identical; any non-zero — a difference, or
-    # a sort/cmp that could not run — is red.
+    # THE AUTHORITATIVE COMPARISON is of RECORDS, not lines: the two greps
+    # above compare lines, so a value holding a newline shaped like another
+    # `--show-origin` line forged a match (PR #527 Codex R24), and a line
+    # written twice passed them (R17). `_pg_z` lists `-z` (NUL-bounded origin
+    # and key/value), pairs each origin with its entry into one NUL record,
+    # and sorts; the reference's and this repo's must be byte-identical. Any
+    # non-zero — a difference, or a listing/sort/cmp that could not run — is
+    # red. The greps stay for the message.
     if [ -z "$_pgx" ] && [ -z "$_pgm" ]; then
       _pgcrc=0
-      { sort "$_FW_DIR/pgcur" > "$_FW_DIR/pgcur.s" && sort "$_pgref" > "$_FW_DIR/pgref.s" \
-          && cmp -s "$_FW_DIR/pgcur.s" "$_FW_DIR/pgref.s"; } || _pgcrc=$?
-      [ "$_pgcrc" -eq 0 ] || _pg="$_pg $_pgl:[a line appears a different number of times than in a plain init, or the listings could not be compared (exit $_pgcrc)]"
+      { _pg_z "$_pgd" "$_FW_DIR/pgcur.z" && cmp -s "$_FW_DIR/pgcur.z" "$_FW_DIR/pgref.z"; } || _pgcrc=$?
+      [ "$_pgcrc" -eq 0 ] || _pg="$_pg $_pgl:[its configuration records differ from a plain init's (a repeated entry, or a value holding a newline), or could not be compared (exit $_pgcrc)]"
     fi
   done < "$_pgpop"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
