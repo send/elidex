@@ -80,8 +80,10 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 #   found through `tools/bin` still finds its interpreter or helpers there
 #   (PR #527 Codex R23: dropping such entries made every fixture `git` fail).
 #   An entry starting with `~` is DROPPED: whether it is expanded depends on
-#   the shell and its mode (above), so no single reading is right; a tool only
-#   it provides makes the window fail, red. Which of the fixtures' other
+#   the shell and its mode (above), so no single reading is right. So is a
+#   relative or empty one when this directory's path holds a `:` — `PATH`
+#   cannot carry that path as one entry (the re-check after Codex R23). A tool
+#   only a dropped entry provides makes the window fail, red. Which of the fixtures' other
 #   commands runs is outside P (memo §1, "Outside P"). P-j checks the shape
 #   (`$_FGIT_BIN` first, every entry absolute) from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
@@ -104,8 +106,10 @@ while [ -n "$_fp_rest" ]; do
   case "$_fp_e" in
     /*) _FGIT_PATH="$_FGIT_PATH:$_fp_e" ;;
     "~"*) ;;
-    "") _FGIT_PATH="$_FGIT_PATH:$PWD" ;;
-    *) _FGIT_PATH="$_FGIT_PATH:$PWD/$_fp_e" ;;
+    *) case "$PWD" in
+         *:*) ;;                                     # unrepresentable in PATH: dropped
+         *) if [ -z "$_fp_e" ]; then _FGIT_PATH="$_FGIT_PATH:$PWD"; else _FGIT_PATH="$_FGIT_PATH:$PWD/$_fp_e"; fi ;;
+       esac ;;
   esac
 done
 _FGIT_ENVBIN="$(_fgit_resolve env)"

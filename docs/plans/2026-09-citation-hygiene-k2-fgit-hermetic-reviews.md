@@ -458,7 +458,9 @@ they are reachable through the PR.
   `git` wrapper found through `tools/bin` needs — its `#!/usr/bin/env` interpreter beside it — so every
   fixture `git` failed. R11–R13's real trouble was the `~` forms, whose meaning depends on the shell's
   mode; relative and empty entries have one meaning given the directory. Those are now resolved
-  against the wire's directory; only `~` entries are dropped.
+  against the wire's directory; only `~` entries are dropped — and relative/empty ones when that
+  directory's path holds a `:`, which `PATH` cannot carry (focused re-check #9: a `co:lon` checkout
+  split the entry and reddened P-j; `cb8b0e09` had been green there).
 
 Records: **141** (`_MUT_RECORDS_MIN=141`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 46 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
