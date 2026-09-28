@@ -315,7 +315,7 @@ What **is** pinned are the properties a record can observe:
 **A shell diagnostic in the fixtures file is red (W3; E4, AR).** An arithmetic-expansion error such as
 `$(( 1/0 ))` at the fixtures file's top level does **not** stop a sourced file under `set -e`, on either
 shell. The build completes, and on p8 the run was green (§6). The child's stderr is captured to a file
-and replayed. **Any line that begins with the fixtures file's path, or the prelude's, followed by `:`**
+and replayed. **Any line that begins with `./fixtures.sh:` or `./prelude.sh:`** — the window sources both from its own directory by those relative names (the fixtures file is copied there first), so the prefix does not depend on the checkout path, which could otherwise hold a newline that splits the name across two stderr records (PR #527 Codex R2)
 is W3. That is a property of where bash puts a diagnostic about a file, not a wording: it covers `…
 line N:`, 3.2's `… command substitution: line N:` and `… eval: line N:`, in any locale. (Draft 10
 matched only `<fixtures path>: line N:`, which missed the other forms; `/code-review`, `…-reviews.md` §13.) The scan is
@@ -385,7 +385,7 @@ in), and each label has its own record (§6).
 |---|---|---|---|
 | W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, and the child wrote `done`. Otherwise NE with the sentence the child wrote to `cause`, or the exit status (§3), **reported alone**; exit 2; no control runs | — |
 | W2 | `no control runs over an incomplete fixture build window` | `_control`'s first statement, and the first thing each non-`_control` block asks: the window is complete. Its record: the exit removed. The exit placed below a control: the RO cells | — |
-| W3 | `the fixtures file ran without a shell diagnostic` | no line of the child's stderr begins with the fixtures file's or the prelude's path and `:` | — |
+| W3 | `the fixtures file ran without a shell diagnostic` | no line of the child's stderr begins with `./fixtures.sh:` or `./prelude.sh:` (both sourced by those relative names from the window's directory) | — |
 | W4 | `every mode restriction a fixture sealed was applied` | every `_seal` was accepted (a path under `$CTL`, with no newline or TAB) and its `chmod` succeeded; otherwise red, not a machine limitation | — |
 | P-a | `a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file` | every `git config --list --show-scope --show-origin` line in **one probe repo** is `local<TAB>file:.git/config<TAB>…` | `this git reports a non-local configuration scope`: `-c a.b=c` must show as scope `command` |
 | P-b | `the fixture git has no system or global layer outside the void` | asked **inside P-a's probe repo** (`git -C`), so no caller repository's local configuration is read. A git older than 2.42, whose `git var` cannot name these four (exit 129), is a machine limitation: `⚠ NOT EXERCISED on this machine`, green. Otherwise `git var GIT_CONFIG_SYSTEM`/`GIT_ATTR_SYSTEM` exit non-zero, empty. `GIT_CONFIG_GLOBAL`/`GIT_ATTR_GLOBAL` exit 0, with every line under `$_FGIT_VOID/` | `this git names its system files through git var`: with `…NOSYSTEM=0` both names print a path |

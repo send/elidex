@@ -325,7 +325,7 @@ s#^K2RE_PATH='(^|/)\\.claude#K2RE_PATH='(^|/).claude#	a stored path that only lo
 # THE FIXTURE BUILD WINDOW's records (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §6).
 # One or more per label; most edit the harness, where the window's producers
 # live, and the rest the fixtures file, whose own shape the window checks.
-harness:s/^    [.] "[$]1"$/    . "$1"; exit 0/	the fixture build window completed
+harness:s/^    [.] [.]\/prelude[.]sh$/    . .\/prelude.sh; exit 0/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eu\\n'/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -uo pipefail\\n'/	the fixture build window completed

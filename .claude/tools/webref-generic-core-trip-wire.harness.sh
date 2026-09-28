@@ -295,22 +295,28 @@ _fgit_window() {
     printf '_FIX_FAILED=""\n'
     declare -f _fixture_failed _shq _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
+  # The fixtures file is sourced from a COPY in the window's own directory, by a
+  # relative name: bash prefixes each diagnostic with the name it was given, so
+  # W3's prefixes below are `./fixtures.sh:` and `./prelude.sh:` whatever the
+  # checkout path holds (a newline in it would otherwise split the name across
+  # two stderr records and hide the diagnostic — PR #527 Codex R2).
+  cp "$_fwf" "$_FW_DIR/fixtures.sh" || { _fw_why="the fixtures file could not be copied into the window"; return 0; }
   # The child writes WHY it stopped into `cause` itself, as the sentence W
   # prints, so an exit status a fixtures-file command produced under errexit
   # cannot be mistaken for one of these.
   # It starts in a directory it owns, so no git it runs reads the configuration
   # of a repository the caller happened to be in.
   "$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
-    . "$1"
-    cd "$_FW_DIR" || { echo "the window could not enter its own directory" > "$_FW_DIR/cause"; exit 1; }
+    cd "$1" || { echo "the window could not enter its own directory" > "$1/cause"; exit 1; }
+    . ./prelude.sh
     _fw_opts_on || { echo "the window refused to start: a prelude option (errexit, nounset or pipefail) was not in force" > "$_FW_DIR/cause"; exit 1; }
-    . "$2"
+    . ./fixtures.sh
     [ -e "$_FW_DIR/built" ] || { echo "the fixtures file returned before its last line" > "$_FW_DIR/cause"; exit 1; }
     _fw_opts_on || { echo "the fixtures file switched off errexit, nounset or pipefail" > "$_FW_DIR/cause"; exit 1; }
     _fgit_postconditions || : > "$_FW_DIR/post_bad"
     _seal_apply
     printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
-    : > "$_FW_DIR/done"' _ "$_FW_DIR/prelude.sh" "$_fwf" 2> "$_FW_DIR/stderr" || _fw_rc=$?
+    : > "$_FW_DIR/done"' _ "$_FW_DIR" 2> "$_FW_DIR/stderr" || _fw_rc=$?
   cat "$_FW_DIR/stderr" >&2 2>/dev/null || true
   # A shell diagnostic located in the fixtures file or the prelude means a line
   # of it was skipped — an arithmetic-expansion error does not stop a sourced
@@ -320,7 +326,7 @@ _fgit_window() {
   # is matched. The paths reach `awk` through the environment, which interprets
   # nothing, and `awk` stops after three: no pipe, so no SIGPIPE.
   _fw_dg=0
-  _fw_diag="$(_FW_A="$_fwf:" _FW_B="$_FW_DIR/prelude.sh:" awk '
+  _fw_diag="$(_FW_A="./fixtures.sh:" _FW_B="./prelude.sh:" awk '
     index($0, ENVIRON["_FW_A"]) == 1 || index($0, ENVIRON["_FW_B"]) == 1 { print; if (++n == 3) exit }
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
