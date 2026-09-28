@@ -259,3 +259,14 @@ MUTANTS += [
      '    raw = re.split(r"[#?]", dest, 1)[0]\n    if "#" in dest:\n        return None',
      [R38_RUN]),
 ]
+
+# -- PR #510 Codex R40: the root memo's banner.
+BANNER_DISPLAY = ("the report banner names the root memo by its display name: the same line whether the "
+                  "checker is invoked with an absolute or a relative path")
+MUTANTS += [
+    ("R40 banner: the root memo is printed by its display name (restore the raw `pop.main.path`)",
+     "plan-memo-umbrella-check.py",
+     'print(printable("plan-memo-umbrella-check  --  %s" % pop.display(pop.main.path)))',
+     'print(printable("plan-memo-umbrella-check  --  %s" % pop.main.path))',
+     [BANNER_DISPLAY]),
+]

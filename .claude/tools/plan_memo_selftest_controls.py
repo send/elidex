@@ -765,6 +765,38 @@ def display_path_control(M):
         want, seeds)
 
 
+
+BANNER_DISPLAY = ("the report banner names the root memo by its display name: the same line whether the "
+                  "checker is invoked with an absolute or a relative path")
+
+
+def banner_display_control(M):
+    """PR #510 Codex R40: `main()`'s banner names the root memo through
+    `Population.display`, as every other printed memo name does -- run once by
+    absolute path and once, from the memo's directory, by relative path, the
+    banner line is the same and is the display name of the root."""
+    import contextlib
+    import io
+    import os
+    banners = []
+    with tempfile.TemporaryDirectory() as d:
+        memo = pathlib.Path(d) / "fixture.md"
+        memo.write_text(build() + "\nSee the close rule.\n", encoding="utf-8")
+        cwd = os.getcwd()
+        try:
+            for arg in (str(memo.resolve()), "fixture.md"):
+                os.chdir(d)
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    M.main(["plan-memo-umbrella-check.py", arg])
+                lines = buf.getvalue().split("\n")
+                banners.append(lines[1] if len(lines) > 1 else "")
+        finally:
+            os.chdir(cwd)
+    want = "plan-memo-umbrella-check  --  fixture.md"
+    return banners == [want, want], "banners %r (each must be %r)" % (banners, want)
+
+
 def empty_id_row_name_control(M):
     """PR #510 R20: a finding names a row whose id cell declares no id by its
     declaring LOCATOR -- `row <no id> at :LINE (TOKEN)`, the row's line and
@@ -928,6 +960,7 @@ def registry(case_rows=None):
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)
     reg["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"] = ("CONTROL", display_path_control)
+    reg[BANNER_DISPLAY] = ("CONTROL", banner_display_control)
     reg["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never `row None`"] = ("CONTROL", empty_id_row_name_control)
     reg["a §6.6 span crossing a line ending seeds each of its lines at ITS line, not all of them at the opener's"] = ("CONTROL", multiline_span_locator_control)
     return reg

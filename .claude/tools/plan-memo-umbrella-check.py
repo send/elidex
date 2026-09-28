@@ -778,7 +778,7 @@ def main(argv):
     unlicensed = [m for m in mentions if not m.licensed]
 
     print(printable("=" * 78))
-    print(printable("plan-memo-umbrella-check  --  %s" % pop.main.path))
+    print(printable("plan-memo-umbrella-check  --  %s" % pop.display(pop.main.path)))
     print(printable("  population (transitive over the memo's links): %s"
           % ", ".join(pop.display(m.path) for m in pop.memos[1:]) if len(pop.memos) > 1
           else "  population: the memo alone (it links no other memo)"))
