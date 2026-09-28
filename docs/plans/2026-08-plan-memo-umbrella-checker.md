@@ -787,7 +787,7 @@ ground for either option; it is not cited.
   module imports `ast` and the harness's `HERE`, so both `_IMPORT_SEAMS` rows had to widen — which
   is the first time that table, rather than a prose sentence, was the thing an edit had to move.
   And `symbol_attribution_control` turned RED on its own first run after the carve, naming
-  `plan_memo_selftest_invariants.py:16`, whose pre-split name `plan_memo_selftest_properties._IMPORT_SEAMS`
+  a line of `plan_memo_selftest_invariants.py` whose pre-split name `plan_memo_selftest_properties._IMPORT_SEAMS`
   had to become the records module's: one stale attribution the split created and the suite caught
   unaided.
   ⚠⚠ **AND THEN THE SENTENCE ABOVE DID IT AGAIN — the FOURTH instance on this PR of a record
