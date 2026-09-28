@@ -430,7 +430,8 @@ tightness), nothing re-derived from dropped lines — a block quote
 direct child of a TIGHT list's item, bare inline text up to `</li>` or the next block tag, a `<p>` there
 refusing the tight claim (⚠ the first R15 aligner searched to `</li>` and read past a `<p>`, so every
 "loose" mutant survived: the claim could not go red) — a definition
-nothing, the html exhausted at the end — never a rendering (Phase 2 is skipped over). Excluded by
+nothing, the html exhausted at the end — and each paragraph's `<p>` body checked against Phase 2's
+inline claim (`inline_claim`, called by `align` at `plan_memo_selftest_conformance.py:319` / `:331`). Excluded by
 predicate over Phase 1's own output, printed per run -- and every exclusion is a FAIL, since
 `EXPECTED_EXCLUDED` is empty (PR #510 Codex R38 of 2026-09-27): a GFM table Phase 1 admitted (local policy over pure
 CommonMark; no vendored example holds a `|` where a table could open — empty by construction), and NOTHING

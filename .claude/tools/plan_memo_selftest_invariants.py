@@ -283,19 +283,14 @@ def render_equivalence_control(M):
     (`_is_hard_break`: `&#10;` renders a line ending but opens no §6.7 break,
     so `x\\` + `&#10;` and `x\\` + a real ending do NOT render the same).  The
     last one excludes no position `_RENDER_PROSE` holds today -- that prose is
-    one line -- and is listed because the hand-added set is the sweep's one
-    unmechanical part, so a helper added below `inline_pass` has to arrive
-    here rather than be noticed when a newline is first written into the
-    prose.  The set is reported with the run.
-
-    HONESTLY, the two directions of that edge are NOT symmetric, and only one
-    of them is safe.  A character wrongly LEFT IN the excluded set is a
-    position not swept, so the derived set must equal a declared one (PR #510
-    Codex R38 of 2026-09-27's class: a set derived from the subject alone shrinks the sweep
-    in silence).  A
-    character wrongly LEFT OUT is re-spelled although it is active, the two
-    documents then really do render differently, and the control goes RED: a
-    false alarm, never a silent pass.  What the sweep cannot see at all: a
+    one line -- and is listed because a helper added below `inline_pass` has to
+    arrive here rather than be noticed when a newline is first written into
+    the prose.  The derived set must equal `declared`, a second hand-written
+    set (PR #510 Codex R38 of 2026-09-27's class: a set derived from the
+    subject alone shrinks the sweep in silence), so both directions are red: a
+    character wrongly LEFT IN is a mismatch, and one wrongly LEFT OUT is
+    re-spelled although it is active, so the two documents render differently.
+    The set is reported with the run.  What the sweep cannot see at all: a
     disagreement that needs TWO positions re-spelled at once; a raw reading in
     a CELL (the sweep re-spells prose, where a `|` is an ordinary character --
     in a cell it is the row grammar's separator and its numeric spelling is

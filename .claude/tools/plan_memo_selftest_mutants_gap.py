@@ -11,8 +11,9 @@ from `plan_memo_selftest_mutants_r45.py`, where PR #510's Codex R22 of
 2026-09-27 and its first review passes had appended the "R22 ws" / "R22 ws
 roles" / "R22 file" / "R22 §6.2" rows; the "R22 gap" rows were written here.  WHERE THE R22 ROWS LIVE: every R22 row of 2026-09-27 is here; the OLDER Codex R22 (2026-09-08) rows labelled "R22 #1" -
 "R22 #3" (the phrase boundaries, the device names, the seed's shared spans)
-are in `plan_memo_selftest_mutants_inline.py`; the R47-4 gap rows that
-predate both stay in `_mutants_r45.py`.
+are in `plan_memo_selftest_mutants_inline.py`; the R47-4 gap rows
+(ae974e32, 2026-09-21 -- after the 2026-09-08 round, before the 2026-09-27
+one) stay in `_mutants_r45.py`.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
 gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`

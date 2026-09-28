@@ -28,7 +28,8 @@ device names, the seed's shared spans) are in `_mutants_inline.py`.  The Codex
 R22 of 2026-09-27 rows are all in `_mutants_gap.py`: "R22 ws", "R22 ws roles",
 "R22 file" and "R22 §6.2" were appended here first and moved there when it was
 carved on that SUBJECT (c04d8042); "R22 gap" rows were written there.  What stays here of the gap is
-R47-4's four rows, which predate both.
+R47-4's four rows (ae974e32, 2026-09-21: after the 2026-09-08 round, before
+the 2026-09-27 one).
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
 gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
