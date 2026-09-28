@@ -2,9 +2,11 @@
 
 This file holds the corpus — the evidence behind the design — and the mutation records derived from it,
 for `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of
-the design memo's §6 as a touch-time split, before the design memo grew past 1000 lines. The text is
-unchanged, except that a reference to another section of the design memo now names it. The section
-number §6 is kept, so an earlier reference to "memo §6" resolves here.
+the design memo's §6 as a touch-time split (`35dc1153`), before the design memo grew past 1000 lines.
+At the split the text was unchanged, except that five references to other sections of the design memo
+were made to name it. Later drafts changed it: §6.1 (draft 11's record plan, revised by draft 12) and one
+sentence under "Records" were added after the split. The section number §6 is kept, so an earlier
+reference to "memo §6" resolves here.
 
 "The companion" below is the provenance companion,
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`; `…-reviews.md` is the review
@@ -121,8 +123,8 @@ scripts are in companion §E.7, and the full table is in companion §A.13.
 
 Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.54 and bash 3.2·git 2.55.
 
-**Records: representative only.** The table and the totals below are the set at `8413a4db`; draft 11
-changes them as §6.1 says.
+**Records: representative only.** The table and the totals below are the set at `8413a4db`; drafts
+11–12 change them as §6.1 says.
 
 | label | record | target |
 |---|---|---|
@@ -200,39 +202,43 @@ changes them as §6.1 says.
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
-### §6.1 Draft 11's record changes (planned, design memo §9.1)
+### §6.1 Drafts 11–12: the record changes (planned, design memo §9.1)
 
 Each change is listed with the commit that makes it. The needle of every record is its label, so
-renaming a label renames the needle of each of its records in the same commit.
+renaming a label renames the needle of each of its records in the same commit. "This PR's" counts the
+records this PR adds (the table above); "all" is every entry the runner counts, `!survive` included.
 
-| commit | change | label | target | window / all |
+| commit | change | label | target | this PR's / all |
 |---|---|---|---|---|
 | — | at `8413a4db` | | | 50 / 145 |
 | C6 | **delete**: "a relative entry after `$_FGIT_BIN` in the window's `PATH`". There is no per-entry clause left to pin | P-j | harness | 49 / 144 |
 | C6 | **re-anchor**: "the window's `PATH` starts at `/usr/bin`" becomes "a directory with no `git` placed before `$_FGIT_BIN`" (`/nonexistent-k2:` in front), which pins the first-entry clause alone. The `gitx` record still pins the `git` clause | P-j | harness | — |
 | C6 | **relabel**: P-j's two records take the label `the fixture build window runs the pinned git first on its PATH` | P-j | — | — |
-| C7 | **add**: a fixture sets `include.path` on `clean` to a FIFO outside the fixture root. Git blocks opening it, which no shape check sees, and the watchdog ends the window: W with the timeout cause. It pins the helper itself; the other call sites share it | W | **fixtures** | 50 / 145 |
-| C8 | **add**: one harness expression that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate | W2 | harness | 51 / 146 |
+| C7 | **add**: a fixture sets `include.path` on `clean` to a FIFO outside the fixture root. Git blocks opening it, which no shape check sees, and the window's phase bound ends the run: W from the fired marker. It pins the window's announcement and the timer | W | **fixtures** | 50 / 145 |
+| C7 | **add**: `_entry`'s `elif [ -f "$f" ]` becomes `elif [ -e "$f" ]`, so the wire opens a tracked path replaced by a FIFO and blocks. The `fifotracked` control's phase bound ends the run: CONTROL FAILED with that label. It pins #501 R92's contract (a control whose run blocks is red with its label) under the new bound. Where the filesystem holds no FIFO, the control does not run and the record survives, which is reported (a red on the opt-in run, the fail-safe side) | `a tracked path replaced by a FIFO is not opened` | wire | 51 / 146 |
+| C8 | **add**: one harness expression that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate | W2 | harness | 52 / 147 |
 | C8 | **relabel**: W2's existing record takes the label `no control runs over an incomplete or untrusted fixture build window` | W2 | — | — |
-| C9 | **add**: `clean`'s `.git/objects` replaced by a symlink to a copy outside the fixture root (PR #527 Codex R26②: PASSED at `8413a4db`) | P-g | **fixtures** | 52 / 147 |
-| C9 | **add**: a FIFO `.git/commondir` in `clean`, a name outside the old `HEAD`/`config` pair. Without the shape rule git blocks on it, and the watchdog would report W instead of P-g | P-g | **fixtures** | 53 / 148 |
-| C9 | **add**: the shape scan replaced by a command that fails with no output. It pins that a failed scan is red, not an empty result | P-g | harness | 54 / 149 |
+| C9 | **add**: `clean`'s `.git/objects` replaced by a symlink to a copy outside the fixture root (PR #527 Codex R26②: PASSED at `8413a4db`) | P-g | **fixtures** | 53 / 148 |
+| C9 | **add**: a FIFO `.git/commondir` in `clean`, a name outside the old `HEAD`/`config` pair. Without the shape rule git blocks on it, and the bound would report W instead of P-g | P-g | **fixtures** | 54 / 149 |
+| C9 | **add**: the shape scan replaced by a command that fails with no output. It pins that a failed scan is red, not an empty result | P-g | harness | 55 / 150 |
+| C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root | P-k | **fixtures** | 56 / 151 |
+| C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line; that is NOT EXERCISED, red, unless it is this machine's limitation | P-k liveness | harness | 57 / 152 |
+| C10 | **add**: `count-objects -v` replaced by a command that fails with no output. A failed count is red | P-k | harness | 58 / 153 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
-  FIFO" keep their text and target, and after C9 they die by the shape rule rather than by the deleted
-  case split and two-name guard.
-- **Totals after C9:** 16 labels (two renamed, none added), **54 window records, 149 in all**:
-  `_MUT_RECORDS_MIN=149`, and `_MUT_UNRECORDED_MAX` stays at 21.
-- **Not records, declared:**
-  - the process-group reap: a top-PID kill gives the same verdict, so no record can die on it. X12
-    checks it by hand;
-  - the watchdog at `_control`, at the three blocks' self-tests and at `_mut_trial`: no fixture state
-    reaches them blocked today without first stopping the run (C8), and the runner is not a mutation
-    target. They share the one helper that the C7 record pins;
-  - the X14 outcomes (a caller `PATH` with cwd- or home-dependent entries): a record's run uses the
-    caller's `PATH`, so no record can pose them.
-- **Cost (X3).** One new record runs to a bound: the C7 record, to `_FW_TIMEOUT`. The C9 FIFO record
-  does not, because the shape rule stops it before git runs. The opt-in run grows by about one
-  `_FW_TIMEOUT`.
+  FIFO" keep their text and target. After C9 they die by the shape rule rather than by the deleted case
+  split and two-name guard.
+- **Totals after C10:** **18 labels** (P-k and its liveness label added; P-j and W2 renamed), **58
+  records of this PR, 153 in all**: `_MUT_RECORDS_MIN=153`, and `_MUT_UNRECORDED_MAX` stays at 21.
+- **Not records, pinned by cells instead** (X12, at the final head). A top-PID kill of the group gives
+  the same verdict, so no record can die on the reap. The group start, the timer and `_k2_phase` live in
+  the controls file, which is not a mutation target. Removing one phase announcement leaves the run
+  bounded, under the phase before it, so on a clean tree it survives. These are the same kind of
+  declared gap as the three block gates' `w2rec` cell (design memo §3).
+- **Not records, by the caller's `PATH`:** the X14 outcomes. A record's run uses the caller's `PATH`, so
+  no record can pose them.
+- **Cost (X3).** Two new records run to a bound: the C7 W record to `_FW_TIMEOUT` (90 s) and the C7
+  wire record to the 30 s phase bound. The C9 FIFO record does not, because the shape rule stops it
+  before git runs. The opt-in run grows by about two minutes.
 - **Retired with C6:** the "resolving relative `PATH` entries" bullet under "What is not a record"
   above describes the normaliser C6 deletes.

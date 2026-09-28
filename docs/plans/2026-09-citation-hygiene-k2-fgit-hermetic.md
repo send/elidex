@@ -15,16 +15,23 @@ mutation records (split out of this memo's §6 unchanged). This memo holds only 
 
 **Decision**: user, 2026-09-27, option (a): rebuild.
 
-**Status**: **draft 11** — draft 10 (plan-review CLOSED, 2026-09-27; `…-reviews.md` §D.0) revised after
-PR #527's external review paused (user decision, 2026-09-28). Three enumerations become properties:
-- **M-PATH** — the window's `PATH` is `$_FGIT_BIN` followed by the caller's `PATH` verbatim; there is no
-  normaliser (§0.1, §3);
-- **M-SHAPE** — inside a git dir, anything that is not a regular file or a directory is red (§4);
-- **M-WATCHDOG** — one watchdog bounds every child that runs over fixture state (§3, §5.2).
+**Status**: **draft 12**. Draft 10 closed plan-review (2026-09-27; `…-reviews.md` §D.0). Draft 11 revised
+it after PR #527's external review paused (user decision, 2026-09-28), and draft 12 answers
+plan-review round 10 on draft 11 (0 CRIT / 6 IMP / 22 MIN; dispositions in `…-reviews.md` §13). Three
+enumerations become properties:
+- **M-PATH**: `git` is resolved once, as the caller's shell resolves it, and pinned; every other `PATH`
+  entry reaches the window verbatim. There is no normaliser (§0.1, §3).
+- **M-SHAPE**: inside a git dir, anything that is not a regular file or a directory is red (§4).
+- **M-WATCHDOG**: every wire run is one process group, and the running phase announces its bound (§3).
+  Draft 11's per-child groups escaped a nested kill (round 10, U1).
 
-A red postcondition ends the run before any control (§3); W3's definition is corrected to what the code
-does (§3, §4); `objects/info/alternates` is declared (§4). The implementation is §9.1, not yet made. The
-round history and the evidence (E1) are in `…-reviews.md` §13, "PR #527".
+Also:
+- a red postcondition ends the run before any control (§3);
+- W3's definition says what the code does (§3, §4);
+- P-k closes an outside object store (§4).
+
+The implementation is §9.1 and has not been made. The round history and the evidence are in
+`…-reviews.md` §13, "PR #527".
 
 Draft 10 answers round 9, a Step-4.5 focused check of draft 9 (`d5dacd56`): Ax2 0/1/1, Ax3 0/1/3. Both
 IMPs were **implementation bugs in the prototype, not design defects**, and prototype **p11** fixes
@@ -95,14 +102,23 @@ does not govern:
 
 A failure there means "this git cannot run here", so it stays under the old rule.
 
-**`PATH` is on the R1 side of that line, verbatim.** The window's `PATH` is `$_FGIT_BIN` (the pinned
-`git`, §3) followed by the caller's `PATH` exactly as the caller set it. Nothing reinterprets an entry.
-An entry whose meaning depends on the working directory or on `HOME` (relative, empty, `~…`) means,
-inside the window, whatever it means from the window's directory and its void `HOME`. So a tool that
-only such an entry provides may not be found there, and the window then fails: red, which is the old
-rule's "loud". This was never a supported surface. At base, a caller whose `PATH` began with `~+/bin`
-passed, but its `git` was called only from the repository root, never from inside a fixture: the
-fixtures `cd`, and such an entry stops resolving (E1, `…-reviews.md` §13). What P needs from `PATH` is
+**`PATH` is on the R1 side of that line.** Which `git` runs is R1's, so it is decided **once, the
+way the caller's own shell decides it**: the wire's bash resolves `git` from the wire's working
+directory, with the caller's `HOME`, and the window runs exactly that file through the pin
+`$_FGIT_BIN` (§3). Every other entry reaches the window **verbatim**, behind the pin, and nothing
+reinterprets it. What such an entry means inside the window is outside P (§1, "Outside P"):
+- a relative or empty entry means a directory relative to wherever the window's command runs;
+- `~` and `~/…` expand against the window's void `HOME`;
+- `~login/…` expands through the password database, not `HOME`, so it still names that login's home
+  (`…-reviews.md` §13, the `~login` measurement).
+
+A tool that only such an entry provided may then not be found inside the window. The window fails, and
+that is red, the old rule's "loud". The caller's `git` itself is never lost this way, because it was
+resolved before the window started. With `PATH='~+/bin:…'` and a `git` wrapper in the repository's
+`bin/`, the wrapper **is** the fixture git under M-PATH: rc 0, PASSED, and every fixture git call goes
+through it (plan-review round 10, U3, reproduced in `…-reviews.md` §13). That is R1 working as
+stated. Draft 11 cited the base-only experiment PX1 here as "never a supported surface"; that described
+base, where no pin existed, and it is history now, not the argument. What P needs from `PATH` is
 one fact, that the window's `git` is the pinned one, and P-j checks it (§4).
 
 The **read** side is also out of scope. It keeps the old criterion, because `_git` preserves the
@@ -135,7 +151,7 @@ classes of input can reach the fixture build, and this slice treats them differe
 | class | what | owner | how it is handled |
 |---|---|---|---|
 | **(a)** | **implicit caller-environment leaks**: anything the caller's environment, home, XDG directory, system prefix or compiled-in defaults carry into git without the fixtures file asking for it | **this PR** (its purpose) | **closed** by the window (§3); pinned by P-a…P-f |
-| **(b)** | **accidental fixture-authoring mistakes that persist an outside git input or leave the build incomplete**: a `git config` naming an outside file, an include appended to `.git/config`, an accidental `--separate-git-dir`, an arithmetic error that skips a line, a `set +e` left at the end | **this PR** | **caught, fail-safe on shape**: P-g over every git dir's configuration and shape (§4); W, with the options re-checked after the file; W3 (a shell diagnostic). **Except** a persisted input outside configuration and shape, such as `objects/info/alternates` naming an outside store: declared, not caught (§4) |
+| **(b)** | **accidental fixture-authoring mistakes that persist an outside git input or leave the build incomplete**: a `git config` naming an outside file, an include appended to `.git/config`, an accidental `--separate-git-dir`, an arithmetic error that skips a line, a `set +e` left at the end | **this PR** | **caught, fail-safe on shape**: P-g over every git dir's configuration and shape (§4); W, with the options re-checked after the file; W3 (a shell diagnostic). An object store outside the repository (`objects/info/alternates`): P-k (§4) |
 | **(c)** | **fixture code that deliberately evades** | **out of scope**: code review | not closed, not detected, not owed (§5.1) |
 
 **What separates (b) from (c) is a property, not intent.** A class-(b) mistake leaves **persisted,
@@ -199,6 +215,8 @@ The authority for the channel classes is git's own documentation at the version 
 - `git help git-init` (TEMPLATE DIRECTORY)
 - `git help git` (ENVIRONMENT VARIABLES)
 - `git help git-var`
+- `git help gitrepository-layout` (`commondir`, `objects/info/alternates`)
+- `git help count-objects` (`-v`, the `alternate:` line)
 
 Webref does not index these. The corpus supplies the rest.
 
@@ -228,16 +246,16 @@ git-config` (FILES) says "When the XDG_CONFIG_HOME environment variable is not s
 $HOME/.config/ is used".
 
 ```sh
-# harness — snapshots taken when the harness is sourced (the shape at head; the harness is the source)
+# harness at `8413a4db`, except the lines marked PLANNED, which C6/C7 (§9.1) change; the harness is the source
 _FGIT_VOID="$SCRATCH/fgit-void"             # mkdir, checked
 _FGIT_BIN="$SCRATCH/fgit-bin"                # holds `git`: exec <this shell's `type -P git`, absolute>
-_FGIT_PATH="$_FGIT_BIN:$PATH"               # the caller's PATH verbatim, behind the pin (§0.1)
+_FGIT_PATH="$_FGIT_BIN:$PATH"               # PLANNED (C6): the caller's PATH verbatim, behind the pin (§0.1)
 _FGIT_ENVBIN=<this shell's `type -P env`, absolute>; _FGIT_BASH="$BASH"
 _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 \
            "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
 # _fgit_window: write a prelude of PLAIN assignments (labels by name) and function bodies, then
-_with_watchdog "$_FW_TIMEOUT" "$_FW_DIR/timed_out" \
-  "$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
+_k2_phase "$_FW_TIMEOUT" W "$_fw_lbl"       # PLANNED (C7): announce the window's bound (below)
+"$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
   cd "$1" || <cause; exit>                     # $_FW_DIR, a directory the window owns
   . ./prelude.sh                                # both copied here by fixed relative names (R2)
   _fw_opts_on || <cause; exit>                 # errexit, nounset, pipefail in force
@@ -286,7 +304,7 @@ window; P-f caught that in p6's first run (companion §A.9).
 
 **What comes back.** Three things return through files: `_FIX_FAILED`, the fact of completion
 (`done`), and whether any postcondition reported. The window's own `CONTROL …` lines reach the wire's
-stderr directly. The watchdog's marker (below) is written by the parent's timer, not by the child.
+stderr directly. The fired marker (below) is written by the run's timer, outside the group.
 
 **An incomplete window is not "no fixture failed" (round-6 item 1; D4).** Completion needs two
 markers:
@@ -314,45 +332,89 @@ postcondition.
 
 A parent-side failure to create the window directory or write the prelude has its own reason text.
 
-**Every child that runs over fixture state is time-bounded (M-WATCHDOG).** Such a child can block on
-what the fixtures built. Examples, which show the property and are not a list: git opening a FIFO that a
+**Every wire run is one time-bounded process group (M-WATCHDOG).** A run can block on what the
+fixtures built. Examples, which show the property and are not a list: git opening a FIFO that a
 persisted `include.path` names outside the fixture root (no shape check inside a git dir can see it,
 §4); a census into a huge tree; a control whose tree holds a FIFO. A blocked gate reaches no verdict.
-One helper runs every such child, `_with_watchdog <seconds> <marker> <command…>`:
-- the command runs as its own process group (`set -m`), and the helper `wait`s for it, so a healthy
-  child costs nothing;
-- a timer subshell (it traps TERM and takes its `sleep` with it, #501 R93) writes the **marker** and
-  then kills the **whole process group** (`kill -9 -<pgid>`). A blocked grandchild is reaped with the
-  group; a kill of the top PID alone leaves it orphaned and blocked (`_control`'s comment at head:
-  measured on bash 5.3 and 3.2). X12 checks this on the window;
-- the caller learns "timed out" from the marker, never from the status. A child can exit 137 by
-  itself, so a status would name the wrong cause (the same rule as `cause`, above).
+Draft 11 gave each child its own process group, bound by a list of call sites. Plan-review round 10
+measured both halves failing. A group nested in another escapes the outer kill: a trial whose inner
+bound was broken hung past 20 s on both shells, and `$(…)` waited on the pipe (U1). The list also
+missed a call site: the fsmonitor block's plain `git ls-files` (U2). So the bound is by
+**membership**, not by list:
+- **One group per run.** When the controls file is sourced by a wire that is not inside a bounded group
+  (below), it runs the **same wire, with the same arguments,** as the leader of a new process group
+  and waits for it. That child runs everything from the harness's setup through the controls to the
+  scan of the repository. Every process it starts is in the group unless it re-groups itself, and
+  after C7 nothing does: `set -m` appears in one function, `_k2_group`, which runs only where no group
+  is in effect (here, and the mutation runner's trials). An always-on check in `_mut_correspondence`
+  keeps it so: an uncommented `set -m` anywhere in the wire's parts outside `_k2_group` is red.
+- **Each phase announces its own bound.** Before each unit of work, one line goes to the group's phase
+  file: bound, start time, kind, label. The units are the harness setup (S), the window (W,
+  `_FW_TIMEOUT`), the window's verdict (S), each `_control` and each non-`_control` block (C, with its
+  label), and the scan of the repository (S). A call site nobody announces runs under the phase
+  before it. It is bounded all the same; what it can lose is attribution, never the bound.
+- **One timer per group**, outside it (forked after `set +m`), reads the phase file once a second. When
+  the current phase has run past its bound, or the group past its cap (0 = none), it writes the
+  **fired marker** (the phase line, and which bound fired) and kills the whole group
+  (`kill -9 -<pgid>`). The parent reads the marker, never the status, because a child can exit 137 by
+  itself. It prints by kind:
+  - W: NOT EXERCISED with W's label, exit 2;
+  - C: CONTROL FAILED with that control's label, exit 1. This keeps #501 R92's contract ("a control
+    whose run blocks is red with its label"), but the run ends there;
+  - S: decided nothing, exit 2.
+- **Nothing the run started outlives it.** After the leader exits, the parent kills the group anyway
+  (ESRCH if it is empty), then stops the timer. The timer also exits by itself once the leader is gone
+  or its directory has vanished. The parent's exit path (EXIT, INT, TERM) kills the group and the timer
+  before the wire's scratch cleanup. That handler is composed with the wire's EXIT trap, read by
+  `trap -p EXIT`, because `trap` replaces.
+- **Fresh per invocation.** Each `_k2_group` creates its own directory (phase file, pgid file, fired
+  marker) and refuses one that already exists.
+- **Nesting only by the mutation runner, and only where no bound can fire.** Each trial runs as its own
+  group under cap `_MUT_TRIAL_CAP`. Meanwhile the enclosing run's phase is unbounded (0), so the
+  enclosing timer cannot fire while a trial group exists. The trial's wire finds itself inside a
+  bounded group (`_K2_PHASE` names a phase file whose pgid file holds its own process group) and
+  **joins**: no second run, no group, no timer. Its phases announce to the trial's phase file, and the
+  runner's timer enforces them and the cap. So a mutated harness that announces a huge bound, or none,
+  still ends at the cap. `_k2_group`, `_k2_joined`, the timer and `_k2_phase` live in the controls
+  file, which no record edits (`_MUT_TARGETS` is harness and fixtures, plus the wire).
+- **A trial whose group was killed** gets the verdict line the parent would have printed (from the
+  marker), appended to its output. It is then judged by the record's needle like any other kill; a cap
+  kill names the phase that was running.
 
-Its population is **every child that runs the wire or the fixture build over fixture state**:
-- the window, bound `_FW_TIMEOUT`;
-- each `_control`, whose own watchdog (#501 R92) is folded into the helper, still 30 s;
-- the three non-`_control` blocks' `--selftest` runs (relative scratch, fsmonitor, umask), at the
-  controls' 30 s;
-- each mutation trial (`_mut_trial`), bound `_MUT_TRIAL_TIMEOUT`. Without it, a record whose window
-  hangs would hang the opt-in run whenever the window's watchdog is broken.
+The cells, on bash 5.3 and 3.2, prototype in `…-reviews.md` §13:
+- (a) a window blocked on a FIFO gives W alone, rc 2, at 90 s;
+- (b) a control whose run blocks gives CONTROL FAILED with its label, rc 1, at 35–38 s;
+- (c) a trial whose window blocks returns at 90 s with the W label, and returns at its cap (120 s in
+  the cell) when the window's bound is broken;
+- (d) a clean run is PASSED;
+- (e) its wall time stays within the run-to-run spread of draft 11's prototype.
 
-Outside it are the parent's source-time probes and the wire's own scan. Their inputs are the caller's
-`git` and platform, not fixture state (R1, R2), and §5.2 R9 declares them.
+None of them left a process behind.
 
-**A window that times out is W.** The parent writes the cause "the window did not finish within
-`$_FW_TIMEOUT` s; its process group was killed". W prints it alone, exits 2, and no control runs.
+Outside the group is only the wire's own code before it sources the controls file: arguments,
+scratch creation and its EXIT trap (§5.2 R9).
 
-**The bounds, derived.** On the M-PATH + M-SHAPE prototype, the window's wall time on a clean tree was
-4.82–4.99 s on bash 5.3 and 7.06–7.27 s on bash 3.2. That is three runs each, two wires at a time, with
-the whole wire at 16–18 s and 23–25 s (`…-reviews.md` §13 gives the command).
-- **`_FW_TIMEOUT=90`**: at least twelve times the slowest window measured, which leaves room for a
-  slower CI runner and is still far inside the job's budget.
-- **`_MUT_TRIAL_TIMEOUT=360`**: `_FW_TIMEOUT` plus ten times the slowest whole run measured
-  (90 + 250 s), rounded up.
+**The bounds, derived by one rule.** A bound is the slowest measured wall time of the unit × 4.3 × 2,
+rounded up to a multiple of 30 s:
+- 4.3 is the slowest runner-to-local ratio this repository has recorded: PR #510's trip-wires comment,
+  49 s locally against 211 s on Codex's runner (`git show cc05c428:.github/workflows/ci.yml`);
+- 2 is headroom for variance.
 
-The `ci.yml` `timeout-minutes` does not move. A clean run costs nothing more, and a hung window now
-ends at `_FW_TIMEOUT` inside the budget. X8 re-derives the line by its in-file rule at the final head,
-and a change means STOP (§9).
+The measurements are in `…-reviews.md` §13, with the command:
+- **`_FW_TIMEOUT=90`**: the window, 7.27 s at most (draft 11's prototype, bash 3.2), gives 62.5;
+- **30 s** for every other phase: the harness setup (0.61 s at most), the slowest control or block
+  (1.12 s, the phase that runs the umask block and everything up to the scan), and the scan
+  (1.53 s). #501 R92's 30 s is the floor;
+- **`_MUT_TRIAL_CAP=330`**: `_FW_TIMEOUT` plus the rule applied to the slowest whole run (25 s gives
+  240), so a trial that legitimately runs its window to the bound still finishes.
+
+The controls summary prints the window's wall time in whole seconds, so X9 and any later re-derivation
+read it from an ordinary run.
+
+**`ci.yml`.** `timeout-minutes` does not move: a clean run costs no more, and the longest bounded
+failure (the window, 90 s) ends inside the 5-minute budget. The trip-wires job comment's verdict
+paragraph, which C5 replaced with the method and one verdict line, names the tool code of the squash.
+After C6–C10 that line is stale until X8 re-runs at the final head and rewrites it (§9).
 
 **A red postcondition ends the run before any control.** A red P-a…P-j, or W3, means the build is not
 the one the fixtures file describes. A control over it asserts nothing, and it can block. On the
@@ -427,7 +489,7 @@ corpus §6.
 
 | entry | without it |
 |---|---|
-| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). The first entry is `$_FGIT_BIN`, a wrapper that execs the `git` **this shell's own lookup** resolves. The lookup is `_fgit_resolve`, the one resolver for every command that crosses the window boundary by path, `$_REAL_GIT` and `$_REAL_GREP` included. After it comes the caller's `PATH`, **verbatim**. No entry is reinterpreted, dropped or emulated, because which executable runs is R1's (§0.1), and what P needs is only that the window's `git` is the pinned one. An entry that means something else from inside the window (relative, empty, `~…`) can only fail to provide a tool there, and then the window fails: red. The fixtures' other commands come from these entries (§1, "Outside P"). P-j pins the construction. History: `…-reviews.md` §13, PR #527 |
+| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). The first entry is `$_FGIT_BIN`, a wrapper that execs the `git` **this shell's own lookup** resolves. The lookup is `_fgit_resolve`, the one resolver for every command that crosses the window boundary by path, `$_REAL_GIT` and `$_REAL_GREP` included. After it comes the caller's `PATH`, **verbatim**. No entry is reinterpreted, dropped or emulated, because which executable runs is R1's (§0.1), and what P needs is only that the window's `git` is the pinned one. An entry means whatever it means from inside the window (relative, empty, `~`: §0.1). Since `git` is pinned, that decides only which other tools are found, and a missing one fails the window: red. The fixtures' other commands come from these entries (§1, "Outside P"). P-j pins the construction. History: `…-reviews.md` §13, PR #527 |
 | `HOME=$VOID` | an unset `HOME` also closes this on 2.55. The void is chosen because a future HOME-relative default then lands where P-c looks |
 | `GIT_CONFIG_NOSYSTEM=1` | the system layer is live here (`/opt/homebrew/etc/gitconfig`) |
 | `GIT_ATTR_NOSYSTEM=1` | undocumented at 2.55: 0 hits in all 207 man pages of 2.55.0 (command below; positive control: `CONFIG_NOSYSTEM` hits 2 pages). So it is pinned by `git var` (P-b) |
@@ -450,11 +512,24 @@ record). So an abort there
 is a non-zero exit, which the parent reads as data. The verdict is written after `ctl_ok=0`
 (`controls.sh:738` at base), and a window that is not complete and trusted ends the run right there.
 
+The bound (C7) adds parent-side state, assigned before it is read in the same way:
+- in the parent that starts the group: `_k2_rc`, `_k2_fired`, the leader's and the timer's PIDs, and the
+  group's directory;
+- in the run: `_k2_join` and the exported `_K2_PHASE`;
+- the constants `_FW_TIMEOUT` and `_MUT_TRIAL_CAP`, and the 30 s phase bound.
+
+The timer is a separate process with no `set -u` dependence: every variable it reads is assigned
+first in its own body.
+
 **The parent's reliance on `set -u`, measured (IMP-2).** With the wire's `set -euo pipefail` changed to `set -eo pipefail` (nounset OFF in the parent), the
 clean tree and eight red cells (sealfail, env0, garbagehead, w2rec, lblrename, w3ar, sealdotdot,
-reftable) gave the same exit status, the same NE/CF counts and the same verdict lines as with it on, on
-bash 5.3 at the `/elidex-review` head (`NOU=1 …/scratchpad/impl/crc.sh <head> b53 <cell>`, companion
-§A.14). That is the measured claim: on those runs, no parent-side verdict depended on `set -u`. It is
+reftable) gave the same exit status, the same NE/CF counts and the same first four `!!` lines as with it on:
+- on bash 5.3 at the `/elidex-review` head (companion §A.14);
+- **on bash 3.2 and 5.3 at `8413a4db`**, 36 runs. Bash 3.2 is where it matters: there
+  `#11-k2-wire-exit-trap-masks-set-u-abort` turns an unbound-variable abort into rc 0.
+
+The cell script is verbatim in `…-reviews.md` §13 ("X13"), and X13 re-runs it at the final head. That
+is the measured claim: on those runs, no parent-side verdict depended on `set -u`. It is
 not a proof over every path, and the "every state name is assigned before it is read" argument is a
 reading of the code, not a measurement. The child's `set -u` is a backstop
 behind the static census, and it is pinned by its own record. See §5.2 for the pre-existing defect.
@@ -468,7 +543,7 @@ in), and each label has its own record (corpus §6).
 
 | id | label | assertion (inside the window) | liveness (its own label) |
 |---|---|---|---|
-| W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, and the child wrote `done`. Otherwise NE with the sentence the child wrote to `cause`, the watchdog's timeout sentence when its marker is present, or the exit status (§3), **reported alone**; exit 2; no control runs | — |
+| W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, and the child wrote `done`. Otherwise NE with the sentence the child wrote to `cause`, the timeout sentence the parent prints from the fired marker (§3), or the exit status (§3), **reported alone**; exit 2; no control runs | — |
 | W2 | `no control runs over an incomplete or untrusted fixture build window` | `_control`'s first statement, and the first thing each non-`_control` block asks: the window is complete, and no postcondition or W3 reported. Its records: each of the two exits removed (§3). The exit placed below a control: the RO cells | — |
 | W3 | `the fixtures file ran without a shell diagnostic` | no record of the child's stderr contains `./fixtures.sh:` or `./prelude.sh:` **anywhere in it** (both are sourced by those relative names from the window's directory; bash appends a diagnostic to a record the fixtures left without a newline, §3). A failed scan is red | — |
 | W4 | `every mode restriction a fixture sealed was applied` | every `_seal` was accepted (a path under `$CTL`, with no newline or TAB) and its `chmod` succeeded; otherwise red, not a machine limitation | — |
@@ -481,6 +556,7 @@ in), and each label has its own record (corpus §6).
 | P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the lines of `git -C <repo> config --list --show-origin` (no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init), compared by origin, key and value (`grep -vxF -f`, both directions). An extra line is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. A `grep` that fails (exit above 1) is a failed comparison, red — never an empty difference. The authoritative comparison is of **records**: the `-z` listing, each origin paired with its entry into one record written as one line by `printf %q`, sorted (no `sort -z`), byte-identical to the reference's — so a value holding a newline cannot forge a line, and a repeated entry is red. This catches a persisted include (its origin is not `.git/config`), a `commondir` naming another git dir (the origin names that dir's config), and **any** persisted key beyond init's, `core.excludesFile` included. **Shape first (M-SHAPE):** before git runs on a `.git`, every entry under it that is not a regular file or a directory (`find <.git> ! -type f ! -type d`: a symlink of any target, a FIFO, a socket, a device) is red, and git is **not** run on that repo. Git reads through a link (a `.git/config` pointing outside still reports `file:.git/config`) and blocks opening a FIFO, whatever the entry's name. A scan that fails or writes to stderr is red. The census takes `HEAD` and `.git` entries of **any** type and letter case — a symlink `HEAD`, or `head` on a case-insensitive filesystem, is a shape git reads — and every git dir not reached by a `.git` entry is red. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
 | P-i | `the fixture repos use the files ref format` | the window's `GIT_DEFAULT_REF_FORMAT` is `files`, and a plain init's `git rev-parse --show-ref-format` answers `files` (a git before 2.45 has no reftable; its `rev-parse` echoes the unknown option back with exit 0, and that literal echo is what counts as `files` — a failed call or any other format name stays red). It pins the allowlist entry on every git, including the files-default ones where dropping it changes nothing else | — |
 | P-j | `the fixture build window runs the pinned git first on its PATH` | the window's `PATH` starts with `$_FGIT_BIN`, and `type -P git` inside the window is `$_FGIT_BIN/git`. It pins the `PATH` construction the way P-h and P-i pin their entries: without the pin, the window's first `git` is the file the pin execs anyway, so nothing else changes, and P-e's reference moves with it. It asserts nothing about the caller's entries (§0.1) | — |
+| P-k | `no fixture repo reads objects from a store outside it` | for every `.git` P-g compares, `git count-objects -v` exits 0 and prints no `alternate:` line. An `objects/info/alternates` naming another store makes git read an object from there instead of writing it locally, so the content the controls read is an outside input even though P's ids do not move (measured, `…-reviews.md` §13). Git's own answer, not a file name: it reports the stores git will read (measured for the `alternates` file). A failed `count-objects` is red | `this git reports alternate object stores`: a third probe repo (so P-d's two inits are untouched), given an `alternates` file naming P-a's object store, must print one `alternate:` line; if it prints none, that is a machine limitation (`⚠ NOT EXERCISED on this machine`, green; `machine_limits` line `P-k — …`), as for P-b |
 | P-h | `the fixture build window reads in the wire's locale` | the window's `LC_ALL` equals the wire's (`C`). It pins the allowlist's `LC_ALL=C`, which P-f cannot, because P-f derives its names from the same list | — |
 
 **How P-g's key set is derived (D2).** It is **not** a list of path-typed keys. Git exposes no per-key
@@ -497,9 +573,10 @@ depth) whatever its name, and a `HEAD` or `.git` anywhere under it is red, as is
 (BSD find lists a loop link without descending, rc 0, hiding nothing; GNU find is expected to exit 1 — not
 measured here). A link *named* `HEAD` to a directory is red whatever it holds, since the search's start
 matches its own name; the record for that shape therefore pins the routing to the search, not its depth
-(the two-levels-down record pins the depth). The census runs inside the window, so the window's watchdog bounds it (§3): a search into a huge tree ends as W with the timeout cause. It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
+(the two-levels-down record pins the depth). The census runs inside the window, so the window's phase bound covers it (§3): a search into a huge tree ends as W with the timeout cause. It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
 - A `.git` that is a real directory has its **shape** checked (every entry under it a regular file or a directory, table above), and then its configuration compared. So a link inside a `.git` dir is red by shape, whatever it points at and whatever its name.
 - A link elsewhere that does not resolve to a directory is classified by its name: `.git` or `HEAD` as below, anything else passes (it is not part of a git dir).
+- A link **inside** a `.git` dir is not searched through (the per-link `find -L`). The shape rule already reds it, and searching behind it could turn a huge tree into a window timeout (W) instead of P-g (round 10, Ax2). The top-level census does not follow links (no `-L`); only the per-link search does.
 - A `.git` that is a gitfile, a symlink or anything else is red: `[.git is not a directory]`.
 - A `HEAD` whose directory is not a `.git` and holds an `objects` directory **or** a `commondir` file is
   a git dir not named `.git`, and it is red. That covers a bare repo, a `--separate-git-dir` target, a
@@ -540,15 +617,12 @@ and a hidden one. Both were measured (corpus §6).
   mutation mode would have paid about 115 times. X8 measures the whole cost.
 - **What P-g cannot see:**
   - class (c) (§0.3): transient inputs, persist-then-revert, a git dir outside the fixture root;
-  - **anything outside configuration and shape.** P-g's scope is the configuration git lists and the
-    shape of each git dir; the *content* of a regular file inside a git dir is not compared. Examples,
-    not a list: hooks, `info/attributes` and `info/exclude` that a fixture writes, which are produced
-    inside the window by definition and harmless unless configuration names them; and
-    **`objects/info/alternates`**, a regular file that can name an object store **outside** the
-    fixture root. That one is an outside input a fixture can persist, so it is class (b) by §0.3's
-    property, and P-g does **not** catch it: a **declared blind spot**, not closed. Whether it can move
-    P is not measured here. Git itself reports such a store (`git count-objects -v` prints one
-    `alternate:` line per store, measured on 2.55.0, `…-reviews.md` §13); P-g does not ask it;
+  - **anything outside configuration and shape**, which is P-g's scope; the *content* of a regular
+    file inside a git dir is not compared. Examples, not a list: hooks, `info/attributes` and
+    `info/exclude` that a fixture writes, which are produced inside the window by definition and
+    harmless unless configuration names them. An object store outside the repository is P-k's (table
+    above). No fixture uses one today (`/usr/bin/grep -n -i -e alternate -e shared -e 'clone'` over the
+    fixtures file gives three lines, 408, 666 and 667 at `8413a4db`, all comments);
   - a fixture that legitimately needs extra config. That one reds, and needs a deliberate change to
     the reference, which is the fail-safe direction.
 
@@ -565,7 +639,8 @@ The outside files are reachable from inside the window:
 - the caller's real home is computable with `eval "h=~$(id -un)"`.
 
 **A command that leaves the input persisted is class (b), caught by P-g on shape (D2, E2)** when what
-it persists is configuration or a git dir's shape; §4 declares what lies outside both. P-g reds, on
+it persists is configuration or a git dir's shape, and by P-k when it is an object store outside the
+repository; §4 says what lies outside all three. P-g reds, on
 both shells:
 - `printf '[include]…' >> .git/config`;
 - `printf '[core]\n\texcludesFile=…' >> .git/config`;
@@ -628,7 +703,7 @@ NE.
 
 | # | residual | direction | disposition |
 |---|---|---|---|
-| R1 | which git executable runs, and which of the fixtures' other commands: the caller's `PATH`, verbatim, behind the pin (§0.1). A wrapper that needs other variables, or a tool that only a working-directory- or home-dependent entry provides, fails in the window (loud), but a `PATH` git wrapper that injects configuration only into `add` is **silent** | silent | class (a)'s **declared platform boundary** (§0.1), not closed: `PATH` → `#11-trip-wire-launch-environment`. Draft 10 called this "loud"; `/code-review` showed the silent case |
+| R1 | which git executable runs, and which of the fixtures' other commands: the caller's `PATH`, verbatim, behind the pin (§0.1). A wrapper that needs other variables, or a tool that only a working-directory- or home-dependent entry provides, fails in the window (loud), but a `PATH` git wrapper that injects configuration only into `add` is **silent** | silent | class (a)'s **declared platform boundary** (§0.1), not closed: `PATH` → `#11-trip-wire-launch-environment`, member (3). That slot's body does not name the K2 window, and its trigger ("#519 lands") has fired; §9's ledger step amends both. Draft 10 called this "loud"; `/code-review` showed the silent case |
 | R2 | filesystem-derived config written by `init`; FIFO support, permissions, raw names | either | outside P. P-d's reference `init` shares the filesystem |
 | R3 | a compiled-in path that no variable governs and `git var` does not report | silent, if any | declared blind spot. None is known at 2.55 |
 | R4 | the **launch-environment class**: whatever the caller injects into the wire's own bash at startup (`BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*%%`, a function named `command`). The window's `env -i` drops these from the child's environment, but the parent that writes the prelude has already run under them. The prelude carries only the listed data and the eight function bodies §3 lists | any | `#11-trip-wire-launch-environment` |
@@ -636,7 +711,7 @@ NE.
 | R6 | reads through `_git` keep the caller's config, including a caller `GIT_TRACE=1`, which reds at base too (parent D7) | loud, pre-existing | `_git`'s contract |
 | R7 | Windows git-bash: unmeasured | unmeasured | **declared residual.** The `trip-wires` job is ubuntu-only in CI (command below), and running `mise run ci` or the wires under Windows git-bash is not a supported surface today; nothing here claims it |
 | R8 | a compiled-in reftable default (git 3.0's planned default, or a breaking-changes build): `badref` writes `.git/refs/heads/`, and P-d's `diff -r` differs between two reftable inits (random `reftable/*.ref` names, `tables.list`) — the gate would red on every PR for a non-K2 reason | — | **closed**: `GIT_DEFAULT_REF_FORMAT=files` is in the window's allowlist, pinned by P-i on every git. The `reftable` cell (a `git` that picks reftable unless the caller pins a format) is red before and green after (companion §A.14) |
-| R9 | a hang outside the watchdog's population (§3): the parent's source-time probes (P-e's reference `git --exec-path`, `_fgit_resolve`, the FIFO and `_shq` probes) and the wire's own scan of the repository. Their inputs are the caller's `git`, checkout and platform, not fixture state | loud in CI (the job timeout ends it), a wait locally | outside P, under R1/R2 and R6. **Declared**; the watchdog bounds what the fixtures can make block |
+| R9 | a hang outside the run's process group (§3): only the wire's own code before it sources the controls file (arguments, scratch creation, its EXIT trap). It reads no fixture state | loud in CI (the job timeout ends it), a wait locally | outside P, under R2. **Not a slot**, by the create-time audit: it names no defect this PR leaves (the code reads the platform only), no work is owed, no event would bring work back, and keeping a slot would change no decision |
 
 R7's command, together with a negative case that shows it discriminates:
 
@@ -652,18 +727,20 @@ unbound-variable abort into exit 0. The orchestrating session reproduced it (`�
 "code sourced after wire:405".
 
 This PR's harness and controls are exactly such code. **The ledger text — the one text; §9's ledger
-step writes exactly this** — replaces the entry's stale reference to the deleted detector ("U5 … setup
-failure a labelled verdict"):
+step writes exactly this** — **replaces**, in place, the entry's sentence "(its memo U5: state
+initialised at harness top level, setup failure a labelled verdict)" and the amendment written at PR
+creation. It does not append to them:
 - **measured, not argued:** with the wire's nounset off, the clean tree and eight red cells give the
-  same exit status and verdict lines as with it on (bash 5.3, at this PR's head; the command is in §3).
+  same exit status and verdict lines as with it on (bash 3.2 and 5.3; the cell script is verbatim in
+  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §13, "X13", and X13 re-runs it at this PR's final head).
   On those runs no parent-side verdict depends on `set -u`; that is a measurement over those runs, not a
   proof over every path;
 - an incomplete fixture-build window is reported by the **W verdict alone**, and no control runs:
   `_control` asks `_fw_built_or_w2` first, and so does each of the three blocks that are not
   `_control`s (relative scratch, fsmonitor, umask). That covers a child that refuses a prelude missing
   any one of `errexit`, `nounset` or `pipefail`, a fixtures file that stops before its last line, and
-  one that switches an option off. A window that does not finish within its bound is W too, and its
-  process group is killed. A build that is complete but untrusted (a red postcondition, or W3) ends
+  one that switches an option off. A run that exceeds its running phase's bound is killed as one
+  process group and reported from the fired marker: a window, as W. A build that is complete but untrusted (a red postcondition, or W3) ends
   the run after its reports, and no control runs over it either;
 - a mode restriction a fixture sealed and the window could not apply, or refused, is red (W4);
 - pinned by the W records (one per prelude option, one for the early return, one for an abort, one for
@@ -675,7 +752,7 @@ failure a labelled verdict"):
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6 ("the corpus file";
 touch-time split, text unchanged). It holds the recast oracle, the prototypes p6–p11, the re-run
 recipe, every focused cell table, and the mutation records with their totals and the ratchet;
-its §6.1 holds draft 11's planned record changes.
+its §6.1 holds drafts 11–12's planned record changes.
 
 ## §7 What was deleted (draft 5 → 6)
 
@@ -714,12 +791,16 @@ in the same PR" is an in-file rule (`git show e8f78896:.github/workflows/ci.yml 
 '/^  trip-wires:/,/^  [a-z]/p'`). C5 re-derives the line by that rule's own method, and records the
 method and the verdict without figures. If the value would change, **STOP and escalate to the user**.
 
-- **Where the record goes.** A new paragraph in the `trip-wires` job comment block, beside the
-  existing "RE-DERIVED AGAIN when the K2 wire's rev-3 controls landed" paragraph, stating the method
-  (three runs per side) and the verdict (unchanged or changed).
-- **Interaction with #510.** #510 rewrites that same comment block and raises the timeout. Its head
-  moves, so read it at the time with `gh pr view 510 --json headRefOid`; it was `94281cd7` when this
-  draft was written. Whichever PR lands second carries the other's paragraph forward in its rebase.
+- **Where the record goes.** C5 replaced the job comment's re-derivation paragraphs with the method
+  (three runs per side, alternated) and one verdict line naming the commits. That line describes the
+  tool code of the squash, so after C6–C10 it is stale until X8 re-runs at the final head and rewrites
+  it.
+- **The threshold.** Take the slowest of the three head runs, × 4.3 (the runner ratio, §3). If that
+  reaches half the 5-minute budget, **STOP**: a head run of 34.9 s or more (150 / 4.3 = 34.88).
+- **Interaction with #510.** #510 rewrites the same job. At `cc05c428` (read it at the time with
+  `gh pr view 510 --json headRefOid`) it sets `timeout-minutes: 10` and carries no K2 rule. The umbrella
+  withdrew "whichever lands second is a textual merge", so the later lander **re-derives** the line
+  under both rules. It does not carry a paragraph forward.
 - **Ownership.** The budget half is unowned (parent §6; umbrella, Cross-lane coordination).
 - **Cost shape.** There is still **one** build. It runs in a child process, with the postconditions and
   P-g added.
@@ -758,22 +839,31 @@ orchestrating session writes these entries into `project_open-defer-slots.md` at
   text for that amend.
 - **Fix the header count.** The net change is −2: one slot dissolved, one closed.
 
-### §9.1 Draft 11: the commits on top of `8413a4db`
+### §9.1 Drafts 11–12: the commits on top of `8413a4db`
 
-Draft 11 is implemented as four commits on the PR branch. Each is green on both shells, and each sets
-`_MUT_RECORDS_MIN` to its own record count. The record changes are in corpus §6.1.
+Drafts 11–12 are implemented as five commits on the PR branch. Each is green on both shells, and each
+sets `_MUT_RECORDS_MIN` to its own record count. The record changes are in corpus §6.1. Per commit:
+X1, X3, X4b and X10. At the final head: X2, X5, X6, X8, X9 and X12–X15. The history goes to
+`…-reviews.md` §13, not to the provenance companion (972 lines).
 
-| # | commit | what | window / all records | verified by |
-|---|---|---|---|---|
-| C6 | M-PATH | delete the normaliser (the `_fp_*` loop and its comment block); `_FGIT_PATH="$_FGIT_BIN:$PATH"`; P-j keeps its first-entry and `git` clauses and loses the per-entry one; P-j's label renamed (§4); the harness comments that cite "memo §0.1" and "memo §1" without the file name go with the block (X4b is **not** empty on them at `8413a4db`) | 49 / 144 | X1, X3, X4b, X14 |
-| C7 | M-WATCHDOG | `_with_watchdog` in the harness, used by the window, `_control` (its inline watchdog deleted), the three blocks' self-tests and `_mut_trial`; `_FW_TIMEOUT`, `_MUT_TRIAL_TIMEOUT`; W's timeout cause; the comments that say nothing has a time bound (the census; the `HEAD`/`config` guard) rewritten | 50 / 145 | X1, X3, X12 |
-| C8 | untrusted build | the window's verdict reported in one place, and the run ends unless the build is complete and trusted; `_fw_built_or_w2` asks the same; W2's label renamed | 51 / 146 | X1, X3, X13 |
-| C9 | M-SHAPE | the shape scan before git runs on a `.git`; the non-directory-link arm inside a `.git` and the two-name `HEAD`/`config` guard deleted | 54 / 149 | X1, X3, X5 |
+| # | commit | what | this PR's / all records |
+|---|---|---|---|
+| C6 | M-PATH | delete the normaliser (the `_fp_*` loop and its comment block); `_FGIT_PATH="$_FGIT_BIN:$PATH"`; P-j keeps its first-entry and `git` clauses and loses the per-entry one; P-j's label renamed (§4); the harness comments that cite "memo §0.1" and "memo §1" without the file name go with the block (X4b is **not** empty on them at `8413a4db`) | 49 / 144 |
+| C7 | M-WATCHDOG | in the controls file: `_k2_group`, `_k2_joined`, `_k2_phase` and the timer, the one-group-per-run start with its verdict from the fired marker, the exit handler composed with the wire's trap, and phase announcements for the setup, each non-`_control` block and the scan. In the harness: the window's and `_control`'s announcements, `_control`'s inline watchdog and its `_rc -ge 128` read deleted, `_FW_TIMEOUT`, and the window's wall time in the summary. In the mutation runner: each trial as its own group under `_MUT_TRIAL_CAP`, its output through a file, a killed trial's verdict line appended, and the run's phase unbounded while trials run. The always-on `set -m` check. Comments that say nothing has a time bound are rewritten | 51 / 146 |
+| C8 | untrusted build | the window's verdict reported in one place, and the run ends unless the build is complete and trusted; `_fw_built_or_w2` asks the same; W2's label renamed | 52 / 147 |
+| C9 | M-SHAPE | the shape scan before git runs on a `.git`; the non-directory-link arm inside a `.git` and the two-name `HEAD`/`config` guard deleted; no per-link search behind a link inside a `.git` | 55 / 150 |
+| C10 | P-k | `count-objects -v` per compared `.git`, its liveness probe and machine-limitation arm; two labels | 58 / 153 |
 
-C7 comes before C9, so no record in C9 runs a git that could block without a bound. After C9 come X8,
-by the `ci.yml` rule (a change means STOP), and the ledger amend, re-applied with §5.2's revised text.
-The land order then resumes at step 3 (`/external-converge`) on the new head. Draft 11 changes a
-plan-reviewed design, so it goes to a focused plan-review before C6 (§12).
+C7 comes before C9, so no record in C9 runs a git that could block without a bound. After C10 come X8
+(by the `ci.yml` rule, with §9's threshold) and the ledger step. That step:
+- replaces the exit-trap slot's text, in place, with §5.2's;
+- amends `#11-trip-wire-launch-environment`: member (3) gains the K2 window (git pinned as the caller's
+  shell resolves it from the wire's directory; the other entries verbatim), and the fired trigger
+  "#519 lands" becomes "the next PR that changes how a required wire, or the K2 fixture window,
+  resolves or passes `PATH`". The PM lane stays the owner.
+
+The land order then resumes at step 3 (`/external-converge`) on the new head. Draft 12 restructures
+§3 and §10, so it goes to a full plan-review, round 11, before C6 (§12).
 
 ## §10 Coupled invariants
 
@@ -783,7 +873,7 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | # | axes | invariant | where |
 |---|---|---|---|
 | 1 | A×B | the window's `env -i` closes every variable, and four relocations close default files: class (a). That holds for every git in the window **whose inputs no fixtures-file command removed, overrode or added**, however it is spelled. A command that does is class (b) if it leaves persisted, observable state (P-g, W, W3) and class (c) otherwise, which is out of scope | §0.3, §3, §5.1; corpus G, R |
-| 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a regular file or a directory. What is neither configuration nor shape (`objects/info/alternates`) is declared, not caught | §4 |
+| 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a regular file or a directory. P-k adds that no fixture repo reads objects from a store outside it | §4 |
 | 3 | A×D | P-f is a complement check: an unknown name in the window is red | §4 |
 | 4 | B×E | the empty template removes `.git/info/`, so `notcommitted` creates it | §3 |
 | 5 | D | window state is assigned before it is read. Completion needs the fixtures file's own last line, with the options still on; an incomplete window ends the run with W alone, a complete but untrusted one ends it after its reports, and `_control` itself refuses unless the build is complete and trusted (W2). Each child option is checked and recorded. With the parent's nounset off, the clean tree and eight red cells give the same verdicts (measured, §3; not a proof over every path) | §3, §5.2 |
@@ -793,7 +883,7 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | 9 | D | one label per producer, one record per label; the ratchet stays at 21 | corpus §6 |
 | 10 | A×C | P covers git's inputs only; the executable, the platform and the non-git commands are outside it, so the window's `PATH` is the caller's, verbatim, behind the pin, and P-j checks only the pin | §0.1, §5.2 |
 | 11 | F | still one build, now in a child; the ci.yml line is re-derived by rule, and a change means STOP | §9 |
-| 12 | D×F | every child that runs over fixture state goes through one watchdog; the timeout reaches the caller through a marker, never a status, and it kills the whole process group. The parent's source-time probes and the wire's own scan are outside it (R9) | §3, §5.2 |
+| 12 | D×F | a wire run is one process group, and nothing in it re-groups: `set -m` appears only in `_k2_group`, which runs only where no group is in effect (a top-level run; each mutation trial, while the enclosing phase is unbounded). The running phase announces its bound; one timer outside the group kills the whole group, which reaches every descendant because none left it; the verdict comes from the fired marker, never a status; the group is killed again after its leader exits. Outside it: the wire's code before it sources the controls file (R9) | §3, §5.2 |
 
 ## §11 Exit criteria
 
@@ -806,15 +896,16 @@ These run on both shells, and on both gits wherever the corpus has a column.
 | X3 | `WEBREF_WIRE_MUTANTS=1 $SH $W`, then `/usr/bin/grep -F -e 'entr(ies), 0 not killed as named' -e ', 0 neither killed nor argued equivalent' -e 'trip-wire PASSED'` | three hits in every column. C1–C3 are byte-identical to base |
 | X4 | C1/C2: X1's log at the parent commit and at the split commit, with scratch paths normalised by one `sed`, then `diff` | empty |
 | X4b | the X4b block below, over each file C1/C2 and C6–C9 edit | empty (at `8413a4db` the harness gives 2 lines, 71 and 93, which C6 deletes) |
-| X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`; and draft 11's cells (corpus §6.1) | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11 cell as corpus §6.1 says |
-| X6 | planting: a template `config`+`HEAD` in the void; a local `include.path` in a fixture | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
+| X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`; and drafts 11–12's cells (corpus §6.1) | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11/12 cell as corpus §6.1 says |
+| X6 | two by-hand edits to `…trip-wire.fixtures.sh`, each just before its `: > "$_FW_DIR/built"` line: `mkdir -p "$_FGIT_VOID" && printf 'ref: refs/heads/x\n' > "$_FGIT_VOID/HEAD" && : > "$_FGIT_VOID/config"`, and `git -C "$CTL/clean" config include.path /nonexistent-k2`; one run each | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
 | X8 | the ci.yml rule's derivation (§9) | method and verdict recorded; STOP on change |
-| X9 | `Layering trip-wires` on ubuntu (GNU), via route (a) or (b) of §9, chosen by the user at push time | SUCCESS. This is GNU evidence for `env -i`, `env -0`, the window and the prelude. If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |
+| X9 | `Layering trip-wires` on ubuntu (GNU), via route (a) or (b) of §9, chosen by the user at push time | SUCCESS. This is GNU evidence for `env -i`, `env -0`, the window, the prelude and the process-group bound. Record the window's wall time from the summary line (§3), for the bounds' next derivation. If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |
 | X10 | `$SH -n` and `wc -l` over `ls .claude/tools/webref-generic-core-trip-wire*.sh` | clean; every part below 1000 lines |
-| X11 | in a clone, add `_x_lbl="an unrecorded probe"` and an `echo` that uses it | red, and the ratchet lists it |
-| X12 | a fixture that sets `include.path` to a FIFO outside the fixture root (the W-timeout record's shape), run by hand; `pgrep -f -- --show-origin` before and after the run | rc 2, W with the timeout cause, finished within `_FW_TIMEOUT` plus the rest of the run; no `--show-origin` process after it that was not there before (the blocked git was reaped with its group) |
-| X13 | §3's IMP-2 measurement at the final head: the clean tree, the eight red cells, the X12 cell and an untrusted-build cell, with the parent's nounset off and on | the same exit status and verdict lines both ways |
-| X14 | at the final head: E1's caller `PATH` (`~+/bin` first, a logging `git`); Codex R23's `tools/bin` wrapper with its interpreter beside it; Codex R24's `~/bin` wrapper with a helper | each PASSED, or red with a named cause, and none hangs; the outcomes recorded in `…-reviews.md` §13 (a red here is §0.1's accepted consequence) |
+| X11 | in a clone, add to `…trip-wire.controls.sh`, after the other `_lbl` definitions, `_x_lbl="an unrecorded probe"` and `echo "$_x_lbl" >/dev/null` | red, and the ratchet lists it |
+| X12 | the cells (a)–(c) of §3, by hand, from the edits and scripts in `…-reviews.md` §13 (each FIFO lives under the run's own scratch directory); after each, `ps -ax -o pid=,command=` filtered by that run's scratch path and by the cells' names (`k2ff`, `k2blk`) | (a) rc 2, W; (b) rc 1, CONTROL FAILED with the probe's label; (c) the trial returns at the window's bound, and at its cap when that bound is broken. No process names that scratch path or those names afterwards. The filter is scoped to this run, so a concurrent session's processes do not count |
+| X13 | the `crc.sh` script, verbatim in `…-reviews.md` §13, at the final head: the clean tree and the eight red cells (`garbagehead` is an untrusted build), with the parent's nounset off (`NOU=1`) and on, on bash 3.2 and 5.3 | the same exit status, NE/CF counts and first four `!!` lines both ways, on both shells |
+| X14 | at the final head: PX1's caller `PATH` (`~+/bin` first, a logging `git` in the repository's `bin/`); Codex R23's `tools/bin` wrapper with its interpreter beside it; Codex R24's `~/bin` wrapper with a helper | each PASSED, or red with a named cause, and none hangs. For PX1 the expected result is PASSED with the wrapper as the fixture git (§0.1; round 10 measured that on the draft-11 prototype). The outcomes are recorded in `…-reviews.md` §13 |
+| X15 | by hand, before `built`: `git init -q "$CTL/zzx" && mkdir -p "$_FW_DIR/zzt/a" && : > "$_FW_DIR/zzt/a/HEAD" && ln -s "$_FW_DIR/zzt" "$CTL/zzx/.git/k2link"` | rc 1, P-g, whose message names `zzx` by the shape rule only; no "symlink to a tree holding a git dir" entry for `k2link`, so the search did not run behind it |
 
 Commands containing `|` are kept out of table cells, because `\|` in a markdown cell is read one way
 raw and another way rendered, and that made one of X1/X4b vacuous. They use `-e` alternatives instead.
@@ -833,8 +924,9 @@ Each was re-run to show it discriminates (companion §A.10).
 
 ## §12 Plan-review
 
-Plan-review closed for draft 10 after round 9 (`…-reviews.md` §D.0 records the ground). Draft 11
-revises a reviewed design (§9.1), so it needs a focused plan-review before C6. That review has not run.
+Plan-review closed for draft 10 after round 9 (`…-reviews.md` §D.0 records the ground). Round 10
+reviewed draft 11 (`…-reviews.md` §13). Draft 12 restructures §3 (the bound) and §10 (#12), and adds
+P-k, so **round 11 is a full re-review** before C6. It has not run.
 
 ## §13 Implementation results
 
