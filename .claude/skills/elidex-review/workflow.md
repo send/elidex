@@ -53,6 +53,8 @@ Surviving present-tense stale sites → feed into Step 3 as `consistency`-catego
 
 **同一 message 内 5 並列 Agent tool call** (sequential / inline self-review NG、§ "Anti-patterns" 参照)。
 
+5 本すべて `subagent_type: reviewer` で起動し、`model` は渡さない (Fable 昇格時のみ。CLAUDE.md「サブエージェント振り分け」参照)。この節は `elidex-plan-review` も共有する。reviewer 定義本文は「修正の方向」を書かせるが、本テンプレートの `Do NOT propose fixes` を優先する — brief にその旨を明記すること。途中停止 (済/残/次の報告) した軸は「0 件」ではなく**未完了**として扱い、その軸を継続/再起動する (CLAUDE.md「サブエージェント振り分け」規則 1)。
+
 Each SKILL.md supplies five variables before dispatching the agents (substitute the literal values into the prompt below):
 
 | Variable | `elidex-review` (diff) | `elidex-plan-review` (plan) |

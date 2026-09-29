@@ -53,6 +53,14 @@ webref の cache refresh / snapshot / semantic diff / agent-brief workflow の�
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 - **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 worktree で隔離して作業** (新規ブランチ = `git worktree add -b <branch> <dir> origin/main` ← clean base 明示で汚染 HEAD を継がない / 既存ブランチ [in-progress PR の復旧等] = shared tree から外してから `git worktree add <dir> <branch>` ← `-b` は既存名で fail) (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
+- **サブエージェント振り分け (model tiering、2026-09 trial)**: `general-purpose` は使わない。振り分け = 範囲と完了条件が決まった修正・実装 → `coder` / 手順どおりの機械的確認 (`mise run ci`・コミット範囲・分母・head==assessed commit) → `verifier` / 判断を要するレビュー (5 軸 review agent、converge の enumeration attestation) → `reviewer` / 読み取り専用の調査 (Explore の代わり) → `scout` / plan-memo の作成・改訂・設計 → `designer`。`model` パラメータは Fable 昇格時のみ指定する (定義ファイルより優先されるので、それ以外で渡すと tiering が崩れる)。
+  - **上限は引き継ぎ境界であって scope cap ではない** (`memory/feedback_cap-vs-completeness.md` の読み替え)。完全性は次の 5 つで保つ:
+    1. 途中報告 (済/残/次) は判定に数えない — 残がある限り未完了。軸 1 本の途中停止を「0 件」、attestation の途中停止を PASS と読まない。報告は分母 (N 中 M) 付き。
+    2. 状態の正典は成果物 (`git diff` / scratchpad file)、報告は目次。後継 agent は成果物から再構成する。
+    3. maxTurns の強制停止で報告が失われたら SendMessage で「現状を要約して終了」を 1 回だけ送る。回収できなければその単位を最初からやり直す (skip しない)。黙って続行させない。
+    4. cap に合わせて brief を縮めない — 上限到達は slice の引き方の誤りの signal として事前分割し直す。
+    5. 同じ種類の仕事で引き継ぎが 2 回続いたら slice か tier の誤り → 昇格 (coder→designer、reviewer→`model: fable`)。coder の「3 回試して停止」も drop でなく昇格経路。
+  - 本規則は elidex で trial 中。1 週間の計測 (`memory/project_agent-model-tiering-rollout.md` Step 3) 後に問題なければ global へ移す — それまで SSoT はここ。
 
 ## Commands
 

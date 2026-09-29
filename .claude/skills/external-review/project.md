@@ -42,6 +42,8 @@ Applied at SKILL.md Step 5.1 (fix planning) — per-fix lens. SSoT: `<repo>/.cla
 
 Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; reactive patch was per-site `sort_by_key`. Philosophy-ideal was `BTreeMap` keyed by monotonic observer id — registration-order delivery as a *structural* invariant.
 
+修正適用・検証の委譲先 (`coder` / `verifier` / `reviewer` / `designer`) は `external-converge/project.md` § `fix_discipline` の "Delegation" (canonical site) に定義されており、ここでは再掲しない — そのまま適用する。
+
 **Step 5.5 fix-delta re-verify**: external-review findings are frequently *symptom-shaped* ("add a guard", "handle this case"), and the fix delta never re-enters the pre-push `/elidex-review` philosophy gate. So when any fix this pass is symptom-shaped OR touches `layering.paths`, run one `/elidex-review` over the fix delta before the merge proposal — **Trigger B is the acute external-review-specific risk** (see workflow.md Step 4.5). New findings → resolve before merge.
 
 ## classification_calibration

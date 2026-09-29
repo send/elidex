@@ -189,7 +189,7 @@ Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 
 Step 4 通過後 (lens 収束 → そのまま進行 / genuinely user-owned な fork があった場合はその回答後):
 
-1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)
+1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)。編集は `designer` に委譲し、Step 3.5 の Fix decision block を brief として渡す (CLAUDE.md「サブエージェント振り分け」)
 2. 適用した各 fix を `workflow.md` § "Step 4.5" の 2 trigger (A: design-affecting / B: symptom-shaped) で screen。**plan-stage は blast-radius 最大ゆえ即時** (workflow.md "Placement" 節参照、plan fix は後続 design 判断が乗って compound する)。
 3. 変更タイプによる分岐:
    - **clerical のみ** (citation / wording / scope-doc) → re-review skip 可、implementation 着手 OR prereq PR carve-out
