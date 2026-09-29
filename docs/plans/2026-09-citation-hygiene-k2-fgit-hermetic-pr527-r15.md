@@ -532,3 +532,103 @@ cuts the hand set to `!survive`. `srcrw`'s insert, per shell: `printf '\n_mut_co
 `RN` is the run-time check's negative control: with the generator's path intact it stays green, so
 `RC`, `RA` and `genshim` are red for the cause the check names. `RN` ran with `alarm 2400` (`cellm.sh`
 with that one number changed), since its 50 generated trials take longer than 900 s allows.
+
+**The implementation (C6…C12), 2026-09-30.** No further prose plan-review round preceded it (design
+memo §12). Base `fa339493` (draft 21). Each commit's per-commit checks (X1, X4b, X10, plus
+`scripts/trip-wires.sh`) ran green on `/opt/homebrew/bin/bash` 5.3 and `/bin/bash` 3.2 with a scratch
+`HOME`, and each new record's kill and survive were measured by the single-trial method (a
+`*.mutant.<tag>.*` copy beside the wire, so the always-on anchor check inside `_mut_correspondence` is
+skipped as it is for a real mutant, matching what the runner does; the anchor check itself was then
+separately confirmed live at X16's `xanchor`/`stalectl` cells, run on a plain, non-`.mutant`-named copy)
+before each commit:
+
+| commit | sha | what | per-commit checks |
+|---|---|---|---|
+| C6 | `523ce31f` | M-PATH: `_FGIT_PATH="$_FGIT_BIN:$PATH"`, the `_fp_*` normaliser deleted; P-j loses its per-entry clause; P-j's two surviving records relabelled and one re-anchored, one deleted; `_MUT_RECORDS_MIN` 145→144 | X1/X4b/X10/trip-wires green both shells; P-j record kill+survive measured |
+| C8 | `043526ee` | `_fgit_window_incomplete_exit`→`_fgit_window_verdict_exit`, the sole writer of `_fw_trusted`; `_fw_built_or_w2` reads it; W3's report moves in; W2 relabelled and re-anchored, two new records (post_bad forced, W3 forced); P-h relabel + new `rawbyte` wire record; `_MUT_RECORDS_MIN` 147 | X1/X4b/X10/trip-wires green both shells; 4 records' kill+survive measured (W2 re-anchor: kill only, see below) |
+| C9 | `c9c0639d` | M-SHAPE: the two-pass census (`_pg_census`) before any postcondition runs git; the postconditions' directory `_pq` made fresh by `mktemp -d` after the build; the in-loop per-link search and the old HEAD/config two-name guard deleted (replaced by a general shape scan); 8 new records; `_MUT_RECORDS_MIN` 155 | X1/X4b/X10/trip-wires green both shells; X6 (template/include) re-checked; 8 new records' kill measured, one (the harness shape-scan-status record) also survive; a census-removed survive proxy on `xcommon`'s fixture reached the 60 s alarm (SIGTERM), the necessary-condition check the design prescribes for a FIFO-involving scenario |
+| C10 | `ebbcb282` | P-k: `count-objects -v` over every `.git` P-g compares, red on `alternate:`/non-zero/stderr; a third-probe-repo liveness check, no machine-limitation arm; 4 new records; `_MUT_RECORDS_MIN` 159 | X1/X4b/X10/trip-wires green both shells; 4 records' kill+survive measured |
+| C11 | `7f4259f9` | `_VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")"` right after `_fgit_window` returns; every parent working file under `$CTL` moved there; `.fifoprobe` to `$SCRATCH`; the entry guard and two headers renamed; `_mut_gen_floor` (always on) + one record; the parent memo's banner (L14/L25) and two prefix comments updated | X1/X4b/X10/trip-wires green both shells; the design memo §4 checker lists exactly one line after the move; the new record's kill+survive measured |
+| C12 | `219fe5e7` | the child writes a fixed canary to fd 2 after the options re-check; the parent requires it before counting the window done, else a new `_fw_why`; one new record | X1/X4b/X10/trip-wires green both shells; the record's kill+survive measured, plus an `xexecarith`-style (redirect then division by zero) variant |
+| docs | `52f3efaa` | round 19's four leftover MINs (§0.3's class-(c) wording, the `導出`/`再導出` count, both "Drafts 11–20" headings → "11–21") | n/a (docs only) |
+
+**The two defects C8's own implementation found (both fixed before the commit landed, both now in the
+shipped code and its comments):**
+1. `_fw_built_or_w2`'s guard was first written `[ "$_fw_trusted" -eq 1 ] || return 0` — the polarity of
+   the old `_fw_done` guard, read wrong for the new flag (it returned "trusted, proceed" exactly when
+   `_fw_trusted` was NOT 1). Caught immediately by inspection before any run; fixed to
+   `[ "$_fw_trusted" -ne 1 ] || return 0`.
+2. `_fgit_window_verdict_exit`'s incomplete branch, with its own `exit 2` defeated by the W2 re-anchor
+   record (`harness.sh`'s `built`/`notdone` swap), fell through into the trusted computation and set
+   `_fw_trusted=1` off a window that was never complete (`_fw_done` still 0) — found by the re-anchor
+   record's kill measurement reading rc 0 PASSED instead of the expected W2 report. Fixed by a redundant
+   `return 0` inside the same guard (a `set -e`-safe `return`, not `return 1`, since the call site in
+   `controls.sh` is bare and a non-zero return there would abort the whole run instead of falling through
+   to `_control`'s own gate) — see the comment beside it in `webref-generic-core-trip-wire.harness.sh`.
+
+**The W2 re-anchored record: kill measured, no distinct survive.** Its kill (rc 1, the W2 needle, `t`
+below) is measured. A survive attempt that removes `_control`'s own `_fw_built_or_w2 || return 1` line
+alone does **not** pass: the relative-scratch block's separate call to the same function still reports
+W2 first (rc 1, same needle) — both call sites share one function, so defeating one exposes the other.
+This matches the design memo §3's declared gap for this family: "removing one of the three [non-`_control`]
+block gates survives the mutation set … those gates are pinned by the traced `w2rec` cell … not by a
+record." The record's own claim — that the exit being gone still lets W2 fire — is what "kill" proves;
+no further survive check is owed by corpus §6.1 for this row (it is a re-anchor, not a new record).
+
+**X16, at the final head `219fe5e7`** (both shells; each cell copied beside the wire under a name that
+does **not** contain `.mutant.`, so the always-on anchor check runs as it does for an ordinary invocation,
+except `stalectl`/`staleshim` which additionally vary the caller's `PATH`; `HOME` a scratch dir; each in
+its own process group via `perl -e 'setpgrp; alarm 60; exec @ARGV'`, no leftover process found after any
+run):
+
+| cell | bash 5.3 | bash 3.2 |
+|---|---|---|
+| clean | rc 0, PASSED, 14 s | rc 0, PASSED, 24 s |
+| R26③ `commondir` (FIFO in `clean/.git`) | rc 1, 2 s, P-g `K2PRE clean/.git:[shape: …/commondir]` | rc 1, 4 s, same |
+| R26③ `HEAD` (FIFO) | rc 1, 3 s, P-g `K2PRE clean/.git:[shape: …/HEAD]` | rc 1, 3 s, same |
+| R26③ `config` (FIFO) | rc 1, 2 s, P-g `K2PRE clean/.git:[shape: …/config]` | rc 1, 4 s, same |
+| R26③ `config.worktree` (FIFO) | rc 1, 3 s, P-g `K2PRE clean/.git:[shape: …/config.worktree]` | rc 1, 4 s, same |
+| xcommon | rc 1, 3 s, P-g `K2PRE zzr/.git:[shape: …/config]` | rc 1, 4 s, same |
+| bareh | rc 1, 4 s, P-g `K2PRE zzb.git:[a git dir not named .git]` | rc 1, 4 s, same |
+| outsidein | rc 1, 3 s, P-g `K2PRE zzr/.git:[shape: …/k2root]` | rc 1, 4 s, same |
+| hard | rc 1, 3 s, P-g `K2PRE clean/.git:[shape: …/info/exclude]` | rc 1, 4 s, same |
+| xlink | rc 1, 3 s, P-g `K2PRE zzl:[a symlink to a tree holding a git dir]` | rc 1, 4 s, same |
+| xincreg | rc 1, 6 s, P-g by origin (`file:.git/../../zzi`) | rc 1, 7 s, same |
+| clean (round 13) | see "clean" above | — |
+| xrefpoison | rc 1, 6 s, P-g `clean:[file:.git/config core.excludesfile=…]` | rc 1, 8 s, same |
+| xrefctl | rc 1, 5 s, P-g (every fixture repo) | rc 1, 7 s, same |
+| lnblind2 | rc 1, 3 s, `K2PRE zzy:[a symlink to a tree holding a git dir]` | rc 1, 3 s, same |
+| xbare | rc 1, 16 s, `21 labels have no mutation record, against a ratchet of 0.` | rc 1, 20 s, same |
+| xanchor | rc 1, its anchor is stale (elapsed not separately timed) | rc 1, same |
+| xexecarith | rc 2, 6 s, W: "the fixtures file left the window's stderr redirected, …" | rc 2, 8 s, same |
+| shimprepend | rc 1, 6 s, P-j `first-entry`; no control run | rc 1, 8 s, same |
+| shimafter | ⚠ rc 0, PASSED, 15 s (declared class-(c) boundary) | ⚠ rc 0, PASSED, 22 s |
+| shimhash | ⚠ rc 0, PASSED, 16 s (declared class-(c) boundary) | ⚠ rc 0, PASSED, 22 s |
+| stalectl | rc 1, its anchor is stale (elapsed not separately timed) | rc 1, same |
+| staleshim | ⚠ rc 0, PASSED (elapsed not separately timed; declared class-(c) boundary; `cpath/mktemp` and the prepared directory held the parent's working files, `.control_out`/`.fsm_out`/`.mutants`/`.umask_out`/`fsmhook`, after the run) | ⚠ rc 0, PASSED, same |
+| gitfn | rc 1, 6 s, P-a `command line:` | rc 1, 8 s, same |
+
+All results match `…-landing.md` §11's predicted verdicts. `xcommon`/`hard`/`xlink`/`xrefpoison`/`lnblind2`
+were measured on both shells during C9's own per-commit evidence at C9's head, and re-confirmed (not
+re-tabulated above) at the final head on the shell/side not already shown, so each has at least one
+timed row here and one from C9's PROGRESS record; none differed from the final-head re-run.
+
+**Plan-vs-prototype disagreements resolved (report obligation, none blocking):**
+- C8 had no prototype (the reviewer's directory holds only a one-line `K2PROTO` stand-in in the controls
+  file); `_fgit_window_verdict_exit`'s full logic, `_fw_trusted` and the two self-found defects above are
+  this implementation's own, derived from design memo §3's prose, not copied from any prototype diff.
+- C10 (P-k, its liveness probe, and all four records) likewise has no prototype; implemented from design
+  memo §4's P-k table row and the `…-pr527.md` round-12 P-k measurements (the C-quoted `alternates` form).
+- The plan (design memo §4, C9's landing row) states "the in-loop per-link search and the two-name
+  HEAD/config guard deleted"; the draft-21 prototype (`proto21.diff`) left the in-loop per-link search's
+  code in place (re-pathed to `$_pq`, not removed) — a plausible artefact of the prototype's own priority
+  (proving the reviewer's cells pass), not a considered design choice. This implementation follows the
+  plan's stated design over the prototype's leftover code and deletes it, replacing the symlink branch
+  with a `continue` guarded only by name (`.git`/`HEAD` fall through; any other is skipped), since a
+  clean two-pass census already guarantees no unclassified symlink reaches that point.
+- Every other C6/C8–C12 line traces to the prototype diff (for C6, C9's shape-scan replacement and
+  path-moves, C11, C12) or to a design-memo passage cited in the relevant commit message; none disagreed
+  with the plan.
+
+This file is 634 lines (`wc -l`) after this entry; the rollover rule in design memo §13 applies
+only when a later entry would take it past 800, which this one does not.
