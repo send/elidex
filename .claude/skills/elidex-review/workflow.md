@@ -53,7 +53,7 @@ Surviving present-tense stale sites → feed into Step 3 as `consistency`-catego
 
 **同一 message 内 5 並列 Agent tool call** (sequential / inline self-review NG、§ "Anti-patterns" 参照)。
 
-5 本とも `subagent_type: reviewer` で起動する (振り分けと途中停止の扱いは CLAUDE.md「サブエージェント振り分け」)。
+5 本とも `subagent_type: reviewer` で起動する (振り分け・途中停止・定義が無い環境での fallback は CLAUDE.md「サブエージェント振り分け」)。
 
 Each SKILL.md supplies five variables before dispatching the agents (substitute the literal values into the prompt below):
 
@@ -113,7 +113,10 @@ After 5 agents return, emit the summary in this exact format:
 [per-finding: `F<N>` ID + agent label + severity + file:line or §section + summary + agent's *raw* suggested fix]
 ```
 
-**未完了の軸**: agent が soft limit / maxTurns で途中停止した (済/残/次を報告した、または報告が失われた) 軸は、件数の代わりに行を `未完了 (M/N)` と書く。未完了の軸が 1 つでも残る間は gate 判定をしない — CLAUDE.md「サブエージェント振り分け」規則 1–3 で後継を起こし、全軸が件数で埋まってから判定する。
+**未完了の軸**: agent が soft limit / maxTurns で途中停止した軸は、件数の代わりに行を `未完了 (M/N)` と書き、gate 判定をしない。軸ごとの状態は `$RUN_DIR/axis-<N>.md` に置き、報告ではなくこのファイルを正典とする (CLAUDE.md「サブエージェント振り分け」規則 2):
+- **作業リスト (分母 N)**: 最初の agent が報告した (Detect entry × target) の全体リストで固定する。後継は同じリストの未済分だけを受け取り、リストを縮めない (項目を追加した場合は N を増やす)。
+- **findings は累積**: 各 agent が報告した findings をこのファイルに追記し、後継には「既出 findings (重複報告しない)」として渡す。軸の件数は前任・後継の findings の和集合で数える — 後継の報告だけで行を埋めない。
+- 全項目が済になった時点で、その軸の行を累積件数で埋める。全軸が件数で埋まってから gate 判定をする。
 
 ### Finding ID rule
 
