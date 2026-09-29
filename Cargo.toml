@@ -225,13 +225,11 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# Patch-level floor is load-bearing, not a style slip: within 47.x,
-# RUSTSEC-2026-0222 ("Stores can mix up type indices between engines") is
-# unpatched in 47.0.0-47.0.2, and RUSTSEC-2026-0268 (guest-controlled host
-# heap allocation through WASIp3 streams) / RUSTSEC-2026-0269 (filesystem
-# sandbox escape via trailing slashes) are unpatched through 47.0.3, so a bare
-# `"47"` (= `>=47.0.0`) would admit vulnerable versions. Keep the `.0.4`.
-wasmtime = "47.0.4"
+# Patch-level floor is load-bearing, not a style slip: RUSTSEC-2026-0315 /
+# RUSTSEC-2026-0316 (fuel accounting) are fixed per release line — 49.x from
+# 49.0.1, 48.x from 48.0.3 — so on the 49 line only 49.0.0 is vulnerable, and a
+# bare `"49"` (= `>=49.0.0`) would admit it. Keep the `.0.1`.
+wasmtime = "49.0.1"
 wat = "1"
 static_assertions = "1"
 rayon = "1"
