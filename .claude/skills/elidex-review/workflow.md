@@ -79,7 +79,7 @@ Apply Axis <N> Detect entries tagged <INPUT_TAG> or [both] to <INPUT_PATH> (<INP
 
 <Agent 2 only>: Also read <DRYRUN_PATH> and incorporate gaps into Sub-check 2b findings.
 
-Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Do NOT propose fixes (overrides the agent definition's output format) — list raw suggestion only. Report total findings count by severity at end.
+Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Read whatever axes.md Axis <N> requires, including memory/ and repo-wide greps (this overrides the agent definition's diff-only read scope). Do NOT propose fixes (this overrides only the agent definition's fix-direction field; still mark uncertain findings as uncertain) — list raw suggestion only. Report total findings count by severity at end.
 ```
 
 Axis ↔ agent mapping (stable, both skills):
@@ -112,6 +112,8 @@ After 5 agents return, emit the summary in this exact format:
 
 [per-finding: `F<N>` ID + agent label + severity + file:line or §section + summary + agent's *raw* suggested fix]
 ```
+
+**未完了の軸**: agent が soft limit / maxTurns で途中停止した (済/残/次を報告した、または報告が失われた) 軸は、件数の代わりに行を `未完了 (M/N)` と書く。未完了の軸が 1 つでも残る間は gate 判定をしない — CLAUDE.md「サブエージェント振り分け」規則 1–3 で後継を起こし、全軸が件数で埋まってから判定する。
 
 ### Finding ID rule
 
