@@ -276,9 +276,9 @@ creation. It does not append to them:
   an option switched off by the fixtures file, one for its stderr left redirected), the three W2 records and the W4 record. The three block gates
   are pinned by the traced `w2rec` cell only (§3's declared gap).
 
-### §9.1 Drafts 11–20: the commits planned on top of `8413a4db`
+### §9.1 Drafts 11–21: the commits planned on top of `8413a4db`
 
-Drafts 11–20 are to be implemented as six commits on the PR branch; none has been made. C7 (draft
+Drafts 11–21 are to be implemented as six commits on the PR branch; none has been made. C7 (draft
 12's time bound) and X12 (draft 12's watchdog cells) are withdrawn, and neither number is reused. Each
 commit is to be green on both shells and to set `_MUT_RECORDS_MIN` to its own record count; the record
 changes are in corpus §6.1.
@@ -296,8 +296,9 @@ changes are in corpus §6.1.
      After the rewrite it runs a complement check and records its output in the same commit's §Q
      entry: `/usr/bin/grep -c 'time -p bash scripts/trip-wires.sh' CLAUDE.md .github/workflows/ci.yml`
      gives 0 for each file, and `/usr/bin/grep -n -i -e 're-derive' -e 'rederive' -e '導出' CLAUDE.md
-     .github/workflows/ci.yml` (`導出` also matches `再導出`, the Japanese form CLAUDE.md line 94 uses at
-     `8413a4db`, twice) lists no line that asks for a local derivation (each remaining hit is
+     .github/workflows/ci.yml` (`導出` matches both `必要なら導出する` and `再導出する`, the two forms
+     CLAUDE.md line 94 uses at `8413a4db`: `導出` appears twice there, `再導出` once) lists no line that
+     asks for a local derivation, `必要なら導出する` included (each remaining hit is
      named in §Q with why it is not one). It changes comment lines, `CLAUDE.md` and the `…-pr527-r15.md`
      §Q record only: `git diff
      --name-only <T> HEAD -- .claude/tools scripts` is empty and the job's non-comment lines are equal

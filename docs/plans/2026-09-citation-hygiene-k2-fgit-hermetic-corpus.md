@@ -203,7 +203,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
-### §6.1 Drafts 11–20: the record changes (planned, `…-landing.md` §9.1)
+### §6.1 Drafts 11–21: the record changes (planned, `…-landing.md` §9.1; draft 21 added no record of its own -- D19-A's run-time layer is pinned by X3's floor cell, not a record)
 
 Each change is listed with the commit that makes it. The needle of every record is its label, so
 renaming a label renames the needle of each of its records in the same commit. "This PR's" counts the

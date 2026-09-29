@@ -245,9 +245,8 @@ Examples of (c), which illustrate the property and are **not a list to complete*
   read;
 - writing the verifier's own state that construction leaves reachable: a marker, a prelude variable or
   function, the pin, a file in a directory made after the build written by a background process that
-  outlives the build (`xrace`), or anything that changes what a command name the verifier runs
-  resolves to, or the verifier's source itself, in the window or in the parent after it (`mkfn`,
-  `shimafter`, `shimhash`, `staleshim`, `srcrw`; above).
+  outlives the build (`xrace`), or which executable or code the verifier runs — the window's or the
+  parent's after it (`mkfn`, `shimafter`, `shimhash`, `staleshim`, `srcrw`; above).
 
 A mistake that happens to take a class-(c) shape is not caught either, and this memo does not claim
 otherwise.
