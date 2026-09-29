@@ -10,7 +10,8 @@ reference to "memo §6" resolves here.
 
 "The companion" below is the provenance companion,
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`; `…-reviews.md` is the review
-record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`.
+record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`, and `…-pr527.md` is PR #527's
+record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md`.
 
 ---
 
@@ -179,7 +180,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
 | P-g | a fixture unsets a key a plain init writes (`git config --unset core.filemode`) | **fixtures** |
 
-- **Totals:** **16 labels and 50 records** (how each came to be: `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
+- **Totals:** **16 labels and 50 records** (how each came to be: `…-pr527.md`). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
   with no prefix edits the wire.
 - **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
 - **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 50 (95 → 145).
@@ -224,7 +225,7 @@ checked under `perl -e 'alarm 120; …'` and expected to reach the alarm, not to
 | C8 | **add**: one harness expression that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate. It survives with that gate's untrusted clause removed | W2 | harness | 50 / 145 |
 | C8 | **relabel**: W2's existing record takes the label `no control runs over an incomplete or untrusted fixture build window` | W2 | — | — |
 | C9 | **add**: `clean`'s `.git/objects` replaced by a symlink to a copy outside the fixture root (PR #527 Codex R26②: PASSED at `8413a4db`). It survives without the shape rule | P-g | **fixtures** | 51 / 146 |
-| C9 | **add**: a FIFO `.git/commondir` in `clean`, a name outside the old `HEAD`/`config` pair (R26③). Without the shape rule the run waits: at `8413a4db` a blocked `git config --list` was measured on both shells (`…-reviews.md` §13) | P-g | **fixtures** | 52 / 147 |
+| C9 | **add**: a FIFO `.git/commondir` in `clean`, a name outside the old `HEAD`/`config` pair (R26③). Without the shape rule the run waits: at `8413a4db` a blocked `git config --list` was measured on both shells (`…-pr527.md`) | P-g | **fixtures** | 52 / 147 |
 | C9 | **add**: the shape scan replaced by a command that fails with no output. It pins that a failed scan is red, not an empty result, and survives with the status check removed | P-g | harness | 53 / 148 |
 | C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root. It survives with the `alternate:` clause removed | P-k | **fixtures** | 54 / 149 |
 | C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line: NOT EXERCISED, red. It survives with the liveness check removed. With no machine-limitation arm, no machine excuses it | P-k liveness | harness | 55 / 150 |
