@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=147
+_MUT_RECORDS_MIN=155
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -367,10 +367,10 @@ harness:s/"[$]_pfenv" -0 > /{ "$_pfenv" -0; echo k2 >\&2; false; } > /	the fixtu
 harness:s/"[$]_pfenv" -0 > /false > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's environment holds only its allowlist
 harness:s/_pfenv="[$]_FGIT_ENVBIN"/_pfenv=\/nonexistent-k2\/env/	the fixture build window's environment holds only its allowlist
-harness:s/^\(  "[$]_pfenv" -0 > "[$]_FW_DIR\/env0" 2> "[$]_FW_DIR\/env0.err" || _pfrc=[$]?\)$/\1; printf K2X=1 >> "$_FW_DIR\/env0"/	the fixture build window's environment holds only its allowlist
+harness:s/^\(  "[$]_pfenv" -0 > "[$]_pq\/env0" 2> "[$]_pq\/env0.err" || _pfrc=[$]?\)$/\1; printf K2X=1 >> "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
 harness:s/^_FGIT_PATH="[$]_FGIT_BIN:/_FGIT_PATH="\/nonexistent-k2:$_FGIT_BIN:/	the fixture build window runs the pinned git first on its PATH
 harness:s/| grep -vxF -f "[$]_pgref")"/| grep -vxF -f \/nonexistent-k2)"/	every fixture repo persists only the configuration a plain git init writes
-harness:s/_pgm="[$](grep -vxF -f "[$]_FW_DIR\/pgcur" "[$]_pgref")"/_pgm="$(grep -vxF -f \/nonexistent-k2 "$_pgref")"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/_pgm="[$](grep -vxF -f "[$]_pq\/pgcur" "[$]_pgref")"/_pgm="$(grep -vxF -f \/nonexistent-k2 "$_pgref")"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 300 "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 600 "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
@@ -393,6 +393,18 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >>
 fixtures:s/^( cd "[$]CTL\/cachedir" && git init -q [.] /( cd "$CTL\/cachedir" \&\& git init -q --separate-git-dir="$CTL\/.gd-cachedir" . /	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.filemode; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zz\/inner" \&\& cd "$CTL\/zz\/inner" \&\& git init -q . \&\& git config core.excludesFile \/nonexistent-k2 ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+# THE TWO-PASS CENSUS's records (C9): every one is caught before any
+# postcondition runs git, so no control runs, and each is fast (the FIFO
+# forms end in seconds, because the census stops them, unlike a FIFO a
+# postcondition would have read — docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md X16).
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( cp -R "$CTL\/clean\/.git\/objects" "$_FW_DIR\/zzobjcopy" \&\& rm -rf "$CTL\/clean\/.git\/objects" \&\& ln -s "$_FW_DIR\/zzobjcopy" "$CTL\/clean\/.git\/objects" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/mkfifo "$CTL\/clean\/.git\/commondir"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/find "[$]_pge" ! -type f ! -type d -print 2>&1/false/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzr" \&\& rm -f "$CTL\/zzr\/.git\/config" \&\& mkfifo "$CTL\/zzr\/.git\/config" \&\& printf '..\/..\/zzr\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( printf x > "$_FW_DIR\/zzh" \&\& mkdir -p "$CTL\/clean\/.git\/info" \&\& rm -f "$CTL\/clean\/.git\/info\/exclude" \&\& ln "$_FW_DIR\/zzh" "$CTL\/clean\/.git\/info\/exclude" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$_FW_DIR\/zzo" \&\& rm -f "$_FW_DIR\/zzo\/.git\/config" \&\& mkfifo "$_FW_DIR\/zzo\/.git\/config" \&\& ln -s "$_FW_DIR\/zzo" "$CTL\/zzl" \&\& printf '..\/..\/zzl\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/pq\/a" "$_FW_DIR\/pq\/b" \&\& git init -q "$_FW_DIR\/pq\/a" \&\& git -C "$_FW_DIR\/pq\/a" config core.excludesFile \/nonexistent-k2 \&\& git init -q "$_FW_DIR\/pq\/b" \&\& git -C "$_FW_DIR\/pq\/b" config core.excludesFile \/nonexistent-k2 \&\& git -C "$CTL\/clean" config core.excludesFile \/nonexistent-k2 ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzt\/a\/objects" \&\& : > "$_FW_DIR\/zzt\/a\/HEAD" \&\& ln -s "$_FW_DIR\/zzt" "$CTL\/zzy" \&\& ln -s \/dev\/null "$_FW_DIR\/prel" \&\& ln -s \/dev\/null "$_FW_DIR\/pgls" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

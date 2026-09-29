@@ -135,7 +135,71 @@ _fw_seal_bad=""; _fw_limits=""
 # name through the prelude. Returns 1 if any reported.
 _fgit_postconditions() {
   _fpv=0
-  _pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b" || return 1
+  # EVERY file the postconditions write and then read back (the census lists,
+  # the per-link search results, `env -0`'s output, P-g's population and
+  # current listings) lives, with the references, in ONE directory made now,
+  # after the build, by `mktemp -d` beside the window's directory (never under
+  # `$_FW_DIR` or `$CTL`), whose name no fixture command that finished during
+  # the build could know (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4,
+  # "The references and the working files"). `$_FW_DIR` keeps only what
+  # both sides name: the two sourced files, the seal manifest `seal`, and the
+  # return channel (`built`, `done`, `cause`, `post_bad`, `machine_limits`,
+  # `seal_failed`, `fix_failed`, `stderr`).
+  _pq="$(mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX")" && [ -n "$_pq" ] && [ -d "$_pq" ] \
+    || { echo "!! CONTROL FAILED ($_pg_lbl): K2REF the postconditions' directory could not be made fresh" >&2; return 1; }
+  # THE CENSUS, BEFORE ANY POSTCONDITION RUNS GIT: git reads across git dirs
+  # (`commondir`, `alternates`, `include.path`), so both passes' verdict must
+  # be in before git runs anywhere, and a red census returns here — no git
+  # runs on any repo. Pass 1: classification and shape, over every `.git` and
+  # `HEAD` entry of any type and letter case, found by ONE `find`, with no
+  # `-L` and no per-directory fork.
+  _pgpre=""
+  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) > "$_pq/pre" 2> "$_pq/pre.err" || _pgpre=" (census failed)"
+  [ ! -s "$_pq/pre.err" ] || _pgpre="$_pgpre (census stderr)"
+  while IFS= read -r -d '' _pe; do
+    case "${_pe##*/}" in
+      .git)
+        if [ -L "$_pe" ] || [ ! -d "$_pe" ]; then _pgpre="$_pgpre ${_pe#"$CTL"/}:[.git is not a directory]"
+        else
+          # Every entry under a `.git` directory must be a directory or a
+          # regular file with ONE link: a symlink of any target, a FIFO, a
+          # socket, a device or a hard link is red — git reads through a link
+          # and blocks on a FIFO, and a hard link shares content outside the
+          # git dir.
+          _psh="$(find "$_pe" \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print 2>&1)" || _psh="$_psh (shape scan failed)"
+          [ -z "$_psh" ] || _pgpre="$_pgpre ${_pe#"$CTL"/}:[shape: $(printf '%s' "$_psh" | tr '\n' ' ')]"
+        fi ;;
+      [Hh][Ee][Aa][Dd])
+        _pd="${_pe%/*}"
+        if [ "${_pd##*/}" = .git ]; then [ "${_pe##*/}" = HEAD ] || _pgpre="$_pgpre ${_pe#"$CTL"/}:[HEAD spelled]"
+        elif [ -d "$_pd/objects" ] || [ -f "$_pd/commondir" ]; then _pgpre="$_pgpre ${_pd#"$CTL"/}:[a git dir not named .git]"; fi ;;
+      *) _pgpre="$_pgpre ${_pe#"$CTL"/}:[.git spelled]" ;;
+    esac
+  done < "$_pq/pre"
+  # Pass 2, the per-link search, runs only over a CLEAN pass 1 and before any
+  # git: emulating git's own read set would be the anti-pattern this window
+  # removed for `PATH` (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1),
+  # so this follows every symlink under `$CTL` that resolves to a
+  # directory, whatever its name, and reds it if a `HEAD` or `.git` is
+  # anywhere beneath. A link inside a git dir pass 1 already classified is
+  # never searched (it is already red by pass 1's shape). The census's ONE
+  # verdict, `_pg_census`, is written only after both passes.
+  if [ -z "$_pgpre" ]; then
+    find "$CTL" -type l -print0 > "$_pq/prel" 2>> "$_pq/pre.err" || _pgpre=" (link census failed)"
+    while IFS= read -r -d '' _pl; do
+      [ -d "$_pl" ] || continue
+      _plrc=0; find -L "$_pl" \( -iname HEAD -o -iname .git \) -print > "$_pq/prels" 2>&1 || _plrc=$?
+      if [ "$_plrc" -ne 0 ]; then _pgpre="$_pgpre ${_pl#"$CTL"/}:[the search through this symlink failed (exit $_plrc)]"
+      elif [ -s "$_pq/prels" ]; then _pgpre="$_pgpre ${_pl#"$CTL"/}:[a symlink to a tree holding a git dir]"; fi
+    done < "$_pq/prel"
+  fi
+  _pg_census="$_pgpre"
+  if [ -n "$_pg_census" ]; then echo "!! CONTROL FAILED ($_pg_lbl): K2PRE$_pg_census" >&2; return 1; fi
+  # The REFERENCES are made in the postconditions' own directory (above), the
+  # probe repos by `mkdir` without `-p`, so one that already existed is a
+  # failure (a stale directory reused), not a silent success.
+  mkdir "$_pq/a" "$_pq/b" \
+    || { echo "!! CONTROL FAILED ($_pg_lbl): K2REF the reference repos could not be made fresh" >&2; return 1; }
   ( cd "$_pq/a" && git init -q . ) >/dev/null 2>&1 || true
   ( cd "$_pq/b" && git init -q --template="$_FGIT_VOID" . ) >/dev/null 2>&1 || true
   # `--show-origin` only (git 2.8), not `--show-scope` (git 2.26; PR #527 Codex
@@ -196,8 +260,8 @@ EOF_PB
   # read an `env` that could not be started at all as "no -0".)
   # No line-based fallback: a value is never split on newlines (Codex R6).
   _pf=""; _pfn=0; _pfrc=0; _pfenv="$_FGIT_ENVBIN"
-  "$_pfenv" -0 > "$_FW_DIR/env0" 2> "$_FW_DIR/env0.err" || _pfrc=$?
-  if [ "$_pfrc" -ne 0 ] && [ ! -s "$_FW_DIR/env0" ] && [ -s "$_FW_DIR/env0.err" ] \
+  "$_pfenv" -0 > "$_pq/env0" 2> "$_pq/env0.err" || _pfrc=$?
+  if [ "$_pfrc" -ne 0 ] && [ ! -s "$_pq/env0" ] && [ -s "$_pq/env0.err" ] \
      && "$_pfenv" "$BASH" -c : > /dev/null 2>&1; then
     printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout) but runs a command\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
   else
@@ -206,7 +270,7 @@ EOF_PB
     while IFS= read -r -d '' _rec || [ -n "$_rec" ]; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
       case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
-    done < "$_FW_DIR/env0"
+    done < "$_pq/env0"
     if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
     elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
   fi
@@ -243,7 +307,7 @@ EOF_PB
   # `git init` in this window writes — P-a's probe repo, `$_pq/a`, is that init
   # — derived from git itself, per run, so no key list: anything a fixture
   # persisted beyond it is red.
-  _pgref="$_FW_DIR/pgref.lines"
+  _pgref="$_pq/pgref.lines"
   git -C "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
   # `_pg_z <git dir> <out>`: the `-z` listing as sorted records
   # "origin<TAB>key<LF>value", each written as ONE line by `printf %q` (a
@@ -262,7 +326,7 @@ EOF_PB
     [ $((_pgzn % 2)) -eq 0 ] && [ "$_pgzn" -gt 0 ] || return 3
     sort "$2.rec" > "$2"
   }
-  _pg_z "$_pq/a" "$_FW_DIR/pgref.z" || : > "$_FW_DIR/pgref.z"
+  _pg_z "$_pq/a" "$_pq/pgref.z" || : > "$_pq/pgref.z"
   _pg=""
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
   # Population by property: EVERY git dir the fixtures produced, anywhere under
@@ -280,51 +344,38 @@ EOF_PB
   # them, and the window applies them AFTER this check. So every directory is
   # examined, and one the census cannot read is a new, unrequested restriction —
   # red.
-  _pgpop="$_FW_DIR/pgpop"; _pgn=0
+  _pgpop="$_pq/pgpop"; _pgn=0
   # `HEAD` of ANY type: a symlink `HEAD` is a shape git still reads (PR #527
   # Codex R16 — `-type f` left such a bare repo out of the census entirely).
-  # …and every SYMLINK: `find` does not follow them, so a link under `$CTL` to a
-  # git dir OUTSIDE it (a fixture's `--separate-git-dir` target, say) would
-  # never be censused (the re-check after Codex R17). A link that resolves to a
-  # directory is searched through (`find -L`, any depth), WHATEVER ITS NAME — a
-  # link named `HEAD` to a directory included (the re-check after Codex R19): a
-  # `HEAD` or `.git` anywhere under it is red, and so is a search that exits
-  # non-zero. A link NAMED `HEAD` to a directory is red whatever it holds: the
-  # search's starting point matches its own name (fail-safe; no fixture makes
-  # one). BSD find lists a loop link without descending and exits 0 (measured),
-  # which hides nothing; GNU find is expected to exit 1 on one, red (not measured
-  # here). There is no time bound: a link to a huge tree runs until CI's job
-  # timeout ends it, red — a local run has no such timeout and waits. A link to
-  # an in-root repo already censused is red too (fail-safe; no fixture makes
-  # one). A link that does not resolve to a directory is
-  # classified by its name below (`.git`, `HEAD`) or passes.
-  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
-    || : > "$_FW_DIR/pgpop.failed"
-  if [ -e "$_FW_DIR/pgpop.failed" ] || [ -s "$_FW_DIR/pgpop.err" ]; then
-    _pg="$_pg (the git-dir census under the fixture root failed: $(head -3 "$_FW_DIR/pgpop.err" | tr '\n' ';'))"
+  # …and every SYMLINK, so this loop can SKIP one without misreading it as a
+  # git dir: the census above (pass 2) already searched every symlink under
+  # `$CTL` that resolves to a directory, whatever its name, and reds one that
+  # reaches a `HEAD` or `.git` — a clean census is what let this loop run at
+  # all. A link that does not resolve to a directory is classified by its name
+  # below (`.git`, `HEAD`) or passes. There is no time bound on the census's
+  # own per-link search: a link to a huge tree runs until CI's job timeout ends
+  # it, red — a local run has no such timeout and waits (slot
+  # `#11-trip-wire-liveness-bound`,
+  # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md §9.2).
+  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_pq/pgpop.err" \
+    || : > "$_pq/pgpop.failed"
+  if [ -e "$_pq/pgpop.failed" ] || [ -s "$_pq/pgpop.err" ]; then
+    _pg="$_pg (the git-dir census under the fixture root failed: $(head -3 "$_pq/pgpop.err" | tr '\n' ';'))"
   fi
   while IFS= read -r -d '' _pge; do
+    # A SYMLINK here is not itself a git dir: the census above (pass 2) already
+    # searched every symlink under `$CTL` that resolves to a directory, and a
+    # clean census is what let this loop run at all — so no such link reaches
+    # HERE still unclassified, and no per-link search is repeated. A link
+    # named `.git` or `HEAD` is classified below by that name; any other link
+    # (inside a git dir or not) is skipped — the census's shape pass already
+    # reds a link inside a `.git` directory (any entry there but a directory
+    # or a one-link regular file is red), and a free-standing one outside any
+    # git dir is not part of one.
     if [ -L "$_pge" ]; then
       case "${_pge##*/}" in
-        .[Gg][Ii][Tt]) ;;                             # classified below: any link named .git is red
-        *) if [ -d "$_pge" ]; then
-             # Through a FILE, not `| head -1`: under pipefail an early-closing
-             # reader SIGPIPEs find, which would read as a failed search.
-             _pglsrc=0; find -L "$_pge" \( -iname HEAD -o -iname .git \) -print > "$_FW_DIR/pgls" 2>&1 || _pglsrc=$?
-             _pgls="$(head -1 "$_FW_DIR/pgls")" || _pgls=""
-             if [ "$_pglsrc" -ne 0 ]; then _pg="$_pg ${_pge#"$CTL"/}:[the search through this symlink failed (exit $_pglsrc): ${_pgls}]"
-             elif [ -n "$_pgls" ]; then _pg="$_pg ${_pge#"$CTL"/}:[a symlink to a tree holding a git dir: ${_pgls#"$_pge"/}]"; fi
-             continue
-           fi
-           # not a directory: a `HEAD` link (to a ref) is classified below; any
-           # other link INSIDE a `.git` dir is red — git reads through it (a
-           # `.git/config` pointing outside still reports `file:.git/config`,
-           # PR #527 Codex R24); any other link is not part of a git dir
-           case "${_pge##*/}" in
-             [Hh][Ee][Aa][Dd]) ;;
-             *) case "$_pge" in */.[Gg][Ii][Tt]/*) _pg="$_pg ${_pge#"$CTL"/}:[a symlink inside a git dir]" ;; esac
-                continue ;;
-           esac ;;
+        .[Gg][Ii][Tt]|[Hh][Ee][Aa][Dd]) ;;
+        *) continue ;;
       esac
     fi
     case "${_pge##*/}" in
@@ -343,15 +394,17 @@ EOF_PB
     esac
     _pgn=$((_pgn + 1)); _pgd="${_pge%/.git}"; _pgl="${_pgd#"$CTL"/}"
     if [ -L "$_pge" ] || [ ! -d "$_pge" ]; then _pg="$_pg $_pgl:[.git is not a directory]"; continue; fi
-    # Before git opens it: a `HEAD` or `config` that exists but is not a
-    # regular file (a FIFO, a directory, a link to one) is red, and git is NOT
-    # run on it — git blocks opening a FIFO `HEAD`, and nothing here has a
-    # watchdog (PR #527 Codex R25).
-    _pgbad=""
-    for _pgf in HEAD config; do
-      if { [ -e "$_pge/$_pgf" ] || [ -L "$_pge/$_pgf" ]; } && [ ! -f "$_pge/$_pgf" ]; then _pgbad="$_pgbad $_pgf"; fi
-    done
-    if [ -n "$_pgbad" ]; then _pg="$_pg $_pgl:[not a regular file:$_pgbad]"; continue; fi
+    # SHAPE, BY PROPERTY, NOT BY NAME: every entry under this git dir must be a
+    # directory or a regular file — the same property the census's pass 1
+    # already checks over the git dirs it finds by their `.git` entry, applied
+    # here to every git dir this loop reaches (a bare repo or worktree gitdir,
+    # named by `HEAD`, which the census classifies but does not shape-check).
+    # A symlink of any target, a FIFO, a socket or a device — `HEAD`, `config`
+    # or anywhere else under the git dir — is red, and git is NOT run on it:
+    # git reads through a link and blocks opening a FIFO, and nothing here has
+    # a watchdog (PR #527 Codex R25; #11-trip-wire-liveness-bound).
+    _pgbad="$(find "$_pge" ! -type f ! -type d -print 2>&1)" || _pgbad="$_pgbad (the shape scan failed)"
+    if [ -n "$_pgbad" ]; then _pg="$_pg $_pgl:[not a regular file or directory: $(printf '%s' "$_pgbad" | tr '\n' ' ')]"; continue; fi
     # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
     # NOTHING and exits 0, so an empty listing is red, not "no extra key".
     _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-origin 2>&1)" || _pgrc=$?
@@ -366,8 +419,8 @@ EOF_PB
     # comparison, which is red — not an empty difference (PR #527 Codex R14:
     # `|| true` turned a grep error into a pass).
     _pgxrc=0; _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || _pgxrc=$?
-    printf '%s\n' "$_pgc" > "$_FW_DIR/pgcur"
-    _pgmrc=0; _pgm="$(grep -vxF -f "$_FW_DIR/pgcur" "$_pgref")" || _pgmrc=$?
+    printf '%s\n' "$_pgc" > "$_pq/pgcur"
+    _pgmrc=0; _pgm="$(grep -vxF -f "$_pq/pgcur" "$_pgref")" || _pgmrc=$?
     if [ "$_pgxrc" -gt 1 ] || [ "$_pgmrc" -gt 1 ]; then
       _pg="$_pg $_pgl:[the comparison failed (grep exit $_pgxrc/$_pgmrc)]"; continue
     fi
@@ -383,7 +436,7 @@ EOF_PB
     # red. The greps stay for the message.
     if [ -z "$_pgx" ] && [ -z "$_pgm" ]; then
       _pgcrc=0
-      { _pg_z "$_pgd" "$_FW_DIR/pgcur.z" && cmp -s "$_FW_DIR/pgcur.z" "$_FW_DIR/pgref.z"; } || _pgcrc=$?
+      { _pg_z "$_pgd" "$_pq/pgcur.z" && cmp -s "$_pq/pgcur.z" "$_pq/pgref.z"; } || _pgcrc=$?
       [ "$_pgcrc" -eq 0 ] || _pg="$_pg $_pgl:[its configuration records differ from a plain init's (a repeated entry, or a value holding a newline), or could not be compared (exit $_pgcrc)]"
     fi
   done < "$_pgpop"
