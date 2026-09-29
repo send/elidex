@@ -1137,6 +1137,23 @@ committed here by the note that corrected it.
   scheduled and already opens this area (I-D/I-E, the licensing predicate and `_anchored`); the
   decoration-release rule is decided there or explicitly carried with a reason.
   **Re-eval: 2026-12-31.** No slot: it is this checker's own grammar, not a platform gap.
+  ⚠ **Re-reported by Codex R61 (2026-09-29, `word**C** owns it`), and the class is wider than the
+  rejected-core shape.** Measured at `400086ee` with the self-test harness (`run_on(M, build(), prose)`),
+  each a declared single letter a reader sees bold or as code, dropped by the bare pass: ``word`C` `` (an
+  id-only code span), `x**C**y`, `Slice**C**`, `x**C***y` and `a***C**` (cmark 0.31.2:
+  `x<strong>C</strong>*y`, `a*<strong>C</strong>`), and `C` in `**9z C**` / `**C 9z**` (an id-only bold
+  run holding two ids reports only `9z`). What they share: "is this id decorated?" is answered by a
+  mark-sequence balance test (`Token.balanced`, and its copy `plan_memo_ids.balanced` behind
+  `plan_memo_roles._owner_ok`), a proxy for the §6.2 pairing `dispose` has already decided when it
+  keeps an id-only pair standing. A plan that reads that pairing instead went through
+  `/elidex-plan-review` on 2026-09-29 and was NOT landed here (the user kept this entry). The review
+  measured three ways it does not close the class by itself: `OWNS_TWO` binds `word`, not `C`, as the
+  owner in `owned by **9z** and word**C**` (its match composes `decorated_id`'s greedy `DECOR`); in
+  `[**C](<sibling memo>.md)** owns it` no pair forms (cmark renders both `**` literally, one inside the
+  link text and one after it) but the marks stand, so the scan reports `C` today and a prototype record
+  of pairs did not; and in the same prototype a demoted id-only code span in an image description
+  (`` ![` C `](i.png) ``) entered the record, while the demoted `**` pair is (12)'s.
+  Carried to the same owner, with the same trigger and date.
 - **▶ SLICE 3 — Phase 1 carries OFFSETS, not strings** (PR #510 R29-1 partial, R36-1 — **own**). ⚠ **This was
   written first as a third §8 entry appended to the one whose trigger it fired, and the R38 design
   re-gate refused it**: the entry cited
