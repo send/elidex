@@ -134,7 +134,7 @@ and it PASSED (`e1/base.log`). `wrapper.log` has 668 lines, every one the clone'
 (`sort e1/wrapper.log | uniq -c` → one line, 668). So the wrapper served the wire's own reads and **no**
 fixture's git: the fixtures `cd`, and `~+/bin` then names a directory with no `git`. A caller `PATH`
 whose meaning depends on the working directory was never a supported surface for the build. ⚠ That
-reading was **withdrawn in draft 12** (round 10, U3 below). PX1 describes base, which had no pin; under
+reading was **withdrawn in draft 12** (round 10, K10-3 below). PX1 describes base, which had no pin; under
 M-PATH the wire's shell resolves `~+/bin/git` before the window starts, so the wrapper becomes the
 fixture git. M-PATH now rests on R1 alone (design memo §0.1).
 
@@ -149,7 +149,7 @@ Under M-PATH, the callers those fixes served (a `tools/bin` wrapper with its int
 `~/bin` wrapper with a helper) may go red, which is loud, when a tool they need is only on an entry
 that means something else inside the window; X14 records the outcomes. R24's rule for
 non-directory links inside a `.git` and R25's `HEAD`/`config` guard are superseded by M-SHAPE. R25's
-"nothing here has a watchdog" is superseded by M-WATCHDOG.
+"nothing here has a watchdog" was to be superseded by M-WATCHDOG, which draft 13 withdrew; C9 now rewrites it for the census.
 
 **Measurements for draft 11** (this session; `$A` is `…/scratchpad/author`):
 - **M-PATH + M-SHAPE prototype, clean.** `$A/sb` is a `git clone --local` of `35dc1153` with
@@ -173,7 +173,7 @@ non-directory links inside a `.git` and R25's `HEAD`/`config` guard are supersed
 - **X4b at `8413a4db`** (the X4b block over `harness.sh`) gives two lines, 71 ("memo §0.1") and 93
   ("memo §1"), with no file name. C6 deletes both.
 
-**Records planned by draft 11** (superseded by draft 12's plan at the end of this section): −1 (P-j per-entry), +1 (W timeout),
+**Records planned by draft 11** (superseded by draft 12's plan below, itself superseded by drafts 13 and 14): −1 (P-j per-entry), +1 (W timeout),
 +1 (W2 untrusted), +3 (P-g shape) = **+4**. That makes **54** window records after the 95 base, **149**
 in all, `_MUT_RECORDS_MIN=149`, labels 16, `_MUT_UNRECORDED_MAX=21`. None of this is implemented yet.
 
@@ -189,7 +189,7 @@ on draft 11's own additions. Dispositions:
 | K10-5 (Ax5): set-u non-reliance measured on 5.3 only | **accepted**: measured on 3.2 and 5.3 at `8413a4db` (below); the parent-side state is enumerated (design memo §3); X13's script is verbatim below |
 | K10-6 (Ax4): the §3 code block said "the shape at head" over planned code | **accepted**: the lines C6/C7 change are marked PLANNED |
 | Ax3 MINs (6): the bounds' multipliers; X9 and the window time; `_mut_trial`'s timeout disposition; the corpus's "not records" reason against harness 658–664; R1's slot body and its fired trigger; R9 without a slot | **accepted**: one rule (× 4.3 × 2, up to 30 s); the summary prints the window's time; a killed trial's line is appended and judged by its needle; the #501 R92 contract gets a record (corpus §6.1); §9.1's ledger step amends the launch-environment slot; R9 shrank to the pre-controls code, and the audit says it is not a slot |
-| Ax5 MINs (9): the abort path with live groups and timers; §9's "Where the record goes"; the #510 interaction; X12's `pgrep` scope; X13/X14 used per commit; X6/X11 commands; X8's threshold; the ledger's stale K10-5 sentence; where C6–C10's history goes | **accepted**: the exit handler kills the group and the timer first, and the timer exits once its leader or directory is gone; §9 rewritten, with the threshold 34.8 s; X12 is scoped to the run's scratch path; §9.1 separates per-commit from final-head criteria; X6 and X11 are spelled out; the amend replaces the sentence in place; history goes to this §13 |
+| Ax5 MINs (9): the abort path with live groups and timers; §9's "Where the record goes"; the #510 interaction; X12's `pgrep` scope; X13/X14 used per commit; X6/X11 commands; X8's threshold; the ledger's stale U5 sentence (round 4's U5, the exit-trap slot's text); where C6–C10's history goes | **accepted**: the exit handler kills the group and the timer first, and the timer exits once its leader or directory is gone; §9 rewritten, with the threshold 34.8 s; X12 is scoped to the run's scratch path; §9.1 separates per-commit from final-head criteria; X6 and X11 are spelled out; the amend replaces the sentence in place; history goes to this §13 |
 | Ax4 MINs (4): the E1 collision; the corpus header; the bounds' command; `gitrepository-layout` in §2.5 | **accepted**: PX1; the header is rewritten; the commands are below; §2.5 lists it and `count-objects` |
 | Premises carried (3; counted in the relayed 22, so 6 + 9 + 4 + 3 = 22): `_control` has no marker today; the top-level census has no `-L`; C5 edited `ci.yml` | **accepted**, as stated in design memo §3/§4/§9 |
 
@@ -287,7 +287,10 @@ scan 1.53 s.
 **K10-3, reproduced.** In `$A/sb` (M-PATH), `bin/git` logs `$PWD` and execs `/usr/bin/git`. With
 `PATH='~+/bin:/usr/bin:/bin'`, both shells gave rc 0, PASSED. The wrapper logged 660 (5.3) and 640 (3.2)
 calls from the repository root, plus 750 over the two runs from inside the window and the fixture
-directories. Those went to one log file, because the window's `env -i` dropped the variable naming the
+directories (`wc -l < $A/u3/wrapper.b53.log` → 660, `… wrapper.b32.log` → 640,
+`wc -l < "$A/u3/wrapper..log"` → 750; each run was
+`cd $A/sb && env K2SH=<b53|b32> HOME=$A/home PATH='~+/bin:/usr/bin:/bin' <bash> .claude/tools/webref-generic-core-trip-wire.sh`,
+with `bin/git` logging `$PWD` to `$A/u3/wrapper.$K2SH.log`). Those went to one log file, because the window's `env -i` dropped the variable naming the
 per-shell log, so they are not split by shell. Round 10 measured 375 in one run.
 
 **K10-4, measured** (git 2.55.0, `$A/alt`, `HOME=$A/alt`, `GIT_CONFIG_NOSYSTEM=1`). An outside repo `out`
@@ -298,6 +301,19 @@ each commit a file `f` containing `A\n`; `alt` has `objects/info/alternates` nam
   `B`. So the content the controls read comes from outside;
 - `count-objects -v` prints `alternate: <out's store>` for `alt` and nothing for `plain`, on git 2.55.0
   and Apple 2.54.0.
+
+The procedure, verbatim:
+
+```sh
+S=$A/alt; mkdir -p $S && cd $S && export HOME=$S GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@b GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@b
+git init -q out && id=$(printf 'A\n' | git -C out hash-object --stdin)
+d=out/.git/objects/${id:0:2}; mkdir -p $d && perl -MCompress::Zlib -e 'print compress("blob 2\0B\n")' > $d/${id:2}
+for r in plain alt; do git init -q $r; printf 'A\n' > $r/f; done
+echo "$S/out/.git/objects" > alt/.git/objects/info/alternates
+for r in plain alt; do (cd $r && git add -A && git commit -qm m); done
+diff <(git -C plain ls-files -s; git -C plain rev-parse 'HEAD^{tree}') <(git -C alt ls-files -s; git -C alt rev-parse 'HEAD^{tree}')   # no output
+git -C alt cat-file -p $id; git -C alt show HEAD:f; git -C alt count-objects -v | /usr/bin/grep alternate   # B, B, one line
+```
 
 No fixture uses alternates, `--shared` or `clone`.
 
@@ -408,7 +424,7 @@ the line, is fixed: the arm is dropped, so a probe that does not report its `alt
 | P-k liveness arm | **fixed**: no machine-limitation arm; the P-k records are re-derived (corpus §6.1) |
 | umbrella L22 → memo §8.1 | **fixed**: it now names `…-reviews.md` §8.1 |
 | this file's §8.2, bare `§` references | **fixed**: they name the parent |
-| the `U…` collision between round 4 (U1–U5) and round 10 | **fixed**: round 10's findings are now K10-1…K10-6 |
+| the `U…` collision between round 4 (U1–U5) and round 10 | **fixed**: round 10's findings are now K10-1…K10-6 (⚠ the rename missed "U3 below" and over-renamed round 4's U5 in the Ax5 MIN row; both corrected in draft 14, round 12) |
 | X4b's range | **fixed**: every commit that edits the harness (C6, C8, C9, C10) |
 | the threshold, 34.9 against 34.8, and its direction | **fixed**: product ≥ 150 s, that is a slowest run ≥ 150 / 4.3 = 34.883… s |
 | "eight red cells", against K10-5 (env0 and reftable green) | **fixed**: "eight cells (six red)" |
@@ -421,7 +437,12 @@ the line, is fixed: the arm is dropped, so a probe that does not report its `alt
 | R9's wording | **rewritten**: R9 is now the time-bound residual |
 | the other round-11 MINs | about the removed bound; they go with it |
 
-**R26③, measured** (this session). The M-SHAPE prototype `$A/sb` is fable's M-PATH + M-SHAPE diff plus a
+**R26③, measured** (this session). The finding, Codex on `8413a4db` (review comment 4124595479,
+`harness.sh:378`), verbatim: "When a fixture adds a FIFO at `.git/commondir`, this preflight checks
+only `HEAD` and `config`, then the configuration probe blocks while Git opens `commondir`; there is no
+watchdog around these postconditions, so the required local gate hangs instead of reporting the unknown
+shape red." Its evidence was `mkfifo .git/commondir; timeout 2 git -C <repo> config --list
+--show-origin` exiting 124. The other three names in the table were added here, not by Codex. The M-SHAPE prototype `$A/sb` is fable's M-PATH + M-SHAPE diff plus a
 C8 stand-in (`exit 1` when a postcondition or W3 reported, before any control). The head control is a
 `git clone --local` at `8413a4db`. Each cell plants a FIFO in `clean/.git` just before `built`:
 
@@ -443,9 +464,12 @@ echo "$T"
 | `config` | rc 1 in 5 s, same | rc 1 in 8 s, same | — (R25's guard) |
 | `config.worktree` | rc 1 in 5 s, same | rc 1 in 7 s, same | **rc 0, PASSED** in 18 / 24 s: git does not read `config.worktree` unless `extensions.worktreeConfig` is set, so it is not an input there. M-SHAPE reds it anyway, which is the fail-safe direction |
 
-After each prototype cell, no process matched `config --list` or the cell's path.
+After each prototype cell, no process matched `config --list` or the cell's path. Each row ran
+`bash $A/r3/cell.sh <tree> <name> <tag>` to plant the FIFO, then, in `$A/r3/t.<tag>`,
+`HOME=$A/home perl -e 'alarm 150; exec @ARGV' <bash> .claude/tools/webref-generic-core-trip-wire.sh`,
+with bash 3.2 under `PATH=/bin:/usr/bin:$PATH`. The `8413a4db` column used `alarm 40`.
 
-**P-k, re-derived** (corpus §6.1). Each record is killed, and survives with its clause removed:
+**P-k, re-derived** (corpus §6.1). **Planned**, not yet implemented: each record is to be killed, and to survive with its clause removed:
 - the fixture `alternates` survives with the `alternate:` clause removed;
 - the liveness probe without its file survives with the liveness check removed. With no limitation arm,
   no machine excuses it;
@@ -453,8 +477,83 @@ After each prototype cell, no process matched `config --list` or the cell's path
 
 git 2.55.0 and Apple 2.54.0 both print the probe's line (K10-4 above).
 
-**Records planned by draft 13** (design memo §9.1, corpus §6.1): −1 (P-j per-entry), +1 (W2 untrusted),
+**Records planned by draft 13** (⚠ superseded by draft 14's plan below): −1 (P-j per-entry), +1 (W2 untrusted),
 +3 (P-g shape), +3 (P-k) = **+6**. That makes 56 records of this PR and **151** in all
 (`_MUT_RECORDS_MIN=151`), with 18 labels and `_MUT_UNRECORDED_MAX=21`. The runner's count at
 `8413a4db` is 145, from `awk -F'\t' '!/^#/ && NF>1'` over the `MUTANTS` here-document. None of it is
 implemented yet.
+
+**Plan-review round 12 (on draft 13, frame `47eb1f9a`) → draft 14.** 0 CRIT / 2 IMP / 29 MIN (Ax1 0/0/2,
+Ax2 0/1/5, Ax3 0/0/5, Ax4 0/0/8, Ax5 0/1/9).
+
+**IMP 1 (Ax2): shape was judged per `.git`, but git reads across git dirs.** Round 12's `xcommon` cell
+blocked for more than 5 minutes. Draft 14's census judges every git dir, in two passes, before any
+postcondition runs git; a red census runs no git (design memo §4). The per-link search runs only over
+a clean pass 1, which also ends round 12's `bareh` (120 s) and `outsidein` (455 s) cells in seconds. A
+hard link inside a `.git` is red by the one-link clause. What remains is outside the census, and it is
+a defect under R9. The cells ran on the prototype `$A/sb`, which is fable's M-PATH + M-SHAPE diff, the
+C8 stand-in, and the two-pass pre-census at the top of `_fgit_postconditions`, 2026-09-29:
+
+| cell | inserted before `built` | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| clean | nothing | rc 0, PASSED, 17 s (19 s before the hard-link clause) | rc 0, PASSED, 24 s (25 s) |
+| xcommon | `git init -q "$CTL/zzr" && rm -f "$CTL/zzr/.git/config" && mkfifo "$CTL/zzr/.git/config" && printf '../../zzr/.git\n' > "$CTL/clean/.git/commondir"` | rc 1, 3 s, P-g `zzr/.git:[shape: …/config]`, no control run | rc 1, 4 s, same |
+| bareh | `git init -q --bare "$CTL/zzb.git" && ln -s / "$CTL/zzb.git/k2root"` | rc 1, 3 s, P-g `zzb.git:[a git dir not named .git]` | rc 1, 4 s, same |
+| outsidein | `git init -q "$CTL/zzr" && ln -s / "$CTL/zzr/.git/k2root" && ln -s zzr "$CTL/zzq"` | rc 1, 2 s, P-g `zzr/.git:[shape: …/k2root]` | rc 1, 4 s, same |
+| hard | `… ln "$_FW_DIR/zzh" "$CTL/clean/.git/info/exclude"` (a file outside the fixture root) | rc 1, 3 s, P-g `clean/.git:[shape: …/info/exclude]` | rc 1, 4 s, same |
+| outroot | `git init -q "$_FW_DIR/zzo" && rm -f "$_FW_DIR/zzo/.git/config" && mkfifo "$_FW_DIR/zzo/.git/config" && printf '%s\n' "$_FW_DIR/zzo/.git" > "$CTL/clean/.git/commondir"` | **waits**: reached `alarm 60`, rc 142, with the window's bash and `git -C …/clean config --list --show-origin` blocked in the run's group, then killed | same |
+
+A first `hard` run gave PASSED on both shells. The prototype's `find` expression lacked the outer
+parentheses, so `-print` bound only to its second branch; that was the prototype's defect. The row
+above is the corrected run.
+
+A first `outroot` run used a cell script whose `perl -e 'alarm ${ALARM:-120}'` was single-quoted, so
+there was no alarm, and it waited 593 s until it was killed by hand. Its cleanup matched processes by
+name, not by group. The script below fixes both: the alarm is expanded, and the run is its own
+process group. The `outroot` row is from the fixed script.
+
+```sh
+#!/bin/bash
+# cell.sh <tree> <tag> <b53|b32> <insert-file>: the insert goes just before the fixtures' `built` line
+A=${K2_CELLS:?}; tree=$1 tag=$2 sn=$3 ins=$4
+T=$A/cells/$tag.$sn; mkdir -p "$T" && (cd "$tree" && tar cf - --exclude=./target .) | (cd "$T" && tar xf -)
+python3 - "$T/.claude/tools/webref-generic-core-trip-wire.fixtures.sh" "$ins" <<'P'
+import sys;p,i=sys.argv[1],sys.argv[2];s=open(p).read();a=': > "$_FW_DIR/built"\n';assert s.count(a)==1
+s=s.replace(a,open(i).read()+a);open(p,'w').write(s)
+P
+if [ "$sn" = b32 ]; then SH=/bin/bash; P=/bin:/usr/bin:$PATH; else SH=/opt/homebrew/bin/bash; P=$PATH; fi
+mkdir -p "$A/home"
+s0=$(date +%s)
+# the run is its own process group, so what it leaves behind is found by group, not by name
+set -m; ( cd "$T" && exec env HOME=$A/home PATH="$P" perl -e "alarm ${ALARM:-120}; exec @ARGV" $SH .claude/tools/webref-generic-core-trip-wire.sh ) > "$T.log" 2>&1 & g=$!; set +m
+rc=0; wait "$g" || rc=$?
+echo "CELL $tag $sn rc=$rc t=$(( $(date +%s)-s0 ))s CF=$(/usr/bin/grep -c 'CONTROL FAILED' "$T.log") NE=$(/usr/bin/grep -c 'CONTROL NOT EXERCISED' "$T.log") PASSED=$(/usr/bin/grep -c 'trip-wire PASSED' "$T.log") stopped-before-controls=$(/usr/bin/grep -c K2PROTO "$T.log")"
+/usr/bin/grep -e '^!!' "$T.log" | cut -c1-260 | head -3 | sed 's/^/    /'
+o=$(ps -ax -o pid=,pgid=,command= | awk -v g="$g" '$2==g' | cut -c1-160)
+if [ -n "$o" ]; then echo "    LEFT BEHIND in the run's group (then killed):"; echo "$o" | sed 's/^/      /'; kill -9 -"$g" 2>/dev/null; fi
+chmod -R u+rwX "$T" 2>/dev/null
+```
+
+**Measured for P-k (git 2.55.0, this session).** An `alternates` holding the path in C-quoted form, with
+a newline in the path, gives one `alternate:` line and rc 0. A store that does not exist gives rc 0, no
+`alternate:` line, and `error: unable to normalize alternate object path: …` on stderr, so P-k treats
+stderr as red. Round 12 measured the directory and mode-000 variants (rc 0, 0 lines, a warning).
+
+| finding | disposition |
+|---|---|
+| IMP 1 (Ax2): the census judged shape per repo; `bareh` / `outsidein` searched on | **fixed**: the two-pass census before any git, and hard links red (cells above); outside the census is R9 |
+| IMP 2 (Ax5): §9.1 resumed at step 3 | **fixed**: resume at step 1 (`/pre-push`, `mise run ci`); step 2 may be skipped |
+| Ax1: where the untrusted exit lives; §10 #8's target list | **fixed**: `_fgit_window_verdict_exit` in the harness, W3's report moves in, W4's stays; #8 now says it by property |
+| Ax2: P-k ignores stderr; the probe path's newline; the trusted state unnamed; W3 clause unpinned; hard links | **fixed**: stderr red, plus a record; C-quoted probe path (measured); `_fw_trusted`; a second C8 record; the one-link clause, plus a record |
+| Ax3: the FIFO records' survive check; X14 cannot fail; the R9 trigger exempted #527; P-k "re-derived" said as done | **fixed**: the necessary-condition procedure with the block site and the group kill (corpus §6.1); X14 at 300 s; #527's own call sites listed in R9's Gap; P-k marked planned |
+| Ax4: "U3 below" missed and U5 over-renamed; X12 reused; "superseded by M-WATCHDOG" in present tense and "at the end of this section"; R26③ not quoted; edge 6's pin; figures without commands; §9.1's tense; the label list | **fixed**: all, above and in the design memo. Edge 6 is pinned at lines 350–364 (the block starts at 350, "⚠ ENTERED BY ARGUMENT", not 352); X12 is withdrawn and R26③'s cells are X16 |
+| Ax5: two ledger times; the create-time lens; own versus pre-existing in R9; the "must enumerate" field; unreachable commits in `ci.yml`; the 4.3 subject; which budget; X9's placement | **fixed**: one ledger step, after X8, that replaces the −2 banner with −1; the lens is L3 (and L2), with Q4 yes, so the user's carve is the ground; R9's Gap marks each child; "Defects measured"; `git fetch origin pull/527/head`; the subject of 4.3 stated; the base's 5 minutes; X9 outside the final-head list |
+
+**Records planned by draft 14** (design memo §9.1, corpus §6.1):
+- −1 (P-j per-entry);
+- +2 (W2: `post_bad`, W3);
+- +5 (P-g: `objects` link, FIFO `commondir`, scan status, `xcommon`, hard link);
+- +4 (P-k: alternates, liveness, status, stderr).
+
+That is **+10**: 60 records of this PR, **155** in all, `_MUT_RECORDS_MIN=155`, labels 18,
+`_MUT_UNRECORDED_MAX=21`. Draft 13's plan (151) is superseded. None of it is implemented yet.

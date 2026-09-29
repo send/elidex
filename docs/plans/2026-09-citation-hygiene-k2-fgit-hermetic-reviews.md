@@ -500,4 +500,4 @@ Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
 
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` §P (touch-time split, text
 unchanged). It holds the Codex rounds, the fix-delta reviews, the record arithmetic, and plan-review
-rounds 10–11 with their measurements.
+rounds 10–12 with their measurements.
