@@ -58,40 +58,32 @@ mkdir "$_FGIT_VOID" || exit 2
 # `/bin/sh` quoting with no expansion inside; an embedded `'` is closed, escaped
 # and reopened.
 _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-# The window runs in `$_FW_DIR`, not here, so a `PATH` entry that is not
-# absolute (`bin`, `../x`, `.`, an empty one, `~`, `~login/…`) names other
-# files, or none, from there — and what bash makes of the tilde forms depends
-# on its version and mode (measured, `~` and `~login` alike: bash 5.3 and 3.2
-# expand them, and so does 3.2 --posix; 5.3 --posix and dash do not). So the window does NOT emulate the lookup (PR #527 Codex
-# R11–R13: an emulation grew one case per round). Instead:
-# - `git` is resolved HERE, by this shell's own lookup, and pinned in
-#   `$_FGIT_BIN` as an `exec <absolute path>` wrapper, so the window, its
-#   fixtures, P-e's reference and the wire itself (`$_REAL_GIT`, which the
-#   fixtures' shims exec) all run the `git` this shell would run — which
-#   `git` runs is still `PATH`'s (memo §0.1, R1); every command that crosses
-#   the window boundary by path is resolved by `_fgit_resolve`, and by nothing
-#   else;
+# The window runs in `$_FW_DIR`, not here, so what a `PATH` entry that is not
+# absolute (`bin`, `../x`, `.`, an empty one, `~`, `~login/…`) means — which
+# files it names, or none — is decided THERE, by the window's own bash, and is
+# outside P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1,
+# "Outside P"): which such a command runs is R1's, not this file's. So the
+# window does NOT emulate that lookup here (PR #527 Codex R11–R13: an
+# emulation grew one case per round; draft 13 dropped it for the caller's
+# `PATH`, verbatim, behind the pin). Only `git` is resolved HERE:
+# - `git` is resolved by THIS shell's own lookup, and pinned in `$_FGIT_BIN`
+#   as an `exec <absolute path>` wrapper, so the window, its fixtures, P-e's
+#   reference and the wire itself (`$_REAL_GIT`, which the fixtures' shims
+#   exec) all run the `git` this shell would run — which `git` runs is still
+#   `PATH`'s (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1,
+#   R1); every command that crosses the window boundary by path is resolved by
+#   `_fgit_resolve`, and by nothing else;
 # - `env` is resolved the same way and used by its absolute path (window
 #   launch, P-e's reference, P-f);
-# - the window's `PATH` is `$_FGIT_BIN` followed by the caller's entries,
-#   each made ABSOLUTE where its meaning does not depend on the shell: an
-#   absolute entry as is; a relative or empty one (empty means the current
-#   directory) resolved against THIS directory, once — so a `git` wrapper
-#   found through `tools/bin` still finds its interpreter or helpers there
-#   (PR #527 Codex R23: dropping such entries made every fixture `git` fail).
-#   An entry starting with `~` is expanded as THIS bash expands it in command
-#   lookup (outside POSIX mode): `~` and `~/…` against `$HOME`, `~login/…` by
-#   the shell's own tilde expansion of a name made only of `A-Za-z0-9._-`
-#   (so `~-` and `~0` expand as bash's lookup does too) — so a `git`
-#   wrapper's helper found through `~/bin` is still found (PR #527 Codex R24).
-#   `git` itself is pinned above, so a reading that differs from the caller's
-#   (5.3 --posix keeps `~` literal) can only add or miss a helper directory:
-#   the window then runs, or fails red — it never picks a different `git`.
-#   An entry that cannot be made one absolute `PATH` entry — a login that
-#   does not expand, or a result holding `:` (the re-check after Codex R23) —
-#   is dropped; a tool only it provides makes the window fail, red. Which of the fixtures' other
-#   commands runs is outside P (memo §1, "Outside P"). P-j checks the shape
-#   (`$_FGIT_BIN` first, every entry absolute) from inside.
+# - the window's `PATH` is `$_FGIT_BIN` followed by the CALLER'S `PATH`,
+#   VERBATIM: no entry is made absolute, dropped or reinterpreted here.
+#   `git` itself is pinned above, so what such an entry means from inside the
+#   window — relative, empty, `~`, `~login/…` — decides only which OTHER tool
+#   is found there, never which `git` runs: a tool only such an entry provides
+#   makes the window fail, red, never a different `git`. Which of the
+#   fixtures' other commands runs is outside P
+#   (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §1, "Outside P").
+#   P-j checks the shape (`$_FGIT_BIN` first, the pinned `git`) from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
   _fr="$(type -P "$1")" || _fr=""
   case "$_fr" in /*|"") ;; *) _fr="$PWD/$_fr" ;; esac
@@ -106,27 +98,7 @@ _FGIT_GIT="$(_fgit_resolve git)"
 if [ -n "$_FGIT_GIT" ]; then
   { printf '#!/bin/sh\nexec %s "$@"\n' "$(_shq "$_FGIT_GIT")" > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
 fi
-_FGIT_PATH="$_FGIT_BIN"; _fp_rest="$PATH:"
-while [ -n "$_fp_rest" ]; do
-  _fp_e="${_fp_rest%%:*}"; _fp_rest="${_fp_rest#*:}"
-  case "$_fp_e" in
-    /*) _FGIT_PATH="$_FGIT_PATH:$_fp_e" ;;
-    "~"*)
-      _fp_u="${_fp_e%%/*}"; _fp_r="${_fp_e#"$_fp_u"}"; _fp_u="${_fp_u#\~}"; _fp_h=""
-      case "$_fp_u" in
-        "") _fp_h="${HOME:-}" ;;
-        *[!A-Za-z0-9._-]*) ;;                        # not a login name: dropped
-        *) eval "_fp_h=~$_fp_u" ;;                   # validated name; an unknown one stays `~name`
-      esac
-      case "$_fp_h" in
-        /*) case "$_fp_h$_fp_r" in *:*) ;; *) _FGIT_PATH="$_FGIT_PATH:$_fp_h$_fp_r" ;; esac ;;
-      esac ;;                                        # no absolute home (unknown login, no HOME): dropped
-    *) case "$PWD" in
-         *:*) ;;                                     # unrepresentable in PATH: dropped
-         *) if [ -z "$_fp_e" ]; then _FGIT_PATH="$_FGIT_PATH:$PWD"; else _FGIT_PATH="$_FGIT_PATH:$PWD/$_fp_e"; fi ;;
-       esac ;;
-  esac
-done
+_FGIT_PATH="$_FGIT_BIN:$PATH"   # the caller's PATH, verbatim, behind the pin (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1)
 _FGIT_ENVBIN="$(_fgit_resolve env)"
 _FGIT_BASH="$BASH"
 # `GIT_DEFAULT_REF_FORMAT=files`: a git whose COMPILED-IN default is reftable
@@ -153,7 +125,7 @@ _FGIT_WIRE_EXEC="$(_fgit_canon "$_FGIT_WIRE_EXEC")"
 # ones W3 is written against.
 _FGIT_WIRE_LC="${LC_ALL:-}"
 # State the parent reads back — assigned before anything reads it (nothing here
-# relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §5.2).
+# relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
 _fw_rc=0; _fw_done=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
 _fw_seal_bad=""; _fw_limits=""
@@ -248,17 +220,17 @@ EOF_PB
   if [ "${GIT_DEFAULT_REF_FORMAT:-}" != files ] || [ "$_rf" != files ]; then
     echo "!! CONTROL FAILED ($_pi_lbl): GIT_DEFAULT_REF_FORMAT is [${GIT_DEFAULT_REF_FORMAT:-}], a plain init has [$_rf]" >&2; _fpv=1
   fi
-  # P-j: the window's `PATH` is the one built above — `$_FGIT_BIN` first, every
-  # entry absolute — and its `git` is the pinned wrapper. It pins that
+  # P-j: the window's `PATH` is `$_FGIT_BIN` first, the caller's own entries
+  # after it verbatim — and its `git` is the pinned wrapper. It pins that
   # construction the way P-h and P-i pin their allowlist entries: on a machine
-  # whose `PATH` is all absolute, dropping the construction changes nothing
-  # else, and P-e's reference moves with it, so nothing but this sees it.
-  _pj=""; _pjr="$PATH:"
+  # whose first `PATH` entry is already `$_FGIT_BIN`, dropping the
+  # construction changes nothing else, and P-e's reference moves with it, so
+  # nothing but this sees it. Which OTHER tool a caller entry finds is outside
+  # P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1, "Outside
+  # P"; R1) — P-j checks only that `git` is the pinned one and that the pin
+  # comes first.
+  _pj=""
   case "$PATH" in "$_FGIT_BIN"|"$_FGIT_BIN":*) ;; *) _pj="$_pj first-entry" ;; esac
-  while [ -n "$_pjr" ]; do
-    _pje="${_pjr%%:*}"; _pjr="${_pjr#*:}"
-    case "$_pje" in /*) ;; *) _pj="$_pj non-absolute:[$_pje]" ;; esac
-  done
   _pjg="$(type -P git)" || _pjg=""
   [ "$_pjg" = "$_FGIT_BIN/git" ] || _pj="$_pj git:[$_pjg]"
   if [ -n "$_pj" ]; then echo "!! CONTROL FAILED ($_pj_lbl):$_pj" >&2; _fpv=1; fi

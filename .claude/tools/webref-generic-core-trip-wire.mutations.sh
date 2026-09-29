@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=145
+_MUT_RECORDS_MIN=144
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -358,8 +358,7 @@ harness:s/"[$]_pfenv" -0 > /false > /	the fixture build window's environment hol
 harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's environment holds only its allowlist
 harness:s/_pfenv="[$]_FGIT_ENVBIN"/_pfenv=\/nonexistent-k2\/env/	the fixture build window's environment holds only its allowlist
 harness:s/^\(  "[$]_pfenv" -0 > "[$]_FW_DIR\/env0" 2> "[$]_FW_DIR\/env0.err" || _pfrc=[$]?\)$/\1; printf K2X=1 >> "$_FW_DIR\/env0"/	the fixture build window's environment holds only its allowlist
-harness:s/^_FGIT_PATH="[$]_FGIT_BIN"; /_FGIT_PATH="$_FGIT_BIN:k2rel"; /	the fixture build window runs the pinned git from absolute PATH entries only
-harness:s/^_FGIT_PATH="[$]_FGIT_BIN"; /_FGIT_PATH=\/usr\/bin; /	the fixture build window runs the pinned git from absolute PATH entries only
+harness:s/^_FGIT_PATH="[$]_FGIT_BIN:/_FGIT_PATH="\/nonexistent-k2:$_FGIT_BIN:/	the fixture build window runs the pinned git first on its PATH
 harness:s/| grep -vxF -f "[$]_pgref")"/| grep -vxF -f \/nonexistent-k2)"/	every fixture repo persists only the configuration a plain git init writes
 harness:s/_pgm="[$](grep -vxF -f "[$]_FW_DIR\/pgcur" "[$]_pgref")"/_pgm="$(grep -vxF -f \/nonexistent-k2 "$_pgref")"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
@@ -378,7 +377,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/cp "$CTL\/clean\/.git\/config" "$_FW_DIR\/k
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzfifo" \&\& rm "$CTL\/zzfifo\/.git\/HEAD" \&\& mkfifo "$CTL\/zzfifo\/.git\/HEAD" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; printf x >\&2; _k2p=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
 fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-harness:s/> "[$]_FGIT_BIN\/git" \&\& chmod +x "[$]_FGIT_BIN\/git"/> "$_FGIT_BIN\/gitx"/	the fixture build window runs the pinned git from absolute PATH entries only
+harness:s/> "[$]_FGIT_BIN\/git" \&\& chmod +x "[$]_FGIT_BIN\/git"/> "$_FGIT_BIN\/gitx"/	the fixture build window runs the pinned git first on its PATH
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^( cd "[$]CTL\/cachedir" && git init -q [.] /( cd "$CTL\/cachedir" \&\& git init -q --separate-git-dir="$CTL\/.gd-cachedir" . /	every fixture repo persists only the configuration a plain git init writes
