@@ -8,12 +8,16 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 72** (2026-09-30) — folds the TERMINAL re-gate over rev 71 (IMP 1 / MIN 1). IMP: the service worker's
+**Revision 73** (2026-09-30) — folds the TERMINAL re-gate over rev 72 (CLEAN; MIN 2, wording): rev 72's note no longer
+orders the PRs outside E31's gate after IBP-classify (they are not its predecessors), and item 19 names `current_url`'s
+non-base reads beside the API base and origin.
+
+Revision 72 (2026-09-30) — folds the TERMINAL re-gate over rev 71 (IMP 1 / MIN 1). IMP: the service worker's
 pre-existing `current_url` copy is not read only by its origin source — HEAD's `fetch()` also reads it for the default
 referrer (`vm/host/fetch/dispatch.rs:107`, `:158`), a non-base read the reader migration does not move; item 18 and
 A164 now name such reads by example, accepted as A96 under (2′) until the program untangles `current_url` (A164 is
 corrected in place: it has not landed). MIN: the E-graph's loop condition is stated for a PR inside E31's gate, since
-the PRs outside it come after IBP-classify.
+the PRs outside it are not IBP-classify's predecessors.
 
 Revision 71 (2026-09-30) — folds the TERMINAL decision re-gate over revs 69–70 (IMP-A) and the user decision it
 raised. IMP-A: rev 70 bound E31 to `#11-document-base-url`'s completion as "ratified by the user's option (B)", but
@@ -1150,7 +1154,7 @@ Each item is plan-review input for the surface it changes; its record ships with
 19. **S5-4 plan §8's D5 recorded remedy** (`docs/plans/2026-07-s5-4-sandbox-enforcement.md:1066-1075`, "seed `current_url`
    in `run_worker_with_source`, mirroring `sw_thread.rs:198`") — superseded, not edited (A114 idiom): the slot
    `#11-dedicated-worker-settings-origin-seed` writes only the dedicated worker's **origin**, never `current_url`;
-   untangling `current_url`'s shared use (API base and origin) is `#11-document-base-url`'s (item 18). *Ground*: the
+   untangling `current_url`'s shared use (API base, origin and its other non-base reads, e.g. the default referrer) is `#11-document-base-url`'s (item 18). *Ground*: the
    recorded remedy would add a second writer of the API base's input, from the requested URL (item 18 writes the worker
    url at *run a worker*'s response URL) — one-issue-one-way. With the remedy replaced, no ordering is needed between the
    slot and the program. Its record ships with the approval PR's landing (§6's Enrich row).
