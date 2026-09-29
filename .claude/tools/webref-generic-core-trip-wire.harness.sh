@@ -194,7 +194,7 @@ _fgit_postconditions() {
     done < "$_pq/prel"
   fi
   _pg_census="$_pgpre"
-  if [ -n "$_pg_census" ]; then echo "!! CONTROL FAILED ($_pg_lbl): K2PRE$_pg_census" >&2; return 1; fi
+  if [ -n "$_pg_census" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg_census" >&2; return 1; fi
   # The REFERENCES are made in the postconditions' own directory (above), the
   # probe repos by `mkdir` without `-p`, so one that already existed is a
   # failure (a stale directory reused), not a silent success.
