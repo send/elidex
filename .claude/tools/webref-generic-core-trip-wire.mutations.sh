@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=144
+_MUT_RECORDS_MIN=147
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -241,7 +241,8 @@ s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not
 s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
 s/export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1/export GIT_NO_LAZY_FETCH=1/	a replace ref cannot substitute the staged blob
 s|^_esc() .*|_esc() { printf '%s' "$1"; }|	a name cannot forge a verdict record
-s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/	a byte no UTF-8 locale can bracket
+s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/	the fixture build window reads in the wire's locale
+s/_co="$(grep -aEn -- "$K2RE"/_co="$(LC_ALL=C.UTF-8 grep -aEn -- "$K2RE"/	a byte no UTF-8 locale can bracket
 s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
 s/\[ "$_read" -eq 0 \] || printf/printf/	an inventoried entry that was never read is not counted as scanned
 s/\[ -e "$p" \] || \[ -L "$p" \]/[ -e "$p" ]/	a symlinked EXTRA entry is scanned
@@ -340,7 +341,16 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture 
 # survives this set — the block would run over the unbuilt tree, but W2 is
 # already reported by the first `_control` — so those gates are pinned only by
 # the traced `w2rec` cell (companion §A.14), not by a record.
-harness:/^_fgit_window_incomplete_exit()/,/^}/s/^  exit 2$/  :/;s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete fixture build window
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/;s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
+# C8's two records pin the SECOND clause of "complete and trusted": a red
+# postcondition, or W3, must still stop the run before any control even with
+# the untrusted-build exit itself removed. Each forces one of the two inputs
+# `_fw_trusted`'s computation reads and removes that exit in the same harness
+# expression; each survives with the clause it forces removed from the
+# computation, which then writes 1 regardless
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1, C8 rows).
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/;s/\[ ! -e "[$]_FW_DIR\/post_bad" \] || _fw_post_bad=1/_fw_post_bad=1/	no control runs over an incomplete or untrusted fixture build window
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/;s/\[ "[$]_fw_dg" -eq 0 \] || _fw_diag=/false || _fw_diag=/	no control runs over an incomplete or untrusted fixture build window
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
 harness:s/git -c a[.]b=c config --list/git config --list/	this git reports a configuration origin outside the repo's file

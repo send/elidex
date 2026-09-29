@@ -97,7 +97,7 @@ fi
 # every `_control` label). What each asserts is tabled in
 # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
 _fw_lbl="the fixture build window completed"
-_fw2_lbl="no control runs over an incomplete fixture build window"
+_fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
 _fwd_lbl="the fixtures file ran without a shell diagnostic"
 _pa_lbl="a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file"
 _pal_lbl="this git reports a configuration origin outside the repo's file"
@@ -122,16 +122,12 @@ _fgit_window "$_FIXTURES"
 ctl_ok=0
 _ctl_env=()   # per-control environment; `_control` clears it after each use
 # THE WINDOW'S VERDICT, WRITTEN AFTER `ctl_ok=0`. An incomplete window built
-# nothing, so it ends the run here with W alone ("decided nothing"); `_control`
-# itself refuses over an unbuilt tree too (W2), wherever this line sits.
-_fgit_window_incomplete_exit "$_fw_lbl"
-[ "$_fw_post_bad" -eq 0 ] || ctl_ok=1
-# A shell diagnostic located in the fixtures file means a line of it was
-# skipped: an arithmetic-expansion error does not stop a sourced file.
-if [ -n "$_fw_diag" ]; then
-  echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
-  ctl_ok=1
-fi
+# nothing, so it ends the run here with W alone ("decided nothing"); a
+# complete but UNTRUSTED window (a red postcondition, or W3) ends it here too,
+# after its own reports — a control over it asserts nothing. `_control` itself
+# refuses over a build that is not complete and trusted too (W2), wherever
+# this line sits.
+_fgit_window_verdict_exit "$_fw_lbl"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.

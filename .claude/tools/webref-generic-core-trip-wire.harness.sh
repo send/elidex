@@ -128,6 +128,7 @@ _FGIT_WIRE_LC="${LC_ALL:-}"
 # relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
 _fw_rc=0; _fw_done=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
+_fw_trusted=0
 _fw_seal_bad=""; _fw_limits=""
 # The postconditions, run INSIDE the window after the build. Their labels
 # (`$_pa_lbl` … `$_pg_lbl`, defined in the controls file) reach the window by
@@ -541,13 +542,42 @@ _fgit_window() {
   _FIX_FAILED="$(cat "$_FW_DIR/fix_failed" 2>/dev/null)" || _FIX_FAILED=""
   return 0
 }
-# An INCOMPLETE window is not "no fixture failed": nothing was built, so no
-# control may run over it. Report W alone and end the run "decided nothing"
-# (2, the wire's convention; the number is not consumed by the driver).
-_fgit_window_incomplete_exit() { # $1 = the window label
-  [ "$_fw_done" -ne 1 ] || return 0
-  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
-  exit 2
+# THE WINDOW'S VERDICT, REPORTED IN ONE PLACE. An INCOMPLETE window is not "no
+# fixture failed": nothing was built, so no control may run over it — report W
+# alone and end the run "decided nothing" (2, the wire's convention; the
+# number is not consumed by the driver). A COMPLETE window is not necessarily
+# TRUSTED: a red postcondition or a shell diagnostic (W3) means the build is
+# not the one the fixtures file describes, and a control over it asserts
+# nothing (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3, "A red
+# postcondition ends the run before any control") — so this function reports
+# those, then ends the run at 1, before any control. `_fw_trusted` is set by
+# this function ALONE (1 only for a build that is complete, with no
+# postcondition and no W3 reported), and `_fw_built_or_w2` is its one reader.
+_fgit_window_verdict_exit() { # $1 = the window label
+  [ "$_fw_done" -eq 1 ] || {
+    echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
+    exit 2
+    # ⚠ A REDUNDANT STOP, NOT DEAD CODE, AND `return 0` ON PURPOSE: `exit`
+    # above already ends the run in the shipped file. If a fixtures-file
+    # mutation defeats only that `exit` (the W2 record above), this `return`
+    # still keeps the fall-through below from computing `_fw_trusted` off a
+    # window that was never even complete. It returns 0, not 1: this call site
+    # is a bare statement under the wire's `set -e`, so a non-zero return
+    # would abort the whole run HERE — reporting nothing where `_control`'s own
+    # gate (`_fw_built_or_w2`, reading `_fw_trusted` alone) is what must report
+    # W2, over the very next control.
+    return 0
+  }
+  if [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ]; then
+    _fw_trusted=1
+    return 0
+  fi
+  # A shell diagnostic located in the fixtures file means a line of it was
+  # skipped: an arithmetic-expansion error does not stop a sourced file. A red
+  # postcondition's own diagnostic already reached stderr, replayed above, so
+  # it needs no separate report here.
+  [ -z "$_fw_diag" ] || echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
+  exit 1
 }
 
 # ONE FACT, RECORDED ONCE: DID THIS FIXTURE'S BUILD CHAIN SUCCEED?
@@ -610,12 +640,14 @@ if [ "$(sh -c "printf %s $(_shq "$_shq_probe")")" != "$_shq_probe" ]; then
   exit 2
 fi
 
-# No control may run over an unbuilt tree, WHEREVER the incomplete-window exit
-# sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3): every `_control` asks first. `$_fw2_lbl` is defined in
-# the controls file.
+# No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
+# the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3):
+# every `_control` asks first, by `_fw_trusted` alone — the one flag
+# `_fgit_window_verdict_exit` writes. `$_fw2_lbl` is defined in the controls
+# file.
 _fw_built_or_w2() {
-  [ "$_fw_done" -ne 1 ] || return 0
-  [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over an unbuilt tree" >&2
+  [ "$_fw_trusted" -ne 1 ] || return 0
+  [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over a build that was not complete and trusted" >&2
   _fw2_said=1; return 1
 }
 _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
