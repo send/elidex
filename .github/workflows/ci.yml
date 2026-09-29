@@ -125,8 +125,6 @@ jobs:
       - name: Check licenses and vulnerabilities
         run: cargo deny check
 
-  # (Commit ids in this comment block are PR #510 branch commits; after the squash
-  # merge, `git fetch origin pull/510/head` and resolve them against `FETCH_HEAD`.)
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
   # are filtered because each pays for a Rust toolchain; the wires need none (the
   # layering wires call no cargo, rustc or python, and the self-test wire needs
@@ -143,11 +141,9 @@ jobs:
   # THE BUDGET. The self-test wire's `--self-test --mutants` grows with every
   # review round that adds controls or mutants, so this job's run time is a
   # budget against `timeout-minutes` below, not a constant. NO FIGURE IS KEPT
-  # HERE: the measurement, its history and the growth driver have one home, the
-  # plan's §8 entry "The always-run wire's cost grows with REVIEW ROUNDS, not
-  # with the program" (PR #510: a figure here beside the figures there drew
-  # findings from five STOP-CLEAN attestations in a row). Measure the job on
-  # the runner itself:
+  # HERE: the budget and its growth driver are the plan's §8 entry "The
+  # always-run wire's cost grows with REVIEW ROUNDS, not with the program".
+  # Measure the job on the runner itself:
   #   gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="Layering trip-wires")|[.startedAt,.completedAt]'
   # A second heavy wire (`claim-provenance-trip-wire.sh`, the
   # `stale-claim-detector` lane) will run in this same job; when it lands,
@@ -159,19 +155,18 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    # 10 minutes. The headroom multiple and the measurement behind it live in the
-    # plan's §8 entry the comment above names, and are NOT restated here: this
-    # line once carried its own copy and went stale at the next re-measurement
-    # -- the same two-live-copies defect PR #510 R30 removed from CLAUDE.md.
-    # One home for a number that moves.
+    # 10 minutes. The headroom multiple is NOT written here: it is read off a
+    # run (the command is in the comment above). This line once carried its own
+    # copy and went stale at the next re-measurement -- the same two-live-copies
+    # defect PR #510 R30 removed from CLAUDE.md. A number that moves is measured,
+    # not kept.
     # ⚠ And it moves one way, because every round's new controls and mutants land
     # in an always-run job: that is a budget, not a constant. When it nears 2x,
     # split the wire or re-derive the timeout deliberately -- do not discover it
-    # when a runner cancels a green job, which is exactly what the original
-    # 2-minute timeout did at 211 s. The RULE is here; the figure it is read
-    # against is in that §8 entry. This 10 is the deliberate re-derivation that
-    # rule asked for, made at R32 (its derivation is history, at `git show
-    # d7f12732:.github/workflows/ci.yml`).
+    # when the runner cancels the job, as it did under the original 2-minute
+    # timeout (run 34104840164). The RULE is here; the figure it is read
+    # against is measured from a run. This 10 is the deliberate re-derivation
+    # that rule asked for, made at R32.
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:

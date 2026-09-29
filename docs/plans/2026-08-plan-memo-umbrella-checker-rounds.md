@@ -215,7 +215,7 @@ binding and requires EXACTLY one call per line (a mis-bound counter sees fewer: 
 mutant re-binding it. One mutant deleted as EQUIVALENT (the licensing rule's stream read: since the
 scanners read the stream, no fixture reaches it with raw ≠ stream at a mention boundary — reason in
 `plan_memo_selftest_mutants.py`). `.github/workflows/ci.yml` `trip-wires` `timeout-minutes` 2 → 5
-(211 s on Codex's runner had cancelled a green job).
+(211 s on Codex's runner had cancelled a green job). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
 ⚠ **PR #510 Codex R13 (2026-09-07) — the block-grammar family closed**: `plan_memo_blocks.py` had
 drawn IMP findings three rounds running, each on a §3.0 PROSE-AS-WRITTEN disposition; the root was
 that the 27 conformance exclusions were the unmodelled grammar. §4.4 indented code is now a RAW
@@ -1037,7 +1037,7 @@ the block above it was re-measured. Removing that copy surfaced what no single r
 and it is now written beside the timeout: **~10× (R12) → 5.9× (R27) → 5.1× (R29) → 4.4× (R30)** —
 every round's controls and mutants land in an ALWAYS-RUN job, so the headroom is a **budget, not a
 constant**, and the point to act is before a runner cancels a green job (which is what the
-`timeout-minutes: 2` this 5 replaced did, at 211 s).
+`timeout-minutes: 2` this 5 replaced did, at 211 s). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
 #2 (P2) an unmatched decoration run made an id cell "blank": `**`, `*`, `` ` ``, ``` `` ```, `***`
 all returned True from `is_blank_id_cell`, so a slice row keyed `**` with the marker and a non-empty
 `Deps` returned **rc 0 with no findings** — in neither `ids` nor assertion (b). Correct is **rc 2**,

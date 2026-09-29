@@ -1046,18 +1046,15 @@ committed here by the note that corrected it.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
 - **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
-  ⚠ **The one current figure, and how to read the rest of this entry** (2026-09-29): at `12124f83`
-  (942 controls / 586 mutants) the whole `Layering trip-wires` job took **170 s on the runner**,
-  checkout included (run 36339986057) — ~3.5x against the 10-minute timeout. Re-measure from a run
-  (`gh run view <run-id> --json jobs`), not from this line. Every figure BELOW is a local measurement
-  kept as history, and their subjects differ — this wire, the whole script, parts of the wire, or
-  not recorded (the R32 pair's commit names no command) — so they are not a series and do not
-  compare with the runner figure. The `ci.yml` block once carried such a series as its own and drew
-  findings from five STOP-CLEAN attestations in a row; it now keeps no figure and names this entry
-  (its old text: `git show d7f12732:.github/workflows/ci.yml`).
+  ⚠ **How to read this entry** (2026-09-30): it holds NO current figure. The measurements below are
+  the record as each round wrote it; read each with the subject and condition its own sentence
+  gives — where a sentence gives none, it has none — and never as one series. The job is measured on
+  the runner (`gh run view <run-id> --json jobs`), and is re-measured there when a second heavy wire
+  (`claim-provenance-trip-wire.sh`, the `stale-claim-detector` lane) joins it. `ci.yml` keeps the
+  rule and that command, and no figure.
   Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
-  `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
-  home had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
+  `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block, then the declared single
+  home, had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
   re-measuring. The timeout is re-derived there (5 → 10 min) under that block's own rule. ⚠ What is
   NOT fixed is the driver: the generated corpus costs ~3.6 s and runs once in `--self-test` plus once
   per mutant naming it, and **six** rows name it (measured by loading `MUTANTS`; a `grep -c` counts
@@ -1070,7 +1067,8 @@ committed here by the note that corrected it.
   26.10 / 26.22 / 26.73, self-test alone ~6.5 s. The wire is **~25 s**; the FP verdict is retracted.
   ⚠ **What the episode shows is not who measured badly — it is that the ABSOLUTE is not reproducible
   on this host to better than ~20%**: three "quiet clean clone" runs of the same command at nearby
-  heads gave 24.9, 26.1 and 28.5 s. And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
+  heads gave 24.9, 26.1 and 28.5 s. ⚠ (2026-09-30) Not the same command: the 26.1 is the five-wire
+  run above, so this sentence and the ~20% drawn from it are withdrawn. And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
   concurrently with other work") is **not supported**: the whole job measured quiet lands in that same
   neighbourhood, so SUBJECT (one wire vs five) explains as much as load does. The figure that has
   never moved is the RATIO — self-test ≈ 6.5 s of the wire — which is what the derivation rests on;
