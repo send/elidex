@@ -92,14 +92,14 @@ Axis 5 (2026-09-20)**: the `stale-claim-detector` lane (worktree `elidex-wt-stal
 `claim-provenance-trip-wire.sh` to `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, the list whose entire
 purpose is that a wire cannot be added or lost without a line — so `--ours` / `--theirs` on it is the
 one resolution neither lane may take. **Whichever lands second APPENDS its line**; both wires then
-stand. Measured, because the first guess was that this is a budget problem and it is not: ~26 s (the
-R32 pair in `ci.yml`, whose subject is not recorded) and `claim-provenance-trip-wire.sh` ~6 s on the
-same host, against the `timeout-minutes`
-re-derived at ~4x headroom — so the collision is a MERGE hazard on the inventory, not a cost one.
-⚠ And the budget block in `ci.yml` names the subject of each point in its series: the whole
-`scripts/trip-wires.sh` at R12, R27 and R29, not recorded for R30-R32, the whole job for the
-runner-measured `12124f83` point (170 s, checkout included), and claims no comparability across
-subjects. When the second wire lands, the ratio is re-derived against the job.
+stand. The collision is a MERGE hazard on the inventory; the cost of the second wire is the budget's
+question, and the budget block in `ci.yml` answers it the one way that block now allows: it keeps a
+single figure, the whole job measured on the runner (`12124f83`: 170 s, checkout included, ~3.5x
+inside the 10 minutes), and when the second wire lands the job is re-measured there. ⚠ The block
+used to carry a series of local figures whose subjects differed (one wire, the whole script,
+unrecorded), and four STOP-CLEAN attestations in a row each found a correction of one of them
+exposing another; the series was removed rather than corrected again, and is history at
+`git show d7f12732:.github/workflows/ci.yml`.
 
 ⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
@@ -1136,7 +1136,7 @@ committed here by the note that corrected it.
   scheduled and already opens this area (I-D/I-E, the licensing predicate and `_anchored`); the
   decoration-release rule is decided there or explicitly carried with a reason.
   **Re-eval: 2026-12-31.** No slot: it is this checker's own grammar, not a platform gap.
-  ⚠ **Re-reported by Codex R61 (2026-09-29, `word**C** owns it`), and the class is wider than the
+  ⚠ **Re-reported by Codex R61 of 2026-09-28 (`word**C** owns it`), and the class is wider than the
   rejected-core shape.** Measured at `400086ee` with the self-test harness (`run_on(M, build(), prose)`),
   each a declared single letter a reader sees bold or as code, dropped by the bare pass: ``word`C` `` (an
   id-only code span), `x**C**y`, `Slice**C**`, `x**C***y` and `a***C**` (cmark 0.31.2:
