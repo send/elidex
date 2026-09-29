@@ -6,8 +6,10 @@
 measurements, corpus scripts, provenance of `ff6b99a3`'s commits and false premises. **Review
 record**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`, plan-review rounds 1–9
 with their dispositions and terminators (split out of the companion unchanged). PR #527's record, its
-external review and plan-review rounds 10 onward, is in
-`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"). **Corpus**:
+external review and plan-review rounds 10–14, is in
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"), and from round 15 on,
+with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`
+("`…-pr527-r15.md`"). **Corpus**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` ("corpus §6"), the corpus cells and the
 mutation records (split out of this memo's §6 unchanged). **Landing**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` ("`…-landing.md`"), §9 (the commits,
@@ -880,5 +882,6 @@ delta (`ebc90bc1` and the D14-D commit after it), reviews it before C6. It has n
 ## §13 Implementation results
 
 The results before PR #527 are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §13
-(touch-time split; history). Every result from PR #527 on, drafts 11–16's commits included when they
-are made, goes to one place: `…-pr527.md` §P (`…-landing.md` §9.1).
+(touch-time split; history). PR #527's results through plan-review round 14 are in `…-pr527.md` §P,
+which is closed. Every result from round 15 on, the planned commits included when they are made, goes to
+one place: `…-pr527-r15.md` §Q (`…-landing.md` §9.1, step 2).

@@ -6,7 +6,8 @@ This file holds the record of PR #527, from its external review through plan-rev
 before round 12's record would have taken that file past 1000 lines. The text was unchanged at the
 split (`e0cd8329`); drafts 14–16 revised it since, each revision named in its round's section. The
 references follow `…-reviews.md`'s convention: to the design memo as of the draft the paragraph belongs
-to, unless a file is named.
+to, unless a file is named. This file is **closed at round 14** (draft 16): round 15 onward, and the
+implementation results, are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`.
 
 ---
 

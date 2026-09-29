@@ -121,7 +121,7 @@ changes are in corpus §6.1.
   and it re-runs only when T moves:
   1. At T, unless already recorded for this T: X2, X3 (with corpus §6.1's survive check), X5, X6, X8,
      X11, X13, X14, X15 and X16.
-  2. One commit records the results in `…-pr527.md` §P and rewrites the `ci.yml` verdict line to name
+  2. One commit records the results in `…-pr527-r15.md` §Q and rewrites the `ci.yml` verdict line to name
      `e8f78896` and T. It changes no tool code (`git diff --name-only <T> HEAD -- .claude/tools
      scripts` is empty), so it re-runs nothing.
   3. One fresh Codex round on the new head, because the head moved: `/external-converge` counts only a
@@ -137,8 +137,9 @@ changes are in corpus §6.1.
 - **X9** runs on GitHub's ubuntu runner, which a stacked PR does not reach, so it runs when §9's route
   (a) or (b) happens, not at the final head.
 
-The history goes to `…-pr527.md`, not to the provenance companion, which is at 972 lines
-(`wc -l docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`).
+The history goes to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md` §Q, not to the
+provenance companion, which is at 972 lines, nor to `…-pr527.md`, which is closed at round 14 at 890
+(`wc -l` over both).
 
 | # | commit | what | this PR's / all records |
 |---|---|---|---|
