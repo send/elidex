@@ -3,8 +3,8 @@
 This file holds the plan-review rounds through round 9 (§D), with their dispositions and terminators.
 It also holds three sections moved from the design memo when it neared 1000 lines: the memo's status
 narrative (§S), the record of the C0b–C2 splits (§8), and the implementation results before PR #527 (§13).
-PR #527's own rounds, its external review and plan-review rounds 10 onward, are in
-`…-k2-fgit-hermetic-pr527.md`. All of this is for
+PR #527's own rounds, its external review and plan-review rounds 10–14, are in
+`…-k2-fgit-hermetic-pr527.md`, and rounds 15 onward in `…-k2-fgit-hermetic-pr527-r15.md`. All of this is for
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of the
 provenance companion (`…-k2-fgit-hermetic-provenance.md`) unchanged, as a touch-time split before
 round 9's record was added. Section numbers (§D.0–§D.8) are kept, so earlier references to "companion
@@ -323,8 +323,8 @@ subject, which was every item listed above. Anything else stays open for round 5
 
 Moved here unchanged from the design memo's preface, where it sat between **Decision** and the
 parent's rule, as a touch-time split when that memo reached 970 lines; the memo holds only the live
-decisions. The drafts 15 and 16 paragraphs at the end of the first part were added
-later (draft 16). Section references in it are to the design memo, and "below" in it means the design
+decisions. The drafts 15–18 paragraphs at the end of the first part were added
+later (drafts 16–18). Section references in it are to the design memo, and "below" in it means the design
 memo's body.
 
 **Status**: **draft 14**. Draft 10 closed plan-review (2026-09-27; `…-reviews.md` §D.0). Draft 11
@@ -376,6 +376,17 @@ started `…-k2-fgit-hermetic-pr527-r15.md` for round 15 onward, `…-pr527.md` 
   D15-C, `xrace`); the verifier's own state is defined by property, and the shell options are class (b).
 - T includes the `trip-wires` job outside its comments, and a docs-only fix to a check's definition
   re-runs that check at T in its own commit (`…-landing.md` §9.1).
+
+**Draft 18** answers plan-review round 16 (`…-pr527-r15.md` §Q, D16-A…D16-D). Before it, `d6ccc5b1`
+moved the design memo's two ledger texts to `…-landing.md` §9.2.
+- X9 is route (b), as the user decided when #527 was opened, with its own land-order step on #501:
+  the runner run, the verdict in `…-pr527-r15.md` §Q, the threshold, then the merge decision (D16-A).
+- The parent's working files move out of `$CTL` into a directory it makes after the build (C11,
+  D16-B); §0.3 states the design rule, and class (c) is declared only for what construction cannot
+  close.
+- A fixtures-file function that shadows a command the verifier runs is class (c): builtins and
+  absolute paths are shadowable too, measured (D16-C).
+- A window stderr left redirected is W, through a canary (C12, D16-D).
 
 From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
 and the round it answers.

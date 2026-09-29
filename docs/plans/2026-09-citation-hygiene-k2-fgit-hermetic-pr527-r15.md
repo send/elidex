@@ -3,7 +3,8 @@
 This file continues `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"),
 PR #527's record, for `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo").
 `…-pr527.md` holds the record through plan-review round 14 and draft 16, and it is closed: at 890 lines
-it has no room for round 15's record or for the implementation results, so both start here. The seam is
+at `6c5750ce` (`git show 6c5750ce:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md | wc -l`)
+it had no room for round 15's record or for the implementation results, so both start here. The seam is
 chronological. Round 14 and earlier stay where they are, so every existing reference to "`…-pr527.md`,
 round N" (N ≤ 14) still resolves, and the scripts recorded there verbatim (`cell15.sh`, `crc.sh`,
 `ptycell.sh`, `pty3.py`, `pkmeas.sh`) are cited there, not copied. The references follow
@@ -114,3 +115,106 @@ job, and no `4.3` and no `K2` or `fixture` (`/usr/bin/grep -c` → 0 for each).
 
 That is **+13**: 63 records of this PR, **158** in all, `_MUT_RECORDS_MIN=158`, labels 18,
 `_MUT_UNRECORDED_MAX=21`. Draft 16's plan (157) is superseded. None of it is implemented yet.
+
+**Round 15's `lnblind` insert**, cited by corpus §6.1's `lnblind2` row, verbatim from the round-15
+reviewer's file (`/tmp/elidex-plan-review.7e5b6f5f-cec2-4f20-9e7a-b25f0c4752cf/r15/ax3/ins/lnblind`):
+`mkdir -p "$_FW_DIR/zzt/a/objects" && : > "$_FW_DIR/zzt/a/HEAD" && ln -s "$_FW_DIR/zzt" "$CTL/zzy" && ln -s /dev/null "$_FW_DIR/prel"`.
+Its one recorded run (the reviewer's `o.lnblind`, bash 5.3 on the draft-16 prototype): rc 1, 6 s,
+`zzy:[a symlink to a tree holding a git dir: a/HEAD]`, the in-loop search's message.
+
+**Plan-review round 16 (focused, on draft 17, frame `0a11ace9`) → draft 18.** 0 CRIT / 3 IMP / 12 MIN,
+as the orchestrating session relayed them. It decided the IMP dispositions; for IMP-3 it and Fable's
+independent verdict agreed on option 1, and the user had authorised proceeding on agreement. Labels
+D16-A…D16-D (a `D…` family, no section number).
+
+| finding | disposition |
+|---|---|
+| IMP-1/2 (Ax3): X9 had no place in the land order, and route (a)'s branch conflicted with the "pending" sentence | **D16-A**: route (b) is the user's decision (PR #527's description), stated in `…-landing.md` §9; route (a) removed; land order step 7 is X9 on #501: the runner run, the verdict commit on #501's branch, the threshold, a post-squash fix's owed checks, #501's fresh Codex round, and #510's conflict resolved before the re-measure |
+| IMP-3 (Ax2): the parent's working files at fixed names under `$CTL`; `xbare` and `xanchor` PASSED | **D16-B**, option 1, by construction: C11 moves them into `$SCRATCH/verifyXXXXXX` made after the window; §0.3's design rule; design memo §4, "The parent's directory", with the checker; X16 gains the cells; X3 an opt-in cell; §10 #2 |
+| Ax3 MIN: `mkfn`, a fixtures-file `mktemp` function | **D16-C**: construction cannot close it in the shell (below), so it is class (c), declared for every command the window runs after the fixtures file; §4's sentence narrowed |
+| Ax2 MIN: `xexecarith`, fd 2 redirected before a diagnostic, PASSED | **D16-D**: a check, C12 (a canary through fd 2, read in the parent), measured below; one W record |
+| Ax3 MIN: the docs-only branch had no red path | a red result is a finding; X9's row goes to X9's route; X8 cannot fail (`…-landing.md` §9.1) |
+| Ax3 + Ax5 MIN: step 2's `ci.yml` target | every local-derivation passage named with its lines at `8413a4db`; no figure in `ci.yml` at all (#510 at `9df03f52` keeps none either) |
+| Ax3 MIN: "half" against "nears 2x" | the line is this memo's choice, and why (`…-landing.md` §9, "The threshold") |
+| Ax2 MIN: the P-g row and §4's heading still said "no fixture can reach" | narrowed to the §0.3 rule |
+| Ax4+5 MINs: X14's record place; the reviews header and §S; corpus line 363 → 364; `xrace` "on the draft-16 prototype" cited to `…-pr527.md`; the unrecorded `lnblind` insert; "at 890 lines"; the "Cost" bullet | each fixed (X14 → this file; header and §S; `mutations.sh` at `8413a4db`, lines 363–364, has the `pgcur` record at 364; `xrace` cited to round 15's relayed cell; `lnblind` above; the `git show` and `wc -l` command in this file's header; "X8 records it locally; the verdict is X9's") |
+| §12 | round 17, a focused re-check of the draft-18 delta |
+
+**False premises in round 16's brief, found while implementing** (each measured below):
+1. The derivation command `/usr/bin/grep -nE '(>|>>) *"\$CTL/|mkfifo "\$CTL'` "at `8413a4db`: 12 sites … after the move returns 0": it lists 14 lines at `8413a4db` (13 working-file lines and one mutation record, `mutations.sh:377`, whose `mkfifo "$CTL\/zzfifo` its unslashed `mkfifo "\$CTL` matches), and it misses the two assignment sites, `_fsm_mark="$CTL/.fsmonitor_ran"` and `_out_f="$CTL/.control_out"`. After the move it lists that record, 1. The design memo's checker adds the assignment form and the slash; it lists 16 at `8413a4db` and 1 after C11 (a fixture read, `PATH="$CTL/fakerelmktemp:$PATH"`).
+2. "`command mktemp` / an absolute path resolved at source time" as a construction: a function shadows `command`, `builtin`, `unset` and a name spelled `/usr/bin/mktemp` alike.
+3. `.fsmonitor_ran`, "pre-plant → NE→green": the pre-planted mark does not cause the NOT EXERCISED; it hides it (the plain-git check reads the plant as the hook's run).
+4. #510's head is `9df03f52` now, not `106387e4`, and its budget block keeps no figure at all.
+
+**Shadowing, measured** (bash 5.3 and 3.2, the same output on each):
+
+```sh
+$SH -c 'set -euo pipefail; builtin() { echo shadowed-builtin; }; unset() { echo shadowed-unset; }; command() { echo shadowed-command; }; f(){ :; }; unset -f f; builtin unset -f f; command unset -f f; declare -F | grep -c " f$"'
+# shadowed-unset / shadowed-builtin / shadowed-command / 1   (f is still defined)
+$SH -c '/usr/bin/mktemp() { echo shadowed-abs; }; /usr/bin/mktemp -d /tmp/xXXXXXX'   # shadowed-abs
+```
+
+A `[ /dev/fd/2 -ef "$_FW_DIR/stderr" ]` check was tried first for D16-D and does not work on macOS:
+`stat -f "%d %i"` of `/dev/fd/2` gives the file's inode on the `fdesc` device (`193377003 208981939`
+against the file's `16777231 208981939`), so `-ef` is false even when fd 2 is the file. Hence the canary.
+
+**The draft-18 prototype.** Base `35dc1153`, the whole prototype as one diff (it contains
+`proto17.diff`'s changes): `git -C <sandbox> diff > proto18.diff`, 532 lines, sha256
+`df8e3fe22c5ed37bc1f8c9f229e236433bafa4d4e34ac2bb8b3ab746bbbb33a7` (`…/scratchpad/author17/proto18.diff`).
+On top of draft 17's:
+- controls, right after `_fgit_window "$_FIXTURES"`: `_VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")"`,
+  checked, exit 2 with "could not create the verifier's directory … decided nothing";
+- every `"$CTL/<name>"` of the moved set written as `"$_VFY/<name>"` in the four parent parts;
+  `.fifoprobe` made in `$SCRATCH` (source time, before `_VFY` exists);
+- the child, after the options re-check, `printf "K2-WINDOW-STDERR-CANARY\n" >&2`; the parent tests
+  for it with `awk` `index()` over `stderr`, replays `stderr` with the canary taken out, and without it
+  sets `_fw_why` to "the fixtures file left the window's stderr redirected, so a shell diagnostic could
+  not be read" and does not count the window done.
+
+The tree variants for X16's round-16 cells, each the draft-18 prototype plus one edit in `mutations.sh`:
+- `U` (for `xbare`): `_MUT_UNRECORDED_MAX=21` → `_MUT_UNRECORDED_MAX=0`;
+- `A` (for `xanchor`): the record `fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --add core.bare false; …` has its anchor `built"$` changed to `builtZZSTALE"$`.
+
+**The moved set, derived.** The checker (design memo §4) over the four parent parts: 16 lines on the
+draft-16 prototype, the same set as at `8413a4db`:
+`controls:187 PATH="$CTL/fakerelmktemp:$PATH"`, `controls:332 _fsm_mark="$CTL/.fsmonitor_ran"`,
+`controls:333 > "$CTL/fsmhook"`, `controls:345 > "$CTL/.fsm_out"`, `controls:373 > "$CTL/.umask_out"`,
+`harness:635 mkfifo "$CTL/.fifoprobe"`, `harness:692 _out_f="$CTL/.control_out"`, `mutations:507` and
+`:645 > "$CTL/.mutants"`, `mutations:551 > "$CTL/.anchor"`, `mutations:588 > "$CTL/.bare"`,
+`mutgen:272`, `:283 "$CTL/.genmutants"`, `mutgen:292 "$CTL/.genequiv"`, `mutgen:293`, `:297
+"$CTL/.genseen"`. Every one but the first is a file the parent writes and reads back (or, for
+`.fifoprobe`, makes and removes); the first is a fixture directory it reads. On the draft-18 prototype
+the checker lists `controls:196 PATH="$CTL/fakerelmktemp:$PATH"` alone.
+
+**The cells** (2026-09-30, `cell15.sh` verbatim from `…-pr527.md` round 13, two wires at a time, `HOME`
+a scratch directory). Inserts verbatim: `xbare` `ln -s /dev/null "$CTL/.bare"`; `xanchor` `ln -s
+/dev/null "$CTL/.anchor"`; `xexecarith` `exec 2>/dev/null` then `: $((1/0))` on the next line; `xexec`
+`exec 2>/dev/null`; `xarith` `: $((1/0))`; `xnonl` `printf 'nonl' >&2`; `mkfn` and `mkctl` the round-16
+reviewer's (`/tmp/elidex-plan-review.7e5b6f5f-cec2-4f20-9e7a-b25f0c4752cf/r16/ax3/ins/`): `mkctl` is
+`lnblind2`'s `zzy` link plus `_k2d="${_FW_DIR%/*}/pgrefKNOWN"; mkdir "$_k2d" && ln -s /dev/null
+"$_k2d/prel" && ln -s /dev/null "$_k2d/pgls"`, and `mkfn` adds `mktemp() { echo "${_FW_DIR%/*}/pgrefKNOWN"; }`.
+
+| cell | tree | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| clean | draft 18 | rc 0, PASSED, 20 s | rc 0, PASSED, 26 s |
+| xbare | draft 18, `U` | rc 1, 16 s, `21 labels have no mutation record, against a ratchet of 0.` | rc 1, 22 s, same |
+| xanchor | draft 18, `A` | rc 1, 15 s, `mutation record "…builtZZSTALE…" no longer matches …fixtures.sh: its anchor is stale` | rc 1, 21 s, same |
+| lnblind2 | draft 18 | rc 1, 3 s, `K2PRE zzy:[…]` | rc 1, 4 s, same |
+| xrefpoison | draft 18 | rc 1, 5 s, P-g | rc 1, 8 s, same |
+| mkctl | draft 18 | rc 1, 3 s, `K2PRE zzy:[…]` | rc 1, 4 s, same |
+| mkfn | draft 18 | ⚠ rc 0, PASSED, 16 s (class (c), D16-C) | ⚠ rc 0, PASSED, 23 s |
+| xexecarith | draft 18 | rc 2, 6 s, W: "the fixtures file left the window's stderr redirected, …" | rc 2, 8 s, same |
+| xexec | draft 18 | rc 2, 5 s, the same W | — |
+| xexec | draft 16 (no canary) | — | rc 0, PASSED, 24 s |
+| xarith | draft 18 | rc 1, 6 s, W3 (`./fixtures.sh: line 694: 1/0: division by 0`) | — |
+| xnonl | draft 18 | — | rc 0, PASSED, 23 s; the log holds `nonl` and no canary |
+| xrace | draft 18 | ⚠ rc 0, PASSED, 21 s; `sleep` and the window's bash left in the group, killed by group | ⚠ rc 0, PASSED, 29 s, same |
+
+On the draft-17 prototype the round-16 reviewers measured `xbare` and `xanchor` (on their `U` and `A`
+variants) and `xexecarith` rc 0, PASSED on both shells, and `mkfn` rc 0, PASSED on bash 5.3, `mkctl`
+rc 1 (as relayed).
+
+**Records planned by draft 18** (`…-landing.md` §9.1, corpus §6.1): draft 17's +13, and +1 (W:
+`exec 2>/dev/null`, C12). That is **+14**: 64 records of this PR, **159** in all,
+`_MUT_RECORDS_MIN=159`, labels 18, `_MUT_UNRECORDED_MAX=21`. C11 adds none. Draft 17's plan (158) is
+superseded. None of it is implemented yet.
