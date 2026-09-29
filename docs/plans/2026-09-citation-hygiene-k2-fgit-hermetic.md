@@ -27,9 +27,9 @@ memo holds only the live decisions.
 
 **Decision**: user, 2026-09-27, option (a): rebuild.
 
-**Status**: **draft 18**; the implementation (§9.1) has not been made. Draft 18 answers plan-review
-round 16 (`…-pr527-r15.md` §Q). What each draft answered goes to `…-reviews.md` §S, not here: drafts
-6–18 are there, so this preface does not grow with the drafts.
+**Status**: **draft 19**; the implementation (§9.1) has not been made. Draft 19 answers plan-review
+round 17 (`…-pr527-r15.md` §Q). What each draft answered goes to `…-reviews.md` §S, not here: drafts
+6–19 are there, so this preface does not grow with the drafts.
 
 ⚠ **The parent's rule applies throughout.** No quantity here moves with a commit; each figure is a
 measurement on a named artifact, given with its command.
@@ -40,8 +40,8 @@ measurement on a named artifact, given with its command.
 - Disposition labels in the companions never collide with this memo's section numbers: F…, R2-…, R3-…,
   U1–U5 (round 4), V…, W1–W5 (round 6's §D.6 dispositions, not the postconditions W, W2, W3, W4), D…,
   E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-D
-  (round 14), D15-A…D15-C (round 15), D16-A…D16-D (round 16)
-  and PX1 (the base `~+/bin` experiment).
+  (round 14), D15-A…D15-C (round 15), D16-A…D16-D (round 16), D17-A…D17-D
+  (round 17) and PX1 (the base `~+/bin` experiment).
   In this memo a bare "R1"–"R9" is a §5.2 residual. Any other review round names its source: "Codex Rn"
   or "PR #527 Rn" for #527's external review, and "#501 Rn" or "#519's Rn" for the parent PRs' rounds.
   A finding within a Codex round is "Codex R26③". In `…-pr527.md`, whose subject is the Codex rounds, a
@@ -160,12 +160,27 @@ with `mktemp -d`, never under `$CTL` (the fixtures' tree) or `$_FW_DIR`: the pos
 - the names the prelude defines, in the shell the fixtures file shares (`xredef`);
 - the pin `$_FGIT_BIN`;
 - a fixture process that outlives the build, which can still find a directory made after it (`xrace`);
-- a command the verifier runs in the window after the fixtures file, which a function the fixtures file
-  defines can shadow (`mkfn`, D16-C). Every command name resolves through the shell, and a function
-  shadows it whatever it names: an external command, a builtin (`unset`, `builtin` and `command`
-  included) and a name spelled as an absolute path (`/usr/bin/mktemp() { …; }`) were each shadowed on
-  bash 5.3 and 3.2 (`…-pr527-r15.md` §Q). So no in-shell construction closes it, and the set is every
-  command the window runs after the fixtures file, not a list.
+- **what a command name the verifier runs in the window after the fixtures file resolves to** (D16-C,
+  stated by property in draft 19, D17-A). Anything the fixtures file does that changes it writes the
+  verifier's own state. Examples, not a list: a function (`mkfn`), a `PATH` entry after `$_FGIT_BIN`
+  (`shimafter`), `hash -p` (`shimhash`), `enable -n`, and an alias under `expand_aliases` for a name
+  on the window's own lines after the fixtures file (an alias does not reach a function body the
+  prelude parsed before it). A function shadows a name whatever it names: an external command, a
+  builtin (`unset`, `builtin` and `command` included) and a name spelled as an absolute path
+  (`/usr/bin/mktemp() { …; }`), each measured on bash 5.3 and 3.2 (`…-pr527-r15.md` §Q). One form is
+  red, not class (c): a `PATH` entry put **before** `$_FGIT_BIN` fails P-j's first-entry clause
+  (`shimprepend`; C6 keeps that clause). The set is every command name the window resolves after the
+  fixtures file, not a list.
+
+  **No in-shell reset is adopted.** Every in-shell construction is defeated by one fixtures-file line.
+  `POSIXLY_CORRECT=1` with `$(exec /usr/bin/mktemp -d …)` runs the real binary despite `mktemp`, `exec`
+  and `unset` functions, on both shells; one fixtures-file line, `enable -n exec; exec() { …; }`, makes
+  the same substitution return the function's output, rc 0 (`…-pr527-r15.md` §Q). So a deliberate
+  defeat is class (c). What a reset could still buy is harmlessness for an accidental shadow, as P-c's
+  reset does for two named shell settings, but this reset would have to cover every command name the
+  verifier resolves, by every route, and the fixtures file has no instance to protect: outside comments
+  it defines no function, alias or hash entry and assigns no `PATH` (the command in `…-pr527-r15.md`
+  §Q gives 0).
 
 A fixtures-file write to verifier state that construction leaves reachable is class (c) whatever else
 the build leaves: the state is read by a verifier that the same command changed, and a file does not say
@@ -179,13 +194,17 @@ persisted in `clean` alone is red by P-g (`xkey`); the key plus `exit 0` is W (`
 `built` and `done` written by the fixtures file (`xdone`), or plus a `_fgit_postconditions` redefined
 to return 0 (`xredef`), is rc 0, PASSED, and so is the key in every fixture plus a background process
 that the fixtures file leaves running and that writes the reference made after the build (`xrace`,
-round 15, D15-C), and so is a `mktemp` shadowed by a fixtures-file function to name a directory the
-fixtures prepared (`mkfn`, round 16, D16-C). The last four are this boundary, not defects. `xkey`, `exit0`
+round 15, D15-C), and so is a `mktemp` made to name a directory the fixtures prepared, by a
+fixtures-file function (`mkfn`, round 16, D16-C), by a `PATH` entry after the pin (`shimafter`) or by
+`hash -p` (`shimhash`, both round 17, D17-A), and so is a diagnostic hidden by a stderr redirect scoped
+to a group around the failing line (`xgroup`, round 17). The last seven are this boundary, not
+defects. `xkey`, `exit0`
 and `xredef` ran on `ebc90bc1`'s tool code, which is `8413a4db`'s except three comment-only path lines
 (Fable; `…-pr527.md` round 14); `xdone` on that tree and on the draft-16 prototype (`…-pr527.md` round
 14); `xrace` on the draft-16 prototype (round 15's Ax2 cell, as relayed) and on the draft-17 and
-draft-18 prototypes, and `mkfn` on the draft-17 (round 16's Ax3 cell, as relayed) and draft-18
-prototypes (`…-pr527-r15.md` §Q).
+draft-18 prototypes, `mkfn` on the draft-17 (round 16's Ax3 cell, as relayed) and draft-18
+prototypes, and `shimafter`, `shimhash` and `xgroup` on the draft-18 prototype (round 17's cells, as relayed:
+`shimafter` and `shimhash` Ax3's, `xgroup` Ax2's) and the draft-19 prototype (`…-pr527-r15.md` §Q).
 
 Examples of (c), which illustrate the property and are **not a list to complete**:
 - a transient per-command input: `-c`, `--config-env`, an environment assignment on one command,
@@ -194,9 +213,13 @@ Examples of (c), which illustrate the property and are **not a list to complete*
 - `--git-dir` / `--work-tree` pointing outside the fixture root;
 - sourcing an outside file (`. <file>`);
 - switching an option off and back on in the middle of the file;
+- a stderr redirect scoped to a group or function around a failing line (`{ : $((1/0)); } 2>/dev/null`,
+  `xgroup`): fd 2 is the captured file again at the end, so C12's canary arrives and W3 has nothing to
+  read;
 - writing the verifier's own state that construction leaves reachable: a marker, a prelude variable or
   function, the pin, a file in a directory made after the build written by a background process that
-  outlives the build (`xrace`), or a function that shadows a command the verifier runs (`mkfn`; above).
+  outlives the build (`xrace`), or anything that changes what a command name the verifier runs
+  resolves to (`mkfn`, `shimafter`, `shimhash`; above).
 
 A mistake that happens to take a class-(c) shape is not caught either, and this memo does not claim
 otherwise.
@@ -635,8 +658,9 @@ every fixture repo: rc 0, PASSED, on both shells. Every reference a postconditio
 every file it writes and reads back, by location:
 - **the postconditions' directory**, made at the start of the postconditions, **after the build**, by
   `mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX"`, beside `$_FW_DIR` and never under it or `$CTL`. No fixture
-  command that finished by the end of the build can know its name, unless it shadows the `mktemp` the
-  postconditions run (`mkfn`, class (c), §0.3). It holds `a`, `b`, P-g's reference
+  command that finished by the end of the build can know its name, unless the fixtures file changed
+  what the `mktemp` the postconditions run resolves to (`mkfn`, `shimafter`, `shimhash`: class (c),
+  §0.3). It holds `a`, `b`, P-g's reference
   listings and P-k's probe repo (C10), and every working file below. `a` and `b` are made by `mkdir`
   without `-p` after a clean census, so one that already exists fails the reference, red (P-g). P-a,
   P-b, P-d, P-g and P-i read `a`. A fixture command still running after the build (a background
@@ -674,9 +698,18 @@ label ratchet at 0 (`xbare`), and `ln -s /dev/null "$CTL/.anchor"` with a stale 
 rc 0, PASSED on both shells (round 16's cells, as relayed); with the files moved, rc 1 with the ratchet's own message
 (`…-pr527-r15.md` §Q). C11 makes one directory right after `_fgit_window` returns,
 `mktemp -d "$SCRATCH/verifyXXXXXX"`, outside `$CTL` and `$_FW_DIR`, and a failure to make it ends the run
-"decided nothing" (exit 2), as a failed `$CTL` does. What each moved file did, at `8413a4db`:
+"decided nothing" (exit 2), as a failed `$CTL` does. The mutation set's entry guard (`mutations.sh` line 90 at
+`8413a4db`) and the two "WHAT IT CONSUMES" headers (`mutations.sh` line 29, `mutgen.sh` line 12) name
+`$_VFY` instead of `$CTL`: after C11 neither file reads `$CTL` outside the records' text, and the
+controls file sets `_VFY` before it sources the mutation set (the draft-19 prototype, `…-pr527-r15.md`
+§Q). C11
+also makes **an empty generated set red** in `_mut_gen_run` (D17-D): after the move no fixture plant
+can empty it, but any other cause would still print `0 mutant(s)` beside `0 neither killed nor argued
+equivalent`, which X3 reads as a pass, the silent direction. What each moved file did, at `8413a4db`:
 - a plant turned a check green: `.bare` and `.anchor` (the always-on ratchet and anchor check), the
-  generator's `.genmutants`, `.genequiv` and `.genseen` (opt-in mutation mode), and `.fsmonitor_ran`
+  generator's `.genmutants`, `.genequiv` and `.genseen` (opt-in mutation mode; `ln -s /dev/null
+  "$CTL/.genmutants"` makes the generator read no mutant, and the run reports `0 mutant(s)` and
+  passes: predicted from the code, X3 measures it), and `.fsmonitor_ran`
   (the fsmonitor control's mark: a pre-planted mark stands in for the hook's run under a plain git
   call, so where the hook does not run that control's NOT EXERCISED, a red, becomes a pass);
 - a plant made a check fail, red: `.mutants`, `.control_out`, `.umask_out`;
@@ -754,7 +787,7 @@ pre-existing defect), so "§5.1", "§5.2" and "§5.2 Rn" in this memo resolve th
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6 ("the corpus file";
 touch-time split, text unchanged). It holds the recast oracle, the prototypes p6–p11, the re-run
 recipe, every focused cell table, and the mutation records with their totals and the ratchet;
-its §6.1 holds drafts 11–17's planned record changes.
+its §6.1 holds drafts 11–18's planned record changes.
 
 ## §7 What was deleted (draft 5 → 6)
 
@@ -790,7 +823,7 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | # | axes | invariant | where |
 |---|---|---|---|
 | 1 | A×B | the window's `env -i` closes every variable, and four relocations close default files: class (a). That holds for every git in the window **whose inputs no fixtures-file command removed, overrode or added**, however it is spelled. A command that does is class (b) if it leaves persisted, observable state (P-g, W, W3) and class (c) otherwise, which is out of scope | §0.3, §3, §5.1; corpus G, R |
-| 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a directory or a regular file with one link. The census's one verdict comes before any postcondition runs git, and the references it is compared against, with every file a postcondition writes and reads back, are in a directory made after the build, whose name no fixture command that finished by then can know; after the window the parent's own working files are likewise in a directory it makes then, and it writes nothing under `$CTL` (C11). P-k adds that no fixture repo reads objects from a store outside it | §4 |
+| 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a directory or a regular file with one link. The census's one verdict comes before any postcondition runs git, and the references it is compared against, with every file a postcondition writes and reads back, are in a directory made after the build, out of the fixtures' reach by §0.3's design rule (what that rule cannot close, `xrace` and a changed command resolution among it, is declared class (c)); after the window the parent's own working files are likewise in a directory it makes then, and it keeps none of them under `$CTL` (C11; §4, "The parent's directory"). P-k adds that no fixture repo reads objects from a store outside it | §4 |
 | 3 | A×D | P-f is a complement check: an unknown name in the window is red | §4 |
 | 4 | B×E | the empty template removes `.git/info/`, so `notcommitted` creates it | §3 |
 | 5 | D | window state is assigned before it is read. Completion needs the fixtures file's own last line, with the options still on and the window's stderr still the captured file (C12); the markers are a protocol, not a seal (a fixtures-file write to them is class (c), §0.3); an incomplete window ends the run with W alone, a complete but untrusted one ends it after its reports, and `_control` itself refuses unless the build is complete and trusted (W2). Each child option is checked and recorded. With the parent's nounset off, the clean tree and eight red cells give the same verdicts (measured, §3; not a proof over every path) | §3, §5.2 |
@@ -809,11 +842,13 @@ unchanged), beside the commits they verify.
 ## §12 Plan-review
 
 Plan-review closed for draft 10 after round 9 (`…-reviews.md` §D.0 records the ground). Rounds 10–14
-reviewed drafts 11–15 (`…-pr527.md`), and rounds 15–16 reviewed drafts 16–17 (`…-pr527-r15.md` §Q).
-Draft 18 states X9 as route (b) with its own land-order step (D16-A), moves the parent's working files
-out of `$CTL` (D16-B, C11), declares shadowing a verifier command class (c) (D16-C) and makes a
-redirected window stderr W (D16-D, C12), so **round 17**, a focused re-check of the draft-18 delta,
-reviews it before C6. It has not run.
+reviewed drafts 11–15 (`…-pr527.md`), and rounds 15–17 reviewed drafts 16–18 (`…-pr527-r15.md` §Q).
+Draft 19 states D16-C by property, any change to what a verifier command name resolves to (D17-A);
+makes X9 re-run at every new T until a verdict at the current T is under the threshold (land order
+step 7.4, D17-B); adds CLAUDE.md's trip-wires paragraph and the job's "RE-DERIVED" comment to the
+final-head rewrite (D17-C); and corrects X3's opt-in expectation, with an empty generated set made red
+in C11 (D17-D). So **round 18**, a focused re-check limited to those four changes, reviews it before
+C6. It has not run.
 
 ## §13 Implementation results
 

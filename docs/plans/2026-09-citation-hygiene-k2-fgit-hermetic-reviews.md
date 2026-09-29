@@ -388,6 +388,17 @@ moved the design memo's two ledger texts to `…-landing.md` §9.2.
   absolute paths are shadowable too, measured (D16-C).
 - A window stderr left redirected is W, through a canary (C12, D16-D).
 
+**Draft 19** answers plan-review round 17 (`…-pr527-r15.md` §Q, D17-A…D17-D). Before it, `f8ea983a`
+moved the design memo's §5 to `…-residuals.md`.
+- D16-C is stated by property: anything that changes what a command name the verifier runs resolves
+  to is class (c) (a function, a `PATH` entry after the pin, `hash -p`, …); a `PATH` entry before the
+  pin is red by P-j's first-entry clause, which the draft-18 prototype had lost (D17-A).
+- A fix on #501 that moves T sends X9 back to a new runner run at the new T (land order step 7.4,
+  D17-B).
+- The final-head rewrite also covers #501's `CLAUDE.md` trip-wires paragraph and the job's
+  "RE-DERIVED" comment (D17-C).
+- X3's opt-in expectation is corrected, and C11 makes an empty generated set red (D17-D).
+
 From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
 and the round it answers.
 

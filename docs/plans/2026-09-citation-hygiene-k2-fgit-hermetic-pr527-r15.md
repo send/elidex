@@ -141,7 +141,7 @@ D16-A…D16-D (a `D…` family, no section number).
 | §12 | round 17, a focused re-check of the draft-18 delta |
 
 **False premises in round 16's brief, found while implementing** (each measured below):
-1. The derivation command `/usr/bin/grep -nE '(>|>>) *"\$CTL/|mkfifo "\$CTL'` "at `8413a4db`: 12 sites … after the move returns 0": it lists 14 lines at `8413a4db` (13 working-file lines and one mutation record, `mutations.sh:377`, whose `mkfifo "$CTL\/zzfifo` its unslashed `mkfifo "\$CTL` matches), and it misses the two assignment sites, `_fsm_mark="$CTL/.fsmonitor_ran"` and `_out_f="$CTL/.control_out"`. After the move it lists that record, 1. The design memo's checker adds the assignment form and the slash; it lists 16 at `8413a4db` and 1 after C11 (a fixture read, `PATH="$CTL/fakerelmktemp:$PATH"`).
+1. The derivation command `/usr/bin/grep -nE '(>|>>) *"\$CTL/|mkfifo "\$CTL'` "at `8413a4db`: 12 sites … after the move returns 0": it lists 14 lines at `8413a4db` (13 working-file lines and one mutation record, `mutations.sh:378`, whose `mkfifo "$CTL\/zzfifo` its unslashed `mkfifo "\$CTL` matches), and it misses the two assignment sites, `_fsm_mark="$CTL/.fsmonitor_ran"` and `_out_f="$CTL/.control_out"`. After the move it lists that record, 1. The design memo's checker adds the assignment form and the slash; it lists 16 at `8413a4db` and 1 after C11 (a fixture read, `PATH="$CTL/fakerelmktemp:$PATH"`).
 2. "`command mktemp` / an absolute path resolved at source time" as a construction: a function shadows `command`, `builtin`, `unset` and a name spelled `/usr/bin/mktemp` alike.
 3. `.fsmonitor_ran`, "pre-plant → NE→green": the pre-planted mark does not cause the NOT EXERCISED; it hides it (the plain-git check reads the plant as the hook's run).
 4. #510's head is `9df03f52` now, not `106387e4`, and its budget block keeps no figure at all.
@@ -218,3 +218,91 @@ rc 1 (as relayed).
 `exec 2>/dev/null`, C12). That is **+14**: 64 records of this PR, **159** in all,
 `_MUT_RECORDS_MIN=159`, labels 18, `_MUT_UNRECORDED_MAX=21`. C11 adds none. Draft 17's plan (158) is
 superseded. None of it is implemented yet.
+
+**Plan-review round 17 (focused, on draft 18, frame `f50054b1`) → draft 19.** 0 CRIT / 4 IMP / 12 MIN,
+as the orchestrating session relayed them. It decided the dispositions; draft 19 implements them.
+Labels D17-A…D17-D (a `D…` family, no section number).
+
+| finding | disposition |
+|---|---|
+| IMP-1 (Ax3): D16-C named only functions. `shimafter` (a `PATH` entry after the pin naming a directory whose `mktemp` echoes `pgrefKNOWN`) gave rc 0, PASSED on both shells, `shimhash` (`hash -p`) rc 0, PASSED on bash 5.3; `shimprepend` PASSED on the draft-18 prototype, whose P-j lacked the first-entry clause, and was red (`first:[…/zzshim]`) with the clause added; the control `shimnone` red | **D17-A**: D16-C stated by property, anything that changes what a command name the verifier runs after the fixtures file resolves to, with examples, not a list (design memo §0.3); the prepend form is red by P-j's first-entry clause, which C6 keeps; `shimafter` and `shimhash` in §0.3's measured boundary, `…-residuals.md` §5.1 and X16; §4's `mktemp` sentence aligned. The draft-18 prototype's P-j had lost the first-entry clause (the harness at `8413a4db` has it, `harness.sh` line 257); the draft-19 prototype restores it, and C6's re-anchor record pins it (corpus §6.1, measured below) |
+| Ax3 MIN (with IMP-1): "So no in-shell construction closes it" was false: `POSIXLY_CORRECT=1` with `$(exec /usr/bin/mktemp -d …)` runs the real binary despite the functions | "every in-shell construction is defeated by one fixtures-file line" (`enable -n exec` with an `exec` function, measured below), so a deliberate defeat is class (c); no reset is adopted, and why (design memo §0.3) |
+| IMP-2 (Ax3): after a red or over-threshold X9, a fix that moves T left no step that re-runs X9 at the new T | **D17-B**: land order step 7.4 returns to 7.1 on a fix that moves T; step 8 only with a verdict of a run at the current T under the threshold; terminator: Codex dry on the verdict commit (`…-landing.md` §9) |
+| IMP-3 (Ax5): #501's branch changes `CLAUDE.md` line 94 to carry a local derivation method | **D17-C**: step 2's targets gain line 94, fixed in #501's branch by #527; not reverted to main's text, which carries "(~1s)" (`…-landing.md` §9, "CLAUDE.md's trip-wires paragraph"; false premise 1 below) |
+| IMP-4 (Ax5+Ax3): X3's opt-in cell expected "red", wrong after C11 | **D17-D**: X3 states base PASSED with `0 mutant(s)` (the blind) and, after C11, PASSED with the normal non-zero count, both "predicted from the code; X3 measures it", in `…-landing.md` §11 and the design memo §4; and C11 makes an empty generated set red in `_mut_gen_run`, pinned by X3's floor cell (no record can reach it: a trial runs with `env -u WEBREF_WIRE_MUTANTS`) |
+| Ax2 MIN: the entry guard and the two "WHAT IT CONSUMES" headers still name `$CTL` | C11's row replaces them with `$_VFY` (`…-landing.md` §9.1; design memo §4); the draft-19 prototype does, and its clean runs pass the guard |
+| Ax2 MIN: a stderr redirect scoped to a group, `xgroup` | a class-(c) example in the design memo §0.3 and in its measured boundary |
+| Ax2 MIN (optional): a cause sentence for `exec 2>&-` | not adopted: the verdict is already W alone (the window exits before completing); a cause sentence would change the message, not the verdict |
+| Ax4/Ax5 MINs | the D16-A source split (the user's choice in the lane's memory of PR creation, the route in PR #527's description); "Drafts 11–17" → "11–18" (`…-landing.md` ledger text, X5; design memo §6); `pull/501/head` under "Resolvable commits"; the design memo §10 #2 refers to §0.3's rule and says the parent keeps none of its working files under `$CTL`; this file's round-16 false premise 1, `mutations.sh:377` → 378 (`git show 8413a4db:.claude/tools/webref-generic-core-trip-wire.mutations.sh | /usr/bin/grep -n 'mkfifo "\$CTL'` → 378); §9.2's lead-in names "code sourced after wire:405"; `ci.yml`'s "RE-DERIVED WHEN THE K2 WIRE LANDED" (line 167 at `8413a4db`) joins step 2's targets |
+| §12 | round 18, a focused re-check limited to D17-A…D17-D |
+
+**False premises in round 17's brief, found while implementing:**
+1. "`origin/main` has since dropped" the local method: `main` never carried it. `git log --oneline -S'time -p bash scripts/trip-wires.sh' origin/main` prints nothing, and `CLAUDE.md` at `origin/main` (`f1cf5d67`) still says "(~1s)" (`/usr/bin/grep -c '(~1s)'` → 1), the figure #501 removed as false. So "make it match main's current text" would restore a figure; step 2 instead removes the local method from #501's text.
+2. Not false, but wider than measured: an alias, listed among the examples, reaches only a name on the window's own lines after the fixtures file, not a function body the prelude parsed before it (measured below), so the design memo's example says so.
+
+**Resolution routes, measured** (bash 5.3 and 3.2, the same result on each):
+
+```sh
+$SH -c 'mktemp(){ echo fn-mktemp; }; exec(){ echo fn-exec; }; unset(){ echo fn-unset; }; POSIXLY_CORRECT=1; x=$(exec /usr/bin/mktemp -d "$1/xXXXXXX"); echo "A:[$x]"' _ "$S"
+# A:[<S>/x…]   (the real binary)
+$SH -c 'enable -n exec; exec(){ echo fn-exec; }; POSIXLY_CORRECT=1; x=$(exec /usr/bin/mktemp -d "$1/xXXXXXX"); echo "B:[$x] rc=$?"' _ "$S"
+# B:[fn-exec] rc=0
+printf 'shopt -s expand_aliases\nalias mktemp="echo aliased"\n' > a.sh; printf 'f() { mktemp -d /tmp/zzXXXX; }\n' > p.sh
+$SH -c '. ./p.sh
+. ./a.sh
+mktemp -d "$PWD/zXXXXXX"
+f'
+# aliased -d <PWD>/zXXXXXX   (a later top-level line)  /  /tmp/zz…   (the function parsed before)
+```
+
+The fixtures file has no instance of the routes outside comments (`8413a4db`'s file and the
+prototypes' are the same here; a positive control, the harness, gives 17):
+
+```sh
+awk '!/^[ \t]*#/' .claude/tools/webref-generic-core-trip-wire.fixtures.sh \
+  | /usr/bin/grep -cE '^[^#]*\(\) *\{|(^|[;&| ])(alias|hash|enable|shopt|function) |(^|[^A-Za-z_])PATH='   # 0
+```
+
+**The draft-19 prototype.** Base `35dc1153`, the whole prototype as one diff: `git -C <sandbox> diff >
+proto19.diff`, 565 lines, sha256 `24067f1ce6eb3ff280ad7c6a5351343cbd2a3b8a1da9245fa02e959d353a8e6b`
+(`…/scratchpad/author19/proto19.diff`). On top of the draft-18 prototype's:
+- P-j's first-entry clause restored as at `8413a4db`: `case "$PATH" in "$_FGIT_BIN"|"$_FGIT_BIN":*) ;; *)
+  _pj="$_pj first-entry" ;; esac`;
+- the P-j record re-anchored as C6 plans (`_FGIT_PATH="\/nonexistent-k2:$_FGIT_BIN:` in place of
+  `_FGIT_PATH=\/usr\/bin:`);
+- the mutation set's entry guard and the two "WHAT IT CONSUMES" headers name `$_VFY`. The controls
+  file sets `_VFY` before it sources the mutation set (`/usr/bin/grep -n -e '_VFY="' -e '_MUTATIONS='
+  .claude/tools/webref-generic-core-trip-wire.controls.sh` → lines 122 and 396), and outside the
+  `MUTANTS` here-document (lines 230–387) neither `mutations.sh` nor `mutgen.sh` names `$CTL` but in
+  those two headers, now `$_VFY`;
+- `_mut_gen_run`: after the regex loop, a generated count of 0 prints `!! the boundary-mutant generator
+  produced no mutant …` and adds one to `_mut_gen_bad`.
+
+**The cells** (2026-09-30, `cell15.sh` verbatim from `…-pr527.md` round 13, two wires at a time, `HOME`
+a scratch directory). Inserts verbatim, from the round-17 reviewer's files
+(`/tmp/elidex-plan-review.7e5b6f5f-cec2-4f20-9e7a-b25f0c4752cf/r17/ax3/ins/`); each starts with `mkctl`'s
+two lines (round 16's cells, above), then:
+- `shimnone`: `_k2s="${_FW_DIR%/*}/zzshim"; mkdir "$_k2s" && printf '#!/bin/sh\necho "%s"\n' "$_k2d" > "$_k2s/mktemp" && chmod +x "$_k2s/mktemp"`;
+- `shimafter`: `shimnone`'s line, then `PATH="${PATH%%:*}:$_k2s:${PATH#*:}"`;
+- `shimhash`: `shimnone`'s line, then `hash -p "$_k2s/mktemp" mktemp`;
+- `shimprepend`: `shimnone`'s line, then `PATH="$_k2s:$PATH"`.
+
+`xgroup` is `{ : $((1/0)); } 2>/dev/null` alone. The `Jm` trees pin C6's re-anchored record: the
+harness line `_FGIT_PATH="$_FGIT_BIN:$PATH"` becomes `_FGIT_PATH="/nonexistent-k2:$_FGIT_BIN:$PATH"` (the
+record applied), and the record itself is pointed at the new line so the anchor check stays green.
+
+| cell | tree | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| clean | draft 19 | rc 0, PASSED, 19 s | rc 0, PASSED, 25 s |
+| shimnone | draft 19 | rc 1, 3 s, `K2PRE zzy:[a symlink to a tree holding a git dir]` | — |
+| shimafter | draft 19 | ⚠ rc 0, PASSED, 17 s (class (c), D17-A) | ⚠ rc 0, PASSED, 23 s |
+| shimhash | draft 19 | ⚠ rc 0, PASSED, 17 s (class (c)) | ⚠ rc 0, PASSED, 23 s |
+| shimprepend | draft 19 | rc 1, 6 s, P-j `first-entry`; no control run | rc 1, 8 s, same |
+| xgroup | draft 19 | ⚠ rc 0, PASSED, 17 s (class (c)) | ⚠ rc 0, PASSED, 23 s |
+| Jm | draft 19 | rc 1, 5 s, P-j `first-entry` (the record killed) | — |
+| Jm | draft 18 | rc 0, PASSED, 16 s (the record survives without the clause) | — |
+
+**Records planned by draft 19**: none added or removed. C6's re-anchor was already planned; the
+empty-generated-set check has no record (above). Draft 18's totals stand: **64 records of this PR,
+159 in all**, `_MUT_RECORDS_MIN=159`, labels 18, `_MUT_UNRECORDED_MAX=21`. None of it is implemented
+yet.
