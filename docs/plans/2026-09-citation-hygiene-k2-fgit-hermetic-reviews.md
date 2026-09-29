@@ -316,6 +316,68 @@ subject, which was every item listed above. Anything else stays open for round 5
 
 ---
 
+## §S The design memo's status narrative (moved from its preface)
+
+Moved here unchanged from the design memo's preface, where it sat between **Decision** and the
+parent's rule, as a touch-time split when that memo reached 970 lines; the memo holds only the live
+decisions. Section references in it are to the design memo, and "below" in it means the design
+memo's body.
+
+**Status**: **draft 14**. Draft 10 closed plan-review (2026-09-27; `…-reviews.md` §D.0). Draft 11
+revised it after PR #527's external review paused (user decision, 2026-09-28), and draft 12 answered
+plan-review round 10. Draft 13 answered round 11 (0 CRIT / 12 IMP, 8 unique / 30 MIN): seven of the
+eight unique IMPs were in draft 12's time bound, which the user **carved out of this PR** on
+2026-09-28. It is now a residual with its own slot, `#11-trip-wire-liveness-bound` (§5.2 R9). Draft 14
+answers round 12 (0 CRIT / 2 IMP / 29 MIN): the census now judges every git dir before git runs
+anywhere, and the land order resumes at `/pre-push`. Dispositions for all of these are in
+`…-pr527.md`. Two enumerations become properties:
+- **M-PATH**: `git` is resolved once, as the caller's shell resolves it, and pinned; every other `PATH`
+  entry reaches the window verbatim. There is no normaliser (§0.1, §3).
+- **M-SHAPE**: inside a git dir, anything that is not a directory or a singly-linked regular file is
+  red. The census judges every git dir before any postcondition runs git, and a red census runs no git
+  at all (§4).
+
+Also:
+- a red postcondition ends the run before any control (§3);
+- W3's definition says what the code does (§3, §4);
+- P-k closes an outside object store (§4).
+
+The implementation is §9.1 and has not been made. The round history and the evidence are in
+`…-pr527.md` §P.
+
+Draft 10 answers round 9, a Step-4.5 focused check of draft 9 (`d5dacd56`): Ax2 0/1/1, Ax3 0/1/3. Both
+IMPs were **implementation bugs in the prototype, not design defects**, and prototype **p11** fixes
+them with their cells (corpus §6, companion §A.13):
+- **A1: W3 failed open under SIGPIPE.** `grep … | head -3` under `pipefail` returned 141 on a long
+  stderr, and `|| _fw_diag=""` emptied the diagnostic. It is now `grep -m 3`; only rc 1 means "none",
+  and any other status is red (§3).
+- **A2: the census pruned the declared unsearchable dirs**, so a nested repo under one, gitlinked into
+  `walk`'s index with an outside `core.excludesFile`, passed. p11 opened them for the census and restored
+  them; the implementation's `/simplify` pass replaced that with sealing after the census (§4, `…-reviews.md` §13).
+- **A3 (MINs):** the git-dir shape is `HEAD` plus `objects` or `commondir`; "cannot search" is what
+  `find` reports; the census forks nothing per directory; W2's record is described exactly; the W cause
+  travels in a file the child writes, not in the exit status.
+
+Draft 9's round-8 items (E1–E4) stand as written: the threat model (§0.3), the census over every git
+dir (§4), `_control`'s W2 check (§3), W3 and the options re-check.
+
+**Implemented** on this branch, C0b–C5 (`26e445fd` … `386febc8`); results in `…-reviews.md` §13, history in
+companion §A.14.
+
+**History.** The round-5 focused review failed its terminator. The root cause was that
+drafts 4–5's bypass *detector* was itself a name list: a git that neutralised the watched names still
+read the caller's HOME/XDG (companion §A.9, before-cells).
+
+The design therefore changed (orchestrating session, 2026-09-27). P now holds **by construction of
+the whole fixture-build window**. The detector, its four channels, its canaries, its nine labels and
+its records are **deleted**. Every claim below is a result from the recast corpus run on prototype
+**p6** (corpus §6).
+
+(Draft 6 called round 6 "focused". It ran as a full five-axis review; `…-reviews.md` §D.0 records it as it
+ran.)
+
+---
+
 ## §8 Splits, the parent memo, and memo references (moved from the design memo)
 
 Moved here unchanged from the design memo's §8 as a touch-time split, when that memo neared 1000
