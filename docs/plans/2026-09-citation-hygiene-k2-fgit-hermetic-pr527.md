@@ -7,7 +7,8 @@ before round 12's record would have taken that file past 1000 lines. The text wa
 split (`e0cd8329`); drafts 14–16 revised it since, each revision named in its round's section. The
 references follow `…-reviews.md`'s convention: to the design memo as of the draft the paragraph belongs
 to, unless a file is named. This file is **closed at round 14** (draft 16): round 15 onward, and the
-implementation results, are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`.
+implementation results, are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`,
+which also records the one correction draft 17 made here (round 14's tree for Fable's cells).
 
 ---
 
@@ -756,7 +757,8 @@ checked, against §0.3's literal "persisted state is (b)". Running the postcondi
 was rejected (design memo §0.3, "Why (c) is out of scope"). No record is added: class (c) is not
 detected and not owed. Records stay 62 of this PR, 157 in all.
 
-Fable's cells, on a `git clone --local` of `ebc90bc1` (tool code as at `8413a4db`; not the draft-16
+Fable's cells, on a `git clone --local` of `ebc90bc1` (tool code as at `8413a4db` except three
+comment-only path lines, `git diff --stat 8413a4db ebc90bc1 -- .claude/tools scripts`; not the draft-16
 prototype), each through Fable's `cell.sh` (verbatim below), inserts verbatim; scripts and logs in the
 orchestrating session's scratchpad, `…/scratchpad/fable2/{cell.sh,ins/,cells/*.log}`:
 

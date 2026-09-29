@@ -366,6 +366,17 @@ The implementation is §9.1 and has not been made. The round history and the evi
 - `xdone` (the window's return channel forged by the fixtures file) is resolved by D14-D: a fixtures-file
   write to the verifier's own state is class (c) (§0.3; `…-pr527.md` round 14).
 
+**Draft 17** answers plan-review round 15 (`…-pr527-r15.md` §Q, D15-A…D15-C). Before it, `f218e59e`
+started `…-k2-fgit-hermetic-pr527-r15.md` for round 15 onward, `…-pr527.md` being closed at round 14.
+- Every file a postcondition writes and reads back moves, with the references, into one directory
+  made after the build (§4, "The references and the working files"; D15-A, `lnblind2`).
+- The budget verdict is read from a run of the job on GitHub's runner, not from local runs times 4.3
+  (`…-landing.md` §9; D15-B, after #510 retired its local-to-runner scaling).
+- A background process that outlives the build and writes the verifier's state is class (c) (§0.3;
+  D15-C, `xrace`); the verifier's own state is defined by property, and the shell options are class (b).
+- T includes the `trip-wires` job outside its comments, and a docs-only fix to a check's definition
+  re-runs that check at T in its own commit (`…-landing.md` §9.1).
+
 From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
 and the round it answers.
 

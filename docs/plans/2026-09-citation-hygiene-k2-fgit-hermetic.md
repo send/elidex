@@ -4,8 +4,11 @@
 
 **Companion**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`. It holds the
 measurements, corpus scripts, provenance of `ff6b99a3`'s commits and false premises. **Review
-record**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`, plan-review rounds 1–9
-with their dispositions and terminators (split out of the companion unchanged). PR #527's record, its
+record**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`. Its §D holds plan-review
+rounds 1–9 with their dispositions and terminators (split out of the companion unchanged); §S this
+memo's status narrative (moved from its preface, and each draft's status is added there since); §8 the
+code splits, the parent memo's banner and the memo references, and §13 the implementation results
+before PR #527 (both moved from this memo). PR #527's record, its
 external review and plan-review rounds 10–14, is in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"), and from round 15 on,
 with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`
@@ -22,9 +25,9 @@ memo holds only the live decisions.
 
 **Decision**: user, 2026-09-27, option (a): rebuild.
 
-**Status**: **draft 16**; the implementation (§9.1) has not been made. Draft 16 answers plan-review
-round 14 (`…-pr527.md` §P). What each draft answered goes to `…-reviews.md` §S, not here: drafts 6–16
-are there, so this preface does not grow with the drafts.
+**Status**: **draft 17**; the implementation (§9.1) has not been made. Draft 17 answers plan-review
+round 15 (`…-pr527-r15.md` §Q). What each draft answered goes to `…-reviews.md` §S, not here: drafts
+6–17 are there, so this preface does not grow with the drafts.
 
 ⚠ **The parent's rule applies throughout.** No quantity here moves with a commit; each figure is a
 measurement on a named artifact, given with its command.
@@ -35,7 +38,7 @@ measurement on a named artifact, given with its command.
 - Disposition labels in the companions never collide with this memo's section numbers: F…, R2-…, R3-…,
   U1–U5 (round 4), V…, W1–W5 (round 6's §D.6 dispositions, not the postconditions W, W2, W3, W4), D…,
   E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-D
-  (round 14) and PX1 (the base `~+/bin` experiment).
+  (round 14), D15-A…D15-C (round 15) and PX1 (the base `~+/bin` experiment).
   In this memo a bare "R1"–"R9" is a §5.2 residual. Any other review round names its source: "Codex Rn"
   or "PR #527 Rn" for #527's external review, and "#501 Rn" or "#519's Rn" for the parent PRs' rounds.
   A finding within a Codex round is "Codex R26③". In `…-pr527.md`, whose subject is the Codex rounds, a
@@ -119,26 +122,46 @@ classes of input can reach the fixture build, and this slice treats them differe
 | class | what | owner | how it is handled |
 |---|---|---|---|
 | **(a)** | **implicit caller-environment leaks**: anything the caller's environment, home, XDG directory, system prefix or compiled-in defaults carry into git without the fixtures file asking for it | **this PR** (its purpose) | **closed** by the window (§3); pinned by P-a…P-f |
-| **(b)** | **accidental fixture-authoring mistakes that persist an outside git input or leave the build incomplete**: a `git config` naming an outside file, an include appended to `.git/config`, an accidental `--separate-git-dir`, an arithmetic error that skips a line, a `set +e` left at the end | **this PR** | **caught, fail-safe on shape**: P-g over every git dir's configuration and shape (§4); W, with the options re-checked after the file; W3 (a shell diagnostic). An object store outside the repository (`objects/info/alternates`): P-k (§4) |
+| **(b)** | **accidental fixture-authoring mistakes that persist an outside git input or leave the build incomplete**: a `git config` naming an outside file, an include appended to `.git/config`, an accidental `--separate-git-dir`, an arithmetic error that skips a line, `errexit`, `nounset` or `pipefail` left off at the end (a `set +e`) | **this PR** | **caught, fail-safe on shape**: P-g over every git dir's configuration and shape (§4); W, with the options re-checked after the file; W3 (a shell diagnostic). An object store outside the repository (`objects/info/alternates`): P-k (§4) |
 | **(c)** | **fixture code that deliberately evades**, and **any fixtures-file write to the verifier's own state** (below) | **out of scope**: code review | not closed, not detected, not owed (§5.1) |
 
 **What separates (b) from (c) is a property, not intent.** A class-(b) mistake leaves **persisted,
-observable state** at the end of the build **and leaves the verifier as written**: a configuration
-line, a git dir of an unexpected shape, a missing marker, an option switched off, a shell diagnostic,
-each read by the postconditions and the parent as this memo describes them. Class (c) is everything
-else: what leaves no such state, and what changes the verifier itself.
+observable state** at the end of the build **and leaves the verifier's own state (below) as written**: a
+configuration line, a git dir of an unexpected shape, a missing marker, an option left off, a shell
+diagnostic, each read by the postconditions and the parent as this memo describes them. Class (c) is
+everything else: what leaves no such state, and what writes the verifier's own state.
 
-**The verifier's own state is not a fixture output.** The fixtures file and the postconditions share
-one shell and one scratch root, so a fixtures-file command can assign or `readonly` a prelude variable,
-redefine a prelude function (`_fgit_postconditions`, `_fw_opts_on`, …), write the window's return
-channel (`$_FW_DIR/built`, `done`, `cause`, `post_bad`, …), or rewrite the pin `$_FGIT_BIN/git`. Such
-a write is class (c) whatever else the build leaves: the state is read by a verifier that the same
-command changed, and a file does not say who wrote it. The completion markers are **a protocol, not a
-seal**: they make an accidental `return`, `exit` or abort, and an option switched off, loud (W); they
-cannot authenticate their writer. The measured boundary (`…-pr527.md`, round 14 and D14-D): a key
+**The verifier's own state, by property.** It is what the verification is made of, not what it reads
+as the build's output:
+- every name the prelude defines: its data assignments, the labels, and its functions
+  (`_fgit_postconditions`, `_fw_opts_on`, `_seal_apply`, …);
+- every file the parent or the postconditions write and read back as their own record: the window's
+  return channel in `$_FW_DIR` (`built`, `done`, `cause`, `post_bad`, `machine_limits`, …; `built`
+  is written by the fixtures file's own last line by design, §3) and the postconditions' directory,
+  the references and working files made after the build (§4, "The references and the working files");
+- the pin `$_FGIT_BIN` and the wrapper in it.
+
+The shell options are **not** in it. `errexit`, `nounset` and `pipefail` are the build's own observable
+state, and W's re-check reads them after the fixtures file as it reads any output of the build. So an
+option left off at the end is class (b), red by W, and an option switched off and back on leaves
+nothing to read, class (c) by the first clause. With that, no mistake falls in both classes. The
+fixtures file and the postconditions share one shell and one scratch root, so a fixtures-file command
+can write the verifier's own state, and such a write is class (c) whatever else the build leaves: the
+state is read by a verifier that the same command changed, and a file does not say who wrote it. A
+postcondition that resets shell state before relying on it (P-c's `set +f` and `GLOBIGNORE`, §4) makes
+an accidental leftover harmless; a deliberate `readonly` that defeats the reset writes the verifier's
+state, class (c).
+
+The completion markers are **a protocol, not a seal**: they make an accidental `return`, `exit` or
+abort, and an option switched off, loud (W); they cannot authenticate their writer. The measured boundary (`…-pr527.md`, round 14 and D14-D): a key
 persisted in `clean` alone is red by P-g (`xkey`); the key plus `exit 0` is W (`exit0`, bash 5.3); the key plus
 `built` and `done` written by the fixtures file (`xdone`), or plus a `_fgit_postconditions` redefined
-to return 0 (`xredef`), is rc 0, PASSED. The last two are this boundary, not defects.
+to return 0 (`xredef`), is rc 0, PASSED, and so is the key in every fixture plus a background process
+that the fixtures file leaves running and that writes the reference made after the build (`xrace`,
+round 15, D15-C). The last three are this boundary, not defects. `xkey`, `exit0` and `xredef` ran on
+`ebc90bc1`'s tool code, which is `8413a4db`'s except three comment-only path lines (Fable); `xdone` on
+that tree and on the draft-16 prototype; `xrace` on the draft-16 and draft-17 prototypes
+(`…-pr527.md` round 14; `…-pr527-r15.md` §Q).
 
 Examples of (c), which illustrate the property and are **not a list to complete**:
 - a transient per-command input: `-c`, `--config-env`, an environment assignment on one command,
@@ -147,7 +170,8 @@ Examples of (c), which illustrate the property and are **not a list to complete*
 - `--git-dir` / `--work-tree` pointing outside the fixture root;
 - sourcing an outside file (`. <file>`);
 - switching an option off and back on in the middle of the file;
-- writing the verifier's own state: a marker, a prelude variable or function, the pin (above).
+- writing the verifier's own state: a marker, a prelude variable or function, the pin (above), or,
+  from a background process that outlives the build, a file in the postconditions' directory (`xrace`).
 
 A mistake that happens to take a class-(c) shape is not caught either, and this memo does not claim
 otherwise.
@@ -332,10 +356,12 @@ bounded the whole run; round 11 found seven defects in that design, and the user
 PR into `#11-trip-wire-liveness-bound`.
 
 **`ci.yml`.** C9 and C10 add one `find` and one `git count-objects` per fixture git dir to a clean
-run; X8 measures the result against §9's threshold. The trip-wires job comment's verdict line, which
-C5 wrote as the method plus one verdict naming the commits, names base `e8f78896` and **the tool code
-at T**, where T is the last commit that changes `.claude/tools/**` or `scripts/**` (§9.1). After C6–C10
-that line is stale until X8 measures T and rewrites it.
+run. The job's budget is read from **a run of the job on GitHub's runner**, never from local runs
+scaled by a factor (D15-B, #510's convention at `106387e4`). #527 is stacked and gets no runner run, so
+its job comment names that method and says the verdict for its tool code is pending X9's run, with no
+figure; the lane writes the verdict from that run (`…-landing.md` §9, "The threshold" and "Where the
+runner figure comes from"). X8's local runs at T are a sanity record only. T is the last commit that
+changes the tool code or the job (`…-landing.md` §9.1).
 
 **A red postcondition ends the run before any control.** A red P-a…P-k, or W3, means the build is not
 the one the fixtures file describes. A control over it asserts nothing, and it can block. In Fable's
@@ -454,7 +480,7 @@ reftable; six red, and env0 and reftable green at `8413a4db`) gave the same exit
 - **on bash 3.2 and 5.3 at `8413a4db`**, 36 runs. Bash 3.2 is where it matters: there
   `#11-k2-wire-exit-trap-masks-set-u-abort` turns an unbound-variable abort into rc 0.
 
-The cell script is verbatim in `…-pr527.md` ("X13"), and X13 re-runs it at the final head. That
+The cell script is verbatim in `…-pr527.md` ("X13"), and X13 re-runs it at T (`…-landing.md` §9.1). That
 is the measured claim: on those runs, no parent-side verdict depended on `set -u`. It is
 not a proof over every path, and the "every state name is assigned before it is read" argument is a
 reading of the code, not a measurement. The child's `set -u` is a backstop
@@ -479,10 +505,10 @@ in), and each label has its own record (corpus §6).
 | P-d | `the fixture git copies no template` | `diff -r` of `.git` from `git init` against `.git` from `git init --template="$_FGIT_VOID"` is empty | — |
 | P-e | `no exec-path override reaches the fixture git` | the window's `git --exec-path` equals the same git's answer with nothing but `PATH` in its environment (taken in the parent at source time), both canonical (`pwd -P`). **Re-scoped by `/code-review`:** which executable runs is outside P (§0.1, R1); P-e pins only that nothing in the window overrides where that git runs its commands from. So a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one directory spelled two ways, is not a red | — |
 | P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction. p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10). `env -0` goes through a file whose status is checked: a failed `env -0`, or no record at all, is NOT EXERCISED. **One** outcome is a machine limitation instead (`⚠ NOT EXERCISED on this machine`, green — the treatment P-b and the FIFO and file-permission controls give a machine that cannot run them): its test is the definition — **this** `env` runs but refuses `-0`: `env -0` fails, writes nothing to stdout and says why on stderr, while the same `env` runs a command. Every other outcome stays red, so an unknown one falls on the fail-safe side. Which `env` builds lack `-0` is not measured here (this machine's macOS 26 `env` has it; PR #527 Codex R4 reported a macOS one without it); the no-`-0` case is exercised with a shim. Both limitations reach the run's summary through one channel (`$_FW_DIR/machine_limits`), naming the postcondition by ID only, since a record's needle is its label. History: `…-pr527.md`. | — |
-| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the lines of `git -C <repo> config --list --show-origin` (no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init, made after the build in a directory no fixture can reach: "The references", below), compared by origin, key and value (`grep -vxF -f`, both directions). An extra line is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. A `grep` that fails (exit above 1) is a failed comparison, red — never an empty difference. The authoritative comparison is of **records**: the `-z` listing, each origin paired with its entry into one record written as one line by `printf %q`, sorted (no `sort -z`), byte-identical to the reference's — so a value holding a newline cannot forge a line, and a repeated entry is red. This catches a persisted include (its origin is not `.git/config`), a `commondir` naming another git dir (the origin names that dir's config), and **any** persisted key beyond init's, `core.excludesFile` included. **Census first (M-SHAPE, drafts 14–15):** the census classifies and shape-checks every git dir it names, and runs its per-link search, and its one verdict comes before any postcondition runs git (population below). An entry under a `.git` that is not a directory or a regular file with one link is red: a symlink of any target, a FIFO, a socket, a device, a hard link. Git reads through a link (a `.git/config` pointing outside still reports `file:.git/config`) and blocks opening a FIFO, whatever the entry's name. **A red census runs no git anywhere**, because git reads across git dirs (`commondir`, `alternates`, `include.path`). A scan that fails or writes to stderr is red. The census takes `HEAD` and `.git` entries of **any** type and letter case — a symlink `HEAD`, or `head` on a case-insensitive filesystem, is a shape git reads — and every git dir not reached by a `.git` entry is red. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
+| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the lines of `git -C <repo> config --list --show-origin` (no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init, made after the build in a directory no fixture can reach: "The references and the working files", below), compared by origin, key and value (`grep -vxF -f`, both directions). An extra line is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. A `grep` that fails (exit above 1) is a failed comparison, red — never an empty difference. The authoritative comparison is of **records**: the `-z` listing, each origin paired with its entry into one record written as one line by `printf %q`, sorted (no `sort -z`), byte-identical to the reference's — so a value holding a newline cannot forge a line, and a repeated entry is red. This catches a persisted include (its origin is not `.git/config`), a `commondir` naming another git dir (the origin names that dir's config), and **any** persisted key beyond init's, `core.excludesFile` included. **Census first (M-SHAPE, drafts 14–15):** the census classifies and shape-checks every git dir it names, and runs its per-link search, and its one verdict comes before any postcondition runs git (population below). An entry under a `.git` that is not a directory or a regular file with one link is red: a symlink of any target, a FIFO, a socket, a device, a hard link. Git reads through a link (a `.git/config` pointing outside still reports `file:.git/config`) and blocks opening a FIFO, whatever the entry's name. **A red census runs no git anywhere**, because git reads across git dirs (`commondir`, `alternates`, `include.path`). A scan that fails or writes to stderr is red. The census takes `HEAD` and `.git` entries of **any** type and letter case — a symlink `HEAD`, or `head` on a case-insensitive filesystem, is a shape git reads — and every git dir not reached by a `.git` entry is red. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
 | P-i | `the fixture repos use the files ref format` | the window's `GIT_DEFAULT_REF_FORMAT` is `files`, and a plain init's `git rev-parse --show-ref-format` answers `files` (a git before 2.45 has no reftable; its `rev-parse` echoes the unknown option back with exit 0, and that literal echo is what counts as `files` — a failed call or any other format name stays red). It pins the allowlist entry on every git, including the files-default ones where dropping it changes nothing else | — |
 | P-j | `the fixture build window runs the pinned git first on its PATH` | the window's `PATH` starts with `$_FGIT_BIN`, and `type -P git` inside the window is `$_FGIT_BIN/git`. It pins the `PATH` construction the way P-h and P-i pin their entries: without the pin, the window's first `git` is the file the pin execs anyway, so nothing else changes, and P-e's reference moves with it. It asserts nothing about the caller's entries (§0.1) | — |
-| P-k | `no fixture repo reads objects from a store outside it` | for every `.git` P-g compares, `git count-objects -v` exits 0 and prints no `alternate:` line. An `objects/info/alternates` naming another store makes git read an object from there instead of writing it locally, so the content the controls read is an outside input even though P's ids do not move (measured, `…-pr527.md`). Git's own answer, not a file name: it reports the stores git will read (measured for the `alternates` file). A failed `count-objects` is red, and **so is any stderr**: a store that does not exist, or an `alternates` naming a directory or a mode-000 path, gives rc 0, no `alternate:` line and a warning or error on stderr (round 12; `…-pr527.md`), and such a store could appear later and be read. It runs only over a clean census (§4, population) | `this git reports alternate object stores`: a third probe repo in the references' directory (so P-d's two inits are untouched), given an `alternates` file naming P-a's object store, must exit 0 with nothing on stderr and print exactly one `alternate:` line. The file holds the path in double-quoted C form, so a newline in the scratch path stays one line. `gitrepository-layout` says only "one pathname per line". git(1) documents C-style quoting for `GIT_ALTERNATE_OBJECT_DIRECTORIES` (`man git`, that variable), and that the `alternates` file accepts the same form is measured: on 2.55.0 a path holding a newline gives one `alternate:` line, rc 0 (`…-pr527.md`, round 12's P-k commands). **Anything else is red**, NOT EXERCISED: there is no machine-limitation arm, because "prints none" cannot tell a git without the line from a broken probe (git 2.55.0 and Apple 2.54.0 both print it, measured), so the unknown falls on the fail-safe side |
+| P-k | `no fixture repo reads objects from a store outside it` | for every `.git` P-g compares, `git count-objects -v` exits 0 and prints no `alternate:` line. An `objects/info/alternates` naming another store makes git read an object from there instead of writing it locally, so the content the controls read is an outside input even though P's ids do not move (measured, `…-pr527.md`). Git's own answer, not a file name: it reports the stores git will read (measured for the `alternates` file). A failed `count-objects` is red, and **so is any stderr**: a store that does not exist, or an `alternates` naming a directory or a mode-000 path, gives rc 0, no `alternate:` line and a warning or error on stderr (round 12; `…-pr527.md`), and such a store could appear later and be read. It runs only over a clean census (§4, population) | `this git reports alternate object stores`: a third probe repo in the postconditions' directory (so P-d's two inits are untouched), given an `alternates` file naming P-a's object store, must exit 0 with nothing on stderr and print exactly one `alternate:` line. The file holds the path in double-quoted C form, so a newline in the scratch path stays one line. `gitrepository-layout` says only "one pathname per line". git(1) documents C-style quoting for `GIT_ALTERNATE_OBJECT_DIRECTORIES` (`man git`, that variable), and that the `alternates` file accepts the same form is measured: on 2.55.0 a path holding a newline gives one `alternate:` line, rc 0 (`…-pr527.md`, round 12's P-k commands). **Anything else is red**, NOT EXERCISED: there is no machine-limitation arm, because "prints none" cannot tell a git without the line from a broken probe (git 2.55.0 and Apple 2.54.0 both print it, measured), so the unknown falls on the fail-safe side |
 | P-h | `the fixture build window reads in the wire's locale` | the window's `LC_ALL` equals the wire's (`C`). It pins the allowlist's `LC_ALL=C`, which P-f cannot, because P-f derives its names from the same list | — |
 
 **How P-g's key set is derived (D2).** It is **not** a list of path-typed keys. Git exposes no per-key
@@ -499,7 +525,7 @@ verdict, one variable `_pg_census`, only after both.** The postconditions start 
 when `_pg_census` is red, `_fgit_postconditions` reports P-g and returns before any other postcondition,
 so no git runs. The census covers the git dirs under `$CTL` that it names. It does not cover what git
 reaches through a reference ("The boundary", below), nor the reference repos, which are outside fixture
-reach by construction ("The references", below):
+reach by construction ("The references and the working files", below):
 1. **Classification and shape.** One `find` from `$CTL`, with no `-L` and no per-directory fork, lists
    every `.git` entry and every `HEAD` entry, of **any type and any letter case** (a case-insensitive
    filesystem lets git read `head` and `.GIT`, so a case variant is red). It descends everywhere:
@@ -543,8 +569,11 @@ on**; it is never green:
 - **compared**, when the read completes. A reference that reaches configuration (`commondir`,
   `include.path`) puts what it read into `config --list --show-origin`, so P-g's origin comparison reds
   it (`xincreg`, an include naming a regular file with a key: red in 6–8 s, origin
-  `file:.git/../../zzi`), and a read that fails fails that listing (an include naming `/dev/tty` with
-  no controlling terminal: `fatal: bad config line`, git exit 128, red). An `alternates` naming an
+  `file:.git/../../zzi`). A read that fails is red by one of two routes. An include git cannot open
+  (a mode-000 file; `/dev/tty` with no controlling terminal) fails the listing, git exit 128, red. An
+  include naming a file that does not exist is skipped silently (rc 0, nothing on stderr), but the
+  listing keeps the `include.path` line itself, an entry a plain init does not write, so P-g reds it
+  as an extra key (X6's include; `…-pr527-r15.md` §Q). An `alternates` naming an
   ordinary store outside leaves that listing unchanged (measured, `…-pr527.md` round 14), so P-g does
   not see it; **P-k** does (`count-objects -v` prints its `alternate:` line);
 - **waited on**, when the read does not complete. The run waits, in CI until the job timeout (red).
@@ -563,15 +592,20 @@ on**; it is never green:
   census reds that cell by pass 1 in seconds; a link to `/` over a clean pass 1 has not been
   re-measured.
 
-**The references, outside fixture reach by construction (draft 16).** At `8413a4db` P-a's probe repo
-`a` and P-d's second init `b` are made at the fixed path `$_FW_DIR/pq`, which the fixtures can write,
-and `git init` over an existing repo keeps its configuration. Round 14's `xrefpoison` made both in
-advance with `core.excludesFile /nonexistent-k2` and wrote the same key into every fixture repo: rc 0,
-PASSED, on both shells. Every reference a postcondition compares against, by location:
-- **`a`, `b`, P-g's reference listings, and P-k's probe repo (C10)**: moved into a directory made
-  **after the build** by `mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX"`, beside `$_FW_DIR` and never under it
-  or `$CTL`, whose name no fixture can know. `a` and `b` are made by `mkdir` without `-p`, so one that
-  already exists fails the reference, red (P-g). P-a, P-b, P-d, P-g and P-i read `a`.
+**The references and the working files, outside fixture reach by construction (drafts 16–17).** At
+`8413a4db` P-a's probe repo `a` and P-d's second init `b` are made at the fixed path `$_FW_DIR/pq`,
+which the fixtures can write, and `git init` over an existing repo keeps its configuration. Round 14's
+`xrefpoison` made both in advance with `core.excludesFile /nonexistent-k2` and wrote the same key into
+every fixture repo: rc 0, PASSED, on both shells. Every reference a postcondition compares against, and
+every file it writes and reads back, by location:
+- **the postconditions' directory**, made at the start of the postconditions, **after the build**, by
+  `mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX"`, beside `$_FW_DIR` and never under it or `$CTL`. No fixture
+  command that finished by the end of the build can know its name. It holds `a`, `b`, P-g's reference
+  listings and P-k's probe repo (C10), and every working file below. `a` and `b` are made by `mkdir`
+  without `-p` after a clean census, so one that already exists fails the reference, red (P-g). P-a,
+  P-b, P-d, P-g and P-i read `a`. A fixture command still running after the build (a background
+  process) can find and write the directory; that writes the verifier's own state, class (c) (§0.3,
+  `xrace`).
 - **P-e's `_FGIT_WIRE_EXEC`, P-h's `_FGIT_WIRE_LC`, P-f's `_FGIT_ENV_NAMES`**: values the parent takes
   before the window starts and passes as prelude assignments, not files. The fixtures file shares the
   postconditions' shell, so it could assign one, or redefine a postcondition function; that is a write
@@ -582,11 +616,19 @@ PASSED, on both shells. Every reference a postcondition compares against, by loc
 - **P-c's void** is the subject, not a reference: P-c reds any entry in it, and both reference inits
   read it as their template, so a template planted there is red through P-c (X6).
 
-What stays in `$_FW_DIR` is the subject side. A fixture-placed file there (the census lists, `pgcur`,
-`env0`) can make a postcondition red or wait (a FIFO), but it cannot make a comparison equal: the
-reference is at a name it cannot know. The window's return channel (`built`, `done`, `post_bad`,
-`machine_limits`, …) is there too, because both sides name it; a fixtures-file write to it is class (c)
-(§0.3, §5.1; `xdone`, D14-D).
+**The working files, by property (D15-A).** Draft 16 left them at fixed names in `$_FW_DIR`, and a
+fixture-placed file there *can* make a comparison equal: a pass-2 link list or per-link search result
+replaced by a link to `/dev/null` reads as empty, so a link to a tree holding a git dir passed
+(round 15's `lnblind2`, rc 0, PASSED on both shells; red with the working files moved). So the set is
+defined by property, not listed by name: **every file a postcondition writes and then reads back** is
+in the postconditions' directory. Derived from the prototype by that property (`…-pr527-r15.md` §Q
+gives the command), it is the census's two lists with their stderr, pass 2's per-link result, P-f's
+`env -0` output, P-g's population with its stderr and failure mark, P-g's in-loop per-link result
+(until C9 deletes that search) and its current listings. `$_FW_DIR` keeps only what both sides name:
+the two sourced files, the seal manifest `seal` (fixture output by design, "sealing" below) and the
+return channel the parent reads (`built`, `done`, `cause`, `post_bad`, `machine_limits`,
+`seal_failed`, `fix_failed`, `stderr`). A fixtures-file write to the return channel is class (c) (§0.3,
+§5.1; `xdone`, D14-D).
 
 **Nothing is unsearchable at census time, by construction (sealing after the census).** Three
 fixtures need a mode restriction: `walk/sub` and `d5root` mode 000, `d2red/sub` mode 0444 (and the file
@@ -662,7 +704,8 @@ input and leaves no persisted, observable state when the build ends (§0.3 gives
 p8: `git -C . -c include.path=<file> add -A` gives rc 0, `PASSED`, and Pdiff 50 on both shells. That is
 silently wrong, and it is **declared**, not closed. A write to the verifier's own state is the same:
 `xdone` (the markers written by the fixtures file) and `xredef` (`_fgit_postconditions` redefined), each
-with a key persisted in `clean`, give rc 0, PASSED (§0.3; `…-pr527.md` round 14).
+with a key persisted in `clean`, give rc 0, PASSED (§0.3; `…-pr527.md` round 14), and so does `xrace`,
+a background process that outlives the build and writes the reference (§0.3; `…-pr527-r15.md` §Q).
 
 **D1: seed S is deleted.** Round 7 (Ax3) measured literal spellings passing S end to end with Pdiff 50
 on both shells:
@@ -801,7 +844,8 @@ initialised at harness top level, setup failure a labelled verdict)" and the ame
 creation. It does not append to them:
 - **measured, not argued:** with the wire's nounset off, the clean tree and eight cells (six red) give the
   same exit status and verdict lines as with it on (bash 3.2 and 5.3; the cell script is verbatim in
-  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md`, "X13", and X13 re-runs it at this PR's final head).
+  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md`, "X13", and X13 re-runs it at T, the last
+  commit of this PR that changes its tool code or its CI job, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.1).
   On those runs no parent-side verdict depends on `set -u`; that is a measurement over those runs, not a
   proof over every path;
 - an incomplete fixture-build window is reported by the **W verdict alone**, and no control runs:
@@ -820,7 +864,7 @@ creation. It does not append to them:
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6 ("the corpus file";
 touch-time split, text unchanged). It holds the recast oracle, the prototypes p6–p11, the re-run
 recipe, every focused cell table, and the mutation records with their totals and the ratchet;
-its §6.1 holds drafts 11–16's planned record changes.
+its §6.1 holds drafts 11–17's planned record changes.
 
 ## §7 What was deleted (draft 5 → 6)
 
@@ -855,7 +899,7 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | # | axes | invariant | where |
 |---|---|---|---|
 | 1 | A×B | the window's `env -i` closes every variable, and four relocations close default files: class (a). That holds for every git in the window **whose inputs no fixtures-file command removed, overrode or added**, however it is spelled. A command that does is class (b) if it leaves persisted, observable state (P-g, W, W3) and class (c) otherwise, which is out of scope | §0.3, §3, §5.1; corpus G, R |
-| 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a directory or a regular file with one link. The census's one verdict comes before any postcondition runs git, and the references it is compared against are made after the build where no fixture can reach them. P-k adds that no fixture repo reads objects from a store outside it | §4 |
+| 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a directory or a regular file with one link. The census's one verdict comes before any postcondition runs git, and the references it is compared against, with every file a postcondition writes and reads back, are in a directory made after the build, whose name no fixture command that finished by then can know. P-k adds that no fixture repo reads objects from a store outside it | §4 |
 | 3 | A×D | P-f is a complement check: an unknown name in the window is red | §4 |
 | 4 | B×E | the empty template removes `.git/info/`, so `notcommitted` creates it | §3 |
 | 5 | D | window state is assigned before it is read. Completion needs the fixtures file's own last line, with the options still on; the markers are a protocol, not a seal (a fixtures-file write to them is class (c), §0.3); an incomplete window ends the run with W alone, a complete but untrusted one ends it after its reports, and `_control` itself refuses unless the build is complete and trusted (W2). Each child option is checked and recorded. With the parent's nounset off, the clean tree and eight red cells give the same verdicts (measured, §3; not a proof over every path) | §3, §5.2 |
@@ -864,7 +908,7 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | 8 | E×D | producers live in the harness and labels in the controls file. A record targets `fixtures` when what it plants is something a fixture writes (the W early return and options re-check, W3, and the P-c, P-g and P-k shapes); a record that changes a producer targets `harness` | §4, corpus §6 |
 | 9 | D | one label per producer, one record per label; the ratchet stays at 21 | corpus §6 |
 | 10 | A×C | P covers git's inputs only; the executable, the platform and the non-git commands are outside it, so the window's `PATH` is the caller's, verbatim, behind the pin, and P-j checks only the pin | §0.1, §5.2 |
-| 11 | F | still one build, now in a child; the ci.yml line is re-derived by rule, and a change means STOP | §9 |
+| 11 | F | still one build, now in a child; the budget verdict is read from a run of the job on GitHub's runner (X9), never from scaled local runs, and half the budget or more means STOP | §3; `…-landing.md` §9 |
 
 ## §11 Exit criteria
 
@@ -874,10 +918,11 @@ unchanged), beside the commits they verify.
 ## §12 Plan-review
 
 Plan-review closed for draft 10 after round 9 (`…-reviews.md` §D.0 records the ground). Rounds 10–14
-reviewed drafts 11–15 (`…-pr527.md`). Draft 16 makes the references by construction, restates R9's
-boundary by read completion, gives the final-head sequence a terminator, and puts a fixtures-file write
-to the verifier's own state in class (c) (D14-D), so **round 15**, a focused re-check of the draft-16
-delta (`ebc90bc1` and the D14-D commit after it), reviews it before C6. It has not run.
+reviewed drafts 11–15 (`…-pr527.md`), and round 15 reviewed draft 16 (`…-pr527-r15.md` §Q). Draft 17
+moves every working file the postconditions read back beside the references (D15-A), reads the budget
+from a runner run instead of scaled local runs (D15-B), declares a background process that writes the
+verifier's state class (c) (D15-C), and widens T to the CI job, so **round 16**, a focused re-check of
+the draft-17 delta, reviews it before C6. It has not run.
 
 ## §13 Implementation results
 

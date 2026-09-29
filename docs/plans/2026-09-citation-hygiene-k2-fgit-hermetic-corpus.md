@@ -4,7 +4,7 @@ This file holds the corpus — the evidence behind the design — and the mutati
 for `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of
 the design memo's §6 as a touch-time split (`35dc1153`), before the design memo grew past 1000 lines.
 At the split the text was unchanged, except that five references to other sections of the design memo
-were made to name it. Later drafts changed it: §6.1 (draft 11's record plan, revised by drafts 12–15) and one
+were made to name it. Later drafts changed it: §6.1 (draft 11's record plan, revised by drafts 12–17) and one
 sentence under "Records" were added after the split. The section number §6 is kept, so an earlier
 reference to "memo §6" resolves here.
 
@@ -203,7 +203,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
-### §6.1 Drafts 11–16: the record changes (planned, `…-landing.md` §9.1)
+### §6.1 Drafts 11–17: the record changes (planned, `…-landing.md` §9.1)
 
 Each change is listed with the commit that makes it. The needle of every record is its label, so
 renaming a label renames the needle of each of its records in the same commit. "This PR's" counts the
@@ -240,17 +240,19 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | C9 | **add**: `xcommon`, a FIFO `zzr/.git/config` with `clean/.git/commondir` naming `../../zzr/.git` (round 12). It pins the census-before-any-git order: with the shape verdict taken per repo, git runs on `clean` and waits (the FIFO procedure above) | P-g | **fixtures** | 55 / 150 |
 | C9 | **add**: `clean/.git/info/exclude` replaced by a hard link to a file outside the fixture root (round 12). It survives with the one-link clause removed | P-g | **fixtures** | 56 / 151 |
 | C9 | **add**: `xlink` (round 13), a link `$CTL/zzl` to a repo outside the fixture root whose `.git/config` is a FIFO, with `clean/.git/commondir` naming `../../zzl/.git`. Only pass 2 reds it. It pins "one census verdict after both passes": with pass 2 run inside the per-repo loop, git runs on `clean` first and waits (the FIFO procedure above) | P-g | **fixtures** | 57 / 152 |
-| C9 | **add**: `xrefpoison` (round 14): the fixtures make `$_FW_DIR/pq/a` and `$_FW_DIR/pq/b` in advance, the old reference path, as repos with `core.excludesFile /nonexistent-k2`, and write the same key into every fixture repo's `.git/config`. Killed by P-g against the references made after the build (`…-pr527.md` round 14: rc 1 in 5–7 s on both shells). It survives with the references made at the old fixed path (`_pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b"`): measured on the draft-15 prototype, rc 0, PASSED on both shells. No record removes the `mkdir`-without-`-p` freshness assertion: the directory `mktemp -d` has just made holds nothing, so no run can present a stale repo there, and that mutant is equivalent | P-g | **fixtures** | 58 / 153 |
-| C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root. It survives with the `alternate:` clause removed | P-k | **fixtures** | 59 / 154 |
-| C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line: NOT EXERCISED, red. It survives with the liveness check removed. With no machine-limitation arm, no machine excuses it | P-k liveness | harness | 60 / 155 |
-| C10 | **add**: `count-objects -v` replaced by a command that fails with no output. A failed count is red, and the record survives with the status check removed (the empty output then has no `alternate:` line, so it reads green) | P-k | harness | 61 / 156 |
-| C10 | **add**: `clean` gets an `alternates` naming a store that does not exist: rc 0, no `alternate:` line, an error on stderr. It survives with the stderr clause removed | P-k | **fixtures** | 62 / 157 |
+| C9 | **add**: `xrefpoison` (round 14): the fixtures make `$_FW_DIR/pq/a` and `$_FW_DIR/pq/b` in advance, the old reference path, as repos with `core.excludesFile /nonexistent-k2`, and write the same key into every fixture repo's `.git/config`. Killed by P-g against the references made after the build (`…-pr527.md` round 14: rc 1 in 5–7 s on both shells). It survives with the references made at the old fixed path (`_pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b"`): measured on the draft-15 prototype, rc 0, PASSED on both shells. No record removes the `mkdir`-without-`-p` freshness assertion: the directory `mktemp -d` has just made holds nothing, so no run can present a stale repo there, and that mutant is equivalent **within class (b)**: a fixture command still running after the build can place one there (`xrace`, round 15), which is class (c) and not owed (design memo §0.3) | P-g | **fixtures** | 58 / 153 |
+| C9 | **add**: `lnblind2` (round 15): a link `$CTL/zzy` to a tree in `$_FW_DIR` holding a git dir (`zzt/a` with `objects` and `HEAD`), and `$_FW_DIR/prel` and `$_FW_DIR/pgls`, draft 16's pass-2 link list and in-loop per-link result, made links to `/dev/null`. Killed by P-g's pass 2 once the working files are in the postconditions' directory (`K2PRE zzy:[a symlink to a tree holding a git dir]`, rc 1 in 3–5 s on both shells, `…-pr527-r15.md` §Q). It survives with the working files back in `$_FW_DIR`: the draft-16 prototype gives rc 0, PASSED on both shells. C9 deletes the in-loop search, so the record plants the pass-2 list alone (round 15's `lnblind` insert, which the draft-16 prototype reds only through that search: `zzy:[a symlink to a tree holding a git dir: a/HEAD]`, bash 5.3). That it survives on the implementation with the working files back in `$_FW_DIR` is expected, not measured; X3's survive check measures it | P-g | **fixtures** | 59 / 154 |
+| C9 | **re-anchor**: the P-f record "`env -0`'s output gains a last record with no NUL after it" (`mutations.sh:360` at `8413a4db`) and the P-g record "the missing-lines `grep` reads a missing pattern file" (line 363) name `$_FW_DIR/env0` and `$_FW_DIR/pgcur`, which C9 moves into the postconditions' directory (`$_pq`); both expressions name the new path | P-f, P-g | harness | — |
+| C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root. It survives with the `alternate:` clause removed | P-k | **fixtures** | 60 / 155 |
+| C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line: NOT EXERCISED, red. It survives with the liveness check removed. With no machine-limitation arm, no machine excuses it | P-k liveness | harness | 61 / 156 |
+| C10 | **add**: `count-objects -v` replaced by a command that fails with no output. A failed count is red, and the record survives with the status check removed (the empty output then has no `alternate:` line, so it reads green) | P-k | harness | 62 / 157 |
+| C10 | **add**: `clean` gets an `alternates` naming a store that does not exist: rc 0, no `alternate:` line, an error on stderr. It survives with the stderr clause removed | P-k | **fixtures** | 63 / 158 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
-- **Totals after C10:** **18 labels** (P-k and its liveness label added; P-j and W2 renamed), **62
-  records of this PR, 157 in all**: `_MUT_RECORDS_MIN=157`, and `_MUT_UNRECORDED_MAX` stays at 21.
+- **Totals after C10:** **18 labels** (P-k and its liveness label added; P-j and W2 renamed), **63
+  records of this PR, 158 in all**: `_MUT_RECORDS_MIN=158`, and `_MUT_UNRECORDED_MAX` stays at 21.
 - **Not records, by the caller's `PATH`:** the X14 outcomes. A record's run uses the caller's `PATH`, so
   no record can pose them.
 - **Cost (X3).** No new record runs to a bound. The FIFO records end in seconds, because the census
