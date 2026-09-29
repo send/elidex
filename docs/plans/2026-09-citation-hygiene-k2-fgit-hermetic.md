@@ -848,7 +848,9 @@ makes X9 re-run at every new T until a verdict at the current T is under the thr
 step 7.4, D17-B); adds CLAUDE.md's trip-wires paragraph and the job's "RE-DERIVED" comment to the
 final-head rewrite (D17-C); and corrects X3's opt-in expectation, with an empty generated set made red
 in C11 (D17-D). So **round 18**, a focused re-check limited to those four changes, reviews it before
-C6. It has not run.
+C6, and also decides one open item the draft-19 prototype's mutation runs found: C8's untrusted-build
+stop kills the `LC_ALL=C.UTF-8` record for the wrong reason (corpus §6.1, C8's open row). It has not
+run.
 
 ## §13 Implementation results
 
