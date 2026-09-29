@@ -92,15 +92,14 @@ Axis 5 (2026-09-20)**: the `stale-claim-detector` lane (worktree `elidex-wt-stal
 `claim-provenance-trip-wire.sh` to `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, the list whose entire
 purpose is that a wire cannot be added or lost without a line — so `--ours` / `--theirs` on it is the
 one resolution neither lane may take. **Whichever lands second APPENDS its line**; both wires then
-stand. Measured, because the first guess was that this is a budget problem and it is not: this wire
-is ~26 s and `claim-provenance-trip-wire.sh` is ~6 s on the same host, against the `timeout-minutes`
+stand. Measured, because the first guess was that this is a budget problem and it is not: ~26 s (the
+R32 pair in `ci.yml`, whose subject is not recorded) and `claim-provenance-trip-wire.sh` ~6 s on the
+same host, against the `timeout-minutes`
 re-derived at ~4x headroom — so the collision is a MERGE hazard on the inventory, not a cost one.
 ⚠ And the budget block in `ci.yml` names the subject of each point in its series: the whole
 `scripts/trip-wires.sh` at R12, R27 and R29, not recorded for R30-R32, the whole job for the
-runner-measured `12124f83` point (170 s, checkout included). With one heavy wire the difference
-between this wire and the whole script is inside the host's noise, which is what keeps the local
-points comparable; when the second wire lands the ratio is re-derived against the job, so its
-arrival is not read as drift in this wire.
+runner-measured `12124f83` point (170 s, checkout included), and claims no comparability across
+subjects. When the second wire lands, the ratio is re-derived against the job.
 
 ⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`

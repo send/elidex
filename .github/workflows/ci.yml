@@ -167,17 +167,13 @@ jobs:
   # (`7eabcead`: one clean `git clone --local`) do not name the command, so
   # their subject is NOT RECORDED. The `12124f83` point is another subject
   # again: the whole JOB on the runner, checkout included, measured there
-  # rather than scaled from a local run. The local points stay comparable only
-  # because, with one heavy wire, this wire and the whole script differ by
-  # less than this host's noise: at `7121476e`, `0fd691fe` recorded this wire
-  # at 24.88-25.05 s and all five wires locally ("the whole job (5)" below) at
-  # 26.10-26.73 s.
-  # `scripts/trip-wires.sh` runs
-  # every wire in `REQUIRED_WIRES`, and the `stale-claim-detector` lane is
-  # adding a second heavy one (`claim-provenance-trip-wire.sh`, ~6 s measured
-  # on the same host as the ~26 s below), which ends that: when it lands, the
-  # ratio is re-derived against the JOB, and the plan's §1 carries the merge
-  # obligation on the inventory.
+  # rather than scaled from a local run. Points of different subjects are
+  # listed side by side, not claimed comparable.
+  # `scripts/trip-wires.sh` runs every wire in `REQUIRED_WIRES`, and the
+  # `stale-claim-detector` lane is adding a second heavy one
+  # (`claim-provenance-trip-wire.sh`, ~6 s measured on the same host as the
+  # ~26 s below): when it lands, the ratio is re-derived against the JOB, and
+  # the plan's §1 carries the merge obligation on the inventory.
   # MEASURED at R32 and re-confirmed at R38, on ONE clean `git clone --local`,
   # same session, minutes apart, nothing else of this project running -- the
   # pair, never the later number alone:
