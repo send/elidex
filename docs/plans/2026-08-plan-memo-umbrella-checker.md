@@ -66,7 +66,7 @@ or unscanned population (never a clean exit for "could not scan"). Seeds never g
 **Interim connection on `main`** (the checker's subject memo lands with #506, later): Slice 1 adds
 `.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh` (runs `python3 … --self-test --mutants`;
 fixtures live in `tempfile` dirs, but it reads `docs/plans/*.md` for `symbol_attribution_control`
-(since 7d43d7cd); its runtime is measured in the ⚠ paragraph below) **and registers it in `REQUIRED_WIRES`
+(since 7d43d7cd); its cost is §8's entry "The always-run wire's cost grows with REVIEW ROUNDS, not with the program") **and registers it in `REQUIRED_WIRES`
 in `scripts/trip-wires.sh` in the same commit** — the driver diffs the glob against that list in both
 directions and FAILs an unregistered wire (the list is `REQUIRED_WIRES` in `scripts/trip-wires.sh`, the diff + FAIL
 the `missing` / `unregistered` blocks after its loop; measured: a stub wire → rc 1 "ran but are not registered"). Two documentation claims become false and are updated in the
@@ -93,13 +93,8 @@ Axis 5 (2026-09-20)**: the `stale-claim-detector` lane (worktree `elidex-wt-stal
 purpose is that a wire cannot be added or lost without a line — so `--ours` / `--theirs` on it is the
 one resolution neither lane may take. **Whichever lands second APPENDS its line**; both wires then
 stand. The collision is a MERGE hazard on the inventory; the cost of the second wire is the budget's
-question, and the budget block in `ci.yml` answers it the one way that block now allows: it keeps a
-single figure, the whole job measured on the runner (`12124f83`: 170 s, checkout included, ~3.5x
-inside the 10 minutes), and when the second wire lands the job is re-measured there. ⚠ The block
-used to carry a series of local figures whose subjects differed (one wire, the whole script,
-unrecorded), and four STOP-CLEAN attestations in a row each found a correction of one of them
-exposing another; the series was removed rather than corrected again, and is history at
-`git show d7f12732:.github/workflows/ci.yml`.
+question, and the budget has one home, §8's entry "The always-run wire's cost grows with REVIEW
+ROUNDS, not with the program", where the job is re-measured on the runner when the second wire lands.
 
 ⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
@@ -1051,6 +1046,15 @@ committed here by the note that corrected it.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
 - **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
+  ⚠ **The one current figure, and how to read the rest of this entry** (2026-09-29): at `12124f83`
+  (942 controls / 586 mutants) the whole `Layering trip-wires` job took **170 s on the runner**,
+  checkout included (run 36339986057) — ~3.5x against the 10-minute timeout. Re-measure from a run
+  (`gh run view <run-id> --json jobs`), not from this line. Every figure BELOW is a local measurement
+  kept as history, and their subjects differ — this wire, the whole script, parts of the wire, or
+  not recorded (the R32 pair's commit names no command) — so they are not a series and do not
+  compare with the runner figure. The `ci.yml` block once carried such a series as its own and drew
+  findings from five STOP-CLEAN attestations in a row; it now keeps no figure and names this entry
+  (its old text: `git show d7f12732:.github/workflows/ci.yml`).
   Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
   `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
   home had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without

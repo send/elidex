@@ -142,22 +142,16 @@ jobs:
   #
   # THE BUDGET. The self-test wire's `--self-test --mutants` grows with every
   # review round that adds controls or mutants, so this job's run time is a
-  # budget against `timeout-minutes` below, not a constant. ONE figure is kept
-  # here, and it is the job itself on the runner -- no local host, no scaling:
-  # at `12124f83` (942 controls / 586 mutants) the whole `Layering trip-wires`
-  # job took 170 s, checkout included (run 36339986057), ~3.5x against the 10
-  # minutes. Re-measure from a run, not from this line:
+  # budget against `timeout-minutes` below, not a constant. NO FIGURE IS KEPT
+  # HERE: the measurement, its history and the growth driver have one home, the
+  # plan's §8 entry "The always-run wire's cost grows with REVIEW ROUNDS, not
+  # with the program" (PR #510: a figure here beside the figures there drew
+  # findings from five STOP-CLEAN attestations in a row). Measure the job on
+  # the runner itself:
   #   gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="Layering trip-wires")|[.startedAt,.completedAt]'
-  # The local figures this block used to carry are NOT restated: they had
-  # different subjects (one wire, the whole script, unrecorded) and were read
-  # as one series, and every correction of one of them exposed another (PR
-  # #510, four STOP-CLEAN attestations in a row). They are history, at
-  # `git show d7f12732:.github/workflows/ci.yml` (this block), and the growth
-  # driver is the plan's §8 entry "The always-run wire's cost grows with
-  # REVIEW ROUNDS, not with the program". A second heavy wire
-  # (`claim-provenance-trip-wire.sh`, the `stale-claim-detector` lane) will run
-  # in this same job; when it lands, re-measure the job on the runner. The
-  # plan's §1 carries the merge obligation on `REQUIRED_WIRES`.
+  # A second heavy wire (`claim-provenance-trip-wire.sh`, the
+  # `stale-claim-detector` lane) will run in this same job; when it lands,
+  # re-measure. The plan's §1 carries the merge obligation on `REQUIRED_WIRES`.
   #
   # What this does and does not buy: it makes a drifted allowlist RED on the PR. It
   # does not block the merge — the `main-protection` ruleset carries no
@@ -166,20 +160,18 @@ jobs:
   trip-wires:
     name: Layering trip-wires
     # 10 minutes. The headroom multiple and the measurement behind it live in the
-    # comment above and are NOT restated here: this line carried its own copy and
-    # went stale the moment that block was re-measured -- the same two-live-copies
-    # defect PR #510 R30 removed from CLAUDE.md, repeated inside the file that is
-    # supposed to be the single home. One home for a number that moves.
+    # plan's §8 entry the comment above names, and are NOT restated here: this
+    # line once carried its own copy and went stale at the next re-measurement
+    # -- the same two-live-copies defect PR #510 R30 removed from CLAUDE.md.
+    # One home for a number that moves.
     # ⚠ And it moves one way, because every round's new controls and mutants land
     # in an always-run job: that is a budget, not a constant. When it nears 2x,
     # split the wire or re-derive the timeout deliberately -- do not discover it
-    # when a runner cancels a green job, which is exactly what the 2 this
-    # replaced did at 211 s. The RULE is here; the figure it is read against is
-    # the one runner measurement above, re-measured rather than extended into a
-    # series (a series was kept, here and above, and went stale both times).
-    # This 10 is the deliberate re-derivation
-    # that rule asked for, made at R32 (its derivation is in the history the
-    # comment above points to).
+    # when a runner cancels a green job, which is exactly what the original
+    # 2-minute timeout did at 211 s. The RULE is here; the figure it is read
+    # against is in that §8 entry. This 10 is the deliberate re-derivation that
+    # rule asked for, made at R32 (its derivation is history, at `git show
+    # d7f12732:.github/workflows/ci.yml`).
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
