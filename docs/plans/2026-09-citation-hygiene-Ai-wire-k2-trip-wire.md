@@ -11,8 +11,8 @@ revision that followed them.
 
 ⚠ **SUPERSEDED IN PART — read `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` first**
 (slice A-i-wire-fgit, branch `k2-wire-fgit-hermetic`). That slice rebuilds how the K2 wire's fixtures
-are built, splits the controls and mutation files, and lets mutation records target the harness and the
-fixtures file. The body below is left as #519 wrote it, because it is provenance. These statements in
+are built, splits the controls and mutation files, and lets mutation records target the harness, the
+fixtures file or the mutant generator. The body below is left as #519 wrote it, because it is provenance. These statements in
 it are no longer true once that slice lands; the lines are as of `e8f78896`, and the reason for each is
 in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §8.2:
 - **Status** (L5): the status of this slice, not of the fixture build.
@@ -22,7 +22,7 @@ in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-herm
   (`…trip-wire.fixtures.sh`, `…trip-wire.mutgen.sh`), and the harness no longer holds a fixture git
   helper: the fixtures are built in a window constructed from nothing.
 - **§7 criterion 3** (L675–677, L683): the records are enumerated across `…mutations.sh`, and a record's
-  `sed` expression may target the harness or the fixtures file, not only the wire.
+  `sed` expression may target the harness, the fixtures file or the mutant generator, not only the wire.
 - **§7 criterion 5** (L747–748): the file table in §4 no longer lists every part.
 - **Slot 2** (L816) and **§9** (L866–868): the ratchet counts labels (`_control` labels and every
   `_lbl="…"` definition) with no record, not only controls.

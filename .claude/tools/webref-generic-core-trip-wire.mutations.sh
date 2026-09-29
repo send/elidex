@@ -26,7 +26,7 @@
 # hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
-# WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_CONTROLS` (the
+# WHAT IT CONSUMES: `$_VFY` (from the controls harness), `$_CONTROLS` (the
 # controls file, read for labels), and `$SELF`, `$SCRATCH`, `$K2RE` and
 # `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` through `_MUT_PARTS`. `_mut_run` copies every part in that list — the
@@ -87,7 +87,7 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in CTL _CONTROLS SELF SCRATCH K2RE K2RE_PATH; do
+for _n in _VFY _CONTROLS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
 if [ -n "$_mut_missing" ]; then
@@ -133,10 +133,11 @@ fi
 # diagnostic, so an entry that reds for an unrelated reason is caught too.
 #
 # ⚠ AND THE FILE IT EDITS IS PART OF THE RECORD. An expression may carry the
-# prefix `harness:` or `fixtures:`, which aims it at the CONTROL HARNESS or the
-# FIXTURE BUILD instead of the wire. The run copies every shipped part beside
-# each mutant, so a record says only which one to `sed`: the prefixes are the
-# words of `_MUT_TARGETS`, and `_mut_target` derives each one's pair.
+# prefix `harness:`, `fixtures:` or `mutgen:`, which aims it at the CONTROL
+# HARNESS, the FIXTURE BUILD or the MUTANT GENERATOR instead of the wire. The
+# run copies every shipped part beside each mutant, so a record says only
+# which one to `sed`: the prefixes are the words of `_MUT_TARGETS`, and
+# `_mut_target` derives each one's pair.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
 # minutes rather than seconds), and a required check nobody can afford to run is
@@ -198,13 +199,13 @@ fi
 # attached, where it fails to parse (measured on BSD sed: `sed 'harness:p'` is
 # "extra characters at the end of h command", `sed 'fixtures:p'` is "invalid
 # command code f"; GNU sed is not measured here).
-_MUT_TARGETS="harness fixtures"
+_MUT_TARGETS="harness fixtures mutgen"
 # THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
 # derives from its own `$SELF` (`<wire>.<part>.sh`). The sibling guard, the
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=159
+_MUT_RECORDS_MIN=160
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -411,6 +412,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzkstore" \
 harness:s/( cd "[$]_pq\/c" \&\& git init -q [.] )/false/	this git reports alternate object stores
 harness:s/git -C "[$]_pgd" count-objects -v 2>"[$]_pq\/pk.err"/false/	no fixture repo reads objects from a store outside it
 fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '\/nonexistent-k2-store\\n' > "$CTL\/clean\/.git\/objects\/info\/alternates"; : > "$_FW_DIR\/built"/	no fixture repo reads objects from a store outside it
+mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/	the boundary-mutant generator derives a non-empty set from the wire's regexes
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
@@ -449,7 +451,7 @@ _mut_rm_copies() {
 
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
 # `$_mut_tgt` and the file it came from at `$_mut_src` — whichever target the
-# caller resolved, which for a `harness:` or `fixtures:` entry is NOT the wire;
+# caller resolved, which for a `harness:`, `fixtures:` or `mutgen:` entry is NOT the wire;
 # it is the wire copy that gets EXECUTED either way.
 # $1 = how to name it in a diagnostic, $2 = what is required:
 # a NEEDLE the output must contain, `!survive`, or `!kill` (red, raised by a
@@ -532,7 +534,7 @@ _mut_correspondence() {
   # properties of this shipped file and cost milliseconds, so they belong where
   # every run sees them. (The mutation RUN stays opt-in; only its bookkeeping
   # moved.)
-  _mutants > "$CTL/.mutants"
+  _mutants > "$_VFY/.mutants"
   _mut_orphan=0
   while IFS="$(printf '\t')" read -r _mline _mwant; do
     [ -n "${_mline:-}" ] || continue
@@ -558,8 +560,15 @@ _mut_correspondence() {
       echo "   as a quoted label. A record whose control was renamed reports" >&2
       echo "   \"wrong reason\" forever." >&2
       _mut_orphan=1; }
-  done < "$CTL/.mutants"
+  done < "$_VFY/.mutants"
   [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1
+  # ---- THE GENERATED SET IS NOT EMPTY, ALWAYS ON --------------------------------
+  # A static property of `_mut_regex_mutants`' output over the running wire's
+  # `$K2RE` and `$K2RE_PATH`, so it is checked where every run (and every
+  # record's trial) sees it -- never in the opt-in run alone, which an empty
+  # generated set would otherwise pass silently (`0 mutant(s)`, `0 neither
+  # killed nor argued equivalent`).
+  _mut_gen_floor || _mut_corr_bad=1
   # ---- EVERY RECORD STILL APPLIES, ALWAYS ON ------------------------------------
   # Each record's expression must change the file it targets. Records anchor on
   # harness and fixtures text that an equivalent edit can change (spelling an
@@ -576,28 +585,28 @@ _mut_correspondence() {
          for _ma_t in $_MUT_TARGETS; do
            case "$_ma_x" in "$_ma_t":*) _ma_src="${SELF%.sh}.$_ma_t.sh"; _ma_x="${_ma_x#"$_ma_t":}"; break ;; esac
          done
-         if ! sed "$_ma_x" "$_ma_src" > "$CTL/.anchor" 2>/dev/null; then
+         if ! sed "$_ma_x" "$_ma_src" > "$_VFY/.anchor" 2>/dev/null; then
            echo "!! mutation record \"$_ma_x\" is not a valid sed expression." >&2; _mut_corr_bad=1
-         elif cmp -s "$CTL/.anchor" "$_ma_src"; then
+         elif cmp -s "$_VFY/.anchor" "$_ma_src"; then
            echo "!! mutation record \"$_ma_x\" no longer matches ${_ma_src##*/}: its anchor is stale," >&2
            echo "   so the record would test a copy identical to the shipped file." >&2
            _mut_corr_bad=1
          fi
-       done < "$CTL/.mutants"
-       command rm -f "$CTL/.anchor" ;;
+       done < "$_VFY/.mutants"
+       command rm -f "$_VFY/.anchor" ;;
   esac
   # …the standing negative control must BE there, and the set may not shrink.
   # ⚠ `awk`, NOT `grep -c`: `grep` exits 1 when it selects nothing, and under
   # `pipefail` that aborts the required gate — the same trap as the `wc -l`
   # below, and the failing case would be exactly the one being reported.
-  _mut_surv="$(awk -F'\t' '$2=="!survive"{n++} END{print n+0}' "$CTL/.mutants")"
+  _mut_surv="$(awk -F'\t' '$2=="!survive"{n++} END{print n+0}' "$_VFY/.mutants")"
   if [ "$_mut_surv" -ne 1 ]; then
     echo "!! the standing negative control (\`!survive\`) is not in the mutation set" >&2
     echo "   exactly once (found $_mut_surv), so a broken harness cannot be told" >&2
     echo "   from a real kill." >&2
     _mut_corr_bad=1
   fi
-  _mut_recs="$(awk -F'\t' 'NF>1{n++} END{print n+0}' "$CTL/.mutants")"
+  _mut_recs="$(awk -F'\t' 'NF>1{n++} END{print n+0}' "$_VFY/.mutants")"
   if [ "$_mut_recs" -lt "$_MUT_RECORDS_MIN" ]; then
     echo "!! the mutation set holds $_mut_recs records, against a floor of $_MUT_RECORDS_MIN." >&2
     echo "   A record was deleted. If that is deliberate, say why and LOWER the floor" >&2
@@ -612,22 +621,22 @@ _mut_correspondence() {
   { awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS"
     awk -F'"' '/^ *_[A-Za-z0-9_]+_lbl="/{print $2}' "$_CONTROLS"; } \
     | sed '/^$/d' | while IFS= read -r _lbl; do
-    grep -qF -- "	$_lbl" "$CTL/.mutants" || printf '%s\n' "$_lbl"
-  done > "$CTL/.bare"
+    grep -qF -- "	$_lbl" "$_VFY/.mutants" || printf '%s\n' "$_lbl"
+  done > "$_VFY/.bare"
   # ⚠ `wc -l`, NOT `grep -c .`. `grep` exits 1 when no line is selected, so on an
   # EMPTY `.bare` — the state this ratchet exists to let you reach — the
   # assignment failed and `set -e` aborted the required gate before the
   # comparison ran. The success case was the one that broke it.
-  _mut_bare="$(wc -l < "$CTL/.bare" | tr -d '[:space:]')"
+  _mut_bare="$(wc -l < "$_VFY/.bare" | tr -d '[:space:]')"
   if [ "$_mut_bare" -gt "$_MUT_UNRECORDED_MAX" ]; then
     echo "!! $_mut_bare labels have no mutation record, against a ratchet of $_MUT_UNRECORDED_MAX." >&2
     echo "   Either the new label needs a record, or a record was deleted. The bare ones:" >&2
-    sed 's/^/     /' "$CTL/.bare" >&2
+    sed 's/^/     /' "$_VFY/.bare" >&2
     echo "   If a label genuinely cannot have one, say why and RAISE the ratchet in the" >&2
     echo "   same edit — so widening the gap is a visible decision rather than a silence." >&2
     _mut_corr_bad=1
   fi
-  command rm -f "$CTL/.bare"
+  command rm -f "$_VFY/.bare"
   return "$_mut_corr_bad"
 
 }
@@ -670,7 +679,7 @@ _mut_run() {
     for _mp in $_MUT_PARTS; do cp "${SELF%.sh}.$_mp.sh" "$_mut_base.$_mp.sh"; done
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
-    _mutants > "$CTL/.mutants"
+    _mutants > "$_VFY/.mutants"
     _mut_n=0; _mut_bad=0; _mut_exc=0
     while IFS="$(printf '\t')" read -r _mx _mwant; do
       [ -n "$_mx" ] || continue
@@ -729,14 +738,24 @@ EOF_MLIM
         echo "!! MUTANT $_mut_n ($_mwant) SURVIVED: the wire still exited 0 with this" >&2
         echo "   applied, so nothing above is testing it: $_mx" >&2
         _mut_bad=$((_mut_bad + 1)); }
-    done < "$CTL/.mutants"
-    command rm -f "$CTL/.mutants"
+    done < "$_VFY/.mutants"
+    command rm -f "$_VFY/.mutants"
     echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named, $_mut_exc not exercisable on this machine"
     # …and the population the wire's own regexes define, which no list here
     # enumerates. Run whatever the hand set did, so one run answers both
     # questions and a failure in either is reported before the exit.
     _mut_gen_n=0; _mut_gen_bad=0
     _mut_gen_run
+    # …and the run must have TRIED what the generator derives. The always-on
+    # floor guards the generator's OUTPUT; this guards `_mut_gen_run`'s PATH
+    # (its file, its read-back, its TAB split), which no record's trial
+    # reaches (a trial runs with `WEBREF_WIRE_MUTANTS` unset). Checked here,
+    # in the caller, so an early `return` inside `_mut_gen_run` cannot skip it.
+    if [ "$_mut_gen_n" -ne "${_mut_gen_floor_n:-0}" ] || [ "$_mut_gen_n" -eq 0 ]; then
+      echo "!! the generated boundary set ran $_mut_gen_n mutant(s), but the generator derives" >&2
+      echo "   ${_mut_gen_floor_n:-0} from the wire's regexes: this run did not test every rule." >&2
+      _mut_gen_bad=$((_mut_gen_bad + 1))
+    fi
     echo "  generated boundary set: $_mut_gen_n mutant(s) from \$K2RE and \$K2RE_PATH, $_mut_gen_bad neither killed nor argued equivalent"
     _mut_rm_copies
     [ "$_mut_bad" -eq 0 ] && [ "$_mut_gen_bad" -eq 0 ] || exit 1

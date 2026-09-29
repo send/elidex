@@ -9,11 +9,12 @@
 # before the fixture-git rebuild adds its infrastructure and records to the
 # mutation set, which would otherwise take it past 1000 lines
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md §8.1).
-# WHAT IT CONSUMES: `$SELF`, `$CTL`, `$K2RE` and `$K2RE_PATH` (from the wire),
-# and `_mut_trial`, `_mut_target` (whose wire pair `_mut_splice` writes
-# through) and `_mut_restore_copies` (from the mutation set, which refuses to
-# run without this file). WHAT IT DEFINES: `_mut_equivalent`, `_mut_assign_value`,
-# `_mut_regex_mutants`, `_mut_splice`, `_mut_gen_run`.
+# WHAT IT CONSUMES: `$SELF`, `$_VFY`, `$K2RE` and `$K2RE_PATH` (from the
+# wire), `$_mg_lbl` (from the controls file), and `_mut_trial`, `_mut_target`
+# (whose wire pair `_mut_splice` writes through) and `_mut_restore_copies`
+# (from the mutation set, which refuses to run without this file). WHAT IT
+# DEFINES: `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
+# `_mut_splice`, `_mut_gen_floor` (which sets `_mut_gen_floor_n`), `_mut_gen_run`.
 
 # ---- THE GENERATED SET: THE TWO REGEXES' OWN STRUCTURE ----------------------
 # WHY IT IS GENERATED AND THE HAND SET IS NOT. Every boundary defect this wire
@@ -262,6 +263,26 @@ _mut_splice() {
     return 1; }
 }
 
+# ALWAYS ON (called by `_mut_correspondence`): the generated set over the
+# running wire's `$K2RE` and `$K2RE_PATH` is not empty. An empty set tests no
+# rule, and the opt-in run would print `0 mutant(s)` beside `0 neither killed
+# nor argued equivalent`, a pass — the blind this guards against.
+_mut_gen_floor() {
+  _mgf_n=0
+  for _mgf_v in K2RE K2RE_PATH; do
+    eval "_mgf_val=\"\${$_mgf_v-}\""
+    _mut_regex_mutants "$_mgf_v" "$_mgf_val" > "$_VFY/.genfloor" || {
+      echo "!! CONTROL FAILED ($_mg_lbl): generating \$$_mgf_v's mutants failed" >&2
+      command rm -f "$_VFY/.genfloor"; return 1; }
+    _mgf_n=$((_mgf_n + $(awk 'END{print NR}' "$_VFY/.genfloor")))
+  done
+  command rm -f "$_VFY/.genfloor"
+  _mut_gen_floor_n="$_mgf_n"   # the run-time layer in `_mut_run` compares its own count with this
+  [ "$_mgf_n" -gt 0 ] || {
+    echo "!! CONTROL FAILED ($_mg_lbl): no mutant from \$K2RE or \$K2RE_PATH" >&2
+    return 1; }
+}
+
 # The generated half of the run. Sets `_mut_gen_n` / `_mut_gen_bad`.
 _mut_gen_run() {
   # This half only ever edits the wire, named through the one resolver — so it
@@ -269,7 +290,7 @@ _mut_gen_run() {
   _mut_restore_copies || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
   _mut_target wire
   _mut_gen_fail=""
-  : > "$CTL/.genmutants"
+  : > "$_VFY/.genmutants"
   for _gr_v in K2RE K2RE_PATH; do
     _mut_assign_value "$_gr_v" || { _mut_gen_bad=1; break; }
     _gr_val="$_mut_av_out"
@@ -280,7 +301,7 @@ _mut_gen_run() {
       _mut_gen_fail="\$$_gr_v's assignment line reads back as a different value than the running wire holds"
       _mut_gen_bad=1; break
     fi
-    _mut_regex_mutants "$_gr_v" "$_gr_val" >> "$CTL/.genmutants" || { _mut_gen_bad=1; break; }
+    _mut_regex_mutants "$_gr_v" "$_gr_val" >> "$_VFY/.genmutants" || { _mut_gen_bad=1; break; }
   done
   if [ -n "$_mut_gen_fail" ]; then
     echo "!! the boundary-mutant generator could not read the wire's regexes:" >&2
@@ -289,12 +310,12 @@ _mut_gen_run() {
     echo "   about either predicate's structure." >&2
     return 0
   fi
-  _mut_equivalent > "$CTL/.genequiv"
-  : > "$CTL/.genseen"
+  _mut_equivalent > "$_VFY/.genequiv"
+  : > "$_VFY/.genseen"
   while IFS="$(printf '\t')" read -r _gr_name _gr_re; do
     [ -n "${_gr_re:-}" ] || continue
     _mut_gen_n=$((_mut_gen_n + 1))
-    printf '%s\n' "$_gr_name" >> "$CTL/.genseen"
+    printf '%s\n' "$_gr_name" >> "$_VFY/.genseen"
     if ! _mut_splice "${_gr_name%% *}" "$_gr_re"; then
       echo "!! MUTANT $_gr_name: the mutated assignment could not be written, so" >&2
       echo "   this rule was not tested. Unknown fails closed here as everywhere." >&2
@@ -304,7 +325,7 @@ _mut_gen_run() {
     [ "$_gr_rc" -ne 2 ] || { _mut_gen_bad=$((_mut_gen_bad + 1)); continue; }
     [ "$_gr_rc" -eq 1 ] || continue
     # SURVIVED. The only way that is not a gap is an argued equivalence.
-    _gr_why="$(awk -F'\t' -v n="$_gr_name" '$1==n{print $2; exit}' "$CTL/.genequiv")"
+    _gr_why="$(awk -F'\t' -v n="$_gr_name" '$1==n{print $2; exit}' "$_VFY/.genequiv")"
     if [ -z "$_gr_why" ]; then
       echo "!! GENERATED MUTANT SURVIVED: $_gr_name" >&2
       echo "   The wire still exited 0 with that rule widened or tightened, so no" >&2
@@ -313,15 +334,15 @@ _mut_gen_run() {
       echo "   The mutated predicate was: $_gr_re" >&2
       _mut_gen_bad=$((_mut_gen_bad + 1))
     fi
-  done < "$CTL/.genmutants"
+  done < "$_VFY/.genmutants"
   # …and an argument nobody is making any more is not documentation.
   while IFS="$(printf '\t')" read -r _gr_name _; do
     [ -n "${_gr_name:-}" ] || continue
-    grep -qxF -- "$_gr_name" "$CTL/.genseen" || {
+    grep -qxF -- "$_gr_name" "$_VFY/.genseen" || {
       echo "!! \`_mut_equivalent\` claims \"$_gr_name\", which this run's generator does" >&2
       echo "   not produce. The class or quantifier it argued about was edited, so the" >&2
       echo "   argument has to be made again against what is there now." >&2
       _mut_gen_bad=$((_mut_gen_bad + 1)); }
-  done < "$CTL/.genequiv"
-  command rm -f "$CTL/.genmutants" "$CTL/.genequiv" "$CTL/.genseen"
+  done < "$_VFY/.genequiv"
+  command rm -f "$_VFY/.genmutants" "$_VFY/.genequiv" "$_VFY/.genseen"
 }

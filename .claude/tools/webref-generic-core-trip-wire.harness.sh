@@ -712,7 +712,7 @@ fi
 # answered once, reported once — the shape `$_perm_line` already uses for the
 # other capability this harness cannot assume.
 _fifo_ok=0
-if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.fifoprobe"; fi
+if mkfifo "$SCRATCH/fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$SCRATCH/fifoprobe"; fi
 
 # ⚠ NO SECOND `trap ... EXIT` HERE. `trap` REPLACES; a second one silently
 # discarded the scratch-root cleanup and left an empty directory behind on
@@ -771,7 +771,7 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
       echo "   would be asserting over a tree that never posed the question." >&2
       return 1 ;;
   esac
-  _out_f="$CTL/.control_out"
+  _out_f="$_VFY/.control_out"
   # ⚠ SELF-TEST MODE IS AN ARGUMENT (see the wire, beside `_SELFTEST`): it is
   # the one channel a shell cannot leave behind for a later ordinary run.
   # ⚠ `set -m` SO THE CHILD IS ITS OWN PROCESS GROUP. Without it the watchdog's

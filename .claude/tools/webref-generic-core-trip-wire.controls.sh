@@ -114,8 +114,22 @@ _pj_lbl="the fixture build window runs the pinned git first on its PATH"
 _pk_lbl="no fixture repo reads objects from a store outside it"
 _pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
+_mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
 # The `_p*_lbl` labels reach the window by name, through its prelude.
 _fgit_window "$_FIXTURES"
+# THE PARENT'S VERIFIER DIRECTORY. Every file the parent writes and reads
+# back after the build (the fsmonitor hook and its mark, the controls'
+# output, the mutation runner's lists) lives here, made now, after the
+# build, by `mktemp -d` beside `$CTL` and `$_FW_DIR`, never under either:
+# `$CTL` is the fixtures' tree, and the verifier writes nothing there
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4, "The parent's directory").
+# Out of the fixtures' reach except through the declared class (c) of
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3 (an executable
+# written into a caller-`PATH` directory, `staleshim`).
+if ! _VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")" || [ -z "$_VFY" ] || [ ! -d "$_VFY" ]; then
+  echo "!! could not create the verifier's directory (TMPDIR/disk?); decided nothing." >&2
+  exit 2
+fi
 
 
 # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
@@ -325,10 +339,10 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl
 # The hook's path goes through `_shq`, as every embedded path here does.
 _fsm_lbl="a caller's fsmonitor hook does not run"
 if ! _fw_built_or_w2; then ctl_ok=1; else
-_fsm_mark="$CTL/.fsmonitor_ran"
-printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$CTL/fsmhook"
-chmod +x "$CTL/fsmhook"
-_fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$CTL/fsmhook")")
+_fsm_mark="$_VFY/.fsmonitor_ran"
+printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
+chmod +x "$_VFY/fsmhook"
+_fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$_VFY/fsmhook")")
 ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$CTL/fsmon" \
   && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
 if [ ! -e "$_fsm_mark" ]; then
@@ -338,10 +352,10 @@ if [ ! -e "$_fsm_mark" ]; then
 else
   command rm -f "$_fsm_mark"
   _fsm_rc=0
-  env "${_fsm_cfg[@]}" "$BASH" "$SELF" --selftest "$CTL/fsmon" "" "" > "$CTL/.fsm_out" 2>&1 || _fsm_rc=$?
+  env "${_fsm_cfg[@]}" "$BASH" "$SELF" --selftest "$CTL/fsmon" "" "" > "$_VFY/.fsm_out" 2>&1 || _fsm_rc=$?
   if [ "$_fsm_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
     echo "!! CONTROL FAILED ($_fsm_lbl): exit $_fsm_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
-    sed 's/^/     /' "$CTL/.fsm_out" >&2
+    sed 's/^/     /' "$_VFY/.fsm_out" >&2
     ctl_ok=1
   fi
 fi
@@ -366,11 +380,11 @@ else
   _umask_lbl="a restrictive umask decides nothing"
   _um_rc=0
   if ! _fw_built_or_w2; then ctl_ok=1
-  else ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$CTL/.umask_out" 2>&1 || _um_rc=$?
+  else ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$_VFY/.umask_out" 2>&1 || _um_rc=$?
   fi
-  if [ "$_fw_done" -eq 1 ] && { [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$CTL/.umask_out"; }; then
+  if [ "$_fw_done" -eq 1 ] && { [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$_VFY/.umask_out"; }; then
     echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
-    sed 's/^/     /' "$CTL/.umask_out" >&2
+    sed 's/^/     /' "$_VFY/.umask_out" >&2
     ctl_ok=1
   fi
 fi
