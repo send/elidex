@@ -363,7 +363,8 @@ The implementation is §9.1 and has not been made. The round history and the evi
   compared (P-g or P-k), and one that does not complete waits (§4, "The boundary"; §5.2 R9).
 - The final-head sequence's subject is T, the last tool-code commit, and it has a terminator
   (`…-landing.md` §9.1).
-- Open, not dispositioned: the window's return channel can be forged (`xdone`, `…-pr527.md` round 14).
+- `xdone` (the window's return channel forged by the fixtures file) is resolved by D14-D: a fixtures-file
+  write to the verifier's own state is class (c) (§0.3; `…-pr527.md` round 14).
 
 From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
 and the round it answers.

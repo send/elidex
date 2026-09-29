@@ -32,7 +32,7 @@ measurement on a named artifact, given with its command.
   silently return 0.
 - Disposition labels in the companions never collide with this memo's section numbers: F…, R2-…, R3-…,
   U1–U5 (round 4), V…, W1–W5 (round 6's §D.6 dispositions, not the postconditions W, W2, W3, W4), D…,
-  E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-C
+  E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-D
   (round 14) and PX1 (the base `~+/bin` experiment).
   In this memo a bare "R1"–"R9" is a §5.2 residual. Any other review round names its source: "Codex Rn"
   or "PR #527 Rn" for #527's external review, and "#501 Rn" or "#519's Rn" for the parent PRs' rounds.
@@ -118,18 +118,34 @@ classes of input can reach the fixture build, and this slice treats them differe
 |---|---|---|---|
 | **(a)** | **implicit caller-environment leaks**: anything the caller's environment, home, XDG directory, system prefix or compiled-in defaults carry into git without the fixtures file asking for it | **this PR** (its purpose) | **closed** by the window (§3); pinned by P-a…P-f |
 | **(b)** | **accidental fixture-authoring mistakes that persist an outside git input or leave the build incomplete**: a `git config` naming an outside file, an include appended to `.git/config`, an accidental `--separate-git-dir`, an arithmetic error that skips a line, a `set +e` left at the end | **this PR** | **caught, fail-safe on shape**: P-g over every git dir's configuration and shape (§4); W, with the options re-checked after the file; W3 (a shell diagnostic). An object store outside the repository (`objects/info/alternates`): P-k (§4) |
-| **(c)** | **fixture code that deliberately evades** | **out of scope**: code review | not closed, not detected, not owed (§5.1) |
+| **(c)** | **fixture code that deliberately evades**, and **any fixtures-file write to the verifier's own state** (below) | **out of scope**: code review | not closed, not detected, not owed (§5.1) |
 
 **What separates (b) from (c) is a property, not intent.** A class-(b) mistake leaves **persisted,
-observable state** at the end of the build: a configuration line, a git dir of an unexpected shape, a
-missing marker, an option switched off, a shell diagnostic. Class (c) is everything that leaves none.
+observable state** at the end of the build **and leaves the verifier as written**: a configuration
+line, a git dir of an unexpected shape, a missing marker, an option switched off, a shell diagnostic,
+each read by the postconditions and the parent as this memo describes them. Class (c) is everything
+else: what leaves no such state, and what changes the verifier itself.
+
+**The verifier's own state is not a fixture output.** The fixtures file and the postconditions share
+one shell and one scratch root, so a fixtures-file command can assign or `readonly` a prelude variable,
+redefine a prelude function (`_fgit_postconditions`, `_fw_opts_on`, …), write the window's return
+channel (`$_FW_DIR/built`, `done`, `cause`, `post_bad`, …), or rewrite the pin `$_FGIT_BIN/git`. Such
+a write is class (c) whatever else the build leaves: the state is read by a verifier that the same
+command changed, and a file does not say who wrote it. The completion markers are **a protocol, not a
+seal**: they make an accidental `return`, `exit` or abort, and an option switched off, loud (W); they
+cannot authenticate their writer. The measured boundary (`…-pr527.md`, round 14 and D14-D): a key
+persisted in `clean` alone is red by P-g (`xkey`); the key plus `exit 0` is W (`exit0`, bash 5.3); the key plus
+`built` and `done` written by the fixtures file (`xdone`), or plus a `_fgit_postconditions` redefined
+to return 0 (`xredef`), is rc 0, PASSED. The last two are this boundary, not defects.
+
 Examples of (c), which illustrate the property and are **not a list to complete**:
 - a transient per-command input: `-c`, `--config-env`, an environment assignment on one command,
   `--template`, an injecting `PATH` shim;
 - persist-then-revert (write a config entry, run git, remove the entry);
 - `--git-dir` / `--work-tree` pointing outside the fixture root;
 - sourcing an outside file (`. <file>`);
-- switching an option off and back on in the middle of the file.
+- switching an option off and back on in the middle of the file;
+- writing the verifier's own state: a marker, a prelude variable or function, the pin (above).
 
 A mistake that happens to take a class-(c) shape is not caught either, and this memo does not claim
 otherwise.
@@ -137,7 +153,13 @@ otherwise.
 **Why (c) is out of scope.** P is a function of the fixture script (§1). A script that names an outside
 input has made it part of itself, and no in-process check can tell a deliberate transient input from a
 legitimate one without re-parsing shell. Draft 7's seed S tried that and failed both ways (§5.1). The
-fixtures file already has an owner for deliberate content: review of repository code.
+fixtures file already has an owner for deliberate content: review of repository code. The fixtures
+file and the harness are two files of one repository at one trust level, changed and reviewed in the
+same PRs, so a boundary between them would separate no trust levels. Running the postconditions in a
+second process was considered when `xdone` was dispositioned (D14-D) and rejected: `built` stays
+forgeable by construction (the fixtures file *is* the build), `$_FGIT_BIN/git` stays writable, and
+P-a…P-j assert about the window's environment, so they would then describe a process other than the
+one that built (§4).
 
 ## §1 The property
 
@@ -269,7 +291,8 @@ window; P-f caught that in p6's first run (companion §A.9).
 
 **What comes back.** Three things return through files: `_FIX_FAILED`, the fact of completion
 (`done`), and whether any postcondition reported. The window's own `CONTROL …` lines reach the wire's
-stderr directly.
+stderr directly. The markers are a protocol, not a seal: a fixtures-file write to them is class (c)
+(§0.3).
 
 **An incomplete window is not "no fixture failed" (round-6 item 1; D4).** Completion needs two
 markers:
@@ -549,20 +572,19 @@ PASSED, on both shells. Every reference a postcondition compares against, by loc
   already exists fails the reference, red (P-g). P-a, P-b, P-d, P-g and P-i read `a`.
 - **P-e's `_FGIT_WIRE_EXEC`, P-h's `_FGIT_WIRE_LC`, P-f's `_FGIT_ENV_NAMES`**: values the parent takes
   before the window starts and passes as prelude assignments, not files. The fixtures file shares the
-  postconditions' shell, so an assignment to one there is not checked, any more than one that redefines
-  a postcondition function. No fixture names any of them (`/usr/bin/grep -c -e _FGIT_WIRE_EXEC -e
+  postconditions' shell, so it could assign one, or redefine a postcondition function; that is a write
+  to the verifier's own state, class (c) (§0.3). No fixture names any of them (`/usr/bin/grep -c -e _FGIT_WIRE_EXEC -e
   _FGIT_WIRE_LC -e _FGIT_ENV_NAMES -e _fgit_postconditions` over the fixtures file → 0).
-- **P-j's `$_FGIT_BIN/git`** is compared by path. Its content decides which executable runs, R1's.
+- **P-j's `$_FGIT_BIN/git`** is compared by path. Its content decides which executable runs, R1's; a
+  fixtures-file write to it is class (c) (§0.3).
 - **P-c's void** is the subject, not a reference: P-c reds any entry in it, and both reference inits
   read it as their template, so a template planted there is red through P-c (X6).
 
 What stays in `$_FW_DIR` is the subject side. A fixture-placed file there (the census lists, `pgcur`,
 `env0`) can make a postcondition red or wait (a FIFO), but it cannot make a comparison equal: the
-reference is at a name it cannot know. ⚠ **Open, not dispositioned by draft 16:** the window's return
-channel (`built`, `done`, `post_bad`, `machine_limits`, …) is in `$_FW_DIR` too, because both sides
-name it, and it can be forged. `xdone` (a fixture persists `core.excludesFile` in `clean`, writes
-`built` and `done` itself, and exits 0 before the postconditions) gives rc 0, PASSED, on both shells
-(`…-pr527.md` round 14). It leaves persisted state, so §0.3 does not put it in class (c).
+reference is at a name it cannot know. The window's return channel (`built`, `done`, `post_bad`,
+`machine_limits`, …) is there too, because both sides name it; a fixtures-file write to it is class (c)
+(§0.3, §5.1; `xdone`, D14-D).
 
 **Nothing is unsearchable at census time, by construction (sealing after the census).** Three
 fixtures need a mode restriction: `walk/sub` and `d5root` mode 000, `d2red/sub` mode 0444 (and the file
@@ -636,7 +658,9 @@ sees what is **still persisted when the build ends**. A form that persists and t
 **Class (c) is the residual, by property.** It is any fixtures-file command that gives a git an outside
 input and leaves no persisted, observable state when the build ends (§0.3 gives examples). Measured on
 p8: `git -C . -c include.path=<file> add -A` gives rc 0, `PASSED`, and Pdiff 50 on both shells. That is
-silently wrong, and it is **declared**, not closed.
+silently wrong, and it is **declared**, not closed. A write to the verifier's own state is the same:
+`xdone` (the markers written by the fixtures file) and `xredef` (`_fgit_postconditions` redefined), each
+with a key persisted in `clean`, give rc 0, PASSED (§0.3; `…-pr527.md` round 14).
 
 **D1: seed S is deleted.** Round 7 (Ax3) measured literal spellings passing S end to end with Pdiff 50
 on both shells:
@@ -832,7 +856,7 @@ Axes: **A** enumeration direction · **B** git's layers · **C** portability · 
 | 2 | A×D | the postconditions run in the window, so they describe every such git. P-g extends that to the persisted configuration and the shape of every git dir under the fixture root: an unknown git-dir shape is red, and so is any entry inside a git dir that is not a directory or a regular file with one link. The census's one verdict comes before any postcondition runs git, and the references it is compared against are made after the build where no fixture can reach them. P-k adds that no fixture repo reads objects from a store outside it | §4 |
 | 3 | A×D | P-f is a complement check: an unknown name in the window is red | §4 |
 | 4 | B×E | the empty template removes `.git/info/`, so `notcommitted` creates it | §3 |
-| 5 | D | window state is assigned before it is read. Completion needs the fixtures file's own last line, with the options still on; an incomplete window ends the run with W alone, a complete but untrusted one ends it after its reports, and `_control` itself refuses unless the build is complete and trusted (W2). Each child option is checked and recorded. With the parent's nounset off, the clean tree and eight red cells give the same verdicts (measured, §3; not a proof over every path) | §3, §5.2 |
+| 5 | D | window state is assigned before it is read. Completion needs the fixtures file's own last line, with the options still on; the markers are a protocol, not a seal (a fixtures-file write to them is class (c), §0.3); an incomplete window ends the run with W alone, a complete but untrusted one ends it after its reports, and `_control` itself refuses unless the build is complete and trusted (W2). Each child option is checked and recorded. With the parent's nounset off, the clean tree and eight red cells give the same verdicts (measured, §3; not a proof over every path) | §3, §5.2 |
 | 6 | D×E | the window is a child process, so the parent's environment, and with it the read side and every `_control`, is untouched | §0.1; DO cell |
 | 7 | E | the prelude passes plain assignments, never `declare -p`, so no `export` attribute enters the window | §3 |
 | 8 | E×D | producers live in the harness and labels in the controls file. A record targets `fixtures` when what it plants is something a fixture writes (the W early return and options re-check, W3, and the P-c, P-g and P-k shapes); a record that changes a producer targets `harness` | §4, corpus §6 |
@@ -849,8 +873,9 @@ unchanged), beside the commits they verify.
 
 Plan-review closed for draft 10 after round 9 (`…-reviews.md` §D.0 records the ground). Rounds 10–14
 reviewed drafts 11–15 (`…-pr527.md`). Draft 16 makes the references by construction, restates R9's
-boundary by read completion, and gives the final-head sequence a terminator, so **round 15**, a focused
-re-check of the draft-16 delta, reviews it before C6. It has not run.
+boundary by read completion, gives the final-head sequence a terminator, and puts a fixtures-file write
+to the verifier's own state in class (c) (D14-D), so **round 15**, a focused re-check of the draft-16
+delta (`ebc90bc1` and the D14-D commit after it), reviews it before C6. It has not run.
 
 ## §13 Implementation results
 

@@ -667,14 +667,14 @@ That is **+11**: 61 records of this PR, **156** in all, `_MUT_RECORDS_MIN=156`, 
 **Plan-review round 14 (on draft 15, frame `a9866a8c`) → draft 16.** Three IMPs, one each from Ax2, Ax3
 and Ax5, and MINs from Ax2–Ax5 (the relay listed the findings, not per-axis totals, so no totals are
 given here). The orchestrating session decided the three IMP dispositions, labelled D14-A…D14-C; draft
-16 implements them. The memo's growth was answered first, by the split `fba635c2`: the design memo's §9
+16 implements them. D14-D, `xdone`'s disposition, was decided after draft 16's first commit (below). The memo's growth was answered first, by the split `fba635c2`: the design memo's §9
 and §11 moved unchanged to `…-landing.md` (memo 963 → 814 lines).
 
 | finding | disposition |
 |---|---|
 | IMP-1 (Ax5): §9.1 re-ran every final-head check on any head movement, and X8's own rewrite of the `ci.yml` line is a commit, so the list restarted itself with no terminator; it also met the merge-head guard (Codex's assessed commit must be the head) and the fresh-dry rule | **D14-A**: every final-head check measures tool code, so its subject is T, the last commit that changes `.claude/tools/**` or `scripts/**`, and it re-runs only when T moves. X8's commit changes no tool code, re-runs nothing, and gets one fresh Codex round; the ledger step follows it and writes no commit. The `ci.yml` line names `e8f78896` and T. The five steps and the terminator: `…-landing.md` §9.1; also its §9 "Where the record goes", §11 (X3, X8, X13, X14, X16) and the design memo's §3 |
 | IMP-2 (Ax3): the waiting set is "a read that does not complete", not "FIFO" (`pty3.py`: an include naming `/dev/tty` waits under a controlling terminal; without one, `fatal: bad config line`, rc 128, red) | **D14-B**: the boundary is restated by read completion. A read outside a census git dir that completes is compared: P-g's origin for `commondir` and `include.path`, and P-k for `alternates`, which P-g does not see. A read that does not complete waits. Design memo §3 ("No time bound"), §4 ("The boundary") and §5.2 R9 (the row, Gap, Measured blocks). Cells below |
-| IMP-3 (Ax2): P-g's reference, the probe repos at the fixed `$_FW_DIR/pq`, can be written by the fixtures; `xrefpoison` rc 0 PASSED on both shells, `xrefctl` rc 1 | **D14-C**, by construction: the references are made after the build, in a fresh `mktemp -d` beside `$_FW_DIR`, with `a` and `b` made by `mkdir` without `-p`. Every other reference is listed by location (design memo §4, "The references"). The prototype was changed and the cells re-run (below); a C9 record was added (corpus §6.1). ⚠ Found while answering it: the window's return channel can be forged (`xdone`, below), and that is left **open** |
+| IMP-3 (Ax2): P-g's reference, the probe repos at the fixed `$_FW_DIR/pq`, can be written by the fixtures; `xrefpoison` rc 0 PASSED on both shells, `xrefctl` rc 1 | **D14-C**, by construction: the references are made after the build, in a fresh `mktemp -d` beside `$_FW_DIR`, with `a` and `b` made by `mkdir` without `-p`. Every other reference is listed by location (design memo §4, "The references"). The prototype was changed and the cells re-run (below); a C9 record was added (corpus §6.1). Found while answering it: `xdone`, below, then decided as D14-D |
 | Ax2 MIN: the verdict variable is `_pg_census` in the memo and `_pg_census_red` in the prototype | `_pg_census` everywhere; the draft-16 prototype renames it (round 13's text keeps the name its prototype had) |
 | Ax3 MIN: an `alternates` naming an ordinary store does not change `config --list --show-origin` | measured (`pkmeas.sh` (0), below); the memo says P-k reds it, not P-g |
 | Ax3 MIN 3: the chained alternates as prose | `pkmeas.sh`, below, verbatim, a git-only measurement |
@@ -745,10 +745,50 @@ Without a terminal, the `ttyinc` include fails in git itself, measured outside t
 gave rc 0, PASSED, on both shells (61 s and 83 s), as round 14's Ax2 cell did. After every cell no
 process of its group was left (`ps -ax -o pid=,command= | /usr/bin/grep -e 'config --list'` → nothing).
 
-**`xdone`, open.** The fixtures file wrote `built` and `done` itself and exited before the
-postconditions, so the parent read a complete window with no report. It leaves persisted state, so the
-design memo's §0.3 does not make it class (c); draft 16 records it as an open finding for the
-orchestrating session to decide on, and does not disposition it.
+**`xdone` → D14-D (decided after draft 16's first commit).** The fixtures file wrote `built` and `done`
+itself and exited before the postconditions, so the parent read a complete window with no report.
+Fable's independent verdict and the orchestrating session both chose the same option, and the user had
+said to proceed if they agreed: **a fixtures-file write to the verifier's own state is class (c)**
+(design memo §0.3). This is a consistency fix, not a new exception: draft 16's §4 "The references"
+already said an assignment in the fixtures file's shell, or a redefined postcondition function, is not
+checked, against §0.3's literal "persisted state is (b)". Running the postconditions in a second process
+was rejected (design memo §0.3, "Why (c) is out of scope"). No record is added: class (c) is not
+detected and not owed. Records stay 62 of this PR, 157 in all.
+
+Fable's cells, on a `git clone --local` of `ebc90bc1` (tool code as at `8413a4db`; not the draft-16
+prototype), each through Fable's `cell.sh` (verbatim below), inserts verbatim; scripts and logs in the
+orchestrating session's scratchpad, `…/scratchpad/fable2/{cell.sh,ins/,cells/*.log}`:
+
+| cell | insert | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| xkey | `git -C "$CTL/clean" config core.excludesFile /nonexistent-k2` | P-g red (`clean:[file:.git/config core.excludesfile=/nonexistent-k2]`) | same |
+| exit0 | `git -C "$CTL/clean" config core.excludesFile /nonexistent-k2 && exit 0` | W: "the window exited 0 before completing" | not run |
+| xredef | `_fgit_postconditions() { return 0; }; git -C "$CTL/clean" config core.excludesFile /nonexistent-k2` | ⚠ rc 0, PASSED, 16 s | ⚠ rc 0, PASSED, 22 s |
+| xdone | `git -C "$CTL/clean" config core.excludesFile /nonexistent-k2 && : > "$_FW_DIR/built" && : > "$_FW_DIR/done" && exit 0` | ⚠ PASSED | not run (this file's round-14 table above has both shells) |
+
+The results are read from the logs' `!!` and `PASSED` lines; the times are the ones Fable reported
+(the logs hold no timing line).
+
+```sh
+#!/bin/bash
+# cell.sh <tree> <tag> <b53|b32> <insert-file>: insert goes just before the fixtures' `built` line.
+# The run is its own process group (perl setpgrp, alarm 120); only that group is listed/killed after.
+A=${K2_CELLS:?}; tree=$1 tag=$2 sn=$3 ins=$4
+T=$A/cells/$tag.$sn; rm -rf "$T"; mkdir -p "$T" && (cd "$tree" && tar cf - --exclude=./target .) | (cd "$T" && tar xf -)
+python3 - "$T/.claude/tools/webref-generic-core-trip-wire.fixtures.sh" "$ins" <<'P'
+import sys;p,i=sys.argv[1],sys.argv[2];s=open(p).read();a=': > "$_FW_DIR/built"\n';assert s.count(a)==1
+s=s.replace(a,open(i).read()+a);open(p,'w').write(s)
+P
+if [ "$sn" = b32 ]; then SH=/bin/bash; P=/bin:/usr/bin:$PATH; else SH=/opt/homebrew/bin/bash; P=$PATH; fi
+mkdir -p "$A/home"; s0=$(date +%s)
+( cd "$T" && exec env HOME=$A/home PATH="$P" perl -e 'setpgrp; alarm 120; exec @ARGV' $SH .claude/tools/webref-generic-core-trip-wire.sh ) > "$T.log" 2>&1 & g=$!
+rc=0; wait "$g" || rc=$?
+echo "CELL $tag $sn rc=$rc t=$(( $(date +%s)-s0 ))s CF=$(/usr/bin/grep -c 'CONTROL FAILED' "$T.log") NE=$(/usr/bin/grep -c 'CONTROL NOT EXERCISED' "$T.log") PASSED=$(/usr/bin/grep -c 'trip-wire PASSED' "$T.log")"
+/usr/bin/grep -e '^!!' "$T.log" | cut -c1-220 | head -3 | sed 's/^/    /'
+o=$(ps -ax -o pid=,pgid=,command= | awk -v g="$g" '$2==g' | cut -c1-150)
+if [ -n "$o" ]; then echo "    LEFT in group $g (killed):"; echo "$o" | sed 's/^/      /'; kill -9 -"$g" 2>/dev/null; fi
+chmod -R u+rwX "$T" 2>/dev/null
+```
 
 `ptycell.sh`, verbatim:
 
