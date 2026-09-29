@@ -172,19 +172,19 @@ itself: a changed resolution of `mktemp` can hand either directory back to the f
   filesystem route: it needs no `PATH` assignment, it persists after the window, and so it reaches the
   **parent's** commands after the window as well as the window's own (on this machine
   `/opt/homebrew/bin` is owned by the caller, `ls -ld /opt/homebrew/bin`, and comes before `/usr/bin` in
-  the caller's `PATH`). `staleshim` redirected the `mktemp` that
-  makes the parent's `_VFY` to a directory the fixtures prepared; the parent's other commands (`sed`,
+  the caller's `PATH`). `staleshim` redirected the `mktemp` that makes the parent's `_VFY` to a
+  directory the fixtures prepared; the parent's other commands (`sed`,
   `cmp`, `grep`, `wc`, the controls' children) are reachable the same way, which is inferred, not
   measured. Construction cannot close this route: resolving the parent's commands to absolute paths
   before the window only narrows it, because the fixture can overwrite the resolved file too. A fixture
   that writes outside the fixture root into the caller's environment is itself outside anything class
   (b) produces. Which executable runs is also R1's (§0.1; `#11-trip-wire-launch-environment`): this is
-  the same channel, written by the fixtures instead of the caller, and declared here as class (c). A function shadows a name whatever it names: an external command, a
-  builtin (`unset`, `builtin` and `command` included) and a name spelled as an absolute path
+  the same channel, written by the fixtures instead of the caller, and declared here as class (c).
+  A function shadows a name whatever it names: an external command, a builtin (`unset`, `builtin` and `command` included) and a name spelled as an absolute path
   (`/usr/bin/mktemp() { …; }`), each measured on bash 5.3 and 3.2 (`…-pr527-r15.md` §Q). One form is
   red, not class (c): a `PATH` entry put **before** `$_FGIT_BIN` fails P-j's first-entry clause
-  (`shimprepend`; C6 keeps that clause). The set is every command name the window resolves after the
-  fixtures file, not a list.
+  (`shimprepend`; C6 keeps that clause). The set is every command name the verifier resolves after the
+  fixtures file, in the window or in the parent, not a list.
 
   **No in-shell reset is adopted.** Every in-shell construction is defeated by one fixtures-file line.
   `POSIXLY_CORRECT=1` with `$(exec /usr/bin/mktemp -d …)` runs the real binary despite `mktemp`, `exec`
