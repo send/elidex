@@ -160,17 +160,19 @@ jobs:
   #
   # ⚠ THE SUBJECT IS NOT THE SAME ALONG THIS SERIES (PR #510 Axis 5; the
   # "this wire alone" label that stood here was false, found by the STOP-CLEAN
-  # attestation of 900c16eb..2d4f932f). The R12 and R27 points timed the whole
-  # `scripts/trip-wires.sh` (the paragraph above says so for R12; `7b931db4`
-  # for R27). The R29 and R30 figures and the R32 pair below used the same
-  # clean-clone `/usr/bin/time -p` method, but the commits that took them
-  # (`745337b6`, `0a8741a5`, `7eabcead`) do not name the command, so their
-  # subject is NOT RECORDED. The `12124f83` point is another subject again: the
-  # whole JOB on the runner, checkout included, measured there rather than
-  # scaled from a local run. The local points stay comparable only because,
-  # with one heavy wire, this wire and the whole script differ by less than
-  # this host's noise: `7121476e` measured 24.88-25.05 s against
-  # 26.10-26.73 s (below). `scripts/trip-wires.sh` runs
+  # attestation of 900c16eb..2d4f932f). The R12, R27 and R29 points timed the
+  # whole `scripts/trip-wires.sh` (the paragraph above says so for R12;
+  # `7b931db4` for R27; `745337b6`'s CLAUDE.md line for R29). The R30 figure
+  # (`0a8741a5`: `/usr/bin/time -p` on a clean clone) and the R32 pair below
+  # (`7eabcead`: one clean `git clone --local`) do not name the command, so
+  # their subject is NOT RECORDED. The `12124f83` point is another subject
+  # again: the whole JOB on the runner, checkout included, measured there
+  # rather than scaled from a local run. The local points stay comparable only
+  # because, with one heavy wire, this wire and the whole script differ by
+  # less than this host's noise: at `7121476e`, `0fd691fe` recorded this wire
+  # at 24.88-25.05 s and all five wires locally ("the whole job (5)" below) at
+  # 26.10-26.73 s.
+  # `scripts/trip-wires.sh` runs
   # every wire in `REQUIRED_WIRES`, and the `stale-claim-detector` lane is
   # adding a second heavy one (`claim-provenance-trip-wire.sh`, ~6 s measured
   # on the same host as the ~26 s below), which ends that: when it lands, the

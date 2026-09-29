@@ -96,7 +96,7 @@ stand. Measured, because the first guess was that this is a budget problem and i
 is ~26 s and `claim-provenance-trip-wire.sh` is ~6 s on the same host, against the `timeout-minutes`
 re-derived at ~4x headroom — so the collision is a MERGE hazard on the inventory, not a cost one.
 ⚠ And the budget block in `ci.yml` names the subject of each point in its series: the whole
-`scripts/trip-wires.sh` at R12 and R27, not recorded for R29-R32, the whole job for the
+`scripts/trip-wires.sh` at R12, R27 and R29, not recorded for R30-R32, the whole job for the
 runner-measured `12124f83` point (170 s, checkout included). With one heavy wire the difference
 between this wire and the whole script is inside the host's noise, which is what keeps the local
 points comparable; when the second wire lands the ratio is re-derived against the job, so its
