@@ -203,7 +203,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
-### §6.1 Drafts 11–15: the record changes (planned, design memo §9.1)
+### §6.1 Drafts 11–16: the record changes (planned, `…-landing.md` §9.1)
 
 Each change is listed with the commit that makes it. The needle of every record is its label, so
 renaming a label renames the needle of each of its records in the same commit. "This PR's" counts the
@@ -211,14 +211,18 @@ records this PR adds (the table above); "all" is every entry the runner counts, 
 (`awk -F'\t' '!/^#/ && NF>1'` over the `MUTANTS` here-document: 145 at `8413a4db`). Draft 12's C7 and
 its two records were withdrawn with the time bound.
 
-Each record is planned to be **killed** when X3 runs at the final head, and to **survive** with the
-clause it names removed. Per commit, only the always-on anchor check in `_mut_correspondence` reads
-the records (X1). A record that plants a FIFO is the exception, because without its clause git blocks on the
-FIFO and the run waits (no time bound, design memo §5.2 R9). For those, the removed-clause run is a
-**necessary-condition check** only. It runs as its own process group under
-`perl -e 'alarm 120; exec @ARGV'`, the cell script's method (`…-pr527.md`, round 12). It is expected
-to reach the alarm with `ps -o pid=,pgid=,command=` showing the P-g `git … config --list` of that group
-blocked; then the group is killed, so nothing is left behind.
+Each record is planned to be **killed** when X3 runs at T (`…-landing.md` §9.1), and to **survive**
+with the clause it names removed; that **survive check** is run by hand as part of X3 (`…-landing.md`
+§11). Per commit, the ordinary run reads the records in three places, and none of them runs a record
+(X1): the always-on anchor check in `_mut_correspondence` (every record's expression must change its
+target; `mutations.sh:537–560` at `8413a4db`), the records floor (`_MUT_RECORDS_MIN`, line 574) and the
+label ratchet (`_MUT_UNRECORDED_MAX`, line 595). A record that plants a FIFO is the exception to the
+survive check, because without its clause git blocks on the FIFO and the run waits (no time bound,
+design memo §5.2 R9). For those, the removed-clause run is a **necessary-condition check** only. It
+runs by `cell15.sh`'s method (`…-pr527.md`, round 13): its own process group under
+`perl -e 'setpgrp; alarm 120; exec @ARGV'`. It is expected to reach the alarm with
+`ps -ax -o pid=,pgid=,command=` showing the P-g `git … config --list` of that group blocked; then that
+group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 
 | commit | change | label | target | this PR's / all |
 |---|---|---|---|---|
@@ -226,8 +230,8 @@ blocked; then the group is killed, so nothing is left behind.
 | C6 | **delete**: "a relative entry after `$_FGIT_BIN` in the window's `PATH`". There is no per-entry clause left to pin | P-j | harness | 49 / 144 |
 | C6 | **re-anchor**: "the window's `PATH` starts at `/usr/bin`" becomes "a directory with no `git` placed before `$_FGIT_BIN`" (`/nonexistent-k2:` in front), which pins the first-entry clause alone. The `gitx` record still pins the `git` clause | P-j | harness | — |
 | C6 | **relabel**: P-j's two records take the label `the fixture build window runs the pinned git first on its PATH` | P-j | — | — |
-| C8 | **add**: one harness expression inside `_fgit_window_verdict_exit` that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate. It survives with the gate's `post_bad` clause removed | W2 | harness | 50 / 145 |
-| C8 | **add**: the same exit removed, with W3 forced (`_fw_diag` set) instead. It survives with the gate's W3 clause removed | W2 | harness | 51 / 146 |
+| C8 | **add**: one harness expression inside `_fgit_window_verdict_exit` that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate, `_fw_built_or_w2`, which decides by `_fw_trusted` alone. It survives with the `post_bad` clause removed from `_fgit_window_verdict_exit`'s computation of `_fw_trusted` (the writer), which then writes 1 | W2 | harness | 50 / 145 |
+| C8 | **add**: the same exit removed, with W3 forced (`_fw_diag` set) instead. It survives with the W3 clause removed from the same computation of `_fw_trusted` | W2 | harness | 51 / 146 |
 | C8 | **re-anchor**: W2's existing record (`harness:/^_fgit_window_incomplete_exit()/,/^}/…`, `mutations.sh:343` at `8413a4db`) addresses the function C8 renames, so its range becomes `/^_fgit_window_verdict_exit()/,/^}/` | W2 | harness | — |
 | C8 | **relabel**: W2's existing record takes the label `no control runs over an incomplete or untrusted fixture build window` | W2 | — | — |
 | C9 | **add**: `clean`'s `.git/objects` replaced by a symlink to a copy outside the fixture root (PR #527 Codex R26②: PASSED at `8413a4db`). It survives without the shape rule | P-g | **fixtures** | 52 / 147 |
@@ -236,20 +240,21 @@ blocked; then the group is killed, so nothing is left behind.
 | C9 | **add**: `xcommon`, a FIFO `zzr/.git/config` with `clean/.git/commondir` naming `../../zzr/.git` (round 12). It pins the census-before-any-git order: with the shape verdict taken per repo, git runs on `clean` and waits (the FIFO procedure above) | P-g | **fixtures** | 55 / 150 |
 | C9 | **add**: `clean/.git/info/exclude` replaced by a hard link to a file outside the fixture root (round 12). It survives with the one-link clause removed | P-g | **fixtures** | 56 / 151 |
 | C9 | **add**: `xlink` (round 13), a link `$CTL/zzl` to a repo outside the fixture root whose `.git/config` is a FIFO, with `clean/.git/commondir` naming `../../zzl/.git`. Only pass 2 reds it. It pins "one census verdict after both passes": with pass 2 run inside the per-repo loop, git runs on `clean` first and waits (the FIFO procedure above) | P-g | **fixtures** | 57 / 152 |
-| C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root. It survives with the `alternate:` clause removed | P-k | **fixtures** | 58 / 153 |
-| C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line: NOT EXERCISED, red. It survives with the liveness check removed. With no machine-limitation arm, no machine excuses it | P-k liveness | harness | 59 / 154 |
-| C10 | **add**: `count-objects -v` replaced by a command that fails with no output. A failed count is red, and the record survives with the status check removed (the empty output then has no `alternate:` line, so it reads green) | P-k | harness | 60 / 155 |
-| C10 | **add**: `clean` gets an `alternates` naming a store that does not exist: rc 0, no `alternate:` line, an error on stderr. It survives with the stderr clause removed | P-k | **fixtures** | 61 / 156 |
+| C9 | **add**: `xrefpoison` (round 14): the fixtures make `$_FW_DIR/pq/a` and `$_FW_DIR/pq/b` in advance, the old reference path, as repos with `core.excludesFile /nonexistent-k2`, and write the same key into every fixture repo's `.git/config`. Killed by P-g against the references made after the build (`…-pr527.md` round 14: rc 1 in 5–7 s on both shells). It survives with the references made at the old fixed path (`_pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b"`): measured on the draft-15 prototype, rc 0, PASSED on both shells. No record removes the `mkdir`-without-`-p` freshness assertion: the directory `mktemp -d` has just made holds nothing, so no run can present a stale repo there, and that mutant is equivalent | P-g | **fixtures** | 58 / 153 |
+| C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root. It survives with the `alternate:` clause removed | P-k | **fixtures** | 59 / 154 |
+| C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line: NOT EXERCISED, red. It survives with the liveness check removed. With no machine-limitation arm, no machine excuses it | P-k liveness | harness | 60 / 155 |
+| C10 | **add**: `count-objects -v` replaced by a command that fails with no output. A failed count is red, and the record survives with the status check removed (the empty output then has no `alternate:` line, so it reads green) | P-k | harness | 61 / 156 |
+| C10 | **add**: `clean` gets an `alternates` naming a store that does not exist: rc 0, no `alternate:` line, an error on stderr. It survives with the stderr clause removed | P-k | **fixtures** | 62 / 157 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
-- **Totals after C10:** **18 labels** (P-k and its liveness label added; P-j and W2 renamed), **61
-  records of this PR, 156 in all**: `_MUT_RECORDS_MIN=156`, and `_MUT_UNRECORDED_MAX` stays at 21.
+- **Totals after C10:** **18 labels** (P-k and its liveness label added; P-j and W2 renamed), **62
+  records of this PR, 157 in all**: `_MUT_RECORDS_MIN=157`, and `_MUT_UNRECORDED_MAX` stays at 21.
 - **Not records, by the caller's `PATH`:** the X14 outcomes. A record's run uses the caller's `PATH`, so
   no record can pose them.
 - **Cost (X3).** No new record runs to a bound. The FIFO records end in seconds, because the census
-  stops them before git runs (design memo X16). Only the survive check, which is not part of X3, runs
-  a FIFO record with its clause removed; there it waits, by the FIFO procedure above.
+  stops them before git runs (`…-landing.md` X16). Only X3's survive check runs a FIFO record with its
+  clause removed; there it waits, by the FIFO procedure above.
 - **Retired with C6:** the "resolving relative `PATH` entries" bullet under "What is not a record"
   above describes the normaliser C6 deletes.

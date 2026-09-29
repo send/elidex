@@ -323,7 +323,8 @@ subject, which was every item listed above. Anything else stays open for round 5
 
 Moved here unchanged from the design memo's preface, where it sat between **Decision** and the
 parent's rule, as a touch-time split when that memo reached 970 lines; the memo holds only the live
-decisions. Section references in it are to the design memo, and "below" in it means the design
+decisions. The drafts 15 and 16 paragraphs at the end of the first part were added
+later (draft 16). Section references in it are to the design memo, and "below" in it means the design
 memo's body.
 
 **Status**: **draft 14**. Draft 10 closed plan-review (2026-09-27; `…-reviews.md` §D.0). Draft 11
@@ -347,6 +348,25 @@ Also:
 
 The implementation is §9.1 and has not been made. The round history and the evidence are in
 `…-pr527.md` §P.
+
+**Draft 15** (moved here from the design memo's preface by draft 16) answered plan-review round 13
+(`…-pr527.md` §P):
+- the census writes one verdict after both passes, and git runs nowhere before it;
+- §5.2 R9's boundary is stated by property;
+- the final head is defined as the head at squash time.
+
+**Draft 16** answers plan-review round 14 (`…-pr527.md` §P, D14-A…D14-C). Before it, the split
+`fba635c2` moved the design memo's §9 and §11 to `…-k2-fgit-hermetic-landing.md`.
+- The references the postconditions compare against are made after the build, where no fixture can
+  reach them (§4, "The references").
+- R9's boundary is stated by read completion: a read outside a census git dir that completes is
+  compared (P-g or P-k), and one that does not complete waits (§4, "The boundary"; §5.2 R9).
+- The final-head sequence's subject is T, the last tool-code commit, and it has a terminator
+  (`…-landing.md` §9.1).
+- Open, not dispositioned: the window's return channel can be forged (`xdone`, `…-pr527.md` round 14).
+
+From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
+and the round it answers.
 
 Draft 10 answers round 9, a Step-4.5 focused check of draft 9 (`d5dacd56`): Ax2 0/1/1, Ax3 0/1/3. Both
 IMPs were **implementation bugs in the prototype, not design defects**, and prototype **p11** fixes
@@ -563,6 +583,7 @@ Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
 
 ### PR #527 — external review and the fix-delta reviews (2026-09-28)
 
-Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` §P (touch-time split, text
-unchanged). It holds the Codex rounds, the fix-delta reviews, the record arithmetic, and plan-review
-rounds 10–12 with their measurements.
+Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` §P (touch-time split at
+`e0cd8329`, text unchanged then; revised there since, each revision named in its round's section). It
+holds the Codex rounds, the fix-delta reviews, the record arithmetic, and plan-review rounds 10 onward
+with their measurements.
