@@ -8,7 +8,14 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 71** (2026-09-30) — folds the TERMINAL decision re-gate over revs 69–70 (IMP-A) and the user decision it
+**Revision 72** (2026-09-30) — folds the TERMINAL re-gate over rev 71 (IMP 1 / MIN 1). IMP: the service worker's
+pre-existing `current_url` copy is not read only by its origin source — HEAD's `fetch()` also reads it for the default
+referrer (`vm/host/fetch/dispatch.rs:107`, `:158`), a non-base read the reader migration does not move; item 18 and
+A164 now name such reads by example, accepted as A96 under (2′) until the program untangles `current_url` (A164 is
+corrected in place: it has not landed). MIN: the E-graph's loop condition is stated for a PR inside E31's gate, since
+the PRs outside it come after IBP-classify.
+
+Revision 71 (2026-09-30) — folds the TERMINAL decision re-gate over revs 69–70 (IMP-A) and the user decision it
 raised. IMP-A: rev 70 bound E31 to `#11-document-base-url`'s completion as "ratified by the user's option (B)", but
 option (B) was chosen at R43 (2026-09-29) when the program's scope was the document base facets alone — the
 worker-realm facets entered at rev 67 — so it ratified no gate over them. **USER DECIDED 2026-09-30 (option (2′))**
@@ -19,7 +26,7 @@ origin source stay in the program's scope **outside the gate**, A96 by §0.6 ite
 Window-realm; no cell fires); and the program's plan takes the invariant that no new representation of the worker
 url is made before the gate — the canonical path reads the existing `GlobalScopeKind` `script_url` — which bounds
 R51's strangler concern without extending E31: what persists past the gate (those three, and the service worker's
-pre-existing `current_url` copy its origin source reads) is accepted as A96 under (2′), not closed. E31 reads by §4's
+pre-existing `current_url` copy, read by its origin source and other non-base reads) is accepted as A96 under (2′), not closed. E31 reads by §4's
 one edge rule — its data-flow fact is the **one** canonical path, supplied only once every reader the property defines
 reads it, so the worker and service-worker readers' migration is that fact, not an A93 cell, and the three outside are
 not readers of the path; §4's external-program exception
@@ -1133,8 +1140,10 @@ Each item is plan-review input for the surface it changes; its record ships with
    representation, an origin source). The in-repo comment re-points are outside it too, as no edge's fact (§4's one rule). **Invariant for the
    program's plan**: no new representation of the worker url before the gate — the canonical path reads the existing
    one, `GlobalScopeKind`'s `script_url` (`vm/mod.rs:135`, `:165`), so no **new** representation stands while (a)–(c)
-   are open; the service worker's pre-existing `current_url` copy (`sw_thread.rs:196`) remains, read only by its origin
-   source (`document_origin()`, `vm/host/navigation.rs:354`) until (c) — accepted as A96 under (2′). (Rev 70's gate — the program's completion — and its attribution to option (B), which was chosen at R43
+   are open; the service worker's pre-existing `current_url` copy (`sw_thread.rs:196`) remains, read by its origin
+   source (`document_origin()`, `vm/host/navigation.rs:354`) and by HEAD's other non-base reads of it (e.g. the default
+   referrer, `vm/host/fetch/dispatch.rs:107`, `:158`) — none a reader the property defines — until the program untangles
+   it; accepted as A96 under (2′). (Rev 70's gate — the program's completion — and its attribution to option (B), which was chosen at R43
    before the worker-realm facets entered the scope at rev 67, are withdrawn.) A "home =
    B1" answer makes the program itself wait for B1, the user's to ratify as above. Its record ships with the approval PR
    (umbrella ledger row A160, its scope corrected by A161, A162 and A163 and its gate stated by A164, §6).
@@ -1425,7 +1434,7 @@ predecessors are IBP-classify (E7) and IBP-css-machinery (E18), and its successo
 predecessors are IBP-classify (E4), IBP-css-machinery (E19), IBP-ua-display (E25) and the SVG layout-model umbrella memo's approval (E30). None of these four predecessors depends on anything after
 IBP-layout (E30's is a docs artefact with none), so no loop closes. The `content-visibility` program follows IBP-predicate (E20) and IBP-css-machinery
 (E22) and precedes nothing (item 12); its umbrella memo's approval precedes IBP-sandbox (E26), a docs artefact
-with no program predecessor, so E26 closes no loop (E30, likewise a docs artefact with no program predecessor, closes none); `#11-document-base-url` (E29, E31 — its gate, §0.6 item 18) sits between IBP-sandbox and IBP-classify, parallel to E3 — IBP-sandbox's predecessors are the splits and E26's memo approval, none after IBP-classify — so it closes a loop only if the program consumes something supplied at or after IBP-classify, which its own plan checks; IBP-css-machinery precedes IBP-predicate (E19 → E5), so E22 adds no loop. E25
+with no program predecessor, so E26 closes no loop (E30, likewise a docs artefact with no program predecessor, closes none); `#11-document-base-url` (E29, E31 — its gate, §0.6 item 18) sits between IBP-sandbox and IBP-classify, parallel to E3 — IBP-sandbox's predecessors are the splits and E26's memo approval, none after IBP-classify — so it closes a loop only if a PR inside E31's gate consumes something supplied at or after IBP-classify, which its own plan checks; IBP-css-machinery precedes IBP-predicate (E19 → E5), so E22 adds no loop. E25
 (IBP-ua-display → IBP-layout): IBP-ua-display's predecessors (IBP-classify, IBP-css-machinery, IBP-sandbox) contain
 nothing after IBP-layout. Every F4 consumer — IBP-predicate, the pseudo prereq,
 and through F1 IBP-transform, IBP-observer and PR-1a — is downstream of IBP-layout; the only F5 writer that is new
