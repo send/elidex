@@ -709,7 +709,7 @@ equivalent`, which X3 reads as a pass, the silent direction. What each moved fil
 - a plant turned a check green: `.bare` and `.anchor` (the always-on ratchet and anchor check), the
   generator's `.genmutants`, `.genequiv` and `.genseen` (opt-in mutation mode; `ln -s /dev/null
   "$CTL/.genmutants"` makes the generator read no mutant, and the run reports `0 mutant(s)` and
-  passes: predicted from the code, X3 measures it), and `.fsmonitor_ran`
+  passes: measured at `8413a4db`, rc 0, PASSED, `…-pr527-r15.md` §Q), and `.fsmonitor_ran`
   (the fsmonitor control's mark: a pre-planted mark stands in for the hook's run under a plain git
   call, so where the hook does not run that control's NOT EXERCISED, a red, becomes a pass);
 - a plant made a check fail, red: `.mutants`, `.control_out`, `.umask_out`;

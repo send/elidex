@@ -302,6 +302,24 @@ record applied), and the record itself is pointed at the new line so the anchor 
 | Jm | draft 19 | rc 1, 5 s, P-j `first-entry` (the record killed) | — |
 | Jm | draft 18 | rc 0, PASSED, 16 s (the record survives without the clause) | — |
 
+**The mutation-mode cells** (X3's opt-in cells, 2026-09-30, bash 5.3, one run each). The script is
+`cell15.sh` with two changes: `env WEBREF_WIRE_MUTANTS=1` before `HOME=…`, and `alarm 5400` for
+`alarm 120` (the round-17 reviewer's `cellmut.sh`, whose own runs were stopped at 129 s). The plant
+insert is `ln -s /dev/null "$CTL/.genmutants"`; the floor tree is the draft-19 prototype with
+`_mut_gen_run`'s `>> "$_VFY/.genmutants"` in the regex loop made `>> /dev/null`.
+
+| cell | tree | result |
+|---|---|---|
+| plant | `8413a4db` (base) | rc 0, PASSED, 2056 s: `145 entr(ies), 0 not killed as named`; `generated boundary set: 0 mutant(s) …, 0 neither killed nor argued equivalent` (the blind) |
+| plant | draft 19 | rc 1, 2530 s: `144 entr(ies), 1 not killed as named`; `50 mutant(s) …, 0 neither killed nor argued equivalent` (the plant has no effect) |
+| floor | draft 19 | rc 1, 1724 s: `144 entr(ies), 1 not killed as named`; `!! the boundary-mutant generator produced no mutant …`; `0 mutant(s) …, 1 neither killed nor argued equivalent` |
+
+The one record not killed as named on the prototype is `MUTANT 14`, `a byte no UTF-8 locale can bracket`
+(`s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/`): P-h reds on it and the untrusted-build stop runs no
+control, so its needle never appears. That is a C8 interaction the plan had not listed; it is open in
+corpus §6.1 for round 18. (144 against base's 145: the prototype already lacks C6's deleted P-j
+record.)
+
 **Records planned by draft 19**: none added or removed. C6's re-anchor was already planned; the
 empty-generated-set check has no record (above). Draft 18's totals stand: **64 records of this PR,
 159 in all**, `_MUT_RECORDS_MIN=159`, labels 18, `_MUT_UNRECORDED_MAX=21`. None of it is implemented
