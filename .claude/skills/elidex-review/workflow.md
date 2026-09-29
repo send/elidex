@@ -53,7 +53,7 @@ Surviving present-tense stale sites → feed into Step 3 as `consistency`-catego
 
 **同一 message 内 5 並列 Agent tool call** (sequential / inline self-review NG、§ "Anti-patterns" 参照)。
 
-5 本すべて `subagent_type: reviewer` で起動し、`model` は渡さない (Fable 昇格時のみ。CLAUDE.md「サブエージェント振り分け」参照)。この節は `elidex-plan-review` も共有する。reviewer 定義本文は「修正の方向」を書かせるが、本テンプレートの `Do NOT propose fixes` を優先する — brief にその旨を明記すること。途中停止 (済/残/次の報告) した軸は「0 件」ではなく**未完了**として扱い、その軸を継続/再起動する (CLAUDE.md「サブエージェント振り分け」規則 1)。
+5 本とも `subagent_type: reviewer` で起動する (振り分けと途中停止の扱いは CLAUDE.md「サブエージェント振り分け」)。
 
 Each SKILL.md supplies five variables before dispatching the agents (substitute the literal values into the prompt below):
 
@@ -79,7 +79,7 @@ Apply Axis <N> Detect entries tagged <INPUT_TAG> or [both] to <INPUT_PATH> (<INP
 
 <Agent 2 only>: Also read <DRYRUN_PATH> and incorporate gaps into Sub-check 2b findings.
 
-Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Do NOT propose fixes — list raw suggestion only. Report total findings count by severity at end.
+Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Do NOT propose fixes (overrides the agent definition's output format) — list raw suggestion only. Report total findings count by severity at end.
 ```
 
 Axis ↔ agent mapping (stable, both skills):
