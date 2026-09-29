@@ -399,6 +399,15 @@ moved the design memo's §5 to `…-residuals.md`.
   "RE-DERIVED" comment (D17-C).
 - X3's opt-in expectation is corrected, and C11 makes an empty generated set red (D17-D).
 
+**Draft 20** answers plan-review round 18 (`…-pr527-r15.md` §Q, D18-A…D18-C).
+- The class-(c) property covers the parent's commands after the window too: an executable the
+  fixtures write into a caller-`PATH` directory is declared, since construction cannot close it
+  (D18-A, `staleshim`).
+- The `LC_ALL=C.UTF-8` record is relabelled to P-h and a record for the scan's locale is added; the
+  empty-generated-set check is always on, with its own label, a `mutgen` target and a record (D18-B).
+- The no-reset reason is the measured `gitfn` direction; step 8 needs a SUCCESS run at the current
+  T under the threshold, and T may move by a merge as well as a fix (D18-C).
+
 From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
 and the round it answers.
 

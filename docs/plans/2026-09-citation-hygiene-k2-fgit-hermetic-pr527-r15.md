@@ -227,7 +227,7 @@ Labels D17-A…D17-D (a `D…` family, no section number).
 |---|---|
 | IMP-1 (Ax3): D16-C named only functions. `shimafter` (a `PATH` entry after the pin naming a directory whose `mktemp` echoes `pgrefKNOWN`) gave rc 0, PASSED on both shells, `shimhash` (`hash -p`) rc 0, PASSED on bash 5.3; `shimprepend` PASSED on the draft-18 prototype, whose P-j lacked the first-entry clause, and was red (`first:[…/zzshim]`) with the clause added; the control `shimnone` red | **D17-A**: D16-C stated by property, anything that changes what a command name the verifier runs after the fixtures file resolves to, with examples, not a list (design memo §0.3); the prepend form is red by P-j's first-entry clause, which C6 keeps; `shimafter` and `shimhash` in §0.3's measured boundary, `…-residuals.md` §5.1 and X16; §4's `mktemp` sentence aligned. The draft-18 prototype's P-j had lost the first-entry clause (the harness at `8413a4db` has it, `harness.sh` line 257); the draft-19 prototype restores it, and C6's re-anchor record pins it (corpus §6.1, measured below) |
 | Ax3 MIN (with IMP-1): "So no in-shell construction closes it" was false: `POSIXLY_CORRECT=1` with `$(exec /usr/bin/mktemp -d …)` runs the real binary despite the functions | "every in-shell construction is defeated by one fixtures-file line" (`enable -n exec` with an `exec` function, measured below), so a deliberate defeat is class (c); no reset is adopted, and why (design memo §0.3) |
-| IMP-2 (Ax3): after a red or over-threshold X9, a fix that moves T left no step that re-runs X9 at the new T | **D17-B**: land order step 7.4 returns to 7.1 on a fix that moves T; step 8 only with a verdict of a run at the current T under the threshold; terminator: Codex dry on the verdict commit (`…-landing.md` §9) |
+| IMP-2 (Ax3): after a red or over-threshold X9, a fix that moves T left no step that re-runs X9 at the new T | **D17-B**: land order step 7.4 returns to 7.1 on a fix that moves T; step 8 is reached only when X9's run at the current T is SUCCESS and under the threshold, or, over the threshold, the user has decided at 7.3 for that T (wording aligned in draft 20, D18-C); terminator: Codex dry on the verdict commit (`…-landing.md` §9) |
 | IMP-3 (Ax5): #501's branch changes `CLAUDE.md` line 94 to carry a local derivation method | **D17-C**: step 2's targets gain line 94, fixed in #501's branch by #527; not reverted to main's text, which carries "(~1s)" (`…-landing.md` §9, "CLAUDE.md's trip-wires paragraph"; false premise 1 below) |
 | IMP-4 (Ax5+Ax3): X3's opt-in cell expected "red", wrong after C11 | **D17-D**: X3 states base PASSED with `0 mutant(s)` (the blind) and, after C11, PASSED with the normal non-zero count, both "predicted from the code; X3 measures it", in `…-landing.md` §11 and the design memo §4; and C11 makes an empty generated set red in `_mut_gen_run`, pinned by X3's floor cell (no record can reach it: a trial runs with `env -u WEBREF_WIRE_MUTANTS`) |
 | Ax2 MIN: the entry guard and the two "WHAT IT CONSUMES" headers still name `$CTL` | C11's row replaces them with `$_VFY` (`…-landing.md` §9.1; design memo §4); the draft-19 prototype does, and its clean runs pass the guard |
@@ -324,3 +324,143 @@ record.)
 empty-generated-set check has no record (above). Draft 18's totals stand: **64 records of this PR,
 159 in all**, `_MUT_RECORDS_MIN=159`, labels 18, `_MUT_UNRECORDED_MAX=21`. None of it is implemented
 yet.
+
+**Draft 19's X3 record, corrected in draft 20.** Round 17's table above (IMP-4, D17-D) quotes draft 19 as
+committed at `3f1a96af`: both outcomes "predicted from the code; X3 measures it". `7be0a98c` then replaced
+that phrase in the design memo §4 and in `…-landing.md` §11 X3 with the measurements below, so the
+quote is history, not the current text. The mutation-mode runs, one each on bash 5.3, ran as two
+background chains at a time, each chain one wire at a time (so at most two wires), which is the
+condition behind "29–42 min":
+- chain 1: `./cell15.sh Jm_proto Jm19b b53 ins/clean`, then `./cellmut.sh floor19 floor19 b53 ins/clean`,
+  then `./cellmut.sh base genmBase b53 ins/genm`;
+- chain 2: `./cell15.sh Jm_p18 Jm18b b53 ins/clean`, then `./cellmut.sh proto genm19 b53 ins/genm`.
+
+`cellmut.sh` is the round-17 reviewer's: `cell15.sh` with `env WEBREF_WIRE_MUTANTS=1` before
+`HOME=…` and `alarm 5400` for `alarm 120`; `ins/genm` is `ln -s /dev/null "$CTL/.genmutants"`. The
+session scratch is ephemeral, so the essential log lines are copied here verbatim:
+- `genmBase` (`8413a4db`), rc 0, 2056 s:
+  `  mutation set: 145 entr(ies), 0 not killed as named, 0 not exercisable on this machine` /
+  `  generated boundary set: 0 mutant(s) from $K2RE and $K2RE_PATH, 0 neither killed nor argued equivalent` /
+  `webref generic-core layering trip-wire PASSED`;
+- `genm19` (draft-19 prototype), rc 1, 2530 s:
+  `!! MUTANT 14 (a byte no UTF-8 locale can bracket) killed for the WRONG REASON (exit 1): the output` /
+  `  mutation set: 144 entr(ies), 1 not killed as named, 0 not exercisable on this machine` /
+  `  generated boundary set: 50 mutant(s) from $K2RE and $K2RE_PATH, 0 neither killed nor argued equivalent`;
+  its first line was also `…/.claude/tools/webref-generic-core-trip-wire.harness.sh: child setpgid
+  (76871 to 76871): Operation not permitted`, bash's own message, whose cause was not investigated;
+- `floor19` (draft-19 prototype, generator output sent to `/dev/null`), rc 1, 1724 s: the same
+  `MUTANT 14` and `mutation set:` lines, then `!! the boundary-mutant generator produced no mutant: no
+  rule of $K2RE or` / `  generated boundary set: 0 mutant(s) from $K2RE and $K2RE_PATH, 1 neither killed
+  nor argued equivalent`.
+
+**A discarded first run, disclosed.** The `Jm` cells of round 17 ran twice. The first trees
+(`Jm_proto`, `Jm_p18`) were copied with `tar --exclude=./.git`, so they held no `.git`: `Jm18` gave
+rc 2, `!! read 0 stored objects or files; this wire would report no violation for a reason that is not
+'there are none'`, the wire's scan finding no repository, and `Jm19` gave rc 1 by P-j before the scan.
+The cause is established from the cell directories: `cells/Jm18.b53` and `cells/Jm19.b53` have no
+`.git`, `cells/Jm18b.b53` and `cells/Jm19b.b53` have one. The trees were rebuilt with `.git`, and the
+table above reports those runs (`Jm18b`, `Jm19b`).
+
+**Plan-review round 18 (focused, on draft 19, frame `805dbc46`) → draft 20.** 0 CRIT / 1 IMP / 10 MIN,
+as the orchestrating session relayed them. It decided the dispositions; draft 20 implements them.
+Labels D18-A…D18-C (a `D…` family, no section number).
+
+| finding | disposition |
+|---|---|
+| IMP (Ax2+Ax3): a fixtures file can write an executable into a writable directory on the caller's `PATH`; it persists after the window and redirects the parent's commands. `stalectl` (a never-matching record) rc 1 "its anchor is stale" on both shells; `staleshim` (the same tree, with a `mktemp` shim in that directory answering the parent's `verifyXXXXXX` call with a prepared directory whose `.anchor` is a link to `/dev/null`) rc 0, PASSED on both shells | **D18-A**: construction cannot close it (resolving the parent's commands to absolute paths first only narrows it; the fixture can overwrite the resolved file), so it is declared class (c): D17-A's property covers the verifier's commands in the window and the parent's after it, with the filesystem route as an example; the carve-out in the design memo §0.3 (the design rule and the declared list), §4's C11 paragraph, §10 #2, `…-landing.md` §9.1's C11 row and `…-residuals.md` §5.1; the R1 intersection in one sentence; `staleshim`/`stalectl` in §0.3's measured boundary and X16 |
+| open item (draft 19): the `LC_ALL=C.UTF-8` record killed for the wrong reason | **D18-B**: relabelled to P-h's label, and one record added for `rawbyte`, the scan's locale alone (`m14grep`); corpus §6.1's C8 rows. The runner scores a wrong-reason kill as not killed (`_mut_trial` returns 2 on a missing needle, `mutations.sh` lines 469–474 on the draft-18 prototype, and the caller counts it in `_mut_bad`, lines 689–690), so X3 was red, the fail-safe side |
+| Ax3 MIN: the empty-set floor belongs where every run sees it | **D18-B**: `_mut_gen_floor`, always on, with its own label and a `mutgen` record (corpus §6.1, C11); the mutation-mode check of draft 19 is removed, so there is one check |
+| Ax3 MIN: the no-reset reason rested on a count whose regex found 1 of 4 negative-control forms | **D18-C**: replaced by the measured direction, `gitfn` red on both shells (design memo §0.3); the count argument is dropped |
+| Ax3 MIN: the step-8 gate and 7.4's path | **D18-C**: step 8 needs X9's run at the current T to be SUCCESS and under the threshold, or, over it, the user's decision at 7.3 for that T; T moving "by a fix or by a merge"; §9.1 step 1's local checks apply to a merge that moves T too. The same wording is now in `…-landing.md` 7.4, the design memo §12 and round 17's IMP-2 row above |
+| Ax4+5 MINs | "unchanged" qualified for `…-residuals.md` (design memo preface and §5 pointer); the "predicted" quote and the X3 logs above; the `Jm18` first run above; step 2's complement check (`…-landing.md` §9.1 step 2) and its "changes … only" sentence naming the §Q record; the harness comment citing memo §5.2 → `…-residuals.md` §5.2 in C6's row; X3's bash-3.2 runs at T with an estimate (`…-landing.md` §11) |
+| §12 | round 19, focused on draft 20's changes; 0 IMP there → implementation (C6…C12) |
+
+**False premises in round 18's message, found while implementing:**
+1. The reviewer's `ins/parentshim` does not prepare the directory it names: it writes only the shim,
+   and the prepared directory with its `.anchor` link was made outside the insert. Draft 20's
+   `staleshim` has the insert make both, so the fixtures file alone produces the cell.
+2. "Records +1 → 65 / 160" held for the relabel and `m14grep` alone; with the floor's record (D18-B)
+   the totals are 66 / 161.
+
+**The cell script for caller-`PATH` cells**, `cellw.sh`, the round-18 reviewer's
+(`/tmp/elidex-plan-review.7e5b6f5f-cec2-4f20-9e7a-b25f0c4752cf/r18/ax23/cellp.sh`, identical to its
+`cellw.sh`), verbatim:
+
+```sh
+#!/bin/bash
+# cellw.sh <tree> <tag> <b53|b32> <insert-file|-> [wire-sed-expr]
+# cell15.sh verbatim, plus an optional sed applied to the wire copy (a record's trial).
+A=${K2_CELLS:?}; tree=$1 tag=$2 sn=$3 ins=$4 wsed=${5:-}
+T=$A/cells/$tag.$sn; mkdir -p "$T" && (cd "$tree" && tar cf - --exclude=./target .) | (cd "$T" && tar xf -)
+if [ "$ins" != - ]; then
+python3 - "$T/.claude/tools/webref-generic-core-trip-wire.fixtures.sh" "$ins" <<'P'
+import sys;p,i=sys.argv[1],sys.argv[2];s=open(p).read();a=': > "$_FW_DIR/built"\n';assert s.count(a)==1
+s=s.replace(a,open(i).read()+a);open(p,'w').write(s)
+P
+fi
+if [ -n "$wsed" ]; then W="$T/.claude/tools/webref-generic-core-trip-wire.sh"; sed "$wsed" "$W" > "$W.new"; cmp -s "$W" "$W.new" && { echo "SED MATCHED NOTHING"; exit 3; }; cat "$W.new" > "$W"; rm "$W.new"; fi
+if [ "$sn" = b32 ]; then SH=/bin/bash; P=$A/cpath:/bin:/usr/bin:$PATH; else SH=/opt/homebrew/bin/bash; P=$A/cpath:$PATH; fi
+mkdir -p "$A/home"; s0=$(date +%s)
+( cd "$T" && exec env HOME=$A/home PATH="$P" perl -e 'setpgrp; alarm 120; exec @ARGV' $SH .claude/tools/webref-generic-core-trip-wire.sh ) > "$T.log" 2>&1 & g=$!
+rc=0; wait "$g" || rc=$?
+echo "CELL $tag $sn rc=$rc t=$(( $(date +%s)-s0 ))s CF=$(/usr/bin/grep -c 'CONTROL FAILED' "$T.log") NE=$(/usr/bin/grep -c 'CONTROL NOT EXERCISED' "$T.log") PASSED=$(/usr/bin/grep -c 'trip-wire PASSED' "$T.log") stopped-before-controls=$(/usr/bin/grep -c K2PROTO "$T.log")"
+/usr/bin/grep -e '^!!' "$T.log" | cut -c1-220 | head -3 | sed 's/^/    /'
+o=$(ps -ax -o pid=,pgid=,command= | awk -v g="$g" '$2==g' | cut -c1-150)
+if [ -n "$o" ]; then echo "    LEFT in group $g (killed):"; echo "$o" | sed 's/^/      /'; kill -9 -"$g" 2>/dev/null; fi
+chmod -R u+rwX "$T" 2>/dev/null
+```
+
+**Inserts, verbatim.** `gitfn`: `git() { command git -c user.name=k2 -c user.email=k2@example.invalid "$@"; }`.
+`staleshim` (`$S` the cell root, `K2_CELLS`; written out with it at run time):
+
+```sh
+mkdir -p "$S/prep" && ln -sfn /dev/null "$S/prep/.anchor"
+printf '#!/bin/sh\ncase "$*" in *verifyXXXXXX*) echo "%s"; exit 0;; esac\nexec /usr/bin/mktemp "$@"\n' "$S/prep" > "$S/cpath/mktemp" && chmod +x "$S/cpath/mktemp"
+```
+
+The `stale` tree is the draft-20 prototype with one record added at the end of the `MUTANTS`
+here-document: `s/K2NEVERMATCHES/x/` TAB `the fixture build window completed`. Between the two
+`staleshim` runs, `cpath/mktemp` and the prepared directory were removed; after each run the prepared
+directory held `.control_out`, `.fsm_out`, `.mutants`, `.umask_out` and `fsmhook`, the parent's working
+files (`.anchor` and `.bare` are removed by the parent at the end of their checks).
+
+**The draft-20 prototype.** Base `35dc1153`, the whole prototype as one diff: `git -C <sandbox> diff >
+proto20.diff`, 616 lines, sha256 `0c0c6aaa9f0072a92af9fc3c4e9521123bf1dcc66611ddbe8818893a9fa7ca3f`
+(`…/scratchpad/author19/proto20.diff`). On top of the draft-19 prototype's:
+- the `LC_ALL=C.UTF-8` record relabelled to `the fixture build window reads in the wire's locale`, and the
+  record `s/_co="$(grep -aEn -- "$K2RE"/_co="$(LC_ALL=C.UTF-8 grep -aEn -- "$K2RE"/` TAB `a byte no UTF-8
+  locale can bracket` added;
+- `_mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"` in the
+  controls file; `_mut_gen_floor` in `mutgen.sh` (the generated count over `$K2RE` and `$K2RE_PATH`, red
+  under `_mg_lbl` when 0 or when generation fails), called by `_mut_correspondence`; the mutation-mode
+  check removed from `_mut_gen_run`; `mutgen` added to `_MUT_TARGETS`; the record
+  `mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/` TAB `_mg_lbl`'s text;
+  `_MUT_RECORDS_MIN=146` (the prototype's own count);
+- `mutgen.sh`'s header names `$_mg_lbl` and `_mut_gen_floor`.
+
+**The cells** (2026-09-30, `cell15.sh` or `cellw.sh`, two chains at a time, `HOME` a scratch
+directory). A record's kill is measured by applying its expression to the tree (`cellw.sh`'s fifth
+argument for a wire target, by hand for `mutgen`), with the record itself re-pointed at the mutated text
+so the always-on anchor check, which a real trial skips inside a mutant copy, stays green; the survive
+check additionally removes the clause the record pins.
+
+| cell | tree | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| clean | draft 20 | rc 0, PASSED, 18 s | rc 0, PASSED, 24 s |
+| stalectl | `stale` | rc 1, 17 s, `mutation record "s/K2NEVERMATCHES/x/" no longer matches …: its anchor is stale` | rc 1, 21 s, same |
+| staleshim | `stale` | ⚠ rc 0, PASSED, 17 s (class (c), D18-A) | ⚠ rc 0, PASSED, 24 s |
+| gitfn | draft 20 | rc 1, 5 s, P-a: `command line:	user.name=k2 command line:	user.email=k2@example.invalid`; no control run | rc 1, 7 s, same |
+| m14grep (kill) | draft 20 | rc 1, 15 s, the one CONTROL FAILED `a byte no UTF-8 locale can bracket`; no P-h, no stop | rc 1, 21 s, same |
+| m14grep (survive) | draft 20, the `rawbyte` `_control` line prefixed by `: ` | rc 0, PASSED, 16 s | — |
+| m14lc (the relabelled record) | draft 20 | rc 1, 5 s, P-h: `LC_ALL is [C], the wire's is [C.UTF-8]` | — |
+| floor record (kill) | draft 20 | rc 1, 16 s, `CONTROL FAILED (the boundary-mutant generator derives a non-empty set from the wire's regexes): no mutant from $K2RE or $K2RE_PATH` | rc 1, 22 s, same |
+| floor record (survive) | draft 20, the `_mut_gen_floor` call removed | rc 0, PASSED, 17 s | — |
+
+The `m14grep` kill cells count one `trip-wire PASSED` line, which is the failed control replaying its
+child's output (log line 8, indented), not the run's verdict. A first pass of the kill and survive
+cells without the re-pointed record was red on the stale anchor as well; it is not reported above.
+
+**Records planned by draft 20** (`…-landing.md` §9.1, corpus §6.1): draft 18's +14, and +2 (C8:
+`m14grep`; C11: the generator floor), with one relabel (C8). That is **+16**: **66 records of this PR,
+161 in all**, `_MUT_RECORDS_MIN=161`, labels 19 (the floor's added), `_MUT_UNRECORDED_MAX=21`. Draft
+18's plan (159) is superseded. None of it is implemented yet.

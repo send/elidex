@@ -3,7 +3,8 @@
 This file holds §5 (§5.1, what the window does not close; §5.2, the other residuals and the pre-existing
 defect) of `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was moved
 here unchanged as a touch-time split, before draft 19's edits; the design memo keeps a pointer at the
-section. Draft 19 then extended §5.1's class-(c) sentence (D17-A). The section numbers are kept, so "§5", "§5.1", "§5.2" and a residual "R1"–"R9" resolve here.
+section. Draft 19 then extended §5.1's class-(c) sentence (D17-A), and draft 20 extended it again
+(D18-A). The section numbers are kept, so "§5", "§5.1", "§5.2" and a residual "R1"–"R9" resolve here.
 Every other section reference without a file name is to the design memo.
 
 ---
@@ -52,7 +53,9 @@ with a key persisted in `clean`, give rc 0, PASSED (§0.3; `…-pr527.md` round 
 a background process that outlives the build and writes the reference, and so do `mkfn`,
 `shimafter` and `shimhash`, which change what the `mktemp` the postconditions run resolves to (a
 fixtures-file function, a `PATH` entry after the pin, `hash -p`; §0.3 states the class by that
-property, D17-A; `…-pr527-r15.md` §Q).
+property, D17-A; `…-pr527-r15.md` §Q), and so does `staleshim`, an executable the fixtures write into a
+caller-`PATH` directory, which changes what the **parent's** `mktemp` resolves to after the window
+(D18-A extends the property to the parent).
 
 **D1: seed S is deleted.** Round 7 (Ax3) measured literal spellings passing S end to end with Pdiff 50
 on both shells:
