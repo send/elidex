@@ -761,7 +761,7 @@ NE.
 | R6 | reads through `_git` keep the caller's config, including a caller `GIT_TRACE=1`, which reds at base too (parent D7) | loud, pre-existing | `_git`'s contract |
 | R7 | Windows git-bash: unmeasured | unmeasured | **declared residual.** The `trip-wires` job is ubuntu-only in CI (command below), and running `mise run ci` or the wires under Windows git-bash is not a supported surface today; nothing here claims it |
 | R8 | a compiled-in reftable default (git 3.0's planned default, or a breaking-changes build): `badref` writes `.git/refs/heads/`, and P-d's `diff -r` differs between two reftable inits (random `reftable/*.ref` names, `tables.list`) — the gate would red on every PR for a non-K2 reason | — | **closed**: `GIT_DEFAULT_REF_FORMAT=files` is in the window's allowlist, pinned by P-i on every git. The `reftable` cell (a `git` that picks reftable unless the caller pins a format) is red before and green after (companion §A.14) |
-| R9 | **no time bound**: a child whose read does not complete makes the run wait. By property: git reads, outside every census git dir and through a reference the census does not follow (`commondir`, `include.path`, `alternates`), something whose read does not complete (§4, "The boundary": a FIFO, or `/dev/tty` under a controlling terminal); a read that completes is compared instead, by P-g's origin or by P-k. The per-link search over a huge tree is slow (`find` ends when it has walked it). The one watchdog is `_control`'s (#501 R92), and it covers a control's run only | never green: red at CI's job timeout; a local run waits | **slot `#11-trip-wire-liveness-bound`**, text below. C9 rewrites the harness's declared blind spot ("There is no time bound…") to name it. The user carved draft 12's bound out (2026-09-28) |
+| R9 | **no time bound**: a child whose read does not complete makes the run wait. By property: git reads, outside every census git dir and through a reference the census does not follow (`commondir`, `include.path`, `alternates`), something whose read does not complete (§4, "The boundary": a FIFO, or `/dev/tty` under a controlling terminal); a read that completes is compared instead, by P-g's origin or by P-k. The per-link search over a huge tree is slow (`find` ends when it has walked it). The one watchdog is `_control`'s (#501 R92), and it covers a control's run only | never green: red at CI's job timeout; a local run waits | **slot `#11-trip-wire-liveness-bound`**, text in `…-landing.md` §9.2. C9 rewrites the harness's declared blind spot ("There is no time bound…") to name it. The user carved draft 12's bound out (2026-09-28) |
 
 R7's command, together with a negative case that shows it discriminates:
 
@@ -770,67 +770,9 @@ sed -n '/^  trip-wires:/,/^  [a-z]/p' .github/workflows/ci.yml | /usr/bin/grep r
 sed -n '/^  check:/,/^  [a-z]/p' .github/workflows/ci.yml | /usr/bin/grep runs-on        # runs-on: ${{ matrix.os }}
 ```
 
-**R9's slot, `#11-trip-wire-liveness-bound`: the text §9's ledger step writes.**
-- **Gap**: the K2 wire's harness bounds only `_control`'s child (30 s; #501 R92, present at base
-  `e8f78896`). Every other child that runs over fixture state is unbounded, so a block there gives no
-  green, but the gate reaches no verdict: CI reds at the job timeout, and a local run waits.
-  - **Pre-existing at `e8f78896`**:
-    - the plain `--selftest` calls of the relative-scratch and umask blocks, and the fsmonitor
-      block's `git ls-files` and `--selftest`;
-    - the fixture build, then run in the parent through `_fgit`;
-    - the mutation runner's trials.
-  - **New in #527**:
-    - the fixture build window, which replaces the parent build;
-    - C9's two-pass census (the classification and shape pass, then the per-link `find -L` search,
-      which #527's census already ran at `8413a4db`);
-    - C10's `count-objects` per repo and its probe.
-  - **Measured blocks**: a read that does not complete, which git makes through a reference outside
-    every census git dir. Each ran as its own process group and reached its 120 s limit on both
-    shells; the inserts and the cell scripts are verbatim in `…-pr527.md`, rounds 13–14:
-    - `outroot`: a `commondir` naming a git dir outside the fixture root, its `config` a FIFO;
-    - `hdless`: a `commondir` naming a directory with `objects` and `refs` but no `HEAD`, its `config` a
-      FIFO;
-    - `xinclude`: an `include.path` naming a FIFO in the fixture root;
-    - `xinclnk`: an `include.path` naming a link in the fixture root to a FIFO outside it;
-    - `ttyinc`: an `include.path` naming `/dev/tty`, under a controlling terminal (without one, git
-      exits 128 and the run is red).
-
-    A chained `alternates` whose store's own `alternates` is a FIFO blocks `git count-objects -v`, P-k's
-    read: rc 142 at a 10 s alarm on git 2.55.0 (a git-only measurement; `pkmeas.sh`, verbatim in
-    `…-pr527.md` round 14).
-- **Defects measured in the two withdrawn designs** (`…-pr527.md`, rounds 10–11; rounds 12–14 then
-  measured the blocks above):
-  1. nested process groups escape an outer group kill, and `$(…)` then waits on the pipe;
-  2. a call-site list misses sites (fsmonitor's `git ls-files`);
-  3. a re-run of the wire as a new group becomes a background job on a tty, so `stty tostop` stops
-     it: a false red;
-  4. with trials nested, the INT/TERM exit path's `kill -9` does not reach the trial groups;
-  5. a failing process-group probe re-runs the wire without end;
-  6. a join decided by an environment variable alone drops every bound, against the wire's rule
-     `git show 8413a4db:.claude/tools/webref-generic-core-trip-wire.sh | sed -n 350,364p` ("ENTERED BY
-     ARGUMENT, NEVER BY ENVIRONMENT");
-  7. a check for `set -m` by spelling misses `set -o monitor` and `-eum`;
-  8. a 0-bound phase, or a top-level cap of 0, leaves call sites unbounded;
-  9. a parent that relays a child's rc relays bash 3.2's masked rc 0, which widens
-     `#11-k2-wire-exit-trap-masks-set-u-abort`.
-- **Why deferred**: the legitimate reason is **L3**. A bound over nested children is a load-bearing
-  change of its own: edge-dense, so it needs its own plan and plan-review under CLAUDE.md's rule. L2
-  also holds, since #527's memo records two designs measured and withdrawn. The confirming questions:
-  1. spec faithfulness: no spec surface;
-  2. one issue, one way: the only bounded child, `_control`, predates #527, and #527 adds no second
-     mechanism;
-  3. anti-justification: no, it is not size or session;
-  4. **repeat signal: yes.** Codex R25/R26 and plan-review rounds 10–14 raised it. By the lens that
-     means fix-in-PR, and only the **user's explicit carve (2026-09-28)** overrides it. That decision
-     is the ground here, not the lens.
-- **Trigger**: #501's squash merge into `main`, which carries #527's changes (#527 is squashed into
-  #501's branch, not into `main`, and its commits are not reachable from `main`) and opens the
-  dedicated slice; or, before that, the next PR that adds
-  a child to the K2 harness or the mutation runner, or any report of a K2 run that waited instead of
-  reaching a verdict.
-- **Owner**: the citation-hygiene lane. **Timing**: a slice of its own, planned and plan-reviewed after
-  #501's squash merge. **Re-eval**: 2026-11-30.
-- **Accounting**: #527's own deferrals, 1.
+**R9's slot, `#11-trip-wire-liveness-bound`: the text §9's ledger step writes** is in
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.2 (moved there unchanged, beside the
+ledger step that writes it).
 
 **Pre-existing, not fixed here: `#11-k2-wire-exit-trap-masks-set-u-abort`.** On `/bin/bash` 3.2,
 `set -euo pipefail` together with the wire's EXIT trap (since base, wire:405) turns an
@@ -839,25 +781,7 @@ unbound-variable abort into exit 0. The orchestrating session reproduced it (`�
 "code sourced after wire:405".
 
 This PR's harness and controls are exactly such code. **The ledger text — the one text; §9's ledger
-step writes exactly this** — **replaces**, in place, the entry's sentence "(its memo U5: state
-initialised at harness top level, setup failure a labelled verdict)" and the amendment written at PR
-creation. It does not append to them:
-- **measured, not argued:** with the wire's nounset off, the clean tree and eight cells (six red) give the
-  same exit status and verdict lines as with it on (bash 3.2 and 5.3; the cell script is verbatim in
-  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md`, "X13", and X13 re-runs it at T, the last
-  commit of this PR that changes its tool code or its CI job, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.1).
-  On those runs no parent-side verdict depends on `set -u`; that is a measurement over those runs, not a
-  proof over every path;
-- an incomplete fixture-build window is reported by the **W verdict alone**, and no control runs:
-  `_control` asks `_fw_built_or_w2` first, and so does each of the three blocks that are not
-  `_control`s (relative scratch, fsmonitor, umask). That covers a child that refuses a prelude missing
-  any one of `errexit`, `nounset` or `pipefail`, a fixtures file that stops before its last line, and
-  one that switches an option off. A build that is complete but untrusted (a red postcondition, or W3) ends
-  the run after its reports, and no control runs over it either;
-- a mode restriction a fixture sealed and the window could not apply, or refused, is red (W4);
-- pinned by the W records (one per prelude option, one for the early return, one for an abort, one for
-  an option switched off by the fixtures file), the three W2 records and the W4 record. The three block gates
-  are pinned by the traced `w2rec` cell only (§3's declared gap).
+step writes exactly this** — is in `…-landing.md` §9.2 (moved there unchanged).
 
 ## §6 The corpus — evidence, and the source of the records
 
@@ -888,8 +812,9 @@ implemented, so this is their record.
 ## §9 Commit plan and land order (base `e8f78896`)
 
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9 (touch-time split, text
-unchanged): the commits, the cost and `ci.yml`, X9's routes, the land order, the ledger text, and §9.1,
-the commits planned on top of `8413a4db`.
+unchanged): the commits, the cost and `ci.yml`, X9's routes, the land order, the ledger text, §9.1,
+the commits planned on top of `8413a4db`, and §9.2, the two ledger texts (moved from §5.2, draft 18's
+split).
 
 ## §10 Coupled invariants
 

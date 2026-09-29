@@ -1,6 +1,7 @@
 # K2 fixture git — the commits, the land order and the exit criteria
 
-This file holds §9 (the commit plan, the land order and the ledger text) and §11 (the exit criteria)
+This file holds §9 (the commit plan, the land order and the ledger text; §9.2 the two ledger texts,
+moved later from the design memo's §5.2) and §11 (the exit criteria)
 of `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). Both were moved here
 unchanged as a touch-time split, before draft 16's edits would have taken the design memo past 1000
 lines; the design memo keeps a pointer at each section. The section numbers are kept, so "§9", "§9.1"
@@ -118,15 +119,106 @@ exactly this:
 - **With both gone, delete their section too:** the heading "Citation-hygiene — K2 wire `_fgit` scrub
   fix: 2 own slots" and its Source paragraph hold nothing else, so they are removed with the two entries
   rather than left orphaned.
-- **Amend** `#11-k2-wire-exit-trap-masks-set-u-abort` with §5.2's ledger text, verbatim, **replacing**
+- **Amend** `#11-k2-wire-exit-trap-masks-set-u-abort` with §9.2's ledger text, verbatim, **replacing**
   in place both the entry's "(its memo U5 …)" sentence and the amendment written at PR creation.
-- **Register** `#11-trip-wire-liveness-bound` with §5.2's text, verbatim.
+- **Register** `#11-trip-wire-liveness-bound` with §9.2's text, verbatim.
 - **Amend** `#11-trip-wire-launch-environment`. Member (3) gains the K2 window: git pinned as the
   caller's shell resolves it from the wire's directory, the other entries verbatim. The fired trigger
   "#519 lands" becomes "the next PR that changes how a required wire, or the K2 fixture window,
   resolves or passes `PATH`". The PM lane stays the owner.
 - **Fix the header count.** The net change is −1 (one slot dissolved, one closed, one registered),
   and it **replaces** the −2 banner.
+
+### §9.2 The ledger texts (moved from the design memo §5.2)
+
+Moved here unchanged from the design memo's §5.2, beside the ledger step (§9, "Ledger text") that writes
+them, as a touch-time split before draft 18's edits would have taken the design memo past 1000 lines.
+Section references in them are to the design memo.
+
+**R9's slot, `#11-trip-wire-liveness-bound`: the text §9's ledger step writes.**
+- **Gap**: the K2 wire's harness bounds only `_control`'s child (30 s; #501 R92, present at base
+  `e8f78896`). Every other child that runs over fixture state is unbounded, so a block there gives no
+  green, but the gate reaches no verdict: CI reds at the job timeout, and a local run waits.
+  - **Pre-existing at `e8f78896`**:
+    - the plain `--selftest` calls of the relative-scratch and umask blocks, and the fsmonitor
+      block's `git ls-files` and `--selftest`;
+    - the fixture build, then run in the parent through `_fgit`;
+    - the mutation runner's trials.
+  - **New in #527**:
+    - the fixture build window, which replaces the parent build;
+    - C9's two-pass census (the classification and shape pass, then the per-link `find -L` search,
+      which #527's census already ran at `8413a4db`);
+    - C10's `count-objects` per repo and its probe.
+  - **Measured blocks**: a read that does not complete, which git makes through a reference outside
+    every census git dir. Each ran as its own process group and reached its 120 s limit on both
+    shells; the inserts and the cell scripts are verbatim in `…-pr527.md`, rounds 13–14:
+    - `outroot`: a `commondir` naming a git dir outside the fixture root, its `config` a FIFO;
+    - `hdless`: a `commondir` naming a directory with `objects` and `refs` but no `HEAD`, its `config` a
+      FIFO;
+    - `xinclude`: an `include.path` naming a FIFO in the fixture root;
+    - `xinclnk`: an `include.path` naming a link in the fixture root to a FIFO outside it;
+    - `ttyinc`: an `include.path` naming `/dev/tty`, under a controlling terminal (without one, git
+      exits 128 and the run is red).
+
+    A chained `alternates` whose store's own `alternates` is a FIFO blocks `git count-objects -v`, P-k's
+    read: rc 142 at a 10 s alarm on git 2.55.0 (a git-only measurement; `pkmeas.sh`, verbatim in
+    `…-pr527.md` round 14).
+- **Defects measured in the two withdrawn designs** (`…-pr527.md`, rounds 10–11; rounds 12–14 then
+  measured the blocks above):
+  1. nested process groups escape an outer group kill, and `$(…)` then waits on the pipe;
+  2. a call-site list misses sites (fsmonitor's `git ls-files`);
+  3. a re-run of the wire as a new group becomes a background job on a tty, so `stty tostop` stops
+     it: a false red;
+  4. with trials nested, the INT/TERM exit path's `kill -9` does not reach the trial groups;
+  5. a failing process-group probe re-runs the wire without end;
+  6. a join decided by an environment variable alone drops every bound, against the wire's rule
+     `git show 8413a4db:.claude/tools/webref-generic-core-trip-wire.sh | sed -n 350,364p` ("ENTERED BY
+     ARGUMENT, NEVER BY ENVIRONMENT");
+  7. a check for `set -m` by spelling misses `set -o monitor` and `-eum`;
+  8. a 0-bound phase, or a top-level cap of 0, leaves call sites unbounded;
+  9. a parent that relays a child's rc relays bash 3.2's masked rc 0, which widens
+     `#11-k2-wire-exit-trap-masks-set-u-abort`.
+- **Why deferred**: the legitimate reason is **L3**. A bound over nested children is a load-bearing
+  change of its own: edge-dense, so it needs its own plan and plan-review under CLAUDE.md's rule. L2
+  also holds, since #527's memo records two designs measured and withdrawn. The confirming questions:
+  1. spec faithfulness: no spec surface;
+  2. one issue, one way: the only bounded child, `_control`, predates #527, and #527 adds no second
+     mechanism;
+  3. anti-justification: no, it is not size or session;
+  4. **repeat signal: yes.** Codex R25/R26 and plan-review rounds 10–14 raised it. By the lens that
+     means fix-in-PR, and only the **user's explicit carve (2026-09-28)** overrides it. That decision
+     is the ground here, not the lens.
+- **Trigger**: #501's squash merge into `main`, which carries #527's changes (#527 is squashed into
+  #501's branch, not into `main`, and its commits are not reachable from `main`) and opens the
+  dedicated slice; or, before that, the next PR that adds
+  a child to the K2 harness or the mutation runner, or any report of a K2 run that waited instead of
+  reaching a verdict.
+- **Owner**: the citation-hygiene lane. **Timing**: a slice of its own, planned and plan-reviewed after
+  #501's squash merge. **Re-eval**: 2026-11-30.
+- **Accounting**: #527's own deferrals, 1.
+
+**`#11-k2-wire-exit-trap-masks-set-u-abort`: the ledger text.** The design memo's §5.2 describes the
+defect.
+This PR's harness and controls are exactly such code. **The ledger text — the one text; §9's ledger
+step writes exactly this** — **replaces**, in place, the entry's sentence "(its memo U5: state
+initialised at harness top level, setup failure a labelled verdict)" and the amendment written at PR
+creation. It does not append to them:
+- **measured, not argued:** with the wire's nounset off, the clean tree and eight cells (six red) give the
+  same exit status and verdict lines as with it on (bash 3.2 and 5.3; the cell script is verbatim in
+  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md`, "X13", and X13 re-runs it at T, the last
+  commit of this PR that changes its tool code or its CI job, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.1).
+  On those runs no parent-side verdict depends on `set -u`; that is a measurement over those runs, not a
+  proof over every path;
+- an incomplete fixture-build window is reported by the **W verdict alone**, and no control runs:
+  `_control` asks `_fw_built_or_w2` first, and so does each of the three blocks that are not
+  `_control`s (relative scratch, fsmonitor, umask). That covers a child that refuses a prelude missing
+  any one of `errexit`, `nounset` or `pipefail`, a fixtures file that stops before its last line, and
+  one that switches an option off. A build that is complete but untrusted (a red postcondition, or W3) ends
+  the run after its reports, and no control runs over it either;
+- a mode restriction a fixture sealed and the window could not apply, or refused, is red (W4);
+- pinned by the W records (one per prelude option, one for the early return, one for an abort, one for
+  an option switched off by the fixtures file), the three W2 records and the W4 record. The three block gates
+  are pinned by the traced `w2rec` cell only (§3's declared gap).
 
 ### §9.1 Drafts 11–17: the commits planned on top of `8413a4db`
 
