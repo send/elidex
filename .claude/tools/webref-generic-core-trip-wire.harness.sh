@@ -327,7 +327,7 @@ EOF_PB
     sort "$2.rec" > "$2"
   }
   _pg_z "$_pq/a" "$_pq/pgref.z" || : > "$_pq/pgref.z"
-  _pg=""
+  _pg=""; _pk=""
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
   # Population by property: EVERY git dir the fixtures produced, anywhere under
   # $CTL (hidden and nested included, and inside `.git` dirs): each `.git`
@@ -405,6 +405,25 @@ EOF_PB
     # a watchdog (PR #527 Codex R25; #11-trip-wire-liveness-bound).
     _pgbad="$(find "$_pge" ! -type f ! -type d -print 2>&1)" || _pgbad="$_pgbad (the shape scan failed)"
     if [ -n "$_pgbad" ]; then _pg="$_pg $_pgl:[not a regular file or directory: $(printf '%s' "$_pgbad" | tr '\n' ' ')]"; continue; fi
+    # P-k: no fixture repo may read objects from a store outside it. Git's OWN
+    # answer, not a file name: an `objects/info/alternates` naming another
+    # store makes git read an object from there instead of writing it
+    # locally, so the content the controls read is an outside input even
+    # though P's ids do not move — P-g's origin comparison does not see it
+    # (measured, docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md, the
+    # P-k table row), but `count-objects -v`'s `alternate:` line does. A
+    # failed call, or ANY stderr (a store that does not exist, or an
+    # `alternates` naming a directory or a mode-000 path, gives rc 0, no
+    # `alternate:` line and a warning or error on stderr), is red too — such a
+    # store could appear later and be read. Runs only over the clean census,
+    # on every `.git` P-g compares.
+    _pkrc=0; _pko="$(git -C "$_pgd" count-objects -v 2>"$_pq/pk.err")" || _pkrc=$?
+    if [ "$_pkrc" -ne 0 ] || [ -s "$_pq/pk.err" ]; then
+      _pk="$_pk $_pgl:[count-objects exit $_pkrc$( [ ! -s "$_pq/pk.err" ] || printf ', stderr: %s' "$(tr '\n' ' ' < "$_pq/pk.err")" )]"
+    else
+      _pka="$(printf '%s\n' "$_pko" | grep '^alternate:')" || _pka=""
+      [ -z "$_pka" ] || _pk="$_pk $_pgl:[$(printf '%s' "$_pka" | tr '\n' ';')]"
+    fi
     # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
     # NOTHING and exits 0, so an empty listing is red, not "no extra key".
     _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-origin 2>&1)" || _pgrc=$?
@@ -442,6 +461,26 @@ EOF_PB
   done < "$_pgpop"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
   if [ -n "$_pg" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg" >&2; _fpv=1; fi
+  if [ -n "$_pk" ]; then echo "!! CONTROL FAILED ($_pk_lbl):$_pk" >&2; _fpv=1; fi
+  # P-k's liveness: a THIRD probe repo in the postconditions' directory (so
+  # P-a's and P-d's, `a` and `b`, stay untouched), given an `alternates` file
+  # naming P-a's own object store. The path is written in double-quoted C
+  # form, so a path holding a newline stays one line (git(1) documents
+  # C-style quoting for `GIT_ALTERNATE_OBJECT_DIRECTORIES`, and that the
+  # `alternates` file accepts the same form is measured). With no machine
+  # limitation arm: "prints none" cannot tell a git without the line from a
+  # broken probe, so any other outcome is red.
+  _pkl=""
+  if mkdir "$_pq/c" && ( cd "$_pq/c" && git init -q . ) >/dev/null 2>&1; then
+    mkdir -p "$_pq/c/.git/objects/info"
+    printf '"%s"\n' "$(printf '%s' "$_pq/a/.git/objects" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$_pq/c/.git/objects/info/alternates"
+    _pklrc=0; _pklo="$(git -C "$_pq/c" count-objects -v 2>"$_pq/pkl.err")" || _pklrc=$?
+    _pkln="$(printf '%s\n' "$_pklo" | grep -c '^alternate:')" || _pkln=0
+    if [ "$_pklrc" -ne 0 ] || [ -s "$_pq/pkl.err" ] || [ "$_pkln" -ne 1 ]; then _pkl=bad; fi
+  else
+    _pkl=bad
+  fi
+  if [ -n "$_pkl" ]; then echo "!! CONTROL NOT EXERCISED ($_pkl_lbl)" >&2; _fpv=1; fi
   # P-c last: nothing in the window may have written into the void. Tested by
   # the shell's own globs, not by `$(ls -A …)`: command substitution strips
   # trailing newlines, so an entry whose name is only newlines read as an

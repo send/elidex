@@ -111,6 +111,8 @@ _pg_lbl="every fixture repo persists only the configuration a plain git init wri
 _ph_lbl="the fixture build window reads in the wire's locale"
 _pi_lbl="the fixture repos use the files ref format"
 _pj_lbl="the fixture build window runs the pinned git first on its PATH"
+_pk_lbl="no fixture repo reads objects from a store outside it"
+_pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 # The `_p*_lbl` labels reach the window by name, through its prelude.
 _fgit_window "$_FIXTURES"
