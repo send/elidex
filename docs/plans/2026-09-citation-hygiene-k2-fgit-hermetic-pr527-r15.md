@@ -347,7 +347,11 @@ session scratch is ephemeral, so the essential log lines are copied here verbati
   `  mutation set: 144 entr(ies), 1 not killed as named, 0 not exercisable on this machine` /
   `  generated boundary set: 50 mutant(s) from $K2RE and $K2RE_PATH, 0 neither killed nor argued equivalent`;
   its first line was also `…/.claude/tools/webref-generic-core-trip-wire.harness.sh: child setpgid
-  (76871 to 76871): Operation not permitted`, bash's own message, whose cause was not investigated;
+  (76871 to 76871): Operation not permitted`, bash's own message. It is the known intermittent line
+  that X4's normaliser already drops (`…-reviews.md` §13, the X4 and X3 rows). Round 19's analysis (as
+  relayed): it comes from the fork under `_control`'s `set -m`; only the 30 s watchdog's group kill
+  depends on that group, and no watchdog fired in `genm19`; it did not reproduce in 1900 forks; the
+  mechanism is not established;
 - `floor19` (draft-19 prototype, generator output sent to `/dev/null`), rc 1, 1724 s: the same
   `MUTANT 14` and `mutation set:` lines, then `!! the boundary-mutant generator produced no mutant: no
   rule of $K2RE or` / `  generated boundary set: 0 mutant(s) from $K2RE and $K2RE_PATH, 1 neither killed
@@ -414,6 +418,7 @@ chmod -R u+rwX "$T" 2>/dev/null
 `staleshim` (`$S` the cell root, `K2_CELLS`; written out with it at run time):
 
 ```sh
+# setup, once per cell root (`cellw.sh` puts "$K2_CELLS/cpath" first in PATH): mkdir -p "$K2_CELLS/cpath"
 mkdir -p "$S/prep" && ln -sfn /dev/null "$S/prep/.anchor"
 printf '#!/bin/sh\ncase "$*" in *verifyXXXXXX*) echo "%s"; exit 0;; esac\nexec /usr/bin/mktemp "$@"\n' "$S/prep" > "$S/cpath/mktemp" && chmod +x "$S/cpath/mktemp"
 ```
@@ -464,3 +469,66 @@ cells without the re-pointed record was red on the stale anchor as well; it is n
 `m14grep`; C11: the generator floor), with one relabel (C8). That is **+16**: **66 records of this PR,
 161 in all**, `_MUT_RECORDS_MIN=161`, labels 19 (the floor's added), `_MUT_UNRECORDED_MAX=21`. Draft
 18's plan (159) is superseded. None of it is implemented yet.
+
+**Plan-review round 19 (focused, on draft 20, frame `5fee0738`) → draft 21.** 0 CRIT / 1 IMP / 14 MIN,
+as the orchestrating session relayed them. It decided the dispositions; draft 21 implements them.
+Labels D19-A…D19-C (a `D…` family, no section number). The orchestrating session also decided that no
+further prose plan-review round follows (design memo §12).
+
+| finding | disposition |
+|---|---|
+| IMP (Ax2+Ax3): draft 20 regressed the empty-generator detection. `RC` (the hand set cut to `!survive`, `_MUT_RECORDS_MIN=1`, `_MUT_UNRECORDED_MAX=999`, and `_mut_gen_run`'s `>> "$_VFY/.genmutants"` made `>> /dev/null`) rc 0, PASSED with `0 mutant(s)` on both shells while the always-on floor was green (n=50); `RA` (`_mut_gen_run() { return 0`) the same | **D19-A**: two layers. The always-on floor guards the generator's output; a run-time check in `_mut_run`, right after `_mut_gen_run`, requires `_mut_gen_n` to equal `_mut_gen_floor_n` and to be non-zero. It is in the caller, not at the end of `_mut_gen_run` (false premise 1 below). No record reaches it; X3's floor cell is restored (`…-landing.md` §11). Design memo §4 rewritten as two layers. Cells below: `RC`, `RA` red on both shells; the `.genmutants -> /dev/null` shim variant red again |
+| Ax2+3 MIN: §4's "reference repos … outside fixture reach by construction" | the §0.3 class-(c) exception added (they are made in a `mktemp -d` directory too) |
+| Ax2+3 MIN: the verifier's source in the checkout is writable from the window (`srcrw`: rc 0, PASSED on the stale tree; `stalectl` rc 1) | **D19-B**: §0.3's property is "which executable or code the verifier runs"; `srcrw` among the examples and in the measured boundary; the filesystem route needs only a writable file the verifier runs or sources (the checkout always is one) |
+| Ax2+3 MIN: the prefix comments at `mutations.sh` 136 and 426 name only `harness:` and `fixtures:` | C11's row: both name `mutgen:` (`…-landing.md` §9.1); the draft-21 prototype does |
+| Ax2+3 MIN: `genm19`'s setpgid line "not investigated" | cited to `…-reviews.md` §13 and round 19's analysis (above, in the X3 record) |
+| Ax4+5 MINs | **D19-C**: the design memo's preface and §5 pointer say "extended since by D17-A and D18-A"; X3's range re-derived from the two runs it cites (2056 s, 2530 s → 34–42 min) and the bash-3.2 estimate from the draft-20 clean runs (24 s / 18 s → 46–56 min); step 2's complement check adds `-e '導出'`, which also matches `再導出`; `gitfn` in X16; corpus §6.1's "every record probed" marked as relayed, with the reviewer's directory; the staleshim steps create `cpath`; C11's row plans the parent memo's banner lines 14 and 25 to name the generator; the rollover rule for this file and the design memo's next seam (design memo §13); land order 7.3 handles a red run with T unchanged; `…-landing.md` §9.1's closing sentence points to the design memo §12 |
+| records | the run-time check adds none; the totals stay 66 of this PR, 161 in all, labels 19, `_MUT_UNRECORDED_MAX=21` |
+
+**False premises in round 19's message, found while implementing:**
+1. "Restore a run-time check at the end of `_mut_gen_run`": at the end of `_mut_gen_run` the check
+   would not see `RA`, whose edit returns at the top of that function. The check is in `_mut_run`,
+   the caller, right after the call; `RA` is red there.
+2. `RA` is not "`_mut_gen_run() { return 0`" alone: the reviewer's `RA` tree also cuts the hand set to
+   three records (the two draft-20 records and `!survive`) with `_MUT_RECORDS_MIN=1` and
+   `_MUT_UNRECORDED_MAX=999`. Draft 21's `RA` does the same.
+
+**The draft-21 prototype.** Base `35dc1153`, the whole prototype as one diff: `git -C <sandbox> diff >
+proto21.diff`, 654 lines, sha256 `c6716ca8e666fb349e054c9a8720ca6febbaa1f7f42d8ccaa337b78bda2554ad`
+(`…/scratchpad/author19/proto21.diff`). On top of the draft-20 prototype's:
+- `_mut_gen_floor` sets `_mut_gen_floor_n`;
+- `_mut_run`, after `_mut_gen_run`: `if [ "$_mut_gen_n" -ne "${_mut_gen_floor_n:-0}" ] || [ "$_mut_gen_n"
+  -eq 0 ]`, the two-line `!!` below, and `_mut_gen_bad` + 1;
+- the two prefix comments name `mutgen:`; `mutgen.sh`'s header names `_mut_gen_floor_n`.
+
+The run-time check's failing message, verbatim (`RC`, bash 5.3):
+
+```text
+!! the generated boundary set ran 0 mutant(s), but the generator derives
+   50 from the wire's regexes: this run did not test every rule.
+```
+
+**The cells** (2026-09-30; `cellm.sh` is the round-19 reviewer's, `…/r19/ax23/cellm.sh`: `cell15.sh`'s
+run with no insert, and `WEBREF_WIRE_MUTANTS=1` with `alarm 900` when its fourth argument is given;
+`cellwm.sh` is `cellw.sh` with `WEBREF_WIRE_MUTANTS=1` and `alarm 900`; two chains at a time, the
+caller-`PATH` cells serial in one chain, `cpath/mktemp` and the prepared directory removed after each).
+`RC`, `RA` and `RN` cut the hand set as above (`RN`: `!survive` only, nothing else changed). The
+`genshim` insert is `staleshim`'s with `.genmutants` in place of `.anchor` in its first line; its tree
+cuts the hand set to `!survive`. `srcrw`'s insert, per shell: `printf '\n_mut_correspondence() { return
+0; }\n' >> "<cell copy>/.claude/tools/webref-generic-core-trip-wire.mutations.sh"`, on the `stale` tree
+(the draft-21 prototype plus the never-matching record).
+
+| cell | tree | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| clean | draft 21 | rc 0, PASSED, 16 s | rc 0, PASSED, 22 s |
+| RC (mutation mode) | draft 21, cut | rc 1, 32 s: the message above; `0 mutant(s) …, 1 neither killed nor argued equivalent` | rc 1, 44 s, same |
+| RA (mutation mode) | draft 21, cut | rc 1, 60 s: `3 entr(ies), 0 not killed as named`; the message; `1 neither …` | rc 1, 82 s, same |
+| genshim (mutation mode, `.genmutants -> /dev/null` via the parent's `mktemp`) | draft 21, cut | rc 1, 33 s, the message (red in draft 19, green in draft 20; class (c) either way) | rc 1, 44 s, same |
+| stalectl | `stale` | rc 1, 15 s, `… its anchor is stale` | — |
+| srcrw | `stale` | ⚠ rc 0, PASSED, 16 s (class (c), D19-B) | ⚠ rc 0, PASSED, 21 s |
+| gitfn | draft 21 | rc 1, 5 s, P-a `command line:` | rc 1, 7 s, same |
+| RN (mutation mode, the negative control: nothing changed but the cut) | draft 21, cut | rc 0, PASSED, 748 s: `generated boundary set: 50 mutant(s) …, 0 neither killed nor argued equivalent`, no `!!` (the equality holds, 50 = 50) | — |
+
+`RN` is the run-time check's negative control: with the generator's path intact it stays green, so
+`RC`, `RA` and `genshim` are red for the cause the check names. `RN` ran with `alarm 2400` (`cellm.sh`
+with that one number changed), since its 50 generated trials take longer than 900 s allows.

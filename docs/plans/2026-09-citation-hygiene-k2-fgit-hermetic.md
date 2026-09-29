@@ -19,7 +19,7 @@ mutation records (split out of this memo's §6 unchanged). **Landing**:
 the land order and the ledger text) and §11 (the exit criteria), split out of this memo unchanged.
 **Residuals**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` ("`…-residuals.md`"),
 §5 (class (c), the residuals R1–R9 and the pre-existing defect), split out of this memo unchanged at
-`f8ea983a`; D17-A extended §5.1 since. This memo holds only the live decisions.
+`f8ea983a`; extended since by D17-A and D18-A (§5.1). This memo holds only the live decisions.
 
 **Parent memo**: `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, #519's record (`…-reviews.md` §8.2).
 
@@ -27,9 +27,9 @@ the land order and the ledger text) and §11 (the exit criteria), split out of t
 
 **Decision**: user, 2026-09-27, option (a): rebuild.
 
-**Status**: **draft 20**; the implementation (§9.1) has not been made. Draft 20 answers plan-review
-round 18 (`…-pr527-r15.md` §Q). What each draft answered goes to `…-reviews.md` §S, not here: drafts
-6–20 are there, so this preface does not grow with the drafts.
+**Status**: **draft 21**; the implementation (§9.1) has not been made. Draft 21 answers plan-review
+round 19 (`…-pr527-r15.md` §Q). What each draft answered goes to `…-reviews.md` §S, not here: drafts
+6–21 are there, so this preface does not grow with the drafts.
 
 ⚠ **The parent's rule applies throughout.** No quantity here moves with a commit; each figure is a
 measurement on a named artifact, given with its command.
@@ -41,7 +41,7 @@ measurement on a named artifact, given with its command.
   U1–U5 (round 4), V…, W1–W5 (round 6's §D.6 dispositions, not the postconditions W, W2, W3, W4), D…,
   E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-D
   (round 14), D15-A…D15-C (round 15), D16-A…D16-D (round 16), D17-A…D17-D
-  (round 17), D18-A…D18-C (round 18) and PX1 (the base `~+/bin` experiment).
+  (round 17), D18-A…D18-C (round 18), D19-A…D19-C (round 19) and PX1 (the base `~+/bin` experiment).
   In this memo a bare "R1"–"R9" is a §5.2 residual. Any other review round names its source: "Codex Rn"
   or "PR #527 Rn" for #527's external review, and "#501 Rn" or "#519's Rn" for the parent PRs' rounds.
   A finding within a Codex round is "Codex R26③". In `…-pr527.md`, whose subject is the Codex rounds, a
@@ -162,29 +162,34 @@ itself: a changed resolution of `mktemp` can hand either directory back to the f
 - the names the prelude defines, in the shell the fixtures file shares (`xredef`);
 - the pin `$_FGIT_BIN`;
 - a fixture process that outlives the build, which can still find a directory made after it (`xrace`);
-- **what a command name the verifier — the postconditions in the window and the parent after it —
-  runs resolves to** (D16-C, stated by property in draft 19, D17-A, and extended to the parent in draft
-  20, D18-A). Anything the fixtures file does that changes it writes the verifier's own state. Examples,
-  not a list: a function (`mkfn`), a `PATH` entry after `$_FGIT_BIN` (`shimafter`), `hash -p`
-  (`shimhash`), `enable -n`, an alias under `expand_aliases` for a name on the window's own lines after
-  the fixtures file (an alias does not reach a function body the prelude parsed before it), and an
-  executable written into a writable directory on the caller's `PATH` (`staleshim`). The last is the
-  filesystem route: it needs no `PATH` assignment, it persists after the window, and so it reaches the
-  **parent's** commands after the window as well as the window's own (on this machine
-  `/opt/homebrew/bin` is owned by the caller, `ls -ld /opt/homebrew/bin`, and comes before `/usr/bin` in
-  the caller's `PATH`). `staleshim` redirected the `mktemp` that makes the parent's `_VFY` to a
-  directory the fixtures prepared; the parent's other commands (`sed`,
-  `cmp`, `grep`, `wc`, the controls' children) are reachable the same way, which is inferred, not
-  measured. Construction cannot close this route: resolving the parent's commands to absolute paths
-  before the window only narrows it, because the fixture can overwrite the resolved file too. A fixture
+- **which executable or code the verifier — the postconditions in the window and the parent after
+  it — runs** (D16-C, stated by property in draft 19, D17-A, extended to the parent in draft 20, D18-A,
+  and from name resolution to the code itself in draft 21, D19-B). Anything the fixtures file does that
+  changes it writes the verifier's own state. Examples, not a list: a function (`mkfn`), a `PATH` entry
+  after `$_FGIT_BIN` (`shimafter`), `hash -p` (`shimhash`), `enable -n`, an alias under
+  `expand_aliases` for a name on the window's own lines after the fixtures file (an alias does not
+  reach a function body the prelude parsed before it), an executable written into a directory on the
+  caller's `PATH` (`staleshim`), and the verifier's own source in the checkout, `.claude/tools/**`,
+  which the window can write (`srcrw`: the fixtures append `_mut_correspondence() { return 0; }` to the
+  checkout's `mutations.sh`, which the parent sources after the window). The last two are the
+  filesystem route: no `PATH` assignment, a file that persists after the window, so they reach the
+  **parent's** code as well as the window's. It needs only a writable file the verifier runs or
+  sources: the checkout always is one, and on this machine so is `/opt/homebrew/bin`, owned by the
+  caller (`ls -ld /opt/homebrew/bin`) and before `/usr/bin` in the caller's `PATH`, which also covers
+  overwriting a resolved file in place. `staleshim` redirected the `mktemp` that makes the parent's
+  `_VFY` to a directory the fixtures prepared; the parent's other commands (`sed`, `cmp`, `grep`, `wc`,
+  the controls' children) are reachable the same way, which is inferred, not measured. Construction
+  cannot close this route: resolving the parent's commands to absolute paths before the window only
+  narrows it, because the fixture can overwrite the resolved file too, and the verifier's source has to
+  live somewhere the checkout can write. A fixture
   that writes outside the fixture root into the caller's environment is itself outside anything class
   (b) produces. Which executable runs is also R1's (§0.1; `#11-trip-wire-launch-environment`): this is
   the same channel, written by the fixtures instead of the caller, and declared here as class (c).
   A function shadows a name whatever it names: an external command, a builtin (`unset`, `builtin` and `command` included) and a name spelled as an absolute path
   (`/usr/bin/mktemp() { …; }`), each measured on bash 5.3 and 3.2 (`…-pr527-r15.md` §Q). One form is
   red, not class (c): a `PATH` entry put **before** `$_FGIT_BIN` fails P-j's first-entry clause
-  (`shimprepend`; C6 keeps that clause). The set is every command name the verifier resolves after the
-  fixtures file, in the window or in the parent, not a list.
+  (`shimprepend`; C6 keeps that clause). The set is every executable and every piece of code the verifier runs
+  after the fixtures file, in the window or in the parent, not a list.
 
   **No in-shell reset is adopted.** Every in-shell construction is defeated by one fixtures-file line.
   `POSIXLY_CORRECT=1` with `$(exec /usr/bin/mktemp -d …)` runs the real binary despite `mktemp`, `exec`
@@ -216,15 +221,17 @@ fixtures-file function (`mkfn`, round 16, D16-C), by a `PATH` entry after the pi
 to a group around the failing line (`xgroup`, round 17), and so is a stale mutation record hidden from
 the parent's anchor check by an executable the fixtures wrote into a caller-`PATH` directory
 (`staleshim`, round 18, D18-A; its control `stalectl`, the stale record alone, is rc 1, "its anchor is
-stale"). The last eight are this boundary, not defects. `xkey`, `exit0`
+stale"), and so is the same stale record hidden by a `_mut_correspondence` the fixtures appended
+to the checkout's `mutations.sh` (`srcrw`, round 19, D19-B). The last nine are this boundary, not
+defects. `xkey`, `exit0`
 and `xredef` ran on `ebc90bc1`'s tool code, which is `8413a4db`'s except three comment-only path lines
 (Fable; `…-pr527.md` round 14); `xdone` on that tree and on the draft-16 prototype (`…-pr527.md` round
 14); `xrace` on the draft-16 prototype (round 15's Ax2 cell, as relayed) and on the draft-17 and
 draft-18 prototypes, `mkfn` on the draft-17 (round 16's Ax3 cell, as relayed) and draft-18
 prototypes, and `shimafter`, `shimhash` and `xgroup` on the draft-18 prototype (round 17's cells, as relayed:
-`shimafter` and `shimhash` Ax3's, `xgroup` Ax2's) and the draft-19 prototype, and `staleshim` on the
-draft-19 prototype (round 18's Ax2+Ax3 cell, as relayed) and the draft-20 prototype (`…-pr527-r15.md`
-§Q).
+`shimafter` and `shimhash` Ax3's, `xgroup` Ax2's) and the draft-19 prototype, `staleshim` on the
+draft-19 prototype (round 18's Ax2+Ax3 cell, as relayed) and the draft-20 prototype, and `srcrw` on the
+draft-20 prototype (round 19's cell, as relayed) and the draft-21 prototype (`…-pr527-r15.md` §Q).
 
 Examples of (c), which illustrate the property and are **not a list to complete**:
 - a transient per-command input: `-c`, `--config-env`, an environment assignment on one command,
@@ -239,8 +246,8 @@ Examples of (c), which illustrate the property and are **not a list to complete*
 - writing the verifier's own state that construction leaves reachable: a marker, a prelude variable or
   function, the pin, a file in a directory made after the build written by a background process that
   outlives the build (`xrace`), or anything that changes what a command name the verifier runs
-  resolves to, in the window or in the parent after it (`mkfn`, `shimafter`, `shimhash`, `staleshim`;
-  above).
+  resolves to, or the verifier's source itself, in the window or in the parent after it (`mkfn`,
+  `shimafter`, `shimhash`, `staleshim`, `srcrw`; above).
 
 A mistake that happens to take a class-(c) shape is not caught either, and this memo does not claim
 otherwise.
@@ -604,7 +611,9 @@ verdict, one variable `_pg_census`, only after both.** The postconditions start 
 when `_pg_census` is red, `_fgit_postconditions` reports P-g and returns before any other postcondition,
 so no git runs. The census covers the git dirs under `$CTL` that it names. It does not cover what git
 reaches through a reference ("The boundary", below), nor the reference repos, which are outside fixture
-reach by construction ("The references and the working files", below):
+reach by construction ("The references and the working files", below) except through §0.3's declared
+class (c): they are made in a `mktemp -d` directory too, so a changed `mktemp` (`mkfn`, `shimafter`,
+`staleshim`) can hand them to the fixtures:
 1. **Classification and shape.** One `find` from `$CTL`, with no `-L` and no per-directory fork, lists
    every `.git` entry and every `HEAD` entry, of **any type and any letter case** (a case-insensitive
    filesystem lets git read `head` and `.GIT`, so a case variant is red). It descends everywhere:
@@ -728,12 +737,24 @@ controls file sets `_VFY` before it sources the mutation set (the draft-19 proto
 §Q). C11
 also makes **an empty generated set red** (D17-D), and **always on** (D18-B): after the move no
 fixture plant can empty the set, but any other cause would print `0 mutant(s)` beside `0 neither
-killed nor argued equivalent`, which X3 reads as a pass, the silent direction. The count is a static
-property of `_mut_regex_mutants`' output over the running wire's `$K2RE` and `$K2RE_PATH`, so by
-`_mut_correspondence`'s own rule (static properties go where every run sees them) it is checked
-there, by `_mut_gen_floor` in `mutgen.sh`, under its own label (`the boundary-mutant generator
-derives a non-empty set from the wire's regexes`), and a record pins it (corpus §6.1). That needs
-`mutgen` as a record target beside `harness` and `fixtures`. What each moved file did, at `8413a4db`:
+killed nor argued equivalent`, which X3 reads as a pass, the silent direction. It takes **two
+layers** (D19-A), because the count X3 reads is not the generator's output but what `_mut_gen_run`
+made of it (written to `.genmutants`, read back, split on TAB):
+- **the generator's output**, a static property of `_mut_regex_mutants` over the running wire's
+  `$K2RE` and `$K2RE_PATH`: by `_mut_correspondence`'s own rule (static properties go where every run
+  sees them) it is checked there, always on, by `_mut_gen_floor` in `mutgen.sh`, under its own label
+  (`the boundary-mutant generator derives a non-empty set from the wire's regexes`), and a record pins
+  it (corpus §6.1). That needs `mutgen` as a record target beside `harness` and `fixtures`;
+- **`_mut_gen_run`'s path**, checked at run time in the opt-in run: `_mut_run`, right after it calls
+  `_mut_gen_run`, requires `_mut_gen_n` to equal the floor's count (`_mut_gen_floor_n`, which
+  `_mut_gen_floor` sets) and to be non-zero, and otherwise prints `!! the generated boundary set ran N
+  mutant(s), but the generator derives M from the wire's regexes: this run did not test every rule.`
+  and counts one more in `_mut_gen_bad`. It sits in the caller, so an early `return` inside
+  `_mut_gen_run` does not skip it. No record can reach it (a trial runs with `WEBREF_WIRE_MUTANTS`
+  unset), so X3's floor cell pins it (`…-landing.md` §11). Draft 20 had only the first layer, and
+  round 19's cells `RC` (the generator's output sent to `/dev/null` inside `_mut_gen_run`) and `RA`
+  (`_mut_gen_run` returning at once) passed with `0 mutant(s)`; with both layers both are red
+  (`…-pr527-r15.md` §Q). What each moved file did, at `8413a4db`:
 - a plant turned a check green: `.bare` and `.anchor` (the always-on ratchet and anchor check), the
   generator's `.genmutants`, `.genequiv` and `.genseen` (opt-in mutation mode; `ln -s /dev/null
   "$CTL/.genmutants"` makes the generator read no mutant, and the run reports `0 mutant(s)` and
@@ -807,7 +828,7 @@ and a hidden one. Both were measured (corpus §6).
 ## §5 Residuals, the slot, and a pre-existing defect
 
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` §5 (touch-time split, text
-unchanged at `f8ea983a`; D17-A extended §5.1 since; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R9 and the
+unchanged at `f8ea983a`; extended since by D17-A and D18-A; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R9 and the
 pre-existing defect), so "§5.1", "§5.2" and "§5.2 Rn" in this memo resolve there.
 
 ## §6 The corpus — evidence, and the source of the records
@@ -877,13 +898,23 @@ or, over the threshold, the user has decided at 7.3 for that T (D17-B); added CL
 paragraph and the job's "RE-DERIVED" comment to the final-head rewrite (D17-C); and corrected X3's
 opt-in expectation (D17-D).
 
-Draft 20 extends D17-A's property to the parent's commands after the window and declares the
-filesystem route class (c) (D18-A, `staleshim`); moves the empty-generated-set check to always-on
-with its own label, a `mutgen` record target and a record (D18-B); closes the C8 open item by
-relabelling the `LC_ALL=C.UTF-8` record to P-h and adding a record for the scan's locale (corpus
-§6.1); and replaces the no-reset argument with the measured `gitfn` direction (D18-C). So **round
-19**, a focused re-check limited to those changes, reviews it before C6. If round 19 finds no IMP, the
-plan proceeds to the implementation (C6…C12). It has not run.
+Draft 20 extended D17-A's property to the parent's commands after the window and declared the
+filesystem route class (c) (D18-A, `staleshim`); moved the empty-generated-set check to always-on with
+its own label, a `mutgen` record target and a record (D18-B); closed the C8 open item (corpus §6.1);
+and replaced the no-reset argument with the measured `gitfn` direction (D18-C). Round 19 reviewed it
+(`…-pr527-r15.md` §Q).
+
+Draft 21 restores the run-time layer of the empty-set check beside the always-on floor (D19-A), states
+the class-(c) property as which executable or code the verifier runs, with the verifier's own source
+among the examples (D19-B), and fixes round 19's MINs (D19-C).
+
+**No further prose plan-review round (the orchestrating session's decision, 2026-09-30).** Draft 21 is
+verified by (a) the reviewer's failing cells re-run on the draft-21 prototype, `RC` and `RA`, which
+must be red on both shells, and (b) one narrow check of the draft-21 delta. Then the implementation
+(C6…C12) starts; its owner is the orchestrating session. The remaining risk is carried by the
+executable gates: X3's mutation run at T, `/pre-push`, and the Codex converge. MINs left after the
+narrow check are fixed in the branch during the implementation and recorded in `…-pr527-r15.md` §Q,
+not re-reviewed as a plan.
 
 ## §13 Implementation results
 
@@ -891,3 +922,10 @@ The results before PR #527 are in `docs/plans/2026-09-citation-hygiene-k2-fgit-h
 (touch-time split; history). PR #527's results through plan-review round 14 are in `…-pr527.md` §P,
 which is closed. Every result from round 15 on, the planned commits included when they are made, goes to
 one place: `…-pr527-r15.md` §Q (`…-landing.md` §9.1, step 2).
+
+**Rollover (D19-C).** When an entry would take `…-pr527-r15.md` past 800 lines (`wc -l`), that entry
+and every later one go to a new file, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md`,
+§R, with the same no-spec-surface §0, and §Q ends with a pointer to it. This memo's next split seam, when
+an edit would take it past 950 lines: §4 from "P-g's population, and the census before any git" to the
+end of §4 (the census, the boundary, the references and working files, the parent's directory and
+sealing), moved unchanged to `…-census.md` with a pointer left in §4.

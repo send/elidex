@@ -408,6 +408,13 @@ moved the design memo's §5 to `…-residuals.md`.
 - The no-reset reason is the measured `gitfn` direction; step 8 needs a SUCCESS run at the current
   T under the threshold, and T may move by a merge as well as a fix (D18-C).
 
+**Draft 21** answers plan-review round 19 (`…-pr527-r15.md` §Q, D19-A…D19-C), and it is the last
+draft reviewed as prose (design memo §12).
+- The empty-generated-set check has two layers: the always-on floor over the generator's output, and a
+  run-time equality in `_mut_run` over what `_mut_gen_run` actually ran (D19-A; `RC`, `RA` red).
+- The class-(c) property is which executable or code the verifier runs; the verifier's source in the
+  checkout is an example (D19-B, `srcrw`).
+
 From draft 16 on, each draft's status goes here, and the design memo's preface only names the draft
 and the round it answers.
 
