@@ -8,18 +8,41 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 70** (2026-09-29) — folds Codex R51 on #526 (`015c8b19`; P2 1; R50 on the same head was dry). Codex R51
+**Revision 71** (2026-09-30) — folds the TERMINAL decision re-gate over revs 69–70 (IMP-A) and the user decision it
+raised. IMP-A: rev 70 bound E31 to `#11-document-base-url`'s completion as "ratified by the user's option (B)", but
+option (B) was chosen at R43 (2026-09-29) when the program's scope was the document base facets alone — the
+worker-realm facets entered at rev 67 — so it ratified no gate over them. **USER DECIDED 2026-09-30 (option (2′))**
+(§0.6 item 18): E31 gates on the canonical path (HTML §8.1.3.2's API base URL) landed, **every** reader the property
+defines moved (Window, worker and service worker alike; no second path) and the Window inputs IBP-classify's values
+need; the worker url's response-URL write point, the service worker's `WorkerLocation` read from the one representation and its
+origin source stay in the program's scope **outside the gate**, A96 by §0.6 item 7 (IBP-classify's readers are
+Window-realm; no cell fires); and the program's plan takes the invariant that no new representation of the worker
+url is made before the gate — the canonical path reads the existing `GlobalScopeKind` `script_url` — which bounds
+R51's strangler concern without extending E31: what persists past the gate (those three, and the service worker's
+pre-existing `current_url` copy its origin source reads) is accepted as A96 under (2′), not closed. E31 reads by §4's
+one edge rule — its data-flow fact is the **one** canonical path, supplied only once every reader the property defines
+reads it, so the worker and service-worker readers' migration is that fact, not an A93 cell, and the three outside are
+not readers of the path; §4's external-program exception
+is deleted. Umbrella row A164 records the gate.
+
+Revision 70 (2026-09-29) — folds Codex R51 on #526 (`015c8b19`; P2 1; R50 on the same head was dry). Codex R51
 P2; rev 69's in-gate/out-of-gate split withdrawn after one round: left outside E31's gate, the worker url's write point
 and `WorkerLocation` would keep the fact written from the requested URL and a second representation standing once the
 readers had moved. E31 binds to `#11-document-base-url`'s **completion**, every facet of its scope — the large VM- and
-shell-spanning prerequisite on the critical path that the user's option (B) accepted.
+shell-spanning prerequisite on the critical path that the user's option (B) accepted. [Gate-to-completion and its
+"option (B)" attribution withdrawn at rev 71: USER DECIDED 2026-09-30 (option (2′)), §0.6 item 18.]
 
 Revision 69 (2026-09-29) — folds the TERMINAL decision re-gate over revs 66–68 (after Codex R48/R49 dry on
 `4fedbd35`; IMP 2 / MIN 2). E31's gate is stated once: the canonical path, every reader moved and the inputs
 IBP-classify's values need — `WorkerLocation`, the worker url's write point and the comment re-points stay in the
 program's scope outside the gate (its extent for the user's ratification at merge). §0.6 item 19 supersedes S5-4 D5's
 recorded remedy: the slot writes only the origin, the program untangles `current_url`. The service worker's API base,
-url and origin are cited from *setup ServiceWorkerGlobalScope*; A161 joins the rows correcting A160. [Gate split withdrawn at rev 70.]
+url and origin are cited from *setup ServiceWorkerGlobalScope*; A161 joins the rows correcting A160. [Gate split withdrawn at rev 70;
+a split restored at rev 71 — USER DECIDED 2026-09-30 (option (2′)), §0.6 item 18 — whose line differs from this one: the
+in-gate set is the same three (every reader moved, the workers' and service worker's included), but outside it are the
+worker url's write point, the **service worker's** `WorkerLocation` and its origin source, each A96 by §0.6 item 7 rather
+than an extent left for ratification, with no new worker-url representation before the gate; the comment re-points
+are outside it as no edge's fact.]
 
 Revision 68 (2026-09-29) — Codex R47 on #526 (`08b5e3ad`; P2 1, FP): a `data:` worker's origin is a unique
 opaque origin, not the creator's (HTML *script settings for workers* step 3), so the claim stands; the review exposed
@@ -1072,7 +1095,7 @@ Each item is plan-review input for the surface it changes; its record ships with
 18. **The API base URL as one prerequisite program — USER DECIDED 2026-09-29 (R43, option B)**; supersedes item 16
    (A157, A158) and revs 61–64's split of the base between slots. `#11-document-base-url` (NEW) is **one program**, with
    its own plan-review (umbrella and several PRs if CLAUDE.md's edge-dense rule calls for them), ordered **before
-   IBP-classify** (E31) and after IBP-sandbox (E29, F19), so through E4 → E5 → E10 before PR-1a — a change to the
+   IBP-classify** (E31, by its gate below) and after IBP-sandbox (E29, F19), so through E4 → E5 → E10 before PR-1a — a change to the
    ratified PR-1a ordering (A152), as item 16 was. **Scope**, by the spec's algorithms: HTML's *API base URL* of a relevant settings object (§8.1.3.2) — a Window's is
    the document base URL (§2.4.3) with the frozen base URL (§4.2.3); a dedicated worker's is the worker global scope's URL ("Return worker global
    scope's url", HTML *script settings for workers*); a service worker's is its script url (Service Workers' *setup
@@ -1097,13 +1120,24 @@ Each item is plan-review input for the surface it changes; its record ships with
    another), no deadline beyond the edge. **For the user's ratification** (carried from item 16): the program's
    plan-review answers the document URL's home, and either answer is the user's to ratify — a document component
    supersedes the 2026-06-11 ruling (`current_url` per-VM until B1); B1 makes the program, IBP-classify, PR-1a and the
-   umbrella PRs after it wait for B1. **E31's gate** is the program's **completion** — every facet of the scope above, the worker url's
-   write point, `WorkerLocation`'s one representation and the in-repo comment re-points included, with no exception. If
-   the program is divided, IBP-classify waits for its last PR, so no second path or representation stands in the
-   meantime; the gate is the program's completion, as ratified by the user's option (B) (a large VM- and shell-spanning
-   prerequisite on the critical path); a "home =
+   umbrella PRs after it wait for B1. **E31's gate — USER DECIDED 2026-09-30 (option (2′))**: (i) the canonical path (HTML
+   §8.1.3.2's API base URL) landed; (ii) **every** reader the property defines moved onto it — Window, worker and service
+   worker alike, no second path; (iii) the Window inputs IBP-classify's values need — the document URL and about base URL,
+   the frozen base URL with its §4.2.3 write time, *Is base allowed for Document?* with the `<meta>` writer, and the
+   document encoding. If the program is divided, IBP-classify waits for the last PR inside the gate. **In the program's
+   scope, outside the gate**: (a) the worker url's write point at *run a worker*'s response URL (HTML §10.2.4), (b) the
+   service worker's `WorkerLocation` read from the one representation (HEAD reads the scope URL, `vm/globals.rs:649`),
+   (c) the service worker's origin source — each **A96 by item 7**: IBP-classify's readers are Window-realm, so no cell
+   fires. (ii) is in the gate as E31's data-flow fact itself — the **one** canonical path exists only once every reader
+   the property defines reads it — not as an A93 cell; (a)–(c) are not readers of that path (a write point, a
+   representation, an origin source). The in-repo comment re-points are outside it too, as no edge's fact (§4's one rule). **Invariant for the
+   program's plan**: no new representation of the worker url before the gate — the canonical path reads the existing
+   one, `GlobalScopeKind`'s `script_url` (`vm/mod.rs:135`, `:165`), so no **new** representation stands while (a)–(c)
+   are open; the service worker's pre-existing `current_url` copy (`sw_thread.rs:196`) remains, read only by its origin
+   source (`document_origin()`, `vm/host/navigation.rs:354`) until (c) — accepted as A96 under (2′). (Rev 70's gate — the program's completion — and its attribution to option (B), which was chosen at R43
+   before the worker-realm facets entered the scope at rev 67, are withdrawn.) A "home =
    B1" answer makes the program itself wait for B1, the user's to ratify as above. Its record ships with the approval PR
-   (umbrella ledger row A160, its scope corrected by A161, A162 and A163, §6).
+   (umbrella ledger row A160, its scope corrected by A161, A162 and A163 and its gate stated by A164, §6).
 19. **S5-4 plan §8's D5 recorded remedy** (`docs/plans/2026-07-s5-4-sandbox-enforcement.md:1066-1075`, "seed `current_url`
    in `run_worker_with_source`, mirroring `sw_thread.rs:198`") — superseded, not edited (A114 idiom): the slot
    `#11-dedicated-worker-settings-origin-seed` writes only the dedicated worker's **origin**, never `current_url`;
@@ -1313,7 +1347,7 @@ non-transformable boxes (its `table-column` arm's consequence is its own cell, �
 | **IBP-split-ecs** | split `elidex-ecs/src/dom/mod.rs` (1075 lines) on its classification-query seam | 1000-line rule | terminal — pure move, no behaviour |
 | **IBP-split-parser** | split `elidex-html-parser/src/lib.rs` (1017 lines) on its in-file test seam (`#[cfg(test)]` modules at `:260`, `:291`) | 1000-line rule | terminal — pure move |
 | **IBP-sandbox** | F9 (its creation input from every scripting-deciding source — the embedder union, F18, CSP `sandbox` — and origin derivation from it, §0.5), F10, F10r, F11, F18, F19 | d5 (iv); parser scripting mode; S5-4 §1.3's popup-propagation and CSP-`sandbox` non-goals, amended (§0.6 item 15) | **own plan-memo + review** (security gates × document creation × parser × VM/shell × browser-side navigable state and popup IPC (F18) × CSP-policy plumbing for CSP `sandbox` — parse / retain / hand to document creation) |
-| **IBP-classify** | F4, F7 (classification by kind of HTML elements through the `HtmlElementHandler` plugin seam, which it connects; the `EcsDom` queries compose it); F6 (the marker and its whole writer set: the loader's outcome — a failure sets, a success clears — and the `src`-mutation transitions, reached from HTML §4.8.4.3.2's relevant mutations verbatim; `image_request_state`); F8, F16 + probe; F6's step 13 and the loader as consumers of `#11-document-base-url`'s canonical path (§1 F6) | reqs 3, 4, 5 (as amended), 6 | **own plan-memo + review** (identity × plugin seam × image request × relevant mutations × sandbox input × devolution × probe); prerequisite `#11-document-base-url` (E31) |
+| **IBP-classify** | F4, F7 (classification by kind of HTML elements through the `HtmlElementHandler` plugin seam, which it connects; the `EcsDom` queries compose it); F6 (the marker and its whole writer set: the loader's outcome — a failure sets, a success clears — and the `src`-mutation transitions, reached from HTML §4.8.4.3.2's relevant mutations verbatim; `image_request_state`); F8, F16 + probe; F6's step 13 and the loader as consumers of `#11-document-base-url`'s canonical path (§1 F6) | reqs 3, 4, 5 (as amended), 6 | **own plan-memo + review** (identity × plugin seam × image request × relevant mutations × sandbox input × devolution × probe); prerequisite `#11-document-base-url`'s gate (E31, §0.6 item 18) |
 | **IBP-layout** | F14; every presence-keyed site (I1's property — layout, paint and any other crate, switched together, each onto the predicate matching its purpose); F5 removal at steps 11/13 (§4.8.4.3.5); every consequence of its presence switch, derived, placed and repaired or registered (§0.6 item 7's one-owner rule) | req 5's routing note; req 2 for replacedness | **own plan-memo + review** (sizing × fragmentation × multicol × natural-size contract × image-data algorithm, with a probe) |
 | **IBP-predicate** | F1, F2, F3; `client*` | reqs 1, 2, 7; 3/4 composed side | **own plan-memo + review** (display × content model/pseudo domain × CSSOM `client*`) |
 | **IBP-transform** | F12 and its readers | req 8 | **own plan-memo + review** (stacking × hit test × paint × positioned layout) |
@@ -1334,8 +1368,7 @@ indivisible switch itself edge-dense, it records it as an exception for the user
 nested-PR granularity: §4's order rule gives the edges among its nested PRs and binds §4's edges to whichever nested
 PR supplies or consumes the edge's fact; in §0.6 item 7's cell test "PR X" is a nested PR whose predecessors include
 its node's earlier nested PRs; ownership of an exposure (§4's no-edge paragraph) and the own-deferral counts (§6) are
-the exposing nested PR's. An **external program** an edge names is the exception: E31 binds to
-`#11-document-base-url`'s completion — every facet of its scope, with no exception — not to one of its nested PRs (§0.6 item 18).
+the exposing nested PR's.
 
 **Order — one rule** (§0.6 item 5): an edge is **data flow** (the later PR consumes what the earlier supplies),
 **I1** (§2), **A93** (before the first program PR at which a cell of the defect fires, §0.6 item 7's cell test), or **code predecessor** (the later PR edits what a
@@ -1371,7 +1404,7 @@ split creates). The full edge list:
 | E28 | — | withdrawn at rev 65 (merged into E31, §0.6 item 18); number not reused |
 | E29 | IBP-sandbox → `#11-document-base-url` program | data flow (F19, the Document's CSP list *Is base allowed for Document?* reads); re-pointed at rev 65 |
 | E30 | `#11-svg-layout-model` umbrella memo's approval → IBP-layout | item 12's condition (§0.6 item 17): the program exists before its first exposer lands — a docs artefact |
-| E31 | `#11-document-base-url` program → IBP-classify | data flow (the document base URL through one canonical path, read by F6's step 13 and the loader); A93: F6's step 13 newly reads the base, and with HEAD's `about:blank` fallback every relative `src` of a URL-loaded page would read as broken (§1 F6). The edge binds to the program's **completion** — every facet of its scope, with no exception — so if the program is divided, IBP-classify waits for its last PR (§0.6 item 18) |
+| E31 | `#11-document-base-url` program → IBP-classify | data flow (the API base URL through one canonical path, read by F6's step 13 and the loader); A93: F6's step 13 newly reads the base, and with HEAD's `about:blank` fallback every relative `src` of a URL-loaded page would read as broken (§1 F6). By the one rule the edge binds to what IBP-classify consumes — the program's **gate** (USER DECIDED 2026-09-30, option (2′)): the canonical path (the API base URL) landed, every reader the property defines moved (Window, worker and service worker alike) and the Window inputs IBP-classify's values need. The fact the edge carries is the **one** canonical path (§0.6 item 18: no reader keeps a second path), which is supplied only once every reader the property defines reads it — so the worker and service-worker readers' migration is part of that data-flow fact, not an A93 cell. If the program is divided, IBP-classify waits for the last PR inside the gate; the worker url's write point, the service worker's `WorkerLocation` read from the one representation and its origin source are not readers of that path, so they are outside it, A96 by §0.6 item 7 (§0.6 item 18) |
 
 **No edge for the consequences of `IBP-layout`'s presence switch (rev 19).** Every consequence — first-time
 layout of the subtrees of formerly presence-replaced elements, widget content and chrome paint, and the computed
@@ -1392,7 +1425,7 @@ predecessors are IBP-classify (E7) and IBP-css-machinery (E18), and its successo
 predecessors are IBP-classify (E4), IBP-css-machinery (E19), IBP-ua-display (E25) and the SVG layout-model umbrella memo's approval (E30). None of these four predecessors depends on anything after
 IBP-layout (E30's is a docs artefact with none), so no loop closes. The `content-visibility` program follows IBP-predicate (E20) and IBP-css-machinery
 (E22) and precedes nothing (item 12); its umbrella memo's approval precedes IBP-sandbox (E26), a docs artefact
-with no program predecessor, so E26 closes no loop (E30, likewise a docs artefact with no program predecessor, closes none); `#11-document-base-url` (E29, E31) sits between IBP-sandbox and IBP-classify, parallel to E3 — IBP-sandbox's predecessors are the splits and E26's memo approval, none after IBP-classify — so it closes a loop only if the program consumes something supplied at or after IBP-classify, which its own plan checks; IBP-css-machinery precedes IBP-predicate (E19 → E5), so E22 adds no loop. E25
+with no program predecessor, so E26 closes no loop (E30, likewise a docs artefact with no program predecessor, closes none); `#11-document-base-url` (E29, E31 — its gate, §0.6 item 18) sits between IBP-sandbox and IBP-classify, parallel to E3 — IBP-sandbox's predecessors are the splits and E26's memo approval, none after IBP-classify — so it closes a loop only if the program consumes something supplied at or after IBP-classify, which its own plan checks; IBP-css-machinery precedes IBP-predicate (E19 → E5), so E22 adds no loop. E25
 (IBP-ua-display → IBP-layout): IBP-ua-display's predecessors (IBP-classify, IBP-css-machinery, IBP-sandbox) contain
 nothing after IBP-layout. Every F4 consumer — IBP-predicate, the pseudo prereq,
 and through F1 IBP-transform, IBP-observer and PR-1a — is downstream of IBP-layout; the only F5 writer that is new
@@ -1592,10 +1625,10 @@ Each prereq's touch set is its own plan's; these are the files this program edit
 ## §6. Slots and ledger (program level)
 
 **Landing vehicle of this memo**: a docs-only approval PR carrying **this file and the umbrella's ledger rows for
-it** (the A114 idiom; the #515 precedent) — items 5–6, item 7's rule, item 11, item 12, item 13, item 16 (A157, A158), item 17 (A159, with A161's wording correction) and item 18 (A160, with A161's, A162's and A163's scope corrections), item 19, the table's
-approval-PR rows, drafted in this worktree as the umbrella's ledger rows **A152–A163** (appended after A151; they cite the umbrella by
-section and ledger id, not by line). This memo's umbrella line numbers are at `e2d62b9e`; the twelve inserted rows move
-every later umbrella line by +12. Its landing makes §0.6 item 5 (the ordering, with its two relaxations), item 6's existence, item 7's rule and
+it** (the A114 idiom; the #515 precedent) — items 5–6, item 7's rule, item 11, item 12, item 13, item 16 (A157, A158), item 17 (A159, with A161's wording correction) and item 18 (A160, with A161's, A162's and A163's scope corrections and A164's gate), item 19, the table's
+approval-PR rows, drafted in this worktree as the umbrella's ledger rows **A152–A164** (appended after A151; they cite the umbrella by
+section and ledger id, not by line). This memo's umbrella line numbers are at `e2d62b9e`; the thirteen inserted rows move
+every later umbrella line by +13. Its landing makes §0.6 item 5 (the ordering, with its two relaxations), item 6's existence, item 7's rule and
 item 12's reading true. Memory lives outside the repo, so the memory re-points below happen **at the approval
 PR's landing**, not in it. Every other record ships with the sub-PR whose landing makes it true.
 
@@ -1613,6 +1646,7 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | Umbrella record: §0.6 item 18 — the document base URL as one prerequisite program, `#11-document-base-url`, before IBP-classify (E31) and so PR-1a, after IBP-sandbox (E29); owner the Layout lane by default; either home answer for the document URL is the user's to ratify, and "home = B1" makes PR-1a and the umbrella PRs after it wait for B1; supersedes A157/A158 | the approval PR (umbrella ledger row A160) |
 | Umbrella record: A160's scope corrected — the program's canonical path is HTML's API base URL (§8.1.3.2) whole, a worker global scope's URL included, restated by the spec's algorithms (§0.6 item 18) | the approval PR (umbrella ledger row A162) |
 | Umbrella record: A160's scope further corrected — the worker global scope's url as one representation separate from the worker's origin, its write point (*run a worker*'s response URL) and its `WorkerLocation` reader (§0.6 item 18) | the approval PR (umbrella ledger row A163) |
+| Umbrella record: A160's ordering read by E31's gate (USER DECIDED 2026-09-30, option (2′)) — what precedes IBP-classify is the canonical path landed, every reader the property defines moved (Window, worker and service worker alike) and the Window inputs IBP-classify's values need; the worker url's write point, the service worker's `WorkerLocation` read from the one representation and its origin source stay in the program's scope outside the gate (A96, §0.6 item 7); no new worker-url representation before the gate (§0.6 item 18) | the approval PR (umbrella ledger row A164) |
 | Umbrella record: §0.6 items 1, 3 (req 5, req 3) | IBP-classify |
 | Umbrella record: §0.6 item 2 (req 2) | IBP-predicate |
 | Umbrella record: §0.6 item 14 (req 8) | IBP-transform |
@@ -1632,7 +1666,7 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | Register `#11-media-controls-ui` (NEW). *Gap*: the media element user interface HTML §4.8.11.13 says an exposing `audio`/`video` should present; elidex has no media-control producer or paint path, so F16's exposing `audio` (replaced after `IBP-layout`) paints a blank box. *Why deferred*: A96 — HEAD renders no controls either, and the program changes only whether the element is a replaced box. *Trigger*: media playback or a media-controls paint path. *Re-eval*: 2026-11-01 | IBP-classify |
 | Close `#11-document-url-real-navigation` (existing, pre-existing class; its open-slot SoT entry registered 2026-09-29): **subsumed by `#11-document-base-url`** (§0.6 item 18) — its scope (the document URL for `Location.href` / `pushState`, the `about:blank` fallback's replacement, and the minimal navigation-algorithm work that populates that URL) moves whole; no remainder | the approval PR's landing (memory: Close) |
 | Close `#11-csp-base-uri` (existing, M4-12 roadmap §H-7u; the 2026-05-23 defer sweep's "CSP batch (M4-13)"): **subsumed by `#11-document-base-url`** (§0.6 item 18) — its scope, the `base-uri` directive's *Is base allowed for Document?*, moves whole with F19's `<meta>` pragma writer; no remainder | the approval PR's landing (memory: Close) |
-| Open `#11-document-base-url` (NEW, pre-existing class) as the home of the API-base-URL **prerequisite program** (§0.6 item 18). *Gap*: HTML's API base URL (§8.1.3.2) is not one path — today a worker resolves against `current_url` (e.g. `fetch`; seeded with the script URL only for a service worker, `elidex-js/src/vm/sw_thread.rs:190-196`, a dedicated worker's staying `about:blank`, `vm/host/navigation.rs:201`) or against its `script_url` (`importScripts`, `vm/host/worker_scope.rs:418-428`), and `current_url` also feeds the origin (`document_origin()`, `vm/host/navigation.rs:354`) — untangling that is this program's, the dedicated worker's origin staying `#11-dedicated-worker-settings-origin-seed`'s (§6) — and §2.4.3's document base URL is not one fact every reader reads — its fallback is `about:blank` (no document URL or about base URL), its frozen base URL skips *Is base allowed for Document?* and is not set immediately (HTML §4.2.3's "immediately"; at HEAD a parser-created `<base>` gets it only after parsing — e.g. `Vm::bind`'s D-31 init pass, `elidex-js/src/vm/vm_api.rs:298-313`; DOMParser's `elidex-form/src/inert_document.rs:196`), and the readers of these bases (by the property of §0.6 item 18 — the loader, the shell and the VM alike; seed: `/usr/bin/grep -rn '\(current_url\|pipeline\.url\)[^;]*\.join(\|resolve_nav_url(\|let base = [^;]*\(current_url\|pipeline\.url\)' crates --include='*.rs'` less tests, plus `elidex-navigation/src/loader.rs`'s `response.url` resolutions — not an inventory: the program's plan derives the population from the property) resolve against `response.url`, `pipeline.url` or `current_url`, without the document encoding or each reader's time. *Why a program*: ordered before IBP-classify (E31), whose readers fire the A93 cells (§1 F6), and one canonical path for every reader (one-issue-one-way, R43). **Owner: this Layout lane** (default; the user may assign another). *Trigger*: the approval PR lands — its plan-review starts; its completion (every facet of its scope, §0.6 item 18) gates IBP-classify (E31). It also re-points the in-repo comments naming the two slots it subsumes (seed: `git grep -n -e 'csp-base-uri' -e 'document-url-real-navigation' -- crates`; 7 at `863caad0`), as the approval PR re-points the umbrella's trigger sites. Revs 56–60's analysis (writer set, same-document URL update sites, a same-task cell) is input to its plan, not a decision here. *Re-eval*: 2026-11-01 | the approval PR's landing (memory) |
+| Open `#11-document-base-url` (NEW, pre-existing class) as the home of the API-base-URL **prerequisite program** (§0.6 item 18). *Gap*: HTML's API base URL (§8.1.3.2) is not one path — today a worker resolves against `current_url` (e.g. `fetch`; seeded with the script URL only for a service worker, `elidex-js/src/vm/sw_thread.rs:190-196`, a dedicated worker's staying `about:blank`, `vm/host/navigation.rs:201`) or against its `script_url` (`importScripts`, `vm/host/worker_scope.rs:418-428`), and `current_url` also feeds the origin (`document_origin()`, `vm/host/navigation.rs:354`) — untangling that is this program's, the dedicated worker's origin staying `#11-dedicated-worker-settings-origin-seed`'s (§6) — and §2.4.3's document base URL is not one fact every reader reads — its fallback is `about:blank` (no document URL or about base URL), its frozen base URL skips *Is base allowed for Document?* and is not set immediately (HTML §4.2.3's "immediately"; at HEAD a parser-created `<base>` gets it only after parsing — e.g. `Vm::bind`'s D-31 init pass, `elidex-js/src/vm/vm_api.rs:298-313`; DOMParser's `elidex-form/src/inert_document.rs:196`), and the readers of these bases (by the property of §0.6 item 18 — the loader, the shell and the VM alike; seed: `/usr/bin/grep -rn '\(current_url\|pipeline\.url\)[^;]*\.join(\|resolve_nav_url(\|let base = [^;]*\(current_url\|pipeline\.url\)' crates --include='*.rs'` less tests, plus `elidex-navigation/src/loader.rs`'s `response.url` resolutions — not an inventory: the program's plan derives the population from the property) resolve against `response.url`, `pipeline.url` or `current_url`, without the document encoding or each reader's time. *Why a program*: ordered before IBP-classify (E31), whose readers fire the A93 cells (§1 F6), and one canonical path for every reader (one-issue-one-way, R43). **Owner: this Layout lane** (default; the user may assign another). *Trigger*: the approval PR lands — its plan-review starts; its gate (§0.6 item 18, USER DECIDED 2026-09-30, option (2′): the canonical path landed, every reader the property defines moved — Window, worker and service worker alike — and the Window inputs IBP-classify's values need) gates IBP-classify (E31); the worker url's write point, the service worker's `WorkerLocation` read from the one representation and its origin source stay in its scope outside the gate (A96, §0.6 item 7), and its plan makes no new representation of the worker url before the gate. It also re-points the in-repo comments naming the two slots it subsumes (seed: `git grep -n -e 'csp-base-uri' -e 'document-url-real-navigation' -- crates`; 7 at `863caad0`), as the approval PR re-points the umbrella's trigger sites. Revs 56–60's analysis (writer set, same-document URL update sites, a same-task cell) is input to its plan, not a decision here. *Re-eval*: 2026-11-01 | the approval PR's landing (memory) |
 | Enrich `#11-dedicated-worker-settings-origin-seed` (existing, S5-4d's D5): a worker global scope's **url** and its **origin** are separate facts (HTML §8.1.3.2; the origin is a unique opaque origin when the url's scheme is `data`, else the outside settings' origin — HTML *script settings for workers* step 3); `#11-document-base-url` holds the url, this slot keeps the origin, and untangling their shared `current_url` input (`vm/host/navigation.rs:354`) is the program's. **D5's recorded remedy superseded** (§0.6 item 19): this slot writes only the origin, never `current_url`, so no ordering is needed between it and the program | the approval PR's landing (memory) |
 | Register `#11-content-image-replacement` (NEW). *Gap*: CSS Content 3 §1's `<content-replacement>` — `content: url(…)` making an element or `::before`/`::after` image-valued replaced content; `ContentValue` has no image item and `parse_content` drops `url()`. *Why deferred*: A96 — HEAD renders none of it and no program PR changes that; F3's match stays total over `ContentValue`, so an image variant becomes a compile error, not a silent gap. *Trigger*: an image item added to `ContentValue` or `url()` accepted by `parse_content`. *Re-eval*: 2026-11-01 | IBP-predicate |
 | Open `#11-svg-layout-model` (NEW, pre-existing class: elidex has no SVG layout or paint model) as the home of the SVG layout-model **program** (§0.6 item 17). *Gap*: SVG elements lay out as CSS boxes; so `foreignObject` rendering (SVG2 §12.4), Resize Observer §3.4.8 step 2's bounding-box size for an `SVGGraphicsElement` without a CSS box, and css-transforms-1 §1.2's SVG clause (F12) have no SVG model to read or gate. *Why a program slot*: IBP-layout fires its `foreignObject` cell (§0.6 item 17), and the repair is program-scale, so it is not A93-ordered and the cell is pinned as IBP-layout's own deferral (item 12). **Owner: this Layout lane** (default; the user may assign another). *Trigger*: the approval PR lands — authoring of its umbrella memo starts, and that memo's approval gates IBP-layout (E30). *Re-eval*: 2026-11-01 | the approval PR's landing (memory; shared by IBP-transform's F12, IBP-observer's F13 and IBP-layout's pin) |
