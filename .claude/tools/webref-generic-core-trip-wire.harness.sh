@@ -604,11 +604,21 @@ _fgit_window() {
     . ./fixtures.sh
     [ -e "$_FW_DIR/built" ] || { echo "the fixtures file returned before its last line" > "$_FW_DIR/cause"; exit 1; }
     _fw_opts_on || { echo "the fixtures file switched off errexit, nounset or pipefail" > "$_FW_DIR/cause"; exit 1; }
+    printf "K2-WINDOW-STDERR-CANARY\n" >&2
     _fgit_postconditions || : > "$_FW_DIR/post_bad"
     _seal_apply
     printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
     : > "$_FW_DIR/done"' _ "$_FW_DIR" 2> "$_FW_DIR/stderr" || _fw_rc=$?
-  cat "$_FW_DIR/stderr" >&2 2>/dev/null || true
+  # W3 reads the window's stderr only if fd 2 still pointed at the captured
+  # file after the fixtures file: the canary above is written right after the
+  # options re-check, so its absence from the capture means the fixtures file
+  # redirected fd 2 before then (`exec 2>/dev/null`) — a window that is not
+  # complete (below). The canary is taken OUT of the replay and of what W3
+  # scans, wherever it sits in a record (a fixture's stderr without a final
+  # newline appends bash's own diagnostic to that same line).
+  _fw_fd2=0
+  _FW_M="K2-WINDOW-STDERR-CANARY" awk 'index($0, ENVIRON["_FW_M"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=1
+  _FW_M="K2-WINDOW-STDERR-CANARY" awk '{ i = index($0, ENVIRON["_FW_M"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_M"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
   # A shell diagnostic located in the fixtures file or the prelude means a line
   # of it was skipped — an arithmetic-expansion error does not stop a sourced
   # file. The property is WHERE the line starts: bash prefixes every diagnostic
@@ -624,7 +634,9 @@ _fgit_window() {
     index($0, ENVIRON["_FW_A"]) > 0 || index($0, ENVIRON["_FW_B"]) > 0 { print; if (++n == 3) exit }
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
-  if [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
+  if [ -e "$_FW_DIR/done" ] && [ "$_fw_fd2" -eq 1 ]; then
+    _fw_why="the fixtures file left the window's stderr redirected, so a shell diagnostic could not be read"
+  elif [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
     _fw_why="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_why=""
     [ -n "$_fw_why" ] || _fw_why="the window exited $_fw_rc before completing (the fixtures file exited or aborted, or a postcondition aborted)"
   fi

@@ -205,7 +205,7 @@ _MUT_TARGETS="harness fixtures mutgen"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=160
+_MUT_RECORDS_MIN=161
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -413,6 +413,10 @@ harness:s/( cd "[$]_pq\/c" \&\& git init -q [.] )/false/	this git reports altern
 harness:s/git -C "[$]_pgd" count-objects -v 2>"[$]_pq\/pk.err"/false/	no fixture repo reads objects from a store outside it
 fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '\/nonexistent-k2-store\\n' > "$CTL\/clean\/.git\/objects\/info\/alternates"; : > "$_FW_DIR\/built"/	no fixture repo reads objects from a store outside it
 mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/	the boundary-mutant generator derives a non-empty set from the wire's regexes
+# THE WINDOW'S STDERR CANARY's record (C12): the fixtures file redirects fd 2
+# before the options re-check's canary can reach it, so W ends the window
+# incomplete rather than reading a diagnostic sent to /dev/null.
+fixtures:s/^: > "[$]_FW_DIR\/built"$/exec 2>\/dev\/null; : > "$_FW_DIR\/built"/	the fixture build window completed
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
