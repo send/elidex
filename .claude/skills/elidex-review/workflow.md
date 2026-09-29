@@ -79,7 +79,7 @@ Apply Axis <N> Detect entries tagged <INPUT_TAG> or [both] to <INPUT_PATH> (<INP
 
 <Agent 2 only>: Also read <DRYRUN_PATH> and incorporate gaps into Sub-check 2b findings.
 
-Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Read whatever axes.md Axis <N> requires, including memory/ and repo-wide greps (this overrides the agent definition's diff-only read scope). Do NOT propose fixes (this overrides only the agent definition's fix-direction field; still mark uncertain findings as uncertain) — list raw suggestion only. Report total findings count by severity at end.
+Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Read whatever axes.md Axis <N> requires, including memory/ and repo-wide greps (this overrides the agent definition's diff-only read scope). Do NOT propose fixes (this overrides only the agent definition's fix-direction field; still mark uncertain findings as uncertain) — list raw suggestion only. Report total findings count by severity at end. If you must stop before finishing (turn limit), end with a checklist of (Detect entry × target file/§) pairs marked done / not done, with the total count, so a successor can resume from the not-done items.
 ```
 
 Axis ↔ agent mapping (stable, both skills):

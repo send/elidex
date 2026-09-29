@@ -53,19 +53,19 @@ webref の cache refresh / snapshot / semantic diff / agent-brief workflow の�
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 - **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 worktree で隔離して作業** (新規ブランチ = `git worktree add -b <branch> <dir> origin/main` ← clean base 明示で汚染 HEAD を継がない / 既存ブランチ [in-progress PR の復旧等] = shared tree から外してから `git worktree add <dir> <branch>` ← `-b` は既存名で fail) (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
-- **サブエージェント振り分け (model tiering、2026-09 trial)**: `general-purpose` は使わない。振り分けの**唯一の置き場はここ**。skill の手順 (global skill を含む) が型を指定していない Agent 起動にも、この表で `subagent_type` を選んで適用する:
-  - 修正・実装 (範囲と完了条件が決まったもの) → `coder`。設計判断はドライバーが済ませて brief に書く (coder は判断が要ると停止する定義 — 例: converge Step 5.1 の symptom vs root 判断)。反復修正 (converge の各ラウンド等) はラウンドごとに新しい coder を起こし、そのラウンドの finding と判断だけを渡す (前ラウンドの文脈を持ち越さない)
-  - plan-memo の改訂 → wording / typo のみ `coder`。citation を含む修正 (§番号・AO 名は lookup 必須ゆえ)・design-affecting・structural・新規作成・generator-layer 除去 (#374 型) は `designer`
-  - 出力が大きい機械的確認 (`mise run ci` / `build_verify` / 多数項目の突き合わせ) → `verifier`。数行で済む確認 (head==assessed commit、`git log origin/main..HEAD`、件数) はドライバーがその場で行う
+- **サブエージェント振り分け (model tiering、2026-09 trial)**: `general-purpose` は使わない。振り分けの**唯一の置き場はここ**。skill の手順 (global skill を含む) の Agent 起動すべてに適用する — skill が型を指定していない場合、または `general-purpose` / `Explore` を指定している場合は、この表の型に置き換える:
+  - 修正・実装 (範囲と完了条件が決まったもの) → `coder`。設計判断はドライバーが済ませて brief に書く (coder は判断が要ると停止する定義 — 例: converge Step 5.1 の symptom vs root 判断)。反復修正 (converge の各ラウンド等) はラウンドごとに新しい coder を起こし、そのラウンドの finding と判断、および settled な制約 (過去ラウンドで棄却・撤回した修正案) を brief に明記して渡す (前ラウンドの文脈は持ち越さない)。ラウンド境界での新規起動は規則 5 の「引き継ぎ」に数えない
+  - plan-memo の改訂 → wording / typo のみ `coder`。citation を含む修正 (plan-review Step 5 は clerical を re-review skip 可とするので、lookup を要する citation を clerical 扱いで下位 tier に通さない)・design-affecting・structural・新規作成・generator-layer 除去 (#374 型) は `designer`
+  - 失敗の解釈を要する機械的確認 (`mise run ci` / `build_verify` の失敗調査、多数項目の突き合わせ) → `verifier`。背景実行 + 固定マーカーの grep で判定できる実行 (`mise run ci` の pass/fail 判定、`grep 'ERROR task failed'` 等) と数行で済む確認 (head==assessed commit、`git log origin/main..HEAD`、件数) はドライバーがその場で行う (agent 起動の固定費 ≈ 55k tokens がこれらの作業量を上回るため)
   - 判断を要するレビュー (5 軸 review agent、converge の enumeration attestation) → `reviewer`。global `verifier` 定義の description にある「attestation」は enumeration attestation を含まない。attestation を verifier に回さないのは、#508 で attestation が捕まえた欠陥 (6→3→2+4) が「修正を受けた側」「over-correction」「概念 sweep」= 判断を要するものだったため (`memory/feedback_attestation-by-enumeration-not-assertion.md`)
   - 読み取り専用の調査 (Explore の代わり) → `scout`
   - `model` パラメータは Fable 昇格時のみ (定義ファイルより優先されるので、それ以外で渡すと tiering が崩れる)。brief の指示 (読む範囲・出力形式) は agent 定義本文より優先する — 定義の既定 (例: reviewer の「差分と呼び出し元/先に絞る」) を超える調査が要る時は brief で範囲を明示する
   - **上限は引き継ぎ境界であって scope cap ではない** (`memory/feedback_cap-vs-completeness.md` の読み替え)。完全性は次の 5 つで保つ:
     1. 途中報告 (済/残/次) は判定に数えない — 残がある限り未完了。レビュー軸の途中停止を「0 件」、attestation の途中停止を PASS と読まない。報告は分母 (N 中 M) 付き。
     2. 状態の正典は成果物 (`git diff` / scratchpad file)、報告は目次。soft limit での引き継ぎは SendMessage で続行させず (同じ文脈のまま膨らむ)、新しい同種 agent に報告 + 成果物を渡す。レビュー軸のように途中成果物が残らない単位は、前任の報告の「済」を成果物として扱い、後継は「残」だけを行う (単調に進むので終わる)。
-    3. maxTurns の強制停止で報告が失われたら SendMessage で「現状を要約して終了」を 1 回だけ送る。回収できなければ成果物から済んだ分を再構成して残りだけ渡す。何も残らない単位は最初からやり直すが、同じ単位で報告喪失が 2 回続いたら user に上げる (skip もループもしない)。
+    3. maxTurns の強制停止で報告が失われたら SendMessage で「現状を要約して終了」を 1 回だけ送る。回収できなければ成果物から済んだ分を再構成して残りだけ渡す。何も残らない単位は最初からやり直すが、同じ単位で報告喪失が 2 回続いたら user に上げる (skip もループもしない。規則 5 の昇格より優先)。
     4. cap に合わせて brief を縮めない — 上限到達は slice の引き方の誤りの signal として事前分割し直す。
-    5. 同じ種類の仕事で引き継ぎが 2 回続いたら slice か tier の誤り → 同じ型のまま `model: fable` で昇格 (coder / reviewer とも)。設計判断が要ると分かった時はドライバーが判断する (対象が設計文書なら `designer`)。coder の「3 回試して停止」も drop でなく昇格経路。
+    5. 同じ種類の仕事で引き継ぎが 2 回続いたら slice か tier の誤り → 同じ型のまま `model: fable` で昇格 (coder / reviewer / designer。verifier の途中停止は出力量の問題なので昇格せず slice を分ける)。設計判断が要ると分かった時はドライバーが判断する (対象が設計文書なら `designer`)。coder の「3 回試して停止」も drop でなく昇格経路。
   - 本規則は elidex で trial 中 (2026-09-29 開始)。**2026-10-06** に計測 (`memory/project_agent-model-tiering-rollout.md` Step 3) で再評価し、問題なければ global へ移す — それまで SSoT はここ。
 
 ## Commands
