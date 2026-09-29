@@ -1,7 +1,10 @@
 # K2 fixture git — plan-review record
 
-This file holds every plan-review round's dispositions and the terminators, and (§8 and §13, moved from
-the design memo when it neared 1000 lines) the record of the C0b–C2 splits and the implementation results, for
+This file holds the plan-review rounds through round 9 (§D), with their dispositions and terminators.
+It also holds three sections moved from the design memo when it neared 1000 lines: the memo's status
+narrative (§S), the record of the C0b–C2 splits (§8), and the implementation results before PR #527 (§13).
+PR #527's own rounds, its external review and plan-review rounds 10 onward, are in
+`…-k2-fgit-hermetic-pr527.md`. All of this is for
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of the
 provenance companion (`…-k2-fgit-hermetic-provenance.md`) unchanged, as a touch-time split before
 round 9's record was added. Section numbers (§D.0–§D.8) are kept, so earlier references to "companion

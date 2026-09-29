@@ -1,9 +1,10 @@
 # K2 fixture git — PR #527's review record
 
-This file holds the record of PR #527, from its external review through plan-review rounds 10–12, for
+This file holds the record of PR #527, from its external review through plan-review rounds 10–13, for
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of
 `…-k2-fgit-hermetic-reviews.md` §13, where it was the subsection "PR #527", as a touch-time split
-before round 12's record would have taken that file past 1000 lines. The text is unchanged. The
+before round 12's record would have taken that file past 1000 lines. The text was unchanged at the
+split (`e0cd8329`); drafts 14–15 revised it since, each revision named in its round's section. The
 references follow `…-reviews.md`'s convention: to the design memo as of the draft the paragraph belongs
 to, unless a file is named.
 
@@ -17,7 +18,7 @@ heading, and the repo-wide preflight command runs over every tracked plan memo.
 
 ---
 
-## §P PR #527 — external review and the fix-delta reviews (2026-09-28), and plan-review rounds 10–11
+## §P PR #527 — external review and the fix-delta reviews (2026-09-28), and plan-review rounds 10–13
 
 Round history moved here from the memo, which keeps only the live decision. The scenario and result
 of each claim below are in the commit messages named (a command is quoted only where it is given
@@ -136,9 +137,9 @@ fixture's git: the fixtures `cd`, and `~+/bin` then names a directory with no `g
 whose meaning depends on the working directory was never a supported surface for the build. ⚠ That
 reading was **withdrawn in draft 12** (round 10, K10-3 below). PX1 describes base, which had no pin; under
 M-PATH the wire's shell resolves `~+/bin/git` before the window starts, so the wrapper becomes the
-fixture git. M-PATH now rests on R1 alone (design memo §0.1).
+fixture git. M-PATH now rests on §5.2 R1 alone (design memo §0.1).
 
-**Superseded by draft 11**, on R1 (draft 11 cited PX1; draft 12 withdrew that). These are the fixes the normaliser grew:
+**Superseded by draft 11**, on §5.2 R1 (draft 11 cited PX1; draft 12 withdrew that). These are the fixes the normaliser grew:
 - R11–R13: relative entries, then `~`, then `~login`, ending in pinning `git` and dropping every
   non-absolute entry;
 - resolving relative and empty entries against the wire's directory (R23), and dropping them when that
@@ -184,12 +185,12 @@ on draft 11's own additions. Dispositions:
 |---|---|
 | K10-1 (Ax2): nested `_with_watchdog` groups escape the outer kill | **accepted, redesigned**. One process group per wire run, phases announce their bound, one timer per group; the only nesting is the mutation runner's trials, and the trial's wire joins its group (design memo §3). Cells (a)–(e) below |
 | K10-2 (Ax3): the watchdog population was a call-site list, and fsmonitor's `git ls-files` was outside it | **accepted**: membership replaces the list. An unannounced call site is bounded by the phase before it |
-| K10-3 (Ax3): under M-PATH, `~+/bin`'s wrapper is pinned as the fixture git | **accepted**; §0.1 rests on R1 alone, and PX1 (draft 11's "E1") is history. Reproduced below |
+| K10-3 (Ax3): under M-PATH, `~+/bin`'s wrapper is pinned as the fixture git | **accepted**; §0.1 rests on §5.2 R1 alone, and PX1 (draft 11's "E1") is history. Reproduced below |
 | K10-4 (Ax3): alternates declared inside class (b), unmeasured | **accepted, closed**: measured below, and closed by P-k (`count-objects -v`), with a liveness probe |
 | K10-5 (Ax5): set-u non-reliance measured on 5.3 only | **accepted**: measured on 3.2 and 5.3 at `8413a4db` (below); the parent-side state is enumerated (design memo §3); X13's script is verbatim below |
 | K10-6 (Ax4): the §3 code block said "the shape at head" over planned code | **accepted**: the lines C6/C7 change are marked PLANNED |
-| Ax3 MINs (6): the bounds' multipliers; X9 and the window time; `_mut_trial`'s timeout disposition; the corpus's "not records" reason against harness 658–664; R1's slot body and its fired trigger; R9 without a slot | **accepted**: one rule (× 4.3 × 2, up to 30 s); the summary prints the window's time; a killed trial's line is appended and judged by its needle; the #501 R92 contract gets a record (corpus §6.1); §9.1's ledger step amends the launch-environment slot; R9 shrank to the pre-controls code, and the audit says it is not a slot |
-| Ax5 MINs (9): the abort path with live groups and timers; §9's "Where the record goes"; the #510 interaction; X12's `pgrep` scope; X13/X14 used per commit; X6/X11 commands; X8's threshold; the ledger's stale U5 sentence (round 4's U5, the exit-trap slot's text); where C6–C10's history goes | **accepted**: the exit handler kills the group and the timer first, and the timer exits once its leader or directory is gone; §9 rewritten, with the threshold 34.8 s; X12 is scoped to the run's scratch path; §9.1 separates per-commit from final-head criteria; X6 and X11 are spelled out; the amend replaces the sentence in place; history goes to this §13 |
+| Ax3 MINs (6): the bounds' multipliers; X9 and the window time; `_mut_trial`'s timeout disposition; the corpus's "not records" reason against harness 658–664; §5.2 R1's slot body and its fired trigger; §5.2 R9 without a slot | **accepted**: one rule (× 4.3 × 2, up to 30 s); the summary prints the window's time; a killed trial's line is appended and judged by its needle; the #501 R92 contract gets a record (corpus §6.1); §9.1's ledger step amends the launch-environment slot; §5.2 R9 shrank to the pre-controls code, and the audit says it is not a slot |
+| Ax5 MINs (9): the abort path with live groups and timers; §9's "Where the record goes"; the #510 interaction; X12's `pgrep` scope; X13/X14 used per commit; X6/X11 commands; X8's threshold; the ledger's stale U5 sentence (round 4's U5, the exit-trap slot's text); where C6–C10's history goes | **accepted**: the exit handler kills the group and the timer first, and the timer exits once its leader or directory is gone; §9 rewritten, with the threshold 34.8 s; X12 is scoped to the run's scratch path; §9.1 separates per-commit from final-head criteria; X6 and X11 are spelled out; the amend replaces the sentence in place; history goes to `…-reviews.md` §13, now this file (split at `e0cd8329`) |
 | Ax4 MINs (4): the E1 collision; the corpus header; the bounds' command; `gitrepository-layout` in §2.5 | **accepted**: PX1; the header is rewritten; the commands are below; §2.5 lists it and `count-objects` |
 | Premises carried (3; counted in the relayed 22, so 6 + 9 + 4 + 3 = 22): `_control` has no marker today; the top-level census has no `-L`; C5 edited `ci.yml` | **accepted**, as stated in design memo §3/§4/§9 |
 
@@ -434,7 +435,7 @@ the line, is fixed: the arm is dropped, so a probe that does not report its `alt
 | X11 in neither list; X3 per commit | **fixed**: both at the final head; per commit X1, X4b, X10 |
 | X10's glob covers the untouched 1259-line wire | **fixed**: `wc -l` only over the parts this PR edits |
 | #510's head | **fixed**: `400086ee`, read 2026-09-29 (round 11's message said `83fc1d05`; the head had moved again) |
-| R9's wording | **rewritten**: R9 is now the time-bound residual |
+| §5.2 R9's wording | **rewritten**: §5.2 R9 is now the time-bound residual |
 | the other round-11 MINs | about the removed bound; they go with it |
 
 **R26③, measured** (this session). The finding, Codex on `8413a4db` (review comment 4124595479,
@@ -491,8 +492,11 @@ blocked for more than 5 minutes. Draft 14's census judges every git dir, in two 
 postcondition runs git; a red census runs no git (design memo §4). The per-link search runs only over
 a clean pass 1, which also ends round 12's `bareh` (120 s) and `outsidein` (455 s) cells in seconds. A
 hard link inside a `.git` is red by the one-link clause. What remains is outside the census, and it is
-a defect under R9. The cells ran on the prototype `$A/sb`, which is fable's M-PATH + M-SHAPE diff, the
-C8 stand-in, and the two-pass pre-census at the top of `_fgit_postconditions`, 2026-09-29:
+a defect under §5.2 R9. The cells ran on the prototype `$A/sb`, which is fable's M-PATH + M-SHAPE diff,
+the C8 stand-in, and a pre-census at the top of `_fgit_postconditions`, 2026-09-29. ⚠ Round 13 found
+that this sentence said "two-pass pre-census" falsely: the pre-census was **pass 1 only**, and pass 2
+stayed in the per-repo loop. Round 13's section below has the fixed prototype, its diff hash and the
+re-run cells:
 
 | cell | inserted before `built` | bash 5.3 | bash 3.2 |
 |---|---|---|---|
@@ -500,7 +504,7 @@ C8 stand-in, and the two-pass pre-census at the top of `_fgit_postconditions`, 2
 | xcommon | `git init -q "$CTL/zzr" && rm -f "$CTL/zzr/.git/config" && mkfifo "$CTL/zzr/.git/config" && printf '../../zzr/.git\n' > "$CTL/clean/.git/commondir"` | rc 1, 3 s, P-g `zzr/.git:[shape: …/config]`, no control run | rc 1, 4 s, same |
 | bareh | `git init -q --bare "$CTL/zzb.git" && ln -s / "$CTL/zzb.git/k2root"` | rc 1, 3 s, P-g `zzb.git:[a git dir not named .git]` | rc 1, 4 s, same |
 | outsidein | `git init -q "$CTL/zzr" && ln -s / "$CTL/zzr/.git/k2root" && ln -s zzr "$CTL/zzq"` | rc 1, 2 s, P-g `zzr/.git:[shape: …/k2root]` | rc 1, 4 s, same |
-| hard | `… ln "$_FW_DIR/zzh" "$CTL/clean/.git/info/exclude"` (a file outside the fixture root) | rc 1, 3 s, P-g `clean/.git:[shape: …/info/exclude]` | rc 1, 4 s, same |
+| hard | `mkdir -p "$CTL/clean/.git/info" && printf 'k2hard\n' > "$_FW_DIR/zzh" && rm -f "$CTL/clean/.git/info/exclude" && ln "$_FW_DIR/zzh" "$CTL/clean/.git/info/exclude"` (a file outside the fixture root) | rc 1, 3 s, P-g `clean/.git:[shape: …/info/exclude]` | rc 1, 4 s, same |
 | outroot | `git init -q "$_FW_DIR/zzo" && rm -f "$_FW_DIR/zzo/.git/config" && mkfifo "$_FW_DIR/zzo/.git/config" && printf '%s\n' "$_FW_DIR/zzo/.git" > "$CTL/clean/.git/commondir"` | **waits**: reached `alarm 60`, rc 142, with the window's bash and `git -C …/clean config --list --show-origin` blocked in the run's group, then killed | same |
 
 A first `hard` run gave PASSED on both shells. The prototype's `find` expression lacked the outer
@@ -537,19 +541,31 @@ chmod -R u+rwX "$T" 2>/dev/null
 **Measured for P-k (git 2.55.0, this session).** An `alternates` holding the path in C-quoted form, with
 a newline in the path, gives one `alternate:` line and rc 0. A store that does not exist gives rc 0, no
 `alternate:` line, and `error: unable to normalize alternate object path: …` on stderr, so P-k treats
-stderr as red. Round 12 measured the directory and mode-000 variants (rc 0, 0 lines, a warning).
+stderr as red. Round 12 reported the directory and mode-000 variants. Re-measured in draft 15, in
+`$A/pk2`, `HOME=$A/pk2`, `GIT_CONFIG_NOSYSTEM=1`:
+- `objects/info/alternates` as a directory: rc 0, 0 `alternate:` lines, stderr "warning: unable to
+  access '.git/objects/info/alternates': Is a directory";
+- the file mode 000: rc 0, 0 lines, "… Permission denied";
+- an `alternates` line naming a mode-000 store: rc 0, 0 lines, "error: unable to normalize alternate
+  object path";
+- an `alternates` line naming a plain directory: rc 0, 1 line, no stderr.
+
+The commands were `git init -q <r>`, then writing or making the `objects/info/alternates` entry, then
+`git -C <r> count-objects -v > out 2> err`. The chained FIFO case gives rc 142 at a 10 s alarm:
+`chainA/.git/objects/info/alternates` is a FIFO, and `chain`'s `alternates` names `chainA`'s store,
+under `perl -e 'setpgrp; alarm 10; exec @ARGV' git -C chain count-objects -v`.
 
 | finding | disposition |
 |---|---|
-| IMP 1 (Ax2): the census judged shape per repo; `bareh` / `outsidein` searched on | **fixed**: the two-pass census before any git, and hard links red (cells above); outside the census is R9 |
+| IMP 1 (Ax2): the census judged shape per repo; `bareh` / `outsidein` searched on | **fixed**: the two-pass census before any git, and hard links red (cells above); outside the census is §5.2 R9 |
 | IMP 2 (Ax5): §9.1 resumed at step 3 | **fixed**: resume at step 1 (`/pre-push`, `mise run ci`); step 2 may be skipped |
 | Ax1: where the untrusted exit lives; §10 #8's target list | **fixed**: `_fgit_window_verdict_exit` in the harness, W3's report moves in, W4's stays; #8 now says it by property |
 | Ax2: P-k ignores stderr; the probe path's newline; the trusted state unnamed; W3 clause unpinned; hard links | **fixed**: stderr red, plus a record; C-quoted probe path (measured); `_fw_trusted`; a second C8 record; the one-link clause, plus a record |
-| Ax3: the FIFO records' survive check; X14 cannot fail; the R9 trigger exempted #527; P-k "re-derived" said as done | **fixed**: the necessary-condition procedure with the block site and the group kill (corpus §6.1); X14 at 300 s; #527's own call sites listed in R9's Gap; P-k marked planned |
+| Ax3: the FIFO records' survive check; X14 cannot fail; the §5.2 R9 trigger exempted #527; P-k "re-derived" said as done | **fixed**: the necessary-condition procedure with the block site and the group kill (corpus §6.1); X14 at 300 s; #527's own call sites listed in §5.2 R9's Gap; P-k marked planned |
 | Ax4: "U3 below" missed and U5 over-renamed; X12 reused; "superseded by M-WATCHDOG" in present tense and "at the end of this section"; R26③ not quoted; edge 6's pin; figures without commands; §9.1's tense; the label list | **fixed**: all, above and in the design memo. Edge 6 is pinned at lines 350–364 (the block starts at 350, "⚠ ENTERED BY ARGUMENT", not 352); X12 is withdrawn and R26③'s cells are X16 |
-| Ax5: two ledger times; the create-time lens; own versus pre-existing in R9; the "must enumerate" field; unreachable commits in `ci.yml`; the 4.3 subject; which budget; X9's placement | **fixed**: one ledger step, after X8, that replaces the −2 banner with −1; the lens is L3 (and L2), with Q4 yes, so the user's carve is the ground; R9's Gap marks each child; "Defects measured"; `git fetch origin pull/527/head`; the subject of 4.3 stated; the base's 5 minutes; X9 outside the final-head list |
+| Ax5: two ledger times; the create-time lens; own versus pre-existing in §5.2 R9; the "must enumerate" field; unreachable commits in `ci.yml`; the 4.3 subject; which budget; X9's placement; the reviews file's growth (the 9th item) | **fixed**: one ledger step, after X8, that replaces the −2 banner with −1; the lens is L3 (and L2), with Q4 yes, so the user's carve is the ground; §5.2 R9's Gap marks each child; "Defects measured"; `git fetch origin pull/527/head`; the subject of 4.3 stated; the base's 5 minutes; X9 outside the final-head list; the split `e0cd8329` |
 
-**Records planned by draft 14** (design memo §9.1, corpus §6.1):
+**Records planned by draft 14** (⚠ superseded by draft 15's plan below):
 - −1 (P-j per-entry);
 - +2 (W2: `post_bad`, W3);
 - +5 (P-g: `objects` link, FIFO `commondir`, scan status, `xcommon`, hard link);
@@ -557,3 +573,87 @@ stderr as red. Round 12 measured the directory and mode-000 variants (rc 0, 0 li
 
 That is **+10**: 60 records of this PR, **155** in all, `_MUT_RECORDS_MIN=155`, labels 18,
 `_MUT_UNRECORDED_MAX=21`. Draft 13's plan (151) is superseded. None of it is implemented yet.
+
+**Plan-review round 13 (on draft 14, frame `0389b5d9`) → draft 15.** 0 CRIT / 5 IMP (3 unique) / 20 MIN
+(Ax1 0/0/1, Ax2 0/2/2, Ax3 0/2/3, Ax4 0/0/9, Ax5 0/1/5). The orchestrating session had already decided the
+three IMP dispositions; draft 15 implements them:
+- **A.** The census does not follow `commondir`, `include.path` or `alternates`, because that would
+  emulate git's read set. §5.2 R9's boundary is restated by property instead: a FIFO reached through
+  such a reference outside a census git dir waits, and a non-FIFO there is red by P-g's origin.
+- **B.** The census writes one verdict after both passes, and git runs nowhere before it.
+- **C.** The final head is the head at squash time.
+
+**The prototype, and the cells.** Base `35dc1153`: its tool code is `8413a4db`'s, except one comment
+line in `mutations.sh`. On top of it:
+- fable's M-PATH + M-SHAPE diff;
+- a C8 stand-in: `exit 1` before any control when a postcondition or W3 reported;
+- a census at the top of `_fgit_postconditions`. Pass 1 is classification and shape, one-link
+  regular files included. Pass 2 is the per-link search, run only over a clean pass 1. Their verdict is
+  one variable, `_pg_census_red`, written after both, and the function returns before any git when it
+  is red.
+
+`git -C $A/sb diff > $A/proto15.diff` gives 140 lines, sha256
+`ae347896f37de2b873c66f74fbe50a2a44c43cff18c689ae9c876adcdd61dce0`. Round 13 had no diff to compare
+against; this one can be checked. Each cell ran through the script below: the run is its own process
+group (`perl -e 'setpgrp; alarm 120; exec @ARGV'`, the value literal), and afterwards only that group's
+processes are listed and killed with `kill -9 -<pgid>`. The runs were two wires at a time, on
+2026-09-29, and each insert is verbatim:
+
+| cell | inserted before `built` | bash 5.3 | bash 3.2 |
+|---|---|---|---|
+| clean | nothing | rc 0, PASSED, 18 s | rc 0, PASSED, 24 s |
+| xcommon | `git init -q "$CTL/zzr" && rm -f "$CTL/zzr/.git/config" && mkfifo "$CTL/zzr/.git/config" && printf '../../zzr/.git\n' > "$CTL/clean/.git/commondir"` | rc 1, 3 s, P-g (pass 1: `zzr/.git` shape); no control run | rc 1, 4 s, same |
+| bareh | `git init -q --bare "$CTL/zzb.git" && ln -s / "$CTL/zzb.git/k2root"` | rc 1, 2 s, P-g (pass 1: `zzb.git`, a git dir not named `.git`) | rc 1, 4 s, same |
+| outsidein | `git init -q "$CTL/zzr" && ln -s / "$CTL/zzr/.git/k2root" && ln -s zzr "$CTL/zzq"` | rc 1, 3 s, P-g (pass 1: `zzr/.git` shape) | rc 1, 5 s, same |
+| hard | `printf x > "$_FW_DIR/zzh" && mkdir -p "$CTL/clean/.git/info" && rm -f "$CTL/clean/.git/info/exclude" && ln "$_FW_DIR/zzh" "$CTL/clean/.git/info/exclude"` | rc 1, 3 s, P-g (pass 1: one-link clause) | rc 1, 5 s, same |
+| xlink | `git init -q "$_FW_DIR/zzo" && rm -f "$_FW_DIR/zzo/.git/config" && mkfifo "$_FW_DIR/zzo/.git/config" && ln -s "$_FW_DIR/zzo" "$CTL/zzl" && printf '../../zzl/.git\n' > "$CTL/clean/.git/commondir"` | rc 1, 3 s, P-g (**pass 2 only**: `zzl`, a symlink to a tree holding a git dir) | rc 1, 5 s, same |
+| xincreg | `printf '[core]\n\texcludesFile = /nonexistent-k2\n' > "$CTL/zzi" && printf '[include]\n\tpath = ../../zzi\n' >> "$CTL/clean/.git/config"` | rc 1, 6 s, P-g by origin: `clean:[file:.git/config include.path=../../zzi;file:.git/../../zzi core.excludesfile=/nonexistent-k2]` | rc 1, 8 s, same |
+| hdless | `mkdir -p "$CTL/zzp/objects" "$CTL/zzp/refs" && mkfifo "$CTL/zzp/config" && printf '../../zzp\n' > "$CTL/clean/.git/commondir"` | **waits**: `alarm 120`, rc 142; the group held the window's bash and `git -C …/clean config --list --show-origin`, killed by group | same |
+| xinclude | `mkfifo "$CTL/zzi" && printf '[include]\n\tpath = ../../zzi\n' >> "$CTL/clean/.git/config"` | **waits**, the same | same |
+| outroot | `git init -q "$_FW_DIR/zzo" && rm -f "$_FW_DIR/zzo/.git/config" && mkfifo "$_FW_DIR/zzo/.git/config" && printf '%s\n' "$_FW_DIR/zzo/.git" > "$CTL/clean/.git/commondir"` | **waits**, the same | same |
+
+No process of any cell's group was left after the kill (`ps -ax -o pid=,command= | /usr/bin/grep -e 'config --list' -e 'the window could not enter'` → nothing). The `hard` insert is round 13's own
+(`printf x`), which differs from round 12's (`printf 'k2hard\n'`) only in the file's content.
+
+```sh
+#!/bin/bash
+# cell15.sh <tree> <tag> <b53|b32> <insert-file>
+# The insert goes just before the fixtures' `built` line. The run is its own process group
+# (perl setpgrp, so pgid = the perl/bash pid) with a literal 120 s alarm; afterwards only
+# processes in THAT group are listed and killed.
+A=${K2_CELLS:?}; tree=$1 tag=$2 sn=$3 ins=$4
+T=$A/cells/$tag.$sn; mkdir -p "$T" && (cd "$tree" && tar cf - --exclude=./target .) | (cd "$T" && tar xf -)
+python3 - "$T/.claude/tools/webref-generic-core-trip-wire.fixtures.sh" "$ins" <<'P'
+import sys;p,i=sys.argv[1],sys.argv[2];s=open(p).read();a=': > "$_FW_DIR/built"\n';assert s.count(a)==1
+s=s.replace(a,open(i).read()+a);open(p,'w').write(s)
+P
+if [ "$sn" = b32 ]; then SH=/bin/bash; P=/bin:/usr/bin:$PATH; else SH=/opt/homebrew/bin/bash; P=$PATH; fi
+mkdir -p "$A/home"; s0=$(date +%s)
+( cd "$T" && exec env HOME=$A/home PATH="$P" perl -e 'setpgrp; alarm 120; exec @ARGV' $SH .claude/tools/webref-generic-core-trip-wire.sh ) > "$T.log" 2>&1 & g=$!
+rc=0; wait "$g" || rc=$?
+echo "CELL $tag $sn rc=$rc t=$(( $(date +%s)-s0 ))s CF=$(/usr/bin/grep -c 'CONTROL FAILED' "$T.log") NE=$(/usr/bin/grep -c 'CONTROL NOT EXERCISED' "$T.log") PASSED=$(/usr/bin/grep -c 'trip-wire PASSED' "$T.log") stopped-before-controls=$(/usr/bin/grep -c K2PROTO "$T.log")"
+/usr/bin/grep -e '^!!' "$T.log" | cut -c1-220 | head -2 | sed 's/^/    /'
+o=$(ps -ax -o pid=,pgid=,command= | awk -v g="$g" '$2==g' | cut -c1-150)
+if [ -n "$o" ]; then echo "    LEFT in group $g (killed):"; echo "$o" | sed 's/^/      /'; kill -9 -"$g" 2>/dev/null; fi
+chmod -R u+rwX "$T" 2>/dev/null
+```
+
+| finding | disposition |
+|---|---|
+| IMP A (Ax2 IMP-1, Ax3 IMP-1): hdless / xinclude / nested alternates / outroot wait | **restated by property** (design memo §4 "The boundary", §5.2 R9's slot); the census is not extended; the cells above, with `xincreg` as the non-FIFO case |
+| IMP B (Ax2 IMP-2, Ax3 IMP-2): `xlink`, red only by pass 2, blocked on git | **fixed**: one verdict after both passes, read first by every git-running postcondition; prototype fixed and re-run; the `xlink` record added (corpus §6.1, C9) and the cell to X16; this file's round-12 sentence corrected |
+| IMP C (Ax5): what "final head" means | **fixed**: the head at squash time; X8, the ledger step and the final-head rows after TERMINAL, re-run on any head movement (design memo §9.1, land order step 4) |
+| Ax1: `_fw_trusted` with a writer and no reader; W2's record anchor after the rename; the old function name in present tense; §10 #2 | **fixed**: `_fw_built_or_w2` is its one reader; a C8 re-anchor row; "(… at `8413a4db`, … after C8)"; the one-link clause |
+| Ax2: the `hard` insert elided; pass 1 said "every symlink" | **fixed**: verbatim; symlinks are pass 2's list |
+| Ax3: X14's and X16's bounds; the slot's "Measured blocks" attribution; X9's expressions | **fixed**: 120 s ≈ 5 × 24 s, the cell method; 40 s = 5 × 8 s; `include.path` attributed to `xinclude`, `commondir` to `hdless` and `outroot`; X9 names draft 15's expressions |
+| Ax4: the §P heading; "the text is unchanged"; the dangling "this §13"; the memo's C5 row and provenance:662; the bare-"Rn" rule; X16's script and table; the P-k quoting source; the commands for the P-k and chained-alternates measurements; the reviews header | **fixed**. The rule now reads: a bare R1–R9 in the memo is a residual; in this file a residual is "§5.2 Rn", and 14 bare R1/R9 here were rewritten. X16 names `cell15.sh` and the R26③ table. The quoting source is git(1) `GIT_ALTERNATE_OBJECT_DIRECTORIES` (at line 1573 of `/opt/homebrew/opt/git/share/man/man1/git.1` for 2.55.0; round 13 said about 1008), with the file form measured |
+| Ax5: the memo's growth; the §P heading and the 9th item; corpus "killed at its commit" against X3; the slot trigger "#527's landing"; the interaction list | **fixed**: split `c92bbc18` (the status narrative into `…-reviews.md` §S); the heading and row; "killed when X3 runs at the final head"; the trigger is #501's squash merge into `main`; the `stale-claim-detector` lane added, and #510 at `5fb94705` |
+
+**Records planned by draft 15** (design memo §9.1, corpus §6.1):
+- −1 (P-j per-entry);
+- +2 (W2: `post_bad`, W3), with W2's existing record re-anchored;
+- +6 (P-g: `objects` link, FIFO `commondir`, scan status, `xcommon`, hard link, `xlink`);
+- +4 (P-k: alternates, liveness, status, stderr).
+
+That is **+11**: 61 records of this PR, **156** in all, `_MUT_RECORDS_MIN=156`, labels 18,
+`_MUT_UNRECORDED_MAX=21`. Draft 14's plan (155) is superseded. None of it is implemented yet.
