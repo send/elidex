@@ -22,7 +22,17 @@ ledger row (the A-row idiom) is drafted: no amendment here touches a surface the
 the S5-4 plan, neither of which keeps an A-row ledger; their records live in this memo under the A114 idiom ("recorded,
 not edited").
 
-**Revision 11** (2026-10-01) folds Codex round 2 on #532 (`4247d7f1`: 5 real). D-h's container becomes a shared handle
+**Revision 12** (2026-10-01) folds Codex round 3 on #532 (`bb4b92cf`: 3 real) and a self-root-check. Rounds 1–3 kept
+finding gaps in one mechanism — D-e's target selection (current-navigable name, `<base target>`, call-time resolution,
+app mode, descendants' live names, noopener). Root: D-e's behaviour change — a link's named miss promoted to a new tab, decided at **rev 5** and part
+of the plan-review-approved head `d117e1f0` — had made this node own §7.3.1.7 target selection, an algorithm outside its
+axes; rev 10–11 only added fidelity on top. **Rev 12 reverses that approved D-item** (narrowing; it reaches the user with
+this approval PR). Altitude correction: D-e keeps HEAD's selection and only gates its
+outcomes; the fidelity items are one obligation on `#11-browsing-context-model-window-open-postmessage`; J6 and cells
+revert (C27b–C27d move to the slot). U1: the content thread keeps the spawn-time popup set as an immutable creation input
+for every document of that browsing context (C19b), so later navigations do not lose it.
+
+*Rev 11* (2026-10-01) folds Codex round 2 on #532 (`4247d7f1`: 5 real). D-h's container becomes a shared handle
 on `HistoryEntry` (no side table, so cap eviction and truncation release it by construction). J6 snapshots the
 `window.open` target resolution at the call. D-e takes §4.2.3 whole (the `<base target>` fallback) and routes both
 shells' link clicks (app mode too) through the one selection. J8: from N6 frame-ancestors runs on the response, before
@@ -131,7 +141,13 @@ unamended. The `Tab` (`app/tab.rs:31-43`) holds `TraversableCreation { popup_san
 authoritative store and single writer; the value is computed content-side at §7.3.1.7; `TraversableCreation` is a
 **required** parameter of every content-thread spawn function, so a future respawn (design 05 §5.2.5; 09 §9.4 under the
 default `SiteIsolation`) supplies it by type. The spec holder is the top-level browsing context; a group swap (P5) is the
-future second writer. Shell-held on I5's interim ground.
+future second writer. Shell-held on I5's interim ground. The popup sandboxing flag set is written once, when the
+browsing context is created (§7.3.1.7 substep 9), and never changes; so the content thread keeps the value it was
+spawned with as an **immutable creation input** for every document it creates in that browsing context — the first one
+and each later `handle_navigate` rebuild (*determine the creation sandboxing flags*: embedder null → the popup set; C19b).
+The content thread's copy is a copy of an **immutable, single-writer value**, not a second store: the `Tab` keeps the
+authoritative value and stays the only writer, the copy can never diverge from it while the browsing context lives, and
+a respawn re-supplies it by type. A future second writer (P5's group swap) must respawn or re-supply it.
 
 **D1 — restriction form** (N2a): `SandboxingFlagSet` replaces `IframeSandboxFlags`. It also represents the *sandboxed
 navigation browsing context flag*, because D-a's steps 4.2 and 5 read it (the parent's F9 rule: every flag a program source
@@ -275,24 +291,22 @@ first sandboxed top-level sources (N6 CSP, N8 popup) through edge **n6b**. Outco
 **D-d — no post-hoc writer.** Documents are created only through the one production writer (fixtures included, with an
 explicit `DocumentCreationInput`); `bind_vm` does not stamp; no `test-hooks` feature.
 
-**D-e — *window open steps* step 5** stays in `elidex-script-session::navigation`, where HEAD has it (A25): a `window.open`
-entry maps `""` → `_blank` and then calls the shared disposition with a resolved target; the native only marshals. Links
-pass *get an element's target* (§4.2.3) unchanged, `""` = `_self` (*the rules for choosing a navigable* step 4). Behaviour
-change: a link's named-target miss becomes a new-tab promotion per step 8, gated by the auxiliary-navigation flag. A
-**miss** is the null result of *find a navigable by target name* (§7.3.1.7 step 7) over what the source can see, in one
-name lookup shared by links and `window.open`: the current navigable's own target name first (the source's
-`window.name`, `VmInner::window_name` — `<a target="foo">` in a document whose `window.name` is `foo` navigates that
-document, not a new tab), then its inclusive descendant navigables (HEAD's `find_iframe_by_name`,
-`content/iframe/lifecycle.rs:310`, called by the link path `link_nav.rs:80` and the `window.open` drain
-`content/navigation.rs:605`). The algorithm's other subtrees — the implementation-defined ancestor or
-traversable subtree (step 3) and the group's other top-level browsing contexts (step 7) — are not visible to the renderer:
-a name that exists only there is promoted instead of found. That is a recorded gap (A96), routed to
-`#11-browsing-context-model-window-open-postmessage` (the group and auxiliary-browsing-context model); HEAD's answer there
-(navigating the current document) is not the spec's either. A link's target is *get an element's target* (§4.2.3)
-whole: the element's `target` attribute when present (even empty — `<a target="">` is `_self`), **else the first `<base
-target>`** — HEAD reads only the attribute (`app/events.rs:204`), so N8 adds the base fallback. Both shells' link
-clicks go through this one selection: content mode (`content/link_nav.rs`) and app mode, whose click path
-(`app/events.rs:150-160`) navigates the current pipeline and drops the target at HEAD.
+**D-e — target selection stays HEAD's; this node gates its outcomes** (A25). *Window open steps* step 5 (`""` → `_blank`)
+stays in `elidex-script-session::navigation`, where HEAD has it; the native only marshals. *Which* navigable a link or
+`window.open` names — *the rules for choosing a navigable* (§7.3.1.7) with *find a navigable by target name*, *get an
+element's target* (§4.2.3), *get an element's noopener* (§4.6.5), resolution at the call, and both shells' link paths —
+is **not** this node's. HEAD's selection is kept unchanged: the target attribute only; a named hit among child iframes by
+their element `name` (`content/iframe/lifecycle.rs:310`); a link's named miss navigates the current document
+(`link_nav.rs:78-88`); a `window.open` named miss is promoted to a new tab at the drain (`content/navigation.rs:605-624`).
+Its fidelity gaps are one obligation of `#11-browsing-context-model-window-open-postmessage` (§8). This node changes only
+the **gates on the outcomes**: a popup is gated by the call-time auxiliary-navigation flag (J6) and carries the popup set
+(N8); a navigation of another navigable is gated by D-a's relation. None of HEAD's selection gaps is a restriction escape —
+each yields a self-navigation, a descendant navigation (allowed, §7.4.2.4 step 2) or a gated popup. *Withdrawn at rev 12*:
+the behaviour change decided at rev 5 (a link's named miss promoted to a new tab) and the target-selection fidelity rev
+10–11 added to it
+(the current navigable's own name, descendants' live names, `<base target>`, noopener, call-time resolution, app-mode
+clicks). Codex rounds 1–3 kept finding gaps in that one mechanism; the cause was that D-e had made the node own an
+algorithm outside its axes, so the items go to the slot as records, not into a nested PR.
 
 **D-h — policy containers** (N6). *Determine navigation params policy container* (§7.1.7) whole: step 1 (history-stored
 container) as **document-state** data, not per-entry data: the spec keeps the *history policy container* in the entry's
@@ -356,10 +370,8 @@ rule to its own PR; the parent's `:1377-1380` exception covers only IBP-layout a
   from **N8**; parser mode from the same input from **N9**.
 - **J5 Global-kind discrimination** — from **N4**: `WorkerGlobalRoot`, stamped by `Vm::bind_worker` (the parent's seam) on
   a worker-kind VM only (N4's guard), is the only non-Window test. No production worker-realm reader exists after N1; C7's direct oracle pins it.
-- **J6 Snapshot at call** — HEAD for the aux-nav verdict; the popup set and the **target resolution** from **N8**: a
-  `window.open` chooses its navigable during the call (§7.2.2.1, §7.3.1.7), so the shared name lookup (D-e) runs at the
-  call and the queued intent carries the resolved navigable or the miss — the drain does not re-run
-  `find_iframe_by_name` (HEAD does, `content/navigation.rs:605`, so a rename between call and drain changes the answer).
+- **J6 Snapshot at call** — HEAD for the aux-nav verdict; the popup set from **N8**. (Resolving the *target* at the call is
+  target selection — D-e, the slot's.)
 - **J7 Union in restriction form** — from **N2a**.
 - **J8 One CSP parser** — from **N3** (frame-ancestors); F19 and the CSP-derived flags from **N6**. From **N6** the
   frame-ancestors check (CSP3 §6.4.2.1) and the X-Frame-Options fallback run at the **response** stage, on the response's
@@ -405,8 +417,8 @@ settings document; unresolvable → the node clause alone is false).
 | WHATWG HTML §7.1.5 Sandboxing | *popup sandboxing flag set* | writer 1; writer 2 (§7.1.3.2 13–14) → slot | N8 | ✗ | yes |
 | WHATWG HTML §7.3.1.7 Navigable target names | *the rules for choosing a navigable* steps 3, 4, 8 (substeps 7, 8.1, 9) | substep 8.2 → `#11-browsing-context-model-window-open-postmessage` facet (1) | N8 | ✗ | yes |
 | WHATWG HTML §7.2.2.1 Opening and closing windows | *window open steps* step 5 | `""` → `_blank` in the session's `window.open` entry (D-e) | N8 | ✓ | yes |
-| WHATWG HTML §4.2.3 The base element | *get an element's target* | links pass it unchanged; `""` = `_self` | N8 | ✓ | yes |
-| WHATWG HTML §4.6.5 Following hyperlinks | *get an element's noopener* | `_blank` without `rel=opener` | N8 | ✓ | yes |
+| WHATWG HTML §4.2.3 The base element | *get an element's target* | HEAD's attribute-only read kept; the `<base target>` fallback → `#11-browsing-context-model-window-open-postmessage` (D-e) | — | ✗ | yes |
+| WHATWG HTML §4.6.5 Following hyperlinks | *get an element's noopener* | `_blank` without `rel=opener` (HEAD); noopener in named-target selection → the slot (D-e) | N8 | ✗ | yes |
 | WHATWG HTML §7.4.2.4 Preventing navigation | *allowed by sandboxing to navigate* steps 1–6 | 4.1 → `#11-browsing-context-model-window-open-postmessage` facet (1), restrictive until then (D-a) | N2b | ✗ | yes |
 | WHATWG HTML §7.3.2.1 Creating browsing contexts | *create a new browsing context and document* steps 6, 15, 19.2; *determine the origin* 1–5 | popup initial `about:blank` → slot | N5, N6, N7 | ✗ | no |
 | WHATWG HTML §7.4.5 Populating a session history entry | *create navigation params by fetching* 21.9–21.11; *… from a srcdoc resource* 3, 6 | fetched; `srcdoc` | N6 | ✓ | yes |
@@ -435,8 +447,8 @@ settings document; unresolvable → the node clause alone is false).
 
 The `sandbox` attribute; CSP headers (new parse surface, N3); `window.open` target/URL; link `target`/`rel`; `<noscript>`
 (N9). New sources only add restrictions; absence fails closed; D-a widens one outcome (a sandboxed top-level document may
-navigate itself via `_top` — source is target, no escape); D-e adds new-tab promotion for link named misses, gated by the
-auxiliary-navigation flag. The node clause's unresolvable arm is HEAD's (the parent's interim): it makes only the node
+navigate itself via `_top` — source is target, no escape); D-e keeps HEAD's target selection and only gates its
+outcomes. The node clause's unresolvable arm is HEAD's (the parent's interim): it makes only the node
 clause false; the settings clause is always evaluated (D8).
 
 ## §4. Facts → mechanisms (Home/kind lines decided; the rest input)
@@ -512,9 +524,11 @@ clause false; the settings clause is always evaluated (D8).
 
 **Accepted interim windows** — the population is **every window a decided item opens**: J1–J14 and J17, U1, the D-items,
 `bind_worker`'s kind guard, the node clause and the amendments (§0.4). Each window equals HEAD or is more restrictive than it; none is a restriction escape. This is a claim about **interim
-windows** only. It does not cover the spec-driven relaxation the node makes on purpose: D2 removes invoke-time suppression
-at N1, so a handler compiled while its element was live (or set through IDL) runs after the element moves into a
-DOMParser document (C8b, A17) — less restrictive than HEAD, by design, and listed under *Closed* as the spec's outcome.
+windows** only. It does not cover the two spec-driven relaxations the node makes on purpose, each less restrictive than HEAD by design
+and listed under *Closed* as the spec's outcome: D2 removes invoke-time suppression at N1, so a handler compiled while its
+element was live (or set through IDL) runs after the element moves into a DOMParser document (C8b, A17); and D-a (N2b)
+lets a sandboxed top-level document navigate itself through `_top`/`_parent` (§7.4.2.4 step 1, source is target), which
+HEAD blocks (`link_nav.rs:56`, `script-session` `navigation.rs:279-283`).
 A later review may not read "equals HEAD or stricter" as a monotonicity invariant over the whole node.
 Listed (open):
 - J1/J2/J3 (store, absence, stamp): N2a–N5 the store is `HostData` with `empty()` for "not sandboxed" (J14); before N4 an
@@ -532,7 +546,7 @@ Listed (open):
   `allow-forms` (A96); equals HEAD until N5 closes it (D8, C33).
 - D-a step 4.1: from N2b until `#11-browsing-context-model-window-open-postmessage` facet (1) lands, a sandboxed source is
   never the one permitted sandboxed navigator — **more restrictive** than the spec and HEAD; unreachable in production
-  today (named hits resolve only child navigables, `link_nav.rs:76-85`; `window.open` drains only on the top level).
+  today (named hits resolve only child navigables, `link_nav.rs:78-88`; `window.open` drains only on the top level).
 - Node clause: the parent's interim until the `#11-domparser-full-document-parse-fidelity` marker lands — the parent's
   accepted window (`:1180`), restated, not opened here. Its extent is the **node clause only**: an unresolvable node
   document makes that clause false, while the settings clause is evaluated for every subject (D8), and an F10r reader
@@ -545,8 +559,8 @@ composition given the element, D8), so the reverse case (a `createElement` node 
 document) stays suppressed and the mirror case (a DOMParser node appended into the live document) runs at every landing;
 and a detached owner-`None` element in a sandboxed realm stays suppressed at every landing (settings clause first, C28b);
 D1 (re-keyed in place); U1, D3, D4, D6, D7, D-d (no runtime change); D8's subject variants and per-reader settings
-documents (equal today; they diverge only under B1) and `bind_worker`'s kind guard (only worker VMs reach it today); D-e (spec
-behaviour change, gated by the auxiliary-navigation flag); D-h (its blob arm is HEAD's absence, A96); the parent and S5-4
+documents (equal today; they diverge only under B1) and `bind_worker`'s kind guard (only worker VMs reach it today); D-e (no runtime change: HEAD's
+target selection, gated as at HEAD); D-h (its blob arm is HEAD's absence, A96); the parent and S5-4
 amendments (records of the decisions above). D2's handler compiled while live and then moved into a DOMParser document
 runs from N1 (C8b) — the spec's outcome (A17), not a window.
 
@@ -703,9 +717,14 @@ registration and re-eval date (2026-11-01) the parent ratified (§6 row); this n
   re-eval); re-eval per the registration-timing rule (approval merge + 1 month).
 - `#11-browsing-context-model-window-open-postmessage` — iframe-originated opens (facet (4)); substep 8.2 (facet (1)), which
   now owns the one permitted sandboxed navigator end to end — its writer and §7.4.2.4 step 4.1's reader (D-a, D6); append
-  the popup initial `about:blank` F19 clone and the auxiliary browsing-context object; and the target-name lookup outside
-  the renderer's view (*find a navigable by target name* steps 3 and 7: ancestor/traversable subtrees and the group's other
-  top-level browsing contexts), where a name is today promoted instead of found (D-e, A96).
+  the popup initial `about:blank` F19 clone and the auxiliary browsing-context object; and **target selection** (D-e, A96),
+  one canonical implementation of §7.3.1.7 *the rules for choosing a navigable* for links and `window.open` in both
+  shells: *find a navigable by target name* whole (the current navigable's own target name, i.e. `window.name`;
+  descendants by their live target names, not the element `name`; the ancestor/traversable subtrees and the group's other
+  top-level browsing contexts), *get an element's target* whole (the `<base target>` fallback HEAD lacks,
+  `app/events.rs:204`), *get an element's noopener* in named selection, resolution during the call rather than at the drain
+  (HEAD re-runs `find_iframe_by_name` at `content/navigation.rs:605`), and app mode's click path, which drops the target
+  (`app/events.rs:150-160`). Rev 10–11's cells C27b–C27d move with it.
 - `#11-oop-iframe-navigate-completeness` — enriched at N5: `BrowserToIframe::Navigate` carries the document's creation
   sandboxing flags from N5 (C9; `iframe/thread.rs:227` reads them), so a production sender must compute them through
   `determine_creation_sandboxing_flags` (N7).
@@ -733,7 +752,7 @@ registration and re-eval date (2026-11-01) the parent ratified (§6 row); this n
 
 | Record | Ships with |
 |---|---|
-| Amendments of the parent: F9 cell inner type, F10r cell text (D1); F10r cell's input domain — a node-derived document that may be unresolvable or a non-Window document without F9, each read as `all_represented()` (D8; the rule "flag absence can never fail open" unchanged, the domain widened beyond "a Window settings document"); F10 cell's `document_root` wording (D8); §4 F11 obligation and §3 §13.2.4.5 row (D4); §6 rows: D6 widening, the three new slots; the E26 reading (D7). Amendments of S5-4: §4.1 (D1); the D2 list; §4.3.3's top-navigation decision (D-a). Withdrawn-item record: rev 4's D-b/D-c/J15/J16/N4 `node-document` and rev 5's worker-root-creation writer of `WorkerGlobalRoot` (never ratified; listed so no later plan cites them); rev 5's N2 is split into N2a/N2b (the name `N2` is not reused). Slots registered at approval: `#11-sandbox-flag-set-sources` (re-eval 2026-11-01, the parent's); `#11-csp-violation-reporting`; `#11-policy-container-members`; `#11-nested-iframe-loading` | **the approval PR** |
+| Amendments of the parent: F9 cell inner type, F10r cell text (D1); F10r cell's input domain — a node-derived document that may be unresolvable or a non-Window document without F9, each read as `all_represented()` (D8; the rule "flag absence can never fail open" unchanged, the domain widened beyond "a Window settings document"); F10 cell's `document_root` wording (D8); §4 F11 obligation and §3 §13.2.4.5 row (D4); §6 rows: D6 widening, the three new slots; the E26 reading (D7). Amendments of S5-4: §4.1 (D1); the D2 list; §4.3.3's top-navigation decision (D-a). Withdrawn-item record: rev 4's D-b/D-c/J15/J16/N4 `node-document` and rev 5's worker-root-creation writer of `WorkerGlobalRoot` (never ratified; listed so no later plan cites them); rev 5's N2 is split into N2a/N2b (the name `N2` is not reused). Slots registered at approval: `#11-sandbox-flag-set-sources` (re-eval 2026-11-01, the parent's); `#11-csp-violation-reporting`; `#11-policy-container-members`; `#11-nested-iframe-loading`; append to `#11-browsing-context-model-window-open-postmessage`: target selection (D-e — a gap at HEAD, A96, so it is registered at approval like `#11-form-navigation`) | **the approval PR** |
 | Memory: append to the roadmap's `#11-form-navigation` row (text = §8's `#11-form-navigation` bullet) — §4.10.22.3 steps 1, 5.9 and 9 (*cannot navigate*, §4.6.5) and `form.submit()`'s step 4 forms-flag read are that slot's obligation under its existing trigger (A96); reachable today through listener detach — a form detached before activation submits from N5 only if its document resolves to one carrying F9, else refuses (C34); one detached during `submit` submits at HEAD and after N5 (C35) | **the approval PR** |
 | Memory dispositions applied 2026-10-01 ahead of approval (the overdue table above; the open-slot ledger's `#11-transient-activation-tracking` backstop; `#11-worker-blob-script` registered in the open-slot ledger with its D-h append, citing this memo's §8, and its roadmap row's (`m4-12-platform-gap-roadmap.md`, `#11-worker-blob-script`) expired trigger replaced by "a blob URL store lands"): each cites this memo and is ratified by the approval PR's merge | **the approval PR** |
 | Memory: `project_open-defer-slots.md` — the `#11-scripting-disabled-eventhandler-processing-step1` closure ground and the `#11-cross-document-adopt-on-insert` entry restated (its event-dispatch gate deleted); `project_s5-4-sandbox-kickoff.md:35` | N1 |
