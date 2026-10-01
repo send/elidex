@@ -22,7 +22,15 @@ ledger row (the A-row idiom) is drafted: no amendment here touches a surface the
 the S5-4 plan, neither of which keeps an A-row ledger; their records live in this memo under the A114 idiom ("recorded,
 not edited").
 
-**Revision 9** (2026-10-01) folds the Step 4.5 focused re-check on rev 8 (0 CRIT / 1 IMP / 4 MIN). *IMP*: rev 8's "the shell's
+**Revision 10** (2026-10-01) folds Codex round 1 on the approval PR (#532 at `d117e1f0`: 3 real, 1 FP). D-e defines a
+named **miss** as the null result of *find a navigable by target name* over what the renderer sees — the current
+navigable's own `window.name` first, then its descendants; the rest is a recorded gap on
+`#11-browsing-context-model-window-open-postmessage` (C27b). D-h keeps the history policy container as document-state data
+keyed by `document_sequence`, so same-document entries share it (C14c). §5.1's "equals HEAD or stricter" is scoped to
+interim windows, with D2's spec-driven relaxation named. Rejected: unioning enforced CSP `sandbox` directives — HTML
+§7.1.5 *CSP-derived sandboxing flags* step 4 takes the last one (C14 stands).
+
+*Rev 9* (2026-10-01) folds the Step 4.5 focused re-check on rev 8 (0 CRIT / 1 IMP / 4 MIN). *IMP*: rev 8's "the shell's
 submission entries are connected by construction" was false at `f1cf5d67` — both entries dispatch script-observable events
 (`mousedown`/`mouseup`/`click`; `keydown`) before `handle_form_submit`, so a listener can detach the form, and HEAD submits it;
 and §4.10.22.3 checks *cannot navigate* three times (steps 1, 5.9 after the `submit` event, 9 after the `formdata` event).
@@ -264,11 +272,25 @@ explicit `DocumentCreationInput`); `bind_vm` does not stamp; no `test-hooks` fea
 **D-e — *window open steps* step 5** stays in `elidex-script-session::navigation`, where HEAD has it (A25): a `window.open`
 entry maps `""` → `_blank` and then calls the shared disposition with a resolved target; the native only marshals. Links
 pass *get an element's target* (§4.2.3) unchanged, `""` = `_self` (*the rules for choosing a navigable* step 4). Behaviour
-change: a link's named-target miss becomes a new-tab promotion per step 8, gated by the auxiliary-navigation flag.
+change: a link's named-target miss becomes a new-tab promotion per step 8, gated by the auxiliary-navigation flag. A
+**miss** is the null result of *find a navigable by target name* (§7.3.1.7 step 7) over what the source can see, in one
+name lookup shared by links and `window.open`: the current navigable's own target name first (the source's
+`window.name`, `VmInner::window_name` — `<a target="foo">` in a document whose `window.name` is `foo` navigates that
+document, not a new tab), then its inclusive descendant navigables (HEAD's `find_iframe_by_name`,
+`content/iframe/lifecycle.rs:310`, called by the link path `link_nav.rs:80` and the `window.open` drain
+`content/navigation.rs:605`). The algorithm's other subtrees — the implementation-defined ancestor or
+traversable subtree (step 3) and the group's other top-level browsing contexts (step 7) — are not visible to the renderer:
+a name that exists only there is promoted instead of found. That is a recorded gap (A96), routed to
+`#11-browsing-context-model-window-open-postmessage` (the group and auxiliary-browsing-context model); HEAD's answer there
+(navigating the current document) is not the spec's either.
 
 **D-h — policy containers** (N6). *Determine navigation params policy container* (§7.1.7) whole: step 1 (history-stored
-container) as a new `HistoryEntry` field (`elidex-navigation/src/navigation.rs:18`) written when a navigation to a URL that
-requires storing the container commits; 2 `about:srcdoc`; 3 local URL + initiator; 4 response container; 5 new. *Create a
+container) as **document-state** data, not per-entry data: the spec keeps the *history policy container* in the entry's
+document state (§7.4.1.2), which same-document entries share. Home: a table on `NavigationController` (`elidex-navigation`, beside its entries) keyed by the entry's
+same-document identity, `HistoryEntry::document_sequence` (`elidex-navigation/src/navigation.rs:51`), which `push_same_document` (`:182`, pushState
+and fragment navigations) inherits — so a same-document entry carries its document's container by construction, and a
+traversal back to it after a cross-document navigation reads the container, not a default. Written when a navigation to a
+URL that requires storing the container commits; 2 `about:srcdoc`; 3 local URL + initiator; 4 response container; 5 new. *Create a
 policy container from a fetch response*: steps 2–7; **step 1 (blob URL) is A96** — elidex has no blob URL store (A26) —
 routed to `#11-worker-blob-script` with the added trigger "a blob URL store lands".
 
@@ -469,7 +491,11 @@ clause false; the settings clause is always evaluated (D8).
 | **N9 `IBP-sandbox-parser-mode`** | F11; `range/mutation.rs:632` re-pointed |
 
 **Accepted interim windows** — the population is **every window a decided item opens**: J1–J14 and J17, U1, the D-items,
-`bind_worker`'s kind guard, the node clause and the amendments (§0.4). Each window equals HEAD or is more restrictive than it; none is a restriction escape.
+`bind_worker`'s kind guard, the node clause and the amendments (§0.4). Each window equals HEAD or is more restrictive than it; none is a restriction escape. This is a claim about **interim
+windows** only. It does not cover the spec-driven relaxation the node makes on purpose: D2 removes invoke-time suppression
+at N1, so a handler compiled while its element was live (or set through IDL) runs after the element moves into a
+DOMParser document (C8b, A17) — less restrictive than HEAD, by design, and listed under *Closed* as the spec's outcome.
+A later review may not read "equals HEAD or stricter" as a monotonicity invariant over the whole node.
 Listed (open):
 - J1/J2/J3 (store, absence, stamp): N2a–N5 the store is `HostData` with `empty()` for "not sandboxed" (J14); before N4 an
   unbound gate reads HostData as at HEAD.
@@ -564,7 +590,9 @@ Input file §B defines populations (a)–(h) by property with counts at `f1cf5d6
   `all_represented()` (C32). N5 adds the forms-flag read the VM's `form.requestSubmit()` lacks at HEAD
   (`vm/host/html_form_proto.rs:499`), at step 4's position — before the validation block (`:546`, which fires `invalid`) and
   the `submit` dispatch (`:563`) — through F10r on the form document (D8, C33). N5 implements no *cannot navigate* check (§4.10.22.3 steps 1, 5.9, 9 are `#11-form-navigation`'s, A96).
-- **N6**: `HistoryEntry`'s new field and its write point (D-h); error-page fallbacks per §7.5.7; the depth-limit fallback
+- **N6**: the history policy container as document-state data keyed by `document_sequence`, and its write point (D-h);
+  the table drops a sequence when the last entry carrying it is pruned (forward-history truncation, replace) — no orphaned
+  containers; error-page fallbacks per §7.5.7; the depth-limit fallback
   has no spec counterpart.
 - **N7**: computing the iframe set and the embedder's set is shell marshalling (`build_load_context`,
   `iframe/lifecycle.rs:381-406`); only top-level embedders exist in production.
@@ -655,7 +683,9 @@ registration and re-eval date (2026-11-01) the parent ratified (§6 row); this n
   re-eval); re-eval per the registration-timing rule (approval merge + 1 month).
 - `#11-browsing-context-model-window-open-postmessage` — iframe-originated opens (facet (4)); substep 8.2 (facet (1)), which
   now owns the one permitted sandboxed navigator end to end — its writer and §7.4.2.4 step 4.1's reader (D-a, D6); append
-  the popup initial `about:blank` F19 clone and the auxiliary browsing-context object.
+  the popup initial `about:blank` F19 clone and the auxiliary browsing-context object; and the target-name lookup outside
+  the renderer's view (*find a navigable by target name* steps 3 and 7: ancestor/traversable subtrees and the group's other
+  top-level browsing contexts), where a name is today promoted instead of found (D-e, A96).
 - `#11-oop-iframe-navigate-completeness` — enriched at N5: `BrowserToIframe::Navigate` carries the document's creation
   sandboxing flags from N5 (C9; `iframe/thread.rs:227` reads them), so a production sender must compute them through
   `determine_creation_sandboxing_flags` (N7).

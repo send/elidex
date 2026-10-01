@@ -133,6 +133,7 @@ as engine-independent equivalents. Oracles: `elidex-plugin` truth tables, `elide
 | C13b | `<iframe sandbox src=…>` with an external `<script src>`: not fetched | N6 |
 | C14 | report-only `sandbox` no effect; two enforced `sandbox` policies: the last wins | N6 |
 | C14b | a traversal back to a local-URL document restores its history-stored policy container (D-h, step 1) | N6 |
+| C14c | a `pushState` (and a fragment) entry of a document whose URL requires storing the policy container, then a cross-document navigation, then a traversal back to that same-document entry: the document's history policy container is restored, not a default (D-h, shared document state) | N6 |
 | C15 | `srcdoc` child of a CSP-sandboxed top level: F19 clone, F9 from the union, scripts off | N7 (lands second; N6 → N7) |
 | C16 | CSP-sandboxed (`sandbox allow-scripts`) top level embeds an iframe with no `sandbox`: scripts on, origin opaque, forms refused | N7 |
 | C17 | CSP-sandboxed top level (`sandbox allow-scripts`): `_top` / `_parent` by link click and by `window.open` are allowed with and without activation (§7.4.2.4 step 1, source is target); 3.2/3.3 pinned at unit level with `TargetIsAncestor { target_is_top_level: true }` × activation; depth 2 `_parent` → `TargetIsAncestor { target_is_top_level: false }` (3.1); unknown depth → the restrictive relation; 4.2/5 with the sandboxed navigation flag; 4.1 never permitted (interim) | N2b |
@@ -145,6 +146,7 @@ as engine-independent equivalents. Oracles: `elidex-plugin` truth tables, `elide
 | C23 | the `content-visibility` pin (noscript witness at (10px, 40px) inside `hidden="until-found"`; elidex hits the `span`, conformant the `div`; flip = the c-v PR wiring skipped contents into hit testing), recorded by its first firer | N9 by default |
 | C24 | two roots in one `EcsDom` (`tests_match_media.rs:850-857`): bound to `doc_a`, gates read `doc_a`'s F9 | N5 |
 | C27 | a link whose named target misses opens a new tab when the auxiliary-navigation flag is clear, and does nothing when set; `<a target="">` navigates `_self` | N8 |
+| C27b | `window.name = 'foo'` then `<a target="foo">` (and `window.open(url, 'foo')`): navigates the current context, no new tab, and no block in a sandbox without `allow-popups` (D-e) | N8 |
 | C28 | the node clause's unresolvable arm (parent's interim), **through the compile gate**, with an **unsandboxed** settings document: a parser-created element (owner `None`, A23) detached by script, with a raw handler attribute, resolves no node document and its handler compiles | N4 |
 | C28b | C28's sandboxed twin: the same detached owner-`None` element with a raw handler, in a realm whose settings document has no `allow-scripts` — the getter is null and the handler never runs, at N1 (HEAD's composition, settings clause first) and every later landing | N1 |
 | C29 | HEAD's proxy case **through the compile gate**: a DOMParser-created node appended into the live document resolves to the live document (composed tree root); its raw handler compiles and runs | N4 |
