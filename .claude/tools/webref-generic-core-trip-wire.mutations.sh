@@ -42,7 +42,7 @@
 # `_MUT_TARGETS`, `_MUT_PARTS`, `_mutants`, `_mut_correspondence`, `_mut_src_for`,
 # `_mut_target`, `_mut_parse`, `_mut_apply`, `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The generated
 # half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
-# `_mut_splice`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`, sourced below.
+# `_mut_splice`, `_mut_gen_floor`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`, sourced below.
 #
 # TWO POPULATIONS, AND THE BOUNDARY IS WHAT EACH ONE'S UNIT IS.
 #   * `_mutants` — HAND-WRITTEN, and its unit is a LABEL: every `_control`'s
