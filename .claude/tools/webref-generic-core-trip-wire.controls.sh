@@ -69,8 +69,7 @@ if [ -n "$_ctl_missing" ]; then
   echo "   Run the wire instead — it sources this file and refuses to run without it." >&2
   exit 2
 fi
-# DEFINED BEFORE THE HARNESS IS SOURCED: the harness writes `$_pn_lbl` into the
-# pinned `git` it generates while it loads.
+# DEFINED BEFORE THE HARNESS IS SOURCED: the harness uses `$_fws_lbl` while it loads.
 # ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
 # a mutation record (the ratchet counts every `_lbl="…"` definition as well as
 # every `_control` label). What each asserts is tabled in
@@ -92,9 +91,14 @@ _pi_lbl="the fixture repos use the files ref format"
 _pj_lbl="the fixture build window runs the pinned git first on its PATH"
 _pk_lbl="no fixture repo reads objects from a store outside it"
 _pkl_lbl="this git reports alternate object stores"
-_pn_lbl="the pinned git never re-enters itself"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
+# …the labels of the three blocks that are not a `_control` (their producers sit
+# below), defined HERE so the check that follows can ask for every label at once:
+_rel_lbl="a relative scratch dir is removed on exit"
+_fsm_lbl="a caller's fsmonitor hook does not run"
+_umask_lbl="a restrictive umask decides nothing"
+_lbd_lbl="every label the parts use is defined"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -102,6 +106,30 @@ _HARNESS="${SELF%.sh}.harness.sh"
 if [ ! -r "$_HARNESS" ]; then
   echo "!! the control harness beside these controls ($_HARNESS) is missing or" >&2
   echo "   unreadable, so no control here can run. This run decided nothing." >&2
+  exit 2
+fi
+# ⚠ EVERY LABEL A PART REFERENCES IS DEFINED AND NON-EMPTY, asked before anything
+# else runs. A label renamed here and left in a producer is reached only when
+# that producer fires, so the rename can sit unseen behind a green run: the names
+# are derived from the parts' own text, by the regex the harness uses to forward
+# the postconditions' labels, not listed. The parts read are the
+# harness, this file, the mutation set and its generated half; one that is not
+# readable is reported by its own check (the harness above, the mutation set at
+# the end of this file, the generated half in the mutation set).
+_lbd_files=()
+for _lbd_f in "$_HARNESS" "$_CONTROLS" "${SELF%.sh}.mutations.sh" "${SELF%.sh}.mutgen.sh"; do
+  [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
+done
+_lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
+_lbd_missing=""
+for _lbd_n in $_lbd_names; do
+  [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
+done
+if [ -z "$_lbd_names" ]; then
+  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the parts, so none was checked" >&2
+  exit 2
+elif [ -n "$_lbd_missing" ]; then
+  echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2
   exit 2
 fi
 # shellcheck source=/dev/null
@@ -195,7 +223,6 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
 # ⚠ Gated, like every `_control`, on the window having built the tree.
-_rel_lbl="a relative scratch dir is removed on exit"
 if ! _fw_built_or_w2; then ctl_ok=1
 elif ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
@@ -340,7 +367,6 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl
 # verdict cannot say. ⚠ The hook is first shown to run under a plain git call
 # over the same fixture, or its not running under the wire would prove nothing.
 # The hook's path goes through `_shq`, as every embedded path here does.
-_fsm_lbl="a caller's fsmonitor hook does not run"
 if ! _fw_built_or_w2; then ctl_ok=1; else
 _fsm_mark="$_VFY/.fsmonitor_ran"
 printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
@@ -378,7 +404,6 @@ if [ "$_perm_ok" -eq 1 ]; then
   _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
   # Not a `_control`: `_control` has no umask channel. A umask that leaves the
   # scratch dir unsearchable makes it unresolvable to a physical path.
-  _umask_lbl="a restrictive umask decides nothing"
   # ONE GATE: the assertion lives inside the branch that ran the umask run, so
   # the run and its report cannot disagree about whether there was a run.
   if ! _fw_built_or_w2; then ctl_ok=1

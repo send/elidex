@@ -83,7 +83,7 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 #   makes the window fail, red, never a different `git`. Which of the
 #   fixtures' other commands runs is outside P
 #   (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §1, "Outside P").
-#   P-j checks the shape (`$_FGIT_BIN` first, the pinned `git`) from inside.
+#   P-j checks the shape (`$_FGIT_BIN` first, the pinned `git`, and a `PATH` without it passed on) from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
   _fr="$(type -P "$1")" || _fr=""
   case "$_fr" in /*|"") ;; *) _fr="$PWD/$_fr" ;; esac
@@ -95,20 +95,24 @@ mkdir "$_FGIT_BIN" || exit 2
 # fixtures' shims exec) are both built from `$_FGIT_GIT`, so they cannot name
 # two different files.
 _FGIT_GIT="$(_fgit_resolve git)"
+# ⚠ EVERY EXEC-THROUGH SHIM IS BUILT HERE, BY THIS ONE FUNCTION, and each one
+# removes ITS OWN directory from the front of `PATH` before it execs. A `git`
+# that hands over to "the next `git` on `PATH`" (strip-own-dir, `which -a`
+# skipping itself, or a re-exec under `env -i PATH=…`) would otherwise find the
+# shim again — the shim's directory is first on every `PATH` that reaches it —
+# and the two exec each other forever, with no output and a core spinning. A
+# counter cannot see that (the `env -i` form resets it); removing the way back
+# can, in any idiom. `$1` = the shim's file (its directory is the one removed),
+# `$2` = shell code run before the exec (may be empty), `$3` = what is exec'd,
+# already quoted (`_shq`). Reaches the window through the prelude.
+_fgit_shim() {
+  printf '#!/bin/sh\nPATH=${PATH#%s:}\n%s\nexec %s "$@"\n' "$(_shq "${1%/*}")" "$2" "$3" > "$1" \
+    && chmod +x "$1"
+}
 if [ -n "$_FGIT_GIT" ]; then
-  # ⚠ THE PIN COUNTS ITS OWN RE-ENTRIES. A `git` on the caller's PATH that hands
-  # over to "the next `git` on PATH" (strip-own-dir, or `which -a` skipping
-  # itself) finds this pin again — the window's PATH starts with `$_FGIT_BIN` —
-  # and the two exec each other forever, with no output and a core spinning.
-  # `K2_FGIT_PIN_DEPTH` is exported to what the pin execs, so a cycle crosses
-  # the limit at once and ends loud; a legitimate nested git (a hook, an alias)
-  # never gets near it. ⚠ DELETING THIS GUARD RESTORES A HANG, which no record
-  # can observe without one — that is the liveness slot's class
-  # (`#11-trip-wire-liveness-bound`), not this guard's to pin.
-  _FGIT_PIN_LIMIT=8
-  { printf '#!/bin/sh\nK2_FGIT_PIN_DEPTH=${K2_FGIT_PIN_DEPTH:-0}\nif [ "$K2_FGIT_PIN_DEPTH" -ge %s ]; then\n  echo %s >&2\n  exit 125\nfi\nK2_FGIT_PIN_DEPTH=$((K2_FGIT_PIN_DEPTH + 1)); export K2_FGIT_PIN_DEPTH\nexec %s "$@"\n' \
-      "$_FGIT_PIN_LIMIT" "$(_shq "!! CONTROL FAILED ($_pn_lbl): the pinned git was entered again from the git it runs")" "$(_shq "$_FGIT_GIT")" \
-      > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
+  # The pin. P-j checks, from inside the window, that the `PATH` a `git` it runs
+  # passes on does not hold `$_FGIT_BIN`.
+  _fgit_shim "$_FGIT_BIN/git" "" "$(_shq "$_FGIT_GIT")" || exit 2
 fi
 _FGIT_PATH="$_FGIT_BIN:$PATH"   # the caller's PATH, verbatim, behind the pin (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1)
 _FGIT_ENVBIN="$(_fgit_resolve env)"
@@ -140,7 +144,7 @@ _FGIT_WIRE_LC="${LC_ALL:-}"
 # State the parent reads back — assigned before anything reads it (nothing here
 # relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
-_fw_rc=0; _fw_done=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
+_fw_rc=0; _fw_done=0; _fw_post_ok=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
 _fw_trusted=0
 _fw_seal_bad=""; _fw_limits=""
 # The postconditions, run INSIDE the window after the build. Their labels
@@ -156,7 +160,7 @@ _fgit_postconditions() {
   # the build could know (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4,
   # "The references and the working files"). `$_FW_DIR` keeps only what
   # both sides name: the two sourced files, the seal manifest `seal`, and the
-  # return channel (`built`, `done`, `cause`, `post_bad`, `machine_limits`,
+  # return channel (`built`, `done`, `cause`, `post_ok`, `post_bad`, `machine_limits`,
   # `seal_failed`, `fix_failed`, `stderr`).
   _pq="$(mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX")" && [ -n "$_pq" ] && [ -d "$_pq" ] \
     || { echo "!! CONTROL FAILED ($_pg_lbl): the postconditions' directory could not be made fresh" >&2; return 1; }
@@ -179,15 +183,20 @@ _fgit_postconditions() {
   # 1 classified. Pass 1: classification and shape, over every `.git` and
   # `HEAD` entry of any type and letter case, found by ONE `find`, with no
   # `-L` and no per-directory fork. "Cannot search" is whatever `find` reports:
-  # any report fails the census. NOTHING UNDER `$CTL` IS UNSEARCHABLE AT CENSUS
-  # TIME, BY CONSTRUCTION: the fixtures ask for their mode restrictions through
+  # any report fails the census — and a BSD `find` (macOS's `/usr/bin/find`)
+  # reports NOTHING for a directory it cannot enter (measured: exit 0, no stderr,
+  # the repository beneath it unlisted), so the same `find` also lists every
+  # directory whose mode is not `u+rx` (`! -perm -u=rx`) and the loop reds it.
+  # (A GNU `find` reports such a directory itself, on stderr and in its exit
+  # status — read from its manual, not measured here.) NOTHING UNDER `$CTL` IS
+  # UNSEARCHABLE AT CENSUS TIME, BY CONSTRUCTION: the fixtures ask for their mode restrictions through
   # `_seal`, which only records them, and the window applies them AFTER this
   # check — so one the census cannot read is a new, unrequested restriction,
   # red. Names are matched without case: a case-insensitive filesystem (APFS
   # by default) lets git read `head` and `.GIT`, so a case variant is a git
   # dir too — and red, being unknown.
   _pgpre=""
-  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) > "$_pq/pre" 2> "$_pq/pre.err" || _pgpre=" (census failed)"
+  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type d ! -perm -u=rx -print0 \) > "$_pq/pre" 2> "$_pq/pre.err" || _pgpre=" (census failed)"
   while IFS= read -r -d '' _pe; do
     case "${_pe##*/}" in
       .git)
@@ -205,7 +214,8 @@ _fgit_postconditions() {
         _pd="${_pe%/*}"
         if [ "${_pd##*/}" = .git ]; then [ "${_pe##*/}" = HEAD ] || _pgpre="$_pgpre ${_pe#"$CTL"/}:[HEAD spelled]"
         elif [ -d "$_pd/objects" ] || [ -f "$_pd/commondir" ]; then _pgpre="$_pgpre ${_pd#"$CTL"/}:[a git dir not named .git]"; fi ;;
-      *) _pgpre="$_pgpre ${_pe#"$CTL"/}:[.git spelled]" ;;
+      [.][Gg][Ii][Tt]) _pgpre="$_pgpre ${_pe#"$CTL"/}:[.git spelled]" ;;
+      *) _pgpre="$_pgpre ${_pe#"$CTL"/}:[a directory the census cannot search]" ;;
     esac
   done < "$_pq/pre"
   [ -z "$_pe" ] || _pgpre="$_pgpre (the census list does not end in a NUL byte)"
@@ -333,18 +343,23 @@ EOF_PB
     echo "!! CONTROL FAILED ($_pi_lbl): GIT_DEFAULT_REF_FORMAT is [${GIT_DEFAULT_REF_FORMAT:-}], a plain init has [$_rf]" >&2; _fpv=1
   fi
   # P-j: the window's `PATH` is `$_FGIT_BIN` first, the caller's own entries
-  # after it verbatim — and its `git` is the pinned wrapper. It pins that
-  # construction the way P-h and P-i pin their allowlist entries: on a machine
-  # whose first `PATH` entry is already `$_FGIT_BIN`, dropping the
-  # construction changes nothing else, and P-e's reference moves with it, so
-  # nothing but this sees it. Which OTHER tool a caller entry finds is outside
-  # P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §1, "Outside
-  # P"; §0.1, R1) — P-j checks only that `git` is the pinned one and that the pin
-  # comes first.
+  # after it verbatim — and its `git` is the pinned wrapper, which takes ITSELF
+  # off the `PATH` it hands on. It pins that construction the way P-h and P-i
+  # pin their allowlist entries: on a machine whose first `PATH` entry is
+  # already `$_FGIT_BIN`, dropping the construction changes nothing else, and
+  # P-e's reference moves with it, so nothing but this sees it. Which OTHER tool
+  # a caller entry finds is outside P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §1 and §0.1)
+  # — P-j checks only that `git` is the pinned one, that the pin comes first,
+  # and that a `git` run through it sees a `PATH` without it: an alias is a shell
+  # the `git` runs, and prints the `PATH` it was given. A `PATH` that still held
+  # `$_FGIT_BIN` is the way back a "next `git` on `PATH`" wrapper takes into the pin.
   _pj=""
   case "$PATH" in "$_FGIT_BIN"|"$_FGIT_BIN":*) ;; *) _pj="$_pj first-entry" ;; esac
   _pjg="$(type -P git)" || _pjg=""
   [ "$_pjg" = "$_FGIT_BIN/git" ] || _pj="$_pj git:[$_pjg]"
+  _pjrc=0; _pjp="$(_fgit_in "$_pq/a" -c 'alias.k2p=!printf %s "$PATH"' k2p 2>/dev/null)" || _pjrc=$?
+  if [ "$_pjrc" -ne 0 ] || [ -z "$_pjp" ]; then _pj="$_pj alias-probe:[exit $_pjrc]"
+  else case ":$_pjp:" in *":$_FGIT_BIN:"*) _pj="$_pj pin-on-the-PATH-it-passes-on" ;; esac; fi
   if [ -n "$_pj" ]; then echo "!! CONTROL FAILED ($_pj_lbl):$_pj" >&2; _fpv=1; fi
   # P-h: the window reads in the wire's locale.
   if [ -z "$_FGIT_WIRE_LC" ] || [ "${LC_ALL:-}" != "$_FGIT_WIRE_LC" ]; then
@@ -552,7 +567,7 @@ _seal_apply() {
   done < "$_FW_DIR/seal"
 }
 # Run the fixtures file in the window. $1 = fixtures file. Sets
-# _fw_rc/_fw_done/_fw_post_bad/_fw_why/_fw_diag and _FIX_FAILED.
+# _fw_rc/_fw_done/_fw_post_ok/_fw_post_bad/_fw_why/_fw_diag and _FIX_FAILED.
 _fgit_window() {
   _fwf="$1"
   mkdir -p "$_FW_DIR" || { _fw_why="the window's directory could not be created"; return 0; }
@@ -578,7 +593,7 @@ _fgit_window() {
       fi
     done
     printf '_FIX_FAILED=""\n'
-    declare -f _fixture_failed _shq _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
+    declare -f _fixture_failed _shq _fgit_shim _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
   # The fixtures file is sourced from a COPY in the window's own directory, by a
   # relative name: bash prefixes each diagnostic with the name it was given, so
@@ -599,7 +614,7 @@ _fgit_window() {
     [ -e "$_FW_DIR/built" ] || { echo "the fixtures file returned before its last line" > "$_FW_DIR/cause"; exit 1; }
     _fw_opts_on || { echo "the fixtures file switched off errexit, nounset or pipefail" > "$_FW_DIR/cause"; exit 1; }
     printf "K2-WINDOW-STDERR-CANARY\n" >&2
-    _fgit_postconditions || : > "$_FW_DIR/post_bad"
+    _fgit_postconditions && : > "$_FW_DIR/post_ok" || : > "$_FW_DIR/post_bad"
     _seal_apply
     printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
     : > "$_FW_DIR/done"' _ "$_FW_DIR" 2> "$_FW_DIR/stderr" || _fw_rc=$?
@@ -635,15 +650,18 @@ _fgit_window() {
     _fw_why="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_why=""
     [ -n "$_fw_why" ] || _fw_why="the window exited $_fw_rc before completing (the fixtures file exited or aborted, or a postcondition aborted)"
   fi
+  [ ! -e "$_FW_DIR/post_ok" ] || _fw_post_ok=1
   [ ! -e "$_FW_DIR/post_bad" ] || _fw_post_bad=1
   _fw_seal_bad="$(cat "$_FW_DIR/seal_failed" 2>/dev/null)" || _fw_seal_bad=""
   _fw_limits="$(cat "$_FW_DIR/machine_limits" 2>/dev/null)" || _fw_limits=""
   _FIX_FAILED="$(cat "$_FW_DIR/fix_failed" 2>/dev/null)" || _FIX_FAILED=""
   # TRUST IS A PROPERTY OF THE WINDOW, decided here and nowhere else: complete,
-  # no postcondition red, no shell diagnostic. The verdict function below only
+  # the postconditions REACHED a clean verdict (`post_ok`, written only when
+  # they returned 0 — the absence of `post_bad` is not that: a postcondition
+  # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
   # cannot change what `_control`'s gate (`_fw_built_or_w2`) reads.
-  if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ]; then _fw_trusted=1; fi
+  if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ]; then _fw_trusted=1; fi
   return 0
 }
 # THE WINDOW'S VERDICT, REPORTED IN ONE PLACE. An INCOMPLETE window is not "no
@@ -666,6 +684,12 @@ _fgit_window_verdict_exit() { # $1 = the window label
   # postcondition's own diagnostic already reached stderr, replayed above, so
   # it needs no separate report here.
   [ -z "$_fw_diag" ] || echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
+  # A complete window with neither `post_ok` nor `post_bad`: the postconditions
+  # never reached a verdict (a statement of theirs ended the window's postcondition
+  # call without returning), and nothing else has said so.
+  if [ "$_fw_post_ok" -eq 0 ] && [ "$_fw_post_bad" -eq 0 ]; then
+    echo "!! CONTROL FAILED ($1): the postconditions never reached a verdict" >&2
+  fi
   exit 1
 }
 

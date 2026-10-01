@@ -100,15 +100,11 @@ mkdir -p "$CTL/fakegit"
 # a failing inventory — and #501 R95 added a `rev-parse` preflight that the
 # blanket shim then answered with the fixture's own bytes. Same shape as
 # `fakegrep`: a control shims the ONE call it is about.
-printf '#!/bin/sh\ncase " $* " in *" --stage "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegit/git"
-chmod +x "$CTL/fakegit/git"
+_fgit_shim "$CTL/fakegit/git" 'case " $* " in *" --stage "*) printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
 # …and its sibling for the WORKTREE/untracked inventory, which had no shim and
 # therefore no control of its own.
 mkdir -p "$CTL/fakegitwt"
-printf '#!/bin/sh\ncase " $* " in *" --others "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegitwt/git"
-chmod +x "$CTL/fakegitwt/git"
+_fgit_shim "$CTL/fakegitwt/git" 'case " $* " in *" --others "*) printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # …AND THE SAME FOR `ls-tree`, because the HEAD inventory is a THIRD list with a
 # status check of its own and nothing exercised it: `fakegit` fails `ls-files`
@@ -117,9 +113,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # record covering all three `_ls_rc` checks hid it, because killing the first
 # was enough to red the run).
 mkdir -p "$CTL/fakegitls"
-printf '#!/bin/sh\ncase " $* " in *" ls-tree "*) printf "x\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegitls/git"
-chmod +x "$CTL/fakegitls/git"
+_fgit_shim "$CTL/fakegitls/git" 'case " $* " in *" ls-tree "*) printf "x\000"; exit 1;; esac' "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lstreefail/ok.py"
 
 # ⚠ THE TWO FALSE-POSITIVE FIXTURES. A required gate that reds a legitimate
@@ -156,9 +150,7 @@ printf '# see https://example.claude/skills/team/rule.md for the upstream note\n
 # so the shim matched nothing and the control silently exercised an unshimmed
 # git — the failure a glob makes look like a passing fixture.
 mkdir -p "$CTL/headprobe"
-printf '#!/bin/sh\ncase " $* " in *" rev-parse --verify "*) exit 2;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/headprobe/git"
-chmod +x "$CTL/headprobe/git"
+_fgit_shim "$CTL/headprobe/git" 'case " $* " in *" rev-parse --verify "*) exit 2;; esac' "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
 
 # A `cat` that always fails, for the one read whose status used to be swallowed
@@ -173,9 +165,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
 # The real race (another process rewriting an untracked file) cannot be staged
 # reliably; this shim poses the same question to the same arm.
 mkdir -p "$CTL/fakegitphantom"
-printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "phantom-gone.py\\000"; exit 0;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" "$_REAL_GIT" > "$CTL/fakegitphantom/git"
-chmod +x "$CTL/fakegitphantom/git"
+_fgit_shim "$CTL/fakegitphantom/git" "case \" \$* \" in *\" --others \"*) $_REAL_GIT \"\$@\"; printf \"phantom-gone.py\\000\"; exit 0;; esac" "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/phantom/ok.py"
 
 #  (c) PUNCTUATION BEFORE A SLASH is not prose punctuation — the `/` settles
@@ -329,9 +319,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/orphan/ok.py"
 # descendant, and reading the descendant follows the ancestor out of the tree.
 printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/external/a.py"
 mkdir -p "$CTL/fakegitglob"
-printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "foo[1].py\\000"; exit 0;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" "$_REAL_GIT" > "$CTL/fakegitglob/git"
-chmod +x "$CTL/fakegitglob/git"
+_fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) $_REAL_GIT \"\$@\"; printf \"foo[1].py\\000\"; exit 0;; esac" "$_REAL_GIT"
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
 # them all would abort in `_verdict` instead, for a different reason).
@@ -349,9 +337,7 @@ chmod +x "$CTL/fakegitglob/git"
 # only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
 # the property under test, and that is constructible; the ownership is not.
 mkdir -p "$CTL/fakegitcfg"
-printf '#!/bin/sh\nif [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegitcfg/git"
-chmod +x "$CTL/fakegitcfg/git"
+_fgit_shim "$CTL/fakegitcfg/git" 'if [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi' "$_REAL_GIT"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakemktemp"
 printf '#!/bin/sh\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
@@ -365,9 +351,7 @@ printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fak
 chmod +x "$CTL/fakerelmktemp/mktemp"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
-printf '#!/bin/sh\ncase " $* " in *" -aEo "*) exit 2;; esac\nexec %s "$@"\n' \
-  "$_REAL_GREP" > "$CTL/fakegrep/grep"
-chmod +x "$CTL/fakegrep/grep"
+_fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) exit 2;; esac' "$_REAL_GREP"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
 mkdir -p "$CTL/grepfail/.claude/skills/team"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfail/.claude/skills/team/rule.md"

@@ -325,7 +325,7 @@ _mut_gen_run() {
     [ "$_gr_rc" -ne 2 ] || { _mut_gen_bad=$((_mut_gen_bad + 1)); continue; }
     [ "$_gr_rc" -eq 1 ] || continue
     # SURVIVED. The only way that is not a gap is an argued equivalence.
-    _gr_why="$(awk -F'\t' -v n="$_gr_name" '$1==n{print $2; exit}' "$_VFY/.genequiv")"
+    _gr_why="$(_GR_NAME="$_gr_name" awk -F'\t' '$1==ENVIRON["_GR_NAME"]{print $2; exit}' "$_VFY/.genequiv")"
     if [ -z "$_gr_why" ]; then
       echo "!! GENERATED MUTANT SURVIVED: $_gr_name" >&2
       echo "   The wire still exited 0 with that rule widened or tightened, so no" >&2
