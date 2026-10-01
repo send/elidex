@@ -10,7 +10,7 @@
 # itself; the fixtures file builds each fixture, and the controls file holds the
 # assertion made over it.
 # ⚠ SOURCED ONLY AFTER THE CONTROLS FILE HAS ASSERTED WHAT THE WIRE HANDS IT
-# (`$SELF`, `$SCRATCH`, `_git`, …), which is what this file consumes. It sets
+# (`$SELF`, `$SCRATCH`, …), which is what this file consumes. It sets
 # `_HARNESS` immediately before sourcing, so an unset one means this file was
 # reached some other way.
 if [ -z "${_HARNESS:-}" ]; then
@@ -96,7 +96,19 @@ mkdir "$_FGIT_BIN" || exit 2
 # two different files.
 _FGIT_GIT="$(_fgit_resolve git)"
 if [ -n "$_FGIT_GIT" ]; then
-  { printf '#!/bin/sh\nexec %s "$@"\n' "$(_shq "$_FGIT_GIT")" > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
+  # ⚠ THE PIN COUNTS ITS OWN RE-ENTRIES. A `git` on the caller's PATH that hands
+  # over to "the next `git` on PATH" (strip-own-dir, or `which -a` skipping
+  # itself) finds this pin again — the window's PATH starts with `$_FGIT_BIN` —
+  # and the two exec each other forever, with no output and a core spinning.
+  # `K2_FGIT_PIN_DEPTH` is exported to what the pin execs, so a cycle crosses
+  # the limit at once and ends loud; a legitimate nested git (a hook, an alias)
+  # never gets near it. ⚠ DELETING THIS GUARD RESTORES A HANG, which no record
+  # can observe without one — that is the liveness slot's class
+  # (`#11-trip-wire-liveness-bound`), not this guard's to pin.
+  _FGIT_PIN_LIMIT=8
+  { printf '#!/bin/sh\nK2_FGIT_PIN_DEPTH=${K2_FGIT_PIN_DEPTH:-0}\nif [ "$K2_FGIT_PIN_DEPTH" -ge %s ]; then\n  echo %s >&2\n  exit 125\nfi\nK2_FGIT_PIN_DEPTH=$((K2_FGIT_PIN_DEPTH + 1)); export K2_FGIT_PIN_DEPTH\nexec %s "$@"\n' \
+      "$_FGIT_PIN_LIMIT" "$(_shq "!! CONTROL FAILED ($_pn_lbl): the pinned git was entered again from the git it runs")" "$(_shq "$_FGIT_GIT")" \
+      > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
 fi
 _FGIT_PATH="$_FGIT_BIN:$PATH"   # the caller's PATH, verbatim, behind the pin (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1)
 _FGIT_ENVBIN="$(_fgit_resolve env)"
@@ -121,7 +133,7 @@ _FGIT_ENV_NAMES="PWD OLDPWD SHLVL _$_FGIT_ENV_REQ"
 # the same way, so a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one
 # directory spelled two ways, cannot make the two differ.
 _fgit_canon() { [ -n "$1" ] && ( cd "$1" 2>/dev/null && pwd -P ) || printf ''; }
-_FGIT_WIRE_EXEC="$("$_FGIT_ENVBIN" -i "PATH=$_FGIT_PATH" git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
+_FGIT_WIRE_EXEC="$("$_FGIT_ENVBIN" -i "PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
 _FGIT_WIRE_EXEC="$(_fgit_canon "$_FGIT_WIRE_EXEC")"
 # P-h's reference: the locale the wire reads in (it exports `LC_ALL=C`), so the
 # build is like-for-like with the scan and the window's diagnostics are the
@@ -490,14 +502,24 @@ _fw_opts_on() {
 # taken effect would otherwise be skipped as a machine limitation.
 # ⚠ AND IT CAN NEVER REACH OUTSIDE `$CTL`: a path with a `.` or `..` component
 # is refused here, and `_seal_apply` refuses a path with a symlink ANYWHERE on
-# it (`chmod` follows symlinks, and fixtures hold them). A refusal marks the
-# fixture failed as well.
+# it (`chmod` follows symlinks, and fixtures hold them; `_seal_apply_probe`,
+# below, asserts that at load). A refusal marks the fixture failed as well.
 _seal_refuse() { # $1 = fixture, $2 = why
   _fixture_failed "$1"
   printf '%s\n' "$1: $2" >> "$_FW_DIR/seal_failed"
 }
 _seal() {
   _sl_nl="$(printf '\nx')"; _sl_nl="${_sl_nl%x}"; _sl_tab="$(printf '\t')"
+  # The manifest line is `mode TAB fixture TAB path`, so ALL THREE arguments are
+  # data to check: a TAB or newline in the mode or the fixture name would shift
+  # the fields and make the path something else. A bad fixture name is refused
+  # under a fixed one (it would otherwise be written back as it came).
+  case "$3" in ""|*[!A-Za-z0-9_-]*)
+    _seal_refuse "(seal)" "the fixture name [$(printf '%s' "$3" | tr '\n\t' '??')] is not [A-Za-z0-9_-]+"; return 0 ;;
+  esac
+  case "$2" in ""|*[!0-7]*)
+    _seal_refuse "$3" "the mode [$(printf '%s' "$2" | tr '\n\t' '??')] is not octal digits"; return 0 ;;
+  esac
   case "$1" in
     "$CTL"/*) _sl_r="${1#"$CTL"/}" ;;
     *) _seal_refuse "$3" "[$1] is outside the fixture root"; return 0 ;;
@@ -543,7 +565,7 @@ _fgit_window() {
     # derived from its body, not listed — each of which the controls file must
     # define non-empty; one it does not refuses the window, so a renamed label
     # cannot be forwarded empty in silence.
-    _fwls="$(declare -f _fgit_postconditions | grep -o '_p[a-z]*_lbl' | sort -u)" || _fwls=""
+    _fwls="$(declare -f _fgit_postconditions | grep -o '_[A-Za-z0-9_]*_lbl' | sort -u)" || _fwls=""
     for _fwn in $_fwls; do
       if [ -z "${!_fwn:-}" ]; then
         printf 'echo %q > "$_FW_DIR/cause"; exit 1\n' "the postcondition label \$$_fwn is not defined, or is empty"
@@ -581,9 +603,10 @@ _fgit_window() {
   # file after the fixtures file: the canary above is written right after the
   # options re-check, so its absence from the capture means the fixtures file
   # redirected fd 2 before then (`exec 2>/dev/null`) — a window that is not
-  # complete (below). The canary is taken OUT of the replay and of what W3
-  # scans, wherever it sits in a record (a fixture's stderr without a final
-  # newline appends bash's own diagnostic to that same line).
+  # complete (below). The canary is taken OUT of the REPLAY only, wherever it
+  # sits in a record (a fixture's stderr without a final newline appends bash's
+  # own diagnostic to that same line). W3's scan below reads the raw capture:
+  # the canary's text holds neither of its two prefixes, so it cannot match there.
   _fw_fd2=0
   _FW_M="K2-WINDOW-STDERR-CANARY" awk 'index($0, ENVIRON["_FW_M"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=1
   _FW_M="K2-WINDOW-STDERR-CANARY" awk '{ i = index($0, ENVIRON["_FW_M"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_M"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
@@ -612,6 +635,11 @@ _fgit_window() {
   _fw_seal_bad="$(cat "$_FW_DIR/seal_failed" 2>/dev/null)" || _fw_seal_bad=""
   _fw_limits="$(cat "$_FW_DIR/machine_limits" 2>/dev/null)" || _fw_limits=""
   _FIX_FAILED="$(cat "$_FW_DIR/fix_failed" 2>/dev/null)" || _FIX_FAILED=""
+  # TRUST IS A PROPERTY OF THE WINDOW, decided here and nowhere else: complete,
+  # no postcondition red, no shell diagnostic. The verdict function below only
+  # REPORTS it, so where that call sits (or whether an exit in it survives)
+  # cannot change what `_control`'s gate (`_fw_built_or_w2`) reads.
+  if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ]; then _fw_trusted=1; fi
   return 0
 }
 # THE WINDOW'S VERDICT, REPORTED IN ONE PLACE. An INCOMPLETE window is not "no
@@ -622,28 +650,16 @@ _fgit_window() {
 # not the one the fixtures file describes, and a control over it asserts
 # nothing (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3, "A red
 # postcondition ends the run before any control") — so this function reports
-# those, then ends the run at 1, before any control. `_fw_trusted` is set by
-# this function ALONE (1 only for a build that is complete, with no
-# postcondition and no W3 reported), and `_fw_built_or_w2` is its one reader.
+# those, then ends the run at 1, before any control. It computes NOTHING:
+# `_fw_trusted` is set by `_fgit_window` alone (1 only for a build that is
+# complete, with no postcondition and no W3 reported), and `_fw_built_or_w2` is
+# its one reader.
 _fgit_window_verdict_exit() { # $1 = the window label
-  [ "$_fw_done" -eq 1 ] || {
+  if [ "$_fw_done" -ne 1 ]; then
     echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
     exit 2
-    # ⚠ A REDUNDANT STOP, NOT DEAD CODE, AND `return 0` ON PURPOSE: `exit`
-    # above already ends the run in the shipped file. If a fixtures-file
-    # mutation defeats only that `exit` (the W2 record above), this `return`
-    # still keeps the fall-through below from computing `_fw_trusted` off a
-    # window that was never even complete. It returns 0, not 1: this call site
-    # is a bare statement under the wire's `set -e`, so a non-zero return
-    # would abort the whole run HERE — reporting nothing where `_control`'s own
-    # gate (`_fw_built_or_w2`, reading `_fw_trusted` alone) is what must report
-    # W2, over the very next control.
-    return 0
-  }
-  if [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ]; then
-    _fw_trusted=1
-    return 0
   fi
+  if [ "$_fw_trusted" -eq 1 ]; then return 0; fi
   # A shell diagnostic located in the fixtures file means a line of it was
   # skipped: an arithmetic-expansion error does not stop a sourced file. A red
   # postcondition's own diagnostic already reached stderr, replayed above, so
@@ -694,6 +710,17 @@ fi
 _fifo_ok=0
 if mkfifo "$SCRATCH/fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$SCRATCH/fifoprobe"; fi
 
+# CAN THIS USER BE KEPT FROM READING A FILE BY ITS MODE? The perm controls
+# (`err`, `walk`, `d2red`, `d5root`, umask) need a mode-000 file to be unreadable
+# — not true of root. ASKED OF A FILE OF ITS OWN, like `_fifo_ok`, never of a
+# fixture: the fixture's seal can fail, and a capability read off it turned
+# "the err fixture did not build" into "this machine cannot enforce modes", and
+# the five controls were skipped under a green PASSED.
+_perm_ok=1
+{ : > "$SCRATCH/permprobe" && chmod 000 "$SCRATCH/permprobe"; } || { echo "!! the permission probe could not be made in $SCRATCH; this run decided nothing." >&2; exit 2; }
+if ( : < "$SCRATCH/permprobe" ) 2>/dev/null; then _perm_ok=0; fi
+command rm -f "$SCRATCH/permprobe"
+
 # ⚠ NO SECOND `trap ... EXIT` HERE. `trap` REPLACES; a second one silently
 # discarded the scratch-root cleanup and left an empty directory behind on
 # every successful run (#501 R94, reproduced). `CTL` is created UNDER
@@ -712,10 +739,35 @@ if [ "$(sh -c "printf %s $(_shq "$_shq_probe")")" != "$_shq_probe" ]; then
   exit 2
 fi
 
+# ⚠ ASSERTED, NOT A `_control`, LIKE THE ONE ABOVE: the walk in `_seal_apply` is
+# the only thing keeping a deferred `chmod` inside `$CTL` (it follows symlinks,
+# and fixtures hold them), and no fixture's seal passes through a link, so
+# nothing else exercises it. The REAL `_seal_apply` is run, in a subshell, over a
+# probe tree of its own in `$SCRATCH` (its own `CTL` and `_FW_DIR`) whose
+# manifest names a path through a symlink; it must refuse it, naming it, and
+# leave the target's mode alone. The walk is local to `_seal_apply` on purpose:
+# the wire's `_ancestor_link` skips the leaf and is the scanner's logic.
+_seal_apply_probe() (
+  CTL="$SCRATCH/sealprobe/ctl"; _FW_DIR="$SCRATCH/sealprobe/win"; _FIX_FAILED=""
+  mkdir -p "$CTL/real" "$_FW_DIR" && : > "$CTL/real/f" && chmod 644 "$CTL/real/f" \
+    && ln -s real "$CTL/lnk" || return 1
+  printf '%s\t%s\t%s\n' 000 sealprobe lnk/f > "$_FW_DIR/seal"
+  _seal_apply
+  _sp_mode="$(ls -ld "$CTL/real/f")"
+  case "${_sp_mode%% *}" in -rw-r--r--*) ;; *) return 1 ;; esac
+  case "$(cat "$_FW_DIR/seal_failed" 2>/dev/null)" in *"[lnk/f] passes through a symlink"*) ;; *) return 1 ;; esac
+)
+if ! _seal_apply_probe; then
+  echo "!! CONTROL FAILED ($_fws_lbl): _seal_apply followed a symlink on a sealed path or did not" >&2
+  echo "   refuse it, so a deferred chmod can reach outside the fixture root. This run decided nothing." >&2
+  exit 2
+fi
+command rm -rf "$SCRATCH/sealprobe"
+
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3):
 # every `_control` asks first, by `_fw_trusted` alone — the one flag
-# `_fgit_window_verdict_exit` writes. `$_fw2_lbl` is defined in the controls
+# `_fgit_window` writes. `$_fw2_lbl` is defined in the controls
 # file.
 _fw_built_or_w2() {
   [ "$_fw_trusted" -ne 1 ] || return 0

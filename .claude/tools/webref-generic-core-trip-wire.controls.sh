@@ -15,8 +15,9 @@
 # (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
 # `$_CONTROLS` (this file's own path, which the mutation set reads labels from), the
-# five `CONTROL_*` sample strings, and the `_git` helper. That list — and only
-# that list — is checked at entry.
+# five `CONTROL_*` sample strings. That list — and only that list — is checked
+# at entry. (No part calls the wire's `_git`, so the entry check no longer asks
+# for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
 # was: it named `$CTL`, `_control`, `_ctl_env`, `$_perm_line`,
 # `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
@@ -36,8 +37,8 @@
 #
 # WHY SOURCED AND NOT A SEPARATE PROGRAM. The alternative the plan-review
 # offered — a real entry point taking explicit parameters — costs a second copy
-# of `_git`, the locale pin and the `GIT_NO_*` exports, i.e. a second statement
-# of how this gate reads git. That is the decision-surface duplication this
+# of the wire's locale pin and `GIT_NO_*` exports, i.e. a second statement of
+# how this gate reads git. That is the decision-surface duplication this
 # instrument spent four review rounds collapsing (#501 R76, R80, R81, R89), and
 # it is what CLAUDE.md's "one issue, one way" forbids. The seam is real (answers
 # vs. proof the answers are reachable); what was missing was the interface being
@@ -62,13 +63,38 @@ _ctl_missing=
 for _n in SELF SCRATCH _CONTROLS CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN; do
   [ -n "${!_n:-}" ] || _ctl_missing="$_ctl_missing \$$_n"
 done
-declare -f _git >/dev/null 2>&1 || _ctl_missing="$_ctl_missing _git()"
 if [ -n "$_ctl_missing" ]; then
   echo "!! This file is the CONTROLS for \`webref-generic-core-trip-wire.sh\`. It is" >&2
   echo "   SOURCED by that wire and has no meaning on its own; missing:$_ctl_missing" >&2
   echo "   Run the wire instead — it sources this file and refuses to run without it." >&2
   exit 2
 fi
+# DEFINED BEFORE THE HARNESS IS SOURCED: the harness writes `$_pn_lbl` into the
+# pinned `git` it generates while it loads.
+# ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
+# a mutation record (the ratchet counts every `_lbl="…"` definition as well as
+# every `_control` label). What each asserts is tabled in
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
+_fw_lbl="the fixture build window completed"
+_fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
+_fwd_lbl="the fixture build window ran without a shell diagnostic"
+_pa_lbl="a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file"
+_pal_lbl="this git reports a configuration origin outside the repo's file"
+_pb_lbl="the fixture git has no system or global layer outside the void"
+_pbl_lbl="this git names its system files through git var"
+_pc_lbl="nothing is written into the fixture git's void"
+_pd_lbl="the fixture git copies no template"
+_pe_lbl="no exec-path override reaches the fixture git"
+_pf_lbl="the fixture build window's environment holds only its allowlist"
+_pg_lbl="every fixture repo persists only the configuration a plain git init writes"
+_ph_lbl="the fixture build window reads in the wire's locale"
+_pi_lbl="the fixture repos use the files ref format"
+_pj_lbl="the fixture build window runs the pinned git first on its PATH"
+_pk_lbl="no fixture repo reads objects from a store outside it"
+_pkl_lbl="this git reports alternate object stores"
+_pn_lbl="the pinned git never re-enters itself"
+_fws_lbl="every mode restriction a fixture sealed was applied"
+_mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -92,30 +118,7 @@ if [ ! -r "$_FIXTURES" ]; then
   echo "   unreadable, so no control here has a tree to run over. This run decided nothing." >&2
   exit 2
 fi
-# ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
-# a mutation record (the ratchet counts every `_lbl="…"` definition as well as
-# every `_control` label). What each asserts is tabled in
-# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
-_fw_lbl="the fixture build window completed"
-_fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
-_fwd_lbl="the fixtures file ran without a shell diagnostic"
-_pa_lbl="a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file"
-_pal_lbl="this git reports a configuration origin outside the repo's file"
-_pb_lbl="the fixture git has no system or global layer outside the void"
-_pbl_lbl="this git names its system files through git var"
-_pc_lbl="nothing is written into the fixture git's void"
-_pd_lbl="the fixture git copies no template"
-_pe_lbl="no exec-path override reaches the fixture git"
-_pf_lbl="the fixture build window's environment holds only its allowlist"
-_pg_lbl="every fixture repo persists only the configuration a plain git init writes"
-_ph_lbl="the fixture build window reads in the wire's locale"
-_pi_lbl="the fixture repos use the files ref format"
-_pj_lbl="the fixture build window runs the pinned git first on its PATH"
-_pk_lbl="no fixture repo reads objects from a store outside it"
-_pkl_lbl="this git reports alternate object stores"
-_fws_lbl="every mode restriction a fixture sealed was applied"
-_mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
-# The `_p*_lbl` labels reach the window by name, through its prelude.
+# The labels `_fgit_postconditions` uses reach the window by name, through its prelude.
 _fgit_window "$_FIXTURES"
 # THE PARENT'S VERIFIER DIRECTORY. Every file the parent writes and reads
 # back after the build (the fsmonitor hook and its mark, the controls'
@@ -367,7 +370,7 @@ fi
 _perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
           permissions enforced (this user can read a mode-000 file), so this
           run carries no evidence for them"
-if [ -r "$CTL/err/control.py" ]; then
+if [ "$_perm_ok" -ne 1 ]; then
   :
 else
   _perm_line="            the controls that need file permissions enforced ran too"
@@ -378,14 +381,17 @@ else
   # Not a `_control`: `_control` has no umask channel. A umask that leaves the
   # scratch dir unsearchable makes it unresolvable to a physical path.
   _umask_lbl="a restrictive umask decides nothing"
-  _um_rc=0
+  # ONE GATE: the assertion lives inside the branch that ran the umask run, so
+  # the run and its report cannot disagree about whether there was a run.
   if ! _fw_built_or_w2; then ctl_ok=1
-  else ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$_VFY/.umask_out" 2>&1 || _um_rc=$?
-  fi
-  if [ "$_fw_done" -eq 1 ] && { [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$_VFY/.umask_out"; }; then
-    echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
-    sed 's/^/     /' "$_VFY/.umask_out" >&2
-    ctl_ok=1
+  else
+    _um_rc=0
+    ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$_VFY/.umask_out" 2>&1 || _um_rc=$?
+    if [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$_VFY/.umask_out"; then
+      echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
+      sed 's/^/     /' "$_VFY/.umask_out" >&2
+      ctl_ok=1
+    fi
   fi
 fi
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------

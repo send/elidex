@@ -216,7 +216,7 @@ _MUT_TARGETS="harness fixtures mutgen"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=170   # +11 records, -2 (the two P-g line-grep failure arms, gone with the census unification: the greps only build the message now)
+_MUT_RECORDS_MIN=178   # +8 records; the floor was 170 after -2 (the two P-g line-grep failure arms, gone with the census unification: the greps only build the message now)
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -344,26 +344,30 @@ harness:s/printf 'set -euo pipefail\\n'/printf 'set -eu\\n'/	the fixture build w
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -uo pipefail\\n'/	the fixture build window completed
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/return 0/	the fixture build window completed
 fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture build window completed
-# W2's record removes the incomplete-window exit AND leaves the window
-# incomplete (its `done` marker renamed), in one harness expression: a record
-# edits one file. W2's producers are `_control`'s first statement and the gates
-# of the three non-`_control` blocks (relative scratch, fsmonitor, umask); the
-# record pins that W2 is reported when the exit is gone, which `_control`'s gate
-# alone satisfies. ⚠ A DECLARED GAP: removing one of the three block gates
+# W2's record removes BOTH of the verdict function's exits (the incomplete-window
+# one, then the untrusted-build one that would otherwise end the run first) AND
+# leaves the window incomplete (its `done` marker renamed), in three one-line
+# expressions: the verdict function only reports, so with its exits gone the run
+# reaches the first control, and only `_control`'s own gate can say W2. W2's
+# producers are `_control`'s first statement and the gates of the three
+# non-`_control` blocks (relative scratch, fsmonitor, umask); the record pins
+# that W2 is reported when the exits are gone, which `_control`'s gate alone
+# satisfies. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
+# computation. ⚠ A DECLARED GAP: removing one of the three block gates
 # survives this set — the block would run over the unbuilt tree, but W2 is
 # already reported by the first `_control` — so those gates are pinned only by
 # the traced `w2rec` cell (companion §A.14), not by a record.
-harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
 # the untrusted-build exit itself removed. Each forces one of the two inputs
-# `_fw_trusted`'s computation reads and removes that exit in the same harness
-# expression; each survives with the clause it forces removed from the
+# the trust computation (in `_fgit_window`) reads and removes that exit in the
+# same record; each survives with the clause it forces removed from the
 # computation, which then writes 1 regardless
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1, C8 rows).
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/\[ ! -e "[$]_FW_DIR\/post_bad" \] || _fw_post_bad=1/_fw_post_bad=1/	no control runs over an incomplete or untrusted fixture build window
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/\[ "[$]_fw_dg" -eq 0 \] || _fw_diag=/false || _fw_diag=/	no control runs over an incomplete or untrusted fixture build window
-fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
+fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
 harness:s/_fgit_in "[$]_pq\/a" -c a[.]b=c config --list/_fgit_in "$_pq\/a" config --list/	this git reports a configuration origin outside the repo's file
 harness:s/ GIT_CONFIG_NOSYSTEM=1 / /	the fixture git has no system or global layer outside the void
@@ -395,7 +399,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzhd" \&\& 
 fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.bare; git -C "$CTL\/clean" config core.logallrefupdates "$(printf 'true\\nfile:.git\/config\\tcore.bare=false')"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/cp "$CTL\/clean\/.git\/config" "$_FW_DIR\/k2cfg" \&\& rm "$CTL\/clean\/.git\/config" \&\& ln -s "$_FW_DIR\/k2cfg" "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzfifo" \&\& rm "$CTL\/zzfifo\/.git\/HEAD" \&\& mkfifo "$CTL\/zzfifo\/.git\/HEAD" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; printf x >\&2; _k2p=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
+fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; printf x >\&2; _k2p=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
 fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 harness:s/> "[$]_FGIT_BIN\/git" \&\& chmod +x "[$]_FGIT_BIN\/git"/> "$_FGIT_BIN\/gitx"/	the fixture build window runs the pinned git first on its PATH
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
@@ -425,7 +429,7 @@ harness:s/^    find "[$]CTL" -type l -print0 /    echo k2 >> "$_pq\/pre.err"; fi
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzkstore" \&\& mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '%s\\n' "$_FW_DIR\/zzkstore\/objects" > "$CTL\/clean\/.git\/objects\/info\/alternates" ); : > "$_FW_DIR\/built"/	no fixture repo reads objects from a store outside it
 harness:s/"[$]_pfenv" -0 > "[$]_pq\/env0"/"$_pfenv" > "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
 harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_CONFIG_NOSYSTEM=1 /	the fixture git has no system or global layer outside the void
-harness:s/"HOME=[$]_FGIT_VOID"/"HOME=$SCRATCH"/	the fixture git has no system or global layer outside the void
+harness:s/ "HOME=[$]_FGIT_VOID" GIT_CONFIG_NOSYSTEM/ "HOME=$SCRATCH" GIT_CONFIG_NOSYSTEM/	the fixture git has no system or global layer outside the void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$HOME\/.config\/git" \&\& : > "$HOME\/.config\/git\/ignore"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; GLOBIGNORE='*'; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 harness:s/_pka="[$](printf '%s\\n' "[$]_pko" | grep '^alternate:')"/_pka="$(printf '%s\\n' "$_pko" | grep '^alternate:' \/nonexistent-k2)"/	no fixture repo reads objects from a store outside it
@@ -437,6 +441,27 @@ mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/	the boundary-
 # before the options re-check's canary can reach it, so W ends the window
 # incomplete rather than reading a diagnostic sent to /dev/null.
 fixtures:s/^: > "[$]_FW_DIR\/built"$/exec 2>\/dev\/null; : > "$_FW_DIR\/built"/	the fixture build window completed
+# W3's `./prelude.sh:` clause: an expansion error injected into
+# `_fgit_postconditions` skips the rest of that top-level command in silence (no
+# `post_bad` is written either), and only the prelude prefix can see it.
+harness:s/^  _fpv=0$/  _fpv=0; : $(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
+# The pin's re-entry limit at 0: the first call through the pin ends loud.
+harness:s/^  _FGIT_PIN_LIMIT=8$/  _FGIT_PIN_LIMIT=0/	the pinned git never re-enters itself
+# `_seal_apply`'s symlink walk, by its two halves; the standing self-check
+# (`_seal_apply_probe`) is what kills them, at load.
+harness:s/^      \[ ! -L "[$]_sa_p" \] || { _sa_link="[$]_sa_p"; break; }$/      :/	every mode restriction a fixture sealed was applied
+harness:s/^    if \[ -n "[$]_sa_link" \]; then _seal_refuse .*$/    :/	every mode restriction a fixture sealed was applied
+# `_seal` validates ALL its arguments. Each value below is one the shell would
+# APPLY without complaint if it were let through (`chmod a-rwx` is `000`; a
+# fixture name is only a label), so the record is killed by the refusal alone and
+# not by an apply failure further down.
+fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" a-rwx walk/	every mode restriction a fixture sealed was applied
+fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.lk/	every mode restriction a fixture sealed was applied
+# The err fixture's chain failing is NOT a machine that cannot enforce modes:
+# the perm block is gated on its own probe (`_perm_ok`), so `_control err` reports
+# the failed build; and the err seal line, deleted, is red in the same control.
+fixtures:s/^\(_seal "[$]CTL\/err\/control.py" 000 err\)$/_fixture_failed err; \1/	an unreadable file fails closed
+fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

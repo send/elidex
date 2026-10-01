@@ -414,9 +414,11 @@ mkdir -p "$CTL/nlname/.claude/skills/$(printf 'team\nname')"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/.claude/skills/$(printf 'team\nname')/rule.md"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/ok.py"
 # A byte no UTF-8 locale can place in a bracket expression. ⚠ This control is
-# environment-sensitive: it discriminates the `LC_ALL=C` export only where the
-# INHERITED locale is multibyte, so on a C-locale machine the mutation that
-# deletes the export survives it. Said here rather than left implied.
+# environment-sensitive: it discriminates the READ's own `LC_ALL=C` only where
+# the INHERITED locale is multibyte, so on a C-locale machine the mutation that
+# drops it survives this control. The wire's `export LC_ALL=C` itself is pinned
+# on every machine by P-h (the window must read in the wire's locale), not here.
+# Said here rather than left implied.
 printf 'X = ".claude/skills/\377name/rule.md"\n' > "$CTL/rawbyte/probe.bin"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/rawbyte/ok.py"
 # A quote inside a NAME segment: `/` is the only delimiter a stored path has.
