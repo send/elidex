@@ -61,7 +61,7 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # The window runs in `$_FW_DIR`, not here, so what a `PATH` entry that is not
 # absolute (`bin`, `../x`, `.`, an empty one, `~`, `~login/…`) means — which
 # files it names, or none — is decided THERE, by the window's own bash, and is
-# outside P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1,
+# outside P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §1,
 # "Outside P"): which such a command runs is R1's, not this file's. So the
 # window does NOT emulate that lookup here (PR #527 Codex R11–R13: an
 # emulation grew one case per round; draft 13 dropped it for the caller's
@@ -109,8 +109,11 @@ _FGIT_BASH="$BASH"
 _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
 # Names the window's environment may hold: the allowlist above, derived from it,
 # plus what bash itself maintains for the processes it starts.
-_FGIT_ENV_NAMES="PWD OLDPWD SHLVL _"
-for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_NAMES="$_FGIT_ENV_NAMES ${_fe%%=*}"; done
+# `_FGIT_ENV_REQ` is the allowlist's own names: P-f requires each of them to be
+# PRESENT in the window's environment, not only that nothing else is.
+_FGIT_ENV_REQ=""
+for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_REQ="$_FGIT_ENV_REQ ${_fe%%=*}"; done
+_FGIT_ENV_NAMES="PWD OLDPWD SHLVL _$_FGIT_ENV_REQ"
 # P-e's reference: the exec path the SAME git reports with nothing but `PATH` in
 # its environment, canonical (`pwd -P`). Which executable runs is outside P
 # (R1: it is `PATH`'s); what P-e pins is that nothing the window carries
@@ -146,16 +149,34 @@ _fgit_postconditions() {
   # return channel (`built`, `done`, `cause`, `post_bad`, `machine_limits`,
   # `seal_failed`, `fix_failed`, `stderr`).
   _pq="$(mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX")" && [ -n "$_pq" ] && [ -d "$_pq" ] \
-    || { echo "!! CONTROL FAILED ($_pg_lbl): K2REF the postconditions' directory could not be made fresh" >&2; return 1; }
+    || { echo "!! CONTROL FAILED ($_pg_lbl): the postconditions' directory could not be made fresh" >&2; return 1; }
+  # `_fgit_in <repo dir> <git args…>`: git run AT one repository and nowhere
+  # else. `--git-dir=.git` turns discovery off, so a `.git` git does not
+  # recognise (a garbage `HEAD`) is an error here, never a walk to an ancestor
+  # repository whose configuration would then be listed in its place.
+  _fgit_in() { ( cd "$1" && shift && git --git-dir=.git "$@" ); }
+  # `_fgit_nul_ended <file>`: a NUL list is empty or ends in a NUL byte. The
+  # census reads with `read -d ''`, which swallows a list written with `-print`
+  # (newlines, no NUL) in silence — nothing classified, nothing red.
+  _fgit_nul_ended() { [ ! -s "$1" ] || [ "$(tail -c 1 "$1" | od -An -tx1 | tr -d ' \n')" = 00 ]; }
   # THE CENSUS, BEFORE ANY POSTCONDITION RUNS GIT: git reads across git dirs
   # (`commondir`, `alternates`, `include.path`), so both passes' verdict must
   # be in before git runs anywhere, and a red census returns here — no git
-  # runs on any repo. Pass 1: classification and shape, over every `.git` and
+  # runs on any repo. It is ONE census: the P-g/P-k loop below iterates pass
+  # 1's own list (`$_pq/pre`) and nothing else, so what it acts on is what pass
+  # 1 classified. Pass 1: classification and shape, over every `.git` and
   # `HEAD` entry of any type and letter case, found by ONE `find`, with no
-  # `-L` and no per-directory fork.
+  # `-L` and no per-directory fork. "Cannot search" is whatever `find` reports:
+  # any report fails the census. NOTHING UNDER `$CTL` IS UNSEARCHABLE AT CENSUS
+  # TIME, BY CONSTRUCTION: the fixtures ask for their mode restrictions through
+  # `_seal`, which only records them, and the window applies them AFTER this
+  # check — so one the census cannot read is a new, unrequested restriction,
+  # red. Names are matched without case: a case-insensitive filesystem (APFS
+  # by default) lets git read `head` and `.GIT`, so a case variant is a git
+  # dir too — and red, being unknown.
   _pgpre=""
   find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) > "$_pq/pre" 2> "$_pq/pre.err" || _pgpre=" (census failed)"
-  [ ! -s "$_pq/pre.err" ] || _pgpre="$_pgpre (census stderr)"
+  _fgit_nul_ended "$_pq/pre" || _pgpre="$_pgpre (the census list does not end in a NUL byte)"
   while IFS= read -r -d '' _pe; do
     case "${_pe##*/}" in
       .git)
@@ -182,10 +203,15 @@ _fgit_postconditions() {
   # so this follows every symlink under `$CTL` that resolves to a
   # directory, whatever its name, and reds it if a `HEAD` or `.git` is
   # anywhere beneath. A link inside a git dir pass 1 already classified is
-  # never searched (it is already red by pass 1's shape). The census's ONE
-  # verdict, `_pg_census`, is written only after both passes.
+  # never searched (it is already red by pass 1's shape). A link that does not
+  # resolve to a directory is not searched. There is no time bound on the
+  # per-link search: a link to a huge tree runs until CI's job timeout ends it,
+  # red — a local run has no such timeout and waits (slot
+  # `#11-trip-wire-liveness-bound`,
+  # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md §9.2).
   if [ -z "$_pgpre" ]; then
     find "$CTL" -type l -print0 > "$_pq/prel" 2>> "$_pq/pre.err" || _pgpre=" (link census failed)"
+    _fgit_nul_ended "$_pq/prel" || _pgpre="$_pgpre (the link list does not end in a NUL byte)"
     while IFS= read -r -d '' _pl; do
       [ -d "$_pl" ] || continue
       _plrc=0; find -L "$_pl" \( -iname HEAD -o -iname .git \) -print > "$_pq/prels" 2>&1 || _plrc=$?
@@ -193,21 +219,23 @@ _fgit_postconditions() {
       elif [ -s "$_pq/prels" ]; then _pgpre="$_pgpre ${_pl#"$CTL"/}:[a symlink to a tree holding a git dir]"; fi
     done < "$_pq/prel"
   fi
+  # ONE check of the census's stderr, after BOTH passes (pass 2 appends to it).
+  [ ! -s "$_pq/pre.err" ] || _pgpre="$_pgpre (census stderr)"
   _pg_census="$_pgpre"
   if [ -n "$_pg_census" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg_census" >&2; return 1; fi
   # The REFERENCES are made in the postconditions' own directory (above), the
   # probe repos by `mkdir` without `-p`, so one that already existed is a
   # failure (a stale directory reused), not a silent success.
   mkdir "$_pq/a" "$_pq/b" \
-    || { echo "!! CONTROL FAILED ($_pg_lbl): K2REF the reference repos could not be made fresh" >&2; return 1; }
+    || { echo "!! CONTROL FAILED ($_pg_lbl): the reference repos could not be made fresh" >&2; return 1; }
   ( cd "$_pq/a" && git init -q . ) >/dev/null 2>&1 || true
   ( cd "$_pq/b" && git init -q --template="$_FGIT_VOID" . ) >/dev/null 2>&1 || true
   # `--show-origin` only (git 2.8), not `--show-scope` (git 2.26; PR #527 Codex
   # R12): the origin column already says what P-a asks — `command line:` for
   # the live `-c`, `file:.git/config` for the repo's own file, and any other
   # file for a layer outside it — so no version floor, and no limitation arm.
-  _pa_live="$(cd "$_pq/a" && git -c a.b=c config --list --show-origin 2>/dev/null | awk -F'\t' '$1=="command line:"{print "command"; exit}')" || _pa_live=""
-  _pa_bad="$(cd "$_pq/a" && git config --list --show-origin 2>&1 | awk -F'\t' '$1!="file:.git/config"')" || _pa_bad="(config --list failed)"
+  _pa_live="$(_fgit_in "$_pq/a" -c a.b=c config --list --show-origin 2>/dev/null | awk -F'\t' '$1=="command line:"{print "command"; exit}')" || _pa_live=""
+  _pa_bad="$(_fgit_in "$_pq/a" config --list --show-origin 2>&1 | awk -F'\t' '$1!="file:.git/config"')" || _pa_bad="(config --list failed)"
   if [ "$_pa_live" != command ]; then echo "!! CONTROL NOT EXERCISED ($_pal_lbl)" >&2; _fpv=1
   elif [ -n "$_pa_bad" ]; then echo "!! CONTROL FAILED ($_pa_lbl): $(printf '%s' "$_pa_bad" | tr '\n' ' ')" >&2; _fpv=1; fi
   # P-b asks `git var` INSIDE P-a's probe repo, so what it reads is that repo's
@@ -220,19 +248,19 @@ _fgit_postconditions() {
   # this machine, and green.
   _pbd=""; _pbl=""; _pbu=""
   for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-    _prc=0; git -C "$_pq/a" var "$_v" >/dev/null 2>&1 || _prc=$?
+    _prc=0; _fgit_in "$_pq/a" var "$_v" >/dev/null 2>&1 || _prc=$?
     [ "$_prc" -ne 129 ] || _pbu="$_pbu $_v"
   done
   if [ -n "$_pbu" ]; then
     printf 'P-b — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pbu" >> "$_FW_DIR/machine_limits"
   else
     for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
-      _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git -C "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
+      _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 _fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
       [ -n "$_o" ] || _pbl="$_pbl $_v"
-      if _o="$(git -C "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v=[$_o]"; fi
+      if _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v=[$_o]"; fi
     done
     for _v in GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-      if ! _o="$(git -C "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v:rc!=0"; continue; fi
+      if ! _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v:rc!=0"; continue; fi
       # The void is replaced by a token BEFORE the output is split into lines, so
       # a scratch path holding a newline cannot split one entry into two.
       _o="${_o//"$_FGIT_VOID"/@K2VOID@}"
@@ -259,7 +287,7 @@ EOF_PB
   # exact record" to green and shared the `-i` record's anchor; the next form
   # read an `env` that could not be started at all as "no -0".)
   # No line-based fallback: a value is never split on newlines (Codex R6).
-  _pf=""; _pfn=0; _pfrc=0; _pfenv="$_FGIT_ENVBIN"
+  _pf=""; _pfn=0; _pfrc=0; _pfseen=" "; _pfenv="$_FGIT_ENVBIN"
   "$_pfenv" -0 > "$_pq/env0" 2> "$_pq/env0.err" || _pfrc=$?
   if [ "$_pfrc" -ne 0 ] && [ ! -s "$_pq/env0" ] && [ -s "$_pq/env0.err" ] \
      && "$_pfenv" "$BASH" -c : > /dev/null 2>&1; then
@@ -268,11 +296,16 @@ EOF_PB
     # `|| [ -n "$_rec" ]`: a last record with no NUL after it is still read,
     # not dropped — a name the check never saw would be green.
     while IFS= read -r -d '' _rec || [ -n "$_rec" ]; do
-      _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
+      _pfn=$((_pfn + 1)); _n="${_rec%%=*}"; _pfseen="$_pfseen$_n "
       case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
     done < "$_pq/env0"
+    # Both directions: no name outside the allowlist, and EVERY name of the
+    # allowlist present — a list that holds one record (an `env` that ignored
+    # `-0` and printed lines) shows no stranger and is not the population.
+    _pfm=""
+    for _n in $_FGIT_ENV_REQ; do case "$_pfseen" in *" $_n "*) : ;; *) _pfm="$_pfm $_n" ;; esac; done
     if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
-    elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
+    elif [ -n "$_pf" ] || [ -n "$_pfm" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf${_pfm:+ missing$_pfm}" >&2; _fpv=1; fi
   fi
   # P-i: the window pins the files ref format, and its plain init has it. A git
   # without `--show-ref-format` (before 2.45) has no reftable, so its answer is
@@ -280,7 +313,7 @@ EOF_PB
   # option it does not know and exits 0, so that literal echo is what means
   # "files". Any other answer, including a failed call or a format name this
   # wire has not met, stays itself and is red unless it is `files`.
-  _rf="$(git -C "$_pq/a" rev-parse --show-ref-format 2>/dev/null)" || _rf="[rev-parse failed]"
+  _rf="$(_fgit_in "$_pq/a" rev-parse --show-ref-format 2>/dev/null)" || _rf="[rev-parse failed]"
   case "$_rf" in --show-ref-format) _rf=files ;; esac
   if [ "${GIT_DEFAULT_REF_FORMAT:-}" != files ] || [ "$_rf" != files ]; then
     echo "!! CONTROL FAILED ($_pi_lbl): GIT_DEFAULT_REF_FORMAT is [${GIT_DEFAULT_REF_FORMAT:-}], a plain init has [$_rf]" >&2; _fpv=1
@@ -291,8 +324,8 @@ EOF_PB
   # whose first `PATH` entry is already `$_FGIT_BIN`, dropping the
   # construction changes nothing else, and P-e's reference moves with it, so
   # nothing but this sees it. Which OTHER tool a caller entry finds is outside
-  # P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1, "Outside
-  # P"; R1) — P-j checks only that `git` is the pinned one and that the pin
+  # P (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §1, "Outside
+  # P"; §0.1, R1) — P-j checks only that `git` is the pinned one and that the pin
   # comes first.
   _pj=""
   case "$PATH" in "$_FGIT_BIN"|"$_FGIT_BIN":*) ;; *) _pj="$_pj first-entry" ;; esac
@@ -308,7 +341,7 @@ EOF_PB
   # — derived from git itself, per run, so no key list: anything a fixture
   # persisted beyond it is red.
   _pgref="$_pq/pgref.lines"
-  git -C "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
+  _fgit_in "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
   # `_pg_z <git dir> <out>`: the `-z` listing as sorted records
   # "origin<TAB>key<LF>value", each written as ONE line by `printf %q` (a
   # value's newline becomes `$'\n'`), so record boundaries cannot be forged
@@ -316,7 +349,7 @@ EOF_PB
   # supported `sort` has (PR #527 Codex R24/R25). An odd field count (a
   # truncated listing) fails.
   _pg_z() {
-    git -C "$1" config --list --show-origin -z > "$2.raw" || return $?
+    _fgit_in "$1" config --list --show-origin -z > "$2.raw" || return $?
     _pgzo=""; _pgzn=0
     : > "$2.rec"
     while IFS= read -r -d '' _pgzf; do
@@ -329,82 +362,17 @@ EOF_PB
   _pg_z "$_pq/a" "$_pq/pgref.z" || : > "$_pq/pgref.z"
   _pg=""; _pk=""
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
-  # Population by property: EVERY git dir the fixtures produced, anywhere under
-  # $CTL (hidden and nested included, and inside `.git` dirs): each `.git`
-  # entry of any type, and each directory shaped like a git dir (a `HEAD` entry
-  # plus an `objects` dir or a `commondir` file). Names are matched without
-  # case: a case-insensitive filesystem (APFS by default) lets git read `head`
-  # and `.GIT`, so a case variant is a git dir too — and red, being unknown. Only a `.git` that is a real
-  # directory has its config compared; every other shape (a gitfile, a symlink,
-  # a bare, separate, submodule or linked-worktree git dir) is UNKNOWN and red,
-  # never skipped. "Cannot search" is whatever `find` reports: any report fails
-  # the census, and a failed census is red, as is one that finds no git dir.
-  # ⚠ NOTHING UNDER `$CTL` IS UNSEARCHABLE AT CENSUS TIME, BY CONSTRUCTION: the
-  # fixtures ask for their mode restrictions through `_seal`, which only records
-  # them, and the window applies them AFTER this check. So every directory is
-  # examined, and one the census cannot read is a new, unrequested restriction —
-  # red.
-  _pgpop="$_pq/pgpop"; _pgn=0
-  # `HEAD` of ANY type: a symlink `HEAD` is a shape git still reads (PR #527
-  # Codex R16 — `-type f` left such a bare repo out of the census entirely).
-  # …and every SYMLINK, so this loop can SKIP one without misreading it as a
-  # git dir: the census above (pass 2) already searched every symlink under
-  # `$CTL` that resolves to a directory, whatever its name, and reds one that
-  # reaches a `HEAD` or `.git` — a clean census is what let this loop run at
-  # all. A link that does not resolve to a directory is classified by its name
-  # below (`.git`, `HEAD`) or passes. There is no time bound on the census's
-  # own per-link search: a link to a huge tree runs until CI's job timeout ends
-  # it, red — a local run has no such timeout and waits (slot
-  # `#11-trip-wire-liveness-bound`,
-  # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md §9.2).
-  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_pq/pgpop.err" \
-    || : > "$_pq/pgpop.failed"
-  if [ -e "$_pq/pgpop.failed" ] || [ -s "$_pq/pgpop.err" ]; then
-    _pg="$_pg (the git-dir census under the fixture root failed: $(head -3 "$_pq/pgpop.err" | tr '\n' ';'))"
-  fi
+  # The population is the CENSUS's own list, `$_pq/pre`: every `.git` entry the
+  # fixtures produced, anywhere under $CTL (hidden and nested included, and
+  # inside `.git` dirs). A clean census is what lets this loop run at all, and
+  # it guarantees each `.git` entry is a real directory with a clean shape (a
+  # gitfile, a symlink, a bare, separate, submodule or linked-worktree git dir
+  # is UNKNOWN and red there, never skipped), so the loop only acts on the
+  # `.git` entries and counts them: none is red.
+  _pgn=0
   while IFS= read -r -d '' _pge; do
-    # A SYMLINK here is not itself a git dir: the census above (pass 2) already
-    # searched every symlink under `$CTL` that resolves to a directory, and a
-    # clean census is what let this loop run at all — so no such link reaches
-    # HERE still unclassified, and no per-link search is repeated. A link
-    # named `.git` or `HEAD` is classified below by that name; any other link
-    # (inside a git dir or not) is skipped — the census's shape pass already
-    # reds a link inside a `.git` directory (any entry there but a directory
-    # or a one-link regular file is red), and a free-standing one outside any
-    # git dir is not part of one.
-    if [ -L "$_pge" ]; then
-      case "${_pge##*/}" in
-        .[Gg][Ii][Tt]|[Hh][Ee][Aa][Dd]) ;;
-        *) continue ;;
-      esac
-    fi
-    case "${_pge##*/}" in
-      [Hh][Ee][Aa][Dd])
-        _pgd="${_pge%/*}"
-        if [ "${_pgd##*/}" = .git ]; then
-          # the ordinary git dir, counted by its `.git` entry — unless its HEAD
-          # is a case variant, which only a case-insensitive filesystem reads
-          [ "${_pge##*/}" = HEAD ] || _pg="$_pg ${_pge#"$CTL"/}:[HEAD spelled ${_pge##*/}]"
-        elif [ -d "$_pgd/objects" ] || [ -f "$_pgd/commondir" ]; then
-          _pg="$_pg ${_pgd#"$CTL"/}:[a git dir not named .git]"
-        fi
-        continue ;;
-      .git) ;;
-      *) _pgn=$((_pgn + 1)); _pg="$_pg ${_pge#"$CTL"/}:[.git spelled ${_pge##*/}]"; continue ;;
-    esac
+    [ "${_pge##*/}" = .git ] || continue
     _pgn=$((_pgn + 1)); _pgd="${_pge%/.git}"; _pgl="${_pgd#"$CTL"/}"
-    if [ -L "$_pge" ] || [ ! -d "$_pge" ]; then _pg="$_pg $_pgl:[.git is not a directory]"; continue; fi
-    # SHAPE, BY PROPERTY, NOT BY NAME: every entry under this git dir must be a
-    # directory or a regular file — the same property the census's pass 1
-    # already checks over the git dirs it finds by their `.git` entry, applied
-    # here to every git dir this loop reaches (a bare repo or worktree gitdir,
-    # named by `HEAD`, which the census classifies but does not shape-check).
-    # A symlink of any target, a FIFO, a socket or a device — `HEAD`, `config`
-    # or anywhere else under the git dir — is red, and git is NOT run on it:
-    # git reads through a link and blocks opening a FIFO, and nothing here has
-    # a watchdog (PR #527 Codex R25; #11-trip-wire-liveness-bound).
-    _pgbad="$(find "$_pge" ! -type f ! -type d -print 2>&1)" || _pgbad="$_pgbad (the shape scan failed)"
-    if [ -n "$_pgbad" ]; then _pg="$_pg $_pgl:[not a regular file or directory: $(printf '%s' "$_pgbad" | tr '\n' ' ')]"; continue; fi
     # P-k: no fixture repo may read objects from a store outside it. Git's OWN
     # answer, not a file name: an `objects/info/alternates` naming another
     # store makes git read an object from there instead of writing it
@@ -417,48 +385,48 @@ EOF_PB
     # `alternate:` line and a warning or error on stderr), is red too — such a
     # store could appear later and be read. Runs only over the clean census,
     # on every `.git` P-g compares.
-    _pkrc=0; _pko="$(git -C "$_pgd" count-objects -v 2>"$_pq/pk.err")" || _pkrc=$?
+    _pkrc=0; _pko="$(_fgit_in "$_pgd" count-objects -v 2>"$_pq/pk.err")" || _pkrc=$?
     if [ "$_pkrc" -ne 0 ] || [ -s "$_pq/pk.err" ]; then
       _pk="$_pk $_pgl:[count-objects exit $_pkrc$( [ ! -s "$_pq/pk.err" ] || printf ', stderr: %s' "$(tr '\n' ' ' < "$_pq/pk.err")" )]"
     else
-      _pka="$(printf '%s\n' "$_pko" | grep '^alternate:')" || _pka=""
-      [ -z "$_pka" ] || _pk="$_pk $_pgl:[$(printf '%s' "$_pka" | tr '\n' ';')]"
+      # ⚠ grep's 1 is "no alternate line"; anything above it is a failed
+      # comparison, which is red — not an absent line.
+      _pkgrc=0; _pka="$(printf '%s\n' "$_pko" | grep '^alternate:')" || _pkgrc=$?
+      if [ "$_pkgrc" -gt 1 ]; then _pk="$_pk $_pgl:[the comparison failed (grep exit $_pkgrc)]"
+      elif [ -n "$_pka" ]; then _pk="$_pk $_pgl:[$(printf '%s' "$_pka" | tr '\n' ';')]"; fi
     fi
-    # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
-    # NOTHING and exits 0, so an empty listing is red, not "no extra key".
-    _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-origin 2>&1)" || _pgrc=$?
+    # P-g: THE AUTHORITATIVE COMPARISON is of RECORDS, and runs first. A
+    # line-based comparison can be forged by a value holding a newline shaped
+    # like another `--show-origin` line (PR #527 Codex R24) and passes a line
+    # written twice (R17). `_pg_z` lists `-z` (NUL-bounded origin and
+    # key/value), pairs each origin with its entry into one record, and sorts;
+    # the reference's and this repo's must be byte-identical. The listing must
+    # EQUAL the reference as a set: an entry beyond a plain init is an input the
+    # fixture persisted, and an entry a plain init writes but the fixture removed
+    # (`git config --unset core.filemode`) hands that setting to the platform
+    # default — either way P would depend on more than the fixture. Any non-zero
+    # — a difference, or a listing/sort/cmp that could not run — is red. ⚠ BOTH
+    # DIRECTIONS: a `.git` git does not recognise lists NOTHING, and an empty
+    # listing is `_pg_z`'s failure (3), not "no extra key".
+    _pgcrc=0
+    { _pg_z "$_pgd" "$_pq/pgcur.z" && cmp -s "$_pq/pgcur.z" "$_pq/pgref.z"; } || _pgcrc=$?
+    [ "$_pgcrc" -eq 0 ] && continue
+    # RED, whatever follows: the line listings only build the MESSAGE, so a
+    # failure of theirs cannot turn this red green.
+    _pgrc=0; _pgc="$(_fgit_in "$_pgd" config --list --show-origin 2>&1)" || _pgrc=$?
     if [ "$_pgrc" -ne 0 ] || [ -z "$_pgc" ]; then
       _pg="$_pg $_pgl:[git lists no configuration here (exit $_pgrc)]"; continue
     fi
-    # The listing must EQUAL the reference as a set: an entry beyond a plain init
-    # is an input the fixture persisted, and an entry a plain init writes but the
-    # fixture removed (`git config --unset core.filemode`) hands that setting to
-    # the platform default — either way P would depend on more than the fixture.
-    # ⚠ grep's 1 is "no line differs"; anything above it is a failed
-    # comparison, which is red — not an empty difference (PR #527 Codex R14:
-    # `|| true` turned a grep error into a pass).
-    _pgxrc=0; _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || _pgxrc=$?
     printf '%s\n' "$_pgc" > "$_pq/pgcur"
-    _pgmrc=0; _pgm="$(grep -vxF -f "$_pq/pgcur" "$_pgref")" || _pgmrc=$?
-    if [ "$_pgxrc" -gt 1 ] || [ "$_pgmrc" -gt 1 ]; then
-      _pg="$_pg $_pgl:[the comparison failed (grep exit $_pgxrc/$_pgmrc)]"; continue
-    fi
-    [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
-    [ -z "$_pgm" ] || _pg="$_pg $_pgl:[removed: $(printf '%s' "$_pgm" | tr '\t\n' ' ;')]"
-    # THE AUTHORITATIVE COMPARISON is of RECORDS, not lines: the two greps
-    # above compare lines, so a value holding a newline shaped like another
-    # `--show-origin` line forged a match (PR #527 Codex R24), and a line
-    # written twice passed them (R17). `_pg_z` lists `-z` (NUL-bounded origin
-    # and key/value), pairs each origin with its entry into one record, and
-    # sorts; the reference's and this repo's must be byte-identical. Any
-    # non-zero — a difference, or a listing/sort/cmp that could not run — is
-    # red. The greps stay for the message.
+    _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || _pgx=""
+    _pgm="$(grep -vxF -f "$_pq/pgcur" "$_pgref")" || _pgm=""
     if [ -z "$_pgx" ] && [ -z "$_pgm" ]; then
-      _pgcrc=0
-      { _pg_z "$_pgd" "$_pq/pgcur.z" && cmp -s "$_pq/pgcur.z" "$_pq/pgref.z"; } || _pgcrc=$?
-      [ "$_pgcrc" -eq 0 ] || _pg="$_pg $_pgl:[its configuration records differ from a plain init's (a repeated entry, or a value holding a newline), or could not be compared (exit $_pgcrc)]"
+      _pg="$_pg $_pgl:[its configuration records differ from a plain init's (a repeated entry, or a value holding a newline), or could not be compared (exit $_pgcrc)]"
+    else
+      [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
+      [ -z "$_pgm" ] || _pg="$_pg $_pgl:[removed: $(printf '%s' "$_pgm" | tr '\t\n' ' ;')]"
     fi
-  done < "$_pgpop"
+  done < "$_pq/pre"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
   if [ -n "$_pg" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg" >&2; _fpv=1; fi
   if [ -n "$_pk" ]; then echo "!! CONTROL FAILED ($_pk_lbl):$_pk" >&2; _fpv=1; fi
@@ -474,7 +442,7 @@ EOF_PB
   if mkdir "$_pq/c" && ( cd "$_pq/c" && git init -q . ) >/dev/null 2>&1; then
     mkdir -p "$_pq/c/.git/objects/info"
     printf '"%s"\n' "$(printf '%s' "$_pq/a/.git/objects" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$_pq/c/.git/objects/info/alternates"
-    _pklrc=0; _pklo="$(git -C "$_pq/c" count-objects -v 2>"$_pq/pkl.err")" || _pklrc=$?
+    _pklrc=0; _pklo="$(_fgit_in "$_pq/c" count-objects -v 2>"$_pq/pkl.err")" || _pklrc=$?
     _pkln="$(printf '%s\n' "$_pklo" | grep -c '^alternate:')" || _pkln=0
     if [ "$_pklrc" -ne 0 ] || [ -s "$_pq/pkl.err" ] || [ "$_pkln" -ne 1 ]; then _pkl=bad; fi
   else
@@ -567,7 +535,7 @@ _fgit_window() {
     # Plain assignments, never `declare -p`: that would carry an `export`
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
-      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_WIRE_EXEC \
+      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_ENV_REQ _FGIT_WIRE_EXEC \
       _FGIT_WIRE_LC _FGIT_BIN _FW_DIR; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
