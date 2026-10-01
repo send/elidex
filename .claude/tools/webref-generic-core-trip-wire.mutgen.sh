@@ -4,7 +4,7 @@
 #
 # WHY IT IS A SEPARATE FILE. The mutation set holds two populations, and its
 # header draws the boundary between them: the hand-written records, whose unit
-# is a CONTROL, and this one, GENERATED from `$K2RE` and `$K2RE_PATH`, whose unit
+# is a LABEL, and this one, GENERATED from `$K2RE` and `$K2RE_PATH`, whose unit
 # is a RULE of those two regexes. That boundary is the seam. The split is taken
 # before the fixture-git rebuild adds its infrastructure and records to the
 # mutation set, which would otherwise take it past 1000 lines
@@ -268,11 +268,11 @@ _mut_splice() {
 # rule, and the opt-in run would print `0 mutant(s)` beside `0 neither killed
 # nor argued equivalent`, a pass — the blind this guards against.
 _mut_gen_floor() {
-  _mgf_n=0
+  _mgf_n=0; _mut_gen_fail=""
   for _mgf_v in K2RE K2RE_PATH; do
     eval "_mgf_val=\"\${$_mgf_v-}\""
     _mut_regex_mutants "$_mgf_v" "$_mgf_val" > "$_VFY/.genfloor" || {
-      echo "!! CONTROL FAILED ($_mg_lbl): generating \$$_mgf_v's mutants failed" >&2
+      echo "!! CONTROL FAILED ($_mg_lbl): generating \$$_mgf_v's mutants failed${_mut_gen_fail:+: $_mut_gen_fail}" >&2
       command rm -f "$_VFY/.genfloor"; return 1; }
     _mgf_n=$((_mgf_n + $(awk 'END{print NR}' "$_VFY/.genfloor")))
   done

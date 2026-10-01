@@ -26,7 +26,7 @@
 # hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
-# WHAT IT CONSUMES: `$_VFY` (from the controls harness), `$_CONTROLS` (the
+# WHAT IT CONSUMES: `$_VFY` (from the controls file), `$_CONTROLS` (the
 # controls file, read for labels), and `$SELF`, `$SCRATCH`, `$K2RE` and
 # `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` through `_MUT_PARTS`. `_mut_run` copies every part in that list — the
@@ -39,8 +39,8 @@
 # generator — the same drift the guard exists to catch, in the edit that
 # widened what there is to drift.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUTGEN`,
-# `_MUT_TARGETS`, `_mutants`, `_mut_correspondence`, `_mut_target`,
-# `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The generated
+# `_MUT_TARGETS`, `_MUT_PARTS`, `_mutants`, `_mut_correspondence`, `_mut_src_for`,
+# `_mut_target`, `_mut_parse`, `_mut_apply`, `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The generated
 # half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
 # `_mut_splice`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`, sourced below.
 #
@@ -124,9 +124,20 @@ fi
 # criterion. So the set lives HERE, machine-readably, in the file that ships
 # with the thing it is about:
 #
-#   one record per line, TAB-separated:  <sed expression>  <substring the run must print>
+#   one record per line, TAB-separated:
+#       <sed expression 1> [TAB <sed expression 2> …] TAB <substring the run must print>
 #
-# The expression is applied to a COPY of the file it names — the wire, unless the
+# THE NEEDLE IS THE LAST TAB FIELD; every field before it is ONE sed expression,
+# and the run applies them together as `sed -e <expr 1> -e <expr 2> …`. A record
+# that needs two edits (a range-scoped one and an unscoped one, say) is therefore
+# two fields, never `expr1;expr2` in one — because the always-on anchor check
+# (below) applies EACH expression alone and requires it to change EXACTLY ONE
+# line of its target. A `;`-joined pair would be checked as one expression, and
+# one half going stale (a renamed function, a respelled line) would leave the
+# other half "fresh". The `harness:` / `fixtures:` / `mutgen:` prefix (below) is
+# written on the FIRST expression and aims the whole record.
+#
+# The expressions are applied to a COPY of the file the record names — the wire, unless the
 # record says otherwise (below); the copy must (a) differ from
 # the original — a stale anchor that matches nothing is a FAILED entry, not a
 # passing one — (b) exit non-zero, and (c) print the named control's own
@@ -236,7 +247,7 @@ s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a STAGED symlink target is a stored path
 s/elif \[ "$_mode" = 120000 \]; then/elif [ "$_mode" = 120000 ] \&\& [ "$_src" = index ]; then/	a COMMITTED symlink target is a stored path
 s|${1//$'\\n'/$_REC_SEP}|${1}|	a NEWLINE inside a name segment
 s/^  _stored "${rel#"$_dir"\/}"/  : /	an entry's own NAME is the hierarchy
-s/--exclude-per-directory=.gitignore/--exclude-standard/	per-clone info/exclude cannot hide an entry
+s/--exclude-per-directory=.gitignore \\$/--exclude-standard \\$/	per-clone info/exclude cannot hide an entry
 s/\[ "$_hrc" -eq 0 \]/false/	a COMMITTED violation fixed only in the index still fires
 s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not a path
 s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
@@ -342,7 +353,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture 
 # survives this set — the block would run over the unbuilt tree, but W2 is
 # already reported by the first `_control` — so those gates are pinned only by
 # the traced `w2rec` cell (companion §A.14), not by a record.
-harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/;s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
 # the untrusted-build exit itself removed. Each forces one of the two inputs
@@ -350,8 +361,8 @@ harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/;s/: > "[$]_FW_D
 # expression; each survives with the clause it forces removed from the
 # computation, which then writes 1 regardless
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1, C8 rows).
-harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/;s/\[ ! -e "[$]_FW_DIR\/post_bad" \] || _fw_post_bad=1/_fw_post_bad=1/	no control runs over an incomplete or untrusted fixture build window
-harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/;s/\[ "[$]_fw_dg" -eq 0 \] || _fw_diag=/false || _fw_diag=/	no control runs over an incomplete or untrusted fixture build window
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/\[ ! -e "[$]_FW_DIR\/post_bad" \] || _fw_post_bad=1/_fw_post_bad=1/	no control runs over an incomplete or untrusted fixture build window
+harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/\[ "[$]_fw_dg" -eq 0 \] || _fw_diag=/false || _fw_diag=/	no control runs over an incomplete or untrusted fixture build window
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
 harness:s/git -c a[.]b=c config --list/git config --list/	this git reports a configuration origin outside the repo's file
@@ -363,7 +374,7 @@ harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_EXEC_PATH=\/nonexistent-k2)/	no exec-path 
 harness:s/ "LC_ALL=C")$/)/	the fixture build window reads in the wire's locale
 harness:s/ GIT_DEFAULT_REF_FORMAT=files / /	the fixture repos use the files ref format
 harness:s/chmod "[$]_sm" "[$]CTL\/[$]_sp" 2>\/dev\/null/false/	every mode restriction a fixture sealed was applied
-harness:s/"[$]_FGIT_ENVBIN" -i /"$_FGIT_ENVBIN" /	the fixture build window's environment holds only its allowlist
+harness:s/^  "[$]_FGIT_ENVBIN" -i "/  "$_FGIT_ENVBIN" "/	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /{ "$_pfenv" -0; echo k2 >\&2; false; } > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /false > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's environment holds only its allowlist
@@ -425,10 +436,62 @@ MUTANTS
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
 # compares) — `_mut_run`'s per-run names, derived rather than listed per part.
 _mut_target() {
+  _mut_src_for "$1"
   case "$1" in
-    wire) _mut_src="$SELF"; _mut_tgt="$_mut_wire" ;;
-    *)    _mut_src="${SELF%.sh}.$1.sh"; _mut_tgt="$_mut_base.$1.sh" ;;
+    wire) _mut_tgt="$_mut_wire" ;;
+    *)    _mut_tgt="$_mut_base.$1.sh" ;;
   esac
+}
+# …its first half, usable without a per-run `$_mut_base` (the always-on anchor
+# check runs on every run, a mutation run's copies only on the opt-in one): the
+# SHIPPED file a name stands for. `_mut_parse` and `_mut_target` both go through
+# it, so there is one place a name becomes a path.
+_mut_src_for() {
+  case "$1" in
+    wire) _mut_src="$SELF" ;;
+    *)    _mut_src="${SELF%.sh}.$1.sh" ;;
+  esac
+}
+
+# THE ONE PARSER OF A RECORD — the always-on checks and `_mut_run` both read a
+# record through it, so the format has one reader. $1 = one line of `_mutants`.
+# Sets `_pr_n` (how many expressions), `_pr_expr[0.._pr_n-1]` (with the target
+# prefix stripped from the first), `_pr_needle` (the last TAB field), `_pr_which`
+# (`wire` or a word of `$_MUT_TARGETS`), `_pr_show` (the expressions as written,
+# for a diagnostic) and, through `_mut_src_for`, `$_mut_src`. A line with no TAB
+# has `_pr_n` = 0 and is not a record.
+# ⚠ ANCHORED ON THE KNOWN NAMES, NEVER A GENERIC `<word>:` PARSE:
+# `sed 'y/a:/b;/'` is a valid expression whose `${x%%:*}` is `y/a`, so a parse
+# would re-aim a record at a target that does not exist.
+_mut_parse() {
+  _pr_rest="$1"; _pr_n=0; _pr_expr=(); _pr_needle=""; _pr_which=wire; _pr_tab=$'\t'
+  while :; do
+    case "$_pr_rest" in
+      *"$_pr_tab"*) _pr_expr[_pr_n]="${_pr_rest%%"$_pr_tab"*}"; _pr_n=$((_pr_n + 1))
+                    _pr_rest="${_pr_rest#*"$_pr_tab"}" ;;
+      *)            _pr_needle="$_pr_rest"; break ;;
+    esac
+  done
+  _pr_show=""
+  if [ "$_pr_n" -gt 0 ]; then
+    _pr_show="${1%"$_pr_tab$_pr_needle"}"
+    for _pr_t in $_MUT_TARGETS; do
+      case "${_pr_expr[0]}" in
+        "$_pr_t":*) _pr_which="$_pr_t"; _pr_expr[0]="${_pr_expr[0]#"$_pr_t":}"; break ;;
+      esac
+    done
+  fi
+  _mut_src_for "$_pr_which"
+}
+
+# The parsed record applied to a file: every expression, as one sed script.
+# $1 = the file to read, $2 = the file to write. Needs `_mut_parse` to have run.
+_mut_apply() {
+  _ap_in="$1"; _ap_out="$2"; _ap_i=0; set --
+  while [ "$_ap_i" -lt "$_pr_n" ]; do
+    set -- "$@" -e "${_pr_expr[$_ap_i]}"; _ap_i=$((_ap_i + 1))
+  done
+  sed "$@" "$_ap_in" > "$_ap_out" 2>/dev/null
 }
 
 # EVERY MUTABLE COPY BACK TO THE SHIPPED BYTES, before an entry is applied, so no
@@ -492,11 +555,26 @@ _mut_trial() {
   fi
   [ "$_mt_rc" -eq 0 ] && return 1
   if [ "$2" = '!kill' ]; then
-    case "$_mt_out" in
+    # ⚠ THE GENERATOR FLOOR'S OWN LABEL IS NOT A KILL. The floor runs inside the
+    # mutant too (the `mutgen:` record depends on it), and a mutant of `$K2RE` or
+    # `$K2RE_PATH` can make the floor's generator refuse the mutated value — so
+    # `CONTROL FAILED ($_mg_lbl)` is raised by the mutation itself and says
+    # nothing about whether any fixture poses the question. A generated mutant
+    # must be killed by SOME OTHER control: those lines are removed before the test.
+    _mt_acc=""
+    while IFS= read -r _mt_l; do
+      case "$_mt_l" in
+        *"CONTROL FAILED ($_mg_lbl)"*) ;;
+        *) _mt_acc="$_mt_acc$_mt_l
+" ;;
+      esac
+    done <<< "$_mt_out"
+    case "$_mt_acc" in
       *"CONTROL FAILED ("*) return 0 ;;
       *) echo "!! MUTANT $1 was killed BY THE WRONG SUBJECT (exit $_mt_rc): no control" >&2
-         echo "   failed, so what reddened the run was the real tree or a refusal, not" >&2
-         echo "   a fixture posing the question this rule is about." >&2
+         echo "   other than the generator floor failed, so what reddened the run was the" >&2
+         echo "   mutated predicate itself, the real tree or a refusal, not a fixture" >&2
+         echo "   posing the question this rule is about." >&2
          return 2 ;;
     esac
   fi
@@ -540,8 +618,10 @@ _mut_correspondence() {
   # moved.)
   _mutants > "$_VFY/.mutants"
   _mut_orphan=0
-  while IFS="$(printf '\t')" read -r _mline _mwant; do
-    [ -n "${_mline:-}" ] || continue
+  while IFS= read -r _mline; do
+    [ -n "$_mline" ] || continue
+    _mut_parse "$_mline"
+    _mwant="$_pr_needle"
     # ⚠ A LINE THAT IS NOT A RECORD IS AN ERROR HERE, NOT SOMETHING TO SKIP, and
     # the asymmetry it replaces is why: this loop dropped every line with no
     # needle, so a line the here-document turns into DATA passed this check in
@@ -551,7 +631,7 @@ _mut_correspondence() {
     # nothing. `_mutants` now drops `#` comments at its own materialiser, so what
     # reaches here is a line that is neither — prose with no `#`, or a record
     # whose TAB an editor ate.
-    if [ -z "${_mwant:-}" ]; then
+    if [ "$_pr_n" -lt 1 ] || [ -z "$_mwant" ]; then
       echo "!! mutation set line \"$_mline\" has no TAB-separated needle, so it is not a" >&2
       echo "   record. Write a note as a \`#\` comment; anything else in that" >&2
       echo "   here-document is data, and the mutation run applies it as a sed expression." >&2
@@ -583,27 +663,47 @@ _mut_correspondence() {
   # anchored on the edited text no longer apply, by design.
   case "${SELF##*/}" in
     *.mutant.*) : ;;
-    *) while IFS="$(printf '\t')" read -r _ma_x _; do
-         [ -n "${_ma_x:-}" ] || continue
-         _ma_src="$SELF"
-         for _ma_t in $_MUT_TARGETS; do
-           case "$_ma_x" in "$_ma_t":*) _ma_src="${SELF%.sh}.$_ma_t.sh"; _ma_x="${_ma_x#"$_ma_t":}"; break ;; esac
+    *) while IFS= read -r _ma_rec; do
+         [ -n "$_ma_rec" ] || continue
+         _mut_parse "$_ma_rec"
+         _ma_src="$_mut_src"
+         _ma_i=0
+         while [ "$_ma_i" -lt "$_pr_n" ]; do
+           _ma_x="${_pr_expr[$_ma_i]}"; _ma_i=$((_ma_i + 1))
+           # ⚠ EACH EXPRESSION ALONE, AND IT MUST CHANGE EXACTLY ONE LINE of its
+           # target. Whole-record, whole-file was the old granularity: an
+           # expression that also matched a COMMENT passed on the comment after the
+           # code line was respelled, and the second half of a `range-s;s` pair
+           # kept a record "fresh" when the range half had gone stale. `diff`
+           # counts a changed line once whether `s` rewrote it or `d` removed it.
+           if ! sed -e "$_ma_x" "$_ma_src" > "$_VFY/.anchor" 2>/dev/null; then
+             echo "!! mutation record expression \"$_ma_x\" is not a valid sed expression." >&2; _mut_corr_bad=1; continue
+           fi
+           _ma_drc=0; diff "$_ma_src" "$_VFY/.anchor" > "$_VFY/.anchordiff" || _ma_drc=$?
+           if [ "$_ma_drc" -gt 1 ]; then
+             echo "!! mutation record expression \"$_ma_x\": diff of ${_ma_src##*/} failed (exit $_ma_drc)." >&2; _mut_corr_bad=1; continue
+           fi
+           _ma_n="$(awk '/^</{d++} /^>/{a++} END{print (d>a?d:a)+0}' "$_VFY/.anchordiff")"
+           if [ "$_ma_n" -eq 0 ]; then
+             echo "!! mutation record expression \"$_ma_x\" no longer matches ${_ma_src##*/}: its anchor is stale," >&2
+             echo "   so the record would test a copy identical to the shipped file." >&2
+             _mut_corr_bad=1
+           elif [ "$_ma_n" -ne 1 ]; then
+             echo "!! mutation record expression \"$_ma_x\" changes $_ma_n lines of ${_ma_src##*/}, not exactly one:" >&2
+             echo "   it is anchored on more than the line it is about (a comment, a second site), so" >&2
+             echo "   it stays \"fresh\" after the intended line is respelled. Anchor it on one line;" >&2
+             echo "   a record that needs several edits is several TAB-separated expressions." >&2
+             _mut_corr_bad=1
+           fi
          done
-         if ! sed "$_ma_x" "$_ma_src" > "$_VFY/.anchor" 2>/dev/null; then
-           echo "!! mutation record \"$_ma_x\" is not a valid sed expression." >&2; _mut_corr_bad=1
-         elif cmp -s "$_VFY/.anchor" "$_ma_src"; then
-           echo "!! mutation record \"$_ma_x\" no longer matches ${_ma_src##*/}: its anchor is stale," >&2
-           echo "   so the record would test a copy identical to the shipped file." >&2
-           _mut_corr_bad=1
-         fi
        done < "$_VFY/.mutants"
-       command rm -f "$_VFY/.anchor" ;;
+       command rm -f "$_VFY/.anchor" "$_VFY/.anchordiff" ;;
   esac
   # …the standing negative control must BE there, and the set may not shrink.
   # ⚠ `awk`, NOT `grep -c`: `grep` exits 1 when it selects nothing, and under
   # `pipefail` that aborts the required gate — the same trap as the `wc -l`
   # below, and the failing case would be exactly the one being reported.
-  _mut_surv="$(awk -F'\t' '$2=="!survive"{n++} END{print n+0}' "$_VFY/.mutants")"
+  _mut_surv="$(awk -F'\t' '$NF=="!survive"{n++} END{print n+0}' "$_VFY/.mutants")"
   if [ "$_mut_surv" -ne 1 ]; then
     echo "!! the standing negative control (\`!survive\`) is not in the mutation set" >&2
     echo "   exactly once (found $_mut_surv), so a broken harness cannot be told" >&2
@@ -685,21 +785,13 @@ _mut_run() {
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$_VFY/.mutants"
     _mut_n=0; _mut_bad=0; _mut_exc=0
-    while IFS="$(printf '\t')" read -r _mx _mwant; do
-      [ -n "$_mx" ] || continue
+    while IFS= read -r _mrec; do
+      [ -n "$_mrec" ] || continue
       _mut_n=$((_mut_n + 1))
-      # WHICH SHIPPED FILE THIS ENTRY EDITS — the wire unless the expression
-      # carries a word of `$_MUT_TARGETS` as a prefix, which is stripped before
-      # `sed` sees it.
-      # ⚠ ANCHORED ON THE KNOWN NAMES, NEVER A GENERIC `<word>:` PARSE:
-      # `sed 'y/a:/b;/'` is a valid expression whose `${_mx%%:*}` is `y/a`, so a
-      # parse would re-aim a record at a target that does not exist.
-      _mt_which=wire
-      for _mut_t in $_MUT_TARGETS; do
-        case "$_mx" in
-          "$_mut_t":*) _mt_which="$_mut_t"; _mx="${_mx#"$_mut_t":}"; break ;;
-        esac
-      done
+      # WHICH SHIPPED FILE THIS ENTRY EDITS, and what it applies — the record's
+      # one reader, shared with the always-on checks.
+      _mut_parse "$_mrec"
+      _mx="$_pr_show"; _mwant="$_pr_needle"; _mt_which="$_pr_which"
       # A record whose needle is the label of a postcondition THIS MACHINE
       # cannot evaluate (a `machine_limits` line from the window: `P-x — …`)
       # may be unable to die here however correct the wire — but only MAY: a
@@ -720,7 +812,7 @@ ${_fw_limits:-}
 EOF_MLIM
       _mut_restore_copies || { _mut_bad=$((_mut_bad + 1)); continue; }
       _mut_target "$_mt_which"
-      if ! sed "$_mx" "$_mut_src" > "$_mut_tgt" 2>/dev/null; then
+      if ! _mut_apply "$_mut_src" "$_mut_tgt"; then
         echo "!! MUTANT $_mut_n: the expression is not a valid sed script: $_mx" >&2
         _mut_bad=$((_mut_bad + 1)); continue
       fi
