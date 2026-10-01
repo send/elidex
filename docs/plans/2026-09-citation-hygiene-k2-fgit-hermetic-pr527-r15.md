@@ -680,7 +680,7 @@ Measured (the implementers' logs, relayed; `cell15.sh`-style cells unless named)
 - **#2**: wrappers that exec "the next `git` on `PATH`" (strip-own-dir, and `which -a` skip-self):
   before, no output until the bound, 4/4 (5.3 ended by the alarm, rc 142 at 40 s; 3.2 only by the
   watchdog, rc 137 at 33 s); after, rc 1 in 8–9 s with `CONTROL FAILED (the pinned git never re-enters
-  itself)`, 4/4.
+  itself)`, 4/4. (Superseded by review R2, below: an `env -i PATH=…` re-exec reset the counter.)
 - **#3**: a `$HOME`-reading `set -u` git wrapper: before rc 1, P-e `[…] vs []`; after PASSED, both shells.
 - **#8**: with `_seal_apply`'s walk deleted, before rc 0, PASSED; after, the load-time probe stops the
   run, exit 2. **A1-3**: a mode `000<TAB>x<TAB>../k2sentinel<NL>755` chmodded a sentinel outside `$CTL`
@@ -716,3 +716,56 @@ relayed, not re-measured, and decide nothing.
 file's WHAT IT DEFINES omits `_mut_gen_floor`, defined in `mutgen.sh`); the P-dump hook above.
 
 This file is 717 lines (`wc -l`) after this entry, under design memo §13's 800.
+
+**`/code-review max` round 2, 2026-10-01.** On `92221297` (the /simplify round, whose 179 records and
+reader changes are corpus §6.1's last pre-R2 row and totals): 15 findings, numbered as the review
+orders them; the driver's dispositions R2-1…R2-15 follow that numbering. Code and records:
+`96eea58c` (one commit, Part A); docs and comments: this commit (Part B, comment lines only in the
+parts). Runs as the fix round's (both shells, own process group, perl `alarm`, `kill -9 -<pgid>`
+watchdog, at most two at a time). Records: corpus §6.1, review R2 rows; 94 of this PR, 189 in all.
+
+| # | finding (file:line at `92221297`) | fix |
+|---|---|---|
+| 1 | the pin's depth counter is reset by an `env -i PATH=…` re-exec: hang (harness :109) | one builder `_fgit_shim` writes the pin and the 8 fixtures shims; each drops its own dir from `PATH` before exec; counter, exit 125, `_pn_lbl` and its record gone; P-j's alias probe + strip record |
+| 2 | BSD `find` skips an unsearchable dir in silence (:190) | census pass 1 also lists every dir not `u+rx`, red; record `zzm` |
+| 3 | parent labels used only on red paths are never checked (controls :154) | every `_*_lbl` a part uses asserted defined before the harness loads (`_lbd_lbl`, `controls:` target); three inline labels moved to the label block |
+| 4 | trust read from the absence of `post_bad` (:602) | `post_ok` written on return 0; trust needs it; "never reached a verdict" line; two records |
+| 5 | P-f's presence check pinned by no record (:320) | record `export -n LC_ALL`; harness comment, design §4 P-f, corpus row corrected |
+| 6 | `_seal`'s component check unpinned (:534) | record `walk/../walk/sub` |
+| 7 | ratchet slack 1 (mutations :218) | `_MUT_UNRECORDED_MAX=20`, exact (fewer is red) |
+| 8 | `xrefpoison` poisoned `clean` only (mutations :420) | every repo again; survives against the old fixed path |
+| 9 | P-e's `!=` and P-k liveness's `-ne 1` unpinned (mutations :377) | records `GIT_EXEC_PATH=$_FGIT_VOID`, `alternates` → `/dev/null`; the `git init` record kept (else arm) |
+| 10 | pre-fixtures options check and pass 1's NUL tail unpinned (mutations :342) | a 2-expression `nounset` record; an unterminated-duplicate record |
+| 11 | corpus `15d3e704` row: "errexit backs the arms" is false (corpus :260) | row and PROGRESS caveat corrected: each record pins its arm |
+| 12 | P-e's reference holds `HOME`, the comment and §4 say `PATH` only (:127) | harness comment and §4 row: why `HOME`, and no record |
+| 13 | X4b prints harness :342 (`§0.1` on a line without the file name) | rejoined; X4b over the five parts prints nothing |
+| 14 | the equivalence lookup passes the name by `awk -v`, which unescapes it (mutgen :328) | `ENVIRON` |
+| 15 | stale descriptions (harness, mutations, mutgen, landing :31, design :794) | comments and docs corrected (below), except harness :595 |
+
+Measured (Part A's logs, relayed; the driver re-verified `96eea58c` green with every record killed):
+- **#1**: the `env -i` wrapper, before: no output, 5.3 rc 142 (alarm), 3.2 rc 137 (watchdog). After:
+  strip-own-dir and `which -a` wrappers PASSED, the `env -i` one red with its cause in 9–10 s (it drops
+  the window's variables); none hangs, both shells. Fixtures shims without the strip: a control's
+  watchdog fires at 30 s (no record can separate them, the builder is shared). Strip record killed by
+  P-j 2/2; alias check removed, needle absent 2/2.
+- **#2**: `hide444` green before; record killed 2/2; clause removed, needle absent 2/2. `/usr/bin/find`
+  is BSD (silent, exit 0, repo unlisted: measured); GNU is read from its manual, not measured.
+- **#3**: rename + seal failure, before: 3.2 rc 0 (false green), 5.3 rc 1 unbound variable; after rc 2
+  `used but not defined, or empty: _fws_lbl`, both shells. Record killed 2/2.
+- **#4**: both records killed 2/2 (`never reached a verdict`); `post_ok` out of trust, needle absent 2/2;
+  the line neutralised, needle absent 2/2 (silent exit 1).
+- **#5, #6, #9, #10**: each new record killed 2/2 with its message; its clause removed, needle absent
+  2/2 (#10's tail case: rc 0, PASSED).
+- **#7**: one extra bare label: `21 labels … ratchet of 20`, rc 1; `MAX=21`: `only 20 … LOWER the
+  ratchet`, rc 1; both shells.
+- **#8**: killed 2/2 (every repo listed); against the old fixed path, needle absent 2/2.
+- **#14**: `awk -v n='a\tb'` matches nothing, the `ENVIRON` form matches (BSD awk); no wire record.
+- **Part B** (comment-only): the always-on wire on a `git clone --local` of `96eea58c` with this
+  commit's files overlaid: 5.3.20 rc 0, PASSED, 17 s; 3.2.57 rc 0, PASSED, 23 s (the always-on record
+  anchor check included). X4b over the five parts: empty.
+
+**Not done, carried:** harness :595 (now :615), the cause written to `$1/cause` when `cd "$1"` fails,
+is unreachable (the directory it cannot enter is where it writes); it is code, so Part B only reports
+it. The P-dump hook (above) stays open.
+
+This file is 771 lines (`wc -l`) after this entry, under design memo §13's 800.

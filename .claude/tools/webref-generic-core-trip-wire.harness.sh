@@ -128,8 +128,12 @@ _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_
 # what bash itself maintains for the processes it starts (`PWD OLDPWD SHLVL _`).
 _FGIT_ENV_REQ=""
 for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_REQ="$_FGIT_ENV_REQ ${_fe%%=*}"; done
-# P-e's reference: the exec path the SAME git reports with nothing but `PATH` in
-# its environment, canonical (`pwd -P`). Which executable runs is outside P
+# P-e's reference: the exec path the SAME git reports with only `PATH` and
+# `HOME=$_FGIT_VOID` in its environment, canonical (`pwd -P`). `HOME` is there
+# because a caller's `git` wrapper may read `$HOME` under `set -u`: with `PATH`
+# alone it aborts, the reference is empty, and P-e reds with no cause shown. No
+# record pins `HOME` here: dropping it is a false red only on a machine with
+# such a wrapper, and a record runs on the caller's. Which executable runs is outside P
 # (R1: it is `PATH`'s); what P-e pins is that nothing the window carries
 # overrides where that git runs its commands from. The window's side is taken
 # the same way, so a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one
@@ -153,7 +157,7 @@ _fw_seal_bad=""; _fw_limits=""
 _fgit_postconditions() {
   _fpv=0
   # EVERY file the postconditions write and then read back (the census lists,
-  # the per-link search results, `env -0`'s output, P-g's population and
+  # the per-link search results, `env -0`'s output, P-g's reference and
   # current listings) lives, with the references, in ONE directory made now,
   # after the build, by `mktemp -d` beside the window's directory (never under
   # `$_FW_DIR` or `$CTL`), whose name no fixture command that finished during
@@ -315,17 +319,17 @@ EOF_PB
      && "$_pfenv" "$BASH" -c : > /dev/null 2>&1; then
     printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout) but runs a command\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
   else
-    # THE NUL-LIST POLICY (one, for every `read -d ''` here): what the loop
-    # leaves in its variable is a partial record, so a list that did not end in a
-    # NUL byte is red under the reader's own label, not read as a last record.
+    # The NUL-list policy (above, one for every `read -d ''` here) applies.
     while IFS= read -r -d '' _rec; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"; _pfseen="$_pfseen$_n "
       case " PWD OLDPWD SHLVL _ $_FGIT_ENV_REQ " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
     done < "$_pq/env0"
     [ -z "$_rec" ] || _pf="$_pf (the env -0 list does not end in a NUL byte)"
     # Both directions: no name outside the allowlist, and EVERY name of the
-    # allowlist present — a list that holds one record (an `env` that ignored
-    # `-0` and printed lines) shows no stranger and is not the population.
+    # allowlist present — a name exported away inside the window (`export -n`)
+    # is gone from `env -0` while P-h, P-i and P-j, which read shell variables,
+    # still see it. (An `env` that ignored `-0` and printed lines gives no NUL,
+    # so no record: the zero-population arm below, not this one, reds it.)
     _pfm=""
     for _n in $_FGIT_ENV_REQ; do case "$_pfseen" in *" $_n "*) : ;; *) _pfm="$_pfm $_n" ;; esac; done
     if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
@@ -567,7 +571,8 @@ _seal_apply() {
   done < "$_FW_DIR/seal"
 }
 # Run the fixtures file in the window. $1 = fixtures file. Sets
-# _fw_rc/_fw_done/_fw_post_ok/_fw_post_bad/_fw_why/_fw_diag and _FIX_FAILED.
+# _fw_rc/_fw_done/_fw_post_ok/_fw_post_bad/_fw_why/_fw_diag, _fw_seal_bad,
+# _fw_limits, _FIX_FAILED and, at its end, _fw_trusted.
 _fgit_window() {
   _fwf="$1"
   mkdir -p "$_FW_DIR" || { _fw_why="the window's directory could not be created"; return 0; }
@@ -671,16 +676,16 @@ _fgit_window() {
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3, "A red
 # postcondition ends the run before any control") gets its diagnostic reported
 # here and the run ended at 1, before any control. This function computes
-# NOTHING: `_fw_trusted` comes from `_fgit_window`, and `_fw_built_or_w2` is its
-# one reader.
+# NOTHING: `_fw_trusted` comes from `_fgit_window`; this function reads it to
+# report, and `_fw_built_or_w2` reads it to gate.
 _fgit_window_verdict_exit() { # $1 = the window label
   if [ "$_fw_done" -ne 1 ]; then
     echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
     exit 2
   fi
   if [ "$_fw_trusted" -eq 1 ]; then return 0; fi
-  # A shell diagnostic located in the fixtures file means a line of it was
-  # skipped: an arithmetic-expansion error does not stop a sourced file. A red
+  # A shell diagnostic located in the fixtures file or the prelude (W3) means a
+  # line was skipped: an arithmetic-expansion error does not stop a sourced file. A red
   # postcondition's own diagnostic already reached stderr, replayed above, so
   # it needs no separate report here.
   [ -z "$_fw_diag" ] || echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
@@ -730,7 +735,7 @@ fi
 # note claiming "every other control ran" (false in exactly the runs where
 # `fifotracked` had just failed for the same missing capability), and
 # `fifotracked` reported a WIRE failure for a MACHINE limitation. Asked once,
-# answered once, reported once — the shape `$_perm_line` already uses for the
+# answered once, reported once — the shape `_perm_ok` (below) uses for the
 # other capability this harness cannot assume.
 _fifo_ok=0
 if mkfifo "$SCRATCH/fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$SCRATCH/fifoprobe"; fi

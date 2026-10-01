@@ -14,7 +14,9 @@
 # calls is plain `git` and inherits nothing the caller carries. What it can read
 # is what the window's prelude hands it: `$CTL`, `$_FW_DIR` (for its last line
 # and for `_seal`), the five `CONTROL_*` samples, `$_REAL_GIT`, `$_REAL_GREP`,
-# `$_fifo_ok`, `_fixture_failed`, `_shq` and `_seal`. The controls file refuses
+# `$_fifo_ok`, `_fixture_failed`, `_shq`, `_fgit_shim` (every exec-through shim
+# here is built by it, so each drops its own directory from `PATH` before it
+# execs) and `_seal`. The controls file refuses
 # to run without it, as it refuses without the harness.
 # ⚠ A MODE RESTRICTION GOES THROUGH `_seal`, NEVER A BARE `chmod`: `_seal`
 # records it and the window applies it after the postconditions, so the P-g

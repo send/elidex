@@ -9,8 +9,8 @@
 # before the fixture-git rebuild adds its infrastructure and records to the
 # mutation set, which would otherwise take it past 1000 lines
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md §8.1).
-# WHAT IT CONSUMES: `$SELF`, `$_VFY`, `$K2RE` and `$K2RE_PATH` (from the
-# wire), `$_mg_lbl` (from the controls file), and `_mut_trial`, `_mut_target`
+# WHAT IT CONSUMES: `$SELF`, `$K2RE` and `$K2RE_PATH` (from the wire), `$_VFY`
+# and `$_mg_lbl` (from the controls file), and `_mut_trial`, `_mut_target`
 # (whose wire pair `_mut_splice` writes through) and `_mut_restore_copies`
 # (from the mutation set, which refuses to run without this file). WHAT IT
 # DEFINES: `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,

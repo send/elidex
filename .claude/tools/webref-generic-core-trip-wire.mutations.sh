@@ -27,7 +27,9 @@
 # controls file for labels and this file for records, and reds when they drift.
 #
 # WHAT IT CONSUMES: `$_VFY` (from the controls file), `$_CONTROLS` (the
-# controls file, read for labels), and `$SELF`, `$SCRATCH`, `$K2RE` and
+# controls file, read for labels), the postcondition labels `_p<x>*_lbl`
+# (found by `compgen -v`) and the harness's `$_fw_limits` (both read by
+# `_mut_run` for a machine-limited record), and `$SELF`, `$SCRATCH`, `$K2RE` and
 # `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` through `_MUT_PARTS`. `_mut_run` copies every part in that list — the
 # controls, the harness, this file, the fixture build and the generated half —
@@ -354,10 +356,12 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture 
 # non-`_control` blocks (relative scratch, fsmonitor, umask); the record pins
 # that W2 is reported when the exits are gone, which `_control`'s gate alone
 # satisfies. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
-# computation. ⚠ A DECLARED GAP: removing one of the three block gates
-# survives this set — the block would run over the unbuilt tree, but W2 is
-# already reported by the first `_control` — so those gates are pinned only by
-# the traced `w2rec` cell (companion §A.14), not by a record.
+# computation. ⚠ A DECLARED GAP: removing any ONE of the four gates —
+# `_control`'s own (`_fw_built_or_w2 || return 1`) or one of the three block
+# gates — survives this set, because another gate reports W2 first (the first
+# `_control` for a block gate; the relative-scratch block's gate for
+# `_control`'s), so the gates are pinned only by the traced `w2rec` cell
+# (companion §A.14), not by a record.
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
@@ -447,8 +451,9 @@ mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/	the boundary-
 # incomplete rather than reading a diagnostic sent to /dev/null.
 fixtures:s/^: > "[$]_FW_DIR\/built"$/exec 2>\/dev\/null; : > "$_FW_DIR\/built"/	the fixture build window completed
 # W3's `./prelude.sh:` clause: an expansion error injected into
-# `_fgit_postconditions` skips the rest of that top-level command in silence (no
-# `post_bad` is written either), and only the prelude prefix can see it.
+# `_fgit_postconditions` skips the rest of that top-level command in silence
+# (neither `post_ok` nor `post_bad` is written, so the window is also untrusted
+# under W's "never reached a verdict"), and only the prelude prefix names W3.
 harness:s/^  _fpv=0$/  _fpv=0; : $(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
 # The shim builder without the line that takes the shim's own directory off the
 # `PATH` it hands on (`: %s` keeps the printf's arguments aligned): the pin then
@@ -516,8 +521,9 @@ _mut_target() {
 }
 # …its first half, usable without a per-run `$_mut_base` (the always-on anchor
 # check runs on every run, a mutation run's copies only on the opt-in one): the
-# SHIPPED file a name stands for. `_mut_parse` and `_mut_target` both go through
-# it, so there is one place a name becomes a path.
+# SHIPPED file a name stands for. `_mut_target` and the anchor check (on the
+# `_pr_which` `_mut_parse` sets) both go through it, so there is one place a
+# name becomes a path.
 _mut_src_for() {
   case "$1" in
     wire) _mut_src="$SELF" ;;
@@ -685,13 +691,14 @@ _mut_correspondence() {
   # ⚠ THESE TWO USED TO LIVE INSIDE THE MUTATION BLOCK, which is opt-in and costs
   # minutes — so a PR that deleted a record or renamed a control stayed green
   # until somebody happened to run the harness by hand. They are static
-  # properties of this shipped file and cost milliseconds, so they belong where
+  # properties of this shipped file and run no mutant, so they belong where
   # every run sees them. (The mutation RUN stays opt-in; only its bookkeeping
   # moved.)
   _mutants > "$_VFY/.mutants"
   _mut_orphan=0
   # THE NEEDLE, MATERIALISED ONCE: `_mut_parse` stays the one parser of the
-  # record format, and writes every record's needle to `.needles`, one per line.
+  # record format, and this loop writes the `_pr_needle` it sets for every
+  # record to `.needles`, one per line.
   # Every other reader (the `!survive` count, the record count, the label
   # ratchet) tests EXACT equality against that file, never a substring of a raw
   # `.mutants` line — a label that is a prefix of a longer needle is not recorded.
@@ -736,7 +743,8 @@ _mut_correspondence() {
   # harness and fixtures text that an equivalent edit can change (spelling an
   # option long, adding an allowlist entry), and a record that matches nothing
   # tests a copy identical to the shipped file. The opt-in run would catch it,
-  # minutes later and only when someone runs it; this costs one `sed` per record.
+  # minutes later and only when someone runs it; this costs one `sed` and one
+  # `diff` per expression.
   # ⚠ NOT INSIDE A MUTANT: there one target is edited ON PURPOSE, so the records
   # anchored on the edited text no longer apply, by design.
   case "${SELF##*/}" in
