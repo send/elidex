@@ -28,13 +28,15 @@ this heading, and the repo-wide preflight command runs over every tracked plan m
 | C2 | mutations → mutations + mutgen; references qualified | prereq split | X1, X3, X4, X4b |
 | C3 | record comments | infra (§0.2) | X3 |
 | C4 | the `harness:` and `fixtures:` record targets with resolver and restore; the harness's `_shq` comment, which said the mutation set "has nothing to aim at", rewritten because C4 makes it false (`…-reviews.md` §13) | infra, required | X3 |
-| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (50 at head; how they came to be: `…-pr527.md`); §3's two comment texts; the ratchet population; `…-reviews.md` §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
+| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (50 at `8413a4db`, how they came to be: `…-pr527.md`; 66 after C12 and 83 after the fix round, corpus §6.1); §3's two comment texts; the ratchet population; `…-reviews.md` §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
 
 **Cost, and `ci.yml`.** The base job comment "a wire that adds fixture self-tests re-derives this line
 in the same PR" is an in-file rule (`git show e8f78896:.github/workflows/ci.yml | sed -n
 '/^  trip-wires:/,/^  [a-z]/p'`). C5 re-derived the line by that rule's method then (three local runs
 per side, alternated) and wrote the method and one verdict line. Draft 17 retires that method (D15-B):
-the budget is read from the job's run on GitHub's runner, as #510 now does (below).
+the budget is read from the job's run on GitHub's runner, as #510 now does (below). The verdict line
+was written at `5a6f4367`, before C6–C12, and was never measured on the code it named; the fix round
+removed it and left a pointer to step 2 in its place (`…-pr527-r15.md` §Q, `/code-review max` #15).
 
 - **Where the record goes.** The final-head sequence's step 2 (§9.1) rewrites every local-derivation
   passage of the trip-wires comments in `.github/workflows/ci.yml`, so no local method survives beside
@@ -276,12 +278,13 @@ creation. It does not append to them:
   an option switched off by the fixtures file, one for its stderr left redirected), the three W2 records and the W4 record. The three block gates
   are pinned by the traced `w2rec` cell only (§3's declared gap).
 
-### §9.1 Drafts 11–21: the commits planned on top of `8413a4db`
+### §9.1 Drafts 11–21: the commits made on top of `8413a4db`
 
-Drafts 11–21 are to be implemented as six commits on the PR branch; none has been made. C7 (draft
-12's time bound) and X12 (draft 12's watchdog cells) are withdrawn, and neither number is reused. Each
-commit is to be green on both shells and to set `_MUT_RECORDS_MIN` to its own record count; the record
-changes are in corpus §6.1.
+Drafts 11–21 were implemented as six commits on the PR branch, C6 `523ce31f` … C12 `219fe5e7`
+(`…-pr527-r15.md` §Q), and `0280a67f` dropped a prototype tag. A `/code-review max` fix round followed
+(`976e1430`, `15d3e704`, `6ed414b2`, then a docs commit; §Q). C7 (draft 12's time bound) and X12
+(draft 12's watchdog cells) are withdrawn, and neither number is reused. Each commit is green on both
+shells and sets `_MUT_RECORDS_MIN` to its own record count; the record changes are in corpus §6.1.
 - **Per commit**, the light checks: X1, X4b and X10.
 - **The final-head sequence** (land order step 4) runs after `/external-converge` reaches TERMINAL. The
   final head is the head at squash time. Every check below measures the tool code or the job that runs
@@ -334,13 +337,13 @@ changes are in corpus §6.1.
   after the squash (land order step 7), not at the final head.
 
 The history goes to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md` §Q, not to the
-provenance companion, which is at 972 lines (`wc -l`), nor to `…-pr527.md`, which is closed at round 14.
+provenance companion, which is at 973 lines (`wc -l`, after the fix round's one-line pointer), nor to `…-pr527.md`, which is closed at round 14.
 
 | # | commit | what | this PR's / all records |
 |---|---|---|---|
 | C6 | M-PATH | delete the normaliser (the `_fp_*` loop and its comment block); `_FGIT_PATH="$_FGIT_BIN:$PATH"`; P-j keeps its first-entry and `git` clauses and loses the per-entry one; P-j's label renamed (§4); the harness comments that cite "memo §0.1" and "memo §1" without the file name go with the block (X4b is **not** empty on them at `8413a4db`); the harness comment that cites the design memo's §5.2 (line 156 at `8413a4db`) names `…-residuals.md` §5.2 | 49 / 144 |
-| C8 | untrusted build | `_fgit_window_verdict_exit` (renamed from `_fgit_window_incomplete_exit`) reports the window's verdict in one place, with W3's report moved into it; it is the one writer of `_fw_trusted`, and `_fw_built_or_w2` its one reader; the run ends unless the build is complete and trusted; W2's label renamed, and W2's existing record re-anchored to the new name; the record `s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/` relabelled to P-h's label, and one record added for the scan's locale (corpus §6.1, D18-B's C8 rows) | 52 / 147 |
-| C9 | M-SHAPE | the two-pass census at the start of the postconditions, its verdict `_pg_census` written once after both passes (classification and shape, one-link regular files included; then the per-link search over a clean pass 1); a red census returns before any other postcondition, so no git runs; the postconditions' directory, a fresh `mktemp -d` beside `$_FW_DIR` made at the start of the postconditions, holding every file a postcondition writes and reads back (the census lists, the per-link results, `env -0`'s output, P-g's population and listings; D15-A) and, after a clean census, the references (P-a's and P-d's probe repos by `mkdir` without `-p`, P-g's reference listings) (design memo §4, "The references and the working files"); the P-f and P-g records anchored on `$_FW_DIR/env0` and `$_FW_DIR/pgcur` re-anchored; the non-directory-link arm inside a `.git`, the in-loop per-link search and the two-name `HEAD`/`config` guard deleted. The census comment's "There is no time bound" sentence is rewritten to name `#11-trip-wire-liveness-bound`, and Codex R25's "nothing here has a watchdog" comment is rewritten for the census | 60 / 155 |
+| C8 | untrusted build | `_fgit_window_verdict_exit` (renamed from `_fgit_window_incomplete_exit`) reports the window's verdict in one place, with W3's report moved into it; it is the one writer of `_fw_trusted` (the fix round moved the writer into `_fgit_window`, design memo §3), and `_fw_built_or_w2` its one reader; the run ends unless the build is complete and trusted; W2's label renamed, and W2's existing record re-anchored to the new name; the record `s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/` relabelled to P-h's label, and one record added for the scan's locale (corpus §6.1, D18-B's C8 rows) | 52 / 147 |
+| C9 | M-SHAPE | the two-pass census at the start of the postconditions, its verdict `_pg_census` written once after both passes (classification and shape, one-link regular files included; then the per-link search over a clean pass 1); a red census returns before any other postcondition, so no git runs; the postconditions' directory, a fresh `mktemp -d` beside `$_FW_DIR` made at the start of the postconditions, holding every file a postcondition writes and reads back (the census lists, the per-link results, `env -0`'s output, P-g's population and listings; D15-A; the fix round deleted P-g's own population `find`, so P-g iterates the census's list) and, after a clean census, the references (P-a's and P-d's probe repos by `mkdir` without `-p`, P-g's reference listings) (design memo §4, "The references and the working files"); the P-f and P-g records anchored on `$_FW_DIR/env0` and `$_FW_DIR/pgcur` re-anchored; the non-directory-link arm inside a `.git`, the in-loop per-link search and the two-name `HEAD`/`config` guard deleted. The census comment's "There is no time bound" sentence is rewritten to name `#11-trip-wire-liveness-bound`, and Codex R25's "nothing here has a watchdog" comment is rewritten for the census | 60 / 155 |
 | C10 | P-k | `count-objects -v` per compared `.git` over a clean census, red on any `alternate:` line, a non-zero exit or any stderr; its liveness probe (C-quoted path), a third repo in the postconditions' directory, with no machine-limitation arm; two labels | 64 / 159 |
 | C11 | the parent's verifier directory | right after `_fgit_window` returns, `_VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")"`, checked, exit 2 on failure; every file the parent writes and reads back under `$CTL` moves there (`fsmhook`, `.fsmonitor_ran`, `.fsm_out`, `.umask_out`, `.control_out`, `.mutants`, `.anchor`, `.bare`, `.genmutants`, `.genequiv`, `.genseen`), and the source-time `.fifoprobe` moves to `$SCRATCH`; after it the design memo §4 checker lists one line (D16-B). The mutation set's entry guard (`for _n in CTL …`, `mutations.sh` line 90 at `8413a4db`) and the "WHAT IT CONSUMES" headers of `mutations.sh` (line 29) and `mutgen.sh` (line 12) name `$_VFY` in place of `$CTL`. An empty generated set is red **always on** (D17-D, D18-B): `_mut_gen_floor` in `mutgen.sh`, called by `_mut_correspondence`, counts `_mut_regex_mutants`' output over the running wire's `$K2RE` and `$K2RE_PATH` and reports under a new label, `the boundary-mutant generator derives a non-empty set from the wire's regexes` (`_mg_lbl`, in the controls file); `mutgen` joins `_MUT_TARGETS`, and one record pins the check (corpus §6.1). A second, run-time layer (D19-A): `_mut_run`, right after `_mut_gen_run`, requires `_mut_gen_n` to equal `_mut_gen_floor_n` (set by `_mut_gen_floor`) and to be non-zero, else `!! the generated boundary set ran N mutant(s), but the generator derives M …` and `_mut_gen_bad` + 1; no record reaches it (a trial runs with `WEBREF_WIRE_MUTANTS` unset), X3's floor cell pins it (§11). The two comments that list the record prefixes as `harness:` or `fixtures:` (`mutations.sh` lines 136 and 426 on the draft-20 prototype) name `mutgen:` too, and the parent memo's banner (`2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, the two sentences at lines 14 and 25 that say records may target the harness or the fixtures file) names the generator as well. No record anchors the moved paths. The directory is out of the fixtures' reach except through the declared class (c) of the design memo §0.3 (an executable written into a caller-`PATH` directory, `staleshim`, D18-A) | 65 / 160 |
 | C12 | the window's stderr | the child writes a fixed canary to fd 2 after the options re-check; the parent requires it in the captured `stderr` before it counts the window complete (W, with its own cause sentence) and takes it out of the replay (design memo §3; D16-D) | 66 / 161 |
@@ -362,19 +365,19 @@ These run on both shells, and on both gits wherever the corpus has a column.
 |---|---|---|
 | X1 | the X1 block below | `rc=0`, `0`, `1` |
 | X2 | the corpus §6 G cells (its recipe, on the implementing head as `p6/`) | all PASS with P equal, 4 configs |
-| X3 | at T only (§9.1; it is one control pass per record): `WEBREF_WIRE_MUTANTS=1 $SH $W`, then `/usr/bin/grep -F -e 'entr(ies), 0 not killed as named' -e ', 0 neither killed nor argued equivalent' -e 'trip-wire PASSED'`; then corpus §6.1's survive check, by hand: each §6.1 record run with the clause it names removed; then two opt-in cells: the **plant cell** (C11), the same mutation run with `ln -s /dev/null "$CTL/.genmutants"` inserted just before the fixtures' `built` line, and the **floor cell** (C11, D19-A), the same mutation run with `mutgen.sh`'s `>> "$_VFY/.genmutants"` in `_mut_gen_run`'s regex loop replaced by `>> /dev/null`. Each of these runs on bash 5.3 **and** 3.2 at T | three hits in every column. C1–C3 are byte-identical to base. Each §6.1 record survives with its clause removed; a FIFO record reaches the alarm instead (§6.1's procedure). The plant cell: at `8413a4db` (base) the generator reads no mutant, and the run reports `0 mutant(s)` and PASSED, the blind; after C11 the plant has no effect, and the run reports its normal non-zero `N mutant(s)` and PASSED. The floor cell: red, `!! the generated boundary set ran 0 mutant(s), but the generator derives 50 …` (the run-time layer, D19-A; the always-on floor stays green there, because the generator's output is intact), and `1 neither killed nor argued equivalent`; on the draft-21 prototype with the hand set cut to its `!survive` line (`RC`), rc 1 on both shells (`…-pr527-r15.md` §Q). Measured once each on bash 5.3 only (`…-pr527-r15.md` §Q, 34–42 min per run from the two runs cited, 2056 s and 2530 s, two runs at a time): base rc 0, PASSED, `0 mutant(s)`; the draft-19 prototype with the plant, `50 mutant(s)`, `0 neither killed nor argued equivalent`. At T both run on both shells, and the run must also be PASSED (the draft-19 prototype's hand set had the `LC_ALL=C.UTF-8` record killed for the wrong reason; draft 20 relabels it, corpus §6.1). The bash-3.2 runs are estimated at about 1.33 times the 5.3 time, 46–56 min each, from the clean-run ratio on the draft-20 prototype (24 s against 18 s); that is an estimate, not a measurement |
+| X3 | at T only (§9.1; it is one control pass per record): `WEBREF_WIRE_MUTANTS=1 $SH $W`, then `/usr/bin/grep -F -e 'entr(ies), 0 not killed as named' -e ', 0 neither killed nor argued equivalent' -e 'trip-wire PASSED'`; then corpus §6.1's survive check, by hand: each §6.1 record run with the clause it names removed; then two opt-in cells: the **plant cell** (C11), the same mutation run with `ln -s /dev/null "$CTL/.genmutants"` inserted just before the fixtures' `built` line, and the **floor cell** (C11, D19-A), the same mutation run with `mutgen.sh`'s `>> "$_VFY/.genmutants"` in `_mut_gen_run`'s regex loop replaced by `>> /dev/null`. Each of these runs on bash 5.3 **and** 3.2 at T | three hits in every column. C1–C3 are byte-identical to base. Each §6.1 record survives with its clause removed; a FIFO record reaches the bound instead (§6.1's procedure; the bound is the alarm or, under bash 3.2, the watchdog: "Cell runners at T" below). The plant cell: at `8413a4db` (base) the generator reads no mutant, and the run reports `0 mutant(s)` and PASSED, the blind; after C11 the plant has no effect, and the run reports its normal non-zero `N mutant(s)` and PASSED. The floor cell: red, `!! the generated boundary set ran 0 mutant(s), but the generator derives 50 …` (the run-time layer, D19-A; the always-on floor stays green there, because the generator's output is intact), and `1 neither killed nor argued equivalent`; on the draft-21 prototype with the hand set cut to its `!survive` line (`RC`), rc 1 on both shells (`…-pr527-r15.md` §Q). Measured once each on bash 5.3 only (`…-pr527-r15.md` §Q, 34–42 min per run from the two runs cited, 2056 s and 2530 s, two runs at a time): base rc 0, PASSED, `0 mutant(s)`; the draft-19 prototype with the plant, `50 mutant(s)`, `0 neither killed nor argued equivalent`. At T both run on both shells, and the run must also be PASSED (the draft-19 prototype's hand set had the `LC_ALL=C.UTF-8` record killed for the wrong reason; draft 20 relabels it, corpus §6.1). The bash-3.2 runs are estimated at about 1.33 times the 5.3 time, 46–56 min each, from the clean-run ratio on the draft-20 prototype (24 s against 18 s); that is an estimate, not a measurement |
 | X4 | C1/C2: X1's log at the parent commit and at the split commit, with scratch paths normalised by one `sed`, then `diff` | empty |
 | X4b | the X4b block below, over each file that C1, C2, C6, C8, C9, C10, C11 or C12 edits (the harness is edited by C6, C8, C9, C10, C11 and C12) | empty (at `8413a4db` the harness gives 2 lines, 71 and 93, which C6 deletes) |
-| X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`; and drafts 11–20's cells (corpus §6.1) | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11–20 cell as corpus §6.1 says |
+| X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`, re-anchored to T by "X5 at T" below; and drafts 11–21's cells (corpus §6.1); every cell run as "Cell runners at T" says | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11–20 cell as corpus §6.1 says |
 | X6 | two by-hand edits to `…trip-wire.fixtures.sh`, each just before its `: > "$_FW_DIR/built"` line: `mkdir -p "$_FGIT_VOID" && printf 'ref: refs/heads/x\n' > "$_FGIT_VOID/HEAD" && : > "$_FGIT_VOID/config"`, and `git -C "$CTL/clean" config include.path /nonexistent-k2`; one run each | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
 | X8 | at T (§9.1), a sanity record only (§9, "X8 is a sanity record only"): `/usr/bin/time -p bash scripts/trip-wires.sh`, three runs on the branch and three on base `e8f78896`, alternated | the six times recorded in `…-pr527-r15.md` §Q; nothing decided and nothing written to `ci.yml`. The budget verdict is X9's |
 | X9 | `Layering trip-wires` on ubuntu (GNU) by route (b), decided by the user: #501's CI after #527 is squashed into it (land order step 7); the job's time from that run, by §9's `gh run view` command | SUCCESS, and the job's time under half the budget in force (§9, "The threshold"; at or above it, STOP), the verdict written on #501's branch as §9 says. The run is also GNU evidence for `env -i`, `env -0`, the window, the prelude, and the census's `find` expressions under GNU find: `find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \)` (pass 1's list), `find <.git> \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print` (pass 1's shape), `find "$CTL" -type l -print0` (pass 2's link list) and `find -L <link> \( -iname HEAD -o -iname .git \) -print` (pass 2's search). If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |
 | X10 | `$SH -n` over every `.claude/tools/webref-generic-core-trip-wire*.sh`, and `wc -l` over the parts this PR edits (controls, fixtures, harness, mutations, mutgen; C11 edits mutgen) | clean; each edited part below 1000 lines. The wire itself (1259 lines at `8413a4db`) is not edited by this PR, so the rule does not reach it |
 | X11 | in a clone, add to `…trip-wire.controls.sh`, after the other `_lbl` definitions, `_x_lbl="an unrecorded probe"` and `echo "$_x_lbl" >/dev/null` | red, and the ratchet lists it |
 | X12 | withdrawn with draft 12's time bound (draft 13); the number is not reused | — |
-| X16 | at T, by hand, with the cell script `cell15.sh` verbatim in `…-pr527.md` (round 13): the four Codex R26③ FIFO cells of the table "R26③, measured" (`commondir`, `HEAD`, `config`, `config.worktree` in `clean/.git`), round 13's cells `xcommon`, `bareh`, `outsidein`, `hard`, `xlink`, `xincreg` and `clean`, round 14's `xrefpoison` and `xrefctl`, round 15's `lnblind2` (its insert verbatim in `…-pr527-r15.md` §Q), round 16's `xbare`, `xanchor` and `xexecarith` (C11, C12; each insert and tree edit verbatim in `…-pr527-r15.md` §Q), round 17's `shimprepend`, `shimafter` and `shimhash` (inserts verbatim in `…-pr527-r15.md` §Q), round 18's `stalectl` and `staleshim` (below), and the `gitfn` cell (its insert verbatim in `…-pr527-r15.md` §Q, round 18), one run per cell and shell | each red cell: rc 1, P-g, the untrusted-build stop runs no control, and the run ends in under 40 s; `clean` PASSED. The 40 s is five times the slowest red cell measured on the draft-15 prototype (`xincreg`, 8 s on bash 3.2; on draft 16's, also 8 s). The waiting cells (`hdless`, `xinclude`, `xinclnk`, `outroot`, `ttyinc` under a terminal) are not exit criteria: they wait, R9. Round 16's cells expect their own verdicts instead: `xbare` rc 1 with the ratchet's `… labels have no mutation record, against a ratchet of 0.`, `xanchor` rc 1 with `… its anchor is stale`, `xexecarith` rc 2 with W's sentence "the fixtures file left the window's stderr redirected". Round 17's: `shimprepend` rc 1 with P-j's first-entry report (not P-g), the untrusted-build stop running no control; `shimafter` and `shimhash` rc 0, PASSED, the declared class-(c) boundary (design memo §0.3): a red there means the boundary moved, and the memo must say how. Round 18's `stalectl` and `staleshim` run by `cellw.sh` (`cell15.sh` with a caller-`PATH` directory `cpath` put first, verbatim in `…-pr527-r15.md` §Q) on a tree with one never-matching record added, `s/K2NEVERMATCHES/x/` labelled `the fixture build window completed`: `stalectl` (no insert) rc 1 with `… its anchor is stale`; `staleshim` (its insert verbatim in §Q; it writes `cpath/mktemp`, which the parent's `_VFY` then resolves to) rc 0, PASSED, the declared class-(c) boundary (D18-A), with `cpath/mktemp` and the prepared directory removed between runs. `gitfn` rc 1 on both shells, P-a with `command line:` origins, and the untrusted-build stop runs no control |
-| X13 | the `crc.sh` script, verbatim in `…-pr527.md`, at T: the clean tree and eight cells (six red; env0 and reftable green; `garbagehead` is an untrusted build), with the parent's nounset off (`NOU=1`) and on, on bash 3.2 and 5.3 | the same exit status, NE/CF counts and first four `!!` lines both ways, on both shells |
-| X14 | at T, each run by `cell15.sh`'s method (`…-pr527.md`, round 13: its own process group, `perl -e 'setpgrp; alarm 120; exec @ARGV'`, then `kill -9 -<pgid>` of that group only): PX1's caller `PATH` (`~+/bin` first, a logging `git` in the repository's `bin/`); Codex R23's `tools/bin` wrapper with its interpreter beside it; Codex R24's `~/bin` wrapper with a helper | each ends within 120 s, PASSED or red with a named cause; reaching the alarm fails the criterion. 120 s is about five times the slowest clean run measured on the draft-15 prototype (24 s, bash 3.2). For PX1 the expected result is PASSED with the wrapper as the fixture git (§0.1). The outcomes are recorded in `…-pr527-r15.md` §Q |
+| X16 | at T, by hand, with the cell script `cell15.sh` from `…-pr527.md` (round 13), given the watchdog by "Cell runners at T" below: the four Codex R26③ FIFO cells of the table "R26③, measured" (`commondir`, `HEAD`, `config`, `config.worktree` in `clean/.git`), round 13's cells `xcommon`, `bareh`, `outsidein`, `hard`, `xlink`, `xincreg` and `clean`, round 14's `xrefpoison` and `xrefctl`, round 15's `lnblind2` (its insert verbatim in `…-pr527-r15.md` §Q), round 16's `xbare`, `xanchor` and `xexecarith` (C11, C12; each insert and tree edit verbatim in `…-pr527-r15.md` §Q), round 17's `shimprepend`, `shimafter` and `shimhash` (inserts verbatim in `…-pr527-r15.md` §Q), round 18's `stalectl` and `staleshim` (below), and the `gitfn` cell (its insert verbatim in `…-pr527-r15.md` §Q, round 18), one run per cell and shell | each red cell: rc 1, P-g, the untrusted-build stop runs no control, and the run ends in under 40 s; `clean` PASSED. The 40 s is five times the slowest red cell measured on the draft-15 prototype (`xincreg`, 8 s on bash 3.2; on draft 16's, also 8 s). The waiting cells (`hdless`, `xinclude`, `xinclnk`, `outroot`, `ttyinc` under a terminal) are not exit criteria: they wait, R9. Round 16's cells expect their own verdicts instead: `xbare` rc 1 with the ratchet's `… labels have no mutation record, against a ratchet of 0.`, `xanchor` rc 1 with `… its anchor is stale`, `xexecarith` rc 2 with W's sentence "the fixtures file left the window's stderr redirected". Round 17's: `shimprepend` rc 1 with P-j's first-entry report (not P-g), the untrusted-build stop running no control; `shimafter` and `shimhash` rc 0, PASSED, the declared class-(c) boundary (design memo §0.3): a red there means the boundary moved, and the memo must say how. Round 18's `stalectl` and `staleshim` run by `cellw.sh` (`cell15.sh` with a caller-`PATH` directory `cpath` put first, verbatim in `…-pr527-r15.md` §Q, given the same watchdog) on a tree with one never-matching record added, `s/K2NEVERMATCHES/x/` labelled `the fixture build window completed`: `stalectl` (no insert) rc 1 with `… its anchor is stale`; `staleshim` (its insert verbatim in §Q; it writes `cpath/mktemp`, which the parent's `_VFY` then resolves to) rc 0, PASSED, the declared class-(c) boundary (D18-A), with `cpath/mktemp` and the prepared directory removed between runs. `gitfn` rc 1 on both shells, P-a with `command line:` origins, and the untrusted-build stop runs no control |
+| X13 | the `crc.sh` script, verbatim in `…-pr527.md` and patched by "X13 at T" below, at T: the clean tree and eight cells (six red; env0 and reftable green; `garbagehead` is an untrusted build), with the parent's nounset off (`NOU=1`) and on, on bash 3.2 and 5.3 | the same exit status, NE/CF counts and first four `!!` lines both ways, on both shells |
+| X14 | at T, each run by `cell15.sh`'s method (`…-pr527.md`, round 13: its own process group, `perl -e 'setpgrp; alarm 120; exec @ARGV'`, a `kill -9 -<pgid>` watchdog 3 s after it, then `kill -9 -<pgid>` of that group only; "Cell runners at T"): PX1's caller `PATH` (`~+/bin` first, a logging `git` in the repository's `bin/`); Codex R23's `tools/bin` wrapper with its interpreter beside it; Codex R24's `~/bin` wrapper with a helper | each ends within 120 s, PASSED or red with a named cause; reaching the bound (the alarm or the watchdog) fails the criterion. 120 s is about five times the slowest clean run measured on the draft-15 prototype (24 s, bash 3.2). For PX1 the expected result is PASSED with the wrapper as the fixture git (§0.1). The outcomes are recorded in `…-pr527-r15.md` §Q |
 | X15 | by hand, before `built`: `git init -q "$CTL/zzx" && mkdir -p "$_FW_DIR/zzt/a" && : > "$_FW_DIR/zzt/a/HEAD" && ln -s "$_FW_DIR/zzt" "$CTL/zzx/.git/k2link"` | rc 1, P-g, whose message names `zzx` by the shape rule only; no "symlink to a tree holding a git dir" entry for `k2link`, so the search did not run behind it |
 
 Commands containing `|` are kept out of table cells, because `\|` in a markdown cell is read one way
@@ -390,4 +393,96 @@ Each was re-run to show it discriminates (companion §A.10).
 # X4b — base mutations.sh gives 2 lines (15, 20); the same file with both qualified gives 0.
 # The old in-table form '§[0-9]\|plan memo\|the memo' (raw, no -i) gave 0 on base, i.e. vacuous.
 /usr/bin/grep -n -i -E -e '§[0-9]' -e 'plan memo' -e 'the memo' <file> | /usr/bin/grep -v 'citation-hygiene-[A-Za-z0-9-]*\.md'
+```
+
+**Cell runners at T (the fix round, 2026-10-01).** Under `/bin/bash` 3.2 the perl `alarm` does not
+bound a hung wire here: one ran 5+ min under it, and the fix round's pin-cycle cells ended on 3.2 only
+by a `kill -9 -<pgid>` watchdog (rc 137), on 5.3 by the alarm (rc 142) (`…-pr527-r15.md` §Q). A plain
+`perl -e 'setpgrp; alarm 2; exec @ARGV' /bin/bash -c 'sleep 8'` ends at 2 s, rc 142, on both shells,
+so the cause lies in what the wire does under 3.2; it is not measured further. So every runner used
+at T (X3's survive check, X5, X13, X14, X16, corpus §6.1's FIFO procedure) keeps its alarm and adds
+a watchdog 3 s after it that kills the run's process group, and a runner with neither gets both.
+`cell15.sh` and `cellw.sh` take the watchdog by this patch (round 19's `cellm.sh`/`cellwm.sh`, not
+verbatim in these records, need the same two lines with their own alarm):
+
+```sh
+python3 - cell15.sh cellw.sh <<'P'
+import sys
+for p in sys.argv[1:]:
+    s = open(p).read(); a = 'rc=0; wait "$g" || rc=$?\n'; assert s.count(a) == 1, p
+    s = s.replace(a, '( sleep 123; kill -9 -"$g" ) >/dev/null 2>&1 & wd=$!\nrc=0; wait "$g" || rc=$?; kill "$wd" 2>/dev/null\n'); open(p, 'w').write(s)
+P
+```
+
+**X5 at T.** The companion's §E.7 `gen11.py` is as run on p10/p11 and does not run at T: at `6ed414b2`
+it aborts at `m2h`, whose anchor (`chmod 000 "$CTL/err/control.py" …`) the seals replaced. The patch
+below re-anchors it; `$SP` holds `p11/`, a clone of T, and the cells are AFTER only. At `6ed414b2` the
+generation stage completes: `38 jobs`, 228 part copies, each clean under `bash -n` (`…-pr527-r15.md`
+§Q). The W2 record cell removes both of the verdict function's exits, as the shipped record does
+(design memo §3). The jobs run through `cellT.sh`, which puts `cell9.sh` (companion §E.6) under the
+alarm and the watchdog. ⚠ **Open:** R, RES, G and ROg are judged with P equal (`eval9.sh`'s `same`),
+which needs the prototype-only `K2_CORPUS_PDUMP` hook (corpus §6). C5's X5 ran on a clone carrying it
+as the local commit `7c07415c` (companion §A.14); that commit is not reachable here (`git cat-file -t
+7c07415c` fails) and the hook's code is recorded nowhere, so it must be re-made for T before those rows
+can PASS. Without it they read FAIL for `same=0`, which says nothing about the build.
+
+```sh
+awk '/^### §E.7/{f=1} f&&/^```python$/{p=1;next} p&&/^```$/{exit} p' \
+  docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md > "$SP/c11/gen11.py"
+python3 - "$SP/c11/gen11.py" <<'P'
+import sys
+p = sys.argv[1]; s = open(p).read()
+def sub(old, new):
+    global s
+    assert s.count(old) == 1, old
+    s = s.replace(old, new)
+sub("'.fixtures', '.mutations']", "'.fixtures', '.mutations', '.mutgen']")
+sub("""CHM = 'chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"\\n'""", """CHM = '_seal "$CTL/err/control.py" 000 err\\n'""")
+sub("(the fixtures file ran without a shell diagnostic)", "(the fixture build window ran without a shell diagnostic)")
+sub("(no control runs over an incomplete fixture build window)", "(no control runs over an incomplete or untrusted fixture build window)")
+sub("_fgit_window_incomplete_exit", "_fgit_window_verdict_exit")
+sub("((P10, 'BEFORE'), (P11, 'AFTER'))", "((P11, 'AFTER'),)")
+E = '    echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n'
+W2REC = [('.harness', E + '    exit 2\n', E), ('.harness', '  exit 1\n}\n', '}\n')]
+sub("\nMOVE = ", "\nW2REC = %r\nMOVE = " % (W2REC,))
+i = s.index("    mk(P11, cfg, 'P', 'd9 W2 record'"); j = s.index('\n', i)
+s = s[:i] + "    mk(P11, cfg, 'P', 'd9 W2 record', W2REC + [PIPE], [], W2L, ref)" + s[j:]
+open(p, 'w').write(s)
+P
+python3 "$SP/c11/gen11.py" "$SP"                          # "38 jobs"
+cat > "$SP/c11/cellT.sh" <<'C'
+#!/bin/bash
+# cellT.sh <job line>: cell9.sh as its own process group, under the alarm and the watchdog
+( exec perl -e 'setpgrp; alarm 120; exec @ARGV' "$(dirname "$0")/cell9.sh" "$1" ) & g=$!
+( sleep 123; kill -9 -"$g" ) >/dev/null 2>&1 & wd=$!
+rc=0; wait "$g" || rc=$?; kill "$wd" 2>/dev/null; kill -9 -"$g" 2>/dev/null
+[ "$rc" -lt 128 ] || printf 'HARNESS-ERROR\t%s\tbound rc=%s\n' "${1%%$'\x1f'*}" "$rc"
+C
+chmod +x "$SP/c11/cellT.sh"
+tr '\n' '\0' < "$SP/c11/jobs.tsv" | xargs -0 -n1 -P2 "$SP/c11/cellT.sh" > "$SP/c11/raw.tsv"
+```
+
+**X13 at T.** `crc.sh`'s `w2rec` cell edits a function C8 renamed, and its run had no bound. The patch
+re-anchors `w2rec` (both exits removed, as above, so the traced run reaches the controls) and runs the
+wire as its own process group under the alarm and the watchdog. Applied to `crc.sh` as extracted from
+`…-pr527.md`, it gives a script clean under `bash -n` on both shells, and the patched `w2rec` edit
+applies to the `6ed414b2` harness (`…-pr527-r15.md` §Q):
+
+```sh
+python3 - crc.sh <<'P'
+import sys
+p = sys.argv[1]; s = open(p).read()
+def sub(a, b):
+    global s
+    assert s.count(a) == 1, a
+    s = s.replace(a, b)
+sub("_fgit_window_incomplete_exit() {", "_fgit_window_verdict_exit() {")
+sub("assert b.count('\\n  exit 2')==1", "assert b.count('\\n    exit 2')==1 and b.count('\\n  exit 1')==1")
+sub("b.replace('\\n  exit 2','\\n  :')", "b.replace('\\n    exit 2','\\n    :').replace('\\n  exit 1','\\n  :')")
+sub('( cd "$run_cwd" && env HOME=$X/home PATH="$P" "${env_extra[@]}" $SH $XF "$T.sh" ) > $log 2>&1; rc=$?\n',
+    '( cd "$run_cwd" && exec env HOME=$X/home PATH="$P" "${env_extra[@]}" perl -e \'setpgrp; alarm 120; exec @ARGV\' $SH $XF "$T.sh" ) > $log 2>&1 & g=$!\n'
+    '( sleep 123; kill -9 -"$g" ) >/dev/null 2>&1 & wd=$!\n'
+    'rc=0; wait "$g" || rc=$?; kill "$wd" 2>/dev/null; kill -9 -"$g" 2>/dev/null\n')
+open(p, 'w').write(s)
+P
 ```

@@ -895,7 +895,8 @@ open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(le
 
 ### §E.7 Draft 10's cells (as run)
 
-`c11/cell9.sh` and `c11/eval11.sh` are copies of `c9/cell9.sh` and `c9/eval9.sh`. `c11/gen11.py`:
+`c11/cell9.sh` and `c11/eval11.sh` are copies of `c9/cell9.sh` and `c9/eval9.sh`. At T (X5) this
+script runs re-anchored, by `…-landing.md` §11, "X5 at T" (it no longer runs as is). `c11/gen11.py`:
 
 ```python
 #!/usr/bin/env python3

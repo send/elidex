@@ -4,7 +4,7 @@ This file holds the corpus — the evidence behind the design — and the mutati
 for `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of
 the design memo's §6 as a touch-time split (`35dc1153`), before the design memo grew past 1000 lines.
 At the split the text was unchanged, except that five references to other sections of the design memo
-were made to name it. Later drafts changed it: §6.1 (draft 11's record plan, revised by drafts 12–20) and one
+were made to name it. Later drafts changed it: §6.1 (draft 11's record plan, revised by drafts 12–21, then the fix round's record changes) and one
 sentence under "Records" were added after the split. The section number §6 is kept, so an earlier
 reference to "memo §6" resolves here.
 
@@ -124,8 +124,8 @@ scripts are in companion §E.7, and the full table is in companion §A.13.
 
 Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.54 and bash 3.2·git 2.55.
 
-**Records: representative only.** The table and the totals below are the set at `8413a4db`; drafts
-11–15 change them as §6.1 says.
+**Records: representative only.** The table and the totals below are the set at `8413a4db`; C6–C12
+and the fix round change them as §6.1 says.
 
 | label | record | target |
 |---|---|---|
@@ -203,7 +203,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
-### §6.1 Drafts 11–21: the record changes (planned, `…-landing.md` §9.1; draft 21 added no record of its own -- D19-A's run-time layer is pinned by X3's floor cell, not a record)
+### §6.1 Drafts 11–21 and the fix round: the record changes (`…-landing.md` §9.1; draft 21 added no record of its own -- D19-A's run-time layer is pinned by X3's floor cell, not a record)
 
 Each change is listed with the commit that makes it. The needle of every record is its label, so
 renaming a label renames the needle of each of its records in the same commit. "This PR's" counts the
@@ -220,7 +220,9 @@ label ratchet (`_MUT_UNRECORDED_MAX`, line 595). A record that plants a FIFO is 
 survive check, because without its clause git blocks on the FIFO and the run waits (no time bound,
 design memo §5.2 R9). For those, the removed-clause run is a **necessary-condition check** only. It
 runs by `cell15.sh`'s method (`…-pr527.md`, round 13): its own process group under
-`perl -e 'setpgrp; alarm 120; exec @ARGV'`. It is expected to reach the alarm with
+`perl -e 'setpgrp; alarm 120; exec @ARGV'`, with a `kill -9 -<pgid>` watchdog 3 s after it, because
+bash 3.2 does not end a hung wire at the alarm (`…-landing.md` §11, "Cell runners at T"). It is
+expected to reach that bound with
 `ps -ax -o pid=,pgid=,command=` showing the P-g `git … config --list` of that group blocked; then that
 group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 
@@ -230,7 +232,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | C6 | **delete**: "a relative entry after `$_FGIT_BIN` in the window's `PATH`". There is no per-entry clause left to pin | P-j | harness | 49 / 144 |
 | C6 | **re-anchor**: "the window's `PATH` starts at `/usr/bin`" becomes "a directory with no `git` placed before `$_FGIT_BIN`" (`/nonexistent-k2:` in front), which pins the first-entry clause alone. The `gitx` record still pins the `git` clause. Measured (`…-pr527-r15.md` §Q, the `Jm` cells, bash 5.3): the expression applied to the draft-19 prototype, which has the clause, gives rc 1, P-j `first-entry`; applied to the draft-18 prototype, which lacked it, rc 0, PASSED, the survive check | P-j | harness | — |
 | C6 | **relabel**: P-j's two records take the label `the fixture build window runs the pinned git first on its PATH` | P-j | — | — |
-| C8 | **add**: one harness expression inside `_fgit_window_verdict_exit` that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate, `_fw_built_or_w2`, which decides by `_fw_trusted` alone. It survives with the `post_bad` clause removed from `_fgit_window_verdict_exit`'s computation of `_fw_trusted` (the writer), which then writes 1 | W2 | harness | 50 / 145 |
+| C8 | **add**: one harness expression inside `_fgit_window_verdict_exit` that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate, `_fw_built_or_w2`, which decides by `_fw_trusted` alone. It survives with the `post_bad` clause removed from `_fgit_window_verdict_exit`'s computation of `_fw_trusted` (the writer), which then writes 1. The fix round moved that computation into `_fgit_window` (below) | W2 | harness | 50 / 145 |
 | C8 | **add**: the same exit removed, with W3 forced (`_fw_diag` set) instead. It survives with the W3 clause removed from the same computation of `_fw_trusted` | W2 | harness | 51 / 146 |
 | C8 | **re-anchor**: W2's existing record (`harness:/^_fgit_window_incomplete_exit()/,/^}/…`, `mutations.sh:343` at `8413a4db`) addresses the function C8 renames, so its range becomes `/^_fgit_window_verdict_exit()/,/^}/` | W2 | harness | — |
 | C8 | **relabel** (D18-B; the draft-19 open item, closed): the record `s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/` (`mutations.sh` line 244 on the prototype) takes P-h's label, `the fixture build window reads in the wire's locale`. After C8 it cannot be killed as `a byte no UTF-8 locale can bracket`: the wire's locale becomes `C.UTF-8`, the window's stays `C` (its allowlist), P-h reds, and the untrusted-build stop runs no control, so that needle never prints (`MUTANT 14 … killed for the WRONG REASON`, both draft-19 prototype mutation runs). Under P-h's label it is killed as named (`m14lc`, `…-pr527-r15.md` §Q), and it pins the wire side of P-h, which no record did: the existing P-h record changes the window's locale. As relayed from round 18 (the reviewer's directory `/tmp/elidex-plan-review.7e5b6f5f-cec2-4f20-9e7a-b25f0c4752cf/r18/ax23/sweep/`, not re-measured here), the reviewer probed every record with the controls cut after the prototype's C8 stand-in, and this was the only one stopped before its needle; the prototype's C8 is a one-line stand-in (the `K2PROTO` stop in the controls file), not `_fgit_window_verdict_exit`, so X3 re-measures that at T | P-h | — | — |
@@ -243,7 +245,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | C9 | **add**: `clean/.git/info/exclude` replaced by a hard link to a file outside the fixture root (round 12). It survives with the one-link clause removed | P-g | **fixtures** | 57 / 152 |
 | C9 | **add**: `xlink` (round 13), a link `$CTL/zzl` to a repo outside the fixture root whose `.git/config` is a FIFO, with `clean/.git/commondir` naming `../../zzl/.git`. Only pass 2 reds it. It pins "one census verdict after both passes": with pass 2 run inside the per-repo loop, git runs on `clean` first and waits (the FIFO procedure above) | P-g | **fixtures** | 58 / 153 |
 | C9 | **add**: `xrefpoison` (round 14): the fixtures make `$_FW_DIR/pq/a` and `$_FW_DIR/pq/b` in advance, the old reference path, as repos with `core.excludesFile /nonexistent-k2`, and write the same key into every fixture repo's `.git/config`. Killed by P-g against the references made after the build (`…-pr527.md` round 14: rc 1 in 5–7 s on both shells). It survives with the references made at the old fixed path (`_pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b"`): measured on the draft-15 prototype, rc 0, PASSED on both shells. No record removes the `mkdir`-without-`-p` freshness assertion: the directory `mktemp -d` has just made holds nothing, so no run can present a stale repo there, and that mutant is equivalent **within class (b)**: a fixture command still running after the build can place one there (`xrace`, round 15), which is class (c) and not owed (design memo §0.3) | P-g | **fixtures** | 59 / 154 |
-| C9 | **add**: `lnblind2` (round 15): a link `$CTL/zzy` to a tree in `$_FW_DIR` holding a git dir (`zzt/a` with `objects` and `HEAD`), and `$_FW_DIR/prel` and `$_FW_DIR/pgls`, draft 16's pass-2 link list and in-loop per-link result, made links to `/dev/null`. Killed by P-g's pass 2 once the working files are in the postconditions' directory (`K2PRE zzy:[a symlink to a tree holding a git dir]`, rc 1 in 3–5 s on both shells, `…-pr527-r15.md` §Q). It survives with the working files back in `$_FW_DIR`: the draft-16 prototype gives rc 0, PASSED on both shells. C9 deletes the in-loop search, so the record plants the pass-2 list alone (round 15's `lnblind` insert, verbatim with its source in `…-pr527-r15.md` §Q, which the draft-16 prototype reds only through that search: `zzy:[a symlink to a tree holding a git dir: a/HEAD]`, bash 5.3). That it survives on the implementation with the working files back in `$_FW_DIR` is expected, not measured; X3's survive check measures it | P-g | **fixtures** | 60 / 155 |
+| C9 | **add**: `lnblind2` (round 15): a link `$CTL/zzy` to a tree in `$_FW_DIR` holding a git dir (`zzt/a` with `objects` and `HEAD`), and `$_FW_DIR/prel` and `$_FW_DIR/pgls`, draft 16's pass-2 link list and in-loop per-link result, made links to `/dev/null`. Killed by P-g's pass 2 once the working files are in the postconditions' directory (`K2PRE zzy:[a symlink to a tree holding a git dir]`, rc 1 in 3–5 s on both shells, `…-pr527-r15.md` §Q). It survives with the working files back in `$_FW_DIR`: the draft-16 prototype gives rc 0, PASSED on both shells. C9 deletes the in-loop search; the record still planted `pgls` too, which nothing read, until the fix round dropped that half (below), so it now plants the pass-2 list alone (round 15's `lnblind` insert, verbatim with its source in `…-pr527-r15.md` §Q, which the draft-16 prototype reds only through that search: `zzy:[a symlink to a tree holding a git dir: a/HEAD]`, bash 5.3). That it survives on the implementation with the working files back in `$_FW_DIR` is expected, not measured; X3's survive check measures it | P-g | **fixtures** | 60 / 155 |
 | C9 | **re-anchor**: the P-f record "`env -0`'s output gains a last record with no NUL after it" (`mutations.sh:360` at `8413a4db`) and the P-g record "the missing-lines `grep` reads a missing pattern file" (line 364) name `$_FW_DIR/env0` and `$_FW_DIR/pgcur`, which C9 moves into the postconditions' directory (`$_pq`); both expressions name the new path | P-f, P-g | harness | — |
 | C10 | **add**: `clean` gets an `objects/info/alternates` naming an object store outside the fixture root. It survives with the `alternate:` clause removed | P-k | **fixtures** | 61 / 156 |
 | C10 | **add**: the liveness probe loses its `alternates` file, so it prints no `alternate:` line: NOT EXERCISED, red. It survives with the liveness check removed. With no machine-limitation arm, no machine excuses it | P-k liveness | harness | 62 / 157 |
@@ -252,6 +254,22 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | C11 | **no change** for the move: the parent's working files move out of `$CTL` (`…-landing.md` §9.1), and no record anchors their paths: over the `MUTANTS` here-document (`mutations.sh` lines 230–387 on the draft-18 prototype), `/usr/bin/grep -n` with the alternatives `-e 'CTL/\.' -e 'CTL\\/\.' -e fsmhook -e fsmonitor_ran -e control_out -e fifoprobe` finds one line, the `.gd-cachedir` record, a fixture's path. `xbare` and `xanchor` are X16 cells, not records: each needs a tree edit (the ratchet at 0, a stale record) besides its insert, and a record is one expression. Draft 19 put the empty-generated-set check (D17-D) in the opt-in run, where no record could reach it (a trial runs the wire with `env -u WEBREF_WIRE_MUTANTS`); draft 20 makes it always on, and the next row pins it | — | — | 64 / 159 |
 | C11 | **add** (D18-B): `mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/`, a `mutgen` target (`_MUT_TARGETS` gains it), labelled `the boundary-mutant generator derives a non-empty set from the wire's regexes`. The generator then emits nothing, and the always-on `_mut_gen_floor` reds under that label, rc 1 on both shells (`floorkill`); it survives with the `_mut_gen_floor` call removed from `_mut_correspondence`, rc 0, PASSED (`floorsurv`, bash 5.3; `…-pr527-r15.md` §Q). Draft 21's run-time layer (`_mut_gen_n` against `_mut_gen_floor_n` in `_mut_run`, D19-A) adds **no record**: it runs only in the opt-in run, which no trial reaches; X3's floor cell pins it | generator floor | mutgen | 65 / 160 |
 | C12 | **add**: `exec 2>/dev/null` just before the fixtures' `built` line. Killed by W ("the fixtures file left the window's stderr redirected"): on the draft-18 prototype this insert alone gave rc 2 (bash 5.3), and with `: $((1/0))` after it (`xexecarith`) rc 2 on both shells (`…-pr527-r15.md` §Q). It survives with the canary check removed: without the check (the draft-16 prototype) the insert alone gave rc 0, PASSED (bash 3.2), and `xexecarith` rc 0, PASSED on both shells on the draft-17 prototype (round 16) | W | **fixtures** | 66 / 161 |
+| fix `976e1430` | **re-shape**, all records: a record is `expr1 [TAB expr2 …] TAB needle`, and the always-on anchor check applies each expression alone and requires it to change exactly one line. The three W2 records' compound `range s;s` expressions become one expression per line; the wire record on `--exclude-per-directory=.gitignore` is anchored on the code line, not on a comment as well; the P-f `-i` record on the window's `env` call alone | W2, P-f, wire | — | — |
+| fix `15d3e704` | **remove**: the two P-g line-`grep` failure records (extra-lines, missing-lines). The record comparison runs first and decides; the line greps only name the entries on a red path, so no failure of theirs can turn a red green, and the arm they pinned is gone | P-g | harness | 64 / 159 |
+| fix `15d3e704` | **retarget**: C9's "shape scan replaced by a failing command" addressed the P-g loop's duplicate scan, which this commit deletes (one census); it now replaces pass 1's shape scan. **Re-anchor** onto `_fgit_in` (git run in the repo with `--git-dir=.git`, no discovery): P-a liveness, P-b liveness, P-k status. P-b's `GIT_CONFIG_NOSYSTEM` record now drops that name alone. `lnblind2` drops its `pgls` half | P-g, P-a, P-b, P-k | harness | — |
+| fix `15d3e704` | **add**: pass 1's `find` fails after writing its list (`&& false`), and pass 2's `find` fails. Killed by P-g with or without the arm: without it errexit ends the window (W), and pass 1's case also reaches `(no fixture git dir was found)`; the arms buy the precise message | P-g | harness | 66 / 161 |
+| fix `15d3e704` | **add**: `-print0` → `-print` in pass 1, and in pass 2 (`… does not end in a NUL byte`). Pass 2's survives with the NUL check removed; pass 1's is still killed then, by the zero-population check | P-g | harness | 68 / 163 |
+| fix `15d3e704` | **add**: a line on the census's stderr written by pass 2 (`(census stderr)`): one check after both passes. It survives with the check back before pass 2 | P-g | harness | 69 / 164 |
+| fix `15d3e704` | **add**: `env` without `-0` (one record): `missing PATH HOME …`. It survives without the presence check | P-f | harness | 70 / 165 |
+| fix `15d3e704` | **add**: `GIT_ATTR_NOSYSTEM` dropped alone (`GIT_ATTR_SYSTEM=[…]`); the window's `HOME` set to `$SCRATCH` (`GIT_CONFIG_GLOBAL=[…]`; anchored on the `_FGIT_ENV` line since `6ed414b2`, when P-e's reference gained `HOME` too) | P-b | harness | 72 / 167 |
+| fix `15d3e704` | **add**: the fixtures write `$HOME/.config/git/ignore` (`[.config]`, a dot name); the fixtures plant a void entry and set `GLOBIGNORE='*'` (`[k2plant]`) | P-c | **fixtures** | 74 / 169 |
+| fix `15d3e704` | **add**: P-k's `grep` for `alternate:` exits 2 (`[the comparison failed (grep exit 2)]`). It survives with the exit test removed | P-k | harness | 75 / 170 |
+| fix `6ed414b2` | **re-shape**: the incomplete-window W2 record removes both of `_fgit_window_verdict_exit`'s exits, `done` renamed. All three W2 records are killed with W2's label and each survives with its clause (`done`, `post_bad`, W3) removed from `_fgit_window`'s trust computation. **Relabel**: W3 becomes `the fixture build window ran without a shell diagnostic` (both W3 records' needles) | W2, W3 | — | — |
+| fix `6ed414b2` | **add**: `: $(( 1/0 ))` at the start of `_fgit_postconditions` (`./prelude.sh: line …: division by 0`). It survives with W3's `./prelude.sh:` clause removed | W3 | harness | 76 / 171 |
+| fix `6ed414b2` | **add**: the pin's re-entry limit set to 0. It survives with the depth check neutralised (a removed guard would wait, the liveness slot's class) | pin | harness | 77 / 172 |
+| fix `6ed414b2` | **add**: `_seal_apply`'s symlink walk, and its refusal, each replaced by `:`. Killed at load by the standing self-check `_seal_apply_probe` (exit 2); each survives with the probe call disabled | W4 | harness | 79 / 174 |
+| fix `6ed414b2` | **add**: a `_seal` with the mode `a-rwx`, and one with the fixture name `wa.lk` (values `chmod` would apply), refused by the validation alone. Each survives with its validation removed | W4 | **fixtures** | 81 / 176 |
+| fix `6ed414b2` | **add**: the `err` fixture marked failed before its seal (`CONTROL NOT EXERCISED (an unreadable file fails closed)`), and the `err` `_seal` line deleted (the err control's wrong-reason report). Both survive with the permission block gated on `[ -r err/control.py ]` again instead of on the `_perm_ok` probe | `an unreadable file fails closed` | **fixtures** | 83 / 178 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
@@ -259,6 +277,15 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 - **Totals after C12:** **19 labels** (P-k and its liveness label and the generator floor's label
   added; P-j and W2 renamed), **66 records of this PR, 161 in all**: `_MUT_RECORDS_MIN=161`, and
   `_MUT_UNRECORDED_MAX` stays at 21.
+- **Totals after the fix round (`6ed414b2`):** **20 labels** (the pin's added; W3 renamed), **83 records
+  of this PR, 178 in all**: `_MUT_RECORDS_MIN=178`, and `_MUT_UNRECORDED_MAX` stays at 21. Every new or
+  changed record was run alone on both shells, killed with its own needle, and survive-checked as its
+  row says (`…-pr527-r15.md` §Q). Two fixes have no record, by construction: the label-forwarding regex
+  (every shipped label fits the old form) and the umask block's single gate (an absent wrong-reason
+  line is not a needle).
+- **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
+  the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
+  both shells at `6ed414b2` (`…-pr527-r15.md` §Q).
 - **Not records, by the caller's `PATH`:** the X14 outcomes. A record's run uses the caller's `PATH`, so
   no record can pose them.
 - **Cost (X3).** No new record runs to a bound. The FIFO records end in seconds, because the census

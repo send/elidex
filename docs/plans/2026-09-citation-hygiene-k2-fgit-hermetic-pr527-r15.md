@@ -552,8 +552,9 @@ before each commit:
 | C12 | `219fe5e7` | the child writes a fixed canary to fd 2 after the options re-check; the parent requires it before counting the window done, else a new `_fw_why`; one new record | X1/X4b/X10/trip-wires green both shells; the record's kill+survive measured, plus an `xexecarith`-style (redirect then division by zero) variant |
 | docs | `52f3efaa` | round 19's four leftover MINs (§0.3's class-(c) wording, the `導出`/`再導出` count, both "Drafts 11–20" headings → "11–21") | n/a (docs only) |
 
-**The two defects C8's own implementation found (both fixed before the commit landed, both now in the
-shipped code and its comments):**
+**The two defects C8's own implementation found (both fixed before the commit landed; ⚠ the second
+fix, the `return 0`, is superseded: the fix round below deleted it and moved `_fw_trusted`'s
+computation into `_fgit_window`):**
 1. `_fw_built_or_w2`'s guard was first written `[ "$_fw_trusted" -eq 1 ] || return 0` — the polarity of
    the old `_fw_done` guard, read wrong for the new flag (it returned "trusted, proceed" exactly when
    `_fw_trusted` was NOT 1). Caught immediately by inspection before any run; fixed to
@@ -566,7 +567,8 @@ shipped code and its comments):**
    `controls.sh` is bare and a non-zero return there would abort the whole run instead of falling through
    to `_control`'s own gate) — see the comment beside it in `webref-generic-core-trip-wire.harness.sh`.
 
-**The W2 re-anchored record: kill measured, no distinct survive.** Its kill (rc 1, the W2 needle, `t`
+**The W2 re-anchored record: kill measured, no distinct survive** (superseded by the fix round below:
+the record now removes both exits, and each W2 record's survive is measured against the trust computation). Its kill (rc 1, the W2 needle, `t`
 below) is measured. A survive attempt that removes `_control`'s own `_fw_built_or_w2 || return 1` line
 alone does **not** pass: the relative-scratch block's separate call to the same function still reports
 W2 first (rc 1, same needle) — both call sites share one function, so defeating one exposes the other.
@@ -575,7 +577,11 @@ block gates survives the mutation set … those gates are pinned by the traced `
 record." The record's own claim — that the exit being gone still lets W2 fire — is what "kill" proves;
 no further survive check is owed by corpus §6.1 for this row (it is a re-anchor, not a new record).
 
-**X16, at the final head `219fe5e7`** (both shells; each cell copied beside the wire under a name that
+**X16, at `219fe5e7`** (C12's head, then taken for the final head; T has moved since, to `0280a67f` and
+then `6ed414b2`, so X16 re-runs at T, `…-landing.md` §9.1 step 1. The rows quote the `K2PRE` tag that
+`0280a67f` removed. These runs used `alarm 60`, not `cell15.sh`'s 120 s as §11 asks; every red cell
+ended within 20 s, so the bound decided nothing here, but under bash 3.2 an alarm alone is no bound:
+`…-landing.md` §11, "Cell runners at T") (both shells; each cell copied beside the wire under a name that
 does **not** contain `.mutant.`, so the always-on anchor check runs as it does for an ordinary invocation,
 except `stalectl`/`staleshim` which additionally vary the caller's `PATH`; `HOME` a scratch dir; each in
 its own process group via `perl -e 'setpgrp; alarm 60; exec @ARGV'`, no leftover process found after any
@@ -619,7 +625,8 @@ timed row here and one from C9's PROGRESS record; none differed from the final-h
   this implementation's own, derived from design memo §3's prose, not copied from any prototype diff.
 - C10 (P-k, its liveness probe, and all four records) likewise has no prototype; implemented from design
   memo §4's P-k table row and the `…-pr527.md` round-12 P-k measurements (the C-quoted `alternates` form).
-- The plan (design memo §4, C9's landing row) states "the in-loop per-link search and the two-name
+- (⚠ The P-g loop this item describes, with its name-guarded `continue`, was itself deleted in the fix
+  round below: P-g iterates the census's own list.) The plan (design memo §4, C9's landing row) states "the in-loop per-link search and the two-name
   HEAD/config guard deleted"; the draft-21 prototype (`proto21.diff`) left the in-loop per-link search's
   code in place (re-pathed to `$_pq`, not removed) — a plausible artefact of the prototype's own priority
   (proving the reviewer's cells pass), not a considered design choice. This implementation follows the
@@ -632,3 +639,79 @@ timed row here and one from C9's PROGRESS record; none differed from the final-h
 
 This file is 634 lines (`wc -l`) after this entry; the rollover rule in design memo §13 applies
 only when a later entry would take it past 800, which this one does not.
+
+**The `/code-review max` fix round, 2026-10-01.** The review ran on `0280a67f` (15 findings, numbered
+here as the review's output orders them). The driver decided each disposition; three code commits and
+one docs commit answer them, base `0280a67f`. Every run below: `/opt/homebrew/bin/bash` 5.3 and
+`/bin/bash` 3.2 (with `PATH=/bin:/usr/bin:…`), `HOME` a scratch directory, each run its own process
+group (`perl -e 'setpgrp; alarm N; exec @ARGV'`) plus a `kill -9 -<pgid>` watchdog, at most two at a
+time; single records applied to a copied tree, never the opt-in mutation run (X3 is the final head's).
+
+| commit | sha | what | records (this PR's / all) |
+|---|---|---|---|
+| 1 | `976e1430` | records become `expr1 [TAB expr2 …] TAB needle`; the always-on anchor check applies each expression alone and needs exactly one changed line (#9), one prefix parser `_mut_parse` (SI7); a generated mutant killed only by the always-on floor `CONTROL FAILED (<generator floor label>)` is reported as killed by the wrong subject (#4), and the floor's message carries the generator's failure | 66 / 161 |
+| 2 | `15d3e704` | one census (#5: P-g's own population `find`, classifier and shape scan deleted; P-g/P-k iterate pass 1's list, zero `.git` entries red); NUL-terminated census lists; one census-stderr check after both passes (SI6); P-f requires every allowlist name (D2); every repo-aimed postcondition git runs as `( cd <repo> && git --git-dir=.git … )` (#7); P-k's `grep` exit > 1 red (#11); P-g's record comparison first, line greps only for the message (EF1); records for #10; `§1, "Outside P"` cites; `K2REF` tags removed | 75 / 170 |
+| 3 | `6ed414b2` | `_fw_trusted` set at the end of `_fgit_window`, the verdict function only reports, the `return 0` deleted (SI3/AL1); W3's `./prelude.sh:` record and the label `the fixture build window ran without a shell diagnostic` (#6); the pin's re-entry guard `K2_FGIT_PIN_DEPTH`, limit 8, label `the pinned git never re-enters itself` (#2); P-e's reference with `HOME=$_FGIT_VOID` (#3); `_seal_apply_probe`, a standing self-check at load (#8); `_seal` validates mode and fixture (A1-3); label regex `_[A-Za-z0-9_]*_lbl` (AL5); `_perm_ok`, an independent permission probe gating the perm block (#1); one umask gate (#12); the dead `_git` term in the controls' entry guard (#13) | 83 / 178 |
+| 4 | this commit | the plan records brought to `6ed414b2` (#14), `ci.yml`'s verdict sentence (#15), the cell-runner watchdog, X5 and X13 re-anchored for T | — |
+
+Parts at `6ed414b2` (`wc -l`): controls 427, fixtures 696, harness 856, mutations 909, mutgen 348.
+`_MUT_UNRECORDED_MAX` 21. The record table is corpus §6.1's fix-round rows.
+
+Measured (the implementers' logs, relayed; `cell15.sh`-style cells unless named):
+- **#4**: the `K2RE_PATH` quant#2 `+` → `{2,}` mutant with the `nltarget` control removed was counted
+  killed by the floor alone before; after, `!! MUTANT … was killed BY THE WRONG SUBJECT`; with
+  `nltarget` kept it is accepted. Both shells.
+- **#9**: at `0280a67f` five records changed more than one line each (the wire record hitting a
+  comment and the code, three compound W2 records, the P-f `-i` record's two sites); respelling the
+  wire's code line left the old anchor check green, the new one red. Each changed record: killed with
+  its needle, 10/10 runs.
+- **#5/#7/D1/D2/SI6/#11**: 17 new or changed records × 2 shells, all killed with their own needle;
+  survive results as corpus §6.1 says. #7's scenario (a garbage `HEAD` in `clean/.git`, the scratch
+  root inside a plain `git init` tree): before rc 0, PASSED on both shells; after rc 1, `git lists no
+  configuration here` and `count-objects exit 128`.
+- **EF1**, the whole wire, bash 5.3, alternated, ms: before 16778, 16642, 16945; after 15616, 15617,
+  15871. A local sanity figure only, like X8; it decides nothing about the budget.
+- **SI3**: ROg (the verdict call moved below the first control, a complete clean build) at `15d3e704`:
+  rc 1, `a control was reached over a build that was not complete and trusted`; at `6ed414b2`, re-run
+  for this entry on a fresh clone: rc 0, PASSED, 18 s (5.3) and 24 s (3.2). The three W2 records are
+  killed with W2's label (6/6) and each survives with its clause removed from the trust computation
+  (6/6).
+- **#2**: wrappers that exec "the next `git` on `PATH`" (strip-own-dir, and `which -a` skip-self):
+  before, no output until the bound, 4/4 (5.3 ended by the alarm, rc 142 at 40 s; 3.2 only by the
+  watchdog, rc 137 at 33 s); after, rc 1 in 8–9 s with `CONTROL FAILED (the pinned git never re-enters
+  itself)`, 4/4.
+- **#3**: a `$HOME`-reading `set -u` git wrapper: before rc 1, P-e `[…] vs []`; after PASSED, both shells.
+- **#8**: with `_seal_apply`'s walk deleted, before rc 0, PASSED; after, the load-time probe stops the
+  run, exit 2. **A1-3**: a mode `000<TAB>x<TAB>../k2sentinel<NL>755` chmodded a sentinel outside `$CTL`
+  before; after it is refused and the sentinel keeps its mode.
+- **#1**: an `err` build chain that fails, and a deleted `err` seal line: before rc 0, PASSED (the perm
+  block skipped as a machine limitation); after, red for the named reason, both shells.
+- **#12, AL5**: no record (an absent wrong-reason line is not a needle; every shipped label fits the
+  old regex), measured by hand: the umask wrong-reason line gone; a label renamed `_pk_live_lbl`
+  reaches the window only with the new regex.
+- **#13**: a tracer on the wire's `_git` over a full run: 1194 calls, all from the wire, none from a part.
+
+**bash 3.2 and the alarm.** A hung wire under `/bin/bash` 3.2 ran 5+ min under the perl `alarm`, and
+#2's 3.2 cells above ended only by the watchdog. A plain `perl -e 'setpgrp; alarm 2; exec @ARGV'
+/bin/bash -c 'sleep 8'` ends at 2 s, rc 142, on both shells (measured for this entry), so the cause lies
+in what the wire does under 3.2; it is not measured further. Every cell runner at T therefore adds a
+watchdog (`…-landing.md` §11, "Cell runners at T"); X16's `219fe5e7` runs above used `alarm 60` alone.
+
+**X5 and X13 at T.** §E.7's `gen11.py`, as run, aborts at `6ed414b2` on `m2h`'s anchor; re-anchored
+by `…-landing.md` §11 "X5 at T" (extracted from that file and run on a fresh clone of `6ed414b2`):
+`38 jobs`, 228 part copies, every copy clean under `bash -n`. The cells were not run. ⚠ Open: their
+P-equal half needs the prototype-only P-dump hook, whose commit `7c07415c` is not reachable and whose
+code is recorded nowhere (`…-landing.md` §11). `crc.sh`, patched by "X13 at T": clean under `bash -n`
+on both shells, and its `w2rec` edit applies to the `6ed414b2` harness (both exits and `done`).
+
+**`ci.yml` (#15).** The verdict sentence ("both sides far under it, so it is unchanged") was written
+at `5a6f4367` (`git blame`), before C6–C12, and never measured on the code it named. It is replaced by
+a pointer: no verdict there; the comment is rewritten at the final head (`…-landing.md` §9.1 step 2)
+and the verdict is the runner's (design memo §3, "`ci.yml`"). Comment lines only, so T does not move.
+The review's own local figures (head 17.05–18.48 s, base 12.68–12.86 s, alternated, three each) are
+relayed, not re-measured, and decide nothing.
+
+**Not done in this round, carried:** the code-comment leftovers the docs sweep found (the mutations
+file's WHAT IT DEFINES omits `_mut_gen_floor`, defined in `mutgen.sh`); the P-dump hook above.
+
+This file is 717 lines (`wc -l`) after this entry, under design memo §13's 800.
