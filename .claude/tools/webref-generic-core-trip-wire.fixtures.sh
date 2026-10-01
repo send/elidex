@@ -403,9 +403,9 @@ printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/ok.py"
 # environment-sensitive: it discriminates the READ's own `LC_ALL=C` only where
 # the INHERITED locale is multibyte, so on a C-locale machine the mutation that
 # drops it survives this control. P-h pins only that the window's `LC_ALL` EQUALS
-# the wire's own (`$_FGIT_WIRE_LC`, read at load), not that either is `C`: a caller
-# that already exports `LC_ALL=C` makes the two agree whatever the wire sets, so
-# deleting the wire's `export LC_ALL=C` survives P-h for such a caller. Said here rather than left implied.
+# the wire's own (`$_FGIT_WIRE_LC`, read at load); it does NOT pin that the wire's
+# own line set the value: for a caller that already exports `LC_ALL=C`, deleting
+# the wire's `export LC_ALL=C` survives P-h.
 printf 'X = ".claude/skills/\377name/rule.md"\n' > "$CTL/rawbyte/probe.bin"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/rawbyte/ok.py"
 # A quote inside a NAME segment: `/` is the only delimiter a stored path has.
@@ -589,7 +589,7 @@ _seal "$CTL/d5root" 000 d5root
   && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
   && command rm -rf dir && ln -s "$CTL/external" dir ) || _fixture_failed ancestorlink
 # ⚠ THE HEAD-PROBE FIXTURE NEEDS A COMMIT, and did not have one until the rule
-# it encodes was corrected. R2 asserted "a failed probe is an error"; R3 showed
+# it encodes was corrected. The first version asserted "a failed probe is an error"; a later review showed
 # the property is really "exit 1 is not by itself absence", so the fixture must
 # be a repository that DOES have a commit — otherwise the probe failing and the
 # repository being unborn are the same situation and the control cannot tell

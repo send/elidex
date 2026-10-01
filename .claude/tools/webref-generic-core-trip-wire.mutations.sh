@@ -9,21 +9,11 @@
 # that watches the first, so it is where the correspondence between the two
 # lists is enforced rather than assumed.
 #
-# ⚠ THE SPLIT IS THE RULE'S OWN SHAPE, AND THE ORDERING MATTERS. CLAUDE.md's
-# touch-time discipline says a >1000-line file gets a "standalone prereq split"
-# as its own PR **or its own commit**, and its heading is *defer しない*. An
-# earlier revision of 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md booked
-# this as a defer slot to be done after the PR landed — which inverts "prereq"
-# into "afterwards" and uses the single-commit requirement as a reason to merge
-# the oversized file first. The
-# external reviewer caught that (P1). This file is that standalone commit.
-#
-# ⚠ AND THE COUNTER-ARGUMENT IS ANSWERED, not ignored.
-# 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md previously argued against
-# this seam on the ground that "the two lists must be edited together, so
-# splitting them puts the two halves of one assertion in two files". They
-# must — and the correspondence check below is what ENFORCES that rather than
-# hoping for it. Being cross-file is the point: the check reads the
+# ⚠ THE SPLIT IS THE RULE'S OWN SHAPE: CLAUDE.md's touch-time discipline says a
+# >1000-line file gets a "standalone prereq split" as its own PR or its own
+# commit, not a defer slot to be done after the PR lands. This file is that
+# standalone commit. The two lists must still be edited together — the
+# correspondence check below ENFORCES that across the two files: it reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
 # WHAT IT CONSUMES: `$_VFY` (from the controls file), `$_CONTROLS` (the
@@ -36,15 +26,17 @@
 # beside each mutant.
 # ⚠ THE TWO REGEXES ARE CONSUMED AS VALUES, not just named in a `for` list:
 # `_mut_gen_run` compares what the wire's assignment LINE reads back as against
-# what the RUNNING wire HOLDS, and that second half is these variables. They
-# were left off this list and out of the guard by the commit that added the
-# generator — the same drift the guard exists to catch, in the edit that
-# widened what there is to drift.
+# what the RUNNING wire HOLDS, and that second half is these variables. They were
+# left off this list and out of the guard by the commit that added the generator
+# — the same drift the guard exists to catch, in the edit that widened what there
+# is to drift.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUTGEN`,
-# `_MUT_TARGETS`, `_MUT_PARTS`, `_mutants`, `_mut_correspondence`, `_mut_src_for`,
-# `_mut_target`, `_mut_parse`, `_mut_apply`, `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The generated
-# half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
-# `_mut_splice`, `_mut_gen_floor`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`, sourced below.
+# `_MUT_TARGETS`, `_MUT_PARTS`, `_mutants`, `_mut_correspondence`,
+# `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
+# `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
+# generated half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
+# `_mut_splice`, `_mut_gen_floor`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`,
+# sourced below.
 #
 # TWO POPULATIONS, AND THE BOUNDARY IS WHAT EACH ONE'S UNIT IS.
 #   * `_mutants` — HAND-WRITTEN, and its unit is a LABEL: every `_control`'s
@@ -142,18 +134,17 @@ fi
 # here-document, a flat case table with no seam inside it): the edit that takes
 # this file past 1000 lines FIRST splits the record table into its own part.
 #
-# The expressions are applied to a COPY of the file the record names — the wire, unless the
-# record says otherwise (below); the copy must (a) differ from
-# the original — a stale anchor that matches nothing is a FAILED entry, not a
-# passing one — (b) exit non-zero, and (c) print the named control's own
-# diagnostic, so an entry that reds for an unrelated reason is caught too.
+# The expressions are applied to a COPY of the file the record names — the wire,
+# unless the record says otherwise (below); the copy must (a) differ from the
+# original — a stale anchor that matches nothing is a FAILED entry, not a passing
+# one — (b) exit non-zero, and (c) print the named control's own diagnostic, so
+# an entry that reds for an unrelated reason is caught too.
 #
 # ⚠ AND THE FILE IT EDITS IS PART OF THE RECORD. An expression may carry the
 # prefix `controls:`, `harness:`, `fixtures:` or `mutgen:`, which aims it at the
 # CONTROLS, the CONTROL HARNESS, the FIXTURE BUILD or the MUTANT GENERATOR instead
-# of the wire. The
-# run copies every shipped part beside each mutant, so a record says only
-# which one to `sed`: the prefixes are the words of `_MUT_TARGETS`, and
+# of the wire. The run copies every shipped part beside each mutant, so a record
+# says only which one to `sed`: the prefixes are the words of `_MUT_TARGETS`, and
 # `_mut_target` derives each one's pair.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
@@ -163,25 +154,26 @@ fi
 #     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
 #
 # ⚠ ADDING A LABEL MEANS ADDING A RECORD — a `_control` or an `_lbl="…"`
-# definition, whatever it is about — the ratchet below is what makes that true. What does NOT belong here is a
-# record for a rule of `$K2RE` or `$K2RE_PATH` that needed no new control:
-# `_mut_gen_run` derives that population from the assignments themselves, so a
-# hand-written copy would be a second spelling of the same class. The boundary
-# is stated in full at the head of this file and again at that function.
-# ⚠ Nothing here can detect an arm that
-# never had one — this set is a floor, not a census. ⚠ AND A DECLARED FLOOR IS
-# NOT A DETECTOR: this file used to say exactly the sentence above and assert
-# nothing, so deleting a record shrank the set in silence and the run stayed
-# green. Three things now hold it up, and each is checked below rather than
-# described:
+# definition, whatever it is about — the ratchet below is what makes that true.
+# What does NOT belong here is a record for a rule of `$K2RE` or `$K2RE_PATH`
+# that needed no new control: `_mut_gen_run` derives that population from the
+# assignments themselves, so a hand-written copy would be a second spelling of
+# the same class. The boundary is stated in full at the head of this file and
+# again at that function.
+# ⚠ Nothing here can detect an arm that never had one — this set is a floor, not
+# a census. ⚠ AND A DECLARED FLOOR IS NOT A DETECTOR: this file used to say
+# exactly the sentence above and assert nothing, so deleting a record shrank the
+# set in silence and the run stayed green. Three things now hold it up, and each
+# is checked below rather than described:
 #   * a CORRESPONDENCE, IN BOTH DIRECTIONS AND ALWAYS-ON. Every record's needle
-#     must appear in the controls file as a QUOTED STRING — a `_control` label,
-#     or an `_lbl="…"` definition (the blocks that are not `_control`s, and the
-#     fixture build window's producers) — since a stale anchor would otherwise
-#     report "wrong reason" forever. It is a grep for the quoted text, not a
-#     parse of the call. AND the number of LABELS with NO record — `_control`
-#     labels and `_lbl="…"` definitions alike — is ratcheted:
-#     `_MUT_UNRECORDED_MAX` is EXACT: more bare labels is red, and so are fewer.
+#     must EQUAL a label parsed from the controls file — the third quoted
+#     string of a `_control` call, or the value of an `_lbl="…"` definition
+#     (the blocks that are not `_control`s, and the fixture build window's
+#     producers) — since a stale anchor would otherwise report "wrong reason"
+#     forever; some other quoted string is no label. AND the number of LABELS
+#     with NO record — `_control` labels and `_lbl="…"` definitions alike — is
+#     ratcheted: `_MUT_UNRECORDED_MAX` is EXACT: more bare labels is red, and so
+#     are fewer.
 #     ⚠ THE SECOND DIRECTION IS THE ONE THAT CATCHES ANYTHING. The first has
 #     never had a violation; the second is where both real gaps lived — the
 #     `ls-tree` arm with no record, and a control whose fixture made its
@@ -222,7 +214,7 @@ _MUT_TARGETS="controls harness fixtures mutgen"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=20
-_MUT_RECORDS_MIN=197   # ledger: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1 (totals bullet); removed so far: the pin's re-entry-limit record (it went with the counter) and P-k's `grep` exit>1 arm (it went with the builtin `_fgit_alternates`)
+_MUT_RECORDS_MIN=197   # ledger: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1 (totals bullet); removed so far: P-g's two line-`grep` failure records (the record comparison decides), the pin's re-entry-limit record (it went with the counter), P-k's `grep` exit>1 arm (it went with the builtin `_fgit_alternates`), and the `fakerelmktemp` fixture-failure record (the gate no longer reads PATH-prefix dirs); added since: P-k's second-store liveness record
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -230,9 +222,10 @@ _MUT_RECORDS_MIN=197   # ledger: 2026-09-citation-hygiene-k2-fgit-hermetic-corpu
 # run, mutation mode or not. Measured: 3.2 red, 5.3 green.
 # ⚠ AND THE FORMAT HAS A COMMENT SYNTAX — a `#` in column 1 — dropped HERE, at
 # the single materialiser both readers go through, so one filter covers both, and
-# a note can sit beside the records it is about. `^#` is safe to reserve: a record's expression cannot begin with a literal `#`
-# except as a sed comment, which is inert. The always-on validator below stays —
-# a line that is neither a comment nor a record is still an error, not a skip.
+# a note can sit beside the records it is about. `^#` is safe to reserve: a
+# record's expression cannot begin with a literal `#` except as a sed comment,
+# which is inert. The always-on validator below stays — a line that is neither a
+# comment nor a record is still an error, not a skip.
 # ⚠ FILTERED IN BASH, NOT THROUGH `grep -v`. This file runs under `pipefail`:
 # `grep` exits 1 when it selects nothing, so a set that happened to be all
 # comments — or a grep on `PATH` that answers differently — would abort the
@@ -388,7 +381,7 @@ harness:s/"[$]_pfenv" -0 > /{ "$_pfenv" -0; echo k2 >\&2; false; } > /	the fixtu
 harness:s/"[$]_pfenv" -0 > /false > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's environment holds only its allowlist
 harness:s/_pfenv="[$]_FGIT_ENVBIN"/_pfenv=\/nonexistent-k2\/env/	the fixture build window's environment holds only its allowlist
-harness:s/^\(  "[$]_pfenv" -0 > "[$]_pq\/env0" 2> "[$]_pq\/env0.err" || _pfrc=[$]?\)$/\1; printf K2X=1 >> "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
+harness:s/^  "[$]_pfenv" -0 > "[$]_pq\/env0" 2> "[$]_pq\/env0.err" || _pfrc=[$]?$/&; printf K2X=1 >> "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
 harness:s/^_FGIT_PATH="[$]_FGIT_BIN:/_FGIT_PATH="\/nonexistent-k2:$_FGIT_BIN:/	the fixture build window runs the pinned git first on its PATH
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; &/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 300 "$_FGIT_VOID"; &/	nothing is written into the fixture git's void
@@ -432,7 +425,7 @@ harness:s/^    find "[$]CTL" -type l -print0 /    echo k2 >> "$_pq\/pre.err"; fi
 # The NUL-list policy's tail check in `_pg_z` (the other readers' tails are pinned by the
 # `-print0` records above and P-f's `K2X=1` record): a listing with an unterminated
 # remainder reads as the same records, so only the tail check sees it.
-harness:s/^\(    _fgit_in "[$]1" config --list --show-origin -z > "[$]2[.]raw" || return [$]?\)$/\1; printf x >> "$2.raw"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/^    _fgit_in "[$]1" config --list --show-origin -z > "[$]2[.]raw" || return [$]?$/&; printf x >> "$2.raw"/	every fixture repo persists only the configuration a plain git init writes
 # P-k's records (C10): the object-store check runs only over the clean
 # census, on every `.git` P-g compares.
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzkstore" \&\& mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '%s\\n' "$_FW_DIR\/zzkstore\/objects" > "$CTL\/clean\/.git\/objects\/info\/alternates" ); &/	no fixture repo reads objects from a store outside it
@@ -478,14 +471,13 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.l
 # the failed build; and the err seal line, deleted, is red in the same control.
 fixtures:s/^\(_seal "[$]CTL\/err\/control.py" 000 err\)$/_fixture_failed err; \1/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
-# R4 S-1/S-2: `_ctl_run` clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate refuses
-# a failed fixture among the root, the cwd and the PATH-prefix dirs of every run (the three non-`_control` blocks too).
+# `_ctl_run` (commit `fd85e29f`) clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate
+# refuses a failed fixture among the root and the cwd of every run (the three non-`_control` blocks too).
 harness:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fsmon; &/	a caller's fsmonitor hook does not run
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed clean; &/	a restrictive umask decides nothing
-# …the PATH-prefix dir of a run is a tree it reads (the gate derives it), and the canary scan failing (exit >= 2) is red, not "not found".
-fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fakerelmktemp; &/	a relative scratch dir is removed on exit
+# …and the canary scan failing (exit >= 2) is red, not "not found".
 harness:s/END { exit !f }/END { exit 3 }/	the fixture build window ran without a shell diagnostic
 # ROUND 2 of the code review (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1).
 # The census lists a directory it cannot search: a BSD `find` says nothing about
@@ -511,14 +503,16 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/..\/walk\/sub
 # `git --exec-path` non-empty, so only the comparison with the reference sees it.
 harness:s/"LC_ALL=C")$/"LC_ALL=C" "GIT_EXEC_PATH=$_FGIT_VOID")/	no exec-path override reaches the fixture git
 # P-k's liveness: an `alternates` that holds nothing the probe repo can read gives
-# rc 0, no `alternate:` line and no stderr, which is only the `-ne 1` clause's.
+# rc 0, no `alternate:` line, no stderr: only the empty-line clause's. A SECOND
+# quoted store gives two `alternate:` lines: only the more-than-one-line clause's.
 harness:s/> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/> \/dev\/null/	this git reports alternate object stores
+harness:s/^    printf '"%s"\\n' .*> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/&; printf '"%s"\\n' "$_pq\/b\/.git\/objects" >> "$_pq\/c\/.git\/objects\/info\/alternates"/	this git reports alternate object stores
 # The window's FIRST options check, alone: nounset dropped from the prelude, and
 # the check after the fixtures file removed, so only the first can refuse.
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_opts_on || { echo "the fixtures file switched off/d	the fixture build window completed
 # Pass 1's NUL tail check: a duplicate record with no terminating NUL appended to
 # the list after the `find` reads as the same records, so only the tail check sees it.
-harness:s/^\(  find "[$]CTL" .*-iname .git.*\)$/\1; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
@@ -737,7 +731,7 @@ _mut_correspondence() {
     fi
     printf '%s\n' "$_pr_needle" >> "$_VFY/.needles"
   done < "$_VFY/.mutants"
-  # THE LABEL SET, PARSED ONCE (`.labels`: the fourth quoted field of a `_control`
+  # THE LABEL SET, PARSED ONCE (`.labels`: the third quoted string (`$6`) of a `_control`
   # call, or the value of an `_lbl="…"` definition), and ONE `awk` that decides BOTH
   # directions by exact equality against `.needles`: a needle that is no label is an
   # orphan (stderr; a record whose control was renamed reports "wrong reason"
@@ -746,11 +740,15 @@ _mut_correspondence() {
   # `!survive` names no control by design. Its exit status IS the verdict (1 = an
   # orphan, 2 = the awk failed), so a failed awk is red, never a silent pass.
   # `.ctllabels` (the `_control` labels alone) is what `_mut_trial '!kill'` accepts.
-  awk -F'"' -v ctl="$_VFY/.ctllabels" 'BEGIN { printf "" > ctl }
-    /^ *_control / { if ($6 != "") { print $6; print $6 > ctl } }
-    /^ *_[A-Za-z0-9_]+_lbl="/ { if ($2 != "") print $2 }' "$_CONTROLS" > "$_VFY/.labels" || _mut_orphan=1
+  # Output paths reach `awk` through the environment (`-v` would process a backslash,
+  # and refuse a newline, in a TMPDIR). A non-comment `_control ` line with no label is red.
+  K2_CTL="$_VFY/.ctllabels" awk -F'"' 'BEGIN { ctl = ENVIRON["K2_CTL"]; printf "" > ctl }
+    /^ *_control / { if ($6 != "") { print $6; print $6 > ctl; next } }
+    /_control / && !/^ *#/ { print "!! no label could be read from the controls line: " $0 > "/dev/stderr"; bad = 1 }
+    /^ *_[A-Za-z0-9_]+_lbl="/ { if ($2 != "") print $2 }
+    END { exit bad }' "$_CONTROLS" > "$_VFY/.labels" || _mut_orphan=1
   _mut_arc=0
-  awk -v bare="$_VFY/.bare" 'BEGIN { printf "" > bare }
+  K2_BARE="$_VFY/.bare" awk 'BEGIN { printf "" > ENVIRON["K2_BARE"] }
     FILENAME == ARGV[1] { nd[++nn] = $0; isn[$0] = 1; next }
     { lb[++nl] = $0; isl[$0] = 1 }
     END {
@@ -759,7 +757,7 @@ _mut_correspondence() {
         print "   label or an `_lbl=` value): its control was renamed, or the needle is some other string." > "/dev/stderr"
         bad = 1
       }
-      for (i = 1; i <= nl; i++) if (!(lb[i] in isn)) print lb[i] > bare
+      for (i = 1; i <= nl; i++) if (!(lb[i] in isn)) print lb[i] > ENVIRON["K2_BARE"]
       exit bad
     }' "$_VFY/.needles" "$_VFY/.labels" || _mut_arc=$?
   [ "$_mut_arc" -le 1 ] || echo "!! the needle/label scan failed (awk exited $_mut_arc): nothing was decided." >&2
@@ -923,7 +921,7 @@ _mut_run() {
       # as not exercisable here and not counted (PR #527 Codex R17; the first
       # form skipped them unrun — the re-check after it). The labels are
       # derived from the ID — every `_p<x>*_lbl` defined — not listed.
-      # REJECTED, by design (R3 D-9): the excuse keys on the `_p<x>*_lbl` NAMING convention, so a renamed label falls out of it and the opt-in run reds on a limited machine — the FAIL-SAFE side.
+      # REJECTED, by design (the dropped-at-cap round, commit `2b56c33c`): the excuse keys on the `_p<x>*_lbl` NAMING convention, so a renamed label falls out of it and the opt-in run reds on a limited machine — the FAIL-SAFE side.
       _mskip=""
       while IFS= read -r _ml; do
         _mid="${_ml%% —*}"

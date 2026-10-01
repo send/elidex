@@ -339,7 +339,7 @@ git-config` (FILES) says "When the XDG_CONFIG_HOME environment variable is not s
 $HOME/.config/ is used".
 
 ```sh
-# harness at `96eea58c`, abridged; the harness is the source
+# harness at `fd85e29f`, abridged; the harness is the source
 _FGIT_VOID="$SCRATCH/fgit-void"             # mkdir, checked
 _FGIT_BIN="$SCRATCH/fgit-bin"                # holds `git` (`_fgit_shim`): drops its own dir from PATH, exec <this shell's `type -P git`> (§0.1)
 _FGIT_PATH="$_FGIT_BIN:$PATH"               # the caller's PATH verbatim, behind the pin (§0.1)
@@ -358,19 +358,19 @@ _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_
   _seal_apply                                   # mode restrictions, after the census
   printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
   : > "$_FW_DIR/done"' _ "$_FW_DIR" 2> "$_FW_DIR/stderr" || _fw_rc=$?
-# then, still in _fgit_window: canary check, replay, W3 scan, and _fw_trusted (below)
+# then, still in _fgit_window: W3 scan, canary check (a failed scan is held apart, so the order of the two cannot erase it), replay, and _fw_trusted (below)
 ```
 
 **What the child gets, kept minimal.** The prelude contains:
 - `set -euo pipefail`;
 - plain `name=%q` assignments. These cover the data the fixtures file reads (`CTL`, the five
   `CONTROL_*` samples, `_REAL_GIT`, `_REAL_GREP`, `_fifo_ok`) and the window's own `_FGIT_VOID`,
-  `_FGIT_ENVBIN`, `_FGIT_ENV_REQ`, `_FGIT_WIRE_EXEC`, `_FGIT_WIRE_LC`, `_FGIT_BIN` (P-j) and `_FW_DIR`, and the
+  `_FGIT_ENVBIN`, `_FGIT_ENV_REQ`, `_FGIT_WIRE_EXEC`, `_FGIT_WIRE_LC`, `_FGIT_BIN` (P-j), `_FW_DIR` and `_FW_CANARY`, and the
   postcondition labels, passed by name rather than as positional arguments: the names are the ones
   `_fgit_postconditions`' body uses, each of which the controls file (where the ratchet counts them) must
   define non-empty, or the window refuses. The fixtures' part of the list is **derived** by the census
   command below;
-- `declare -f` bodies of `_fixture_failed`, `_shq`, `_fgit_shim`, `_fgit_canon`, `_fw_opts_on`, `_seal_refuse`,
+- `declare -f` bodies of `_fixture_failed`, `_fixture_did_fail`, `_shq`, `_fgit_shim`, `_fgit_canon`, `_fw_opts_on`, `_seal_refuse`,
   `_seal`, `_seal_apply` and `_fgit_postconditions`. The child first enters `$_FW_DIR`, a directory it owns.
 
 **The census, and why it is complete.** The read-set comes from:
@@ -426,8 +426,8 @@ The child writes one of three sentences:
 The parent adds a fourth (D16-D, C12): **the fixtures file left the window's stderr redirected, so a
 shell diagnostic could not be read.** After the options re-check the child writes a fixed canary line
 to fd 2, and the parent finds it in the captured `stderr` (anywhere in a record, as W3 matches) before
-it counts the window complete; a missing canary makes the window incomplete, W. One `awk` pass finds the canary and cuts it out
-of the replay (exit 0 found, 1 not found, 2 or more: the scan itself failed, red under `$_fwd_lbl`, never "not found"). Without this, `exec 2>/dev/null` followed by `: $((1/0))` in the fixtures file sent the
+it counts the window complete; a missing canary makes the window incomplete, W. One `awk` finds the canary
+(exit 0 found, 1 not found, 2 or more: the scan itself failed, held apart and red under `$_fwd_lbl`, never "not found"); a second cuts it out of the replay, and its write failure is ignored (a closed parent stderr is not a redirected window). Without this, `exec 2>/dev/null` followed by `: $((1/0))` in the fixtures file sent the
 diagnostic W3 reads to `/dev/null`, rc 0, PASSED on both shells (round 16's `xexecarith`); with it, rc 2,
 W with this sentence (`…-pr527-r15.md` §Q). The check is in the parent, so no fixtures-file function
 can shadow it; a canary the fixtures file writes itself is a write to the return channel, class (c).
@@ -479,8 +479,8 @@ function continues only over a build that is **complete and trusted**:
 W4 does not stop the run. A seal that failed marks its fixture failed, `_control` already refuses that
 fixture's controls, and the other fixtures are sound. The one gate, `_ctl_gate <label> <fixture>…`, asks both
 questions, "complete and trusted" and "each fixture tree this run reads built", and is asked by the ONE run primitive `_ctl_run`, which derives
-the trees from its own arguments (root, cwd, PATH-prefix dirs under `$CTL`) and also owns the 30 s watchdog; `_control` and the three non-`_control` blocks are built on it, so no control runs over such a
-build wherever the exit sits.
+the trees from its own arguments (root and cwd) and also owns the 30 s watchdog; `_control` and the three non-`_control` blocks are built on it, so no control runs over such a
+build wherever the exit sits. The fsmonitor block's plain `git ls-files` preflight, made outside `_ctl_run`, asks `_ctl_gate` itself.
 
 **Why exit 2, and why it is not pinned.** Exit 2 follows the wire's own convention that 2 means
 "decided nothing". Nothing consumes the distinction between 1 and 2, though: the driver runs
@@ -504,7 +504,7 @@ What **is** pinned are the properties a record can observe:
   (measured, `…-pr527-r15.md` §Q); `post_ok`'s two records (review R2, corpus §6.1) pin the fourth.
   A gate satisfies all three. `_ctl_run`'s ask is pinned by the relcwd and umask records (removing it, they survive).
   ⚠ **Declared gap:** the fsmonitor block's own ask, before its plain-git preflight, is pinned only together with `_ctl_run`'s
-  (removing both: its record survives; either alone: killed by the other), so it is the traced `w2rec` cell (companion §A.14), re-anchored for T as X13 (`…-landing.md` §11), that pins it alone; corpus §6.1, "Totals after R4".
+  (removing both: its record survives; either alone: killed by the other), so it is the traced `w2rec` cell (companion §A.14), re-anchored for T as X13 (`…-landing.md` §11), that pins it alone; corpus §6.1, "Totals" (measured at `fd85e29f`).
 - Moving the exit below a control is an edit to the controls file, which is not a mutation target. That
   shape is pinned by the corpus RO/ROg cells (X5, re-anchored for T in `…-landing.md` §11), not by a
   record. ROg is green again since the fix round (measured on both shells, `…-pr527-r15.md` §Q).
@@ -595,7 +595,7 @@ in), and each label has its own record (corpus §6).
 | id | label | assertion (inside the window) | liveness (its own label) |
 |---|---|---|---|
 | W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, the child's canary reached the captured stderr (C12), and the child wrote `done`. Otherwise NE with the sentence the child wrote to `cause`, or the exit status (§3), **reported alone**; exit 2; no control runs | — |
-| W2 | `no control runs over an incomplete or untrusted fixture build window` | `_control`'s first statement, and the first thing each non-`_control` block asks: the window is complete and trusted (`post_ok` written, no postcondition or W3 reported). Its records: the exits removed, with the window incomplete or untrusted (§3). The exit placed below a control: the RO cells. Trust is decided by `_fgit_window`, never by the verdict function (§3) | — |
+| W2 | `no control runs over an incomplete or untrusted fixture build window` | asked by `_ctl_run` (through `_ctl_gate`, after `_ctl_env` is taken and cleared), which every `_control` and every non-`_control` block runs through: the window is complete and trusted (`post_ok` written, no postcondition or W3 reported). Its records: the exits removed, with the window incomplete or untrusted (§3). The exit placed below a control: the RO cells. Trust is decided by `_fgit_window`, never by the verdict function (§3) | — |
 | W3 | `the fixture build window ran without a shell diagnostic` (renamed in the fix round: `prelude.sh` is not the fixtures file) | no record of the child's stderr contains `./fixtures.sh:` or `./prelude.sh:` **anywhere in it** (both are sourced by those relative names from the window's directory; bash appends a diagnostic to a record the fixtures left without a newline, §3). A failed scan is red. A record pins each prefix, `./prelude.sh:` by an expansion error in `_fgit_postconditions` | — |
 | W4 | `every mode restriction a fixture sealed was applied` | every `_seal` was accepted (a path under `$CTL`, with no newline or TAB; an octal mode; a fixture name of `[A-Za-z0-9_-]`) and its `chmod` succeeded; otherwise red, not a machine limitation. `_seal_apply`'s refusal of a path through a symlink is asserted at load by a standing self-check (`_seal_apply_probe`) under this label | — |
 | P-a | `a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file` | every `git config --list --show-origin` line in **one probe repo** has the origin `file:.git/config` | `this git reports a configuration origin outside the repo's file`: `-c a.b=c` must show with the origin `command line:`. `--show-origin` (git 2.8) alone, not `--show-scope` (git 2.26): the origin column answers the same question, so the check has no version floor and no limitation arm |
@@ -791,9 +791,8 @@ The checker is static, over the four parent parts: every write, `mkfifo` or assi
 /usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,mutations,mutgen}.sh
 ```
 
-At `8413a4db` it lists 16 lines; after C11 one, `controls.sh`'s relative-scratch control,
-`PATH="$CTL/fakerelmktemp:$PATH"`, which names a fixture directory to read; since `6ed414b2` also
-`_seal_apply_probe`'s `: > "$CTL/real/f"`, where `CTL` is the probe's own, rebound in its subshell. It sees only literal
+At `8413a4db` it lists 16 lines; at the head of this PR one, `_seal_apply_probe`'s `: > "$CTL/real/f"`
+(since `6ed414b2`), where `CTL` is the probe's own, rebound in its subshell. It sees only literal
 `"$CTL/…"` paths, so a path built another way is outside it. No fixture needs these names: every `ln -s`
 in the fixtures file makes a link inside a fixture directory, and none names a dot-file directly under
 `$CTL` (`/usr/bin/grep -nE '"\$CTL/\.'` over the fixtures file → nothing). So class (b) never reached

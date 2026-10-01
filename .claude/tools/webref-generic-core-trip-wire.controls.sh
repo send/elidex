@@ -170,18 +170,18 @@ fi
 # inside such a command, so a bare call would abort the script on the first
 # non-zero and the remaining arms would never run.
 ctl_ok=0
-_ctl_env=()   # per-control environment; `_control` takes it and clears it on entry
+_ctl_env=()   # per-run environment; `_ctl_run` takes it and clears it on entry
 # THE WINDOW'S VERDICT, WRITTEN AFTER `ctl_ok=0`. An incomplete window built
 # nothing, so it ends the run here with W alone ("decided nothing"); a
 # complete but UNTRUSTED window (a red postcondition, or W3) ends it here too,
 # after its own reports — a control over it asserts nothing. `_control` itself
 # refuses over a build that is not complete and trusted too (W2), wherever
-# this line sits.
+# this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
 _fgit_window_verdict_exit "$_fw_lbl"
-# STANDING CHECK of `_control`'s one owner of `_ctl_env`: a control the gate
+# STANDING CHECK of `_ctl_run`'s one owner of `_ctl_env`: a run the gate
 # REFUSES (here, an untrusted window, forced in a subshell) must still leave the
-# global empty, or the NEXT control would inherit its environment.
-if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _control "$CTL/clean" 0 x x >/dev/null 2>&1
+# global empty, or the NEXT run would inherit its environment.
+if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run x "$CTL/clean" >/dev/null 2>&1
        [ "${#_ctl_env[@]}" -eq 0 ] ); then
   echo "!! CONTROL FAILED ($_ce_lbl): a refused control left its environment set" >&2
   ctl_ok=1
@@ -242,7 +242,8 @@ elif [ "$_rc" -eq 0 ]; then
     ctl_ok=1
   fi
 else
-  echo "!! CONTROL FAILED ($_rel_lbl): the run itself did not pass" >&2
+  echo "!! CONTROL FAILED ($_rel_lbl): the run itself did not pass (exit $_rc)" >&2
+  printf '%s\n' "$_out" | sed 's/^/     /' >&2
   ctl_ok=1
 fi
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
@@ -443,7 +444,9 @@ fi
 _mut_correspondence || ctl_ok=1
 
 # (No check after the controls: every `_control` and every block that is not one
-# runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree.)
+# runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree;
+# the fsmonitor block's plain `git ls-files` preflight, made outside `_ctl_run`,
+# asks `_ctl_gate` itself.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run

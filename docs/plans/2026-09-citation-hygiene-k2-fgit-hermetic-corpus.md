@@ -263,7 +263,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | fix `15d3e704` | **add**: `env` without `-0` (one record): `missing PATH HOME …`. It survived without the presence check until the /simplify round, whose NUL-list policy reads that output as no record, so it is now killed by the zero-population arm (`NOT EXERCISED … 0 record(s)`) and pins `-0` alone; the presence check is review R2's `export -n LC_ALL` record's (below) | P-f | harness | 70 / 165 |
 | fix `15d3e704` | **add**: `GIT_ATTR_NOSYSTEM` dropped alone (`GIT_ATTR_SYSTEM=[…]`); the window's `HOME` set to `$SCRATCH` (`GIT_CONFIG_GLOBAL=[…]`; anchored on the `_FGIT_ENV` line since `6ed414b2`, when P-e's reference gained `HOME` too) | P-b | harness | 72 / 167 |
 | fix `15d3e704` | **add**: the fixtures write `$HOME/.config/git/ignore` (`[.config]`, a dot name); the fixtures plant a void entry and set `GLOBIGNORE='*'` (`[k2plant]`) | P-c | **fixtures** | 74 / 169 |
-| fix `15d3e704` | **add**: P-k's `grep` for `alternate:` exits 2 (`[the comparison failed (grep exit 2)]`). It survives with the exit test removed | P-k | harness | 75 / 170 |
+| fix `15d3e704` | **add**: P-k's `grep` for `alternate:` exits 2 (`[the comparison failed (grep exit 2)]`). It survives with the exit test removed. **Removed** in `2b56c33c`, with the arm (`_fgit_alternates` is a builtin loop) | P-k | harness | 75 / 170 |
 | fix `6ed414b2` | **re-shape**: the incomplete-window W2 record removes both of `_fgit_window_verdict_exit`'s exits, `done` renamed. All three W2 records are killed with W2's label and each survives with its clause (`done`, `post_bad`, W3) removed from `_fgit_window`'s trust computation. **Relabel**: W3 becomes `the fixture build window ran without a shell diagnostic` (both W3 records' needles) | W2, W3 | — | — |
 | fix `6ed414b2` | **add**: `: $(( 1/0 ))` at the start of `_fgit_postconditions` (`./prelude.sh: line …: division by 0`). It survives with W3's `./prelude.sh:` clause removed | W3 | harness | 76 / 171 |
 | fix `6ed414b2` | **add**: the pin's re-entry limit set to 0. It survives with the depth check neutralised (a removed guard would wait, the liveness slot's class). **Removed in review R2** with the counter (below) | pin | harness | 77 / 172 |
@@ -279,7 +279,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | review R2 `96eea58c` | **add**: `export -n LC_ALL` before `built`: `missing LC_ALL`. It survives with the presence loop removed | P-f | **fixtures** | 89 / 184 |
 | review R2 `96eea58c` | **add**: `_seal "$CTL/walk/../walk/sub" 000 walk` (a path `chmod` would apply): refused, `..` component. It survives with `_seal`'s component check removed | W4 | **fixtures** | 90 / 185 |
 | review R2 `96eea58c` | **add**: `GIT_EXEC_PATH=$_FGIT_VOID`, a real directory, in the window's allowlist: P-e's `!=` comparison (`[void] vs [git-core]`). It survives with the `!=` clause removed (the old `/nonexistent-k2` record dies by the empty-answer clause) | P-e | harness | 91 / 186 |
-| review R2 `96eea58c` | **add**: the liveness probe's `alternates` written to `/dev/null` (rc 0, no `alternate:` line, no stderr). It survives with the `-ne 1` clause removed | P-k liveness | harness | 92 / 187 |
+| review R2 `96eea58c` | **add**: the liveness probe's `alternates` written to `/dev/null` (rc 0, no `alternate:` line, no stderr). It survives with the `-z` clause removed (the more-than-one-line clause has its own record, review of `fd85e29f`) | P-k liveness | harness | 92 / 187 |
 | review R2 `96eea58c` | **add**: two expressions, `nounset` dropped from the prelude and the options re-check after the fixtures file deleted: W's "refused to start". It survives with the check before the fixtures file removed | W | harness | 93 / 188 |
 | review R2 `96eea58c` | **add**: pass 1's list given an unterminated duplicate record after the `find`: `(the census list does not end in a NUL byte)`. It survives with pass 1's tail check removed (rc 0, PASSED) | P-g | harness | 94 / 189 |
 | Stage 5 `8f4ad3c8` | **add**: the orderly-end flag's assignment before the PASSED line replaced by `:` (`s/^_K2_ORDERLY=1$/:/`, no prefix: the wire itself): every run that would end green ends `the run ended before reaching its verdict`, rc 1. Killed with its needle on both shells. Removing the check itself has no record: bash 5 exits 1 on a `set -u` abort by itself, so such a record could die only on 3.2 (`…-landing.md` §9.2, the exit-trap closure). E-3's unreadable-marker check has none either: its trigger is a fixtures file that chmods the window's own marker, class (c); measured by hand | `the run ends only through a verdict` | **wire** | 95 / 190 |
@@ -318,15 +318,19 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   `_fgit_alternates` extraction broken (`$_pkl_lbl`); P-b's stored `git var` status (`$_pb_lbl`). Removed: P-k's
   `grep '^alternate:'` exit>1 record, with its arm (no external `grep` remains there). The 34 fixtures
   records that restated the `built` line now write it once (`; &`).
-- **Totals after R4 (`/simplify` on R3):** two records added (`fakerelmktemp`'s fixture group; the canary scan's
-  exit>=2), **102 records of this PR, 197 in all**: `_MUT_RECORDS_MIN=197`; `_MUT_UNRECORDED_MAX` stays at 20 (the
-  file is unchanged there). Six records now use `&` (262, 347, 374, 406, 450, 459). All 42 R4-relevant records were
-  killed with their own needle on both shells. **The gates, measured** (records 483 relcwd, 484 fsmon, 485 umask;
-  there is ONE run gate, in `_ctl_run`, shared by `_control` and the relcwd and umask blocks; the fsmon block has a
-  second, before its plain-git preflight, because it runs a plain git over the fsmon fixture before `_ctl_run`):
-  removing `_ctl_run`'s gate alone leaves 483 and 485 surviving, and 484 still killed by the preflight gate;
-  removing only the fsmon preflight gate leaves 484 killed by `_ctl_run`'s; removing both leaves 484 surviving. So
-  `_ctl_run`'s gate is pinned by 483 and 485, and the fsmon preflight gate only together with `_ctl_run`'s.
+- **Totals after the review of `fd85e29f`:** one record removed (`_fixture_failed fakerelmktemp`: the gate no
+  longer reads PATH-prefix dirs, so it planted a state no fixtures file can reach) and one added (a second
+  quoted store in the P-k liveness probe's `alternates`: two `alternate:` lines, killed with the P-k liveness
+  label, surviving with the more-than-one-line clause removed), **102 records of this PR, 197 in all**:
+  `_MUT_RECORDS_MIN=197`; `_MUT_UNRECORDED_MAX` stays at 20. The four records that restated their anchor
+  as `\(…\)$ … \1` now use `&` (P-f's `K2X=1`, the unterminated `.raw`, the second store, pass 1's NUL tail).
+  **The gates, measured** at this commit
+  (the `_fixture_failed relcwd|fsmon|clean` records, by their labels; ONE run gate in `_ctl_run`, shared by
+  `_control` and the relcwd and umask blocks, and a second, before the fsmon block's plain-git preflight): with
+  `_ctl_run`'s gate removed the relcwd and umask records survive and the fsmon record is killed by the preflight
+  gate; with only the preflight gate removed the fsmon record is killed by `_ctl_run`'s; with both removed it
+  survives. So `_ctl_run`'s gate is pinned by the relcwd and umask records, and the preflight gate only together
+  with `_ctl_run`'s. Every record near the changed code (32 of 32) was killed with its own needle on both shells.
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).

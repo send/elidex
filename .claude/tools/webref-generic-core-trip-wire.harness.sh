@@ -657,18 +657,16 @@ _fgit_window() {
     index($0, ENVIRON["_FW_A"]) > 0 || index($0, ENVIRON["_FW_B"]) > 0 { print; if (++n == 3) exit }
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
-  # ONE SCAN of the capture for the canary: it prints the REPLAY (the canary cut out
-  # of its record) and reports through its exit status whether the canary was there
-  # (0 found, 1 not found: fd 2 was redirected; >= 2 = the scan itself failed, which
-  # is its own red with the cause, not a "not found").
-  _fw_fd2=0
-  _FW_CANARY="$_FW_CANARY" awk '
-    { i = index($0, ENVIRON["_FW_CANARY"])
-      if (i > 0) { f = 1; $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_CANARY"])); if ($0 == "") next }
-      print }
-    END { exit !f }' "$_FW_DIR/stderr" >&2 || _fw_fd2=$?
+  # The canary: DETECTION is the awk's own exit status (0 found, 1 not found: fd 2
+  # was redirected; >= 2 = the scan itself failed, which is its own red, held in
+  # `_fw_canary_bad` and read where trust is decided, so the order of this scan and
+  # W3's cannot erase it). The REPLAY is a separate awk whose write failure is
+  # ignored: a parent whose stderr is closed is not a window that redirected fd 2.
+  _fw_fd2=0; _fw_canary_bad=""
+  _FW_CANARY="$_FW_CANARY" awk 'index($0, ENVIRON["_FW_CANARY"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=$?
+  _FW_CANARY="$_FW_CANARY" awk '{ i = index($0, ENVIRON["_FW_CANARY"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_CANARY"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
   if [ "$_fw_fd2" -ge 2 ]; then
-    _fw_diag="${_fw_diag:+$_fw_diag }(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
+    _fw_canary_bad="(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
     _fw_fd2=0
   fi
   # ABSENT AND UNREADABLE ARE DIFFERENT ANSWERS. A marker that EXISTS but cannot
@@ -711,6 +709,7 @@ _fgit_window() {
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
   # cannot change what `_ctl_gate` reads.
+  [ -z "$_fw_canary_bad" ] || _fw_diag="${_fw_diag:+$_fw_diag }$_fw_canary_bad"
   if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
   return 0
 }
@@ -762,8 +761,8 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # so the population is every fixture, not the five somebody noticed.
 # `$_FIX_FAILED` itself lives in the window (the prelude starts it empty) and
 # comes back through a file, which `_fgit_window` reads whatever the window's
-# outcome; the gate is at the consumer: `_control` reads it only after
-# `_ctl_gate` has passed, i.e. over a complete window.
+# outcome; the gate is at the consumer: `_ctl_gate` reads it only after
+# the window is complete and trusted, i.e. over a complete window.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # …and its membership predicate, the ONE reader of `$_FIX_FAILED`: did fixture $1 fail?
 _fixture_did_fail() { case " $_FIX_FAILED " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -843,15 +842,17 @@ fi
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
 # nor over a fixture that did not build. ONE GATE, asked by ONE run primitive:
-# `_ctl_run` below asks `_ctl_gate <label> <fixture>…` about EVERY fixture tree
-# the run reads, derived from its own arguments (root, cwd, PATH-prefix dirs under
-# `$CTL`) — not a name picked per caller. The three blocks that are not a
-# `_control` run through it as well, so a hang or a failed build is reported the
-# same way in all four paths.
+# `_ctl_run` below asks `_ctl_gate <label> <fixture>…` about the fixture trees the
+# run is aimed at, derived from its own arguments (root and cwd) — not a name
+# picked per caller. The three blocks that are not a `_control` run through it as
+# well, so a hang or a failed build is reported the same way in all four paths.
+# The one run made outside it (the fsmonitor block's plain `git ls-files`
+# preflight) has its own gate, in the controls file.
 # W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
 # `$_fw2_lbl` is defined in the controls file. Every fixture is built under
-# `|| _fixture_failed <name>`, so "did the tree this control is about actually get
-# built?" is one lookup rather than a probe re-derived per site: without it a
+# `|| _fixture_failed <name>` (the PATH-prefix shim dirs are bare-built: a failure
+# there is errexit, which the window reports), so "did the tree this control is
+# about actually get built?" is one lookup rather than a probe re-derived per site: without it a
 # broken build leaves a plausible-looking tree that can still satisfy the
 # assertion — a control green over a question never posed.
 _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames)
@@ -891,13 +892,10 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 _ctl_run() {
   local -a _ce=(${_ctl_env[@]+"${_ctl_env[@]}"})
   _ctl_env=()
-  local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}" _r_d _r_oifs
+  local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
   local -a _r_names
   _r_names=("${_r_root##*/}")
   [ -z "$_r_cwd" ] || _r_names+=("${_r_cwd##*/}")
-  _r_oifs=$IFS; IFS=:
-  for _r_d in $_r_pfx; do _r_names+=("${_r_d##*/}"); done
-  IFS=$_r_oifs
   _ctl_gate "$_r_for" "${_r_names[@]}" || return 1
   _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
@@ -915,10 +913,11 @@ _ctl_run() {
   # exists to catch — is reparented and stays blocked after the gate reports
   # the timeout, so repeated local runs accumulate permanent orphans. Measured
   # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
+  _r_wmark="$_VFY/.control_timeout"; command rm -f "$_r_wmark"
   set -m
   ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
     [ -z "$_r_umask" ] || umask "$_r_umask"
-    PATH="${_r_pfx:+$_r_pfx:}$PATH"
+    export PATH="${_r_pfx:+$_r_pfx:}$PATH"
     exec env ${_ce[@]+"${_ce[@]}"} "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
     > "$_out_f" 2>&1 & _cpid=$!
   set +m
@@ -929,11 +928,14 @@ _ctl_run() {
   # with it, so the pair is reaped as a unit with shell builtins only.
   ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
     sleep 30 & wait
+    : > "$_r_wmark"
     kill -9 -"$_cpid" 2>/dev/null || kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
   wait "$_cpid"; _rc=$?
   kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
   _out="$(cat "$_out_f" 2>/dev/null)"
-  if [ "$_rc" -ge 128 ]; then
+  # Only the watchdog's own marker makes a status >= 128 a timeout; a 134 (abort)
+  # or 141 (SIGPIPE) that came back at once is the caller's "expected N, got M".
+  if [ "$_rc" -ge 128 ] && [ -e "$_r_wmark" ]; then
     echo "!! CONTROL FAILED ($_r_for): the wire did not finish — killed after 30s (signal" >&2
     echo "   status $_rc). A gate that blocks is worse than one that reds: it never" >&2
     echo "   reaches a verdict at all. Something on this path opened what it must not." >&2

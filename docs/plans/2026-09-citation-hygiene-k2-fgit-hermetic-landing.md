@@ -196,12 +196,12 @@ replaced the second with a closure text.
 Section references in them are to the design memo.
 
 **R9's slot, `#11-trip-wire-liveness-bound`: the text §9's ledger step writes.**
-- **Gap**: the K2 wire's harness bounds only `_control`'s child (30 s; #501 R92, present at base
-  `e8f78896`). Every other child that runs over fixture state is unbounded, so a block there gives no
+- **Gap**: the K2 wire's harness bounds the children that run through `_ctl_run` (30 s; #501 R92, present at
+  base `e8f78896` for `_control` alone). Every other child that runs over fixture state is unbounded, so a block there gives no
   green, but the gate reaches no verdict: CI reds at the job timeout, and a local run waits.
   - **Pre-existing at `e8f78896`**:
-    - the plain `--selftest` calls of the relative-scratch and umask blocks, and the fsmonitor
-      block's `git ls-files` and `--selftest`;
+    - the relative-scratch, umask and fsmonitor blocks' `--selftest` calls (bounded since the PR's
+      `_ctl_run`), and the fsmonitor block's plain `git ls-files` preflight (still unbounded);
     - the fixture build, then run in the parent through `_fgit`;
     - the mutation runner's trials.
   - **New in #527**:
