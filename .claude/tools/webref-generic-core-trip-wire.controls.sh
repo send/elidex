@@ -370,9 +370,7 @@ fi
 _perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
           permissions enforced (this user can read a mode-000 file), so this
           run carries no evidence for them"
-if [ "$_perm_ok" -ne 1 ]; then
-  :
-else
+if [ "$_perm_ok" -eq 1 ]; then
   _perm_line="            the controls that need file permissions enforced ran too"
   _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
   _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1

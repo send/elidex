@@ -119,13 +119,11 @@ _FGIT_BASH="$BASH"
 # `badref` write refs a reftable repo does not read. Gits before 2.45 have no
 # reftable and ignore the name.
 _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
-# Names the window's environment may hold: the allowlist above, derived from it,
-# plus what bash itself maintains for the processes it starts.
-# `_FGIT_ENV_REQ` is the allowlist's own names: P-f requires each of them to be
-# PRESENT in the window's environment, not only that nothing else is.
+# `_FGIT_ENV_REQ` is the allowlist's own names, derived from it: P-f requires
+# each of them to be PRESENT in the window's environment, and allows them plus
+# what bash itself maintains for the processes it starts (`PWD OLDPWD SHLVL _`).
 _FGIT_ENV_REQ=""
 for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_REQ="$_FGIT_ENV_REQ ${_fe%%=*}"; done
-_FGIT_ENV_NAMES="PWD OLDPWD SHLVL _$_FGIT_ENV_REQ"
 # P-e's reference: the exec path the SAME git reports with nothing but `PATH` in
 # its environment, canonical (`pwd -P`). Which executable runs is outside P
 # (R1: it is `PATH`'s); what P-e pins is that nothing the window carries
@@ -167,10 +165,12 @@ _fgit_postconditions() {
   # recognise (a garbage `HEAD`) is an error here, never a walk to an ancestor
   # repository whose configuration would then be listed in its place.
   _fgit_in() { ( cd "$1" && shift && git --git-dir=.git "$@" ); }
-  # `_fgit_nul_ended <file>`: a NUL list is empty or ends in a NUL byte. The
-  # census reads with `read -d ''`, which swallows a list written with `-print`
-  # (newlines, no NUL) in silence — nothing classified, nothing red.
-  _fgit_nul_ended() { [ ! -s "$1" ] || [ "$(tail -c 1 "$1" | od -An -tx1 | tr -d ' \n')" = 00 ]; }
+  # THE NUL-LIST POLICY, for every `read -d ''` reader below (the census's two
+  # passes, P-f's `env -0`, `_pg_z`): `read -d ''` swallows a list written with
+  # `-print` (newlines, no NUL) in silence — nothing classified, nothing red —
+  # but it leaves the unterminated remainder in the loop's variable. So after
+  # each loop that variable must be empty, else the list did not end in a NUL
+  # byte and is red under the reader's own label. No command is run to ask.
   # THE CENSUS, BEFORE ANY POSTCONDITION RUNS GIT: git reads across git dirs
   # (`commondir`, `alternates`, `include.path`), so both passes' verdict must
   # be in before git runs anywhere, and a red census returns here — no git
@@ -188,7 +188,6 @@ _fgit_postconditions() {
   # dir too — and red, being unknown.
   _pgpre=""
   find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) > "$_pq/pre" 2> "$_pq/pre.err" || _pgpre=" (census failed)"
-  _fgit_nul_ended "$_pq/pre" || _pgpre="$_pgpre (the census list does not end in a NUL byte)"
   while IFS= read -r -d '' _pe; do
     case "${_pe##*/}" in
       .git)
@@ -209,6 +208,7 @@ _fgit_postconditions() {
       *) _pgpre="$_pgpre ${_pe#"$CTL"/}:[.git spelled]" ;;
     esac
   done < "$_pq/pre"
+  [ -z "$_pe" ] || _pgpre="$_pgpre (the census list does not end in a NUL byte)"
   # Pass 2, the per-link search, runs only over a CLEAN pass 1 and before any
   # git: emulating git's own read set would be the anti-pattern this window
   # removed for `PATH` (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.1),
@@ -223,13 +223,13 @@ _fgit_postconditions() {
   # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md §9.2).
   if [ -z "$_pgpre" ]; then
     find "$CTL" -type l -print0 > "$_pq/prel" 2>> "$_pq/pre.err" || _pgpre=" (link census failed)"
-    _fgit_nul_ended "$_pq/prel" || _pgpre="$_pgpre (the link list does not end in a NUL byte)"
     while IFS= read -r -d '' _pl; do
       [ -d "$_pl" ] || continue
       _plrc=0; find -L "$_pl" \( -iname HEAD -o -iname .git \) -print > "$_pq/prels" 2>&1 || _plrc=$?
       if [ "$_plrc" -ne 0 ]; then _pgpre="$_pgpre ${_pl#"$CTL"/}:[the search through this symlink failed (exit $_plrc)]"
       elif [ -s "$_pq/prels" ]; then _pgpre="$_pgpre ${_pl#"$CTL"/}:[a symlink to a tree holding a git dir]"; fi
     done < "$_pq/prel"
+    [ -z "$_pl" ] || _pgpre="$_pgpre (the link list does not end in a NUL byte)"
   fi
   # ONE check of the census's stderr, after BOTH passes (pass 2 appends to it).
   [ ! -s "$_pq/pre.err" ] || _pgpre="$_pgpre (census stderr)"
@@ -305,12 +305,14 @@ EOF_PB
      && "$_pfenv" "$BASH" -c : > /dev/null 2>&1; then
     printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout) but runs a command\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
   else
-    # `|| [ -n "$_rec" ]`: a last record with no NUL after it is still read,
-    # not dropped — a name the check never saw would be green.
-    while IFS= read -r -d '' _rec || [ -n "$_rec" ]; do
+    # THE NUL-LIST POLICY (one, for every `read -d ''` here): what the loop
+    # leaves in its variable is a partial record, so a list that did not end in a
+    # NUL byte is red under the reader's own label, not read as a last record.
+    while IFS= read -r -d '' _rec; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"; _pfseen="$_pfseen$_n "
-      case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
+      case " PWD OLDPWD SHLVL _ $_FGIT_ENV_REQ " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
     done < "$_pq/env0"
+    [ -z "$_rec" ] || _pf="$_pf (the env -0 list does not end in a NUL byte)"
     # Both directions: no name outside the allowlist, and EVERY name of the
     # allowlist present — a list that holds one record (an `env` that ignored
     # `-0` and printed lines) shows no stranger and is not the population.
@@ -352,14 +354,14 @@ EOF_PB
   # `git init` in this window writes — P-a's probe repo, `$_pq/a`, is that init
   # — derived from git itself, per run, so no key list: anything a fixture
   # persisted beyond it is red.
-  _pgref="$_pq/pgref.lines"
-  _fgit_in "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
+  _pgref="$_pq/pgref.lines"   # the reference's LINE listing: built below, only if a message needs it
   # `_pg_z <git dir> <out>`: the `-z` listing as sorted records
   # "origin<TAB>key<LF>value", each written as ONE line by `printf %q` (a
   # value's newline becomes `$'\n'`), so record boundaries cannot be forged
   # and a plain line `sort` orders them — no `sort -z`, which not every
   # supported `sort` has (PR #527 Codex R24/R25). An odd field count (a
-  # truncated listing) fails.
+  # truncated listing) fails, and so does a listing that does not end in a NUL
+  # byte (the NUL-list policy above).
   _pg_z() {
     _fgit_in "$1" config --list --show-origin -z > "$2.raw" || return $?
     _pgzo=""; _pgzn=0
@@ -368,12 +370,13 @@ EOF_PB
       if [ $((_pgzn % 2)) -eq 0 ]; then _pgzo="$_pgzf"; else printf '%q\n' "$_pgzo	$_pgzf" >> "$2.rec"; fi
       _pgzn=$((_pgzn + 1))
     done < "$2.raw"
+    [ -z "$_pgzf" ] || return 4
     [ $((_pgzn % 2)) -eq 0 ] && [ "$_pgzn" -gt 0 ] || return 3
     sort "$2.rec" > "$2"
   }
   _pg_z "$_pq/a" "$_pq/pgref.z" || : > "$_pq/pgref.z"
   _pg=""; _pk=""
-  if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
+  if [ ! -s "$_pq/pgref.z" ]; then _pg=" (no reference configuration)"; fi
   # The population is the CENSUS's own list, `$_pq/pre`: every `.git` entry the
   # fixtures produced, anywhere under $CTL (hidden and nested included, and
   # inside `.git` dirs). A clean census is what lets this loop run at all, and
@@ -430,6 +433,7 @@ EOF_PB
       _pg="$_pg $_pgl:[git lists no configuration here (exit $_pgrc)]"; continue
     fi
     printf '%s\n' "$_pgc" > "$_pq/pgcur"
+    [ -s "$_pgref" ] || _fgit_in "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
     _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || _pgx=""
     _pgm="$(grep -vxF -f "$_pq/pgcur" "$_pgref")" || _pgm=""
     if [ -z "$_pgx" ] && [ -z "$_pgm" ]; then
@@ -557,7 +561,7 @@ _fgit_window() {
     # Plain assignments, never `declare -p`: that would carry an `export`
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
-      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_ENV_REQ _FGIT_WIRE_EXEC \
+      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_REQ _FGIT_WIRE_EXEC \
       _FGIT_WIRE_LC _FGIT_BIN _FW_DIR; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
@@ -645,15 +649,12 @@ _fgit_window() {
 # THE WINDOW'S VERDICT, REPORTED IN ONE PLACE. An INCOMPLETE window is not "no
 # fixture failed": nothing was built, so no control may run over it — report W
 # alone and end the run "decided nothing" (2, the wire's convention; the
-# number is not consumed by the driver). A COMPLETE window is not necessarily
-# TRUSTED: a red postcondition or a shell diagnostic (W3) means the build is
-# not the one the fixtures file describes, and a control over it asserts
-# nothing (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3, "A red
-# postcondition ends the run before any control") — so this function reports
-# those, then ends the run at 1, before any control. It computes NOTHING:
-# `_fw_trusted` is set by `_fgit_window` alone (1 only for a build that is
-# complete, with no postcondition and no W3 reported), and `_fw_built_or_w2` is
-# its one reader.
+# number is not consumed by the driver). A complete window that is not TRUSTED
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3, "A red
+# postcondition ends the run before any control") gets its diagnostic reported
+# here and the run ended at 1, before any control. This function computes
+# NOTHING: `_fw_trusted` comes from `_fgit_window`, and `_fw_built_or_w2` is its
+# one reader.
 _fgit_window_verdict_exit() { # $1 = the window label
   if [ "$_fw_done" -ne 1 ]; then
     echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
@@ -718,8 +719,7 @@ if mkfifo "$SCRATCH/fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$SCR
 # the five controls were skipped under a green PASSED.
 _perm_ok=1
 { : > "$SCRATCH/permprobe" && chmod 000 "$SCRATCH/permprobe"; } || { echo "!! the permission probe could not be made in $SCRATCH; this run decided nothing." >&2; exit 2; }
-if ( : < "$SCRATCH/permprobe" ) 2>/dev/null; then _perm_ok=0; fi
-command rm -f "$SCRATCH/permprobe"
+if [ -r "$SCRATCH/permprobe" ]; then _perm_ok=0; fi
 
 # ⚠ NO SECOND `trap ... EXIT` HERE. `trap` REPLACES; a second one silently
 # discarded the scratch-root cleanup and left an empty directory behind on
@@ -755,14 +755,13 @@ _seal_apply_probe() (
   _seal_apply
   _sp_mode="$(ls -ld "$CTL/real/f")"
   case "${_sp_mode%% *}" in -rw-r--r--*) ;; *) return 1 ;; esac
-  case "$(cat "$_FW_DIR/seal_failed" 2>/dev/null)" in *"[lnk/f] passes through a symlink"*) ;; *) return 1 ;; esac
+  case "$(<"$_FW_DIR/seal_failed")" in *"[lnk/f] passes through a symlink"*) ;; *) return 1 ;; esac
 )
 if ! _seal_apply_probe; then
   echo "!! CONTROL FAILED ($_fws_lbl): _seal_apply followed a symlink on a sealed path or did not" >&2
   echo "   refuse it, so a deferred chmod can reach outside the fixture root. This run decided nothing." >&2
   exit 2
 fi
-command rm -rf "$SCRATCH/sealprobe"
 
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3):

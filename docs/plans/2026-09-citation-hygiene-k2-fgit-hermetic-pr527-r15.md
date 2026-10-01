@@ -660,7 +660,8 @@ Parts at `6ed414b2` (`wc -l`): controls 427, fixtures 696, harness 856, mutation
 Measured (the implementers' logs, relayed; `cell15.sh`-style cells unless named):
 - **#4**: the `K2RE_PATH` quant#2 `+` → `{2,}` mutant with the `nltarget` control removed was counted
   killed by the floor alone before; after, `!! MUTANT … was killed BY THE WRONG SUBJECT`; with
-  `nltarget` kept it is accepted. Both shells.
+  `nltarget` kept it is accepted. Both shells. (Superseded by the /simplify round: the exclusion of
+  `$_mg_lbl` is replaced by an allowlist of `_control` labels, `_mut_trial '!kill'`.)
 - **#9**: at `0280a67f` five records changed more than one line each (the wire record hitting a
   comment and the code, three compound W2 records, the P-f `-i` record's two sites); respelling the
   wire's code line left the old anchor check green, the new one red. Each changed record: killed with

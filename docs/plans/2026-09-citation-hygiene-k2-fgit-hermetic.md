@@ -365,7 +365,7 @@ _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_
 - `set -euo pipefail`;
 - plain `name=%q` assignments. These cover the data the fixtures file reads (`CTL`, the five
   `CONTROL_*` samples, `_REAL_GIT`, `_REAL_GREP`, `_fifo_ok`) and the window's own `_FGIT_VOID`,
-  `_FGIT_ENVBIN`, `_FGIT_ENV_NAMES`, `_FGIT_WIRE_EXEC`, `_FGIT_WIRE_LC`, `_FGIT_BIN` (P-j) and `_FW_DIR`, and the
+  `_FGIT_ENVBIN`, `_FGIT_ENV_REQ`, `_FGIT_WIRE_EXEC`, `_FGIT_WIRE_LC`, `_FGIT_BIN` (P-j) and `_FW_DIR`, and the
   postcondition labels, passed by name rather than as positional arguments: the names are the ones
   `_fgit_postconditions`' body uses, each of which the controls file (where the ratchet counts them) must
   define non-empty, or the window refuses. The fixtures' part of the list is **derived** by the census
@@ -644,8 +644,10 @@ class (c): they are made in a `mktemp -d` directory too, so a changed `mktemp` (
      and blocks opening a FIFO. So is a hard link, which shares its content with a path outside the
      git dir. A scan that fails or writes to stderr is red.
    - "Cannot search" is whatever `find` reports: any report on stderr (one check, after both passes),
-     or a non-zero exit, fails the census, and so does a non-empty list that does not end in a NUL
-     byte. A list with no `.git` entry is red too, by P-g's count over it (`no fixture git dir was found`).
+     or a non-zero exit, fails the census, and so does a list that does not end in a NUL byte. That
+     is one policy for every `read -d ''` reader (the census's two passes, P-f's `env -0`, `_pg_z`):
+     after the loop, the remainder `read` left in its variable must be empty, else the list is
+     red under the reader's own label. No command is run to ask. A list with no `.git` entry is red too, by P-g's count over it (`no fixture git dir was found`).
 2. **The per-link search**, only if pass 1 found nothing red. A second `find` from `$CTL` lists every
    symlink. A link that resolves to a directory is searched through (`find -L`, any depth) whatever its name, and a `HEAD` or `.git` anywhere under it
    is red, as is a search that exits non-zero. BSD find lists a loop link without descending (rc 0,
@@ -711,11 +713,11 @@ every file it writes and reads back, by location:
   P-b, P-d, P-g and P-i read `a`. A fixture command still running after the build (a background
   process) can find and write the directory; that writes the verifier's own state, class (c) (§0.3,
   `xrace`).
-- **P-e's `_FGIT_WIRE_EXEC`, P-h's `_FGIT_WIRE_LC`, P-f's `_FGIT_ENV_NAMES`**: values the parent takes
+- **P-e's `_FGIT_WIRE_EXEC`, P-h's `_FGIT_WIRE_LC`, P-f's `_FGIT_ENV_REQ`**: values the parent takes
   before the window starts and passes as prelude assignments, not files. The fixtures file shares the
   postconditions' shell, so it could assign one, or redefine a postcondition function; that is a write
   to the verifier's own state, class (c) (§0.3). No fixture names any of them (`/usr/bin/grep -c -e _FGIT_WIRE_EXEC -e
-  _FGIT_WIRE_LC -e _FGIT_ENV_NAMES -e _fgit_postconditions` over the fixtures file → 0).
+  _FGIT_WIRE_LC -e _FGIT_ENV_REQ -e _fgit_postconditions` over the fixtures file → 0).
 - **P-j's `$_FGIT_BIN/git`** is compared by path. Its content decides which executable runs, R1's; a
   fixtures-file write to it is class (c) (§0.3).
 - **P-c's void** is the subject, not a reference: P-c reds any entry in it, and both reference inits

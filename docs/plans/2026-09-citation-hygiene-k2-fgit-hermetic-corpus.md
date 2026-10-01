@@ -258,7 +258,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | fix `15d3e704` | **remove**: the two P-g line-`grep` failure records (extra-lines, missing-lines). The record comparison runs first and decides; the line greps only name the entries on a red path, so no failure of theirs can turn a red green, and the arm they pinned is gone | P-g | harness | 64 / 159 |
 | fix `15d3e704` | **retarget**: C9's "shape scan replaced by a failing command" addressed the P-g loop's duplicate scan, which this commit deletes (one census); it now replaces pass 1's shape scan. **Re-anchor** onto `_fgit_in` (git run in the repo with `--git-dir=.git`, no discovery): P-a liveness, P-b liveness, P-k status. P-b's `GIT_CONFIG_NOSYSTEM` record now drops that name alone. `lnblind2` drops its `pgls` half | P-g, P-a, P-b, P-k | harness | — |
 | fix `15d3e704` | **add**: pass 1's `find` fails after writing its list (`&& false`), and pass 2's `find` fails. Killed by P-g with or without the arm: without it errexit ends the window (W), and pass 1's case also reaches `(no fixture git dir was found)`; the arms buy the precise message | P-g | harness | 66 / 161 |
-| fix `15d3e704` | **add**: `-print0` → `-print` in pass 1, and in pass 2 (`… does not end in a NUL byte`). Pass 2's survives with the NUL check removed; pass 1's is still killed then, by the zero-population check | P-g | harness | 68 / 163 |
+| fix `15d3e704` | **add**: `-print0` → `-print` in pass 1, and in pass 2 (`… does not end in a NUL byte`). Pass 2's survives with the NUL check (since the /simplify round, the loop-remainder test after the reader) removed; pass 1's is still killed then, by the zero-population check | P-g | harness | 68 / 163 |
 | fix `15d3e704` | **add**: a line on the census's stderr written by pass 2 (`(census stderr)`): one check after both passes. It survives with the check back before pass 2 | P-g | harness | 69 / 164 |
 | fix `15d3e704` | **add**: `env` without `-0` (one record): `missing PATH HOME …`. It survives without the presence check | P-f | harness | 70 / 165 |
 | fix `15d3e704` | **add**: `GIT_ATTR_NOSYSTEM` dropped alone (`GIT_ATTR_SYSTEM=[…]`); the window's `HOME` set to `$SCRATCH` (`GIT_CONFIG_GLOBAL=[…]`; anchored on the `_FGIT_ENV` line since `6ed414b2`, when P-e's reference gained `HOME` too) | P-b | harness | 72 / 167 |
@@ -270,6 +270,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | fix `6ed414b2` | **add**: `_seal_apply`'s symlink walk, and its refusal, each replaced by `:`. Killed at load by the standing self-check `_seal_apply_probe` (exit 2); each survives with the probe call disabled | W4 | harness | 79 / 174 |
 | fix `6ed414b2` | **add**: a `_seal` with the mode `a-rwx`, and one with the fixture name `wa.lk` (values `chmod` would apply), refused by the validation alone. Each survives with its validation removed | W4 | **fixtures** | 81 / 176 |
 | fix `6ed414b2` | **add**: the `err` fixture marked failed before its seal (`CONTROL NOT EXERCISED (an unreadable file fails closed)`), and the `err` `_seal` line deleted (the err control's wrong-reason report). Both survive with the permission block gated on `[ -r err/control.py ]` again instead of on the `_perm_ok` probe | `an unreadable file fails closed` | **fixtures** | 83 / 178 |
+| /simplify round | **add**: `_pg_z` given an unterminated remainder (`printf x >> "$2.raw"`): killed by the loop-remainder tail check, survives without it. The other readers' tails are pinned by the `-print0` records and P-f's `K2X=1` record (each survives with its own tail check removed) | P-g | harness | 84 / 179 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
@@ -283,6 +284,12 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   row says (`…-pr527-r15.md` §Q). Two fixes have no record, by construction: the label-forwarding regex
   (every shipped label fits the old form) and the umask block's single gate (an absent wrong-reason
   line is not a needle).
+- **Totals after the /simplify round:** 84 records of this PR, **179 in all**: `_MUT_RECORDS_MIN=179`,
+  `_MUT_UNRECORDED_MAX` stays at 21. The mutation-set readers changed: every reader of the record
+  format but `_mut_parse` tests exact equality against the parsed needles (`.needles`, one per line),
+  so a label that is a prefix of a longer needle is not recorded; `!kill` accepts a generated mutant
+  only for `CONTROL FAILED (<label>)` with a `_control` label (an allowlist; the generator floor's
+  `$_mg_lbl` is not one, so no separate exclusion).
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).
