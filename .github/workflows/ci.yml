@@ -177,12 +177,13 @@ jobs:
     # that adds fixture self-tests re-derives this line in the same PR. Leaving
     # it while the job grows is how an always-run gate starts failing for time
     # instead of for what it asserts.
-    # ⚠ RE-DERIVED AGAIN when the K2 wire's rev-3 controls landed (that PR added
-    # fixture self-tests, so the rule above applies): run the command above on
-    # this branch and on its base, three times each, and compare — the run-to-run
-    # spread on one machine was wider than the difference between them, and both
-    # sit far enough under this budget that it is unchanged. Re-derive; do not
-    # trust this sentence.
+    # THE METHOD: run the command above on the branch and on its base, three
+    # times each, alternated on one machine, and compare against this budget.
+    # No verdict is kept here. At PR #527's final head this comment is
+    # rewritten to the runner method
+    # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md §9.1,
+    # step 2); the verdict is read from a run of this job on the runner and
+    # recorded in that plan's record (its design memo §3, "ci.yml"), never here.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:

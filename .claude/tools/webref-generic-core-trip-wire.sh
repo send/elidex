@@ -402,7 +402,33 @@ _raw_scratch="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so noth
 # ⚠ `|| SCRATCH=""`: under `set -e` a failing substitution exits HERE, before
 # the guard below can say why (a restrictive umask does it — plan memo §11, D5).
 SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
-trap 'case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+# ⚠ A RUN MAY LEAVE WITH STATUS 0 ONLY THROUGH ITS VERDICT (`#11-k2-wire-exit-trap-masks-set-u-abort`).
+# On `/bin/bash` 3.2 an EXIT trap hides a `set -u` abort: the trap is entered with
+# `$?` = 0 and the shell leaves 0 -- a false green (measured at 3dde656e: rename
+# one label definition, add a seal failure, neutralise the `_lbd_lbl` guard:
+# 3.2 rc 0, 5.3 rc 1; capturing `$?` first does NOT help, it is already 0).
+# So the status is POSITIVE EVIDENCE: `_K2_ORDERLY=1` is set at the one place this
+# wire ends green -- immediately before the PASSED line at the end of this file
+# (the `--selftest` green end falls through to the same line; every other end is
+# `exit 1` or `exit 2`, and the mutation run does its work BEFORE that line, see
+# its header) -- and a status of 0 without it is turned into 1 here. The body is
+# ONE function, called by this trap and by the mutation run's (which replaces
+# this one for the run). NO RECORD for removing the check itself: bash 5 already
+# exits 1 on such an abort, so a record that removes it could die only on 3.2 and
+# would SURVIVE on 5.3; the evidence is the R2-3 cell, 3.2 rc 0 before and rc 1
+# after (Stage 5 E-1). The assignment of the flag HAS a record.
+# The label comes from the controls file, which is not sourced yet when this
+# trap can first fire, hence the fallback.
+_K2_ORDERLY=0
+_k2_exit() { # $1 = the status the shell was leaving with
+  case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac
+  if [ "$1" -eq 0 ] && [ "${_K2_ORDERLY:-0}" -ne 1 ]; then
+    echo "!! CONTROL FAILED (${_ord_lbl:-the run ends only through a verdict}): the run ended before reaching its verdict" >&2
+    exit 1
+  fi
+  exit "$1"
+}
+trap '_k2_rc=$?; _k2_exit "$_k2_rc"' EXIT
 if [ -z "$SCRATCH" ]; then
   rmdir "$_raw_scratch" 2>/dev/null || true
   echo "!! could not resolve the scratch dir ($_raw_scratch) to a physical path, so nothing here was proved" >&2
@@ -1256,4 +1282,5 @@ if [ -n "$ERR_HITS" ]; then
 fi
 
 [ "$failed" -eq 0 ] || exit 1
+_K2_ORDERLY=1
 echo "webref generic-core layering trip-wire PASSED"
