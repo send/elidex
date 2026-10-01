@@ -150,7 +150,7 @@ _FGIT_WIRE_LC="${LC_ALL:-}"
 _FW_DIR="$SCRATCH/fgit-window"
 _fw_rc=0; _fw_done=0; _fw_post_ok=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
 _fw_trusted=0
-_fw_seal_bad=""; _fw_limits=""
+_fw_seal_bad=""; _fw_limits=""; _fw_unread=""
 # The postconditions, run INSIDE the window after the build. Their labels
 # (`$_pa_lbl` … `$_pg_lbl`, defined in the controls file) reach the window by
 # name through the prelude. Returns 1 if any reported.
@@ -649,10 +649,28 @@ _fgit_window() {
     index($0, ENVIRON["_FW_A"]) > 0 || index($0, ENVIRON["_FW_B"]) > 0 { print; if (++n == 3) exit }
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
+  # ABSENT AND UNREADABLE ARE DIFFERENT ANSWERS. A marker that EXISTS but cannot
+  # be read (mode 000, a directory, a dangling link) carries something this
+  # parent cannot hear, and the `cat`s below would turn it into "nothing" -- a
+  # failed seal or fixture read as a clean build. Only a missing file means
+  # nothing was written. An unreadable one makes the window UNTRUSTED (`_fw_trusted`
+  # below; the verdict reports it under the window's own label), and
+  # an unreadable `cause` is named as the cause. Same fail-safe direction as
+  # `post_ok`: no evidence is not a clean verdict. No record: the trigger is a
+  # fixtures file that chmods the window's own marker, class (c) of
+  # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3 -- declared out
+  # of reach, not guarded; measured once by hand instead (Stage 5 E-3).
+  _fw_unread=""
+  for _fw_m in seal_failed machine_limits fix_failed cause; do
+    if [ -e "$_FW_DIR/$_fw_m" ] || [ -L "$_FW_DIR/$_fw_m" ]; then
+      [ -f "$_FW_DIR/$_fw_m" ] && [ -r "$_FW_DIR/$_fw_m" ] || _fw_unread="$_fw_unread $_fw_m"
+    fi
+  done
   if [ -e "$_FW_DIR/done" ] && [ "$_fw_fd2" -eq 1 ]; then
     _fw_why="the fixtures file left the window's stderr redirected, so a shell diagnostic could not be read"
   elif [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
     _fw_why="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_why=""
+    case "$_fw_unread" in *" cause"*) _fw_why="the window's cause file exists but could not be read" ;; esac
     # A window that could not enter (or keep) its own directory can write no
     # `cause` there, so the parent names that case itself, from the directory.
     if [ -z "$_fw_why" ] && { [ ! -d "$_FW_DIR" ] || [ ! -x "$_FW_DIR" ]; }; then
@@ -671,7 +689,7 @@ _fgit_window() {
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
   # cannot change what `_control`'s gate (`_fw_built_or_w2`) reads.
-  if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ]; then _fw_trusted=1; fi
+  if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
   return 0
 }
 # THE WINDOW'S VERDICT, REPORTED IN ONE PLACE. An INCOMPLETE window is not "no
@@ -693,6 +711,7 @@ _fgit_window_verdict_exit() { # $1 = the window label
   # line was skipped: an arithmetic-expansion error does not stop a sourced file. A red
   # postcondition's own diagnostic already reached stderr, replayed above, so
   # it needs no separate report here.
+  [ -z "$_fw_unread" ] || echo "!! CONTROL FAILED ($1): the window wrote marker file(s) this parent could not read (exist, not readable):$_fw_unread; what they carried is unknown, so the build is not trusted" >&2
   [ -z "$_fw_diag" ] || echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
   # A complete window with neither `post_ok` nor `post_bad`: the postconditions
   # never reached a verdict (a statement of theirs ended the window's postcondition

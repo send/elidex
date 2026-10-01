@@ -138,6 +138,9 @@ fi
 # one half going stale (a renamed function, a respelled line) would leave the
 # other half "fresh". The `controls:` / `harness:` / `fixtures:` / `mutgen:` prefix (below) is
 # written on the FIRST expression and aims the whole record.
+# ⚠ SIZE RULE (this file is under 1000 lines; its growth is the record
+# here-document, a flat case table with no seam inside it): the edit that takes
+# this file past 1000 lines FIRST splits the record table into its own part.
 #
 # The expressions are applied to a COPY of the file the record names — the wire, unless the
 # record says otherwise (below); the copy must (a) differ from
@@ -219,7 +222,7 @@ _MUT_TARGETS="controls harness fixtures mutgen"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=20
-_MUT_RECORDS_MIN=189   # 179 - 1 (the pin's re-entry-limit record went with the counter) + 1 (the strip record) + 10 round-2 records
+_MUT_RECORDS_MIN=190   # 179 - 1 (the pin's re-entry-limit record went with the counter) + 1 (the strip record) + 10 round-2 records + 1 (the orderly-end flag)
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -483,6 +486,8 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/zzm\/r" \&\& ( cd "$CTL\/zz
 # Every label a part uses is defined: a definition in the controls file renamed,
 # its producers left as they were.
 controls:s/^_fws_lbl=/_fws_label=/	every label the parts use is defined
+# A run ends green only through its verdict: the orderly-end flag at the PASSED line deleted.
+s/^_K2_ORDERLY=1$/:/	the run ends only through a verdict
 # Trust needs positive evidence: the postconditions' writer statement deleted, or
 # writing a file nobody reads, leaves a complete window with neither marker.
 harness:s/_fgit_postconditions \&\& : > "[$]_FW_DIR\/post_ok" || /_fgit_postconditions || /	the fixture build window completed
@@ -877,7 +882,9 @@ _mut_run() {
       echo "  note: a previous mutation run left $_stale behind (SIGKILL?); it is" >&2
       echo "        not this run's to remove. Delete it once no run is using it." >&2
     done
-    trap '_mut_rm_copies; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+    # The wire's own trap body (`_k2_exit`: cleanup, and no status 0 without the
+    # wire's orderly-end flag), not a second copy of it.
+    trap '_k2_rc=$?; _mut_rm_copies; _k2_exit "$_k2_rc"' EXIT
     # Every part once; the wire and the targets are re-copied per entry by
     # `_mut_restore_copies`, because entries edit them.
     for _mp in $_MUT_PARTS; do cp "${SELF%.sh}.$_mp.sh" "$_mut_base.$_mp.sh"; done

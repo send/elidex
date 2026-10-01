@@ -7,7 +7,8 @@
 # touch such a file — not to defer it. This is that seam, and it was visible
 # well before the line count: the wire ANSWERS about a tree, and everything here
 # exists to show those answers are reachable. Not all of them are covered — the
-# verdict sites with no control are a defer slot in
+# verdict sites with no control are the defer slot
+# `#11-k2-wire-verdict-site-controls`, in
 # 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §8. One
 # green run of the scanner tells you nothing this file has not earned.
 #
@@ -99,6 +100,7 @@ _rel_lbl="a relative scratch dir is removed on exit"
 _fsm_lbl="a caller's fsmonitor hook does not run"
 _umask_lbl="a restrictive umask decides nothing"
 _lbd_lbl="every label the parts use is defined"
+_ord_lbl="the run ends only through a verdict"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
