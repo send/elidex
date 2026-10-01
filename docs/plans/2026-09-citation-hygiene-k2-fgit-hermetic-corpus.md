@@ -314,11 +314,19 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 - **Totals after R3 (dropped-at-cap round):** one label added (`_ce_lbl`, `a refused control hands its
   environment to no other control`, recorded), **100 records of this PR, 195 in all**:
   `_MUT_RECORDS_MIN=195`; `_MUT_UNRECORDED_MAX` stays at 20. Added: the `_ctl_env` clear deleted (harness);
-  `_fixture_failed relcwd|fsmon|clean` (fixtures; they die under the three non-`_control` blocks' labels and
-  survive with that block's `_ctl_gate` call removed, so the umask block's gate IS now recorded); the
+  `_fixture_failed relcwd|fsmon|clean` (fixtures; they die under the three non-`_control` blocks' labels); the
   `_fgit_alternates` extraction broken (`$_pkl_lbl`); P-b's stored `git var` status (`$_pb_lbl`). Removed: P-k's
   `grep '^alternate:'` exit>1 record, with its arm (no external `grep` remains there). The 34 fixtures
   records that restated the `built` line now write it once (`; &`).
+- **Totals after R4 (`/simplify` on R3):** two records added (`fakerelmktemp`'s fixture group; the canary scan's
+  exit>=2), **102 records of this PR, 197 in all**: `_MUT_RECORDS_MIN=197`; `_MUT_UNRECORDED_MAX` stays at 20 (the
+  file is unchanged there). Six records now use `&` (262, 347, 374, 406, 450, 459). All 42 R4-relevant records were
+  killed with their own needle on both shells. **The gates, measured** (records 483 relcwd, 484 fsmon, 485 umask;
+  there is ONE run gate, in `_ctl_run`, shared by `_control` and the relcwd and umask blocks; the fsmon block has a
+  second, before its plain-git preflight, because it runs a plain git over the fsmon fixture before `_ctl_run`):
+  removing `_ctl_run`'s gate alone leaves 483 and 485 surviving, and 484 still killed by the preflight gate;
+  removing only the fsmon preflight gate leaves 484 killed by `_ctl_run`'s; removing both leaves 484 surviving. So
+  `_ctl_run`'s gate is pinned by 483 and 485, and the fsmon preflight gate only together with `_ctl_run`'s.
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).

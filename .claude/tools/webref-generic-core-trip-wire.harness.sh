@@ -175,9 +175,11 @@ _fgit_postconditions() {
   # recognise (a garbage `HEAD`) is an error here, never a walk to an ancestor
   # repository whose configuration would then be listed in its place.
   _fgit_in() { ( cd "$1" && shift && git --git-dir=.git "$@" ); }
-  # `_fgit_alternates <count-objects -v output>`: its `alternate:` lines, the one
-  # extraction P-k and P-k's liveness probe share (builtin, no `grep` fork).
-  _fgit_alternates() { local _l; while IFS= read -r _l; do case "$_l" in alternate:*) printf '%s\n' "$_l" ;; esac; done <<< "$1"; }
+  # `_fgit_alternates <count-objects -v output>`: its `alternate:` lines into the
+  # global `_fgit_alt` (newline-joined, empty if none) — the one extraction P-k and
+  # P-k's liveness probe share. A builtin that ASSIGNS rather than prints, so no
+  # subshell is forked per repository.
+  _fgit_alternates() { local _l; _fgit_alt=""; while IFS= read -r _l; do case "$_l" in alternate:*) _fgit_alt="${_fgit_alt:+$_fgit_alt$'\n'}$_l" ;; esac; done <<< "$1"; }
   # THE NUL-LIST POLICY, for every `read -d ''` reader below (the census's two
   # passes, P-f's `env -0`, `_pg_z`): `read -d ''` swallows a list written with
   # `-print` (newlines, no NUL) in silence — nothing classified, nothing red —
@@ -435,8 +437,8 @@ EOF_PB
     if [ "$_pkrc" -ne 0 ] || [ -s "$_pq/pk.err" ]; then
       _pk="$_pk $_pgl:[count-objects exit $_pkrc$( [ ! -s "$_pq/pk.err" ] || printf ', stderr: %s' "$(tr '\n' ' ' < "$_pq/pk.err")" )]"
     else
-      _pka="$(_fgit_alternates "$_pko")"
-      if [ -n "$_pka" ]; then _pk="$_pk $_pgl:[$(printf '%s' "$_pka" | tr '\n' ';')]"; fi
+      _fgit_alternates "$_pko"
+      if [ -n "$_fgit_alt" ]; then _pk="$_pk $_pgl:[$(printf '%s' "$_fgit_alt" | tr '\n' ';')]"; fi
     fi
     # P-g: THE AUTHORITATIVE COMPARISON is of RECORDS, and runs first. A
     # line-based comparison can be forged by a value holding a newline shaped
@@ -487,8 +489,8 @@ EOF_PB
     mkdir -p "$_pq/c/.git/objects/info"
     printf '"%s"\n' "$(printf '%s' "$_pq/a/.git/objects" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$_pq/c/.git/objects/info/alternates"
     _pklrc=0; _pklo="$(_fgit_in "$_pq/c" count-objects -v 2>"$_pq/pkl.err")" || _pklrc=$?
-    _pkla="$(_fgit_alternates "$_pklo")"
-    if [ "$_pklrc" -ne 0 ] || [ -s "$_pq/pkl.err" ] || [ -z "$_pkla" ] || [ "$_pkla" != "${_pkla%%$'\n'*}" ]; then _pkl=bad; fi
+    _fgit_alternates "$_pklo"
+    if [ "$_pklrc" -ne 0 ] || [ -s "$_pq/pkl.err" ] || [ -z "$_fgit_alt" ] || [ "$_fgit_alt" != "${_fgit_alt%%$'\n'*}" ]; then _pkl=bad; fi
   else
     _pkl=bad
   fi
@@ -568,7 +570,7 @@ _seal_apply() {
   [ -e "$_FW_DIR/seal" ] || return 0
   while IFS="$(printf '\t')" read -r _sm _sf _sp; do
     # A fixture whose chain already failed is reported once, by that failure.
-    case " $_FIX_FAILED " in *" $_sf "*) continue ;; esac
+    ! _fixture_did_fail "$_sf" || continue
     _sa_p="$CTL"; _sa_rest="$_sp"; _sa_link=""
     while [ -n "$_sa_rest" ]; do
       _sa_p="$_sa_p/${_sa_rest%%/*}"
@@ -607,7 +609,7 @@ _fgit_window() {
       fi
     done
     printf '_FIX_FAILED=""\n'
-    declare -f _fixture_failed _shq _fgit_shim _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
+    declare -f _fixture_failed _fixture_did_fail _shq _fgit_shim _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
   # The fixtures file is sourced from a COPY in the window's own directory, by a
   # relative name: bash prefixes each diagnostic with the name it was given, so
@@ -640,9 +642,6 @@ _fgit_window() {
   # sits in a record (a fixture's stderr without a final newline appends bash's
   # own diagnostic to that same line). W3's scan below reads the raw capture:
   # the canary's text holds neither of its two prefixes, so it cannot match there.
-  _fw_fd2=0
-  _FW_M="$_FW_CANARY" awk 'index($0, ENVIRON["_FW_M"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=1
-  _FW_M="$_FW_CANARY" awk '{ i = index($0, ENVIRON["_FW_M"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_M"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
   # A shell diagnostic located in the fixtures file or the prelude means a line
   # of it was skipped — an arithmetic-expansion error does not stop a sourced
   # file. The property is WHERE the line starts: bash prefixes every diagnostic
@@ -658,6 +657,20 @@ _fgit_window() {
     index($0, ENVIRON["_FW_A"]) > 0 || index($0, ENVIRON["_FW_B"]) > 0 { print; if (++n == 3) exit }
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
+  # ONE SCAN of the capture for the canary: it prints the REPLAY (the canary cut out
+  # of its record) and reports through its exit status whether the canary was there
+  # (0 found, 1 not found: fd 2 was redirected; >= 2 = the scan itself failed, which
+  # is its own red with the cause, not a "not found").
+  _fw_fd2=0
+  _FW_CANARY="$_FW_CANARY" awk '
+    { i = index($0, ENVIRON["_FW_CANARY"])
+      if (i > 0) { f = 1; $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_CANARY"])); if ($0 == "") next }
+      print }
+    END { exit !f }' "$_FW_DIR/stderr" >&2 || _fw_fd2=$?
+  if [ "$_fw_fd2" -ge 2 ]; then
+    _fw_diag="${_fw_diag:+$_fw_diag }(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
+    _fw_fd2=0
+  fi
   # ABSENT AND UNREADABLE ARE DIFFERENT ANSWERS. A marker that EXISTS but cannot
   # be read (mode 000, a directory, a dangling link) carries something this
   # parent cannot hear, and the `cat`s below would turn it into "nothing" -- a
@@ -752,6 +765,8 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # outcome; the gate is at the consumer: `_control` reads it only after
 # `_ctl_gate` has passed, i.e. over a complete window.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
+# …and its membership predicate, the ONE reader of `$_FIX_FAILED`: did fixture $1 fail?
+_fixture_did_fail() { case " $_FIX_FAILED " in *" $1 "*) return 0 ;; esac; return 1; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
 # the cleanup path is the physical absolute one the wire resolves it to (#501
@@ -827,53 +842,71 @@ fi
 
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
-# nor over a fixture that did not build. ONE GATE, asked by every `_control` and by
-# each of the three blocks that are not one: `_ctl_gate <fixture> <label>`.
+# nor over a fixture that did not build. ONE GATE, asked by ONE run primitive:
+# `_ctl_run` below asks `_ctl_gate <label> <fixture>…` about EVERY fixture tree
+# the run reads, derived from its own arguments (root, cwd, PATH-prefix dirs under
+# `$CTL`) — not a name picked per caller. The three blocks that are not a
+# `_control` run through it as well, so a hang or a failed build is reported the
+# same way in all four paths.
 # W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
 # `$_fw2_lbl` is defined in the controls file. Every fixture is built under
 # `|| _fixture_failed <name>`, so "did the tree this control is about actually get
 # built?" is one lookup rather than a probe re-derived per site: without it a
 # broken build leaves a plausible-looking tree that can still satisfy the
 # assertion — a control green over a question never posed.
-_ctl_gate() { # $1 = fixture name (basename), $2 = the label to report under
+_ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames)
+  local _g_for="$1" _g_n
+  shift
   if [ "$_fw_trusted" -ne 1 ]; then
     [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over a build that was not complete and trusted" >&2
     _fw2_said=1; return 1
   fi
-  case " $_FIX_FAILED " in
-    *" $1 "*)
-      echo "!! CONTROL NOT EXERCISED ($2): its fixture did not build, so this control" >&2
+  for _g_n in "$@"; do
+    if _fixture_did_fail "$_g_n"; then
+      echo "!! CONTROL NOT EXERCISED ($_g_for): its fixture ($_g_n) did not build, so this control" >&2
       echo "   would be asserting over a tree that never posed the question." >&2
-      return 1 ;;
-  esac
+      return 1
+    fi
+  done
   return 0
 }
-_control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
-             # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
-             # $7 = optional PATH prefix (to shadow a tool the wire calls),
-             # and `_ctl_env` (an ARRAY, set by the caller) for environment
-             # assignments. ⚠ NOT a string: `env ${8:-}` word-split them, so a
-             # `TMPDIR` holding a space broke the routed control with
-             # `env: 'dir/.../.git': No such file or directory` and the whole
-             # gate exited 1 for a contributor whose temp path has a space
-             # (#501 R96). A path is data here too.
+# THE ONE RUN PRIMITIVE: the wire in self-test mode over a fixture root, as its own
+# process group under a 30 s watchdog. Everything that runs the wire over a fixture
+# is built on it — `_control` and the three blocks that are not one — so a hang is
+# reported ("killed after 30s") whichever path hit it, and only the ASSERTION is the
+# caller's. Arguments (empty = none): $1 label, $2 root, $3 cwd to run from,
+# $4 umask to run under, $5 PATH prefix (to shadow a tool the wire calls), $6 optional
+# scope subdir (relative), $7 optional extra entry (relative); plus `_ctl_env` (an
+# ARRAY, set by the caller) for environment assignments. ⚠ NOT a string: `env ${8:-}`
+# word-split them, so a `TMPDIR` holding a space broke the routed control with
+# `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
+# contributor whose temp path has a space (#501 R96). A path is data here too.
+# Returns 0 with `_rc` and `_out` set (the run's status and its stdout+stderr),
+# 1 when the gate refused or the run was killed (already reported under the label).
+# ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
+# statement, so every return path (the gate's included) leaves the global empty.
+# It is file-scope (bash has no array parameter); a clear placed after the gate
+# let a refused control hand its environment to the NEXT one. Whoever sets it
+# gets exactly the next run.
+_ctl_run() {
+  local -a _ce=(${_ctl_env[@]+"${_ctl_env[@]}"})
+  _ctl_env=()
+  local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}" _r_d _r_oifs
+  local -a _r_names
+  _r_names=("${_r_root##*/}")
+  [ -z "$_r_cwd" ] || _r_names+=("${_r_cwd##*/}")
+  _r_oifs=$IFS; IFS=:
+  for _r_d in $_r_pfx; do _r_names+=("${_r_d##*/}"); done
+  IFS=$_r_oifs
+  _ctl_gate "$_r_for" "${_r_names[@]}" || return 1
+  _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
   # otherwise report (#501 R92). The FIFO finding's whole harm was that the
   # local gate BLOCKED instead of failing closed — and a control for it, run
   # plainly, would block too: it would never return to say so. Reverting that
   # fix now produces a reported control failure rather than a wire that waits
   # forever. Backgrounded and `wait`ed rather than polled, so a healthy
-  # control costs nothing; the killer is itself killed when the child returns.
-  # ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
-  # statement, so every return path (the gate's included) leaves the global empty.
-  # It is file-scope (bash has no array parameter); a clear placed after the gate
-  # let a refused control hand its environment to the NEXT one. Whoever sets it
-  # gets exactly the next control.
-  local -a _ce=()
-  [ "${#_ctl_env[@]}" -eq 0 ] || _ce=("${_ctl_env[@]}")
-  _ctl_env=()
-  _ctl_gate "${1##*/}" "$4" || return 1
-  _out_f="$_VFY/.control_out"
+  # run costs nothing; the killer is itself killed when the child returns.
   # ⚠ SELF-TEST MODE IS AN ARGUMENT (see the wire, beside `_SELFTEST`): it is
   # the one channel a shell cannot leave behind for a later ordinary run.
   # ⚠ `set -m` SO THE CHILD IS ITS OWN PROCESS GROUP. Without it the watchdog's
@@ -883,8 +916,10 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # the timeout, so repeated local runs accumulate permanent orphans. Measured
   # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
   set -m
-  PATH="${7:+$7:}$PATH" \
-    env ${_ce[@]+"${_ce[@]}"} "$BASH" "$SELF" --selftest "$1" "${5:-}" "${6:-}" \
+  ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
+    [ -z "$_r_umask" ] || umask "$_r_umask"
+    PATH="${_r_pfx:+$_r_pfx:}$PATH"
+    exec env ${_ce[@]+"${_ce[@]}"} "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
     > "$_out_f" 2>&1 & _cpid=$!
   set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
@@ -899,11 +934,17 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
   _out="$(cat "$_out_f" 2>/dev/null)"
   if [ "$_rc" -ge 128 ]; then
-    echo "!! CONTROL FAILED ($4): the wire did not finish — killed after 30s (signal" >&2
+    echo "!! CONTROL FAILED ($_r_for): the wire did not finish — killed after 30s (signal" >&2
     echo "   status $_rc). A gate that blocks is worse than one that reds: it never" >&2
     echo "   reaches a verdict at all. Something on this path opened what it must not." >&2
     return 1
   fi
+  return 0
+}
+_control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
+             # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
+             # $7 = optional PATH prefix; the run itself is `_ctl_run`'s
+  _ctl_run "$4" "$1" "" "" "${7:-}" "${5:-}" "${6:-}" || return 1
   if [ "$_rc" -ne "$2" ]; then
     echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
     echo "   mean nothing — this wire was not shown able to reach that verdict." >&2

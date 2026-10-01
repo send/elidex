@@ -222,7 +222,7 @@ _MUT_TARGETS="controls harness fixtures mutgen"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=20
-_MUT_RECORDS_MIN=195   # 179 - 1 (the pin's re-entry-limit record went with the counter) + 1 (the strip record) + 10 round-2 records + 1 (the orderly-end flag) + 4 (R3: env owner, three block gates) - 1 + 1 (R3 D-3/D-5: P-k's `grep` and its exit>1 red arm went with the builtin `_fgit_alternates`; no external grep remains there, so the arm and its record are gone; the new `_fgit_alternates` record) + 1 (D-4: the per-name status record)
+_MUT_RECORDS_MIN=197   # ledger: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1 (totals bullet); removed so far: the pin's re-entry-limit record (it went with the counter) and P-k's `grep` exit>1 arm (it went with the builtin `_fgit_alternates`)
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -259,7 +259,7 @@ s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not
 s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
 s/export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1/export GIT_NO_LAZY_FETCH=1/	a replace ref cannot substitute the staged blob
 s|^_esc() .*|_esc() { printf '%s' "$1"; }|	a name cannot forge a verdict record
-s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/	the fixture build window reads in the wire's locale
+s/^export LC_ALL=C$/&.UTF-8/	the fixture build window reads in the wire's locale
 s/_co="$(grep -aEn -- "$K2RE"/_co="$(LC_ALL=C.UTF-8 grep -aEn -- "$K2RE"/	a byte no UTF-8 locale can bracket
 s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
 s/\[ "$_read" -eq 0 \] || printf/printf/	an inventoried entry that was never read is not counted as scanned
@@ -344,7 +344,7 @@ s#^K2RE_PATH='(^|/)\\.claude#K2RE_PATH='(^|/).claude#	a stored path that only lo
 # THE FIXTURE BUILD WINDOW's records (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6).
 # One or more per label; most edit the harness, where the window's producers
 # live, and the rest the fixtures file, whose own shape the window checks.
-harness:s/^    [.] [.]\/prelude[.]sh$/    . .\/prelude.sh; exit 0/	the fixture build window completed
+harness:s/^    [.] [.]\/prelude[.]sh$/&; exit 0/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eu\\n'/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -uo pipefail\\n'/	the fixture build window completed
@@ -354,17 +354,14 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # one, then the untrusted-build one that would otherwise end the run first) AND
 # leaves the window incomplete (its `done` marker renamed), in three one-line
 # expressions: the verdict function only reports, so with its exits gone the run
-# reaches the first control, and only `_control`'s own gate can say W2. W2's
-# producer is `_ctl_gate`, called by `_control` and by the three
-# non-`_control` blocks (relative scratch, fsmonitor, umask); the record pins
-# that W2 is reported when the exits are gone, which `_control`'s gate alone
-# satisfies. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
-# computation. ⚠ A DECLARED GAP: removing any ONE of the four call sites of
-# `_ctl_gate` — `_control`'s own (`_ctl_gate … || return 1`) or one of the three block
-# calls — survives this set, because another call reports W2 first (the first
-# `_control` for a block call; the relative-scratch block's call for
-# `_control`'s), so the gates are pinned only by the traced `w2rec` cell
-# (companion §A.14), not by a record.
+# reaches the first control, and only the gate can say W2. W2's producer is
+# `_ctl_gate`, asked by `_ctl_run` (every `_control` and the three non-`_control`
+# blocks run through it) and once more by the fsmonitor block before its own plain-git
+# preflight; the record pins that W2 is reported when the exits are gone. It SURVIVES
+# with `_fw_done` removed from `_fgit_window`'s trust computation. `_ctl_run`'s ask is
+# pinned by the relcwd and umask records (removing it, they survive). ⚠ A DECLARED GAP:
+# the fsmonitor block's ask is pinned only together with `_ctl_run`'s (either alone is
+# covered by the other); alone, it is pinned by the traced `w2rec` cell (companion §A.14).
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
@@ -375,7 +372,7 @@ harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1, C8 rows).
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/\[ ! -e "[$]_FW_DIR\/post_bad" \] || _fw_post_bad=1/_fw_post_bad=1/	no control runs over an incomplete or untrusted fixture build window
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/\[ "[$]_fw_dg" -eq 0 \] || _fw_diag=/false || _fw_diag=/	no control runs over an incomplete or untrusted fixture build window
-fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
+fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/&; _ar=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
 harness:s/_fgit_in "[$]_pq\/a" -c a[.]b=c config --list/_fgit_in "$_pq\/a" config --list/	this git reports a configuration origin outside the repo's file
 harness:s/ GIT_CONFIG_NOSYSTEM=1 / /	the fixture git has no system or global layer outside the void
@@ -407,7 +404,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzhd" \&\& 
 fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.bare; git -C "$CTL\/clean" config core.logallrefupdates "$(printf 'true\\nfile:.git\/config\\tcore.bare=false')"; &/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/cp "$CTL\/clean\/.git\/config" "$_FW_DIR\/k2cfg" \&\& rm "$CTL\/clean\/.git\/config" \&\& ln -s "$_FW_DIR\/k2cfg" "$CTL\/clean\/.git\/config"; &/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzfifo" \&\& rm "$CTL\/zzfifo\/.git\/HEAD" \&\& mkfifo "$CTL\/zzfifo\/.git\/HEAD" ); &/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; printf x >\&2; _k2p=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
+fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/&; printf x >\&2; _k2p=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
 fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; &/	nothing is written into the fixture git's void
 harness:s/^  _fgit_shim "[$]_FGIT_BIN\/git" /  _fgit_shim "$_FGIT_BIN\/gitx" /	the fixture build window runs the pinned git first on its PATH
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); &/	every fixture repo persists only the configuration a plain git init writes
@@ -449,9 +446,9 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; GLOBIGNORE='*';
 harness:s/( cd "[$]_pq\/c" \&\& git init -q [.] )/false/	this git reports alternate object stores
 harness:s/_fgit_in "[$]_pgd" count-objects -v 2>"[$]_pq\/pk.err"/false/	no fixture repo reads objects from a store outside it
 # The ONE `alternate:` extraction (`_fgit_alternates`, shared by P-k and its liveness probe): broken, the liveness probe sees no line.
-harness:s/alternate:[*]) printf/NOALT:*) printf/	this git reports alternate object stores
+harness:s/alternate:[*]) _fgit_alt=/NOALT:*) _fgit_alt=/	this git reports alternate object stores
 fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '\/nonexistent-k2-store\\n' > "$CTL\/clean\/.git\/objects\/info\/alternates"; &/	no fixture repo reads objects from a store outside it
-mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/	the boundary-mutant generator derives a non-empty set from the wire's regexes
+mutgen:s/^_mut_regex_mutants() {$/& return 0/	the boundary-mutant generator derives a non-empty set from the wire's regexes
 # THE WINDOW'S STDERR CANARY's record (C12): the fixtures file redirects fd 2
 # before the options re-check's canary can reach it, so W ends the window
 # incomplete rather than reading a diagnostic sent to /dev/null.
@@ -460,7 +457,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/exec 2>\/dev\/null; &/	the fixture build wi
 # `_fgit_postconditions` skips the rest of that top-level command in silence
 # (neither `post_ok` nor `post_bad` is written, so the window is also untrusted
 # under W's "never reached a verdict"), and only the prelude prefix names W3.
-harness:s/^  _fpv=0$/  _fpv=0; : $(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
+harness:s/^  _fpv=0$/&; : $(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
 # The shim builder without the line that takes the shim's own directory off the
 # `PATH` it hands on (`: %s` keeps the printf's arguments aligned): the pin then
 # passes `$_FGIT_BIN` on to a `git` that can find it again, and P-j's alias probe
@@ -481,12 +478,15 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.l
 # the failed build; and the err seal line, deleted, is red in the same control.
 fixtures:s/^\(_seal "[$]CTL\/err\/control.py" 000 err\)$/_fixture_failed err; \1/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
-# R3 D-1 / D-8: `_control` clears `_ctl_env` before its gate (standing check, controls file), and ONE gate
-# (`_ctl_gate`) refuses a failed fixture for the three blocks that are not a `_control` as well.
+# R4 S-1/S-2: `_ctl_run` clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate refuses
+# a failed fixture among the root, the cwd and the PATH-prefix dirs of every run (the three non-`_control` blocks too).
 harness:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fsmon; &/	a caller's fsmonitor hook does not run
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed clean; &/	a restrictive umask decides nothing
+# …the PATH-prefix dir of a run is a tree it reads (the gate derives it), and the canary scan failing (exit >= 2) is red, not "not found".
+fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fakerelmktemp; &/	a relative scratch dir is removed on exit
+harness:s/END { exit !f }/END { exit 3 }/	the fixture build window ran without a shell diagnostic
 # ROUND 2 of the code review (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1).
 # The census lists a directory it cannot search: a BSD `find` says nothing about
 # one, so a repository with a persisted key under a bare `chmod 0444` parent was
@@ -737,16 +737,33 @@ _mut_correspondence() {
     fi
     printf '%s\n' "$_pr_needle" >> "$_VFY/.needles"
   done < "$_VFY/.mutants"
-  # ONE `awk` PASS over the needles, not a `grep` per record: each needle must
-  # appear in the controls file as a quoted string. `!survive` is the standing
-  # negative control and names no control by design.
-  awk 'NR==FNR{t=t $0 "\n"; next} $0!="!survive" && index(t, "\"" $0 "\"")==0' "$_CONTROLS" "$_VFY/.needles" > "$_VFY/.orphans"
-  while IFS= read -r _pr_needle; do
-    echo "!! mutation record needle \"$_pr_needle\" appears nowhere in the controls file" >&2
-    echo "   as a quoted label. A record whose control was renamed reports" >&2
-    echo "   \"wrong reason\" forever." >&2
-    _mut_orphan=1
-  done < "$_VFY/.orphans"
+  # THE LABEL SET, PARSED ONCE (`.labels`: the fourth quoted field of a `_control`
+  # call, or the value of an `_lbl="…"` definition), and ONE `awk` that decides BOTH
+  # directions by exact equality against `.needles`: a needle that is no label is an
+  # orphan (stderr; a record whose control was renamed reports "wrong reason"
+  # forever, and a needle that only matches some other quoted string is one too), a
+  # label that is no needle is bare (`.bare`, counted by the ratchet below).
+  # `!survive` names no control by design. Its exit status IS the verdict (1 = an
+  # orphan, 2 = the awk failed), so a failed awk is red, never a silent pass.
+  # `.ctllabels` (the `_control` labels alone) is what `_mut_trial '!kill'` accepts.
+  awk -F'"' -v ctl="$_VFY/.ctllabels" 'BEGIN { printf "" > ctl }
+    /^ *_control / { if ($6 != "") { print $6; print $6 > ctl } }
+    /^ *_[A-Za-z0-9_]+_lbl="/ { if ($2 != "") print $2 }' "$_CONTROLS" > "$_VFY/.labels" || _mut_orphan=1
+  _mut_arc=0
+  awk -v bare="$_VFY/.bare" 'BEGIN { printf "" > bare }
+    FILENAME == ARGV[1] { nd[++nn] = $0; isn[$0] = 1; next }
+    { lb[++nl] = $0; isl[$0] = 1 }
+    END {
+      for (i = 1; i <= nn; i++) if (nd[i] != "!survive" && !(nd[i] in isl)) {
+        print "!! mutation record needle \"" nd[i] "\" is no label of the controls file (a `_control`" > "/dev/stderr"
+        print "   label or an `_lbl=` value): its control was renamed, or the needle is some other string." > "/dev/stderr"
+        bad = 1
+      }
+      for (i = 1; i <= nl; i++) if (!(lb[i] in isn)) print lb[i] > bare
+      exit bad
+    }' "$_VFY/.needles" "$_VFY/.labels" || _mut_arc=$?
+  [ "$_mut_arc" -le 1 ] || echo "!! the needle/label scan failed (awk exited $_mut_arc): nothing was decided." >&2
+  [ "$_mut_arc" -eq 0 ] || _mut_orphan=1
   [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1
   # ---- THE GENERATED SET IS NOT EMPTY, ALWAYS ON --------------------------------
   # A static property of `_mut_regex_mutants`' output over the running wire's
@@ -826,17 +843,7 @@ _mut_correspondence() {
     echo "   in the same edit — so a smaller set is a visible decision." >&2
     _mut_corr_bad=1
   fi
-  # …and the direction that actually finds things: labels with NO record. A
-  # label is the third quoted argument of a `_control` call, or the value of an
-  # `_lbl="…"` definition — a block that is not a `_control` prints one, and so
-  # does each of the fixture build window's producers.
-  _mut_bare=0
-  # The `_control` labels are also what `_mut_trial '!kill'` accepts, so they are
-  # written once, here, by the extraction the ratchet uses.
-  awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS" | sed '/^$/d' > "$_VFY/.ctllabels"
-  { cat "$_VFY/.ctllabels"
-    awk -F'"' '/^ *_[A-Za-z0-9_]+_lbl="/{print $2}' "$_CONTROLS"; } \
-    | awk 'NR==FNR{n[$0]=1; next} $0!="" && !($0 in n)' "$_VFY/.needles" - > "$_VFY/.bare"
+  # …and the direction that actually finds things: labels with NO record (`.bare`, above).
   # ⚠ `wc -l`, NOT `grep -c .`. `grep` exits 1 when no line is selected, so on an
   # EMPTY `.bare` — the state this ratchet exists to let you reach — the
   # assignment failed and `set -e` aborted the required gate before the
@@ -855,7 +862,7 @@ _mut_correspondence() {
     echo "   same edit — a slack ratchet lets the next label go bare in silence." >&2
     _mut_corr_bad=1
   fi
-  command rm -f "$_VFY/.bare" "$_VFY/.orphans"
+  command rm -f "$_VFY/.bare" "$_VFY/.labels"
   return "$_mut_corr_bad"
 
 }

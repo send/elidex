@@ -348,9 +348,9 @@ chmod +x "$CTL/fakemktemp/mktemp"
 # A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
 # relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
 # cannot pose this question here).
-mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp" || _fixture_failed relcwd
-printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp"
-chmod +x "$CTL/fakerelmktemp/mktemp"
+( mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp" \
+  && printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp" \
+  && chmod +x "$CTL/fakerelmktemp/mktemp" ) || _fixture_failed relcwd
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
 _fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) exit 2;; esac' "$_REAL_GREP"

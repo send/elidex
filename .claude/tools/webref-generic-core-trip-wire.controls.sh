@@ -233,9 +233,9 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # Not a `_control`: the question is what the run leaves BEHIND, which its exit
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
-# ⚠ Gated, like every `_control`, by `_ctl_gate` (window trusted, fixture built).
-if ! _ctl_gate relcwd "$_rel_lbl"; then ctl_ok=1
-elif ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
+# ⚠ Run through `_ctl_run`, like every `_control`: gated, watchdogged, one report.
+if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$CTL/fakerelmktemp"; then ctl_ok=1
+elif [ "$_rc" -eq 0 ]; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
     ls -A "$CTL/relcwd" | sed 's/^/     /' >&2
@@ -378,7 +378,7 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl
 # verdict cannot say. ⚠ The hook is first shown to run under a plain git call
 # over the same fixture, or its not running under the wire would prove nothing.
 # The hook's path goes through `_shq`, as every embedded path here does.
-if ! _ctl_gate fsmon "$_fsm_lbl"; then ctl_ok=1; else
+if ! _ctl_gate "$_fsm_lbl" fsmon; then ctl_ok=1; else
 _fsm_mark="$_VFY/.fsmonitor_ran"
 printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
 chmod +x "$_VFY/fsmhook"
@@ -391,11 +391,11 @@ if [ ! -e "$_fsm_mark" ]; then
   ctl_ok=1
 else
   command rm -f "$_fsm_mark"
-  _fsm_rc=0
-  env "${_fsm_cfg[@]}" "$BASH" "$SELF" --selftest "$CTL/fsmon" "" "" > "$_VFY/.fsm_out" 2>&1 || _fsm_rc=$?
-  if [ "$_fsm_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
-    echo "!! CONTROL FAILED ($_fsm_lbl): exit $_fsm_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
-    sed 's/^/     /' "$_VFY/.fsm_out" >&2
+  _ctl_env=("${_fsm_cfg[@]}")
+  if ! _ctl_run "$_fsm_lbl" "$CTL/fsmon"; then ctl_ok=1
+  elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
+    echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
+    printf '%s\n' "$_out" | sed 's/^/     /' >&2
     ctl_ok=1
   fi
 fi
@@ -417,15 +417,12 @@ if [ "$_perm_ok" -eq 1 ]; then
   # scratch dir unsearchable makes it unresolvable to a physical path.
   # ONE GATE: the assertion lives inside the branch that ran the umask run, so
   # the run and its report cannot disagree about whether there was a run.
-  if ! _ctl_gate clean "$_umask_lbl"; then ctl_ok=1
-  else
-    _um_rc=0
-    ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$_VFY/.umask_out" 2>&1 || _um_rc=$?
-    if [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$_VFY/.umask_out"; then
-      echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
-      sed 's/^/     /' "$_VFY/.umask_out" >&2
-      ctl_ok=1
-    fi
+  if ! _ctl_run "$_umask_lbl" "$CTL/clean" "" 777; then ctl_ok=1
+  elif _um_named=0; case "$_out" in *"could not resolve the scratch dir"*) _um_named=1 ;; esac
+       [ "$_rc" -ne 2 ] || [ "$_um_named" -ne 1 ]; then
+    echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_rc" >&2
+    printf '%s\n' "$_out" | sed 's/^/     /' >&2
+    ctl_ok=1
   fi
 fi
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
@@ -446,7 +443,7 @@ fi
 _mut_correspondence || ctl_ok=1
 
 # (No check after the controls: every `_control` and every block that is not one
-# asks `_ctl_gate` before it runs, so none runs over an unbuilt tree.)
+# runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run
