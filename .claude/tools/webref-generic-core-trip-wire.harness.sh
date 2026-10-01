@@ -762,7 +762,7 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # `$_FIX_FAILED` itself lives in the window (the prelude starts it empty) and
 # comes back through a file, which `_fgit_window` reads whatever the window's
 # outcome; the gate is at the consumer: `_ctl_gate` reads it only after
-# the window is complete and trusted, i.e. over a complete window.
+# the window is complete and trusted.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # …and its membership predicate, the ONE reader of `$_FIX_FAILED`: did fixture $1 fail?
 _fixture_did_fail() { case " $_FIX_FAILED " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -850,8 +850,9 @@ fi
 # preflight) has its own gate, in the controls file.
 # W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
 # `$_fw2_lbl` is defined in the controls file. Every fixture is built under
-# `|| _fixture_failed <name>` (the PATH-prefix shim dirs are bare-built: a failure
-# there is errexit, which the window reports), so "did the tree this control is
+# `|| _fixture_failed <name>` (the PATH-prefix shim dirs are bare-built, so a failure
+# there is errexit, which the window reports; `fakerelmktemp` is built under `relcwd`'s
+# name, and `relcwd` is that run's cwd), so "did the tree this control is
 # about actually get built?" is one lookup rather than a probe re-derived per site: without it a
 # broken build leaves a plausible-looking tree that can still satisfy the
 # assertion — a control green over a question never posed.
