@@ -31,7 +31,11 @@ pub enum EsSpecLevel {
 | arguments.callee / .caller | ✗ | ✓ | Forbidden in strict mode. Prevents tail-call and inlining optimizations. |
 | __proto__ accessor | ✗ | ✓ | Annex B. Use Object.getPrototypeOf() instead. |
 | HTML comments in JS (<!-- -->) | ✗ | ✓ | Annex B relic from 1990s <script> hiding. |
-| eval() (direct) | Limited | ✓ | Core supports strict-mode eval only (new scope). Sloppy eval (local scope injection) in compat. |
+| eval() (direct) | Limited | ✓ | Split on the **effective** strictness of the evaluation, not on the source's strictness alone. PerformEval (ECMA-262 §19.2.1.1) step 12 is `If strictCaller is true, let strictEval be true`, and step 13's `ScriptIsStrict of script` is its `Else`, so strict core code evaluating a directive-less source such as `eval("var x = 1")` is still a strict eval. Core owns strict evaluation only (new scope); sloppy evaluation (local scope injection) is compat. |
+| eval() (indirect) | Limited | ✓ | Same criterion. Indirect strictness is fixed by the source's own directive rather than by the caller: PerformEval step 1 asserts `If direct is false, then strictCaller is also false`, so step 13 decides. Strict source is core, sloppy source is compat. |
+| Function constructor | Limited | ✓ | Same criterion. The created function's strictness comes from the body it was handed: CreateDynamicFunction (§20.2.1.1.1) reaches OrdinaryFunctionCreate (§10.2.3), whose step 7 is `Let strict be IsStrict(body)`. Strict source is core, sloppy source is compat. |
+
+**Dynamic-code split criterion.** All three forms—direct eval, indirect eval and the Function constructor—split on whether the evaluation is strict: the strict half is core, the sloppy half is the LegacySemantics plugin. The derivation differs per form, and only two of the three are decided by the passed source's directive alone—direct eval is decided by the disjunction of `strictCaller` and the source's own directive, which is why a strict caller's directive-less `eval` is core-owned. Do not split on the spelling of the form: an indirect eval or a Function body carrying `"use strict"` runs strict, so routing either form wholesale to compat would leave core with no owner for valid strict dynamic code. Under this criterion the core dynamic-code surface is a **subset** of the standard, conformant for every evaluation it accepts. Section numbers via `webref aoid ecma262 PerformEval` / `OrdinaryFunctionCreate`; steps via `webref body ecma262 sec-performeval` / `sec-ordinaryfunctioncreate`.
 
 ### 14.1.2 Implementation Strategy
 

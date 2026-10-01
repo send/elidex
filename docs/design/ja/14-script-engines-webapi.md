@@ -31,7 +31,11 @@ pub enum EsSpecLevel {
 | arguments.callee / .caller | ✗ | ✓ | strictモードで禁止。末尾呼び出しとインライン最適化を阻害。 |
 | __proto__アクセサ | ✗ | ✓ | Annex B。代わりにObject.getPrototypeOf()を使用。 |
 | JS内HTMLコメント (\<!-- --\>) | ✗ | ✓ | 1990年代の\<script\>隠蔽のAnnex B遺物。 |
-| eval()（直接） | 制限付き | ✓ | コアはstrict-mode evalのみサポート（新スコープ）。sloppy eval（ローカルスコープ注入）は互換。 |
+| eval()（直接） | 制限付き | ✓ | 分割基準は**実効的な評価strictness**（ソースのstrictnessだけではない）。ECMA-262 §19.2.1.1 PerformEval step 12 が `If strictCaller is true, let strictEval be true`、step 13 の `ScriptIsStrict of script` はその `Else` なので、strictなコアコードが `eval("var x = 1")` のようにディレクティブを持たないソースを評価してもstrict評価になる。コアはstrict評価のみ（新スコープ）。sloppy評価（ローカルスコープ注入を伴う）は互換。 |
+| eval()（間接） | 制限付き | ✓ | 同じ基準。間接evalのstrictnessは呼び出し側でなくソース自身のディレクティブで決まる（PerformEval）。strict sourceはコア、sloppy sourceは互換。 |
+| Functionコンストラクタ | 制限付き | ✓ | 同じ基準。生成される関数のstrictnessは渡されたbody自身のディレクティブで決まる（CreateDynamicFunction → OrdinaryFunctionCreate）。strict sourceはコア、sloppy sourceは互換。 |
+
+**動的コードの分割基準**: 直接eval・間接eval・Functionコンストラクタの3形態は、いずれも**その評価がstrictになるかどうか**で分割する。strict側の半分がコア、sloppy側の半分がLegacySemanticsプラグインである。⚠ **strictnessの導出は形態ごとに異なり、渡されたソースのディレクティブだけで決まるのは3形態のうち2つである**——ECMA-262 §19.2.1.1 PerformEval の step 12 は `If strictCaller is true, let strictEval be true` であり、step 13 の `Else, let strictEval be ScriptIsStrict of script` は `strictCaller` が false のときしか読まれない。したがって**直接eval**の分割基準は `strictCaller` とソース自身のディレクティブの論理和、すなわち**実効的な評価strictness**であり、strictなコアコードが `eval("var x = 1")` を評価する場合はソースにディレクティブが無くてもstrict評価としてコアが所有する。ソースのstrictnessだけで振り分けると、この適合するケースをLegacySemanticsへ送ってしまう。**間接eval**は step 1 の `Assert: If direct is false, then strictCaller is also false` により `strictCaller` が常に false なので、基準は渡されたソース自身のディレクティブに一致する。**Functionコンストラクタ**も同様で、生成される関数のstrictnessは §10.2.3 OrdinaryFunctionCreate step 7 `Let strict be IsStrict(body)`——渡されたbody自身のディレクティブ——で決まる。形態の綴り（直接か間接か、evalかFunctionか）では分割しない——間接evalもFunctionコンストラクタも、渡されたソース自身が`"use strict"`を持てばstrictに実行されるため、形態ごと互換へ送るとコアはstrictな動的コードのオーナーを失う（§番号は `webref aoid ecma262 PerformEval` / `OrdinaryFunctionCreate`、stepは `webref body ecma262 sec-performeval` / `sec-ordinaryfunctioncreate`）。この基準の下でコアの動的コード面は標準の**部分集合**であり、受け付けるすべての評価に対してconformantとなる。
 
 ### 14.1.2 実装戦略
 
