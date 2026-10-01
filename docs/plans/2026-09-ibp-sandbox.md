@@ -22,7 +22,13 @@ ledger row (the A-row idiom) is drafted: no amendment here touches a surface the
 the S5-4 plan, neither of which keeps an A-row ledger; their records live in this memo under the A114 idiom ("recorded,
 not edited").
 
-**Revision 10** (2026-10-01) folds Codex round 1 on the approval PR (#532 at `d117e1f0`: 3 real, 1 FP). D-e defines a
+**Revision 11** (2026-10-01) folds Codex round 2 on #532 (`4247d7f1`: 5 real). D-h's container becomes a shared handle
+on `HistoryEntry` (no side table, so cap eviction and truncation release it by construction). J6 snapshots the
+`window.open` target resolution at the call. D-e takes §4.2.3 whole (the `<base target>` fallback) and routes both
+shells' link clicks (app mode too) through the one selection. J8: from N6 frame-ancestors runs on the response, before
+parse and subresource fetch. Cells C14d, C27c, C27d, C36.
+
+*Rev 10* (2026-10-01) folds Codex round 1 on the approval PR (#532 at `d117e1f0`: 3 real, 1 FP). D-e defines a
 named **miss** as the null result of *find a navigable by target name* over what the renderer sees — the current
 navigable's own `window.name` first, then its descendants; the rest is a recorded gap on
 `#11-browsing-context-model-window-open-postmessage` (C27b). D-h keeps the history policy container as document-state data
@@ -282,14 +288,21 @@ document, not a new tab), then its inclusive descendant navigables (HEAD's `find
 traversable subtree (step 3) and the group's other top-level browsing contexts (step 7) — are not visible to the renderer:
 a name that exists only there is promoted instead of found. That is a recorded gap (A96), routed to
 `#11-browsing-context-model-window-open-postmessage` (the group and auxiliary-browsing-context model); HEAD's answer there
-(navigating the current document) is not the spec's either.
+(navigating the current document) is not the spec's either. A link's target is *get an element's target* (§4.2.3)
+whole: the element's `target` attribute when present (even empty — `<a target="">` is `_self`), **else the first `<base
+target>`** — HEAD reads only the attribute (`app/events.rs:204`), so N8 adds the base fallback. Both shells' link
+clicks go through this one selection: content mode (`content/link_nav.rs`) and app mode, whose click path
+(`app/events.rs:150-160`) navigates the current pipeline and drops the target at HEAD.
 
 **D-h — policy containers** (N6). *Determine navigation params policy container* (§7.1.7) whole: step 1 (history-stored
 container) as **document-state** data, not per-entry data: the spec keeps the *history policy container* in the entry's
-document state (§7.4.1.2), which same-document entries share. Home: a table on `NavigationController` (`elidex-navigation`, beside its entries) keyed by the entry's
-same-document identity, `HistoryEntry::document_sequence` (`elidex-navigation/src/navigation.rs:51`), which `push_same_document` (`:182`, pushState
-and fragment navigations) inherits — so a same-document entry carries its document's container by construction, and a
-traversal back to it after a cross-document navigation reads the container, not a default. Written when a navigation to a
+document state (§7.4.1.2), which same-document entries share. Home: a `HistoryEntry` field holding a **shared handle** to the document state's container (`Arc`, the
+document state being one object the entries share); `push_same_document` (`elidex-navigation/src/navigation.rs:182`,
+pushState and fragment navigations) clones the current entry's handle exactly as it inherits `document_sequence` (`:51`).
+So a same-document entry carries its document's container by construction, a traversal back to it after a
+cross-document navigation reads the container, not a default, and the container's lifetime is the last entry's — every
+removal (forward truncation `:143`, replace, the `MAX_HISTORY_ENTRIES` eviction `:161-163`) releases it with no side
+table to prune. Written when a navigation to a
 URL that requires storing the container commits; 2 `about:srcdoc`; 3 local URL + initiator; 4 response container; 5 new. *Create a
 policy container from a fetch response*: steps 2–7; **step 1 (blob URL) is A96** — elidex has no blob URL store (A26) —
 routed to `#11-worker-blob-script` with the added trigger "a blob URL store lands".
@@ -343,9 +356,16 @@ rule to its own PR; the parent's `:1377-1380` exception covers only IBP-layout a
   from **N8**; parser mode from the same input from **N9**.
 - **J5 Global-kind discrimination** — from **N4**: `WorkerGlobalRoot`, stamped by `Vm::bind_worker` (the parent's seam) on
   a worker-kind VM only (N4's guard), is the only non-Window test. No production worker-realm reader exists after N1; C7's direct oracle pins it.
-- **J6 Snapshot at call** — HEAD for the aux-nav verdict; the popup set from **N8**.
+- **J6 Snapshot at call** — HEAD for the aux-nav verdict; the popup set and the **target resolution** from **N8**: a
+  `window.open` chooses its navigable during the call (§7.2.2.1, §7.3.1.7), so the shared name lookup (D-e) runs at the
+  call and the queued intent carries the resolved navigable or the miss — the drain does not re-run
+  `find_iframe_by_name` (HEAD does, `content/navigation.rs:605`, so a rename between call and drain changes the answer).
 - **J7 Union in restriction form** — from **N2a**.
-- **J8 One CSP parser** — from **N3** (frame-ancestors); F19 and the CSP-derived flags from **N6**.
+- **J8 One CSP parser** — from **N3** (frame-ancestors); F19 and the CSP-derived flags from **N6**. From **N6** the
+  frame-ancestors check (CSP3 §6.4.2.1) and the X-Frame-Options fallback run at the **response** stage, on the response's
+  headers, before the body is parsed or any subresource is fetched — the same point the CSP-derived flags are computed
+  (J4×J8). HEAD checks after `load_document` returns (`iframe/load.rs:122-125`), by which time the loader has parsed the
+  body and fetched stylesheets, scripts and images (`loader.rs:210-295`).
 - **J9 Fragment mode follows contextDocument** — from **N9**.
 - **J10 F18: one store, one writer (`Tab`)** — from **N8**.
 - **J11 F19 clone rules** — from **N6** (D-h).
@@ -504,7 +524,8 @@ Listed (open):
 - J4/J9 with C20 (parser mode == F10's settings clause): false **from HEAD until N9** — HEAD already parses sandboxed
   documents' `<noscript>` in Normal mode; N5 only makes the invariant expressible (the creation input exists).
 - J6/J10 (popup set): absent until N8.
-- J8/J11 (F19, clones): absent until N6; frame-ancestors reads headers through N3's parser until then.
+- J8/J11 (F19, clones): absent until N6; frame-ancestors reads headers through N3's parser until then, and until N6 it
+  runs where HEAD runs it — after the blocked frame's subresources are fetched (equals HEAD; C36 pins the N6 order).
 - J14's second interim (F10's flags argument): N4 to N5; it carries HEAD's `HostData` value.
 - D5 (script-fetch gate): absent until N6 — external scripts of sandboxed documents are fetched, not run.
 - Forms flag in `form.requestSubmit()`: absent until N5 — HEAD fires `invalid`/`submit`/`formdata` in a document without
@@ -590,9 +611,8 @@ Input file §B defines populations (a)–(h) by property with counts at `f1cf5d6
   `all_represented()` (C32). N5 adds the forms-flag read the VM's `form.requestSubmit()` lacks at HEAD
   (`vm/host/html_form_proto.rs:499`), at step 4's position — before the validation block (`:546`, which fires `invalid`) and
   the `submit` dispatch (`:563`) — through F10r on the form document (D8, C33). N5 implements no *cannot navigate* check (§4.10.22.3 steps 1, 5.9, 9 are `#11-form-navigation`'s, A96).
-- **N6**: the history policy container as document-state data keyed by `document_sequence`, and its write point (D-h);
-  the table drops a sequence when the last entry carrying it is pruned (forward-history truncation, replace) — no orphaned
-  containers; error-page fallbacks per §7.5.7; the depth-limit fallback
+- **N6**: the history policy container as a shared handle on `HistoryEntry`, cloned by `push_same_document`, and its
+  write point (D-h); no side table, so cap eviction and truncation need no cleanup (C14c, C14d); error-page fallbacks per §7.5.7; the depth-limit fallback
   has no spec counterpart.
 - **N7**: computing the iframe set and the embedder's set is shell marshalling (`build_load_context`,
   `iframe/lifecycle.rs:381-406`); only top-level embedders exist in production.
