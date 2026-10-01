@@ -44,9 +44,9 @@ from grep_pass import run_grep_pass
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WEBREF = REPO_ROOT / ".claude" / "tools" / "webref"
 
-# Maps plan-memo spec-label text → webref shortname. Mirror of
-# `.claude/tools/webref` `_SPEC_LABEL_MAP` but reversed; keep in sync when
-# adding new specs to that map. Aliases (e.g. "HTML" without "WHATWG") are
+# Maps plan-memo spec-label text → webref shortname. Reverse of the shared
+# spec-label map the webref tools tree now carries in `spec_labels.py`; keep
+# in sync when adding specs there. Aliases (e.g. "HTML" without "WHATWG") are
 # tolerated for plan-memos that abbreviate.
 SPEC_LABEL_REVERSE = {
     "ECMA-262": "ecma262",
