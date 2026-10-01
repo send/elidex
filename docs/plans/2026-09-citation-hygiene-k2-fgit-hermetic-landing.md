@@ -28,7 +28,7 @@ this heading, and the repo-wide preflight command runs over every tracked plan m
 | C2 | mutations → mutations + mutgen; references qualified | prereq split | X1, X3, X4, X4b |
 | C3 | record comments | infra (§0.2) | X3 |
 | C4 | the `harness:` and `fixtures:` record targets with resolver and restore; the harness's `_shq` comment, which said the mutation set "has nothing to aim at", rewritten because C4 makes it false (`…-reviews.md` §13) | infra, required | X3 |
-| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement (C5 also checked it after the controls; `44ae6c57` removed that net); W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (50 at `8413a4db`, how they came to be: `…-pr527.md`; 66 after C12, 83 after the fix round, 84 after the /simplify round and 94 after review R2, corpus §6.1); §3's two comment texts; the ratchet population; `…-reviews.md` §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
+| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement (C5 also checked it after the controls; `44ae6c57` removed that net); W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (50 at `8413a4db`, how they came to be: `…-pr527.md`; 66 after C12, 83 after the fix round, 84 after the /simplify round, 94 after review R2 and 95 after Stage 5, corpus §6.1); §3's two comment texts; the ratchet population; `…-reviews.md` §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
 
 **Cost, and `ci.yml`.** The base job comment "a wire that adds fixture self-tests re-derives this line
 in the same PR" is an in-file rule (`git show e8f78896:.github/workflows/ci.yml | sed -n
@@ -175,21 +175,24 @@ exactly this:
 - **With both gone, delete their section too:** the heading "Citation-hygiene — K2 wire `_fgit` scrub
   fix: 2 own slots" and its Source paragraph hold nothing else, so they are removed with the two entries
   rather than left orphaned.
-- **Amend** `#11-k2-wire-exit-trap-masks-set-u-abort` with §9.2's ledger text, verbatim, **replacing**
-  in place both the entry's "(its memo U5 …)" sentence and the amendment written at PR creation.
+- **Close** `#11-k2-wire-exit-trap-masks-set-u-abort`: remove the entry (its "(its memo U5 …)" sentence
+  and the amendment written at PR creation go with it), citing §9.2's closure text and its create-time
+  audit, the four questions `…-residuals.md` §5.1 applies to the other closure. If its section then
+  holds nothing else, the section goes too, as above.
 - **Register** `#11-trip-wire-liveness-bound` with §9.2's text, verbatim.
 - **Amend** `#11-trip-wire-launch-environment`. Member (3) gains the K2 window: git pinned as the
   caller's shell resolves it from the wire's directory, the other entries verbatim. The fired trigger
   "#519 lands" becomes "the next PR that changes how a required wire, or the K2 fixture window,
   resolves or passes `PATH`". The PM lane stays the owner.
-- **Fix the header count.** The net change is −1 (one slot dissolved, one closed, one registered),
-  and it **replaces** the −2 banner.
+- **Fix the header count.** The net change is −2 (one slot dissolved, two closed, one registered),
+  and it **replaces** the −2 banner written at PR creation.
 
 ### §9.2 The ledger texts (moved from the design memo §5.2)
 
 Moved here from the design memo's §5.2 (unchanged at the split `d6ccc5b1`), beside the ledger step (§9,
 "Ledger text") that writes them, before draft 18's edits would have taken the design memo past 1000
-lines. Draft 18 then added C12's stderr cause and record to the second text.
+lines. Draft 18 then added C12's stderr cause and record to the second text, and Stage 5 (`8f4ad3c8`)
+replaced the second with a closure text.
 Section references in them are to the design memo.
 
 **R9's slot, `#11-trip-wire-liveness-bound`: the text §9's ledger step writes.**
@@ -233,8 +236,8 @@ Section references in them are to the design memo.
      ARGUMENT, NEVER BY ENVIRONMENT");
   7. a check for `set -m` by spelling misses `set -o monitor` and `-eum`;
   8. a 0-bound phase, or a top-level cap of 0, leaves call sites unbounded;
-  9. a parent that relays a child's rc relays bash 3.2's masked rc 0, which widens
-     `#11-k2-wire-exit-trap-masks-set-u-abort`.
+  9. a parent that relays a child's rc relays bash 3.2's masked rc 0, which widened
+     `#11-k2-wire-exit-trap-masks-set-u-abort` (closed by #527: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.2).
 - **Why deferred**: the legitimate reason is **L3**. A bound over nested children is a load-bearing
   change of its own: edge-dense, so it needs its own plan and plan-review under CLAUDE.md's rule. L2
   also holds, since #527's memo records two designs measured and withdrawn. The confirming questions:
@@ -254,35 +257,43 @@ Section references in them are to the design memo.
   #501's squash merge. **Re-eval**: 2026-11-30.
 - **Accounting**: #527's own deferrals, 1.
 
-**`#11-k2-wire-exit-trap-masks-set-u-abort`: the ledger text.** The design memo's §5.2 (now in
-`…-residuals.md`) describes the defect; the slot's ledger trigger is "code sourced after wire:405", and
-"such code" in the next sentence means that (code sourced after wire:405).
-This PR's harness and controls are exactly such code. **The ledger text — the one text; §9's ledger
-step writes exactly this** — **replaces**, in place, the entry's sentence "(its memo U5: state
-initialised at harness top level, setup failure a labelled verdict)" and the amendment written at PR
-creation. It does not append to them:
-- **measured, not argued:** with the wire's nounset off, the clean tree and eight cells (six red) give the
-  same exit status and verdict lines as with it on (bash 3.2 and 5.3; the cell script is verbatim in
-  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md`, "X13", and X13 re-runs it at T, the last
-  commit of this PR that changes its tool code or its CI job, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.1).
-  On those runs no parent-side verdict depends on `set -u`; that is a measurement over those runs, not a
-  proof over every path;
-- an incomplete fixture-build window is reported by the **W verdict alone**, and no control runs:
-  `_control` asks `_fw_built_or_w2` first, and so does each of the three blocks that are not
-  `_control`s (relative scratch, fsmonitor, umask). That covers a child that refuses a prelude missing
-  any one of `errexit`, `nounset` or `pipefail`, a fixtures file that stops before its last line, one
-  that switches an option off, and one that leaves the window's stderr redirected. A build that is complete but untrusted (a red postcondition, or W3) ends
-  the run after its reports, and no control runs over it either;
-- a mode restriction a fixture sealed and the window could not apply, or refused, is red (W4);
-- pinned by the W records (one per prelude option, one for the early return, one for an abort, one for
-  an option switched off by the fixtures file, one for its stderr left redirected), the three W2 records and the W4 record. The three block gates
-  are pinned by the traced `w2rec` cell only (§3's declared gap).
+**`#11-k2-wire-exit-trap-masks-set-u-abort`: the closure text.** The defect (`…-residuals.md` §5.2): on
+`/bin/bash` 3.2, `set -euo pipefail` together with the wire's EXIT trap turned an unbound-variable abort
+into rc 0. The slot's ledger trigger, "code sourced after wire:405" (the trap's line at base), fired in
+this PR: its harness and controls are such code, and review R2 measured a real false green from it. **§9's
+ledger step removes the entry citing this text** (it replaces nothing in place):
+- **mechanism (`8f4ad3c8`):** a run may leave with status 0 only through its verdict. `_K2_ORDERLY=1`
+  is set at the one place the wire ends green, immediately before its PASSED line (the `--selftest`
+  green end falls through to it; every other end of the wire and its parts is `exit 1` or `exit 2`).
+  The EXIT trap's body is one function, `_k2_exit` (wire:423 at `8f4ad3c8`, the trap at wire:431), called
+  by the wire's trap and by the mutation run's, which replaces the wire's for that run: it cleans up the
+  scratch dir, and a status of 0 without the flag becomes `!! CONTROL FAILED (the run ends only through a
+  verdict): the run ended before reaching its verdict` and rc 1. The label is `_ord_lbl` in the controls
+  file, expanded with a literal fallback because the trap can fire before that file is sourced;
+- **evidence, measured on both shells:** R2-3's scenario (`_fws_lbl=` renamed, a seal failure, the
+  `_lbd_lbl` guard neutralised) gave 3.2 rc 0, 5.3 rc 1 before, and 3.2 rc 1 with the label line, 5.3
+  rc 1 after. The flag's record (`s/^_K2_ORDERLY=1$/:/`) is killed with its needle on both shells (corpus
+  §6.1); the always-on wire is green on both (`…-pr527-r15.md` §Q, Stage 5);
+- **the rejected fix:** capturing `$?` first in the trap and ending with `exit "$<saved>"`. Measured, it
+  does not help: on 3.2 a `set -u` abort enters the trap with `$?` = 0, so the scenario still gave rc 0;
+- **no record for removing the check:** bash 5 already exits 1 on such an abort, so a record that
+  removes the check could die only on 3.2 and would survive on 5.3. The wire says so beside the trap,
+  with the cell evidence above. The flag's assignment has its record;
+- **the create-time audit** (the four questions `…-residuals.md` §5.1 applies):
+  1. *Does it name a defect this PR leaves?* No: an abort no longer leaves with status 0, measured above.
+  2. *Is work owed?* No: what is left is the check's own removal, which no record can pin on both
+     shells, and the wire states it where the check is.
+  3. *Does it have a trigger that brings work back?* No: "code sourced after the trap" is no longer a
+     hazard: an abort there that would leave with status 0 now ends at rc 1 through the same trap body.
+  4. *Would keeping it change any decision?* No: it would restate the comment beside the trap.
 
 ### §9.1 Drafts 11–21: the commits made on top of `8413a4db`
 
 Drafts 11–21 were implemented as six commits on the PR branch, C6 `523ce31f` … C12 `219fe5e7`
 (`…-pr527-r15.md` §Q), and `0280a67f` dropped a prototype tag. A `/code-review max` fix round followed
-(`976e1430`, `15d3e704`, `6ed414b2`, then a docs commit; §Q). C7 (draft 12's time bound) and X12
+(`976e1430`, `15d3e704`, `6ed414b2`, then a docs commit; §Q), then review R2 (`96eea58c`, docs `9b61d51c`),
+`3dde656e` and Stage 5 (`8f4ad3c8`, the one commit after `e8f78896` that edits the wire itself; its docs follow
+in the next commit; §Q). C7 (draft 12's time bound) and X12
 (draft 12's watchdog cells) are withdrawn, and neither number is reused. Each commit is green on both
 shells and sets `_MUT_RECORDS_MIN` to its own record count; the record changes are in corpus §6.1.
 - **Per commit**, the light checks: X1, X4b and X10.
@@ -367,12 +378,12 @@ These run on both shells, and on both gits wherever the corpus has a column.
 | X2 | the corpus §6 G cells (its recipe, on the implementing head as `p6/`) | all PASS with P equal, 4 configs |
 | X3 | at T only (§9.1; it is one control pass per record): `WEBREF_WIRE_MUTANTS=1 $SH $W`, then `/usr/bin/grep -F -e 'entr(ies), 0 not killed as named' -e ', 0 neither killed nor argued equivalent' -e 'trip-wire PASSED'`; then corpus §6.1's survive check, by hand: each §6.1 record run with the clause it names removed; then two opt-in cells: the **plant cell** (C11), the same mutation run with `ln -s /dev/null "$CTL/.genmutants"` inserted just before the fixtures' `built` line, and the **floor cell** (C11, D19-A), the same mutation run with `mutgen.sh`'s `>> "$_VFY/.genmutants"` in `_mut_gen_run`'s regex loop replaced by `>> /dev/null`. Each of these runs on bash 5.3 **and** 3.2 at T | three hits in every column. C1–C3 are byte-identical to base. Each §6.1 record survives with its clause removed; a FIFO record reaches the bound instead (§6.1's procedure; the bound is the alarm or, under bash 3.2, the watchdog: "Cell runners at T" below). The plant cell: at `8413a4db` (base) the generator reads no mutant, and the run reports `0 mutant(s)` and PASSED, the blind; after C11 the plant has no effect, and the run reports its normal non-zero `N mutant(s)` and PASSED. The floor cell: red, `!! the generated boundary set ran 0 mutant(s), but the generator derives 50 …` (the run-time layer, D19-A; the always-on floor stays green there, because the generator's output is intact), and `1 neither killed nor argued equivalent`; on the draft-21 prototype with the hand set cut to its `!survive` line (`RC`), rc 1 on both shells (`…-pr527-r15.md` §Q). Measured once each on bash 5.3 only (`…-pr527-r15.md` §Q, 34–42 min per run from the two runs cited, 2056 s and 2530 s, two runs at a time): base rc 0, PASSED, `0 mutant(s)`; the draft-19 prototype with the plant, `50 mutant(s)`, `0 neither killed nor argued equivalent`. At T both run on both shells, and the run must also be PASSED (the draft-19 prototype's hand set had the `LC_ALL=C.UTF-8` record killed for the wrong reason; draft 20 relabels it, corpus §6.1). The bash-3.2 runs are estimated at about 1.33 times the 5.3 time, 46–56 min each, from the clean-run ratio on the draft-20 prototype (24 s against 18 s); that is an estimate, not a measurement |
 | X4 | C1/C2: X1's log at the parent commit and at the split commit, with scratch paths normalised by one `sed`, then `diff` | empty |
-| X4b | the X4b block below, over each file that C1, C2, C6, C8, C9, C10, C11 or C12 edits (the harness is edited by C6, C8, C9, C10, C11 and C12) | empty (at `8413a4db` the harness gives 2 lines, 71 and 93, which C6 deletes) |
+| X4b | the X4b block below, over each file that C1, C2, C6, C8, C9, C10, C11 or C12 edits (the harness is edited by C6, C8, C9, C10, C11 and C12), and over the lines `8f4ad3c8` adds to the wire | empty (at `8413a4db` the harness gives 2 lines, 71 and 93, which C6 deletes). The wire as a whole is not a subject: it has pre-existing matches this PR does not touch |
 | X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`, re-anchored to T by "X5 at T" below; and drafts 11–21's cells (corpus §6.1); every cell run as "Cell runners at T" says | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11–20 cell as corpus §6.1 says |
 | X6 | two by-hand edits to `…trip-wire.fixtures.sh`, each just before its `: > "$_FW_DIR/built"` line: `mkdir -p "$_FGIT_VOID" && printf 'ref: refs/heads/x\n' > "$_FGIT_VOID/HEAD" && : > "$_FGIT_VOID/config"`, and `git -C "$CTL/clean" config include.path /nonexistent-k2`; one run each | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
 | X8 | at T (§9.1), a sanity record only (§9, "X8 is a sanity record only"): `/usr/bin/time -p bash scripts/trip-wires.sh`, three runs on the branch and three on base `e8f78896`, alternated | the six times recorded in `…-pr527-r15.md` §Q; nothing decided and nothing written to `ci.yml`. The budget verdict is X9's |
 | X9 | `Layering trip-wires` on ubuntu (GNU) by route (b), decided by the user: #501's CI after #527 is squashed into it (land order step 7); the job's time from that run, by §9's `gh run view` command | SUCCESS, and the job's time under half the budget in force (§9, "The threshold"; at or above it, STOP), the verdict written on #501's branch as §9 says. The run is also GNU evidence for `env -i`, `env -0`, the window, the prelude, and the census's `find` expressions under GNU find: `find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \)` (pass 1's list), `find <.git> \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print` (pass 1's shape), `find "$CTL" -type l -print0` (pass 2's link list) and `find -L <link> \( -iname HEAD -o -iname .git \) -print` (pass 2's search). If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |
-| X10 | `$SH -n` over every `.claude/tools/webref-generic-core-trip-wire*.sh`, and `wc -l` over the parts this PR edits (controls, fixtures, harness, mutations, mutgen; C11 edits mutgen) | clean; each edited part below 1000 lines. The wire itself (1259 lines at `8413a4db`) is not edited by this PR, so the rule does not reach it |
+| X10 | `$SH -n` over every `.claude/tools/webref-generic-core-trip-wire*.sh`, and `wc -l` over the parts this PR edits (controls, fixtures, harness, mutations, mutgen; C11 edits mutgen) | clean; each edited part below 1000 lines. The wire itself (1259 lines at `8413a4db`) is edited by this PR only in `8f4ad3c8` (the orderly-end flag, +28 lines: 1286 at `8f4ad3c8`) |
 | X11 | in a clone, add to `…trip-wire.controls.sh`, after the other `_lbl` definitions, `_x_lbl="an unrecorded probe"` and `echo "$_x_lbl" >/dev/null` | red, and the ratchet lists it |
 | X12 | withdrawn with draft 12's time bound (draft 13); the number is not reused | — |
 | X16 | at T, by hand, with the cell script `cell15.sh` from `…-pr527.md` (round 13), given the watchdog by "Cell runners at T" below: the four Codex R26③ FIFO cells of the table "R26③, measured" (`commondir`, `HEAD`, `config`, `config.worktree` in `clean/.git`), round 13's cells `xcommon`, `bareh`, `outsidein`, `hard`, `xlink`, `xincreg` and `clean`, round 14's `xrefpoison` and `xrefctl`, round 15's `lnblind2` (its insert verbatim in `…-pr527-r15.md` §Q), round 16's `xbare`, `xanchor` and `xexecarith` (C11, C12; each insert and tree edit verbatim in `…-pr527-r15.md` §Q), round 17's `shimprepend`, `shimafter` and `shimhash` (inserts verbatim in `…-pr527-r15.md` §Q), round 18's `stalectl` and `staleshim` (below), and the `gitfn` cell (its insert verbatim in `…-pr527-r15.md` §Q, round 18), one run per cell and shell | each red cell: rc 1, P-g, the untrusted-build stop runs no control, and the run ends in under 40 s; `clean` PASSED. The 40 s is five times the slowest red cell measured on the draft-15 prototype (`xincreg`, 8 s on bash 3.2; on draft 16's, also 8 s). The waiting cells (`hdless`, `xinclude`, `xinclnk`, `outroot`, `ttyinc` under a terminal) are not exit criteria: they wait, R9. Round 16's cells expect their own verdicts instead: `xbare` rc 1 with the ratchet's `… labels have no mutation record, against a ratchet of 0.`, `xanchor` rc 1 with `… its anchor is stale`, `xexecarith` rc 2 with W's sentence "the fixtures file left the window's stderr redirected". Round 17's: `shimprepend` rc 1 with P-j's first-entry report (not P-g), the untrusted-build stop running no control; `shimafter` and `shimhash` rc 0, PASSED, the declared class-(c) boundary (design memo §0.3): a red there means the boundary moved, and the memo must say how. Round 18's `stalectl` and `staleshim` run by `cellw.sh` (`cell15.sh` with a caller-`PATH` directory `cpath` put first, verbatim in `…-pr527-r15.md` §Q, given the same watchdog) on a tree with one never-matching record added, `s/K2NEVERMATCHES/x/` labelled `the fixture build window completed`: `stalectl` (no insert) rc 1 with `… its anchor is stale`; `staleshim` (its insert verbatim in §Q; it writes `cpath/mktemp`, which the parent's `_VFY` then resolves to) rc 0, PASSED, the declared class-(c) boundary (D18-A), with `cpath/mktemp` and the prepared directory removed between runs. `gitfn` rc 1 on both shells, P-a with `command line:` origins, and the untrusted-build stop runs no control |
@@ -423,8 +434,45 @@ generation stage completes: `38 jobs`, 228 part copies, each clean under `bash -
 alarm and the watchdog. ⚠ **Open:** R, RES, G and ROg are judged with P equal (`eval9.sh`'s `same`),
 which needs the prototype-only `K2_CORPUS_PDUMP` hook (corpus §6). C5's X5 ran on a clone carrying it
 as the local commit `7c07415c` (companion §A.14); that commit is not reachable here (`git cat-file -t
-7c07415c` fails) and the hook's code is recorded nowhere, so it must be re-made for T before those rows
-can PASS. Without it they read FAIL for `same=0`, which says nothing about the build.
+7c07415c` fails; so are `50f9e31a` and `22ea58f1`, the p6 and p5d hook commits) and the hook's code is
+recorded nowhere, so it must be re-made for T before those rows can PASS. Without it they read FAIL for
+`same=0`, which says nothing about the build.
+
+**The hook's specification, as far as the records determine it.** `PROV@ff1322bb` below is
+`git show ff1322bb:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`; "companion :N"
+is line N of that file at this commit; line numbers in the design memo and corpus are at this commit.
+- **Interface.** The cell sets `K2_CORPUS_PDUMP` to a per-cell file it has just truncated,
+  `$OUT/pd/$tag`, in the wire's environment (`PROV@ff1322bb`:837, :839; `cell9.sh` is that `cell6.sh`
+  plus `HOME`: companion :825, `cell8.sh` = `cell6.sh` at `git show 453b7b0f:…-provenance.md`:811).
+- **Into the window.** Passed as a plain prelude assignment, never exported, so P-f does not see it
+  (corpus :30–31); the `declare -p` form exported it and P-f reported it (companion :326–328).
+- **What it dumps.** P, per fixture repo (corpus :29–30), P being design memo §1's four items: the
+  index (path, mode, blob), the tree of `HEAD`, the ref `HEAD` names, every ref, a commit by its tree
+  and anything else by value (design memo :271–277). On p6 a clean build dumped 80 repos, and two clean
+  runs per shell gave byte-identical dumps (companion :330–331). Symlink targets are normalised for
+  `$CTL`, because `linkname` stores `$CTL` in its target (corpus :31; companion :331–332).
+- **What "P equal" compares.** `same=1` iff the cell's dump is byte-equal (`cmp -s`) to the dump of the
+  `REF` cell of the **same configuration** and is non-empty (`PROV@ff1322bb`:858; unchanged in
+  `eval8.sh`, `git show 453b7b0f:…-provenance.md`:873, and `eval9.sh` adds arms only, companion :827);
+  per configuration, because a shim embeds the real git's path (companion :334–336). `Pdiff` is the
+  count of `<`/`>` lines of `diff` between the two dumps (`PROV@ff1322bb`:859). R, RES and G need green
+  and `same=1` (`PROV@ff1322bb`:862).
+
+**Not determined by any record (so the hook cannot be re-made from them):**
+1. **where it is called:** the records say only that it runs in the window (corpus :30); its place
+   relative to `built`, the postconditions, `_seal_apply` (which came after p6 and makes sealed paths
+   unreadable) and `done` is not written down;
+2. **the population:** which `.git` dirs count as "fixture repos" (the 80 of companion :330) and in
+   what order they are dumped;
+3. **the commands and the line format** that read the four items of P, including how a ref's commit is
+   reduced to its tree;
+4. **the normalisation:** what string replaces `$CTL` in a symlink target, and where in the dump a
+   symlink target appears (an index entry's blob, or a separate line);
+5. **which git and environment it runs under, and its failure path:** whether a failed read is visible
+   in the dump or only as an empty file (`same` checks only non-empty, `PROV@ff1322bb`:858).
+
+These five are decisions for whoever re-makes the hook, not facts this file can supply. The re-made
+hook is reviewed by a reviewer agent before X5's P-equal rows are run at T.
 
 ```sh
 awk '/^### §E.7/{f=1} f&&/^```python$/{p=1;next} p&&/^```$/{exit} p' \

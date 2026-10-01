@@ -88,7 +88,8 @@ slot's trigger. The slot's original premise, verbatim from the ledger, "Measured
 region contains no bare `git ` outside comments", is **moot**.
 
 **Accounting:** 1 own deferral, `#11-trip-wire-liveness-bound` (§5.2 R9, draft 13). With
-`#11-k2-fixture-git-invocation-convention` closed and the keep-set slot dissolved below, the ledger nets to **−1**.
+`#11-k2-fixture-git-invocation-convention` closed, the keep-set slot dissolved below and
+`#11-k2-wire-exit-trap-masks-set-u-abort` closed (§5.2, `8f4ad3c8`), the ledger nets to **−2**.
 
 `#11-k2-fgit-keepset-depends-on-git-purge-glob` **dissolves**. There is no keep-set and no helper that
 calls `_git`. Its premise sentence was absent at `ff6b99a3`: the command below returns rc 1.
@@ -125,11 +126,12 @@ sed -n '/^  check:/,/^  [a-z]/p' .github/workflows/ci.yml | /usr/bin/grep runs-o
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` §9.2 (moved there unchanged, beside the
 ledger step that writes it).
 
-**Pre-existing, not fixed here: `#11-k2-wire-exit-trap-masks-set-u-abort`.** On `/bin/bash` 3.2,
-`set -euo pipefail` together with the wire's EXIT trap (since base, wire:405) turns an
-unbound-variable abort into exit 0. The orchestrating session reproduced it (`…/scratchpad/r4ax2/u.sh`:
-3.2 rc=0, 5.3 rc=1). The slot's owner is the **citation-hygiene lane**, and its ledger trigger is
-"code sourced after wire:405".
-
-This PR's harness and controls are exactly such code. **The ledger text — the one text; §9's ledger
-step writes exactly this** — is in `…-landing.md` §9.2 (moved there unchanged).
+**Pre-existing, closed by this PR: `#11-k2-wire-exit-trap-masks-set-u-abort`.** On `/bin/bash` 3.2,
+`set -euo pipefail` together with the wire's EXIT trap (since base; the ledger trigger's "wire:405" is
+the trap's line at base) turned an unbound-variable abort into exit 0. The orchestrating session
+reproduced it (`…/scratchpad/r4ax2/u.sh`: 3.2 rc=0, 5.3 rc=1), and review R2 measured a real false green
+from it (R2-3: a renamed label, a seal failure, 3.2 rc 0). `8f4ad3c8` closes it with the **orderly-end
+flag** (design memo §3): `_K2_ORDERLY=1` is set once, just before the PASSED line, and the shared trap
+body `_k2_exit` (the wire's trap and the mutation run's both call it) turns status 0 without the flag
+into rc 1. The closure text, with its evidence and the create-time audit, is in `…-landing.md` §9.2;
+§9's ledger step removes the entry citing it.

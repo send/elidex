@@ -186,7 +186,7 @@ core.
 | U2+U3: the escape class | Two channels are added. (a) An env shim, with `_fgit` using an absolute `env` captured at source time. (b) Trace2 via `GIT_TRACE2_EVENT` and via `GIT_CONFIG_GLOBAL` (config route), plus poison `GIT_CONFIG_COUNT=bogus`. `GIT_TRACE` is dropped, because it was measured to be shadowed. The residual shrinks to a git started from nothing by an absolute-path program. The slot is narrowed with a property-defined trigger | R column 33/33 × 4, including the round-4 escapes and `env -`; RES green; BEFORE d0234/5/7/8 silent on p4 |
 | U4: P-e | The record injects `GIT_EXEC_PATH`, which reds on both gits. The `PATH`-drop mutant becomes an INFO cell and is not a record. No runner mechanism was added | P-e record PASS × 4; INFO red on git 2.55, green on 2.54 |
 | U5: uninitialised state | Every detector name is assigned at harness top level. A setup failure is a labelled verdict. Nothing relies on `set -u` | setup record PASS × 4, against BEFORE d0233 (rc 1, unlabelled) and d0236 (**rc 0**) |
-| Pre-existing: bash 3.2 EXIT trap plus `set -u` exits 0 | Recorded in design memo §5.2 and not fixed, because the wire is untouched. The orchestrator books the slot | `…/scratchpad/r4ax2/u.sh` (the orchestrator's) |
+| Pre-existing: bash 3.2 EXIT trap plus `set -u` exits 0 | Recorded in design memo §5.2 and not fixed, because the wire is untouched. The orchestrator books the slot (later closed by PR #527's `8f4ad3c8`, `…-landing.md` §9.2) | `…/scratchpad/r4ax2/u.sh` (the orchestrator's) |
 
 **MINs:**
 - **Ax4, C1 range:** stated exactly as base controls lines 83–734; lines 735–737 are `ctl_ok=0`'s
@@ -234,6 +234,7 @@ subject, which was every item listed above. Anything else stays open for round 5
 - **Ax5, banner seed:** the seed is widened (`.bare|mutation record|every control|unreachable or loud`), giving eleven sites, including L816 and L1212–1214. The memo now says the seed is a seed.
 - **Ax5, in-file mutations statements:** now listed as `:44–46`, `:120`, `:136–138`, `:672–673` and `:684–688`, found by a stated grep.
 - **Ax5, §5.2:** names `#11-k2-wire-exit-trap-masks-set-u-abort`, and nothing new relies on `set -u`.
+  (Later: the slot is closed by PR #527's `8f4ad3c8`, the orderly-end flag; `…-landing.md` §9.2.)
 - **Ax5, X2/X5 re-run recipe:** the scripts take a directory argument and `K2_CORPUS_OUT`, with the tree under test at `<dir>/p6`.
 - **Ax2/Ax3 MINs tied to the detector** (M1 `cmd_name` absent under poison; M2/M3 detector messages and the canary order): **moot**, deleted with the detector.
 - ⚠ Any round-5 MIN not named in this session's brief remains open for round 6.
@@ -263,7 +264,8 @@ subject, which was every item listed above. Anything else stays open for round 5
   the header.
 - **Ax4 MIN-6:** the ledger premise is quoted verbatim.
 - **Ax4 MIN-7:** the owner is the citation-hygiene lane, and the correct replacement text for the
-  exit-trap ledger entry is given.
+  exit-trap ledger entry is given. (Later superseded: PR #527's `8f4ad3c8` closes the slot, and
+  `…-landing.md` §9.2 holds its closure text.)
 - **Ax4 MIN-8:** A-ii's recogniser is described as line-anchored, fence-aware and §3-scoped.
 - **Ax4 false premise and Ax5 MIN, round-6 scope:** recorded as it ran (§D.0).
 - **Ax5, "0 new own deferrals":** corrected to 1 own deferral under a re-scoped name, with the ledger

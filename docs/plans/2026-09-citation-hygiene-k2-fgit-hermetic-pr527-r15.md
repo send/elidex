@@ -764,8 +764,34 @@ Measured (Part A's logs, relayed; the driver re-verified `96eea58c` green with e
   commit's files overlaid: 5.3.20 rc 0, PASSED, 17 s; 3.2.57 rc 0, PASSED, 23 s (the always-on record
   anchor check included). X4b over the five parts: empty.
 
-**Not done, carried:** harness :595 (now :615), the cause written to `$1/cause` when `cd "$1"` fails,
-is unreachable (the directory it cannot enter is where it writes); it is code, so Part B only reports
-it. The P-dump hook (above) stays open.
+**Carried, then closed by `3dde656e`:** harness :595 (now :615), the cause written to `$1/cause` when `cd "$1"`
+fails, was unreachable (the directory it cannot enter is where it writes); below. The P-dump hook stays open.
 
-This file is 771 lines (`wc -l`) after this entry, under design memo §13's 800.
+**`3dde656e` and Stage 5 (`/elidex-review` on `3dde656e`: 0 CRIT / 1 IMP / 5 MIN, E-1…E-5), 2026-10-01.**
+Code `3dde656e` and `8f4ad3c8`; docs (E-5) this commit. Runs as review R2's (both shells, own group, alarm, watchdog).
+- **`3dde656e`:** the child no longer writes into the directory it failed to enter; the parent names
+  that case from the directory (`the window's own directory was lost or cannot be entered`). Measured on
+  5.3 and 3.2 with the window's directory mode 000 before `built` (its commit message). No record.
+- **E-1 (IMP), the exit-trap slot, closed:** the orderly-end flag (design memo §3; closure text and audit
+  `…-landing.md` §9.2). The wire's rc-0 ends: one, the fall-through to the PASSED line (`--selftest`'s
+  green end included; no `exit 0` in the wire or a part outside the fixtures' shims and the watchdog
+  subshell's TERM trap). R2-3's scenario: before 3.2 rc 0, 5.3 rc 1; `$?` captured first (rejected): 3.2
+  rc 0; after 3.2 rc 1 with `CONTROL FAILED (the run ends only through a verdict)`, 5.3 rc 1. The flag's
+  record killed with its needle on both shells; the two `SCRATCH=` records (`a relative scratch dir is
+  removed on exit`, `a restrictive umask decides nothing`) re-run, killed on both. A fatal signal (the
+  alarm) now also prints the label line; its rc is the signal's, unchanged.
+- **E-2:** controls.sh names `#11-k2-wire-verdict-site-controls`. **E-4:** mutations.sh (981 lines) carries
+  the rule that the edit taking it past 1000 lines first splits out the record table.
+- **E-3:** a marker that exists but cannot be read is red under `$_fw_lbl` and the window untrusted (design
+  memo §3). Before: rc 0 on both shells (a false green); after: rc 1 on both, for `seal_failed` and
+  `fix_failed`. No record: class (c).
+- **At `8f4ad3c8`:** always-on wire green, 5.3 (18 s) and 3.2 (24 s); X4b over the five parts and over the
+  wire's added lines: empty; the K2P/K2REF grep: empty. Not run: the opt-in mutation run (its new trap
+  line ran only in a 25 s alarm-bounded start). Records: 95 of this PR, 190 in all (corpus §6.1).
+- **T is `8f4ad3c8`** (`…-landing.md` §9.1's command; this docs commit does not move it). Covered at T:
+  the always-on wire on both shells, and the per-record runs above. **Still owed at T:** the whole
+  final-head sequence of `…-landing.md` §9.1: step 1 (X2, X3 with the survive check and the plant and
+  floor cells, X5, X6, X8, X11, X13, X14, X15, X16; X5's P-equal rows need the P-dump hook re-made and
+  reviewed first, `…-landing.md` "X5 at T", which names five gaps the records leave), then steps 2–5.
+
+This file is 797 lines (`wc -l`) after this entry, under design memo §13's 800.

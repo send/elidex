@@ -282,6 +282,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | review R2 `96eea58c` | **add**: the liveness probe's `alternates` written to `/dev/null` (rc 0, no `alternate:` line, no stderr). It survives with the `-ne 1` clause removed | P-k liveness | harness | 92 / 187 |
 | review R2 `96eea58c` | **add**: two expressions, `nounset` dropped from the prelude and the options re-check after the fixtures file deleted: W's "refused to start". It survives with the check before the fixtures file removed | W | harness | 93 / 188 |
 | review R2 `96eea58c` | **add**: pass 1's list given an unterminated duplicate record after the `find`: `(the census list does not end in a NUL byte)`. It survives with pass 1's tail check removed (rc 0, PASSED) | P-g | harness | 94 / 189 |
+| Stage 5 `8f4ad3c8` | **add**: the orderly-end flag's assignment before the PASSED line replaced by `:` (`s/^_K2_ORDERLY=1$/:/`, no prefix: the wire itself): every run that would end green ends `the run ended before reaching its verdict`, rc 1. Killed with its needle on both shells. Removing the check itself has no record: bash 5 exits 1 on a `set -u` abort by itself, so such a record could die only on 3.2 (`…-landing.md` §9.2, the exit-trap closure). E-3's unreadable-marker check has none either: its trigger is a fixtures file that chmods the window's own marker, class (c); measured by hand | `the run ends only through a verdict` | **wire** | 95 / 190 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
@@ -307,6 +308,9 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   `92221297` the bare count was already 20 against 21, a slack of one that let the next label go bare
   in silence; `_MUT_UNRECORDED_MAX=20`. Kept: the P-k liveness record that fails the probe's `git
   init` (the `else` arm, a different arm from review R2's).
+- **Totals after Stage 5 (`8f4ad3c8`):** one label added (`_ord_lbl`, `the run ends only through a
+  verdict`, recorded), **95 records of this PR, 190 in all**: `_MUT_RECORDS_MIN=190`;
+  `_MUT_UNRECORDED_MAX` stays at 20.
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).

@@ -28,7 +28,7 @@ the land order and the ledger text) and §11 (the exit criteria), split out of t
 **Decision**: user, 2026-09-27, option (a): rebuild.
 
 **Status**: **draft 21**, implemented (§9.1: C6…C12, then the `/code-review max` fix round
-`976e1430`, `15d3e704`, `6ed414b2`, the /simplify round `92221297` and review round 2 `96eea58c`;
+`976e1430`, `15d3e704`, `6ed414b2`, the /simplify round `92221297`, review round 2 `96eea58c`, `3dde656e` (a window that lost its own directory, named by the parent) and Stage 5's `8f4ad3c8` (the orderly-end flag; unreadable markers untrusted), which is T;
 results in `…-pr527-r15.md` §Q). Draft 21 answers plan-review round 19 (`…-pr527-r15.md` §Q). What
 each draft answered goes to `…-reviews.md` §S, not here: drafts 6–21 are there, so this preface does not grow with the drafts.
 
@@ -400,7 +400,7 @@ window; P-f caught that in p6's first run (companion §A.9).
 (`done`), and the postconditions' verdict: `post_ok` when they returned 0, `post_bad` otherwise. The window's own `CONTROL …` lines are captured
 with the rest of its stderr (the file `stderr`) and replayed to the wire's stderr by the parent after
 the window ends, the canary taken out (C12). The markers are a protocol, not a seal: a fixtures-file write to them is class (c)
-(§0.3).
+(§0.3). Absent and unreadable are different answers: a marker that exists but cannot be read (`seal_failed`, `machine_limits`, `fix_failed`, `cause`; mode 000, a directory, a dangling link) is collected in `_fw_unread` and makes the window untrusted (below), never "nothing" (Stage 5 E-3; no record, its trigger is class (c); measured by hand, `…-pr527-r15.md` §Q).
 
 **An incomplete window is not "no fixture failed" (round-6 item 1; D4).** Completion needs two
 markers:
@@ -467,13 +467,13 @@ So the window's verdict is reported in **one place**, one harness function,
 after `ctl_ok=0`, and W3's report moves into it from the controls file. W4's report stays in the
 controls file, because W4 does not stop the run. **Trust is a property of the window**: the one
 writer of **`_fw_trusted`** is `_fgit_window` itself, at its end (1 only for a complete build whose
-postconditions wrote `post_ok`, positive evidence: no `post_bad` is not one; and no W3), and the gate
+postconditions wrote `post_ok`, positive evidence: no `post_bad` is not one; and no W3, and no unreadable marker, `_fw_unread` empty), and the gate
 `_fw_built_or_w2` decides by `_fw_trusted` alone; the verdict function only reports (C8's version computed the flag, so a verdict
 call below the first control left a clean build untrusted: ROg red; fixed, `…-pr527-r15.md` §Q). The
 function continues only over a build that is **complete and trusted**:
 - incomplete: W alone, exit 2 (above);
-- complete, but a postcondition or W3 reported, or the postconditions reached no verdict (neither
-  marker: its own line under W's label): those reports, then exit 1. A red is a decided verdict;
+- complete, but a postcondition or W3 reported, a marker unreadable, or the postconditions reached no verdict (neither
+  marker): those reports (the last two each its own line under W's label, `$_fw_lbl`; W3 under `$_fwd_lbl`), then exit 1. A red is a decided verdict;
 - otherwise: the controls run.
 
 W4 does not stop the run. A seal that failed marks its fixture failed, `_control` already refuses that
@@ -564,7 +564,7 @@ find -L /opt/homebrew/opt/git/share/man -type f -exec /usr/bin/grep -l CONFIG_NO
 longer creates it (companion §A.2).
 
 **errexit and state.** Every window state name (`_fw_rc`, `_fw_done`, `_fw_post_ok`, `_fw_post_bad`, `_fw_why`, and
-`_fw_trusted`, 0 until `_fgit_window` sets it at its end) is
+`_fw_trusted`, 0 until `_fgit_window` sets it at its end; `_fw_unread`) is
 assigned at harness top level, before anything reads it (`_fw_diag` and the W2 flag included). The
 child runs under `set -euo pipefail` with **no EXIT trap**. Each of those options is checked separately
 before the fixtures file (one record per option, corpus §6, which the re-check also kills; the check before
@@ -576,14 +576,14 @@ is a non-zero exit, which the parent reads as data. The verdict is written after
 clean tree and eight cells (sealfail, env0, garbagehead, w2rec, lblrename, w3ar, sealdotdot,
 reftable; six red, and env0 and reftable green at `8413a4db`) gave the same exit status, the same NE/CF counts and the same first four `!!` lines as with it on:
 - on bash 5.3 at the `/elidex-review` head (companion §A.14);
-- **on bash 3.2 and 5.3 at `8413a4db`**, 36 runs. Bash 3.2 is where it matters: there
-  `#11-k2-wire-exit-trap-masks-set-u-abort` turns an unbound-variable abort into rc 0.
+- **on bash 3.2 and 5.3 at `8413a4db`**, 36 runs. Bash 3.2 is where it mattered: there the wire's EXIT trap turned an unbound-variable abort into rc 0
+  (`#11-k2-wire-exit-trap-masks-set-u-abort`, closed by `8f4ad3c8`: the **orderly-end flag**, below and `…-residuals.md` §5.2).
 
 The cell script is verbatim in `…-pr527.md` ("X13"), and X13 re-runs it at T (`…-landing.md` §9.1). That
 is the measured claim: on those runs, no parent-side verdict depended on `set -u`. It is
 not a proof over every path, and the "every state name is assigned before it is read" argument is a
 reading of the code, not a measurement. The child's `set -u` is a backstop
-behind the static census, and it is pinned by its own record. See §5.2 for the pre-existing defect.
+behind the static census, and it is pinned by its own record. **The orderly-end flag (`8f4ad3c8`).** A run may leave with status 0 only through its verdict: `_K2_ORDERLY=1` is set once, just before the wire's PASSED line, and the wire's EXIT trap body `_k2_exit` (one function, also called by the mutation run's trap, which replaces the wire's) turns a status of 0 without the flag into `CONTROL FAILED (the run ends only through a verdict)`, rc 1. Capturing `$?` first does not help: on 3.2 the trap is entered with `$?` = 0 (measured). The flag's assignment has a record; removing the check has none (bash 5 exits 1 by itself, so it could die only on 3.2); the evidence is the R2-3 cell, 3.2 rc 0 before and rc 1 after (`…-pr527-r15.md` §Q).
 
 ## §4 Postconditions — run INSIDE the window
 
@@ -848,7 +848,7 @@ and a hidden one. Both were measured (corpus §6).
 
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` §5 (touch-time split, text
 unchanged at `f8ea983a`; extended since by D17-A and D18-A; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R9 and the
-pre-existing defect), so "§5.1", "§5.2" and "§5.2 Rn" in this memo resolve there.
+pre-existing defect, closed by `8f4ad3c8`), so "§5.1", "§5.2" and "§5.2 Rn" in this memo resolve there.
 
 ## §6 The corpus — evidence, and the source of the records
 
