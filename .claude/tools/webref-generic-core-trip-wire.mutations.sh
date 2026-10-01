@@ -222,7 +222,7 @@ _MUT_TARGETS="controls harness fixtures mutgen"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=20
-_MUT_RECORDS_MIN=190   # 179 - 1 (the pin's re-entry-limit record went with the counter) + 1 (the strip record) + 10 round-2 records + 1 (the orderly-end flag)
+_MUT_RECORDS_MIN=195   # 179 - 1 (the pin's re-entry-limit record went with the counter) + 1 (the strip record) + 10 round-2 records + 1 (the orderly-end flag) + 4 (R3: env owner, three block gates) - 1 + 1 (R3 D-3/D-5: P-k's `grep` and its exit>1 red arm went with the builtin `_fgit_alternates`; no external grep remains there, so the arm and its record are gone; the new `_fgit_alternates` record) + 1 (D-4: the per-name status record)
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -349,20 +349,20 @@ harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	the fixtur
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eu\\n'/	the fixture build window completed
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -uo pipefail\\n'/	the fixture build window completed
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/return 0/	the fixture build window completed
-fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture build window completed
+fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window completed
 # W2's record removes BOTH of the verdict function's exits (the incomplete-window
 # one, then the untrusted-build one that would otherwise end the run first) AND
 # leaves the window incomplete (its `done` marker renamed), in three one-line
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only `_control`'s own gate can say W2. W2's
-# producers are `_control`'s first statement and the gates of the three
+# producer is `_ctl_gate`, called by `_control` and by the three
 # non-`_control` blocks (relative scratch, fsmonitor, umask); the record pins
 # that W2 is reported when the exits are gone, which `_control`'s gate alone
 # satisfies. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
-# computation. ⚠ A DECLARED GAP: removing any ONE of the four gates —
-# `_control`'s own (`_fw_built_or_w2 || return 1`) or one of the three block
-# gates — survives this set, because another gate reports W2 first (the first
-# `_control` for a block gate; the relative-scratch block's gate for
+# computation. ⚠ A DECLARED GAP: removing any ONE of the four call sites of
+# `_ctl_gate` — `_control`'s own (`_ctl_gate … || return 1`) or one of the three block
+# calls — survives this set, because another call reports W2 first (the first
+# `_control` for a block call; the relative-scratch block's call for
 # `_control`'s), so the gates are pinned only by the traced `w2rec` cell
 # (companion §A.14), not by a record.
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
@@ -393,40 +393,40 @@ harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's env
 harness:s/_pfenv="[$]_FGIT_ENVBIN"/_pfenv=\/nonexistent-k2\/env/	the fixture build window's environment holds only its allowlist
 harness:s/^\(  "[$]_pfenv" -0 > "[$]_pq\/env0" 2> "[$]_pq\/env0.err" || _pfrc=[$]?\)$/\1; printf K2X=1 >> "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
 harness:s/^_FGIT_PATH="[$]_FGIT_BIN:/_FGIT_PATH="\/nonexistent-k2:$_FGIT_BIN:/	the fixture build window runs the pinned git first on its PATH
-fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 300 "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 600 "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; set -f; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzlc" \&\& cd "$CTL\/zzlc" \&\& git config core.excludesFile \/nonexistent-k2 \&\& mv HEAD head ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zzuc" \&\& cd "$CTL\/zzuc" \&\& git init -q --separate-git-dir="$_FW_DIR\/gduc" . \&\& mv .git .GIT ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --add core.bare false; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzout" \&\& git -C "$_FW_DIR\/zzout" config core.excludesFile \/nonexistent-k2 \&\& ln -s "$_FW_DIR\/zzout" "$CTL\/zzlink" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzo2\/a" \&\& git init -q --bare "$_FW_DIR\/zzo2\/a\/r" \&\& ln -s "$_FW_DIR\/zzo2" "$CTL\/zzl2" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzdh" \&\& git -C "$_FW_DIR\/zzdh" config foo.bar 1 \&\& rm "$_FW_DIR\/zzdh\/HEAD" \&\& ln -s refs\/heads\/main "$_FW_DIR\/zzdh\/HEAD" \&\& ln -s "$_FW_DIR\/zzdh" "$CTL\/zzdhl" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzhd" \&\& git -C "$_FW_DIR\/zzhd" config foo.bar 1 \&\& mkdir -p "$CTL\/zzh" \&\& ln -s "$_FW_DIR\/zzhd" "$CTL\/zzh\/HEAD" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.bare; git -C "$CTL\/clean" config core.logallrefupdates "$(printf 'true\\nfile:.git\/config\\tcore.bare=false')"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/cp "$CTL\/clean\/.git\/config" "$_FW_DIR\/k2cfg" \&\& rm "$CTL\/clean\/.git\/config" \&\& ln -s "$_FW_DIR\/k2cfg" "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzfifo" \&\& rm "$CTL\/zzfifo\/.git\/HEAD" \&\& mkfifo "$CTL\/zzfifo\/.git\/HEAD" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; &/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 300 "$_FGIT_VOID"; &/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 600 "$_FGIT_VOID"; &/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; set -f; &/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzlc" \&\& cd "$CTL\/zzlc" \&\& git config core.excludesFile \/nonexistent-k2 \&\& mv HEAD head ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zzuc" \&\& cd "$CTL\/zzuc" \&\& git init -q --separate-git-dir="$_FW_DIR\/gduc" . \&\& mv .git .GIT ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --add core.bare false; &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzout" \&\& git -C "$_FW_DIR\/zzout" config core.excludesFile \/nonexistent-k2 \&\& ln -s "$_FW_DIR\/zzout" "$CTL\/zzlink" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzo2\/a" \&\& git init -q --bare "$_FW_DIR\/zzo2\/a\/r" \&\& ln -s "$_FW_DIR\/zzo2" "$CTL\/zzl2" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzdh" \&\& git -C "$_FW_DIR\/zzdh" config foo.bar 1 \&\& rm "$_FW_DIR\/zzdh\/HEAD" \&\& ln -s refs\/heads\/main "$_FW_DIR\/zzdh\/HEAD" \&\& ln -s "$_FW_DIR\/zzdh" "$CTL\/zzdhl" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzhd" \&\& git -C "$_FW_DIR\/zzhd" config foo.bar 1 \&\& mkdir -p "$CTL\/zzh" \&\& ln -s "$_FW_DIR\/zzhd" "$CTL\/zzh\/HEAD" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.bare; git -C "$CTL\/clean" config core.logallrefupdates "$(printf 'true\\nfile:.git\/config\\tcore.bare=false')"; &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/cp "$CTL\/clean\/.git\/config" "$_FW_DIR\/k2cfg" \&\& rm "$CTL\/clean\/.git\/config" \&\& ln -s "$_FW_DIR\/k2cfg" "$CTL\/clean\/.git\/config"; &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzfifo" \&\& rm "$CTL\/zzfifo\/.git\/HEAD" \&\& mkfifo "$CTL\/zzfifo\/.git\/HEAD" ); &/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; printf x >\&2; _k2p=$(( 1\/0 ))/	the fixture build window ran without a shell diagnostic
-fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; &/	nothing is written into the fixture git's void
 harness:s/^  _fgit_shim "[$]_FGIT_BIN\/git" /  _fgit_shim "$_FGIT_BIN\/gitx" /	the fixture build window runs the pinned git first on its PATH
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; &/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^( cd "[$]CTL\/cachedir" && git init -q [.] /( cd "$CTL\/cachedir" \&\& git init -q --separate-git-dir="$CTL\/.gd-cachedir" . /	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.filemode; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zz\/inner" \&\& cd "$CTL\/zz\/inner" \&\& git init -q . \&\& git config core.excludesFile \/nonexistent-k2 ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.filemode; &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zz\/inner" \&\& cd "$CTL\/zz\/inner" \&\& git init -q . \&\& git config core.excludesFile \/nonexistent-k2 ); &/	every fixture repo persists only the configuration a plain git init writes
 # THE TWO-PASS CENSUS's records (C9): every one is caught before any
 # postcondition runs git, so no control runs, and each is fast (the FIFO
 # forms end in seconds, because the census stops them, unlike a FIFO a
 # postcondition would have read — docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md X16).
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( cp -R "$CTL\/clean\/.git\/objects" "$_FW_DIR\/zzobjcopy" \&\& rm -rf "$CTL\/clean\/.git\/objects" \&\& ln -s "$_FW_DIR\/zzobjcopy" "$CTL\/clean\/.git\/objects" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/mkfifo "$CTL\/clean\/.git\/commondir"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( cp -R "$CTL\/clean\/.git\/objects" "$_FW_DIR\/zzobjcopy" \&\& rm -rf "$CTL\/clean\/.git\/objects" \&\& ln -s "$_FW_DIR\/zzobjcopy" "$CTL\/clean\/.git\/objects" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/mkfifo "$CTL\/clean\/.git\/commondir"; &/	every fixture repo persists only the configuration a plain git init writes
 harness:s/_psh="[$](find "[$]_pe"/_psh="$(false "$_pe"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzr" \&\& rm -f "$CTL\/zzr\/.git\/config" \&\& mkfifo "$CTL\/zzr\/.git\/config" \&\& printf '..\/..\/zzr\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( printf x > "$_FW_DIR\/zzh" \&\& mkdir -p "$CTL\/clean\/.git\/info" \&\& rm -f "$CTL\/clean\/.git\/info\/exclude" \&\& ln "$_FW_DIR\/zzh" "$CTL\/clean\/.git\/info\/exclude" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$_FW_DIR\/zzo" \&\& rm -f "$_FW_DIR\/zzo\/.git\/config" \&\& mkfifo "$_FW_DIR\/zzo\/.git\/config" \&\& ln -s "$_FW_DIR\/zzo" "$CTL\/zzl" \&\& printf '..\/..\/zzl\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/pq\/a" "$_FW_DIR\/pq\/b" \&\& git init -q "$_FW_DIR\/pq\/a" \&\& git -C "$_FW_DIR\/pq\/a" config core.excludesFile \/nonexistent-k2 \&\& git init -q "$_FW_DIR\/pq\/b" \&\& git -C "$_FW_DIR\/pq\/b" config core.excludesFile \/nonexistent-k2 \&\& find "$CTL" -name .git -type d -print0 > "$_FW_DIR\/zzlist" \&\& while IFS= read -r -d "" _zd; do git config --file "$_zd\/config" core.excludesFile \/nonexistent-k2; done < "$_FW_DIR\/zzlist" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzt\/a\/objects" \&\& : > "$_FW_DIR\/zzt\/a\/HEAD" \&\& ln -s "$_FW_DIR\/zzt" "$CTL\/zzy" \&\& ln -s \/dev\/null "$_FW_DIR\/prel" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$CTL\/zzr" \&\& rm -f "$CTL\/zzr\/.git\/config" \&\& mkfifo "$CTL\/zzr\/.git\/config" \&\& printf '..\/..\/zzr\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( printf x > "$_FW_DIR\/zzh" \&\& mkdir -p "$CTL\/clean\/.git\/info" \&\& rm -f "$CTL\/clean\/.git\/info\/exclude" \&\& ln "$_FW_DIR\/zzh" "$CTL\/clean\/.git\/info\/exclude" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$_FW_DIR\/zzo" \&\& rm -f "$_FW_DIR\/zzo\/.git\/config" \&\& mkfifo "$_FW_DIR\/zzo\/.git\/config" \&\& ln -s "$_FW_DIR\/zzo" "$CTL\/zzl" \&\& printf '..\/..\/zzl\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/pq\/a" "$_FW_DIR\/pq\/b" \&\& git init -q "$_FW_DIR\/pq\/a" \&\& git -C "$_FW_DIR\/pq\/a" config core.excludesFile \/nonexistent-k2 \&\& git init -q "$_FW_DIR\/pq\/b" \&\& git -C "$_FW_DIR\/pq\/b" config core.excludesFile \/nonexistent-k2 \&\& find "$CTL" -name .git -type d -print0 > "$_FW_DIR\/zzlist" \&\& while IFS= read -r -d "" _zd; do git config --file "$_zd\/config" core.excludesFile \/nonexistent-k2; done < "$_FW_DIR\/zzlist" ); &/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzt\/a\/objects" \&\& : > "$_FW_DIR\/zzt\/a\/HEAD" \&\& ln -s "$_FW_DIR\/zzt" "$CTL\/zzy" \&\& ln -s \/dev\/null "$_FW_DIR\/prel" ); &/	every fixture repo persists only the configuration a plain git init writes
 harness:/^  find "[$]CTL" .*-iname .git/s/2> "[$]_pq\/pre.err" ||/2> "$_pq\/pre.err" \&\& false ||/	every fixture repo persists only the configuration a plain git init writes
 harness:s/^    find "[$]CTL" -type l -print0 >/    false "$CTL" -type l -print0 >/	every fixture repo persists only the configuration a plain git init writes
 harness:/^  find "[$]CTL" .*-iname .git/s/-print0/-print/g	every fixture repo persists only the configuration a plain git init writes
@@ -438,21 +438,24 @@ harness:s/^    find "[$]CTL" -type l -print0 /    echo k2 >> "$_pq\/pre.err"; fi
 harness:s/^\(    _fgit_in "[$]1" config --list --show-origin -z > "[$]2[.]raw" || return [$]?\)$/\1; printf x >> "$2.raw"/	every fixture repo persists only the configuration a plain git init writes
 # P-k's records (C10): the object-store check runs only over the clean
 # census, on every `.git` P-g compares.
-fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzkstore" \&\& mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '%s\\n' "$_FW_DIR\/zzkstore\/objects" > "$CTL\/clean\/.git\/objects\/info\/alternates" ); : > "$_FW_DIR\/built"/	no fixture repo reads objects from a store outside it
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzkstore" \&\& mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '%s\\n' "$_FW_DIR\/zzkstore\/objects" > "$CTL\/clean\/.git\/objects\/info\/alternates" ); &/	no fixture repo reads objects from a store outside it
 harness:s/"[$]_pfenv" -0 > "[$]_pq\/env0"/"$_pfenv" > "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
 harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_CONFIG_NOSYSTEM=1 /	the fixture git has no system or global layer outside the void
 harness:s/ "HOME=[$]_FGIT_VOID" GIT_CONFIG_NOSYSTEM/ "HOME=$SCRATCH" GIT_CONFIG_NOSYSTEM/	the fixture git has no system or global layer outside the void
-fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$HOME\/.config\/git" \&\& : > "$HOME\/.config\/git\/ignore"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; GLOBIGNORE='*'; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
-harness:s/_pka="[$](printf '%s\\n' "[$]_pko" | grep '^alternate:')"/_pka="$(printf '%s\\n' "$_pko" | grep '^alternate:' \/nonexistent-k2)"/	no fixture repo reads objects from a store outside it
+# P-b's ONE `git var` per name keeps its status beside its value: a status stored wrong reads as a failed GLOBAL call.
+harness:s/printf -v "_pbr_[$]_v" '%s' "[$]_prc"/printf -v "_pbr_$_v" '%s' 1/	the fixture git has no system or global layer outside the void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$HOME\/.config\/git" \&\& : > "$HOME\/.config\/git\/ignore"; &/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; GLOBIGNORE='*'; &/	nothing is written into the fixture git's void
 harness:s/( cd "[$]_pq\/c" \&\& git init -q [.] )/false/	this git reports alternate object stores
 harness:s/_fgit_in "[$]_pgd" count-objects -v 2>"[$]_pq\/pk.err"/false/	no fixture repo reads objects from a store outside it
-fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '\/nonexistent-k2-store\\n' > "$CTL\/clean\/.git\/objects\/info\/alternates"; : > "$_FW_DIR\/built"/	no fixture repo reads objects from a store outside it
+# The ONE `alternate:` extraction (`_fgit_alternates`, shared by P-k and its liveness probe): broken, the liveness probe sees no line.
+harness:s/alternate:[*]) printf/NOALT:*) printf/	this git reports alternate object stores
+fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/clean\/.git\/objects\/info" \&\& printf '\/nonexistent-k2-store\\n' > "$CTL\/clean\/.git\/objects\/info\/alternates"; &/	no fixture repo reads objects from a store outside it
 mutgen:s/^_mut_regex_mutants() {$/_mut_regex_mutants() { return 0/	the boundary-mutant generator derives a non-empty set from the wire's regexes
 # THE WINDOW'S STDERR CANARY's record (C12): the fixtures file redirects fd 2
 # before the options re-check's canary can reach it, so W ends the window
 # incomplete rather than reading a diagnostic sent to /dev/null.
-fixtures:s/^: > "[$]_FW_DIR\/built"$/exec 2>\/dev\/null; : > "$_FW_DIR\/built"/	the fixture build window completed
+fixtures:s/^: > "[$]_FW_DIR\/built"$/exec 2>\/dev\/null; &/	the fixture build window completed
 # W3's `./prelude.sh:` clause: an expansion error injected into
 # `_fgit_postconditions` skips the rest of that top-level command in silence
 # (neither `post_ok` nor `post_bad` is written, so the window is also untrusted
@@ -478,11 +481,17 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.l
 # the failed build; and the err seal line, deleted, is red in the same control.
 fixtures:s/^\(_seal "[$]CTL\/err\/control.py" 000 err\)$/_fixture_failed err; \1/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
+# R3 D-1 / D-8: `_control` clears `_ctl_env` before its gate (standing check, controls file), and ONE gate
+# (`_ctl_gate`) refuses a failed fixture for the three blocks that are not a `_control` as well.
+harness:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
+fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
+fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fsmon; &/	a caller's fsmonitor hook does not run
+fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed clean; &/	a restrictive umask decides nothing
 # ROUND 2 of the code review (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1).
 # The census lists a directory it cannot search: a BSD `find` says nothing about
 # one, so a repository with a persisted key under a bare `chmod 0444` parent was
 # invisible to it (and to P-g, which iterates the census's list).
-fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/zzm\/r" \&\& ( cd "$CTL\/zzm\/r" \&\& git init -q . \&\& git config core.excludesFile \/nonexistent-k2 ) \&\& chmod 0444 "$CTL\/zzm"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$CTL\/zzm\/r" \&\& ( cd "$CTL\/zzm\/r" \&\& git init -q . \&\& git config core.excludesFile \/nonexistent-k2 ) \&\& chmod 0444 "$CTL\/zzm"; &/	every fixture repo persists only the configuration a plain git init writes
 # Every label a part uses is defined: a definition in the controls file renamed,
 # its producers left as they were.
 controls:s/^_fws_lbl=/_fws_label=/	every label the parts use is defined
@@ -494,7 +503,7 @@ harness:s/_fgit_postconditions \&\& : > "[$]_FW_DIR\/post_ok" || /_fgit_postcond
 harness:s/ \&\& : > "[$]_FW_DIR\/post_ok" || / \&\& : > "$_FW_DIR\/post_okx" || /	the fixture build window completed
 # P-f's presence direction: a name of the allowlist that the window's environment
 # does not hold (exported away) is `missing`, not "nothing foreign".
-fixtures:s/^: > "[$]_FW_DIR\/built"$/export -n LC_ALL; : > "$_FW_DIR\/built"/	the fixture build window's environment holds only its allowlist
+fixtures:s/^: > "[$]_FW_DIR\/built"$/export -n LC_ALL; &/	the fixture build window's environment holds only its allowlist
 # `_seal` refuses a path with a `..` component even when it resolves inside the
 # fixture root (`walk/../walk/sub` is `walk/sub`, so the chmod would be applied).
 fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/..\/walk\/sub" 000 walk/	every mode restriction a fixture sealed was applied
@@ -727,14 +736,17 @@ _mut_correspondence() {
       _mut_orphan=1; continue
     fi
     printf '%s\n' "$_pr_needle" >> "$_VFY/.needles"
-    # `!survive` is the standing negative control; it names no control by design.
-    [ "$_pr_needle" != '!survive' ] || continue
-    grep -qF -- "\"$_pr_needle\"" "$_CONTROLS" || {
-      echo "!! mutation record needle \"$_pr_needle\" appears nowhere in the controls file" >&2
-      echo "   as a quoted label. A record whose control was renamed reports" >&2
-      echo "   \"wrong reason\" forever." >&2
-      _mut_orphan=1; }
   done < "$_VFY/.mutants"
+  # ONE `awk` PASS over the needles, not a `grep` per record: each needle must
+  # appear in the controls file as a quoted string. `!survive` is the standing
+  # negative control and names no control by design.
+  awk 'NR==FNR{t=t $0 "\n"; next} $0!="!survive" && index(t, "\"" $0 "\"")==0' "$_CONTROLS" "$_VFY/.needles" > "$_VFY/.orphans"
+  while IFS= read -r _pr_needle; do
+    echo "!! mutation record needle \"$_pr_needle\" appears nowhere in the controls file" >&2
+    echo "   as a quoted label. A record whose control was renamed reports" >&2
+    echo "   \"wrong reason\" forever." >&2
+    _mut_orphan=1
+  done < "$_VFY/.orphans"
   [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1
   # ---- THE GENERATED SET IS NOT EMPTY, ALWAYS ON --------------------------------
   # A static property of `_mut_regex_mutants`' output over the running wire's
@@ -824,9 +836,7 @@ _mut_correspondence() {
   awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS" | sed '/^$/d' > "$_VFY/.ctllabels"
   { cat "$_VFY/.ctllabels"
     awk -F'"' '/^ *_[A-Za-z0-9_]+_lbl="/{print $2}' "$_CONTROLS"; } \
-    | sed '/^$/d' | while IFS= read -r _lbl; do
-    grep -qxF -- "$_lbl" "$_VFY/.needles" || printf '%s\n' "$_lbl"
-  done > "$_VFY/.bare"
+    | awk 'NR==FNR{n[$0]=1; next} $0!="" && !($0 in n)' "$_VFY/.needles" - > "$_VFY/.bare"
   # ⚠ `wc -l`, NOT `grep -c .`. `grep` exits 1 when no line is selected, so on an
   # EMPTY `.bare` — the state this ratchet exists to let you reach — the
   # assignment failed and `set -e` aborted the required gate before the
@@ -845,7 +855,7 @@ _mut_correspondence() {
     echo "   same edit — a slack ratchet lets the next label go bare in silence." >&2
     _mut_corr_bad=1
   fi
-  command rm -f "$_VFY/.bare"
+  command rm -f "$_VFY/.bare" "$_VFY/.orphans"
   return "$_mut_corr_bad"
 
 }
@@ -906,6 +916,7 @@ _mut_run() {
       # as not exercisable here and not counted (PR #527 Codex R17; the first
       # form skipped them unrun — the re-check after it). The labels are
       # derived from the ID — every `_p<x>*_lbl` defined — not listed.
+      # REJECTED, by design (R3 D-9): the excuse keys on the `_p<x>*_lbl` NAMING convention, so a renamed label falls out of it and the opt-in run reds on a limited machine — the FAIL-SAFE side.
       _mskip=""
       while IFS= read -r _ml; do
         _mid="${_ml%% —*}"

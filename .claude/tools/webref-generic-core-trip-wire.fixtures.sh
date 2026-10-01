@@ -348,7 +348,7 @@ chmod +x "$CTL/fakemktemp/mktemp"
 # A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
 # relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
 # cannot pose this question here).
-mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp"
+mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp" || _fixture_failed relcwd
 printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp"
 chmod +x "$CTL/fakerelmktemp/mktemp"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
@@ -402,9 +402,10 @@ printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/ok.py"
 # A byte no UTF-8 locale can place in a bracket expression. ⚠ This control is
 # environment-sensitive: it discriminates the READ's own `LC_ALL=C` only where
 # the INHERITED locale is multibyte, so on a C-locale machine the mutation that
-# drops it survives this control. The wire's `export LC_ALL=C` itself is pinned
-# on every machine by P-h (the window must read in the wire's locale), not here.
-# Said here rather than left implied.
+# drops it survives this control. P-h pins only that the window's `LC_ALL` EQUALS
+# the wire's own (`$_FGIT_WIRE_LC`, read at load), not that either is `C`: a caller
+# that already exports `LC_ALL=C` makes the two agree whatever the wire sets, so
+# deleting the wire's `export LC_ALL=C` survives P-h for such a caller. Said here rather than left implied.
 printf 'X = ".claude/skills/\377name/rule.md"\n' > "$CTL/rawbyte/probe.bin"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/rawbyte/ok.py"
 # A quote inside a NAME segment: `/` is the only delimiter a stored path has.

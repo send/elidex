@@ -101,6 +101,7 @@ _fsm_lbl="a caller's fsmonitor hook does not run"
 _umask_lbl="a restrictive umask decides nothing"
 _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
+_ce_lbl="a refused control hands its environment to no other control"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -169,7 +170,7 @@ fi
 # inside such a command, so a bare call would abort the script on the first
 # non-zero and the remaining arms would never run.
 ctl_ok=0
-_ctl_env=()   # per-control environment; `_control` clears it after each use
+_ctl_env=()   # per-control environment; `_control` takes it and clears it on entry
 # THE WINDOW'S VERDICT, WRITTEN AFTER `ctl_ok=0`. An incomplete window built
 # nothing, so it ends the run here with W alone ("decided nothing"); a
 # complete but UNTRUSTED window (a red postcondition, or W3) ends it here too,
@@ -177,6 +178,14 @@ _ctl_env=()   # per-control environment; `_control` clears it after each use
 # refuses over a build that is not complete and trusted too (W2), wherever
 # this line sits.
 _fgit_window_verdict_exit "$_fw_lbl"
+# STANDING CHECK of `_control`'s one owner of `_ctl_env`: a control the gate
+# REFUSES (here, an untrusted window, forced in a subshell) must still leave the
+# global empty, or the NEXT control would inherit its environment.
+if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _control "$CTL/clean" 0 x x >/dev/null 2>&1
+       [ "${#_ctl_env[@]}" -eq 0 ] ); then
+  echo "!! CONTROL FAILED ($_ce_lbl): a refused control left its environment set" >&2
+  ctl_ok=1
+fi
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.
@@ -224,8 +233,8 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # Not a `_control`: the question is what the run leaves BEHIND, which its exit
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
-# ⚠ Gated, like every `_control`, on the window having built the tree.
-if ! _fw_built_or_w2; then ctl_ok=1
+# ⚠ Gated, like every `_control`, by `_ctl_gate` (window trusted, fixture built).
+if ! _ctl_gate relcwd "$_rel_lbl"; then ctl_ok=1
 elif ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
@@ -369,7 +378,7 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl
 # verdict cannot say. ⚠ The hook is first shown to run under a plain git call
 # over the same fixture, or its not running under the wire would prove nothing.
 # The hook's path goes through `_shq`, as every embedded path here does.
-if ! _fw_built_or_w2; then ctl_ok=1; else
+if ! _ctl_gate fsmon "$_fsm_lbl"; then ctl_ok=1; else
 _fsm_mark="$_VFY/.fsmonitor_ran"
 printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
 chmod +x "$_VFY/fsmhook"
@@ -408,7 +417,7 @@ if [ "$_perm_ok" -eq 1 ]; then
   # scratch dir unsearchable makes it unresolvable to a physical path.
   # ONE GATE: the assertion lives inside the branch that ran the umask run, so
   # the run and its report cannot disagree about whether there was a run.
-  if ! _fw_built_or_w2; then ctl_ok=1
+  if ! _ctl_gate clean "$_umask_lbl"; then ctl_ok=1
   else
     _um_rc=0
     ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$_VFY/.umask_out" 2>&1 || _um_rc=$?
@@ -437,7 +446,7 @@ fi
 _mut_correspondence || ctl_ok=1
 
 # (No check after the controls: every `_control` and every block that is not one
-# asks `_fw_built_or_w2` before it runs, so none runs over an unbuilt tree.)
+# asks `_ctl_gate` before it runs, so none runs over an unbuilt tree.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run

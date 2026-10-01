@@ -311,6 +311,14 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 - **Totals after Stage 5 (`8f4ad3c8`):** one label added (`_ord_lbl`, `the run ends only through a
   verdict`, recorded), **95 records of this PR, 190 in all**: `_MUT_RECORDS_MIN=190`;
   `_MUT_UNRECORDED_MAX` stays at 20.
+- **Totals after R3 (dropped-at-cap round):** one label added (`_ce_lbl`, `a refused control hands its
+  environment to no other control`, recorded), **100 records of this PR, 195 in all**:
+  `_MUT_RECORDS_MIN=195`; `_MUT_UNRECORDED_MAX` stays at 20. Added: the `_ctl_env` clear deleted (harness);
+  `_fixture_failed relcwd|fsmon|clean` (fixtures; they die under the three non-`_control` blocks' labels and
+  survive with that block's `_ctl_gate` call removed, so the umask block's gate IS now recorded); the
+  `_fgit_alternates` extraction broken (`$_pkl_lbl`); P-b's stored `git var` status (`$_pb_lbl`). Removed: P-k's
+  `grep '^alternate:'` exit>1 record, with its arm (no external `grep` remains there). The 34 fixtures
+  records that restated the `built` line now write it once (`; &`).
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).

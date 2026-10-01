@@ -148,6 +148,8 @@ _FGIT_WIRE_LC="${LC_ALL:-}"
 # State the parent reads back — assigned before anything reads it (nothing here
 # relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
+# The line the window writes to its stderr once its options are re-checked (W3's fd 2 probe): spelled ONCE, forwarded to the window through the prelude.
+_FW_CANARY="K2-WINDOW-STDERR-CANARY"
 _fw_rc=0; _fw_done=0; _fw_post_ok=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
 _fw_trusted=0
 _fw_seal_bad=""; _fw_limits=""; _fw_unread=""
@@ -173,6 +175,9 @@ _fgit_postconditions() {
   # recognise (a garbage `HEAD`) is an error here, never a walk to an ancestor
   # repository whose configuration would then be listed in its place.
   _fgit_in() { ( cd "$1" && shift && git --git-dir=.git "$@" ); }
+  # `_fgit_alternates <count-objects -v output>`: its `alternate:` lines, the one
+  # extraction P-k and P-k's liveness probe share (builtin, no `grep` fork).
+  _fgit_alternates() { local _l; while IFS= read -r _l; do case "$_l" in alternate:*) printf '%s\n' "$_l" ;; esac; done <<< "$1"; }
   # THE NUL-LIST POLICY, for every `read -d ''` reader below (the census's two
   # passes, P-f's `env -0`, `_pg_z`): `read -d ''` swallows a list written with
   # `-print` (newlines, no NUL) in silence — nothing classified, nothing red —
@@ -273,8 +278,12 @@ _fgit_postconditions() {
   # FIFO and file-permission controls follow: reported as NOT EXERCISED on
   # this machine, and green.
   _pbd=""; _pbl=""; _pbu=""
+  # ONE `git var` PER NAME: its status answers the capability question and its
+  # output is the value the checks below read (kept per name in `_pbo_<name>` /
+  # `_pbr_<name>`; bash 3.2 has no associative array).
   for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-    _prc=0; _fgit_in "$_pq/a" var "$_v" >/dev/null 2>&1 || _prc=$?
+    _prc=0; _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _prc=$?
+    printf -v "_pbo_$_v" '%s' "$_o"; printf -v "_pbr_$_v" '%s' "$_prc"
     [ "$_prc" -ne 129 ] || _pbu="$_pbu $_v"
   done
   if [ -n "$_pbu" ]; then
@@ -283,10 +292,13 @@ _fgit_postconditions() {
     for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
       _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 _fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
       [ -n "$_o" ] || _pbl="$_pbl $_v"
-      if _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v=[$_o]"; fi
+      _pbr="_pbr_$_v"; _pbo="_pbo_$_v"
+      if [ "${!_pbr}" -eq 0 ]; then _pbd="$_pbd $_v=[${!_pbo}]"; fi
     done
     for _v in GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-      if ! _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v:rc!=0"; continue; fi
+      _pbr="_pbr_$_v"; _pbo="_pbo_$_v"
+      if [ "${!_pbr}" -ne 0 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
+      _o="${!_pbo}"
       # The void is replaced by a token BEFORE the output is split into lines, so
       # a scratch path holding a newline cannot split one entry into two.
       _o="${_o//"$_FGIT_VOID"/@K2VOID@}"
@@ -423,11 +435,8 @@ EOF_PB
     if [ "$_pkrc" -ne 0 ] || [ -s "$_pq/pk.err" ]; then
       _pk="$_pk $_pgl:[count-objects exit $_pkrc$( [ ! -s "$_pq/pk.err" ] || printf ', stderr: %s' "$(tr '\n' ' ' < "$_pq/pk.err")" )]"
     else
-      # ⚠ grep's 1 is "no alternate line"; anything above it is a failed
-      # comparison, which is red — not an absent line.
-      _pkgrc=0; _pka="$(printf '%s\n' "$_pko" | grep '^alternate:')" || _pkgrc=$?
-      if [ "$_pkgrc" -gt 1 ]; then _pk="$_pk $_pgl:[the comparison failed (grep exit $_pkgrc)]"
-      elif [ -n "$_pka" ]; then _pk="$_pk $_pgl:[$(printf '%s' "$_pka" | tr '\n' ';')]"; fi
+      _pka="$(_fgit_alternates "$_pko")"
+      if [ -n "$_pka" ]; then _pk="$_pk $_pgl:[$(printf '%s' "$_pka" | tr '\n' ';')]"; fi
     fi
     # P-g: THE AUTHORITATIVE COMPARISON is of RECORDS, and runs first. A
     # line-based comparison can be forged by a value holding a newline shaped
@@ -478,8 +487,8 @@ EOF_PB
     mkdir -p "$_pq/c/.git/objects/info"
     printf '"%s"\n' "$(printf '%s' "$_pq/a/.git/objects" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$_pq/c/.git/objects/info/alternates"
     _pklrc=0; _pklo="$(_fgit_in "$_pq/c" count-objects -v 2>"$_pq/pkl.err")" || _pklrc=$?
-    _pkln="$(printf '%s\n' "$_pklo" | grep -c '^alternate:')" || _pkln=0
-    if [ "$_pklrc" -ne 0 ] || [ -s "$_pq/pkl.err" ] || [ "$_pkln" -ne 1 ]; then _pkl=bad; fi
+    _pkla="$(_fgit_alternates "$_pklo")"
+    if [ "$_pklrc" -ne 0 ] || [ -s "$_pq/pkl.err" ] || [ -z "$_pkla" ] || [ "$_pkla" != "${_pkla%%$'\n'*}" ]; then _pkl=bad; fi
   else
     _pkl=bad
   fi
@@ -582,7 +591,7 @@ _fgit_window() {
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
       _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_REQ _FGIT_WIRE_EXEC \
-      _FGIT_WIRE_LC _FGIT_BIN _FW_DIR; do
+      _FGIT_WIRE_LC _FGIT_BIN _FW_DIR _FW_CANARY; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
     # The postcondition labels, by the names `_fgit_postconditions` USES —
@@ -618,7 +627,7 @@ _fgit_window() {
     . ./fixtures.sh
     [ -e "$_FW_DIR/built" ] || { echo "the fixtures file returned before its last line" > "$_FW_DIR/cause"; exit 1; }
     _fw_opts_on || { echo "the fixtures file switched off errexit, nounset or pipefail" > "$_FW_DIR/cause"; exit 1; }
-    printf "K2-WINDOW-STDERR-CANARY\n" >&2
+    printf "%s\n" "$_FW_CANARY" >&2
     _fgit_postconditions && : > "$_FW_DIR/post_ok" || : > "$_FW_DIR/post_bad"
     _seal_apply
     printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
@@ -632,8 +641,8 @@ _fgit_window() {
   # own diagnostic to that same line). W3's scan below reads the raw capture:
   # the canary's text holds neither of its two prefixes, so it cannot match there.
   _fw_fd2=0
-  _FW_M="K2-WINDOW-STDERR-CANARY" awk 'index($0, ENVIRON["_FW_M"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=1
-  _FW_M="K2-WINDOW-STDERR-CANARY" awk '{ i = index($0, ENVIRON["_FW_M"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_M"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
+  _FW_M="$_FW_CANARY" awk 'index($0, ENVIRON["_FW_M"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=1
+  _FW_M="$_FW_CANARY" awk '{ i = index($0, ENVIRON["_FW_M"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_M"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
   # A shell diagnostic located in the fixtures file or the prelude means a line
   # of it was skipped — an arithmetic-expansion error does not stop a sourced
   # file. The property is WHERE the line starts: bash prefixes every diagnostic
@@ -688,7 +697,7 @@ _fgit_window() {
   # they returned 0 — the absence of `post_bad` is not that: a postcondition
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
-  # cannot change what `_control`'s gate (`_fw_built_or_w2`) reads.
+  # cannot change what `_ctl_gate` reads.
   if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
   return 0
 }
@@ -700,7 +709,7 @@ _fgit_window() {
 # postcondition ends the run before any control") gets its diagnostic reported
 # here and the run ended at 1, before any control. This function computes
 # NOTHING: `_fw_trusted` comes from `_fgit_window`; this function reads it to
-# report, and `_fw_built_or_w2` reads it to gate.
+# report, and `_ctl_gate` reads it to gate.
 _fgit_window_verdict_exit() { # $1 = the window label
   if [ "$_fw_done" -ne 1 ]; then
     echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
@@ -741,7 +750,7 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # `$_FIX_FAILED` itself lives in the window (the prelude starts it empty) and
 # comes back through a file, which `_fgit_window` reads whatever the window's
 # outcome; the gate is at the consumer: `_control` reads it only after
-# `_fw_built_or_w2` has passed, i.e. over a complete window.
+# `_ctl_gate` has passed, i.e. over a complete window.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
@@ -817,14 +826,27 @@ if ! _seal_apply_probe; then
 fi
 
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
-# the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3):
-# every `_control` asks first, by `_fw_trusted` alone — the one flag
-# `_fgit_window` writes. `$_fw2_lbl` is defined in the controls
-# file.
-_fw_built_or_w2() {
-  [ "$_fw_trusted" -ne 1 ] || return 0
-  [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over a build that was not complete and trusted" >&2
-  _fw2_said=1; return 1
+# the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
+# nor over a fixture that did not build. ONE GATE, asked by every `_control` and by
+# each of the three blocks that are not one: `_ctl_gate <fixture> <label>`.
+# W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
+# `$_fw2_lbl` is defined in the controls file. Every fixture is built under
+# `|| _fixture_failed <name>`, so "did the tree this control is about actually get
+# built?" is one lookup rather than a probe re-derived per site: without it a
+# broken build leaves a plausible-looking tree that can still satisfy the
+# assertion — a control green over a question never posed.
+_ctl_gate() { # $1 = fixture name (basename), $2 = the label to report under
+  if [ "$_fw_trusted" -ne 1 ]; then
+    [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over a build that was not complete and trusted" >&2
+    _fw2_said=1; return 1
+  fi
+  case " $_FIX_FAILED " in
+    *" $1 "*)
+      echo "!! CONTROL NOT EXERCISED ($2): its fixture did not build, so this control" >&2
+      echo "   would be asserting over a tree that never posed the question." >&2
+      return 1 ;;
+  esac
+  return 0
 }
 _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
@@ -842,19 +864,15 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # fix now produces a reported control failure rather than a wire that waits
   # forever. Backgrounded and `wait`ed rather than polled, so a healthy
   # control costs nothing; the killer is itself killed when the child returns.
-  # ⚠ THE FIXTURE'S BUILD STATUS, ASKED BEFORE ANYTHING ELSE. Every fixture is
-  # built under `|| _fixture_failed <name>`, so "did the tree this control is
-  # about actually get built?" is one lookup rather than a probe re-derived per
-  # site from the fixture's end state. Without it a broken build leaves a
-  # plausible-looking tree, and for several fixtures that tree still satisfies
-  # the assertion below — a control green over a question never posed.
-  _fw_built_or_w2 || return 1
-  case " $_FIX_FAILED " in
-    *" ${1##*/} "*)
-      echo "!! CONTROL NOT EXERCISED ($4): its fixture did not build, so this control" >&2
-      echo "   would be asserting over a tree that never posed the question." >&2
-      return 1 ;;
-  esac
+  # ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
+  # statement, so every return path (the gate's included) leaves the global empty.
+  # It is file-scope (bash has no array parameter); a clear placed after the gate
+  # let a refused control hand its environment to the NEXT one. Whoever sets it
+  # gets exactly the next control.
+  local -a _ce=()
+  [ "${#_ctl_env[@]}" -eq 0 ] || _ce=("${_ctl_env[@]}")
+  _ctl_env=()
+  _ctl_gate "${1##*/}" "$4" || return 1
   _out_f="$_VFY/.control_out"
   # ⚠ SELF-TEST MODE IS AN ARGUMENT (see the wire, beside `_SELFTEST`): it is
   # the one channel a shell cannot leave behind for a later ordinary run.
@@ -866,7 +884,7 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
   set -m
   PATH="${7:+$7:}$PATH" \
-    env ${_ctl_env[@]+"${_ctl_env[@]}"} "$BASH" "$SELF" --selftest "$1" "${5:-}" "${6:-}" \
+    env ${_ce[@]+"${_ce[@]}"} "$BASH" "$SELF" --selftest "$1" "${5:-}" "${6:-}" \
     > "$_out_f" 2>&1 & _cpid=$!
   set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
@@ -879,12 +897,6 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
     kill -9 -"$_cpid" 2>/dev/null || kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
   wait "$_cpid"; _rc=$?
   kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
-  # ⚠ CLEARED HERE, NOT BY THE CALLER. `_ctl_env` is file-scope (bash has no
-  # array parameter), and it used to be reset by a `_ctl_env=()` line after each
-  # control that set one — a positional convention, so a control inserted
-  # between a set and its clear would silently inherit the previous control's
-  # environment. One owner: whoever sets it gets exactly the next control.
-  _ctl_env=()
   _out="$(cat "$_out_f" 2>/dev/null)"
   if [ "$_rc" -ge 128 ]; then
     echo "!! CONTROL FAILED ($4): the wire did not finish — killed after 30s (signal" >&2
