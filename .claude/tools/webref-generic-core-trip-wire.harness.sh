@@ -612,7 +612,7 @@ _fgit_window() {
   # It starts in a directory it owns, so no git it runs reads the configuration
   # of a repository the caller happened to be in.
   "$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
-    cd "$1" || { echo "the window could not enter its own directory" > "$1/cause"; exit 1; }
+    cd "$1" || exit 1
     . ./prelude.sh
     _fw_opts_on || { echo "the window refused to start: a prelude option (errexit, nounset or pipefail) was not in force" > "$_FW_DIR/cause"; exit 1; }
     . ./fixtures.sh
@@ -653,6 +653,11 @@ _fgit_window() {
     _fw_why="the fixtures file left the window's stderr redirected, so a shell diagnostic could not be read"
   elif [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
     _fw_why="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_why=""
+    # A window that could not enter (or keep) its own directory can write no
+    # `cause` there, so the parent names that case itself, from the directory.
+    if [ -z "$_fw_why" ] && { [ ! -d "$_FW_DIR" ] || [ ! -x "$_FW_DIR" ]; }; then
+      _fw_why="the window's own directory was lost or cannot be entered"
+    fi
     [ -n "$_fw_why" ] || _fw_why="the window exited $_fw_rc before completing (the fixtures file exited or aborted, or a postcondition aborted)"
   fi
   [ ! -e "$_FW_DIR/post_ok" ] || _fw_post_ok=1
