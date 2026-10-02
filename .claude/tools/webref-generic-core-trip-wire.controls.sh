@@ -401,12 +401,13 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl
 # verdict cannot say. ⚠ The hook is first shown to run under a plain git call
 # over the same fixture, or its not running under the wire would prove nothing.
 # The hook's path goes through `_shq`, as every embedded path here does.
-if ! _ctl_gate "$_fsm_lbl" fsmon; then ctl_ok=1; else
+_fsm_root="$CTL/fsmon"
+if ! _ctl_gate "$_fsm_lbl" "${_fsm_root##*/}"; then ctl_ok=1; else
 _fsm_mark="$_VFY/.fsmonitor_ran"
 printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
 chmod +x "$_VFY/fsmhook"
 _fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$_VFY/fsmhook")")
-( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$CTL/fsmon" \
+( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$_fsm_root" \
   && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
 if [ ! -e "$_fsm_mark" ]; then
   echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2
@@ -415,7 +416,7 @@ if [ ! -e "$_fsm_mark" ]; then
 else
   command rm -f "$_fsm_mark"
   _ctl_env=("${_fsm_cfg[@]}")
-  if ! _ctl_run "$_fsm_lbl" "$CTL/fsmon"; then ctl_ok=1
+  if ! _ctl_run "$_fsm_lbl" "$_fsm_root"; then ctl_ok=1
   elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
     echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
     printf '%s\n' "$_out" | sed 's/^/     /' >&2

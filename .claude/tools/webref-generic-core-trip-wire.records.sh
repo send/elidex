@@ -270,7 +270,7 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.l
 # The err fixture's chain failing is NOT a machine that cannot enforce modes:
 # the perm block is gated on its own probe (`_perm_ok`), so `_control err` reports
 # the failed build; and the err seal line, deleted, is red in the same control.
-fixtures:s/^\(_seal "[$]CTL\/err\/control.py" 000 err\)$/_fixture_failed err; \1/	an unreadable file fails closed
+fixtures:s/^_seal "[$]CTL\/err\/control.py" 000 err$/_fixture_failed err; &/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
 # `_ctl_run` (commit `fd85e29f`) clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate
 # refuses a failed fixture among the root and the cwd of every run (the three non-`_control` blocks too).
@@ -308,9 +308,11 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/..\/walk\/sub
 harness:s/"LC_ALL=C")$/"LC_ALL=C" "GIT_EXEC_PATH=$_FGIT_VOID")/	no exec-path override reaches the fixture git
 # P-k's liveness: an `alternates` that holds nothing the probe repo can read gives
 # rc 0, no `alternate:` line, no stderr: only the empty-line clause's. A SECOND
-# quoted store gives two `alternate:` lines: only the more-than-one-line clause's.
+# quoted store gives two `alternate:` lines: only the more-than-one-line clause's. The
+# second path is C-quoted by the printf | sed form the line it extends uses, so a
+# scratch path holding a backslash or a quote still reaches that clause, not the stderr one.
 harness:s/> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/> \/dev\/null/	this git reports alternate object stores
-harness:s/^    printf '"%s"\\n' .*> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/&; printf '"%s"\\n' "$_pq\/b\/.git\/objects" >> "$_pq\/c\/.git\/objects\/info\/alternates"/	this git reports alternate object stores
+harness:s/^    printf '"%s"\\n' .*> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/&; printf '"%s"\\n' "$(printf '%s' "$_pq\/b\/.git\/objects" | sed 's\/\\\\\/\\\\\\\\\/g; s\/"\/\\\\"\/g')" >> "$_pq\/c\/.git\/objects\/info\/alternates"/	this git reports alternate object stores
 # The window's FIRST options check, alone: nounset dropped from the prelude, and
 # the check after the fixtures file removed, so only the first can refuse.
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_opts_on || { echo "the fixtures file switched off/d	the fixture build window completed
