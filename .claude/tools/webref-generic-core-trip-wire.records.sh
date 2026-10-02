@@ -10,7 +10,7 @@
 # the mutation set holds the READERS of the format — the one parser, the
 # always-on correspondence and anchor checks, the opt-in run — and this file
 # holds the DATA they read. The format itself (TAB-separated expressions and a
-# needle, the `controls:` / `harness:` / `fixtures:` / `mutgen:` prefixes) is
+# needle, the `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` prefixes) is
 # documented at the head of the mutation set, beside the readers that enforce
 # it; the one rule kept here is the comment syntax, beside the one filter that
 # drops it (below).
@@ -274,10 +274,10 @@ fixtures:s/^_seal "[$]CTL\/err\/control.py" 000 err$/_fixture_failed err; &/	an 
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
 # `_ctl_run` (commit `fd85e29f`) clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate
 # refuses a failed fixture among the root and the cwd of every run (the three non-`_control` blocks too).
-harness:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
+ctlrun:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
 # …and its timeout clause reads a signal status as a timeout only beside the watchdog's marker
 # (standing check, controls file): the marker test deleted, a signal at once is "killed after 30s".
-harness:s/^  if \[ "[$]_rc" -ge 128 \] \&\& \[ -e "[$]_r_wmark" \]; then$/  if [ "$_rc" -ge 128 ]; then/	only the watchdog's marker makes a signal status a timeout
+ctlrun:s/^  if \[ "[$]_rc" -ge 128 \] \&\& \[ -e "[$]_r_wmark" \]; then$/  if [ "$_rc" -ge 128 ]; then/	only the watchdog's marker makes a signal status a timeout
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fsmon; &/	a caller's fsmonitor hook does not run
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed clean; &/	a restrictive umask decides nothing

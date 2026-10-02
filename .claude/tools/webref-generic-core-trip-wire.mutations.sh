@@ -22,8 +22,8 @@
 # `_mut_run` for a machine-limited record), and `$SELF`, `$SCRATCH`, `$K2RE` and
 # `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` through `_MUT_PARTS`. `_mut_run` copies every part in that list — the
-# controls, the harness, this file, the record table, the fixture build and the
-# generated half — beside each mutant.
+# controls, the harness, its run primitives, this file, the record table, the
+# fixture build and the generated half — beside each mutant.
 # ⚠ THE TWO REGEXES ARE CONSUMED AS VALUES, not just named in a `for` list:
 # `_mut_gen_run` compares what the wire's assignment LINE reads back as against
 # what the RUNNING wire HOLDS, and that second half is these variables. They were
@@ -142,7 +142,7 @@ fi
 # (below) applies EACH expression alone and requires it to change EXACTLY ONE
 # line of its target. A `;`-joined pair would be checked as one expression, and
 # one half going stale (a renamed function, a respelled line) would leave the
-# other half "fresh". The `controls:` / `harness:` / `fixtures:` / `mutgen:` prefix (below) is
+# other half "fresh". The `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` prefix (below) is
 # written on the FIRST expression and aims the whole record.
 # ⚠ SIZE RULE, DISCHARGED: this file's growth was the record here-document, a
 # flat case table with no seam inside it, and the rule here read "the edit that
@@ -158,11 +158,12 @@ fi
 # an entry that reds for an unrelated reason is caught too.
 #
 # ⚠ AND THE FILE IT EDITS IS PART OF THE RECORD. An expression may carry the
-# prefix `controls:`, `harness:`, `fixtures:` or `mutgen:`, which aims it at the
-# CONTROLS, the CONTROL HARNESS, the FIXTURE BUILD or the MUTANT GENERATOR instead
-# of the wire. The run copies every shipped part beside each mutant, so a record
-# says only which one to `sed`: the prefixes are the words of `_MUT_TARGETS`, and
-# `_mut_target` derives each one's pair.
+# prefix `controls:`, `harness:`, `ctlrun:`, `fixtures:` or `mutgen:`, which aims
+# it at the CONTROLS, the CONTROL HARNESS, the CONTROL RUN PRIMITIVES, the
+# FIXTURE BUILD or the MUTANT GENERATOR instead of the wire. The run copies
+# every shipped part beside each mutant, so a record says only which one to
+# `sed`: the prefixes are the words of `_MUT_TARGETS`, and `_mut_target` derives
+# each one's pair.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
 # minutes rather than seconds), and a required check nobody can afford to run is
@@ -225,11 +226,11 @@ fi
 # attached, where it fails to parse (measured on BSD sed: `sed 'harness:p'` is
 # "extra characters at the end of h command", `sed 'fixtures:p'` is "invalid
 # command code f"; GNU sed is not measured here).
-_MUT_TARGETS="controls harness fixtures mutgen"
+_MUT_TARGETS="controls harness ctlrun fixtures mutgen"
 # THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
 # derives from its own `$SELF` (`<wire>.<part>.sh`). The sibling guard, the
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
-_MUT_PARTS="controls harness mutations records fixtures mutgen"
+_MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
 # 21, not 20: `_lp_lbl` (the label parser's standing check) can have no record —
 # its guard is in this file, which is no mutation target; the check pins itself.
 _MUT_UNRECORDED_MAX=21
@@ -329,7 +330,7 @@ _mut_rm_copies() {
 
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
 # `$_mut_tgt` and the file it came from at `$_mut_src` — whichever target the
-# caller resolved, which for a `controls:`, `harness:`, `fixtures:` or `mutgen:` entry is NOT the wire;
+# caller resolved, which for a `controls:`, `harness:`, `ctlrun:`, `fixtures:` or `mutgen:` entry is NOT the wire;
 # it is the wire copy that gets EXECUTED either way.
 # $1 = how to name it in a diagnostic, $2 = what is required:
 # a NEEDLE the output must contain, `!survive`, or `!kill` (red, with
