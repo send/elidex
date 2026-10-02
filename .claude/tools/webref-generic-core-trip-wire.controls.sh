@@ -116,11 +116,12 @@ fi
 # that producer fires, so the rename can sit unseen behind a green run: the names
 # are derived from the parts' own text, by the regex the harness uses to forward
 # the postconditions' labels, not listed. The parts read are the
-# harness, this file, the mutation set and its generated half; one that is not
-# readable is reported by its own check (the harness above, the mutation set at
-# the end of this file, the generated half in the mutation set).
+# harness, this file, the mutation set, its record table and its generated half;
+# one that is not readable is reported by its own check (the harness above, the
+# mutation set at the end of this file, the record table and the generated half
+# in the mutation set).
 _lbd_files=()
-for _lbd_f in "$_HARNESS" "$_CONTROLS" "${SELF%.sh}.mutations.sh" "${SELF%.sh}.mutgen.sh"; do
+for _lbd_f in "$_HARNESS" "$_CONTROLS" "${SELF%.sh}.mutations.sh" "${SELF%.sh}.records.sh" "${SELF%.sh}.mutgen.sh"; do
   [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
 done
 _lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
