@@ -793,5 +793,7 @@ Code `3dde656e` and `8f4ad3c8`; docs (E-5) this commit. Runs as review R2's (bot
   final-head sequence of `…-landing.md` §9.1: step 1 (X2, X3 with the survive check and the plant and
   floor cells, X5, X6, X8, X11, X13, X14, X15, X16; X5's P-equal rows need the P-dump hook re-made and
   reviewed first, `…-landing.md` "X5 at T", which names five gaps the records leave), then steps 2–5.
+- **`116a9b8b`'s commit message** repeats a false claim (that four records use `&`); messages are not
+  amended, and corpus §6.1 holds the current statement.
 
-This file is 797 lines (`wc -l`) after this entry, under design memo §13's 800.
+This file is 799 lines (`wc -l`) after this entry, under design memo §13's 800.

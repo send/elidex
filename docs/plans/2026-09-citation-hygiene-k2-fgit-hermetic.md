@@ -90,7 +90,7 @@ reinterprets it. What such an entry means inside the window is outside P (§1, "
 A tool that only such an entry provided may then not be found inside the window. The window fails, and
 that is red, the old rule's "loud". The caller's `git` itself is never lost this way, because it was
 resolved before the window started. A wrapper that execs "the next `git` on `PATH`" cannot reach the
-pin again: every exec-through shim (the pin and the fixtures' shims, one builder) drops its own
+pin again: every exec-through shim (the pin, the fixtures' shims and `cfgkept`'s, one builder) drops its own
 directory from the front of `PATH` before it execs, in any idiom, `env -i PATH=…` included (§4, P-j;
 measured, `…-pr527-r15.md` §Q, review R2). With `PATH='~+/bin:…'` and a `git` wrapper in the repository's
 `bin/`, the wrapper **is** the fixture git under M-PATH: rc 0, PASSED, and every fixture git call goes
@@ -339,7 +339,7 @@ git-config` (FILES) says "When the XDG_CONFIG_HOME environment variable is not s
 $HOME/.config/ is used".
 
 ```sh
-# harness at `fd85e29f`, abridged; the harness is the source
+# harness at `e271cb02`, abridged; the harness is the source
 _FGIT_VOID="$SCRATCH/fgit-void"             # mkdir, checked
 _FGIT_BIN="$SCRATCH/fgit-bin"                # holds `git` (`_fgit_shim`): drops its own dir from PATH, exec <this shell's `type -P git`> (§0.1)
 _FGIT_PATH="$_FGIT_BIN:$PATH"               # the caller's PATH verbatim, behind the pin (§0.1)
@@ -504,7 +504,7 @@ What **is** pinned are the properties a record can observe:
   (measured, `…-pr527-r15.md` §Q); `post_ok`'s two records (review R2, corpus §6.1) pin the fourth.
   A gate satisfies all three. `_ctl_run`'s ask is pinned by the relcwd and umask records (removing it, they survive).
   ⚠ **Declared gap:** the fsmonitor block's own ask, before its plain-git preflight, is pinned only together with `_ctl_run`'s
-  (removing both: its record survives; either alone: killed by the other), so it is the traced `w2rec` cell (companion §A.14), re-anchored for T as X13 (`…-landing.md` §11), that pins it alone; corpus §6.1, "Totals" (measured at `fd85e29f`).
+  (removing both: its record survives; either alone: killed by the other), so it is the traced `w2rec` cell (companion §A.14), re-anchored for T as X13 (`…-landing.md` §11), that pins it alone; corpus §6.1, "Current totals" (measured at `116a9b8b`).
 - Moving the exit below a control is an edit to the controls file, which is not a mutation target. That
   shape is pinned by the corpus RO/ROg cells (X5, re-anchored for T in `…-landing.md` §11), not by a
   record. ROg is green again since the fix round (measured on both shells, `…-pr527-r15.md` §Q).
@@ -784,15 +784,16 @@ made of it (written to `.genmutants`, read back, split on TAB):
   `$SCRATCH` so that the checker below lists no working file without an exception;
 - `fsmhook`, the hook the fsmonitor control installs, moves with its mark.
 
-The checker is static, over the four parent parts: every write, `mkfifo` or assignment of a path under
+The checker is static, over the five parent parts: every write, `mkfifo` or assignment of a path under
 `$CTL`:
 
 ```sh
-/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,mutations,mutgen}.sh
+/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,mutations,mutgen,records}.sh
 ```
 
-At `8413a4db` it lists 16 lines; at the head of this PR one, `_seal_apply_probe`'s `: > "$CTL/real/f"`
-(since `6ed414b2`), where `CTL` is the probe's own, rebound in its subshell. It sees only literal
+At `8413a4db` it lists 16 lines; at `e271cb02` two: `_seal_apply_probe`'s `: > "$CTL/real/f"`
+(since `6ed414b2`), where `CTL` is the probe's own, rebound in its subshell, and the fsmonitor block's
+`_fsm_root="$CTL/fsmon"` (since `2d5c393f`), a fixture the block only gates on, enters and runs over. It sees only literal
 `"$CTL/…"` paths, so a path built another way is outside it. No fixture needs these names: every `ln -s`
 in the fixtures file makes a link inside a fixture directory, and none names a dot-file directly under
 `$CTL` (`/usr/bin/grep -nE '"\$CTL/\.'` over the fixtures file → nothing). So class (b) never reached

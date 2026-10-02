@@ -287,50 +287,20 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
-- **Totals after C12:** **19 labels** (P-k and its liveness label and the generator floor's label
-  added; P-j and W2 renamed), **66 records of this PR, 161 in all**: `_MUT_RECORDS_MIN=161`, and
-  `_MUT_UNRECORDED_MAX` stays at 21.
-- **Totals after the fix round (`6ed414b2`):** **20 labels** (the pin's added; W3 renamed), **83 records
-  of this PR, 178 in all**: `_MUT_RECORDS_MIN=178`, and `_MUT_UNRECORDED_MAX` stays at 21. Every new or
-  changed record was run alone on both shells, killed with its own needle, and survive-checked as its
-  row says (`…-pr527-r15.md` §Q). Two fixes have no record, by construction: the label-forwarding regex
-  (every shipped label fits the old form) and the umask block's single gate (an absent wrong-reason
-  line is not a needle).
-- **Totals after the /simplify round:** 84 records of this PR, **179 in all**: `_MUT_RECORDS_MIN=179`,
-  `_MUT_UNRECORDED_MAX` stays at 21. The mutation-set readers changed: every reader of the record
-  format but `_mut_parse` tests exact equality against the parsed needles (`.needles`, one per line),
-  so a label that is a prefix of a longer needle is not recorded; `!kill` accepts a generated mutant
-  only for `CONTROL FAILED (<label>)` with a `_control` label (an allowlist; the generator floor's
-  `$_mg_lbl` is not one, so no separate exclusion).
-- **Totals after review R2 (`96eea58c`):** **20 labels** (the pin's removed; `every label the parts use
-  is defined` added), **94 records of this PR, 189 in all**: `_MUT_RECORDS_MIN=189`. The ratchet is
-  now **exact**: fewer bare labels than `_MUT_UNRECORDED_MAX` is red too ("LOWER the ratchet"). At
-  `92221297` the bare count was already 20 against 21, a slack of one that let the next label go bare
-  in silence; `_MUT_UNRECORDED_MAX=20`. Kept: the P-k liveness record that fails the probe's `git
-  init` (the `else` arm, a different arm from review R2's).
-- **Totals after Stage 5 (`8f4ad3c8`):** one label added (`_ord_lbl`, `the run ends only through a
-  verdict`, recorded), **95 records of this PR, 190 in all**: `_MUT_RECORDS_MIN=190`;
-  `_MUT_UNRECORDED_MAX` stays at 20.
-- **Totals after R3 (dropped-at-cap round):** one label added (`_ce_lbl`, `a refused control hands its
-  environment to no other control`, recorded), **100 records of this PR, 195 in all**:
-  `_MUT_RECORDS_MIN=195`; `_MUT_UNRECORDED_MAX` stays at 20. Added: the `_ctl_env` clear deleted (harness);
-  `_fixture_failed relcwd|fsmon|clean` (fixtures; they die under the three non-`_control` blocks' labels); the
-  `_fgit_alternates` extraction broken (`$_pkl_lbl`); P-b's stored `git var` status (`$_pb_lbl`). Removed: P-k's
-  `grep '^alternate:'` exit>1 record, with its arm (no external `grep` remains there). The 34 fixtures
-  records that restated the `built` line now write it once (`; &`).
-- **Totals after the review of `fd85e29f`:** one record removed (`_fixture_failed fakerelmktemp`: the gate no
-  longer reads PATH-prefix dirs, so it planted a state no fixtures file can reach) and one added (a second
-  quoted store in the P-k liveness probe's `alternates`: two `alternate:` lines, killed with the P-k liveness
-  label, surviving with the more-than-one-line clause removed), **102 records of this PR, 197 in all**:
-  `_MUT_RECORDS_MIN=197`; `_MUT_UNRECORDED_MAX` stays at 20. The four records that restated their anchor
-  as `\(…\)$ … \1` now use `&` (P-f's `K2X=1`, the unterminated `.raw`, the second store, pass 1's NUL tail).
-  **The gates, measured** at this commit
-  (the `_fixture_failed relcwd|fsmon|clean` records, by their labels; ONE run gate in `_ctl_run`, shared by
-  `_control` and the relcwd and umask blocks, and a second, before the fsmon block's plain-git preflight): with
-  `_ctl_run`'s gate removed the relcwd and umask records survive and the fsmon record is killed by the preflight
-  gate; with only the preflight gate removed the fsmon record is killed by `_ctl_run`'s; with both removed it
-  survives. So `_ctl_run`'s gate is pinned by the relcwd and umask records, and the preflight gate only together
-  with `_ctl_run`'s. Every record near the changed code (32 of 32) was killed with its own needle on both shells.
+- **Current totals** (the one statement; earlier per-commit totals are in git): **105 records of this
+  PR, 200 in all**, measured at `e271cb02` with
+  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (200) against
+  the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=200`; its comment in
+  `…mutations.sh` names every record this PR removed, by commit. `_MUT_UNRECORDED_MAX=21`, and the
+  ratchet is **exact**: fewer bare labels than that is red too ("LOWER the ratchet"); the one label
+  that can have no record is `_lp_lbl`, the label parser's standing check (the parser lives in the
+  mutation set, which is no mutation target). Every reader of the record format but `_mut_parse` tests
+  exact equality against the parsed needles, and `!kill` accepts a generated mutant only for
+  `CONTROL FAILED (<label>)` with a `_control` label (an allowlist). The gates: ONE run gate in
+  `_ctl_run`, shared by `_control` and the relcwd, fsmon and umask runs, and a second before the fsmon
+  block's plain-git preflight; measured at `116a9b8b`, `_ctl_run`'s gate is pinned by the relcwd and
+  umask fixture-failure records, and the preflight gate only together with `_ctl_run`'s (with both
+  removed the fsmon record survives).
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).

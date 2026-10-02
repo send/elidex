@@ -233,7 +233,14 @@ _MUT_PARTS="controls harness mutations records fixtures mutgen"
 # 21, not 20: `_lp_lbl` (the label parser's standing check) can have no record —
 # its guard is in this file, which is no mutation target; the check pins itself.
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=200   # ledger: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1 (totals bullet); removed so far: P-g's two line-`grep` failure records (the record comparison decides), the pin's re-entry-limit record (it went with the counter), P-k's `grep` exit>1 arm (it went with the builtin `_fgit_alternates`), and the `fakerelmktemp` fixture-failure record (the gate no longer reads PATH-prefix dirs); added since: P-k's second-store liveness record, `_ctl_run`'s watchdog-marker record, the two shim-ran records (relcwd's and cfgkept's PATH prefix dropped)
+# The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
+# Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
+# `523ce31f` P-j's relative-PATH-entry record (no per-entry clause left to pin); `15d3e704` P-g's two
+# line-`grep` failure records (the record comparison decides); `96eea58c` the pin's re-entry-limit
+# record (it went with the counter); `2b56c33c` P-k's `grep` exit>1 record (the builtin
+# `_fgit_alternates` has no such arm); `116a9b8b` the `fakerelmktemp` fixture-failure record (the gate
+# no longer reads PATH-prefix dirs).
+_MUT_RECORDS_MIN=200
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`

@@ -578,7 +578,7 @@ _seal "$CTL/d5root" 000 d5root
   && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
   && command rm -rf dir && ln -s "$CTL/external" dir ) || _fixture_failed ancestorlink
 # ⚠ THE HEAD-PROBE FIXTURE NEEDS A COMMIT, and did not have one until the rule
-# it encodes was corrected. The first version asserted "a failed probe is an error"; a later review showed
+# it encodes was corrected. R2 asserted "a failed probe is an error"; R3 showed
 # the property is really "exit 1 is not by itself absence", so the fixture must
 # be a repository that DOES have a commit — otherwise the probe failing and the
 # repository being unborn are the same situation and the control cannot tell

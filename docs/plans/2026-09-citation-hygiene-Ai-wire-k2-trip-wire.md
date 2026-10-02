@@ -19,16 +19,16 @@ in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-herm
 - **§0's command** (L61) names the controls file, which no longer holds the fixture build: that moved
   to `…trip-wire.fixtures.sh`.
 - **§4's file rows** (L278–280): the controls, harness and mutation files are split
-  (`…trip-wire.fixtures.sh`, `…trip-wire.mutgen.sh`), and the harness no longer holds a fixture git
+  (`…trip-wire.fixtures.sh`, `…trip-wire.mutgen.sh`, `…trip-wire.records.sh`), and the harness no longer holds a fixture git
   helper: the fixtures are built in a window constructed from nothing.
-- **§7 criterion 3** (L675–677, L683): the records are enumerated across `…mutations.sh`, and a record's
+- **§7 criterion 3** (L675–677, L683): the records are enumerated across `…records.sh` (read by `…mutations.sh`), and a record's
   `sed` expression may target the harness, the fixtures file or the mutant generator, not only the wire.
 - **§7 criterion 5** (L747–748): the file table in §4 no longer lists every part.
 - **Slot 2** (L816) and **§9** (L866–868): the ratchet counts labels (`_control` labels and every
   `_lbl="…"` definition) with no record, not only controls.
 - **§11.1** (L1212–1214, L1220): for the fixture build, "unreachable or loud, never silent" is replaced
   by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
-- **§11.4 P1** (L1281–1282): the file list gains the fixtures and mutgen files.
+- **§11.4 P1** (L1281–1282): the file list gains the fixtures, mutgen and records files.
 
 Which memo each unqualified "plan memo" or "§N" in a K2 wire file refers to is resolved per line
 by that slice's `…-k2-fgit-hermetic-reviews.md` §8.3 table.
