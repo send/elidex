@@ -105,6 +105,7 @@ _umask_lbl="a restrictive umask decides nothing"
 _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
 _ce_lbl="a refused control hands its environment to no other control"
+_wm_lbl="only the watchdog's marker makes a signal status a timeout"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -190,6 +191,23 @@ if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run "$_ce_lbl" "$CT
   echo "!! CONTROL FAILED ($_ce_lbl): a refused control left its environment set" >&2
   ctl_ok=1
 fi
+# STANDING CHECK of `_ctl_run`'s timeout clause: a status >= 128 is a timeout
+# ONLY beside the watchdog's own marker. Here `SELF` is pointed (in a subshell)
+# at a script that signals itself at once (TERM, not ABRT: no core dump on a
+# runner whose core pattern ignores `ulimit -c`): `_ctl_run` must return 0 with
+# `_rc` >= 128 and report no kill — that status is the caller's "expected N, got
+# M", not "killed after 30s". The record that deletes the marker clause (in the
+# record table) is killed through this check's label.
+printf '%s\n' 'kill -TERM $$' > "$_VFY/.wm_abort"
+if ! ( SELF="$_VFY/.wm_abort"; _wm_r=0; _wm_bad=""
+       _ctl_run "$_wm_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
+       [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; _ctl_run returned $_wm_r, not 0"
+       [ "${_rc:-0}" -ge 128 ] || _wm_bad="$_wm_bad; _rc is ${_rc:-unset}, not a signal status"
+       case "$(cat "$_VFY/.wm_err")" in *"killed after 30s"*) _wm_bad="$_wm_bad; a signal at once was reported as a timeout" ;; esac
+       [ -z "$_wm_bad" ] || { echo "!! CONTROL FAILED ($_wm_lbl)$_wm_bad" >&2; exit 1; } ); then
+  ctl_ok=1
+fi
+command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_err"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.

@@ -658,17 +658,14 @@ _fgit_window() {
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
   # The canary: DETECTION is the awk's own exit status (0 found, 1 not found: fd 2
-  # was redirected; >= 2 = the scan itself failed, which is its own red, held in
-  # `_fw_canary_bad` and read where trust is decided, so the order of this scan and
-  # W3's cannot erase it). The REPLAY is a separate awk whose write failure is
-  # ignored: a parent whose stderr is closed is not a window that redirected fd 2.
-  _fw_fd2=0; _fw_canary_bad=""
+  # was redirected; >= 2 = the scan itself failed, which is its own red, HELD
+  # APART in `_fw_fd2` and read where trust is decided, so neither this scan nor
+  # W3's can erase the other's result, in either order). The REPLAY is a separate
+  # awk whose write failure is ignored: a parent whose stderr is closed is not a
+  # window that redirected fd 2.
+  _fw_fd2=0
   _FW_CANARY="$_FW_CANARY" awk 'index($0, ENVIRON["_FW_CANARY"]) > 0 { f = 1 } END { exit !f }' "$_FW_DIR/stderr" 2>/dev/null || _fw_fd2=$?
   _FW_CANARY="$_FW_CANARY" awk '{ i = index($0, ENVIRON["_FW_CANARY"]); if (i > 0) { $0 = substr($0, 1, i - 1) substr($0, i + length(ENVIRON["_FW_CANARY"])); if ($0 == "") next } print }' "$_FW_DIR/stderr" >&2 2>/dev/null || true
-  if [ "$_fw_fd2" -ge 2 ]; then
-    _fw_canary_bad="(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
-    _fw_fd2=0
-  fi
   # ABSENT AND UNREADABLE ARE DIFFERENT ANSWERS. A marker that EXISTS but cannot
   # be read (mode 000, a directory, a dangling link) carries something this
   # parent cannot hear, and the `cat`s below would turn it into "nothing" -- a
@@ -709,7 +706,7 @@ _fgit_window() {
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
   # cannot change what `_ctl_gate` reads.
-  [ -z "$_fw_canary_bad" ] || _fw_diag="${_fw_diag:+$_fw_diag }$_fw_canary_bad"
+  [ "$_fw_fd2" -lt 2 ] || _fw_diag="${_fw_diag:+$_fw_diag }(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
   if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
   return 0
 }
@@ -883,8 +880,11 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # word-split them, so a `TMPDIR` holding a space broke the routed control with
 # `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
 # contributor whose temp path has a space (#501 R96). A path is data here too.
-# Returns 0 with `_rc` and `_out` set (the run's status and its stdout+stderr),
-# 1 when the gate refused or the run was killed (already reported under the label).
+# RETURN CONTRACT: 1 ONLY when the gate refused or the WATCHDOG killed the run
+# (both already reported under the label); every other outcome — a status >= 128
+# the wire came back with at once (a 134 abort, a 141 SIGPIPE) included — returns
+# 0 with `_rc` and `_out` set (the run's status and its stdout+stderr), and the
+# caller's own comparison is the verdict on it.
 # ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
 # statement, so every return path (the gate's included) leaves the global empty.
 # It is file-scope (bash has no array parameter); a clear placed after the gate
@@ -894,10 +894,7 @@ _ctl_run() {
   local -a _ce=(${_ctl_env[@]+"${_ctl_env[@]}"})
   _ctl_env=()
   local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
-  local -a _r_names
-  _r_names=("${_r_root##*/}")
-  [ -z "$_r_cwd" ] || _r_names+=("${_r_cwd##*/}")
-  _ctl_gate "$_r_for" "${_r_names[@]}" || return 1
+  _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || return 1
   _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
   # otherwise report (#501 R92). The FIFO finding's whole harm was that the
@@ -929,13 +926,19 @@ _ctl_run() {
   # with it, so the pair is reaped as a unit with shell builtins only.
   ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
     sleep 30 & wait
-    : > "$_r_wmark"
+    # The marker names the cause; the kill is the job. A write that fails (the
+    # scratch dir gone) must not stop the kill behind it, in any caller's context.
+    # No record: every caller today is an `||` or `if !` operand, under which
+    # errexit is off inside this subshell too, so the form is unobservable here;
+    # it holds for a caller that is not.
+    { : > "$_r_wmark"; } 2>/dev/null || :
     kill -9 -"$_cpid" 2>/dev/null || kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
   wait "$_cpid"; _rc=$?
   kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
   _out="$(cat "$_out_f" 2>/dev/null)"
   # Only the watchdog's own marker makes a status >= 128 a timeout; a 134 (abort)
   # or 141 (SIGPIPE) that came back at once is the caller's "expected N, got M".
+  # Pinned by the standing check in the controls file (`$_wm_lbl`) and its record.
   if [ "$_rc" -ge 128 ] && [ -e "$_r_wmark" ]; then
     echo "!! CONTROL FAILED ($_r_for): the wire did not finish — killed after 30s (signal" >&2
     echo "   status $_rc). A gate that blocks is worse than one that reds: it never" >&2

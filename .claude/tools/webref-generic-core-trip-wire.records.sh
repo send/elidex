@@ -275,6 +275,9 @@ fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails c
 # `_ctl_run` (commit `fd85e29f`) clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate
 # refuses a failed fixture among the root and the cwd of every run (the three non-`_control` blocks too).
 harness:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
+# …and its timeout clause reads a signal status as a timeout only beside the watchdog's marker
+# (standing check, controls file): the marker test deleted, a signal at once is "killed after 30s".
+harness:s/^  if \[ "[$]_rc" -ge 128 \] \&\& \[ -e "[$]_r_wmark" \]; then$/  if [ "$_rc" -ge 128 ]; then/	only the watchdog's marker makes a signal status a timeout
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fsmon; &/	a caller's fsmonitor hook does not run
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed clean; &/	a restrictive umask decides nothing
