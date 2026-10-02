@@ -848,8 +848,7 @@ fi
 # W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
 # `$_fw2_lbl` is defined in the controls file. Every fixture is built under
 # `|| _fixture_failed <name>` (the PATH-prefix shim dirs are bare-built, so a failure
-# there is errexit, which the window reports; `fakerelmktemp` is built under `relcwd`'s
-# name, and `relcwd` is that run's cwd), so "did the tree this control is
+# there is errexit, which the window reports), so "did the tree this control is
 # about actually get built?" is one lookup rather than a probe re-derived per site: without it a
 # broken build leaves a plausible-looking tree that can still satisfy the
 # assertion — a control green over a question never posed.

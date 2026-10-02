@@ -157,7 +157,8 @@ fi
 # The labels `_fgit_postconditions` uses reach the window by name, through its prelude.
 _fgit_window "$_FIXTURES"
 # THE PARENT'S VERIFIER DIRECTORY. Every file the parent writes and reads
-# back after the build (the fsmonitor hook and its mark, the controls'
+# back after the build (the fsmonitor hook and its mark, the two PATH-prefix
+# shims whose running is evidence and their marks, the controls'
 # output, the mutation runner's lists) lives here, made now, after the
 # build, by `mktemp -d` beside `$CTL` and `$_FW_DIR`, never under either:
 # `$CTL` is the fixtures' tree, and the verifier writes nothing there
@@ -255,8 +256,25 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # Not a `_control`: the question is what the run leaves BEHIND, which its exit
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
+# A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
+# relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
+# cannot pose this question here). ⚠ Built HERE, under `$_VFY`, not by the
+# fixtures: it touches a mark whenever it runs, and the block reads the mark
+# after the run — a run that never reached the shim had no relative scratch
+# to leave behind, so its clean cwd is no evidence (the shim's path was
+# dropped from the prefix once, and the block stayed green). The mark path
+# goes through `_shq`, as the fsmonitor hook's does below.
+_rel_mark="$_VFY/.relmktemp_ran"
+mkdir -p "$_VFY/fakerelmktemp"
+printf '#!/bin/sh\n: > %s\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' "$(_shq "$_rel_mark")" > "$_VFY/fakerelmktemp/mktemp"
+chmod +x "$_VFY/fakerelmktemp/mktemp"
+command rm -f "$_rel_mark"
 # ⚠ Run through `_ctl_run`, like every `_control`: gated, watchdogged, one report.
-if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$CTL/fakerelmktemp"; then ctl_ok=1
+if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$_VFY/fakerelmktemp"; then ctl_ok=1
+elif [ ! -e "$_rel_mark" ]; then
+  echo "!! CONTROL NOT EXERCISED ($_rel_lbl): the relative-path mktemp never ran, so the" >&2
+  echo "   run had no relative scratch to leave behind — its clean cwd says nothing." >&2
+  ctl_ok=1
 elif [ "$_rc" -eq 0 ]; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
@@ -348,8 +366,34 @@ _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the
 # obvious probe would have passed vacuously for the very reason the control
 # exists, and only `replace -l` worked. A build status has no such trap.
 _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
+# A `git` that answers `ls-files` with nothing unless the caller's
+# `GIT_CONFIG_COUNT` reached it. The fixture holds a violation, so a run that
+# KEEPS the configuration reds on K2 and a run that strips it reads zero and
+# exits 2 — the two verdicts differ in status AND message, which is what makes
+# this control discriminate rather than merely fire.
+# ⚠ Shimmed because the real case — a checkout owned by another UID, reachable
+# only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
+# the property under test, and that is constructible; the ownership is not.
+# ⚠ Built HERE, under `$_VFY`, not by the fixtures, through the same builder as
+# every exec-through shim: it touches a mark whenever it runs, and the check
+# after the `_control` reads the mark — a run that never reached the shim had
+# no configuration to keep or strip, so its K2 red is no evidence (the shim's
+# path was dropped from the prefix once, and the control stayed green). The
+# mark path goes through `_shq`, as the fsmonitor hook's does below.
+_cfg_mark="$_VFY/.cfggit_ran"
+mkdir -p "$_VFY/fakegitcfg"
+_fgit_shim "$_VFY/fakegitcfg/git" ": > $(_shq "$_cfg_mark")
+"'if [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi' "$_REAL_GIT"
+command rm -f "$_cfg_mark"
 _ctl_env=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*")
-_control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$CTL/fakegitcfg" || ctl_ok=1
+_control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$_VFY/fakegitcfg" || ctl_ok=1
+# The label is repeated literally: a rename above that misses this line leaves
+# the record's needle unmatched, so the drift reds through the record.
+if [ ! -e "$_cfg_mark" ]; then
+  echo "!! CONTROL NOT EXERCISED (the caller's git CONFIGURATION survives the routing purge): the shimmed" >&2
+  echo "   git never ran, so the configuration had nothing to survive — the verdict above says nothing." >&2
+  ctl_ok=1
+fi
 _ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
 _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || ctl_ok=1
 _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1

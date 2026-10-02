@@ -330,27 +330,16 @@ _fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) $_REAL_GI
 # `TMPDIR` when given no template, which is why the control shims the command
 # instead of setting the variable: the same defect reproduces on the machines
 # that honour it, and a control that only fires on some of them is not one.
-# A `git` that answers `ls-files` with nothing unless the caller's
-# `GIT_CONFIG_COUNT` reached it. The fixture holds a violation, so a run that
-# KEEPS the configuration reds on K2 and a run that strips it reads zero and
-# exits 2 — the two verdicts differ in status AND message, which is what makes
-# this control discriminate rather than merely fire.
-# ⚠ Shimmed because the real case — a checkout owned by another UID, reachable
-# only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
-# the property under test, and that is constructible; the ownership is not.
-mkdir -p "$CTL/fakegitcfg"
-_fgit_shim "$CTL/fakegitcfg/git" 'if [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi' "$_REAL_GIT"
+# `cfgkept`'s violation — what its shimmed `git` reports or hides. The shim
+# itself is built by the control, beside the mark that shows it ran.
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakemktemp"
 printf '#!/bin/sh\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
   "$(_shq "$CTL/inscope")" > "$CTL/fakemktemp/mktemp"
 chmod +x "$CTL/fakemktemp/mktemp"
-# A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
-# relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
-# cannot pose this question here).
-( mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp" \
-  && printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp" \
-  && chmod +x "$CTL/fakerelmktemp/mktemp" ) || _fixture_failed relcwd
+# `relcwd`: the directory the relative-scratch run is made from. Its `mktemp`
+# shim is built by the control, beside the mark that shows it ran.
+mkdir -p "$CTL/relcwd" || _fixture_failed relcwd
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
 _fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) exit 2;; esac' "$_REAL_GREP"

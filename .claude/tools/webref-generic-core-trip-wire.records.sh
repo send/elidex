@@ -319,6 +319,14 @@ harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_
 # Pass 1's NUL tail check: a duplicate record with no terminating NUL appended to
 # the list after the `find` reads as the same records, so only the tail check sees it.
 harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
+# The two PATH-prefix shims whose RUNNING is the evidence (built by their controls,
+# under `$_VFY`, each touching a mark): with the prefix argument dropped the run never
+# reaches the shim — a clean cwd / a K2 red over a plain git — and only the mark check
+# after the run can say so. Both SURVIVE with that check removed. ⚠ Anchored on the
+# line's tail, so the expression does not spell the label: the mutant's own stale-anchor
+# report quotes the expression, and a needle found there would be a kill by no control.
+controls:s/ "[$]_VFY\/fakerelmktemp"; then ctl_ok=1$/ ""; then ctl_ok=1/	a relative scratch dir is removed on exit
+controls:s/ "[$]_VFY\/fakegitcfg" || ctl_ok=1$/ "" || ctl_ok=1/	the caller's git CONFIGURATION survives the routing purge
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
