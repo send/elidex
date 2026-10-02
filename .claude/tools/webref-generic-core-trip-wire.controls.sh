@@ -94,6 +94,9 @@ _pk_lbl="no fixture repo reads objects from a store outside it"
 _pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
+# (the one label no record names: its guard, the label parser, lives in the
+# mutation set, which is no mutation target; `_MUT_UNRECORDED_MAX` counts it)
+_lp_lbl="the label parser reads calls and definitions, not mentions"
 # …the labels of the three blocks that are not a `_control` (their producers sit
 # below), defined HERE so the check that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
@@ -182,7 +185,7 @@ _fgit_window_verdict_exit "$_fw_lbl"
 # STANDING CHECK of `_ctl_run`'s one owner of `_ctl_env`: a run the gate
 # REFUSES (here, an untrusted window, forced in a subshell) must still leave the
 # global empty, or the NEXT run would inherit its environment.
-if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run x "$CTL/clean" >/dev/null 2>&1
+if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run "$_ce_lbl" "$CTL/clean" >/dev/null 2>&1
        [ "${#_ctl_env[@]}" -eq 0 ] ); then
   echo "!! CONTROL FAILED ($_ce_lbl): a refused control left its environment set" >&2
   ctl_ok=1

@@ -31,7 +31,7 @@
 # — the same drift the guard exists to catch, in the edit that widened what there
 # is to drift.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUTGEN`,
-# `_MUTRECORDS`, `_MUT_TARGETS`, `_MUT_PARTS`, `_mut_correspondence`,
+# `_MUTRECORDS`, `_MUT_TARGETS`, `_MUT_PARTS`, `_mut_labels`, `_mut_correspondence`,
 # `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
 # `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
 # generated half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
@@ -230,7 +230,9 @@ _MUT_TARGETS="controls harness fixtures mutgen"
 # derives from its own `$SELF` (`<wire>.<part>.sh`). The sibling guard, the
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations records fixtures mutgen"
-_MUT_UNRECORDED_MAX=20
+# 21, not 20: `_lp_lbl` (the label parser's standing check) can have no record —
+# its guard is in this file, which is no mutation target; the check pins itself.
+_MUT_UNRECORDED_MAX=21
 _MUT_RECORDS_MIN=197   # ledger: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1 (totals bullet); removed so far: P-g's two line-`grep` failure records (the record comparison decides), the pin's re-entry-limit record (it went with the counter), P-k's `grep` exit>1 arm (it went with the builtin `_fgit_alternates`), and the `fakerelmktemp` fixture-failure record (the gate no longer reads PATH-prefix dirs); added since: P-k's second-store liveness record
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
@@ -359,8 +361,8 @@ _mut_trial() {
   if [ "$2" = '!kill' ]; then
     # ⚠ AN ALLOWLIST, NOT AN EXCLUSION: a generated mutant is killed only if the
     # output holds `CONTROL FAILED (<label>)` for the label of a `_control` call
-    # (`$_VFY/.ctllabels`, written by `_mut_correspondence` from the same awk
-    # extraction the label ratchet uses). The always-on floor runs inside the
+    # (`$_VFY/.ctllabels`, written by `_mut_labels`, the one parser the label
+    # ratchet reads too). The always-on floor runs inside the
     # mutant too (the `mutgen:` record depends on it), and a mutant of `$K2RE` or
     # `$K2RE_PATH` can make the generator refuse the mutated value — so a
     # `CONTROL FAILED` raised by the floor (`$_mg_lbl`), by a postcondition or by
@@ -386,6 +388,81 @@ _mut_trial() {
        echo "   does not name \"$2\", so another check masked the one under test." >&2
        return 2 ;;
   esac
+}
+
+# THE LABEL PARSER — the one reader of the controls file. $1 = that file;
+# writes `$_VFY/.labels` (every label: a `_control` call's, or an `_lbl="…"`
+# definition's) and `$_VFY/.ctllabels` (the `_control` labels alone, what
+# `_mut_trial '!kill'` accepts). Returns 1 with the line named on stderr when a
+# line is red, 2 when `awk` itself failed — never a silent pass.
+# ⚠ IT PARSES CALLS, NOT TEXT. Each line is walked once: what sits inside a
+# quoted string, or after a `#` that starts a word, is text and leaves `code`;
+# the quote characters stay (`""`, `''`), so a call's shape is still readable and
+# every quoted string is `q[k]`, in order. A `_control` word left in `code` is a
+# call; it must START its line (after blanks) with the four-argument shape, root
+# / bare exit / message / label, each string double-quoted, so the label is the
+# third string — any other shape is red, since a call the parser cannot read is a
+# label the ratchet never sees. A `_lbl=` definition must be `NAME="non-empty"`
+# (single-quoted, unquoted, empty, or not at its line's start: red). A `_ctl_run`
+# call's first argument must be `"$_<name>_lbl"` — a literal there prints a label
+# the ratchet never sees. A mention in a string or a comment, under any
+# indentation, is not a call. The old reader keyed on the text `_control ` (a
+# space) and `^ *#`: a TAB-separated call was invisible, a tab-indented comment
+# was red. Paths reach `awk` through the environment (`-v` would process a
+# backslash, and refuse a newline, in a TMPDIR).
+_mut_labels() {
+  K2_LBL="$_VFY/.labels" K2_CTL="$_VFY/.ctllabels" awk '
+    BEGIN { lbl = ENVIRON["K2_LBL"]; ctl = ENVIRON["K2_CTL"]; printf "" > lbl; printf "" > ctl; QQ = "[\"\047]" }
+    function red(why) { print "!! controls line " NR ", " why ": " $0 > "/dev/stderr"; bad = 1 }
+    # the positions of WORD in `code` (a word: no [A-Za-z0-9_] on either side)
+    function words(WORD, out,   start, k, p, pre, post) {
+      out[0] = 0; start = 1
+      while ((k = index(substr(code, start), WORD)) > 0) {
+        p = start + k - 1; start = p + length(WORD)
+        pre = (p > 1) ? substr(code, p - 1, 1) : " "; post = substr(code, start, 1)
+        if (pre !~ /[A-Za-z0-9_]/ && post !~ /[A-Za-z0-9_]/) out[++out[0]] = p
+      }
+    }
+    {
+      code = ""; nq = 0; i = 1; n = length($0)
+      while (i <= n) {
+        c = substr($0, i, 1)
+        if (c == "\\") { i += 2; continue }
+        if (c == "\"" || c == "\047") {
+          nq++; q[nq] = ""; code = code c c
+          for (i++; i <= n; i++) {
+            d = substr($0, i, 1)
+            if (d == c) break
+            if (c == "\"" && d == "\\") { q[nq] = q[nq] substr($0, i, 2); i++; continue }
+            q[nq] = q[nq] d
+          }
+          i++; continue
+        }
+        if (c == "#" && (i == 1 || substr($0, i - 1, 1) ~ /[ \t]/)) break
+        code = code c; i++
+      }
+      words("_control", at)
+      for (j = 1; j <= at[0]; j++) {
+        if (substr(code, 1, at[j] - 1) !~ /^[ \t]*$/) { red("a `_control` call that does not start its line (the parser reads a label only there)"); continue }
+        if (code !~ /^[ \t]*_control[ \t]+""[ \t]+[0-9]+[ \t]+""[ \t]+""([ \t]|$)/) { red("a `_control` call not of the shape root / exit / message / label (each string double-quoted)"); continue }
+        if (q[3] == "") { red("a `_control` call with an empty label"); continue }
+        print q[3] > lbl; print q[3] > ctl
+      }
+      if (code ~ /^[ \t]*_[A-Za-z0-9_]+_lbl=/) {
+        if (code ~ /^[ \t]*_[A-Za-z0-9_]+_lbl=""[ \t]*$/ && q[1] != "") print q[1] > lbl
+        else red("an `_lbl=` definition that is not NAME=\"non-empty\"")
+      } else if (code ~ /[^A-Za-z0-9_]_[A-Za-z0-9_]+_lbl=/) red("an `_lbl=` definition that does not start its line")
+      words("_ctl_run", at)
+      for (j = 1; j <= at[0]; j++) {
+        p = at[j] + 8
+        if (substr(code, p) ~ /^[ \t]+""([ \t]|$)/) {
+          pre = substr(code, 1, p); k = gsub(QQ, "", pre) / 2 + 1
+          if (q[k] ~ /^[$]_[A-Za-z0-9_]+_lbl$/) continue
+        }
+        red("a `_ctl_run` call whose first argument is not \"$_<name>_lbl\" (a literal label there is invisible to the ratchet)")
+      }
+    }
+    END { exit bad }' "$1"
 }
 
 # The always-on half: static properties of the two shipped lists.
@@ -447,22 +524,57 @@ _mut_correspondence() {
     fi
     printf '%s\n' "$_pr_needle" >> "$_VFY/.needles"
   done < "$_VFY/.mutants"
-  # THE LABEL SET, PARSED ONCE (`.labels`: the third quoted string (`$6`) of a `_control`
-  # call, or the value of an `_lbl="…"` definition), and ONE `awk` that decides BOTH
-  # directions by exact equality against `.needles`: a needle that is no label is an
-  # orphan (stderr; a record whose control was renamed reports "wrong reason"
-  # forever, and a needle that only matches some other quoted string is one too), a
-  # label that is no needle is bare (`.bare`, counted by the ratchet below).
-  # `!survive` names no control by design. Its exit status IS the verdict (1 = an
-  # orphan, 2 = the awk failed), so a failed awk is red, never a silent pass.
-  # `.ctllabels` (the `_control` labels alone) is what `_mut_trial '!kill'` accepts.
+  # ---- THE PARSER'S STANDING CHECK, ALWAYS ON -----------------------------------
+  # ⚠ THIS FILE IS NO MUTATION TARGET (`$_MUT_TARGETS`), so no record can pin
+  # `_mut_labels`'s red arms or its readings: this check is the guard's pin. It
+  # runs the parser over synthetic controls lines in `$_VFY` and asserts every
+  # arm by its own message, before the real parse below overwrites the lists —
+  # a red arm removed, or a reading lost, reds here under `$_lp_lbl`.
+  # The synthetic names are spelled `_a$_lp_s`, never whole: the controls file's
+  # "every label the parts use is defined" check derives names from this file's
+  # TEXT, and would demand a definition for each.
+  _lp_f="$_VFY/.lblchk"; _lp_e="$_VFY/.lblchk.err"; _lp_x="$_VFY/.lblchk.want"; _lp_s="_lbl"; _lp_bad=""
+  # (1) the green shapes, in one file: a TAB-separated call is read, and so is a
+  #     definition; mentions in a string, a tab-indented comment and a
+  #     space-indented echo are not calls; a `"$_<name>_lbl"` first argument passes.
+  printf '_control\t"$CTL/a"\t0\t"PASSED"\t"a label after a TAB" || ctl_ok=1\n' > "$_lp_f"
+  printf '%s\n' "_a$_lp_s=\"a defined label\"" '  echo "every _control call"' \
+    "$(printf '\t')# a tab-indented note about every _control call" \
+    "# _z$_lp_s='a mention of a definition in a comment'" \
+    "if ! _ctl_run \"\$_a$_lp_s\" \"\$CTL/a\"; then ctl_ok=1; fi" >> "$_lp_f"
+  _lp_rc=0; _mut_labels "$_lp_f" 2> "$_lp_e" || _lp_rc=$?
+  printf 'a label after a TAB\na defined label\n' > "$_lp_x"
+  [ "$_lp_rc" -eq 0 ] && cmp -s "$_lp_x" "$_VFY/.labels" || _lp_bad="$_lp_bad; the green shapes (a TAB-separated call, a definition, mentions) did not read as [a label after a TAB, a defined label] (exit $_lp_rc)"
+  printf 'a label after a TAB\n' > "$_lp_x"
+  cmp -s "$_lp_x" "$_VFY/.ctllabels" || _lp_bad="$_lp_bad; the TAB-separated call is not the one _control label"
+  # (2) the red shapes, one file each, each by its own message: a call that does
+  #     not start its line; a single-quoted definition; a literal `_ctl_run` label.
+  for _lp_case in \
+    'does not start its line|( _control "$CTL/b" 0 "PASSED" "a nested call" ) || ctl_ok=1' \
+    "is not NAME=|_b$_lp_s='a single-quoted label'" \
+    'first argument is not|_ctl_run "a literal label" "$CTL/a" || ctl_ok=1'; do
+    printf '%s\n' "${_lp_case#*|}" > "$_lp_f"
+    _lp_rc=0; _mut_labels "$_lp_f" 2> "$_lp_e" || _lp_rc=$?
+    case "$_lp_rc:$(cat "$_lp_e")" in
+      1:*"controls line 1, "*"${_lp_case%%|*}"*) : ;;
+      *) _lp_bad="$_lp_bad; \"${_lp_case#*|}\" did not red as \"${_lp_case%%|*}\" (exit $_lp_rc)" ;;
+    esac
+  done
+  if [ -n "$_lp_bad" ]; then
+    echo "!! CONTROL FAILED ($_lp_lbl)${_lp_bad}" >&2
+    _mut_corr_bad=1
+  fi
+  command rm -f "$_lp_f" "$_lp_e" "$_lp_x"
+  # THE LABEL SET, PARSED ONCE by `_mut_labels` (`.labels`, `.ctllabels`), and ONE
+  # `awk` that decides BOTH directions by exact equality against `.needles`: a needle
+  # that is no label is an orphan (stderr; a record whose control was renamed reports
+  # "wrong reason" forever, and a needle that only matches some other quoted string
+  # is one too), a label that is no needle is bare (`.bare`, counted by the ratchet
+  # below). `!survive` names no control by design. Its exit status IS the verdict
+  # (1 = an orphan, 2 = the awk failed), so a failed awk is red, never a silent pass.
   # Output paths reach `awk` through the environment (`-v` would process a backslash,
-  # and refuse a newline, in a TMPDIR). A non-comment `_control ` line with no label is red.
-  K2_CTL="$_VFY/.ctllabels" awk -F'"' 'BEGIN { ctl = ENVIRON["K2_CTL"]; printf "" > ctl }
-    /^ *_control / { if ($6 != "") { print $6; print $6 > ctl; next } }
-    /_control / && !/^ *#/ { print "!! no label could be read from the controls line: " $0 > "/dev/stderr"; bad = 1 }
-    /^ *_[A-Za-z0-9_]+_lbl="/ { if ($2 != "") print $2 }
-    END { exit bad }' "$_CONTROLS" > "$_VFY/.labels" || _mut_orphan=1
+  # and refuse a newline, in a TMPDIR). A parse the parser reds is an orphan too.
+  _mut_labels "$_CONTROLS" || _mut_orphan=1
   _mut_arc=0
   K2_BARE="$_VFY/.bare" awk 'BEGIN { printf "" > ENVIRON["K2_BARE"] }
     FILENAME == ARGV[1] { nd[++nn] = $0; isn[$0] = 1; next }
