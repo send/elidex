@@ -723,6 +723,7 @@ _fgit_window() {
 # NOTHING: `_fw_trusted` comes from `_fgit_window`; this function reads it to
 # report, and `_ctl_gate` reads it to gate.
 _fgit_window_verdict_exit() { # $1 = the window label
+  _ctl_reg "$1"
   if [ "$_fw_done" -ne 1 ]; then
     echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
     exit 2

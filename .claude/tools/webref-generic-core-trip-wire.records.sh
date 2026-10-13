@@ -10,7 +10,7 @@
 # the mutation set holds the READERS of the format — the one parser, the
 # always-on correspondence and anchor checks, the opt-in run — and this file
 # holds the DATA they read. The format itself (TAB-separated expressions and a
-# needle, the `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` prefixes) is
+# needle, the `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` / `mutations:` prefixes) is
 # documented at the head of the mutation set, beside the readers that enforce
 # it; the one rule kept here is the comment syntax, beside the one filter that
 # drops it (below).
@@ -149,13 +149,14 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # leaves the window incomplete (its `done` marker renamed), in three one-line
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only the gate can say W2. W2's producer is
-# `_ctl_gate`, asked by `_ctl_run` (every `_control` and the three non-`_control`
-# blocks run through it) and once more by the fsmonitor block before its own plain-git
-# preflight; the record pins that W2 is reported when the exits are gone. It SURVIVES
-# with `_fw_done` removed from `_fgit_window`'s trust computation. `_ctl_run`'s ask is
-# pinned by the relcwd and umask records (removing it, they survive). ⚠ A DECLARED GAP:
-# the fsmonitor block's ask is pinned only together with `_ctl_run`'s (either alone is
-# covered by the other); alone, it is pinned by the traced `w2rec` cell (companion §A.14).
+# `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the three non-`_control`
+# blocks run through it; the fsmonitor block's plain-git preflight sits inside the
+# branch its `_ctl_run`'s ask opened); the record pins that W2 is reported when the
+# exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
+# computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
+# the run under `$_cn_lbl` (the standing check: every value is left set after the call,
+# and `x`, the empty value and the 0 run instead of being refused) and under
+# `$_cen_lbl` (the gate is the registry's writer, so every `_control` needle is an orphan).
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
@@ -327,6 +328,52 @@ harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> 
 # report quotes the expression, and a needle found there would be a kill by no control.
 controls:s/ "[$]_VFY\/fakerelmktemp"; then ctl_ok=1$/ ""; then ctl_ok=1/	a relative scratch dir is removed on exit
 controls:s/ "[$]_VFY\/fakegitcfg" || ctl_ok=1$/ "" || ctl_ok=1/	the caller's git CONFIGURATION survives the routing purge
+# The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
+# and the values of the `_*_lbl` names the parts spell (`$_lbd_names`, a text
+# derivation, asserted defined) — against the records. One record per arm or
+# reading, each killed by the census's own message:
+#   the registry's writer in `_ctl_gate` (`ctlrun:`, range-scoped to it; the window
+#   verdict, in the harness, holds the same line) → the registered labels are orphans;
+#   a literal label at the window verdict, and at the fsmonitor `_ctl_run` → a
+#   label no record names ("more"); a `_control` in a `( … )` after `_mut_run` →
+#   the registry grew after the census (the controls file's last statement, `_mut_census_end`;
+#   the subshell form, which an `exit` from the registry's writer could not red);
+#   the variable half (the `$_lbd_names` loop) emptied → the `_*_lbl`
+#   needles are orphans; the recorded `forge` control deleted → its needle is an
+#   orphan; the bare `ignored` control deleted → "fewer";
+#   the bare `ignored` label on a second `_control` (before the census, after
+#   every control) → "registered from more than one call site";
+#   a second window verdict call on another controls line → the same message
+#   (the site is the outermost controls-file frame: a walk that skipped the
+#   harness frame but did not look for the controls one folded both calls onto
+#   the verdict's own line);
+#   a controls-file helper that makes the recorded `clean` control, called from
+#   two lines → the same message (the site is the line that CALLED the helper,
+#   not its body, where a nearest-controls-frame walk would put both);
+#   a `_*_lbl` value (`$_mg_lbl`, whose producer is an `echo`) as a second
+#   `_control`'s label → "a `_*_lbl` value passed to `_control`" (a `_control`
+#   label is literal; the site rule cannot see a producer that is not a call).
+ctlrun:/^_ctl_gate() {/,/^}/s/^  _ctl_reg "[$]1"$/  :/	every label the run used is named by a mutation record
+controls:s/^_fgit_window_verdict_exit "[$]_fw_lbl"$/_fgit_window_verdict_exit "a window label spelled out"/	every label the run used is named by a mutation record
+controls:s/^_mut_run$/&; ( _control "$CTL\/clean" 0 "PASSED" "a late label" ) || ctl_ok=1/	every label the run used is named by a mutation record
+mutations:s/^  for _cen_v in [$]_lbd_names; do/  for _cen_v in; do/	every label the run used is named by a mutation record
+controls:/^_control "[$]CTL\/forge" /d	every label the run used is named by a mutation record
+controls:s/_ctl_run "[$]_fsm_lbl" /_ctl_run "a run label spelled out" /	every label the run used is named by a mutation record
+controls:/^_control "[$]CTL\/ignored" /d	every label the run used is named by a mutation record
+controls:s/^_mut_correspondence || ctl_ok=1$/_control "$CTL\/clean" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1; &/	every label the run used is named by a mutation record
+controls:s/^# STANDING CHECK of .*one owner of .*: a run the gate$/_fgit_window_verdict_exit "$_fw_lbl"/	every label the run used is named by a mutation record
+controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/_rh() { _control "$CTL\/clean" 0 "PASSED" "green is reachable"; }; _rh || ctl_ok=1/	s/^_fsm_root="[$]CTL\/fsmon"$/&; _rh || ctl_ok=1/	every label the run used is named by a mutation record
+controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/&; _control "$CTL\/clean" 0 "PASSED" "$_mg_lbl" || ctl_ok=1/	every label the run used is named by a mutation record
+# `_ctl_need` (`$_cn_lbl`, the gate's arms; standing check in the controls file, and the
+# asks that decide the summary lines from `.declined` there): a caller's VALUE replaced
+# by a 0 on a machine whose flag is 1 → "declined while this machine's capability flag
+# is 1" (⚠ dies only where `_fifo_ok` is 1: where it is 0 the decline is the right
+# answer, so the opt-in run reds there with `!! MUTANT <n> (<needle>) SURVIVED`); a declined direct call
+# after the perm group's ask (on the census's line, under an existing variable label, so
+# no other check reaches it) → "declined after the last capability group's ask" — the
+# last ask's record, on every machine.
+controls:s/^_ctl_need="[$]_fifo_ok" _control "[$]CTL\/fifotracked" /_ctl_need=0 _control "$CTL\/fifotracked" /	_ctl_need declines exactly what this machine cannot do
+controls:s/^_mut_correspondence || ctl_ok=1$/_ctl_need=0 _ctl_run "$_mg_lbl" "$CTL\/clean" || :; &/	_ctl_need declines exactly what this machine cannot do
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

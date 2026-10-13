@@ -15,7 +15,8 @@
 # THE INTERFACE, AND IT IS ASSERTED BELOW RATHER THAN DESCRIBED. What this file
 # (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
-# `$_CONTROLS` (this file's own path, which the mutation set reads labels from), the
+# `$_CONTROLS` (this file's own path, which the defined-labels check reads, and
+# the run registry's site walk in the run primitives compares frames against), the
 # five `CONTROL_*` sample strings. That list — and only that list — is checked
 # at entry. (No part calls the wire's `_git`, so the entry check no longer asks
 # for it: a tracer over a full run counted 0 calls.)
@@ -72,9 +73,9 @@ if [ -n "$_ctl_missing" ]; then
 fi
 # DEFINED BEFORE THE HARNESS IS SOURCED: the harness uses `$_fws_lbl` while it loads.
 # ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
-# a mutation record (the ratchet counts every `_lbl="…"` definition as well as
-# every `_control` label). What each asserts is tabled in
-# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
+# a mutation record (the census in the mutation set counts the `_*_lbl`
+# variables as well as the labels the run's calls registered). What each
+# asserts is tabled in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
 _fw_lbl="the fixture build window completed"
 _fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
 _fwd_lbl="the fixture build window ran without a shell diagnostic"
@@ -94,9 +95,9 @@ _pk_lbl="no fixture repo reads objects from a store outside it"
 _pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
-# (the one label no record names: its guard, the label parser, lives in the
-# mutation set, which is no mutation target; `_MUT_UNRECORDED_MAX` counts it)
-_lp_lbl="the label parser reads calls and definitions, not mentions"
+# (the census: the run registry and the `_*_lbl` variables, against the
+# records — in the mutation set; the records whose needle this is pin it)
+_cen_lbl="every label the run used is named by a mutation record"
 # …the labels of the three blocks that are not a `_control` (their producers sit
 # below), defined HERE so the check that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
@@ -106,6 +107,7 @@ _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
 _ce_lbl="a refused control hands its environment to no other control"
 _wm_lbl="only the watchdog's marker makes a signal status a timeout"
+_cn_lbl="_ctl_need declines exactly what this machine cannot do"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -177,7 +179,6 @@ fi
 # inside such a command, so a bare call would abort the script on the first
 # non-zero and the remaining arms would never run.
 ctl_ok=0
-_ctl_env=()   # per-run environment; `_ctl_run` takes it and clears it on entry
 # THE WINDOW'S VERDICT, WRITTEN AFTER `ctl_ok=0`. An incomplete window built
 # nothing, so it ends the run here with W alone ("decided nothing"); a
 # complete but UNTRUSTED window (a red postcondition, or W3) ends it here too,
@@ -210,6 +211,87 @@ if ! ( SELF="$_VFY/.wm_abort"; _wm_r=0; _wm_bad=""
   ctl_ok=1
 fi
 command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_err"
+# STANDING CHECK of the gate's `_ctl_need` arms (`_ctl_gate`, in the run
+# primitives), through `_ctl_run` in a subshell with `SELF` pointed at a script
+# that exits at once, so "ran" is `_rc` set, and `_VFY` pointed at a directory
+# of its own (`$_VFY/.cn`): every file the run primitives touch sits under
+# `$_VFY` (the registry, `.declined`, the run's output and the watchdog's
+# marker), so the rows reach none of the run's own — the shared `.declined` is
+# read by the asks below from its first line, and this check's rows do not
+# register in the run's registry (its label reaches the census as a `_*_lbl`
+# value). The check leaving the run's `.declined` — the file the asks below
+# read — as it found it is pinned: it is noted before the check (absent, or its
+# line count and checksum) and compared after it, red under this label when it
+# differs, in whatever order the rows run.
+# Table-driven: the value given (`-` = none, `''` = empty) → the return,
+# whether a run was made, and `dir` = `.declined` made a directory first; after
+# each, `_ctl_need` is unset again (in posix mode bash 3.2 keeps a prefix
+# assignment, so the gate must clear it). Under a 0 the gate notes the label in
+# `.declined`; a note it could not make, and a value that is not 0 or 1, are its
+# own red (captured: the expected outcome there), and the red must name the
+# value, or the failed note.
+_cn_state() { # the run's `.declined`: absent, not a regular file, or its line count and checksum
+  if [ ! -e "$_VFY/.declined" ]; then echo absent
+  elif [ ! -f "$_VFY/.declined" ]; then echo "not a regular file"
+  else echo "$(wc -l < "$_VFY/.declined" | tr -d '[:space:]') line(s), cksum $(cksum < "$_VFY/.declined")"; fi
+}
+_cn_before="$(_cn_state)"
+command mkdir "$_VFY/.cn"
+printf '%s\n' 'exit 0' > "$_VFY/.cn/.cn_run"
+if ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
+       while read -r _cn_v _cn_want _cn_ran _cn_decl; do
+         case "$_cn_v" in -) unset _ctl_need ;; "''") _cn_val=""; _ctl_need="" ;; *) _cn_val="$_cn_v"; _ctl_need="$_cn_v" ;; esac
+         [ "$_cn_ran" = ran ] || _cn_ran=""
+         _cn_row="$_cn_v"; [ "$_cn_decl" = - ] || _cn_row="$_cn_v $_cn_decl"
+         command rm -rf "$_VFY/.declined"; [ "$_cn_decl" != dir ] || command mkdir "$_VFY/.declined"
+         unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
+         [ "$_cn_got" -eq "$_cn_want" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: returned $_cn_got, not $_cn_want"
+         _cn_was="${_rc+made}"
+         [ "${_rc+ran}" = "$_cn_ran" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: a run was ${_cn_was:-not made}"
+         [ -z "${_ctl_need+set}" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: left set after the call"
+         case "$_cn_want$_cn_decl" in
+           2-) [ "$(tail -n 1 "$_VFY/.declined" 2>/dev/null)" = "$_cn_lbl" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: the decline was not noted" ;;
+           1-) case "$(cat "$_VFY/.cn_err")" in *"holds \"$_cn_val\", not 0 or 1"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the value" ;; esac ;;
+           1dir) case "$(cat "$_VFY/.cn_err")" in *"the decline could not be noted"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the failed note" ;; esac ;;
+         esac
+       done <<EOF_CN
+1 0 ran -
+x 1 - -
+'' 1 - -
+- 0 ran -
+0 1 - dir
+0 2 - -
+EOF_CN
+       [ -z "$_cn_bad" ] || { echo "!! CONTROL FAILED ($_cn_lbl)$_cn_bad" >&2; exit 1; } ); then
+  ctl_ok=1
+fi
+_cn_after="$(_cn_state)"
+[ "$_cn_after" = "$_cn_before" ] || { echo "!! CONTROL FAILED ($_cn_lbl): the standing check changed the run's \$_VFY/.declined (before: $_cn_before; after: $_cn_after)" >&2; ctl_ok=1; }
+command rm -rf "$_VFY/.cn"
+# THE SUMMARY IS DECIDED FROM THE GATE'S DECISION: asked after a capability
+# group's calls, this answers whether `$_VFY/.declined` grew since the previous
+# ask (the first ask counts from the file's first line) — and reds when it did
+# while the group's flag is 1: then this machine can pose the question, and a
+# decline is the value carried wrong or the gate declining what it should run.
+# Nothing between two asks can decline but a call that carries `_ctl_need`. The
+# LAST ASK, before this file's exit on `ctl_ok`, reds any decline between the
+# last group's ask and the census unconditionally: no summary line was decided
+# from it (one after the census is a late registration, red at `_mut_census_end`
+# under `$_cen_lbl`).
+_cn_seen=0
+_cn_declined() { # $1 = the group's capability flag value; $2 = the red's reason, if not the flag
+  local _cd_n=0 _cd_new _cd_why="${2:-}"
+  [ -n "$_cd_why" ] || _cd_why="while this machine's capability flag is 1"
+  [ ! -e "$_VFY/.declined" ] || _cd_n="$(wc -l < "$_VFY/.declined" | tr -d '[:space:]')"
+  _cd_new=$((_cd_n - _cn_seen)); _cn_seen=$_cd_n
+  [ "$_cd_new" -gt 0 ] || return 1
+  if [ "$1" -eq 1 ]; then
+    echo "!! CONTROL FAILED ($_cn_lbl): $_cd_new control(s) declined $_cd_why:" >&2
+    tail -n "$_cd_new" "$_VFY/.declined" | sed 's/^/     /' >&2
+    ctl_ok=1
+  fi
+  return 0
+}
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.
@@ -333,22 +415,17 @@ _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TAR
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
 _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stored content" || ctl_ok=1
 _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
-# ⚠ THE TWO FIFO CONTROLS SHARE ONE PRECONDITION AND ONE REPORT LINE, built
-# HERE beside the decision that produces it (the `$_perm_line` shape, and for
-# the same reason: a summary written apart from its decision can disagree with
-# it). A machine that cannot hold a FIFO is a capability limit, not a wire
+# ⚠ THE TWO FIFO CONTROLS SHARE ONE PRECONDITION AND ONE REPORT LINE, decided
+# after the second of them from what the gate did (the `$_perm_line` shape, and
+# for the same reason: a summary written apart from its decision can disagree
+# with it). A machine that cannot hold a FIFO is a capability limit, not a wire
 # defect — but it is also not something this run may pass over in silence.
+# `_ctl_need="$_fifo_ok"` carries the limit's VALUE with the call (no `if` around
+# it): the call runs on every machine and registers its label for the census, and
+# where the value is 0 the gate declines it without a run (`_ctl_gate`, in the run primitives).
 _fifo_line="            an entry git cannot store neither hangs nor hides a verdict, and a
             tracked path replaced by one is not opened"
-if [ "$_fifo_ok" -eq 1 ]; then
-  _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
-else
-  _fifo_line="            ⚠ NOT EXERCISED on this machine: BOTH FIFO controls (this
-            filesystem holds no fifo), so this run carries no evidence that an
-            entry git cannot store neither hangs nor hides a verdict, NOR that a
-            tracked path replaced by one is not opened — the second being the
-            control whose original finding was a local gate that HUNG"
-fi
+_ctl_need="$_fifo_ok" _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
 _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1
 # ⚠ A FIXTURE THAT DID NOT BUILD MUST NOT PASS, and `_fixture_failed` is where
@@ -404,9 +481,14 @@ _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored 
 _control "$CTL/headlink" 1 "(in HEAD) ->" "a COMMITTED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
 _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
-# …the second of the pair `$_fifo_line` above reports on.
-if [ "$_fifo_ok" -eq 1 ]; then
-  _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
+# …the second of the pair `$_fifo_line` above reports on, and the decision.
+_ctl_need="$_fifo_ok" _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
+if _cn_declined "$_fifo_ok"; then
+  _fifo_line="            ⚠ NOT EXERCISED on this machine: BOTH FIFO controls (this
+            filesystem holds no fifo), so this run carries no evidence that an
+            entry git cannot store neither hangs nor hides a verdict, NOR that a
+            tracked path replaced by one is not opened — the second being the
+            control whose original finding was a local gate that HUNG"
 fi
 # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
 # read" are different answers and only one of them is green.
@@ -443,45 +525,47 @@ _ctl_env=("GREP_OPTIONS=--exclude=*")
 _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the
-# verdict cannot say. ⚠ The hook is first shown to run under a plain git call
-# over the same fixture, or its not running under the wire would prove nothing.
-# The hook's path goes through `_shq`, as every embedded path here does.
+# verdict cannot say. ⚠ The same hook is then shown to run under a plain git
+# call over the same fixture — inside the branch `_ctl_run`'s ask opened, so
+# this block asks the gate ONCE, under its one label — or its not running under
+# the wire would prove nothing. The hook's path goes through `_shq`, as every
+# embedded path here does.
 _fsm_root="$CTL/fsmon"
-if ! _ctl_gate "$_fsm_lbl" "${_fsm_root##*/}"; then ctl_ok=1; else
 _fsm_mark="$_VFY/.fsmonitor_ran"
 printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
 chmod +x "$_VFY/fsmhook"
 _fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$_VFY/fsmhook")")
-( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$_fsm_root" \
-  && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
-if [ ! -e "$_fsm_mark" ]; then
-  echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2
-  echo "   git call either, so its not running under the wire would prove nothing." >&2
+command rm -f "$_fsm_mark"
+_ctl_env=("${_fsm_cfg[@]}")
+if ! _ctl_run "$_fsm_lbl" "$_fsm_root"; then ctl_ok=1
+elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
+  echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
+  printf '%s\n' "$_out" | sed 's/^/     /' >&2
   ctl_ok=1
-else
-  command rm -f "$_fsm_mark"
-  _ctl_env=("${_fsm_cfg[@]}")
-  if ! _ctl_run "$_fsm_lbl" "$_fsm_root"; then ctl_ok=1
-  elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
-    echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
-    printf '%s\n' "$_out" | sed 's/^/     /' >&2
-    ctl_ok=1
-  fi
-fi
+elif ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$_fsm_root" \
+       && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
+     [ ! -e "$_fsm_mark" ]; then
+  echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2
+  echo "   git call either, so its not running under the wire proved nothing." >&2
+  ctl_ok=1
 fi
 # ⚠ The line is built HERE, beside the decision that produces it. An earlier
 # shape decided here and described it in the summary below, so the two could
 # disagree — and an unconditional summary claimed exit-status evidence the run
-# had not obtained (#501 R78). One site, one truth.
+# had not obtained (#501 R78). One site, one truth: the line is decided from what
+# the gate did (`_cn_declined`), not from the flag. `_ctl_need="$_perm_ok"` on the
+# four calls, as on the FIFO pair: registered on every machine, run where the
+# value is 1. The umask block stays in its `if`: it prints a `_*_lbl` value,
+# which the census reads from the variable, run or not.
 _perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
           permissions enforced (this user can read a mode-000 file), so this
           run carries no evidence for them"
-if [ "$_perm_ok" -eq 1 ]; then
+_ctl_need="$_perm_ok" _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
+_ctl_need="$_perm_ok" _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
+_ctl_need="$_perm_ok" _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
+_ctl_need="$_perm_ok" _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
+if ! _cn_declined "$_perm_ok"; then
   _perm_line="            the controls that need file permissions enforced ran too"
-  _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
-  _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
-  _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
-  _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
   # Not a `_control`: `_control` has no umask channel. A umask that leaves the
   # scratch dir unsearchable makes it unresolvable to a physical path.
   # ONE GATE: the assertion lives inside the branch that ran the umask run, so
@@ -510,11 +594,15 @@ fi
 # shellcheck source=/dev/null
 . "$_MUTATIONS"
 _mut_correspondence || ctl_ok=1
+# THE LAST ASK (`_cn_declined`, above): a decline after the perm group's ask has
+# no summary line, so it is red whatever this machine's flags are. (One after the
+# census is a late registration as well, red at `_mut_census_end`.)
+_cn_declined 1 "after the last capability group's ask, so no summary line was decided from them" || :
 
 # (No check after the controls: every `_control` and every block that is not one
 # runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree;
 # the fsmonitor block's plain `git ls-files` preflight, made outside `_ctl_run`,
-# asks `_ctl_gate` itself.)
+# sits inside the branch that its `_ctl_run`'s ask opened.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run
@@ -527,3 +615,7 @@ printf '%s\n' "$_fifo_line"
 printf '%s\n' "$_perm_line"
 [ -z "$_limit_lines" ] || printf '%s\n' "$_limit_lines"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
+# …and no label-taking call ran after the label census (`_mut_census_end`, in the
+# mutation set). This file's last statement: the wire makes no label-taking call
+# after this file returns, so a late call is one made here, after the census.
+_mut_census_end || exit 1

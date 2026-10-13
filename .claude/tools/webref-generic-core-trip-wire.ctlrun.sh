@@ -15,10 +15,16 @@
 # watchdog), and `_control` itself. Nothing here reaches the window: the
 # prelude forwards none of these names, and the window calls none of them.
 # WHAT IT CONSUMES: from the harness, `_fw_trusted` and `_fw2_said` (the window's
-# trust, decided there) and `_fixture_did_fail` (the one reader of
-# `$_FIX_FAILED`); from the controls file, `$_fw2_lbl`, `$_VFY` and `_ctl_env`
-# (an ARRAY the caller sets per run); from the wire, `$SELF` and `$BASH`.
-# WHAT IT DEFINES: `_ctl_gate`, `_ctl_run`, `_control`.
+# trust, decided there) and `_fixture_did_fail` (the one reader of `$_FIX_FAILED`);
+# from the controls file, `$_fw2_lbl`, `$_VFY`, `_ctl_env` (an ARRAY the caller
+# sets per run) and `_ctl_need` (a prefix assignment on a call); from the wire,
+# `$SELF`, `$BASH` and `$_CONTROLS` (the string the wire sourced the controls
+# file by, which is what `BASH_SOURCE` holds for that file's frames: the
+# registry's site walk looks for it).
+# WHAT IT DEFINES: `_ctl_reg` (the registry's writer; the harness's window
+# verdict calls it too — after this file is sourced, since the controls file
+# calls the verdict after it sourced the harness), `_ctl_gate`, `_ctl_run`,
+# `_control`.
 # ⚠ SOURCED ONLY AT THE END OF THE HARNESS, which sets `_CTLRUN` immediately
 # before sourcing, so an unset one means this file was reached some other way.
 if [ -z "${_CTLRUN:-}" ]; then
@@ -27,6 +33,14 @@ if [ -z "${_CTLRUN:-}" ]; then
   echo "   Run the wire instead." >&2
   exit 2
 fi
+# THE TWO NAMES A CALLER SETS PER CALL are cleared here, at source time, before
+# any primitive reads them: the wire's environment is the caller's, and an
+# exported `_ctl_need=0` would decline the first control in silence, an exported
+# scalar `_ctl_env` would become `${_ctl_env[@]}`. Every other name the primitives
+# read is assigned by the wire, the harness or the controls file before the
+# first call, or by the primitive itself before it is read.
+unset _ctl_need
+_ctl_env=()
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
 # nor over a fixture that did not build. ONE GATE, asked by ONE run primitive:
@@ -35,7 +49,7 @@ fi
 # picked per caller. The three blocks that are not a `_control` run through it as
 # well, so a hang or a failed build is reported the same way in all four paths.
 # The one run made outside it (the fsmonitor block's plain `git ls-files`
-# preflight) has its own gate, in the controls file.
+# preflight) sits inside the branch that `_ctl_run`'s own ask opened.
 # W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
 # `$_fw2_lbl` is defined in the controls file. Every fixture is built under
 # `|| _fixture_failed <name>` (the PATH-prefix shim dirs are bare-built, so a failure
@@ -43,13 +57,73 @@ fi
 # about actually get built?" is one lookup rather than a probe re-derived per site: without it a
 # broken build leaves a plausible-looking tree that can still satisfy the
 # assertion — a control green over a question never posed.
+# THE RUN REGISTRY (`$_VFY/.registry`): each label passed to `_control`,
+# `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` is appended when the
+# call runs, as `<file>:<line>	<kind>	<label>` — under the `$_VFY` of the call:
+# the controls file's `_ctl_need` standing check runs its rows under a `_VFY`
+# of its own, so its rows reach that registry, not this one (its label reaches
+# the census as a `_*_lbl` value). THE SITE IS THE OUTERMOST FRAME
+# WHOSE `BASH_SOURCE` IS THE CONTROLS FILE (`$_CONTROLS`): the top-level controls
+# line that led here, walked from the top of the call stack down — so a helper
+# function defined in the controls file registers at each line that calls it,
+# not at its body, and the frames between (this file, the harness: `_control`
+# and `_ctl_run` both end in `_ctl_gate`, whose first statement this is, as it
+# is the window verdict's) are not the site while a controls frame is on the
+# stack, which the wire guarantees (the primitives are reached only through the
+# controls file; the `-gt 1` bound only keeps the index at a frame). THE KIND
+# is `control` when `_control` is on the call stack (`FUNCNAME`), else `direct`
+# (a primitive the controls file calls itself: `_ctl_run`, `_ctl_gate`, the
+# verdict); the census requires a `control` label to be literal. A file, not a
+# variable, so a call made in a subshell (`x="$(_control …)"`, a `( … )` block)
+# is recorded too, at the same site. The line is the one bash reports for that
+# frame: for a plain call, a `$(…)`, a `( … )`, a continuation line and a
+# controls-file helper it is the call's line (both shells); a multi-line `eval`
+# string and a `trap` body FOLD lines (measured: bash 5.3 reports the string's
+# own line, and line 1 of the trap body for every `trap` on that line; bash 3.2
+# the line after the `eval` plus the offset, and the firing line for a trap), so
+# two calls there can be one site, as two calls on one line are — the controls
+# file has no `eval` or `trap` call. The census (`_mut_correspondence`, in the
+# mutation set) reads the file once — ONE LABEL, ONE SITE: a label registered
+# from two lines is red there — and notes its length; the controls file's last
+# statement reds if it grew after that (`_mut_census_end`), whatever shell made
+# the late call.
+_ctl_reg() { # $1 = the label
+  local _rg_i=$((${#BASH_SOURCE[@]} - 1)) _rg_k=direct
+  case " ${FUNCNAME[*]} " in *" _control "*) _rg_k=control ;; esac
+  while [ "$_rg_i" -gt 1 ] && [ "${BASH_SOURCE[$_rg_i]}" != "$_CONTROLS" ]; do _rg_i=$((_rg_i - 1)); done
+  printf '%s:%s\t%s\t%s\n' "${BASH_SOURCE[$_rg_i]##*/}" "${BASH_LINENO[$((_rg_i - 1))]}" "$_rg_k" "$1" >> "$_VFY/.registry"
+}
+# `_ctl_need="$<flag>"` (a prefix assignment on the call) carries the VALUE of
+# the capability flag a control needs — the value, not the flag's name: nothing
+# is expanded indirectly here, so there is no identifier to get wrong (a flag
+# that is unset is a `set -u` abort of the wire at the caller's line: red,
+# unlabelled). The gate takes it into a local and UNSETS it first — in posix
+# mode bash 3.2 keeps such an assignment past the call, which would decline
+# every later control in silence. The label is registered on every machine;
+# a 1 runs, a 0 returns 2 — not run, not red — after appending the label to
+# `$_VFY/.declined`, which the controls file's asks read (`_cn_declined` there:
+# a group's summary line is decided from it, and a decline between the last
+# group's ask and the census is red at its last ask — one after the census is a
+# late registration, red at `_mut_census_end`; `_control` maps the 2 to 0) — an append that fails is red
+# under the label, not a silent decline; and anything else is red under the
+# label. Whether a value was given at all is `${_ctl_need+set}`: an empty value
+# is "given", and red. Each arm — 1, 0, the failed note, `x`, empty, unset — is
+# a row of the controls file's standing check (`$_cn_lbl`).
 _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames)
-  local _g_for="$1" _g_n
+  _ctl_reg "$1"
+  local _g_for="$1" _g_need="${_ctl_need-}" _g_given="${_ctl_need+set}" _g_n
+  unset _ctl_need
   shift
   if [ "$_fw_trusted" -ne 1 ]; then
     [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over a build that was not complete and trusted" >&2
     _fw2_said=1; return 1
   fi
+  [ -z "$_g_given" ] || case "$_g_need" in 1) : ;;
+    0) printf '%s\n' "$_g_for" >> "$_VFY/.declined" || {
+         echo "!! CONTROL FAILED ($_g_for): the decline could not be noted in \$_VFY/.declined" >&2; return 1; }
+       return 2 ;;
+    *) echo "!! CONTROL FAILED ($_g_for): _ctl_need holds \"$_g_need\", not 0 or 1" >&2; return 1 ;;
+  esac
   for _g_n in "$@"; do
     if _fixture_did_fail "$_g_n"; then
       echo "!! CONTROL NOT EXERCISED ($_g_for): its fixture ($_g_n) did not build, so this control" >&2
@@ -71,10 +145,12 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
 # contributor whose temp path has a space (#501 R96). A path is data here too.
 # RETURN CONTRACT: 1 ONLY when the gate refused or the WATCHDOG killed the run
-# (both already reported under the label); every other outcome — a status >= 128
-# the wire came back with at once (a 134 abort, a 141 SIGPIPE) included — returns
-# 0 with `_rc` and `_out` set (the run's status and its stdout+stderr), and the
-# caller's own comparison is the verdict on it.
+# (both already reported under the label); 2 ONLY when the gate declined the run
+# for a capability this machine lacks (`_ctl_need`, above: nothing ran, nothing
+# was reported, the label noted in `.declined`); every other outcome — a status >= 128 the wire came back with
+# at once (a 134 abort, a 141 SIGPIPE) included — returns 0 with `_rc` and `_out`
+# set (the run's status and its stdout+stderr), and the caller's own comparison
+# is the verdict on it.
 # ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
 # statement, so every return path (the gate's included) leaves the global empty.
 # It is file-scope (bash has no array parameter); a clear placed after the gate
@@ -84,7 +160,7 @@ _ctl_run() {
   local -a _ce=(${_ctl_env[@]+"${_ctl_env[@]}"})
   _ctl_env=()
   local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
-  _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || return 1
+  _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || return $?
   _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
   # otherwise report (#501 R92). The FIFO finding's whole harm was that the
@@ -139,8 +215,19 @@ _ctl_run() {
 }
 _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
-             # $7 = optional PATH prefix; the run itself is `_ctl_run`'s
-  _ctl_run "$4" "$1" "" "" "${7:-}" "${5:-}" "${6:-}" || return 1
+             # $7 = optional PATH prefix; the run itself is `_ctl_run`'s.
+             # A 2 from it (`_ctl_need` carried a 0: the capability is missing
+             # here) is green: the label was registered, the gate noted the
+             # decline, and the controls file's next ask decides a summary line
+             # from it or reds it (`_cn_declined` there).
+  local _cr=0
+  _ctl_run "$4" "$1" "" "" "${7:-}" "${5:-}" "${6:-}" || _cr=$?
+  # Not pinned by a record: on a capable machine nothing declines, so this line is
+  # never reached (measured: removed, the wire PASSED on both shells); on an
+  # incapable one, removed, the 2 falls to the `return 1` below and the caller's
+  # `|| ctl_ok=1` reds the run (measured, the fifo flag forced to 0: rc 1).
+  [ "$_cr" -ne 2 ] || return 0
+  [ "$_cr" -eq 0 ] || return 1
   if [ "$_rc" -ne "$2" ]; then
     echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
     echo "   mean nothing — this wire was not shown able to reach that verdict." >&2
