@@ -5,30 +5,32 @@ import argparse
 import sys
 
 from ..resolver import lookup_section
+from ..spec_labels import label_for
 
-# Human-readable spec label for the first column of §3 table rows. Falls back
-# to UPPER(shortname-with-dashes-as-spaces) for unmapped shortnames — extend
-# the map when a new spec becomes frequently cited (cosmetic only, not load-
-# bearing for verification).
-_SPEC_LABEL_MAP = {
-    "ecma262": "ECMA-262",
-    "ecma402": "ECMA-402",
-    "html": "WHATWG HTML",
-    "dom": "WHATWG DOM",
-    "url": "WHATWG URL",
-    "fetch": "WHATWG Fetch",
-    "streams": "WHATWG Streams",
-    "xhr": "WHATWG XHR",
-    "webcrypto": "Web Cryptography API",
-    "webidl": "Web IDL",
-    "selectors-4": "CSS Selectors L4",
-    "geometry-1": "Geometry Interfaces L1",
-}
+# Human-readable spec label for the first column of §3 table rows. The
+# enumeration is canonical in `_webref.spec_labels` — see that module for why
+# it is not inlined here. Falls back to UPPER(shortname-with-dashes-as-spaces)
+# for unmapped shortnames; extend the map when a new spec becomes frequently
+# cited.
+#
+# ⚠ The fall-back is not cosmetic. A verifier that resolves a row BY ITS LABEL
+# cannot look up a generated `CSS TEXT 3 §4.1.3 …` row, because no reverse map
+# knows that label: it VERIFIES NOTHING for the row while still exiting 0, so a
+# fabricated §-number passes. Such a verifier typically still *reports* the row
+# — the property that matters is "verifies nothing, exits 0", not silence. And
+# pinning the spec in `SPECS` does not close it on its own: the verifier reads
+# its own reverse map, which this module does not feed. The fall-back stays as
+# it is so the map remains the only place the enumeration lives.
+# ⚠ TRACKED, and the route is here rather than left to be rediscovered:
+# `#11-preflight-css-module-labels` (owner Slice B, prerequisite A-ii) closes
+# it. A comment that names a live defect without naming where it is owned reads
+# as an accepted one.
 
 
 def _spec_label(shortname: str) -> str:
-    if shortname in _SPEC_LABEL_MAP:
-        return _SPEC_LABEL_MAP[shortname]
+    label = label_for(shortname)
+    if label is not None:
+        return label
     return shortname.upper().replace("-", " ")
 
 
