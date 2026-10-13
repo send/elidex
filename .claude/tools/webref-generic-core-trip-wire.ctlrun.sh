@@ -23,8 +23,8 @@
 # registry's site walk looks for it).
 # WHAT IT DEFINES: `_ctl_reg` (the registry's writer; the harness's window
 # verdict calls it too — after this file is sourced, since the controls file
-# calls the verdict after it sourced the harness), `_ctl_gate`, `_ctl_run`,
-# `_control`.
+# calls the verdict after it sourced the harness), `_ctl_built`, `_ctl_gate`,
+# `_ctl_run`, `_control`, and `_ctl_wd_s` (the watchdog's seconds).
 # ⚠ SOURCED ONLY AT THE END OF THE HARNESS, which sets `_CTLRUN` immediately
 # before sourcing, so an unset one means this file was reached some other way.
 if [ -z "${_CTLRUN:-}" ]; then
@@ -36,27 +36,41 @@ fi
 # THE TWO NAMES A CALLER SETS PER CALL are cleared here, at source time, before
 # any primitive reads them: the wire's environment is the caller's, and an
 # exported `_ctl_need=0` would decline the first control in silence, an exported
-# scalar `_ctl_env` would become `${_ctl_env[@]}`. Every other name the primitives
-# read is assigned by the wire, the harness or the controls file before the
-# first call, or by the primitive itself before it is read.
+# scalar `_ctl_env` would become `${_ctl_env[@]}`. The watchdog's seconds are
+# set here for the same reason (a caller's value would not be this file's). Every
+# other name the primitives read is assigned by the wire, the harness or the
+# controls file before the first call, or by the primitive itself before it is read.
 unset _ctl_need
 _ctl_env=()
+_ctl_wd_s=30
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
 # nor over a fixture that did not build. ONE GATE, asked by ONE run primitive:
 # `_ctl_run` below asks `_ctl_gate <label> <fixture>…` about the fixture trees the
 # run is aimed at, derived from its own arguments (root and cwd) — not a name
-# picked per caller. The three blocks that are not a `_control` run through it as
-# well, so a hang or a failed build is reported the same way in all four paths.
-# The one run made outside it (the fsmonitor block's plain `git ls-files`
-# preflight) sits inside the branch that `_ctl_run`'s own ask opened.
-# W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes;
-# `$_fw2_lbl` is defined in the controls file. Every fixture is built under
-# `|| _fixture_failed <name>` (the PATH-prefix shim dirs are bare-built, so a failure
-# there is errexit, which the window reports), so "did the tree this control is
-# about actually get built?" is one lookup rather than a probe re-derived per site: without it a
-# broken build leaves a plausible-looking tree that can still satisfy the
-# assertion — a control green over a question never posed.
+# picked per caller. The two blocks that are not a `_control` (relcwd, fsmonitor)
+# run through it as well, so a hang or a failed build is reported the same way in
+# all three paths. The one run made outside it (the fsmonitor block's plain `git
+# ls-files` preflight) sits inside the branch that `_ctl_run`'s own ask opened.
+# W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes — and
+# reported ONCE per run (`_fw2_said`), under `$_fw2_lbl` (defined in the controls
+# file), not under each refused label: the labels refused after the first are
+# reported nowhere. Every fixture is built under `|| _fixture_failed <name>` (the
+# PATH-prefix shim dirs the fixtures file builds are bare-built, so a failure there
+# is errexit, which the window reports; the two the controls file builds after the
+# window under `$_VFY` — relcwd's `mktemp`, cfgkept's `git` — are bare-built in the
+# parent, where errexit ends the wire at once, unlabelled, before this gate is
+# asked), so "did the tree this control is about actually get built?" is one
+# lookup rather than a probe re-derived per site: without it a broken build leaves
+# a plausible-looking tree that can still satisfy the assertion — a control green
+# over a question never posed. The fixture half is a function of its own,
+# `_ctl_built`, which registers nothing, so a standing check in the controls
+# file asks it under its own label before its rows run — a fixture that did not
+# build is then reported under the check, not as the check's own failure —
+# without a second registry site for that label. Trust is NOT asked there: the
+# check reads `_fw_trusted` itself and, untrusted, reds in silence (W2 is this
+# gate's report, printed once by the first gated run), so `_ctl_gate` is W2's
+# one producer and W2's records tell "the gate refused" from "a control ran".
 # THE RUN REGISTRY (`$_VFY/.registry`): each label passed to `_control`,
 # `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` is appended when the
 # call runs, as `<file>:<line>	<kind>	<label>` — under the `$_VFY` of the call:
@@ -93,6 +107,18 @@ _ctl_reg() { # $1 = the label
   while [ "$_rg_i" -gt 1 ] && [ "${BASH_SOURCE[$_rg_i]}" != "$_CONTROLS" ]; do _rg_i=$((_rg_i - 1)); done
   printf '%s:%s\t%s\t%s\n' "${BASH_SOURCE[$_rg_i]##*/}" "${BASH_LINENO[$((_rg_i - 1))]}" "$_rg_k" "$1" >> "$_VFY/.registry"
 }
+_ctl_built() { # $1 = the label to report under, $2… = fixture names (basenames)
+  local _b_for="$1" _b_n
+  shift
+  for _b_n in "$@"; do
+    if _fixture_did_fail "$_b_n"; then
+      echo "!! CONTROL NOT EXERCISED ($_b_for): its fixture ($_b_n) did not build, so this control" >&2
+      echo "   would be asserting over a tree that never posed the question." >&2
+      return 1
+    fi
+  done
+  return 0
+}
 # `_ctl_need="$<flag>"` (a prefix assignment on the call) carries the VALUE of
 # the capability flag a control needs — the value, not the flag's name: nothing
 # is expanded indirectly here, so there is no identifier to get wrong (a flag
@@ -108,10 +134,14 @@ _ctl_reg() { # $1 = the label
 # under the label, not a silent decline; and anything else is red under the
 # label. Whether a value was given at all is `${_ctl_need+set}`: an empty value
 # is "given", and red. Each arm — 1, 0, the failed note, `x`, empty, unset — is
-# a row of the controls file's standing check (`$_cn_lbl`).
+# a row of the controls file's standing check (`$_cn_lbl`). The gate is the
+# registration, the trust arm (W2), these arms, then `_ctl_built`. The trust
+# arm sits BEFORE the need arms: an untrusted window is red, never declined
+# (a 0 under it would turn W2 into a "decline?" ask on an incapable machine);
+# that order is a row of the same standing check (`untrusted`).
 _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames)
   _ctl_reg "$1"
-  local _g_for="$1" _g_need="${_ctl_need-}" _g_given="${_ctl_need+set}" _g_n
+  local _g_for="$1" _g_need="${_ctl_need-}" _g_given="${_ctl_need+set}"
   unset _ctl_need
   shift
   if [ "$_fw_trusted" -ne 1 ]; then
@@ -124,33 +154,34 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
        return 2 ;;
     *) echo "!! CONTROL FAILED ($_g_for): _ctl_need holds \"$_g_need\", not 0 or 1" >&2; return 1 ;;
   esac
-  for _g_n in "$@"; do
-    if _fixture_did_fail "$_g_n"; then
-      echo "!! CONTROL NOT EXERCISED ($_g_for): its fixture ($_g_n) did not build, so this control" >&2
-      echo "   would be asserting over a tree that never posed the question." >&2
-      return 1
-    fi
-  done
-  return 0
+  _ctl_built "$_g_for" "$@"
 }
 # THE ONE RUN PRIMITIVE: the wire in self-test mode over a fixture root, as its own
-# process group under a 30 s watchdog. Everything that runs the wire over a fixture
-# is built on it — `_control` and the three blocks that are not one — so a hang is
-# reported ("killed after 30s") whichever path hit it, and only the ASSERTION is the
-# caller's. Arguments (empty = none): $1 label, $2 root, $3 cwd to run from,
-# $4 umask to run under, $5 PATH prefix (to shadow a tool the wire calls), $6 optional
-# scope subdir (relative), $7 optional extra entry (relative); plus `_ctl_env` (an
-# ARRAY, set by the caller) for environment assignments. ⚠ NOT a string: `env ${8:-}`
-# word-split them, so a `TMPDIR` holding a space broke the routed control with
+# process group under a watchdog of `_ctl_wd_s` seconds (30, set at source time
+# above; the `_wm` standing check in the controls file sets 1 in its subshell and
+# runs a wire that sleeps past it). Every self-test run over a fixture is built
+# on it — `_control` and the two blocks that are not one; the controls file spawns
+# the wire nowhere else — so a hang there is reported ("killed after 30s") on
+# every such path, and only the ASSERTION is the caller's. The opt-in mutation
+# trials (`_mut_trial` in the mutations file, `WEBREF_WIRE_MUTANTS=1`) run the
+# wire unbounded: slot `#11-trip-wire-liveness-bound`. Arguments (empty =
+# none): $1 label, $2 root, $3 cwd to run from, $4 umask to run under, $5 PATH
+# prefix (to shadow a tool the wire calls), $6 optional scope subdir (relative),
+# $7 optional extra entry (relative); plus `_ctl_env` (an ARRAY, set by the caller)
+# for environment assignments. ⚠ AN ARRAY, NOT A STRING: an earlier shape took the
+# assignments as one string argument, expanded unquoted into `env`, which
+# word-split it, so a `TMPDIR` holding a space broke the routed control with
 # `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
 # contributor whose temp path has a space (#501 R96). A path is data here too.
-# RETURN CONTRACT: 1 ONLY when the gate refused or the WATCHDOG killed the run
-# (both already reported under the label); 2 ONLY when the gate declined the run
-# for a capability this machine lacks (`_ctl_need`, above: nothing ran, nothing
-# was reported, the label noted in `.declined`); every other outcome — a status >= 128 the wire came back with
-# at once (a 134 abort, a 141 SIGPIPE) included — returns 0 with `_rc` and `_out`
-# set (the run's status and its stdout+stderr), and the caller's own comparison
-# is the verdict on it.
+# RETURN CONTRACT: 1 ONLY when the gate refused (an untrusted window: reported
+# once per run under `$_fw2_lbl`, by the first refusal; a `_ctl_need` value that
+# is not 0 or 1, a decline it could not note, a failed fixture: each under the
+# label) or the WATCHDOG killed the run (under the label); 2 ONLY when the gate
+# declined the run for a capability this machine lacks (`_ctl_need`, above: nothing
+# ran, nothing was reported, the label noted in `.declined`); every other outcome
+# — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE)
+# included — returns 0 with `_rc` and `_out` set (the run's status and its
+# stdout+stderr), and the caller's own comparison is the verdict on it.
 # ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
 # statement, so every return path (the gate's included) leaves the global empty.
 # It is file-scope (bash has no array parameter); a clear placed after the gate
@@ -187,16 +218,18 @@ _ctl_run() {
   set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
   # the subshell; killing only that reparents the `sleep` to PID 1, where it
-  # runs out its 30 s — one orphan per control, dozens per local gate run
+  # runs out its seconds — one orphan per control, dozens per local gate run
   # (#501 R93, observed). The subshell traps TERM and takes its own children
   # with it, so the pair is reaped as a unit with shell builtins only.
   ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
-    sleep 30 & wait
+    sleep "$_ctl_wd_s" & wait
     # The marker names the cause; the kill is the job. A write that fails (the
     # scratch dir gone) must not stop the kill behind it, in any caller's context.
-    # No record: every caller today is an `||` or `if !` operand, under which
-    # errexit is off inside this subshell too, so the form is unobservable here;
-    # it holds for a caller that is not.
+    # The write itself is pinned by the `_wm` standing check's timeout row (the
+    # marker written, the kill reported as one); the `|| :` form has no record:
+    # every caller today is an `||` or `if !` operand, under which errexit is off
+    # inside this subshell too, so the form is unobservable here; it holds for a
+    # caller that is not.
     { : > "$_r_wmark"; } 2>/dev/null || :
     kill -9 -"$_cpid" 2>/dev/null || kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
   wait "$_cpid"; _rc=$?
@@ -206,7 +239,7 @@ _ctl_run() {
   # or 141 (SIGPIPE) that came back at once is the caller's "expected N, got M".
   # Pinned by the standing check in the controls file (`$_wm_lbl`) and its record.
   if [ "$_rc" -ge 128 ] && [ -e "$_r_wmark" ]; then
-    echo "!! CONTROL FAILED ($_r_for): the wire did not finish — killed after 30s (signal" >&2
+    echo "!! CONTROL FAILED ($_r_for): the wire did not finish — killed after ${_ctl_wd_s}s (signal" >&2
     echo "   status $_rc). A gate that blocks is worse than one that reds: it never" >&2
     echo "   reaches a verdict at all. Something on this path opened what it must not." >&2
     return 1
@@ -215,13 +248,14 @@ _ctl_run() {
 }
 _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
-             # $7 = optional PATH prefix; the run itself is `_ctl_run`'s.
+             # $7 = optional PATH prefix, $8 = optional umask to run under; the
+             # run itself is `_ctl_run`'s.
              # A 2 from it (`_ctl_need` carried a 0: the capability is missing
              # here) is green: the label was registered, the gate noted the
              # decline, and the controls file's next ask decides a summary line
              # from it or reds it (`_cn_declined` there).
   local _cr=0
-  _ctl_run "$4" "$1" "" "" "${7:-}" "${5:-}" "${6:-}" || _cr=$?
+  _ctl_run "$4" "$1" "" "${8:-}" "${7:-}" "${5:-}" "${6:-}" || _cr=$?
   # Not pinned by a record: on a capable machine nothing declines, so this line is
   # never reached (measured: removed, the wire PASSED on both shells); on an
   # incapable one, removed, the 2 falls to the `return 1` below and the caller's

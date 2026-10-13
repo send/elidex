@@ -442,7 +442,7 @@ A parent-side failure to create the window directory or write the prelude has it
 shape check sees it: git reads, outside every census git dir, something whose read does not complete
 (a FIFO; `/dev/tty` under a controlling terminal), through a reference the census does not follow (§4,
 "The boundary"). The run then waits: in CI until the job timeout, which is red; locally,
-indefinitely. It is never green. The one watchdog is `_ctl_run`'s (#501 R92; `_control` and the three non-`_control` blocks run through it). Draft 12
+indefinitely. It is never green. The one watchdog is `_ctl_run`'s (#501 R92; `_control` and the two non-`_control` blocks run through it; its seconds are `_ctl_wd_s`, 30, set where the run primitives are sourced, and the `_wm` standing check runs a wire that sleeps past a 1 s watchdog to pin the kill's report and marker). Draft 12
 bounded the whole run; round 11 found seven defects in that design, and the user carved it out of this
 PR into `#11-trip-wire-liveness-bound`.
 
@@ -479,7 +479,7 @@ function continues only over a build that is **complete and trusted**:
 W4 does not stop the run. A seal that failed marks its fixture failed, `_control` already refuses that
 fixture's controls, and the other fixtures are sound. The one gate, `_ctl_gate <label> <fixture>…`, asks both
 questions, "complete and trusted" and "each fixture tree this run reads built", and is asked by the ONE run primitive `_ctl_run`, which derives
-the trees from its own arguments (root and cwd) and also owns the 30 s watchdog; `_control` and the three non-`_control` blocks are built on it, so no control runs over such a
+the trees from its own arguments (root and cwd) and also owns the watchdog (`_ctl_wd_s`, 30 s); `_control` and the two non-`_control` blocks are built on it, so no control runs over such a
 build wherever the exit sits. The fsmonitor block's plain `git ls-files` preflight, made outside `_ctl_run`, sits inside the branch that its `_ctl_run`'s ask opened, so the block asks the gate once.
 
 **Why exit 2, and why it is not pinned.** Exit 2 follows the wire's own convention that 2 means
@@ -495,16 +495,14 @@ What **is** pinned are the properties a record can observe:
   control runs over an incomplete or untrusted fixture build window` (draft 10's label said
   "incomplete" only). Its predicate is one function, `_ctl_gate`. **`_ctl_run`
   asks it right after taking `_ctl_env`** and refuses unless the window is complete and trusted (E3) and every tree the run reads built; `_control` and
-  the three blocks that are not `_control`s (relative scratch, fsmonitor, umask) run through it (the fsmonitor block also asks before its plain-git preflight).
+  the two blocks that are not `_control`s (relative scratch, fsmonitor) run through it (the fsmonitor block's plain-git preflight sits inside the branch its `_ctl_run`'s ask opened, so it asks once; the umask run is a `_control`, its `$8`). The gate's fixture half is a function of its own, `_ctl_built`, which registers no label: the three standing checks in the controls file that run `_ctl_run` over the clean fixture read `_fw_trusted` (untrusted: red in silence — W2 is the gate's report, printed once by the first gated run) and ask `_ctl_built` under their own label before their rows, so a fixture that did not build is reported under the check and not as the check's own failure.
   So no control runs over such a build, wherever the exit sits. **Its three records pin
   that W2 is reported when the exit is gone**. One removes both of `_fgit_window_verdict_exit`'s exits
   with the window kept incomplete (`done` renamed). The other two each remove its untrusted-build
   `exit`, one with a postcondition forced red (`post_bad`), the other with W3 forced (`_fw_diag` set).
   Each survives with its clause (`done`, `post_bad`, W3) removed from `_fgit_window`'s trust computation
   (measured, `…-pr527-r15.md` §Q); `post_ok`'s two records (review R2, corpus §6.1) pin the fourth.
-  A gate satisfies all three. `_ctl_run`'s ask is pinned by the relcwd and umask records (removing it, they survive).
-  ⚠ **Declared gap:** the fsmonitor block's own ask, before its plain-git preflight, is pinned only together with `_ctl_run`'s
-  (removing both: its record survives; either alone: killed by the other), so it is the traced `w2rec` cell (companion §A.14), re-anchored for T as X13 (`…-landing.md` §11), that pins it alone; corpus §6.1, "Current totals" (measured at `116a9b8b`).
+  A gate satisfies all three. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds the run under `$_cn_lbl` (the standing check's rows) and `$_cen_lbl` (every `_control` needle an orphan) — records.sh, beside W2's record. There is one ask per run, no second gate (the fsmonitor block's former ask before its preflight went when the preflight moved inside the branch of its `_ctl_run`'s ask) and one producer of W2's line (`_ctl_gate`; the three standing checks that read `_fw_trusted` print nothing), so W2's records separate the run path — the gate's trust arm bypassed, record 160's needle is not printed: W alone, the controls run over the untrusted build and the three standing checks red in silence (measured, R7 S3 review-1 fixes, both shells) — and the earlier declared gap — two producers each killing the other's record — has no subject.
 - Moving the exit below a control is an edit to the controls file, which is not a mutation target. That
   shape is pinned by the corpus RO/ROg cells (X5, re-anchored for T in `…-landing.md` §11), not by a
   record. ROg is green again since the fix round (measured on both shells, `…-pr527-r15.md` §Q).
@@ -595,7 +593,7 @@ in), and each label has its own record (corpus §6).
 | id | label | assertion (inside the window) | liveness (its own label) |
 |---|---|---|---|
 | W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, the child's canary reached the captured stderr (C12), and the child wrote `done`. Otherwise NE with the sentence the child wrote to `cause`, or the exit status (§3), **reported alone**; exit 2; no control runs | — |
-| W2 | `no control runs over an incomplete or untrusted fixture build window` | asked by `_ctl_run` (through `_ctl_gate`, after `_ctl_env` is taken and cleared), which every `_control` and every non-`_control` block runs through: the window is complete and trusted (`post_ok` written, no postcondition or W3 reported). Its records: the exits removed, with the window incomplete or untrusted (§3). The exit placed below a control: the RO cells. Trust is decided by `_fgit_window`, never by the verdict function (§3) | — |
+| W2 | `no control runs over an incomplete or untrusted fixture build window` | asked by `_ctl_run` (through `_ctl_gate`, after `_ctl_env` is taken and cleared), which every `_control` and every non-`_control` block runs through: the window is complete and trusted (`post_ok` written, no postcondition or W3 reported). The three standing checks that read the flag before their rows print nothing: the line has one producer. Its records: the exits removed, with the window incomplete or untrusted (§3). The exit placed below a control: the RO cells. Trust is decided by `_fgit_window`, never by the verdict function (§3) | — |
 | W3 | `the fixture build window ran without a shell diagnostic` (renamed in the fix round: `prelude.sh` is not the fixtures file) | no record of the child's stderr contains `./fixtures.sh:` or `./prelude.sh:` **anywhere in it** (both are sourced by those relative names from the window's directory; bash appends a diagnostic to a record the fixtures left without a newline, §3). A failed scan is red. A record pins each prefix, `./prelude.sh:` by an expansion error in `_fgit_postconditions` | — |
 | W4 | `every mode restriction a fixture sealed was applied` | every `_seal` was accepted (a path under `$CTL`, with no newline or TAB; an octal mode; a fixture name of `[A-Za-z0-9_-]`) and its `chmod` succeeded; otherwise red, not a machine limitation. `_seal_apply`'s refusal of a path through a symlink is asserted at load by a standing self-check (`_seal_apply_probe`) under this label | — |
 | P-a | `a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file` | every `git config --list --show-origin` line in **one probe repo** has the origin `file:.git/config` | `this git reports a configuration origin outside the repo's file`: `-c a.b=c` must show with the origin `command line:`. `--show-origin` (git 2.8) alone, not `--show-scope` (git 2.26): the origin column answers the same question, so the check has no version floor and no limitation arm |
@@ -780,7 +778,7 @@ made of it (written to `.genmutants`, read back, split on TAB):
   passes: measured at `8413a4db`, rc 0, PASSED, `…-pr527-r15.md` §Q), and `.fsmonitor_ran`
   (the fsmonitor control's mark: a pre-planted mark stands in for the hook's run under a plain git
   call, so where the hook does not run that control's NOT EXERCISED, a red, becomes a pass);
-- a plant made a check fail, red: `.mutants`, `.control_out`, `.umask_out`;
+- a plant made a check fail, red: `.mutants`, `.control_out` (the umask run is a `_control` now and writes there too);
 - display only: `.fsm_out`;
 - not reachable: `.fifoprobe`, made and removed at source time before the window runs. It moves to
   `$SCRATCH` so that the checker below lists no working file without an exception;

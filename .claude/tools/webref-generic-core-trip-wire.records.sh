@@ -149,9 +149,9 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # leaves the window incomplete (its `done` marker renamed), in three one-line
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only the gate can say W2. W2's producer is
-# `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the three non-`_control`
-# blocks run through it; the fsmonitor block's plain-git preflight sits inside the
-# branch its `_ctl_run`'s ask opened); the record pins that W2 is reported when the
+# `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the two non-`_control` blocks run
+# through it; the fsmonitor preflight sits inside its `_ctl_run`'s branch; the three standing checks
+# that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
 # the run under `$_cn_lbl` (the standing check: every value is left set after the call,
@@ -274,7 +274,7 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.l
 fixtures:s/^_seal "[$]CTL\/err\/control.py" 000 err$/_fixture_failed err; &/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
 # `_ctl_run` (commit `fd85e29f`) clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate
-# refuses a failed fixture among the root and the cwd of every run (the three non-`_control` blocks too).
+# refuses a failed fixture among the root and the cwd of every run (the two non-`_control` blocks too).
 ctlrun:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
 # …and its timeout clause reads a signal status as a timeout only beside the watchdog's marker
 # (standing check, controls file): the marker test deleted, a signal at once is "killed after 30s".
@@ -327,7 +327,7 @@ harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> 
 # line's tail, so the expression does not spell the label: the mutant's own stale-anchor
 # report quotes the expression, and a needle found there would be a kill by no control.
 controls:s/ "[$]_VFY\/fakerelmktemp"; then ctl_ok=1$/ ""; then ctl_ok=1/	a relative scratch dir is removed on exit
-controls:s/ "[$]_VFY\/fakegitcfg" || ctl_ok=1$/ "" || ctl_ok=1/	the caller's git CONFIGURATION survives the routing purge
+controls:s/ "[$]_VFY\/fakegitcfg"; then ctl_ok=1$/ ""; then ctl_ok=1/	the caller's git CONFIGURATION survives the routing purge
 # The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
 # and the values of the `_*_lbl` names the parts spell (`$_lbd_names`, a text
 # derivation, asserted defined) — against the records. One record per arm or

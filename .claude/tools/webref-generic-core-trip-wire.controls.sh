@@ -98,11 +98,10 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # (the census: the run registry and the `_*_lbl` variables, against the
 # records — in the mutation set; the records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
-# …the labels of the three blocks that are not a `_control` (their producers sit
+# …the labels of the two blocks that are not a `_control` (their producers sit
 # below), defined HERE so the check that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
 _fsm_lbl="a caller's fsmonitor hook does not run"
-_umask_lbl="a restrictive umask decides nothing"
 _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
 _ce_lbl="a refused control hands its environment to no other control"
@@ -186,31 +185,58 @@ ctl_ok=0
 # refuses over a build that is not complete and trusted too (W2), wherever
 # this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
 _fgit_window_verdict_exit "$_fw_lbl"
+# THE THREE STANDING CHECKS BELOW run `_ctl_run` over `$CTL/clean` in a
+# subshell. Each opens by reading `_fw_trusted` — untrusted is red (`ctl_ok=1`)
+# with no line of its own: W2 is the gate's report, printed once by the first
+# gated run, and these three reads decide nothing about any run — and by asking
+# `_ctl_built` (the gate's fixture half, which registers nothing) under its own
+# label: a fixture that did not build is then reported under the check — NOT
+# EXERCISED naming the fixture — not as the check's own failure, and the
+# check's rows run only over a tree that built.
 # STANDING CHECK of `_ctl_run`'s one owner of `_ctl_env`: a run the gate
 # REFUSES (here, an untrusted window, forced in a subshell) must still leave the
 # global empty, or the NEXT run would inherit its environment.
-if ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run "$_ce_lbl" "$CTL/clean" >/dev/null 2>&1
-       [ "${#_ctl_env[@]}" -eq 0 ] ); then
+if [ "$_fw_trusted" -ne 1 ] || ! _ctl_built "$_ce_lbl" clean; then ctl_ok=1
+elif ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run "$_ce_lbl" "$CTL/clean" >/dev/null 2>&1
+         [ "${#_ctl_env[@]}" -eq 0 ] ); then
   echo "!! CONTROL FAILED ($_ce_lbl): a refused control left its environment set" >&2
   ctl_ok=1
 fi
-# STANDING CHECK of `_ctl_run`'s timeout clause: a status >= 128 is a timeout
-# ONLY beside the watchdog's own marker. Here `SELF` is pointed (in a subshell)
-# at a script that signals itself at once (TERM, not ABRT: no core dump on a
-# runner whose core pattern ignores `ulimit -c`): `_ctl_run` must return 0 with
-# `_rc` >= 128 and report no kill — that status is the caller's "expected N, got
-# M", not "killed after 30s". The record that deletes the marker clause (in the
-# record table) is killed through this check's label.
+# STANDING CHECK of `_ctl_run`'s timeout clause, both ways. A status >= 128 is a
+# timeout ONLY beside the watchdog's own marker: `SELF` is pointed (in a
+# subshell) at a script that signals itself at once (TERM, not ABRT: no core dump
+# on a runner whose core pattern ignores `ulimit -c`): `_ctl_run` must return 0
+# with `_rc` >= 128 and report no kill — that status is the caller's "expected N,
+# got M", not "killed after …s". The record that deletes the marker clause (in
+# the record table) is killed through this check's label. And a wire that hangs
+# IS a timeout: with the watchdog at 1 s (`_ctl_wd_s`, set in the subshell) and
+# `SELF` a script that sleeps past it, `_ctl_run` must return 1, having written
+# its marker and reported the kill as "killed after 1s" — the marker write and
+# the message are pinned here, not by a record. Two rows, ONE call line: the
+# registry's site is the line, and one label has one site.
 printf '%s\n' 'kill -TERM $$' > "$_VFY/.wm_abort"
-if ! ( SELF="$_VFY/.wm_abort"; _wm_r=0; _wm_bad=""
-       _ctl_run "$_wm_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
-       [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; _ctl_run returned $_wm_r, not 0"
-       [ "${_rc:-0}" -ge 128 ] || _wm_bad="$_wm_bad; _rc is ${_rc:-unset}, not a signal status"
-       case "$(cat "$_VFY/.wm_err")" in *"killed after 30s"*) _wm_bad="$_wm_bad; a signal at once was reported as a timeout" ;; esac
-       [ -z "$_wm_bad" ] || { echo "!! CONTROL FAILED ($_wm_lbl)$_wm_bad" >&2; exit 1; } ); then
+printf '%s\n' 'sleep 5' > "$_VFY/.wm_hang"
+if [ "$_fw_trusted" -ne 1 ] || ! _ctl_built "$_wm_lbl" clean; then ctl_ok=1
+elif ! ( _wm_bad=""
+         for _wm_row in abort hang; do
+           SELF="$_VFY/.wm_$_wm_row"; [ "$_wm_row" != hang ] || _ctl_wd_s=1
+           _wm_r=0; _ctl_run "$_wm_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
+           _wm_msg="$(cat "$_VFY/.wm_err")"
+           case "$_wm_row" in
+             abort)
+               [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; _ctl_run returned $_wm_r, not 0"
+               [ "${_rc:-0}" -ge 128 ] || _wm_bad="$_wm_bad; _rc is ${_rc:-unset}, not a signal status"
+               case "$_wm_msg" in *"killed after "*) _wm_bad="$_wm_bad; a signal at once was reported as a timeout" ;; esac ;;
+             hang)
+               [ "$_wm_r" -eq 1 ] || _wm_bad="$_wm_bad; a run the watchdog killed returned $_wm_r, not 1"
+               [ -e "$_r_wmark" ] || _wm_bad="$_wm_bad; the watchdog wrote no marker"
+               case "$_wm_msg" in *"killed after 1s"*) ;; *) _wm_bad="$_wm_bad; the kill was not reported as a 1 s timeout" ;; esac ;;
+           esac
+         done
+         [ -z "$_wm_bad" ] || { echo "!! CONTROL FAILED ($_wm_lbl)$_wm_bad" >&2; exit 1; } ); then
   ctl_ok=1
 fi
-command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_err"
+command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_err" "$_VFY/.control_timeout"
 # STANDING CHECK of the gate's `_ctl_need` arms (`_ctl_gate`, in the run
 # primitives), through `_ctl_run` in a subshell with `SELF` pointed at a script
 # that exits at once, so "ran" is `_rc` set, and `_VFY` pointed at a directory
@@ -224,12 +250,21 @@ command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_err"
 # line count and checksum) and compared after it, red under this label when it
 # differs, in whatever order the rows run.
 # Table-driven: the value given (`-` = none, `''` = empty) → the return,
-# whether a run was made, and `dir` = `.declined` made a directory first; after
+# whether a run was made, `dir` = `.declined` made a directory first, and
+# `untrusted` = the window's trust forced off for that row alone (`_fw_trusted=0`,
+# `_fw2_said=1`, both restored after it: the rows below run trusted); after
 # each, `_ctl_need` is unset again (in posix mode bash 3.2 keeps a prefix
 # assignment, so the gate must clear it). Under a 0 the gate notes the label in
 # `.declined`; a note it could not make, and a value that is not 0 or 1, are its
 # own red (captured: the expected outcome there), and the red must name the
-# value, or the failed note.
+# value, or the failed note. Under a 0 with trust off the gate returns 1 before
+# the need arms: no run, no note — the trust arm's place before the need arms,
+# which nothing on a capable machine would otherwise tell from the reverse.
+# A row the loop cannot parse — a 4th column that is not `-`/`dir`, a 5th that
+# is not `-`/`untrusted`, a column missing — is red naming the row and is not
+# run; a parsed row whose key (return, 4th, 5th) no arm below asserts is red too
+# (`0 - -` is the one key the return and the run alone assert): a row never
+# loses its arm in silence.
 _cn_state() { # the run's `.declined`: absent, not a regular file, or its line count and checksum
   if [ ! -e "$_VFY/.declined" ]; then echo absent
   elif [ ! -f "$_VFY/.declined" ]; then echo "not a regular file"
@@ -238,29 +273,39 @@ _cn_state() { # the run's `.declined`: absent, not a regular file, or its line c
 _cn_before="$(_cn_state)"
 command mkdir "$_VFY/.cn"
 printf '%s\n' 'exit 0' > "$_VFY/.cn/.cn_run"
-if ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
-       while read -r _cn_v _cn_want _cn_ran _cn_decl; do
+if [ "$_fw_trusted" -ne 1 ] || ! _ctl_built "$_cn_lbl" clean; then ctl_ok=1
+elif ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
+       while read -r _cn_v _cn_want _cn_ran _cn_decl _cn_trust; do
+         _cn_line="$_cn_v $_cn_want $_cn_ran $_cn_decl $_cn_trust"
+         case "$_cn_decl" in -|dir) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 4 is \"$_cn_decl\", not - or dir"; continue ;; esac
+         case "$_cn_trust" in -|untrusted) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 5 is \"$_cn_trust\", not - or untrusted"; continue ;; esac
          case "$_cn_v" in -) unset _ctl_need ;; "''") _cn_val=""; _ctl_need="" ;; *) _cn_val="$_cn_v"; _ctl_need="$_cn_v" ;; esac
          [ "$_cn_ran" = ran ] || _cn_ran=""
-         _cn_row="$_cn_v"; [ "$_cn_decl" = - ] || _cn_row="$_cn_v $_cn_decl"
+         _cn_row="$_cn_v"; [ "$_cn_decl" = - ] || _cn_row="$_cn_v $_cn_decl"; [ "$_cn_trust" = - ] || _cn_row="$_cn_row $_cn_trust"
          command rm -rf "$_VFY/.declined"; [ "$_cn_decl" != dir ] || command mkdir "$_VFY/.declined"
+         _cn_tr="$_fw_trusted"; _cn_sd="$_fw2_said"; [ "$_cn_trust" != untrusted ] || { _fw_trusted=0; _fw2_said=1; }
          unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
+         _fw_trusted="$_cn_tr"; _fw2_said="$_cn_sd"
          [ "$_cn_got" -eq "$_cn_want" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: returned $_cn_got, not $_cn_want"
          _cn_was="${_rc+made}"
          [ "${_rc+ran}" = "$_cn_ran" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: a run was ${_cn_was:-not made}"
          [ -z "${_ctl_need+set}" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: left set after the call"
-         case "$_cn_want$_cn_decl" in
-           2-) [ "$(tail -n 1 "$_VFY/.declined" 2>/dev/null)" = "$_cn_lbl" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: the decline was not noted" ;;
-           1-) case "$(cat "$_VFY/.cn_err")" in *"holds \"$_cn_val\", not 0 or 1"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the value" ;; esac ;;
-           1dir) case "$(cat "$_VFY/.cn_err")" in *"the decline could not be noted"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the failed note" ;; esac ;;
+         case "$_cn_want$_cn_decl$_cn_trust" in
+           0--) ;; # a run that returned 0: the return and the run above are its whole assertion
+           2--) [ "$(tail -n 1 "$_VFY/.declined" 2>/dev/null)" = "$_cn_lbl" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: the decline was not noted" ;;
+           1--) case "$(cat "$_VFY/.cn_err")" in *"holds \"$_cn_val\", not 0 or 1"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the value" ;; esac ;;
+           1dir-) case "$(cat "$_VFY/.cn_err")" in *"the decline could not be noted"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the failed note" ;; esac ;;
+           1-untrusted) [ ! -e "$_VFY/.declined" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: a decline was noted over an untrusted window" ;;
+           *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: no arm for row \"$_cn_line\"" ;;
          esac
        done <<EOF_CN
-1 0 ran -
-x 1 - -
-'' 1 - -
-- 0 ran -
-0 1 - dir
-0 2 - -
+1 0 ran - -
+x 1 - - -
+'' 1 - - -
+- 0 ran - -
+0 1 - - untrusted
+0 1 - dir -
+0 2 - - -
 EOF_CN
        [ -z "$_cn_bad" ] || { echo "!! CONTROL FAILED ($_cn_lbl)$_cn_bad" >&2; exit 1; } ); then
   ctl_ok=1
@@ -395,11 +440,13 @@ _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree r
 # "every other control here proves the wire can RED"; both halves were false
 # when written, and the second one still is — derive the count instead of
 # reading one:
-#     awk -F'"' '/^ *_control /{gsub(/ /,"",$3); print $3}' <this file> | sort | uniq -c
+#     awk -F'"' '/^(if ! )?_control /{gsub(/ /,"",$3); print $3}' <this file> | sort | uniq -c
 # (`$3` is the EXPECTED-EXIT argument: 0 = green-direction, 1 = red, 2 = the
-# wire refusing to decide. ⚠ The first spelling of this command printed `$4`,
-# the expected MESSAGE, which counts nothing — a derivation offered in place of
-# a claim has to be run once before it is written down.)
+# wire refusing to decide; the calls under a `_ctl_need=` prefix are not counted:
+# they begin with the prefix, which the `^(if ! )?_control ` anchor does not
+# match — `grep -c '^_ctl_need=.*_control ' <this file>` counts those. ⚠ The first spelling of this command
+# printed `$4`, the expected MESSAGE, which counts nothing — a derivation offered
+# in place of a claim has to be run once before it is written down.)
 _control "$CTL/punct" 0 "PASSED" "closing punctuation is not a path segment" || ctl_ok=1
 _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not the host path" || ctl_ok=1
 # …and the self-test escape hatch, which must not be reachable from the
@@ -464,10 +511,13 @@ _fgit_shim "$_VFY/fakegitcfg/git" ": > $(_shq "$_cfg_mark")
 "'if [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi' "$_REAL_GIT"
 command rm -f "$_cfg_mark"
 _ctl_env=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*")
-_control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$_VFY/fakegitcfg" || ctl_ok=1
-# The label is repeated literally: a rename above that misses this line leaves
-# the record's needle unmatched, so the drift reds through the record.
-if [ ! -e "$_cfg_mark" ]; then
+# The mark is read in the `elif` of the control's own `if`, as relcwd's is: a
+# run the gate refused, or a failed assertion, is reported there, and the mark
+# says nothing about it. The label is repeated literally: a rename above that
+# misses this line leaves the record's needle unmatched, so the drift reds
+# through the record.
+if ! _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$_VFY/fakegitcfg"; then ctl_ok=1
+elif [ ! -e "$_cfg_mark" ]; then
   echo "!! CONTROL NOT EXERCISED (the caller's git CONFIGURATION survives the routing purge): the shimmed" >&2
   echo "   git never ran, so the configuration had nothing to survive — the verdict above says nothing." >&2
   ctl_ok=1
@@ -554,9 +604,10 @@ fi
 # disagree — and an unconditional summary claimed exit-status evidence the run
 # had not obtained (#501 R78). One site, one truth: the line is decided from what
 # the gate did (`_cn_declined`), not from the flag. `_ctl_need="$_perm_ok"` on the
-# four calls, as on the FIFO pair: registered on every machine, run where the
-# value is 1. The umask block stays in its `if`: it prints a `_*_lbl` value,
-# which the census reads from the variable, run or not.
+# five calls, as on the FIFO pair: registered on every machine, run where the
+# value is 1. The fifth runs the clean fixture under umask 777 (`_control`'s
+# `$8`): a umask that leaves the scratch dir unsearchable makes it unresolvable
+# to a physical path, which the wire refuses to decide over.
 _perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
           permissions enforced (this user can read a mode-000 file), so this
           run carries no evidence for them"
@@ -564,19 +615,9 @@ _ctl_need="$_perm_ok" _control "$CTL/err"  1 "could not be read" "an unreadable 
 _ctl_need="$_perm_ok" _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
 _ctl_need="$_perm_ok" _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
 _ctl_need="$_perm_ok" _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
+_ctl_need="$_perm_ok" _control "$CTL/clean" 2 "could not resolve the scratch dir" "a restrictive umask decides nothing" "" "" "" 777 || ctl_ok=1
 if ! _cn_declined "$_perm_ok"; then
   _perm_line="            the controls that need file permissions enforced ran too"
-  # Not a `_control`: `_control` has no umask channel. A umask that leaves the
-  # scratch dir unsearchable makes it unresolvable to a physical path.
-  # ONE GATE: the assertion lives inside the branch that ran the umask run, so
-  # the run and its report cannot disagree about whether there was a run.
-  if ! _ctl_run "$_umask_lbl" "$CTL/clean" "" 777; then ctl_ok=1
-  elif _um_named=0; case "$_out" in *"could not resolve the scratch dir"*) _um_named=1 ;; esac
-       [ "$_rc" -ne 2 ] || [ "$_um_named" -ne 1 ]; then
-    echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_rc" >&2
-    printf '%s\n' "$_out" | sed 's/^/     /' >&2
-    ctl_ok=1
-  fi
 fi
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
 # Two subjects, two files: this one runs the wire over a fixture and asserts the
