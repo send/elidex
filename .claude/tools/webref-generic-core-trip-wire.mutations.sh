@@ -22,11 +22,13 @@
 # census), `$_lbd_names` (from the controls file: the `_*_lbl` names the parts
 # spell, each asserted defined and non-empty there; the census reads their
 # values, and `_mut_run` the `_p<x>*_lbl` among them with the harness's
-# `$_fw_limits` for a machine-limited record), and `$SELF`, `$SCRATCH`, `$K2RE`
+# `$_fw_limits` for a machine-limited record), `$_MUT_PARTS` (from the controls
+# file, which spells the list of parts once), and `$SELF`, `$SCRATCH`, `$K2RE`
 # and `$K2RE_PATH` (from the wire); every other part it names is derived from
-# `$SELF` through `_MUT_PARTS`. `_mut_run` copies every part in that list — the
-# controls, the harness, its run primitives, this file, the record table, the
-# fixture build and the generated half — beside each mutant.
+# `$SELF` (`${SELF%.sh}.<part>.sh`); the per-run copies iterate `_MUT_PARTS`.
+# `_mut_run` copies every part in that list — the controls, the harness, its run
+# primitives, this file, the record table, the fixture build and the generated
+# half — beside each mutant.
 # ⚠ THE TWO REGEXES ARE CONSUMED AS VALUES, not just named in a `for` list:
 # `_mut_gen_run` compares what the wire's assignment LINE reads back as against
 # what the RUNNING wire HOLDS, and that second half is these variables. They were
@@ -34,7 +36,7 @@
 # — the same drift the guard exists to catch, in the edit that widened what there
 # is to drift.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUTGEN`,
-# `_MUTRECORDS`, `_MUT_TARGETS`, `_MUT_PARTS`, `_mut_correspondence`,
+# `_MUTRECORDS`, `_MUT_TARGETS`, `_mut_correspondence`,
 # `_mut_census_end` (the controls file's last statement),
 # `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
 # `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
@@ -87,7 +89,7 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in _VFY _lbd_names SELF SCRATCH K2RE K2RE_PATH; do
+for _n in _VFY _lbd_names _MUT_PARTS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
 if [ -n "$_mut_missing" ]; then
@@ -231,10 +233,6 @@ fi
 # "extra characters at the end of h command", `sed 'fixtures:p'` is "invalid
 # command code f"; GNU sed is not measured here).
 _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
-# THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
-# derives from its own `$SELF` (`<wire>.<part>.sh`). The sibling guard, the
-# per-run copies, the trap's `rm -f` and the stale-report skip all read it.
-_MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
 _MUT_UNRECORDED_MAX=20
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.

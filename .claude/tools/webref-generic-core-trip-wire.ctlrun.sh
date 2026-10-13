@@ -191,6 +191,7 @@ _ctl_run() {
   local -a _ce=(${_ctl_env[@]+"${_ctl_env[@]}"})
   _ctl_env=()
   local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
+  local _out_f _r_wmark _cpid _wpid
   _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || return $?
   _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not

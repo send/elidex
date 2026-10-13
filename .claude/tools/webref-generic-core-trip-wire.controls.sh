@@ -120,17 +120,25 @@ fi
 # else runs. A label renamed here and left in a producer is reached only when
 # that producer fires, so the rename can sit unseen behind a green run: the names
 # are derived from the parts' own text, by the regex the harness uses to forward
-# the postconditions' labels, not listed. The parts read are the
-# harness, its run primitives, this file, the mutation set, its record table and
-# its generated half; one that is not readable is reported by its own check (the
-# harness above, the run primitives at the end of the harness, the mutation set
-# at the end of this file, the record table and the generated half in the
-# mutation set).
+# the postconditions' labels, not listed. The parts read are every part of
+# `_MUT_PARTS`. A part that is not readable is skipped here and reported by its
+# own existence check: controls - by the wire, before this file runs; harness -
+# just above; fixtures - below, after the harness is sourced; ctlrun - at the
+# end of the harness; mutations - at the end of this file; records and mutgen -
+# in the mutation set.
+# THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
+# derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
+# label check below, and in the mutation set its entry check, the sibling guard,
+# the per-run copies and `_mut_rm_copies` (the trap and the end of the run).
+_MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
 _lbd_files=()
-for _lbd_f in "$_HARNESS" "${SELF%.sh}.ctlrun.sh" "$_CONTROLS" "${SELF%.sh}.mutations.sh" "${SELF%.sh}.records.sh" "${SELF%.sh}.mutgen.sh"; do
+for _lbd_p in $_MUT_PARTS; do
+  _lbd_f="${SELF%.sh}.$_lbd_p.sh"
   [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
 done
-_lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
+# grep with no file operand would read the wire's stdin, so an empty list skips it
+_lbd_names=""
+[ "${#_lbd_files[@]}" -eq 0 ] || _lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
 _lbd_missing=""
 for _lbd_n in $_lbd_names; do
   [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
@@ -229,7 +237,7 @@ elif ! ( _wm_bad=""
                case "$_wm_msg" in *"killed after "*) _wm_bad="$_wm_bad; a signal at once was reported as a timeout" ;; esac ;;
              hang)
                [ "$_wm_r" -eq 1 ] || _wm_bad="$_wm_bad; a run the watchdog killed returned $_wm_r, not 1"
-               [ -e "$_r_wmark" ] || _wm_bad="$_wm_bad; the watchdog wrote no marker"
+               [ -e "$_VFY/.control_timeout" ] || _wm_bad="$_wm_bad; the watchdog wrote no marker"
                case "$_wm_msg" in *"killed after 1s"*) ;; *) _wm_bad="$_wm_bad; the kill was not reported as a 1 s timeout" ;; esac ;;
            esac
          done

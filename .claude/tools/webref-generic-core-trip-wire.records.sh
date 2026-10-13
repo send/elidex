@@ -234,8 +234,8 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzkstore" \
 harness:s/"[$]_pfenv" -0 > "[$]_pq\/env0"/"$_pfenv" > "$_pq\/env0"/	the fixture build window's environment holds only its allowlist
 harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_CONFIG_NOSYSTEM=1 /	the fixture git has no system or global layer outside the void
 harness:s/ "HOME=[$]_FGIT_VOID" GIT_CONFIG_NOSYSTEM/ "HOME=$SCRATCH" GIT_CONFIG_NOSYSTEM/	the fixture git has no system or global layer outside the void
-# P-b's ONE `git var` per name keeps its status beside its value: a status stored wrong reads as a failed GLOBAL call.
-harness:s/printf -v "_pbr_[$]_v" '%s' "[$]_prc"/printf -v "_pbr_$_v" '%s' 1/	the fixture git has no system or global layer outside the void
+# P-b's `git var` status is read by its GLOBAL check: a status of 1 on a call that succeeded reads as a failed GLOBAL call.
+harness:s/_prc=0; _o="[$](_fgit_in/_prc=1; _o="$(_fgit_in/	the fixture git has no system or global layer outside the void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$HOME\/.config\/git" \&\& : > "$HOME\/.config\/git\/ignore"; &/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; GLOBIGNORE='*'; &/	nothing is written into the fixture git's void
 harness:s/( cd "[$]_pq\/c" \&\& git init -q [.] )/false/	this git reports alternate object stores

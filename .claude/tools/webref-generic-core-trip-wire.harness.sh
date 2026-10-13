@@ -283,37 +283,34 @@ _fgit_postconditions() {
   # FIFO and file-permission controls follow: reported as NOT EXERCISED on
   # this machine, and green.
   _pbd=""; _pbl=""; _pbu=""
-  # ONE `git var` PER NAME: its status answers the capability question and its
-  # output is the value the checks below read (kept per name in `_pbo_<name>` /
-  # `_pbr_<name>`; bash 3.2 has no associative array).
+  # One loop over the four names. The first `git var` of a name answers the
+  # capability question (129 = this git cannot name it) and its output is the
+  # value that name's checks read; a SYSTEM name asks once more, for liveness.
+  # A name that answers 129 still runs its checks, which are discarded below
+  # because the machine-limit line outranks them.
   for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
     _prc=0; _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _prc=$?
-    printf -v "_pbo_$_v" '%s' "$_o"; printf -v "_pbr_$_v" '%s' "$_prc"
-    [ "$_prc" -ne 129 ] || _pbu="$_pbu $_v"
-  done
-  if [ -n "$_pbu" ]; then
-    printf 'P-b — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pbu" >> "$_FW_DIR/machine_limits"
-  else
-    for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
+    if [ "$_prc" -eq 129 ]; then _pbu="$_pbu $_v"; fi
+    case "$_v" in
+    *_SYSTEM)
+      if [ "$_prc" -eq 0 ]; then _pbd="$_pbd $_v=[$_o]"; fi
       _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 _fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
-      [ -n "$_o" ] || _pbl="$_pbl $_v"
-      _pbr="_pbr_$_v"; _pbo="_pbo_$_v"
-      if [ "${!_pbr}" -eq 0 ]; then _pbd="$_pbd $_v=[${!_pbo}]"; fi
-    done
-    for _v in GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-      _pbr="_pbr_$_v"; _pbo="_pbo_$_v"
-      if [ "${!_pbr}" -ne 0 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
-      _o="${!_pbo}"
+      [ -n "$_o" ] || _pbl="$_pbl $_v" ;;
+    *)
+      if [ "$_prc" -ne 0 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
       # The void is replaced by a token BEFORE the output is split into lines, so
       # a scratch path holding a newline cannot split one entry into two.
       _o="${_o//"$_FGIT_VOID"/@K2VOID@}"
       while IFS= read -r _l; do case "$_l" in @K2VOID@/*) : ;; *) _pbd="$_pbd $_v=[$_l]";; esac; done <<EOF_PB
 $_o
 EOF_PB
-    done
-    if [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
-    elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
-  fi
+      ;;
+    esac
+  done
+  if [ -n "$_pbu" ]; then
+    printf 'P-b — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pbu" >> "$_FW_DIR/machine_limits"
+  elif [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
+  elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
   if ! diff -r "$_pq/a/.git" "$_pq/b/.git" >/dev/null 2>&1; then echo "!! CONTROL FAILED ($_pd_lbl)" >&2; _fpv=1; fi
   _o="$(git --exec-path 2>/dev/null)" || _o=""
   _o="$(_fgit_canon "$_o")"
