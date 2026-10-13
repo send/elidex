@@ -59,14 +59,14 @@ webref の cache refresh / snapshot / semantic diff / agent-brief workflow の�
   - 手順どおりの機械的確認で出力が大きいもの (多数項目の突き合わせ、チェックリスト照合) → `verifier`。背景実行 + 固定マーカーの grep で判定できる実行 (`mise run ci` / `build_verify` の pass/fail 判定、`grep 'ERROR task failed'` 等) と数行で済む確認 (head==assessed commit、`git log origin/main..HEAD`、件数) はドライバーがその場で行う (agent 起動の固定費 ≈ 55k tokens がこれらの作業量を上回るため)。失敗の原因調査はドライバーが判断し、修正が要れば `coder` に渡す
   - 判断を要するレビュー (5 軸 review agent、converge の enumeration attestation) → `reviewer`。attestation を verifier に回さないのは、#508 で attestation が捕まえた欠陥 (6→3→2+4) が「修正を受けた側」「over-correction」「概念 sweep」= 判断を要するものだったため (`memory/feedback_attestation-by-enumeration-not-assertion.md`)
   - 読み取り専用の調査 (Explore の代わり) → `scout`。ただし概念での sibling sweep (同じ意味クラスの兄弟箇所探し — 文字列でなく concept を grep) は判断を要するので `reviewer`
-  - `model` パラメータは Fable 昇格時のみ (定義ファイルより優先されるので、それ以外で渡すと tiering が崩れる)。brief の指示 (読む範囲・出力形式) は agent 定義本文より優先する — 定義の既定 (例: reviewer の「差分と呼び出し元/先に絞る」) を超える調査が要る時は brief で範囲を明示する
+  - **階層**: ドライバー (セッション本体) と判断は Opus、大体の作業 (coder / verifier) は Sonnet、Opus で嵌まりそうな箇所は Fable。`model` パラメータは定義ファイルより優先されるので、渡すのは次の時だけ: 判断を brief で決め切れない実装を最初から Opus に回す (`coder` + `model: opus`)、Opus では嵌まりそうな設計・判断を最初から Fable に回す (`designer` / `reviewer` + `model: fable`)、規則 5 の昇格。brief の指示 (読む範囲・出力形式) は agent 定義本文より優先する — 定義の既定 (例: reviewer の「差分と呼び出し元/先に絞る」) を超える調査が要る時は brief で範囲を明示する
   - **上限は引き継ぎ境界であって scope cap ではない** (`memory/feedback_cap-vs-completeness.md` の読み替え)。完全性は次の 5 つで保つ:
     1. 途中報告 (済/残/次) は判定に数えない — 残がある限り未完了。レビュー軸の途中停止を「0 件」、attestation の途中停止を PASS と読まない。報告は分母 (N 中 M) 付き。
     2. 状態の正典は成果物 (`git diff` / scratchpad file)、報告は目次。soft limit での引き継ぎは SendMessage で続行させず (同じ文脈のまま膨らむ)、新しい同種 agent に報告 + 成果物を渡す。レビュー軸のように途中成果物が残らない単位は、前任の報告の「済」を成果物として扱い、後継は「残」だけを行う (単調に進むので終わる)。
     3. maxTurns の強制停止で報告が失われたら SendMessage で「現状を要約して終了」を 1 回だけ送る。回収できなければ成果物から済んだ分を再構成して残りだけ渡す。何も残らない単位は最初からやり直すが、同じ単位で報告喪失が 2 回続いたら user に上げる (skip もループもしない。規則 5 の昇格より優先)。
     4. cap に合わせて brief を縮めない — 上限到達は slice の引き方の誤りの signal として事前分割し直す。
-    5. 同じ種類の仕事で引き継ぎが 2 回続いたら slice か tier の誤り → 同じ型のまま `model: fable` で昇格 (coder / reviewer / designer。verifier の途中停止は出力量の問題なので昇格せず slice を分ける)。設計判断が要ると分かった時はドライバーが判断する (対象が設計文書なら `designer`)。coder の「3 回試して停止」も drop でなく昇格経路。 既に `model: fable` の単位で引き継ぎがさらに 2 回続いたら、上位 tier は無いので user に上げる (slice の切り直しを含めて判断を仰ぐ)。
-  - 本規則は elidex で trial 中 (2026-09-29 開始)。**2026-10-06** に計測 (`memory/project_agent-model-tiering-rollout.md` Step 3) で再評価し、問題なければ global へ移す — それまで SSoT はここ。
+    5. 同じ種類の仕事で引き継ぎが 2 回続いたら slice か tier の誤り → slice を小さく切り直したうえで 1 段だけ昇格する。昇格は **Sonnet → Opus → Fable → user** の順で、段を飛ばさない (coder / verifier は `model: opus` から、reviewer / designer は `model: fable` から)。昇格した段でも引き継ぎが 2 回続いたら次の段へ、Fable でも続いたら上位 tier は無いので user に上げる (slice の切り直しを含めて判断を仰ぐ)。verifier の途中停止はまず出力量の問題として slice を分け、それでも続く時だけ昇格する。設計判断が要ると分かった時はドライバーが判断する (対象が設計文書なら `designer`)。coder の「3 回試して停止」も drop でなく昇格経路。
+  - 本規則は elidex で trial 中 (2026-09-29 開始)。2026-10-14 の計測 (`memory/project_agent-model-tiering-rollout.md` Step 3) で旧規則 5 の Fable 直行を是正し、階層を上記に改めた。**2026-10-21** に再計測 (Sonnet coder の実績) して、問題なければ global へ移す — それまで SSoT はここ。
 
 ## Commands
 
