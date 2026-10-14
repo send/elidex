@@ -187,9 +187,10 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE)
 # included — returns 0 with `_rc` and `_out` set (the run's status and its
 # stdout+stderr), and the caller's own comparison is the verdict on it.
-# EVIDENCE THAT A DELIVERED CHANNEL REACHED THE RUN (every env channel and the
-# umask the call delivers is demanded, derived from the delivery, not judged per
-# caller; the PATH prefix's evidence is not yet demanded - its shims mark it): the
+# EVIDENCE THAT A DELIVERED CHANNEL REACHED THE RUN (every env channel, the
+# umask and the PATH prefix the call delivers is demanded, derived from the
+# delivery, not judged per caller; the prefix's evidence is `path`, written by a
+# shim in the prefix when the run calls it): the
 # child is `exec env <channels> K2_CTL_REACHED=<dir> "$BASH" -c '<recorder>'
 # ctlrec <dir> <names…> -- "$BASH" "$SELF" …`. The recorder is INLINE (a file
 # under `$_VFY` can be missing under `_cn`'s redirected `_VFY`, and the `ran` rows
@@ -200,8 +201,9 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # first: a delivered 777 would leave them unreadable to the check): the boundary between the harness's delivery and the wire's
 # first statement is the one point where every channel is observable (the wire
 # unsets `GREP_OPTIONS` before its first external command). After the run, every
-# delivered `NAME=VALUE` must have `env.<NAME>` holding exactly VALUE, and a
-# delivered umask must equal the recorded one (both as 4 octal digits); else
+# delivered `NAME=VALUE` must have `env.<NAME>` holding exactly VALUE, a
+# delivered umask must equal the recorded one (both as 4 octal digits), and a
+# delivered PATH prefix (`$5`) must have `path` present; else
 # `CONTROL NOT EXERCISED` under the caller's label, return 1. cwd needs none: a
 # failed `cd` exits 97 at delivery. A channel argument that is not `NAME=…` is a
 # `CONTROL FAILED` and no run (checked after the gate's registration, before
@@ -290,6 +292,7 @@ _ctl_run() {
     _r_g="$(cat "$_r_reach/umask" 2>/dev/null)" && _r_g="$(printf '%04o' $((8#$_r_g)) 2>/dev/null)" || _r_g="!"
     [ "$_r_w" = "$_r_g" ] || _r_miss="$_r_miss umask"
   fi
+  [ -z "$_r_pfx" ] || [ -f "$_r_reach/path" ] || _r_miss="$_r_miss PATH prefix"
   if [ -n "$_r_miss" ]; then
     echo "!! CONTROL NOT EXERCISED ($_r_for):${_r_miss} never reached the run — the verdict" >&2
     echo "   of a control whose injected channel was not delivered says nothing." >&2

@@ -325,14 +325,6 @@ harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_
 # Pass 1's NUL tail check: a duplicate record with no terminating NUL appended to
 # the list after the `find` reads as the same records, so only the tail check sees it.
 harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
-# The two PATH-prefix shims whose RUNNING is the evidence (built by their controls,
-# under `$_VFY`, each touching a mark): with the prefix argument dropped the run never
-# reaches the shim — a clean cwd / a K2 red over a plain git — and only the mark check
-# after the run can say so. Both SURVIVE with that check removed. ⚠ Anchored on the
-# line's tail, so the expression does not spell the label: the mutant's own stale-anchor
-# report quotes the expression, and a needle found there would be a kill by no control.
-controls:s/ "[$]_VFY\/fakerelmktemp"; then ctl_ok=1$/ ""; then ctl_ok=1/	a relative scratch dir is removed on exit
-controls:s/ "[$]_VFY\/fakegitcfg" "" \\$/ "" "" \\/	the caller's git CONFIGURATION survives the routing purge
 # The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
 # and the values of the `_*_lbl` names the parts spell (`$_lbd_names`, a text
 # derivation, asserted defined) — against the records. One record per arm or
@@ -379,10 +371,10 @@ controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok
 # last ask's record, on every machine.
 controls:s/^_ctl_need="[$]_fifo_ok" _control "[$]CTL\/fifotracked" /_ctl_need=0 _control "$CTL\/fifotracked" /	_ctl_need declines exactly what this machine cannot do
 controls:s/^_mut_correspondence || ctl_ok=1$/_ctl_need=0 _ctl_run "$_mg_lbl" "$CTL\/clean" || :; &/	_ctl_need declines exactly what this machine cannot do
-# THE CHANNEL EVIDENCE (`_ctl_run`: every ENV channel and the umask a call delivers is demanded back from the
-# run itself, by a recorder that runs between the delivery and the wire's first statement; the PATH prefix's
-# evidence is not yet demanded - its shims mark it - S2b). R2 and R5 are KILLED by the evidence check and
-# SURVIVE with that check disabled (`if [ -n "$_r_miss" ]` -> `if false`); R1 is killed by the control it
+# THE CHANNEL EVIDENCE (`_ctl_run`: every channel a call delivers - env, umask, PATH prefix - is demanded back
+# from the run itself: the first two by a recorder that runs between the delivery and the wire's first
+# statement, the prefix by a mark its shims write when called). R2, R3 and R5 are KILLED by the evidence check and
+# SURVIVE with that check disabled (`if [ -n "$_r_miss" ]` -> `if false`), R4 is killed by it too; R1 is killed by the control it
 # makes reachable (the routed control), not by the evidence check, and survives with routed's channel
 # arguments removed (S2a2R1surv): measured in the S2a-2 claim table, not enforced by the opt-in run.
 # R1 - the routing purge disabled: killed by the routed control (an exported GIT_DIR redirects the scan).
@@ -393,6 +385,18 @@ ctlrun:s/K2_CTL_REACHED="[$]_r_reach" "[$]BASH" -c/K2_CTL_REACHED="$_r_reach" en
 # produce (both in `ctlrun`, where the verdict comparison lives): without the evidence check the control
 # would pass, so only the umask clause of the check sees it.
 ctlrun:s/^    \[ -z "[$]_r_umask" \] || umask "[$]_r_umask"$/    :/	s/^  \[ "[$]_cr" -eq 0 \] || return 1$/&; case "$4" in "a restrictive umask decides nothing") set -- "$1" 0 "PASSED" "$4" ;; esac/	a restrictive umask decides nothing
+# R3 - the PATH prefix withheld at the delivery, for the cfgkept prefix ONLY (dropping every prefix reds lsfail
+# and the rest for their own reasons, which is the wrong reason when the evidence check is what is under test):
+# cfgkept still reads K2 through the real git and stays green, so only the `path` demand sees it - KILLED by the
+# evidence check (`PATH prefix never reached the run`), and SURVIVES with that check disabled
+# (`if [ -n "$_r_miss" ]` -> `if false`): measured in the S2b-2 claim table (S2b2R3surv), not enforced by the opt-in run.
+ctlrun:s/^    export PATH="[$]{_r_pfx:+[$]_r_pfx:}[$]PATH"$/    case "$_r_pfx" in *\/fakegitcfg) _r_pfx= ;; esac; &/	the caller's git CONFIGURATION survives the routing purge
+# R4 - #6, the wire's `_git` stepping past a first PATH entry ending `/fakegitcfg` (machine-independent, unlike an
+# absolute git path): no `ls-files` reaches the shim, so no `path` mark - KILLED by the same evidence check. It
+# SURVIVES in two directions: with that check disabled (`if [ -n "$_r_miss" ]` -> `if false`), and with cfgkept's
+# mark moved back to the shim's entry, before the `case` (the bare `rev-parse --local-env-vars` at the wire's top
+# still runs the shim): the latter is the F6 re-measure, S2b2R4surv.
+s/^_git() { ( for _v in [$]_GIT_LOCAL_VARS; do$/_git() { ( case "${PATH%%:*}" in *\/fakegitcfg) PATH="${PATH#*:}" ;; esac; for _v in $_GIT_LOCAL_VARS; do/	the caller's git CONFIGURATION survives the routing purge
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

@@ -102,11 +102,11 @@ mkdir -p "$CTL/fakegit"
 # a failing inventory — and #501 R95 added a `rev-parse` preflight that the
 # blanket shim then answered with the fixture's own bytes. Same shape as
 # `fakegrep`: a control shims the ONE call it is about.
-_fgit_shim "$CTL/fakegit/git" 'case " $* " in *" --stage "*) printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
+_fgit_shim "$CTL/fakegit/git" 'case " $* " in *" --stage "*) : > "${K2_CTL_REACHED:?}/path"; printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
 # …and its sibling for the WORKTREE/untracked inventory, which had no shim and
 # therefore no control of its own.
 mkdir -p "$CTL/fakegitwt"
-_fgit_shim "$CTL/fakegitwt/git" 'case " $* " in *" --others "*) printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
+_fgit_shim "$CTL/fakegitwt/git" 'case " $* " in *" --others "*) : > "${K2_CTL_REACHED:?}/path"; printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # …AND THE SAME FOR `ls-tree`, because the HEAD inventory is a THIRD list with a
 # status check of its own and nothing exercised it: `fakegit` fails `ls-files`
@@ -115,7 +115,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # record covering all three `_ls_rc` checks hid it, because killing the first
 # was enough to red the run).
 mkdir -p "$CTL/fakegitls"
-_fgit_shim "$CTL/fakegitls/git" 'case " $* " in *" ls-tree "*) printf "x\000"; exit 1;; esac' "$_REAL_GIT"
+_fgit_shim "$CTL/fakegitls/git" 'case " $* " in *" ls-tree "*) : > "${K2_CTL_REACHED:?}/path"; printf "x\000"; exit 1;; esac' "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lstreefail/ok.py"
 
 # ⚠ THE TWO FALSE-POSITIVE FIXTURES. A required gate that reds a legitimate
@@ -152,13 +152,13 @@ printf '# see https://example.claude/skills/team/rule.md for the upstream note\n
 # so the shim matched nothing and the control silently exercised an unshimmed
 # git — the failure a glob makes look like a passing fixture.
 mkdir -p "$CTL/headprobe"
-_fgit_shim "$CTL/headprobe/git" 'case " $* " in *" rev-parse --verify "*) exit 2;; esac' "$_REAL_GIT"
+_fgit_shim "$CTL/headprobe/git" 'case " $* " in *" rev-parse --verify "*) : > "${K2_CTL_REACHED:?}/path"; exit 2;; esac' "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
 
 # A `cat` that always fails, for the one read whose status used to be swallowed
 # by the trailing-newline sentinel.
 mkdir -p "$CTL/catfail"
-printf '#!/bin/sh\nexit 1\n' > "$CTL/catfail/cat"
+printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nexit 1\n' > "$CTL/catfail/cat"
 chmod +x "$CTL/catfail/cat"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
 
@@ -167,7 +167,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
 # The real race (another process rewriting an untracked file) cannot be staged
 # reliably; this shim poses the same question to the same arm.
 mkdir -p "$CTL/fakegitphantom"
-_fgit_shim "$CTL/fakegitphantom/git" "case \" \$* \" in *\" --others \"*) $_REAL_GIT \"\$@\"; printf \"phantom-gone.py\\000\"; exit 0;; esac" "$_REAL_GIT"
+_fgit_shim "$CTL/fakegitphantom/git" "case \" \$* \" in *\" --others \"*) : > \"\${K2_CTL_REACHED:?}/path\"; $_REAL_GIT \"\$@\"; printf \"phantom-gone.py\\000\"; exit 0;; esac" "$_REAL_GIT"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/phantom/ok.py"
 
 #  (c) PUNCTUATION BEFORE A SLASH is not prose punctuation — the `/` settles
@@ -321,7 +321,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/orphan/ok.py"
 # descendant, and reading the descendant follows the ancestor out of the tree.
 printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/external/a.py"
 mkdir -p "$CTL/fakegitglob"
-_fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) $_REAL_GIT \"\$@\"; printf \"foo[1].py\\000\"; exit 0;; esac" "$_REAL_GIT"
+_fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) : > \"\${K2_CTL_REACHED:?}/path\"; $_REAL_GIT \"\$@\"; printf \"foo[1].py\\000\"; exit 0;; esac" "$_REAL_GIT"
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
 # them all would abort in `_verdict` instead, for a different reason).
@@ -331,18 +331,20 @@ _fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) $_REAL_GI
 # instead of setting the variable: the same defect reproduces on the machines
 # that honour it, and a control that only fires on some of them is not one.
 # `cfgkept`'s violation — what its shimmed `git` reports or hides. The shim
-# itself is built by the control, beside the mark that shows it ran.
+# itself is built by the control; it writes `path` into `_ctl_run`'s evidence
+# directory (`$K2_CTL_REACHED`) when it runs, and `_ctl_run` demands that back.
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakemktemp"
-printf '#!/bin/sh\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
+printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
   "$(_shq "$CTL/inscope")" > "$CTL/fakemktemp/mktemp"
 chmod +x "$CTL/fakemktemp/mktemp"
 # `relcwd`: the directory the relative-scratch run is made from. Its `mktemp`
-# shim is built by the control, beside the mark that shows it ran.
+# shim is built by the control; it writes `path` into `_ctl_run`'s evidence
+# directory (`$K2_CTL_REACHED`) when it runs, and `_ctl_run` demands that back.
 mkdir -p "$CTL/relcwd" || _fixture_failed relcwd
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
-_fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) exit 2;; esac' "$_REAL_GREP"
+_fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) : > "${K2_CTL_REACHED:?}/path"; exit 2;; esac' "$_REAL_GREP"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
 mkdir -p "$CTL/grepfail/.claude/skills/team"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfail/.claude/skills/team/rule.md"
