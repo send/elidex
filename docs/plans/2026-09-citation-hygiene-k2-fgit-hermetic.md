@@ -633,7 +633,7 @@ pre-existing defect, closed by `8f4ad3c8`), so "§5.1", "§5.2" and "§5.2 Rn" i
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6 ("the corpus file";
 touch-time split, text unchanged). It holds the recast oracle, the prototypes p6–p11, the re-run
 recipe, every focused cell table, and the mutation records with their totals and the ratchet;
-its §6.1 holds the record changes of drafts 11–21 (C6…C12) and of the fix round.
+its §6.1 holds the record changes of drafts 11–21 (C6…C12), of the fix round and of the review rounds after it.
 
 ## §7 What was deleted (draft 5 → 6)
 
