@@ -28,6 +28,9 @@ in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-herm
   `_lbl="…"` definition) with no record, not only controls.
 - **§11.1** (L1212–1214, L1220): for the fixture build, "unreachable or loud, never silent" is replaced
   by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
+- **§11.1 D1** (L1218) and **§11.6's prototype D1 row** (L1360): both say the GNU-grep case is "not measured" or "passes trivially". The memo did not
+  measure GNU grep. The harness now asks the run's grep each run (`_gopt_ok`), and where it ignores `GREP_OPTIONS` the control declines through
+  `_ctl_need` and the run prints `⚠ NOT EXERCISED on this machine` instead of passing trivially (the reason is in §8.2 of that slice's review record).
 - **§11.4 P1** (L1281–1282): the file list gains the fixtures, mutgen and records files.
 
 Which memo each unqualified "plan memo" or "§N" in a K2 wire file refers to is resolved per line
