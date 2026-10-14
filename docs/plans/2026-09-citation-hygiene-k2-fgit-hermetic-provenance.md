@@ -654,7 +654,7 @@ noted. Every after-state is the intended one:
 | # | cell | before | after |
 |---|---|---|---|
 | 1 | `cwdrepo`: caller cwd in another repo with a local `core.attributesFile` and a bad include | rc 1, P-b-live NE | rc 0, PASSED |
-| 2 | `gitvar129`: a `git` shim answering 129 for the four `git var` names | rc 1, NE | rc 0, PASSED, P-b "NOT EXERCISED on this machine" |
+| 2 | `gitvar129`: a `git` shim answering 129 for the four `git var` names | rc 1, NE | rc 0, PASSED, P-b "NOT EXERCISED on this machine" — **superseded** by S5b-1 (P-b's definition test): a bare 129 shim is red; only a 129 with empty stdout, a first stderr line `usage: git var ` and a working `git var GIT_PAGER` is a machine limitation (S5apb129 / S5apb129one) |
 | 3 | `pe_opt` / `pe_dev` / `pe_alias`: `GIT_EXEC_PATH` opt spelling, `DEVELOPER_DIR` with `/usr/bin/git`, an exported `GIT_EXEC_PATH` | `pe_dev` red (Xcode vs CommandLineTools); the other two green here | all green |
 | 4 | `sealfail`: a `chmod` shim failing only `*/err/control.py` | PASSED, false "NOT EXERCISED on this machine" | rc 1, W4 |
 | 5 | `w3cmdsub`: `: "$(case a in a) echo y;; esac)"` (b32) | green | rc 1, W3 (b53: no diagnostic exists, green) |

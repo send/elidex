@@ -281,23 +281,51 @@ _fgit_postconditions() {
   # ⚠ A MACHINE LIMITATION, NOT A RED: `git var` names these four only from git
   # 2.42; an older git answers 129 (usage). That is the capability rule the
   # FIFO and file-permission controls follow: reported as NOT EXERCISED on
-  # this machine, and green.
-  _pbd=""; _pbl=""; _pbu=""
+  # this machine, and green. The test is the definition itself, as P-f's: THIS
+  # git runs `git var` but refuses this name — the name's call exits 129,
+  # writes nothing to stdout and says why on stderr (the stderr's first line
+  # is git's own `git var` usage, `usage: git var `; the window runs
+  # `LC_ALL=C`, so it is untranslated), while the same git answers a name
+  # every git knows (`git var GIT_PAGER`) with status 0. Every other 129 (no
+  # word on stderr, a first stderr line that is not git's usage, a git that
+  # cannot run `git var` at all, a hangup, any other usage error) is not a
+  # machine limit: it is red under P-b like any other failed call, so an
+  # unknown cause falls on the fail-safe side. A hangup is a 129 whose stderr
+  # may be a shell's `Hangup` line, which is not git's usage.
+  _pbd=""; _pbl=""; _pbu=""; _pbk=""; _pbx=""
   # One loop over the four names. The first `git var` of a name answers the
-  # capability question (129 = this git cannot name it) and its output is the
-  # value that name's checks read; a SYSTEM name asks once more, for liveness.
-  # A name that answers 129 still runs its checks, which are discarded below
-  # because the machine-limit line outranks them.
+  # capability question (129 and the definition test above = this git cannot
+  # name it) and its output is the value that name's checks read; a SYSTEM
+  # name asks once more, for liveness. A name whose 129 passes the definition
+  # test: a SYSTEM name still runs its liveness probe, whose result is
+  # discarded below because the machine-limit line outranks it; a GLOBAL name
+  # records nothing. One whose 129 fails the definition test
+  # is red and skips its checks, and outranks the machine-limit line (a name that
+  # fails the test is red even when another name passes it). The
+  # `git var GIT_PAGER` control is asked at most once per run, and only when
+  # some name answered 129.
   for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-    _prc=0; _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _prc=$?
-    if [ "$_prc" -eq 129 ]; then _pbu="$_pbu $_v"; fi
+    _prc=0; _o="$(_fgit_in "$_pq/a" var "$_v" 2>"$_pq/var.err")" || _prc=$?
+    _pbbad=0
+    if [ "$_prc" -eq 129 ]; then
+      if [ -z "$_pbk" ]; then
+        if _fgit_in "$_pq/a" var GIT_PAGER >/dev/null 2>&1; then _pbk=yes; else _pbk=no; fi
+      fi
+      _pbe=""; IFS= read -r _pbe < "$_pq/var.err" || :
+      case "$_pbe" in "usage: git var "*) _pbe=usage ;; *) _pbe="" ;; esac
+      if [ -z "$_o" ] && [ "$_pbe" = usage ] && [ "$_pbk" = yes ]; then _pbu="$_pbu $_v"; else _pbbad=1; _pbx="$_pbx $_v"; fi
+    fi
     case "$_v" in
     *_SYSTEM)
+      if [ "$_pbbad" -eq 1 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
       if [ "$_prc" -eq 0 ]; then _pbd="$_pbd $_v=[$_o]"; fi
       _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 _fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
       [ -n "$_o" ] || _pbl="$_pbl $_v" ;;
     *)
-      if [ "$_prc" -ne 0 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
+      if [ "$_prc" -ne 0 ]; then
+        if [ "$_pbbad" -eq 1 ] || [ "$_prc" -ne 129 ]; then _pbd="$_pbd $_v:rc!=0"; fi
+        continue
+      fi
       # The void is replaced by a token BEFORE the output is split into lines, so
       # a scratch path holding a newline cannot split one entry into two.
       _o="${_o//"$_FGIT_VOID"/@K2VOID@}"
@@ -307,7 +335,8 @@ EOF_PB
       ;;
     esac
   done
-  if [ -n "$_pbu" ]; then
+  if [ -n "$_pbx" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1
+  elif [ -n "$_pbu" ]; then
     printf 'P-b — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pbu" >> "$_FW_DIR/machine_limits"
   elif [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
   elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
