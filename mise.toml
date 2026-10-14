@@ -100,10 +100,12 @@ run = "bash scripts/ci-sweep.sh"
 description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
 # A single task collapses the decision surface so no wire can be skipped on a
 # busy PR. The wires cover disjoint layering / discipline surfaces (wasm-runtime
-# tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit); each
-# script's own header documents its surface, so no list is duplicated here. The
-# driver owns the one registry (`REQUIRED_WIRES`) and reds if it and the live
-# tree disagree in either direction.
+# tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit, the
+# plan-memo umbrella checker's self-test + mutation proof); each script's own
+# header documents its surface, so no list is duplicated here. The driver owns
+# the one registry (`REQUIRED_WIRES`) and reds if it and the live tree disagree
+# in either direction. All wires are grep-only except the plan-memo self-test,
+# which needs `python3` (stdlib only) and FAILs, not skips, without it.
 #
 # Logic lives in `scripts/trip-wires.sh` rather than inline, per the same
 # reasoning as `[tasks.doc]` above: an explicit bash shebang, and — since the
