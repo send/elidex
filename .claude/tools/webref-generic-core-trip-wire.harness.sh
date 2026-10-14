@@ -57,7 +57,7 @@ mkdir "$_FGIT_VOID" || exit 2
 # holding a space or a shell metacharacter split into words and every shim went
 # invalid, so the controls using them exited for the wrong reason (PR519,
 # reproduced by the external reviewer with git at `/tmp/tool space/git`). Same
-# lesson as #501 R96 on `_ctl_env`: a path is data. Single quotes are the one
+# lesson as #501 R96 on the run's env assignments: a path is data. Single quotes are the one
 # `/bin/sh` quoting with no expansion inside; an embedded `'` is closed, escaped
 # and reopened.
 _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -748,7 +748,7 @@ _fgit_window() {
 # postcondition ends the run before any control") gets its diagnostic reported
 # here and the run ended at 1, before any control. This function computes
 # NOTHING: `_fw_trusted` comes from `_fgit_window`; this function reads it to
-# report, `_ctl_gate` reads it to gate, and the controls file's three standing
+# report, `_ctl_gate` reads it to gate, and the controls file's two standing
 # checks read it to skip their rows in silence (W2 stays the gate's line).
 _fgit_window_verdict_exit() { # $1 = the window label
   _ctl_reg "$1"
@@ -792,7 +792,7 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # comes back through a file, which `_fgit_window` reads whatever the window's
 # outcome; the gate is at the consumer: `_ctl_built` (the gate's fixture
 # half, asked by `_ctl_gate` and, under their own label, by the controls
-# file's three standing checks) reads it only after the window is complete
+# file's two standing checks) reads it only after the window is complete
 # and trusted.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # …and its membership predicate, which every consumer asks (the append above

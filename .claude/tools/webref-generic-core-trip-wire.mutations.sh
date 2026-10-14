@@ -234,7 +234,7 @@ fi
 # command code f"; GNU sed is not measured here).
 _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
-_MUT_UNRECORDED_MAX=20
+_MUT_UNRECORDED_MAX=19
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
 # `523ce31f` P-j's relative-PATH-entry record (no per-entry clause left to pin); `15d3e704` P-g's two
@@ -242,7 +242,7 @@ _MUT_UNRECORDED_MAX=20
 # record (it went with the counter); `2b56c33c` P-k's `grep` exit>1 record (the builtin
 # `_fgit_alternates` has no such arm); `116a9b8b` the `fakerelmktemp` fixture-failure record (the gate
 # no longer reads PATH-prefix dirs).
-_MUT_RECORDS_MIN=217
+_MUT_RECORDS_MIN=219
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`

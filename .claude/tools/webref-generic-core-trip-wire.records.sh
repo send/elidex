@@ -150,7 +150,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only the gate can say W2. W2's producer is
 # `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the two non-`_control` blocks run
-# through it; the fsmonitor preflight sits inside its `_ctl_run`'s branch; the three standing checks
+# through it; the fsmonitor preflight sits inside its `_ctl_run`'s branch; the two standing checks
 # that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
@@ -281,10 +281,7 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.l
 # the failed build; and the err seal line, deleted, is red in the same control.
 fixtures:s/^_seal "[$]CTL\/err\/control.py" 000 err$/_fixture_failed err; &/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
-# `_ctl_run` (commit `fd85e29f`) clears `_ctl_env` before its gate (standing check, controls file), and its ONE gate
-# refuses a failed fixture among the root and the cwd of every run (the two non-`_control` blocks too).
-ctlrun:/^  _ctl_env=()$/d	a refused control hands its environment to no other control
-# …and its timeout clause reads a signal status as a timeout only beside the watchdog's marker
+# `_ctl_run`'s timeout clause reads a signal status as a timeout only beside the watchdog's marker
 # (standing check, controls file): the marker test deleted, a signal at once is "killed after 30s".
 ctlrun:s/^  if \[ "[$]_rc" -ge 128 \] \&\& \[ -e "[$]_r_wmark" \]; then$/  if [ "$_rc" -ge 128 ]; then/	only the watchdog's marker makes a signal status a timeout
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
@@ -335,7 +332,7 @@ harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> 
 # line's tail, so the expression does not spell the label: the mutant's own stale-anchor
 # report quotes the expression, and a needle found there would be a kill by no control.
 controls:s/ "[$]_VFY\/fakerelmktemp"; then ctl_ok=1$/ ""; then ctl_ok=1/	a relative scratch dir is removed on exit
-controls:s/ "[$]_VFY\/fakegitcfg"; then ctl_ok=1$/ ""; then ctl_ok=1/	the caller's git CONFIGURATION survives the routing purge
+controls:s/ "[$]_VFY\/fakegitcfg" "" \\$/ "" "" \\/	the caller's git CONFIGURATION survives the routing purge
 # The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
 # and the values of the `_*_lbl` names the parts spell (`$_lbd_names`, a text
 # derivation, asserted defined) — against the records. One record per arm or
@@ -369,7 +366,7 @@ controls:/^_control "[$]CTL\/forge" /d	every label the run used is named by a mu
 controls:s/_ctl_run "[$]_fsm_lbl" /_ctl_run "a run label spelled out" /	every label the run used is named by a mutation record
 controls:/^_control "[$]CTL\/ignored" /d	every label the run used is named by a mutation record
 controls:s/^_mut_correspondence || ctl_ok=1$/_control "$CTL\/clean" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1; &/	every label the run used is named by a mutation record
-controls:s/^# STANDING CHECK of .*one owner of .*: a run the gate$/_fgit_window_verdict_exit "$_fw_lbl"/	every label the run used is named by a mutation record
+controls:s/^# STANDING CHECK of .*timeout clause, both ways\. A status >= 128 is a$/_fgit_window_verdict_exit "$_fw_lbl"/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/_rh() { _control "$CTL\/clean" 0 "PASSED" "green is reachable"; }; _rh || ctl_ok=1/	s/^_fsm_root="[$]CTL\/fsmon"$/&; _rh || ctl_ok=1/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/&; _control "$CTL\/clean" 0 "PASSED" "$_mg_lbl" || ctl_ok=1/	every label the run used is named by a mutation record
 # `_ctl_need` (`$_cn_lbl`, the gate's arms; standing check in the controls file, and the
@@ -382,6 +379,20 @@ controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok
 # last ask's record, on every machine.
 controls:s/^_ctl_need="[$]_fifo_ok" _control "[$]CTL\/fifotracked" /_ctl_need=0 _control "$CTL\/fifotracked" /	_ctl_need declines exactly what this machine cannot do
 controls:s/^_mut_correspondence || ctl_ok=1$/_ctl_need=0 _ctl_run "$_mg_lbl" "$CTL\/clean" || :; &/	_ctl_need declines exactly what this machine cannot do
+# THE CHANNEL EVIDENCE (`_ctl_run`: every ENV channel and the umask a call delivers is demanded back from the
+# run itself, by a recorder that runs between the delivery and the wire's first statement; the PATH prefix's
+# evidence is not yet demanded - its shims mark it - S2b). R2 and R5 are KILLED by the evidence check and
+# SURVIVE with that check disabled (`if [ -n "$_r_miss" ]` -> `if false`); R1 is killed by the control it
+# makes reachable (the routed control), not by the evidence check, and survives with routed's channel
+# arguments removed (S2a2R1surv): measured in the S2a-2 claim table, not enforced by the opt-in run.
+# R1 - the routing purge disabled: killed by the routed control (an exported GIT_DIR redirects the scan).
+s/\*) unset "[$]_v" ;; esac/*) : ;; esac/	exported GIT_DIR cannot redirect the scan
+# R2 - GIT_DIR withheld between the delivery and the recorder: killed by the evidence check, not by the run.
+ctlrun:s/K2_CTL_REACHED="[$]_r_reach" "[$]BASH" -c/K2_CTL_REACHED="$_r_reach" env -u GIT_DIR "$BASH" -c/	exported GIT_DIR cannot redirect the scan
+# R5 - the umask withheld at the delivery AND the umask control's verdict flipped to the one it would then
+# produce (both in `ctlrun`, where the verdict comparison lives): without the evidence check the control
+# would pass, so only the umask clause of the check sees it.
+ctlrun:s/^    \[ -z "[$]_r_umask" \] || umask "[$]_r_umask"$/    :/	s/^  \[ "[$]_cr" -eq 0 \] || return 1$/&; case "$4" in "a restrictive umask decides nothing") set -- "$1" 0 "PASSED" "$4" ;; esac/	a restrictive umask decides nothing
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

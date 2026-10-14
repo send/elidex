@@ -21,9 +21,9 @@
 # at entry. (No part calls the wire's `_git`, so the entry check no longer asks
 # for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
-# was: it named `$CTL`, `_control`, `_ctl_env`, `$_perm_line`,
+# was: it named `$CTL`, `_control`, a per-run env global, `$_perm_line`,
 # `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
-# them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|\$CTL\|ctl_ok\|\b_control\b'`
+# them (`grep -c '_perm_line\|_fifo_line\|\$CTL\|ctl_ok\|\b_control\b'`
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
@@ -104,7 +104,6 @@ _rel_lbl="a relative scratch dir is removed on exit"
 _fsm_lbl="a caller's fsmonitor hook does not run"
 _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
-_ce_lbl="a refused control hands its environment to no other control"
 _wm_lbl="only the watchdog's marker makes a signal status a timeout"
 _cn_lbl="_ctl_need declines exactly what this machine cannot do"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
@@ -193,23 +192,14 @@ ctl_ok=0
 # refuses over a build that is not complete and trusted too (W2), wherever
 # this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
 _fgit_window_verdict_exit "$_fw_lbl"
-# THE THREE STANDING CHECKS BELOW run `_ctl_run` over `$CTL/clean` in a
+# THE TWO STANDING CHECKS BELOW run `_ctl_run` over `$CTL/clean` in a
 # subshell. Each opens by reading `_fw_trusted` — untrusted is red (`ctl_ok=1`)
 # with no line of its own: W2 is the gate's report, printed once by the first
-# gated run, and these three reads decide nothing about any run — and by asking
+# gated run, and these two reads decide nothing about any run — and by asking
 # `_ctl_built` (the gate's fixture half, which registers nothing) under its own
 # label: a fixture that did not build is then reported under the check — NOT
 # EXERCISED naming the fixture — not as the check's own failure, and the
 # check's rows run only over a tree that built.
-# STANDING CHECK of `_ctl_run`'s one owner of `_ctl_env`: a run the gate
-# REFUSES (here, an untrusted window, forced in a subshell) must still leave the
-# global empty, or the NEXT run would inherit its environment.
-if [ "$_fw_trusted" -ne 1 ] || ! _ctl_built "$_ce_lbl" clean; then ctl_ok=1
-elif ! ( _fw_trusted=0; _fw2_said=1; _ctl_env=("K2CE=1"); _ctl_run "$_ce_lbl" "$CTL/clean" >/dev/null 2>&1
-         [ "${#_ctl_env[@]}" -eq 0 ] ); then
-  echo "!! CONTROL FAILED ($_ce_lbl): a refused control left its environment set" >&2
-  ctl_ok=1
-fi
 # STANDING CHECK of `_ctl_run`'s timeout clause, both ways. A status >= 128 is a
 # timeout ONLY beside the watchdog's own marker: `SELF` is pointed (in a
 # subshell) at a script that signals itself at once (TERM, not ABRT: no core dump
@@ -462,8 +452,8 @@ _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not
 # exported, the companion set to the PID that IS the wire's parent here, and
 # pointing at the CLEAN fixture. The argument names a violating one; an
 # environment channel would scan the clean tree and exit 0.
-_ctl_env=("WEBREF_WIRE_SELFTEST=$CTL/clean" "WEBREF_WIRE_SELFTEST_PPID=$$")
-_control "$CTL/committed" 1 "(in HEAD)" "an exported SELFTEST cannot redirect the scan" || ctl_ok=1
+_control "$CTL/committed" 1 "(in HEAD)" "an exported SELFTEST cannot redirect the scan" "" "" "" "" \
+  "WEBREF_WIRE_SELFTEST=$CTL/clean" "WEBREF_WIRE_SELFTEST_PPID=$$" || ctl_ok=1
 _control "$CTL/no-such-fixture" 2 "--selftest needs a fixture root" "a missing self-test root decides nothing" || ctl_ok=1
 _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
@@ -518,20 +508,20 @@ mkdir -p "$_VFY/fakegitcfg"
 _fgit_shim "$_VFY/fakegitcfg/git" ": > $(_shq "$_cfg_mark")
 "'if [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi' "$_REAL_GIT"
 command rm -f "$_cfg_mark"
-_ctl_env=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*")
 # The mark is read in the `elif` of the control's own `if`, as relcwd's is: a
 # run the gate refused, or a failed assertion, is reported there, and the mark
 # says nothing about it. The label is repeated literally: a rename above that
 # misses this line leaves the record's needle unmatched, so the drift reds
 # through the record.
-if ! _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$_VFY/fakegitcfg"; then ctl_ok=1
+if ! _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$_VFY/fakegitcfg" "" \
+  "GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*"; then ctl_ok=1
 elif [ ! -e "$_cfg_mark" ]; then
   echo "!! CONTROL NOT EXERCISED (the caller's git CONFIGURATION survives the routing purge): the shimmed" >&2
   echo "   git never ran, so the configuration had nothing to survive — the verdict above says nothing." >&2
   ctl_ok=1
 fi
-_ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
-_control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || ctl_ok=1
+_control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" "" "" "" "" \
+  "GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy" || ctl_ok=1
 _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1
 _control "$CTL/globextra*[e]" 1 "K2: a" "a pattern character in the checkout path does not misplace the entry script" "scope" "side/entry" || ctl_ok=1
 _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
@@ -561,8 +551,7 @@ _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" ||
 _control "$CTL/unread" 2 "read 0 stored objects" "an inventoried entry that was never read is not counted as scanned" || ctl_ok=1
 # A WALK KILLED MID-SCAN is not a verdict: `POSIXLY_CORRECT` plus the failing
 # `cat` ends the `_scan` subshell after it has emitted `a.py`'s record.
-_ctl_env=("POSIXLY_CORRECT=1")
-_control "$CTL/catkill" 2 "did not complete" "a walk killed mid-scan is not a verdict" "" "" "$CTL/catfail" || ctl_ok=1
+_control "$CTL/catkill" 2 "did not complete" "a walk killed mid-scan is not a verdict" "" "" "$CTL/catfail" "" POSIXLY_CORRECT=1 || ctl_ok=1
 _control "$CTL/d2green" 0 "PASSED" "a tracked directory deleted wholesale stays green" || ctl_ok=1
 _control "$CTL/d2file" 0 "PASSED" "a tracked directory replaced by a file stays green" || ctl_ok=1
 _control "$CTL/d3f1" 1 "K2: a" "a ] inside a first segment" || ctl_ok=1
@@ -579,8 +568,7 @@ _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash to
 # does not honour it (2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §11.1;
 # not measured here), and there this
 # control passes whatever the wire does.
-_ctl_env=("GREP_OPTIONS=--exclude=*")
-_control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl_ok=1
+_control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the
 # verdict cannot say. ⚠ The same hook is then shown to run under a plain git
@@ -594,8 +582,7 @@ printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
 chmod +x "$_VFY/fsmhook"
 _fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$_VFY/fsmhook")")
 command rm -f "$_fsm_mark"
-_ctl_env=("${_fsm_cfg[@]}")
-if ! _ctl_run "$_fsm_lbl" "$_fsm_root"; then ctl_ok=1
+if ! _ctl_run "$_fsm_lbl" "$_fsm_root" "" "" "" "" "" "${_fsm_cfg[@]}"; then ctl_ok=1
 elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
   echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
   printf '%s\n' "$_out" | sed 's/^/     /' >&2

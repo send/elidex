@@ -16,8 +16,8 @@
 # prelude forwards none of these names, and the window calls none of them.
 # WHAT IT CONSUMES: from the harness, `_fw_trusted` and `_fw2_said` (the window's
 # trust, decided there) and `_fixture_did_fail` (the membership predicate over `$_FIX_FAILED`);
-# from the controls file, `$_fw2_lbl`, `$_VFY`, `_ctl_env` (an ARRAY the caller
-# sets per run) and `_ctl_need` (a prefix assignment on a call); from the wire,
+# from the controls file, `$_fw2_lbl`, `$_VFY` and `_ctl_need` (a prefix
+# assignment on a call); from the wire,
 # `$SELF`, `$BASH` and `$_CONTROLS` (the string the wire sourced the controls
 # file by, which is what `BASH_SOURCE` holds for that file's frames: the
 # registry's site walk looks for it).
@@ -33,15 +33,16 @@ if [ -z "${_CTLRUN:-}" ]; then
   echo "   Run the wire instead." >&2
   exit 2
 fi
-# THE TWO NAMES A CALLER SETS PER CALL are cleared here, at source time, before
-# any primitive reads them: the wire's environment is the caller's, and an
-# exported `_ctl_need=0` would decline the first control in silence, an exported
-# scalar `_ctl_env` would become `${_ctl_env[@]}`. The watchdog's seconds are
-# set here for the same reason (a caller's value would not be this file's). Every
-# other name the primitives read is assigned by the wire, the harness or the
-# controls file before the first call, or by the primitive itself before it is read.
+# THE ONE NAME A CALLER SETS PER CALL is cleared here, at source time, before
+# any primitive reads it: the wire's environment is the caller's, and an
+# exported `_ctl_need=0` would decline the first control in silence. The
+# watchdog's seconds are set here for the same reason (a caller's value would not
+# be this file's). Every other name the primitives read is assigned by the wire,
+# the harness or the controls file before the first call, or by the primitive
+# itself before it is read. A run's ENVIRONMENT is no name at all: it travels as
+# the call's own trailing arguments (`_ctl_run`, below), so nothing file-scope
+# can hand one control's environment to the next.
 unset _ctl_need
-_ctl_env=()
 _ctl_wd_s=30
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
@@ -167,32 +168,61 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # wire unbounded: slot `#11-trip-wire-liveness-bound`. Arguments (empty =
 # none): $1 label, $2 root, $3 cwd to run from, $4 umask to run under, $5 PATH
 # prefix (to shadow a tool the wire calls), $6 optional scope subdir (relative),
-# $7 optional extra entry (relative); plus `_ctl_env` (an ARRAY, set by the caller)
-# for environment assignments. ⚠ AN ARRAY, NOT A STRING: an earlier shape took the
-# assignments as one string argument, expanded unquoted into `env`, which
-# word-split it, so a `TMPDIR` holding a space broke the routed control with
+# $7 optional extra entry (relative); then, from $8 on, the run's environment
+# assignments, each its own `NAME=VALUE` argument (validated: see the body).
+# ⚠ EACH ITS OWN ARGUMENT, NOT ONE STRING: an earlier shape took the
+# assignments as one string, expanded unquoted into `env`, which word-split
+# it, so a `TMPDIR` holding a space broke the routed control with
 # `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
 # contributor whose temp path has a space (#501 R96). A path is data here too.
 # RETURN CONTRACT: 1 ONLY when the gate refused (an untrusted window: reported
 # once per run under `$_fw2_lbl`, by the first refusal; a `_ctl_need` value that
 # is not 0 or 1, a decline it could not note, a failed fixture: each under the
-# label) or the WATCHDOG killed the run (under the label); 2 ONLY when the gate
+# label), a channel argument is malformed (not NAME=VALUE), the evidence directory
+# could not be made, a delivered channel is missing from the evidence (`CONTROL NOT
+# EXERCISED`: it never reached the run), or the WATCHDOG killed the run (under the
+# label); 2 ONLY when the gate
 # declined the run for a capability this machine lacks (`_ctl_need`, above: nothing
 # ran, nothing was reported, the label noted in `.declined`); every other outcome
 # — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE)
 # included — returns 0 with `_rc` and `_out` set (the run's status and its
 # stdout+stderr), and the caller's own comparison is the verdict on it.
-# ⚠ ONE OWNER FOR `_ctl_env`: taken into a local copy and cleared as the FIRST
-# statement, so every return path (the gate's included) leaves the global empty.
-# It is file-scope (bash has no array parameter); a clear placed after the gate
-# let a refused control hand its environment to the NEXT one. Whoever sets it
-# gets exactly the next run.
+# EVIDENCE THAT A DELIVERED CHANNEL REACHED THE RUN (every env channel and the
+# umask the call delivers is demanded, derived from the delivery, not judged per
+# caller; the PATH prefix's evidence is not yet demanded - its shims mark it): the
+# child is `exec env <channels> K2_CTL_REACHED=<dir> "$BASH" -c '<recorder>'
+# ctlrec <dir> <names…> -- "$BASH" "$SELF" …`. The recorder is INLINE (a file
+# under `$_VFY` can be missing under `_cn`'s redirected `_VFY`, and the `ran` rows
+# would not notice), bash builtins only, and runs under `$BASH` — the wire's own
+# interpreter, never /bin/sh (macOS's turns `POSIXLY_CORRECT=1` into `y`). It
+# writes `env.<NAME>` for each delivered name that is set, and `umask`, then
+# execs the wire (the files are written under a 022 umask, which it restores
+# first: a delivered 777 would leave them unreadable to the check): the boundary between the harness's delivery and the wire's
+# first statement is the one point where every channel is observable (the wire
+# unsets `GREP_OPTIONS` before its first external command). After the run, every
+# delivered `NAME=VALUE` must have `env.<NAME>` holding exactly VALUE, and a
+# delivered umask must equal the recorded one (both as 4 octal digits); else
+# `CONTROL NOT EXERCISED` under the caller's label, return 1. cwd needs none: a
+# failed `cd` exits 97 at delivery. A channel argument that is not `NAME=…` is a
+# `CONTROL FAILED` and no run (checked after the gate's registration, before
+# delivery).
 _ctl_run() {
-  local -a _ce=(${_ctl_env[@]+"${_ctl_env[@]}"})
-  _ctl_env=()
   local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
-  local _out_f _r_wmark _cpid _wpid
+  local _out_f _r_wmark _cpid _wpid _r_reach _r_a _r_n _r_v _r_miss="" _r_w _r_g
+  local -a _r_ch=("${@:8}") _r_names=()
   _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || return $?
+  for _r_a in ${_r_ch[@]+"${_r_ch[@]}"}; do
+    _r_n="${_r_a%%=*}"
+    case "$_r_a" in *=*) : ;; *) _r_n="" ;; esac
+    case "$_r_n" in ''|[0-9]*|*[!A-Za-z0-9_]*)
+      echo "!! CONTROL FAILED ($_r_for): malformed channel argument \"$_r_a\" (want NAME=VALUE)" >&2
+      return 1 ;;
+    esac
+    _r_names+=("$_r_n")
+  done
+  _r_reach="$_VFY/.reached"
+  command rm -rf "$_r_reach" && mkdir "$_r_reach" || {
+    echo "!! CONTROL FAILED ($_r_for): the evidence directory could not be made" >&2; return 1; }
   _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
   # otherwise report (#501 R92). The FIFO finding's whole harm was that the
@@ -214,7 +244,12 @@ _ctl_run() {
   ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
     [ -z "$_r_umask" ] || umask "$_r_umask"
     export PATH="${_r_pfx:+$_r_pfx:}$PATH"
-    exec env ${_ce[@]+"${_ce[@]}"} "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
+    exec env ${_r_ch[@]+"${_r_ch[@]}"} K2_CTL_REACHED="$_r_reach" "$BASH" -c \
+      'd=$1; shift; u=$(umask); umask 022
+       while [ "$1" != -- ]; do n=$1; shift; [ -z "${!n+x}" ] || printf %s "${!n}" > "$d/env.$n"; done
+       shift; printf %s "$u" > "$d/umask"; umask "$u"; exec "$@"' \
+      ctlrec "$_r_reach" ${_r_names[@]+"${_r_names[@]}"} -- \
+      "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
     > "$_out_f" 2>&1 & _cpid=$!
   set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
@@ -245,18 +280,34 @@ _ctl_run() {
     echo "   reaches a verdict at all. Something on this path opened what it must not." >&2
     return 1
   fi
+  for _r_a in ${_r_ch[@]+"${_r_ch[@]}"}; do
+    _r_n="${_r_a%%=*}"; _r_v="${_r_a#*=}"
+    { [ -f "$_r_reach/env.$_r_n" ] && [ "$(cat "$_r_reach/env.$_r_n"; printf x)" = "${_r_v}x" ]; } \
+      || _r_miss="$_r_miss $_r_n"
+  done
+  if [ -n "$_r_umask" ]; then
+    _r_w="$(printf '%04o' $((8#$_r_umask)) 2>/dev/null)" || _r_w="?"
+    _r_g="$(cat "$_r_reach/umask" 2>/dev/null)" && _r_g="$(printf '%04o' $((8#$_r_g)) 2>/dev/null)" || _r_g="!"
+    [ "$_r_w" = "$_r_g" ] || _r_miss="$_r_miss umask"
+  fi
+  if [ -n "$_r_miss" ]; then
+    echo "!! CONTROL NOT EXERCISED ($_r_for):${_r_miss} never reached the run — the verdict" >&2
+    echo "   of a control whose injected channel was not delivered says nothing." >&2
+    return 1
+  fi
   return 0
 }
 _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
-             # $7 = optional PATH prefix, $8 = optional umask to run under; the
+             # $7 = optional PATH prefix, $8 = optional umask to run under,
+             # $9… = the run's environment, each a `NAME=VALUE` argument; the
              # run itself is `_ctl_run`'s.
              # A 2 from it (`_ctl_need` carried a 0: the capability is missing
              # here) is green: the label was registered, the gate noted the
              # decline, and the controls file's next ask decides a summary line
              # from it or reds it (`_cn_declined` there).
   local _cr=0
-  _ctl_run "$4" "$1" "" "${8:-}" "${7:-}" "${5:-}" "${6:-}" || _cr=$?
+  _ctl_run "$4" "$1" "" "${8:-}" "${7:-}" "${5:-}" "${6:-}" "${@:9}" || _cr=$?
   # Not pinned by a record: on a capable machine nothing declines, so this line is
   # never reached (measured: removed, the wire PASSED on both shells); on an
   # incapable one, removed, the 2 falls to the `return 1` below and the caller's
