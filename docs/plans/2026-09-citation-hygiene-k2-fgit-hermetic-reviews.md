@@ -532,17 +532,17 @@ draft 5's seed. At `e8f78896` the kept sites are **eleven**:
 |---|---|
 | L5 | the Status |
 | L61 | §0's command names the controls file, which loses the build half (C1) |
-| L278–280 | §4's file rows (C1/C2). L279, the harness row ("the fixture git helper"), also changes under C5 |
-| L675–677 | §7 criterion 3, "enumerated in `…mutations.sh`" (C2) |
-| L683 | §7 criterion 3, "a `sed` expression over the wire" (C4) |
+| L278–280 | §4's file rows (C1/C2). L279, the harness row ("the fixture git helper"), also changes under C5; and `16efb423`'s ctlrun split |
+| L675–677 | §7 criterion 3, "enumerated in `…mutations.sh`" (C2); `_MUT_TARGETS` later gained `mutgen` (`7f4259f9`), `controls` (`96eea58c`), `ctlrun` (`16efb423`) and `mutations` (`d976f239`) |
+| L683 | §7 criterion 3, "a `sed` expression over the wire" (C4); `_MUT_TARGETS` later gained `mutgen` (`7f4259f9`), `controls` (`96eea58c`), `ctlrun` (`16efb423`) and `mutations` (`d976f239`) |
 | L747–748 | §7 criterion 5, "All are now in §4's table" (C1/C2) |
-| L816 | Slot 2, "when every control has a mutation record" (C5: labels) |
-| L866–868 | §9, "the number of controls with no record" (C5 population) |
+| L816 | Slot 2, "when every control has a mutation record" (C5: labels); since `d976f239` the population is the run registry and `$_lbd_names` |
+| L866–868 | §9, "the number of controls with no record" (C5 population); since `d976f239` the population is the run registry and `$_lbd_names` |
 | L1212–1214 | §11.1's rule "unreachable or loud, never silent", stated as the rule for inputs (design memo §0.1 replaces it for the build) |
 | L1220 | §11.1 D6 (design memo §0.1) |
-| L1281–1282 | §11.4 P1's file list (C1/C2) |
+| L1281–1282 | §11.4 P1's file list (C1/C2); and `16efb423`'s ctlrun split |
 | L1218 | §11.1 D1 row, "CI's grep is GNU, which does not honour it; not measured here" (S2c: the harness asks the run's grep each run, `_gopt_ok`; where it ignores the variable the control declines through `_ctl_need` and the run prints `⚠ NOT EXERCISED on this machine`) |
-| L1360 | §11.6 prototype D1 row, "on GNU grep it passes trivially" (S2c, same reason as L1218) |
+| L1360 | §11.6 prototype D1 row, "on GNU grep it passes trivially" (S2c, same reason as L1218); and its `_ctl_env`, removed by `8c952d6d` |
 
 After S2c two more sites are kept (L1218 and L1360, the last two rows), thirteen in all: kept under the same rule, made false by S2c rather than by C1–C5.
 

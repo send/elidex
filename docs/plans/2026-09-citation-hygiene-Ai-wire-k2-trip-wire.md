@@ -11,27 +11,30 @@ revision that followed them.
 
 ⚠ **SUPERSEDED IN PART — read `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` first**
 (slice A-i-wire-fgit, branch `k2-wire-fgit-hermetic`). That slice rebuilds how the K2 wire's fixtures
-are built, splits the controls and mutation files, and lets mutation records target the harness, the
-fixtures file or the mutant generator. The body below is left as #519 wrote it, because it is provenance. These statements in
+are built, splits the controls, harness and mutation files, and lets mutation records target the other parts
+(`_MUT_TARGETS`, in `…trip-wire.mutations.sh`). The body below is left as #519 wrote it, because it is provenance. These statements in
 it are no longer true once that slice lands; the lines are as of `e8f78896`, and the reason for each is
 in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §8.2:
 - **Status** (L5): the status of this slice, not of the fixture build.
 - **§0's command** (L61) names the controls file, which no longer holds the fixture build: that moved
   to `…trip-wire.fixtures.sh`.
 - **§4's file rows** (L278–280): the controls, harness and mutation files are split
-  (`…trip-wire.fixtures.sh`, `…trip-wire.mutgen.sh`, `…trip-wire.records.sh`), and the harness no longer holds a fixture git
+  (`…trip-wire.fixtures.sh`, `…trip-wire.ctlrun.sh` (the control run primitives, split from the harness by `16efb423`),
+  `…trip-wire.mutgen.sh`, `…trip-wire.records.sh`), and the harness no longer holds a fixture git
   helper: the fixtures are built in a window constructed from nothing.
 - **§7 criterion 3** (L675–677, L683): the records are enumerated across `…records.sh` (read by `…mutations.sh`), and a record's
-  `sed` expression may target the harness, the fixtures file or the mutant generator, not only the wire.
+  `sed` expression may target any part `_MUT_TARGETS` names, not only the wire.
 - **§7 criterion 5** (L747–748): the file table in §4 no longer lists every part.
-- **Slot 2** (L816) and **§9** (L866–868): the ratchet counts labels (`_control` labels and every
-  `_lbl="…"` definition) with no record, not only controls.
+- **Slot 2** (L816) and **§9** (L866–868): the ratchet counts the labels with no record — every label a
+  run registered (its `_control`, `_ctl_run`, `_ctl_gate` and window-verdict calls) and the value of every `_*_lbl` name the parts
+  spell — not only controls.
 - **§11.1** (L1212–1214, L1220): for the fixture build, "unreachable or loud, never silent" is replaced
   by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
 - **§11.1 D1** (L1218) and **§11.6's prototype D1 row** (L1360): both say the GNU-grep case is "not measured" or "passes trivially". The memo did not
   measure GNU grep. The harness now asks the run's grep each run (`_gopt_ok`), and where it ignores `GREP_OPTIONS` the control declines through
-  `_ctl_need` and the run prints `⚠ NOT EXERCISED on this machine` instead of passing trivially (the reason is in §8.2 of that slice's review record).
-- **§11.4 P1** (L1281–1282): the file list gains the fixtures, mutgen and records files.
+  `_ctl_need` and the run prints `⚠ NOT EXERCISED on this machine` instead of passing trivially (the reason is in §8.2 of that slice's review record). §11.6's row also names `_ctl_env`, which `8c952d6d` removed (a run's
+  environment travels as `_ctl_run`'s trailing `NAME=VALUE` arguments).
+- **§11.4 P1** (L1281–1282): the file list gains the fixtures, ctlrun, mutgen and records files.
 
 Which memo each unqualified "plan memo" or "§N" in a K2 wire file refers to is resolved per line
 by that slice's `…-k2-fgit-hermetic-reviews.md` §8.3 table.
