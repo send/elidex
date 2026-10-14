@@ -15,7 +15,7 @@
 # watchdog), and `_control` itself. Nothing here reaches the window: the
 # prelude forwards none of these names, and the window calls none of them.
 # WHAT IT CONSUMES: from the harness, `_fw_trusted` and `_fw2_said` (the window's
-# trust, decided there) and `_fixture_did_fail` (the one reader of `$_FIX_FAILED`);
+# trust, decided there) and `_fixture_did_fail` (the membership predicate over `$_FIX_FAILED`);
 # from the controls file, `$_fw2_lbl`, `$_VFY`, `_ctl_env` (an ARRAY the caller
 # sets per run) and `_ctl_need` (a prefix assignment on a call); from the wire,
 # `$SELF`, `$BASH` and `$_CONTROLS` (the string the wire sourced the controls

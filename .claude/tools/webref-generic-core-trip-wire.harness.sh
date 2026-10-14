@@ -795,7 +795,9 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # file's three standing checks) reads it only after the window is complete
 # and trusted.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
-# …and its membership predicate, the ONE reader of `$_FIX_FAILED`: did fixture $1 fail?
+# …and its membership predicate, which every consumer asks (the append above
+# and the window's copy-out into `fix_failed` read the variable too): did
+# fixture $1 fail?
 _fixture_did_fail() { case " $_FIX_FAILED " in *" $1 "*) return 0 ;; esac; return 1; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
