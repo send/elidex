@@ -146,7 +146,7 @@ as the build's output:
   return channel in `$_FW_DIR` (`built`, `done`, `cause`, `post_ok`, `post_bad`, `machine_limits`, …; `built`
   is written by the fixtures file's own last line by design, §3), the postconditions' directory (the
   references and working files) and the parent's directory (its working files), both made after the
-  build (§4, "The references and the working files");
+  build (`…-census.md` §4, "The references and the working files");
 - the pin `$_FGIT_BIN` and the wrapper in it.
 
 The shell options and the window's fd 2 are **not** in it. `errexit`, `nounset`, `pipefail` and where
@@ -158,7 +158,7 @@ the first clause. With that, no mistake falls in both classes.
 **The design rule (D16-B): the verifier's files are out of reach by construction.** Every file the
 verifier writes and reads back after the build lives in a directory the verifier makes after the build
 with `mktemp -d`, never under `$CTL` (the fixtures' tree) or `$_FW_DIR`: the postconditions' directory
-(`_pq`, §4) and the parent's (§4, "The parent's directory"). Class (c) is then **declared** only for
+(`_pq`, `…-census.md` §4) and the parent's (`…-census.md` §4, "The parent's directory"). Class (c) is then **declared** only for
 what construction cannot close, each with its measured cell. The last item below qualifies the rule
 itself: a changed resolution of `mktemp` can hand either directory back to the fixtures (`mkfn`,
 `staleshim`), so "out of reach" holds except for that declared class (c):
@@ -440,8 +440,8 @@ A parent-side failure to create the window directory or write the prelude has it
 
 **No time bound (declared, §5.2 R9).** A child can still block on what the fixtures built where no
 shape check sees it: git reads, outside every census git dir, something whose read does not complete
-(a FIFO; `/dev/tty` under a controlling terminal), through a reference the census does not follow (§4,
-"The boundary"). The run then waits: in CI until the job timeout, which is red; locally,
+(a FIFO; `/dev/tty` under a controlling terminal), through a reference the census does not follow
+(`…-census.md` §4, "The boundary"). The run then waits: in CI until the job timeout, which is red; locally,
 indefinitely. It is never green. The one watchdog is `_ctl_run`'s (#501 R92; `_control` and the two non-`_control` blocks run through it; its seconds are `_ctl_wd_s`, 30, set where the run primitives are sourced, and the `_wm` standing check runs a wire that sleeps past a 1 s watchdog to pin the kill's report and marker). Draft 12
 bounded the whole run; round 11 found seven defects in that design, and the user carved it out of this
 PR into `#11-trip-wire-liveness-bound`.
@@ -602,7 +602,7 @@ in), and each label has its own record (corpus §6).
 | P-d | `the fixture git copies no template` | `diff -r` of `.git` from `git init` against `.git` from `git init --template="$_FGIT_VOID"` is empty | — |
 | P-e | `no exec-path override reaches the fixture git` | the window's `git --exec-path` equals the same git's answer with only `PATH` and `HOME=$_FGIT_VOID` in its environment (taken in the parent at source time), both canonical (`pwd -P`). `HOME` is there because a caller's `git` wrapper that reads `$HOME` under `set -u` aborts without it, which gave an empty reference and a red with no cause (fix round #3); no record pins it, since dropping it reds only on a machine with such a wrapper. **Re-scoped by `/code-review`:** which executable runs is outside P (§0.1, R1); P-e pins only that nothing in the window overrides where that git runs its commands from. So a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one directory spelled two ways, is not a red | — |
 | P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction, and so is an allowlist name missing from the records (`missing …`: a name exported away inside the window, which P-h, P-i and P-j read as shell variables and still see; pinned by review R2's `export -n LC_ALL` record). A listing that is not NUL-separated reads as no record (the NUL-list policy, "P-g's population" below). p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10). `env -0` goes through a file whose status is checked: a failed `env -0`, or no record at all, is NOT EXERCISED. **One** outcome is a machine limitation instead (`⚠ NOT EXERCISED on this machine`, green — the treatment P-b and the FIFO and file-permission controls give a machine that cannot run them): its test is the definition — **this** `env` runs but refuses `-0`: `env -0` fails, writes nothing to stdout and says why on stderr, while the same `env` runs a command. Every other outcome stays red, so an unknown one falls on the fail-safe side. Which `env` builds lack `-0` is not measured here (this machine's macOS 26 `env` has it; PR #527 Codex R4 reported a macOS one without it); the no-`-0` case is exercised with a shim. Both limitations reach the run's summary through one channel (`$_FW_DIR/machine_limits`), naming the postcondition by ID only, since a record's needle is its label. History: `…-pr527.md`. | — |
-| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the listing of `git --git-dir=.git config --list --show-origin` run in that repo (no discovery, so a `.git` git does not recognise is an error, never an ancestor's listing; no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init, made after the build in the postconditions' directory, which no fixture command that finished by the end of the build can name: "The references and the working files", below), compared by origin, key and value. An extra entry is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. The comparison is of **records**, and it runs first: the `-z` listing, each origin paired with its entry into one record written as one line by `printf %q`, sorted (no `sort -z`), byte-identical to the reference's — so a value holding a newline cannot forge a line, and a repeated entry is red. Only when the records differ are the lines listed (`grep -vxF -f`, both directions), to name the extra and missing entries; that runs on a red path only, so its failure cannot turn a red green. This catches a persisted include (its origin is not `.git/config`), a `commondir` naming another git dir (the origin names that dir's config), and **any** persisted key beyond init's, `core.excludesFile` included. **Census first (M-SHAPE, drafts 14–15):** the census classifies and shape-checks every git dir it names, and runs its per-link search, and its one verdict comes before any postcondition runs git (population below). An entry under a `.git` that is not a directory or a regular file with one link is red: a symlink of any target, a FIFO, a socket, a device, a hard link. Git reads through a link (a `.git/config` pointing outside still reports `file:.git/config`) and blocks opening a FIFO, whatever the entry's name. **A red census runs no git anywhere**, because git reads across git dirs (`commondir`, `alternates`, `include.path`). A scan that fails or writes to stderr is red. The census takes `HEAD` and `.git` entries of **any** type and letter case — a symlink `HEAD`, or `head` on a case-insensitive filesystem, is a shape git reads — and every git dir not reached by a `.git` entry is red. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
+| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population in `…-census.md` §4), the listing of `git --git-dir=.git config --list --show-origin` run in that repo (no discovery, so a `.git` git does not recognise is an error, never an ancestor's listing; no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init, made after the build in the postconditions' directory, which no fixture command that finished by the end of the build can name: "The references and the working files", below), compared by origin, key and value. An extra entry is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. The comparison is of **records**, and it runs first: the `-z` listing, each origin paired with its entry into one record written as one line by `printf %q`, sorted (no `sort -z`), byte-identical to the reference's — so a value holding a newline cannot forge a line, and a repeated entry is red. Only when the records differ are the lines listed (`grep -vxF -f`, both directions), to name the extra and missing entries; that runs on a red path only, so its failure cannot turn a red green. This catches a persisted include (its origin is not `.git/config`), a `commondir` naming another git dir (the origin names that dir's config), and **any** persisted key beyond init's, `core.excludesFile` included. **Census first (M-SHAPE, drafts 14–15):** the census classifies and shape-checks every git dir it names, and runs its per-link search, and its one verdict comes before any postcondition runs git (population in `…-census.md` §4). An entry under a `.git` that is not a directory or a regular file with one link is red: a symlink of any target, a FIFO, a socket, a device, a hard link. Git reads through a link (a `.git/config` pointing outside still reports `file:.git/config`) and blocks opening a FIFO, whatever the entry's name. **A red census runs no git anywhere**, because git reads across git dirs (`commondir`, `alternates`, `include.path`). A scan that fails or writes to stderr is red. The census takes `HEAD` and `.git` entries of **any** type and letter case — a symlink `HEAD`, or `head` on a case-insensitive filesystem, is a shape git reads — and every git dir not reached by a `.git` entry is red. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
 | P-i | `the fixture repos use the files ref format` | the window's `GIT_DEFAULT_REF_FORMAT` is `files`, and a plain init's `git rev-parse --show-ref-format` answers `files` (a git before 2.45 has no reftable; its `rev-parse` echoes the unknown option back with exit 0, and that literal echo is what counts as `files` — a failed call or any other format name stays red). It pins the allowlist entry on every git, including the files-default ones where dropping it changes nothing else | — |
 | P-j | `the fixture build window runs the pinned git first on its PATH` | the window's `PATH` starts with `$_FGIT_BIN`, `type -P git` inside the window is `$_FGIT_BIN/git`, and a `git` run through the pin is handed a `PATH` without `$_FGIT_BIN` (an alias, `-c 'alias.k2p=!printf %s "$PATH"'`, prints it). That last clause pins the shim builder `_fgit_shim`, which writes the pin and every fixtures exec-through shim so that each drops its own directory from the front of `PATH` before it execs: a "next `git` on `PATH`" wrapper then cannot reach it again in any idiom (§0.1). Review R2 replaced the fix round's depth counter (`K2_FGIT_PIN_DEPTH`, exit 125, its own label), which an `env -i PATH=…` re-exec reset, so the cycle hung. It pins the `PATH` construction the way P-h and P-i pin their entries: without the pin, the window's first `git` is the file the pin execs anyway, so nothing else changes, and P-e's reference moves with it. It asserts nothing about the caller's entries (§0.1) | — |
 | P-k | `no fixture repo reads objects from a store outside it` | for every `.git` P-g compares, `git count-objects -v` (run as P-g's listing is) exits 0 and prints no `alternate:` line (read by one builtin helper, `_fgit_alternates`, which assigns `_fgit_alt` and is shared with the liveness probe; no external `grep`). An `objects/info/alternates` naming another store makes git read an object from there instead of writing it locally, so the content the controls read is an outside input even though P's ids do not move (measured, `…-pr527.md`). Git's own answer, not a file name: it reports the stores git will read (measured for the `alternates` file). A failed `count-objects` is red, and **so is any stderr**: a store that does not exist, or an `alternates` naming a directory or a mode-000 path, gives rc 0, no `alternate:` line and a warning or error on stderr (round 12; `…-pr527.md`), and such a store could appear later and be read. It runs only over a clean census (§4, population) | `this git reports alternate object stores`: a third probe repo in the postconditions' directory (so P-d's two inits are untouched), given an `alternates` file naming P-a's object store, must exit 0 with nothing on stderr and print exactly one `alternate:` line. The file holds the path in double-quoted C form, so a newline in the scratch path stays one line. `gitrepository-layout` says only "one pathname per line". git(1) documents C-style quoting for `GIT_ALTERNATE_OBJECT_DIRECTORIES` (`man git`, that variable), and that the `alternates` file accepts the same form is measured: on 2.55.0 a path holding a newline gives one `alternate:` line, rc 0 (`…-pr527.md`, round 12's P-k commands). **Anything else is red**, NOT EXERCISED: there is no machine-limitation arm, because "prints none" cannot tell a git without the line from a broken probe (git 2.55.0 and Apple 2.54.0 both print it, measured), so the unknown falls on the fail-safe side |
@@ -616,233 +616,11 @@ list of path keys would therefore be vocabulary, and a key missing from it would
 Instead, the allowed set is **what git itself writes on `init`**, measured in the window on every run.
 That is the fail-safe direction: any persisted entry beyond it is red, whether or not it names a path.
 
-**P-g's population, and the census before any git (drafts 14–15).** The population is the git dirs
-the census can **name**: a `.git` entry, or a directory holding a `HEAD` next to `objects` or
-`commondir`. That is a classification by name and `HEAD`, not git's whole read set. What git reaches
-through a reference is §5.2 R9's boundary (below). The census runs **in two passes, and writes its
-verdict, one variable `_pg_census`, only after both.** The postconditions start with the census, and
-when `_pg_census` is red, `_fgit_postconditions` reports P-g and returns before any other postcondition,
-so no git runs. It is **one** census: P-g and P-k iterate pass 1's own list and act on its `.git`
-entries (the fix round deleted a second population scan). It covers the git dirs under `$CTL` it names. It does not cover what git
-reaches through a reference ("The boundary", below), nor the reference repos, which are outside fixture
-reach by construction ("The references and the working files", below) except through §0.3's declared
-class (c): they are made in a `mktemp -d` directory too, so a changed `mktemp` (`mkfn`, `shimafter`,
-`staleshim`) can hand them to the fixtures:
-1. **Classification and shape.** One `find` from `$CTL`, with no `-L` and no per-directory fork, lists
-   every `.git` entry and every `HEAD` entry, of **any type and any letter case** (a case-insensitive
-   filesystem lets git read `head` and `.GIT`, so a case variant is red). It descends everywhere:
-   hidden and nested directories, and the inside of `.git` directories.
-   - A `.git` that is a gitfile, a symlink or anything else but a directory is red: `[.git is not a
-     directory]`.
-   - A `HEAD` whose directory is not a `.git` and holds an `objects` directory **or** a `commondir`
-     file is a git dir not named `.git`, and it is red. That covers a bare repo, a
-     `--separate-git-dir` target, a submodule's git dir under `.git/modules/`, and a linked
-     worktree's entry under `.git/worktrees/`.
-   - A `.git` that is a directory has its **shape** checked: every entry under it must be a directory
-     or a regular file with **one** link (`find <.git> \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print`).
-     A symlink of any target, a FIFO, a socket or a device is red, because git reads through a link
-     and blocks opening a FIFO. So is a hard link, which shares its content with a path outside the
-     git dir. A scan that fails or writes to stderr is red.
-   - "Cannot search" is whatever `find` reports: any report on stderr (one check, after both passes),
-     or a non-zero exit, fails the census, and so does a list that does not end in a NUL byte. A BSD `find` reports nothing for a directory it cannot enter (rc 0, no stderr, the repo beneath unlisted; measured, review R2), so the same `find` also lists every directory that is not `u+rx` (`! -perm -u=rx`), red as `[a directory the census cannot search]`; a GNU `find` reports one itself (read from its manual, not measured). That
-     is one policy for every `read -d ''` reader (the census's two passes, P-f's `env -0`, `_pg_z`):
-     after the loop, the remainder `read` left in its variable must be empty, else the list is
-     red under the reader's own label. No command is run to ask. A list with no `.git` entry is red too, by P-g's count over it (`no fixture git dir was found`).
-2. **The per-link search**, only if pass 1 found nothing red. A second `find` from `$CTL` lists every
-   symlink. A link that resolves to a directory is searched through (`find -L`, any depth) whatever its name, and a `HEAD` or `.git` anywhere under it
-   is red, as is a search that exits non-zero. BSD find lists a loop link without descending (rc 0,
-   hiding nothing); GNU find is expected to exit 1, which is not measured here. A link *named* `HEAD`
-   to a directory is red whatever it holds, because the search's start matches its own name; the
-   record for that shape pins the routing to the search, and the two-levels-down record pins the
-   depth.
-
-   A link inside a git dir that pass 1 classified is already red by pass 1, so it is never searched.
-   That holds for a `.git` by its shape, and for a bare dir by its name.
-
-**If the census is red, no postcondition runs git**, on any repo: the census reports P-g, and the
-build is untrusted (§3). Git reads **across** git dirs, through a `commondir`, an `alternates` chain or
-an `include.path`, so both verdicts must be in before git runs anywhere.
-
-Drafts 13 and 14 let git run before a verdict was in (round 12's `xcommon`, round 13's `xlink`); with
-one verdict after both passes, both cells are red in 3–5 s on both shells (`…-pr527.md`, rounds 12–13).
-
-**The boundary, by property (§5.2 R9).** Shape covers every git dir the census names. The census does
-**not** follow `commondir`, `include.path` or `alternates`: that would emulate git's read set, the
-anti-pattern this memo removed for `PATH` (§0.1: the window does not emulate the lookup). What git reads
-outside a census git dir is therefore either **compared** or, if the read does not complete, **waited
-on**; it is never green:
-- **compared**, when the read completes. A reference that reaches configuration (`commondir`,
-  `include.path`) puts what it read into `config --list --show-origin`, so P-g's origin comparison reds
-  it (`xincreg`, an include naming a regular file with a key: red in 6–8 s, origin
-  `file:.git/../../zzi`). A read that fails is red by one of two routes. An include git cannot open
-  (a mode-000 file; `/dev/tty` with no controlling terminal) fails the listing, git exit 128, red. An
-  include naming a file that does not exist is skipped silently (rc 0, nothing on stderr), but the
-  listing keeps the `include.path` line itself, an entry a plain init does not write, so P-g reds it
-  as an extra key (X6's include; `…-pr527-r15.md` §Q). An `alternates` naming an
-  ordinary store outside leaves that listing unchanged (measured, `…-pr527.md` round 14), so P-g does
-  not see it; **P-k** does (`count-objects -v` prints its `alternate:` line);
-- **waited on**, when the read does not complete. The run waits, in CI until the job timeout (red).
-  Measured on both shells (inserts in `…-pr527.md`, rounds 13–14). Four cells reached `cell15.sh`'s
-  120 s alarm with the P-g `git … config --list` blocked in the run's group: `hdless` (a `commondir`
-  naming a directory with `objects` and `refs` but no `HEAD`, whose `config` is a FIFO), `xinclude` (an
-  include naming a FIFO in the fixture root), `xinclnk` (an include naming a link in the fixture root to
-  a FIFO outside it) and `outroot` (a `commondir` naming a git dir outside the fixture root whose
-  `config` is a FIFO). `ttyinc` (an include naming `/dev/tty`, under a pseudo-terminal that is the
-  wire's controlling terminal) reached that harness's 120 s limit, and `ps` showed the `config --list`
-  blocked (bash 5.3). A chained `alternates` whose store's own `alternates` is a FIFO blocks
-  `count-objects -v`, P-k's read (a git-only measurement, its setup verbatim in `…-pr527.md` round 14);
-- the per-link search over an otherwise clean census reads whatever a link reaches, so a link to a huge
-  tree is **slow**: `find` ends when it has walked what the link reaches. Round 12 reported 455 s for
-  its `outsidein` cell, whose search went through a link to `/` (`…-pr527.md`, round 12). Draft 15's
-  census reds that cell by pass 1 in seconds; a link to `/` over a clean pass 1 has not been
-  re-measured.
-
-**The references and the working files, in verifier directories made after the build (drafts 16–18).** At
-`8413a4db` P-a's probe repo `a` and P-d's second init `b` are made at the fixed path `$_FW_DIR/pq`,
-which the fixtures can write, and `git init` over an existing repo keeps its configuration. Round 14's
-`xrefpoison` made both in advance with `core.excludesFile /nonexistent-k2` and wrote the same key into
-every fixture repo: rc 0, PASSED, on both shells. Every reference a postcondition compares against, and
-every file it writes and reads back, by location:
-- **the postconditions' directory**, made at the start of the postconditions, **after the build**, by
-  `mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX"`, beside `$_FW_DIR` and never under it or `$CTL`. No fixture
-  command that finished by the end of the build can know its name, unless the fixtures file changed
-  what the `mktemp` the postconditions run resolves to (`mkfn`, `shimafter`, `shimhash`: class (c),
-  §0.3). It holds `a`, `b`, P-g's reference
-  listings and P-k's probe repo (C10), and every working file below. `a` and `b` are made by `mkdir`
-  without `-p` after a clean census, so one that already exists fails the reference, red (P-g). P-a,
-  P-b, P-d, P-g and P-i read `a`. A fixture command still running after the build (a background
-  process) can find and write the directory; that writes the verifier's own state, class (c) (§0.3,
-  `xrace`).
-- **P-e's `_FGIT_WIRE_EXEC`, P-h's `_FGIT_WIRE_LC`, P-f's `_FGIT_ENV_REQ`**: values the parent takes
-  before the window starts and passes as prelude assignments, not files. The fixtures file shares the
-  postconditions' shell, so it could assign one, or redefine a postcondition function; that is a write
-  to the verifier's own state, class (c) (§0.3). No fixture names any of them (`/usr/bin/grep -c -e _FGIT_WIRE_EXEC -e
-  _FGIT_WIRE_LC -e _FGIT_ENV_REQ -e _fgit_postconditions` over the fixtures file → 0).
-- **P-j's `$_FGIT_BIN/git`** is compared by path. Its content decides which executable runs, R1's; a
-  fixtures-file write to it is class (c) (§0.3).
-- **P-c's void** is the subject, not a reference: P-c reds any entry in it, and both reference inits
-  read it as their template, so a template planted there is red through P-c (X6).
-
-**The working files, by property (D15-A).** Draft 16 left them at fixed names in `$_FW_DIR`, and a
-fixture-placed file there *can* make a comparison equal: a pass-2 link list or per-link search result
-replaced by a link to `/dev/null` reads as empty, so a link to a tree holding a git dir passed
-(round 15's `lnblind2`, rc 0, PASSED on both shells; red with the working files moved). So the set is
-defined by property, not listed by name: **every file a postcondition writes and then reads back** is
-in the postconditions' directory. Derived from the prototype by that property (`…-pr527-r15.md` §Q
-gives the command), it is the census's two lists with their stderr, pass 2's per-link result, P-f's
-`env -0` output, P-g's population with its stderr and failure mark and in-loop per-link result
-(both deleted since, by C9 and the fix round) and its current listings. `$_FW_DIR` keeps only what both sides name:
-the two sourced files, the seal manifest `seal` (fixture output by design, "sealing" below) and the
-return channel the parent reads (`built`, `done`, `cause`, `post_ok`, `post_bad`, `machine_limits`,
-`seal_failed`, `fix_failed`, `stderr`). A fixtures-file write to the return channel is class (c) (§0.3,
-§5.1; `xdone`, D14-D).
-
-**The parent's directory (D16-B, C11).** `$CTL` is the fixtures' tree, and after C11 the parent keeps
-none of its own working files there (what a control's run does inside a fixture repo is that control's
-subject, not a working file). At `8413a4db` the parent wrote its own working files at fixed names directly under
-`$CTL`, and a fixture-placed link there could turn a check green: `ln -s /dev/null "$CTL/.bare"` with the
-label ratchet at 0 (`xbare`), and `ln -s /dev/null "$CTL/.anchor"` with a stale record (`xanchor`), each
-rc 0, PASSED on both shells (round 16's cells, as relayed); with the files moved, rc 1 with the ratchet's own message
-(`…-pr527-r15.md` §Q). C11 makes one directory right after `_fgit_window` returns,
-`mktemp -d "$SCRATCH/verifyXXXXXX"`, outside `$CTL` and `$_FW_DIR`, and a failure to make it ends the run
-"decided nothing" (exit 2), as a failed `$CTL` does. The directory is out of the fixtures' reach by
-construction **except** through the declared class (c) of §0.3: an executable the fixtures wrote into a
-caller-`PATH` directory can answer that `mktemp` with a directory they prepared (`staleshim`, D18-A). The mutation set's entry guard (`mutations.sh` line 90 at
-`8413a4db`) and the two "WHAT IT CONSUMES" headers (`mutations.sh` line 29, `mutgen.sh` line 12) name
-`$_VFY` instead of `$CTL`: after C11 neither file reads `$CTL` outside the records' text, and the
-controls file sets `_VFY` before it sources the mutation set (the draft-19 prototype, `…-pr527-r15.md`
-§Q). C11
-also makes **an empty generated set red** (D17-D), and **always on** (D18-B): after the move no
-fixture plant can empty the set, but any other cause would print `0 mutant(s)` beside `0 neither
-killed nor argued equivalent`, which X3 reads as a pass, the silent direction. It takes **two
-layers** (D19-A), because the count X3 reads is not the generator's output but what `_mut_gen_run`
-made of it (written to `.genmutants`, read back, split on TAB):
-- **the generator's output**, a static property of `_mut_regex_mutants` over the running wire's
-  `$K2RE` and `$K2RE_PATH`: by `_mut_correspondence`'s own rule (static properties go where every run
-  sees them) it is checked there, always on, by `_mut_gen_floor` in `mutgen.sh`, under its own label
-  (`the boundary-mutant generator derives a non-empty set from the wire's regexes`), and a record pins
-  it (corpus §6.1). That needs `mutgen` as a record target beside `harness` and `fixtures`;
-- **`_mut_gen_run`'s path**, checked at run time in the opt-in run: `_mut_run`, right after it calls
-  `_mut_gen_run`, requires `_mut_gen_n` to equal the floor's count (`_mut_gen_floor_n`, which
-  `_mut_gen_floor` sets) and to be non-zero, and otherwise prints `!! the generated boundary set ran N
-  mutant(s), but the generator derives M from the wire's regexes: this run did not test every rule.`
-  and counts one more in `_mut_gen_bad`. It sits in the caller, so an early `return` inside
-  `_mut_gen_run` does not skip it. No record can reach it (a trial runs with `WEBREF_WIRE_MUTANTS`
-  unset), so X3's floor cell pins it (`…-landing.md` §11). Draft 20 had only the first layer, and
-  round 19's cells `RC` (the generator's output sent to `/dev/null` inside `_mut_gen_run`) and `RA`
-  (`_mut_gen_run` returning at once) passed with `0 mutant(s)`; with both layers both are red
-  (`…-pr527-r15.md` §Q). What each moved file did, at `8413a4db`:
-- a plant turned a check green: `.bare` and `.anchor` (the always-on ratchet and anchor check), the
-  generator's `.genmutants`, `.genequiv` and `.genseen` (opt-in mutation mode; `ln -s /dev/null
-  "$CTL/.genmutants"` makes the generator read no mutant, and the run reports `0 mutant(s)` and
-  passes: measured at `8413a4db`, rc 0, PASSED, `…-pr527-r15.md` §Q), and `.fsmonitor_ran`
-  (the fsmonitor control's mark: a pre-planted mark stands in for the hook's run under a plain git
-  call, so where the hook does not run that control's NOT EXERCISED, a red, becomes a pass);
-- a plant made a check fail, red: `.mutants`, `.control_out` (the umask run is a `_control` now and writes there too);
-- display only: `.fsm_out`;
-- not reachable: `.fifoprobe`, made and removed at source time before the window runs. It moves to
-  `$SCRATCH` so that the checker below lists no working file without an exception;
-- `fsmhook`, the hook the fsmonitor control installs, moves with its mark.
-
-The checker is static, over the five parent parts: every write, `mkfifo` or assignment of a path under
-`$CTL`:
-
-```sh
-/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,mutations,mutgen,records}.sh
-```
-
-At `8413a4db` it lists 16 lines; at `e271cb02` two: `_seal_apply_probe`'s `: > "$CTL/real/f"`
-(since `6ed414b2`), where `CTL` is the probe's own, rebound in its subshell, and the fsmonitor block's
-`_fsm_root="$CTL/fsmon"` (since `2d5c393f`), a fixture the block only gates on, enters and runs over. It sees only literal
-`"$CTL/…"` paths, so a path built another way is outside it. No fixture needs these names: every `ln -s`
-in the fixtures file makes a link inside a fixture directory, and none names a dot-file directly under
-`$CTL` (`/usr/bin/grep -nE '"\$CTL/\.'` over the fixtures file → nothing). So class (b) never reached
-them; the move removes the class-(c) form of a command that finished during the build, and leaves
-`xrace`'s, a process that outlives it, declared.
-
-**Nothing is unsearchable at census time, by construction (sealing after the census).** Three
-fixtures need a mode restriction: `walk/sub` and `d5root` mode 000, `d2red/sub` mode 0444 (and the file
-`err/control.py` mode 000). They ask for it through `_seal <path> <mode> <fixture>`, which only appends
-to a manifest in the window's directory — the path relative to `$CTL`, and refused (red, W4, and the
-fixture marked failed) if it lies outside `$CTL`, holds a newline or TAB, or has a `.` or `..`
-component, or if its mode is not octal or its fixture name not `[A-Za-z0-9_-]+` (refused as `(seal)`); `_seal_apply` also refuses a path with a symlink anywhere on it (`chmod` follows symlinks),
-so no seal can reach outside the scratch root, and it skips a fixture whose chain already failed, so
-one failure is reported once; the window applies the manifest **after** the postconditions,
-and a `chmod` that fails marks that fixture failed **and is red under W4**: the controls gated on the
-mode having taken effect would otherwise be skipped as a machine limitation (and they gate on an
-independent probe, `_perm_ok`, never on a fixture's state). So the census
-reads the whole tree, and a directory it cannot read is a restriction nobody sealed: red. Draft 9
-**pruned** these directories, and a nested repo under `walk/sub`, gitlinked into `walk`'s index with an
-outside `core.excludesFile`, passed with P differing (round 9, Ax3); p11 opened and restored them
-(companion §A.13). Sealing replaces the declared list, the mode check and the open/restore loop.
-
-An accidental `--separate-git-dir` is class (b): it leaves a gitfile, so it is red.
-
-Draft 8's p8 walked `$CTL/*/` and skipped any fixture whose `.git` was not a directory. A
-`--separate-git-dir` with a persisted `core.excludesFile` was **silently wrong** there (rc 0, P
-differs). This author's intermediate p9 still walked only the top level, and it missed a nested repo
-and a hidden one. Both were measured (corpus §6).
-
-- **Census:** today every fixture git dir's configuration equals the reference on both shells, `find`
-  reports nothing, no fixture git dir holds anything but regular files and directories (the M-SHAPE
-  prototype's clean run is green on both shells, `…-pr527.md`), and the three declared directories are at their modes, so the clean and G cells
-  are green (corpus §6). Legitimate fixture state (`badref`'s ref, `notcommitted`'s `info/exclude`, the
-  per-call identity) is not configuration, so it stays green.
-- **Cost:** measured as the census section's wall time on a clean tree (instrumented copies, companion
-  §A.13): **0.76 s** on p11 against 1.45 s on p10, on both shells. Most of p11's figure is the one
-  `git config --list` per fixture git dir. p10's extra time came from one `sh -c` per directory, which
-  mutation mode would have paid about 115 times. X8 records the whole cost locally; the budget verdict
-  is X9's (§3, "`ci.yml`").
-- **What P-g cannot see:**
-  - class (c) (§0.3): transient inputs, persist-then-revert, a git dir outside the fixture root;
-  - **anything outside configuration and shape**, which is P-g's scope; the *content* of a regular
-    file inside a git dir is not compared. Examples, not a list: hooks, `info/attributes` and
-    `info/exclude` that a fixture writes, which are produced inside the window by definition and
-    harmless unless configuration names them. An object store outside the repository is P-k's (table
-    above). No fixture uses one today (`/usr/bin/grep -n -i -e alternate -e shared -e 'clone'` over the
-    fixtures file gives three lines, 408, 666 and 667 at `8413a4db`, all comments);
-  - a fixture that legitimately needs extra config. That one reds, and needs a deliberate change to
-    the reference, which is the fail-safe direction.
+**P-g's population, and the census before any git (drafts 14–15); the boundary; the references and the
+working files; the parent's directory; the sealing after the census; what P-g cannot see.** Moved to
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md` §4 (touch-time split S4c-0, text
+unchanged at `0d411df2`), so "§4, \"The boundary\"", "§4, \"The references and the working files\"",
+"§4, \"The parent's directory\"" and "P-g's population" in this memo resolve there.
 
 ## §5 Residuals, the slot, and a pre-existing defect
 
@@ -944,7 +722,8 @@ one place: `…-pr527-r15.md` §Q (`…-landing.md` §9.1, step 2).
 
 **Rollover (D19-C).** When an entry would take `…-pr527-r15.md` past 800 lines (`wc -l`), that entry
 and every later one go to a new file, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md`,
-§R, with the same no-spec-surface §0, and §Q ends with a pointer to it. This memo's next split seam, when
-an edit would take it past 950 lines: §4 from "P-g's population, and the census before any git" to the
-end of §4 (the census, the boundary, the references and working files, the parent's directory and
-sealing), moved unchanged to `…-census.md` with a pointer left in §4.
+§R, with the same no-spec-surface §0, and §Q ends with a pointer to it. This memo's split at 950 lines is
+done (S4c-0): §4 from "P-g's population, and the census before any git" to the end of §4 (the census,
+the boundary, the references and working files, the parent's directory, sealing and what P-g cannot
+see) was moved unchanged to `…-census.md`, with a pointer left in §4; the memo went from 950 to 729
+lines, and no further seam is named.

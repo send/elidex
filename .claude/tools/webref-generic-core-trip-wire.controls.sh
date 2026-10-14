@@ -171,7 +171,7 @@ _fgit_window "$_FIXTURES"
 # output, the mutation runner's lists) lives here, made now, after the
 # build, by `mktemp -d` beside `$CTL` and `$_FW_DIR`, never under either:
 # `$CTL` is the fixtures' tree, and the verifier writes nothing there
-# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4, "The parent's directory").
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md §4, "The parent's directory").
 # Out of the fixtures' reach except through the declared class (c) of
 # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3 (an executable
 # written into a caller-`PATH` directory, `staleshim`).

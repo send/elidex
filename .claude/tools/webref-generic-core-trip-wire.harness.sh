@@ -167,7 +167,7 @@ _fgit_postconditions() {
   # current listings) lives, with the references, in ONE directory made now,
   # after the build, by `mktemp -d` beside the window's directory (never under
   # `$_FW_DIR` or `$CTL`), whose name no fixture command that finished during
-  # the build could know (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4,
+  # the build could know (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md §4,
   # "The references and the working files"). `$_FW_DIR` keeps only what
   # both sides name: the two sourced files, the seal manifest `seal`, and the
   # return channel (`built`, `done`, `cause`, `post_ok`, `post_bad`, `machine_limits`,

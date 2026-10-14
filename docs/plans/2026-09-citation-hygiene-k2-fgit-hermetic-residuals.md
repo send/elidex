@@ -31,7 +31,7 @@ The outside files are reachable from inside the window:
 
 **A command that leaves the input persisted is class (b), caught by P-g on shape (D2, E2)** when what
 it persists is configuration or a git dir's shape, and by P-k when it is an object store outside the
-repository; §4 says what lies outside all three. P-g reds, on
+repository; `…-census.md` §4 ("What P-g cannot see") says what lies outside all three. P-g reds, on
 both shells:
 - `printf '[include]…' >> .git/config`;
 - `printf '[core]\n\texcludesFile=…' >> .git/config`;
