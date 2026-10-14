@@ -9,7 +9,8 @@ an edit would have taken the design memo past 950 lines, as the design memo's §
 design memo keeps a pointer in §4. The rest of §4 (the postcondition table P-a to P-k and what precedes
 it) stays in the design memo. The section numbers are kept, so "§4" resolves in both files for its own
 half. In the moved text "the table above" is the postcondition table in the design memo's §4. Every
-other section reference without a file name is to the design memo.
+other section reference without a file name is to the design memo, and "this memo" in the moved text
+means the design memo, not this file.
 
 ---
 
@@ -191,14 +192,14 @@ made of it (written to `.genmutants`, read back, split on TAB):
   `$SCRATCH` so that the checker below lists no working file without an exception;
 - `fsmhook`, the hook the fsmonitor control installs, moves with its mark.
 
-The checker is static, over the five parent parts: every write, `mkfifo` or assignment of a path under
+The checker is static, over the six parent parts: every write, `mkfifo` or assignment of a path under
 `$CTL`:
 
 ```sh
-/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,mutations,mutgen,records}.sh
+/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,ctlrun,mutations,mutgen,records}.sh
 ```
 
-At `8413a4db` it lists 16 lines; at `e271cb02` two: `_seal_apply_probe`'s `: > "$CTL/real/f"`
+With the five parts it had then (no `ctlrun`), it lists 16 lines at `8413a4db` and two at `e271cb02`; the six-part command lists the same two at `20615255`: `_seal_apply_probe`'s `: > "$CTL/real/f"`
 (since `6ed414b2`), where `CTL` is the probe's own, rebound in its subshell, and the fsmonitor block's
 `_fsm_root="$CTL/fsmon"` (since `2d5c393f`), a fixture the block only gates on, enters and runs over. It sees only literal
 `"$CTL/…"` paths, so a path built another way is outside it. No fixture needs these names: every `ln -s`

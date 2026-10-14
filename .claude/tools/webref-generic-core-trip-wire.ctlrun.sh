@@ -53,12 +53,12 @@ _ctl_wd_s=30
 # run through it as well, so a hang or a failed build is reported the same way in
 # all three paths. The one run made outside it (the fsmonitor block's plain `git
 # ls-files` preflight) sits inside the branch that `_ctl_run`'s own ask opened.
-# W2 is asked by `_fw_trusted` alone — the one flag `_fgit_window` writes — and
+# W2 is asked by `_fw_trusted` alone — the trust flag `_fgit_window` sets at its end — and
 # reported ONCE per run (`_fw2_said`), under `$_fw2_lbl` (defined in the controls
 # file), not under each refused label: the labels refused after the first are
 # reported nowhere. Every fixture is built under `|| _fixture_failed <name>` (the
-# PATH-prefix shim dirs the fixtures file builds are bare-built, so a failure there
-# is errexit, which the window reports; the two the controls file builds after the
+# PATH-prefix shim dirs and the routed control's decoy the fixtures file builds are
+# bare-built, so a failure there is errexit, which the window reports; the two the controls file builds after the
 # window under `$_VFY` — relcwd's `mktemp`, cfgkept's `git` — are bare-built in the
 # parent, where errexit ends the wire at once, unlabelled, before this gate is
 # asked), so "did the tree this control is about actually get built?" is one

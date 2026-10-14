@@ -436,7 +436,7 @@ printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
          catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
          slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do
   ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
@@ -617,7 +617,16 @@ _seal "$CTL/d5root" 000 d5root
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/routed/probe.py"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
 ( cd "$CTL/routed" && git add -A >/dev/null 2>&1 ) || _fixture_failed routed
-( cd "$CTL/routeddecoy" && git add -A >/dev/null 2>&1 ) || _fixture_failed routeddecoy
+# The decoy is NOT in the init loop: it is built whole, here, where its content
+# exists, and BARE, with no `|| _fixture_failed` and so no failure record: nothing
+# asks the gate about it (a decoy is read only by a wire that already fails the
+# control), so a failure record would be written and never read. A failed build
+# is errexit's, as the window's other bare builds (the PATH-prefix shims')
+# are: the window ends and W reports it. (116a9b8b removed a MUTATION record that
+# planted `_fixture_failed fakerelmktemp`; no `_fixture_failed` naming a prefix
+# dir existed.)
+( cd "$CTL/routeddecoy" && git init -q . >/dev/null 2>&1 \
+  && git add -A >/dev/null 2>&1 )
 # (2g) A checkout path holding a GLOB CHARACTER. Built outside the fixture
 #      loop on purpose: the loop's word list would itself glob the name.
 #      The violation sits BESIDE the scope, so a widened `REL_DIR` — the

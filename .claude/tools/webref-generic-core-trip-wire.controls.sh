@@ -98,8 +98,10 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # (the census: the run registry and the `_*_lbl` variables, against the
 # records — in the mutation set; the records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
-# …the labels of the two blocks that are not a `_control` (their producers sit
-# below), defined HERE so the check that follows can ask for every label at once:
+# …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
+# blocks, the defined-labels check, the two standing checks (their producers sit
+# below) and the orderly-end check (in the wire) —, defined HERE so the check
+# that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
 _fsm_lbl="a caller's fsmonitor hook does not run"
 _lbd_lbl="every label the parts use is defined"
