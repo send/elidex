@@ -796,4 +796,4 @@ Code `3dde656e` and `8f4ad3c8`; docs (E-5) this commit. Runs as review R2's (bot
 - **`116a9b8b`'s commit message** repeats a false claim (that four records use `&`); messages are not
   amended, and corpus §6.1's `116a9b8b` rows hold the current statement.
 
-This file is 799 lines (`wc -l`) after this entry, under design memo §13's 800.
+This file is 799 lines (`wc -l`) and §Q ends here: review round 3 on is in `…-impl.md` §R (design memo §13).
