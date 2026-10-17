@@ -234,7 +234,7 @@ fi
 # command code f"; GNU sed is not measured here).
 _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
-_MUT_UNRECORDED_MAX=19
+_MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
 # `523ce31f` P-j's relative-PATH-entry record (no per-entry clause left to pin); `15d3e704` P-g's two

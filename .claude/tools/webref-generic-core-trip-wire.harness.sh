@@ -735,7 +735,7 @@ _fgit_window() {
   # they returned 0 — the absence of `post_bad` is not that: a postcondition
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
-  # cannot change what `_ctl_gate` reads (nor what the controls file's two
+  # cannot change what `_ctl_gate` reads (nor what the controls file's three
   # standing checks read before their rows: the same flag).
   [ "$_fw_fd2" -lt 2 ] || _fw_diag="${_fw_diag:+$_fw_diag }(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
   if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
@@ -749,7 +749,7 @@ _fgit_window() {
 # postcondition ends the run before any control") gets its diagnostic reported
 # here and the run ended at 1, before any control. This function computes
 # NOTHING: `_fw_trusted` comes from `_fgit_window`; this function reads it to
-# report, `_ctl_gate` reads it to gate, and the controls file's two standing
+# report, `_ctl_gate` reads it to gate, and the controls file's three standing
 # checks read it to skip their rows in silence (W2 stays the gate's line).
 _fgit_window_verdict_exit() { # $1 = the window label
   _ctl_reg "$1"
@@ -774,9 +774,9 @@ _fgit_window_verdict_exit() { # $1 = the window label
 }
 
 # ONE FACT, RECORDED ONCE: DID THIS FIXTURE'S BUILD CHAIN SUCCEED?
-# Every fixture in `…trip-wire.fixtures.sh` is built as
-# `( cd … && … ) || _fixture_failed <name>`, and
-# `_control` refuses to report on a fixture whose chain did not.
+# Every fixture's build chain in `…trip-wire.fixtures.sh` ends in `|| _fixture_failed <name>`,
+# and `_ctl_gate` refuses a control whose root or cwd fixture's chain did not; what that file
+# builds bare — the PATH-prefix shims, the routed control's decoy — fails through errexit (the window's W).
 # ⚠ THIS REPLACES FIVE HAND-WRITTEN PRECONDITIONS, and the reason to prefer it
 # is not brevity. Each fixture is built under `|| true`, so a step that fails
 # leaves a TREE THAT LOOKS PLAUSIBLE — and for some fixtures that tree still
@@ -840,9 +840,9 @@ if [ -r "$SCRATCH/permprobe" ]; then _perm_ok=0; fi
 # run adds no PATH prefix, and `_REAL_GREP` below is the same lookup), called as
 # the wire calls it (`-aEn -- <re> <file>`). Call (a) runs without the variable
 # because the wire's `unset GREP_OPTIONS` runs before it sources the controls (a
-# mutant of that line reds the run either way: under k2's label without a
-# caller's export; with one, already at the label census, before this probe
-# runs). The ONLY green arms: without the
+# mutant of that line, under a caller's export, reds the run before this probe, at
+# the label-definedness check; without one it reds under k2's label only where grep
+# honours the variable: where it does not, k2 is declined and the run PASSES). The ONLY green arms: without the
 # variable it matches (rc 0), and with it the match is lost (rc 1 → 1: honoured,
 # the question is posed) or kept (rc 0 → 0: this machine cannot pose it). Anything
 # else, from either call, leaves `x` - neither 0 nor 1 - which `_ctl_need` reds

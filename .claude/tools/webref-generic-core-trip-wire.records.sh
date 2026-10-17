@@ -150,7 +150,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only the gate can say W2. W2's producer is
 # `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the two non-`_control` blocks run
-# through it; the fsmonitor preflight sits inside its `_ctl_run`'s branch; the two standing checks
+# through it; the fsmonitor preflight sits inside its `_ctl_run`'s branch; the three standing checks
 # that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
@@ -374,6 +374,12 @@ controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok
 controls:s/^_ctl_need="[$]_fifo_ok" _control "[$]CTL\/fifotracked" /_ctl_need=0 _control "$CTL\/fifotracked" /	_ctl_need declines exactly what this machine cannot do
 controls:s/^_ctl_need="[$]_gopt_ok" _control "[$]CTL\/k2" /_ctl_need=0 _control "$CTL\/k2" /	_ctl_need declines exactly what this machine cannot do
 controls:s/^_mut_correspondence || ctl_ok=1$/_ctl_need=0 _ctl_run "$_mg_lbl" "$CTL\/clean" || :; &/	_ctl_need declines exactly what this machine cannot do
+# `_ctl_run` validates its channel arguments whatever the gate answered: the gate's answer taken as an early
+# return again (`|| return $?`) lets the `_cn` row that passes a malformed channel under a 0 come back 2, not 1.
+ctlrun:s/ || _r_gs=[$]?$/ || return $?/	_ctl_need declines exactly what this machine cannot do
+# `_control`'s exit comparison: the `pin` control's expected exit and message swapped. `! [ … -eq … ]` reds the
+# non-numeric "K2: a" ("expected exit K2: a, got 1"); a `-ne` would read `[`'s exit 2 as equal and pass.
+controls:s/^_control "[$]CTL\/pin"   1 "K2: a"  /_control "$CTL\/pin"   "K2: a" 1  /	K2 fires on the path A-i removed
 # THE CHANNEL EVIDENCE (`_ctl_run`: every channel a call delivers - env, umask, PATH prefix - is demanded back
 # from the run itself: the first two by a recorder that runs between the delivery and the wire's first
 # statement, the prefix by a mark its shims write when called). R2, R3 and R5 are KILLED by the evidence check and
@@ -400,6 +406,11 @@ ctlrun:s/^    export PATH="[$]{_r_pfx:+[$]_r_pfx:}[$]PATH"$/    case "$_r_pfx" i
 # mark moved back to the shim's entry, before the `case` (the bare `rev-parse --local-env-vars` at the wire's top
 # still runs the shim): the latter is the F6 re-measure, S2b2R4surv.
 s/^_git() { ( for _v in [$]_GIT_LOCAL_VARS; do$/_git() { ( case "${PATH%%:*}" in *\/fakegitcfg) PATH="${PATH#*:}" ;; esac; for _v in $_GIT_LOCAL_VARS; do/	the caller's git CONFIGURATION survives the routing purge
+# The evidence directory made afresh (`rm -rf` then `mkdir`) weakened to `mkdir -p`: the first row of the `_ev`
+# standing check leaves `path`, and its second row's prefix, which the run never calls, then reads as reached -
+# KILLED by that check. With the check's rows removed it SURVIVES (no other control delivers a prefix the run
+# skips after one that left `path`): measured in the CR-S2 claim table, not enforced by the opt-in run.
+ctlrun:s/command rm -rf "[$]_r_reach" && mkdir "[$]_r_reach"/mkdir -p "$_r_reach"/	a previous run's channel evidence never answers for the next
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

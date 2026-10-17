@@ -57,15 +57,13 @@ _ctl_wd_s=30
 # W2 is asked by `_fw_trusted` alone — the trust flag `_fgit_window` sets at its end — and
 # reported ONCE per run (`_fw2_said`), under `$_fw2_lbl` (defined in the controls
 # file), not under each refused label: the labels refused after the first are
-# reported nowhere. Every fixture is built under `|| _fixture_failed <name>` (the
-# PATH-prefix shim dirs and the routed control's decoy the fixtures file builds are
-# bare-built, so a failure there is errexit, which the window reports; the two the controls file builds after the
-# window under `$_VFY` — relcwd's `mktemp`, cfgkept's `git` — are bare-built in the
-# parent, where errexit ends the wire at once, unlabelled, before this gate is
-# asked), so "did the tree this control is about actually get built?" is one
+# reported nowhere. Every fixture's `( cd … && … )` build chain runs under
+# `|| _fixture_failed <name>` (what the fixtures file builds bare — every PATH-prefix
+# shim dir, the routed control's decoy — fails by errexit, which ends the window: W,
+# before any control), so "did the tree this control is about actually get built?" is one
 # lookup rather than a probe re-derived per site: without it a broken build leaves
 # a plausible-looking tree that can still satisfy the assertion — a control green
-# over a question never posed. The controls file's two standing checks run over
+# over a question never posed. The controls file's three standing checks run over
 # `$_VFY` (a root no fixture build makes, so no failed build can be named for
 # it) and ask no fixture question: their stubs read no tree. Each reads
 # `_fw_trusted` itself before its rows and, untrusted, reds in silence (W2 is this
@@ -172,7 +170,7 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # RETURN CONTRACT: 1 ONLY when the gate refused (an untrusted window: reported
 # once per run under `$_fw2_lbl`, by the first refusal; a `_ctl_need` value that
 # is not 0 or 1, a decline it could not note, a failed fixture: each under the
-# label), a channel argument is malformed (not NAME=VALUE), the evidence directory
+# label), a channel argument is malformed (not NAME=VALUE) or reserved (below), the evidence directory
 # could not be made, a delivered channel is missing from the evidence (`CONTROL NOT
 # EXERCISED`: it never reached the run), or the WATCHDOG killed the run (under the
 # label); 2 ONLY when the gate
@@ -186,41 +184,69 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # EVIDENCE THAT A DELIVERED CHANNEL REACHED THE RUN (every env channel, the
 # umask and the PATH prefix the call delivers is demanded, derived from the
 # delivery, not judged per caller; the prefix's evidence is `path`, written by a
-# shim in the prefix when the run calls it): the
-# child is `exec env <channels> K2_CTL_REACHED=<dir> "$BASH" -c '<recorder>'
-# ctlrec <dir> <names…> -- "$BASH" "$SELF" …`. The recorder is INLINE (a file
-# under `$_VFY` can be missing under `_cn`'s redirected `_VFY`, and the `ran` rows
-# would not notice), bash builtins only, and runs under `$BASH` — the wire's own
+# shim in the prefix when the run calls it): for a call that delivers any of the
+# three, the evidence directory is made afresh (`rm -rf` then `mkdir`: a `path` a
+# previous run left must not answer for this one) and the child is `exec env
+# <channels> K2_CTL_REACHED=<dir> "$BASH" -c '<recorder>' ctlrec <dir> <names…> --
+# "$BASH" "$SELF" …`; a call that delivers none demands nothing back, so it makes
+# no directory and runs no recorder (`_r_pre` stays empty). The recorder is an
+# inline `"$BASH" -c` string, bash builtins only, run under `$BASH` — the wire's own
 # interpreter, never /bin/sh (macOS's turns `POSIXLY_CORRECT=1` into `y`). It
 # writes `env.<NAME>` for each delivered name that is set, and `umask`, then
 # execs the wire (the files are written under a 022 umask, which it restores
-# first: a delivered 777 would leave them unreadable to the check): the boundary between the harness's delivery and the wire's
+# first: a delivered 777 would leave them unreadable to the check). Its own names
+# are `_k2rec_`-prefixed. REFUSED before delivery, as a `CONTROL FAILED` naming
+# the argument: the recorder's own names (that prefix) and the names the delivery
+# itself sets (`K2_CTL_REACHED`, `SHLVL`, `PWD`, `OLDPWD`, `_`). What the refusal
+# buys is an early, named red, and the close of a false green: a recorder name
+# delivered as itself (`_k2rec_n=_k2rec_n Y=1`) is recorded as delivered while the
+# wire sees another value (as `n=n X=1` was, measured on both shells, when the
+# names were unprefixed). It does NOT cover every name bash maintains, and need not: any other
+# (`IFS`, `PPID`, `RANDOM`, `LINENO`, `SHELLOPTS`, … — not enumerated) reaches
+# the recorder as bash's value, which disagrees with the delivery, so it falls
+# to NOT EXERCISED — red, never green, the fail-safe direction (measured, both
+# shells: of the names tried, 14 on 3.2 and 20 on 5.3 reach the recorder rewritten). That
+# red is a true one: with the refusal removed, each refused name was recorded as
+# the value the wire itself then saw (measured, both shells).
+# The boundary between the harness's delivery and the wire's
 # first statement is the one point where every channel is observable (the wire
 # unsets `GREP_OPTIONS` before its first external command). After the run, every
 # delivered `NAME=VALUE` must have `env.<NAME>` holding exactly VALUE, a
 # delivered umask must equal the recorded one (both as 4 octal digits), and a
 # delivered PATH prefix (`$5`) must have `path` present; else
-# `CONTROL NOT EXERCISED` under the caller's label, return 1. cwd needs none: a
-# failed `cd` exits 97 at delivery. A channel argument that is not `NAME=…` is a
-# `CONTROL FAILED` and no run (checked after the gate's registration, before
-# delivery).
+# `CONTROL NOT EXERCISED` under the caller's label (with the run's status and
+# output, as `_control` reports a wrong verdict), return 1. cwd needs none: a
+# failed `cd` exits 97 at delivery. A channel argument that is not `NAME=…`, or is
+# reserved, is a `CONTROL FAILED` and no run (checked after the gate's
+# registration, before delivery, whatever the gate answered: a malformed call
+# under a decline is red, not a silent 2 — a row of the `_cn` standing check).
 _ctl_run() {
   local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
-  local _out_f _r_wmark _cpid _wpid _r_reach _r_a _r_n _r_v _r_miss="" _r_w _r_g
-  local -a _r_ch=("${@:8}") _r_names=()
-  _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || return $?
+  local _out_f _r_wmark _cpid _wpid _r_reach="$_VFY/.reached" _r_a _r_n _r_v _r_miss="" _r_w _r_g _r_gs=0
+  local -a _r_ch=("${@:8}") _r_names=() _r_pre=()
+  _ctl_gate "$_r_for" "${_r_root##*/}" ${_r_cwd:+"${_r_cwd##*/}"} || _r_gs=$?
   for _r_a in ${_r_ch[@]+"${_r_ch[@]}"}; do
     _r_n="${_r_a%%=*}"
     case "$_r_a" in *=*) : ;; *) _r_n="" ;; esac
     case "$_r_n" in ''|[0-9]*|*[!A-Za-z0-9_]*)
       echo "!! CONTROL FAILED ($_r_for): malformed channel argument \"$_r_a\" (want NAME=VALUE)" >&2
       return 1 ;;
+    _k2rec_*|K2_CTL_REACHED|SHLVL|PWD|OLDPWD|_)
+      echo "!! CONTROL FAILED ($_r_for): channel argument \"$_r_a\" names a variable the delivery sets or bash rewrites" >&2
+      return 1 ;;
     esac
     _r_names+=("$_r_n")
   done
-  _r_reach="$_VFY/.reached"
-  command rm -rf "$_r_reach" && mkdir "$_r_reach" || {
-    echo "!! CONTROL FAILED ($_r_for): the evidence directory could not be made" >&2; return 1; }
+  [ "$_r_gs" -eq 0 ] || return "$_r_gs"
+  if [ ${#_r_names[@]} -gt 0 ] || [ -n "$_r_umask$_r_pfx" ]; then
+    command rm -rf "$_r_reach" && mkdir "$_r_reach" || {
+      echo "!! CONTROL FAILED ($_r_for): the evidence directory could not be made" >&2; return 1; }
+    _r_pre=(env ${_r_ch[@]+"${_r_ch[@]}"} K2_CTL_REACHED="$_r_reach" "$BASH" -c \
+      '_k2rec_d=$1; shift; _k2rec_u=$(umask); umask 022
+       while [ "$1" != -- ]; do _k2rec_n=$1; shift; [ -z "${!_k2rec_n+x}" ] || printf %s "${!_k2rec_n}" > "$_k2rec_d/env.$_k2rec_n"; done
+       shift; printf %s "$_k2rec_u" > "$_k2rec_d/umask"; umask "$_k2rec_u"; exec "$@"' \
+      ctlrec "$_r_reach" ${_r_names[@]+"${_r_names[@]}"} --)
+  fi
   _out_f="$_VFY/.control_out"
   # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
   # otherwise report (#501 R92). The FIFO finding's whole harm was that the
@@ -263,12 +289,7 @@ _ctl_run() {
   { ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
     [ -z "$_r_umask" ] || umask "$_r_umask"
     export PATH="${_r_pfx:+$_r_pfx:}$PATH"
-    exec env ${_r_ch[@]+"${_r_ch[@]}"} K2_CTL_REACHED="$_r_reach" "$BASH" -c \
-      'd=$1; shift; u=$(umask); umask 022
-       while [ "$1" != -- ]; do n=$1; shift; [ -z "${!n+x}" ] || printf %s "${!n}" > "$d/env.$n"; done
-       shift; printf %s "$u" > "$d/umask"; umask "$u"; exec "$@"' \
-      ctlrec "$_r_reach" ${_r_names[@]+"${_r_names[@]}"} -- \
-      "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
+    exec ${_r_pre[@]+"${_r_pre[@]}"} "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
     < /dev/null > "$_out_f" 2>&1 & _cpid=$!; } 2>/dev/null
   # THE MARKER IS WRITTEN BEFORE THE KILL, and it is the timeout fact. The
   # watchdog's own exit status cannot be: the child dies the moment the kill
@@ -316,7 +337,8 @@ _ctl_run() {
   [ -z "$_r_pfx" ] || [ -f "$_r_reach/path" ] || _r_miss="$_r_miss PATH prefix"
   if [ -n "$_r_miss" ]; then
     echo "!! CONTROL NOT EXERCISED ($_r_for):${_r_miss} never reached the run — the verdict" >&2
-    echo "   of a control whose injected channel was not delivered says nothing." >&2
+    echo "   of a control whose injected channel was not delivered says nothing (the run: exit $_rc)." >&2
+    printf '%s\n' "$_out" | sed 's/^/     /' >&2
     return 1
   fi
   return 0
@@ -338,7 +360,10 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # `|| ctl_ok=1` reds the run (measured, the fifo flag forced to 0: rc 1).
   [ "$_cr" -ne 2 ] || return 0
   [ "$_cr" -eq 0 ] || return 1
-  if [ "$_rc" -ne "$2" ]; then
+  # `! … -eq`, NOT `-ne`: a non-numeric expected exit makes `[` exit 2, which
+  # `-ne` reads as "not different" and passes; `!` reds it. Pinned by the record
+  # that swaps the `pin` control's exit and message arguments.
+  if ! [ "$_rc" -eq "$2" ]; then
     echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
     echo "   mean nothing — this wire was not shown able to reach that verdict." >&2
     printf '%s\n' "$_out" | sed 's/^/     /' >&2

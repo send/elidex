@@ -321,12 +321,14 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
 - **Current totals** (the one statement; earlier per-commit totals are in the table above and in git):
-  **126 records of this PR, 221 in all**, measured at the CR-S1 slice's commit (which adds the `_wm`
-  hang arm's rename record, `hang)` to `hng)`; 220 at `0d411df2`) with
-  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (221) against
+  **129 records of this PR, 224 in all**, measured at the CR-S2 slice's commit (which adds the `pin`
+  control's swapped exit/message record and the record that restores the gate's early return before
+  `_ctl_run`'s channel validation, and the record that weakens the evidence directory's fresh `rm -rf … && mkdir …`
+  to `mkdir -p …`; 221 at the CR-S1 slice's commit, 220 at `0d411df2`) with
+  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (224) against
   the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=220` is a **floor**: fewer
   records is red, more is not; its comment in `…mutations.sh` names every record this PR removed, by
-  commit. `_MUT_UNRECORDED_MAX=19`, and that ratchet is **exact**: fewer bare labels than that is red
+  commit. `_MUT_UNRECORDED_MAX=18` (19 before the CR-S2 slice's `pin` record), and that ratchet is **exact**: fewer bare labels than that is red
   too ("LOWER the ratchet").
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on

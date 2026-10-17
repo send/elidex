@@ -99,7 +99,7 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # records — in the mutation set; the records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
-# blocks, the defined-labels check, the two standing checks (their producers sit
+# blocks, the defined-labels check, the three standing checks (their producers sit
 # below) and the orderly-end check (in the wire) —, defined HERE so the check
 # that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
@@ -108,6 +108,7 @@ _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
 _wm_lbl="only the watchdog's marker makes a signal status a timeout"
 _cn_lbl="_ctl_need declines exactly what this machine cannot do"
+_ev_lbl="a previous run's channel evidence never answers for the next"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -168,8 +169,8 @@ fi
 # The labels `_fgit_postconditions` uses reach the window by name, through its prelude.
 _fgit_window "$_FIXTURES"
 # THE PARENT'S VERIFIER DIRECTORY. Every file the parent writes and reads
-# back after the build (the fsmonitor hook and its mark, the two PATH-prefix
-# shims whose running is evidence and their marks, the controls'
+# back after the build (the fsmonitor hook and its mark, the run primitives'
+# evidence directory, where the PATH-prefix shims leave their marks, the controls'
 # output, the mutation runner's lists) lives here, made now, after the
 # build, by `mktemp -d` beside `$CTL` and `$_FW_DIR`, never under either:
 # `$CTL` is the fixtures' tree, and the verifier writes nothing there
@@ -194,11 +195,11 @@ ctl_ok=0
 # refuses over a build that is not complete and trusted too (W2), wherever
 # this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
 _fgit_window_verdict_exit "$_fw_lbl"
-# THE TWO STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
+# THE THREE STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
 # always exists: their stubs read no tree, so they ask no fixture question) in
 # a subshell. Each opens by reading `_fw_trusted` — untrusted is red
 # (`ctl_ok=1`) with no line of its own: W2 is the gate's report, printed once
-# by the first gated run, and these two reads decide nothing about any run.
+# by the first gated run, and these three reads decide nothing about any run.
 # STANDING CHECK of `_ctl_run`'s timeout clause, both ways. A status >= 128 is a
 # timeout ONLY beside the watchdog's own marker: `SELF` is pointed (in a
 # subshell) at a script that signals itself at once (KILL: no core dump, and no
@@ -247,6 +248,37 @@ elif ! ( _wm_bad=""
   ctl_ok=1
 fi
 command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_err" "$_VFY/.control_timeout"
+# STANDING CHECK of the evidence directory's freshness (`_ctl_run` makes it
+# afresh, `rm -rf` then `mkdir`, for every call that delivers a channel): a
+# `path` a previous run left must not answer for this one. Two rows, ONE call
+# line, over `$_VFY` with `SELF` a stub that calls `k2evprobe` and exits 0.
+# `ran` delivers the PATH prefix `$_VFY/.ev_ran`, whose `k2evprobe` shim writes
+# `path`: `_ctl_run` returns 0 and `path` is there. `stale` then delivers
+# `$_VFY/.ev_stale`, which holds no `k2evprobe`, so the run calls no shim: it
+# must return 1 naming "PATH prefix never reached the run" — a 0 is the first
+# row's `path` answering. A row with no arm below is red, as `_cn`'s is.
+command mkdir "$_VFY/.ev_ran" "$_VFY/.ev_stale"
+printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\n' > "$_VFY/.ev_ran/k2evprobe"
+chmod +x "$_VFY/.ev_ran/k2evprobe"
+printf '%s\n' 'k2evprobe 2>/dev/null; exit 0' > "$_VFY/.ev_run"
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
+elif ! ( SELF="$_VFY/.ev_run"; _ev_bad=""
+         for _ev_row in ran stale; do
+           _ev_r=0; _ctl_run "$_ev_lbl" "$_VFY" "" "" "$_VFY/.ev_$_ev_row" > /dev/null 2> "$_VFY/.ev_err" || _ev_r=$?
+           case "$_ev_row" in
+             ran)
+               [ "$_ev_r" -eq 0 ] || _ev_bad="$_ev_bad; ran: _ctl_run returned $_ev_r, not 0"
+               [ -f "$_VFY/.reached/path" ] || _ev_bad="$_ev_bad; ran: the shim left no path" ;;
+             stale)
+               [ "$_ev_r" -eq 1 ] || _ev_bad="$_ev_bad; stale: a prefix the run never called returned $_ev_r, not 1 (the previous run's path answered)"
+               case "$(cat "$_VFY/.ev_err")" in *"PATH prefix never reached the run"*) ;; *) _ev_bad="$_ev_bad; stale: the red did not name the PATH prefix" ;; esac ;;
+             *) _ev_bad="$_ev_bad; no arm for row \"$_ev_row\"" ;;
+           esac
+         done
+         [ -z "$_ev_bad" ] || { echo "!! CONTROL FAILED ($_ev_lbl)$_ev_bad" >&2; exit 1; } ); then
+  ctl_ok=1
+fi
+command rm -rf "$_VFY/.ev_ran" "$_VFY/.ev_stale" "$_VFY/.ev_run" "$_VFY/.ev_err" "$_VFY/.reached"
 # STANDING CHECK of the gate's `_ctl_need` arms (`_ctl_gate`, in the run
 # primitives), through `_ctl_run` in a subshell with `SELF` pointed at a script
 # that exits at once, so "ran" is `_rc` set, and `_VFY` pointed at a directory
@@ -260,17 +292,20 @@ command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm
 # line count and checksum) and compared after it, red under this label when it
 # differs, in whatever order the rows run.
 # Table-driven: the value given (`-` = none, `''` = empty) → the return,
-# whether a run was made, `dir` = `.declined` made a directory first, and
+# whether a run was made, `dir` = `.declined` made a directory first (or `chan` =
+# the call passes the malformed channel argument `X`), and
 # `untrusted` = the window's trust forced off for that row alone (`_fw_trusted=0`,
 # `_fw2_said=1`, both restored after it: the rows below run trusted); after
 # each, `_ctl_need` is unset again (in posix mode bash 3.2 keeps a prefix
 # assignment, so the gate must clear it). Under a 0 the gate notes the label in
 # `.declined`; a note it could not make, and a value that is not 0 or 1, are its
 # own red (captured: the expected outcome there), and the red must name the
-# value, or the failed note. Under a 0 with trust off the gate returns 1 before
+# value, or the failed note. A malformed channel under a 0 is red (1), naming
+# the malformed argument: `_ctl_run` validates its channels whatever the gate
+# answered, so a decline cannot hide a broken call. Under a 0 with trust off the gate returns 1 before
 # the need arms: no run, no note — the trust arm's place before the need arms,
 # which nothing on a capable machine would otherwise tell from the reverse.
-# A row the loop cannot parse — a 4th column that is not `-`/`dir`, a 5th that
+# A row the loop cannot parse — a 4th column that is not `-`/`dir`/`chan`, a 5th that
 # is not `-`/`untrusted`, a column missing — is red naming the row and is not
 # run; a parsed row whose key (return, 4th, 5th) no arm below asserts is red too
 # (`0 - -` is the one key the return and the run alone assert): a row never
@@ -287,14 +322,15 @@ if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
        while read -r _cn_v _cn_want _cn_ran _cn_decl _cn_trust; do
          _cn_line="$_cn_v $_cn_want $_cn_ran $_cn_decl $_cn_trust"
-         case "$_cn_decl" in -|dir) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 4 is \"$_cn_decl\", not - or dir"; continue ;; esac
+         case "$_cn_decl" in -|dir|chan) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 4 is \"$_cn_decl\", not -, dir or chan"; continue ;; esac
          case "$_cn_trust" in -|untrusted) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 5 is \"$_cn_trust\", not - or untrusted"; continue ;; esac
          case "$_cn_v" in -) unset _ctl_need ;; "''") _cn_val=""; _ctl_need="" ;; *) _cn_val="$_cn_v"; _ctl_need="$_cn_v" ;; esac
          [ "$_cn_ran" = ran ] || _cn_ran=""
          _cn_row="$_cn_v"; [ "$_cn_decl" = - ] || _cn_row="$_cn_v $_cn_decl"; [ "$_cn_trust" = - ] || _cn_row="$_cn_row $_cn_trust"
          command rm -rf "$_VFY/.declined"; [ "$_cn_decl" != dir ] || command mkdir "$_VFY/.declined"
          _cn_tr="$_fw_trusted"; _cn_sd="$_fw2_said"; [ "$_cn_trust" != untrusted ] || { _fw_trusted=0; _fw2_said=1; }
-         unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$_VFY" > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
+         _cn_ch=""; [ "$_cn_decl" != chan ] || _cn_ch=X
+         unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$_VFY" "" "" "" "" "" ${_cn_ch:+"$_cn_ch"} > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
          _fw_trusted="$_cn_tr"; _fw2_said="$_cn_sd"
          [ "$_cn_got" -eq "$_cn_want" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: returned $_cn_got, not $_cn_want"
          _cn_was="${_rc+made}"
@@ -306,6 +342,7 @@ elif ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
            1--) case "$(cat "$_VFY/.cn_err")" in *"holds \"$_cn_val\", not 0 or 1"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the value" ;; esac ;;
            1dir-) case "$(cat "$_VFY/.cn_err")" in *"the decline could not be noted"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the failed note" ;; esac ;;
            1-untrusted) [ ! -e "$_VFY/.declined" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: a decline was noted over an untrusted window" ;;
+           1chan-) case "$(cat "$_VFY/.cn_err")" in *"malformed channel argument"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the malformed channel" ;; esac ;;
            *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: no arm for row \"$_cn_line\"" ;;
          esac
        done <<EOF_CN
@@ -315,6 +352,7 @@ x 1 - - -
 - 0 ran - -
 0 1 - - untrusted
 0 1 - dir -
+0 1 - chan -
 0 2 - - -
 EOF_CN
        [ -z "$_cn_bad" ] || { echo "!! CONTROL FAILED ($_cn_lbl)$_cn_bad" >&2; exit 1; } ); then
@@ -396,19 +434,16 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # relative scratch lands where this block can see it.
 # A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
 # relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
-# cannot pose this question here). ⚠ Built HERE, under `$_VFY`, not by the
-# fixtures. It marks `path` whenever it runs, and `_ctl_run` demands that mark
+# cannot pose this question here). Built by the fixtures file, bare, beside the
+# other PATH-prefix shims. It marks `path` whenever it runs, and `_ctl_run` demands that mark
 # back for the prefix it was given — a run that never reached the shim had no
 # relative scratch to leave behind, so its clean cwd is no evidence (the
 # shim's path was dropped from the prefix once, and the block stayed green).
 # Deleting the prefix ARGUMENT at the call site drops that demand too - the
 # opt-in `SCRATCH=…` record's class; the always-on `path` demand catches a
 # prefix the delivery fails to deliver, and a run that never calls the shim.
-mkdir -p "$_VFY/fakerelmktemp"
-printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$_VFY/fakerelmktemp/mktemp"
-chmod +x "$_VFY/fakerelmktemp/mktemp"
 # ⚠ Run through `_ctl_run`, like every `_control`: gated, watchdogged, one report.
-if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$_VFY/fakerelmktemp"; then ctl_ok=1
+if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$CTL/fakerelmktemp"; then ctl_ok=1
 elif [ "$_rc" -eq 0 ]; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
@@ -505,8 +540,8 @@ _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the stage
 # ⚠ Shimmed because the real case — a checkout owned by another UID, reachable
 # only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
 # the property under test, and that is constructible; the ownership is not.
-# ⚠ Built HERE, under `$_VFY`, not by the fixtures, through the same builder as
-# every exec-through shim. It marks `path` whenever the `ls-files` arm is
+# Built by the fixtures file, bare, beside the other PATH-prefix shims, through
+# the same builder as every exec-through shim. It marks `path` whenever the `ls-files` arm is
 # reached, BEFORE the configuration test, and `_ctl_run` demands that mark back
 # for the prefix it was given — a run that never reached the shim had no
 # configuration to keep or strip, so its K2 red is no evidence (the shim's
@@ -515,9 +550,7 @@ _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the stage
 # opt-in `GIT_CONFIG*) unset` record's class; the always-on `path` demand
 # catches a prefix the delivery fails to deliver, and a run that never calls
 # the shim.
-mkdir -p "$_VFY/fakegitcfg"
-_fgit_shim "$_VFY/fakegitcfg/git" 'case " $* " in *" ls-files "*) : > "${K2_CTL_REACHED:?}/path"; if [ -z "${GIT_CONFIG_COUNT:-}" ]; then exit 0; fi;; esac' "$_REAL_GIT"
-if ! _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$_VFY/fakegitcfg" "" \
+if ! _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$CTL/fakegitcfg" "" \
   "GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*"; then ctl_ok=1
 fi
 _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" "" "" "" "" \

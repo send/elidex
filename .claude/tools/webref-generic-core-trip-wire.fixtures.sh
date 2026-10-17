@@ -156,7 +156,10 @@ _fgit_shim "$CTL/headprobe/git" 'case " $* " in *" rev-parse --verify "*) : > "$
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
 
 # A `cat` that always fails, for the one read whose status used to be swallowed
-# by the trailing-newline sentinel.
+# by the trailing-newline sentinel. This dir, like `headprobe`'s, is both a PATH
+# prefix and a fixture tree: the shim is built bare, and the tree's build chain
+# below carries the `|| _fixture_failed` record the gate reads for the controls
+# rooted there.
 mkdir -p "$CTL/catfail"
 printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nexit 1\n' > "$CTL/catfail/cat"
 chmod +x "$CTL/catfail/cat"
@@ -330,18 +333,26 @@ _fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) : > \"\${
 # `TMPDIR` when given no template, which is why the control shims the command
 # instead of setting the variable: the same defect reproduces on the machines
 # that honour it, and a control that only fires on some of them is not one.
-# `cfgkept`'s violation — what its shimmed `git` reports or hides. The shim
-# itself is built by the control; it writes `path` into `_ctl_run`'s evidence
-# directory (`$K2_CTL_REACHED`) when it runs, and `_ctl_run` demands that back.
+# `cfgkept`'s violation — what its shimmed `git` reports or hides — and the
+# shim (`fakegitcfg`: `ls-files` answers nothing unless the caller's
+# `GIT_CONFIG_COUNT` reached it; the control says why). It writes `path` into
+# `_ctl_run`'s evidence directory (`$K2_CTL_REACHED`) when its `ls-files` arm is
+# reached, and `_ctl_run` demands that back.
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
+mkdir -p "$CTL/fakegitcfg"
+_fgit_shim "$CTL/fakegitcfg/git" 'case " $* " in *" ls-files "*) : > "${K2_CTL_REACHED:?}/path"; if [ -z "${GIT_CONFIG_COUNT:-}" ]; then exit 0; fi;; esac' "$_REAL_GIT"
 mkdir -p "$CTL/fakemktemp"
 printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
   "$(_shq "$CTL/inscope")" > "$CTL/fakemktemp/mktemp"
 chmod +x "$CTL/fakemktemp/mktemp"
-# `relcwd`: the directory the relative-scratch run is made from. Its `mktemp`
-# shim is built by the control; it writes `path` into `_ctl_run`'s evidence
-# directory (`$K2_CTL_REACHED`) when it runs, and `_ctl_run` demands that back.
+# `relcwd`: the directory the relative-scratch run is made from, and its `mktemp`
+# shim (`fakerelmktemp`: it answers a RELATIVE path; the control says why). The
+# shim writes `path` into `_ctl_run`'s evidence directory (`$K2_CTL_REACHED`)
+# when it runs, and `_ctl_run` demands that back.
 mkdir -p "$CTL/relcwd" || _fixture_failed relcwd
+mkdir -p "$CTL/fakerelmktemp"
+printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp"
+chmod +x "$CTL/fakerelmktemp/mktemp"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
 _fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) : > "${K2_CTL_REACHED:?}/path"; exit 2;; esac' "$_REAL_GREP"
@@ -622,9 +633,7 @@ printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
 # asks the gate about it (a decoy is read only by a wire that already fails the
 # control), so a failure record would be written and never read. A failed build
 # is errexit's, as the window's other bare builds (the PATH-prefix shims')
-# are: the window ends and W reports it. (116a9b8b removed a MUTATION record that
-# planted `_fixture_failed fakerelmktemp`; no `_fixture_failed` naming a prefix
-# dir existed.)
+# are: the window ends and W reports it.
 ( cd "$CTL/routeddecoy" && git init -q . >/dev/null 2>&1 \
   && git add -A >/dev/null 2>&1 )
 # (2g) A checkout path holding a GLOB CHARACTER. Built outside the fixture
