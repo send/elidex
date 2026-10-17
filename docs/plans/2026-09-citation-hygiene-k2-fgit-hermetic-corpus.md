@@ -321,8 +321,9 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
 - **Current totals** (the one statement; earlier per-commit totals are in the table above and in git):
-  **125 records of this PR, 220 in all**, measured at `0d411df2` with
-  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (220) against
+  **126 records of this PR, 221 in all**, measured at the CR-S1 slice's commit (which adds the `_wm`
+  hang arm's rename record, `hang)` to `hng)`; 220 at `0d411df2`) with
+  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (221) against
   the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=220` is a **floor**: fewer
   records is red, more is not; its comment in `…mutations.sh` names every record this PR removed, by
   commit. `_MUT_UNRECORDED_MAX=19`, and that ratchet is **exact**: fewer bare labels than that is red

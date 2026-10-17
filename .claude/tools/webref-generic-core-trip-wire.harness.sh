@@ -735,7 +735,7 @@ _fgit_window() {
   # they returned 0 — the absence of `post_bad` is not that: a postcondition
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
-  # cannot change what `_ctl_gate` reads (nor what the controls file's three
+  # cannot change what `_ctl_gate` reads (nor what the controls file's two
   # standing checks read before their rows: the same flag).
   [ "$_fw_fd2" -lt 2 ] || _fw_diag="${_fw_diag:+$_fw_diag }(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
   if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
@@ -791,10 +791,8 @@ _fgit_window_verdict_exit() { # $1 = the window label
 # so the population is every fixture, not the five somebody noticed.
 # `$_FIX_FAILED` itself lives in the window (the prelude starts it empty) and
 # comes back through a file, which `_fgit_window` reads whatever the window's
-# outcome; the gate is at the consumer: `_ctl_built` (the gate's fixture
-# half, asked by `_ctl_gate` and, under their own label, by the controls
-# file's two standing checks) reads it only after the window is complete
-# and trusted.
+# outcome; the gate is at the consumer: `_ctl_gate`'s fixture half reads
+# it only after the window is complete and trusted.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # …and its membership predicate, which every consumer asks (the append above
 # and the window's copy-out into `fix_failed` read the variable too): did
@@ -902,7 +900,7 @@ if ! _seal_apply_probe; then
   exit 2
 fi
 
-# THE CONTROL RUN PRIMITIVES — `_ctl_built`, `_ctl_gate`, `_ctl_run` and `_control` — LIVE
+# THE CONTROL RUN PRIMITIVES — `_ctl_gate`, `_ctl_run` and `_control` — LIVE
 # BESIDE THIS FILE: everything above is the fixture build window (what runs in
 # it, or is forwarded into it) and this file's own asserts; what runs the wire
 # over a built tree, in the parent, was split out at that seam when this file

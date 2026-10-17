@@ -194,34 +194,40 @@ ctl_ok=0
 # refuses over a build that is not complete and trusted too (W2), wherever
 # this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
 _fgit_window_verdict_exit "$_fw_lbl"
-# THE TWO STANDING CHECKS BELOW run `_ctl_run` over `$CTL/clean` in a
-# subshell. Each opens by reading `_fw_trusted` — untrusted is red (`ctl_ok=1`)
-# with no line of its own: W2 is the gate's report, printed once by the first
-# gated run, and these two reads decide nothing about any run — and by asking
-# `_ctl_built` (the gate's fixture half, which registers nothing) under its own
-# label: a fixture that did not build is then reported under the check — NOT
-# EXERCISED naming the fixture — not as the check's own failure, and the
-# check's rows run only over a tree that built.
+# THE TWO STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
+# always exists: their stubs read no tree, so they ask no fixture question) in
+# a subshell. Each opens by reading `_fw_trusted` — untrusted is red
+# (`ctl_ok=1`) with no line of its own: W2 is the gate's report, printed once
+# by the first gated run, and these two reads decide nothing about any run.
 # STANDING CHECK of `_ctl_run`'s timeout clause, both ways. A status >= 128 is a
 # timeout ONLY beside the watchdog's own marker: `SELF` is pointed (in a
-# subshell) at a script that signals itself at once (TERM, not ABRT: no core dump
-# on a runner whose core pattern ignores `ulimit -c`): `_ctl_run` must return 0
+# subshell) at a script that signals itself at once (KILL: no core dump, and no
+# disposition a caller hands down can ignore it): `_ctl_run` must return 0
 # with `_rc` >= 128 and report no kill — that status is the caller's "expected N,
 # got M", not "killed after …s". The record that deletes the marker clause (in
 # the record table) is killed through this check's label. And a wire that hangs
 # IS a timeout: with the watchdog at 1 s (`_ctl_wd_s`, set in the subshell) and
 # `SELF` a script that sleeps past it, `_ctl_run` must return 1, having written
 # its marker and reported the kill as "killed after 1s" — the marker write and
-# the message are pinned here, not by a record. Two rows, ONE call line: the
+# the message are pinned here, not by a record. The reaping is pinned here too:
+# the hang script leaves a background descendant (its pid in `<script>.pid`),
+# which must be dead after the call (the child's group kill), and after each row
+# the watchdog's group (`_ctl_wd_pg`) must be gone (the watchdog's group kill).
+# Both are asked with a bounded poll (`_wm_gone`, 20 × 0.05 s): a killed process
+# can stay visible to `kill -0` until its reparenting reaper collects it. A row
+# with no arm below is red, as `_cn`'s is. Two rows, ONE call line: the
 # registry's site is the line, and one label has one site.
-printf '%s\n' 'kill -TERM $$' > "$_VFY/.wm_abort"
-printf '%s\n' 'sleep 5' > "$_VFY/.wm_hang"
-if [ "$_fw_trusted" -ne 1 ] || ! _ctl_built "$_wm_lbl" clean; then ctl_ok=1
+printf '%s\n' 'kill -KILL $$' > "$_VFY/.wm_abort"
+printf '%s\n' 'sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( _wm_bad=""
+         _wm_gone() { _wm_i=0; while kill -0 "$1" 2>/dev/null; do
+             [ "$_wm_i" -lt 20 ] || return 1; _wm_i=$((_wm_i + 1)); sleep 0.05; done; }
          for _wm_row in abort hang; do
            SELF="$_VFY/.wm_$_wm_row"; [ "$_wm_row" != hang ] || _ctl_wd_s=1
-           _wm_r=0; _ctl_run "$_wm_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
+           _wm_r=0; _ctl_run "$_wm_lbl" "$_VFY" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
            _wm_msg="$(cat "$_VFY/.wm_err")"
+           _wm_gone "-$_ctl_wd_pg" || _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call"
            case "$_wm_row" in
              abort)
                [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; _ctl_run returned $_wm_r, not 0"
@@ -230,13 +236,17 @@ elif ! ( _wm_bad=""
              hang)
                [ "$_wm_r" -eq 1 ] || _wm_bad="$_wm_bad; a run the watchdog killed returned $_wm_r, not 1"
                [ -e "$_VFY/.control_timeout" ] || _wm_bad="$_wm_bad; the watchdog wrote no marker"
-               case "$_wm_msg" in *"killed after 1s"*) ;; *) _wm_bad="$_wm_bad; the kill was not reported as a 1 s timeout" ;; esac ;;
+               case "$_wm_msg" in *"killed after ${_ctl_wd_s}s"*) ;; *) _wm_bad="$_wm_bad; the kill was not reported as a ${_ctl_wd_s} s timeout" ;; esac
+               _wm_d="$(cat "$_VFY/.wm_hang.pid" 2>/dev/null)" || _wm_d=""
+               case "$_wm_d" in ''|*[!0-9]*) _wm_bad="$_wm_bad; the hung run recorded no descendant pid" ;;
+                 *) _wm_gone "$_wm_d" || _wm_bad="$_wm_bad; the hung run's descendant ($_wm_d) outlived the kill" ;; esac ;;
+             *) _wm_bad="$_wm_bad; no arm for row \"$_wm_row\"" ;;
            esac
          done
          [ -z "$_wm_bad" ] || { echo "!! CONTROL FAILED ($_wm_lbl)$_wm_bad" >&2; exit 1; } ); then
   ctl_ok=1
 fi
-command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_err" "$_VFY/.control_timeout"
+command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_err" "$_VFY/.control_timeout"
 # STANDING CHECK of the gate's `_ctl_need` arms (`_ctl_gate`, in the run
 # primitives), through `_ctl_run` in a subshell with `SELF` pointed at a script
 # that exits at once, so "ran" is `_rc` set, and `_VFY` pointed at a directory
@@ -273,7 +283,7 @@ _cn_state() { # the run's `.declined`: absent, not a regular file, or its line c
 _cn_before="$(_cn_state)"
 command mkdir "$_VFY/.cn"
 printf '%s\n' 'exit 0' > "$_VFY/.cn/.cn_run"
-if [ "$_fw_trusted" -ne 1 ] || ! _ctl_built "$_cn_lbl" clean; then ctl_ok=1
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
        while read -r _cn_v _cn_want _cn_ran _cn_decl _cn_trust; do
          _cn_line="$_cn_v $_cn_want $_cn_ran $_cn_decl $_cn_trust"
@@ -284,7 +294,7 @@ elif ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
          _cn_row="$_cn_v"; [ "$_cn_decl" = - ] || _cn_row="$_cn_v $_cn_decl"; [ "$_cn_trust" = - ] || _cn_row="$_cn_row $_cn_trust"
          command rm -rf "$_VFY/.declined"; [ "$_cn_decl" != dir ] || command mkdir "$_VFY/.declined"
          _cn_tr="$_fw_trusted"; _cn_sd="$_fw2_said"; [ "$_cn_trust" != untrusted ] || { _fw_trusted=0; _fw2_said=1; }
-         unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$CTL/clean" > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
+         unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$_VFY" > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
          _fw_trusted="$_cn_tr"; _fw2_said="$_cn_sd"
          [ "$_cn_got" -eq "$_cn_want" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: returned $_cn_got, not $_cn_want"
          _cn_was="${_rc+made}"

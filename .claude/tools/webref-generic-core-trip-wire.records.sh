@@ -284,6 +284,8 @@ fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails c
 # `_ctl_run`'s timeout clause reads a signal status as a timeout only beside the watchdog's marker
 # (standing check, controls file): the marker test deleted, a signal at once is "killed after 30s".
 ctlrun:s/^  if \[ "[$]_rc" -ge 128 \] \&\& \[ -e "[$]_r_wmark" \]; then$/  if [ "$_rc" -ge 128 ]; then/	only the watchdog's marker makes a signal status a timeout
+# …and the check's row loop has no silent row: the hang row's arm renamed, its row is red (`*)`, "no arm").
+controls:s/^             hang)$/             hng)/	only the watchdog's marker makes a signal status a timeout
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed relcwd; &/	a relative scratch dir is removed on exit
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed fsmon; &/	a caller's fsmonitor hook does not run
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_fixture_failed clean; &/	a restrictive umask decides nothing

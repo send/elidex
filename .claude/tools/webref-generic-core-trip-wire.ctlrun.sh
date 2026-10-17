@@ -23,8 +23,9 @@
 # registry's site walk looks for it).
 # WHAT IT DEFINES: `_ctl_reg` (the registry's writer; the harness's window
 # verdict calls it too — after this file is sourced, since the controls file
-# calls the verdict after it sourced the harness), `_ctl_built`, `_ctl_gate`,
-# `_ctl_run`, `_control`, and `_ctl_wd_s` (the watchdog's seconds).
+# calls the verdict after it sourced the harness), `_ctl_gate`, `_ctl_run`,
+# `_control`, `_ctl_wd_s` (the watchdog's seconds), and `_ctl_wd_pg` (an out-global:
+# the watchdog's process group after a `_ctl_run`, read by the controls file).
 # ⚠ SOURCED ONLY AT THE END OF THE HARNESS, which sets `_CTLRUN` immediately
 # before sourcing, so an unset one means this file was reached some other way.
 if [ -z "${_CTLRUN:-}" ]; then
@@ -64,12 +65,10 @@ _ctl_wd_s=30
 # asked), so "did the tree this control is about actually get built?" is one
 # lookup rather than a probe re-derived per site: without it a broken build leaves
 # a plausible-looking tree that can still satisfy the assertion — a control green
-# over a question never posed. The fixture half is a function of its own,
-# `_ctl_built`, which registers nothing, so a standing check in the controls
-# file asks it under its own label before its rows run — a fixture that did not
-# build is then reported under the check, not as the check's own failure —
-# without a second registry site for that label. Trust is NOT asked there: the
-# check reads `_fw_trusted` itself and, untrusted, reds in silence (W2 is this
+# over a question never posed. The controls file's two standing checks run over
+# `$_VFY` (a root no fixture build makes, so no failed build can be named for
+# it) and ask no fixture question: their stubs read no tree. Each reads
+# `_fw_trusted` itself before its rows and, untrusted, reds in silence (W2 is this
 # gate's report, printed once by the first gated run), so `_ctl_gate` is W2's
 # one producer and W2's records tell "the gate refused" from "a control ran".
 # THE RUN REGISTRY (`$_VFY/.registry`): each label passed to `_control`,
@@ -108,18 +107,6 @@ _ctl_reg() { # $1 = the label
   while [ "$_rg_i" -gt 1 ] && [ "${BASH_SOURCE[$_rg_i]}" != "$_CONTROLS" ]; do _rg_i=$((_rg_i - 1)); done
   printf '%s:%s\t%s\t%s\n' "${BASH_SOURCE[$_rg_i]##*/}" "${BASH_LINENO[$((_rg_i - 1))]}" "$_rg_k" "$1" >> "$_VFY/.registry"
 }
-_ctl_built() { # $1 = the label to report under, $2… = fixture names (basenames)
-  local _b_for="$1" _b_n
-  shift
-  for _b_n in "$@"; do
-    if _fixture_did_fail "$_b_n"; then
-      echo "!! CONTROL NOT EXERCISED ($_b_for): its fixture ($_b_n) did not build, so this control" >&2
-      echo "   would be asserting over a tree that never posed the question." >&2
-      return 1
-    fi
-  done
-  return 0
-}
 # `_ctl_need="$<flag>"` (a prefix assignment on the call) carries the VALUE of
 # the capability flag a control needs — the value, not the flag's name: nothing
 # is expanded indirectly here, so there is no identifier to get wrong (a flag
@@ -136,13 +123,13 @@ _ctl_built() { # $1 = the label to report under, $2… = fixture names (basename
 # label. Whether a value was given at all is `${_ctl_need+set}`: an empty value
 # is "given", and red. Each arm — 1, 0, the failed note, `x`, empty, unset — is
 # a row of the controls file's standing check (`$_cn_lbl`). The gate is the
-# registration, the trust arm (W2), these arms, then `_ctl_built`. The trust
+# registration, the trust arm (W2), these arms, then the fixture half. The trust
 # arm sits BEFORE the need arms: an untrusted window is red, never declined
 # (a 0 under it would turn W2 into a "decline?" ask on an incapable machine);
 # that order is a row of the same standing check (`untrusted`).
 _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames)
   _ctl_reg "$1"
-  local _g_for="$1" _g_need="${_ctl_need-}" _g_given="${_ctl_need+set}"
+  local _g_for="$1" _g_need="${_ctl_need-}" _g_given="${_ctl_need+set}" _g_n
   unset _ctl_need
   shift
   if [ "$_fw_trusted" -ne 1 ]; then
@@ -155,7 +142,14 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
        return 2 ;;
     *) echo "!! CONTROL FAILED ($_g_for): _ctl_need holds \"$_g_need\", not 0 or 1" >&2; return 1 ;;
   esac
-  _ctl_built "$_g_for" "$@"
+  for _g_n in "$@"; do
+    if _fixture_did_fail "$_g_n"; then
+      echo "!! CONTROL NOT EXERCISED ($_g_for): its fixture ($_g_n) did not build, so this control" >&2
+      echo "   would be asserting over a tree that never posed the question." >&2
+      return 1
+    fi
+  done
+  return 0
 }
 # THE ONE RUN PRIMITIVE: the wire in self-test mode over a fixture root, as its own
 # process group under a watchdog of `_ctl_wd_s` seconds (30, set at source time
@@ -186,7 +180,9 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # ran, nothing was reported, the label noted in `.declined`); every other outcome
 # — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE)
 # included — returns 0 with `_rc` and `_out` set (the run's status and its
-# stdout+stderr), and the caller's own comparison is the verdict on it.
+# stdout+stderr), and the caller's own comparison is the verdict on it. Every
+# run that launched sets `_ctl_wd_pg` too: the watchdog's process group, which
+# the `_wm` standing check asserts gone after the call.
 # EVIDENCE THAT A DELIVERED CHANNEL REACHED THE RUN (every env channel, the
 # umask and the PATH prefix the call delivers is demanded, derived from the
 # delivery, not judged per caller; the prefix's evidence is `path`, written by a
@@ -235,15 +231,36 @@ _ctl_run() {
   # run costs nothing; the killer is itself killed when the child returns.
   # ⚠ SELF-TEST MODE IS AN ARGUMENT (see the wire, beside `_SELFTEST`): it is
   # the one channel a shell cannot leave behind for a later ordinary run.
-  # ⚠ `set -m` SO THE CHILD IS ITS OWN PROCESS GROUP. Without it the watchdog's
-  # `kill -9 "$_cpid"` reaches only the wire's own bash; a command substitution
-  # or a `grep` BLOCKED beneath it — precisely the FIFO hang this watchdog
-  # exists to catch — is reparented and stays blocked after the gate reports
-  # the timeout, so repeated local runs accumulate permanent orphans. Measured
-  # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
+  # ⚠ `set -m` SO THE CHILD AND THE WATCHDOG ARE EACH THEIR OWN PROCESS GROUP.
+  # Without it the watchdog's kill reaches only the wire's own bash; a command
+  # substitution or a `grep` BLOCKED beneath it — precisely the FIFO hang this
+  # watchdog exists to catch — is reparented and stays blocked after the gate
+  # reports the timeout, so repeated local runs accumulate permanent orphans
+  # (#501 R92); and a watchdog stopped by its pid alone leaves its `sleep` to
+  # PID 1 for the rest of its seconds, one orphan per control (#501 R93). Both
+  # are killed as a group, with SIGKILL, which no inherited disposition can
+  # ignore (a TERM-based stop waited out every watchdog under a caller's
+  # `trap "" TERM`). Pinned by the `_wm` standing check: its hang row's
+  # descendant is dead after the call, and the watchdog's group (`_ctl_wd_pg`)
+  # is gone after both rows.
+  # ⚠ THE LAUNCHES ARE SILENCED AND READ NO TERMINAL: `{ … & } 2>/dev/null` and
+  # `< /dev/null`. bash's setpgid races the forked child on macOS, and the loser
+  # prints `child setpgid (N to N): Operation not permitted` on the wire's
+  # stderr before the child's own redirect; under a tty with `stty tostop` that
+  # write stops the child (SIGTTOU), a false red that prints the previous
+  # control's output. Not pinned: not an equivalent mutant but an unpinnable
+  # race, so no record can kill its removal on demand. Measured instead, under
+  # `stty tostop` in a pty (`script -q /dev/null`), 20 whole-wire runs per cell
+  # beside 10 busy loops, false reds (status 150) and stray `setpgid` lines, the
+  # unsilenced launch (14d0b35d) against this one: bash 5.3 base 0 and 0 of 20 (two
+  # series; an earlier series had 4 of 20, which did not reproduce), head 0 of 20;
+  # bash 3.2 base 0 of 20, head 0 of 20; no stray line in any series. The whole-wire
+  # counts therefore do not separate the two launches. The evidence for the
+  # silencing is a launch-shape probe, not whole-wire runs: 0 of 2500 launches
+  # failed under tostop with the silenced shape.
   _r_wmark="$_VFY/.control_timeout"; command rm -f "$_r_wmark"
   set -m
-  ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
+  { ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
     [ -z "$_r_umask" ] || umask "$_r_umask"
     export PATH="${_r_pfx:+$_r_pfx:}$PATH"
     exec env ${_r_ch[@]+"${_r_ch[@]}"} K2_CTL_REACHED="$_r_reach" "$BASH" -c \
@@ -252,26 +269,30 @@ _ctl_run() {
        shift; printf %s "$u" > "$d/umask"; umask "$u"; exec "$@"' \
       ctlrec "$_r_reach" ${_r_names[@]+"${_r_names[@]}"} -- \
       "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
-    > "$_out_f" 2>&1 & _cpid=$!
+    < /dev/null > "$_out_f" 2>&1 & _cpid=$!; } 2>/dev/null
+  # THE MARKER IS WRITTEN BEFORE THE KILL, and it is the timeout fact. The
+  # watchdog's own exit status cannot be: the child dies the moment the kill
+  # lands, so the parent's group kill below can reach a watchdog that fired and
+  # has not yet exited, and its 137 then reads as "stopped in its sleep".
+  # Measured with a replica under load (2 × ncpu busy loops): the status form lost a
+  # fired watchdog 3/500 and 3/1000 times on bash 5.3, 0/500 and 1/1000 on 3.2; the
+  # marker-before-kill form 0/1000 on each. `true`, not `:`: a failed redirection on a
+  # POSIX special builtin is fatal in bash 5's posix mode, which would end the
+  # watchdog before its kill; on `true` it is not. The `|| true` keeps the kill
+  # for a caller whose errexit reaches this subshell; every caller today is an
+  # `||` or `if !` operand, under which errexit is off here, so it has no record.
+  # `${_ctl_wd_s-}`, not `$_ctl_wd_s`: FAIL-CLOSED ON AN UNSET BOUND. Under set -u the
+  # bare expansion aborts this subshell, so the run would go unwatched and still
+  # pass; the empty word fails the sleep, the marker and kill follow, and the
+  # first control's timeout report (its bare `${_ctl_wd_s}`) ends the wire red
+  # under set -u (case R8nowd).
+  { ( sleep "${_ctl_wd_s-}"
+      true > "$_r_wmark" || true
+      kill -9 -"$_cpid" ) < /dev/null > /dev/null 2>&1 & _wpid=$!; } 2>/dev/null
   set +m
-  # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
-  # the subshell; killing only that reparents the `sleep` to PID 1, where it
-  # runs out its seconds — one orphan per control, dozens per local gate run
-  # (#501 R93, observed). The subshell traps TERM and takes its own children
-  # with it, so the pair is reaped as a unit with shell builtins only.
-  ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
-    sleep "$_ctl_wd_s" & wait
-    # The marker names the cause; the kill is the job. A write that fails (the
-    # scratch dir gone) must not stop the kill behind it, in any caller's context.
-    # The write itself is pinned by the `_wm` standing check's timeout row (the
-    # marker written, the kill reported as one); the `|| :` form has no record:
-    # every caller today is an `||` or `if !` operand, under which errexit is off
-    # inside this subshell too, so the form is unobservable here; it holds for a
-    # caller that is not.
-    { : > "$_r_wmark"; } 2>/dev/null || :
-    kill -9 -"$_cpid" 2>/dev/null || kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
-  wait "$_cpid"; _rc=$?
-  kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
+  _ctl_wd_pg="$_wpid"
+  wait "$_cpid" 2>/dev/null; _rc=$?
+  kill -9 -"$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
   _out="$(cat "$_out_f" 2>/dev/null)"
   # Only the watchdog's own marker makes a status >= 128 a timeout; a 134 (abort)
   # or 141 (SIGPIPE) that came back at once is the caller's "expected N, got M".
