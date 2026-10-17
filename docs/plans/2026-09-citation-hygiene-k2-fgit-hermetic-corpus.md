@@ -321,11 +321,13 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
 - **Current totals** (the one statement; earlier per-commit totals are in the table above and in git):
-  **129 records of this PR, 224 in all**, measured at the CR-S2 slice's commit (which adds the `pin`
+  **128 records of this PR, 223 in all**, measured at the CR-S3 slice's commit (which removes P-b's four
+  definition-test records, whose test went with K2's version-keyed limit, and adds the `var --`, the misspelt-name
+  and the forced-129 records; 224 at the CR-S2 slice's commit, which added the `pin`
   control's swapped exit/message record and the record that restores the gate's early return before
   `_ctl_run`'s channel validation, and the record that weakens the evidence directory's fresh `rm -rf … && mkdir …`
   to `mkdir -p …`; 221 at the CR-S1 slice's commit, 220 at `0d411df2`) with
-  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (224) against
+  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (223) against
   the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=220` is a **floor**: fewer
   records is red, more is not; its comment in `…mutations.sh` names every record this PR removed, by
   commit. `_MUT_UNRECORDED_MAX=18` (19 before the CR-S2 slice's `pin` record), and that ratchet is **exact**: fewer bare labels than that is red

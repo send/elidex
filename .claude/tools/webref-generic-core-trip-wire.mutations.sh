@@ -243,7 +243,8 @@ _MUT_UNRECORDED_MAX=18
 # `_fgit_alternates` has no such arm); `116a9b8b` the `fakerelmktemp` fixture-failure record (the gate
 # no longer reads PATH-prefix dirs); `8c952d6d` the `_ctl_env` clear record
 # (`ctlrun:/^  _ctl_env=()$/d`; the global went); `fd90b4b1` the two drop-prefix records (relcwd, cfgkept: a
-# call-site drop is the opt-in records' class).
+# call-site drop is the opt-in records' class); the CR-S3 slice the four P-b definition-test records (stdout, hangup
+# line, the control failing, git's top-level usage: the test went with the version-keyed limit).
 _MUT_RECORDS_MIN=220
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the

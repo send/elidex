@@ -236,14 +236,12 @@ harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_CONFIG_NOSYSTEM=1 /	t
 harness:s/ "HOME=[$]_FGIT_VOID" GIT_CONFIG_NOSYSTEM/ "HOME=$SCRATCH" GIT_CONFIG_NOSYSTEM/	the fixture git has no system or global layer outside the void
 # P-b's `git var` status is read by its GLOBAL check: a status of 1 on a call that succeeded reads as a failed GLOBAL call.
 harness:s/_prc=0; _o="[$](_fgit_in/_prc=1; _o="$(_fgit_in/	the fixture git has no system or global layer outside the void
-# P-b's 129 is a machine limit only by its definition test (stdout empty, stderr's first line begins `usage: git var `, `git var GIT_PAGER`
-# answers). Each record forces a 129 on every name on a capable git, so ONE clause of the test is what turns it red: stdout non-empty /
-# stderr a hangup line (a shell's, not git's usage) / the control failing / stderr git's top-level usage
-# (`usage: git [-v | --version] ...`, not `git var`'s).
-harness:s/ || _prc=[$][?]$/&; echo "usage: git var x" > "$_pq\/var.err"; _prc=129/	the fixture git has no system or global layer outside the void
-harness:s/ || _prc=[$][?]$/&; _o=""; { echo "Hangup: 1"; echo "usage: git var x"; } > "$_pq\/var.err"; _prc=129/	the fixture git has no system or global layer outside the void
-harness:s/ || _prc=[$][?]$/&; _o=""; echo "usage: git var x" > "$_pq\/var.err"; _prc=129/	s/if _fgit_in "[$]_pq\/a" var GIT_PAGER >/if _fgit_in "$_pq\/a" var NOSUCH_K2 >/	the fixture git has no system or global layer outside the void
-harness:s/ || _prc=[$][?]$/&; _o=""; echo "usage: git [-v | --version] [-h | --help]" > "$_pq\/var.err"; _prc=129/	the fixture git has no system or global layer outside the void
+# P-b's machine limit is keyed on `git --version` (below 2.42, all four names), never on the shape of a refusal: on a capable git ANY non-0
+# `git var` is red. Each record is one way the keyed arm goes green on a capable git; each SURVIVES with the version test forced to "old"
+# (an arm case, not a record): a forced 129 / `var --` (git's usage, 129) / a misspelt name in the loop's list.
+harness:s/ || _prc=[$][?]$/&; _prc=129/	the fixture git has no system or global layer outside the void
+harness:s/_prc=0; _o="[$](_fgit_in "[$]_pq\/a" var "[$]_v" 2>/_prc=0; _o="$(_fgit_in "$_pq\/a" var -- "$_v" 2>/	the fixture git has no system or global layer outside the void
+harness:s/ GIT_ATTR_GLOBAL; do$/ GIT_ATTR_GLOBL; do/	the fixture git has no system or global layer outside the void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/mkdir -p "$HOME\/.config\/git" \&\& : > "$HOME\/.config\/git\/ignore"; &/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; GLOBIGNORE='*'; &/	nothing is written into the fixture git's void
 harness:s/( cd "[$]_pq\/c" \&\& git init -q [.] )/false/	this git reports alternate object stores

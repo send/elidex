@@ -439,6 +439,7 @@ Final-r6 #8's repros: a failed clean fixture → NE under each check's label, no
 `$_VFY/.control_timeout`. `_MUT_PARTS` spelled once, in the controls file above `_lbd`; `_lbd_files` derived
 from it; the mutation set reads it, red if unset. A coder's `continue` after the 129 add was dropped: removed, it
 stayed green and byte-identical (pinned by nothing) and left the machine-limit arm unpinned.
+[CR-S3: that claim is corrected. The "discarded" SYSTEM probe was the pin of the arm's ORDER only (limit line before `_pbl`). Under K2 the limit line is printed after the reds, and a 129 on a git below 2.42 `continue`s before the probe, because the probe's empty answer on a name that git cannot give would read as a red (`_CRS3armcont` RED, `_CRS3armcont0` PASSED). The probe, the arm order it pinned and `_pbbad` are removed; the SYSTEM liveness probe stays for a name that answered.]
 
 **Review 1:** 0 / 0 / 4 (wording; the empty `_lbd_files` reading the wire's stdin — fixed by running the grep only
 over a non-empty list). The reviewer's observation (any status 129 from `git var` read as a machine limit) went to
@@ -460,6 +461,10 @@ and the same git answers `git var GIT_PAGER` with 0 (asked at most once per run,
 other 129 is red under `$_pb_lbl` (`<name>:rc!=0`); a bad 129 is tested before the machine-limit line, so a good
 129 cannot hide it. Four records (stdout, a hangup line before git's usage, the control failing, git's top-level
 usage); records 213 → 217.
+
+**Superseded by CR-S3 (K2).** The definition test, the `GIT_PAGER` control (`_pbk`), `_pbe`, `_pbu`, `_pbx` and the
+usage-text match are gone: the limit is keyed on `git --version` below 2.42 (all four names, one line), and a version that
+does not parse counts as capable (red on a refusal). Its four records went with it (see CR-S3 below).
 
 **Reviews.** Review 1: 0 / 1 / 4 — (I1) the design memo's P-b row still said a 129 is a machine limitation, false
 after the slice. Review 2: 0 / 0 / 2. Driver design stops: 2 (a HUP-killed non-exec child makes bash print a
@@ -748,4 +753,25 @@ are.
   moves T, and the run at `e0db887a` is then no cell of X3 at the new T. The final-head sequence and the branch-wide
   `/code-review max 815f8d4b...` that DECISIONS-R7 schedules after S4: not yet run.
 
-This file is 751 lines (`wc -l`) after this entry, under the 800 of design memo §13's convention.
+### R7.12 CR-S3 — K2 (cluster D), with CL2/SI4
+
+**Changed.** P-b's machine limit is keyed on `git --version` below 2.42 (all four names, one line); from 2.42 on a 129
+or any non-0 GLOBAL call is red (a SYSTEM name's silent failure is the hermetic answer, judged by the liveness probe). A
+version string that does not parse counts as capable (red on a refusal, never a green limit line). The limit line is
+printed after the reds and never outranks one. Removed: `_pbk` (the `GIT_PAGER` control), `_pbe`, `_pbu`, `_pbx`, the
+usage-text match and `_pbbad` (CL2/SI4, folded at no cost). P-f keeps its definition test (`env` has no version
+contract): a decision recorded in the comment and the design memo's P-b row. Records: the four definition-test records
+(P-b 129 variants) removed with the test; three added (`_prc=129` forced, `var --`, a misspelt name). 224 → 223.
+
+**CL2's pin.** The "discarded" SYSTEM probe pinned only the ORDER of the old arm (limit line before `_pbl`). With the
+limit line last, a 129 on an old git must `continue` before the probe (its empty answer would read as red):
+`_CRS3armcont` (forced old, SYSTEM 129, probe empty, `continue` removed) → NE under `_pbl_lbl`; `_CRS3armcont0` (same, kept) PASSED.
+
+**Measured (both shells).** Ship PASSED. `var --` and the misspelt-name records KILLED (git 2.56.0); with the version test
+forced old (`_CRS3armvar`, `_CRS3armtypo`) both SURVIVE with the limit line. Claim rows by a `git` wrapper on PATH:
+`2.41.0` (var answering, and var refusing 129) and `2.39.3 (Apple Git-146)` refusing → one limit line, green;
+`2.43.0 (Apple Git-1)` refusing, `garbage` and `2.` refusing → red; `2.41.0` plus a HOME leak (`_CRS3home`) → red.
+Each parse guard, refusing: red with it, one green limit line with it removed — the outer prefix by a bare `2.41.0`,
+the inner `*:` by `git version 1.x.5`, the inner `*[!0-9:]*` by `git version 1 .9` (`[` takes `"1 "` as 1). `:*` was unreachable: deleted.
+
+This file is 777 lines (`wc -l`) after this entry, under the 800 of design memo §13's convention.

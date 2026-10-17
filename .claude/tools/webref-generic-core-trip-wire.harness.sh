@@ -279,54 +279,53 @@ _fgit_postconditions() {
   # plain configuration and never the caller's (the window runs in its own
   # directory, and a probe run from wherever it happened to be would read the
   # local configuration of any repository around it).
-  # ⚠ A MACHINE LIMITATION, NOT A RED: `git var` names these four only from git
-  # 2.42; an older git answers 129 (usage). That is the capability rule the
-  # FIFO and file-permission controls follow: reported as NOT EXERCISED on
-  # this machine, and green. The test is the definition itself, as P-f's: THIS
-  # git runs `git var` but refuses this name — the name's call exits 129,
-  # writes nothing to stdout and says why on stderr (the stderr's first line
-  # is git's own `git var` usage, `usage: git var `; the window runs
-  # `LC_ALL=C`, so it is untranslated), while the same git answers a name
-  # every git knows (`git var GIT_PAGER`) with status 0. Every other 129 (no
-  # word on stderr, a first stderr line that is not git's usage, a git that
-  # cannot run `git var` at all, a hangup, any other usage error) is not a
-  # machine limit: it is red under P-b like any other failed call, so an
-  # unknown cause falls on the fail-safe side. A hangup is a 129 whose stderr
-  # may be a shell's `Hangup` line, which is not git's usage.
-  _pbd=""; _pbl=""; _pbu=""; _pbk=""; _pbx=""
-  # One loop over the four names. The first `git var` of a name answers the
-  # capability question (129 and the definition test above = this git cannot
-  # name it) and its output is the value that name's checks read; a SYSTEM
-  # name asks once more, for liveness. A name whose 129 passes the definition
-  # test: a SYSTEM name still runs its liveness probe, whose result is
-  # discarded below because the machine-limit line outranks it; a GLOBAL name
-  # records nothing. One whose 129 fails the definition test
-  # is red and skips its checks, and outranks the machine-limit line (a name that
-  # fails the test is red even when another name passes it). The
-  # `git var GIT_PAGER` control is asked at most once per run, and only when
-  # some name answered 129.
+  # ⚠ A MACHINE LIMITATION, NOT A RED, KEYED ON git's DOCUMENTED BOUNDARY: `git
+  # var` names these four only from git 2.42, so `git --version` below 2.42
+  # limits all four names at once (one line, all or none) and a git from 2.42
+  # on is red on a 129 and on any non-0 GLOBAL call (a SYSTEM name's silent
+  # failure is the hermetic answer, judged by its probe). The limit is never keyed on the shape of
+  # a refusal (an exit code, a usage text, a liveness control): such a test
+  # reads a typo'd name, a hangup or a broken git as "this git cannot", and a
+  # green limit line there hides a red. A version string that does not parse
+  # (no `git version <digits>.<digit>…` prefix, or a major/minor part not all
+  # digits; a trailing `(Apple Git-146)` is ignored) is treated as 2.42 or later:
+  # the fail-safe direction is a red on a refusal, never a green limit line.
+  # Both guards below are pinned by claim rows. On a git below 2.42 only the documented usage
+  # status 129 is excused; every other status, and every value that leaves the
+  # void, stays red, and the limit line is printed last: it never outranks a
+  # red. (P-f below keeps a DEFINITION test, a decision and not a second way:
+  # `env` has no version contract to key on.)
+  _pbv="$(_fgit_in "$_pq/a" --version 2>/dev/null)" || _pbv=""
+  _pbold=0
+  case "$_pbv" in
+  "git version "[0-9]*.[0-9]*)
+    _pbm="${_pbv#git version }"; _pbn="${_pbm#*.}"; _pbm="${_pbm%%.*}"; _pbn="${_pbn%%[!0-9]*}"
+    case "$_pbm:$_pbn" in
+    *[!0-9:]*|*:) ;;
+    *) if [ "$_pbm" -lt 2 ] || { [ "$_pbm" -eq 2 ] && [ "$_pbn" -lt 42 ]; }; then _pbold=1; fi ;;
+    esac ;;
+  esac
+  _pbd=""; _pbl=""
+  # One loop over the four names: the first `git var` of a name is the value
+  # that name's checks read; a SYSTEM name asks once more, for liveness.
   for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-    _prc=0; _o="$(_fgit_in "$_pq/a" var "$_v" 2>"$_pq/var.err")" || _prc=$?
-    _pbbad=0
+    _prc=0; _o="$(_fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _prc=$?
     if [ "$_prc" -eq 129 ]; then
-      if [ -z "$_pbk" ]; then
-        if _fgit_in "$_pq/a" var GIT_PAGER >/dev/null 2>&1; then _pbk=yes; else _pbk=no; fi
-      fi
-      _pbe=""; IFS= read -r _pbe < "$_pq/var.err" || :
-      case "$_pbe" in "usage: git var "*) _pbe=usage ;; *) _pbe="" ;; esac
-      if [ -z "$_o" ] && [ "$_pbe" = usage ] && [ "$_pbk" = yes ]; then _pbu="$_pbu $_v"; else _pbbad=1; _pbx="$_pbx $_v"; fi
+      # Excused on a git below 2.42 only, and not probed: the liveness
+      # answer of a name this git cannot give would read as a red.
+      [ "$_pbold" -eq 1 ] || _pbd="$_pbd $_v:rc!=0"
+      continue
     fi
     case "$_v" in
     *_SYSTEM)
-      if [ "$_pbbad" -eq 1 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
+      # The hermetic answer is a silent failure (the window sets NOSYSTEM), so
+      # a status other than 0 and 129 is not read here: the probe below is
+      # what says whether git can name the file at all.
       if [ "$_prc" -eq 0 ]; then _pbd="$_pbd $_v=[$_o]"; fi
       _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 _fgit_in "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
       [ -n "$_o" ] || _pbl="$_pbl $_v" ;;
     *)
-      if [ "$_prc" -ne 0 ]; then
-        if [ "$_pbbad" -eq 1 ] || [ "$_prc" -ne 129 ]; then _pbd="$_pbd $_v:rc!=0"; fi
-        continue
-      fi
+      if [ "$_prc" -ne 0 ]; then _pbd="$_pbd $_v:rc!=0"; continue; fi
       # The void is replaced by a token BEFORE the output is split into lines, so
       # a scratch path holding a newline cannot split one entry into two.
       _o="${_o//"$_FGIT_VOID"/@K2VOID@}"
@@ -336,11 +335,10 @@ EOF_PB
       ;;
     esac
   done
-  if [ -n "$_pbx" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1
-  elif [ -n "$_pbu" ]; then
-    printf 'P-b — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pbu" >> "$_FW_DIR/machine_limits"
+  if [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1
   elif [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
-  elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
+  elif [ "$_pbold" -eq 1 ]; then
+    printf 'P-b — %s is below 2.42, so `git var` naming GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL is not asserted (all four or none)\n' "$_pbv" >> "$_FW_DIR/machine_limits"; fi
   if ! diff -r "$_pq/a/.git" "$_pq/b/.git" >/dev/null 2>&1; then echo "!! CONTROL FAILED ($_pd_lbl)" >&2; _fpv=1; fi
   _o="$(git --exec-path 2>/dev/null)" || _o=""
   _o="$(_fgit_canon "$_o")"
