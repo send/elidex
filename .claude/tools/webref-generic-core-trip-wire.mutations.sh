@@ -139,7 +139,7 @@ fi
 # with the thing it is about:
 #
 #   one record per line, TAB-separated:
-#       <sed expression 1> [TAB <sed expression 2> …] TAB <substring the run must print>
+#       <sed expression 1> [TAB <sed expression 2> …] TAB <label the run must print in a diagnostic's label slot>
 #
 # THE NEEDLE IS THE LAST TAB FIELD; every field before it is ONE sed expression,
 # and the run applies them together as `sed -e <expr 1> -e <expr 2> …`. A record
@@ -337,8 +337,10 @@ _mut_rm_copies() {
 # caller resolved, which for an entry with a `_MUT_TARGETS` prefix is NOT the
 # wire; it is the wire copy that gets EXECUTED either way.
 # $1 = how to name it in a diagnostic, $2 = what is required:
-# a NEEDLE the output must contain, `!survive`, or `!kill` (red, with
-# `CONTROL FAILED (<label>)` for the label of some `_control`, none named).
+# a NEEDLE (a full label) the output must hold in a diagnostic's label slot,
+# `CONTROL FAILED (<needle>)` or `CONTROL NOT EXERCISED (<needle>)`, `!survive`,
+# or `!kill` (red, with `CONTROL FAILED (<label>)` for the label of some
+# `_control`, none named).
 # Returns 0 = as required, 1 = SURVIVED (the caller decides what that means),
 # 2 = failed some other way, already reported.
 _mut_trial() {
@@ -396,10 +398,19 @@ _mut_trial() {
     echo "   rule is about." >&2
     return 2
   fi
+  # ⚠ A KILL IS THE NEEDLE IN A DIAGNOSTIC'S LABEL SLOT, NOT ANYWHERE IN THE
+  # OUTPUT: `CONTROL FAILED (<needle>)` (the `!kill` arm's form) or
+  # `CONTROL NOT EXERCISED (<needle>)`. A bare substring match counted a label
+  # that is printed on a GREEN line (`_k2_line` names the k2 label on the green
+  # summary): record 100, `_gopt_ok` 0 and any unrelated late red then "killed as
+  # named" though no check under that label failed (the file's own rule at
+  # `_limit_lines`: a label printed on a green line would let any unrelated red
+  # kill that record). The slot closes that for every summary line at once.
   case "$_mt_out" in
-    *"$2"*) return 0 ;;
+    *"CONTROL FAILED ($2)"* | *"CONTROL NOT EXERCISED ($2)"*) return 0 ;;
     *) echo "!! MUTANT $1 killed for the WRONG REASON (exit $_mt_rc): the output" >&2
-       echo "   does not name \"$2\", so another check masked the one under test." >&2
+       echo "   holds no \"CONTROL FAILED ($2)\" or \"CONTROL NOT EXERCISED ($2)\" (the" >&2
+       echo "   needle in a diagnostic's label slot), so another check masked the one under test." >&2
        return 2 ;;
   esac
 }

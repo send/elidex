@@ -198,6 +198,9 @@ the fix round and the review rounds after it change them as §6.1 says.
   ID. The excuse is per label, so on such a machine a regression in a record that would die there is excused
   too — a machine with the capability (CI's GNU `env`) runs them all. A "killed for the wrong reason" (2)
   is never excused: it is also how a harness break reports; a leaking caller can make it a false red.
+- **What counts as a kill.** `_mut_trial` counts a record killed only where its needle stands in a diagnostic's label
+  slot: `CONTROL FAILED (<needle>)` or `CONTROL NOT EXERCISED (<needle>)` (the `!kill` arm's `CONTROL FAILED` form, plus `CONTROL NOT EXERCISED`). A label that is
+  printed on a green summary line (k2's `_k2_line`) therefore cannot let an unrelated red kill a record (K15, R7.13).
 
 **Mutation-mode cost (X3).** Each run of X3 is one record trial per record (the count is §6.1's Current totals) plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is

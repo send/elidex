@@ -290,7 +290,7 @@ in), never the worktree. A record's or a case's edit is applied by a python `str
 be exactly 1. A **`.mutant.99` copy set** runs the edited parts under the names a real `_mut_trial` gives them
 (`<wire>.mutant.99.<part>.sh`), so the always-on stale-anchor check is skipped
 as in a real trial; cases marked **(m99)** run that way. Verdicts follow `_mut_trial`: **KILLED** = rc ≠ 0 with the
-record's needle in the output; **SURVIVES** = rc 0; **WRONG-REASON** = rc ≠ 0 without the needle. Record numbers
+record's needle in a diagnostic's label slot (`CONTROL FAILED (<needle>)` or `CONTROL NOT EXERCISED (<needle>)`, from CR-S5 on; R7.13); **SURVIVES** = rc 0; **WRONG-REASON** = rc ≠ 0 without it (the runners' `rec.sh` still tests the bare needle). Record numbers
 below are records.sh line numbers at the time of the measurement, which moved between rounds; records are also
 named by their shape. "Ship" = the always-on wire on the slice's final tree.
 
@@ -774,4 +774,25 @@ forced old (`_CRS3armvar`, `_CRS3armtypo`) both SURVIVE with the limit line. Cla
 Each parse guard, refusing: red with it, one green limit line with it removed — the outer prefix by a bare `2.41.0`,
 the inner `*:` by `git version 1.x.5`, the inner `*[!0-9:]*` by `git version 1 .9` (`[` takes `"1 "` as 1). `:*` was unreachable: deleted.
 
-This file is 777 lines (`wc -l`) after this entry, under the 800 of design memo §13's convention.
+### R7.13 CR-S5 — K15
+
+**Changed.** `_mut_trial` (mutations.sh) counts a record killed only where its needle stands in a diagnostic's label
+slot: `CONTROL FAILED (<needle>)` (the `!kill` arm's form) or `CONTROL NOT EXERCISED (<needle>)`. Before, the needle
+anywhere in the output counted, and `_k2_line` prints k2's label on the green summary: record 100, `_gopt_ok` 0 and any
+unrelated late red then "killed as named" with no check under that label failed. The head comment of `_mut_trial`,
+the records-format header, `_limit_lines` (controls.sh) and the corpus's notes state it. mutations.sh 778 → 789; 223 records.
+
+**Premise check (static).** 223 records, 93 distinct needles: 92 full labels (each a quoted `_control` argument or a
+`_*_lbl` value) plus `!survive` (its own arm, before the slot case); generated mutants use `!kill`. Every needle has a
+red path that prints it in a slot. Other printings outside a slot (census awk, `.bare`, the late-calls tail,
+`_cn_declined`, the ctlrun `_out` dumps) sit on red paths under another label's slot; `_k2_line` is the one printed on
+a green line. The full opt-in (all 223 plus the generated set) is the driver's run.
+
+**Measured (bash 5.3 and 3.2; real `_mut_trial` body, `_crs5ftrial.sh`; logs `runners/logs/crs5f-*`).** K15 repro
+`_CRS5k15` (record 100, flag forced 0, a planted late red): rc 2 WRONG REASON; `_CRS5k15arm` (substring restored): rc 0.
+Arm rows, one per disjunct, both shells (guard intact: all "killed as named"): arm A (`NOT EXERCISED` disjunct
+removed): records 174, 288 (killed only through NOT EXERCISED) rc 2 WRONG REASON, 100 and 353 still rc 0; arm B
+(`FAILED` disjunct removed): records 100, 353 (FAILED-killed) rc 2, 174 and 288 still rc 0. Ship PASSED;
+`scripts/trip-wires.sh` rc 0. 31 records through `rec.sh` (`_crs5queue.sh`): all KILLED, every needle in a slot.
+
+This file is 798 lines (`wc -l`) after this entry, under the 800 of design memo §13's convention.
