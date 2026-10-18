@@ -796,4 +796,4 @@ removed): records 174, 288 (killed only through NOT EXERCISED) rc 2 WRONG REASON
 (`FAILED` disjunct removed): records 100, 353 (FAILED-killed) rc 2, 174 and 288 still rc 0. Ship PASSED;
 `scripts/trip-wires.sh` rc 0. 31 records through `rec.sh` (`_crs5queue.sh`): all KILLED, every needle in a slot.
 
-This file is 799 lines (`wc -l`) at this point; it is full under design memo §13's convention: the next entry goes to its successor (§13).
+This file closed at 799 lines (`wc -l`); every later entry, and the code review's first-half results this file lacks, are in `…-impl-cr.md` §S (design memo §13).
