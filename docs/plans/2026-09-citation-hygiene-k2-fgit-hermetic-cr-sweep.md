@@ -54,6 +54,7 @@ identifiers, class and slice unchanged (**(M)** `crplan-r4/logs/M-h1-inputs.txt`
 | `grepopt` | `GREP_OPTIONS` | k2 posed through the shim (B1) |
 | `family` | `impl-cr` | the sites that list the memo family: the moved plan memo registers there (B1, G1) |
 | `slot` `x9` | `#11-trip-wire-launch-environment`; `X9\|route \(b\)` | BS-3's member (B2b); Q1's route (B2b, G2) |
+| `resid_range` | `"R1"–"R[0-9]+"` | the residuals' range statement (residuals.md :7), which each carried correction's row extends (R3-all-3; added by CR-B1 with R10) |
 
 **A row is the statement that holds the hit**, not the hit line alone: the comment block, paragraph, bullet or
 table row it sits in (prose wraps, which is how stem greps missed sites). The disposition names the extent
@@ -819,6 +820,7 @@ family	impl-cr
 lblconv	_\*_lbl|_lbl="…"	
 slot	#11-trip-wire-launch-environment	
 x9	X9|route \(b\)	
+resid_range	"R1"–"R[0-9]+"	
 ```
 
 ### §E.ledger-check.py

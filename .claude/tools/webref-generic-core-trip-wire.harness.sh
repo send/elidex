@@ -6,8 +6,8 @@
 # controls file was about to pass the line threshold. The seam is HOW a control
 # runs versus WHICH controls exist: this file holds the scratch root the
 # fixtures live in, the window they are built in and the postconditions checked
-# inside it, the shim-quoting helper and the three capability probes (FIFO, file
-# permissions, `GREP_OPTIONS`); `_control`
+# inside it, the shim-quoting helper and the two capability probes (FIFO and file
+# permissions); `_control`
 # itself, with the gate and the run primitive it is built on, is in
 # `…trip-wire.ctlrun.sh`, sourced at the end of this file (the second
 # touch-time split, at the seam between the window and what runs the wire over
@@ -826,35 +826,6 @@ if mkfifo "$SCRATCH/fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$SCR
 _perm_ok=1
 { : > "$SCRATCH/permprobe" && chmod 000 "$SCRATCH/permprobe"; } || { echo "!! the permission probe could not be made in $SCRATCH; this run decided nothing." >&2; exit 2; }
 if [ -r "$SCRATCH/permprobe" ]; then _perm_ok=0; fi
-
-# DOES THE `grep` THE k2 CONTROL RUNS HONOUR A CALLER'S `GREP_OPTIONS`? The k2
-# control exports `GREP_OPTIONS=--exclude=*` and expects the wire's `unset` to
-# keep a violating file readable; a grep that ignores the variable (GNU's, CI's)
-# reads the file with or without the `unset`, so there the control would pass
-# whatever the wire does and prove nothing. ASKED OF A FILE OF ITS OWN, like
-# `_fifo_ok` and `_perm_ok`, never of `$CTL/k2`: a decline skips the fixture's
-# build check, so a probe read off the fixture could turn a broken k2 build into
-# a ⚠ instead of red. The grep is the one the run resolves (`_fgit_resolve`: the
-# run adds no PATH prefix, and `_REAL_GREP` below is the same lookup), called as
-# the wire calls it (`-aEn -- <re> <file>`). Call (a) runs without the variable
-# because the wire's `unset GREP_OPTIONS` runs before it sources the controls (a
-# mutant of that line, under a caller's export, reds the run before this probe, at
-# the label-definedness check; without one it reds under k2's label only where grep
-# honours the variable: where it does not, k2 is declined and the run PASSES). The ONLY green arms: without the
-# variable it matches (rc 0), and with it the match is lost (rc 1 → 1: honoured,
-# the question is posed) or kept (rc 0 → 0: this machine cannot pose it). Anything
-# else, from either call, leaves `x` - neither 0 nor 1 - which `_ctl_need` reds
-# under k2's label.
-_gopt_ok=x
-printf 'K2: a\n' > "$SCRATCH/goptprobe" || { echo "!! the GREP_OPTIONS probe could not be made in $SCRATCH; this run decided nothing." >&2; exit 2; }
-_gp_bin="$(_fgit_resolve grep)"
-if [ -n "$_gp_bin" ]; then
-  _gp_a=0; "$_gp_bin" -aEn -- 'K2: a' "$SCRATCH/goptprobe" >/dev/null 2>&1 || _gp_a=$?
-  _gp_b=0; GREP_OPTIONS='--exclude=*' "$_gp_bin" -aEn -- 'K2: a' "$SCRATCH/goptprobe" >/dev/null 2>&1 || _gp_b=$?
-  if [ "$_gp_a" -eq 0 ]; then
-    case "$_gp_b" in 1) _gopt_ok=1 ;; 0) _gopt_ok=0 ;; esac
-  fi
-fi
 
 # ⚠ NO SECOND `trap ... EXIT` HERE. `trap` REPLACES; a second one silently
 # discarded the scratch-root cleanup and left an empty directory behind on

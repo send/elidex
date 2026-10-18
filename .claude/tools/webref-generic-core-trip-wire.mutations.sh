@@ -245,7 +245,8 @@ _MUT_UNRECORDED_MAX=18
 # (`ctlrun:/^  _ctl_env=()$/d`; the global went); `fd90b4b1` the two drop-prefix records (relcwd, cfgkept: a
 # call-site drop is the opt-in records' class); the CR-S3 slice the four P-b definition-test records (stdout, hangup
 # line, the control failing, git's top-level usage: the test went with the version-keyed limit).
-_MUT_RECORDS_MIN=220
+# The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went).
+_MUT_RECORDS_MIN=222
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -401,11 +402,9 @@ _mut_trial() {
   # ⚠ A KILL IS THE NEEDLE IN A DIAGNOSTIC'S LABEL SLOT, NOT ANYWHERE IN THE
   # OUTPUT: `CONTROL FAILED (<needle>)` (the `!kill` arm's form) or
   # `CONTROL NOT EXERCISED (<needle>)`. A bare substring match counted a label
-  # that is printed on a GREEN line (`_k2_line` names the k2 label on the green
-  # summary): record 100, `_gopt_ok` 0 and any unrelated late red then "killed as
-  # named" though no check under that label failed (the file's own rule at
-  # `_limit_lines`: a label printed on a green line would let any unrelated red
-  # kill that record). The slot closes that for every summary line at once.
+  # that is printed on a GREEN line (a summary naming a control, say): any
+  # unrelated late red then "killed as named" though no check under that label
+  # failed. The slot closes that for every summary line at once.
   case "$_mt_out" in
     *"CONTROL FAILED ($2)"* | *"CONTROL NOT EXERCISED ($2)"*) return 0 ;;
     *) echo "!! MUTANT $1 killed for the WRONG REASON (exit $_mt_rc): the output" >&2

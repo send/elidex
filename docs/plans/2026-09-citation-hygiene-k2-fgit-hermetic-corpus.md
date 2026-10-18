@@ -200,7 +200,7 @@ the fix round and the review rounds after it change them as §6.1 says.
   is never excused: it is also how a harness break reports; a leaking caller can make it a false red.
 - **What counts as a kill.** `_mut_trial` counts a record killed only where its needle stands in a diagnostic's label
   slot: `CONTROL FAILED (<needle>)` or `CONTROL NOT EXERCISED (<needle>)` (the `!kill` arm's `CONTROL FAILED` form, plus `CONTROL NOT EXERCISED`). A label that is
-  printed on a green summary line (k2's `_k2_line`) therefore cannot let an unrelated red kill a record (K15, R7.13).
+  printed on a green summary line therefore cannot let an unrelated red kill a record (K15, R7.13).
 
 **Mutation-mode cost (X3).** Each run of X3 is one record trial per record (the count is §6.1's Current totals) plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
@@ -319,19 +319,21 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | `fd90b4b1` | **remove**: the relcwd and cfgkept prefix-drop records (`e271cb02`): the marks and their checks went, replaced by the evidence check's PATH-prefix demand; a call-site drop is the opt-in records' class | `a relative scratch dir is removed on exit`, `the caller's git CONFIGURATION survives the routing purge` | controls | — |
 | `fd90b4b1` | **add**: R3, cfgkept's PATH prefix withheld at the delivery (that prefix only; `ctlrun:`), and R4, the wire's `_git` stepping past a first `PATH` entry ending `/fakegitcfg`. Each is killed by the evidence check (`PATH prefix never reached the run`) and survives with that check disabled (R3: `S2b2R3surv`); R4 also survives with cfgkept's mark moved back to the shim's entry (`S2b2R4surv`). Both shells: rc 0, PASSED | `the caller's git CONFIGURATION survives the routing purge` | ctlrun (R3), wire (R4) | 124 / 219 |
 | `0d411df2` | **add**: k2's `_ctl_need="$_gopt_ok"` replaced by 0 (the `fifotracked` record's shape; `_gopt_ok` is the harness's probe of the grep the run resolves): "declined while this machine's capability flag is 1", so it dies only where `_gopt_ok` is 1; where it is 0 the decline is the right answer and the record survives (NOT EXERCISED, rc 0). It survives with `_cn_declined`'s red arm removed: measured at `20615255` on both shells as a `.mutant.99` copy (`S4bGoptsurv`), the record alone KILLED with its needle, rc 1; with that arm removed too, rc 0, PASSED, k2 NOT EXERCISED | `_ctl_need declines exactly what this machine cannot do` | controls | 125 / 220 |
+| CR-B1 | **remove**: k2's prefix record (`0d411df2`: the prefix's value replaced by 0): k2 is posed on every machine through the `goptgrep` shim (`…-cr-plan.md` §2.1), so it has no prefix and its call has nothing to decline; the opt-in record that pins k2 is the `unset GREP_OPTIONS` record (needle `a caller's GREP_OPTIONS cannot hide a file`), killed on a grep that honours the variable and on one that does not, and its survive clause is the shim's `GREP_OPTIONS` arm removed on a grep that ignores the variable | `a caller's GREP_OPTIONS cannot hide a file` | controls | 127 / 222 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
 - **Current totals** (the one statement; earlier per-commit totals are in the table above and in git):
-  **128 records of this PR, 223 in all**, measured at the CR-S3 slice's commit (which removes P-b's four
+  **127 records of this PR, 222 in all**, measured at the CR-B1 slice's commit (which removes k2's prefix record:
+  k2 is posed on every machine through a shim, so it has no prefix; 223 at the CR-S3 slice's commit, which removes P-b's four
   definition-test records, whose test went with K2's version-keyed limit, and adds the `var --`, the misspelt-name
   and the forced-129 records; 224 at the CR-S2 slice's commit, which added the `pin`
   control's swapped exit/message record and the record that restores the gate's early return before
   `_ctl_run`'s channel validation, and the record that weakens the evidence directory's fresh `rm -rf … && mkdir …`
   to `mkdir -p …`; 221 at the CR-S1 slice's commit, 220 at `0d411df2`) with
-  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (223) against
-  the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=220` is a **floor**: fewer
+  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (222) against
+  the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=222` is a **floor**: fewer
   records is red, more is not; its comment in `…mutations.sh` names every record this PR removed, by
   commit. `_MUT_UNRECORDED_MAX=18` (19 before the CR-S2 slice's `pin` record), and that ratchet is **exact**: fewer bare labels than that is red
   too ("LOWER the ratchet").

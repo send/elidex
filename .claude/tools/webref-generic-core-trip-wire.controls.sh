@@ -22,8 +22,8 @@
 # for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
 # was: it named `$CTL`, `_control`, a per-run env global, `$_perm_line`,
-# `$_fifo_line`, `$_k2_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
-# them (`grep -c '_perm_line\|_fifo_line\|_k2_line\|\$CTL\|ctl_ok\|\b_control\b'`
+# `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
+# them (`grep -c '_perm_line\|_fifo_line\|\$CTL\|ctl_ok\|\b_control\b'`
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
@@ -597,21 +597,18 @@ _control "$CTL/d3m2" 1 "K2: a" "a double quote inside an intermediate segment" |
 _control "$CTL/d3m3" 1 "K2: a" "a single quote inside an intermediate segment" || ctl_ok=1
 _control "$CTL/d3m4" 1 "K2: a" "a backtick inside an intermediate segment" || ctl_ok=1
 _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash token fails safe" || ctl_ok=1
-# A caller's `GREP_OPTIONS` over a violating file. BSD grep honours it, so
-# without the wire's `unset` the file reads as "no match". ⚠ GNU grep — CI's —
-# does not honour it (2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §11.1;
-# the note's own measurement is BSD only), and there this
-# control WOULD pass whatever the wire does, so the harness asks first. It asks the grep this run
-# resolves, over a file of its own (`_gopt_ok`): 1 = it honours the variable (the
-# question is posed), 0 = it ignores it (the call declines, `_k2_line` says so),
-# anything else = the probe could not tell, red under k2's label.
-_k2_line="            a caller's GREP_OPTIONS cannot hide a file"
-_ctl_need="$_gopt_ok" _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
-if _cn_declined "$_gopt_ok"; then
-  _k2_line="            ⚠ NOT EXERCISED on this machine: the GREP_OPTIONS control (this
-          machine's grep ignores GREP_OPTIONS), so this run carries no evidence
-          that a caller's GREP_OPTIONS cannot hide a file"
-fi
+# k2: a caller's `GREP_OPTIONS` over a violating file. BSD grep honours it, so
+# without the wire's `unset` the file reads as "no match"; GNU grep — CI's — does
+# not (2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §11.1; the note's own
+# measurement is BSD only), so the real tool cannot pose this question on every
+# machine. The control does not ask the machine's grep: `goptgrep` (the fixtures
+# file, beside `fakegrep`) answers "no match" whenever a `GREP_OPTIONS` reached it
+# and execs the real grep otherwise. It models the property under test — did the
+# caller's variable reach grep? — not the value's meaning to one grep, as
+# `fakegitcfg` does for `GIT_CONFIG_COUNT` and `fakerelmktemp` for a relative
+# `TMPDIR`; so the question is posed on every machine and declined on none. The
+# shim marks `path` before the test, and `_ctl_run` demands that mark back.
+_control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "$CTL/goptgrep" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the
 # verdict cannot say. ⚠ The same hook is then shown to run under a plain git
@@ -687,11 +684,10 @@ _mut_run
 
 echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
 echo "            inside binary content, on a symlink's stored target, on an entry's"
-echo "            own NAME, and on a symlinked entry script beside the scope; an empty"
-echo "            scope fails closed"
+echo "            own NAME, on a symlinked entry script beside the scope, and under a"
+echo "            caller's GREP_OPTIONS; an empty scope fails closed"
 printf '%s\n' "$_fifo_line"
 printf '%s\n' "$_perm_line"
-printf '%s\n' "$_k2_line"
 [ -z "$_limit_lines" ] || printf '%s\n' "$_limit_lines"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
 # …and no label-taking call ran after the label census (`_mut_census_end`, in the

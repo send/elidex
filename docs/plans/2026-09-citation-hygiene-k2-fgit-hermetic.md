@@ -53,7 +53,7 @@ measurement on a named artifact, given with its command.
   E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-D
   (round 14), D15-A…D15-C (round 15), D16-A…D16-D (round 16), D17-A…D17-D
   (round 17), D18-A…D18-C (round 18), D19-A…D19-C (round 19) and PX1 (the base `~+/bin` experiment).
-  In this memo a bare "R1"–"R9" is a §5.2 residual. Any other review round names its source: "Codex Rn"
+  In this memo a bare "R1"–"R10" is a §5.2 residual. Any other review round names its source: "Codex Rn"
   or "PR #527 Rn" for #527's external review, and "#501 Rn" or "#519's Rn" for the parent PRs' rounds.
   A finding within a Codex round is "Codex R26③". In `…-pr527.md`, whose subject is the Codex rounds, a
   bare "Rn" is a Codex round, and a residual is written "§5.2 Rn".

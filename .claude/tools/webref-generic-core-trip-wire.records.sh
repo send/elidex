@@ -364,13 +364,12 @@ controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok
 # `_ctl_need` (`$_cn_lbl`, the gate's arms; standing check in the controls file, and the
 # asks that decide the summary lines from `.declined` there): a caller's VALUE replaced
 # by a 0 on a machine whose flag is 1 → "declined while this machine's capability flag
-# is 1" (⚠ dies only where the flag is 1 - `_fifo_ok`, `_gopt_ok`: where it is 0 the decline is the right
+# is 1" (⚠ dies only where the flag is 1 - `_fifo_ok`: where it is 0 the decline is the right
 # answer, so the opt-in run reds there with `!! MUTANT <n> (<needle>) SURVIVED`); a declined direct call
 # after the perm group's ask (on the census's line, under an existing variable label, so
 # no other check reaches it) → "declined after the last capability group's ask" — the
 # last ask's record, on every machine.
 controls:s/^_ctl_need="[$]_fifo_ok" _control "[$]CTL\/fifotracked" /_ctl_need=0 _control "$CTL\/fifotracked" /	_ctl_need declines exactly what this machine cannot do
-controls:s/^_ctl_need="[$]_gopt_ok" _control "[$]CTL\/k2" /_ctl_need=0 _control "$CTL\/k2" /	_ctl_need declines exactly what this machine cannot do
 controls:s/^_mut_correspondence || ctl_ok=1$/_ctl_need=0 _ctl_run "$_mg_lbl" "$CTL\/clean" || :; &/	_ctl_need declines exactly what this machine cannot do
 # `_ctl_run` validates its channel arguments whatever the gate answered: the gate's answer taken as an early
 # return again (`|| return $?`) lets the `_cn` row that passes a malformed channel under a 0 come back 2, not 1.

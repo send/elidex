@@ -43,7 +43,7 @@ executed `_control`s), 12 MINOR, all verifier-CONFIRMED. Also recorded: 7 MINOR 
 **Triage** (designer, `R7-CR-triage.md`, frame `14d0b35d`). N = 32 (15 + 7 + 9 + 1). FIX 30 (23 code rows, 7 doc rows),
 DECLARE 2 (C6 under residuals R4, C7 under the memo's §0.3 (c)), OUT-OF-PR 0. By origin: R7's own commits 20, R3–R6 4,
 earlier in the PR 3, base 5. About 30 further CONFIRMED items sit in its appendix; under D9 (driver: triage them now) the
-plan designer assigned each to a slice or a disposition (plan memo §8), and the 8 with finder lines only (no verifier verdict) are re-measured in their slice first.
+plan designer assigned each to a slice or a disposition (plan memo §8, now `…-cr-sweep.md` §F), and the 8 with finder lines only (no verifier verdict) are re-measured in their slice first.
 
 **Clusters.** A: `_ctl_run` launch and watchdog with the `_wm` check (K7 K11 K12 K13 U2 K6 C4 U4). B: the capability /
 decline path (K4 K10 K14 K15 K8 K9 U3 U8; three mechanisms). C: the label census and ratchet (K1 K3 C3, C5 U9). D: P-b's
@@ -180,3 +180,39 @@ The broken summaries are kept as `battery-*.out.crs5-basebroken` and `…-xonly`
 
 The first half is done (S1 `c3c0b74b`, S2 `945a814d`, S3 `598e1aa2`, S5 `5f08bd6b`, S8a `161ae982`; pushed head still
 `815f8d4b`). The second half (B/C) proceeds in this PR (user, 2026-10-18).
+
+### S.2 CR-B1 — k2 is posed on every machine; the plan memo and its ledger move into the repo
+
+The first slice of the B/C plan (`…-cr-plan.md` §2.1 and §7). Three commits: the §10 split (the plan memo's revision-error
+bullets → `…-reviews.md` §CR, verbatim, registered in the design memo's header), the move (the memo and the sweep ledger
+into `docs/plans/` as `…-cr-plan.md` and `…-cr-sweep.md`; the four instruments into the sweep file's §E; the design memo's
+header and the umbrella's row A-i-wire-fgit register both, "All eleven" → thirteen), and the code.
+
+**Changed.** The harness's `GREP_OPTIONS` probe and its comment (29 lines with the blank after) are gone, and so are k2's prefix, its summary
+line and its ask in the controls file, k2's prefix record, and the comment lines that named them. k2 is posed on every machine through `goptgrep`, a grep shim in the fixtures file beside `fakegrep`: it marks `path`,
+answers "no match" whenever a `GREP_OPTIONS` reached it, and execs the real grep otherwise; the control's claim moved into the
+summary's static lines. `_MUT_RECORDS_MIN` = 222 (measured, `_mutants | wc -l`); corpus §6.1 has the "remove" row and the new
+totals; residuals R10 carries the #519 banner's correction (`…-cr-plan.md` §7). `…-cr-plan.md` §7's R3-B2a-3 pointer to §10 was
+already absent from the text moved.
+
+**Measured** (every log under the driver's handoff directory `crb1-logs/`; the claim and arm tables are `crb1-logs/CLAIMS.md`).
+Ship PASSED, rc 0, on bash 5.3 and 3.2 under BSD `grep` and under the GNU-like profile (a `grep` first on `PATH` that unsets
+`GREP_OPTIONS`). Record 100 (`unset GREP_OPTIONS` → `:`) is KILLED AS NAMED on all four. With the shim's `GREP_OPTIONS` arm
+removed it is KILLED on BSD and SURVIVES on the GNU-like profile, both shells (the arm is what the GNU-like profile kills it by).
+The shim's `path` mark removed → `CONTROL NOT EXERCISED (<k2>): PATH prefix never reached the run`, both shells. The floor:
+a record deleted → "holds 221 records, against a floor of 222", both shells; with the floor at 220 that line is absent.
+`ledger-check.py B1` passes at the code tree and, at the frame, reproduces the per-slice violation counts (B1 32, B2a 151,
+B2b 160, B2c 176, C1 218, C2 221); `sweep.sh` reads 26 files and prints identical output on both shells; `completion.sh`'s
+B1 greps: parts and wire 0, design memo / census / landing / residuals 0, corpus 1 (:321, history), `three capability probes` 0;
+`scripts/trip-wires.sh` rc 0. harness.sh is 886 lines (expected 887: the blank line after the probe went with it).
+
+**Sweep re-run, the new sites** (every `sweep.sh` hit at the head that the frame's run lacks, by `(identifier, file, text)`: 37
+entries, counted with this section's own text in the file set). The shim, its comment, its call and the static summary clause
+(controls :600, :604, :605, :611, :688; fixtures :359-360: 9 entries) are `stays` code. controls :25-26 and records :367 (4)
+are the two-owner rows (B1's part gone, B2a's still there). `_MUT_RECORDS_MIN=222` (mutations :249, corpus :336: 2) is the
+ratchet figure. The design memo :17 and umbrella :23 and :111 (3) are the registration rows. Corpus :322 (2) is a §6.1
+history row; residuals :7 and :117 and design memo :56 (4) are the residual range and R10 (`resid_range`, a group this slice
+adds to `idents.tsv`). reviews :663-688 (7) are the moved bullets, `hist` (a dated record of past rounds). This section's own
+lines (6) name the slice's identifiers as a record of it, `hist`. None is unclassified. **The
+wrapped-identifier backstop** (`perl -0777`, `[\s#]+` between the words, the 26 files): the same five matches at the frame and at
+the head (harness :750, mutations :198 and :740, landing :74, reviews :624), none introduced.
