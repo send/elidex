@@ -13,9 +13,13 @@ external review and plan-review rounds 10–14, is in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"), and from round 15 on,
 with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`
 ("`…-pr527-r15.md`"; closed at 799 lines by the §13 rollover), and the implementation record from review round 3 on in
-`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md` ("`…-impl.md`", §R; closed at 799 lines, §13), continued, after it closed, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr.md`
-("`…-impl-cr.md`", §S; its §S.1 backfills the code review's first-half results §R lacks; the open
-record while under 800 lines, §13). **Census**:
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md` ("`…-impl.md`", §R; closed at 799 lines, §13), continued, after it closed, in
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr.md` ("`…-impl-cr.md`", §S; its §S.1 backfills the
+code review's first-half results §R lacks; the open record while under 800 lines, §13). **CR round**: the plan
+of PR #527's CR round (clusters B and C of the branch-wide `/code-review max`), approved by plan-review R1–R3 and a
+focused re-check, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` ("`…-cr-plan.md`"), with its
+sweep ledger and the instruments the slices run (its §E) in
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-sweep.md` ("`…-cr-sweep.md`"). **Census**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md` ("`…-census.md`"), the second half of §4 (P-g's
 population, the census, the boundary and the working files), split out of this memo unchanged at `20615255`.
 **Corpus**:
