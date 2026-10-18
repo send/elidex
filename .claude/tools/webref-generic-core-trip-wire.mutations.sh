@@ -21,12 +21,12 @@
 # (`$_VFY/.registry`: what the run primitives' `_ctl_reg` appended), `$_cen_lbl` (read by the
 # census), `$_lbd_names` (from the controls file: the `_*_lbl` names the parts
 # spell, each asserted defined and non-empty there; the census reads their
-# values, and `_mut_run` the `_p<x>*_lbl` among them with the harness's
+# values, and `_mut_run` the `_p<x>_lbl` and `_p<x>l_lbl` among them with the harness's
 # `$_fw_limits` for a machine-limited record), `$_MUT_PARTS` (from the controls
 # file, which spells the list of parts once), the capability table's READER
 # (`_cap_rows`, `_cap_group_of`, `_cap_flag_of`, from the run primitives: functions
 # only, asserted below by `declare -F`; neither the table nor a flag is read here,
-# for the census's membership check and `_mskip`), and `$SELF`, `$SCRATCH`, `$K2RE`
+# for the census's membership check and `_mut_run`'s capability excuse), and `$SELF`, `$SCRATCH`, `$K2RE`
 # and `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` (`${SELF%.sh}.<part>.sh`); the per-run copies iterate `_MUT_PARTS`.
 # `_mut_run` copies every part in that list — the controls, the harness, its run
@@ -42,6 +42,8 @@
 # `_MUTRECORDS`, `_MUT_TARGETS`, `_mut_correspondence`,
 # `_mut_census_end` (the controls file's last statement),
 # `_mut_cap_member` (the census's membership callback, with its list `_mc_ctl` and the list's delimiter `_mc_nl`),
+# `_mut_skip_glabel` (the capability excuse's callback: a needle that is a group's own label),
+# `_mut_wrong_reason` (the wrong-reason diagnostic, printed by `_mut_trial` or its caller),
 # `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
 # `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
 # generated half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
@@ -355,7 +357,17 @@ _mut_rm_copies() {
 # or `!kill` (red, with `CONTROL FAILED (<label>)` for the label of some
 # `_control`, none named).
 # Returns 0 = as required, 1 = SURVIVED (the caller decides what that means),
-# 2 = failed some other way, already reported.
+# 2 = failed some other way, already reported, 3 = killed for the WRONG REASON by
+# a mutant that exited 1 (NOT yet reported: the caller excuses it, for a record
+# whose needle is a member of an absent group, or reports it through
+# `_mut_wrong_reason`). A mutant that exited 2 ended at "decided nothing", which a
+# harness break also reports, so that case is a 2 and never excused.
+# The `!kill` and `!survive` forms return 0, 1 or 2 only.
+_mut_wrong_reason() { # $1 = how to name it, $2 = the needle; reads the mutant's `$_mt_rc`
+  echo "!! MUTANT $1 killed for the WRONG REASON (exit $_mt_rc): the output" >&2
+  echo "   holds no \"CONTROL FAILED ($2)\" or \"CONTROL NOT EXERCISED ($2)\" (the" >&2
+  echo "   needle in a diagnostic's label slot), so another check masked the one under test." >&2
+}
 _mut_trial() {
   # ⚠ THE MUTANT RUNS UNDER THE DRIVER'S OWN BASH (`$BASH`), as every control
   # child does, so a run driven by bash 3.2 exercises 3.2 end to end rather than
@@ -372,7 +384,8 @@ _mut_trial() {
   _mt_rc=0
   # (The mutant inherits every other variable, WEBREF_WIRE_LACKS among them: a declaring
   # machine's mutants see the same declaration, so a probe-flip mutant SURVIVES there (an absence the caller
-  # declared is accepted; unexcused until CR-B2c); it reds under its group's label only if the inheritance is cut.)
+  # declared is accepted, and `_mut_run` excuses that record by the table's flag); it reds under its group's label
+  # only if the inheritance is cut.)
   _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1)" || _mt_rc=$?
   if [ "$2" = '!survive' ]; then
     # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
@@ -422,13 +435,14 @@ _mut_trial() {
   # failed. The slot closes that for every summary line at once.
   case "$_mt_out" in
     *"CONTROL FAILED ($2)"* | *"CONTROL NOT EXERCISED ($2)"*) return 0 ;;
-    *) echo "!! MUTANT $1 killed for the WRONG REASON (exit $_mt_rc): the output" >&2
-       echo "   holds no \"CONTROL FAILED ($2)\" or \"CONTROL NOT EXERCISED ($2)\" (the" >&2
-       echo "   needle in a diagnostic's label slot), so another check masked the one under test." >&2
+    *) [ "$_mt_rc" -eq 1 ] && return 3
+       _mut_wrong_reason "$1" "$2"
        return 2 ;;
   esac
 }
 
+# The capability excuse's callback (`_cap_rows group`): the needle is this group's own label.
+_mut_skip_glabel() { [ "${_cr_f[3]}" != "$_pr_needle" ] || { _mk_g="${_cr_f[1]}"; _cr_stop=1; }; }
 # The census's membership callback (`_cap_rows member`): the member label is in `$_mc_ctl`.
 _mut_cap_member() {
   case "$_mc_ctl" in *"$_mc_nl${_cr_f[2]}$_mc_nl"*) ;; *)
@@ -736,18 +750,25 @@ _mut_run() {
       # a machine. So every record RUNS; a SURVIVAL of one of these is reported
       # as not exercisable here and not counted (PR #527 Codex R17; the first
       # form skipped them unrun — the re-check after it). The labels are
-      # derived from the ID — every `_p<x>*_lbl` name in `$_lbd_names` — not listed.
-      # REJECTED, by design (the dropped-at-cap round, commit `2b56c33c`): the excuse keys on the `_p<x>*_lbl` NAMING convention, so a renamed label falls out of it and the opt-in run reds on a limited machine — the FAIL-SAFE side.
+      # derived from the ID — `_p<x>_lbl` and `_p<x>l_lbl` in `$_lbd_names` — not listed.
+      # REJECTED, by design: the excuse keys on the `_p<x>_lbl` / `_p<x>l_lbl` NAMING convention (the ID's postcondition label and its limit label, exactly), so a renamed label falls out of it and the opt-in run reds on a limited machine, the FAIL-SAFE side.
       _mskip=""
       while IFS= read -r _ml; do
         _mid="${_ml%% —*}"
         case "$_mid" in P-[a-z]) ;; *) continue ;; esac
         for _mlv in $_lbd_names; do
-          case "$_mlv" in "_p${_mid#P-}"*) [ "${!_mlv:-}" != "$_pr_needle" ] || _mskip="$_mid" ;; esac
+          case "$_mlv" in "_p${_mid#P-}_lbl"|"_p${_mid#P-}l_lbl") [ "${!_mlv:-}" != "$_pr_needle" ] || _mskip="$_mid" ;; esac
         done
       done <<EOF_MLIM
 ${_fw_limits:-}
 EOF_MLIM
+      # The capability half: a needle that is a member of a group whose flag is 0, or that group's own label.
+      # Only a machine that DECLARED the absence reaches here with a flag at 0 (the gate reds an undeclared one
+      # first); an undeclared group or an unset flag is no 0, so nothing is excused (fail-safe).
+      _mskip_g=""; _mk_g=""
+      _cap_group_of "$_pr_needle"; _mk_g="$_cap_g"
+      [ -n "$_mk_g" ] || _cap_rows group _mut_skip_glabel
+      if [ -n "$_mk_g" ]; then _cap_flag_of "$_mk_g"; [ "$_cap_v" != 0 ] || _mskip_g="$_mk_g"; fi
       _mut_restore_copies || { _mut_bad=$((_mut_bad + 1)); continue; }
       _mut_target "$_pr_which"
       if ! _mut_apply "$_mut_src" "$_mut_tgt"; then
@@ -759,11 +780,22 @@ EOF_MLIM
       # is what a survived mutant did while this refactor was being written.
       _mrc2=0; _mut_trial "$_mut_n ($_pr_needle)" "$_pr_needle" || _mrc2=$?
       [ "$_mrc2" -ne 2 ] || { _mut_bad=$((_mut_bad + 1)); continue; }
-      # ⚠ ONLY A SURVIVAL (1) IS EXCUSED, never a 2: a 2 is also how a
-      # harness break (MATCHED NOTHING, a clobbered copy) reports, and
-      # excusing it would hide one. A limited machine whose caller leaks
-      # configuration can therefore report a record "killed for the wrong
-      # reason" — a false RED on an opt-in run, the fail-safe side.
+      # ⚠ A 2 IS NEVER EXCUSED: it is also how a harness break (MATCHED NOTHING, a
+      # clobbered copy) reports, and excusing it would hide one. P-x excuses a
+      # survival (1) only; the capability excuse a survival or a wrong-reason kill
+      # whose mutant exited 1 (3), because a declined member's label never stands in
+      # a label slot on that machine. A limited machine whose caller leaks
+      # configuration can therefore still report a record "killed for the wrong
+      # reason" — a false RED on an opt-in run, the fail-safe side. A 3 nothing
+      # excuses is red.
+      if [ -n "$_mskip_g" ] && { [ "$_mrc2" -eq 1 ] || [ "$_mrc2" -eq 3 ]; }; then
+        echo "  mutant $_mut_n ($_pr_needle) $([ "$_mrc2" -eq 1 ] && echo survived || echo 'was killed for another reason'), and is not exercisable on this machine: the \`$_mskip_g\` group is declared absent"
+        _mut_exc=$((_mut_exc + 1)); continue
+      fi
+      if [ "$_mrc2" -eq 3 ]; then
+        _mut_wrong_reason "$_mut_n ($_pr_needle)" "$_pr_needle"
+        _mut_bad=$((_mut_bad + 1)); continue
+      fi
       if [ "$_mrc2" -eq 1 ] && [ -n "$_mskip" ]; then
         echo "  mutant $_mut_n ($_pr_needle) survived, and is not exercisable on this machine: $_mskip is a machine limitation here"
         _mut_exc=$((_mut_exc + 1)); continue

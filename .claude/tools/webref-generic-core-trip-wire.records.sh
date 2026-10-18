@@ -277,8 +277,8 @@ harness:s/^    if \[ -n "[$]_sa_link" \]; then _seal_refuse .*$/    :/	every mod
 fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" a-rwx walk/	every mode restriction a fixture sealed was applied
 fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.lk/	every mode restriction a fixture sealed was applied
 # The err fixture's chain failing is NOT a machine that cannot enforce modes:
-# the perm block is gated on its own probe (`_perm_ok`), so `_control err` reports
-# the failed build; and the err seal line, deleted, is red in the same control.
+# the perm block is gated on its own probe (`_perm_ok`), so where `_perm_ok` is 1
+# `_control err` reports the failed build; and the err seal line, deleted, is red in the same control.
 fixtures:s/^_seal "[$]CTL\/err\/control.py" 000 err$/_fixture_failed err; &/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
 # `_ctl_run`'s timeout clause reads a signal status as a timeout only beside the watchdog's marker
@@ -398,7 +398,8 @@ controls:/^group.perm._perm_ok/h;/^member.perm.an unresolvable self-test root de
 # The three probes' flips (an absence nobody declared is `_cap_check`'s red, under the group's or the limit's own
 # label): the FIFO probe and the permission probe answer 0 on a machine that has the capability, and P-f's definition
 # test is forced to the limit branch on an `env` that accepts -0. Each is excused (SURVIVES, not counted) only where
-# its caller declares the group or ID (WEBREF_WIRE_LACKS), by the table's own flag or the P-x half.
+# its caller declares the group or ID (WEBREF_WIRE_LACKS): the fifo and permission flips by the table's flag
+# (`_mut_run`'s capability half), the P-f flip by the P-x half (`_pfl_lbl` is its limit label).
 harness:s/then _fifo_ok=1;/then _fifo_ok=0;/	this machine holds a FIFO, or its caller declared that it cannot
 harness:s/^_perm_ok=1$/_perm_ok=0/	this user cannot read a mode-000 file, or its caller declared that it can
 harness:s/^  if \[ "[$]_pfrc" -ne 0 \] && \[ ! -s "[$]_pq\/env0" \] && \[ -s "[$]_pq\/env0.err" \] \\$/  if true \\/	this env lists its environment NUL-separated, or its caller declared that it cannot
