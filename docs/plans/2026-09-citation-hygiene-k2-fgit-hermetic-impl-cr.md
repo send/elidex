@@ -186,10 +186,14 @@ The first half is done (S1 `c3c0b74b`, S2 `945a814d`, S3 `598e1aa2`, S5 `5f08bd6
 The first slice of the B/C plan (`…-cr-plan.md` §2.1 and §7). Three commits: the §10 split (the plan memo's revision-error
 bullets → `…-reviews.md` §CR, verbatim, registered in the design memo's header), the move (the memo and the sweep ledger
 into `docs/plans/` as `…-cr-plan.md` and `…-cr-sweep.md`; the four instruments into the sweep file's §E; the design memo's
-header and the umbrella's row A-i-wire-fgit register both, "All eleven" → thirteen), and the code.
+header and the umbrella's row A-i-wire-fgit register both, "All eleven" → thirteen), and the code. Two things about the commits, recorded here because the plan memo's §7 (e) says otherwise or cannot know them.
+The move commit (`d5902a94`) also carries the §8 → sweep §F split, although §7 (e) said it "carries no reorganisation": the
+driver decided it, because the moved memo was 1010 lines and folding the split into the move keeps every commit under 1000
+lines. And the split commit (`d237b117`) has §CR name `…-cr-plan.md` one commit before that file exists (the move commit
+creates it); the name resolves from the move commit on.
 
-**Changed.** The harness's `GREP_OPTIONS` probe and its comment (29 lines with the blank after) are gone, and so are k2's prefix, its summary
-line and its ask in the controls file, k2's prefix record, and the comment lines that named them. k2 is posed on every machine through `goptgrep`, a grep shim in the fixtures file beside `fakegrep`: it marks `path`,
+**Changed.** The harness's `GREP_OPTIONS` probe and its comment (29 lines with the blank after) are gone, and so are k2's `_ctl_need` prefix, its summary
+line and its ask in the controls file, k2's `_ctl_need` prefix record, and the comment lines that named them. k2 is posed on every machine through `goptgrep`, a grep shim in the fixtures file beside `fakegrep`: it marks `path`,
 answers "no match" whenever a `GREP_OPTIONS` reached it, and execs the real grep otherwise; the control's claim moved into the
 summary's static lines. `_MUT_RECORDS_MIN` = 222 (measured, `_mutants | wc -l`); corpus §6.1 has the "remove" row and the new
 totals; residuals R10 carries the #519 banner's correction (`…-cr-plan.md` §7). `…-cr-plan.md` §7's R3-B2a-3 pointer to §10 was
@@ -199,20 +203,28 @@ already absent from the text moved.
 Ship PASSED, rc 0, on bash 5.3 and 3.2 under BSD `grep` and under the GNU-like profile (a `grep` first on `PATH` that unsets
 `GREP_OPTIONS`). Record 100 (`unset GREP_OPTIONS` → `:`) is KILLED AS NAMED on all four. With the shim's `GREP_OPTIONS` arm
 removed it is KILLED on BSD and SURVIVES on the GNU-like profile, both shells (the arm is what the GNU-like profile kills it by).
-The shim's `path` mark removed → `CONTROL NOT EXERCISED (<k2>): PATH prefix never reached the run`, both shells. The floor:
-a record deleted → "holds 221 records, against a floor of 222", both shells; with the floor at 220 that line is absent.
+The shim's `path` mark removed → `CONTROL NOT EXERCISED (<k2>): PATH prefix never reached the run`, both shells. The floor is pinned in isolation:
+deleting `records.sh` :288 (its label is shared with :101, so the label census stays green) → `!! the mutation set holds 221
+records, against a floor of 222.` as the only `!!` line, rc 1, both shells; with the floor lowered to 221 as well, rc 0, PASSED,
+both shells. k2's PATH prefix argument (`"$CTL/goptgrep"`, controls :615) has no shipped row: emptied, ship stays green (the path
+demand goes with the argument); only record 100 on the GNU-like profile pins it (emptied + record 100: SURVIVED, rc 0, both
+shells; on BSD it is KILLED AS NAMED regardless).
 `ledger-check.py B1` passes at the code tree and, at the frame, reproduces the per-slice violation counts (B1 32, B2a 151,
 B2b 160, B2c 176, C1 218, C2 221); `sweep.sh` reads 26 files and prints identical output on both shells; `completion.sh`'s
 B1 greps: parts and wire 0, design memo / census / landing / residuals 0, corpus 1 (:321, history), `three capability probes` 0;
 `scripts/trip-wires.sh` rc 0. harness.sh is 886 lines (expected 887: the blank line after the probe went with it).
 
-**Sweep re-run, the new sites** (every `sweep.sh` hit at the head that the frame's run lacks, by `(identifier, file, text)`: 37
-entries, counted with this section's own text in the file set). The shim, its comment, its call and the static summary clause
-(controls :600, :604, :605, :611, :688; fixtures :359-360: 9 entries) are `stays` code. controls :25-26 and records :367 (4)
-are the two-owner rows (B1's part gone, B2a's still there). `_MUT_RECORDS_MIN=222` (mutations :249, corpus :336: 2) is the
-ratchet figure. The design memo :17 and umbrella :23 and :111 (3) are the registration rows. Corpus :322 (2) is a §6.1
-history row; residuals :7 and :117 and design memo :56 (4) are the residual range and R10 (`resid_range`, a group this slice
-adds to `idents.tsv`). reviews :663-688 (7) are the moved bullets, `hist` (a dated record of past rounds). This section's own
-lines (6) name the slice's identifiers as a record of it, `hist`. None is unclassified. **The
+**Sweep re-run, the new sites** (every `sweep.sh` hit at the head that the frame's run lacks, by `(identifier, file, text)`, both
+runs with §E's `idents.tsv` as the review fixes widened it: 54 entries, counted with this section's own text in the file set). The shim,
+its comment, its call, the static summary clause and the comments that name k2's mechanism (controls :600, :604, :605, :613, :615,
+:692; fixtures :100, :106, :363-364; mutations :248: 13 entries) are `stays` code. controls :25-26 and records :367 (4) are the
+two-owner rows (B1's part gone, B2a's still there). `_MUT_RECORDS_MIN=222` (mutations :249, corpus :336: 2) is the ratchet figure.
+The design memo :17 and umbrella :23 and :111 (4: :23 is two entries) are the registration rows. Corpus :322, :328 and :329 (5) are §6.1 history
+rows. Residuals :7 and :117, the design memo :19, :31, :56 and :644 (7) are the residual range and R10 (`resid_range`, a group this
+slice adds to `idents.tsv`); the widened ERE also finds, at the frame as at the head, `…-pr527.md` :657 (a past review row quoting
+the rule as "a bare R1–R9", `hist`, stays) and, as new text, the design memo :19 and umbrella :23 ("plan-review R1–R3": rounds of
+a review, not the residuals; it matches the range's spelling only, stays); the two unquoted "R1–R9" of the design memo (:31, :644)
+became "R1–R10". reviews :664-689 (7) are the moved bullets, `hist` (a dated record of past rounds). This section's own lines
+(12) name the slice's identifiers as a record of it, `hist`. None is unclassified. **The
 wrapped-identifier backstop** (`perl -0777`, `[\s#]+` between the words, the 26 files): the same five matches at the frame and at
 the head (harness :750, mutations :198 and :740, landing :74, reviews :624), none introduced.

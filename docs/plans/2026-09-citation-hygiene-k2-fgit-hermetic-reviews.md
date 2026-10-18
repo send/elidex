@@ -654,7 +654,8 @@ memo"; its §7, "The §10 split") keeps its premise errors and gaps (P-a … P-f
 that record an error of one of its revisions or of a review round of it, so the record of each revision's errors lives
 in one place. The bullets are moved verbatim; "r1" … "r3" are the memo's revisions and `CR-plan-review-R1.md` …
 `CR-plan-review-R3.md` the plan-review rounds on it (handoff files, outside the repo). Text that says "this one" means
-the revision that found the error.
+the revision that found the error. A bare § in this section is the CR plan memo's (`…-k2-fgit-hermetic-cr-plan.md`), not
+the design memo's: the same form as the note at the top of `…-cr-sweep.md` §F.
 
 - **Errors in the r1 revision (frame `14d0b35d`), found by r2's measurements:** P6's excused set named 282 and 289
   only — the perm-member records are 86, 98, 99, 280, 281, 289, 394 (M-k14); P4's "fifo members' records" do not exist

@@ -54,7 +54,7 @@ identifiers, class and slice unchanged (**(M)** `crplan-r4/logs/M-h1-inputs.txt`
 | `grepopt` | `GREP_OPTIONS` | k2 posed through the shim (B1) |
 | `family` | `impl-cr` | the sites that list the memo family: the moved plan memo registers there (B1, G1) |
 | `slot` `x9` | `#11-trip-wire-launch-environment`; `X9\|route \(b\)` | BS-3's member (B2b); Q1's route (B2b, G2) |
-| `resid_range` | `"R1"–"R[0-9]+"` | the residuals' range statement (residuals.md :7), which each carried correction's row extends (R3-all-3; added by CR-B1 with R10) |
+| `resid_range` | `"?R1"?–"?R[0-9]+"?` | the residuals' range statement (residuals.md :7), which each carried correction's row extends (R3-all-3; added by CR-B1 with R10) |
 
 **A row is the statement that holds the hit**, not the hit line alone: the comment block, paragraph, bullet or
 table row it sits in (prose wraps, which is how stem greps missed sites). The disposition names the extent
@@ -750,10 +750,12 @@ B 8 · C 7 · DECLARE 2 · OUT-OF-PR 1 = **30**; row 31 is B's.
 The four instruments a slice's completion runs (the plan memo's §7, "The move"), verbatim, one fenced block per file under its
 file name. A slice copies each block to a scratch directory under that name and runs it from there (no extractor: the copy is
 the block): `sweep.sh <clone>` (reads `idents.tsv` beside itself), `ledger-check.py <clone> <slice> [<commit>]`,
-`completion.sh <clone>`. Two changes were made in the move, against the handoff copies in `crplan-r3/bin/` that measured the
+`completion.sh <clone>`. Three changes were made in the move, against the handoff copies in `crplan-r3/bin/` that measured the
 frame: `ledger-check.py` reads §3 of this file as committed at CR-B1 and each row's frame text from `git show 2f1ca601:<file>`
-(not the handoff logs `ledger.tsv` / `sweep-sites.tsv`), and `completion.sh`'s C2 part-path grep gains the quoted-stem
-alternative (plan memo §3.4, H6). `sweep.sh` is r4's (it excludes the two moved files). Run at the frame, `ledger-check.py`
+(not the handoff logs `ledger.tsv` / `sweep-sites.tsv`), `completion.sh`'s C2 part-path grep gains the quoted-stem
+alternative (plan memo §3.4, H6), and `idents.tsv` gains the `resid_range` row (§1's table), whose ERE matches the
+range quoted (`"R1"–"R10"`) and unquoted (`R1–R10`) alike (CR-B1's review fixes widened it: the first form, `"R1"–"R[0-9]+"`,
+missed the design memo's two unquoted "R1–R9"). `sweep.sh` is r4's (it excludes the two moved files). Run at the frame, `ledger-check.py`
 takes the CR-B1 commit as its third argument (the frame has no sweep file). The sections above name handoff-directory paths
 (`crplan-r3/bin/…`, `logs/…`): those are where the frame was measured, and stay outside the repo.
 
@@ -820,7 +822,7 @@ family	impl-cr
 lblconv	_\*_lbl|_lbl="…"	
 slot	#11-trip-wire-launch-environment	
 x9	X9|route \(b\)	
-resid_range	"R1"–"R[0-9]+"	
+resid_range	"?R1"?–"?R[0-9]+"?	
 ```
 
 ### §E.ledger-check.py

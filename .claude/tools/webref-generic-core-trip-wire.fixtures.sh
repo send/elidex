@@ -96,12 +96,16 @@ mkdir -p "$CTL/fakegit"
 # worktree/untracked one — so one shim failed both, and the surviving error from
 # whichever arm remained MASKED the removal of the other's status check.
 # Measured by the external reviewer: deleting the worktree inventory's error
-# emission left the whole run green. A shim shims the one call it is about.
+# emission left the whole run green. A shim shims the one call it is about
+# (one exception, `goptgrep`: see below `fakegrep`).
 # ⚠ ONLY `ls-files` FAILS. The shim used to answer every `git` invocation,
 # which made it a control for whatever the wire asked git next rather than for
 # a failing inventory — and #501 R95 added a `rev-parse` preflight that the
 # blanket shim then answered with the fixture's own bytes. Same shape as
 # `fakegrep`: a control shims the ONE call it is about.
+# ⚠ The exception is `goptgrep` (below, beside `fakegrep`): it answers EVERY grep call,
+# because k2's question is whether the caller's variable reached any grep the wire
+# ran, not what one particular call returned (`…-cr-plan.md` §2.1).
 _fgit_shim "$CTL/fakegit/git" 'case " $* " in *" --stage "*) : > "${K2_CTL_REACHED:?}/path"; printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
 # …and its sibling for the WORKTREE/untracked inventory, which had no shim and
 # therefore no control of its own.

@@ -800,7 +800,8 @@ sends each to one place (CLAUDE.md's touch-time split: its own commit, so the mo
 - **(d) Registration.** The design memo's header (:5-22), which lists reviews.md's sections, gains the new section in
   the split commit.
 - **(e) Order.** Split commit first (§10 bullets out, the new reviews.md section and header line in), then the move
-  commit. The split commit leaves this memo's body and §7 unchanged except for (b)'s deleted pointer.
+  commit (which also carries the §8 → sweep §F split, an exception to "no reorganisation" decided at CR-B1: see
+  `…-impl-cr.md` §S.2). The split commit leaves this memo's body and §7 unchanged except for (b)'s deleted pointer.
 
 | slice | items | files (ledger rows; frame size → budget) and additions | completion conditions (besides the three above) |
 |---|---|---|---|

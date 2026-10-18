@@ -28,7 +28,7 @@ mutation records (split out of this memo's §6 unchanged). **Landing**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` ("`…-landing.md`"), §9 (the commits,
 the land order and the ledger text) and §11 (the exit criteria), split out of this memo unchanged.
 **Residuals**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` ("`…-residuals.md`"),
-§5 (class (c), the residuals R1–R9 and the pre-existing defect), split out of this memo unchanged at
+§5 (class (c), the residuals R1–R10 and the pre-existing defect), split out of this memo unchanged at
 `f8ea983a`; extended since by D17-A and D18-A (§5.1). This memo holds only the live decisions.
 
 **Parent memo**: `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, #519's record (`…-reviews.md` §8.2).
@@ -641,7 +641,7 @@ unchanged at `0d411df2`), so "§4, \"The boundary\"", "§4, \"The references and
 ## §5 Residuals, the slot, and a pre-existing defect
 
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` §5 (touch-time split, text
-unchanged at `f8ea983a`; extended since by D17-A and D18-A; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R9 and the
+unchanged at `f8ea983a`; extended since by D17-A and D18-A; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R10 and the
 pre-existing defect, closed by `8f4ad3c8`), so "§5.1", "§5.2" and "§5.2 Rn" in this memo resolve there.
 
 ## §6 The corpus — evidence, and the source of the records

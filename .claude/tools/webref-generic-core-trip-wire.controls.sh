@@ -605,9 +605,13 @@ _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash to
 # file, beside `fakegrep`) answers "no match" whenever a `GREP_OPTIONS` reached it
 # and execs the real grep otherwise. It models the property under test — did the
 # caller's variable reach grep? — not the value's meaning to one grep, as
-# `fakegitcfg` does for `GIT_CONFIG_COUNT` and `fakerelmktemp` for a relative
-# `TMPDIR`; so the question is posed on every machine and declined on none. The
-# shim marks `path` before the test, and `_ctl_run` demands that mark back.
+# `fakegitcfg` does for `GIT_CONFIG_COUNT` (`fakerelmktemp` is not that kind: it
+# returns a relative path unconditionally); so the question is posed on every
+# machine and declined on none. The shim marks `path` before the test, and
+# `_ctl_run` demands that mark back. ⚠ Deleting the prefix ARGUMENT below drops
+# that demand with it (as relcwd's comment says): the shipped run stays green,
+# and only the opt-in record that pins k2 (`unset GREP_OPTIONS`), run on a grep
+# that ignores the variable (the GNU-like profile), reds it.
 _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "$CTL/goptgrep" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the

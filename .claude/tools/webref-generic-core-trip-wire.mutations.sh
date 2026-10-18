@@ -245,7 +245,7 @@ _MUT_UNRECORDED_MAX=18
 # (`ctlrun:/^  _ctl_env=()$/d`; the global went); `fd90b4b1` the two drop-prefix records (relcwd, cfgkept: a
 # call-site drop is the opt-in records' class); the CR-S3 slice the four P-b definition-test records (stdout, hangup
 # line, the control failing, git's top-level usage: the test went with the version-keyed limit).
-# The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went).
+# The CR-B1 slice removed k2's `_ctl_need` prefix record (k2 is posed on every machine, so the prefix went).
 _MUT_RECORDS_MIN=222
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
