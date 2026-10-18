@@ -182,8 +182,9 @@ reason. Six commits, each diff read by the driver (`NEXT.md` "UPDATE (round 6)")
 
 **Slice A, `04466154`** (prereq split). `_mutants` and its comment block (mutations :218-518) moved to
 `…trip-wire.records.sh`, sourced beside `…mutgen.sh` with the same missing-sibling guard; `records` joins
-`_MUT_PARTS`. Measured: `git show HEAD:…mutations.sh | sed -n 218,518p` cmp-identical to records.sh :18-318 (the
-commit: "apart from three pointer words"); ship 17 s / 23 s; one record per target (wire 42, fixtures 144, mutgen
+`_MUT_PARTS`. Measured: `diff <(git show 04466154~1:…mutations.sh | sed -n 218,518p) <(git show
+04466154:…records.sh | sed -n 18,318p)` differs in 8 diff lines (records.sh's added header line, three pointer
+rewordings, the closing `}` absent from the range; the commit says "apart from three pointer words"); ship 17 s / 23 s; one record per target (wire 42, fixtures 144, mutgen
 244, controls 289, harness 308) KILLED; records.sh removed → rc 2, "missing or unreadable … decided nothing"; a
 trial's copy set includes records.sh; `bash -n` clean.
 
@@ -747,8 +748,8 @@ are.
 - Of the 10 battery cases S2b-2 classed "needs a re-aim" (R7.7), `R3noverdictreg` was re-aimed for the corpus as
   `hR3nvr` (R7.10); the other nine were not.
 - The full opt-in run at T (`e0db887a`, R7.8) is X3's first cell only. X3 (`…-landing.md` §11) also holds corpus
-  §6.1's survive check, the plant cell and the floor cell, and §9.1 step 2 records the results in `…-pr527-r15.md`
-  §Q; none of these is done, so X3 is not "already recorded for this T", and §9.1 step 1 still runs X3 at T,
+  §6.1's survive check, the plant cell and the floor cell, and §9.1 step 2 records the results in the open
+  implementation record (design memo §13); none of these is done, so X3 is not "already recorded for this T", and §9.1 step 1 still runs X3 at T,
   with X2, X5, X6, X8, X11, X13, X14, X15 and X16. A later fix that changes the tool code or the `trip-wires` job
   moves T, and the run at `e0db887a` is then no cell of X3 at the new T. The final-head sequence and the branch-wide
   `/code-review max 815f8d4b...` that DECISIONS-R7 schedules after S4: not yet run.
@@ -795,4 +796,4 @@ removed): records 174, 288 (killed only through NOT EXERCISED) rc 2 WRONG REASON
 (`FAILED` disjunct removed): records 100, 353 (FAILED-killed) rc 2, 174 and 288 still rc 0. Ship PASSED;
 `scripts/trip-wires.sh` rc 0. 31 records through `rec.sh` (`_crs5queue.sh`): all KILLED, every needle in a slot.
 
-This file is 798 lines (`wc -l`) after this entry, under the 800 of design memo §13's convention.
+This file is 799 lines (`wc -l`) at this point; it is full under design memo §13's convention: the next entry goes to its successor (§13).

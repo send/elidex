@@ -4,9 +4,11 @@ This file holds the second half of §4 ("Postconditions — run INSIDE the windo
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"): from "P-g's population,
 and the census before any git" to the end of §4 (the census and its two passes, the boundary by
 property, the references and the working files, the parent's directory, the sealing after the census,
-and what P-g cannot see). It was moved here unchanged as a touch-time split (S4c-0 of PR #527), before
-an edit would have taken the design memo past 950 lines, as the design memo's §13 prescribed; the
-design memo keeps a pointer in §4. The rest of §4 (the postcondition table P-a to P-k and what precedes
+and what P-g cannot see). It was moved here unchanged as a touch-time split (S4c-0 of PR #527, `20615255`) at the seam
+the design memo's §13 named for an edit that would take it past 950 lines. The split did not precede that
+edit: `d976f239` took the design memo from 950 to 952 lines with no split, and the split came 8 commits later
+(`git rev-list --count d976f239..20615255` → 8; the memo was back at 950 at `288c857c`). That touch is
+history; the design memo keeps a pointer in §4. The rest of §4 (the postcondition table P-a to P-k and what precedes
 it) stays in the design memo. The section numbers are kept, so "§4" resolves in both files for its own
 half. In the moved text "the table above" is the postcondition table in the design memo's §4. Every
 other section reference without a file name is to the design memo, and "this memo" in the moved text
@@ -124,8 +126,9 @@ every file it writes and reads back, by location:
 - **P-e's `_FGIT_WIRE_EXEC`, P-h's `_FGIT_WIRE_LC`, P-f's `_FGIT_ENV_REQ`**: values the parent takes
   before the window starts and passes as prelude assignments, not files. The fixtures file shares the
   postconditions' shell, so it could assign one, or redefine a postcondition function; that is a write
-  to the verifier's own state, class (c) (§0.3). No fixture names any of them (`/usr/bin/grep -c -e _FGIT_WIRE_EXEC -e
-  _FGIT_WIRE_LC -e _FGIT_ENV_REQ -e _fgit_postconditions` over the fixtures file → 0).
+  to the verifier's own state, class (c) (§0.3). No fixture command names any of them (`/usr/bin/grep -v '^[[:space:]]*#' <fixtures file> |
+  /usr/bin/grep -c -e _FGIT_WIRE_EXEC -e _FGIT_WIRE_LC -e _FGIT_ENV_REQ -e _fgit_postconditions` → 0; comment lines
+  are excluded first, and one comment names one of them (`_FGIT_WIRE_LC`)).
 - **P-j's `$_FGIT_BIN/git`** is compared by path. Its content decides which executable runs, R1's; a
   fixtures-file write to it is class (c) (§0.3).
 - **P-c's void** is the subject, not a reference: P-c reds any entry in it, and both reference inits
@@ -199,7 +202,7 @@ The checker is static, over the six parent parts: every write, `mkfifo` or assig
 /usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,ctlrun,mutations,mutgen,records}.sh
 ```
 
-With the five parts it had then (no `ctlrun`), it lists 16 lines at `8413a4db` and two at `e271cb02`; the six-part command lists the same two at `20615255`: `_seal_apply_probe`'s `: > "$CTL/real/f"`
+Over the parts that existed then (four at `8413a4db`: `controls`, `harness`, `mutations`, `mutgen`; five at `e271cb02`: those and `records`; no `ctlrun` at either), it lists 16 lines at `8413a4db` and two at `e271cb02`; the six-part command lists the same two at `20615255`: `_seal_apply_probe`'s `: > "$CTL/real/f"`
 (since `6ed414b2`), where `CTL` is the probe's own, rebound in its subshell, and the fsmonitor block's
 `_fsm_root="$CTL/fsmon"` (since `2d5c393f`), a fixture the block only gates on, enters and runs over. It sees only literal
 `"$CTL/…"` paths, so a path built another way is outside it. No fixture needs these names: every `ln -s`

@@ -5,7 +5,7 @@ moved later from the design memo's §5.2) and §11 (the exit criteria)
 of `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). Both were moved here
 unchanged as a touch-time split, before draft 16's edits would have taken the design memo past 1000
 lines; the design memo keeps a pointer at each section. The section numbers are kept, so "§9", "§9.1"
-and "§11" resolve here. Every other section reference without a file name is to the design memo.
+and "§11" resolve here. Every other section reference without a file name is to the design memo. The steps below that write PR #527's results write them to the open implementation record (design memo §13, which names the file; `…-pr527-r15.md` §Q is closed at 799 lines); a reference to §Q for an earlier result is history and still resolves there.
 
 ---
 
@@ -56,7 +56,7 @@ removed it and left a pointer to step 2 in its place (`…-pr527-r15.md` §Q, `/
   and the rule that a PR adding fixture self-tests re-measures the job that way. The comment carries
   **no figure**, then or later: as #510's block at `9df03f52` does ("NO FIGURE IS KEPT HERE: the
   measurement, its history and the growth driver have one home, the plan's §8 entry"), the figure's one
-  home is a plan record, here `…-pr527-r15.md` §Q, written on #501's branch after X9 (next bullet).
+  home is a plan record, here the open implementation record (design memo §13), written on #501's branch after X9 (next bullet).
 - **CLAUDE.md's trip-wires paragraph (D17-C).** Line 94 of `CLAUDE.md` is #501's branch content, not
   main's: `git diff origin/main...e8f78896 -- CLAUDE.md` shows #501 rewriting that paragraph, and its
   text carries a local method, "必要なら導出する (`/usr/bin/time -p bash scripts/trip-wires.sh`)", and
@@ -76,7 +76,7 @@ removed it and left a pointer to step 2 in its place (`…-pr527-r15.md` §Q, `/
   citation-hygiene lane's memory of that PR's creation, not in the PR; PR #527's description records
   the route itself: "after this squashes into #501, #501's `Layering trip-wires` job is the GNU
   evidence; if it reds, a fix lands before #501 merges". So the figure comes from #501's CI after the squash, and the citation-hygiene
-  lane, which owns #501, writes the verdict, the run and its job time, into `…-pr527-r15.md` §Q as a
+  lane, which owns #501, writes the verdict, the run and its job time, into the open record (§13) as a
   commit on #501's branch (land order step 7).
 - **The threshold.** If the runner-measured job time is half the budget in force or more, **STOP and
   escalate to the user**: 150 s against this PR's base `timeout-minutes: 5`, or 300 s if #510's
@@ -85,7 +85,7 @@ removed it and left a pointer to step 2 in its place (`…-pr527-r15.md` §Q, `/
   `106387e4`, line 168 at `9df03f52`), names the headroom but no line, and a STOP has to be decidable from one figure; half is the 2x
   headroom that rule protects, taken as the line.
 - **X8 is a sanity record only.** Its local runs at T (three per side, alternated, on the branch and on
-  base `e8f78896`) go to `…-pr527-r15.md` §Q. They show whether the window changed the local cost
+  base `e8f78896`) go to the open record (§13). They show whether the window changed the local cost
   grossly; they decide nothing, and no figure from them goes to `ci.yml`. Draft 16's threshold, the
   slowest local run times 4.3 against 150 s, is withdrawn: its source was #510's local-to-runner pair,
   which #510 has since retired (below).
@@ -136,16 +136,16 @@ decision) lands before #501 merges (land order step 7).
    1. #501's CI runs the `Layering trip-wires` job on GitHub's runner.
    2. The lane reads the job's time with the `gh run view … --jq` command above and writes the verdict
       commit on #501's branch: the run, the commit it ran and the time, against the budget in force, in
-      `…-pr527-r15.md` §Q (no figure in `ci.yml`).
+      the open record, §13 (no figure in `ci.yml`).
    3. The threshold: at half the budget or more, STOP and hand it to the user. **A red run with T
       unchanged** (a flake, or a wire this PR does not touch) is not a verdict either way: the lane
-      names the cause in §Q and re-runs the job at the same T; a cause outside this PR's tool code goes
+      names the cause in the open record and re-runs the job at the same T; a cause outside this PR's tool code goes
       to the user with that run, and step 8 still needs a SUCCESS run at the current T (7.4).
    4. **When T moves on #501's branch after the squash, by a fix or by a merge** (a merge of `main`, or
       7.5's conflict resolution, that changes the tool code or the job), §9.1 step 1's local checks run at
       the new T on #501's branch, because they measure the tool code at T whatever moved it, and the
       sequence **returns to 7.1** (D17-B): the job runs again on the runner at the new T, and the new
-      run's verdict is written in `…-pr527-r15.md` §Q, beside the old one, which it supersedes. Step 8 is
+      run's verdict is written in the open record (§13), beside the old one, which it supersedes. Step 8 is
       reached only when X9's run at the current T is SUCCESS and under the threshold, or, over the
       threshold, the user has decided at 7.3 for that T (one predicate with X9's row, §11: a red run for
       an unrelated wire stops the driver early and times short, so a time alone is not a verdict). The
@@ -201,7 +201,7 @@ Section references in them are to the design memo.
   green, but the gate reaches no verdict: CI reds at the job timeout, and a local run waits.
   - **Pre-existing at `e8f78896`**:
     - the relative-scratch, umask and fsmonitor blocks' `--selftest` calls (bounded since the PR's
-      `_ctl_run`), and the fsmonitor block's plain `git ls-files` preflight (still unbounded);
+      `_ctl_run`), and the fsmonitor block's plain `git ls-files` (a preflight at base; since `d976f239` a follow-up after `_ctl_run` returns; still unbounded);
     - the fixture build, then run in the parent through `_fgit`;
     - the mutation runner's trials.
   - **New in #527**:
@@ -243,8 +243,8 @@ Section references in them are to the design memo.
   also holds, since #527's memo records two designs measured and withdrawn. The confirming questions:
   1. spec faithfulness: no spec surface;
   2. one issue, one way: the one bound is the 30 s watchdog, which predates #527 (on `_control` alone
-     at `e8f78896`); `fd85e29f` moved it into `_ctl_run`, which runs `_control` and the three
-     non-`_control` blocks, so #527 adds no second mechanism;
+     at `e8f78896`); `fd85e29f` moved it into `_ctl_run`, which runs `_control`, the relcwd
+     and fsmonitor blocks and the three standing checks, so #527 adds no second mechanism;
   3. anti-justification: no, it is not size or session;
   4. **repeat signal: yes.** Codex R25/R26 and plan-review rounds 10–14 raised it. By the lens that
      means fix-in-PR, and only the **user's explicit carve (2026-09-28)** overrides it. That decision
@@ -305,17 +305,17 @@ shells and sets `_MUT_RECORDS_MIN` to its own record count; the record changes a
   `runs-on`, steps). The command is below. The checks re-run only when T moves:
   1. At T, unless already recorded for this T: X2, X3 (with corpus §6.1's survive check), X5, X6, X8,
      X11, X13, X14, X15 and X16.
-  2. One commit records the results in `…-pr527-r15.md` §Q and rewrites every local-derivation passage
+  2. One commit records the results in the open implementation record (§13) and rewrites every local-derivation passage
      of the trip-wires comments to the runner method, with no figure, and CLAUDE.md's trip-wires paragraph
      to carry no method of its own (§9, "Where the record goes" and "CLAUDE.md's trip-wires paragraph").
-     After the rewrite it runs a complement check and records its output in the same commit's §Q
-     entry: `/usr/bin/grep -c 'time -p bash scripts/trip-wires.sh' CLAUDE.md .github/workflows/ci.yml`
+     After the rewrite it runs a complement check and records its output in the same commit's entry
+     in the open record: `/usr/bin/grep -c 'time -p bash scripts/trip-wires.sh' CLAUDE.md .github/workflows/ci.yml`
      gives 0 for each file, and `/usr/bin/grep -n -i -e 're-derive' -e 'rederive' -e '導出' CLAUDE.md
      .github/workflows/ci.yml` (`導出` matches both `必要なら導出する` and `再導出する`, the two forms
      CLAUDE.md line 94 uses at `8413a4db`: `導出` appears twice there, `再導出` once) lists no line that
      asks for a local derivation, `必要なら導出する` included (each remaining hit is
-     named in §Q with why it is not one). It changes comment lines, `CLAUDE.md` and the `…-pr527-r15.md`
-     §Q record only: `git diff
+     named in the record with why it is not one). It changes comment lines, `CLAUDE.md` and the open implementation
+     record only: `git diff
      --name-only <T> HEAD -- .claude/tools scripts` is empty and the job's non-comment lines are equal
      at T and HEAD, so T does not move and it re-runs nothing.
   3. One fresh Codex round on the new head, because the head moved: `/external-converge` counts only a
@@ -348,7 +348,7 @@ shells and sets `_MUT_RECORDS_MIN` to its own record count; the record changes a
 - **X9** runs on GitHub's ubuntu runner, which a stacked PR does not reach. It runs by route (b), on #501
   after the squash (land order step 7), not at the final head.
 
-The history goes to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md` §Q, not to the
+The history of C6–C12 and the fix rounds is in `…-pr527-r15.md` §Q; later entries go to the open implementation record (design memo §13), not to the
 provenance companion, which is at 973 lines (`wc -l`, after the fix round's one-line pointer), nor to `…-pr527.md`, which is closed at round 14.
 
 | # | commit | what | this PR's / all records |
@@ -382,14 +382,14 @@ These run on both shells, and on both gits wherever the corpus has a column.
 | X4b | the X4b block below, over each file that C1, C2, C6, C8, C9, C10, C11 or C12 edits (the harness is edited by C6, C8, C9, C10, C11 and C12), and over the lines `8f4ad3c8` adds to the wire | empty (at `8413a4db` the harness gives 2 lines, 71 and 93, which C6 deletes). The wire as a whole is not a subject: it has pre-existing matches this PR does not touch |
 | X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`, re-anchored to T by "X5 at T" below; and drafts 11–21's cells (corpus §6.1); every cell run as "Cell runners at T" says | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11–20 cell as corpus §6.1 says |
 | X6 | two by-hand edits to `…trip-wire.fixtures.sh`, each just before its `: > "$_FW_DIR/built"` line: `mkdir -p "$_FGIT_VOID" && printf 'ref: refs/heads/x\n' > "$_FGIT_VOID/HEAD" && : > "$_FGIT_VOID/config"`, and `git -C "$CTL/clean" config include.path /nonexistent-k2`; one run each | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
-| X8 | at T (§9.1), a sanity record only (§9, "X8 is a sanity record only"): `/usr/bin/time -p bash scripts/trip-wires.sh`, three runs on the branch and three on base `e8f78896`, alternated | the six times recorded in `…-pr527-r15.md` §Q; nothing decided and nothing written to `ci.yml`. The budget verdict is X9's |
+| X8 | at T (§9.1), a sanity record only (§9, "X8 is a sanity record only"): `/usr/bin/time -p bash scripts/trip-wires.sh`, three runs on the branch and three on base `e8f78896`, alternated | the six times recorded in the open record (§13); nothing decided and nothing written to `ci.yml`. The budget verdict is X9's |
 | X9 | `Layering trip-wires` on ubuntu (GNU) by route (b), decided by the user: #501's CI after #527 is squashed into it (land order step 7); the job's time from that run, by §9's `gh run view` command | SUCCESS, and the job's time under half the budget in force (§9, "The threshold"; at or above it, STOP), the verdict written on #501's branch as §9 says. The run is also GNU evidence for `env -i`, `env -0`, the window, the prelude, and the census's `find` expressions under GNU find: `find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \)` (pass 1's list), `find <.git> \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print` (pass 1's shape), `find "$CTL" -type l -print0` (pass 2's link list) and `find -L <link> \( -iname HEAD -o -iname .git \) -print` (pass 2's search). If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |
 | X10 | `$SH -n` over every `.claude/tools/webref-generic-core-trip-wire*.sh`, and `wc -l` over the parts this PR edits (controls, ctlrun, fixtures, harness, mutations, mutgen, records; C11 edits mutgen; `04466154` splits records out of mutations; `16efb423` splits ctlrun out of the harness) | clean; each edited part below 1000 lines. The wire itself (1259 lines at `8413a4db`) is edited by this PR only in `8f4ad3c8` (the orderly-end flag, +28 lines: 1286 at `8f4ad3c8`). Not split on that touch: the touch-time rule is a cohesion judgement, and the wire's is already written — two predicates over one walk into one verdict, a monolithic cohesive unit (`2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md` §5 :549 and §8 :818, whose named fallback seam is predicate-vs-walk); re-checked against `a3260410`'s section map, no new seam |
 | X11 | in a clone, add to `…trip-wire.controls.sh`, after the other `_lbl` definitions, `_x_lbl="an unrecorded probe"` and `echo "$_x_lbl" >/dev/null` | red, and the ratchet lists it |
 | X12 | withdrawn with draft 12's time bound (draft 13); the number is not reused | — |
 | X16 | at T, by hand, with the cell script `cell15.sh` from `…-pr527.md` (round 13), given the watchdog by "Cell runners at T" below: the four Codex R26③ FIFO cells of the table "R26③, measured" (`commondir`, `HEAD`, `config`, `config.worktree` in `clean/.git`), round 13's cells `xcommon`, `bareh`, `outsidein`, `hard`, `xlink`, `xincreg` and `clean`, round 14's `xrefpoison` and `xrefctl`, round 15's `lnblind2` (its insert verbatim in `…-pr527-r15.md` §Q), round 16's `xbare`, `xanchor` and `xexecarith` (C11, C12; each insert and tree edit verbatim in `…-pr527-r15.md` §Q), round 17's `shimprepend`, `shimafter` and `shimhash` (inserts verbatim in `…-pr527-r15.md` §Q), round 18's `stalectl` and `staleshim` (below), and the `gitfn` cell (its insert verbatim in `…-pr527-r15.md` §Q, round 18), one run per cell and shell | each red cell: rc 1, P-g, the untrusted-build stop runs no control, and the run ends in under 40 s; `clean` PASSED. The 40 s is five times the slowest red cell measured on the draft-15 prototype (`xincreg`, 8 s on bash 3.2; on draft 16's, also 8 s). The waiting cells (`hdless`, `xinclude`, `xinclnk`, `outroot`, `ttyinc` under a terminal) are not exit criteria: they wait, R9. Round 16's cells expect their own verdicts instead: `xbare` rc 1 with the ratchet's `… labels have no mutation record, against a ratchet of 0.`, `xanchor` rc 1 with `… its anchor is stale`, `xexecarith` rc 2 with W's sentence "the fixtures file left the window's stderr redirected". Round 17's: `shimprepend` rc 1 with P-j's first-entry report (not P-g), the untrusted-build stop running no control; `shimafter` and `shimhash` rc 0, PASSED, the declared class-(c) boundary (design memo §0.3): a red there means the boundary moved, and the memo must say how. Round 18's `stalectl` and `staleshim` run by `cellw.sh` (`cell15.sh` with a caller-`PATH` directory `cpath` put first, verbatim in `…-pr527-r15.md` §Q, given the same watchdog) on a tree with one never-matching record added, `s/K2NEVERMATCHES/x/` labelled `the fixture build window completed`: `stalectl` (no insert) rc 1 with `… its anchor is stale`; `staleshim` (its insert verbatim in §Q; it writes `cpath/mktemp`, which the parent's `_VFY` then resolves to) rc 0, PASSED, the declared class-(c) boundary (D18-A), with `cpath/mktemp` and the prepared directory removed between runs. `gitfn` rc 1 on both shells, P-a with `command line:` origins, and the untrusted-build stop runs no control |
 | X13 | the `crc.sh` script, verbatim in `…-pr527.md` and patched by "X13 at T" below, at T: the clean tree and eight cells (six red; env0 and reftable green; `garbagehead` is an untrusted build), with the parent's nounset off (`NOU=1`) and on, on bash 3.2 and 5.3 | the same exit status, NE/CF counts and first four `!!` lines both ways, on both shells |
-| X14 | at T, each run by `cell15.sh`'s method (`…-pr527.md`, round 13: its own process group, `perl -e 'setpgrp; alarm 120; exec @ARGV'`, a `kill -9 -<pgid>` watchdog 3 s after it, then `kill -9 -<pgid>` of that group only; "Cell runners at T"): PX1's caller `PATH` (`~+/bin` first, a logging `git` in the repository's `bin/`); Codex R23's `tools/bin` wrapper with its interpreter beside it; Codex R24's `~/bin` wrapper with a helper | each ends within 120 s, PASSED or red with a named cause; reaching the bound (the alarm or the watchdog) fails the criterion. 120 s is about five times the slowest clean run measured on the draft-15 prototype (24 s, bash 3.2). For PX1 the expected result is PASSED with the wrapper as the fixture git (§0.1). The outcomes are recorded in `…-pr527-r15.md` §Q |
+| X14 | at T, each run by `cell15.sh`'s method (`…-pr527.md`, round 13: its own process group, `perl -e 'setpgrp; alarm 120; exec @ARGV'`, a `kill -9 -<pgid>` watchdog 3 s after it, then `kill -9 -<pgid>` of that group only; "Cell runners at T"): PX1's caller `PATH` (`~+/bin` first, a logging `git` in the repository's `bin/`); Codex R23's `tools/bin` wrapper with its interpreter beside it; Codex R24's `~/bin` wrapper with a helper | each ends within 120 s, PASSED or red with a named cause; reaching the bound (the alarm or the watchdog) fails the criterion. 120 s is about five times the slowest clean run measured on the draft-15 prototype (24 s, bash 3.2). For PX1 the expected result is PASSED with the wrapper as the fixture git (§0.1). The outcomes are recorded in the open record (§13) |
 | X15 | by hand, before `built`: `git init -q "$CTL/zzx" && mkdir -p "$_FW_DIR/zzt/a" && : > "$_FW_DIR/zzt/a/HEAD" && ln -s "$_FW_DIR/zzt" "$CTL/zzx/.git/k2link"` | rc 1, P-g, whose message names `zzx` by the shape rule only; no "symlink to a tree holding a git dir" entry for `k2link`, so the search did not run behind it |
 
 Commands containing `|` are kept out of table cells, because `\|` in a markdown cell is read one way

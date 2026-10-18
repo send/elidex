@@ -679,7 +679,7 @@ _cn_declined 1 "after the last capability group's ask, so no summary line was de
 
 # (No check after the controls: every `_control` and every block that is not one
 # runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree;
-# the fsmonitor block's plain `git ls-files` preflight, made outside `_ctl_run`,
+# the fsmonitor block's plain `git ls-files` follow-up, made after `_ctl_run` returns,
 # sits inside the branch that its `_ctl_run`'s ask opened.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 

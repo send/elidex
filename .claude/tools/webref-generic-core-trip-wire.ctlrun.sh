@@ -53,7 +53,7 @@ _ctl_wd_s=30
 # picked per caller. The two blocks that are not a `_control` (relcwd, fsmonitor)
 # run through it as well, so a hang or a failed build is reported the same way in
 # all three paths. The one run made outside it (the fsmonitor block's plain `git
-# ls-files` preflight) sits inside the branch that `_ctl_run`'s own ask opened.
+# ls-files` follow-up, after `_ctl_run` returned) sits inside the branch that `_ctl_run`'s own ask opened.
 # W2 is asked by `_fw_trusted` alone — the trust flag `_fgit_window` sets at its end — and
 # reported ONCE per run (`_fw2_said`), under `$_fw2_lbl` (defined in the controls
 # file), not under each refused label: the labels refused after the first are

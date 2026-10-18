@@ -12,7 +12,11 @@ before PR #527 (both moved from this memo). PR #527's record, its
 external review and plan-review rounds 10–14, is in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"), and from round 15 on,
 with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`
-("`…-pr527-r15.md`"). **Corpus**:
+("`…-pr527-r15.md`"; closed at 799 lines by the §13 rollover), and the implementation record from review round 3 on in
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md` ("`…-impl.md`", §R; the open record while under 800 lines, §13). **Census**:
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md` ("`…-census.md`"), the second half of §4 (P-g's
+population, the census, the boundary and the working files), split out of this memo unchanged at `20615255`.
+**Corpus**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` ("corpus §6"), the corpus cells and the
 mutation records (split out of this memo's §6 unchanged). **Landing**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` ("`…-landing.md`"), §9 (the commits,
@@ -452,7 +456,7 @@ scaled by a factor (D15-B, #510's convention at `106387e4`). #527 is stacked and
 X9 is route (b), decided by the user when #527 was opened: #501's CI after #527 is squashed into it. So
 #527's job comment names the runner method, with no local method beside it and no figure, and the
 citation-hygiene lane writes the verdict with the runner figure on #501's branch after that run, in
-`…-pr527-r15.md` §Q and never in `ci.yml` (`…-landing.md` §9, "Where the runner figure comes from"; land order step 7). X8's local runs at T are a
+the open implementation record (§13) and never in `ci.yml` (`…-landing.md` §9, "Where the runner figure comes from"; land order step 7). X8's local runs at T are a
 sanity record only. T is the last commit that changes the tool code or the job (`…-landing.md` §9.1).
 
 **A red postcondition ends the run before any control.** A red P-a…P-k, or W3, means the build is not
@@ -479,7 +483,7 @@ function continues only over a build that is **complete and trusted**:
 W4 does not stop the run. A seal that failed marks its fixture failed, `_control` already refuses that
 fixture's controls, and the other fixtures are sound. The one gate, `_ctl_gate <label> <fixture>…`, asks both
 questions, "complete and trusted" and "the trees the run is aimed at built" — its root and its cwd, which `_ctl_run` derives from its own arguments —, and is asked by the ONE run primitive `_ctl_run`, which also owns the watchdog (`_ctl_wd_s`, 30 s); `_control` and the two non-`_control` blocks are built on it, so no control runs over such a
-build wherever the exit sits. The fsmonitor block's plain `git ls-files` preflight, made outside `_ctl_run`, sits inside the branch that its `_ctl_run`'s ask opened, so the block asks the gate once.
+build wherever the exit sits. The fsmonitor block's plain `git ls-files`, a follow-up made outside `_ctl_run` and after it has returned (only when the gate passed and the hook did not run under the wire), sits inside the branch that its `_ctl_run`'s ask opened, so the block asks the gate once.
 
 **Why exit 2, and why it is not pinned.** Exit 2 follows the wire's own convention that 2 means
 "decided nothing". Nothing consumes the distinction between 1 and 2, though: the driver runs
@@ -494,14 +498,14 @@ What **is** pinned are the properties a record can observe:
   control runs over an incomplete or untrusted fixture build window` (draft 10's label said
   "incomplete" only). Its predicate is one function, `_ctl_gate`. **`_ctl_run`
   asks it right after registering its label (its channel arguments are validated after that, whatever the gate answered, and before any delivery)** and refuses unless the window is complete and trusted (E3) and the root and cwd it is aimed at built. The other trees a run names are not asked: every PATH-prefix shim (the fixtures file builds them all, `catfail`'s `cat` among them; the `catfail` tree itself is the root of its own control and gated there) and the routed control's decoy are built bare in the window, so a failed build of any of them ends the window (W) before any control, and the `committed` control's decoy is `$CTL/clean`, the root of other controls; `_control` and
-  the two blocks that are not `_control`s (relative scratch, fsmonitor) run through it (the fsmonitor block's plain-git preflight sits inside the branch its `_ctl_run`'s ask opened, so it asks once; the umask run is a `_control`, its `$8`). The gate's fixture half is its last loop, inside `_ctl_gate` (there is no separate `_ctl_built`): the three standing checks in the controls file that run `_ctl_run` run it over `$_VFY`, a root no fixture build makes, so they ask no fixture question (their stubs read no tree), and each reads `_fw_trusted` itself before its rows (untrusted: red in silence — W2 is the gate's report, printed once by the first gated run).
+  the two blocks that are not `_control`s (relative scratch, fsmonitor) run through it (the fsmonitor block's plain-git follow-up call, made after `_ctl_run` returns, sits inside the branch its `_ctl_run`'s ask opened, so it asks once; the umask run is a `_control`, its `$8`). The gate's fixture half is its last loop, inside `_ctl_gate` (there is no separate `_ctl_built`): the three standing checks in the controls file that run `_ctl_run` run it over `$_VFY`, a root no fixture build makes, so they ask no fixture question (their stubs read no tree), and each reads `_fw_trusted` itself before its rows (untrusted: red in silence — W2 is the gate's report, printed once by the first gated run).
   So no control runs over such a build, wherever the exit sits. **Its three records pin
   that W2 is reported when the exit is gone**. One removes both of `_fgit_window_verdict_exit`'s exits
   with the window kept incomplete (`done` renamed). The other two each remove its untrusted-build
   `exit`, one with a postcondition forced red (`post_bad`), the other with W3 forced (`_fw_diag` set).
   Each survives with its clause (`done`, `post_bad`, W3) removed from `_fgit_window`'s trust computation
   (measured, `…-pr527-r15.md` §Q); `post_ok`'s two records (review R2, corpus §6.1) pin the fourth.
-  A gate satisfies all three. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds the run under `$_cn_lbl` (the standing check's rows) and `$_cen_lbl` (every `_control` needle an orphan) — records.sh, beside W2's record. There is one ask per run, no second gate (the fsmonitor block's former ask before its preflight went when the preflight moved inside the branch of its `_ctl_run`'s ask) and one producer of W2's line (`_ctl_gate`; the three standing checks that read `_fw_trusted` print nothing), so W2's records separate the run path — the gate's trust arm bypassed, record 160's needle is not printed: W alone, the controls run over the untrusted build and the standing checks red in silence (measured, R7 S3 review-1 fixes, both shells, when there were two) — and the earlier declared gap — two producers each killing the other's record — has no subject.
+  A gate satisfies all three. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds the run under `$_cn_lbl` (the standing check's rows) and `$_cen_lbl` (every `_control` needle an orphan) — records.sh, beside W2's record. There is one ask per run, no second gate (the fsmonitor block's former ask before its preflight went when the plain-git check moved inside the branch of its `_ctl_run`'s ask, as a follow-up after the run) and one producer of W2's line (`_ctl_gate`; the three standing checks that read `_fw_trusted` print nothing), so W2's records separate the run path — the gate's trust arm bypassed, record 160's needle is not printed: W alone, the controls run over the untrusted build and the standing checks red in silence (measured, R7 S3 review-1 fixes, both shells, when there were two) — and the earlier declared gap — two producers each killing the other's record — has no subject.
 - Moving the exit below a control is an edit to the controls file. That
   shape is pinned by the corpus RO/ROg cells (X5, re-anchored for T in `…-landing.md` §11), not by a
   record. ROg is green again since the fix round (measured on both shells, `…-pr527-r15.md` §Q).
@@ -716,7 +720,7 @@ verified by (a) the reviewer's failing cells re-run on the draft-21 prototype, `
 must be red on both shells, and (b) one narrow check of the draft-21 delta. Then the implementation
 (C6…C12) starts; its owner is the orchestrating session. The remaining risk is carried by the
 executable gates: X3's mutation run at T, `/pre-push`, and the Codex converge. MINs left after the
-narrow check are fixed in the branch during the implementation and recorded in `…-pr527-r15.md` §Q,
+narrow check are fixed in the branch during the implementation and recorded in the open implementation record (§13; `…-pr527-r15.md` §Q is closed),
 not re-reviewed as a plan.
 
 ## §13 Implementation results
@@ -724,7 +728,9 @@ not re-reviewed as a plan.
 The results before PR #527 are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §13
 (touch-time split; history). PR #527's results through plan-review round 14 are in `…-pr527.md` §P,
 which is closed. Every result from round 15 on, the planned commits included when they are made, goes to
-one place: `…-pr527-r15.md` §Q (`…-landing.md` §9.1, step 2).
+one place at a time, **the open implementation record**: `…-pr527-r15.md` §Q (closed at 799 lines) → `…-impl.md` §R (open while under 800 lines) →
+at §R's rollover, this section names the successor file before the first entry goes there. Future-tense routes say "the open record (§13)", not a file
+name (`…-landing.md` §9.1, step 2).
 
 **Rollover (D19-C).** When an entry would take `…-pr527-r15.md` past 800 lines (`wc -l`), that entry
 and every later one go to a new file, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md`,
@@ -732,4 +738,5 @@ and every later one go to a new file, `docs/plans/2026-09-citation-hygiene-k2-fg
 done (S4c-0): §4 from "P-g's population, and the census before any git" to the end of §4 (the census,
 the boundary, the references and working files, the parent's directory, sealing and what P-g cannot
 see) was moved unchanged to `…-census.md`, with a pointer left in §4; the memo went from 950 to 729
-lines, and no further seam is named.
+lines at `20615255` (`git show 20615255~1:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md | wc -l` → 950;
+the same path at `20615255` → 729), and no further seam is named.

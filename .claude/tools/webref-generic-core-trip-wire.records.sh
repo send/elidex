@@ -150,7 +150,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only the gate can say W2. W2's producer is
 # `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the two non-`_control` blocks run
-# through it; the fsmonitor preflight sits inside its `_ctl_run`'s branch; the three standing checks
+# through it; the fsmonitor `git ls-files` follow-up, after the run, sits inside its `_ctl_run`'s branch; the three standing checks
 # that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
