@@ -154,9 +154,11 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
-# the run under `$_cap_lbl` (the two rows that want a decline, M zz 0 and Y zz 1, get a run) and
+# the run under `$_cap_lbl` on six of the ten rows (the two that want a decline, `M 0 1 yes` and
+# `Y 1 0`, get a run; the three that want the gate's red, U, F1, F2, and the untrusted row
+# `M 0 1 no` come back 0; row X, red through `_ctl_run`'s own channel validation, stays green) and
 # under `$_cen_lbl` (the gate is the registry's writer: every declared member is then no `_control`
-# this run made); measured, both shells.
+# this run made); measured, both shells (the row list re-measured after the CR-B2a review fixes).
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
@@ -362,13 +364,16 @@ controls:s/^# STANDING CHECK of .*timeout clause, both ways\. A status >= 128 is
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/_rh() { _control "$CTL\/clean" 0 "PASSED" "green is reachable"; }; _rh || ctl_ok=1/	s/^_fsm_root="[$]CTL\/fsmon"$/&; _rh || ctl_ok=1/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/&; _control "$CTL\/clean" 0 "PASSED" "$_mg_lbl" || ctl_ok=1/	every label the run used is named by a mutation record
 # THE CAPABILITY TABLE (`$_cap_lbl`: the gate's capability arm, pinned by the `_cap` standing check in the
-# controls file; `$_capt_lbl`: the table check; the reader and the gate's lookup are ctlrun's). Each record
-# is killed by the `_cap` row named beside it, on every machine (the rows replace the table and the flags):
-# the lookup's equality made always-true, and made a substring match (row N); the decline arm (row M, zz 0);
-# the member's OWN group's flag (rows Y); the trust arm placed after the capability arm (the untrusted row);
-# an undeclared group's red turned green (row U); the `_cap` loop's arms and its parse guard (K6's shape).
-# The last, from the gate: its answer taken as an early
-# return again (`|| return $?`) lets row X, the malformed channel under a decline, come back 2, not 1.
+# controls file; `$_capt_lbl`: the table check; the reader and the gate's lookup are ctlrun's). Each `$_cap_lbl`
+# record is killed by the `_cap` row named beside it, on every machine (the rows replace the table and the
+# flags), the first red being: the lookup's equality made always-true, and made a substring match (row N);
+# the decline arm (the decline rows `M 0 1 yes` and `Y 1 0`); the member's OWN group's flag (rows Y); the
+# trust arm placed after the capability arm (the untrusted row); an undeclared group's red turned green (row
+# U first; F1 and F2 red too); the `_cap` loop's `U` arm renamed (row U, "no arm"); a decline row made
+# unparseable (that row, "did not parse": K6's shape); the `|| return $?` early return (row X, the malformed
+# channel under a decline, comes back 2, not 1). One record is not killed by a row alone: the reader's
+# flag-name validation made vacuous is killed by the verdict marker on bash 5.3 (the `${!x-}` abort ends
+# `_cap`'s subshell) and by row F1 on bash 3.2.
 ctlrun:s/^_cap_group_cb() { \[ "[$]{_cr_f\[2\]}" != "[$]_cg_l" \]/_cap_group_cb() { [ x != x ]/	the gate declines exactly the members of a group whose flag is 0
 ctlrun:s/^_cap_group_cb() { \[ "[$]{_cr_f\[2\]}" != "[$]_cg_l" \]/_cap_group_cb() { [[ "${_cr_f[2]}" != *"$_cg_l"* ]]/	the gate declines exactly the members of a group whose flag is 0
 ctlrun:s/^    \[ "[$]_cap_v" != 0 \] || return 2$/    [ "$_cap_v" != 0 ] || :/	the gate declines exactly the members of a group whose flag is 0

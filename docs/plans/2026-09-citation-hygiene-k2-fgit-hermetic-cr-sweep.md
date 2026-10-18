@@ -56,7 +56,7 @@ identifiers, class and slice unchanged (**(M)** `crplan-r4/logs/M-h1-inputs.txt`
 | `slot` `x9` | `#11-trip-wire-launch-environment`; `X9\|route \(b\)` | BS-3's member (B2b); Q1's route (B2b, G2) |
 | `resid_range` | `"?R1"?–"?R[0-9]+"?` | the residuals' range statement (residuals.md :7), which each carried correction's row extends (R3-all-3; added by CR-B1 with R10) |
 | `cap` `cap_fn` `cap_err` | `_cap` (word-bounded: not `_cap_lbl`, `_capt_lbl`); `_cap_rows`, `_cap_group_of`, `_cap_flag_of`; `\.cap_err` | the standing check `_cap` and the reader's functions CR-B2a adds (R3-all-3; `cap_table` already matches `_cap_[a-z]`, so `cap_fn` names the three on their own) |
-| `cr_vars` `capflags` `endmarks` | `_cr_[a-z]`; `_zz_ok`, `_yy_ok`; `\.wm_end`, `\.ev_end`, `\.cap_end` | the reader's out-globals, the test flags and the standing checks' verdict markers (CR-B2a, R3-all-3) |
+| `cr_vars` `capflags` `endmarks` | `_cr_[a-z]`; `_zz_ok`, `_yy_ok`; `\.wm_end`, `\.ev_end`, `\.cap_end` | the reader's function-locals (`local` in `_cap_rows`: its cursor and fields, which a nested pass shadows; the out-globals are `_cap_g`, `_cap_f`, `_cap_v`, which `cap_table` matches), the test flags and the standing checks' verdict markers (CR-B2a, R3-all-3) |
 
 **A row is the statement that holds the hit**, not the hit line alone: the comment block, paragraph, bullet or
 table row it sits in (prose wraps, which is how stem greps missed sites). The disposition names the extent

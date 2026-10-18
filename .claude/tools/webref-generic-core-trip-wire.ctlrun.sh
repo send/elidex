@@ -65,7 +65,7 @@ _ctl_wd_s=30
 _cap_rows() { # $1 = row kind (group, member, limit, fact, or `-` for every row), $2 = the callback
   local _cr_k="$1" _cr_cb="$2" _cr_tab=$'\t' _cr_nl=$'\n' _cr_row _cr_rr _cr_nf _cr_bad _cr_stop=0 _cr_w _cr_i
   local _cr_rest="$_CAP_TABLE$_cr_nl"
-  case "$_cr_k" in group|member|limit|fact|-) ;; *) echo "!! CONTROL FAILED (_cap_rows): \"$_cr_k\" is no row kind to visit; decided nothing." >&2; exit 2 ;; esac
+  case "$_cr_k" in group|member|limit|fact|-) ;; *) echo "!! _cap_rows: \"$_cr_k\" is no row kind to visit; decided nothing." >&2; exit 2 ;; esac
   local -a _cr_f
   while [ -n "$_cr_rest" ] && [ "$_cr_stop" -eq 0 ]; do
     _cr_row="${_cr_rest%%"$_cr_nl"*}"; _cr_rest="${_cr_rest#*"$_cr_nl"}"
