@@ -2,7 +2,8 @@
 
 This file holds the plan-review rounds through round 9 (§D), with their dispositions and terminators.
 It also holds three sections moved from the design memo when it neared 1000 lines: the memo's status
-narrative (§S), the record of the C0b–C2 splits (§8), and the implementation results before PR #527 (§13).
+narrative (§S), the record of the C0b–C2 splits (§8), and the implementation results before PR #527 (§13); §CR,
+added later, holds the revision errors of the CR round's plan memo (moved from its §10).
 PR #527's own rounds, its external review and plan-review rounds 10–14, are in
 `…-k2-fgit-hermetic-pr527.md`, and rounds 15 onward in `…-k2-fgit-hermetic-pr527-r15.md`. All of this is for
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of the
@@ -643,3 +644,50 @@ Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` §P (to
 `e0cd8329`, text unchanged then; revised there since, each revision named in its round's section). It
 holds the Codex rounds, the fix-delta reviews, the record arithmetic, and plan-review rounds 10–14
 with their measurements; round 15 onward is in `…-k2-fgit-hermetic-pr527-r15.md`.
+
+---
+
+## §CR The CR round's revision errors (moved from the CR plan memo's §10)
+
+The plan memo of PR #527's CR round (`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md`, "the CR plan
+memo"; its §7, "The §10 split") keeps its premise errors and gaps (P-a … P-f) in its own §10 and sends here the bullets
+that record an error of one of its revisions or of a review round of it, so the record of each revision's errors lives
+in one place. The bullets are moved verbatim; "r1" … "r3" are the memo's revisions and `CR-plan-review-R1.md` …
+`CR-plan-review-R3.md` the plan-review rounds on it (handoff files, outside the repo). Text that says "this one" means
+the revision that found the error.
+
+- **Errors in the r1 revision (frame `14d0b35d`), found by r2's measurements:** P6's excused set named 282 and 289
+  only — the perm-member records are 86, 98, 99, 280, 281, 289, 394 (M-k14); P4's "fifo members' records" do not exist
+  (both bare) and the FIFO-planting records were unconsidered (BS-7); rule 1's population included the record table's
+  data; the deletion lists missed records.sh:367, :156-158, mutations.sh:481-482, :498-501, controls.sh:485-491 beside
+  R1's F12/F22 sites; B2a's grep omitted `_fifo_line`/`_perm_line`; `LACKS` was to be documented in ctlrun.sh, which
+  (after F13) reads none of it.
+- **Errors in the r2 revision, found by this one:** M-trust and M-slot-guard were measured on clones that edited a
+  record-anchored line (controls.sh:197; :404), and the memo said "one line" where the plain run printed two
+  diagnostics (G6; re-measured, §3.2, §4); B2a's grep missed four `$_VFY/.cn` lines; `M-prefixgrep.txt` reported 0
+  over the other parts where records.sh:374 hits; records.sh:367 was listed in B1 and described as removed by B2a;
+  `_rh` is records.sh:362, not :360. **The ledger found sites no list had:** harness.sh:8-10 (B1), the clause of
+  mutations.sh:406-408 (B1), controls.sh:75-78, :98-99, :101-104, mutations.sh:15-18, :49-57, the design memo's :589,
+  :620 and :691, the #519 memo's :28-30 (R13) and :1274 (R12), record 356's anchor (mutations.sh:512, which rule 1
+  rewrites), and landing.md :121-127 / :386 (Q1's route).
+- **Errors in `CR-plan-review-R1.md`:** F2's §4 sub-premise and F11's record premise (§9); F4's "plan-reviewed rounds
+  1–14" — the design memo's draft 21 answers plan-review round 19 (design memo :36-38; the argument does not rest on
+  the count); F19's "Q1 before CR-B2b" (R2 G2).
+- **Errors in `CR-plan-review-R2.md`** (none changes a decision): G6 names `_mut_anchor`, which does not exist at the
+  frame — the anchor check is inline in `_mut_correspondence` (mutations.sh:550-602); G1's "All eleven → twelve" is
+  thirteen once the sweep file moves with this memo; G11's "the U/X/flag rows' expected reds" are `_cap`'s rows, while
+  `_cap_check` has none — read as "the records `_cap_check`'s red kills" (GB2-12). **G2's premise also sinks this
+  memo's Q3**, whose route was "a claim row read from the PR's CI run": #527 has none; Q3 moves to route (b) too (§11).
+- **Errors in `CR-plan-review-R3.md`** (none changes a decision): H1's list of the instruments that move omits
+  `ledger-check.py`'s two inputs, `crplan-r3/logs/ledger.tsv` and `sweep-sites.tsv`, which are handoff logs, so the
+  moved script could not run in the repo as it stands; both are recoverable from what moves (§3 and `git show
+  2f1ca601`, (M) `crplan-r4/logs/M-h1-inputs.txt`), so the move changes its inputs (§7 "The move"). H1's "beside the
+  provenance companion's scripts": that companion has no script files; it keeps its scripts inside itself, as its §E
+  appendix (`…-provenance.md`:809-821), and §7 follows that. R3's table counts six merged IMPs, "H1–H6", but names
+  five (no H3). Its I item for CR-B2a says the precedents guard their whole consumes list: controls.sh's does
+  (:15-20 against :65), mutations.sh's does not (`$_cen_lbl` and `$_fw_limits`, named at :20-25, are not in :92's
+  loop); the row's requirement (the full list, or the reason) is unchanged (§7 R3-B2a-3). Its H4 asks the entry
+  guard to name functions, which the guard's variable test cannot see: `declare -F` (§2.2, (M)); and that arm is
+  latent in a wire run, since controls.sh:197 and :229 call the functions before mutations.sh is sourced (§7 CR-B2a
+  pins it by a direct-source claim row). Its every-slice item's `perl -0` backstop: three of the four wrapped sites
+  it names wrap inside a comment, so a whitespace-only join misses them (§7 R3-all-2, (M)).

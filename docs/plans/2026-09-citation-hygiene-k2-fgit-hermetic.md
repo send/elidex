@@ -8,7 +8,7 @@ record**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`. Its
 rounds 1–9 with their dispositions and terminators (split out of the companion unchanged); §S this
 memo's status narrative (moved from its preface, and each draft's status is added there since); §8 the
 code splits, the parent memo's banner and the memo references, and §13 the implementation results
-before PR #527 (both moved from this memo). PR #527's record, its
+before PR #527 (both moved from this memo); §CR the revision errors of the CR round's plan memo (moved from its §10). PR #527's record, its
 external review and plan-review rounds 10–14, is in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527.md` ("`…-pr527.md`"), and from round 15 on,
 with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-pr527-r15.md`
