@@ -405,9 +405,8 @@ census sentence and C1 rewrites that row.
 
 The third slice of the B/C plan (`…-cr-plan.md` §2.3 and §7). Base `de05191c` (CR-B2a's head), branch `crb2b`. Commits: the code
 (`567b22e8`), its doc rows (`ea5e5a4c`), the review's fixes (`17c6cd13` for the part comments, `cd95ba25` for the memo and landing),
-and this round's, cited by subject because their hashes change when the branch is transplanted: `k2(wire): the part comments say
-the flag decides the decline, the declaration decides the summary`, `docs(k2): FIFO cost grammar, X9 sleep census, P-f summary
-channel is conditional`, and the commit that adds this entry. The slice was cut into three coder units by the driver (code; the
+and the re-check's (`1f5a8f4d` for the part comments, `d9c20d4c` for the memo and landing; `d75be6b6` added this entry; the
+branch was fast-forwarded onto `k2-wire-fgit-hermetic`, so these hashes are the branch's). The slice was cut into three coder units by the driver (code; the
 claim table; the doc rows), as CR-B2a's was. Records are named by their property, not by line number: the line numbers of
 `records.sh` shift between these commits.
 
