@@ -409,9 +409,9 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $9… = the run's environment, each a `NAME=VALUE` argument; the
              # run itself is `_ctl_run`'s.
              # A 2 from it (the table declined it: its group's capability is
-             # missing here) is green: the label was registered, and the summary
-             # line of that group says what this run did not exercise
-             # (`_cap_lines`, in the controls file).
+             # missing here, and this machine declares it) is green: the label was
+             # registered, and that group's summary line says what the run did not
+             # exercise (`_cap_lines`, controls file); undeclared, `_cap_check` reds.
   local _cr=0
   _ctl_run "$4" "$1" "" "${8:-}" "${7:-}" "${5:-}" "${6:-}" "${@:9}" || _cr=$?
   # Not pinned by a record: on a capable machine nothing declines, so this line is

@@ -233,7 +233,9 @@ _fgit_window_verdict_exit "$_fw_lbl"
 # the absences it declares, space-separated group names (`fifo`: no FIFO on this
 # filesystem; `perm`: this user reads a mode-000 file, i.e. root) and `limit` IDs (`P-f`:
 # an `env` that refuses -0). THE COST: a root, FIFO-less or `-0`-less contributor sets it
-# once (`WEBREF_WIRE_LACKS="fifo perm P-f"`); the red line says so. An undeclared absence
+# once (`WEBREF_WIRE_LACKS="fifo perm P-f"`); the red line says so. A no-FIFO contributor's
+# declaration does not make the opt-in mutation run green: the records that plant a FIFO
+# (needle `$_pg_lbl`) end at "decided nothing" there, WRONG REASON (BS-7). An undeclared absence
 # is red, never a green with a `⚠`. The probe still decides what the gate does, so a
 # declaration cannot make a capable machine skip anything (a stale one runs every
 # control); it decides only whether a probe's 0 is acceptable. A `fact` row (P-b) needs
@@ -582,7 +584,8 @@ _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stor
 _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
 # THE TWO FIFO CONTROLS (`fifotracked`, `odd`) are the table's `fifo` group (`_CAP_TABLE`):
 # the calls run on every machine and register their labels for the census, and where
-# the flag is 0 the gate declines them without a run; `_cap_lines` reports it.
+# the flag is 0 on a machine that declares it the gate declines them without a run and
+# `_cap_lines` reports it; undeclared, `_cap_check` has already redded the run.
 _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
 _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1

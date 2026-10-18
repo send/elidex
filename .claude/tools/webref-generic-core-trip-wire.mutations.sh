@@ -371,7 +371,8 @@ _mut_trial() {
   fi
   _mt_rc=0
   # (The mutant inherits every other variable, WEBREF_WIRE_LACKS among them: a declaring
-  # machine's mutants see the same declaration, so a probe-flip mutant reds under its group's label there.)
+  # machine's mutants see the same declaration, so a probe-flip mutant SURVIVES there (an absence the caller
+  # declared is accepted; unexcused until CR-B2c); it reds under its group's label only if the inheritance is cut.)
   _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1)" || _mt_rc=$?
   if [ "$2" = '!survive' ]; then
     # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
