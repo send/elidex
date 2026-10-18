@@ -228,3 +228,175 @@ became "R1–R10". reviews :664-689 (7) are the moved bullets, `hist` (a dated r
 (12) name the slice's identifiers as a record of it, `hist`. None is unclassified. **The
 wrapped-identifier backstop** (`perl -0777`, `[\s#]+` between the words, the 26 files): the same five matches at the frame and at
 the head (harness :750, mutations :198 and :740, landing :74, reviews :624), none introduced.
+
+### S.3 CR-B2a — one capability table, read by one reader; the declined-by-prefix mechanism is gone
+
+The second slice of the B/C plan (`…-cr-plan.md` §2.2 and §7). Four commits on the branch `crb2a` (base `0848a850`, CR-B1's head):
+the code (`c1ca2a4d`), its doc rows (`fea3a0c6`), the review's code fixes (`55f97949`) and its doc fixes (`4a2c2ca6`). The plan
+memo's §7 cannot know three things about them, recorded here. The slice was cut into three coder units by the driver (code; the
+claim tables; the doc rows and this entry), because CR-B1's coder had stopped at its turn limit; the code unit stopped once at 80
+turns, one "summarize and finish" recovered its report, and the unit's last question (GB2-14, below) went to the driver. The
+`4a2c2ca6` commit is titled docs but also edits one message line in `ctlrun.sh` and comments in `records.sh`. And the records' line numbers shift between these four commits, so this entry names a record by its
+property.
+
+**Changed (`c1ca2a4d`).** The table: `_CAP_TABLE` in the controls file, after the label check and before the harness is sourced,
+rows TAB-separated with no empty field (`group` 6 fields, `member` 3, `limit` 4, `fact` 3); at the head 11 rows: the `fifo` group
+with 2 members, the `perm` group with 5, the P-f limit row and the P-b fact row. The reader: `_cap_rows <kind|-> <callback>` in
+`ctlrun.sh`, the only code that expands the table, with function-local cursor and fields, fields split by parameter expansion, a
+row that does not parse flagged `_cr_bad` for the callback, and the lookups `_cap_group_of` and `_cap_flag_of` (the one indirect
+expansion, after the flag field is checked to be a variable name) on top of it. The guard: `ctlrun.sh`'s source-time name guard,
+which names a missing consumed name and the table's own flag names with an exit 2 instead of an unbound abort. The gate arm:
+`_ctl_gate` now asks, in this order, registration, trust, capability, fixture; a member of a group whose flag is 0 returns 2 (no
+run, nothing reported), a member of a group the table does not declare returns 1 under the member's own label. `_cap`, a third
+standing check beside `_wm` and `_ev` (opens on `_fw_trusted` in their shape; ten rows M, N, Y, U, the untrusted row, X, F1, F2,
+each replacing the table and the synthetic flags `_zz_ok` / `_yy_ok`, its own stderr sent to `$_VFY/.cap_err` so an expected red
+never reaches the run's output). `_cap_check`, a table check (not a standing check: it runs no `_ctl_run` row), called once as
+`_cap_check || ctl_ok=1`. `_cap_lines`, the summary's per-group line, decided from the table and the flag (a claim line or the
+`NOT EXERCISED` line with the member count). Removed: `_cn`, the standing check of the old mechanism, the asks that decided the
+summary lines from `.declined`, the `_ctl_need` prefixes and `.declined` itself, and `_fifo_line` / `_perm_line`. The census gained
+a membership check (`_mut_cap_member`, reader 4): every `member` row must name a `_control` label this run registered, so a member
+that never ran cannot be summarised as run. The records: 222 → 231 (`_mutants | wc -l`; `_MUT_RECORDS_MIN` follows): 2 removed (the
+two `_ctl_need=0` records, whose subject went), 11 added (the gate's equality always-true and as a substring match; the decline
+arm; the member's own group's flag; trust before capability; the undeclared-group arm; the `_cap` loop's no-arm and parse guards;
+the reader's flag-name validation; the table check's misspelt group; the census membership check), and 1 re-aimed (the
+`|| return $?` record, now `$_cap_lbl`); the doc coder's report first read "3 removed" from a line diff that counted the re-aim, and "10 added"; the driver recounted `_mutants`.
+`_MUT_UNRECORDED_MAX` 18 → 21: the three group labels `$_fifo_lbl`, `$_perm_lbl` and `$_pfl_lbl` arrive with the table and
+their records are CR-B2b's, so the ratchet is loosened by their number for two slices; **CR-B2b brings it back to 18** (carried,
+below). The doc rows (`fea3a0c6`): the design memo's `_cn` row becomes the CAP, CAPT, FIFO, PERM and PFL rows, and a paragraph
+states the marker below; corpus §6.1 five rows and new totals; residuals R11 (the plan's BS-2: a member declared that does not
+need the capability) and the range "R1–R11"; six rows added to `idents.tsv` in §E (`cap`, `cap_fn`, `cap_err`, `cr_vars`,
+`capflags`, `endmarks`, R3-all-3).
+
+**The verdict marker (a decision the plan does not have).** The code unit's GB2-14 record, the reader's flag-name validation made
+vacuous, came out WRONG REASON on bash 5.3: `${!x-}` on a non-name aborts `_cap`'s subshell before its labelled line, and the
+then-branch `ctl_ok=1` reds the run unlabelled, so "removed → something reds (named)" fails. The class is every standing check of
+shape `elif ! ( … ); then ctl_ok=1`, which is `_wm`, `_ev` and `_cap`, so the driver gave all three one marker (one issue, one
+way): the subshell creates `$_VFY/.<x>_end` when it reaches its verdict, and the then-branch prints `CONTROL FAILED (<label>): the
+check ended before its verdict` when the file is absent. It was decided as an implementation detail the slice's instrument found
+and went into the claim rows, not back to plan-review. Its measurements: an abort injected first in each subshell
+(`: "${_no_such_name_x}"`) → KILLED AS NAMED, one label line, rc 1, both shells (12 of 12 trials in the code unit); the marker's
+`then` line removed → WRONG REASON, no label line.
+
+**Measured.** Ship PASSED, rc 0, 0 `!!` lines, ×4 (BSD and GNU-like `grep` × bash 5.3 and 3.2) at `c1ca2a4d`, `fea3a0c6`,
+`55f97949` and `4a2c2ca6`; `scripts/trip-wires.sh` rc 0 at each code commit; the completion grep over the seven parts and the wire
+for `_ctl_need` and the other removed names 0; `prefix-grep.sh` over all parts and the wire 0 (with its negative control, one
+`X=1 _control a b` line, 1 hit). The code unit re-trialled the 26 records anchored in `controls.sh` or killed by `_wm` / `_ev` /
+`_cap` labels, 52 trials, all KILLED AS NAMED. Sizes at the head (`wc -l`): `ctlrun.sh` 439 (379 at the frame), `controls.sh` 712
+(700), `mutations.sh` 809 (788), `records.sh` 441 (413), `harness.sh` 886 unchanged, the design memo 755 (≤ 760), `cr-sweep` 926.
+The claim tables were measured at `fea3a0c6` in two clones, one wire process each, both shells, every log under the driver's
+`crb2a-logs/`. **GB2-1…GB2-5** (equality, substring, decline arm, member's own group, trust before capability): each record
+KILLED AS NAMED, rc 1, by the row that names it (rows N, N, a decline row, Y, the untrusted row); the survive clauses as in
+the next section. **GB2-6** the undeclared-group arm: killed by row U. **GB2-7** the census membership: a member row renamed →
+`CONTROL FAILED (CEN): declared capability member "…" is no _control this run made`, rc 1; with the membership pass removed,
+rc 0 on a capable machine. **GB2-8** a misspelt member group → `CAPT` red naming the group; **GB2-9** `|| return $?` → row X
+`returned 2, not 1`; **GB2-10** no-arm → `no arm`, parse → `did not parse`; **GB2-11** a plain ship holds 0 occurrences of
+`CONTROL FAILED ($_cap_lbl)`, and with `2> "$_VFY/.cap_err"` made `2>&2` the five expected reds reach the output; **GB2-13**
+a `fact` row cut to 2 fields → `CAPT` red `a fact row holds 2 field(s), not 3`, rc 1; with `|| ctl_ok=1` → `|| :` the same red
+line prints and rc is 0; **GB2-14** below; **GB2-15** (a) the table renamed in the controls file only → `missing: $_CAP_TABLE`,
+rc 2, (b) plus the guard disabled → `_CAP_TABLE: unbound variable` at `ctlrun.sh` :67, rc 1, (c) a flag name misspelt →
+`missing: $_fifo_okk`, rc 2; **GB2-16** (a) a group label's definition renamed → `_lbd` names it, rc 2, (b) the table block
+moved before `_lbd` → `controls.sh` :154 `_fifo_lbl: unbound variable`, rc 1; **GB2-17** the nested pass visits 11 of 11 rows
+with every field (`_cr_row`, `_cr_nf`, `_cr_bad`, every `_cr_f[i]`) identical, and with the cursor and fields made global it
+visits 1, both shells; and the registry check: `_cap`'s call registers once per row, all ten at `controls.sh:386`, `direct`, one
+site, both shells. **R3-B2a-1** the first reader after the guard is `_cap_check` (`controls.sh` :251 → :230 → `ctlrun.sh` :67
+`local _cr_rest="$_CAP_TABLE$_cr_nl"`); **-2** is GB2-13's plant, a `fact` row, as measured; **-3** the guard asserts every
+consumed name except `$_VFY`, which the controls file makes after `ctlrun.sh` is sourced (:205 against :180), the header says so;
+**-4** every name `ctlrun.sh` defines (28) is in WHAT IT DEFINES, and `mutations.sh`'s lacks `_mc_nl` (fixed, below); **-5** the
+three `_fw_trusted` openings are byte-identical; **-6** below; **-7** is GB2-17. The `mutations.sh` function guard sourced in a
+shell that defines none of the three functions: `!! This file is the MUTATION SET … missing: _cap_rows() _cap_group_of()
+_cap_flag_of()`, rc 2, both shells. The summary on this machine states both groups as claims (0 `NOT EXERCISED`); with the
+fifo probe forced to 0 in a copy, rc 0 and `NOT EXERCISED … 2 control(s) of the fifo group`, with the perm probe forced, `5
+control(s) of the perm group`, each leaving the other line a claim. The battery (`BASE_REV=0848a850`): 90 comparable cases, 4 rc differences, each explained: `R9trustaboveunset` red → green (its subject, trust above
+`unset _ctl_need`, no longer exists); `S10nokind` green → red (the membership check now also pins the registry's kind
+detection, a second pin); `R8nowd` now labelled ×3 (the marker); `R3noask_s2`'s `CF` count 103 → 110 (more labelled
+reds). 37 cases' edit targets (`_ctl_need`, `.declined`, `_cn`) no longer apply; `runners/cases/retired/README.txt` retires 38:
+those 37 and `R9trustaboveunset`, which applies but whose subject no longer exists (its green above is right). Generic properties carried over: `S3fm1norestore` → `S3capnorestore`
+(`_cap`'s trust restore, red under `$_cap_lbl`, "did not name zz" on F1 and F2, both shells); the arm cases (`S3fm1norow_s1`,
+`R9cn*`) and `needunset` → the GB2 survive clauses and GB2-15(c).
+
+**Where the plan memo says otherwise** (the plan is not edited; the measured facts are these). §6 GB2-3: "that row removed →
+SURVIVES" is KILLED AS NAMED by the other decline row (`Y 1 0`); it survives with both decline rows removed. GB2-6: with row U
+removed the record is killed by F1; U, F1 and F2 all removed survives. GB2-8: the clause removed alone is WRONG REASON as the
+plan says, but "clause and arm both removed → SURVIVES" is also WRONG REASON (row U under `$_cap_lbl`, whether the arm is `return 0`
+or the block deleted); it survives only with rows U, F1 and F2 removed too. The plan's survive clauses for GB2-3, -6 and -8 name too few rows; the design memo
+states no GB2 survive clause, so none needed correcting there. GB2-10: the first shape of the parse record (`M 0 1 no - 1 -` → `nop`) did not
+pin the parse guard: with the guard's arm removed the row still ran and was killed as `returned 2, not 1`, so the record's survive clause did not
+survive; re-aimed in the review fix to a row only the guard catches (`M 0 1 yes - 2 -` → `… 2 -x`), whose
+survive clause (the guard's arm made `*) ;;`) measures SURVIVED, both shells. GB2-12: with `_cap_check || ctl_ok=1` deleted and
+GB2-8's record applied, the run is WRONG REASON (the gate's F5 arm reds the member under its own label), not a survival, so the
+call is not pinned by GB2-8's record in this slice; the records the plan names for it, GB2b-1, -2 and -4, are CR-B2b's and do
+not exist here. GB2-14: the plan's "b53 aborts, b32 differs" held, and the record was WRONG REASON on b53; the plan's 5.3
+arm is now killed by the marker (`the check ended before its verdict`) and the 3.2 arm by row F1 (`returned 0, not 1`); the
+plan's survive clause (rows F1 and F2 removed) is a plain green on both, since the abort needs a row to abort on. GB2-15(b),
+GB2-16(b) and R3-B2a-1's unguarded arm: the plan says unlabelled on both shells, and it is on 5.3 only; on 3.2 the wire's exit
+trap adds `CONTROL FAILED (the run ends only through a verdict): the run ended before reaching its verdict` after the `set -u`
+line. R3-B2a-5 cites the `_wm` and `_ev` openings at `controls.sh` :223 and :264; they are :280 and :326 at the code commit
+(`_cap`'s :364). R3-B2a-6: a callback that returns non-0 is swallowed silently wherever the reader runs under `||` or `if !` (the
+gate, `_cap_check`, the census: the wire stays PASSED, rc 0) and aborts the wire unlabelled, rc 1, where errexit is live (the
+source-time guard's final-operand call; the bare `_cap_lines`): no red names it; the contract (every callback returns 0, the
+pass is stopped by `_cr_stop=1`) is load-bearing and enforced by nothing, and every shipped callback ends in a status-0
+command by inspection, recorded, no change. §7's "controls.sh (shrinks ≥ 40)" is a projection that did not hold: 700 at the
+frame, 712 at the head (695 at the first code pass, before the marker ×3 and the review fixes); ctlrun's "≤ +60 net" holds at
+its limit (379 → 439), and records.sh's "−2, +~10" is −2, +11 and 1 re-aimed. §7 also listed no claim row for three of
+`_cap_check`'s five clauses (a group declared twice, a flag that is not 0 or 1, a member label listed twice; only the parse and
+the member's-group clauses were pinned, by GB2-13 and GB2-8), though §2.2's reader 1 puts the fail-safe direction on the flag
+clause: the review found them unpinned (below).
+
+**The review** (a fresh reviewer on the snapshot `fea3a0c6`): 0 CRITICAL, 2 IMPORTANT, 5 MINOR, all introduced by the slice, one
+fix round (the early stop did not fire). Checked and confirmed: the 12 record anchors (12 of 12), 4 of 12 record trials KILLED
+AS NAMED, the reader's field split / cursor / lookup, the gate order, the ten `_cap` rows, the markers, and 65 of the 261 new
+sweep hits sampled with none misclassified. **I-1** `_cap_check`'s clauses for a group declared twice, a flag not 0 or 1, and a
+member label listed twice were pinned by nothing; with the flag clause defanged and `_fifo_ok=2` the run was green and the summary
+said `NOT EXERCISED` while the gate had run both fifo controls. Fix (`55f97949`): one record per clause, needle `$_capt_lbl`, each
+killed by its clause alone (14 of 14 trials KILLED AS NAMED, one `!!` line each) and each with its survive arm measured (8 of 8
+SURVIVED, with the re-aimed parse record), and `_cap_lines` decides claim against `NOT EXERCISED` by the gate's own predicate
+(`!= 0`), so the summary and the gate cannot disagree. **I-2** the design memo still said R1–R10 at three sites (:31, :56, :649).
+The sweep method had a gap: the doc coder classified only hits new by `(identifier, file, text)`, and an unchanged line the
+slice's own edit made false was never read. Fix (`4a2c2ca6`): R1–R11 at the three; and every hit of every identifier group
+whose referent the slice changed was re-classified over the whole head (the full re-classification: below), which found three
+more sites made false (the CAP and CAPT rows' pin lists, the corpus totals), fixed. **m-1** the three markers had no shipped pin:
+records for the three abort injections (6 of 6 marker-line-removed arms WRONG REASON). **m-2** "two rows" in the `_ctl_run` ask's
+comment and the design memo → six of the ten rows (`M 0 1 yes`, `Y 1 0`, U, `M 0 1 no`, F1, F2; row X stays green), re-measured
+both shells. **m-3** corpus and records comments gave inconsistent first reds: rewritten per record (the no-flag arm, row U first,
+F1 and F2 too; `|| return $?`, row X; the validation record, the marker on 5.3 and F1 on 3.2); the driver's brief
+called the `|| return $?` record 377, but at `fea3a0c6`'s numbering it is 381 (row X) and 377 is the no-flag arm (row U first),
+as the review's m-3 had it; the doc coder followed the review, and the brief was in error. **m-4** `cr-sweep` §1's "`_cr_*` out-globals"
+→ they are `_cap_rows`'s function-locals, the out-globals are `_cap_g`, `_cap_f`, `_cap_v`. **m-5** `_cap_rows` visited nothing for
+an unknown kind (fail-open): now exit 2, `!! _cap_rows: "<kind>" is no row kind to visit; decided nothing.` (the driver read the
+first version, which put a non-label in the label slot, and had it moved out), claim row: the census's `_cap_rows member` →
+`membr` gives rc 2 and that line, both shells. `_mc_nl` is in `mutations.sh`'s WHAT IT DEFINES (R3-B2a-4's finding). After
+the fixes: records 231 → 237 (+3 clause records, +3 marker records; `_MUT_RECORDS_MIN` 237; `_MUT_UNRECORDED_MAX` stays 21, the
+census is exact), 22 of 22 re-trials of the table-anchored records KILLED AS NAMED, ship ×4 PASSED, `ledger-check.py B2a` ok
+(576 rows).
+
+**Sweep re-run, the new sites** (`sweep.sh`, 26 files, §E's `idents.tsv` with the six rows this slice adds, run on bash 5.3 and
+3.2 with identical output). At `fea3a0c6`: 812 lines against 737 at the base; 261 hits new by `(identifier, file, text)`, all
+classified by rule (the new mechanism's code and comments, this record, ratchets, the corpus and design rows, `stays`), 0
+unclassified; the review sampled 65 and found none wrong. At `4a2c2ca6`: 828 lines (821 before the doc fixes, the 7 added being
+those fixes' own rewritten sites). The full re-classification the review asked for, of the groups whose referent the slice
+changed: `resid_range` 10 hits (4 history, 2 unrelated "plan-review R1–R3", 4 true or fixed, of which the design memo's three
+were false and are fixed); `ctl_need` 23, `declined` 2, `cn` 17, `cndir` 2, `fifo_line` 3, `perm_line` 5, the removed
+mechanism: all history, the #519 memo (residual R10) or this slice's removal rows; `standing` 58: the population is `_wm`, `_ev`,
+`_cap`, still three, every non-history hit read and true; `notexh` 12 true or history (the limit line is still produced where it was); the ratchet figures ("222", "231", "136") false at the head only in the corpus totals and a
+`mutations.sh` comment, fixed; `fifo_ok` / `perm_ok` 18 / 12, true; `cen_lbl` 17, true except that the census row of the design
+memo does not list the membership record (carried below, stated in the CAPT row's census sentence meanwhile); the remaining groups'
+referents are unchanged or the slice's own names. A concept sweep (`declin|capability flag|summary line|last ask|ask`) over the
+parts and the non-history docs finds no stale description of the removed mechanism. **The wrapped-identifier backstop**
+(`perl -0777`, `[\s#]+`): the same five matches at the base and at the head (harness :750, mutations :205 and :761, landing :74,
+reviews :624), none introduced. **R3-all-1, the two-owner rows, at the head:** controls :25-26 and records :367 (B1/B2a): both
+owners' parts gone (`_fifo_line`, `_perm_line`, `_ctl_need` and `_gopt_ok` 0 in both files); mutations :21 (B2a/C1): the consumes list
+(:20-31) holds `_cap_rows` (B2a's edit) and not `_CONTROLS` (the check C-REPORT used for C1's part); mutations :248 (every slice/C2) and corpus :194 (B2b/B2c):
+still there. This section's own lines name the slice's identifiers as a record of it (98 hits, all in this section, `hist`: a
+dated record of the slice); the sweep reads 926 lines with this section's text in the file set (828 without it), on both shells with
+identical output, and every added hit is this section's own, none removed. None is
+unclassified.
+
+**Carried to later slices.** (1) **CR-B2b**: `_MUT_UNRECORDED_MAX` back from 21 to 18, with the probe-flip records for `$_fifo_lbl`,
+`$_perm_lbl` and `$_pfl_lbl`, the three bare labels the loosened ratchet counts (a required claim row); GB2-12's named pins GB2b-1, -2, -4 (the table check's
+call is pinned by those, not by GB2-8's record); the four labels `$_capt_lbl`, `$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl` state
+the declaration's enforcement (absence red) before B2b builds it, true from B2b on. (2) **CR-B2b**: the P-x excuse in
+`_mut_run` (`mutations.sh` :742, `case "$_mlv" in "_p${_mid#P-}"*`) keys on the `_p<x>*_lbl` naming, which `$_perm_lbl` (`_pe…`)
+matches for P-e; harmless while P-e has no limit row, to be closed where B2b builds the excuse on the declaration (a required
+claim row). (3) **CR-C1**: the design memo's census row (:620, a ledger `stays` row for B2a, C1's row in §7) does not yet list
+the membership record among its pins; editing it here would fail `ledger-check.py B2a`, so the pin is stated in the CAPT row's
+census sentence and C1 rewrites that row.
