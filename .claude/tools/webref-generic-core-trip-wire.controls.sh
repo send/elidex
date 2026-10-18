@@ -684,16 +684,17 @@ _mut_correspondence || ctl_ok=1
 
 _mut_run
 
-# THE SUMMARY, one line per group in table order: flag 1 states the claim, any other
-# value what this run did NOT exercise (the member count from the table; an unreadable
-# flag claims nothing). One site, one truth: the gate's decision is a function of (table,
+# THE SUMMARY, one line per group in table order: any flag value but 0 states the claim,
+# 0 what this run did NOT exercise (the member count from the table). `!= 0` is the
+# gate's own predicate (`_ctl_gate`), so the summary and the gate cannot disagree; a
+# value that is not 0 or 1 is `_cap_check`'s red. One site, one truth: the gate's decision is a function of (table,
 # flag) through one lookup, which `_cap` pins, and every member reached the gate (the census).
 _cap_lines() { _cap_rows group _cap_line_cb; }
 _cap_line_cb() {
   local _cl_g="${_cr_f[1]}" _cl_why="${_cr_f[4]}" _cl_claim="${_cr_f[5]}" _cl_n=0
   _cap_rows member _cap_count_cb
   _cap_flag_of "$_cl_g"
-  if [ "$_cap_v" = 1 ]; then printf '            %s\n' "$_cl_claim"
+  if [ "$_cap_v" != 0 ]; then printf '            %s\n' "$_cl_claim"
   else printf '            ⚠ NOT EXERCISED on this machine: %s control(s) of the %s group (%s), so this run carries no evidence that %s\n' \
     "$_cl_n" "$_cl_g" "$_cl_why" "$_cl_claim"; fi
 }

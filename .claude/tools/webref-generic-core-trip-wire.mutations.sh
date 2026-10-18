@@ -41,7 +41,7 @@
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUTGEN`,
 # `_MUTRECORDS`, `_MUT_TARGETS`, `_mut_correspondence`,
 # `_mut_census_end` (the controls file's last statement),
-# `_mut_cap_member` (the census's membership callback, with its list `_mc_ctl`),
+# `_mut_cap_member` (the census's membership callback, with its list `_mc_ctl` and the list's delimiter `_mc_nl`),
 # `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
 # `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
 # generated half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
@@ -255,8 +255,9 @@ _MUT_UNRECORDED_MAX=21
 # call-site drop is the opt-in records' class); the CR-S3 slice the four P-b definition-test records (stdout, hangup
 # line, the control failing, git's top-level usage: the test went with the version-keyed limit).
 # The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went); the
-# CR-B2a slice the two records of the prefix that followed (the FIFO pair's, the last ask's): the table replaced it.
-_MUT_RECORDS_MIN=231
+# CR-B2a slice the two records of the prefix that followed (the FIFO pair's, the last ask's): the table replaced it. CR-B2a's review fixes added six (the table check's flag, member and group clauses, and the three
+# standing checks' verdict markers): 231 -> 237.
+_MUT_RECORDS_MIN=237
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`

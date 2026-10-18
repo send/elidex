@@ -376,12 +376,25 @@ ctlrun:s/^_cap_flag_cb() { \[ "[$]{_cr_f\[1\]}" != "[$]_cf_g" \]/_cap_flag_cb() 
 ctlrun:s/^  if \[ "[$]_fw_trusted" -ne 1 \]; then$/  if false; then/	s/^  for _g_n in "[$]@"; do$/  [ "$_fw_trusted" -eq 1 ] || return 1; &/	the gate declines exactly the members of a group whose flag is 0
 ctlrun:/^    if \[ -z "[$]_cap_f" \]; then$/,/^    fi$/s/^      return 1$/      return 0/	the gate declines exactly the members of a group whose flag is 0
 controls:s/^             U:yes:-) case/             V:yes:-) case/	the gate declines exactly the members of a group whose flag is 0
-controls:s/^M 0 1 no - 1 -$/M 0 1 nop - 1 -/	the gate declines exactly the members of a group whose flag is 0
+controls:s/^M 0 1 yes - 2 -$/M 0 1 yes - 2 -x/	the gate declines exactly the members of a group whose flag is 0
 ctlrun:s/^        \[0-9\]\*|\*\[!A-Za-z0-9_\]\*) _cr_bad=/        [0-9]x|x[!A-Za-z0-9_]x) _cr_bad=/	the gate declines exactly the members of a group whose flag is 0
 ctlrun:s/ || _r_gs=[$]?$/ || return $?/	the gate declines exactly the members of a group whose flag is 0
 # The table check's own reds, from the real table: a member row's group misspelt (the gate's red for the
 # member's own label is the SECOND thing to fail, so the table check is what this needle names).
 controls:s/^\(member.fif\)o\(.an unstorable entry neither hangs nor hides\)$/\1x\2/	the capability table is well formed and names every absence it is asked about
+# The table check's other three clauses, each killed by it ALONE (each SURVIVES with its clause disabled):
+# a probe's flag that holds 2, not 0 or 1 (the gate runs any value but 0, `_cap_lines` states the claim for
+# any value but 0: only this clause reds the value); a member label listed twice (one label, one group: a
+# member row's label changed to one another row lists); a group declared twice (a member row replaced by
+# a copy of the `perm` group row, so the removed member simply runs here and nothing else reds).
+harness:s/then _fifo_ok=1;/then _fifo_ok=2;/	the capability table is well formed and names every absence it is asked about
+controls:s/^\(member.perm.\)an unsearchable dir fails closed$/\1an unreadable file fails closed/	the capability table is well formed and names every absence it is asked about
+controls:/^group.perm._perm_ok/h;/^member.perm.an unresolvable self-test root decides nothing$/g	the capability table is well formed and names every absence it is asked about
+# The verdict marker of each standing check: an abort inside the check's subshell before its verdict is
+# a labelled red (`the check ended before its verdict`), not an unlabelled one.
+controls:s/( _wm_bad=""$/( : "${_no_such_name_x}"; _wm_bad=""/	only the watchdog's marker makes a signal status a timeout
+controls:s/^elif ! ( SELF="[$]_VFY\/[.]ev_run"/elif ! ( : "${_no_such_name_x}"; SELF="$_VFY\/.ev_run"/	a previous run's channel evidence never answers for the next
+controls:s/^elif ! ( SELF="[$]_VFY\/[.]cap_run"/elif ! ( : "${_no_such_name_x}"; SELF="$_VFY\/.cap_run"/	the gate declines exactly the members of a group whose flag is 0
 # The census's membership check (reader 4): a member row naming a label that is no `_control` of this run.
 controls:s/^\(member.perm.an unreadable file fails\) closed$/\1 closeX/	every label the run used is named by a mutation record
 # `_control`'s exit comparison: the `pin` control's expected exit and message swapped. `! [ … -eq … ]` reds the
