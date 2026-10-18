@@ -18,12 +18,15 @@
 # file's records, and reds when they drift.
 #
 # WHAT IT CONSUMES: `$_VFY` (from the controls file), the run registry
-# (`$_VFY/.registry`, what the run primitives' `_ctl_reg` appended) and `$_cen_lbl` (read by the
+# (`$_VFY/.registry`: what the run primitives' `_ctl_reg` appended), `$_cen_lbl` (read by the
 # census), `$_lbd_names` (from the controls file: the `_*_lbl` names the parts
 # spell, each asserted defined and non-empty there; the census reads their
 # values, and `_mut_run` the `_p<x>*_lbl` among them with the harness's
 # `$_fw_limits` for a machine-limited record), `$_MUT_PARTS` (from the controls
-# file, which spells the list of parts once), and `$SELF`, `$SCRATCH`, `$K2RE`
+# file, which spells the list of parts once), the capability table's READER
+# (`_cap_rows`, `_cap_group_of`, `_cap_flag_of`, from the run primitives: functions
+# only, asserted below by `declare -F`; neither the table nor a flag is read here,
+# for the census's membership check and `_mskip`), and `$SELF`, `$SCRATCH`, `$K2RE`
 # and `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` (`${SELF%.sh}.<part>.sh`); the per-run copies iterate `_MUT_PARTS`.
 # `_mut_run` copies every part in that list — the controls, the harness, its run
@@ -38,6 +41,7 @@
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUTGEN`,
 # `_MUTRECORDS`, `_MUT_TARGETS`, `_mut_correspondence`,
 # `_mut_census_end` (the controls file's last statement),
+# `_mut_cap_member` (the census's membership callback, with its list `_mc_ctl`),
 # `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
 # `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
 # generated half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
@@ -91,6 +95,9 @@
 _mut_missing=
 for _n in _VFY _lbd_names _MUT_PARTS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
+done
+for _n in _cap_rows _cap_group_of _cap_flag_of; do
+  declare -F "$_n" > /dev/null || _mut_missing="$_mut_missing $_n()"
 done
 if [ -n "$_mut_missing" ]; then
   echo "!! This file is the MUTATION SET for \`webref-generic-core-trip-wire.sh\`. It is" >&2
@@ -234,7 +241,9 @@ fi
 # command code f"; GNU sed is not measured here).
 _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
-_MUT_UNRECORDED_MAX=18
+# 18 -> 21 at CR-B2a: the group and limit labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`) are defined and held by
+# the capability table, and have no record until CR-B2b's probe-flip records (the absence check they pin is B2b's).
+_MUT_UNRECORDED_MAX=21
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
 # `523ce31f` P-j's relative-PATH-entry record (no per-entry clause left to pin); `15d3e704` P-g's two
@@ -245,8 +254,9 @@ _MUT_UNRECORDED_MAX=18
 # (`ctlrun:/^  _ctl_env=()$/d`; the global went); `fd90b4b1` the two drop-prefix records (relcwd, cfgkept: a
 # call-site drop is the opt-in records' class); the CR-S3 slice the four P-b definition-test records (stdout, hangup
 # line, the control failing, git's top-level usage: the test went with the version-keyed limit).
-# The CR-B1 slice removed k2's `_ctl_need` prefix record (k2 is posed on every machine, so the prefix went).
-_MUT_RECORDS_MIN=222
+# The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went); the
+# CR-B2a slice the two records of the prefix that followed (the FIFO pair's, the last ask's): the table replaced it.
+_MUT_RECORDS_MIN=231
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -414,6 +424,13 @@ _mut_trial() {
   esac
 }
 
+# The census's membership callback (`_cap_rows member`): the member label is in `$_mc_ctl`.
+_mut_cap_member() {
+  case "$_mc_ctl" in *"$_mc_nl${_cr_f[2]}$_mc_nl"*) ;; *)
+    echo "!! CONTROL FAILED ($_cen_lbl): declared capability member \"${_cr_f[2]}\" is no \`_control\` this run made" >&2
+    _mut_corr_bad=1 ;;
+  esac
+}
 # The always-on half: the records against the labels the run used.
 _mut_correspondence() {
   _mut_corr_bad=0
@@ -477,8 +494,7 @@ _mut_correspondence() {
   # Two sources: the run registry (`$_VFY/.registry` — what bash RAN: the run
   # primitives' `_ctl_reg` appends `<file>:<line>	<kind>	<label>` under each
   # `_control` / `_ctl_run` / `_ctl_gate` / `_fgit_window_verdict_exit` call
-  # made under this `_VFY` (the controls file's `_ctl_need` standing check runs
-  # under one of its own, so its rows are not here), kind `control` when
+  # made under this `_VFY`, kind `control` when
   # `_control` made it, `direct` otherwise), and the value of
   # each name in `$_lbd_names` (the `_*_lbl` names the parts spell — a text
   # derivation, each asserted defined by the controls file's `_lbd` check, so a
@@ -494,8 +510,8 @@ _mut_correspondence() {
   # is noted (`.census`) before it is read: a label-taking call after this point
   # would count nowhere, so the controls file's last statement reds if the file
   # grew (`_mut_census_end`, below; a file, so a `( … )` or `$(…)` call grows it too).
-  # A control a machine cannot pose is registered all the same (`_ctl_need`, in
-  # the run primitives), so an orphan needle is a rename, a deletion or an
+  # A control a machine cannot pose is registered all the same (the table's
+  # decline, in the run primitives), so an orphan needle is a rename, a deletion or an
   # unreached call on every machine. A run that ends before this point is red
   # without it (the window's exit 2, `_lbd`, a missing part).
   # ONE LABEL, ONE SITE: a label registered from two lines is red — a second
@@ -523,6 +539,10 @@ _mut_correspondence() {
       exit bad }' "$_VFY/.vlabels" "$_VFY/.registry" || _mut_corr_bad=1
   awk -F'\t' '$2 == "control" { l = $0; sub(/^[^\t]*\t[^\t]*\t/, "", l); print l }' "$_VFY/.registry" | LC_ALL=C sort -u > "$_VFY/.ctllabels"
   cut -f3- "$_VFY/.registry" | LC_ALL=C sort -u "$_VFY/.vlabels" - > "$_VFY/.labels"
+  # READER 4 OF THE CAPABILITY TABLE: every declared member is a `control`-kind label of THIS run's
+  # registry (the list just written), else the table names a control that was renamed or never made.
+  _mc_nl=$'\n'; _mc_ctl="$_mc_nl$(cat "$_VFY/.ctllabels")$_mc_nl"
+  _cap_rows member _mut_cap_member
   _mut_arc=0
   K2_CEN="$_cen_lbl" K2_BARE="$_VFY/.bare" awk 'BEGIN { printf "" > ENVIRON["K2_BARE"] }
     FILENAME == ARGV[1] { nd[++nn] = $0; isn[$0] = 1; next }

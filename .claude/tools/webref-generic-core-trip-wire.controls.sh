@@ -21,9 +21,9 @@
 # at entry. (No part calls the wire's `_git`, so the entry check no longer asks
 # for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
-# was: it named `$CTL`, `_control`, a per-run env global, `$_perm_line`,
-# `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
-# them (`grep -c '_perm_line\|_fifo_line\|\$CTL\|ctl_ok\|\b_control\b'`
+# was: it named `$CTL`, `_control`, a per-run env global, two summary-line globals
+# and `ctl_ok` "for the wire to read", and the wire reads NONE of
+# them (`grep -c '\$CTL\|ctl_ok\|\b_control\b'`
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
@@ -99,15 +99,21 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # records — in the mutation set; the records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
-# blocks, the defined-labels check, the three standing checks (their producers sit
-# below) and the orderly-end check (in the wire) —, defined HERE so the check
-# that follows can ask for every label at once:
+# blocks, the defined-labels check, the three standing checks (their producers are
+# below), the table check (`$_capt_lbl`, `_cap_check`), the capability groups' and
+# the limit's labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`: the table's group and
+# `limit` rows hold them) and the orderly-end check (in the wire) —, defined HERE so
+# the check that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
 _fsm_lbl="a caller's fsmonitor hook does not run"
 _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
 _wm_lbl="only the watchdog's marker makes a signal status a timeout"
-_cn_lbl="_ctl_need declines exactly what this machine cannot do"
+_cap_lbl="the gate declines exactly the members of a group whose flag is 0"
+_capt_lbl="the capability table is well formed and names every absence it is asked about"
+_fifo_lbl="this machine holds a FIFO, or its caller declared that it cannot"
+_perm_lbl="this user cannot read a mode-000 file, or its caller declared that it can"
+_pfl_lbl="this env lists its environment NUL-separated, or its caller declared that it cannot"
 _ev_lbl="a previous run's channel evidence never answers for the next"
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
@@ -152,6 +158,24 @@ elif [ -n "$_lbd_missing" ]; then
   echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2
   exit 2
 fi
+# THE CAPABILITY TABLE: which controls need a capability this machine may lack. Declared
+# HERE, AFTER the label check above (it expands the group labels that check asked about)
+# and BEFORE the harness is sourced (ctlrun's source-time guard reads it); read only
+# through ctlrun's `_cap_rows` (plan §2.2). Rows, TAB-separated, no empty field: `group`
+# (name, the harness probe's flag variable, label, why absent, the claim its controls
+# support), `member` (group, a `_control` label spelled literally), `limit` (a P-x ID a
+# probe answers, label, why), `fact` (a P-x ID whose limit is decided, why).
+_CAP_TABLE="group	fifo	_fifo_ok	$_fifo_lbl	this filesystem holds no FIFO	an entry git cannot store neither hangs nor hides a verdict, and a tracked path replaced by one is not opened
+member	fifo	a tracked path replaced by a FIFO is not opened
+member	fifo	an unstorable entry neither hangs nor hides
+group	perm	_perm_ok	$_perm_lbl	this user can read a mode-000 file	an unreadable file or an unsearchable directory fails closed, and a restrictive umask decides nothing
+member	perm	an unreadable file fails closed
+member	perm	an unsearchable dir fails closed
+member	perm	a tracked file under an unsearchable dir is not absent
+member	perm	an unresolvable self-test root decides nothing
+member	perm	a restrictive umask decides nothing
+limit	P-f	$_pfl_lbl	this env refuses -0
+fact	P-b	keyed on git's documented 2.42 boundary (CR-S3), not a probe"
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
@@ -195,6 +219,36 @@ ctl_ok=0
 # refuses over a build that is not complete and trusted too (W2), wherever
 # this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
 _fgit_window_verdict_exit "$_fw_lbl"
+# THE TABLE CHECK (not a standing check: it runs no `_ctl_run` row), asked once, before
+# the first gated run, each red under `$_capt_lbl`: every row parses, group names and
+# member labels are unique, every member's group is declared, every flag is 0 or 1.
+# Returns 1 on any red; its call line is the writer (`[ "$ctl_ok" -eq 0 ] || exit 1`
+# follows, before the mutation set and the summary).
+_cap_check() {
+  local _cc_bad=0 _cc_nl=$'\n' _cc_gs _cc_ms
+  _cc_gs="$_cc_nl"; _cc_ms="$_cc_nl"
+  _cap_rows - _cap_chk_row
+  _cap_rows member _cap_chk_member
+  [ "$_cc_bad" -eq 0 ]
+}
+_cap_chk_red() { echo "!! CONTROL FAILED ($_capt_lbl): $1" >&2; _cc_bad=1; }
+_cap_chk_row() {
+  if [ -n "$_cr_bad" ]; then _cap_chk_red "row \"$_cr_row\": $_cr_bad"; return 0; fi
+  case "${_cr_f[0]}" in
+    group)
+      case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) _cap_chk_red "group \"${_cr_f[1]}\" is declared twice" ;; esac
+      _cc_gs="$_cc_gs${_cr_f[1]}$_cc_nl"
+      _cap_flag_of "${_cr_f[1]}"
+      case "$_cap_v" in 0|1) ;; *) _cap_chk_red "group \"${_cr_f[1]}\": its flag ${_cr_f[2]} holds \"$_cap_v\", not 0 or 1" ;; esac ;;
+    member)
+      case "$_cc_ms" in *"$_cc_nl${_cr_f[2]}$_cc_nl"*) _cap_chk_red "member label \"${_cr_f[2]}\" is listed twice" ;; esac
+      _cc_ms="$_cc_ms${_cr_f[2]}$_cc_nl" ;;
+  esac
+}
+_cap_chk_member() {
+  case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) ;; *) _cap_chk_red "member \"${_cr_f[2]}\" names group \"${_cr_f[1]}\", which no group row declares" ;; esac
+}
+_cap_check || ctl_ok=1
 # THE THREE STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
 # always exists: their stubs read no tree, so they ask no fixture question) in
 # a subshell. Each opens by reading `_fw_trusted` — untrusted is red
@@ -216,10 +270,13 @@ _fgit_window_verdict_exit "$_fw_lbl"
 # the watchdog's group (`_ctl_wd_pg`) must be gone (the watchdog's group kill).
 # Both are asked with a bounded poll (`_wm_gone`, 20 × 0.05 s): a killed process
 # can stay visible to `kill -0` until its reparenting reaper collects it. A row
-# with no arm below is red, as `_cn`'s is. Two rows, ONE call line: the
-# registry's site is the line, and one label has one site.
+# with no arm below is red, as `_cap`'s is. Two rows, ONE call line: the
+# registry's site is the line, and one label has one site. The subshell writes
+# `$_VFY/.wm_end` once it has its verdict (green or red); the `then` branch reds under the
+# label when it is absent, as an abort inside the subshell would otherwise red the run unlabelled.
 printf '%s\n' 'kill -KILL $$' > "$_VFY/.wm_abort"
 printf '%s\n' 'sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
+command rm -f "$_VFY/.wm_end"
 if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( _wm_bad=""
          _wm_gone() { _wm_i=0; while kill -0 "$1" 2>/dev/null; do
@@ -244,10 +301,12 @@ elif ! ( _wm_bad=""
              *) _wm_bad="$_wm_bad; no arm for row \"$_wm_row\"" ;;
            esac
          done
+         : > "$_VFY/.wm_end"
          [ -z "$_wm_bad" ] || { echo "!! CONTROL FAILED ($_wm_lbl)$_wm_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.wm_end" ] || echo "!! CONTROL FAILED ($_wm_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_err" "$_VFY/.control_timeout"
+command rm -f "$_VFY/.wm_end" "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_err" "$_VFY/.control_timeout"
 # STANDING CHECK of the evidence directory's freshness (`_ctl_run` makes it
 # afresh, `rm -rf` then `mkdir`, for every call that delivers a channel): a
 # `path` a previous run left must not answer for this one. Two rows, ONE call
@@ -256,11 +315,14 @@ command rm -f "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm
 # `path`: `_ctl_run` returns 0 and `path` is there. `stale` then delivers
 # `$_VFY/.ev_stale`, which holds no `k2evprobe`, so the run calls no shim: it
 # must return 1 naming "PATH prefix never reached the run" — a 0 is the first
-# row's `path` answering. A row with no arm below is red, as `_cn`'s is.
+# row's `path` answering. A row with no arm below is red, as `_cap`'s is. The subshell writes
+# `$_VFY/.ev_end` once it has its verdict (green or red); the `then` branch reds under the
+# label when it is absent, as an abort inside the subshell would otherwise red the run unlabelled.
 command mkdir "$_VFY/.ev_ran" "$_VFY/.ev_stale"
 printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\n' > "$_VFY/.ev_ran/k2evprobe"
 chmod +x "$_VFY/.ev_ran/k2evprobe"
 printf '%s\n' 'k2evprobe 2>/dev/null; exit 0' > "$_VFY/.ev_run"
+command rm -f "$_VFY/.ev_end"
 if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( SELF="$_VFY/.ev_run"; _ev_bad=""
          for _ev_row in ran stale; do
@@ -275,116 +337,84 @@ elif ! ( SELF="$_VFY/.ev_run"; _ev_bad=""
              *) _ev_bad="$_ev_bad; no arm for row \"$_ev_row\"" ;;
            esac
          done
+         : > "$_VFY/.ev_end"
          [ -z "$_ev_bad" ] || { echo "!! CONTROL FAILED ($_ev_lbl)$_ev_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.ev_end" ] || echo "!! CONTROL FAILED ($_ev_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -rf "$_VFY/.ev_ran" "$_VFY/.ev_stale" "$_VFY/.ev_run" "$_VFY/.ev_err" "$_VFY/.reached"
-# STANDING CHECK of the gate's `_ctl_need` arms (`_ctl_gate`, in the run
-# primitives), through `_ctl_run` in a subshell with `SELF` pointed at a script
-# that exits at once, so "ran" is `_rc` set, and `_VFY` pointed at a directory
-# of its own (`$_VFY/.cn`): every file the run primitives touch sits under
-# `$_VFY` (the registry, `.declined`, the run's output and the watchdog's
-# marker), so the rows reach none of the run's own — the shared `.declined` is
-# read by the asks below from its first line, and this check's rows do not
-# register in the run's registry (its label reaches the census as a `_*_lbl`
-# value). The check leaving the run's `.declined` — the file the asks below
-# read — as it found it is pinned: it is noted before the check (absent, or its
-# line count and checksum) and compared after it, red under this label when it
-# differs, in whatever order the rows run.
-# Table-driven: the value given (`-` = none, `''` = empty) → the return,
-# whether a run was made, `dir` = `.declined` made a directory first (or `chan` =
-# the call passes the malformed channel argument `X`), and
-# `untrusted` = the window's trust forced off for that row alone (`_fw_trusted=0`,
-# `_fw2_said=1`, both restored after it: the rows below run trusted); after
-# each, `_ctl_need` is unset again (in posix mode bash 3.2 keeps a prefix
-# assignment, so the gate must clear it). Under a 0 the gate notes the label in
-# `.declined`; a note it could not make, and a value that is not 0 or 1, are its
-# own red (captured: the expected outcome there), and the red must name the
-# value, or the failed note. A malformed channel under a 0 is red (1), naming
-# the malformed argument: `_ctl_run` validates its channels whatever the gate
-# answered, so a decline cannot hide a broken call. Under a 0 with trust off the gate returns 1 before
-# the need arms: no run, no note — the trust arm's place before the need arms,
-# which nothing on a capable machine would otherwise tell from the reverse.
-# A row the loop cannot parse — a 4th column that is not `-`/`dir`/`chan`, a 5th that
-# is not `-`/`untrusted`, a column missing — is red naming the row and is not
-# run; a parsed row whose key (return, 4th, 5th) no arm below asserts is red too
-# (`0 - -` is the one key the return and the run alone assert): a row never
-# loses its arm in silence.
-_cn_state() { # the run's `.declined`: absent, not a regular file, or its line count and checksum
-  if [ ! -e "$_VFY/.declined" ]; then echo absent
-  elif [ ! -f "$_VFY/.declined" ]; then echo "not a regular file"
-  else echo "$(wc -l < "$_VFY/.declined" | tr -d '[:space:]') line(s), cksum $(cksum < "$_VFY/.declined")"; fi
-}
-_cn_before="$(_cn_state)"
-command mkdir "$_VFY/.cn"
-printf '%s\n' 'exit 0' > "$_VFY/.cn/.cn_run"
+command rm -rf "$_VFY/.ev_end" "$_VFY/.ev_ran" "$_VFY/.ev_stale" "$_VFY/.ev_run" "$_VFY/.ev_err" "$_VFY/.reached"
+# STANDING CHECK of the gate's capability arm (`_ctl_gate`, over the table `_cap_rows`
+# reads), through `_ctl_run` over `$_VFY` with `SELF` a stub that exits at once, so
+# "ran" is `_rc` set. ONE call line (the registry's site is the line); each row replaces
+# `_CAP_TABLE` and the synthetic flags `_zz_ok` / `_yy_ok` in the subshell (the subject is
+# the gate's mechanism, not the real table), does NOT redirect `_VFY` (the label registers
+# in the run's registry), and sends its stderr to `$_VFY/.cap_err`: a row's EXPECTED red
+# must never reach the run's output, where it would let any unrelated red "kill" every
+# `$_cap_lbl` record. `$_cap_lbl` is a member of: M `zz`; N neither (`zz`'s members a proper
+# prefix and a proper superstring of it); Y `yy` (`zz` declared first); U `xx`, which no
+# group row declares; F1, F2 `zz`, whose flag field is `a-b`, `1a`. Columns: table, the two
+# flags, trust (`no` = `_fw_trusted=0`, `_fw2_said=1` for that row alone), channel (`X` =
+# malformed), the return wanted, whether a run was made. A row the loop cannot parse, or
+# that no arm below asserts, is red naming the row. The subshell writes `$_VFY/.cap_end` once it
+# has its verdict (green or red); the `then` branch reds under the label when it is absent, as an
+# abort inside the subshell (a flag name the reader's validation let through, `${!x-}` on bash 5.3)
+# would otherwise red the run unlabelled.
+printf '%s\n' 'exit 0' > "$_VFY/.cap_run"
+command rm -f "$_VFY/.cap_end"
 if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
-elif ! ( SELF="$_VFY/.cn/.cn_run"; _VFY="$_VFY/.cn"; _cn_bad=""
-       while read -r _cn_v _cn_want _cn_ran _cn_decl _cn_trust; do
-         _cn_line="$_cn_v $_cn_want $_cn_ran $_cn_decl $_cn_trust"
-         case "$_cn_decl" in -|dir|chan) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 4 is \"$_cn_decl\", not -, dir or chan"; continue ;; esac
-         case "$_cn_trust" in -|untrusted) ;; *) _cn_bad="$_cn_bad; row \"$_cn_line\" did not parse: column 5 is \"$_cn_trust\", not - or untrusted"; continue ;; esac
-         case "$_cn_v" in -) unset _ctl_need ;; "''") _cn_val=""; _ctl_need="" ;; *) _cn_val="$_cn_v"; _ctl_need="$_cn_v" ;; esac
-         [ "$_cn_ran" = ran ] || _cn_ran=""
-         _cn_row="$_cn_v"; [ "$_cn_decl" = - ] || _cn_row="$_cn_v $_cn_decl"; [ "$_cn_trust" = - ] || _cn_row="$_cn_row $_cn_trust"
-         command rm -rf "$_VFY/.declined"; [ "$_cn_decl" != dir ] || command mkdir "$_VFY/.declined"
-         _cn_tr="$_fw_trusted"; _cn_sd="$_fw2_said"; [ "$_cn_trust" != untrusted ] || { _fw_trusted=0; _fw2_said=1; }
-         _cn_ch=""; [ "$_cn_decl" != chan ] || _cn_ch=X
-         unset _rc; _cn_got=0; _ctl_run "$_cn_lbl" "$_VFY" "" "" "" "" "" ${_cn_ch:+"$_cn_ch"} > /dev/null 2> "$_VFY/.cn_err" || _cn_got=$?
-         _fw_trusted="$_cn_tr"; _fw2_said="$_cn_sd"
-         [ "$_cn_got" -eq "$_cn_want" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: returned $_cn_got, not $_cn_want"
-         _cn_was="${_rc+made}"
-         [ "${_rc+ran}" = "$_cn_ran" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: a run was ${_cn_was:-not made}"
-         [ -z "${_ctl_need+set}" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: left set after the call"
-         case "$_cn_want$_cn_decl$_cn_trust" in
-           0--) ;; # a run that returned 0: the return and the run above are its whole assertion
-           2--) [ "$(tail -n 1 "$_VFY/.declined" 2>/dev/null)" = "$_cn_lbl" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: the decline was not noted" ;;
-           1--) case "$(cat "$_VFY/.cn_err")" in *"holds \"$_cn_val\", not 0 or 1"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the value" ;; esac ;;
-           1dir-) case "$(cat "$_VFY/.cn_err")" in *"the decline could not be noted"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the failed note" ;; esac ;;
-           1-untrusted) [ ! -e "$_VFY/.declined" ] || _cn_bad="$_cn_bad; _ctl_need $_cn_row: a decline was noted over an untrusted window" ;;
-           1chan-) case "$(cat "$_VFY/.cn_err")" in *"malformed channel argument"*) ;; *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: the red did not name the malformed channel" ;; esac ;;
-           *) _cn_bad="$_cn_bad; _ctl_need $_cn_row: no arm for row \"$_cn_line\"" ;;
-         esac
-       done <<EOF_CN
-1 0 ran - -
-x 1 - - -
-'' 1 - - -
-- 0 ran - -
-0 1 - - untrusted
-0 1 - dir -
-0 1 - chan -
-0 2 - - -
-EOF_CN
-       [ -z "$_cn_bad" ] || { echo "!! CONTROL FAILED ($_cn_lbl)$_cn_bad" >&2; exit 1; } ); then
+elif ! ( SELF="$_VFY/.cap_run"; _ca_bad=""; _ca_tb=$'\t'; _ca_nl=$'\n'
+         _ca_gz="group${_ca_tb}zz${_ca_tb}_zz_ok${_ca_tb}zz label${_ca_tb}no zz${_ca_tb}zz claim"
+         _ca_gy="group${_ca_tb}yy${_ca_tb}_yy_ok${_ca_tb}yy label${_ca_tb}no yy${_ca_tb}yy claim"
+         while read -r _ca_t _ca_zz _ca_yy _ca_trust _ca_chan _ca_want _ca_ran; do
+           _ca_line="$_ca_t $_ca_zz $_ca_yy $_ca_trust $_ca_chan $_ca_want $_ca_ran"
+           case "$_ca_t:$_ca_zz$_ca_yy:$_ca_trust:$_ca_chan:$_ca_want:$_ca_ran" in
+             [MNYU]:[01][01]:yes:-:[012]:ran|[MNYU]:[01][01]:yes:-:[012]:-|[MNYU]:[01][01]:no:-:[012]:-|M:[01][01]:yes:X:[012]:-|F[12]:[01][01]:yes:-:[012]:-) ;;
+             *) _ca_bad="$_ca_bad; row \"$_ca_line\" did not parse"; continue ;;
+           esac
+           case "$_ca_t" in
+             M) _CAP_TABLE="$_ca_gz${_ca_nl}member${_ca_tb}zz${_ca_tb}$_cap_lbl${_ca_nl}$_ca_gy" ;;
+             N) _CAP_TABLE="$_ca_gz${_ca_nl}member${_ca_tb}zz${_ca_tb}${_cap_lbl%?}${_ca_nl}member${_ca_tb}zz${_ca_tb}${_cap_lbl}x${_ca_nl}$_ca_gy" ;;
+             Y) _CAP_TABLE="$_ca_gz${_ca_nl}$_ca_gy${_ca_nl}member${_ca_tb}yy${_ca_tb}$_cap_lbl" ;;
+             U) _CAP_TABLE="$_ca_gz${_ca_nl}member${_ca_tb}xx${_ca_tb}$_cap_lbl" ;;
+             F1) _CAP_TABLE="group${_ca_tb}zz${_ca_tb}a-b${_ca_tb}zz label${_ca_tb}no zz${_ca_tb}zz claim${_ca_nl}member${_ca_tb}zz${_ca_tb}$_cap_lbl" ;;
+             F2) _CAP_TABLE="group${_ca_tb}zz${_ca_tb}1a${_ca_tb}zz label${_ca_tb}no zz${_ca_tb}zz claim${_ca_nl}member${_ca_tb}zz${_ca_tb}$_cap_lbl" ;;
+           esac
+           _zz_ok="$_ca_zz"; _yy_ok="$_ca_yy"
+           _ca_tr="$_fw_trusted"; _ca_sd="$_fw2_said"; [ "$_ca_trust" != no ] || { _fw_trusted=0; _fw2_said=1; }
+           _ca_ch=""; [ "$_ca_chan" = - ] || _ca_ch="$_ca_chan"
+           unset _rc; _ca_got=0
+           _ctl_run "$_cap_lbl" "$_VFY" "" "" "" "" "" ${_ca_ch:+"$_ca_ch"} > /dev/null 2> "$_VFY/.cap_err" || _ca_got=$?
+           _fw_trusted="$_ca_tr"; _fw2_said="$_ca_sd"
+           _ca_err="$(cat "$_VFY/.cap_err")"
+           [ "$_ca_got" -eq "$_ca_want" ] || _ca_bad="$_ca_bad; row \"$_ca_line\": returned $_ca_got, not $_ca_want"
+           _ca_exp=""; [ "$_ca_ran" != ran ] || _ca_exp=ran
+           [ "${_rc+ran}" = "$_ca_exp" ] || _ca_bad="$_ca_bad; row \"$_ca_line\": a run was$([ -n "${_rc+x}" ] || echo " not") made"
+           case "$_ca_t:$_ca_trust:$_ca_chan" in
+             [MNY]:yes:-) ;; # the return and the run above are the whole assertion
+             M:no:-) [ -z "$_ca_err" ] || _ca_bad="$_ca_bad; row \"$_ca_line\": an untrusted window reported more than W2's one line" ;;
+             U:yes:-) case "$_ca_err" in *'group "xx"'*) ;; *) _ca_bad="$_ca_bad; row \"$_ca_line\": the red did not name xx" ;; esac ;;
+             F[12]:yes:-) case "$_ca_err" in *'group "zz"'*) ;; *) _ca_bad="$_ca_bad; row \"$_ca_line\": the red did not name zz" ;; esac ;;
+             M:yes:X) case "$_ca_err" in *"malformed channel argument"*) ;; *) _ca_bad="$_ca_bad; row \"$_ca_line\": the red did not name the malformed channel" ;; esac ;;
+             *) _ca_bad="$_ca_bad; row \"$_ca_line\": no arm" ;;
+           esac
+         done <<EOF_CAP
+M 1 1 yes - 0 ran
+M 0 1 yes - 2 -
+N 0 0 yes - 0 ran
+Y 0 1 yes - 0 ran
+Y 1 0 yes - 2 -
+U 0 0 yes - 1 -
+M 0 1 no - 1 -
+M 0 1 yes X 1 -
+F1 0 0 yes - 1 -
+F2 0 0 yes - 1 -
+EOF_CAP
+         : > "$_VFY/.cap_end"
+         [ -z "$_ca_bad" ] || { echo "!! CONTROL FAILED ($_cap_lbl)$_ca_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.cap_end" ] || echo "!! CONTROL FAILED ($_cap_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-_cn_after="$(_cn_state)"
-[ "$_cn_after" = "$_cn_before" ] || { echo "!! CONTROL FAILED ($_cn_lbl): the standing check changed the run's \$_VFY/.declined (before: $_cn_before; after: $_cn_after)" >&2; ctl_ok=1; }
-command rm -rf "$_VFY/.cn"
-# THE SUMMARY IS DECIDED FROM THE GATE'S DECISION: asked after a capability
-# group's calls, this answers whether `$_VFY/.declined` grew since the previous
-# ask (the first ask counts from the file's first line) — and reds when it did
-# while the group's flag is 1: then this machine can pose the question, and a
-# decline is the value carried wrong or the gate declining what it should run.
-# Nothing between two asks can decline but a call that carries `_ctl_need`. The
-# LAST ASK, before this file's exit on `ctl_ok`, reds any decline between the
-# last group's ask and the census unconditionally: no summary line was decided
-# from it (one after the census is a late registration, red at `_mut_census_end`
-# under `$_cen_lbl`).
-_cn_seen=0
-_cn_declined() { # $1 = the group's capability flag value; $2 = the red's reason, if not the flag
-  local _cd_n=0 _cd_new _cd_why="${2:-}"
-  [ -n "$_cd_why" ] || _cd_why="while this machine's capability flag is 1"
-  [ ! -e "$_VFY/.declined" ] || _cd_n="$(wc -l < "$_VFY/.declined" | tr -d '[:space:]')"
-  _cd_new=$((_cd_n - _cn_seen)); _cn_seen=$_cd_n
-  [ "$_cd_new" -gt 0 ] || return 1
-  if [ "$1" -eq 1 ]; then
-    echo "!! CONTROL FAILED ($_cn_lbl): $_cd_new control(s) declined $_cd_why:" >&2
-    tail -n "$_cd_new" "$_VFY/.declined" | sed 's/^/     /' >&2
-    ctl_ok=1
-  fi
-  return 0
-}
+command rm -f "$_VFY/.cap_end" "$_VFY/.cap_run" "$_VFY/.cap_err"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.
@@ -484,9 +514,7 @@ _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree r
 # reading one:
 #     awk -F'"' '/^(if ! )?_control /{gsub(/ /,"",$3); print $3}' <this file> | sort | uniq -c
 # (`$3` is the EXPECTED-EXIT argument: 0 = green-direction, 1 = red, 2 = the
-# wire refusing to decide; the calls under a `_ctl_need=` prefix are not counted:
-# they begin with the prefix, which the `^(if ! )?_control ` anchor does not
-# match — `grep -c '^_ctl_need=.*_control ' <this file>` counts those. ⚠ The first spelling of this command
+# wire refusing to decide. ⚠ The first spelling of this command
 # printed `$4`, the expected MESSAGE, which counts nothing — a derivation offered
 # in place of a claim has to be run once before it is written down.)
 _control "$CTL/punct" 0 "PASSED" "closing punctuation is not a path segment" || ctl_ok=1
@@ -504,17 +532,10 @@ _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TAR
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
 _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stored content" || ctl_ok=1
 _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
-# ⚠ THE TWO FIFO CONTROLS SHARE ONE PRECONDITION AND ONE REPORT LINE, decided
-# after the second of them from what the gate did (the `$_perm_line` shape, and
-# for the same reason: a summary written apart from its decision can disagree
-# with it). A machine that cannot hold a FIFO is a capability limit, not a wire
-# defect — but it is also not something this run may pass over in silence.
-# `_ctl_need="$_fifo_ok"` carries the limit's VALUE with the call (no `if` around
-# it): the call runs on every machine and registers its label for the census, and
-# where the value is 0 the gate declines it without a run (`_ctl_gate`, in the run primitives).
-_fifo_line="            an entry git cannot store neither hangs nor hides a verdict, and a
-            tracked path replaced by one is not opened"
-_ctl_need="$_fifo_ok" _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
+# THE TWO FIFO CONTROLS (`fifotracked`, `odd`) are the table's `fifo` group (`_CAP_TABLE`):
+# the calls run on every machine and register their labels for the census, and where
+# the flag is 0 the gate declines them without a run; `_cap_lines` reports it.
+_control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
 _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1
 # ⚠ A FIXTURE THAT DID NOT BUILD MUST NOT PASS, and `_fixture_failed` is where
@@ -563,15 +584,7 @@ _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored 
 _control "$CTL/headlink" 1 "(in HEAD) ->" "a COMMITTED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
 _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
-# …the second of the pair `$_fifo_line` above reports on, and the decision.
-_ctl_need="$_fifo_ok" _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
-if _cn_declined "$_fifo_ok"; then
-  _fifo_line="            ⚠ NOT EXERCISED on this machine: BOTH FIFO controls (this
-            filesystem holds no fifo), so this run carries no evidence that an
-            entry git cannot store neither hangs nor hides a verdict, NOR that a
-            tracked path replaced by one is not opened — the second being the
-            control whose original finding was a local gate that HUNG"
-fi
+_control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
 # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
 # read" are different answers and only one of them is green.
 # ⚠ THIS ONE IS WHY THE BUILD STATUS IS RECORDED RATHER THAN PROBED. A `git
@@ -637,26 +650,15 @@ elif ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$_fsm_root" \
   echo "   git call either, so its not running under the wire proved nothing." >&2
   ctl_ok=1
 fi
-# ⚠ The line is built HERE, beside the decision that produces it. An earlier
-# shape decided here and described it in the summary below, so the two could
-# disagree — and an unconditional summary claimed exit-status evidence the run
-# had not obtained (#501 R78). One site, one truth: the line is decided from what
-# the gate did (`_cn_declined`), not from the flag. `_ctl_need="$_perm_ok"` on the
-# five calls, as on the FIFO pair: registered on every machine, run where the
-# value is 1. The fifth runs the clean fixture under umask 777 (`_control`'s
+# THE FIVE PERMISSION CONTROLS are the table's `perm` group, as the FIFO pair is the
+# `fifo` group. The fifth runs the clean fixture under umask 777 (`_control`'s
 # `$8`): a umask that leaves the scratch dir unsearchable makes it unresolvable
 # to a physical path, which the wire refuses to decide over.
-_perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
-          permissions enforced (this user can read a mode-000 file), so this
-          run carries no evidence for them"
-_ctl_need="$_perm_ok" _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
-_ctl_need="$_perm_ok" _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
-_ctl_need="$_perm_ok" _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
-_ctl_need="$_perm_ok" _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
-_ctl_need="$_perm_ok" _control "$CTL/clean" 2 "could not resolve the scratch dir" "a restrictive umask decides nothing" "" "" "" 777 || ctl_ok=1
-if ! _cn_declined "$_perm_ok"; then
-  _perm_line="            the controls that need file permissions enforced ran too"
-fi
+_control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
+_control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
+_control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
+_control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
+_control "$CTL/clean" 2 "could not resolve the scratch dir" "a restrictive umask decides nothing" "" "" "" 777 || ctl_ok=1
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
 # Two subjects, two files: this one runs the wire over a fixture and asserts the
 # exit status; that one proves each control is about the arm it names. Its
@@ -673,10 +675,6 @@ fi
 # shellcheck source=/dev/null
 . "$_MUTATIONS"
 _mut_correspondence || ctl_ok=1
-# THE LAST ASK (`_cn_declined`, above): a decline after the perm group's ask has
-# no summary line, so it is red whatever this machine's flags are. (One after the
-# census is a late registration as well, red at `_mut_census_end`.)
-_cn_declined 1 "after the last capability group's ask, so no summary line was decided from them" || :
 
 # (No check after the controls: every `_control` and every block that is not one
 # runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree;
@@ -686,12 +684,25 @@ _cn_declined 1 "after the last capability group's ask, so no summary line was de
 
 _mut_run
 
+# THE SUMMARY, one line per group in table order: flag 1 states the claim, any other
+# value what this run did NOT exercise (the member count from the table; an unreadable
+# flag claims nothing). One site, one truth: the gate's decision is a function of (table,
+# flag) through one lookup, which `_cap` pins, and every member reached the gate (the census).
+_cap_lines() { _cap_rows group _cap_line_cb; }
+_cap_line_cb() {
+  local _cl_g="${_cr_f[1]}" _cl_why="${_cr_f[4]}" _cl_claim="${_cr_f[5]}" _cl_n=0
+  _cap_rows member _cap_count_cb
+  _cap_flag_of "$_cl_g"
+  if [ "$_cap_v" = 1 ]; then printf '            %s\n' "$_cl_claim"
+  else printf '            ⚠ NOT EXERCISED on this machine: %s control(s) of the %s group (%s), so this run carries no evidence that %s\n' \
+    "$_cl_n" "$_cl_g" "$_cl_why" "$_cl_claim"; fi
+}
+_cap_count_cb() { [ "${_cr_f[1]}" != "$_cl_g" ] || _cl_n=$((_cl_n + 1)); }
 echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
 echo "            inside binary content, on a symlink's stored target, on an entry's"
 echo "            own NAME, on a symlinked entry script beside the scope, and under a"
 echo "            caller's GREP_OPTIONS; an empty scope fails closed"
-printf '%s\n' "$_fifo_line"
-printf '%s\n' "$_perm_line"
+_cap_lines
 [ -z "$_limit_lines" ] || printf '%s\n' "$_limit_lines"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
 # …and no label-taking call ran after the label census (`_mut_census_end`, in the

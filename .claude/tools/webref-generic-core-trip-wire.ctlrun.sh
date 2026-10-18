@@ -16,16 +16,28 @@
 # prelude forwards none of these names, and the window calls none of them.
 # WHAT IT CONSUMES: from the harness, `_fw_trusted` and `_fw2_said` (the window's
 # trust, decided there) and `_fixture_did_fail` (the membership predicate over `$_FIX_FAILED`);
-# from the controls file, `$_fw2_lbl`, `$_VFY` and `_ctl_need` (a prefix
-# assignment on a call); from the wire,
+# from the controls file, `$_fw2_lbl`, `$_VFY` and `$_CAP_TABLE` (the capability
+# table, whose ONLY expander is this file's reader), and the capability flags
+# by the names the table's `group` rows give (`_fifo_ok`, `_perm_ok`: set by the
+# harness's probes, read here by `_cap_flag_of` alone); from the wire,
 # `$SELF`, `$BASH` and `$_CONTROLS` (the string the wire sourced the controls
 # file by, which is what `BASH_SOURCE` holds for that file's frames: the
 # registry's site walk looks for it).
-# WHAT IT DEFINES: `_ctl_reg` (the registry's writer; the harness's window
+# ⚠ ASSERTED AT SOURCE TIME, below, every name above but `$_VFY` (the controls
+# file makes it after this file is sourced, so no guard here could see it).
+# WHAT IT DEFINES: `_ctl_reg` (the registry's writer: the harness's window
 # verdict calls it too — after this file is sourced, since the controls file
 # calls the verdict after it sourced the harness), `_ctl_gate`, `_ctl_run`,
 # `_control`, `_ctl_wd_s` (the watchdog's seconds), and `_ctl_wd_pg` (an out-global:
 # the watchdog's process group after a `_ctl_run`, read by the controls file).
+# THE TABLE'S READER: `_cap_rows <kind> <callback>` (outside readers: `_cap_check` and
+# `_cap_lines` in the controls file, the census's membership check), `_cap_group_of`
+# (out-globals `_cap_g`, a label's group, `_cap_f`, its flag NAME), `_cap_flag_of`
+# (out-global `_cap_v`, a flag's VALUE), the callbacks `_cap_group_cb`, `_cap_gflag_cb`,
+# `_cap_flag_cb`, `_cap_guard_cb`, the guard's `_cap_missing` and `_cap_n`, and the
+# function-locals a nested pass shadows: `_cr_k`, `_cr_cb`, `_cr_rest`, `_cr_row`,
+# `_cr_rr`, `_cr_tab`, `_cr_nl`, `_cr_w`, `_cr_i`, the callback's row `_cr_f`, `_cr_nf`,
+# `_cr_bad`, `_cr_stop`, and `_cg_l`, `_cf_g`, `_cf_n`, `_cap_gn`.
 # ⚠ SOURCED ONLY AT THE END OF THE HARNESS, which sets `_CTLRUN` immediately
 # before sourcing, so an unset one means this file was reached some other way.
 if [ -z "${_CTLRUN:-}" ]; then
@@ -34,17 +46,74 @@ if [ -z "${_CTLRUN:-}" ]; then
   echo "   Run the wire instead." >&2
   exit 2
 fi
-# THE ONE NAME A CALLER SETS PER CALL is cleared here, at source time, before
-# any primitive reads it: the wire's environment is the caller's, and an
-# exported `_ctl_need=0` would decline the first control in silence. The
-# watchdog's seconds are set here for the same reason (a caller's value would not
-# be this file's). Every other name the primitives read is assigned by the wire,
-# the harness or the controls file before the first call, or by the primitive
-# itself before it is read. A run's ENVIRONMENT is no name at all: it travels as
-# the call's own trailing arguments (`_ctl_run`, below), so nothing file-scope
-# can hand one control's environment to the next.
-unset _ctl_need
+# NO NAME IS SET PER CALL: what a control needs from the machine is read from the
+# capability table by its own label (`_ctl_gate`), so no caller's environment can
+# decline one. The watchdog's seconds are set here for the same reason. Every other
+# name is assigned before the first call by the wire, the harness or the controls
+# file, or by the primitive itself; the guard below asserts those that exist by now.
+# A run's ENVIRONMENT is no name: it travels as `_ctl_run`'s trailing arguments.
 _ctl_wd_s=30
+# THE CAPABILITY TABLE'S READER, the only code that expands `$_CAP_TABLE` or a flag
+# (plan §2.2). The callback runs once per row — kind `group`, `member`, `limit` or
+# `fact`: each WELL-FORMED row of it; `-`: every row, `_cr_bad` set on a malformed one
+# (unknown kind, wrong field count, an empty field, a `group` flag field that is no
+# variable name: `${!x-}` on `a-b` aborts bash 5.3, is empty on 3.2) — sees it through
+# dynamic scope (`_cr_row`, `_cr_f[0…]`, `_cr_nf`, `_cr_bad`), returns 0, and stops the
+# pass by `_cr_stop=1`, not a status (`cb || …` runs with errexit off). Cursor and fields
+# are function-local, so a nested pass leaves the outer one intact; fields are split by
+# parameter expansion (`read` collapses an empty one: tab is IFS whitespace).
+_cap_rows() { # $1 = row kind (group, member, limit, fact, or `-` for every row), $2 = the callback
+  local _cr_k="$1" _cr_cb="$2" _cr_tab=$'\t' _cr_nl=$'\n' _cr_row _cr_rr _cr_nf _cr_bad _cr_stop=0 _cr_w _cr_i
+  local _cr_rest="$_CAP_TABLE$_cr_nl"
+  local -a _cr_f
+  while [ -n "$_cr_rest" ] && [ "$_cr_stop" -eq 0 ]; do
+    _cr_row="${_cr_rest%%"$_cr_nl"*}"; _cr_rest="${_cr_rest#*"$_cr_nl"}"
+    _cr_f=(); _cr_nf=0; _cr_rr="$_cr_row$_cr_tab"
+    while [ -n "$_cr_rr" ]; do
+      _cr_f[_cr_nf]="${_cr_rr%%"$_cr_tab"*}"; _cr_rr="${_cr_rr#*"$_cr_tab"}"; _cr_nf=$((_cr_nf + 1))
+    done
+    case "${_cr_f[0]}" in group) _cr_w=6 ;; member|fact) _cr_w=3 ;; limit) _cr_w=4 ;; *) _cr_w=0 ;; esac
+    _cr_bad=""
+    if [ "$_cr_w" -eq 0 ]; then _cr_bad="\"${_cr_f[0]}\" is no row kind"
+    elif [ "$_cr_nf" -ne "$_cr_w" ]; then _cr_bad="a ${_cr_f[0]} row holds $_cr_nf field(s), not $_cr_w"
+    else
+      for ((_cr_i = 0; _cr_i < _cr_nf; _cr_i++)); do
+        [ -n "${_cr_f[_cr_i]}" ] || { _cr_bad="field $((_cr_i + 1)) is empty"; break; }
+      done
+      [ "${_cr_f[0]}" != group ] || [ -n "$_cr_bad" ] || case "${_cr_f[2]}" in
+        [0-9]*|*[!A-Za-z0-9_]*) _cr_bad="the flag field \"${_cr_f[2]}\" is no variable name" ;;
+      esac
+    fi
+    if [ "$_cr_k" = - ] || { [ -z "$_cr_bad" ] && [ "${_cr_f[0]}" = "$_cr_k" ]; }; then "$_cr_cb"; fi
+  done
+  return 0
+}
+# THE LOOKUP (exact comparison, no fork): `_cap_g` = the label's group, `_cap_f` = that
+# group's flag NAME; both empty for a non-member, `_cap_f` alone for an undeclared group.
+_cap_group_of() { # $1 = a label
+  local _cg_l="$1"; _cap_g=""; _cap_f=""
+  _cap_rows member _cap_group_cb; [ -z "$_cap_g" ] || _cap_rows group _cap_gflag_cb
+}
+_cap_group_cb() { [ "${_cr_f[2]}" != "$_cg_l" ] || { _cap_g="${_cr_f[1]}"; _cr_stop=1; }; }
+_cap_gflag_cb() { [ "${_cr_f[1]}" != "$_cap_g" ] || { _cap_f="${_cr_f[2]}"; _cr_stop=1; }; }
+# A GROUP'S FLAG VALUE (`_cap_v`; empty for no such group): the one indirect expansion.
+_cap_flag_of() { local _cf_g="$1" _cf_n; _cap_v=""; _cap_rows group _cap_flag_cb; } # $1 = a group name
+_cap_flag_cb() { [ "${_cr_f[1]}" != "$_cf_g" ] || { _cf_n="${_cr_f[2]}"; _cap_v="${!_cf_n-}"; _cr_stop=1; }; }
+# THE SOURCE-TIME GUARD, in the form of the controls file's and the mutation set's:
+# a rename in the file that declares a name is a named exit 2 here, not an unbound
+# abort at the first read. The flags are asserted by the table's own names.
+_cap_missing=
+for _cap_n in _fw_trusted _fw2_said _fw2_lbl SELF BASH _CONTROLS _CAP_TABLE; do
+  [ -n "${!_cap_n:-}" ] || _cap_missing="$_cap_missing \$$_cap_n"
+done
+declare -F _fixture_did_fail > /dev/null || _cap_missing="$_cap_missing _fixture_did_fail()"
+_cap_guard_cb() { local _cap_gn="${_cr_f[2]}"; [ -n "${!_cap_gn:-}" ] || _cap_missing="$_cap_missing \$$_cap_gn"; }
+[ -z "${_CAP_TABLE:-}" ] || _cap_rows group _cap_guard_cb
+if [ -n "$_cap_missing" ]; then
+  echo "!! This file holds the CONTROL RUN PRIMITIVES for \`webref-generic-core-trip-wire.sh\`. It is" >&2
+  echo "   SOURCED by that wire's control harness and has no meaning alone; missing:$_cap_missing" >&2
+  echo "   Run the wire instead." >&2; exit 2
+fi
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
 # nor over a fixture that did not build. ONE GATE, asked by ONE run primitive:
@@ -72,8 +141,8 @@ _ctl_wd_s=30
 # THE RUN REGISTRY (`$_VFY/.registry`): each label passed to `_control`,
 # `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` is appended when the
 # call runs, as `<file>:<line>	<kind>	<label>` — under the `$_VFY` of the call:
-# the controls file's `_ctl_need` standing check runs its rows under a `_VFY`
-# of its own, so its rows reach that registry, not this one (its label reaches
+# the standing checks' rows run under the run's own, so they register here as `direct`
+# calls, `_cap`'s at its one `_ctl_run` line (a label only an `echo` produces reaches
 # the census as a `_*_lbl` value). THE SITE IS THE OUTERMOST FRAME
 # WHOSE `BASH_SOURCE` IS THE CONTROLS FILE (`$_CONTROLS`): the top-level controls
 # line that led here, walked from the top of the call stack down — so a helper
@@ -105,41 +174,32 @@ _ctl_reg() { # $1 = the label
   while [ "$_rg_i" -gt 1 ] && [ "${BASH_SOURCE[$_rg_i]}" != "$_CONTROLS" ]; do _rg_i=$((_rg_i - 1)); done
   printf '%s:%s\t%s\t%s\n' "${BASH_SOURCE[$_rg_i]##*/}" "${BASH_LINENO[$((_rg_i - 1))]}" "$_rg_k" "$1" >> "$_VFY/.registry"
 }
-# `_ctl_need="$<flag>"` (a prefix assignment on the call) carries the VALUE of
-# the capability flag a control needs — the value, not the flag's name: nothing
-# is expanded indirectly here, so there is no identifier to get wrong (a flag
-# that is unset is a `set -u` abort of the wire at the caller's line: red,
-# unlabelled). The gate takes it into a local and UNSETS it first — in posix
-# mode bash 3.2 keeps such an assignment past the call, which would decline
-# every later control in silence. The label is registered on every machine;
-# a 1 runs, a 0 returns 2 — not run, not red — after appending the label to
-# `$_VFY/.declined`, which the controls file's asks read (`_cn_declined` there:
-# a group's summary line is decided from it, and a decline between the last
-# group's ask and the census is red at its last ask — one after the census is a
-# late registration, red at `_mut_census_end`; `_control` maps the 2 to 0) — an append that fails is red
-# under the label, not a silent decline; and anything else is red under the
-# label. Whether a value was given at all is `${_ctl_need+set}`: an empty value
-# is "given", and red. Each arm — 1, 0, the failed note, `x`, empty, unset — is
-# a row of the controls file's standing check (`$_cn_lbl`). The gate is the
-# registration, the trust arm (W2), these arms, then the fixture half. The trust
-# arm sits BEFORE the need arms: an untrusted window is red, never declined
-# (a 0 under it would turn W2 into a "decline?" ask on an incapable machine);
-# that order is a row of the same standing check (`untrusted`).
+# THE CAPABILITY ARM is a lookup in the table by the control's own label
+# (`_cap_group_of`): a label no `member` row holds runs; a member of a group no
+# well-formed `group` row declares is red under the label, decided BEFORE any indirect
+# expansion (`${!f-}` on an empty name aborts bash 5.3, expands empty on 3.2); a member
+# whose group's flag is 0 returns 2 (`_control` maps it to 0); any other value runs it,
+# the fail-safe direction, and `_cap_check` (controls file) reds the value. The label is
+# registered on every machine. The gate is the registration, the trust arm (W2), the
+# capability arm, then the fixture half; trust sits BEFORE capability (an untrusted
+# window is red, never declined), and each arm is a row of the `_cap` standing check.
 _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames)
   _ctl_reg "$1"
-  local _g_for="$1" _g_need="${_ctl_need-}" _g_given="${_ctl_need+set}" _g_n
-  unset _ctl_need
+  local _g_for="$1" _g_n
   shift
   if [ "$_fw_trusted" -ne 1 ]; then
     [ "$_fw2_said" -eq 1 ] || echo "!! CONTROL FAILED ($_fw2_lbl): a control was reached over a build that was not complete and trusted" >&2
     _fw2_said=1; return 1
   fi
-  [ -z "$_g_given" ] || case "$_g_need" in 1) : ;;
-    0) printf '%s\n' "$_g_for" >> "$_VFY/.declined" || {
-         echo "!! CONTROL FAILED ($_g_for): the decline could not be noted in \$_VFY/.declined" >&2; return 1; }
-       return 2 ;;
-    *) echo "!! CONTROL FAILED ($_g_for): _ctl_need holds \"$_g_need\", not 0 or 1" >&2; return 1 ;;
-  esac
+  _cap_group_of "$_g_for"
+  if [ -n "$_cap_g" ]; then
+    if [ -z "$_cap_f" ]; then
+      echo "!! CONTROL FAILED ($_g_for): its capability group \"$_cap_g\" is declared by no well-formed group row" >&2
+      return 1
+    fi
+    _cap_flag_of "$_cap_g"
+    [ "$_cap_v" != 0 ] || return 2
+  fi
   for _g_n in "$@"; do
     if _fixture_did_fail "$_g_n"; then
       echo "!! CONTROL NOT EXERCISED ($_g_for): its fixture ($_g_n) did not build, so this control" >&2
@@ -168,14 +228,13 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
 # contributor whose temp path has a space (#501 R96). A path is data here too.
 # RETURN CONTRACT: 1 ONLY when the gate refused (an untrusted window: reported
-# once per run under `$_fw2_lbl`, by the first refusal; a `_ctl_need` value that
-# is not 0 or 1, a decline it could not note, a failed fixture: each under the
-# label), a channel argument is malformed (not NAME=VALUE) or reserved (below), the evidence directory
+# once per run under `$_fw2_lbl`, by the first refusal; a member of a group the
+# table does not declare, a failed fixture: each under the label), a channel argument is malformed (not NAME=VALUE) or reserved (below), the evidence directory
 # could not be made, a delivered channel is missing from the evidence (`CONTROL NOT
 # EXERCISED`: it never reached the run), or the WATCHDOG killed the run (under the
 # label); 2 ONLY when the gate
-# declined the run for a capability this machine lacks (`_ctl_need`, above: nothing
-# ran, nothing was reported, the label noted in `.declined`); every other outcome
+# declined the run for a capability this machine lacks (the label is a member of a
+# group whose flag is 0, above: nothing ran, nothing was reported); every other outcome
 # — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE)
 # included — returns 0 with `_rc` and `_out` set (the run's status and its
 # stdout+stderr), and the caller's own comparison is the verdict on it. Every
@@ -219,7 +278,7 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # failed `cd` exits 97 at delivery. A channel argument that is not `NAME=…`, or is
 # reserved, is a `CONTROL FAILED` and no run (checked after the gate's
 # registration, before delivery, whatever the gate answered: a malformed call
-# under a decline is red, not a silent 2 — a row of the `_cn` standing check).
+# under a decline is red, not a silent 2 — row X of the `_cap` standing check).
 _ctl_run() {
   local _r_for="$1" _r_root="$2" _r_cwd="${3:-}" _r_umask="${4:-}" _r_pfx="${5:-}"
   local _out_f _r_wmark _cpid _wpid _r_reach="$_VFY/.reached" _r_a _r_n _r_v _r_miss="" _r_w _r_g _r_gs=0
@@ -348,10 +407,10 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $7 = optional PATH prefix, $8 = optional umask to run under,
              # $9… = the run's environment, each a `NAME=VALUE` argument; the
              # run itself is `_ctl_run`'s.
-             # A 2 from it (`_ctl_need` carried a 0: the capability is missing
-             # here) is green: the label was registered, the gate noted the
-             # decline, and the controls file's next ask decides a summary line
-             # from it or reds it (`_cn_declined` there).
+             # A 2 from it (the table declined it: its group's capability is
+             # missing here) is green: the label was registered, and the summary
+             # line of that group says what this run did not exercise
+             # (`_cap_lines`, in the controls file).
   local _cr=0
   _ctl_run "$4" "$1" "" "${8:-}" "${7:-}" "${5:-}" "${6:-}" "${@:9}" || _cr=$?
   # Not pinned by a record: on a capable machine nothing declines, so this line is

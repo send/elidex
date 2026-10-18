@@ -154,9 +154,9 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
-# the run under `$_cn_lbl` (the standing check: every value is left set after the call,
-# and `x`, the empty value and the 0 run instead of being refused) and under
-# `$_cen_lbl` (the gate is the registry's writer, so every `_control` needle is an orphan).
+# the run under `$_cap_lbl` (the two rows that want a decline, M zz 0 and Y zz 1, get a run) and
+# under `$_cen_lbl` (the gate is the registry's writer: every declared member is then no `_control`
+# this run made); measured, both shells.
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
@@ -361,19 +361,29 @@ controls:s/^_mut_correspondence || ctl_ok=1$/_control "$CTL\/clean" 0 "PASSED" "
 controls:s/^# STANDING CHECK of .*timeout clause, both ways\. A status >= 128 is a$/_fgit_window_verdict_exit "$_fw_lbl"/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/_rh() { _control "$CTL\/clean" 0 "PASSED" "green is reachable"; }; _rh || ctl_ok=1/	s/^_fsm_root="[$]CTL\/fsmon"$/&; _rh || ctl_ok=1/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/&; _control "$CTL\/clean" 0 "PASSED" "$_mg_lbl" || ctl_ok=1/	every label the run used is named by a mutation record
-# `_ctl_need` (`$_cn_lbl`, the gate's arms; standing check in the controls file, and the
-# asks that decide the summary lines from `.declined` there): a caller's VALUE replaced
-# by a 0 on a machine whose flag is 1 → "declined while this machine's capability flag
-# is 1" (⚠ dies only where the flag is 1 - `_fifo_ok`: where it is 0 the decline is the right
-# answer, so the opt-in run reds there with `!! MUTANT <n> (<needle>) SURVIVED`); a declined direct call
-# after the perm group's ask (on the census's line, under an existing variable label, so
-# no other check reaches it) → "declined after the last capability group's ask" — the
-# last ask's record, on every machine.
-controls:s/^_ctl_need="[$]_fifo_ok" _control "[$]CTL\/fifotracked" /_ctl_need=0 _control "$CTL\/fifotracked" /	_ctl_need declines exactly what this machine cannot do
-controls:s/^_mut_correspondence || ctl_ok=1$/_ctl_need=0 _ctl_run "$_mg_lbl" "$CTL\/clean" || :; &/	_ctl_need declines exactly what this machine cannot do
-# `_ctl_run` validates its channel arguments whatever the gate answered: the gate's answer taken as an early
-# return again (`|| return $?`) lets the `_cn` row that passes a malformed channel under a 0 come back 2, not 1.
-ctlrun:s/ || _r_gs=[$]?$/ || return $?/	_ctl_need declines exactly what this machine cannot do
+# THE CAPABILITY TABLE (`$_cap_lbl`: the gate's capability arm, pinned by the `_cap` standing check in the
+# controls file; `$_capt_lbl`: the table check; the reader and the gate's lookup are ctlrun's). Each record
+# is killed by the `_cap` row named beside it, on every machine (the rows replace the table and the flags):
+# the lookup's equality made always-true, and made a substring match (row N); the decline arm (row M, zz 0);
+# the member's OWN group's flag (rows Y); the trust arm placed after the capability arm (the untrusted row);
+# an undeclared group's red turned green (row U); the `_cap` loop's arms and its parse guard (K6's shape).
+# The last, from the gate: its answer taken as an early
+# return again (`|| return $?`) lets row X, the malformed channel under a decline, come back 2, not 1.
+ctlrun:s/^_cap_group_cb() { \[ "[$]{_cr_f\[2\]}" != "[$]_cg_l" \]/_cap_group_cb() { [ x != x ]/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:s/^_cap_group_cb() { \[ "[$]{_cr_f\[2\]}" != "[$]_cg_l" \]/_cap_group_cb() { [[ "${_cr_f[2]}" != *"$_cg_l"* ]]/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:s/^    \[ "[$]_cap_v" != 0 \] || return 2$/    [ "$_cap_v" != 0 ] || :/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:s/^_cap_flag_cb() { \[ "[$]{_cr_f\[1\]}" != "[$]_cf_g" \]/_cap_flag_cb() { [ x != x ]/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:s/^  if \[ "[$]_fw_trusted" -ne 1 \]; then$/  if false; then/	s/^  for _g_n in "[$]@"; do$/  [ "$_fw_trusted" -eq 1 ] || return 1; &/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:/^    if \[ -z "[$]_cap_f" \]; then$/,/^    fi$/s/^      return 1$/      return 0/	the gate declines exactly the members of a group whose flag is 0
+controls:s/^             U:yes:-) case/             V:yes:-) case/	the gate declines exactly the members of a group whose flag is 0
+controls:s/^M 0 1 no - 1 -$/M 0 1 nop - 1 -/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:s/^        \[0-9\]\*|\*\[!A-Za-z0-9_\]\*) _cr_bad=/        [0-9]x|x[!A-Za-z0-9_]x) _cr_bad=/	the gate declines exactly the members of a group whose flag is 0
+ctlrun:s/ || _r_gs=[$]?$/ || return $?/	the gate declines exactly the members of a group whose flag is 0
+# The table check's own reds, from the real table: a member row's group misspelt (the gate's red for the
+# member's own label is the SECOND thing to fail, so the table check is what this needle names).
+controls:s/^\(member.fif\)o\(.an unstorable entry neither hangs nor hides\)$/\1x\2/	the capability table is well formed and names every absence it is asked about
+# The census's membership check (reader 4): a member row naming a label that is no `_control` of this run.
+controls:s/^\(member.perm.an unreadable file fails\) closed$/\1 closeX/	every label the run used is named by a mutation record
 # `_control`'s exit comparison: the `pin` control's expected exit and message swapped. `! [ … -eq … ]` reds the
 # non-numeric "K2: a" ("expected exit K2: a, got 1"); a `-ne` would read `[`'s exit 2 as equal and pass.
 controls:s/^_control "[$]CTL\/pin"   1 "K2: a"  /_control "$CTL\/pin"   "K2: a" 1  /	K2 fires on the path A-i removed
