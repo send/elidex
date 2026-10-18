@@ -400,3 +400,87 @@ matches for P-e; harmless while P-e has no limit row, to be closed where B2b bui
 claim row). (3) **CR-C1**: the design memo's census row (:620, a ledger `stays` row for B2a, C1's row in §7) does not yet list
 the membership record among its pins; editing it here would fail `ledger-check.py B2a`, so the pin is stated in the CAPT row's
 census sentence and C1 rewrites that row.
+
+### S.4 CR-B2b — an undeclared absence is red; the declaration is checked, not trusted
+
+The third slice of the B/C plan (`…-cr-plan.md` §2.3 and §7). Base `de05191c` (CR-B2a's head), branch `crb2b`. Commits: the code
+(`567b22e8`), its doc rows (`ea5e5a4c`), the review's fixes (`17c6cd13` for the part comments, `cd95ba25` for the memo and landing),
+and this round's, cited by subject because their hashes change when the branch is transplanted: `k2(wire): the part comments say
+the flag decides the decline, the declaration decides the summary`, `docs(k2): FIFO cost grammar, X9 sleep census, P-f summary
+channel is conditional`, and the commit that adds this entry. The slice was cut into three coder units by the driver (code; the
+claim table; the doc rows), as CR-B2a's was. Records are named by their property, not by line number: the line numbers of
+`records.sh` shift between these commits.
+
+**Changed (`567b22e8`).** `_cap_check` (controls file) gained three clauses, all under `$_capt_lbl`: every word of
+`WEBREF_WIRE_LACKS` must be a group or a limit ID of the table (a word that is neither is red, naming it), a group whose flag is 0
+and which the caller did not declare is red under the group's own label with the declaration hint, and every ID the window
+reports in `$_fw_limits` must have a `limit` or `fact` row (a limit ID the caller did not declare is red under its row's label).
+`ctlrun.sh` is unchanged (439, at its budget). Three probe-flip records (the FIFO and permission probes assigned 0, and P-f forced
+to its limit branch) pin the new clauses; the records are 237 → 240, `_MUT_RECORDS_MIN` 240, and `_MUT_UNRECORDED_MAX` is back from
+21 to 18 (`mutations.sh` :246, :261). The doc rows (`ea5e5a4c`): the design memo's P-b fact and P-f declared rows, the FIFO, PERM,
+PFL and CAPT rows current, the BS-7 cost; residuals R12 and the R4 member, the range R1–R12 at four sites; the landing's route (b)
+for Q1, the slot amendment for BS-3 and X9; corpus :194 (B2b's part), §6.1's three rows and the totals (145 / 240 / 18); three
+rows in `idents.tsv`.
+
+**Measured: the claim table** (B-CLAIMS, code commit, in a clone, the real `_mut_run` and `_mut_trial` with a filter to one record
+and the generated set stubbed, both shells, at most two wire processes at once; logs under the driver's `crb2b-logs/`). **Rows
+1–6, every claim as expected on both shells (nothing differed):** (1) `LACKS=fifoo` red under `$_capt_lbl` naming the word,
+rc 1; a TAB or a newline separates words (green), a CR does not (red, one word); (2) a limit ID injected into the harness copy that
+no row names red naming it, and green with that clause made `:`; (3) the probe-flip record under `LACKS=fifo` on a no-FIFO
+simulation SURVIVES unexcused (`_mut_exc` 0: the table-flag excuse is CR-B2c's), and with `-u WEBREF_WIRE_LACKS` on `_mut_trial`'s
+env line it is KILLED AS NAMED, so the difference between the two is the inheritance; (4) the four records whose needle is
+`$_pg_lbl` and that plant a FIFO end at "decided nothing", WRONG REASON, mutant rc 2, the opt-in red, 8 of 8; (5) the three new
+records KILLED AS NAMED, 6 of 6, and the permission-flip record on a root simulation SURVIVES unexcused; (6) P-f undeclared on a
+`env -0`-refusing simulation red under `$_pfl_lbl` with the hint, declared green with the `NOT EXERCISED` line. **Fix round, N of
+M:** R3-B2b-3's P4 cites row 4; the P7 FIFO half (both groups declared) 8 of 8 WRONG REASON; GB2-12's opt-in, the table check's call
+deleted with GB2b-1 applied, SURVIVED 2 of 2 and with the call present KILLED AS NAMED 2 of 2 (the always-on run with the call
+deleted stays green: the call is pinned only by the opt-in). 6 of 6 fix-round rows done; the P6 mode half is not measured (below).
+
+**Measured: the battery** (`BASE_REV=de05191c`): 90 comparable cases, 2 rc differences, both shells, explained: `incap` and
+`M5incap` went red under `$_fifo_lbl` (the intended undeclared-absence red). Both simulated no FIFO by editing the probe line,
+which is a record's anchor (the base was red there too, from the stale anchor), so the cases broke the rule that a case must
+not edit an anchored line; they are retired and retargeted by behaviour with a `nofifo` PATH shim: `incapB2b` (declared: green, 2
+`NOT EXERCISED`), `incapnodecl` (undeclared: red under `$_fifo_lbl`) and `M5incapB2b` (the 2 → 0 mapping removed: rc 1, no
+`CONTROL FAILED`), all as expected on both shells.
+
+**The reviews.** First review (a fresh reviewer on the snapshot `ea5e5a4c`): 0 CRITICAL, 3 IMPORTANT, 5 MINOR, the code correct,
+every finding wording. Origins: I-1 (the FIFO "Cost:" row named records by line numbers that had drifted by two), I-2
+(`mutations.sh` said a probe-flip mutant reds on a declaring machine; it SURVIVES there) and M-1 (X9's "no verdict depends on it"
+against `_wm_gone`'s `sleep 0.05`) were false statements this slice wrote; I-3 (R3-B2b-2's cost sentence missing beside
+`_cap_check`) and M-3 (R3-B2b-3's P6 and P7, GB2-12) were carried requirements unmet; M-2 was two old comments whose referent the
+slice changed; M-4 was the planned §S entry (this one); M-5 was the sweep method (hit-line-only classification missed wrapped
+sentences). Re-check (a focused reviewer on `cd95ba25`, no wire runs): 0 / 0 / 3, I-1, I-2, I-3, M-1 and M-3 closed, M-2 open (the
+fix wrote that the decline depends on the declaration; the gate declines on the flag alone, `ctlrun.sh` :202, and never reads
+`LACKS`), and 3 MINOR in the fix's own wording (N-1 a sentence with no verb in the FIFO "Cost:", N-2 X9's sleep census omitting
+the hang fixture's `sleep 5`, N-3 the P-f row's "one channel" unconditional). All four and the queued X9 clause (a `sleep` that
+refuses fractions leaves a process not yet reaped red and a reaped one green: a false red at worst) are this round's fix. **The M-5
+method fix, measured:** all 125 new hits were re-classified reading the whole sentence: 72 true, 50 code, 1 imprecise (N-3, fixed
+here), 0 false, and 2 settled as CR-B2c's (`records.sh`'s comment that the probe-flip records are excused by the table's own flag,
+which is false until B2c builds that excuse). 125 of 125, remaining 0.
+
+**Ledger rows 85 and 171 fail, an instrument limit, with a manual backstop.** `ledger-check.py B2b` reports 574 of 576 rows ok;
+the two failures are row 85 (`controls.sh` :483, `[ -z "$_fw_limits" ] || _limit_lines=…`) and row 171 (`harness.sh` :348, the
+line `# outcome is a MACHINE LIMITATION instead (…NOT EXERCISED on this machine`,`). The checker judges the hit line of a
+multi-line statement whose rewrite landed elsewhere in its extent; both statements are true at the head. Row 171: `harness.sh`
+:346-349 says P-f's outcome is green "only where its caller declared it, WEBREF_WIRE_LACKS=P-f", the rewrite being on :349. Row 85:
+`controls.sh` :472-481 states the slot rule and P-f's declared green, and the row's own disposition says the hit line stays.
+Rewriting true lines to satisfy the checker would bless the instrument, so neither is edited.
+
+**Not measured.** (1) The `_wm_gone` poll path: reaching it needs a process that outlives its kill, which no PATH shim arranges
+without editing an anchored line; measured instead, with an integer-only `sleep` shim, that the run is green and `0.05` is never
+called. (2) P6's mode half (the records that plant a `chmod`): real root is unreachable on this machine, the root simulation
+shims the effect only.
+
+**Measured: completion.** Ship PASSED, rc 0, 0 `!!` lines, ×4 (BSD and GNU-like `grep` × bash 5.3 and 3.2) at `567b22e8`
+and `cd95ba25`, and at this round's commits (log paths in the driver's `crb2b-logs/`, `crb2b-fix/logs/` and `crb2b-fix2/`);
+`scripts/trip-wires.sh` rc 0. Sizes at the head (`wc -l`): `ctlrun.sh` 439, `controls.sh` 763 (712 at CR-B2a's head),
+`mutations.sh` 813, `records.sh` 448, `harness.sh` 886 unchanged, the design memo 755 (≤ 760), `cr-sweep` 930.
+
+**Carried to later slices.** (1) **CR-B2c**: the table-flag excuse in `_mut_run`: `records.sh`'s comment beside the probe-flip
+records already says each is excused "by the table's own flag or the P-x half", and B2c makes that true; until then
+the FIFO and permission probe-flip records SURVIVE unexcused under a declaration (row 3 and row 5). (2) **CR-B2c**: R3-B2b-1 and
+GB2b-6 re-measured in the excused form (`_mut_exc` 1, "survived, and is not exercisable"); B2b measured the inheritance by its two
+arms. (3) **CR-B2c**: the `_p<x>*_lbl` excuse naming in `_mut_run` matches `$_perm_lbl` (`_pe…`) for P-e, to be closed where the
+excuse reads the declaration (a required claim row). (4) **CR-B2c**: the P6 permission flip's excuse (it SURVIVED unexcused, row
+5). (5) **CR-C1**: the design memo's census row (a ledger `stays` row for B2a, C1's row in §7) does not yet list the membership
+record among its pins.
