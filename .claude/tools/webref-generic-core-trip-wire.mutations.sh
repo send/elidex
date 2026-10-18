@@ -241,9 +241,9 @@ fi
 # command code f"; GNU sed is not measured here).
 _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
-# 18 -> 21 at CR-B2a: the group and limit labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`) are defined and held by
-# the capability table, and have no record until CR-B2b's probe-flip records (the absence check they pin is B2b's).
-_MUT_UNRECORDED_MAX=21
+# 18 -> 21 at CR-B2a (the group and limit labels `$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl` were held by the capability
+# table without a record) and back to 18 at CR-B2b: their probe-flip records (the absence check they pin) landed.
+_MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
 # `523ce31f` P-j's relative-PATH-entry record (no per-entry clause left to pin); `15d3e704` P-g's two
@@ -256,8 +256,9 @@ _MUT_UNRECORDED_MAX=21
 # line, the control failing, git's top-level usage: the test went with the version-keyed limit).
 # The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went); the
 # CR-B2a slice the two records of the prefix that followed (the FIFO pair's, the last ask's): the table replaced it. CR-B2a's review fixes added six (the table check's flag, member and group clauses, and the three
-# standing checks' verdict markers): 231 -> 237.
-_MUT_RECORDS_MIN=237
+# standing checks' verdict markers): 231 -> 237. CR-B2b added three (the FIFO and permission probes' flips, P-f's
+# definition test forced to the limit branch): 237 -> 240.
+_MUT_RECORDS_MIN=240
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -369,6 +370,8 @@ _mut_trial() {
     return 2
   fi
   _mt_rc=0
+  # (The mutant inherits every other variable, WEBREF_WIRE_LACKS among them: a declaring
+  # machine's mutants see the same declaration, so a probe-flip mutant reds under its group's label there.)
   _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1)" || _mt_rc=$?
   if [ "$2" = '!survive' ]; then
     # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it

@@ -221,17 +221,59 @@ ctl_ok=0
 _fgit_window_verdict_exit "$_fw_lbl"
 # THE TABLE CHECK (not a standing check: it runs no `_ctl_run` row), asked once, before
 # the first gated run, each red under `$_capt_lbl`: every row parses, group names and
-# member labels are unique, every member's group is declared, every flag is 0 or 1.
-# Returns 1 on any red; its call line is the writer (`[ "$ctl_ok" -eq 0 ] || exit 1`
-# follows, before the mutation set and the summary).
+# member labels are unique, every member's group is declared, every flag is 0 or 1,
+# every word of WEBREF_WIRE_LACKS names a group or a `limit` row, and every ID in
+# `$_fw_limits` has a `limit` or `fact` row. Two reds are under their own labels:
+# an ABSENCE the wire learned from a probe and its caller did not declare (a group whose
+# flag is 0, a `limit` row's ID in `$_fw_limits`; plan §2.3). Returns 1 on any red; its
+# call line is the writer (`[ "$ctl_ok" -eq 0 ] || exit 1` follows, before the mutation
+# set and the summary).
+# ⚠ WEBREF_WIRE_LACKS (read here and nowhere else, in the parent; the window is built
+# from nothing and `--selftest` children do not source this file): the caller's list of
+# the absences it declares, space-separated group names (`fifo`: no FIFO on this
+# filesystem; `perm`: this user reads a mode-000 file, i.e. root) and `limit` IDs (`P-f`:
+# an `env` that refuses -0). THE COST: a root, FIFO-less or `-0`-less contributor sets it
+# once (`WEBREF_WIRE_LACKS="fifo perm P-f"`); the red line says so. An undeclared absence
+# is red, never a green with a `⚠`. The probe still decides what the gate does, so a
+# declaration cannot make a capable machine skip anything (a stale one runs every
+# control); it decides only whether a probe's 0 is acceptable. A `fact` row (P-b) needs
+# none. Mutants inherit it (`_mut_trial` does not clear it), so a declaring machine's
+# mutants see the same declaration. The table is read through ctlrun's readers only.
 _cap_check() {
-  local _cc_bad=0 _cc_nl=$'\n' _cc_gs _cc_ms
-  _cc_gs="$_cc_nl"; _cc_ms="$_cc_nl"
+  local _cc_bad=0 _cc_nl=$'\n' _cc_tb=$'\t' _cc_gs _cc_ms _cc_lm _cc_fs _cc_lk _cc_r _cc_w _cc_l _cc_id _cc_t
+  _cc_gs="$_cc_nl"; _cc_ms="$_cc_nl"; _cc_lm="$_cc_nl"; _cc_fs="$_cc_nl"
+  _cc_lk="${WEBREF_WIRE_LACKS-}"; _cc_lk="${_cc_lk//$_cc_tb/ }"; _cc_lk=" ${_cc_lk//$_cc_nl/ } "
   _cap_rows - _cap_chk_row
   _cap_rows member _cap_chk_member
+  _cc_r="$_cc_lk"
+  while :; do
+    while [ "${_cc_r# }" != "$_cc_r" ]; do _cc_r="${_cc_r# }"; done
+    [ -n "$_cc_r" ] || break
+    _cc_w="${_cc_r%% *}"; _cc_r="${_cc_r#"$_cc_w"}"
+    case "$_cc_gs" in *"$_cc_nl$_cc_w$_cc_nl"*) continue ;; esac
+    case "$_cc_lm" in *"$_cc_nl$_cc_w$_cc_tb"*) continue ;; esac
+    _cap_chk_red "WEBREF_WIRE_LACKS names \"$_cc_w\", which is no group and no limit row of the capability table"
+  done
+  while IFS= read -r _cc_l; do
+    [ -n "$_cc_l" ] || continue
+    _cc_id="${_cc_l%% —*}"
+    case "$_cc_lm" in
+      *"$_cc_nl$_cc_id$_cc_tb"*)
+        _cc_t="${_cc_lm#*"$_cc_nl$_cc_id$_cc_tb"}"; _cc_t="${_cc_t%%"$_cc_nl"*}"
+        case "$_cc_lk" in *" $_cc_id "*) ;; *) _cap_chk_absent "${_cc_t%%"$_cc_tb"*}" "limit \"$_cc_id\"" "$_cc_id" "${_cc_t#*"$_cc_tb"}" ;; esac ;;
+      *) case "$_cc_fs" in *"$_cc_nl$_cc_id$_cc_nl"*) ;; *) _cap_chk_red "the window reported a machine limit \"$_cc_id\", which no limit or fact row names" ;; esac ;;
+    esac
+  done <<EOF_LIM
+${_fw_limits:-}
+EOF_LIM
   [ "$_cc_bad" -eq 0 ]
 }
 _cap_chk_red() { echo "!! CONTROL FAILED ($_capt_lbl): $1" >&2; _cc_bad=1; }
+# $1 = the row's label, $2 = what is absent, $3 = the name that declares it, $4 = why it is absent
+_cap_chk_absent() {
+  echo "!! CONTROL FAILED ($1): $2 is absent on this machine ($4) and its caller did not declare it. A contributor on such a machine declares it once: WEBREF_WIRE_LACKS=\"$3\" (several names: space-separated)." >&2
+  _cc_bad=1
+}
 _cap_chk_row() {
   if [ -n "$_cr_bad" ]; then _cap_chk_red "row \"$_cr_row\": $_cr_bad"; return 0; fi
   case "${_cr_f[0]}" in
@@ -239,7 +281,10 @@ _cap_chk_row() {
       case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) _cap_chk_red "group \"${_cr_f[1]}\" is declared twice" ;; esac
       _cc_gs="$_cc_gs${_cr_f[1]}$_cc_nl"
       _cap_flag_of "${_cr_f[1]}"
-      case "$_cap_v" in 0|1) ;; *) _cap_chk_red "group \"${_cr_f[1]}\": its flag ${_cr_f[2]} holds \"$_cap_v\", not 0 or 1" ;; esac ;;
+      case "$_cap_v" in 0|1) ;; *) _cap_chk_red "group \"${_cr_f[1]}\": its flag ${_cr_f[2]} holds \"$_cap_v\", not 0 or 1" ;; esac
+      [ "$_cap_v" != 0 ] || case "$_cc_lk" in *" ${_cr_f[1]} "*) ;; *) _cap_chk_absent "${_cr_f[3]}" "group \"${_cr_f[1]}\"" "${_cr_f[1]}" "${_cr_f[4]}" ;; esac ;;
+    limit) _cc_lm="$_cc_lm${_cr_f[1]}$_cc_tb${_cr_f[2]}$_cc_tb${_cr_f[3]}$_cc_nl" ;;
+    fact) _cc_fs="$_cc_fs${_cr_f[1]}$_cc_nl" ;;
     member)
       case "$_cc_ms" in *"$_cc_nl${_cr_f[2]}$_cc_nl"*) _cap_chk_red "member label \"${_cr_f[2]}\" is listed twice" ;; esac
       _cc_ms="$_cc_ms${_cr_f[2]}$_cc_nl" ;;
@@ -422,13 +467,16 @@ if [ -n "$_fw_seal_bad" ]; then
   echo "!! CONTROL FAILED ($_fws_lbl): $(printf '%s' "$_fw_seal_bad" | tr '\n' ';')" >&2
   ctl_ok=1
 fi
-# A postcondition this machine cannot evaluate (P-b: `git var` before git 2.42;
-# P-f: an `env` that refuses -0) is a machine limitation, reported below and not
-# a red. The window writes one line per limitation, naming the postcondition by
-# its ID only: a record's needle is the postcondition's LABEL, a full label the
-# run must print in a diagnostic's label slot (`CONTROL FAILED (<needle>)` /
-# `CONTROL NOT EXERCISED (<needle>)`), so a label printed on a green line would
-# let any unrelated red "kill" that record for the right-looking reason.
+# A postcondition this machine cannot evaluate is a machine limitation: P-b's
+# (`git var` before git 2.42) is a FACT, keyed on git's documented boundary, so it is
+# reported below and green; P-f's (an `env` that refuses -0) is a probe's answer, so
+# it is green only where its caller declared it (WEBREF_WIRE_LACKS, `_cap_check`) and
+# red otherwise. The window writes one line per limitation, naming the postcondition
+# by its ID only. THE SLOT RULE: a record's needle is the postcondition's LABEL, which
+# only a diagnostic prints, in its label slot (`CONTROL FAILED (<needle>)` /
+# `CONTROL NOT EXERCISED (<needle>)`); the limit line below is green and carries the
+# ID alone, since a label on it would let any unrelated red "kill" that record for
+# the right-looking reason.
 _limit_lines=""
 [ -z "$_fw_limits" ] || _limit_lines="$(printf '%s\n' "$_fw_limits" | sed 's/^/            ⚠ NOT EXERCISED on this machine: /')"
 _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1

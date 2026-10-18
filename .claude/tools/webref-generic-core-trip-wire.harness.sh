@@ -346,7 +346,7 @@ EOF_PB
   # P-f: every record of `env -0`, through a FILE so its status is checked; a
   # failed `env -0`, or an empty population, is NOT EXERCISED and red. ONE
   # outcome is a MACHINE LIMITATION instead (`⚠ NOT EXERCISED on this machine`,
-  # green — as for the FIFO and file-permission controls and P-b), and its test
+  # green only where its caller declared it, WEBREF_WIRE_LACKS=P-f), and its test
   # is the definition itself: THIS `env` runs, but refuses `-0` — `-0` fails,
   # writes nothing to stdout and says why on stderr, while the same `env` runs a
   # command. Every other outcome stays red, so an unknown one falls on the
