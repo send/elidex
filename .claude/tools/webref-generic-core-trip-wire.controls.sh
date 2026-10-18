@@ -584,8 +584,8 @@ _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stor
 _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
 # THE TWO FIFO CONTROLS (`fifotracked`, `odd`) are the table's `fifo` group (`_CAP_TABLE`):
 # the calls run on every machine and register their labels for the census, and where
-# the flag is 0 on a machine that declares it the gate declines them without a run and
-# `_cap_lines` reports it; undeclared, `_cap_check` has already redded the run.
+# the flag is 0 the gate declines them without a run; a declaring machine's summary
+# line (`_cap_lines`) reports it, and undeclared, `_cap_check` has already redded it.
 _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
 _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1

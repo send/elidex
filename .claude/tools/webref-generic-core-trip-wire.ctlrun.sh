@@ -408,10 +408,10 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
              # $7 = optional PATH prefix, $8 = optional umask to run under,
              # $9… = the run's environment, each a `NAME=VALUE` argument; the
              # run itself is `_ctl_run`'s.
-             # A 2 from it (the table declined it: its group's capability is
-             # missing here, and this machine declares it) is green: the label was
-             # registered, and that group's summary line says what the run did not
-             # exercise (`_cap_lines`, controls file); undeclared, `_cap_check` reds.
+             # A 2 from it (the table declined it: its group's flag is 0 here) is
+             # green and the label registered; on a declaring machine that group's
+             # summary line (`_cap_lines`, controls file) says what was not exercised,
+             # and with no declaration `_cap_check` has already redded the run.
   local _cr=0
   _ctl_run "$4" "$1" "" "${8:-}" "${7:-}" "${5:-}" "${6:-}" "${@:9}" || _cr=$?
   # Not pinned by a record: on a capable machine nothing declines, so this line is
