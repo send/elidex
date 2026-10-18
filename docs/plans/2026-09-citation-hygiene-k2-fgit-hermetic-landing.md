@@ -118,12 +118,20 @@ removed it and left a pointer to step 2 in its place (`…-pr527-r15.md` §Q, `/
 - **Cost shape.** There is still **one** build. It runs in a child process, with the postconditions and
   P-g added.
 
-**X9 cannot run on this PR as stacked.** `ci.yml` triggers only on `pull_request: branches: [main]`,
+**X9 cannot run on this PR as stacked, and Q1 waits for the same run.** `ci.yml` triggers only on `pull_request: branches: [main]`,
 and this PR targets `webref-cite-audit-tool` (#519 ran zero checks). X9 is **route (b)**, decided by the
 user (above): #501's own CI after the squash is the GNU evidence and the only runner run of this PR's
 tool code, so the budget verdict comes from it too. **Stop condition:** if that CI goes red on anything
 this slice touched, or its job time reaches the threshold above, a fix (or, for the time, the user's
 decision) lands before #501 merges (land order step 7).
+
+**Q1 (does the runner hold a FIFO and run as a non-root user?) is answered by the same run, route (b).** Since
+CR-B2b an undeclared absence is red: a runner that cannot make a FIFO, or that reads a mode-000 file (root), or
+whose `env` refuses `-0`, makes that run RED under the group's or the limit's own label (`$_fifo_lbl`,
+`$_perm_lbl`, `$_pfl_lbl`), never a false green. The fix is a declaration in the job's `env:` beside `runs-on`
+(`WEBREF_WIRE_LACKS="fifo perm P-f"`, the names it needs), recorded in the open record (`…-impl-cr.md` §S). A
+declaration cannot make a capable runner skip a control (the probe still decides what runs). Until that run, nothing
+here claims the runner's answer; a docker `ubuntu:24.04` run would be a PROXY, not the runner's fact.
 
 **Land order:**
 1. `/pre-push` over `e8f78896...k2-wire-fgit-hermetic`.
@@ -180,10 +188,14 @@ exactly this:
   audit, the four questions `…-residuals.md` §5.1 applies to the other closure. If its section then
   holds nothing else, the section goes too, as above.
 - **Register** `#11-trip-wire-liveness-bound` with §9.2's text, verbatim.
-- **Amend** `#11-trip-wire-launch-environment`. Member (3) gains the K2 window: git pinned as the
+- **Amend** `#11-trip-wire-launch-environment` in two ways. (a) Member (3) gains the K2 window: git pinned as the
   caller's shell resolves it from the wire's directory, the other entries verbatim. The fired trigger
   "#519 lands" becomes "the next PR that changes how a required wire, or the K2 fixture window,
-  resolves or passes `PATH`". The PM lane stays the owner.
+  resolves or passes `PATH`". (b) The slot gains a member, a caller's stale `WEBREF_WIRE_LACKS` (the wire reads it from the
+  caller's environment, in the parent: `_cap_check`): on a machine that holds the capability it declares an absence
+  the machine does not have. It cannot make a control skip (the probe's flag decides), but then the shipped run
+  carries no evidence for the three probe-flip records (a wrong 0 would be accepted), and an unknown word in it is
+  red. The PM lane stays the owner.
 - **Fix the header count.** The net change is −2 (one slot dissolved, two closed, one registered),
   and it **replaces** the −2 banner written at PR creation.
 
@@ -383,7 +395,7 @@ These run on both shells, and on both gits wherever the corpus has a column.
 | X5 | the corpus §6 R, RLOUD, RES and P cells, same recipe; the draft-10 cells (companion §E.7) on the implementing head as `p11/`, re-anchored to T by "X5 at T" below; and drafts 11–21's cells (corpus §6.1); every cell run as "Cell runners at T" says | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS; each draft-11–20 cell as corpus §6.1 says |
 | X6 | two by-hand edits to `…trip-wire.fixtures.sh`, each just before its `: > "$_FW_DIR/built"` line: `mkdir -p "$_FGIT_VOID" && printf 'ref: refs/heads/x\n' > "$_FGIT_VOID/HEAD" && : > "$_FGIT_VOID/config"`, and `git -C "$CTL/clean" config include.path /nonexistent-k2`; one run each | red: the template through **P-c**, the include through **P-g**. Not P-d: P-d compares two inits that both use the void as their template, so a template planted there is on both sides. Not P-a: P-a reads one probe repo, not the fixtures |
 | X8 | at T (§9.1), a sanity record only (§9, "X8 is a sanity record only"): `/usr/bin/time -p bash scripts/trip-wires.sh`, three runs on the branch and three on base `e8f78896`, alternated | the six times recorded in the open record (§13); nothing decided and nothing written to `ci.yml`. The budget verdict is X9's |
-| X9 | `Layering trip-wires` on ubuntu (GNU) by route (b), decided by the user: #501's CI after #527 is squashed into it (land order step 7); the job's time from that run, by §9's `gh run view` command | SUCCESS, and the job's time under half the budget in force (§9, "The threshold"; at or above it, STOP), the verdict written on #501's branch as §9 says. The run is also GNU evidence for `env -i`, `env -0`, the window, the prelude, and the census's `find` expressions under GNU find: `find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \)` (pass 1's list), `find <.git> \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print` (pass 1's shape), `find "$CTL" -type l -print0` (pass 2's link list) and `find -L <link> \( -iname HEAD -o -iname .git \) -print` (pass 2's search). If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run |
+| X9 | `Layering trip-wires` on ubuntu (GNU) by route (b), decided by the user: #501's CI after #527 is squashed into it (land order step 7); the job's time from that run, by §9's `gh run view` command | SUCCESS, and the job's time under half the budget in force (§9, "The threshold"; at or above it, STOP), the verdict written on #501's branch as §9 says. The run is also GNU evidence for `env -i`, `env -0`, the window, the prelude, and the census's `find` expressions under GNU find: `find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \)` (pass 1's list), `find <.git> \( \( -type f -links +1 \) -o \( ! -type f ! -type d \) \) -print` (pass 1's shape), `find "$CTL" -type l -print0` (pass 2's link list) and `find -L <link> \( -iname HEAD -o -iname .git \) -print` (pass 2's search). If a record's sed expression reads differently under GNU sed, the always-on anchor check in `_mut_correspondence` is the first thing to fail, on the ordinary run. The run is also the evidence for the capability probes on the runner (Q1): all green with no declaration means the runner holds a FIFO, enforces file modes and has an `env` that accepts `-0`; a red under `$_fifo_lbl`, `$_perm_lbl` or `$_pfl_lbl` is fixed by a declaration in the job's `env:` (design memo, `…-cr-plan.md` §2.3). One fact is owed to it (CR-S1, `…-impl-cr.md` §S.1.2): whether the CI image's GNU coreutils `sleep` takes a fractional bound (the watchdog's `sleep "${_ctl_wd_s-}"`); it is a fact only: the bounds the wire sets are whole seconds (30 and 1), so no verdict depends on it |
 | X10 | `$SH -n` over every `.claude/tools/webref-generic-core-trip-wire*.sh`, and `wc -l` over the parts this PR edits (controls, ctlrun, fixtures, harness, mutations, mutgen, records; C11 edits mutgen; `04466154` splits records out of mutations; `16efb423` splits ctlrun out of the harness) | clean; each edited part below 1000 lines. The wire itself (1259 lines at `8413a4db`) is edited by this PR only in `8f4ad3c8` (the orderly-end flag, +28 lines: 1286 at `8f4ad3c8`). Not split on that touch: the touch-time rule is a cohesion judgement, and the wire's is already written — two predicates over one walk into one verdict, a monolithic cohesive unit (`2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md` §5 :549 and §8 :818, whose named fallback seam is predicate-vs-walk); re-checked against `a3260410`'s section map, no new seam |
 | X11 | in a clone, add to `…trip-wire.controls.sh`, after the other `_lbl` definitions, `_x_lbl="an unrecorded probe"` and `echo "$_x_lbl" >/dev/null` | red, and the ratchet lists it |
 | X12 | withdrawn with draft 12's time bound (draft 13); the number is not reused | — |

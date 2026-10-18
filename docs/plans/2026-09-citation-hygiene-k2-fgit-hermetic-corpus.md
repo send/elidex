@@ -191,8 +191,10 @@ the fix round and the review rounds after it change them as §6.1 says.
   - resolving relative `PATH` entries: it changes something only for a caller whose `PATH` has one, and a
     record's run uses the caller's `PATH`. Measured by hand (Codex R23's shape, both shells): a `tools/bin`
     `git` wrapper with a `#!/usr/bin/env` interpreter beside it — red on `cb8b0e09`, PASSED after.
-- **Records on a machine that cannot evaluate their postcondition** (a `machine_limits` line: P-b on git
-  before 2.42, P-f on an `env` without `-0`): the mutation run still runs them — a record pinning the
+- **Records on a machine that cannot evaluate their postcondition** (a `machine_limits` line, a fact or a declared
+  limit: P-b on git before 2.42, a fact row of the capability table, needing no declaration; P-f on an `env` without `-0`, a limit
+  row, reached only where the caller declared it, `WEBREF_WIRE_LACKS=P-f`: an undeclared limit is red under `$_pfl_lbl`
+  before any record runs): the mutation run still runs them — a record pinning the
   limitation test's own narrowness dies there — and a **survival** of one is reported as not exercisable
   on that machine instead of counted (and the summary says how many); the labels are derived from the limitation's
   ID. The excuse is per label, so on such a machine a regression in a record that would die there is excused
@@ -328,12 +330,15 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | CR-B2a review fixes | **re-aim**, the parse guard's record: the row `M 0 1 yes - 2 -` of `_cap`'s table made `M 0 1 yes - 2 -x` (a last field the loop's pattern does not match), where the code half renamed the untrusted row `M 0 1 no` to `nop`. The renamed row still ran as a malformed row once the guard's arm was removed and came back 2, not 1, so the guard was not what killed it; the re-aimed row's malformed text can only be reported by the guard (its survive clause, the guard's `*)` arm made `*) ;;`, is green on both shells) | `the gate declines exactly the members of a group whose flag is 0` | controls | — |
 | CR-B2a review fixes | **add**, the table check's three other clauses, each killed under `$_capt_lbl` alone (each survives with its own clause disabled, both shells): a probe's flag holding 2 (`harness:s/then _fifo_ok=1;/then _fifo_ok=2;/`: the gate runs any value but 0, so only this clause reds the value); a member label listed twice (the `perm` group's `an unsearchable dir fails closed` row relabelled `an unreadable file fails closed`); a group declared twice (the `perm` group row copied over a member row, in one expression: the wire's anchor check wants each expression to change a line, and the removed member then simply runs, so nothing else reds) | `the capability table is well formed and names every absence it is asked about` | harness, controls | — |
 | CR-B2a review fixes | **add**, the verdict marker of each standing check, one record each: an abort (`: "${_no_such_name_x}"`) injected at the start of the `_wm`, `_ev` and `_cap` subshells, so the check ends before its verdict and the `then` branch must red `the check ended before its verdict` under the check's own label (the marker arm itself is not pinned apart from them: with its `then` line removed each record dies for the wrong reason) | `only the watchdog's marker makes a signal status a timeout`, `a previous run's channel evidence never answers for the next`, `the gate declines exactly the members of a group whose flag is 0` | controls | 142 / 237 |
+| CR-B2b | **add**, the FIFO probe's flip (`_cap_check`'s absence check, its group clause): `harness:s/then _fifo_ok=1;/then _fifo_ok=0;/`, the probe answering 0 on a machine that holds a FIFO, so the `fifo` group's flag is 0 and nobody declared it. Killed with `$_fifo_lbl` by `_cap_check`'s one red line (`group "fifo" is absent on this machine … and its caller did not declare it`) on both shells; it survives with the group's absence clause removed (rc 0, needle absent, both shells; measured at the code commit `567b22e8`). A machine that really lacks the capability and declares it is CR-B2c's excuse (`…-cr-plan.md` §2.4) | `this machine holds a FIFO, or its caller declared that it cannot` | harness | — |
+| CR-B2b | **add**, the permission probe's flip: `harness:s/^_perm_ok=1$/_perm_ok=0/`, the probe answering 0 where a mode-000 file is unreadable. Killed with `$_perm_lbl` by the same red line on both shells; it survives with the group's absence clause removed (both shells) | `this user cannot read a mode-000 file, or its caller declared that it can` | harness | — |
+| CR-B2b | **add**, P-f's definition test forced to the limit branch (the `if [ "$_pfrc" -ne 0 ] && [ ! -s … ] && [ -s … ]` line replaced by `if true`) on an `env` that accepts `-0`, so the window reports the limit `P-f — …` and nobody declared it. Killed with `$_pfl_lbl` by `_cap_check`'s limit clause on both shells; it survives with that clause removed (both shells) | `this env lists its environment NUL-separated, or its caller declared that it cannot` | harness | 145 / 240 |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
   deleted case split and two-name guard.
 - **Current totals** (the one statement; earlier per-commit totals are in the table above and in git):
-  **142 records of this PR, 237 in all**, measured at the CR-B2a slice's commit (which removes the two `_ctl_need` records, adds seventeen and
+  **145 records of this PR, 240 in all**, measured at the CR-B2b slice's commit (which adds the three probe-flip records, 237 before; 237 was measured at the CR-B2a slice's commit with its review fixes, which removes the two `_ctl_need` records, adds seventeen and
   re-aims two: the capability table, eleven at the code half, 231, and six in the review fixes, the table check's three clauses and the three verdict markers; 222 at the CR-B1 slice's commit, which removes k2's `_ctl_need` prefix record:
   k2 is posed on every machine through a shim, so it has no `_ctl_need` prefix; 223 at the CR-S3 slice's commit, which removes P-b's four
   definition-test records, whose test went with K2's version-keyed limit, and adds the `var --`, the misspelt-name
@@ -341,10 +346,10 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
   control's swapped exit/message record and the record that restores the gate's early return before
   `_ctl_run`'s channel validation, and the record that weakens the evidence directory's fresh `rm -rf … && mkdir …`
   to `mkdir -p …`; 221 at the CR-S1 slice's commit, 220 at `0d411df2`) with
-  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (237) against
-  the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=237` is a **floor**: fewer
+  `bash -c '. .claude/tools/webref-generic-core-trip-wire.records.sh; _mutants | wc -l'` (240) against
+  the same count of `e8f78896`'s here-document (95). `_MUT_RECORDS_MIN=240` is a **floor**: fewer
   records is red, more is not; its comment in `…mutations.sh` names every record this PR removed, by
-  commit. `_MUT_UNRECORDED_MAX=21` (18 at the CR-B1 slice's commit; 19 before the CR-S2 slice's `pin` record): the three bare labels CR-B2a adds are the capability table's group and limit labels, `$_fifo_lbl`, `$_perm_lbl` and `$_pfl_lbl`, which the census counts as `_*_lbl` names the parts spell and which no record names yet; their records are CR-B2b's probe-flip records (the absence check they pin arrives with the declarations, B2b), which brings the figure back to 18. The ratchet is **exact**: fewer bare labels than that is red
+  commit. `_MUT_UNRECORDED_MAX=18` (21 at the CR-B2a slice's commit; 18 at the CR-B1 slice's commit; 19 before the CR-S2 slice's `pin` record): the three labels CR-B2a had left bare are the capability table's group and limit labels, `$_fifo_lbl`, `$_perm_lbl` and `$_pfl_lbl`, which the census counts as `_*_lbl` names the parts spell; since CR-B2b each has a record (the three probe-flip records above, which pin the absence check that arrived with the declarations), which brings the figure back to 18. The ratchet is **exact**: fewer bare labels than that is red
   too ("LOWER the ratchet").
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
