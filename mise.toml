@@ -126,3 +126,11 @@ run = "cargo run -p elidex-crawler -- crawl --sites crates/tools/elidex-crawler/
 [tasks.crawl-analyze]
 description = "Analyze crawl results"
 run = "cargo run -p elidex-crawler -- analyze --input output/results.json"
+
+# The C reference implementations of CommonMark and GFM, installed with Homebrew
+# for elidex work. Declared here so `mise bootstrap packages prune` keeps them;
+# nothing installs them unless `mise bootstrap` is run (mise install and the
+# tasks above are unaffected).
+[bootstrap.packages]
+"brew:cmark" = { os = "macos" }
+"brew:cmark-gfm" = { os = "macos" }
