@@ -58,6 +58,7 @@ identifiers, class and slice unchanged (**(M)** `crplan-r4/logs/M-h1-inputs.txt`
 | `cap` `cap_fn` `cap_err` | `_cap` (word-bounded: not `_cap_lbl`, `_capt_lbl`); `_cap_rows`, `_cap_group_of`, `_cap_flag_of`; `\.cap_err` | the standing check `_cap` and the reader's functions CR-B2a adds (R3-all-3; `cap_table` already matches `_cap_[a-z]`, so `cap_fn` names the three on their own) |
 | `cr_vars` `capflags` `endmarks` | `_cr_[a-z]`; `_zz_ok`, `_yy_ok`; `\.wm_end`, `\.ev_end`, `\.cap_end` | the reader's function-locals (`local` in `_cap_rows`: its cursor and fields, which a nested pass shadows; the out-globals are `_cap_g`, `_cap_f`, `_cap_v`, which `cap_table` matches), the test flags and the standing checks' verdict markers (CR-B2a, R3-all-3) |
 | `lacks` `cap_chk` `cc_vars` | `WEBREF_WIRE_LACKS`; `_cap_chk_`; `_cc_[a-z]` | the declaration of an absence and the table check that reads it (B2b): the variable the caller sets, the check's reporters and row handlers (`_cap_chk_red`, `_cap_chk_absent`, `_cap_chk_row`, `_cap_chk_member`; all also matched by `cap_table`), and the function-locals of `_cap_check` (`_cc_*`) |
+| `mut_skip` | `_mut_skip_glabel`, `_mut_wrong_reason`; `_mk_g` | the capability excuse's callback (a needle that is a group's own label) and the wrong-reason diagnostic's function, and the callback's out-variable `_mk_g`, which `_mut_run` reads (B2c, R3-all-3); the excuse's other local `_mskip_g` is matched by `mskip` |
 
 **A row is the statement that holds the hit**, not the hit line alone: the comment block, paragraph, bullet or
 table row it sits in (prose wraps, which is how stem greps missed sites). The disposition names the extent
@@ -758,7 +759,7 @@ frame: `ledger-check.py` reads §3 of this file as committed at CR-B1 and each r
 (not the handoff logs `ledger.tsv` / `sweep-sites.tsv`), `completion.sh`'s C2 part-path grep gains the quoted-stem
 alternative (plan memo §3.4, H6), and `idents.tsv` gains the `resid_range` row (§1's table), whose ERE matches the
 range quoted (`"R1"–"R10"`) and unquoted (`R1–R10`) alike (CR-B1's review fixes widened it: the first form, `"R1"–"R[0-9]+"`,
-missed the design memo's two unquoted "R1–R9"). CR-B2a adds six rows to `idents.tsv` (`cap`, `cap_fn`, `cap_err`, `cr_vars`, `capflags`, `endmarks`: R3-all-3, §1's table), in the same commit as the identifiers; CR-B2b adds three (`lacks`, `cap_chk`, `cc_vars`, §1's table). `sweep.sh` is r4's (it excludes the two moved files). Run at the frame, `ledger-check.py`
+missed the design memo's two unquoted "R1–R9"). CR-B2a adds six rows to `idents.tsv` (`cap`, `cap_fn`, `cap_err`, `cr_vars`, `capflags`, `endmarks`: R3-all-3, §1's table), in the same commit as the identifiers; CR-B2b adds three (`lacks`, `cap_chk`, `cc_vars`, §1's table); CR-B2c adds one (`mut_skip`: `_mut_skip_glabel`, `_mut_wrong_reason` and `_mk_g`; `_mskip_g` is already matched by `mskip`, whose ERE is `_mskip`). `sweep.sh` is r4's (it excludes the two moved files). Run at the frame, `ledger-check.py`
 takes the CR-B1 commit as its third argument (the frame has no sweep file). The sections above name handoff-directory paths
 (`crplan-r3/bin/…`, `logs/…`): those are where the frame was measured, and stay outside the repo.
 
@@ -835,6 +836,7 @@ endmarks	\.(wm|ev|cap)_end([^A-Za-z0-9_]|$)
 lacks	WEBREF_WIRE_LACKS	
 cap_chk	_cap_chk_	
 cc_vars	(^|[^A-Za-z0-9_])_cc_[a-z]	
+mut_skip	_mut_skip_glabel|_mut_wrong_reason|(^|[^A-Za-z0-9_])_mk_g([^A-Za-z0-9_]|$)	
 ```
 
 ### §E.ledger-check.py
