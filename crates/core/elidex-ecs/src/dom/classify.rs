@@ -47,7 +47,7 @@ impl EcsDom {
 
     /// HTML tag-name predicate: returns `true` iff `entity` is a
     /// `<template>` element (HTML §4.12.3). Tree walkers implementing the
-    /// §2.4.3 "first base element in the document" carve-out use this to
+    /// HTML §2.4.3 "first base element in the document" carve-out use this to
     /// **skip recursing into a `<template>`'s light children** — a `<base>`
     /// programmatically appended to a template element (e.g. via
     /// `template.appendChild(base)`) must not affect the host document's base
@@ -82,7 +82,8 @@ impl EcsDom {
     /// Returns `true` if the entity is an element node.
     ///
     /// Checks `NodeKind` first, falls back to `TagType` presence for
-    /// backwards compatibility with entities created before `NodeKind` was added.
+    /// backwards compatibility with entities created before `NodeKind` was added
+    /// (a shim slated for removal: `#11-nodekind-inference-shim`).
     #[must_use]
     pub fn is_element(&self, entity: Entity) -> bool {
         if let Ok(kind) = self.world.get::<&NodeKind>(entity) {
@@ -147,7 +148,8 @@ impl EcsDom {
     ///
     /// Use this in any code path that has to treat legacy entities
     /// as real DOM nodes — e.g. `splitText` brand checks,
-    /// `isEqualNode` equality, variadic argument normalisation.
+    /// `isEqualNode` equality, variadic argument normalisation. The
+    /// inference is a shim slated for removal (`#11-nodekind-inference-shim`).
     #[must_use]
     pub fn node_kind_inferred(&self, entity: Entity) -> Option<NodeKind> {
         if let Some(kind) = self.node_kind(entity) {
