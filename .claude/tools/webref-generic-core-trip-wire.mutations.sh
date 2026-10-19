@@ -22,10 +22,10 @@
 # census), `$_lbd_names` (from the controls file: the `_*_lbl` names the parts
 # spell, each asserted defined and non-empty there; the census reads their
 # values, and `_mut_run` the `_p<x>_lbl` and `_p<x>l_lbl` among them with the harness's
-# `$_fw_limits` for a machine-limited record), `$_MUT_PARTS` (from the controls
+# `$_fw_limits`: the P-x half of the excuse, for a machine-limited record), `$_MUT_PARTS` (from the controls
 # file, which spells the list of parts once), the capability table's READER
 # (`_cap_rows`, `_cap_group_of`, `_cap_flag_of`, from the run primitives: functions
-# only, asserted below by `declare -F`; neither the table nor a flag is read here,
+# only, asserted below by `declare -F`; neither the table nor a flag is named here, the functions answer,
 # for the census's membership check and `_mut_run`'s capability excuse), and `$SELF`, `$SCRATCH`, `$K2RE`
 # and `$K2RE_PATH` (from the wire); every other part it names is derived from
 # `$SELF` (`${SELF%.sh}.<part>.sh`); the per-run copies iterate `_MUT_PARTS`.
@@ -359,7 +359,7 @@ _mut_rm_copies() {
 # Returns 0 = as required, 1 = SURVIVED (the caller decides what that means),
 # 2 = failed some other way, already reported, 3 = killed for the WRONG REASON by
 # a mutant that exited 1 (NOT yet reported: the caller excuses it, for a record
-# whose needle is a member of an absent group, or reports it through
+# whose needle is a member of an absent group or that group's own label, or reports it through
 # `_mut_wrong_reason`). A mutant that exited 2 ended at "decided nothing", which a
 # harness break also reports, so that case is a 2 and never excused.
 # The `!kill` and `!survive` forms return 0, 1 or 2 only.
@@ -384,8 +384,8 @@ _mut_trial() {
   _mt_rc=0
   # (The mutant inherits every other variable, WEBREF_WIRE_LACKS among them: a declaring
   # machine's mutants see the same declaration, so a probe-flip mutant SURVIVES there (an absence the caller
-  # declared is accepted, and `_mut_run` excuses that record by the table's flag); it reds under its group's label
-  # only if the inheritance is cut.)
+  # declared is accepted, and `_mut_run` excuses that record: by the table's flag for the FIFO and permission flips, by the P-x half for
+  # P-f's); it reds under its group's (or the limit's) label only if the inheritance is cut.)
   _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1)" || _mt_rc=$?
   if [ "$2" = '!survive' ]; then
     # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
