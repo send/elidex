@@ -244,10 +244,11 @@ fi
 # reason: `r` and `w` take a file operand, so a prefix that starts with either
 # (`records:s/a/b/` is `r ecords:s/a/b/`, a read of a file) is a VALID expression
 # that changes nothing, and the anchor check reds it as a stale anchor, naming the
-# expression it was written with. Any other unlisted prefix fails to parse
-# (measured on BSD sed: `sed 'harness:p'` is "extra characters at the end of h
-# command", `sed 'fixtures:p'` is "invalid command code f"; GNU sed is not
-# measured here).
+# expression it was written with. Any other unlisted prefix is read as the sed
+# command its first letter begins; the ones measured fail to parse on BSD sed
+# (`sed 'harness:p'`: "extra characters at the end of h command", `sed 'fixtures:p'`:
+# "invalid command code f"); GNU sed is not measured here (its one-line `a`, `i`
+# and `c` text forms may accept a prefix that starts with one of them).
 _MUT_TARGETS=""
 for _mt_p in $_MUT_PARTS; do
   case "$_mt_p" in records) ;; *) _MUT_TARGETS="$_MUT_TARGETS $_mt_p" ;; esac
@@ -753,7 +754,7 @@ _mut_run() {
   if [ -n "${WEBREF_WIRE_MUTANTS:-}" ]; then
     # The copy must sit BESIDE the wire: `$ROOT` is derived from `$0`, and the
     # scope it reads is this repository's real generic core. Its own controls file
-    # has to be beside it too, under the name the wire derives (`_mut_part_path`), or
+    # has to be beside it too, under the name the wire derives (the stem rule of `_mut_part_path`), or
     # the copy refuses to run — which is criterion 2 working, not a harness bug.
     # ⚠ PER-RUN NAMES, BECAUSE THE WORKING TREE IS SHARED BY DESIGN. A fixed
     # `<wire stem>.mutant.sh` is one path per checkout, and CLAUDE.md's
