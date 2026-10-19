@@ -819,7 +819,7 @@ EOF_MLIM
       # Only a machine that DECLARED the absence reaches here with a flag at 0 (the table check `_cap_check` reds
       # an undeclared flag-0 group first, before `_mut_run`); a needle whose group no `group` row declares, or an
       # unset flag, is no 0, so nothing is excused (fail-safe).
-      _mskip_g=""; _mk_g=""
+      _mskip_g=""
       _cap_group_of "$_pr_needle"; _mk_g="$_cap_g"
       [ -n "$_mk_g" ] || _cap_rows group _mut_skip_glabel
       if [ -n "$_mk_g" ]; then _cap_flag_of "$_mk_g"; [ "$_cap_v" != 0 ] || _mskip_g="$_mk_g"; fi
