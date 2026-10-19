@@ -204,7 +204,7 @@ script that signals itself at once, and `_ctl_run` must return 0 with `_rc` ≥ 
 a record deletes the marker test; `_MUT_RECORDS_MIN` 197 → 198. The marker write `{ : > …; } 2>/dev/null || :` (no
 record: every caller is an `||`/`if !` operand); the return-contract comment; `_fw_canary_bad` and the inert reset
 gone, `_r_names` inlined. Measured: at `5b5c2ca0` the marker clause removed → PASSED (the gap); the record KILLED
-(`_ctl_run returned 1, not 0`); the canary exit-3 record KILLED, and survives with the fold removed (as a
+(`_ctl_run returned 1, not 0`, the message at that commit; CR-C1 reworded it to `the run returned 1, not 0`); the canary exit-3 record KILLED, and survives with the fold removed (as a
 `.mutant.99` copy; as a plain copy only the stale-anchor check reds); `set -u` with an empty cwd yields no empty
 word. ⚠ `PROGRESS.md` describes the script as `kill -ABRT $$`; the commit's is `kill -TERM $$` ("so no core dump",
 its message; `git show aa0a501b:…controls.sh` :201, measured for this file). Which signal the logged runs used is
