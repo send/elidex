@@ -1,6 +1,6 @@
 //! The `EcsDom` attribute accessor / write cluster.
 //!
-//! Extracted from `dom/mod.rs` (which is over the 1000-line review
+//! Extracted from `dom/mod.rs` (when it was over the 1000-line review
 //! convention) so the attribute read/write API lives in a focused module.
 //! These methods form the attribute-write chokepoint:
 //! [`set_attribute`](EcsDom::set_attribute) /
