@@ -30,10 +30,10 @@ impl EcsDom {
     /// `MutationEvent::AttributeChange` events to `<base>.href`
     /// writes only.
     ///
-    /// HTML-spec knowledge co-located with `shadow.rs` `VALID_SHADOW_HOST_TAGS`
-    /// + `is_valid_shadow_host` tag-whitelist
-    /// precedent per layering mandate (small HTML predicates in
-    /// elidex-ecs are OK; large algorithms hoist to elidex-dom-api).
+    /// HTML-spec knowledge co-located with the `shadow.rs` tag-whitelist
+    /// precedent (`VALID_SHADOW_HOST_TAGS` and `is_valid_shadow_host`) per
+    /// layering mandate (small HTML predicates in elidex-ecs are OK; large
+    /// algorithms hoist to elidex-dom-api).
     #[must_use]
     pub fn is_base_element(&self, entity: Entity) -> bool {
         // WHATWG HTML §4.2.3 restricts `<base>` to the HTML namespace, so
