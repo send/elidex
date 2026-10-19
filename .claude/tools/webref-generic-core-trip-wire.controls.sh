@@ -15,9 +15,9 @@
 # THE INTERFACE, AND IT IS ASSERTED BELOW RATHER THAN DESCRIBED. What this file
 # (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
-# `$_CONTROLS` (this file's own path, which the defined-labels check reads, and
-# the run registry's site walk in the run primitives compares frames against), the
-# five `CONTROL_*` sample strings. That list — and only that list — is checked
+# `$_CONTROLS` (this file's own path: the entry check, the run registry's site walk in
+# the run primitives and the label census in the mutation set read it; the
+# defined-labels check does not), the five `CONTROL_*` sample strings. That list — and only that list — is checked
 # at entry. (No part calls the wire's `_git`, so the entry check no longer asks
 # for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
@@ -73,9 +73,9 @@ if [ -n "$_ctl_missing" ]; then
 fi
 # DEFINED BEFORE THE HARNESS IS SOURCED: the harness uses `$_fws_lbl` while it loads.
 # ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
-# a mutation record (the census in the mutation set counts the `_*_lbl`
-# variables as well as the labels the run's calls registered). What each
-# asserts is tabled in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
+# a mutation record (the census in the mutation set counts the `_*_lbl` variables
+# the wire or a part EXPANDS as well as the labels the run's calls registered).
+# What each asserts is tabled in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
 _fw_lbl="the fixture build window completed"
 _fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
 _fwd_lbl="the fixture build window ran without a shell diagnostic"
@@ -95,8 +95,9 @@ _pk_lbl="no fixture repo reads objects from a store outside it"
 _pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
-# (the census: the run registry and the `_*_lbl` variables, against the
-# records — in the mutation set; the records whose needle this is pin it)
+# (the census: the run registry, bijected with this file's call lines, and the
+# expanded `_*_lbl` variables, against the records — in the mutation set; the
+# records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
 # blocks, the defined-labels check, the three standing checks (their producers are
@@ -127,9 +128,10 @@ fi
 # ⚠ EVERY LABEL A PART REFERENCES IS DEFINED AND NON-EMPTY, asked before anything
 # else runs. A label renamed here and left in a producer is reached only when
 # that producer fires, so the rename can sit unseen behind a green run: the names
-# are derived from the parts' own text, by the regex the harness uses to forward
-# the postconditions' labels, not listed. The parts read are every part of
-# `_MUT_PARTS`. A part that is not readable is skipped here and reported by its
+# are derived from the text, by the regex the harness uses to forward the
+# postconditions' labels, not listed. The files read are the wire and every part of
+# `_MUT_PARTS` (the wire spells `_ord_lbl`'s one expansion: the census's population is
+# a subset of what is asserted here). A part that is not readable is skipped here and reported by its
 # own existence check: controls - by the wire, before this file runs; harness -
 # just above; fixtures - below, after the harness is sourced; ctlrun - at the
 # end of the harness; mutations - at the end of this file; records and mutgen -
@@ -139,7 +141,7 @@ fi
 # label check below, and in the mutation set its entry check, the sibling guard,
 # the per-run copies and `_mut_rm_copies` (the trap and the end of the run).
 _MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
-_lbd_files=()
+_lbd_files=("$SELF")
 for _lbd_p in $_MUT_PARTS; do
   _lbd_f="${SELF%.sh}.$_lbd_p.sh"
   [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
@@ -335,7 +337,7 @@ elif ! ( _wm_bad=""
            _wm_gone "-$_ctl_wd_pg" || _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call"
            case "$_wm_row" in
              abort)
-               [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; _ctl_run returned $_wm_r, not 0"
+               [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; the run returned $_wm_r, not 0"
                [ "${_rc:-0}" -ge 128 ] || _wm_bad="$_wm_bad; _rc is ${_rc:-unset}, not a signal status"
                case "$_wm_msg" in *"killed after "*) _wm_bad="$_wm_bad; a signal at once was reported as a timeout" ;; esac ;;
              hang)
@@ -376,7 +378,7 @@ elif ! ( SELF="$_VFY/.ev_run"; _ev_bad=""
            _ev_r=0; _ctl_run "$_ev_lbl" "$_VFY" "" "" "$_VFY/.ev_$_ev_row" > /dev/null 2> "$_VFY/.ev_err" || _ev_r=$?
            case "$_ev_row" in
              ran)
-               [ "$_ev_r" -eq 0 ] || _ev_bad="$_ev_bad; ran: _ctl_run returned $_ev_r, not 0"
+               [ "$_ev_r" -eq 0 ] || _ev_bad="$_ev_bad; ran: the run returned $_ev_r, not 0"
                [ -f "$_VFY/.reached/path" ] || _ev_bad="$_ev_bad; ran: the shim left no path" ;;
              stale)
                [ "$_ev_r" -eq 1 ] || _ev_bad="$_ev_bad; stale: a prefix the run never called returned $_ev_r, not 1 (the previous run's path answered)"

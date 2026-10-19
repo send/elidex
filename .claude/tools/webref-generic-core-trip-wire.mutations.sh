@@ -14,14 +14,15 @@
 # commit, not a defer slot to be done after the PR lands. This file is that
 # standalone commit. The two lists must still be edited together — the
 # correspondence check below ENFORCES that: it reads the labels the run
-# registered (the run registry, and the `_*_lbl` variables) and this
-# file's records, and reds when they drift.
+# registered (the run registry, bijected with the controls file's call lines) and the
+# `_*_lbl` variables the text expands, against this file's records, and reds when they drift.
 #
 # WHAT IT CONSUMES: `$_VFY` (from the controls file), the run registry
 # (`$_VFY/.registry`: what the run primitives' `_ctl_reg` appended), `$_cen_lbl` (read by the
-# census), `$_lbd_names` (from the controls file: the `_*_lbl` names the parts
-# spell, each asserted defined and non-empty there; the census reads their
-# values, and `_mut_run` the `_p<x>_lbl` and `_p<x>l_lbl` among them with the harness's
+# census), `$_CONTROLS` (the controls file: the census reads its call lines), `$_lbd_files` and
+# `$_lbd_names` (from the controls file: the wire and parts it reads, and the `_*_lbl` names
+# they spell, each asserted defined and non-empty there; the census reads the values of those
+# expanded outside the record table, and `_mut_run` the `_p<x>_lbl` and `_p<x>l_lbl` among them with the harness's
 # `$_fw_limits`: the P-x half of the excuse, for a machine-limited record), `$_MUT_PARTS` (from the controls
 # file, which spells the list of parts once), the capability table's READER
 # (`_cap_rows`, `_cap_group_of`, `_cap_flag_of`, from the run primitives: functions
@@ -55,7 +56,7 @@
 #   * `_mutants` (in `…trip-wire.records.sh`) — HAND-WRITTEN, and its unit is a
 #     LABEL: a label the run registered (what a `_control`, `_ctl_run`,
 #     `_ctl_gate` or `_fgit_window_verdict_exit` call was passed) or the value of
-#     a `_*_lbl` variable (the blocks that are not `_control`s, and the fixture
+#     a `_*_lbl` variable the text expands (the blocks that are not `_control`s, and the fixture
 #     build window's producers). The number of labels no record names is
 #     ratcheted (`_MUT_UNRECORDED_MAX` below), and the record says which edit
 #     its label is about. Its claim: *THAT* label is about *THAT* edit. It is a
@@ -95,7 +96,7 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in _VFY _lbd_names _MUT_PARTS SELF SCRATCH K2RE K2RE_PATH; do
+for _n in _VFY _lbd_names _lbd_files _CONTROLS _MUT_PARTS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
 for _n in _cap_rows _cap_group_of _cap_flag_of; do
@@ -186,8 +187,8 @@ fi
 #
 #     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
 #
-# ⚠ ADDING A LABEL MEANS ADDING A RECORD — a `_control` or an `_lbl="…"`
-# definition, whatever it is about — the ratchet below is what makes that true.
+# ⚠ ADDING A LABEL MEANS ADDING A RECORD — a `_control` (or another call line) or an
+# expanded `_lbl` name, whatever it is about — the ratchet below is what makes that true.
 # What does NOT belong here is a record for a rule of `$K2RE` or `$K2RE_PATH`
 # that needed no new control: `_mut_gen_run` derives that population from the
 # assignments themselves, so a hand-written copy would be a second spelling of
@@ -199,11 +200,11 @@ fi
 # set in silence and the run stayed green. Three things now hold it up, and each
 # is checked below rather than described:
 #   * a CORRESPONDENCE, IN BOTH DIRECTIONS AND ALWAYS-ON, against the labels
-#     the run USED (the census below: the run registry — runtime, so a call
-#     the text hides (`eval`, a split word, a command substitution) still
-#     runs, and so is still registered — and the values of the `_*_lbl` names
-#     the parts spell, `$_lbd_names`: a text derivation, each asserted
-#     defined). A record's needle that EQUALS no such
+#     the run USED (the census below: the run registry — what bash RAN, and
+#     bijected with the controls file's call lines, so a call the text hides
+#     (`eval`, a split word) is a registered site no line names, red — and the
+#     values of the `_*_lbl` names the wire or a part EXPANDS outside the record
+#     table, `$_cen_used`: a text derivation, each asserted defined). A record's needle that EQUALS no such
 #     label is an orphan (red; a stale anchor would otherwise report "wrong
 #     reason" forever). AND the number of LABELS with NO record is ratcheted:
 #     `_MUT_UNRECORDED_MAX` is EXACT: more bare labels is red, and so are fewer.
@@ -245,6 +246,7 @@ _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
 # 18 -> 21 at CR-B2a (the group and limit labels `$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl` were held by the capability
 # table without a record) and back to 18 at CR-B2b: their probe-flip records (the absence check they pin) landed.
+# CR-C1 left it at 18 (measured: the registry is machine-independent now, so the figure is exact on every profile).
 _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
@@ -259,8 +261,10 @@ _MUT_UNRECORDED_MAX=18
 # The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went); the
 # CR-B2a slice the two records of the prefix that followed (the FIFO pair's, the last ask's): the table replaced it. CR-B2a's review fixes added six (the table check's flag, member and group clauses, and the three
 # standing checks' verdict markers): 231 -> 237. CR-B2b added three (the FIFO and permission probes' flips, P-f's
-# definition test forced to the limit branch): 237 -> 240.
-_MUT_RECORDS_MIN=240
+# definition test forced to the limit branch): 237 -> 240. CR-C1 added eight (the `_pkl_lbl` expansion deleted, relcwd's
+# call behind `if false &&`, a `_control` behind a branch not taken, the three standing checks' row loops emptied, the
+# two-expression site-line record, the registry's fourth field): 240 -> 248.
+_MUT_RECORDS_MIN=248
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -513,51 +517,91 @@ _mut_correspondence() {
   # Two sources: the run registry (`$_VFY/.registry` — what bash RAN: the run
   # primitives' `_ctl_reg` appends `<file>:<line>	<kind>	<label>` under each
   # `_control` / `_ctl_run` / `_ctl_gate` / `_fgit_window_verdict_exit` call
-  # made under this `_VFY`, kind `control` when
-  # `_control` made it, `direct` otherwise), and the value of
-  # each name in `$_lbd_names` (the `_*_lbl` names the parts spell — a text
-  # derivation, each asserted defined by the controls file's `_lbd` check, so a
-  # caller's environment cannot add one). `.labels` is their union; `.ctllabels`
-  # (the `!kill` allowlist) is the `control`-kind labels. A `_control` LABEL IS
-  # LITERAL: one of that kind equal to a variable's value is red — the variables'
-  # producers are `echo` lines, not calls, so a second `_control` under a
-  # recorded variable label would otherwise pass under that record. The rule is
-  # `_control`'s only: a direct `_ctl_run` / `_ctl_gate` / verdict call may pass
-  # a variable label, so a second producer made as a direct block under
-  # an echo-only producer's variable label passes under that record (a residual,
-  # named with the same-line one below). The registry's length
-  # is noted (`.census`) before it is read: a label-taking call after this point
-  # would count nowhere, so the controls file's last statement reds if the file
-  # grew (`_mut_census_end`, below; a file, so a `( … )` or `$(…)` call grows it too).
-  # A control a machine cannot pose is registered all the same (the table's
-  # decline, in the run primitives), so an orphan needle is a rename, a deletion or an
-  # unreached call on every machine. A run that ends before this point is red
-  # without it (the window's exit 2, `_lbd`, a missing part).
+  # made under this `_VFY`, kind `control` when `_control` made it, `direct`
+  # otherwise), and the values of the `_*_lbl` names the TEXT EXPANDS (rule 1,
+  # below; `_lbd`, in the controls file, asserted each defined, so a caller's
+  # environment cannot add one). `.labels` is their union; `.ctllabels` (the
+  # `!kill` allowlist) is the `control`-kind labels.
+  # THE REGISTRY IS BIJECTED WITH THE TEXT (rule 2): the call lines of `$_CONTROLS`
+  # (a non-comment line naming a run primitive as a word) are exactly the registered
+  # sites, kinds included, so an unexecuted call (an `if false &&`, a branch this
+  # machine does not take), a call registered at another line and a call the text hides
+  # (`eval`, a split word, a helper defined on another line) are each red, and the
+  # registry is the same on every machine. One parse reads it (rule 3): a row holds
+  # exactly three TAB fields. A `_control` LABEL IS LITERAL: one of that kind equal
+  # to a variable's value is red — the variables' producers are `echo` lines, not
+  # calls, so a second `_control` under a recorded variable label would otherwise pass
+  # under that record. The rule is `_control`'s only: a direct `_ctl_run` / `_ctl_gate`
+  # / verdict call may pass a variable label (a residual, named with the same-line one
+  # below). The registry's length is noted (`.census`) before it is read: a call
+  # after this point would count nowhere, so the controls file's last statement reds
+  # if the file grew (`_mut_census_end`, below; a file, so a `( … )` or `$(…)` call
+  # grows it too). A control a machine cannot pose is registered all the same (the
+  # table's decline, in the run primitives), so an orphan needle is a rename, a
+  # deletion or an unreached call on every machine. A run that ends before this point
+  # is red without it (the window's exit 2, `_lbd`, a missing part).
   # ONE LABEL, ONE SITE: a label registered from two lines is red — a second
   # producer reusing a recorded label would otherwise pass under the first's
-  # record, and the text alone cannot tell two calls apart. The line is the
-  # finest site bash reports: two calls under one label on ONE line are one site,
-  # and so are calls a `trap` body or a multi-line `eval` string fold onto one
-  # reported line (the run primitives' registry header); the controls file has
-  # no `trap` or `eval` call. And a direct block (an `if ! _ctl_run` passing a
-  # variable label) under a label whose own producer is an `echo` line is one
+  # record. The line is the finest site bash reports: two calls under one label on
+  # ONE line are one site, and so are calls a `trap` body or a multi-line `eval`
+  # string fold onto one reported line (the run primitives' registry header); the
+  # controls file has no `trap` or `eval` call. And a direct block (an `if ! _ctl_run`
+  # passing a variable label) under a label whose own producer is an `echo` line is one
   # site, as the literal rule above does not reach it.
   wc -l < "$_VFY/.registry" | tr -d '[:space:]' > "$_VFY/.census"
-  for _cen_v in $_lbd_names; do printf '%s\n' "${!_cen_v}"; done | LC_ALL=C sort -u > "$_VFY/.vlabels"
-  K2_CEN="$_cen_lbl" awk -F'\t' 'FILENAME == ARGV[1] { isv[$0] = 1; next }
-    { l = $0; sub(/^[^\t]*\t[^\t]*\t/, "", l)
+  # RULE 1: a `_*_lbl` name is used where it is EXPANDED (`$name`, or `${name` and a non-identifier
+  # character) on a non-comment line of the wire or of a part but the record table, whose here-document is
+  # quoted (a `$name` there is data, and would keep a label "used" by a record's own text). A definition
+  # line, a comment and an indirect `${!x}` are no use. `_lbd` read the same files, so the names are asserted
+  # defined, and `.vlabels` is their values.
+  _cen_files=()
+  for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in *.records.sh) ;; *) _cen_files+=("$_cen_f") ;; esac; done
+  _cen_used="$(awk '$0 !~ /^[[:space:]]*#/ { s = $0 " "
+      while (match(s, /[$][{]?_[A-Za-z0-9_]*_lbl[^A-Za-z0-9_]/)) {
+        t = substr(s, RSTART, RLENGTH - 1); sub(/^[$][{]?/, "", t); print t; s = substr(s, RSTART + 1) } }' "${_cen_files[@]}" | LC_ALL=C sort -u)" || {
+    echo "!! the label-expansion scan failed: nothing was decided." >&2; _mut_corr_bad=1; }
+  for _cen_v in $_cen_used; do printf '%s\n' "${!_cen_v}"; done | LC_ALL=C sort -u > "$_VFY/.vlabels"
+  # RULES 2 AND 3, ONE PASS over the registry and the controls file: a registry row holds exactly three
+  # TAB fields (site, kind, label); a call line of `$_CONTROLS` (a non-comment line naming `_control`,
+  # `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` as a word; kind `control` when it names `_control`,
+  # else `direct`) is a registered site, and every registered site is a call line. The same pass writes
+  # `.labels` (the `.vlabels` and the registry's labels) and `.ctllabels` (the `control`-kind ones).
+  _cen_rc=0
+  K2_CEN="$_cen_lbl" K2_CF="${_CONTROLS##*/}" K2_CTL="$_VFY/.ctllabels" K2_LAB="$_VFY/.labels" awk -F'\t' '
+    function named(s, w) { return (s ~ ("(^|[^A-Za-z0-9_])" w "([^A-Za-z0-9_]|$)")) }
+    BEGIN { cen = ENVIRON["K2_CEN"]; cf = ENVIRON["K2_CF"]; err = "/dev/stderr"
+      printf "" > ENVIRON["K2_CTL"]; printf "" > ENVIRON["K2_LAB"]; close(ENVIRON["K2_CTL"]); close(ENVIRON["K2_LAB"])
+      lc = "LC_ALL=C sort -u > \"$K2_LAB\""; cc = "LC_ALL=C sort -u > \"$K2_CTL\"" }
+    FILENAME == ARGV[1] { isv[$0] = 1; print $0 | lc; next }
+    FILENAME == ARGV[2] {
+      if (NF != 3) { print "!! CONTROL FAILED (" cen "): the registry row \"" $0 "\" holds " NF " fields, not 3 (site, kind, label)." > err; bad = 1; next }
+      l = $3; k = $1 "\t" $2
       if (!((l, $1) in seen)) { seen[l, $1] = 1; sites[l] = sites[l] " " $1; n[l]++ }
-      if ($2 == "control" && (l in isv) && !(l in lit)) { lit[l] = 1
-        print "!! CONTROL FAILED (" ENVIRON["K2_CEN"] "): \"" l "\" is a `_*_lbl` value passed to `_control` (" $1 "):" > "/dev/stderr"
-        print "   a `_control` label is literal — a second producer under a variable label would pass under its record." > "/dev/stderr"
-        bad = 1 } }
+      if (!(k in rs)) { rs[k] = 1; ro[++nr] = k }
+      print l | lc
+      if ($2 == "control") { print l | cc
+        if ((l in isv) && !(l in lit)) { lit[l] = 1
+          print "!! CONTROL FAILED (" cen "): \"" l "\" is a `_*_lbl` value passed to `_control` (" $1 "):" > err
+          print "   a `_control` label is literal — a second producer under a variable label would pass under its record." > err
+          bad = 1 } }
+      next }
+    { if ($0 ~ /^[[:space:]]*#/) next
+      c = named($0, "_control")
+      if (!(c || named($0, "_ctl_run") || named($0, "_ctl_gate") || named($0, "_fgit_window_verdict_exit"))) next
+      kd = c ? "control" : "direct"; k = cf ":" FNR "\t" kd; cl[k] = 1
+      if (!(k in rs)) xc = xc " " cf ":" FNR " (" kd ")" }
     END { for (l in n) if (n[l] > 1) {
-        print "!! CONTROL FAILED (" ENVIRON["K2_CEN"] "): \"" l "\" was registered from more than one call site:" sites[l] > "/dev/stderr"
-        print "   — one label, one call site: a second producer under a recorded label would pass under that record." > "/dev/stderr"
+        print "!! CONTROL FAILED (" cen "): \"" l "\" was registered from more than one call site:" sites[l] > err
+        print "   — one label, one call site: a second producer under a recorded label would pass under that record." > err
         bad = 1 }
-      exit bad }' "$_VFY/.vlabels" "$_VFY/.registry" || _mut_corr_bad=1
-  awk -F'\t' '$2 == "control" { l = $0; sub(/^[^\t]*\t[^\t]*\t/, "", l); print l }' "$_VFY/.registry" | LC_ALL=C sort -u > "$_VFY/.ctllabels"
-  cut -f3- "$_VFY/.registry" | LC_ALL=C sort -u "$_VFY/.vlabels" - > "$_VFY/.labels"
+      for (i = 1; i <= nr; i++) if (!(ro[i] in cl)) { split(ro[i], a, "\t"); xr = xr " " a[1] " (" a[2] ")" }
+      if (xc != "") { print "!! CONTROL FAILED (" cen "): call lines of the controls file with no registered site:" xc > err
+        print "   — the call never ran (a branch not taken, an `if false &&`), or it registered at another line." > err; bad = 1 }
+      if (xr != "") { print "!! CONTROL FAILED (" cen "): registered sites that are no call line of the controls file:" xr > err
+        print "   — a call the text hides (`eval`, a split word, a helper defined elsewhere), or a line the file no longer has." > err; bad = 1 }
+      close(lc); close(cc); exit bad }' "$_VFY/.vlabels" "$_VFY/.registry" "$_CONTROLS" || _cen_rc=$?
+  [ "$_cen_rc" -le 1 ] || echo "!! the registry scan failed (awk exited $_cen_rc): nothing was decided." >&2
+  [ "$_cen_rc" -eq 0 ] || _mut_corr_bad=1
   # READER 4 OF THE CAPABILITY TABLE: every declared member is a `control`-kind label of THIS run's
   # registry (the list just written), else the table names a control that was renamed or never made.
   _mc_nl=$'\n'; _mc_ctl="$_mc_nl$(cat "$_VFY/.ctllabels")$_mc_nl"

@@ -141,34 +141,31 @@ fi
 # one producer and W2's records tell "the gate refused" from "a control ran".
 # THE RUN REGISTRY (`$_VFY/.registry`): each label passed to `_control`,
 # `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` is appended when the
-# call runs, as `<file>:<line>	<kind>	<label>` — under the `$_VFY` of the call:
-# the standing checks' rows run under the run's own, so they register here as `direct`
-# calls, `_cap`'s at its one `_ctl_run` line (a label only an `echo` produces reaches
-# the census as a `_*_lbl` value). THE SITE IS THE OUTERMOST FRAME
-# WHOSE `BASH_SOURCE` IS THE CONTROLS FILE (`$_CONTROLS`): the top-level controls
-# line that led here, walked from the top of the call stack down — so a helper
-# function defined in the controls file registers at each line that calls it,
-# not at its body, and the frames between (this file, the harness: `_control`
-# and `_ctl_run` both end in `_ctl_gate`, whose first statement this is, as it
-# is the window verdict's) are not the site while a controls frame is on the
-# stack, which the wire guarantees (the primitives are reached only through the
-# controls file; the `-gt 1` bound only keeps the index at a frame). THE KIND
-# is `control` when `_control` is on the call stack (`FUNCNAME`), else `direct`
-# (a primitive the controls file calls itself: `_ctl_run`, `_ctl_gate`, the
-# verdict); the census requires a `control` label to be literal. A file, not a
-# variable, so a call made in a subshell (`x="$(_control …)"`, a `( … )` block)
-# is recorded too, at the same site. The line is the one bash reports for that
-# frame: for a plain call, a `$(…)`, a `( … )`, a continuation line and a
-# controls-file helper it is the call's line (both shells); a multi-line `eval`
-# string and a `trap` body FOLD lines (measured: bash 5.3 reports the string's
-# own line, and line 1 of the trap body for every `trap` on that line; bash 3.2
-# the line after the `eval` plus the offset, and the firing line for a trap), so
-# two calls there can be one site, as two calls on one line are — the controls
-# file has no `eval` or `trap` call. The census (`_mut_correspondence`, in the
-# mutation set) reads the file once — ONE LABEL, ONE SITE: a label registered
-# from two lines is red there — and notes its length; the controls file's last
-# statement reds if it grew after that (`_mut_census_end`), whatever shell made
-# the late call.
+# call runs, as `<file>:<line>	<kind>	<label>` (exactly three TAB fields: the census
+# reds any other row) — under the `$_VFY` of the call: the standing checks' rows run under
+# the run's own, so they register here as `direct` calls, `_cap`'s at its one `_ctl_run` line
+# (a label only an `echo` produces reaches the census as a `_*_lbl` value). THE SITE RULE IS A
+# BIJECTION WITH THE TEXT, checked by the census (`_mut_correspondence`, in the mutation set): the
+# registered sites are exactly the call lines of the controls file (`$_CONTROLS`: a non-comment line
+# naming `_control`, `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` as a word), kinds
+# included. A call that never runs, a call registered at another line, and a call the text hides
+# (`eval`, a split word, a helper defined on another line) are each red under the census's label.
+# THE MECHANISM: THE SITE IS THE OUTERMOST FRAME WHOSE `BASH_SOURCE` IS THE CONTROLS FILE
+# (`$_CONTROLS`): the top-level controls line that led here, walked from the top of the call stack
+# down; the frames between (this file, the harness: `_control` and `_ctl_run` both end in `_ctl_gate`,
+# whose first statement this is, as it is the window verdict's) are not the site while a controls
+# frame is on the stack, which the wire guarantees (the primitives are reached only through the
+# controls file; the `-gt 1` bound only keeps the index at a frame). THE KIND is `control` when
+# `_control` is on the call stack (`FUNCNAME`), else `direct` (a primitive the controls file calls
+# itself: `_ctl_run`, `_ctl_gate`, the verdict); the census requires a `control` label to be literal.
+# A file, not a variable, so a call made in a subshell (`x="$(_control …)"`, a `( … )` block) is
+# recorded too. The line is the one bash reports for that frame: the call's line for a plain call
+# and a continuation line's first line (measured, both shells); a multi-line `$(…)`, an `eval`
+# string and a `trap` body report what bash does there (an `eval` string and a `trap` body FOLD
+# lines), and the bijection is what compares it with the text. The census reads the file once —
+# ONE LABEL, ONE SITE: a label registered from two lines is red there — and notes its length;
+# the controls file's last statement reds if it grew after that (`_mut_census_end`), whatever
+# shell made the late call.
 _ctl_reg() { # $1 = the label
   local _rg_i=$((${#BASH_SOURCE[@]} - 1)) _rg_k=direct
   case " ${FUNCNAME[*]} " in *" _control "*) _rg_k=control ;; esac

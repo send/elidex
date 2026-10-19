@@ -328,17 +328,19 @@ harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_
 # the list after the `find` reads as the same records, so only the tail check sees it.
 harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
 # The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
-# and the values of the `_*_lbl` names the parts spell (`$_lbd_names`, a text
-# derivation, asserted defined) — against the records. One record per arm or
-# reading, each killed by the census's own message:
+# and the values of the `_*_lbl` names the wire or a part EXPANDS outside this table
+# (`$_cen_used`, a text derivation, asserted defined) — against the records, and the
+# registry's sites against the call lines of the controls file (a bijection). One
+# record per arm or reading, each killed by the census's own message:
 #   the registry's writer in `_ctl_gate` (`ctlrun:`, range-scoped to it; the window
 #   verdict, in the harness, holds the same line) → the registered labels are orphans;
 #   a literal label at the window verdict, and at the fsmonitor `_ctl_run` → a
 #   label no record names ("more"); a `_control` in a `( … )` after `_mut_run` →
 #   the registry grew after the census (the controls file's last statement, `_mut_census_end`;
 #   the subshell form, which an `exit` from the registry's writer could not red);
-#   the variable half (the `$_lbd_names` loop) emptied → the `_*_lbl`
-#   needles are orphans; the recorded `forge` control deleted → its needle is an
+#   the variable half (the `$_cen_used` loop) emptied → the `_*_lbl`
+#   needles are orphans; the expansion of a name deleted (the `_pkl_lbl` line) → its records are
+#   orphans (a mention is no use); the recorded `forge` control deleted → its needle is an
 #   orphan; the bare `ignored` control deleted → "fewer";
 #   the bare `ignored` label on a second `_control` (before the census, after
 #   every control) → "registered from more than one call site";
@@ -355,7 +357,7 @@ harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> 
 ctlrun:/^_ctl_gate() {/,/^}/s/^  _ctl_reg "[$]1"$/  :/	every label the run used is named by a mutation record
 controls:s/^_fgit_window_verdict_exit "[$]_fw_lbl"$/_fgit_window_verdict_exit "a window label spelled out"/	every label the run used is named by a mutation record
 controls:s/^_mut_run$/&; ( _control "$CTL\/clean" 0 "PASSED" "a late label" ) || ctl_ok=1/	every label the run used is named by a mutation record
-mutations:s/^  for _cen_v in [$]_lbd_names; do/  for _cen_v in; do/	every label the run used is named by a mutation record
+mutations:s/^  for _cen_v in [$]_cen_used; do/  for _cen_v in; do/	every label the run used is named by a mutation record
 controls:/^_control "[$]CTL\/forge" /d	every label the run used is named by a mutation record
 controls:s/_ctl_run "[$]_fsm_lbl" /_ctl_run "a run label spelled out" /	every label the run used is named by a mutation record
 controls:/^_control "[$]CTL\/ignored" /d	every label the run used is named by a mutation record
@@ -363,6 +365,20 @@ controls:s/^_mut_correspondence || ctl_ok=1$/_control "$CTL\/clean" 0 "PASSED" "
 controls:s/^# STANDING CHECK of .*timeout clause, both ways\. A status >= 128 is a$/_fgit_window_verdict_exit "$_fw_lbl"/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/_rh() { _control "$CTL\/clean" 0 "PASSED" "green is reachable"; }; _rh || ctl_ok=1/	s/^_fsm_root="[$]CTL\/fsmon"$/&; _rh || ctl_ok=1/	every label the run used is named by a mutation record
 controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/&; _control "$CTL\/clean" 0 "PASSED" "$_mg_lbl" || ctl_ok=1/	every label the run used is named by a mutation record
+# The bijection of the registry's sites with the call lines of the controls file, and the registry's row shape:
+# a name's one expansion deleted (the `_pkl_lbl` line: a mention is no use); relcwd's call behind `if false &&`
+# and a `_control` behind a branch this machine does not take (a call line no site answers); each standing
+# check's row loop emptied (its call line registers nothing); a two-expression record that folds a `_control`
+# into a command substitution spanning two lines (a site that is not its text line); the registry's writer
+# adding a fourth field (a row of the wrong shape).
+harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	every label the run used is named by a mutation record
+controls:s/^if ! _ctl_run "[$]_rel_lbl" /if false \&\& _ctl_run "$_rel_lbl" /	every label the run used is named by a mutation record
+controls:s/^_cap_check || ctl_ok=1$/&; if [ "$_fifo_ok" -eq 0 ]; then _control "$CTL\/clean" 0 "PASSED" "zz new" || ctl_ok=1; fi/	every label the run used is named by a mutation record
+controls:s/^         for _wm_row in abort hang; do$/         for _wm_row in; do/	every label the run used is named by a mutation record
+controls:s/^         for _ev_row in ran stale; do$/         for _ev_row in; do/	every label the run used is named by a mutation record
+controls:s/^         while read -r _ca_t _ca_zz _ca_yy _ca_trust _ca_chan _ca_want _ca_ran; do$/         while false; do/	every label the run used is named by a mutation record
+controls:s/^\[ -z "[$]_fw_limits" \] || _limit_lines=.*$/&; _v1="$(_control "$CTL\/clean" 0 "PASSED" "green is reachable" || ctl_ok=1/	s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/)"; &/	every label the run used is named by a mutation record
+ctlrun:s/^  printf '%s:%s\\t%s\\t%s\\n' /  printf '%s:%s\\t%s\\t%s\\tx\\n' /	every label the run used is named by a mutation record
 # THE CAPABILITY TABLE (`$_cap_lbl`: the gate's capability arm, pinned by the `_cap` standing check in the
 # controls file; `$_capt_lbl`: the table check; the reader and the gate's lookup are ctlrun's). Each `$_cap_lbl`
 # record is killed by the `_cap` row named beside it, on every machine (the rows replace the table and the
