@@ -483,3 +483,70 @@ arms. (3) **CR-B2c**: the `_p<x>*_lbl` excuse naming in `_mut_run` matches `$_pe
 excuse reads the declaration (a required claim row). (4) **CR-B2c**: the P6 permission flip's excuse (it SURVIVED unexcused, row
 5). (5) **CR-C1**: the design memo's census row (a ledger `stays` row for B2a, C1's row in §7) does not yet list the membership
 record among its pins.
+
+### S.5 CR-B2c — the opt-in excuse reads the capability table
+
+The fourth slice of the B/C plan (`…-cr-plan.md` §2.3 and §7). Base `a567cc13`, branch `crb2c`. Commits: the code (`4df27614`), its
+part comments (`e1e764f7`), the doc rows (`61d442a9`), the review's fixes (`32c89a05` for the part comments, `567b22fe` for the
+corpus and the design memo), the re-check's (`17ca651d`, one wording in `mutations.sh`),
+and the commit that adds this entry; the branch was fast-forwarded onto `k2-wire-fgit-hermetic`, so these hashes are the branch's.
+The slice was cut into three coder units by the driver (code; the claim table; the doc rows and sweep), as CR-B2b's was. Records
+are named by their property, not by line number.
+
+**Changed (`4df27614`).** `_mut_trial` returns 3 for a wrong reason only when the mutant exited 1 (`_mut_wrong_reason` decides; an
+exit 2, a harness break, is never a wrong reason and never excused). `_mut_run`'s excuse has two halves. The capability half: a
+record whose needle is a member of a group whose flag is exactly 0, or that group's own label (`_mut_skip_glabel`), is excused
+when it survives or was killed for another reason, and the report names the group. The P-x half: a record whose needle is the
+postcondition label of an ID in `$_fw_limits`, or that ID's limitation-test label, exactly (`_p<x>_lbl` or `_p<x>l_lbl`), and only a survival is excused; the exact naming
+was the driver's fail-safe decision for the item carried from §S.4 (the `_p<x>*` glob also matched `$_perm_lbl` for P-e, which
+would excuse wrongly). An unexcused 3 is red. `records.sh` comments name which excuse covers which probe flip. The doc rows
+(`e1e764f7`, `61d442a9`): the part comments, the corpus excuse text and §6.1's flip rows, the design memo's FIFO, PERM and PFL rows,
+the `mut_skip` identifier row in the sweep.
+
+**Measured: the claim table** (B-CLAIMS, code commit, in a clone, the real `_mut_run` and `_mut_trial` with a filter to one record
+and the generated set stubbed, both shells, at most two wire processes at once; logs under the driver's `crb2c-logs/`), 66 wire
+runs plus the row 7 script. **Rows 1–8, every claim as expected on both shells (nothing differed):** (1) P6, root simulation with
+`LACKS=perm`: the err-seal, delete, umask, self-test-root and not-absent records and the permission flip are excused naming the
+perm group (16 of 16); (2) P4, no-FIFO simulation with `LACKS=fifo`: the FIFO flip excused naming `fifo`, KILLED AS NAMED with
+`-u WEBREF_WIRE_LACKS` on `_mut_trial`'s env, and the four `$_pg_lbl` FIFO plants WRONG REASON, exit 2, not excused (12 of 12);
+(3) P7, both groups declared: as P4 and P6 (8 of 8); (4) P1, no declaration: the same records and the CAPT-label record KILLED AS
+NAMED (8 of 8); (5) a planted exit-2 record red and not excused, and with the exit-1 test removed excused (6 of 6; a planted
+anchor that matches nothing is red earlier, by the always-on anchor check); (6) a planted exit-1 record with a non-member needle
+red with one diagnostic, green with the unexcused-3 branch removed (4 of 4); (7) P-e naming: the shipped `case` over the
+shipped label derivation matches `_pe_lbl` alone for P-e, and `_pf_lbl`, `_pfl_lbl` for P-f (2 of 2, plus the reading of why no
+P-e line reaches `_mut_run`); (8) the excuse reads the member's own group flag (8 of 8), the P-f flip is excused by the P-x half
+only where the machine really lacks it (4 of 4), and the return-value range of `_mut_trial` read. **Fix round, 22 of 22:** the
+shipped derivation and `case` over all 16 `_p*_lbl` names (16 of 16 on both shells), the two standing label records under the
+capability absent (the ctlrun group label and a W label, killed as named, 2 of 2 each) and a stale `LACKS=perm` on a capable
+machine leaving the permission flip surviving unexcused and red (2 of 2).
+
+**Measured: the battery** (`BASE_REV=a567cc13`): 91 cases, both shells, rc, PASSED and CONTROL FAILED differences 0, 0 EDIT FAILED.
+
+**The reviews.** First review (a fresh reviewer on `61d442a9`): 0 CRITICAL, 3 IMPORTANT, 4 MINOR, the code correct (a unit test of
+the shipped excuse block, 7 of 7 cases on both shells). Origins: I-1 (the corpus said a declaring machine "cannot read" a mode-000
+file, backwards: it is root that reads it), I-2 ("the gate reds", where the red is `_cap_check`'s) and M-1 (the err-seal clause in
+`records.sh` stated unconditionally) were false or imprecise statements this slice wrote; I-3 (`ctlrun.sh`'s list of outside
+`_cap_rows` readers missing `_mut_run`, plan §2.2) was a requirement owed; M-2 (the PERM row needed the probe's answer as well),
+M-3 (`_p<x>l_lbl` is the limitation-test label; the P-x source includes a fact row) were wording this slice changed; M-4 was the claim
+rows (row 7 hand-copied, the capability-absent label records unmeasured as a standing check). Re-check (a focused reviewer on
+`567b22fe`, no wire runs): 7 of 7 closed, 0 / 0 / 1, the MINOR being the P-x clause of `mutations.sh` ("a line, a limit or a fact
+row" set a line in apposition to a table row), fixed here (`17ca651d`); 14 fix-added statements, 13 true, 1 imprecise, 0 false.
+**The sweep:** 62 new hits on 35 lines, each read as a whole sentence: 3 imprecise (fixed in the doc-rows commit), 0 false.
+
+**Ledger: 12 of 576 rows fail, an instrument limit, with a manual backstop.** `ledger-check.py B2c` fails the same 12 rows before
+and after the fix round: the two settled CR-B2b rows (`harness.sh` and `controls.sh`, §S.4) and 10 retained hit lines in
+`mutations.sh` of rows whose extent `4df27614` rewrote (the checker judges the hit line, not the extent). The re-check confirmed
+that each extent changed and each statement is true at the head. Rewriting true lines to satisfy the checker would bless the
+instrument, so none is edited.
+
+**Not measured.** (1) The apply-time MATCHED NOTHING path (the always-on anchor check reds first, so it is unreachable without
+removing that check). (2) Real root and a real no-FIFO filesystem: the simulations shim the effect only.
+
+**Measured: completion.** Ship PASSED, rc 0, 0 `!!` lines, ×4 (BSD and GNU-like `grep` × bash 5.3 and 3.2) at `4df27614`, at the
+fix round and at this round's commits; `scripts/trip-wires.sh` rc 0. Sizes at the head (`wc -l`): `ctlrun.sh` 439 unchanged,
+`controls.sh` 763, `mutations.sh` 846, `records.sh` 449, the design memo 755, `cr-sweep` 932.
+
+**Carried from §S.4, discharged here.** All four CR-B2c items: the table-flag excuse in `_mut_run`, the excused form
+(`_mut_exc` 1) for R3-B2b-1 and GB2b-6, the P-e naming, and the P6 permission flip's excuse. **Carried onward.** (1) **CR-C1**: the
+design memo's census row (a ledger `stays` row for B2a, C1's row in §7) does not yet list the membership record among its pins;
+still open. The reviews marked nothing else for a later slice.
