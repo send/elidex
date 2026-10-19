@@ -751,7 +751,7 @@ _mut_run() {
       # as not exercisable here and not counted (PR #527 Codex R17; the first
       # form skipped them unrun — the re-check after it). The labels are
       # derived from the ID — `_p<x>_lbl` and `_p<x>l_lbl` in `$_lbd_names` — not listed.
-      # REJECTED, by design: the excuse keys on the `_p<x>_lbl` / `_p<x>l_lbl` NAMING convention (the ID's postcondition label and its limitation-test label, exactly; the P-x half reads any `P-x — …` line, a limit or a fact row), so a renamed label falls out of it and the opt-in run reds on a limited machine, the FAIL-SAFE side.
+      # REJECTED, by design: the excuse keys on the `_p<x>_lbl` / `_p<x>l_lbl` NAMING convention (the ID's postcondition label and its limitation-test label, exactly; the P-x half reads any `P-x — …` line of `$_fw_limits`, whose ID is a limit or a fact row's), so a renamed label falls out of it and the opt-in run reds on a limited machine, the FAIL-SAFE side.
       _mskip=""
       while IFS= read -r _ml; do
         _mid="${_ml%% —*}"
