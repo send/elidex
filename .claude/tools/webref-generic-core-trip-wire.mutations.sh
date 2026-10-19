@@ -246,7 +246,8 @@ _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
 # 18 -> 21 at CR-B2a (the group and limit labels `$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl` were held by the capability
 # table without a record) and back to 18 at CR-B2b: their probe-flip records (the absence check they pin) landed.
-# CR-C1 left it at 18 (measured: the registry is machine-independent now, so the figure is exact on every profile).
+# CR-C1 left it at 18 (the bijection fixes which sites exist; every call site passes a fixed label, so the rows
+# and labels are the same on every machine, measured; the figure is exact on every profile).
 _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
@@ -552,15 +553,17 @@ _mut_correspondence() {
   # RULE 1: a `_*_lbl` name is used where it is EXPANDED (`$name`, or `${name` and a non-identifier
   # character) outside a comment, in the wire or a part but the record table, whose here-document is
   # quoted (a `$name` there is data, and would keep a label "used" by a record's own text). A COMMENT is the
-  # text from a `#` that begins a word (at the line's start or after whitespace) to the line's end, cut on
-  # every line before matching (`$#`, `${x#y}` are no comment). The cut errs one way: a `#` after
-  # whitespace inside a quoted string is cut too, which can only drop a real expansion, so that label goes
-  # uncounted and its records orphan (a false red, never a false green). A definition and an indirect
-  # `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl` token, expanded or
+  # text from a `#` at the start of a line or after whitespace or one of `;&|()<>` (where bash begins a word) to
+  # the line's end, cut on every line before matching (`$#`, `${x#y}`, `\#`, `a#b` are no comment). The cut errs
+  # one way: a `#` bash does not read as a comment is cut too (inside a quoted string, after a single-quoted
+  # ` #` on the same line, in an unquoted here-document body), which can only drop a real expansion, so that
+  # label goes uncounted and its records orphan (a false red). Never a false green: measured against bash 5.3
+  # and 3.2 by the CR-C1 fix round's `oracle.sh` (41 cases: 32 agree, 5 false red, 4 syntax-excluded, 0 false
+  # green). A definition and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl` token, expanded or
   # not), so the names are asserted defined; `.vlabels` is their values.
   _cen_files=()
   for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in *.records.sh) ;; *) _cen_files+=("$_cen_f") ;; esac; done
-  _cen_used="$(awk '{ s = $0; if (match(s, /(^|[[:space:]])#/)) s = substr(s, 1, RSTART - 1); s = s " "
+  _cen_used="$(awk '{ s = $0; if (match(s, /(^|[[:space:];&|()<>])#/)) s = substr(s, 1, RSTART - 1); s = s " "
       while (match(s, /[$][{]?_[A-Za-z0-9_]*_lbl[^A-Za-z0-9_]/)) {
         t = substr(s, RSTART, RLENGTH - 1); sub(/^[$][{]?/, "", t); print t; s = substr(s, RSTART + 1) } }' "${_cen_files[@]}" | LC_ALL=C sort -u)" || {
     echo "!! the label-expansion scan failed: nothing was decided." >&2; _mut_corr_bad=1; }
