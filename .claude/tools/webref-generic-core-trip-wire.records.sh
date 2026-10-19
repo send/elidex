@@ -162,8 +162,8 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 harness:/^_fgit_window_verdict_exit()/,/^}/s/^    exit 2$/    :/	/^_fgit_window_verdict_exit()/,/^}/s/^  exit 1$/  :/	s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete or untrusted fixture build window
 # C8's two records pin the SECOND clause of "complete and trusted": a red
 # postcondition, or W3, must still stop the run before any control even with
-# the untrusted-build exit itself removed. Each forces one of two of its three inputs
-# (the third, `_fw_done`, is the W2 record's) that the trust computation (in `_fgit_window`) reads and removes that exit in the
+# the untrusted-build exit itself removed. Each forces one of the five inputs the trust
+# computation (in `_fgit_window`) reads (`_fw_post_bad`, `_fw_diag`; `_fw_done` is the W2 record's) and removes that exit in the
 # same record; each survives with the clause it forces removed from the
 # computation, which then writes 1 regardless
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1, C8 rows).

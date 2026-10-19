@@ -29,7 +29,7 @@
 # only, asserted below by `declare -F`; neither the table nor a flag is named here, the functions answer,
 # for the census's membership check and `_mut_run`'s capability excuse), and `$SELF`, `$SCRATCH`, `$K2RE`
 # and `$K2RE_PATH` (from the wire); every other part it names is derived from
-# `$SELF` (`${SELF%.sh}.<part>.sh`); the per-run copies iterate `_MUT_PARTS`.
+# `$SELF` (`_mut_part_path`, controls); the per-run copies iterate `_MUT_PARTS`.
 # `_mut_run` copies every part in that list — the controls, the harness, its run
 # primitives, this file, the record table, the fixture build and the generated
 # half — beside each mutant.
@@ -99,7 +99,7 @@ _mut_missing=
 for _n in _VFY _lbd_names _lbd_files _CONTROLS _MUT_PARTS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
-for _n in _cap_rows _cap_group_of _cap_flag_of; do
+for _n in _cap_rows _cap_group_of _cap_flag_of _mut_part_path; do
   declare -F "$_n" > /dev/null || _mut_missing="$_mut_missing $_n()"
 done
 if [ -n "$_mut_missing" ]; then
@@ -110,7 +110,7 @@ if [ -n "$_mut_missing" ]; then
 fi
 # …and the generated half, which lives beside this file. Its absence is a
 # missing sibling, reported as the other parts report theirs.
-_MUTGEN="${SELF%.sh}.mutgen.sh"
+_mut_part_path mutgen; _MUTGEN="$_mut_pp"
 if [ ! -r "$_MUTGEN" ]; then
   echo "!! the generated mutation half beside this mutation set ($_MUTGEN) is missing or" >&2
   echo "   unreadable, so no rule of \$K2RE or \$K2RE_PATH can be tested. This run decided nothing." >&2
@@ -124,7 +124,7 @@ fi
 # with no seam inside it, split out when its growth would have taken this file
 # past 1000 lines (CLAUDE.md touch-time split). This file keeps the READERS of
 # the format; that one holds the data. Its absence is a missing sibling.
-_MUTRECORDS="${SELF%.sh}.records.sh"
+_mut_part_path records; _MUTRECORDS="$_mut_pp"
 if [ ! -r "$_MUTRECORDS" ]; then
   echo "!! the record table beside this mutation set ($_MUTRECORDS) is missing or" >&2
   echo "   unreadable, so no record can be checked or run. This run decided nothing." >&2
@@ -234,15 +234,25 @@ fi
 #     `!survive` entry names no control at all — nothing looked for it.
 #     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
 #     shrinking is what is caught; the added record still has to kill.
-# WHICH FILES A RECORD MAY EDIT, BESIDES THE WIRE: the prefix parts, spelled
-# once. A record with no prefix edits the wire. `wire` is not a prefix: POSIX `w`
+# WHICH FILES A RECORD MAY EDIT, BESIDES THE WIRE: the prefix parts, DERIVED from
+# `_MUT_PARTS` (no second hand list) minus `records` — the one exclusion, because the
+# record table is the SUBJECT LIST, not a part under test (the same reason it is out of
+# rule 1). A record with no prefix edits the wire. `wire` is not a prefix: POSIX `w`
 # takes a wfile operand, so `wire:p` is a VALID write to a file called `ire:p`
-# (measured: BSD sed exits 0), and a record beginning with it must not be
-# re-aimed. A prefix that is not listed here reaches `sed` with the prefix
-# attached, where it fails to parse (measured on BSD sed: `sed 'harness:p'` is
-# "extra characters at the end of h command", `sed 'fixtures:p'` is "invalid
-# command code f"; GNU sed is not measured here).
-_MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
+# (measured: BSD sed exits 0), and a record beginning with it must not be re-aimed.
+# A prefix that is not listed is not an error of its own either, and for the same
+# reason: `r` and `w` take a file operand, so a prefix that starts with either
+# (`records:s/a/b/` is `r ecords:s/a/b/`, a read of a file) is a VALID expression
+# that changes nothing, and the anchor check reds it as a stale anchor, naming the
+# expression it was written with. Any other unlisted prefix fails to parse
+# (measured on BSD sed: `sed 'harness:p'` is "extra characters at the end of h
+# command", `sed 'fixtures:p'` is "invalid command code f"; GNU sed is not
+# measured here).
+_MUT_TARGETS=""
+for _mt_p in $_MUT_PARTS; do
+  case "$_mt_p" in records) ;; *) _MUT_TARGETS="$_MUT_TARGETS $_mt_p" ;; esac
+done
+_MUT_TARGETS="${_MUT_TARGETS# }"
 # EXACT, both ways (below); the "more" arm lists the bare labels.
 # 18 -> 21 at CR-B2a (the group and limit labels `$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl` were held by the capability
 # table without a record) and back to 18 at CR-B2b: their probe-flip records (the absence check they pin) landed.
@@ -250,21 +260,8 @@ _MUT_TARGETS="controls harness ctlrun fixtures mutgen mutations"
 # and labels are the same on every machine, measured; the figure is exact on every profile).
 _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
-# Records this PR removed: `db2b0af1` the `_pg_declared` record (the declared-dir list went);
-# `523ce31f` P-j's relative-PATH-entry record (no per-entry clause left to pin); `15d3e704` P-g's two
-# line-`grep` failure records (the record comparison decides); `96eea58c` the pin's re-entry-limit
-# record (it went with the counter); `2b56c33c` P-k's `grep` exit>1 record (the builtin
-# `_fgit_alternates` has no such arm); `116a9b8b` the `fakerelmktemp` fixture-failure record (the gate
-# no longer reads PATH-prefix dirs); `8c952d6d` the `_ctl_env` clear record
-# (`ctlrun:/^  _ctl_env=()$/d`; the global went); `fd90b4b1` the two drop-prefix records (relcwd, cfgkept: a
-# call-site drop is the opt-in records' class); the CR-S3 slice the four P-b definition-test records (stdout, hangup
-# line, the control failing, git's top-level usage: the test went with the version-keyed limit).
-# The CR-B1 slice removed k2's prefix record (k2 is posed on every machine, so the prefix went); the
-# CR-B2a slice the two records of the prefix that followed (the FIFO pair's, the last ask's): the table replaced it. CR-B2a's review fixes added six (the table check's flag, member and group clauses, and the three
-# standing checks' verdict markers): 231 -> 237. CR-B2b added three (the FIFO and permission probes' flips, P-f's
-# definition test forced to the limit branch): 237 -> 240. CR-C1 added eight (the `_pkl_lbl` expansion deleted, relcwd's
-# call behind `if false &&`, a `_control` behind a branch not taken, the three standing checks' row loops emptied, the
-# two-expression site-line record, the registry's fourth field): 240 -> 248; its review fixes, one record per step of rule 1's scan: the name left in a trailing comment 249, in a single-quoted span 250, escaped (`\$`) 251.
+# The history of this figure (what removed and added records, and the step each pins) is stated once,
+# in that memo's §6.1; it is not restated here.
 _MUT_RECORDS_MIN=251
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
@@ -285,7 +282,7 @@ _mut_target() {
 _mut_src_for() {
   case "$1" in
     wire) _mut_src="$SELF" ;;
-    *)    _mut_src="${SELF%.sh}.$1.sh" ;;
+    *)    _mut_part_path "$1"; _mut_src="$_mut_pp" ;;
   esac
 }
 
@@ -467,9 +464,10 @@ _mut_correspondence() {
   # (`mutant.<pid>.<part>`) are skipped by that same name. Inside a mutant the
   # stem is `….mutant.<pid>`, and its copies are exactly the parts.
   _mp_have=""
-  for _mp_f in "${SELF%.sh}".*.sh; do
+  _mut_part_path '*'
+  for _mp_f in "$_mut_pp_pre"*"$_mut_pp_suf"; do
     [ -e "$_mp_f" ] || continue
-    _mp_n="${_mp_f#"${SELF%.sh}".}"; _mp_n="${_mp_n%.sh}"
+    _mp_n="${_mp_f#"$_mut_pp_pre"}"; _mp_n="${_mp_n%"$_mut_pp_suf"}"
     case "$_mp_n" in mutant.*) continue ;; esac
     _mp_have="$_mp_have $_mp_n"
   done
@@ -755,10 +753,10 @@ _mut_run() {
   if [ -n "${WEBREF_WIRE_MUTANTS:-}" ]; then
     # The copy must sit BESIDE the wire: `$ROOT` is derived from `$0`, and the
     # scope it reads is this repository's real generic core. Its own controls file
-    # has to be beside it too, under the name the wire derives (`${SELF%.sh}`), or
+    # has to be beside it too, under the name the wire derives (`_mut_part_path`), or
     # the copy refuses to run — which is criterion 2 working, not a harness bug.
     # ⚠ PER-RUN NAMES, BECAUSE THE WORKING TREE IS SHARED BY DESIGN. A fixed
-    # `${SELF%.sh}.mutant.sh` is one path per checkout, and CLAUDE.md's
+    # `<wire stem>.mutant.sh` is one path per checkout, and CLAUDE.md's
     # parallel-session rule makes two runs in one tree the EXPECTED case — so the
     # second run's `sed >` and its `rm -f` overwrote and deleted the first's
     # files mid-flight. The victim's copy then lost its controls and took the
@@ -770,12 +768,13 @@ _mut_run() {
     # ⚠ AND THE COPY MUST SIT BESIDE THE WIRE, so `$SCRATCH` is not an option:
     # `$ROOT` is derived from `$0`, and the scope it must read is this
     # repository's real generic core. `$$` is what makes the two runs disjoint.
-    _mut_base="${SELF%.sh}.mutant.$$"
+    _mut_part_path "mutant.$$"; _mut_base="${_mut_pp%"$_mut_pp_suf"}"
     _mut_wire="$_mut_base.sh"
     # ⚠ A LEFTOVER IS A REPORT, NOT A FILE TO CLEAN UP. `trap` does not run on
     # SIGKILL, so a killed run leaves mode-755 artifacts in `.claude/tools/`
     # where a `git add -A` would stage them. Say so; do not delete another run's.
-    for _stale in "${SELF%.sh}".mutant.*.sh; do
+    _mut_part_path "mutant.*"
+    for _stale in "$_mut_pp_pre"mutant.*"$_mut_pp_suf"; do
       case "$_stale" in *'.mutant.*.sh') break ;; esac
       case "$_stale" in "$_mut_wire"|"$_mut_base".*) continue ;; esac
       echo "  note: a previous mutation run left $_stale behind (SIGKILL?); it is" >&2
@@ -786,7 +785,7 @@ _mut_run() {
     trap '_k2_rc=$?; _mut_rm_copies; _k2_exit "$_k2_rc"' EXIT
     # Every part once; the wire and the targets are re-copied per entry by
     # `_mut_restore_copies`, because entries edit them.
-    for _mp in $_MUT_PARTS; do cp "${SELF%.sh}.$_mp.sh" "$_mut_base.$_mp.sh"; done
+    for _mp in $_MUT_PARTS; do _mut_part_path "$_mp"; cp "$_mut_pp" "$_mut_base.$_mp.sh"; done
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$_VFY/.mutants"

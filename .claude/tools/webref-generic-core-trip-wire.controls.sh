@@ -116,10 +116,22 @@ _fifo_lbl="this machine holds a FIFO, or its caller declared that it cannot"
 _perm_lbl="this user cannot read a mode-000 file, or its caller declared that it can"
 _pfl_lbl="this env lists its environment NUL-separated, or its caller declared that it cannot"
 _ev_lbl="a previous run's channel evidence never answers for the next"
+# THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
+# derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
+# label check below, and in the mutation set its entry check, the sibling guard,
+# the per-run copies and `_mut_rm_copies` (the trap and the end of the run).
+_MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
+# …AND THE PATH A PART HAS, spelled once too: `_mut_part_path <part>` sets `_mut_pp` to
+# `<wire stem>.<part>.sh`, derived from the CALLER'S OWN `$SELF` (so a `.mutant.<pid>` copy finds
+# its own copies), and `_mut_pp_pre` / `_mut_pp_suf` to the two halves around the part name: a glob
+# over the parts is `"$_mut_pp_pre"*"$_mut_pp_suf"` (the stem stays quoted, so a metacharacter in the
+# checkout's path is literal). Every site goes through it; the wire alone spells the path itself
+# (it finds this file before this helper exists).
+_mut_part_path() { _mut_pp_pre="${SELF%.sh}."; _mut_pp_suf=".sh"; _mut_pp="$_mut_pp_pre$1$_mut_pp_suf"; }
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
-_HARNESS="${SELF%.sh}.harness.sh"
+_mut_part_path harness; _HARNESS="$_mut_pp"
 if [ ! -r "$_HARNESS" ]; then
   echo "!! the control harness beside these controls ($_HARNESS) is missing or" >&2
   echo "   unreadable, so no control here can run. This run decided nothing." >&2
@@ -136,25 +148,18 @@ fi
 # just above; fixtures - below, after the harness is sourced; ctlrun - at the
 # end of the harness; mutations - at the end of this file; records and mutgen -
 # in the mutation set.
-# THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
-# derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
-# label check below, and in the mutation set its entry check, the sibling guard,
-# the per-run copies and `_mut_rm_copies` (the trap and the end of the run).
-_MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
 _lbd_files=("$SELF")
 for _lbd_p in $_MUT_PARTS; do
-  _lbd_f="${SELF%.sh}.$_lbd_p.sh"
+  _mut_part_path "$_lbd_p"; _lbd_f="$_mut_pp"
   [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
 done
-# grep with no file operand would read the wire's stdin, so an empty list skips it
-_lbd_names=""
-[ "${#_lbd_files[@]}" -eq 0 ] || _lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
+_lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
 _lbd_missing=""
 for _lbd_n in $_lbd_names; do
   [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
 done
 if [ -z "$_lbd_names" ]; then
-  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the parts, so none was checked" >&2
+  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the wire ($SELF) or its parts ($_MUT_PARTS), so none was checked" >&2
   exit 2
 elif [ -n "$_lbd_missing" ]; then
   echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2
@@ -186,7 +191,7 @@ fact	P-b	keyed on git's documented 2.42 boundary (CR-S3), not a probe"
 # harness's does. It is NOT sourced here: the harness runs it in the fixture
 # build window (`_fgit_window`), a child built from nothing, and checks the
 # window's postconditions inside it.
-_FIXTURES="${SELF%.sh}.fixtures.sh"
+_mut_part_path fixtures; _FIXTURES="$_mut_pp"
 if [ ! -r "$_FIXTURES" ]; then
   echo "!! the fixture build beside these controls ($_FIXTURES) is missing or" >&2
   echo "   unreadable, so no control here has a tree to run over. This run decided nothing." >&2
@@ -718,7 +723,7 @@ _control "$CTL/clean" 2 "could not resolve the scratch dir" "a restrictive umask
 # absence is not a skipped check — the correspondence between the two lists is
 # what keeps either list honest, so the run ends at "decided nothing" rather
 # than without it.
-_MUTATIONS="${SELF%.sh}.mutations.sh"
+_mut_part_path mutations; _MUTATIONS="$_mut_pp"
 if [ ! -r "$_MUTATIONS" ]; then
   echo "!! the mutation set beside these controls ($_MUTATIONS) is missing or" >&2
   echo "   unreadable, so nothing here was shown to be about the arm it names." >&2

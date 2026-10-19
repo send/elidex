@@ -876,7 +876,7 @@ fi
 # was about to pass the line threshold (CLAUDE.md touch-time split). Its
 # absence is a missing sibling, reported as the controls file reports this
 # file's. `_CTLRUN` is set immediately before sourcing, as `_HARNESS` is.
-_CTLRUN="${SELF%.sh}.ctlrun.sh"
+_mut_part_path ctlrun; _CTLRUN="$_mut_pp"
 if [ ! -r "$_CTLRUN" ]; then
   echo "!! the control run primitives beside this harness ($_CTLRUN) are missing or" >&2
   echo "   unreadable, so no control can run. This run decided nothing." >&2
