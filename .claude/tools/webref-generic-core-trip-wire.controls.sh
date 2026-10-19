@@ -163,7 +163,7 @@ for _lbd_n in $_lbd_names; do
   [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
 done
 if [ -z "$_lbd_names" ]; then
-  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the wire ($SELF) or the parts read (${_lbd_files[*]}), so none was checked" >&2
+  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the files read (${_lbd_files[*]}: the wire, then each readable part), so none was checked" >&2
   exit 2
 elif [ -n "$_lbd_missing" ]; then
   echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2

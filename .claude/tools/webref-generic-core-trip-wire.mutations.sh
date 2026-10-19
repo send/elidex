@@ -174,12 +174,10 @@ fi
 # an entry that reds for an unrelated reason is caught too.
 #
 # ⚠ AND THE FILE IT EDITS IS PART OF THE RECORD. An expression may carry the
-# prefix `controls:`, `harness:`, `ctlrun:`, `fixtures:`, `mutgen:` or `mutations:`,
-# which aims it at the CONTROLS, the CONTROL HARNESS, the CONTROL RUN PRIMITIVES,
-# the FIXTURE BUILD, the MUTANT GENERATOR or THIS FILE (the census and the
-# ratchet are its arms) instead of the wire. The run copies every shipped part
-# beside each mutant, so a record says only which one to `sed`: the prefixes are
-# the words of `_MUT_TARGETS`, and `_mut_target` derives each one's pair.
+# prefix `<word>:`, a word of `_MUT_TARGETS`, which aims it at that part (`mutations` is
+# THIS FILE: the census and the ratchet are its arms) instead of the wire. The run copies
+# every shipped part beside each mutant, so a record says only which one to `sed`:
+# `_mut_target` derives each word's pair.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
 # minutes rather than seconds), and a required check nobody can afford to run is
@@ -238,12 +236,13 @@ fi
 # `_MUT_PARTS` (no second hand list) minus `records` — the one exclusion, because the
 # record table is the SUBJECT LIST, not a part under test (the same reason it is out of
 # rule 1). A record with no prefix edits the wire; `wire` is not a prefix.
-# ⚠ AN UNLISTED PREFIX IS A sed COMMAND, NOT AN ERROR sed REPORTS: its first letter begins one. `r` reads
-# and `w` WRITES the file the rest of the line names (`wire:p` creates `ire:p`); GNU adds `e`, which RUNS the
-# rest as a shell command, and `R` `W` `F` `z` `v` `Q`. So the always-on anchor check names a word of two or
-# more letters and a colon that is no word of `_MUT_TARGETS`, and reds it BEFORE any `sed` reads it.
-# MEASURED, BSD sed only: `wire:p` exits 0 and writes `ire:p`; `harness:p` "extra characters at the end of h
-# command"; `fixtures:p` "invalid command code f". NOT measured: GNU sed (none on this machine); X9's route (b).
+# ⚠ AN UNLISTED PREFIX IS READ BY sed AS THE COMMAND ITS FIRST LETTER BEGINS, valid or not. `r` reads and `w`
+# WRITES the file the rest of the line names (`wire:p` creates `ire:p`); GNU adds `e`, which RUNS the rest as a shell
+# command, and `R` `W` `F` `z` `v` `Q` `T`. So the always-on anchor check names a word of two or more letters and a
+# colon that is no word of `_MUT_TARGETS`, and reds it BEFORE any `sed` reads it. LATENT: no shipped record can trip
+# it, so none pins it (plan GC-6, a claim row; its evidence is impl-cr §S.7). MEASURED, BSD sed only: `wire:p` exits 0
+# and writes `ire:p`; `harness:p` "extra characters at the end of h command"; `fixtures:p` and `mutgen:p` "invalid
+# command code f" and "m". NOT measured: GNU sed (none on this machine); X9's route (b).
 _MUT_TARGETS=""
 for _mt_p in $_MUT_PARTS; do
   case "$_mt_p" in records) ;; *) _MUT_TARGETS="$_MUT_TARGETS $_mt_p" ;; esac
@@ -555,8 +554,8 @@ _mut_correspondence() {
   # round's oracle, 131 cases (114 agree, 13 false red, 4 syntax-excluded; bash 5.3 and 3.2; measured outside the repo, the figures stated here, not the logs).
   # A definition and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl`
   # token, expanded or not), so the names are asserted defined; `.vlabels` is their values.
-  _cen_files=()
-  for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in *.records.sh) ;; *) _cen_files+=("$_cen_f") ;; esac; done
+  _cen_files=(); _mut_part_path records
+  for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in "$_mut_pp") ;; *) _cen_files+=("$_cen_f") ;; esac; done
   _cen_used="$(awk 'FNR == 1 { hd = "" } hd != "" { l = $0; if (hdt) sub(/^\t+/, "", l); if (l == hd) hd = ""; next }
     { s = $0; if (match(s, /(^|[[:space:];&|()<>])#/)) s = substr(s, 1, RSTART - 1)
       if (match(s, /(^|[^<])<<-?[ \t]*(\047|"|\\)[A-Za-z0-9_]+/)) { hd = substr(s, RSTART, RLENGTH); hdt = (hd ~ /<<-/); sub(/^.*[\047"\\]/, "", hd) }
@@ -651,8 +650,9 @@ _mut_correspondence() {
          _ma_i=0
          while [ "$_ma_i" -lt "$_pr_n" ]; do
            _ma_x="${_pr_expr[$_ma_i]}"; _ma_i=$((_ma_i + 1))
-           case "$_ma_x" in *:*) _ma_w="${_ma_x%%:*}"; case "$_ma_w" in ?|*[!A-Za-z]*) ;; *)
-             echo "!! mutation record expression \"$_ma_x\": \"$_ma_w:\" is no prefix of \`_MUT_TARGETS\`; sed would read it as a command (\`w\` writes, \`e\` runs)." >&2
+           # An empty word (`:a`, a sed label) and one letter (`s:a:b:`) are not prefixes; the red below is LATENT (see "UNLISTED" above).
+           case "$_ma_x" in *:*) _ma_w="${_ma_x%%:*}"; case "$_ma_w" in ""|?|*[!A-Za-z]*) ;; *)
+             echo "!! mutation record expression \"$_ma_x\": \"$_ma_w:\" is no prefix (one is read once, from a record's FIRST expression); sed would read it as a command (\`w\` writes, \`e\` runs)." >&2
              _mut_corr_bad=1; continue ;; esac ;; esac
            # ⚠ EACH EXPRESSION ALONE, AND IT MUST CHANGE EXACTLY ONE LINE of its
            # target. Whole-record, whole-file was the old granularity: an
@@ -772,10 +772,11 @@ _mut_run() {
     # ⚠ A LEFTOVER IS A REPORT, NOT A FILE TO CLEAN UP. `trap` does not run on
     # SIGKILL, so a killed run leaves mode-755 artifacts in `.claude/tools/`
     # where a `git add -A` would stage them. Say so; do not delete another run's.
+    _mut_part_path '*' "$_mut_base"; _mut_own_pre="$_mut_pp_pre"; _mut_own_suf="$_mut_pp_suf"
     _mut_part_path "mutant.*"
     for _stale in "$_mut_pp_pre"mutant.*"$_mut_pp_suf"; do
-      case "$_stale" in "$_mut_pp") break ;; esac; _mut_part_path '*' "$_mut_base"
-      case "$_stale" in "$_mut_wire"|"$_mut_pp_pre"*"$_mut_pp_suf") continue ;; esac
+      case "$_stale" in "$_mut_pp") break ;; esac
+      case "$_stale" in "$_mut_wire"|"$_mut_own_pre"*"$_mut_own_suf") continue ;; esac
       echo "  note: a previous mutation run left $_stale behind (SIGKILL?); it is" >&2
       echo "        not this run's to remove. Delete it once no run is using it." >&2
     done
