@@ -174,10 +174,10 @@ fi
 # an entry that reds for an unrelated reason is caught too.
 #
 # ⚠ AND THE FILE IT EDITS IS PART OF THE RECORD. An expression may carry the
-# prefix `<word>:`, a word of `_MUT_TARGETS`, which aims it at that part (`mutations` is
-# THIS FILE: the census and the ratchet are its arms) instead of the wire. The run copies
-# every shipped part beside each mutant, so a record says only which one to `sed`:
-# `_mut_target` derives each word's pair.
+# prefix `<word>:`, which aims it at that part (`mutations` is THIS FILE: the census and
+# the ratchet are its arms) instead of the wire. The run copies every shipped part
+# beside each mutant, so a record says only which one to `sed`: the prefixes are
+# the words of `_MUT_TARGETS`, and `_mut_target` derives each one's pair.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
 # minutes rather than seconds), and a required check nobody can afford to run is
