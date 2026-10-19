@@ -672,3 +672,96 @@ per the plan's C1 row; this is the driver's carry, as a measured fact and not a 
 else for a later slice.
 
 **CR-C2 fix round** (the fresh review's 1 IMPORTANT, 5 MINOR). I-1: `_mut_part_path <part> [<stem>]`; the four copy sites (`_mut_target`, `_mut_rm_copies`, the wire copy's name, the per-part `cp`) and the stale-copy filter go through it, so the run's copy names and a copy's own helper are one rule. M-2: the always-on anchor check names an expression whose prefix word (two or more letters and a colon) is no word of `_MUT_TARGETS` before any `sed` reads it: an unlisted prefix did reach `sed` (`w` writes a file, GNU `e` runs the rest as a command); the comment now says what is measured (BSD sed) and what is not (GNU, X9's route (b)). M-1 (the readers sentence in `controls.sh`; the prose list of the six prefixes in `mutations.sh` stayed, and is replaced by "the words of `_MUT_TARGETS`" in the re-check's fix, §S.7), M-3, M-4, M-5 as the review states them. `mutations.sh` 898 lines.
+
+### S.7 CR-C2 — the derived targets, one part path, the record's history in one place
+
+The sixth slice of the B/C plan (`…-cr-plan.md` §3.4 and §7). Base `bde7208c`, branch `crc2`. Commits: the code (`9f074ebb`), its part
+comments (`0bfbbdf1`), the doc rows (`90c34df5`), the first review's fixes (`b5df3a7b` for the wire, `17546f45` for the docs), the
+re-check's (`046b4c30` and `3d91a5b9` for the wire, `2ffa10f3` for the docs), and the commit that adds this entry; the branch is
+fast-forwarded onto `k2-wire-fgit-hermetic`, so these hashes are the branch's. The slice was cut into two coder units by the driver (the
+code and its claim table; the doc rows and the sweep). Records are named by their property, not by line number.
+
+**Changed (`9f074ebb`).** C5: `_MUT_TARGETS` is derived from `_MUT_PARTS` minus `records` (the record table is the subject list, not
+a part under test), so the prefix words have no second hand list; the derived order follows `_MUT_PARTS`, the six words are the old
+hand list's. U9: the comment above the two trust records says the five inputs the trust computation in `_fgit_window` reads (the two
+records force `_fw_post_bad` and `_fw_diag`). CL6/S-7: the `_lbd_files` guard, dead since `$SELF` starts the list, is deleted, and
+the no-label message names the wire and the parts. CL7/SI7: the history of the record floor leaves `mutations.sh` for corpus §6.1,
+which gains the one step it lacked (`db2b0af1`, 115 to 114); the comment points there and holds no hash. CL10/R-5: one helper,
+`_mut_part_path <part> [<stem>]`, beside `_MUT_PARTS` in `controls.sh`, sets `_mut_pp` (`<wire stem>.<part>.sh`) and its halves
+`_mut_pp_pre` / `_mut_pp_suf` / `_mut_pp_ext` from the caller's own `$SELF`; the 13 sites of the old spelling go through it. The stem
+argument (`b5df3a7b`) is the review's fix for I-1: the mutation run names its per-run copies (`_mut_target`, `_mut_rm_copies`, the
+wire copy's name, the per-part `cp`, the stale-copy filter) through the same helper, so what the run writes and what a copy's own helper
+looks for are one rule; the wire alone spells the path (`_CONTROLS`, `…trip-wire.sh` 1235). No record was added: the records and the
+ratchets are 251 and 18, unchanged.
+
+**Measured: the claim table** (B-CLAIMS, code commit `9f074ebb`, in clones, both shells, at most two wire processes at once; logs under
+the driver's `crc2-logs/`), 8 rows, as expected N of M: GC-6's planted `records:s/a/b/` record is red naming the expression with its
+prefix 2 of 2 (sed reads it as `r ecords:…`, a no-op on the wire, not as a parse failure); C5's derived list is the old hand list's six
+words, the order differing, and the run PASSED 2 of 2; a planted prefix outside the targets (`zzz:s/a/b/`) is red as at the base,
+4 of 4 (base and head, both shells); U9's text against the trust computation 1 of 1; CL10's completion grep, 16 hits at the base
+to 2 at the head (the helper's definition and the wire's 1235), 2 of 2; the real opt-in path with one wire-target and one harness
+record, `0 not killed as named`, 4 of 4; the empty `_MUT_PARTS` is rc 2 at the entry assert, no hang, 2 of 2; the no-label message with
+the grep pattern replaced by one matching nothing, rc 2, 2 of 2. **The fix round's table** (code `b5df3a7b`): old-vs-new equal at the
+four stem sites, the wire copy's name, the stale filter and the sentinel under `$SELF` = `a b[x]*?/…` and `set -u` (`eq2.sh`), both
+shells; the opt-in path for a controls record and a harness record, both shells; the arm of changing the part suffix to `.part.sh`
+(helper, wire's `_CONTROLS`, renamed files): at `90c34df5` the shipped plain run PASSED and the opt-in record 184 was killed for
+the WRONG REASON (exit 2), at `b5df3a7b` killed as named, both shells; M-2's unlisted prefixes (`wire:p`, `records:s/a/b/`, `esc:p`),
+each named, rc 1, no `ire:p` file written, both shells. **The re-check's fixes** (`046b4c30`): `eq3.sh` (`eq2.sh` with the hoisted
+stale filter): 36 EQ and 0 DIFF over the base, the wire copy, 7 parts x run side and copy side, the filter and the sentinel, bash 5.3
+and 3.2; the prefix test, extracted from the shipped line and run on both shells (`ptest.sh`):
+
+| expression | `:a` | `s:a:b:` | `e:p` | `a1:p` | `1ab:p` | `s/a:b/c/` | `zz:p` | `ab:p` | `wire:p` | `harness:s/a/b/` (as a later expression) | `HARNESS:p` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| verdict | ok | ok | ok | ok | ok | ok | red | red | red | red | red |
+
+An empty word and one letter are not prefixes; digits and punctuation make the word no run of letters (the test needs a word of two or
+more letters); a prefix word on a later expression is red because sed would read it as a command, and the message says a prefix is
+read once, from a record's FIRST expression.
+
+**The reviews and their origins.** First review (a fresh reviewer on `90c34df5`, no wire runs): 0 CRITICAL, 1 IMPORTANT, 5 MINOR.
+I-1: the plan defined the population by its spelling (`${SELF%.sh}.`, 13 sites) and not by the rule, so the four `$_mut_base.<part>.sh`
+copy sites were outside it and "every site goes through it" was false by concept: a derived population defined by a symptom word.
+M-2 was a REAL defect found by review: an unlisted prefix reached `sed` (`w` writes a file, GNU `e` runs the rest; the base comment's
+"any other unlisted prefix fails to parse" was false), so the always-on anchor check now reds an unlisted prefix of two or more
+letters by name before `sed` reads it. M-1 (the `_MUT_TARGETS` derivation's readers, and the prose list of six prefixes), M-3 (the
+no-label message printed `$_MUT_PARTS`, not the files read), M-4 ("stated nowhere else" is true of the parts only; the C6 hash back in
+corpus) and M-5 (the completion grep's blind class) were referents this slice changed or statements it wrote. Re-check (a focused
+reviewer on `17546f45`): 0 / 0 / 6, 18 statements the fix added or changed read whole: 10 true, 6 imprecise, 2 false. m-1: the
+census still excluded the record table by a spelled `*.records.sh` (I-1's residual site); m-2: the new red named an empty word (an
+expression starting `:`) and its text was false for a later expression; m-3: the heading was false for `fixtures:` and `mutgen:` (BSD
+reads them as invalid commands `f` and `m`) and the GNU list lacked `T`; M-1's other half (the hand list of six prefixes) and
+`impl-cr` :675's "as the review states them"; m-4: the restated steps in corpus and the completion note's blind class; m-5: the wire
+printed twice in the message; m-6: a loop-invariant helper call inside the loop. All six sit in the fix round's own additions, the
+class of a finding clustering where the round wrote. **Fixed here:** m-1 (the census goes through the helper), m-2 (an empty word is
+no prefix; the message is true for any expression), m-3, M-1 (the prose says "the words of `_MUT_TARGETS`"), m-4 (corpus points to the
+rows; the completion note adds the `_MUT_TARGETS="$_MUT_TARGETS extra"` form, indistinguishable from the derivation by text), m-5, m-6
+(the filter's halves are computed once before the loop), and the identifiers `_mut_pp_ext`, `_mut_cp` (and the filter's two new
+variables) join the `part_path` row of the sweep's identifiers.
+
+**Ledger: 24 of 576 rows fail, an instrument limit.** `ledger-check.py C2` reports 22 settled rows (CR-B2b, B2c, C1) and 2 of this
+slice's own (the deleted guard's `_lbd_names=""` line, and the no-label message, both of the stays class whose extent the fold
+rewrote), each read whole and true at the head. The sorted set is identical at `90c34df5`, at `17546f45` and at the head. The
+readers sentence's last line in `mutations.sh` stays as it was so its stays row does not join the set. The sweep: 42 new hits on 35
+lines at `90c34df5`, 33 true, 2 imprecise (fixed), 0 false.
+
+**The latent red.** The unlisted-prefix red in the anchor check is LATENT: no shipped record can trip it, so no record pins it; deleting
+it leaves every shipped run green (plan GC-6: latent, a claim row). Its evidence is the claim table above (the planted records of the
+fix round, red by name, rc 1, both shells, no stray file) and the `ptest.sh` table, not a record.
+
+BATTERY-PLACEHOLDER
+
+**Measured: completion** (the tool files of `3d91a5b9`, which the entry's commit does not touch). Ship PASSED, rc 0, 0 `!!` lines, x4
+(BSD and GNU-like `grep` x bash 5.3 and 3.2); `scripts/trip-wires.sh` rc 0; `bash -n` clean on every tool file, both shells; one
+opt-in record through the real path (the harness record 184, filtered to it, the generated set stubbed): `251 entr(ies), 0 not killed
+as named`, both shells (rc 1 comes only from the stubbed generated set, the method's artifact); the ledger set identical to the one at
+`17546f45`; the completion greps: 0 hits for the `_MUT_TARGETS` literal and for the `$_mut_base` spelling, 3 for `${SELF…}` (the wire's
+1235, the helper and its comment). Sizes (`wc -l`): `mutations.sh` 899, `ctlrun.sh` 436, `controls.sh` 774, `records.sh` 470,
+`harness.sh` 886, `cr-sweep` 945.
+
+**Not measured.** GNU sed: none on this machine and none installed. The `r` / `w` behaviour is measured on BSD sed only, and GNU's `e`
+(runs the rest as a command) and its other file and branch commands are unmeasured; X9's route (b) (landing) is where a Linux run
+decides it.
+
+**Carried from §S.6, discharged here.** The `_lbd_files` guard and its message (deleted; the message names the files it read), and
+`mutations.sh` at or under 900: held, 900 at `90c34df5`, 898 at `b5df3a7b`, 899 at the head. **Carried onward.** None: the reviews
+marked nothing for a later slice; GNU sed is X9's route (b), carried since §S.6.
