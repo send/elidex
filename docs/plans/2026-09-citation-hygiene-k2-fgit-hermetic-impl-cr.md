@@ -493,8 +493,9 @@ and the commit that adds this entry; the branch was fast-forwarded onto `k2-wire
 The slice was cut into three coder units by the driver (code; the claim table; the doc rows and sweep), as CR-B2b's was. Records
 are named by their property, not by line number.
 
-**Changed (`4df27614`).** `_mut_trial` returns 3 for a wrong reason only when the mutant exited 1 (`_mut_wrong_reason` decides; an
-exit 2, a harness break, is never a wrong reason and never excused). `_mut_run`'s excuse has two halves. The capability half: a
+**Changed (`4df27614`).** `_mut_trial` returns 3 for a wrong reason only when the mutant exited 1 (its wrong-reason arm decides;
+`_mut_wrong_reason` only prints the diagnostic; a mutant that exited 2, as a harness break also does, still returns 2 and is never
+excused). `_mut_run`'s excuse has two halves. The capability half: a
 record whose needle is a member of a group whose flag is exactly 0, or that group's own label (`_mut_skip_glabel`), is excused
 when it survives or was killed for another reason, and the report names the group. The P-x half: a record whose needle is the
 postcondition label of an ID in `$_fw_limits`, or that ID's limitation-test label, exactly (`_p<x>_lbl` or `_p<x>l_lbl`), and only a survival is excused; the exact naming
@@ -516,8 +517,8 @@ red with one diagnostic, green with the unexcused-3 branch removed (4 of 4); (7)
 shipped label derivation matches `_pe_lbl` alone for P-e, and `_pf_lbl`, `_pfl_lbl` for P-f (2 of 2, plus the reading of why no
 P-e line reaches `_mut_run`); (8) the excuse reads the member's own group flag (8 of 8), the P-f flip is excused by the P-x half
 only where the machine really lacks it (4 of 4), and the return-value range of `_mut_trial` read. **Fix round, 22 of 22:** the
-shipped derivation and `case` over all 16 `_p*_lbl` names (16 of 16 on both shells), the two standing label records under the
-capability absent (the ctlrun group label and a W label, killed as named, 2 of 2 each) and a stale `LACKS=perm` on a capable
+shipped derivation and `case` over all 16 `_p*_lbl` names (16 of 16 on both shells), the two standing-check records under the
+capability absent (needles `$_cap_lbl`, the standing check `_cap`, and the W label `$_wm_lbl`, killed as named, 2 of 2 each) and a stale `LACKS=perm` on a capable
 machine leaving the permission flip surviving unexcused and red (2 of 2).
 
 **Measured: the battery** (`BASE_REV=a567cc13`): 91 cases, both shells, rc, PASSED and CONTROL FAILED differences 0, 0 EDIT FAILED.
