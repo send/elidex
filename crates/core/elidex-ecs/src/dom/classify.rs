@@ -30,10 +30,11 @@ impl EcsDom {
     /// `MutationEvent::AttributeChange` events to `<base>.href`
     /// writes only.
     ///
-    /// HTML-spec knowledge co-located with the `shadow.rs` tag-whitelist
-    /// precedent (`VALID_SHADOW_HOST_TAGS` and `is_valid_shadow_host`) per
-    /// layering mandate (small HTML predicates in elidex-ecs are OK; large
-    /// algorithms hoist to elidex-dom-api).
+    /// Small HTML-spec knowledge kept in elidex-ecs, following the
+    /// `shadow.rs` tag-whitelist precedent (`VALID_SHADOW_HOST_TAGS` and
+    /// `is_valid_shadow_host`) per the layering mandate (small HTML
+    /// predicates in elidex-ecs are OK; large algorithms hoist to
+    /// elidex-dom-api).
     #[must_use]
     pub fn is_base_element(&self, entity: Entity) -> bool {
         // WHATWG HTML §4.2.3 restricts `<base>` to the HTML namespace, so
@@ -125,13 +126,9 @@ impl EcsDom {
     /// created via [`create_element_ns`](Self::create_element_ns) return
     /// `false`; non-elements return `false` (defensive).
     ///
-    /// Used by `Range::create_contextual_fragment` in `elidex-dom-api`
-    /// (HTML §8.5.7 `createContextualFragment()` step 6) to gate the
-    /// `<html>`-as-context override (only HTML-namespace `<html>` is
-    /// rewritten to `<body>` for parser-scope selection; SVG / MathML
-    /// `<html>` must stay as-is), and by the `<base>` / `<datalist>`
-    /// element predicates which are HTML-namespace-restricted (HTML
-    /// §4.2.3 / §4.10.8).
+    /// The canonical HTML-namespace gate for predicates that the HTML
+    /// spec restricts to HTML elements (e.g. [`is_base_element`](Self::is_base_element),
+    /// HTML §4.2.3).
     ///
     /// [`namespace_of`]: Self::namespace_of
     #[must_use]
