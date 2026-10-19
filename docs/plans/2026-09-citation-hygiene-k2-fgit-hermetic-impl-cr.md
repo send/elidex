@@ -551,3 +551,110 @@ fix round and at this round's commits; `scripts/trip-wires.sh` rc 0. Sizes at th
 (`_mut_exc` 1) for R3-B2b-1 and GB2b-6, the P-e naming, and the P6 permission flip's excuse. **Carried onward.** (1) **CR-C1**: the
 design memo's census row (a ledger `stays` row for B2a, C1's row in §7) does not yet list the membership record among its pins;
 still open. The reviews marked nothing else for a later slice.
+
+### S.6 CR-C1 — the label census is bijected with the text
+
+The fifth slice of the B/C plan (`…-cr-plan.md` §3.2 and §7). Base `c6e69356`, branch `crc1`. Commits: the code (`2ac70030`), its
+part comment (`63893e7b`), the doc rows (`505ad593`), the first review's fixes (`82776f96` for the wire, `2b9489b6` for the docs),
+the driver's restoration of a guard the fix deleted (`666eed96`), the re-check's (`c2ce1ebf` for the wire, `bbe5f30f` for the docs),
+the instrument change's (`c46fc6c1` for the wire, `4070c49d` for the docs), and the commit that adds this entry; the branch was
+fast-forwarded onto `k2-wire-fgit-hermetic`, so these hashes are the branch's. The slice was cut into three coder units by the
+driver (the code; the claim table; the doc rows and sweep), as CR-B2c's was. Records are named by their property, not by line number.
+
+**Changed (`2ac70030`).** Rules 1 to 3 of `…-cr-plan.md` §3.2. Rule 1: the census's used names are the `_*_lbl` names the wire or a
+part EXPANDS (`$name`, or `${name` and a non-identifier character), outside the record table; a definition and an indirect `${!x}`
+are no use, and `.vlabels` holds their values. Rule 2: the call lines of the controls file (a non-comment line naming a run
+primitive as a word) are exactly the registered sites, kinds included, in both directions. Rule 3: one `awk -F'\t'` pass reads the
+registry and the controls file together, and a row that does not hold exactly three TAB fields is red. The registry's sites are the
+same on every machine, and its rows and labels per site were measured equal (100 rows, 89 sites, byte-identical across both shells
+and the P1, P4 and P6 profiles). Eight records pin the new checks (GC-1 to GC-5, and the re-aim of the old record 360), so the
+records and the ratchets went 240 → 248 with `_MUT_UNRECORDED_MAX` unchanged at 18 (measured 18 on P1, P4 and P6); the fix
+round's record made it 249 (`82776f96`) and the third round's 250 (`c46fc6c1`). `ctlrun.sh` shrank from 439 to 436. `mutations.sh` is
+890 at `2ac70030`, 894, 897 and 900 at the head: **900 is the plan's stop line** (the plan stops when the measured length passes
+900), reached and not passed, carried to CR-C2 as a measured fact below. The doc rows (`63893e7b`, `505ad593`): the part comment
+(`_lbd` reads the record table too, every `_*_lbl` token), the design memo's census row (the pins of rule 1, the bijection, the
+kinds, the three-field parse and the membership record, which discharges §S.4's carried item and §S.5's), corpus §6.1's re-aim and
+four add rows, residual R13 and the range R1–R13, landing X9's census clause, and the `cen_vars` row of the sweep's identifiers.
+
+**Measured: the claim table** (B-CLAIMS, code commit, in clones, the real `_mut_run` and `_mut_trial` with a filter to one record
+and the generated set stubbed, both shells, at most two wire processes at once; logs under the driver's `crc1-logs/`), rows 1 to 10,
+about 46 pairs, about 92 wire runs. As expected, N of M: GC-1 2 of 2, GC-2's K3 record 2 of 2, GC-3 6 of 6, GC-4 4 of 4 (it SURVIVES
+with the bijection removed, and at the base with the record planted last), GC-5 2 of 2, A's kills re-run 4 of 4; the label-defined
+guard (`_CONTROLS` removed from the word list: unlabelled rc 1, a shell diagnostic) 2 of 2 and its `missing:` red 2 of 2; the K1
+harness case 4 of 4, `if false` around three calls 6 of 6, the unregistered branch call red on P1 and P4 4 of 4; the registry
+dumps and the profiles (row 5, 6 of 6); `_rh` 2 of 2; the rule-2 case with the call line itself wrapped 4 of 4; the trailing-comment scan (the
+population: 0); the 11 older census records killed as named, 22 of 22. **Four deviations, read by the driver from DECISIONS:** (1)
+the relcwd record with the bijection removed is killed for the WRONG REASON, not SURVIVED (relcwd's own else-branch reds when the
+call is wrapped); accepted, and the docs state the measured form: the bijection is what makes the kill AS NAMED. (2) GC-7's arm
+deleting only the red line of `_cap_chk_absent` is also WRONG REASON (`_cc_bad=1` remains); the SURVIVED form needs the whole body
+replaced by `:`; accepted. (3) the trust simulation combined with the opt-in is red before any mutant, so it is not measurable;
+its parts were measured separately; accepted. (4) the second GC-8 arm (the word removed from the guard's list) aborts unlabelled
+with an unbound variable, rc 1, which is exactly the plan's "aborts unlabelled" and was misread by B as a difference: as expected.
+The brief's "about 12" old census records is 11.
+
+**The reviews and the instrument change.** First review (a fresh reviewer on `505ad593`): 0 CRITICAL, 1 IMPORTANT, 6 MINOR, the
+census code correct on every path exercised. Origins: I-1 (rule 1 counted a name in a trailing comment as a use, the fail-unsafe
+direction, while three sites said a comment is no use) was a declared-blind-spot class this slice left open; M-1 (the K3 record's
+kill path stated for P1 only), M-4 (row 9's universal against its ratchet's 18) and M-5 and M-6 (R13's cite, "the same on every
+machine" derived from the bijection) were statements this slice wrote; M-2 (the dead `_lbd_files` guard) and M-3 (the one-site
+paragraph) were referents the slice changed. The open items: O-1 (mawk) is X9's route (b), below; O-2 and O-3 were measured in the
+fix round; O-4 (the docs state relcwd's measured form) is this entry and corpus §6.1. **Fix round (`82776f96`, `2b9489b6`):** rule 1
+cuts a comment from a `#` at the line start or after whitespace; the 33 lines it cuts that hold `_lbl` are all whole-line comments;
+a new record (idx 220) is killed as named and SURVIVES with the cut removed, both shells; the K3 record is killed on P4 by the
+ratchet there (0 not killed as named on P4 and on P1, 4 of 4). O-2: deleting the relcwd block reds under `$_cen_lbl` (2 of 2); deleting `_cap`'s call line
+reds under `_cap`'s own label first, and `$_cap_lbl` is still expanded elsewhere in the check, so it is red either way and D3's "no
+expansion" holds only for the whole block. **Re-check (a focused reviewer on `666eed96`, no wire runs): 0 / 1 / 2.** N-1 was
+IMPORTANT: bash begins a comment after any metacharacter, so `;# $_x_lbl` (and `&#`, `|#`, `(#`) stayed a use, a false green, and
+"never a false green" was false at five sites. N-2 (three siblings still derived "machine-independent" from the bijection) and N-3
+(D3 true only when the whole check block is deleted) were MINOR.
+
+**The terminator, and the oracle.** I-1 and N-1 were two consecutive IMPORTANTs, both introduced by this slice's own work, on one
+mechanism, so the instrument changed instead of another reviewer round: a bash oracle that runs each case under `set -u` with the
+name unset (bash reports the use as an unbound variable if and only if it expands) on bash 5.3 and bash 3.2 and compares it with
+the shipped awk cut. Convergence was set as 0 false green on both shells with every false-red class declared. Fix round 2
+(`c2ce1ebf`, `bbe5f30f`) widened the cut to `(^|[[:space:];&|()<>])#`: 41 cases, 32 agree, 5 false red (three declared classes), 4
+syntax errors (`<#` and `>#` are not comments in bash), 0 false green on both shells; the negative control, the old cut, gave 17
+false green. **The driver then read the oracle's table and found it hand-picked:** it had no single-quoted `'$x_lbl'` and no
+escaped `\$x_lbl`, neither of which expands, and the scan counted both (a false green; population 0 at head, the one single-quote
+hit being an apostrophe in a comment). The table was regenerated over contexts and forms, which found a third class, a quoted
+here-document's body (`<<'W'`, `<<"W"`, `<<\W`), also counted though bash expands nothing there. The negative control, the fix-round-2
+head against the regenerated table, gave 24 false green. Fix round 3 (`c46fc6c1`, `4070c49d`): after the cut, a quoted
+here-document's body is skipped to its terminator, each backslash-escaped character is dropped, then each single-quoted span; the
+oracle, 131 cases: 114 agree, 13 false red, 4 syntax errors, 0 false green on both shells. The order is the point: the comment cut
+comes FIRST, because a quote stripped before it would pair across a `#` and turn a comment's text into code, a false green. The
+argument that nothing false-green remains is that every step only drops text, so the scan can lose a real expansion (its
+records orphan: a false red) and can never invent one; the false-red classes are declared in rule 1's comment, BS-5a, row C and R13
+(a `#` or `'` inside double quotes, a `#` after a single-quoted ` #` on the line, an unquoted here-document body's `#`, a bare
+arithmetic name `$((name))`). The oracle was run outside the repo and the figures are stated in the memo, the logs are not copied (the
+convention of this file's header). A new two-expression record (the third round's, 250) is killed as named, both shells, and
+SURVIVES with the single-quoted-span step removed and with all three steps removed; **the escape step is not pinned by a record**
+(removed, the record is still killed as named: 0 not killed), only by the oracle.
+
+**Ledger: 22 of 576 rows fail, an instrument limit, with a manual backstop.** `ledger-check.py C1` reports the same 22 rows at
+`505ad593` and at the head: the 12 settled CR-B2b and CR-B2c rows (§S.4, §S.5) and 10 retained hit lines of rewritten extents (the
+registry header and the "reds if it grew" statement in `ctlrun.sh`, two in `mutations.sh`, six in `records.sh`), each read whole
+by the first review and true. (At `82776f96` the set held 3 more lines, the dead guard's frame text, until `666eed96` restored
+the guard.) Rewriting true lines to satisfy the checker would bless the instrument, so none is edited.
+
+**The `_lbd_files` guard.** The fix round deleted `controls.sh`'s `[ "${#_lbd_files[@]}" -eq 0 ] || …` guard, dead since
+`$SELF` starts the list (M-2). The driver restored it (`666eed96`): `…-cr-plan.md` :506 folds CL6/S-7 into CR-C2, and the sweep's
+rows 18 and 24 give it to C2, so deleting it here would change a ratified slice boundary. It is carried to C2 with its message,
+whose "no label was found in the parts" should name the wire too (C1 made `_lbd_files` start with `$SELF`).
+
+**Not measured.** (1) mawk: none is installed here and none was installed; landing X9's route (b) says the census's awk program
+and rule 1's scan (`[[:space:]]`, the word-start cut, the dynamic `(^|…)` match) are the first mawk evidence of the CI run, and
+that the CI `awk` being mawk is the plan's premise. (2) The trust simulation combined with the opt-in (row 6; red before any
+mutant). (3) The apply-time MATCHED NOTHING path (the always-on anchor check reds first).
+
+**Measured: completion.** Ship PASSED, rc 0, 0 `!!` lines, ×4 (BSD and GNU-like `grep` × bash 5.3 and 3.2) at `2ac70030`, at
+`82776f96`, at `666eed96`, at `c2ce1ebf` and at `c46fc6c1`; `scripts/trip-wires.sh` rc 0 at the same points. Sizes at the head
+(`wc -l`): `ctlrun.sh` 436, `controls.sh` 765, `mutations.sh` 900, `records.sh` 469, `harness.sh` 886 unchanged, the design memo
+755, `cr-sweep` 934.
+
+The battery (`BASE_REV=c6e69356`, on the head's tree): see the driver's addendum. BATTERY-PLACEHOLDER
+
+**Carried from §S.5, discharged here.** The design memo's census row now lists the membership record among its pins (row C).
+**Carried onward to CR-C2.** (1) The `_lbd_files` guard and its message (above). (2) `mutations.sh` is at 900: C2's edits to it must
+stay at or under 900, or the census half (`_mut_correspondence` and `_mut_census_end`) is split out first as a standalone commit,
+per the plan's C1 row; this is the driver's carry, as a measured fact and not a plan clause of C2's. The reviews marked nothing
+else for a later slice.
