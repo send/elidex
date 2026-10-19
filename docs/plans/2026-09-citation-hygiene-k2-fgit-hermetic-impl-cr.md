@@ -768,3 +768,28 @@ decides it.
 **Carried from §S.6, discharged here.** The `_lbd_files` guard and its message (deleted; the message names the files it read), and
 `mutations.sh` at or under 900: held, 900 at `90c34df5`, 898 at `b5df3a7b`, 899 at the head. **Carried onward.** None: the reviews
 marked nothing for a later slice; GNU sed is X9's route (b), carried since §S.6.
+
+### S.8 CR-S8b — the round closes
+
+The second half's closing entry (`…-cr-plan.md` §7, row CR-S8b), made at `21526e80`; the tool files are those of `3d91a5b9`, so T (the last commit that changes `.claude/tools/**`, `scripts/**` or the job) is `3d91a5b9`. **Nothing is pushed:** the pushed head is still `815f8d4b`. Each slice had one fresh review (a focused re-check follows in B2b, B2c, C1 and C2), and no CRITICAL:
+
+| slice | review: IMP / MIN; re-check | where the IMPORTANTs came from | fix rounds | instrument change |
+|---|---|---|---|---|
+| B1 §S.2 | 2 / 6 | text the move carried (a bare § read as the design memo's); a range the slice extended (R1–R9 left at two sites) | 1 | the sweep's range ERE widened |
+| B2a §S.3 | 2 / 5 | three table clauses the slice wrote with no record; R1–R10 left at three sites | 1 | every hit of a group whose referent changed is re-classified |
+| B2b §S.4 | 3 / 5; 0 / 3 | two false statements the slice wrote; a requirement owed (R3-B2b-2) | 1 + 1 | whole-sentence classification of the 125 hits |
+| B2c §S.5 | 3 / 4; 0 / 1 | two false or imprecise statements the slice wrote; a requirement owed (plan §2.2) | 1 + 1 | none |
+| C1 §S.6 | 1 / 6; 1 / 2 | a blind spot the slice left open; the fix's own cut, on the same mechanism | 4 | the bash oracle (131 cases, 0 false green, both shells) replaced another review round |
+| C2 §S.7 | 1 / 5; 0 / 6 | a population the plan defined by its spelling (13 sites), not by the rule | 1 + 1 | none |
+
+Totals: 13 IMPORTANT (12 in the first reviews, 1 in C1's re-check), 31 + 12 MINOR; 4 false statements the slice wrote, 3 owed or defined upstream, 3 a mechanism left unpinned or open, 2 a range at sites whose referent the slice changed, 1 carried by a move. C2's six re-check MINORs all sit in its fix round's own additions. Every slice but C1 closed its IMPORTANTs in one fix round.
+
+**Re-measured at the head** (36 figures the docs and part comments state as current; commands and logs in the handoff `crs8b-logs/`): 1 wrong, fixed in the design memo's row `C`, which said 22 records pin the census label; `records.sh` holds 23 with that needle (`awk -F'\t'` over the non-comment lines), the 23rd being fix round 4's escaped-name record, which the row's list
+lacked. The rest held. `wc -l`: wire 1286, controls 774, ctlrun 436 (budget 439), fixtures 698, harness 886, mutations 899 (900), mutgen 348, records 470, design memo 755 (760), cr-sweep 945, provenance 973, r15 and impl 799. `_mutants | wc -l` is 251 = `_MUT_RECORDS_MIN` = corpus §6.1's total (156 of this PR plus the base's 95); `_MUT_UNRECORDED_MAX` 18 is held by the ship
+runs at `3d91a5b9`, not re-run here. The controls file has 89 call lines by the census's rule (83 `control`, 6 `direct`; the registry's 100 rows were measured at `2ac70030`, a run). `_CAP_TABLE` 11 rows, `_cap` 10, CAP 11 pins, CAPT 4, FIFO's four plants under `$_pg_lbl`, five perm controls, residuals R1–R13 (13 rows; the range at residuals :7 and design memo :31, :56, :649),
+13 files at umbrella :23 and :111, X9's sleep census (30, 1, 5, 0.05).
+**The instruments at the head:** `ledger-check.py C2`: 24 of 576 rows fail, the 22 settled and the 2 of §S.7, sorted-identical to §S.7's set; `completion.sh`: every phrase grep 0, bar the two documented residues (the `0d411df2` §6.1 history row, now corpus :347 where the instrument's label still says :321; `${SELF…}` 3: wire:1235, the helper and its comment); `sweep.sh`: 26 files, 1261 hits (before this entry's own lines), byte-identical on bash 3.2.57 and 5.3.20; the `perl -0777` wrap backstop: 6 matches, §S.2's five (harness :750, mutations :206 and :842 as the lines moved, landing :74, reviews :624) and records :370 ("standing / check's row loop emptied", C1's code, true: a comment on the census records, `stays`).
+
+**Open for the final-head sequence** (`…-landing.md` §9.1, at T): X3, assigned with corpus §6.1's survive check by hand, then the plant and floor cells, both shells; X2, X5, X6, X8, X11, X13–X16; then step 2's record, step 3's fresh Codex round and step 4's ledger. This file ends this entry at 795 lines (§13's rollover is past 800), so step 2's entry goes to the successor §13 names. **Open for X9** (route (b), #501 after the squash): GNU sed (`r`, `w`, `e` and the anchor check), mawk (the census's awk, rule 1's scan, the registry parse), `sleep` taking a fraction (a fact only), and Q1's runner probes.
+
+X3-PLACEHOLDER: the driver writes the X3 result here (T = `3d91a5b9`; the full opt-in, plant and floor cells, both shells).
