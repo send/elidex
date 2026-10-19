@@ -60,6 +60,7 @@ identifiers, class and slice unchanged (**(M)** `crplan-r4/logs/M-h1-inputs.txt`
 | `lacks` `cap_chk` `cc_vars` | `WEBREF_WIRE_LACKS`; `_cap_chk_`; `_cc_[a-z]` | the declaration of an absence and the table check that reads it (B2b): the variable the caller sets, the check's reporters and row handlers (`_cap_chk_red`, `_cap_chk_absent`, `_cap_chk_row`, `_cap_chk_member`; all also matched by `cap_table`), and the function-locals of `_cap_check` (`_cc_*`) |
 | `mut_skip` | `_mut_skip_glabel`, `_mut_wrong_reason`; `_mk_g` | the capability excuse's callback (a needle that is a group's own label) and the wrong-reason diagnostic's function, and the callback's out-variable `_mk_g`, which `_mut_run` reads (B2c, R3-all-3); the excuse's other local `_mskip_g` is matched by `mskip` |
 | `cen_vars` | `_cen_[a-z]` (word-start-bounded) | the census's locals CR-C1 adds in `_mut_correspondence` (`_cen_used`, the expanded names; `_cen_files`, the files it scans; `_cen_rc`, the registry scan's exit; the loop variables `_cen_v`, `_cen_f`), and `_cen_lbl`, which `cen_lbl` also matches (C1, R3-all-3); `_lbd_files`, which C1 now also reads in the census and `_lbd` seeds with `$SELF`, is matched by `lbd` (its ERE `_lbd` followed by a non-alphanumeric, and `_` is one) |
+| `part_path` `target_prose` | `_mut_part_path`; `_mut_pp`, `_mut_pp_pre`, `_mut_pp_suf` (word-bounded); `_mt_p` (word-bounded) -- and `hand list`, `file operand`, `wfile`, `unlisted prefix`, `prefix that is not listed` | the part-path helper and its out-variables, and the derivation loop's variable `_mt_p` (CR-C2, R3-all-3); the prose that says how a record's prefix reaches `sed` (mutations.sh :227-234 at the frame, R3-all-3) |
 
 **A row is the statement that holds the hit**, not the hit line alone: the comment block, paragraph, bullet or
 table row it sits in (prose wraps, which is how stem greps missed sites). The disposition names the extent
@@ -760,7 +761,7 @@ frame: `ledger-check.py` reads §3 of this file as committed at CR-B1 and each r
 (not the handoff logs `ledger.tsv` / `sweep-sites.tsv`), `completion.sh`'s C2 part-path grep gains the quoted-stem
 alternative (plan memo §3.4, H6), and `idents.tsv` gains the `resid_range` row (§1's table), whose ERE matches the
 range quoted (`"R1"–"R10"`) and unquoted (`R1–R10`) alike (CR-B1's review fixes widened it: the first form, `"R1"–"R[0-9]+"`,
-missed the design memo's two unquoted "R1–R9"). CR-B2a adds six rows to `idents.tsv` (`cap`, `cap_fn`, `cap_err`, `cr_vars`, `capflags`, `endmarks`: R3-all-3, §1's table), in the same commit as the identifiers; CR-B2b adds three (`lacks`, `cap_chk`, `cc_vars`, §1's table); CR-B2c adds one (`mut_skip`: `_mut_skip_glabel`, `_mut_wrong_reason` and `_mk_g`; `_mskip_g` is already matched by `mskip`, whose ERE is `_mskip`); CR-C1 adds one (`cen_vars`: the census's `_cen_*` locals; `_lbd_files` is already matched by `lbd`). `sweep.sh` is r4's (it excludes the two moved files). Run at the frame, `ledger-check.py`
+missed the design memo's two unquoted "R1–R9"). CR-B2a adds six rows to `idents.tsv` (`cap`, `cap_fn`, `cap_err`, `cr_vars`, `capflags`, `endmarks`: R3-all-3, §1's table), in the same commit as the identifiers; CR-B2b adds three (`lacks`, `cap_chk`, `cc_vars`, §1's table); CR-B2c adds one (`mut_skip`: `_mut_skip_glabel`, `_mut_wrong_reason` and `_mk_g`; `_mskip_g` is already matched by `mskip`, whose ERE is `_mskip`); CR-C1 adds one (`cen_vars`: the census's `_cen_*` locals; `_lbd_files` is already matched by `lbd`). CR-C2 adds two (`part_path`: `_mut_part_path`, `_mut_pp`, `_mut_pp_pre`, `_mut_pp_suf`, `_mt_p`; `target_prose`: the wording of mutations.sh's prefix paragraph); it also narrows `completion.sh`'s "C2 `_MUT_TARGETS` literal" grep to `^_MUT_TARGETS="[a-z]`, because the derivation's own lines (`_MUT_TARGETS=""`, `="${…}"`) begin `_MUT_TARGETS="` too and are not the hand list. `sweep.sh` is r4's (it excludes the two moved files). Run at the frame, `ledger-check.py`
 takes the CR-B1 commit as its third argument (the frame has no sweep file). The sections above name handoff-directory paths
 (`crplan-r3/bin/…`, `logs/…`): those are where the frame was measured, and stay outside the repo.
 
@@ -839,6 +840,8 @@ cap_chk	_cap_chk_
 cc_vars	(^|[^A-Za-z0-9_])_cc_[a-z]	
 mut_skip	_mut_skip_glabel|_mut_wrong_reason|(^|[^A-Za-z0-9_])_mk_g([^A-Za-z0-9_]|$)	
 cen_vars	(^|[^A-Za-z0-9_])_cen_[a-z]	
+part_path	_mut_part_path|(^|[^A-Za-z0-9_])_mut_pp(_pre|_suf)?([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])_mt_p([^A-Za-z0-9_]|$)	
+target_prose	hand list|hand-list|file operand|wfile|unlisted prefix|prefix that is not listed	
 ```
 
 ### §E.ledger-check.py
@@ -929,6 +932,6 @@ run "B2a parts+wire" -e '_ctl_need|\.declined|(^|[^A-Za-z0-9_])_cn([^A-Za-z0-9]|
 run "B2a docs (corpus excluded: its §6.1 rows are history)" -e '_ctl_need|\.declined|(^|[^A-Za-z0-9_])_cn([^A-Za-z0-9]|$)|_fifo_line|_perm_line' -- "${DnoC[@]}"
 run "B2b phrases" -e 'reported below and not|printed on a green line would|as for the FIFO and file-permission controls|the treatment P-b and the FIFO and file-permission controls' -- "${P[@]}" "${D[@]}"
 run "B2c hash in _mskip's comment" -e "dropped-at-cap round, commit \`[0-9a-f]{8}\`" -- .claude/tools/webref-generic-core-trip-wire.mutations.sh
-run "C2 _MUT_TARGETS literal" -e '^_MUT_TARGETS="' -- .claude/tools/webref-generic-core-trip-wire.mutations.sh
+run "C2 _MUT_TARGETS hand-list literal (a word after the quote)" -e '^_MUT_TARGETS="[a-z]' -- .claude/tools/webref-generic-core-trip-wire.mutations.sh
 run "C2 part path spelled (after C2: wire:1235, the helper's definition, comments)" -e '\$\{SELF%\.sh\}\.|"\$\{SELF%\.sh\}"\.' -- "${P[@]}"
 ```

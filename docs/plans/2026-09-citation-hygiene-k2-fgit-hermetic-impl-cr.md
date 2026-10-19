@@ -641,7 +641,7 @@ the guard.) Rewriting true lines to satisfy the checker would bless the instrume
 **The `_lbd_files` guard.** The fix round deleted `controls.sh`'s `[ "${#_lbd_files[@]}" -eq 0 ] || …` guard, dead since
 `$SELF` starts the list (M-2). The driver restored it (`666eed96`): `…-cr-plan.md` :506 folds CL6/S-7 into CR-C2, and the sweep's
 rows 18 and 24 give it to C2, so deleting it here would change a ratified slice boundary. It is carried to C2 with its message,
-whose "no label was found in the parts" should name the wire too (C1 made `_lbd_files` start with `$SELF`).
+whose "no label was found in the parts" should name the wire too (C1 made `_lbd_files` start with `$SELF`). CR-C2 did both: the guard went and the message names the wire and the parts.
 
 **Not measured.** (1) mawk: none is installed here and none was installed; landing X9's route (b) says the census's awk program
 and rule 1's scan (`[[:space:]]`, the word-start cut, the dynamic `(^|…)` match) are the first mawk evidence of the CI run, and
