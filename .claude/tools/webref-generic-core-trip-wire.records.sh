@@ -371,7 +371,8 @@ controls:s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok
 # check's row loop emptied (its call line registers nothing); a two-expression record that folds a `_control`
 # into a command substitution spanning two lines (a site that is not its text line); the registry's writer
 # adding a fourth field (a row of the wrong shape); and the one expansion deleted with the name left in a trailing
-# comment on another line (a comment is no use: the cut at a `#` that begins a word).
+# comment on another line (a comment is no use: the cut at a `#` that begins a word); and with the name left in a
+# single-quoted span on another line (`: '$_pkl_lbl'`: a single-quoted span expands nothing, the strip after the cut).
 harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	every label the run used is named by a mutation record
 controls:s/^if ! _ctl_run "[$]_rel_lbl" /if false \&\& _ctl_run "$_rel_lbl" /	every label the run used is named by a mutation record
 controls:s/^_cap_check || ctl_ok=1$/&; if [ "$_fifo_ok" -eq 0 ]; then _control "$CTL\/clean" 0 "PASSED" "zz new" || ctl_ok=1; fi/	every label the run used is named by a mutation record
@@ -381,6 +382,7 @@ controls:s/^         while read -r _ca_t _ca_zz _ca_yy _ca_trust _ca_chan _ca_wa
 controls:s/^\[ -z "[$]_fw_limits" \] || _limit_lines=.*$/&; _v1="$(_control "$CTL\/clean" 0 "PASSED" "green is reachable" || ctl_ok=1/	s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/)"; &/	every label the run used is named by a mutation record
 ctlrun:s/^  printf '%s:%s\\t%s\\t%s\\n' /  printf '%s:%s\\t%s\\t%s\\tx\\n' /	every label the run used is named by a mutation record
 harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& # $_pkl_lbl/	every label the run used is named by a mutation record
+harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& ; : '$_pkl_lbl'/	every label the run used is named by a mutation record
 # THE CAPABILITY TABLE (`$_cap_lbl`: the gate's capability arm, pinned by the `_cap` standing check in the
 # controls file; `$_capt_lbl`: the table check; the reader and the gate's lookup are ctlrun's). Each `$_cap_lbl`
 # record is killed by the `_cap` row named beside it, on every machine (the rows replace the table and the

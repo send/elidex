@@ -264,8 +264,8 @@ _MUT_UNRECORDED_MAX=18
 # standing checks' verdict markers): 231 -> 237. CR-B2b added three (the FIFO and permission probes' flips, P-f's
 # definition test forced to the limit branch): 237 -> 240. CR-C1 added eight (the `_pkl_lbl` expansion deleted, relcwd's
 # call behind `if false &&`, a `_control` behind a branch not taken, the three standing checks' row loops emptied, the
-# two-expression site-line record, the registry's fourth field): 240 -> 248; its fix round one (a name left in a trailing comment): 249.
-_MUT_RECORDS_MIN=249
+# two-expression site-line record, the registry's fourth field): 240 -> 248; its fix round one (a name left in a trailing comment): 249; fix round two (the name in a single-quoted span): 250.
+_MUT_RECORDS_MIN=250
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -550,20 +550,23 @@ _mut_correspondence() {
   # passing a variable label) under a label whose own producer is an `echo` line is one
   # site, as the literal rule above does not reach it.
   wc -l < "$_VFY/.registry" | tr -d '[:space:]' > "$_VFY/.census"
-  # RULE 1: a `_*_lbl` name is used where it is EXPANDED (`$name`, or `${name` and a non-identifier
-  # character) outside a comment, in the wire or a part but the record table, whose here-document is
-  # quoted (a `$name` there is data, and would keep a label "used" by a record's own text). A COMMENT is the
-  # text from a `#` at the start of a line or after whitespace or one of `;&|()<>` (where bash begins a word) to
-  # the line's end, cut on every line before matching (`$#`, `${x#y}`, `\#`, `a#b` are no comment). The cut errs
-  # one way: a `#` bash does not read as a comment is cut too (inside a quoted string, after a single-quoted
-  # ` #` on the same line, in an unquoted here-document body), which can only drop a real expansion, so that
-  # label goes uncounted and its records orphan (a false red). Never a false green: measured against bash 5.3
-  # and 3.2 by the CR-C1 fix round's `oracle.sh` (41 cases: 32 agree, 5 false red, 4 syntax-excluded, 0 false
-  # green). A definition and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl` token, expanded or
-  # not), so the names are asserted defined; `.vlabels` is their values.
+  # RULE 1: a `_*_lbl` name is used where bash EXPANDS it (`$name`, or `${name` and a non-identifier character), in the
+  # wire or a part but the record table (its here-document is quoted: a `$name` there is data). Each line, in this order:
+  # (1) a COMMENT, from a `#` at the line's start or after whitespace or one of `;&|()<>` (where bash begins a word), is
+  # cut FIRST (`$#`, `${x#y}`, `\#`, `a#b` are none; a quote stripped before the cut would pair across a `#`, a comment's
+  # text turned code: a false green); (2) a quoted here-document's body (`<<'W'`, `<<"W"`, `<<\W`) is skipped to its
+  # terminator; (3) each `\`+char is dropped, then each single-quoted span (`'$x_lbl'`, `\$x_lbl`, `$'…'` expand nothing).
+  # Every error is a false RED (a real expansion dropped, its records orphan): a `#` or `'` inside double quotes, an
+  # unquoted here-document body's `#`, a bare arithmetic name (`$((x_lbl))`). Never a false green on the CR-C1 fix
+  # round's oracle, 131 cases (114 agree, 13 false red, 4 syntax-excluded; bash 5.3 and 3.2; measured outside the repo, the figures stated here, not the logs).
+  # A definition and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl`
+  # token, expanded or not), so the names are asserted defined; `.vlabels` is their values.
   _cen_files=()
   for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in *.records.sh) ;; *) _cen_files+=("$_cen_f") ;; esac; done
-  _cen_used="$(awk '{ s = $0; if (match(s, /(^|[[:space:];&|()<>])#/)) s = substr(s, 1, RSTART - 1); s = s " "
+  _cen_used="$(awk 'FNR == 1 { hd = "" } hd != "" { l = $0; if (hdt) sub(/^\t+/, "", l); if (l == hd) hd = ""; next }
+    { s = $0; if (match(s, /(^|[[:space:];&|()<>])#/)) s = substr(s, 1, RSTART - 1)
+      if (match(s, /(^|[^<])<<-?[ \t]*(\047|"|\\)[A-Za-z0-9_]+/)) { hd = substr(s, RSTART, RLENGTH); hdt = (hd ~ /<<-/); sub(/^.*[\047"\\]/, "", hd) }
+      gsub(/\\./, " ", s); gsub(/\047[^\047]*\047/, " ", s); s = s " "
       while (match(s, /[$][{]?_[A-Za-z0-9_]*_lbl[^A-Za-z0-9_]/)) {
         t = substr(s, RSTART, RLENGTH - 1); sub(/^[$][{]?/, "", t); print t; s = substr(s, RSTART + 1) } }' "${_cen_files[@]}" | LC_ALL=C sort -u)" || {
     echo "!! the label-expansion scan failed: nothing was decided." >&2; _mut_corr_bad=1; }
