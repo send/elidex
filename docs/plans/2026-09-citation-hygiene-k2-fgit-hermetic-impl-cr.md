@@ -748,7 +748,10 @@ lines at `90c34df5`, 33 true, 2 imprecise (fixed), 0 false.
 it leaves every shipped run green (plan GC-6: latent, a claim row). Its evidence is the claim table above (the planted records of the
 fix round, red by name, rc 1, both shells, no stray file) and the `ptest.sh` table, not a record.
 
-BATTERY-PLACEHOLDER
+**Measured: the battery** (`BASE_REV=bde7208c`, on the tree of `17546f45`, i.e. before the re-check's fixes `046b4c30` and
+`3d91a5b9`, whose tool changes are covered by ship ×4, the path-equality script and one opt-in record at the head; both shells,
+identical): 88 comparable cases, 0 rc, PASSED or CONTROL FAILED differences, 0 cases whose edit no longer applies. The cases are
+maintained outside the repo (the measured-outside convention).
 
 **Measured: completion** (the tool files of `3d91a5b9`, which the entry's commit does not touch). Ship PASSED, rc 0, 0 `!!` lines, x4
 (BSD and GNU-like `grep` x bash 5.3 and 3.2); `scripts/trip-wires.sh` rc 0; `bash -n` clean on every tool file, both shells; one
