@@ -13,7 +13,10 @@
 //!
 //! Boundary: node factories (`create_*`), tree/attribute mutation, and
 //! queries that merely *use* a classification (e.g. `is_contenteditable`,
-//! `resolve_attribute_qname`) stay in the parent module.
+//! `resolve_attribute_qname`) stay in the parent module. Two predicates of
+//! the same shape live in `tree/navigation.rs`, not here: `is_shadow_root`
+//! (which `is_document_fragment` calls) and `has_tag` (a case-sensitive
+//! tag-name match, unlike the ASCII case-insensitive ones above).
 
 use hecs::Entity;
 
@@ -28,7 +31,7 @@ impl EcsDom {
     /// writes only.
     ///
     /// HTML-spec knowledge co-located with `shadow.rs` `VALID_SHADOW_HOST_TAGS`
-    /// (lines 65-84) + `is_valid_shadow_host` (lines 122-125) tag-whitelist
+    /// + `is_valid_shadow_host` tag-whitelist
     /// precedent per layering mandate (small HTML predicates in
     /// elidex-ecs are OK; large algorithms hoist to elidex-dom-api).
     #[must_use]
