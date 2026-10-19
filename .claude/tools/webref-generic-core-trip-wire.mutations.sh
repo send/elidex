@@ -552,8 +552,8 @@ _mut_correspondence() {
   # RULE 1: a `_*_lbl` name is used where it is EXPANDED (`$name`, or `${name` and a non-identifier
   # character) on a non-comment line of the wire or of a part but the record table, whose here-document is
   # quoted (a `$name` there is data, and would keep a label "used" by a record's own text). A definition
-  # line, a comment and an indirect `${!x}` are no use. `_lbd` read the same files, so the names are asserted
-  # defined, and `.vlabels` is their values.
+  # line, a comment and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every
+  # `_*_lbl` token, expanded or not), so the names are asserted defined; `.vlabels` is their values.
   _cen_files=()
   for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in *.records.sh) ;; *) _cen_files+=("$_cen_f") ;; esac; done
   _cen_used="$(awk '$0 !~ /^[[:space:]]*#/ { s = $0 " "
