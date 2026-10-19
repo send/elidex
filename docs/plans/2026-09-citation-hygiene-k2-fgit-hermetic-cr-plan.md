@@ -408,8 +408,9 @@ census population is bijected with the text.**
 ### §3.2 The rules (CR-C1)
 
 1. **Variable labels count as used only where expanded.** `.vlabels` = the values of the `_*_lbl` names that have at
-   least one expansion (`$name`, or `${name` followed by a non-identifier character) on a non-comment line of **the
-   wire or any part except the record table**. A definition line, a comment and an indirect `${!x}` are not uses. The
+   least one expansion (`$name`, or `${name` followed by a non-identifier character) outside a comment, in **the
+   wire or any part except the record table**. A comment is the text from a `#` that begins a word to the line's end, cut
+   on every line (fix round, I-1). A definition line and an indirect `${!x}` are not uses. The
    record table is out because its here-document is quoted (records.sh:42, `<<'MUTANTS'`): a `$name` there is sed
    data, never expanded, and counting it would keep a label "used" by a record's own text (at the frame records.sh
    :361, :363, :374 spell `$_fw_lbl` and `$_mg_lbl`). **(M)** `crplan-r2/logs/M-expansions.txt`: 27 names; `_ord_lbl`
@@ -728,6 +729,7 @@ correctly on 5.3 and folds on 3.2: `work/v1m1`.) C3's guard is a record, as the 
 | BS-3 | a stale `WEBREF_WIRE_LACKS` on a capable machine (P2): the ship run there carries no evidence for GB2b-1/2/4, since a wrong 0 would be accepted. The opt-in run is not blind: the flag is 1 there, so the probe-flip records SURVIVE unexcused → red | the declaration is the caller's; nothing shipped sets it | residual R4's launch-environment class, `#11-trip-wire-launch-environment`, named as a member: residuals.md:111 and landing.md:183-186's amend text (CR-B2b) |
 | BS-4 | an echo-only producer made unreachable while its expansion stays in the text | rule 1 counts text; reachability is what its records test | the opt-in run (X3); stated at the census |
 | BS-5 | two calls under one label on one line are one site (AL2/H-2) | the line is the finest site bash reports | already declared, mutations.sh:502-510 |
+| BS-5a | a `#` after whitespace inside a quoted string is cut as a comment by rule 1, so an expansion there is not counted (fix round, I-1) | the cut errs one way: a dropped real expansion leaves its label uncounted, so its records orphan: a false red, never a false green | declared at mutations.sh rule 1's comment; design memo row C |
 | BS-6 | a direct block under an echo-only producer's variable label | the literal rule is `_control`'s only | already declared, mutations.sh:491-494, design memo row C |
 | BS-7 | **any record whose plant needs a capability the machine lacks** may not be killed as named there, and then a declaring machine's opt-in reds: a FIFO (201, 215, 217, 219, needle `$_pg_lbl`: WRONG REASON with mutant rc 2 under the no-FIFO simulation, both shells, (M) `crplan-r2/logs/M-k14.txt`, `crplan-r3/logs/M-nofifo217.txt`); mode enforcement (189, 190: `chmod 300`/`600` on the void; 296: a `chmod 0444` parent), not measured, real root being unreachable here | their needle is no member, and their mutant's 2 is the "decided nothing" a harness break also reports, so `_mut_trial` returns 2 (G10) and nothing excuses it: the fail-safe side, an opt-in false red only | stated at `_mskip`; the opt-in at T runs on capable machines (X3). **Re-evaluation trigger:** a no-FIFO or root declaring machine becomes a supported opt-in profile. (The old BS-7, the P-x limits, is closed by F18.) |
 
@@ -828,7 +830,7 @@ then applies R10, R12 and R13 in the split's follow-up commit. Recorded 2026-10-
   machine-limit shape ("a line in the run's own summary saying so, run stays green"; "NOT EXERCISED otherwise");
   since CR-B2b an undeclared absence is red, and the summary line is `_cap_lines`'s since CR-B2a.
 - **R13 (CR-C1; the ledger)**: the banner :28-30 counts "the value of every `_*_lbl` name the parts spell"; since
-  CR-C1 the ratchet counts the names expanded on a non-comment line of the wire or a part other than the record table.
+  CR-C1 the ratchet counts the names expanded outside a comment in the wire or a part other than the record table.
 
 **Required claim rows carried from plan-review R3** (its I items; R3's terminator: not re-designed here, measured on
 the real code by the owning slice's instrument, each row in that slice's claim table). Each row: what is measured, on
