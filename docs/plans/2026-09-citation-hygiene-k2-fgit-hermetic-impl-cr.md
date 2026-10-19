@@ -653,7 +653,17 @@ mutant). (3) The apply-time MATCHED NOTHING path (the always-on anchor check red
 (`wc -l`): `ctlrun.sh` 436, `controls.sh` 765, `mutations.sh` 900, `records.sh` 469, `harness.sh` 886 unchanged, the design memo
 755, `cr-sweep` 934.
 
-The battery (`BASE_REV=c6e69356`, on the head's tree): see the driver's addendum. BATTERY-PLACEHOLDER
+**Measured: the battery** (`BASE_REV=c6e69356`, on the tree of `4070c49d`, i.e. before the escaped-name record and the ratchet
+comment, which change no always-on behaviour; both shells, identical): 88 comparable cases, 12 rc, PASSED or CONTROL FAILED
+differences and 3 cases whose edit no longer applies, all explained. Intended: the four trust and window cases gain the census
+red listing the three standing checks' call lines (§3.2's "Trust": a second red on a red run), and the gate-ask case one more
+census red. Made stale by this slice: two cases now red on a record's anchor (the row loop the GC-3 record anchors), two whose
+late unregistered call rule 2 now catches without `_mut_census_end` (retargeted onto a late duplicate registry row, the class
+only that guard sees: red with the guard, green without it), one already stale at the base, the two empty-parts cases (the run
+reds through orphaned records, rc 1, no longer the defined-labels check's exit 2, since that check reads the wire too), and the
+three whose edited text moved (the `.labels` build, the literal-label test, the entry guard's list: needles fixed, each re-run
+red or green as before). A control with the mutation copy set and no edit is green on both shells and on the base (the census
+does not depend on the copies' names). The cases are maintained outside the repo (the measured-outside convention).
 
 **Carried from §S.5, discharged here.** The design memo's census row now lists the membership record among its pins (row C).
 **Carried onward to CR-C2.** (1) The `_lbd_files` guard and its message (above). (2) `mutations.sh` is at 900: C2's edits to it must
