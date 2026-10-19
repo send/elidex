@@ -626,9 +626,11 @@ argument that nothing false-green remains is that every step only drops text, so
 records orphan: a false red) and can never invent one; the false-red classes are declared in rule 1's comment, BS-5a, row C and R13
 (a `#` or `'` inside double quotes, a `#` after a single-quoted ` #` on the line, an unquoted here-document body's `#`, a bare
 arithmetic name `$((name))`). The oracle was run outside the repo and the figures are stated in the memo, the logs are not copied (the
-convention of this file's header). A new two-expression record (the third round's, 250) is killed as named, both shells, and
-SURVIVES with the single-quoted-span step removed and with all three steps removed; **the escape step is not pinned by a record**
-(removed, the record is still killed as named: 0 not killed), only by the oracle.
+convention of this file's header). Two new two-expression records are killed as named, both shells: the third round's (250, the name in a single-quoted span) SURVIVES
+with the single-quoted-span step removed and with all three steps removed; the fourth round's (251, the name escaped, ` ; : \$_pkl_lbl`
+appended to the `_pkl=bad` line) SURVIVES with the escape step removed, and with that step removed the 250 record is still killed as
+named (0 not killed), so 251 is the escape step's only pin by a record (one-record opt-in trials, both shells; `_MUT_RECORDS_MIN=251`,
+`_MUT_UNRECORDED_MAX=18` unchanged).
 
 **Ledger: 22 of 576 rows fail, an instrument limit, with a manual backstop.** `ledger-check.py C1` reports the same 22 rows at
 `505ad593` and at the head: the 12 settled CR-B2b and CR-B2c rows (§S.4, §S.5) and 10 retained hit lines of rewritten extents (the
