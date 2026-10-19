@@ -409,8 +409,8 @@ census population is bijected with the text.**
 
 1. **Variable labels count as used only where expanded.** `.vlabels` = the values of the `_*_lbl` names that have at
    least one expansion (`$name`, or `${name` followed by a non-identifier character) outside a comment, in **the
-   wire or any part except the record table**. A comment is the text from a `#` that begins a word to the line's end, cut
-   on every line (fix round, I-1). A definition line and an indirect `${!x}` are not uses. The
+   wire or any part except the record table**. A comment is the text from a `#` at the start of a line or after whitespace or one of `;&|()<>`
+   to the line's end, cut on every line (fix round, I-1, N-1); its false reds (quoted string, single-quoted ` #`, unquoted here-document body) are declared at BS-5a. A definition line and an indirect `${!x}` are not uses. The
    record table is out because its here-document is quoted (records.sh:42, `<<'MUTANTS'`): a `$name` there is sed
    data, never expanded, and counting it would keep a label "used" by a record's own text (at the frame records.sh
    :361, :363, :374 spell `$_fw_lbl` and `$_mg_lbl`). **(M)** `crplan-r2/logs/M-expansions.txt`: 27 names; `_ord_lbl`
@@ -437,8 +437,9 @@ census population is bijected with the text.**
    that is not its text). It enforces the convention the file states but never checked (controls.sh:512-513, "(no
    `if` around it)", deleted with the prefixes in CR-B2a, whose rule this becomes), and, with its "an `_lbl="…"`
    definition" reworded to an expansion (rule 1), it makes mutations.sh:180-181 true ("ADDING A LABEL MEANS ADDING A
-   RECORD … the ratchet below is what makes that true"). The registry becomes
-   machine-independent, so `_MUT_UNRECORDED_MAX` is exact on every profile.
+   RECORD … the ratchet below is what makes that true"). The bijection fixes which sites
+   exist, and every call site passes a fixed label, so the rows and labels are the same on every profile and
+   `_MUT_UNRECORDED_MAX` is exact (measured).
    - **(M) At the frame** (`crplan-r2/logs/M-registry.txt`; clone `work/inst` = the frame plus one line dumping the
      census files): registry 90 rows, 88 sites, byte-identical between the shells (as are `.bare` 18, `.labels` 110,
      `.needles` 223, `.vlabels` 27); 91 text call lines. The three differences are text-only: controls.sh:234 and :270,
@@ -485,7 +486,7 @@ line per row) and `$_cap_lbl`. A second producer made as a direct block under an
 (mutations.sh:491-494, design memo row C) stays declared (§6 BS-6).
 
 **D3, a standing check's own presence is pinned.** C delivers it for all three: `_wm`, `_ev` and `_cap` (R1 F1).
-Deleted: its label has no expansion and no site, so its records are orphans. Wrapped in `if false`, or its row loop
+The check (its whole block) deleted: its label has no expansion and no site, so its records are orphans. Only its call line deleted: its own red lines still expand the label (`_wm`, `_ev`, `_cap`), so the check reds under its own label first (B-CLAIMS Fix round O-2, measured for `_cap`). Wrapped in `if false`, or its row loop
 emptied: its call line has no site. Until CR-C1, `_cap`'s presence is pinned the old way only (its label is still
 "used" by its definition line); that intermediate state spans three slice boundaries, CR-B2a → B2b → B2c → C1 (R1
 F21). The table check `_cap_check` is not a call line (it names no run primitive), so rule 2 cannot see its call
@@ -566,7 +567,7 @@ standing check; its presence is pinned by GB2-12) · K the k2 shim.
 | S×W | the summary is never printed on a run whose standing check red | `[ "$ctl_ok" -eq 0 ] \|\| exit 1` (controls.sh:684) precedes it | unchanged (ship red on any W red) |
 | S×K | the k2 claim prints in the static lines, and is no label | text | B1's grep |
 | N×Rf | adding a guard record raises the record count, never lowers the floor in silence | floor unchanged in semantics; each slice sets it to its count | slice completion |
-| N×Rx | the bijection makes `.labels` machine-independent → Rx exact on every profile | rule 2 | GC-2, P1/P4/P6 rows |
+| N×Rx | the bijection fixes the sites, and fixed labels per call fix the labels → `.labels` the same on every profile (measured) → Rx exact | rule 2 | GC-2, P1/P4/P6 rows |
 | N×X | `_mskip`'s P-x half keys on `_lbd_names`, whose population gains the wire | `_p<x>*_lbl` names unchanged (the wire defines none; `_pfl_lbl` is new) | claim row: P-x excuse unchanged |
 | N×D | every new label has a record; every removed label's records go | the census itself | ship green |
 | N×L | none: LACKS names groups and IDs, not labels | — | independent |
@@ -729,7 +730,7 @@ correctly on 5.3 and folds on 3.2: `work/v1m1`.) C3's guard is a record, as the 
 | BS-3 | a stale `WEBREF_WIRE_LACKS` on a capable machine (P2): the ship run there carries no evidence for GB2b-1/2/4, since a wrong 0 would be accepted. The opt-in run is not blind: the flag is 1 there, so the probe-flip records SURVIVE unexcused → red | the declaration is the caller's; nothing shipped sets it | residual R4's launch-environment class, `#11-trip-wire-launch-environment`, named as a member: residuals.md:111 and landing.md:183-186's amend text (CR-B2b) |
 | BS-4 | an echo-only producer made unreachable while its expansion stays in the text | rule 1 counts text; reachability is what its records test | the opt-in run (X3); stated at the census |
 | BS-5 | two calls under one label on one line are one site (AL2/H-2) | the line is the finest site bash reports | already declared, mutations.sh:502-510 |
-| BS-5a | a `#` after whitespace inside a quoted string is cut as a comment by rule 1, so an expansion there is not counted (fix round, I-1) | the cut errs one way: a dropped real expansion leaves its label uncounted, so its records orphan: a false red, never a false green | declared at mutations.sh rule 1's comment; design memo row C |
+| BS-5a | a `#` at the start of a line or after whitespace or one of `;&|()<>` is cut as a comment by rule 1 even where bash reads no comment (inside a quoted string, after a single-quoted ` #` on the same line, in an unquoted here-document body), so an expansion there is not counted (fix round, I-1, N-1) | the cut errs one way: a dropped real expansion leaves its label uncounted, so its records orphan: a false red; never a false green, measured against bash 5.3 and 3.2 by the fix round's `oracle.sh` (41 cases: 32 agree, 5 false red, 4 syntax-excluded, 0 false green) | declared at mutations.sh rule 1's comment; design memo row C |
 | BS-6 | a direct block under an echo-only producer's variable label | the literal rule is `_control`'s only | already declared, mutations.sh:491-494, design memo row C |
 | BS-7 | **any record whose plant needs a capability the machine lacks** may not be killed as named there, and then a declaring machine's opt-in reds: a FIFO (201, 215, 217, 219, needle `$_pg_lbl`: WRONG REASON with mutant rc 2 under the no-FIFO simulation, both shells, (M) `crplan-r2/logs/M-k14.txt`, `crplan-r3/logs/M-nofifo217.txt`); mode enforcement (189, 190: `chmod 300`/`600` on the void; 296: a `chmod 0444` parent), not measured, real root being unreachable here | their needle is no member, and their mutant's 2 is the "decided nothing" a harness break also reports, so `_mut_trial` returns 2 (G10) and nothing excuses it: the fail-safe side, an opt-in false red only | stated at `_mskip`; the opt-in at T runs on capable machines (X3). **Re-evaluation trigger:** a no-FIFO or root declaring machine becomes a supported opt-in profile. (The old BS-7, the P-x limits, is closed by F18.) |
 
