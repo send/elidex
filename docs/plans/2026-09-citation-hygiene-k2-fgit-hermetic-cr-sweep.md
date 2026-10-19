@@ -60,7 +60,7 @@ identifiers, class and slice unchanged (**(M)** `crplan-r4/logs/M-h1-inputs.txt`
 | `lacks` `cap_chk` `cc_vars` | `WEBREF_WIRE_LACKS`; `_cap_chk_`; `_cc_[a-z]` | the declaration of an absence and the table check that reads it (B2b): the variable the caller sets, the check's reporters and row handlers (`_cap_chk_red`, `_cap_chk_absent`, `_cap_chk_row`, `_cap_chk_member`; all also matched by `cap_table`), and the function-locals of `_cap_check` (`_cc_*`) |
 | `mut_skip` | `_mut_skip_glabel`, `_mut_wrong_reason`; `_mk_g` | the capability excuse's callback (a needle that is a group's own label) and the wrong-reason diagnostic's function, and the callback's out-variable `_mk_g`, which `_mut_run` reads (B2c, R3-all-3); the excuse's other local `_mskip_g` is matched by `mskip` |
 | `cen_vars` | `_cen_[a-z]` (word-start-bounded) | the census's locals CR-C1 adds in `_mut_correspondence` (`_cen_used`, the expanded names; `_cen_files`, the files it scans; `_cen_rc`, the registry scan's exit; the loop variables `_cen_v`, `_cen_f`), and `_cen_lbl`, which `cen_lbl` also matches (C1, R3-all-3); `_lbd_files`, which C1 now also reads in the census and `_lbd` seeds with `$SELF`, is matched by `lbd` (its ERE `_lbd` followed by a non-alphanumeric, and `_` is one) |
-| `part_path` `target_prose` | `_mut_part_path`; `_mut_pp`, `_mut_pp_pre`, `_mut_pp_suf` (word-bounded); `_mt_p` (word-bounded) -- and `hand list`, `file operand`, `wfile`, `unlisted prefix`, `prefix that is not listed` | the part-path helper and its out-variables, and the derivation loop's variable `_mt_p` (CR-C2, R3-all-3); the prose that says how a record's prefix reaches `sed` (mutations.sh :227-234 at the frame, R3-all-3) |
+| `part_path` `target_prose` | `_mut_part_path`; `_mut_pp`, `_mut_pp_pre`, `_mut_pp_suf`, `_mut_pp_ext`, `_mut_cp`, `_mut_own_pre`, `_mut_own_suf` (word-bounded); `_mt_p` (word-bounded) -- and `hand list`, `file operand`, `wfile`, `unlisted prefix`, `prefix that is not listed` | the part-path helper and its out-variables, and the derivation loop's variable `_mt_p` (CR-C2, R3-all-3); the prose that says how a record's prefix reaches `sed` (mutations.sh :227-234 at the frame, R3-all-3) |
 
 **A row is the statement that holds the hit**, not the hit line alone: the comment block, paragraph, bullet or
 table row it sits in (prose wraps, which is how stem greps missed sites). The disposition names the extent
@@ -840,7 +840,7 @@ cap_chk	_cap_chk_
 cc_vars	(^|[^A-Za-z0-9_])_cc_[a-z]	
 mut_skip	_mut_skip_glabel|_mut_wrong_reason|(^|[^A-Za-z0-9_])_mk_g([^A-Za-z0-9_]|$)	
 cen_vars	(^|[^A-Za-z0-9_])_cen_[a-z]	
-part_path	_mut_part_path|(^|[^A-Za-z0-9_])_mut_pp(_pre|_suf)?([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])_mt_p([^A-Za-z0-9_]|$)	
+part_path	_mut_part_path|(^|[^A-Za-z0-9_])_mut_pp(_pre|_suf|_ext)?([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])_mut_(cp|own_pre|own_suf)([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])_mt_p([^A-Za-z0-9_]|$)	
 target_prose	hand list|hand-list|file operand|wfile|unlisted prefix|prefix that is not listed	
 ```
 
@@ -933,11 +933,13 @@ run "B2a docs (corpus excluded: its §6.1 rows are history)" -e '_ctl_need|\.dec
 run "B2b phrases" -e 'reported below and not|printed on a green line would|as for the FIFO and file-permission controls|the treatment P-b and the FIFO and file-permission controls' -- "${P[@]}" "${D[@]}"
 run "B2c hash in _mskip's comment" -e "dropped-at-cap round, commit \`[0-9a-f]{8}\`" -- .claude/tools/webref-generic-core-trip-wire.mutations.sh
 # CAN'T SEE (stated, not closed): a hand list in the derivation's LOOP HEAD (`for _mt_p in controls harness ...`), or any list not
-# assigned to _MUT_TARGETS (a second variable read by `_mut_parse`). A person reads the loop head once per slice.
+# assigned to _MUT_TARGETS (a second variable read by `_mut_parse`), and a hand word appended after the loop
+# (`_MUT_TARGETS="$_MUT_TARGETS extra"`: the same shape as the derivation's own line, so not told apart by text). A person reads
+# the loop and what follows it once per slice.
 run "C2 _MUT_TARGETS literal word assignment (any quote, indented, += too; wire and all parts)" -e '_MUT_TARGETS[+]?=['"'"'"]?[[:space:]]*[a-z]' -- "${P[@]}"
 # CAN'T SEE (stated, not closed): a part path spelled without `${SELF...}` (e.g. `$_mut_base.<part>.sh`, a literal stem, a
 # string built another way). The second grep covers the `$_mut_base` spelling; the rest is found by MEANING (reading each
-# `.sh"` / `mutant.` string in the mutation run), and after I-1 there is none.
+# `.sh"` / `mutant.` string in the mutation run), and since the census's records-file test went through the helper there is none.
 run "C2 part path spelled from SELF (after CR-C2 fix round: wire:1235 and the helper's definition, comments)" -e '\$\{SELF(%|/%|/)' -- "${P[@]}"
 run "C2 part path spelled from \$_mut_base (after the fix round: 0)" -e '\$_mut_base"?\.|"\$_mut_base"\.|\$\{_mut_base\}' -- "${P[@]}"
 ```
