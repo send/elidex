@@ -146,15 +146,13 @@ for _lbd_p in $_MUT_PARTS; do
   _lbd_f="${SELF%.sh}.$_lbd_p.sh"
   [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
 done
-# grep with no file operand would read the wire's stdin, so an empty list skips it
-_lbd_names=""
-[ "${#_lbd_files[@]}" -eq 0 ] || _lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
+_lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
 _lbd_missing=""
 for _lbd_n in $_lbd_names; do
   [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
 done
 if [ -z "$_lbd_names" ]; then
-  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the parts, so none was checked" >&2
+  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the wire or the parts, so none was checked" >&2
   exit 2
 elif [ -n "$_lbd_missing" ]; then
   echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2

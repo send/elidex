@@ -263,8 +263,8 @@ _MUT_UNRECORDED_MAX=18
 # standing checks' verdict markers): 231 -> 237. CR-B2b added three (the FIFO and permission probes' flips, P-f's
 # definition test forced to the limit branch): 237 -> 240. CR-C1 added eight (the `_pkl_lbl` expansion deleted, relcwd's
 # call behind `if false &&`, a `_control` behind a branch not taken, the three standing checks' row loops emptied, the
-# two-expression site-line record, the registry's fourth field): 240 -> 248.
-_MUT_RECORDS_MIN=248
+# two-expression site-line record, the registry's fourth field): 240 -> 248; its fix round one (a name left in a trailing comment): 249.
+_MUT_RECORDS_MIN=249
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -527,8 +527,9 @@ _mut_correspondence() {
   # sites, kinds included, so an unexecuted call (an `if false &&`, a branch this
   # machine does not take), a call registered at another line and a call the text hides
   # (`eval`, a split word, a helper defined on another line) are each red, and the
-  # registry is the same on every machine. One parse reads it (rule 3): a row holds
-  # exactly three TAB fields. A `_control` LABEL IS LITERAL: one of that kind equal
+  # registry's sites are the same on every machine (its rows and labels per site too:
+  # every call passes a fixed label, measured). One parse reads it (rule 3): a row
+  # holds exactly three TAB fields. A `_control` LABEL IS LITERAL: one of that kind equal
   # to a variable's value is red — the variables' producers are `echo` lines, not
   # calls, so a second `_control` under a recorded variable label would otherwise pass
   # under that record. The rule is `_control`'s only: a direct `_ctl_run` / `_ctl_gate`
@@ -542,21 +543,24 @@ _mut_correspondence() {
   # is red without it (the window's exit 2, `_lbd`, a missing part).
   # ONE LABEL, ONE SITE: a label registered from two lines is red — a second
   # producer reusing a recorded label would otherwise pass under the first's
-  # record. The line is the finest site bash reports: two calls under one label on
-  # ONE line are one site, and so are calls a `trap` body or a multi-line `eval`
-  # string fold onto one reported line (the run primitives' registry header); the
-  # controls file has no `trap` or `eval` call. And a direct block (an `if ! _ctl_run`
+  # record. The line is the finest site bash reports: under rule 2 only calls on ONE
+  # physical line are one site; a fold across separate call lines (a `trap` body, a
+  # multi-line `eval`) is red, the unreported line having no site (record 380). And a direct block (an `if ! _ctl_run`
   # passing a variable label) under a label whose own producer is an `echo` line is one
   # site, as the literal rule above does not reach it.
   wc -l < "$_VFY/.registry" | tr -d '[:space:]' > "$_VFY/.census"
   # RULE 1: a `_*_lbl` name is used where it is EXPANDED (`$name`, or `${name` and a non-identifier
-  # character) on a non-comment line of the wire or of a part but the record table, whose here-document is
-  # quoted (a `$name` there is data, and would keep a label "used" by a record's own text). A definition
-  # line, a comment and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every
-  # `_*_lbl` token, expanded or not), so the names are asserted defined; `.vlabels` is their values.
+  # character) outside a comment, in the wire or a part but the record table, whose here-document is
+  # quoted (a `$name` there is data, and would keep a label "used" by a record's own text). A COMMENT is the
+  # text from a `#` that begins a word (at the line's start or after whitespace) to the line's end, cut on
+  # every line before matching (`$#`, `${x#y}` are no comment). The cut errs one way: a `#` after
+  # whitespace inside a quoted string is cut too, which can only drop a real expansion, so that label goes
+  # uncounted and its records orphan (a false red, never a false green). A definition and an indirect
+  # `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl` token, expanded or
+  # not), so the names are asserted defined; `.vlabels` is their values.
   _cen_files=()
   for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in *.records.sh) ;; *) _cen_files+=("$_cen_f") ;; esac; done
-  _cen_used="$(awk '$0 !~ /^[[:space:]]*#/ { s = $0 " "
+  _cen_used="$(awk '{ s = $0; if (match(s, /(^|[[:space:]])#/)) s = substr(s, 1, RSTART - 1); s = s " "
       while (match(s, /[$][{]?_[A-Za-z0-9_]*_lbl[^A-Za-z0-9_]/)) {
         t = substr(s, RSTART, RLENGTH - 1); sub(/^[$][{]?/, "", t); print t; s = substr(s, RSTART + 1) } }' "${_cen_files[@]}" | LC_ALL=C sort -u)" || {
     echo "!! the label-expansion scan failed: nothing was decided." >&2; _mut_corr_bad=1; }
