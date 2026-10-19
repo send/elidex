@@ -119,15 +119,19 @@ _ev_lbl="a previous run's channel evidence never answers for the next"
 # THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
 # derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
 # label check below, and in the mutation set its entry check, the sibling guard,
-# the per-run copies and `_mut_rm_copies` (the trap and the end of the run).
+# the per-run copies and `_mut_rm_copies` (the trap and the end of the run), and the
+# derivation of `_MUT_TARGETS` (the prefix words), which `_mut_parse` and `_mut_restore_copies` read.
 _MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
 # …AND THE PATH A PART HAS, spelled once too: `_mut_part_path <part>` sets `_mut_pp` to
 # `<wire stem>.<part>.sh`, derived from the CALLER'S OWN `$SELF` (so a `.mutant.<pid>` copy finds
 # its own copies), and `_mut_pp_pre` / `_mut_pp_suf` to the two halves around the part name: a glob
 # over the parts is `"$_mut_pp_pre"*"$_mut_pp_suf"` (the stem stays quoted, so a metacharacter in the
-# checkout's path is literal). Every site goes through it; the wire alone spells the path itself
-# (it finds this file before this helper exists).
-_mut_part_path() { _mut_pp_pre="${SELF%.sh}."; _mut_pp_suf=".sh"; _mut_pp="$_mut_pp_pre$1$_mut_pp_suf"; }
+# checkout's path is literal). An optional second argument is the STEM to use instead of the caller's
+# own (`${SELF%<ext>}`): the mutation run names its per-run copies through it, so what the run writes
+# and what a copy's own helper looks for are one rule (`_mut_pp_ext` is the wire's extension, which the
+# stem strips and the run's copy of the wire carries). Every site goes through it; the wire alone
+# spells the path itself (it finds this file before this helper exists).
+_mut_part_path() { _mut_pp_ext=".sh"; _mut_pp_pre="${2:-${SELF%"$_mut_pp_ext"}}."; _mut_pp_suf=".sh"; _mut_pp="$_mut_pp_pre$1$_mut_pp_suf"; }
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
@@ -159,7 +163,7 @@ for _lbd_n in $_lbd_names; do
   [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
 done
 if [ -z "$_lbd_names" ]; then
-  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the wire ($SELF) or its parts ($_MUT_PARTS), so none was checked" >&2
+  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the wire ($SELF) or the parts read (${_lbd_files[*]}), so none was checked" >&2
   exit 2
 elif [ -n "$_lbd_missing" ]; then
   echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2

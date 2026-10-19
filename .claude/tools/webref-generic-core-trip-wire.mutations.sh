@@ -237,18 +237,13 @@ fi
 # WHICH FILES A RECORD MAY EDIT, BESIDES THE WIRE: the prefix parts, DERIVED from
 # `_MUT_PARTS` (no second hand list) minus `records` — the one exclusion, because the
 # record table is the SUBJECT LIST, not a part under test (the same reason it is out of
-# rule 1). A record with no prefix edits the wire. `wire` is not a prefix: POSIX `w`
-# takes a wfile operand, so `wire:p` is a VALID write to a file called `ire:p`
-# (measured: BSD sed exits 0), and a record beginning with it must not be re-aimed.
-# A prefix that is not listed is not an error of its own either, and for the same
-# reason: `r` and `w` take a file operand, so a prefix that starts with either
-# (`records:s/a/b/` is `r ecords:s/a/b/`, a read of a file) is a VALID expression
-# that changes nothing, and the anchor check reds it as a stale anchor, naming the
-# expression it was written with. Any other unlisted prefix is read as the sed
-# command its first letter begins; the ones measured fail to parse on BSD sed
-# (`sed 'harness:p'`: "extra characters at the end of h command", `sed 'fixtures:p'`:
-# "invalid command code f"); GNU sed is not measured here (its one-line `a`, `i`
-# and `c` text forms may accept a prefix that starts with one of them).
+# rule 1). A record with no prefix edits the wire; `wire` is not a prefix.
+# ⚠ AN UNLISTED PREFIX IS A sed COMMAND, NOT AN ERROR sed REPORTS: its first letter begins one. `r` reads
+# and `w` WRITES the file the rest of the line names (`wire:p` creates `ire:p`); GNU adds `e`, which RUNS the
+# rest as a shell command, and `R` `W` `F` `z` `v` `Q`. So the always-on anchor check names a word of two or
+# more letters and a colon that is no word of `_MUT_TARGETS`, and reds it BEFORE any `sed` reads it.
+# MEASURED, BSD sed only: `wire:p` exits 0 and writes `ire:p`; `harness:p` "extra characters at the end of h
+# command"; `fixtures:p` "invalid command code f". NOT measured: GNU sed (none on this machine); X9's route (b).
 _MUT_TARGETS=""
 for _mt_p in $_MUT_PARTS; do
   case "$_mt_p" in records) ;; *) _MUT_TARGETS="$_MUT_TARGETS $_mt_p" ;; esac
@@ -272,7 +267,7 @@ _mut_target() {
   _mut_src_for "$1"
   case "$1" in
     wire) _mut_tgt="$_mut_wire" ;;
-    *)    _mut_tgt="$_mut_base.$1.sh" ;;
+    *)    _mut_part_path "$1" "$_mut_base"; _mut_tgt="$_mut_pp" ;;
   esac
 }
 # …its first half, usable without a per-run `$_mut_base` (the always-on anchor
@@ -347,7 +342,7 @@ _mut_restore_copies() (
 # Every per-run copy, removed: by the trap on an early exit, and at the end.
 _mut_rm_copies() {
   command rm -f "$_mut_wire"
-  for _mp in $_MUT_PARTS; do command rm -f "$_mut_base.$_mp.sh"; done
+  for _mp in $_MUT_PARTS; do _mut_part_path "$_mp" "$_mut_base"; command rm -f "$_mut_pp"; done
 }
 
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
@@ -656,6 +651,9 @@ _mut_correspondence() {
          _ma_i=0
          while [ "$_ma_i" -lt "$_pr_n" ]; do
            _ma_x="${_pr_expr[$_ma_i]}"; _ma_i=$((_ma_i + 1))
+           case "$_ma_x" in *:*) _ma_w="${_ma_x%%:*}"; case "$_ma_w" in ?|*[!A-Za-z]*) ;; *)
+             echo "!! mutation record expression \"$_ma_x\": \"$_ma_w:\" is no prefix of \`_MUT_TARGETS\`; sed would read it as a command (\`w\` writes, \`e\` runs)." >&2
+             _mut_corr_bad=1; continue ;; esac ;; esac
            # ⚠ EACH EXPRESSION ALONE, AND IT MUST CHANGE EXACTLY ONE LINE of its
            # target. Whole-record, whole-file was the old granularity: an
            # expression that also matched a COMMENT passed on the comment after the
@@ -770,14 +768,14 @@ _mut_run() {
     # `$ROOT` is derived from `$0`, and the scope it must read is this
     # repository's real generic core. `$$` is what makes the two runs disjoint.
     _mut_part_path "mutant.$$"; _mut_base="${_mut_pp%"$_mut_pp_suf"}"
-    _mut_wire="$_mut_base.sh"
+    _mut_wire="$_mut_base$_mut_pp_ext"
     # ⚠ A LEFTOVER IS A REPORT, NOT A FILE TO CLEAN UP. `trap` does not run on
     # SIGKILL, so a killed run leaves mode-755 artifacts in `.claude/tools/`
     # where a `git add -A` would stage them. Say so; do not delete another run's.
     _mut_part_path "mutant.*"
     for _stale in "$_mut_pp_pre"mutant.*"$_mut_pp_suf"; do
-      case "$_stale" in *'.mutant.*.sh') break ;; esac
-      case "$_stale" in "$_mut_wire"|"$_mut_base".*) continue ;; esac
+      case "$_stale" in "$_mut_pp") break ;; esac; _mut_part_path '*' "$_mut_base"
+      case "$_stale" in "$_mut_wire"|"$_mut_pp_pre"*"$_mut_pp_suf") continue ;; esac
       echo "  note: a previous mutation run left $_stale behind (SIGKILL?); it is" >&2
       echo "        not this run's to remove. Delete it once no run is using it." >&2
     done
@@ -786,7 +784,7 @@ _mut_run() {
     trap '_k2_rc=$?; _mut_rm_copies; _k2_exit "$_k2_rc"' EXIT
     # Every part once; the wire and the targets are re-copied per entry by
     # `_mut_restore_copies`, because entries edit them.
-    for _mp in $_MUT_PARTS; do _mut_part_path "$_mp"; cp "$_mut_pp" "$_mut_base.$_mp.sh"; done
+    for _mp in $_MUT_PARTS; do _mut_part_path "$_mp"; _mut_cp="$_mut_pp"; _mut_part_path "$_mp" "$_mut_base"; cp "$_mut_cp" "$_mut_pp"; done
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$_VFY/.mutants"
