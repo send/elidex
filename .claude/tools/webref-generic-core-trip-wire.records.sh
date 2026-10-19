@@ -278,7 +278,7 @@ fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" a-rwx wa
 fixtures:s/^_seal "[$]CTL\/walk\/sub" 000 walk$/_seal "$CTL\/walk\/sub" 000 wa.lk/	every mode restriction a fixture sealed was applied
 # The err fixture's chain failing is NOT a machine that cannot enforce modes:
 # the perm block is gated on its own probe (`_perm_ok`), so where `_perm_ok` is 1
-# `_control err` reports the failed build; and the err seal line, deleted, is red in the same control.
+# `_control err` reports the failed build, and there the err seal line, deleted, is red in the same control.
 fixtures:s/^_seal "[$]CTL\/err\/control.py" 000 err$/_fixture_failed err; &/	an unreadable file fails closed
 fixtures:/^_seal "[$]CTL\/err\/control.py" 000 err$/d	an unreadable file fails closed
 # `_ctl_run`'s timeout clause reads a signal status as a timeout only beside the watchdog's marker
