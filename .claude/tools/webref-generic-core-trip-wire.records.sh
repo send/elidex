@@ -383,6 +383,7 @@ controls:s/^\[ -z "[$]_fw_limits" \] || _limit_lines=.*$/&; _v1="$(_control "$CT
 ctlrun:s/^  printf '%s:%s\\t%s\\t%s\\n' /  printf '%s:%s\\t%s\\t%s\\tx\\n' /	every label the run used is named by a mutation record
 harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& # $_pkl_lbl/	every label the run used is named by a mutation record
 harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& ; : '$_pkl_lbl'/	every label the run used is named by a mutation record
+harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& ; : \\\$_pkl_lbl/	every label the run used is named by a mutation record
 # THE CAPABILITY TABLE (`$_cap_lbl`: the gate's capability arm, pinned by the `_cap` standing check in the
 # controls file; `$_capt_lbl`: the table check; the reader and the gate's lookup are ctlrun's). Each `$_cap_lbl`
 # record is killed by the `_cap` row named beside it, on every machine (the rows replace the table and the

@@ -264,8 +264,8 @@ _MUT_UNRECORDED_MAX=18
 # standing checks' verdict markers): 231 -> 237. CR-B2b added three (the FIFO and permission probes' flips, P-f's
 # definition test forced to the limit branch): 237 -> 240. CR-C1 added eight (the `_pkl_lbl` expansion deleted, relcwd's
 # call behind `if false &&`, a `_control` behind a branch not taken, the three standing checks' row loops emptied, the
-# two-expression site-line record, the registry's fourth field): 240 -> 248; its fix round one (a name left in a trailing comment): 249; fix round two (the name in a single-quoted span): 250.
-_MUT_RECORDS_MIN=250
+# two-expression site-line record, the registry's fourth field): 240 -> 248; its fix round one (a name left in a trailing comment): 249; fix round two (the name in a single-quoted span): 250; fix round three (the name escaped, `\$`): 251.
+_MUT_RECORDS_MIN=251
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
