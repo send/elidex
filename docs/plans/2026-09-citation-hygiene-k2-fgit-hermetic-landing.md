@@ -129,7 +129,7 @@ decision) lands before #501 merges (land order step 7).
 CR-B2b an undeclared absence is red: a runner that cannot make a FIFO, or that reads a mode-000 file (root), or
 whose `env` refuses `-0`, makes that run RED under the group's or the limit's own label (`$_fifo_lbl`,
 `$_perm_lbl`, `$_pfl_lbl`), never a false green. The fix is a declaration in the job's `env:` beside `runs-on`
-(`WEBREF_WIRE_LACKS="fifo perm P-f"`, the names it needs), recorded in the open record (`…-impl-cr.md` §S). A
+(`WEBREF_WIRE_LACKS="fifo perm P-f"`, the names it needs), recorded in the open record (§13). A
 declaration cannot make a capable runner skip a control (the probe still decides what runs). Until that run, nothing
 here claims the runner's answer; a docker `ubuntu:24.04` run would be a PROXY, not the runner's fact.
 

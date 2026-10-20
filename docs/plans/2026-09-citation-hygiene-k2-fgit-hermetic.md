@@ -15,11 +15,12 @@ with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit
 ("`…-pr527-r15.md`"; closed at 799 lines by the §13 rollover), and the implementation record from review round 3 on in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md` ("`…-impl.md`", §R; closed at 799 lines, §13), continued, after it closed, in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr.md` ("`…-impl-cr.md`", §S; its §S.1 backfills the
-code review's first-half results §R lacks; the open record while under 800 lines, §13). **CR round**: the plan
+code review's first-half results §R lacks; closed at 797 lines, §13), continued, after it closed, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2.md` ("`…-impl-cr2.md`", §T; the open record while under 800 lines, §13). **CR round**: the plan
 of PR #527's CR round (clusters B and C of the branch-wide `/code-review max`), approved by plan-review R1–R3 and a
 focused re-check, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` ("`…-cr-plan.md`"), with its
 sweep ledger and the instruments the slices run (its §E) in
-`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-sweep.md` ("`…-cr-sweep.md`"). **Census**:
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-sweep.md` ("`…-cr-sweep.md`"). **CR2 round**: the plan of PR #527's CR2 round (the pre-push gate's eight own items), accepted by plan-review R1–R4 and the driver's diff read of r5, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan.md` ("`…-cr2-plan.md`") with its companion `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-exitpath.md` (its §6, the run's exit), and its sweep and the instruments its claims cite (its §E) in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-sweep.md` ("`…-cr2-sweep.md`"), with §E.2 and §E.3 in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-probes.md`, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-texts-r2-r3.md` and `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-texts-r4-r5.md` (its §E index names the file of each instrument).
+**Census**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md` ("`…-census.md`"), the second half of §4 (P-g's
 population, the census, the boundary and the working files), split out of this memo unchanged at `20615255`.
 **Corpus**:
@@ -739,15 +740,16 @@ not re-reviewed as a plan.
 The results before PR #527 are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §13
 (touch-time split; history). PR #527's results through plan-review round 14 are in `…-pr527.md` §P,
 which is closed. Every result from round 15 on, the planned commits included when they are made, goes to
-one place at a time, **the open implementation record**: `…-pr527-r15.md` §Q (closed at 799 lines) → `…-impl.md` §R (closed at 799 lines) → `…-impl-cr.md` §S (open
-while under 800 lines) → at §S's rollover, this section names the successor file before the first entry goes there. Future-tense routes say "the open record (§13)", not a file
+one place at a time, **the open implementation record**: `…-pr527-r15.md` §Q (closed at 799 lines) → `…-impl.md` §R (closed at 799 lines) → `…-impl-cr.md` §S (closed at 797 lines) → `…-impl-cr2.md` §T (open
+while under 800 lines). Future-tense routes say "the open record (§13)", not a file
 name (`…-landing.md` §9.1, step 2).
 
 **Rollover (D19-C).** When an entry would take `…-pr527-r15.md` past 800 lines (`wc -l`), that entry
 and every later one go to a new file, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md`,
 §R, with the same no-spec-surface §0, and §Q ends with a pointer to it. `…-impl.md` reached 799 lines with
 CR-S8a (`161ae982`); every entry from then on goes to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr.md`,
-§S, by the same rule, and §R ends with a pointer to it. This memo's split at 950 lines is
+§S, by the same rule, and §R ends with a pointer to it. `…-impl-cr.md` reached 796 lines with CR-S8b's entry and its X3 run; every entry from PR #527's CR2 round on goes to
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2.md`, §T, by the same rule, and §S ends with a pointer to it. This memo's split at 950 lines is
 done (S4c-0): §4 from "P-g's population, and the census before any git" to the end of §4 (the census,
 the boundary, the references and working files, the parent's directory, sealing and what P-g cannot
 see) was moved unchanged to `…-census.md`, with a pointer left in §4; the memo went from 950 to 729
