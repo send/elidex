@@ -16,7 +16,7 @@
 # (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
 # `$_CONTROLS` (this file's own path: the entry check, the run registry's site walk in
-# the run primitives and the label census in the mutation set read it; the
+# the run primitives and the label census in the correspondence part read it; the
 # defined-labels check does not), the five `CONTROL_*` sample strings. That list — and only that list — is checked
 # at entry. (No part calls the wire's `_git`, so the entry check no longer asks
 # for it: a tracer over a full run counted 0 calls.)
@@ -73,7 +73,7 @@ if [ -n "$_ctl_missing" ]; then
 fi
 # DEFINED BEFORE THE HARNESS IS SOURCED: the harness uses `$_fws_lbl` while it loads.
 # ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
-# a mutation record (the census in the mutation set counts the `_*_lbl` variables
+# a mutation record (the census in the correspondence part counts the `_*_lbl` variables
 # the wire or a part EXPANDS as well as the labels the run's calls registered).
 # What each asserts is tabled in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
 _fw_lbl="the fixture build window completed"
@@ -96,7 +96,7 @@ _pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
 # (the census: the run registry, bijected with this file's call lines, and the
-# expanded `_*_lbl` variables, against the records — in the mutation set; the
+# expanded `_*_lbl` variables, against the records — in the correspondence part; the
 # records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
@@ -118,10 +118,10 @@ _pfl_lbl="this env lists its environment NUL-separated, or its caller declared t
 _ev_lbl="a previous run's channel evidence never answers for the next"
 # THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
 # derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
-# label check below, and in the mutation set its entry check, the sibling guard,
-# the per-run copies and `_mut_rm_copies` (the trap and the end of the run), and the
+# label check below, in the correspondence part the sibling guard, and in the
+# mutation set its entry check, the per-run copies and `_mut_rm_copies` (the trap and the end of the run), and the
 # derivation of `_MUT_TARGETS` (the prefix words), which `_mut_parse` and `_mut_restore_copies` read.
-_MUT_PARTS="controls harness ctlrun mutations records fixtures mutgen"
+_MUT_PARTS="controls harness ctlrun mutations correspondence records fixtures mutgen"
 # …AND THE PATH A PART HAS, spelled once too: `_mut_part_path <part>` sets `_mut_pp` to
 # `<wire stem>.<part>.sh`, derived from the CALLER'S OWN `$SELF` (so a `.mutant.<pid>` copy finds
 # its own copies), and `_mut_pp_pre` / `_mut_pp_suf` to the two halves around the part name: a glob
@@ -150,8 +150,8 @@ fi
 # a subset of what is asserted here). A part that is not readable is skipped here and reported by its
 # own existence check: controls - by the wire, before this file runs; harness -
 # just above; fixtures - below, after the harness is sourced; ctlrun - at the
-# end of the harness; mutations - at the end of this file; records and mutgen -
-# in the mutation set.
+# end of the harness; mutations - at the end of this file; correspondence, records and
+# mutgen - in the mutation set.
 _lbd_files=("$SELF")
 for _lbd_p in $_MUT_PARTS; do
   _mut_part_path "$_lbd_p"; _lbd_f="$_mut_pp"
@@ -769,6 +769,6 @@ _cap_lines
 [ -z "$_limit_lines" ] || printf '%s\n' "$_limit_lines"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
 # …and no label-taking call ran after the label census (`_mut_census_end`, in the
-# mutation set). This file's last statement: the wire makes no label-taking call
+# correspondence part). This file's last statement: the wire makes no label-taking call
 # after this file returns, so a late call is one made here, after the census.
 _mut_census_end || exit 1

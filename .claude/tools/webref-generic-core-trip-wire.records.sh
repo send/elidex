@@ -10,7 +10,7 @@
 # the mutation set holds the READERS of the format — the one parser, the
 # always-on correspondence and anchor checks, the opt-in run — and this file
 # holds the DATA they read. The format itself (TAB-separated expressions and a
-# needle, the `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` / `mutations:` prefixes) is
+# needle, the `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` / `mutations:` / `correspondence:` prefixes) is
 # documented at the head of the mutation set, beside the readers that enforce
 # it; the one rule kept here is the comment syntax, beside the one filter that
 # drops it (below).
@@ -25,13 +25,13 @@
 # the single materialiser both readers go through, so one filter covers both, and
 # a note can sit beside the records it is about. `^#` is safe to reserve: a
 # record's expression cannot begin with a literal `#` except as a sed comment,
-# which is inert. The always-on validator (in the mutation set) stays — a line that is neither a
+# which is inert. The always-on validator (in the correspondence part) stays — a line that is neither a
 # comment nor a record is still an error, not a skip.
 # ⚠ FILTERED IN BASH, NOT THROUGH `grep -v`. The mutation set runs under `pipefail`:
 # `grep` exits 1 when it selects nothing, so a set that happened to be all
 # comments — or a grep on `PATH` that answers differently — would abort the
 # required gate from inside the thing reporting it. Same trap as the `wc -l`
-# and `awk` notes in the mutation set. Measured byte-identical to the `grep -v '^#'` pipe on
+# and `awk` notes in `…trip-wire.correspondence.sh`. Measured byte-identical to the `grep -v '^#'` pipe on
 # bash 3.2.57 and 5.3, with status 0 at EOF on both.
 _mutants() {
   while IFS= read -r _mu_line; do
@@ -357,7 +357,7 @@ harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> 
 ctlrun:/^_ctl_gate() {/,/^}/s/^  _ctl_reg "[$]1"$/  :/	every label the run used is named by a mutation record
 controls:s/^_fgit_window_verdict_exit "[$]_fw_lbl"$/_fgit_window_verdict_exit "a window label spelled out"/	every label the run used is named by a mutation record
 controls:s/^_mut_run$/&; ( _control "$CTL\/clean" 0 "PASSED" "a late label" ) || ctl_ok=1/	every label the run used is named by a mutation record
-mutations:s/^  for _cen_v in [$]_cen_used; do/  for _cen_v in; do/	every label the run used is named by a mutation record
+correspondence:s/^  for _cen_v in [$]_cen_used; do/  for _cen_v in; do/	every label the run used is named by a mutation record
 controls:/^_control "[$]CTL\/forge" /d	every label the run used is named by a mutation record
 controls:s/_ctl_run "[$]_fsm_lbl" /_ctl_run "a run label spelled out" /	every label the run used is named by a mutation record
 controls:/^_control "[$]CTL\/ignored" /d	every label the run used is named by a mutation record

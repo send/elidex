@@ -151,3 +151,136 @@ X tree is the worktree's PARTS (`runners/lib.sh` :2 `WT`, :6 `PARTS`, :12 the co
 The b53/b32 run at `706049ad` (88 cases each, X = BASE in every case on both shells) is the frame's battery, kept as
 the base cache for later slices, not a measurement of CR2-M. §11's battery clause, unlike its arm table, has no
 "written equivalent reason" exemption: a plan defect, recorded here.
+
+### T.2 CR2-0 — the prereq split: the always-on half out of mutations.sh
+
+**CR2-M after its transplant** (`b85b67e3`, the plan's §11 procedure): ship ×4 ({BSD, GNU-like grep} × {b53, b32})
+and `scripts/trip-wires.sh`, all rc 0, PASSED, 0 CONTROL FAILED (the handoff's `cr2/logs/cr2m-ship/`).
+
+This commit (on `b85b67e3`; the plan's §8 and its CR2-0 row). The always-on half of mutations.sh, `_mut_cap_member`,
+`_mut_correspondence` and `_mut_census_end` (frame :443–:747, 305 lines), moved to
+`.claude/tools/webref-generic-core-trip-wire.correspondence.sh` (330 lines: a 25-line header, then the block at
+:26–:330). The block differs from the frame's in two comment lines: frame :653's "see "UNLISTED" above" now names
+mutations.sh (correspondence :236), and frame :478's "static properties of this shipped file" now says "of the shipped
+files" (correspondence :61; review M-1 below). mutations.sh sources the new part after the records (:135–:145, the same
+existence check, exit 2 "This run decided nothing"). Its header names the new part (WHAT IT DEFINES, with
+`_MUTCORR`), lists it among the parts `_mut_run` copies (:32–:34), and the seven references into the moved code
+(frame :16, :158, :189, :199, :201, :251, :750) now name it. `_MUT_PARTS` (controls.sh:124) gained `correspondence`,
+and records.sh:360, the only `mutations:` record, is now `correspondence:` (corpus §6.1, row CR2-0). The comments that
+say where a moved thing lives name the new part: controls.sh :19, :76, :99, :121, :153–:154 and :771–:772, ctlrun.sh
+:34 and :148, records.sh :13, :28 and :34, mutations.sh :10. Two comment fixes outside §8's list were needed by the
+split: the prefix list at frame :161 (now :172) gained `correspondence:`, and frame :177–:178 (now :188–:189),
+"`mutations` is THIS FILE: the census and the ratchet are its arms", now says that the census and the ratchet belong
+to `correspondence`, the file's always-on half. **Kept, true:** mutations :90–:95, which says `_mut_correspondence`
+"RETURNS a status now" (the function moved; the entry-guard rationale it serves did not), and records :10–:11, where
+"the mutation set holds the READERS … the always-on correspondence and anchor checks" (the umbrella: the readers are
+in mutations.sh and correspondence.sh, whose header calls itself the mutation set's always-on half).
+
+**The review** (fresh reviewer on the slice before its fix round): CRITICAL 0 / IMPORTANT 2 / MINOR 4, each disposed
+of in this commit:
+- **I-1, fixed.** mutations.sh's header listed seven parts `_mut_run` copies beside each mutant, without the new one;
+  it lists eight (:32–:34).
+- **I-2, fixed: a #527 defect from before CR2.** landing's "X5 at T" gen11 patch (landing :500) gives the cell
+  generator a part list that lacked `'.ctlrun'` since `16efb423` split the control run primitives out of the harness
+  after the list was written. Every X5 cell at T would exit 2 at the harness's ctlrun existence check (harness.sh
+  :879–:883), whatever the cell tests. It is fixed here because this slice edits that line (`'.correspondence'`): the
+  list now gains `'.ctlrun'` too and names every part (the wire, controls, harness, fixtures, mutations, ctlrun,
+  correspondence, mutgen, records: the nine files `$SH -n` reads).
+- **M-1, fixed.** correspondence :61, "static properties of this shipped file" (the record checks, whose subject is
+  the record table, records.sh since `04466154`, and the labels), now says "of the shipped files". With :236, the
+  moved block now differs from the frame's in two lines (`diff` of frame :443–:747 against correspondence :26–:330).
+- **M-2, fixed by one rule:** a comment that says WHERE a moved thing lives names the file that holds it; "the mutation
+  set" stays where it means the umbrella (mutations.sh and its parts together) or mutations.sh by the name its header
+  gives itself (THE MUTATION SET), which the focused re-check read as broader than the decision's wording and the
+  driver ratified as the rule. The per-site readings: controls
+  :19 and :76 (the census) now say "in the correspondence part"; mutations :10 says the correspondence is enforced "by
+  its always-on half"; records :34 names `…trip-wire.correspondence.sh` for the moved `wc -l`/`awk` notes. Two sites
+  split by meaning: controls :121–:122 (the sibling guard is in the correspondence part; the entry check, the per-run
+  copies, `_mut_rm_copies` and the `_MUT_TARGETS` derivation stay "the mutation set", all in mutations.sh) and ctlrun
+  :34 (the census's membership check "(correspondence)", `_mut_run`'s excuse "(mutations)"). records :10–:11 stays
+  (the umbrella reading). The other lines with "mutation set" (`/usr/bin/grep -ci 'mutation set'`: 38 over the six
+  parts that have any, controls 4, ctlrun 1, mutations 10, correspondence 10, records 7, mutgen 6; harness and
+  fixtures 0; controls :122 and records :10 among them, read above) name the umbrella or mutations.sh itself (its
+  header calls it THE MUTATION SET), or are runtime message strings, and are unchanged.
+- **M-3, fixed: the headers match the code's non-comment uses** (`/usr/bin/grep` over non-comment lines, at this
+  commit). mutations.sh no longer claims the run registry or `$_cen_lbl` (0 uses each), says `$_CONTROLS` and
+  `$_lbd_files` are only asserted at entry there (1 use each, :99) and read by the census, and adds `_mut_run`'s read
+  of `$_VFY/.ctllabels` (2 uses). correspondence.sh no longer claims `$_lbd_names`, `$_MUT_TARGETS`,
+  `_mut_regex_mutants`, `$K2RE` or `$K2RE_PATH` (0 uses each) and adds the run registry `$_VFY/.registry` (4 uses).
+- **M-4, carried to CR2-D (owner).** The #519 memo's banner (:21–:23, :37) lists the split files without the new part.
+  The 1414-line memo is split at CR2-D first, so CR2-D's banner commit adds `correspondence` to those file lists; the
+  CR2-D brief carries it.
+
+**Checks (the coder's, relayed; CR2-0-PROGRESS), on the slice before the fix round.** `$SH -n` over the 9 files × b53,
+b32: 18 of 18 clean. `_mutants` 251 on both shells. The new part moved away: rc 2 on both shells, with its "missing or
+unreadable … This run decided nothing". Record 360 opt-in (`r3-optin.sh <clone> <sh> <log> 360 default`, index 204):
+`mutation set: 251 entr(ies), 0 not killed as named, 0 not exercisable` on b53 and b32 (rc 1 is the method's stubbed
+generated set, "ran 0 mutant(s) … 50", the same on both). Ship ×4: rc 0 and PASSED, each log byte-identical to
+`cr2m-ship/`'s (the output prints no line numbers). `scripts/trip-wires.sh` PASSED. **The fix round's** (comments
+only): every part's non-comment lines are unchanged against the pre-fix copies, and `bash -n` is clean on the 9 files
+under b53 and b32, 18 of 18. **Measured for this file:** CR-8 (`awk '/^[[:space:]]*#/' | grep -cE '[0-9a-f]{8}'`)
+0 for mutations, 0 for correspondence; `$SH -n` 18 of 18; `wc -l` as below.
+
+**Docs.** Every present-tense cite into lines that moved or shifted was re-pointed or kept as true. mutations.sh's
+later lines shift (frame :135–:442 +11, :748–:899 −294; frame :53–:134 keep their numbers, the header above them
+netting 0), so the search covered every line, not only :443–:747. Line cites (`mutations(\.sh)?` with a line number,
+over the sweep's file set minus `…-cr2-*`): every hit is frame- or commit-tagged (the corpus rows "at `8413a4db`"/"at
+`e8f78896`", census :161–:162, §T.0's table at `706049ad`) or in a closed record, so all are `hist`; landing :417's
+X4b cite (lines 15 and 20 of base mutations.sh) is at the base, and lines 1–42 did not move; the parts cite no
+mutations.sh line. Part words (before this entry): `mutations` as a word, 283 hits. 12 are in code and current: 7
+rewritten or new (controls :124, :153; correspondence :3, :236; mutations :172, :188; records :13), 5 unchanged and
+true. 10 are in present-tense docs: landing X10 :399 (the part list gains `correspondence` and "CR2-0 splits
+correspondence out of mutations") and "X5 at T" :500 (I-2) are rewritten; corpus :368 is new; corpus :385, landing
+:417, the design memo :189 and :240, residuals :59 and the #519 memo banner :15 and :25 are true and stay (`srcrw`'s
+append to mutations.sh still overrides, because the new part is sourced before the append). The other 261 are `hist`.
+The `correspondence` group (before this entry), 81 hits: 38 in code (28 rewritten or new, the fix round's six among
+them: controls :19, :76, :121, ctlrun :34, mutations :22, records :34; 10 true) and 43 in docs (3 rewritten or new, 7
+true, 33 `hist`: the #519 memo's body, closed records, corpus rows at a commit, landing's C11 row). "below"/"above" in
+the split files: 31 at the frame, 26 now (mutations 17, correspondence 9). The 7 references across the seam were
+rewritten to name the new part, and :236 now names mutations.sh but keeps its "below" about its own block. Two
+"below"s are new and resolve (mutations :136, correspondence :12). The other 23 are on one side, with their targets on
+that side.
+
+**`…-cr2-sweep.md` §E.** The new part joined `sweep.sh`'s file set, and its comment line now records that (§11).
+`idents.tsv` gained `correspondence` (flag `i`). §11 names `correspondence` as a CR2 group, and this slice adds the
+part word. The §E index's byte-identity sentence now excepts the file set and the appended groups. The header says
+`idents.tsv` is the CR round's with each slice's groups appended.
+
+**Sweep** (§E.sweep.sh and §E.idents.tsv at this commit's text, 30 files, b53 = b32 byte-identical; the handoff's
+`cr2/logs/cr2-0-sweep/`, the fix round's runs under `fix/`). Base `b85b67e3` 2350 lines (45 grep errors there, one per
+row: the new part is absent at the base); this tree before this entry 2390. Of the 40 lines, 28 are the
+`correspondence` group's (53 → 81), 10 are the new part's header and mutations.sh's new lines repeating consumed and
+defined names (`cap_fn` 1, `cap_table` 2, `controls_v` 1, `lbd` 1, `part_path` 2, `ratchets` 1, `registry` 2), and 2
+are the corpus row (`cen_vars`, `family`). With file names and line numbers set aside and mutations.sh and the new
+part read as one file, the base and this tree differ in 18 hits removed and 58 added. Every one (18 of 18, 58 of 58)
+is a line of the slice's diff, one it rewrote or added (the parts' headers and location comments, records :360, corpus
+:368, landing :399 and :500), each re-read and true at this commit (the headers by the non-comment greps of M-3); the
+hits that moved with the block keep their text. The fix round's own share, against the tree before this entry as the
+review read it (2387): `correspondence` +6 (controls :19, :76, :121, ctlrun :34, mutations :22, records :34),
+`registry` +1, and `cen_lbl`, `cen_vars`, `lbd`, `ratchets` −1 each (M-3's dropped claims), each a rewritten
+statement; landing :500's I-2 edit changes a hit's text, not the count. The `perl -0777` wrap backstop: 6 matches at
+both, the same six as CR2-M's, with mutations :206/:842 now :217/:548 (`wrong reason`, both on the staying side). With
+this entry the sweep gives 2437 lines. The entry's own 47 lines (`correspondence` 35; `registry` 3; `lbd`, `ratchets`
+2 each; `cap_table`, `cen_lbl`, `cen_vars`, `controls_v`, `wrongreason` 1 each) are this record's statements, `hist`.
+
+**Runners (outside the repo).** `runners/lib.sh` `PARTS` gains `correspondence.sh` and its :8 comment says "the 9 wire
+files"; `runners/rec.sh`'s target list gains `correspondence` (backups `*.pre-cr2-0`). The closed round's `_crs5f*`
+scripts are untouched. `r3-optin.sh` edits its clone's mutations.sh in place, so a clone holds one opt-in run at a time
+(two concurrent runs on one clone race and die silently). The coder used two clones, `cr2/work/cr2-0-optin` (b53) and
+`cr2-0-optin32` (b32).
+
+**Budgets** (`wc -l`): mutations 605 (stop 900) against the plan's ≈ 598: the source guard is 11 lines and the header
+nets 0, where the plan estimated +4, so the result is 7 over. correspondence 330 (≤ 450; estimate ≈ 330). controls 774,
+ctlrun 436 (≤ 439), records 470. This file stays under 800.
+
+Review: CRITICAL 0 / IMPORTANT 2 / MINOR 4, all fixed or carried above. Focused re-check of the fix round: CRITICAL 0 /
+IMPORTANT 0 / MINOR 2 — M-2's reading (ratified above) and mutations :7–:10 naming the enforcing file only at :16 (kept:
+not false; low confidence); it confirmed landing :500's `.mutgen` and `.records` were at the base, so the list now names
+every part. Battery (`BASE_REV=b85b67e3`, the worktree holding the final slice diff; handoff `runners/logs/battery-{b53,b32}.cr2-0-full.out`):
+88 cases per shell, 81 new == base at the first run; 7 were EDIT FAILED on the new tree only, their edit targets moved
+into the new part (M15nonote, M16labels, S11nokindrule, S12noendC1: the census awk, its `.census` write,
+`_mut_census_end`) or rewritten (S5aentry, S5apartsdrop: `_MUT_PARTS`'s literal; S5aentryng runs S5aentry). They were
+retargeted, not retired (handoff `cases/_ed.py` gains `ed_in`/`ed1_in`/`has_part`: the first part that holds the
+anchor, so the base edits its own text), and re-run on both shells: 7 of 7 new == base, the same rc class (1/1, 1/1,
+0/0, 0/0, 2/2, 1/1, 1/1). So 88 of 88 new == base on b53 and b32: no behaviour change. (The earlier run on the slice
+before its fix round was stopped; the battery runs on the final diff).

@@ -31,7 +31,7 @@
 # `_control`, `_ctl_wd_s` (the watchdog's seconds), and `_ctl_wd_pg` (an out-global:
 # the watchdog's process group after a `_ctl_run`, read by the controls file).
 # THE TABLE'S READER: `_cap_rows <kind> <callback>` (outside readers: `_cap_check`,
-# `_cap_lines` (controls), the census's membership check, `_mut_run`'s excuse (mutations)), `_cap_group_of`
+# `_cap_lines` (controls), the census's membership check (correspondence), `_mut_run`'s excuse (mutations)), `_cap_group_of`
 # (out-globals `_cap_g`, a label's group, `_cap_f`, its flag NAME), `_cap_flag_of`
 # (out-global `_cap_v`, a flag's VALUE), the callbacks `_cap_group_cb`, `_cap_gflag_cb`,
 # `_cap_flag_cb`, `_cap_guard_cb`, the guard's `_cap_missing` and `_cap_n`, and the
@@ -145,7 +145,7 @@ fi
 # reds any other row) — under the `$_VFY` of the call: the standing checks' rows run under
 # the run's own, so they register here as `direct` calls, `_cap`'s at its one `_ctl_run` line
 # (a label only an `echo` produces reaches the census as a `_*_lbl` value). THE SITE RULE IS A
-# BIJECTION WITH THE TEXT, checked by the census (`_mut_correspondence`, in the mutation set): the
+# BIJECTION WITH THE TEXT, checked by the census (`_mut_correspondence`, in the correspondence part): the
 # registered sites are exactly the call lines of the controls file (`$_CONTROLS`: a non-comment line
 # naming `_control`, `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` as a word), kinds
 # included. A call that never runs, a call registered at another line, and a call the text hides
