@@ -13,7 +13,7 @@
 # needle, the `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` / `mutations:` / `correspondence:` prefixes) is
 # documented at the head of the mutation set, beside the readers that enforce
 # it; the one rule kept here is the comment syntax, beside the one filter that
-# drops it (below).
+# drops it (below). The other: THIS FILE SPELLS ONLY DEFINED LABELS — a `_*_lbl` token the controls file does not define is "used but not defined" (exit 2); a record needing a NEW label builds it from its anchor by a sed backreference.
 # WHAT IT CONSUMES: nothing — the function below expands no variable (its
 # here-document is quoted). WHAT IT DEFINES: `_mutants`.
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
@@ -328,8 +328,8 @@ harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_
 # the list after the `find` reads as the same records, so only the tail check sees it.
 harness:s/^  find "[$]CTL" .*-iname .git.* || _pgpre=" (census failed)"$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
 # The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
-# and the values of the `_*_lbl` names the wire or a part EXPANDS outside this table
-# (`$_cen_used`, a text derivation, asserted defined) — against the records, and the
+# and the values of the `_*_lbl` names the wire or a part EXPANDS outside this table (the orphan check) or SPELLS, this table included (the ratchet)
+# (`$_cen_used` and `$_lbd_names`, text derivations, asserted defined) — against the records, and the
 # registry's sites against the call lines of the controls file (a bijection). One
 # record per arm or reading, each killed by the census's own message:
 #   the registry's writer in `_ctl_gate` (`ctlrun:`, range-scoped to it; the window
@@ -480,5 +480,9 @@ correspondence:s/^    END { printf "%s %d/    END { x = 0; printf "%s %d/	a reco
 correspondence:s/; q = "\\001" pr(substr([$]0, i, 1))$/; q = "\\001"/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
 # R7h - the variant pass's \001 probe dropped (same-class only): KILLED by the self-test's `x.ab` row; without it SURVIVES.
 correspondence:s/; q = "\\001" pr(substr([$]0, i, 1))$/; q = pr(substr($0, i, 1))/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+# R4a - a label defined and used only inside a double-quoted string holding an apostrophe pair (rule 1 counts nothing there): the ratchet reads
+# the spelled names, so it counts the label bare, 19 against 18, KILLED by the census's message; with the orphan check's population it SURVIVES.
+# The name is built from the anchor by backreference (`\1r4a\2`), so no new token is spelled here.
+controls:s/^\(_pe\)\(_lbl\)="no exec-path override reaches the fixture git"$/&; \1r4a\2="cr2 r4a probe"; : "it's $\1r4a\2's"/	every label the run used is named by a mutation record
 MUTANTS
 }

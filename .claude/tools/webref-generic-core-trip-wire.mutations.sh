@@ -15,13 +15,13 @@
 # standalone commit. The two lists must still be edited together — the
 # correspondence check (in `…trip-wire.correspondence.sh`) ENFORCES that: it reads the labels the run
 # registered (the run registry, bijected with the controls file's call lines) and the
-# `_*_lbl` variables the text expands, against this file's records, and reds when they drift.
+# `_*_lbl` variables the text expands (orphans) or spells (the ratchet), against this file's records, and reds when they drift.
 #
 # WHAT IT CONSUMES: `$_VFY` (from the controls file; `_mut_run` reads `$_VFY/.ctllabels`,
 # which the always-on half wrote), `$_CONTROLS` and `$_lbd_files` (from the controls file; only
 # asserted at entry here, they are read by the census in `…trip-wire.correspondence.sh`),
 # `$_lbd_names` (from the controls file: the `_*_lbl` names the wire and parts spell, each
-# asserted defined and non-empty there; `_mut_run` reads the `_p<x>_lbl` and `_p<x>l_lbl` among them with the harness's
+# asserted defined and non-empty there; the correspondence part reads their values for the ratchet and the literal rule, and `_mut_run` reads the `_p<x>_lbl` and `_p<x>l_lbl` among them with the harness's
 # `$_fw_limits`: the P-x half of the excuse, for a machine-limited record), `$_MUT_PARTS` (from the controls
 # file, which spells the list of parts once), the capability table's READER
 # (`_cap_rows`, `_cap_group_of`, `_cap_flag_of`, from the run primitives: functions
@@ -56,9 +56,9 @@
 #   * `_mutants` (in `…trip-wire.records.sh`) — HAND-WRITTEN, and its unit is a
 #     LABEL: a label the run registered (what a `_control`, `_ctl_run`,
 #     `_ctl_gate` or `_fgit_window_verdict_exit` call was passed) or the value of
-#     a `_*_lbl` variable the text expands (the blocks that are not `_control`s, and the fixture
-#     build window's producers). The number of labels no record names is
-#     ratcheted (`_MUT_UNRECORDED_MAX` below), and the record says which edit
+#     a `_*_lbl` variable (the blocks that are not `_control`s, and the fixture build window's producers), in two
+#     populations: a needle must be a registered label or the value of a name the text EXPANDS (the orphan check reads `.labels`),
+#     and the labels no record names — registered, or the value of a name the text SPELLS — are ratcheted (`_MUT_UNRECORDED_MAX` below), and the record says which edit
 #     its label is about. Its claim: *THAT* label is about *THAT* edit. It is a
 #     floor and cannot be a census of the wire's arms — a record exists only for
 #     something somebody thought of.
@@ -198,12 +198,12 @@ fi
 #     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
 #
 # ⚠ ADDING A LABEL MEANS ADDING A RECORD — a `_control` (or another call line) or an
-# expanded `_lbl` name, whatever it is about — the ratchet (in `…trip-wire.correspondence.sh`) is what makes that true.
-# What does NOT belong here is a record for a rule of `$K2RE` or `$K2RE_PATH`
-# that needed no new control: `_mut_gen_run` derives that population from the
-# assignments themselves, so a hand-written copy would be a second spelling of
-# the same class. The boundary is stated in full at the head of this file and
-# again at that function.
+# spelled `_lbl` name, whatever it is about — the ratchet (in `…trip-wire.correspondence.sh`) is what makes that true.
+# ⚠ ONE DEAD END: a label rule 1 UNDER-counts (e.g. one used only inside a double-quoted message holding an apostrophe) is counted bare by the ratchet (it is spelled),
+# and a record for it reds as an orphan (not expanded): change its wording so rule 1 sees it, or raise the ratchet as a visible decision (latent at CR2-A: expanded 32 = spelled 32).
+# What does NOT belong here is a record for a rule of `$K2RE` or `$K2RE_PATH` that needed no new control: `_mut_gen_run` derives that
+# population from the assignments themselves, so a hand-written copy would be a second spelling of the same class. The boundary is stated in
+# full at the head of this file and again at that function.
 # ⚠ Nothing here can detect an arm that never had one — this set is a floor, not
 # a census. ⚠ AND A DECLARED FLOOR IS NOT A DETECTOR: this file used to say
 # exactly the sentence above and assert nothing, so deleting a record shrank the
@@ -214,10 +214,13 @@ fi
 #     bijected with the controls file's call lines, so a call the text hides
 #     (`eval`, a split word) is a registered site no line names, red — and the
 #     values of the `_*_lbl` names the wire or a part EXPANDS outside the record
-#     table, `$_cen_used`: a text derivation, each asserted defined). A record's needle that EQUALS no such
+#     table, `$_cen_used`: a text derivation, each asserted defined; an under-count orphans a record,
+#     an over-count leaves one non-orphan and its trial not killed as named). A record's needle that EQUALS no such
 #     label is an orphan (red; a stale anchor would otherwise report "wrong
 #     reason" forever). AND the number of LABELS with NO record is ratcheted:
-#     `_MUT_UNRECORDED_MAX` is EXACT: more bare labels is red, and so are fewer.
+#     `_MUT_UNRECORDED_MAX` is EXACT: more bare labels is red, and so are fewer. The ratchet's
+#     population is the registry's labels and the values of every `_*_lbl` name the files SPELL
+#     (`$_lbd_names`, a superset of the expanded ones: a scan error cannot hide a label from it).
 #     ⚠ THE SECOND DIRECTION IS THE ONE THAT CATCHES ANYTHING. The first has
 #     never had a violation; the second is where both real gaps lived — the
 #     `ls-tree` arm with no record, and a control whose fixture made its
@@ -269,7 +272,7 @@ _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # The history of this figure (what removed and added records, and the step each pins) is stated once,
 # in that memo's §6.1; it is not restated here.
-_MUT_RECORDS_MIN=258
+_MUT_RECORDS_MIN=259
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`

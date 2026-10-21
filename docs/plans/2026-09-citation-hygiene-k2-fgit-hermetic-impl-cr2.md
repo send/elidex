@@ -560,3 +560,190 @@ PASS, both shells, measured on the final tree; its one out-of-scope note (a dire
 locale fails one controls record's variant sed) does not reach the wire, which exports `LC_ALL=C` before any part
 runs. Battery (`BASE_REV=f35bfde3`, the worktree holding the final code; handoff
 `runners/logs/battery-{b53,b32}.cr2-b-full.out`): 88 of 88 new == base on b53 and b32, no case edit-failed.
+
+### T.4 CR2-A — the census reads one population per check (CR#4)
+
+**CR2-B after its transplant** (`cdc563d0`, the plan's §11 procedure): ship ×4 ({BSD, GNU-like grep} × {b53, b32})
+and `scripts/trip-wires.sh`, all rc 0, PASSED, 0 CONTROL FAILED (the handoff's `cr2/logs/cr2m-ship/cr2-b/`).
+
+This commit (on `cdc563d0`; the plan's §2, its CR2-A row, claim rows CR4-1…CR4-5 and CR4-L). The census fed one scan,
+rule 1's expansion scan (`.vlabels`), to three readers whose safe directions are opposite: the orphan check (an
+under-count is red, an over-count a miss), the ratchet and the literal rule (an under-count is a miss). Each now reads
+the population whose error is red for it. In the correspondence part, `.mvalues` (:270) holds the values of every name
+of `$_lbd_names` (the `_*_lbl` tokens of the wire and every part, the record table included, each asserted defined and
+non-empty by `_lbd` in controls.sh), by the same indirection as `.vlabels` (:269). The rules 2 and 3 pass (:277–:310)
+reads `.vlabels` (ARGV[1], into `.labels`), `.mvalues` (ARGV[2], the literal rule's `isv`), the registry and the controls
+file; the needle pass (:317–:330) keeps the orphan check on `.labels` and writes `.bare` from `.mvalues` and `.labels`,
+less the needles. Every name the expansion regex can capture is a token of `_lbd`'s regex, so spelled ⊇ expanded, and
+an extra spelled token is asserted defined, then counted bare; the one blind spot, a label variable whose name is never
+spelled (`printf -v`, `eval`), `_lbd` cannot assert either, and none exists (the plan's instrument, 7 hits at the frame,
+each a reader or the word "declared"). The comments whose referent changed state the two populations: the census
+heading (:213–:221), rule 1's error statement (:249–:259, now two-sided, with `oracle2.sh`'s figures), the `.bare` line
+(:317), the consumes line (:16–:17); controls :75–:77, :98–:100, :145–:153; mutations :15–:18, :23–:25, :56–:61,
+:200–:203, :213–:223; records.sh's census block (:330–:332). records.sh's header (:12–:16) states its second rule:
+it spells only defined labels, so a record that needs a new label name builds it from its anchor by a sed
+backreference. R4a (:486, comment :483–:485) pins the first clause; `_MUT_RECORDS_MIN` is 258 → 259 (mutations :275).
+Corpus §6.1 has R4a's row and the totals (165 of this PR, 259 in all; `_mutants | wc -l` 259 on b53 and b32,
+258 at `cdc563d0`, measured for this file). The design memo's §4 row C and §10 row 9 state the two populations.
+
+**`…-impl-cr.md` :625–626, corrected** (claim row CR4-3; its body is not edited, the plan's §12). The sentence "every
+step only drops text, so the scan can lose a real expansion (its records orphan: a false red) and can never invent
+one" is wrong: the scan counts whatever it does not drop, so text it fails to drop is counted. CR2's `oracle2.sh`
+(C1's 131 cases plus 264 generated double-quote contexts) measured 18 over-counts in two classes at the frame — a ` #`
+inside an earlier double-quoted string on the line of a quoted here-document's operator (12), and an apostrophe inside
+an earlier double-quoted string before single-quoted data on the line (6) — and a line of a multi-line single-quoted
+string is a third, unmeasured by the oracle. Its :623 and :782 ("0 false green") stay true of C1's 131 cases and false
+as a statement of the scan; so do the closed plan's :413 and :733, which carry a dated note under `…-cr-plan.md`'s
+Status paragraph (G36's rule). After this commit the orphan check alone reads the scan, and an over-count there
+leaves a record non-orphan, its opt-in trial then not killed as named: red, BS-4's class (`…-cr-plan.md` §6).
+
+**The author's checks** (the coder's, on the slice's tree; the handoff's `cr2/logs/cr2a/`):
+- `$SH -n` over the 9 files × b53, b32: 18 of 18 clean. CR-8 (8-hex strings in the comments of mutations.sh and the
+  correspondence part): 0 and 0.
+- CR4-1: `oracle2.sh` on the correspondence part, 395 cases: 315 agree, 58 under, 18 over, 4 syntax-excluded,
+  sort-identical to the frame's output (`cr2/logs/oracle2-head.out`), so C1's 131 (114 / 13 / 4 / 0) and the generated
+  264 (201 / 45 / 18) split as at the frame and the over-counts are the two classes.
+- CR4-4: `pops.sh` over the correspondence part (`cr2a-pops.sh`): expanded 32 = spelled 32 (the frame's 31 and CR2-B's
+  `_af_lbl`), so `.bare` stays 18; ship ×4 PASSED.
+- The anchor rule (CR2-B's `cr2b-ftest.sh`, b53 and b32): 271 expressions, 0 not fresh.
+- Ship ×4 ({BSD, GNU-like grep} × {b53, b32}): PASSED, rc 0, 0 CONTROL FAILED, 26–38 s (the run after the fix below;
+  its logs replace the first run's).
+- R4a, one-record trials (`cr2a-lane.sh`, `r3-optin.sh … default`, in a fresh `git clone --local` per run): the slice
+  as is, `259 entr(ies), 0 not killed as named` on b53 and b32 (rc 1 only from the trial's stubbed generated-set
+  floor); the survive arm (the ratchet's and the literal rule's population back to the expansions: `.mvalues` from
+  `${_cen_used}`), `MUTANT 259 (every label the run used is named by a mutation record) SURVIVED`, `1 not killed as
+  named`, on b53 and b32. A first survive run per shell (spelled `$_cen_used`, see departure (3)) ended rc 1 with no
+  mutation-set line; its log was overwritten by the re-run.
+- CR4-L (`cr2a-cl.sh`: a ship run with a label inserted after controls.sh's `_cen_lbl=` line, whose value equals a
+  `_control` label, `green is reachable`, and whose only use is inside a double-quoted string holding an apostrophe
+  pair): with the fix, the line "\"green is reachable\" is a `_*_lbl` value passed to `_control`" present, rc 1, b53 and
+  b32; with `.mvalues` from `${_cen_used}`, absent, PASSED rc 0, b53 and b32.
+- CR4-2's parts half: 0 hits of the instrument over the parts (2 at `cdc563d0`, correspondence :255 and :256, rule 1's
+  old error statement). CR4-5: records.sh spells 10 `_*_lbl` tokens, each defined in controls.sh, the same set as at
+  `cdc563d0` (R4a adds none).
+
+**The driver's catch** (diff read): the first cut made records.sh's header line 16 two lines (`@@ -16 +16,2 @@`),
+moving every record line +1, which the program forbids, since the documents cite records by their records.sh line
+(`…-impl-cr.md` :796, `641239cc`); fixed by folding the rule into line 16 (the header nets 0 lines), so 258 of 258
+record lines keep their number and text. The coder's re-measurement after the fix: records.sh `-n` clean on b53 and
+b32; `_mutants | wc -l` 259; the anchor rule 0 of 271 not fresh; R4a's opt-in trial killed as named as is and SURVIVED
+in its survive arm, both shells; ship ×4 PASSED (the handoff's `cr2/logs/cr2a/ftest2.txt`, `fix-lane{1,2}.out`).
+
+**Departures from the plan, with the driver's disposition:**
+1. The mechanism prototype `cr4-proto.py` passed `.mvalues` after the registry, so the rules 2 and 3 pass checked each
+   registry row against an `isv` not yet filled: the literal rule saw an empty set. The slice passes `.mvalues` as
+   ARGV[2], before the registry. A prototype defect, caught by CR4-L (its fix arm). Accepted.
+2. `.bare` is built from `.labels` ∪ `.mvalues`, not the plan's `.mvalues` ∪ the registry's labels. The two sets are
+   equal: `.labels` is `.vlabels` ∪ the registry's labels, and `.vlabels` ⊆ `.mvalues` by construction (every expanded
+   name is a spelled token, so its value is among the spelled values; CR4-4 measures the name sets equal at this tree).
+   Reading `.labels` keeps one file for the orphan check and the ratchet's registry half. Accepted.
+3. The survive variant spells `${_cen_used}`, not `$_cen_used`, so that the anchor of the record at records.sh:360
+   (`for _cen_v in [$]_cen_used; do`) still matches one line in the variant's tree. Accepted.
+4. The correspondence part is at its stop line, 450 of 450 (the plan's §8). **Carried constraint:** a later slice that
+   must add a line to it returns to the driver first.
+5. The plan's §2.3 item 3 quotes mutations :24–:25 as "`$_lbd_names` … the census reads the values of those expanded
+   outside the record table"; that sentence is not in the current text (mutations :23–:25 at `cdc563d0` say only that
+   `_mut_run` reads the `_p<x>_lbl` and `_p<x>l_lbl` names among them). The coder added the reader instead: the
+   consumes line (:24) now says the correspondence part reads their values for the ratchet and the literal rule.
+
+**Docs** (measured for this file). The slice moves lines in three code files (base numbers): controls :152 on
++1 (:150–:151 rewritten into :150–:152); correspondence :270–:280 +1, :283–:314 +2, :315 on +3 (new lines :270 and
+:317; :281–:282 rewritten into :282–:284); mutations :218–:219 +1, :221 on +3. records.sh moves none: its header's
+rule is folded into :16, :331–:332 are rewritten in place, and R4a's four lines follow the last record (:483–:486).
+Line cites into the four files over the sweep's file set (`/usr/bin/grep -noE '(records|mutations|controls|correspondence)(\.sh)?`?( ?:| line| lines)?
+?:?[0-9]+'`), 635 at this tree less this entry: 2 new and correct (row C's and corpus R4a's records.sh:486); 3
+unchanged and true at this tree (design memo row AF's R7a–R7h, records.sh:471–474, :476, :479, :480, :482, and its
+exact path's list, records.sh 162 ×2, 170, 171, 357, 403, 418, 7 of 271 expressions, re-measured with `mode.sh`,
+b53 = b32; records.sh:81's comment, which names the corpus §6.1 remove row for records.sh:81); 630 frame- or
+commit-tagged or in a closed record, `hist` (design memo :582 "at base"; census 2, landing 2, corpus 46, the
+dated rows and the totals' commit clauses; `…-cr-plan.md` 110, `…-cr-sweep.md` 259, `…-impl-cr.md` 48, §T.0–§T.3 96,
+`…-impl.md` 18, `…-pr527-r15.md` 20, provenance 8, reviews 20). `…-cr-plan.md`'s note adds 3 lines above its body, so
+its line numbers shift by 3 from :15 on; the note states that its numbers are the approved body's (as at `706049ad`),
+and the repo's two line cites into that file (`…-impl-cr.md` :642 to :506, this file :119 to :3) are closed
+records, not re-pointed.
+CR4-2, over `docs/plans/*k2-fgit*` (less every `…-cr2-*.md`) and the parts: 14 hits at this tree (17 at `cdc563d0`),
+0 a current statement of the claim; the closed plan's two (:416, :736, the approved :413, :733) and its note (:17);
+the closed record's two (`…-impl-cr.md` :623, :782, corrected above); 9 unrelated (`…-cr-plan.md` :331, :967 and
+landing :131, the capability declaration; landing :398, X9; corpus :366, a dated row; `…-impl-cr.md` :608, :614,
+:616, the C1 rounds' history; §T.0's finding row, this file :46).
+
+**`…-cr2-sweep.md` §E.** `idents.tsv` gains `.mvalues` (the slice's identifier) and the two phrases B2a I-2
+re-classifies for CR2-A, "expand" and "spell" (flag `i`); its other two groups, `.vlabels` and `$_cen_used`, are rows
+already (`lbd`, `cen_vars`). The header names them.
+
+**Sweep** (measured for this file; §E.sweep.sh and §E.idents.tsv at this commit's text, 30 files, b53 = b32
+byte-identical; the handoff's `cr2/logs/cr2-a-sweep/`; the base clone `git clone --local` at `cdc563d0`). Base
+3211 lines (3180 hits; the slice's new groups there: `.mvalues` 0, "expand" 66, "spell" 128), the tree without
+this entry 3226 hits. With file names and line numbers set aside, the base and this tree without this entry differ
+in 69 hits removed and 115 added, each on a line the slice's diff removed or added (checked against `git diff -U0`,
+0 off). B2a I-2, every hit of the plan's four groups and `.mvalues` in this tree without this entry, read by its
+sentence against the census as fixed:
+- `expand`, 66: 11 new (code 7: controls :99, mutations :18, :60, :203, :223, correspondence :259, records :331; docs 4: row C,
+  row 9, R13, the corpus's unrecorded-labels paragraph :419), each true at this commit; 15 code lines unchanged, 5 in
+  the census's sense and true of the orphan check's scan (correspondence :218, :249, :254; mutations :216; records
+  :375) and 10 another sense (a variable or glob expanded: wire :728, controls :175, ctlrun :20, :56, :178, :224,
+  harness :531, :802, records :17, `scripts/trip-wires.sh` :99); 5 in other docs, another sense (design memo :97, :98,
+  :185, :612; landing :285); 35 `hist` (the corpus's dated rows :360, :361; closed records 33, the #519 memo's body
+  :913 among them).
+- `spell`, 148: 25 new (code 18: controls :77, :99, :150, :152, mutations :18, :61, :201, :202, :203, :205 ("spelling",
+  another sense, reflowed by the review fixes), :222, correspondence :220, :259, :317, records :16, :331, :484, :485; docs 7: R4a's corpus row, the unrecorded-labels paragraph, `…-cr-plan.md`'s
+  note, R13, rows C and 9, and row AF's "respelling", another sense), each true; 40 code lines unchanged, 1 in the
+  census's sense and true (mutations :23, `$_lbd_names`, "the names the wire and parts spell") and 39 another sense
+  (a text or command spelled or respelled); 13 in other docs, 2 true (design memo :595, `$_lbd_lbl`'s census of the
+  names the wire and the parts spell; row L :630) and 11 another sense; 70 `hist` (the corpus's dated rows 12; closed
+  records 58, the #519 memo's banner :30 among them, which R13 tracks and CR2-D rewrites).
+- `lbd` (`_lbd`, `.vlabels`), 100: 12 new (code 8; docs 4: row C, R13, `…-cr-plan.md`'s note, R4a's corpus row), each
+  true; 23 code lines unchanged, each defining or reading `_lbd`, `$_lbd_names`, `$_lbd_files` or `.vlabels` as the
+  code does (`.labels` is still `.vlabels` and the registry's labels, correspondence :275); 3 in other docs, true
+  (corpus :203, landing :287, design memo :595); 62 `hist`.
+- `cen_vars` (`_cen_*`, `$_cen_used` among them), 54: 7 new (code 5; docs 2: row C, R4a's corpus row), each true;
+  19 code lines unchanged and true (records :341, the census block's line for the record that empties the `$_cen_used` loop,
+  :360, which still dies with its needles orphan: the orphan check reads `.vlabels`); 2 in other docs, true (design memo :516, :623, `$_cen_lbl`);
+  26 `hist`.
+- `.mvalues`, 7: all new (correspondence :220, :259, :270, :310, :317, :330; R4a's corpus row), each defining,
+  reading or stating the code.
+The `perl -0777` wrap backstop (b53 = b32): 6 matches at the base and 6 on this tree, the same six with mutations :218/:549
+now :219/:552. With this entry the sweep gives 3376 lines; the entry's own 119
+hits, in fourteen groups, are this record's statements, `hist`.
+
+**The fresh review** (one reviewer, on the slice's tree after the driver's catch): CRITICAL 0, IMPORTANT 0, MINOR 6,
+each fixed, in comments and docs only. The four code files' non-comment lines are unchanged by the fixes (the diff of
+their non-`#` lines against the reviewed tree is empty); correspondence, records.sh and mutations each net 0 lines, and
+258 of 258 record lines keep their number and text against `cdc563d0`.
+1. records.sh :331: "outside this table" now qualifies EXPANDS only; the spelled names (`$_lbd_names`) include the
+   record table's ("SPELLS, this table included").
+2. mutations :59–:61: the record unit states both populations: a needle must be a registered label or the value of an
+   expanded name (the orphan check reads `.labels`), and the ratchet counts the registered labels and the values of the
+   spelled names that no record names (the plan's §2.3 item 3).
+3. correspondence :257, design memo row C, `…-cr-plan.md` :17: the third over-count class, a line of a multi-line
+   single-quoted string, is marked as not measured by `oracle2.sh` (none of its 395 cases has a newline inside single
+   quotes: each `${NL}` of `cr2/bin/oracle2.sh` falls outside single quotes). Correspondence nets 0 lines (450 of 450).
+4. mutations :202–:203, beside "ADDING A LABEL MEANS ADDING A RECORD": the dead end the two populations create: a label
+   rule 1 under-counts (one used only inside a double-quoted message holding an apostrophe) is spelled, so the ratchet
+   counts it bare, and is not expanded, so a record for it reds as an orphan; such a label needs its wording changed, or
+   the ratchet raised as a visible decision. Latent at this tree (CR4-4: expanded 32 = spelled 32). The next sentence
+   (:204–:206) is reflowed from five lines into three, so mutations nets 0 lines.
+5. design memo row AF: "7 of the 271 record expressions at the CR2-A slice" (the count's frame).
+6. residuals R13: "short of the wire and the record table" was half false. The banner's lines (#519 memo :28–:30) were
+   last edited at `173b81dc` (2026-10-15; `git log` of the memo, `git blame -L 28,30`); at that commit controls.sh's
+   `_lbd_files` read the parts of `_MUT_PARTS` (`controls harness ctlrun mutations records fixtures mutgen`, records
+   among them) and not the wire, which `_lbd_files=("$SELF")` added at `2ac70030` (CR-C1). R13 now says "short of the
+   wire" and gives that evidence.
+The review's two non-finding notes: (a) the opt-in logs keep R4a's kill count, not its message, so "19 against
+18" (corpus R4a row, records.sh:484) is derived, not logged: the survive arm differs from the plain run only in where
+`.mvalues` comes from, and R4a's label is no `_control` label, so the literal rule cannot be what killed it; (b)
+correspondence.sh's "`.vlabels` feeds the ORPHAN CHECK only" is literally narrow, since `.bare` reads `.labels` (which
+holds `.vlabels`) too; the effect is the same because `.vlabels` ⊆ `.mvalues` (the accepted departure 2).
+Re-measured after the fixes: `-n` on records.sh, correspondence and mutations × b53, b32: 6 of 6 clean; the anchor rule
+(`cr2b-ftest.sh`, b53 and b32): 271 expressions, 0 not fresh (no anchor's uniqueness changed); the doc line cites into
+the four files (this entry's and rows C, AF, corpus R4a's), 129 of 129 true: no cited line moved, and of the cited lines whose text the
+fixes changed, mutations :59 (the `spell` list) moved to :61 and the comment ranges :56–:60, :200–:201 above became
+:56–:61, :200–:203; the rest hold. No wire run.
+
+**Budgets** (`wc -l`): correspondence 450 (its stop line, 450), records 488, mutations 609, controls 776; the design
+memo 758 (≤ 760), the corpus 430, `…-cr-plan.md` 977, residuals 141, `…-cr2-sweep.md` 757, this file 742 (< 800).
+
+Review: CRITICAL 0, IMPORTANT 0, MINOR 6, each fixed (above). Battery (`BASE_REV=cdc563d0`, the worktree holding the
+final code; handoff `runners/logs/battery-{b53,b32}.cr2-a-full.out`): 88 of 88 new == base on b53 and b32, no case
+edit-failed. (Two earlier runs were stopped by the driver before they finished: one on the record-shifting header,
+one before the review's comment fixes.)

@@ -74,7 +74,7 @@ fi
 # DEFINED BEFORE THE HARNESS IS SOURCED: the harness uses `$_fws_lbl` while it loads.
 # ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
 # a mutation record (the census in the correspondence part counts the `_*_lbl` variables
-# the wire or a part EXPANDS as well as the labels the run's calls registered).
+# the wire or a part SPELLS as well as the labels the run's calls registered).
 # What each asserts is tabled in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
 _fw_lbl="the fixture build window completed"
 _fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
@@ -96,7 +96,7 @@ _pkl_lbl="this git reports alternate object stores"
 _fws_lbl="every mode restriction a fixture sealed was applied"
 _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
 # (the census: the run registry, bijected with this file's call lines, and the
-# expanded `_*_lbl` variables, against the records — in the correspondence part; the
+# expanded (orphans) or spelled (the ratchet) `_*_lbl` variables, against the records — in the correspondence part; the
 # records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
@@ -147,8 +147,9 @@ fi
 # that producer fires, so the rename can sit unseen behind a green run: the names
 # are derived from the text, by the regex the harness uses to forward the
 # postconditions' labels, not listed. The files read are the wire and every part of
-# `_MUT_PARTS` (the wire spells `_ord_lbl`'s one expansion: the census's population is
-# a subset of what is asserted here). A part that is not readable is skipped here and reported by its
+# `_MUT_PARTS` (the wire spells `_ord_lbl`'s one expansion: the orphan check's population is
+# a subset of what is asserted here, the ratchet's is this list; a label variable whose name is never
+# spelled, built by `printf -v` or `eval`, is the one thing neither sees: none exists). A part that is not readable is skipped here and reported by its
 # own existence check: controls - by the wire, before this file runs; harness -
 # just above; fixtures - below, after the harness is sourced; ctlrun - at the
 # end of the harness; mutations - at the end of this file; correspondence, records and

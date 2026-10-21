@@ -13,6 +13,9 @@ and **C** (the label census and its ratchet) of the branch-wide `/code-review ma
 the handoff file `R7-CR-triage.md` ("the triage"), under the driver's decisions of 2026-10-17 (`DECISIONS-R7.md` "## CR
 round"; settled, not reopened) and R1's. It also assigns every item of the triage's appendix (D9, `…-cr-sweep.md` §F).
 
+⚠ **Corrective notes** (dated; one line per falsified line, added by the CR2 round's slice that falsifies it, under its G36 rule, `…-cr2-plan.md` §7: the body below is left as approved, because it is provenance; the line numbers are the body's as approved, as at `706049ad`, before the first note, which shifts it by the notes' own lines):
+- **:413 (§3.2 rule 1) and :733 (BS-5a)**, "never a false green on the oracle's 131 cases" (2026-10-21, CR2-A's commit): true of the orphan check's direction only. The scan also over-counts (a ` #` inside an earlier double-quoted string on a quoted here-document's line, an apostrophe inside an earlier double-quoted string before single-quoted data, a line of a multi-line single-quoted string, a class `oracle2.sh` does not measure), so its errors go both ways (CR2's `oracle2.sh`, 395 cases: 315 agree, 58 under, 18 over, 4 syntax-excluded; bash 5.3 and 3.2). Since CR2-A the expansion scan feeds the orphan check only; the ratchet and the literal rule read the spelled names (`$_lbd_names`), whose error is red (`…-cr2-plan.md` §2, `…-impl-cr2.md` §T.4).
+
 **Frame: `2f1ca601`** (branch `k2-wire-fgit-hermetic`, worktree `elidex-wt-fgit-hermetic`): the first half is in it
 — CR-S1 `c3c0b74b`, CR-S2 `945a814d`, CR-S3 `598e1aa2`, CR-S5 `5f08bd6b`, CR-S8a `161ae982` — and the record rollover
 `2f1ca601` (`…-impl-cr.md` §S opened, design memo §13 naming it). Every line number below is at `2f1ca601`. The old

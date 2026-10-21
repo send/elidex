@@ -14,7 +14,7 @@
 # `_mut_src_for`, `_mut_target`, `_mut_apply`), the trial and the opt-in run,
 # and its header states the format and the three checks this file implements.
 # WHAT IT CONSUMES: `$_VFY` and the run registry in it (`$_VFY/.registry`),
-# `$_cen_lbl`, `$_af_lbl`, `$_CONTROLS`, `$_lbd_files` and `$_MUT_PARTS` (from the controls
+# `$_cen_lbl`, `$_af_lbl`, `$_CONTROLS`, `$_lbd_files`, `$_lbd_names` and `$_MUT_PARTS` (from the controls
 # file), `_mut_part_path` (from the controls file), `_cap_rows` (from the run
 # primitives), `_mutants` (the record table), `_mut_parse` and `_mut_src_for`,
 # `$_MUT_UNRECORDED_MAX`, `$_MUT_RECORDS_MIN` (from the mutation set, which
@@ -216,9 +216,9 @@ _mut_correspondence() {
   # `_control` / `_ctl_run` / `_ctl_gate` / `_fgit_window_verdict_exit` call
   # made under this `_VFY`, kind `control` when `_control` made it, `direct`
   # otherwise), and the values of the `_*_lbl` names the TEXT EXPANDS (rule 1,
-  # below; `_lbd`, in the controls file, asserted each defined, so a caller's
-  # environment cannot add one). `.labels` is their union; `.ctllabels` (the
-  # `!kill` allowlist) is the `control`-kind labels.
+  # below: the ORPHAN CHECK's population, `.vlabels`; the ratchet and the literal rule read the names
+  # the files SPELL instead, `.mvalues`). `.labels` is the registry's labels and the expansions' union;
+  # `.ctllabels` (the `!kill` allowlist) is the `control`-kind labels.
   # THE REGISTRY IS BIJECTED WITH THE TEXT (rule 2): the call lines of `$_CONTROLS`
   # (a non-comment line naming a run primitive as a word) are exactly the registered
   # sites, kinds included, so an unexecuted call (an `if false &&`, a branch this
@@ -252,11 +252,11 @@ _mut_correspondence() {
   # cut FIRST (`$#`, `${x#y}`, `\#`, `a#b` are none; a quote stripped before the cut would pair across a `#`, a comment's
   # text turned code: a false green); (2) a quoted here-document's body (`<<'W'`, `<<"W"`, `<<\W`) is skipped to its
   # terminator; (3) each `\`+char is dropped, then each single-quoted span (`'$x_lbl'`, `\$x_lbl`, `$'…'` expand nothing).
-  # Every error is a false RED (a real expansion dropped, its records orphan): a `#` or `'` inside double quotes, an
-  # unquoted here-document body's `#`, a bare arithmetic name (`$((x_lbl))`). Never a false green on the CR-C1 fix
-  # round's oracle, 131 cases (114 agree, 13 false red, 4 syntax-excluded; bash 5.3 and 3.2; measured outside the repo, the figures stated here, not the logs).
-  # A definition and an indirect `${!x}` are no use. `_lbd` reads these files and the record table (every `_*_lbl`
-  # token, expanded or not), so the names are asserted defined; `.vlabels` is their values.
+  # ITS ERRORS GO BOTH WAYS: an UNDER-count (a `#` or `'` inside double quotes, an unquoted here-document body's `#`, a bare arithmetic name
+  # `$((x_lbl))`) orphans a record, a false red; an OVER-count (a ` #` in an earlier double-quoted string on a quoted here-document's line, an apostrophe in
+  # one before single-quoted data, a multi-line single-quoted string's line — this class not measured by `oracle2.sh`) leaves a record non-orphan, its opt-in trial not killed as named, red (`oracle2.sh`, 395 cases,
+  # bash 5.3 and 3.2, the figures stated here, not the logs: 315 agree, 58 under, 18 over, 4 syntax-excluded). So `.vlabels` feeds the ORPHAN CHECK only: the RATCHET (`.bare`) and the literal
+  # rule read `.mvalues`, the values of every name `_lbd` asserts defined (`$_lbd_names`, the `_*_lbl` tokens of these files and the record table): spelled ⊇ expanded, so their error is red.
   _cen_files=(); _mut_part_path records
   for _cen_f in "${_lbd_files[@]}"; do case "$_cen_f" in "$_mut_pp") ;; *) _cen_files+=("$_cen_f") ;; esac; done
   _cen_used="$(awk 'FNR == 1 { hd = "" } hd != "" { l = $0; if (hdt) sub(/^\t+/, "", l); if (l == hd) hd = ""; next }
@@ -267,6 +267,7 @@ _mut_correspondence() {
         t = substr(s, RSTART, RLENGTH - 1); sub(/^[$][{]?/, "", t); print t; s = substr(s, RSTART + 1) } }' "${_cen_files[@]}" | LC_ALL=C sort -u)" || {
     echo "!! the label-expansion scan failed: nothing was decided." >&2; _mut_corr_bad=1; }
   for _cen_v in $_cen_used; do printf '%s\n' "${!_cen_v}"; done | LC_ALL=C sort -u > "$_VFY/.vlabels"
+  for _cen_v in $_lbd_names; do printf '%s\n' "${!_cen_v}"; done | LC_ALL=C sort -u > "$_VFY/.mvalues"
   # RULES 2 AND 3, ONE PASS over the registry and the controls file: a registry row holds exactly three
   # TAB fields (site, kind, label); a call line of `$_CONTROLS` (a non-comment line naming `_control`,
   # `_ctl_run`, `_ctl_gate` or `_fgit_window_verdict_exit` as a word; kind `control` when it names `_control`,
@@ -278,8 +279,9 @@ _mut_correspondence() {
     BEGIN { cen = ENVIRON["K2_CEN"]; cf = ENVIRON["K2_CF"]; err = "/dev/stderr"
       printf "" > ENVIRON["K2_CTL"]; printf "" > ENVIRON["K2_LAB"]; close(ENVIRON["K2_CTL"]); close(ENVIRON["K2_LAB"])
       lc = "LC_ALL=C sort -u > \"$K2_LAB\""; cc = "LC_ALL=C sort -u > \"$K2_CTL\"" }
-    FILENAME == ARGV[1] { isv[$0] = 1; print $0 | lc; next }
-    FILENAME == ARGV[2] {
+    FILENAME == ARGV[1] { print $0 | lc; next }
+    FILENAME == ARGV[2] { isv[$0] = 1; next }
+    FILENAME == ARGV[3] {
       if (NF != 3) { print "!! CONTROL FAILED (" cen "): the registry row \"" $0 "\" holds " NF " fields, not 3 (site, kind, label)." > err; bad = 1; next }
       l = $3; k = $1 "\t" $2
       if (!((l, $1) in seen)) { seen[l, $1] = 1; sites[l] = sites[l] " " $1; n[l]++ }
@@ -305,17 +307,18 @@ _mut_correspondence() {
         print "   — the call never ran (a branch not taken, an `if false &&`), or it registered at another line." > err; bad = 1 }
       if (xr != "") { print "!! CONTROL FAILED (" cen "): registered sites that are no call line of the controls file:" xr > err
         print "   — a call the text hides (`eval`, a split word, a helper defined elsewhere), or a line the file no longer has." > err; bad = 1 }
-      close(lc); close(cc); exit bad }' "$_VFY/.vlabels" "$_VFY/.registry" "$_CONTROLS" || _cen_rc=$?
+      close(lc); close(cc); exit bad }' "$_VFY/.vlabels" "$_VFY/.mvalues" "$_VFY/.registry" "$_CONTROLS" || _cen_rc=$?
   [ "$_cen_rc" -le 1 ] || echo "!! the registry scan failed (awk exited $_cen_rc): nothing was decided." >&2
   [ "$_cen_rc" -eq 0 ] || _mut_corr_bad=1
   # READER 4 OF THE CAPABILITY TABLE: every declared member is a `control`-kind label of THIS run's
   # registry (the list just written), else the table names a control that was renamed or never made.
   _mc_nl=$'\n'; _mc_ctl="$_mc_nl$(cat "$_VFY/.ctllabels")$_mc_nl"
   _cap_rows member _mut_cap_member
+  # `.bare`: the registry's labels and `.mvalues` (the spelled names) less the needles (the orphan check reads `.labels`).
   _mut_arc=0
   K2_CEN="$_cen_lbl" K2_BARE="$_VFY/.bare" awk 'BEGIN { printf "" > ENVIRON["K2_BARE"] }
     FILENAME == ARGV[1] { nd[++nn] = $0; isn[$0] = 1; next }
-    { lb[++nl] = $0; isl[$0] = 1 }
+    { if (FILENAME == ARGV[3]) isl[$0] = 1; if (!($0 in isb)) { isb[$0] = 1; lb[++nl] = $0 } }
     END {
       for (i = 1; i <= nn; i++) if (nd[i] != "!survive" && !(nd[i] in isl)) {
         print "!! CONTROL FAILED (" ENVIRON["K2_CEN"] "): mutation record needle \"" nd[i] "\" is no label this run used (none registered" > "/dev/stderr"
@@ -324,7 +327,7 @@ _mut_correspondence() {
       }
       for (i = 1; i <= nl; i++) if (!(lb[i] in isn)) print lb[i] > ENVIRON["K2_BARE"]
       exit bad
-    }' "$_VFY/.needles" "$_VFY/.labels" || _mut_arc=$?
+    }' "$_VFY/.needles" "$_VFY/.mvalues" "$_VFY/.labels" || _mut_arc=$?
   [ "$_mut_arc" -le 1 ] || echo "!! the needle/label scan failed (awk exited $_mut_arc): nothing was decided." >&2
   [ "$_mut_arc" -eq 0 ] || _mut_orphan=1
   [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1

@@ -18,7 +18,7 @@ checked out at `706049ad` and named `cr2-wt` (the `*-clone.sh` scripts clone it)
 copy of the CR round's (`…-cr-sweep.md` §E, which stays as run): the same file set, with CR2's own plan, its companion,
 this file and its instrument companions (every `…-cr2-*.md`) excluded instead of that round's two files; CR2-0 adds the new part to the set and CR2-D the #519
 memo's companion; each slice adds the identifier groups it introduces, in the commit that adds them. `idents.tsv` is
-the CR round's as committed at `706049ad`, with each slice's groups appended after its last row (CR2-0: `correspondence`; CR2-B: `_mut_fresh` (word-bounded, so that its fix round's `_mut_fresh_gate` is a group of its own), `_mut_fresh_gate`, `_mf_v`, `_af_lbl` and the phrases its B2a I-2 groups re-classify, "fresh", "exactly one line" and "anchor"). The `perl -0777` wrap backstop is run as the CR round ran it
+the CR round's as committed at `706049ad`, with each slice's groups appended after its last row (CR2-0: `correspondence`; CR2-B: `_mut_fresh` (word-bounded, so that its fix round's `_mut_fresh_gate` is a group of its own), `_mut_fresh_gate`, `_mf_v`, `_af_lbl` and the phrases its B2a I-2 groups re-classify, "fresh", "exactly one line" and "anchor"; CR2-A: `.mvalues` and the phrases of its B2a I-2 groups, "expand" and "spell" — its other two, `.vlabels` and `$_cen_used`, are rows already, `lbd` and `cen_vars`). The `perl -0777` wrap backstop is run as the CR round ran it
 (`…-cr-plan.md` §7; `…-impl-cr.md` §S.2).
 
 ## §0 Spec coverage map
@@ -137,6 +137,9 @@ af_lbl	_af_lbl
 fresh	fresh	i
 oneline	exactly one line	i
 anchor	anchor	i
+mvalues	\.mvalues	
+expand	expand	i
+spell	spell	i
 ```
 
 ### §E.1 The plan's §2–§5 (CR#4, CR#7, CR#9, CR#14)
