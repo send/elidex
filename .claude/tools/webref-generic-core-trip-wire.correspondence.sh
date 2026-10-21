@@ -9,19 +9,19 @@
 # run. That is two subjects, and the second was a third of the mutation set. The
 # split is taken at the boundary its comments already drew, before the
 # fixture-git rebuild's census and anchor rules take the mutation set past 1000
-# lines (CLAUDE.md touch-time split). The block below is the always-on half
-# moved verbatim; the mutation set keeps the format's readers (`_mut_parse`,
+# lines (CLAUDE.md touch-time split). The block below began as the always-on
+# half moved verbatim; the mutation set keeps the format's readers (`_mut_parse`,
 # `_mut_src_for`, `_mut_target`, `_mut_apply`), the trial and the opt-in run,
 # and its header states the format and the three checks this file implements.
 # WHAT IT CONSUMES: `$_VFY` and the run registry in it (`$_VFY/.registry`),
-# `$_cen_lbl`, `$_CONTROLS`, `$_lbd_files` and `$_MUT_PARTS` (from the controls
+# `$_cen_lbl`, `$_af_lbl`, `$_CONTROLS`, `$_lbd_files` and `$_MUT_PARTS` (from the controls
 # file), `_mut_part_path` (from the controls file), `_cap_rows` (from the run
 # primitives), `_mutants` (the record table), `_mut_parse` and `_mut_src_for`,
 # `$_MUT_UNRECORDED_MAX`, `$_MUT_RECORDS_MIN` (from the mutation set, which
 # refuses to run without this file), `_mut_gen_floor` (from the generated
 # half), and `$SELF` (from the wire). WHAT IT DEFINES: `_mut_cap_member` (the census's membership
-# callback), `_mut_correspondence` and `_mut_census_end` (the controls file's
-# last statement).
+# callback), `_mut_fresh` (the anchor rule) and `_mut_fresh_gate` (its red), `_mut_correspondence` and `_mut_census_end` (the controls
+# file's last statement).
 
 # The census's membership callback (`_cap_rows member`): the member label is in `$_mc_ctl`.
 _mut_cap_member() {
@@ -29,6 +29,126 @@ _mut_cap_member() {
     echo "!! CONTROL FAILED ($_cen_lbl): declared capability member \"${_cr_f[2]}\" is no \`_control\` this run made" >&2
     _mut_corr_bad=1 ;;
   esac
+}
+# WHAT A FRESH ANCHOR IS: `_mut_fresh <expression> <target>` sets `_mf_v` to the first clause the expression
+# fails, in this order, or `fresh`: `stale` / `count:<n>` (1, ONE LINE: `diff` counts exactly one changed line),
+# `twice` (2, POSITION-UNIQUE: applied twice it changes nothing more than once, else a second occurrence on
+# the line is where a respelling of the first would move the edit), `carry` (3, FAITHFUL: each character of
+# the changed line outside the changed span — the common prefix and suffix of the line before and after —,
+# replaced by \001 and, a letter or digit, by another of its class, either stops the match or comes out at its
+# mapped place in the changed line, for every probe; anything else is read through a wildcard and written back
+# as something else, a restated text a respelling would see reverted). A deletion or a pure insertion has no
+# changed line: clauses 1 and 2 only. Clauses 2 and 3 only add reds; their false reds are cured by anchoring
+# more precisely. Status 1 = a tool failed, `_mf_v` the reason (decided nothing).
+# THE VARIANTS: one awk pass writes each variant with its expected image, and the target with the changed line
+# replaced IN PLACE by the variants; one `sed` runs the expression over that; one awk pass compares (values
+# through ENVIRON). That is exact only for a line-local expression: per command one `s`, `y` or `d` under at
+# most one `/regex/` address. ANY OTHER FORM — a range (`,` after an address), a numeric or `$` address, any
+# other command (`n N D G H x P`, `h g b t`, …) — can read line position or neighbouring lines, which K
+# consecutive variants do not preserve: it gets one whole-target copy and one `sed` per variant, compared whole.
+# ⚠ BLIND (the opt-in run's kill is the backstop): only the changed line is perturbed, only outside the changed
+# span — the lines a range's addresses or a hold-space copy read (BS-8), a variable defined elsewhere, a wildcard
+# INSIDE the span (`s/^k=a.c$/k=aXc/` is fresh and reverts `k=aYc`), a class whose characters no probe leaves
+# (punctuation, space: `s/^k=v[[:punct:]]$/k=w,/` on `k=v,` is fresh) or a partial range the probe falls outside
+# (`[a-c]`), a quantifier whose match length a substitution probe cannot change (`x*`, `x\{1,\}`), the `I` flag,
+# and a pure insertion (no clause 3) can drift with the record fresh.
+_mut_fresh() {
+  local _mf_d=0 _mf_a=0 _mf_n _mf_h="" _mf_l _mf_rc=0 _mf_bad _mf_m _mf_k _mf_i=0
+  sed -e "$1" "$2" > "$_VFY/.anchor" 2>/dev/null || { _mf_v="not a valid sed expression"; return 1; }
+  diff "$2" "$_VFY/.anchor" > "$_VFY/.anchordiff" || _mf_rc=$?
+  [ "$_mf_rc" -le 1 ] || { _mf_v="diff of ${2##*/} failed (exit $_mf_rc)"; return 1; }
+  # Counted in the shell: the larger of the `<` and `>` lines; a one-line change's own header (`NcM`) kept.
+  while IFS= read -r _mf_l; do
+    case "$_mf_l" in '<'*) _mf_d=$((_mf_d + 1)) ;; '>'*) _mf_a=$((_mf_a + 1)) ;; [0-9]*c[0-9]*) _mf_h="$_mf_l" ;; esac
+  done < "$_VFY/.anchordiff"
+  _mf_n=$(( _mf_d > _mf_a ? _mf_d : _mf_a ))
+  if [ "$_mf_n" -eq 0 ]; then _mf_v=stale; return 0; fi
+  if [ "$_mf_n" -ne 1 ]; then _mf_v="count:$_mf_n"; return 0; fi
+  sed -e "$1" -e "$1" "$2" > "$_VFY/.anchor2" 2>/dev/null || { _mf_v="applied twice, sed failed"; return 1; }
+  _mf_rc=0; cmp -s "$_VFY/.anchor" "$_VFY/.anchor2" || _mf_rc=$?
+  [ "$_mf_rc" -le 1 ] || { _mf_v="cmp of the output applied twice failed (exit $_mf_rc)"; return 1; }
+  if [ "$_mf_rc" -eq 1 ]; then _mf_v=twice; return 0; fi
+  _mf_v=fresh; [ "$_mf_d" -eq 1 ] && [ "$_mf_a" -eq 1 ] || return 0
+  case "$_mf_h" in *[!0-9c]*|"") _mf_v="the one changed line has no \`NcM\` diff header ($_mf_h)"; return 1 ;; esac
+  # The form: x = not line-local, when a command position (outside the delimited `/re/`, `s` and `y` parts, read
+  # with `\` escaping as sed does) holds anything but `s` `y` `d` `/re/` `!` `{` `}` `;` — a range `,` included;
+  # a regex's bracket expression is read to its `]` (POSIX), and one holding the delimiter (seds differ) is x too.
+  K2_E="$1" K2_N="${_mf_h%c*}" K2_M="${_mf_h#*c}" K2_X="$_VFY/.fvexp" K2_D="$_VFY/.fv." awk '
+    function sk(i, d, b,  c, j) { for (i++; i <= n; i++) { c = substr(e, i, 1); if (c == "\\") i++; else if (c == d) return i + 1
+        else if (b && c == "[") { j = i + 1; if (substr(e, j, 1) == "^") j++; if (substr(e, j, 1) == "]") j++
+          for (; j <= n && substr(e, j, 1) != "]"; j++) if (substr(e, j, 1) == "[" && index(":=.", substr(e, j + 1, 1))) {
+            c = index(substr(e, j + 2), substr(e, j + 1, 1) "]"); j = c ? j + c + 2 : n }
+          if (j > n || index(substr(e, i, j - i + 1), d)) { x = 1; return n + 1 }; i = j } }; x = 1; return i }
+    function pr(c) { if (index("abcdefghijklmnopqrstuvwxyz", c)) return c == "q" ? "j" : "q"
+      if (index("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c)) return c == "Q" ? "J" : "Q"
+      return index("0123456789", c) ? (c == "7" ? "3" : "7") : "" }
+    BEGIN { e = ENVIRON["K2_E"]; n = length(e); for (i = 1; !x && i <= n; ) { c = substr(e, i, 1)
+        if (index(" \t\n;{}!", c)) i++; else if (c == "/") i = sk(i, c, 1); else if (c == "d") i++
+        else if (c == "s" || c == "y") { d = substr(e, i + 1, 1); i = sk(sk(i + 1, d, c == "s") - 1, d, 0)
+          if (c == "s") while (i <= n && index("gpI0123456789", substr(e, i, 1))) i++ }
+        else x = 1 } }
+    FILENAME == ARGV[1] { if (FNR == ENVIRON["K2_M"] + 0) l2 = $0; next }
+    { L[++nl] = $0 }
+    FNR == ENVIRON["K2_N"] + 0 { a = length($0); b = length(l2); p = 0; s = 0
+      while (p < a && p < b && substr($0, p + 1, 1) == substr(l2, p + 1, 1)) p++
+      while (s < a - p && s < b - p && substr($0, a - s, 1) == substr(l2, b - s, 1)) s++
+      for (i = 1; i <= a; i++) if (i <= p || i > a - s) { j = (i <= p) ? i : i - a + b; q = "\001" pr(substr($0, i, 1))
+        for (t = 1; t <= length(q); t++) { r = substr(q, t, 1)
+          V[++k] = substr($0, 1, i - 1) r substr($0, i + 1); E[k] = substr(l2, 1, j - 1) r substr(l2, j + 1) } } }
+    END { printf "%s %d\n", (x ? "exact" : "inplace"), k > ENVIRON["K2_X"]
+      for (t = 1; t <= k; t++) { print V[t] > ENVIRON["K2_X"]; print E[t] > ENVIRON["K2_X"] }
+      if (x) { for (t = 1; t <= k; t++) { f = ENVIRON["K2_D"] t; for (r = 1; r <= nl; r++) print (r == ENVIRON["K2_N"] + 0 ? V[t] : L[r]) > f; close(f) } }
+      else for (r = 1; r <= nl; r++) { if (r == ENVIRON["K2_N"] + 0) { for (t = 1; t <= k; t++) print V[t] } else print L[r] } }' \
+    "$_VFY/.anchor" "$2" > "$_VFY/.fvar" || { _mf_v="the variant pass failed"; return 1; }
+  read -r _mf_m _mf_k < "$_VFY/.fvexp" || :
+  case "$_mf_m:$_mf_k" in inplace:[0-9]*|exact:[0-9]*) ;; *) _mf_v="the variant pass wrote \"$_mf_m $_mf_k\""; return 1 ;; esac
+  if [ "$_mf_m" = exact ]; then
+    while [ "$_mf_i" -lt "$_mf_k" ]; do _mf_i=$((_mf_i + 1))
+      sed -e "$1" "$_VFY/.fv.$_mf_i" > "$_VFY/.fo.$_mf_i" 2>/dev/null || { _mf_v="the variants' sed failed"; return 1; }
+    done
+    # Each output, whole, is the target with its variant unchanged (read) or `.anchor` with the image (carried).
+    _mf_bad="$(K2_N="${_mf_h%c*}" K2_M="${_mf_h#*c}" K2_O="$2" K2_A="$_VFY/.anchor" K2_X="$_VFY/.fvexp" K2_D="$_VFY/.fo." awk 'BEGIN {
+      while ((getline l < ENVIRON["K2_O"]) > 0) o[++no] = l; while ((getline l < ENVIRON["K2_A"]) > 0) an[++na] = l
+      getline l < ENVIRON["K2_X"]; while ((getline v < ENVIRON["K2_X"]) > 0 && (getline w < ENVIRON["K2_X"]) > 0) {
+        f = ENVIRON["K2_D"] (++k); u = 1; c = 1; m = 0
+        while ((getline l < f) > 0) { m++; if (l != (m == ENVIRON["K2_N"] + 0 ? v : o[m])) u = 0; if (l != (m == ENVIRON["K2_M"] + 0 ? w : an[m])) c = 0 }
+        close(f); if (m != no) u = 0; if (m != na) c = 0; if (!u && !c) bad++ }
+      print bad + 0 }')" || { _mf_v="the variant comparison failed"; return 1; }
+  else
+    sed -e "$1" "$_VFY/.fvar" > "$_VFY/.fvout" 2>/dev/null || { _mf_v="the variants' sed failed"; return 1; }
+    # Each output line from N on is its variant unchanged (read) or its expected image (carried); a line missing is bad.
+    _mf_bad="$(K2_N="${_mf_h%c*}" awk 'FILENAME == ARGV[1] { if (FNR == 1) next; if (FNR % 2) e[nv] = $0; else v[++nv] = $0; next }
+      FNR >= ENVIRON["K2_N"] + 0 && m < nv { m++; if ($0 != v[m] && $0 != e[m]) bad++ }
+      END { print bad + nv - m }' "$_VFY/.fvexp" "$_VFY/.fvout")" || { _mf_v="the variant comparison failed"; return 1; }
+  fi
+  case "$_mf_bad" in 0) ;; [1-9]*) _mf_v=carry ;; *) _mf_v="the variant comparison printed \"$_mf_bad\""; return 1 ;; esac
+}
+# THE GATE, `_mut_fresh_gate <expression> <target> <what>`: judges AND reds — `_mut_fresh`'s verdict, its message,
+# and the red (`_mut_corr_bad=1`, status 1) on anything but `fresh`. The self-test drives its rows through this
+# same function and asserts the red, so a mutant that removes the red step here is killed there (R7e).
+_mut_fresh_gate() {
+  if ! _mut_fresh "$1" "$2"; then echo "!! $3 \"$1\": $_mf_v, so nothing was decided about it." >&2
+  else case "$_mf_v" in
+    fresh) return 0 ;;
+    stale)
+      echo "!! $3 \"$1\" no longer matches ${2##*/}: its anchor is stale," >&2
+      echo "   so the record would test a copy identical to the shipped file." >&2 ;;
+    count:*)
+      echo "!! $3 \"$1\" changes ${_mf_v#count:} lines of ${2##*/}, not exactly one:" >&2
+      echo "   it is anchored on more than the line it is about (a comment, a second site), so" >&2
+      echo "   it stays \"fresh\" after the intended line is respelled. Anchor it on one line;" >&2
+      echo "   a record that needs several edits is several TAB-separated expressions." >&2 ;;
+    twice)
+      echo "!! $3 \"$1\" changes ${2##*/} again when applied twice:" >&2
+      echo "   its anchor occurs more than once on the line (or matches its own output), so a" >&2
+      echo "   respelling of the first occurrence moves the edit to the next. Anchor it on text that occurs once." >&2 ;;
+    *)
+      echo "!! $3 \"$1\" rewrites text of ${2##*/} it does not read:" >&2
+      echo "   a character outside its edit, perturbed, is matched by a wildcard and written back as" >&2
+      echo "   something else, so a respelling there would be silently reverted. Spell what it keeps," >&2
+      echo "   \`\\(…\\)\` and \`\\1\`, and escape a literal \`.\`." >&2 ;;
+  esac; fi
+  _mut_corr_bad=1; return 1
 }
 # The always-on half: the records against the labels the run used.
 _mut_correspondence() {
@@ -216,14 +336,34 @@ _mut_correspondence() {
   # killed nor argued equivalent`).
   _mut_gen_floor || _mut_corr_bad=1
   # ---- EVERY RECORD STILL APPLIES, ALWAYS ON ------------------------------------
-  # Each record's expression must change the file it targets. Records anchor on
-  # harness and fixtures text that an equivalent edit can change (spelling an
-  # option long, adding an allowlist entry), and a record that matches nothing
-  # tests a copy identical to the shipped file. The opt-in run would catch it,
-  # minutes later and only when someone runs it; this costs one `sed` and one
-  # `diff` per expression.
-  # ⚠ NOT INSIDE A MUTANT: there one target is edited ON PURPOSE, so the records
-  # anchored on the edited text no longer apply, by design.
+  # Each record's expression must be FRESH on the file it targets (`_mut_fresh`:
+  # one line, position-unique, faithful). Records anchor on harness and fixtures
+  # text that an equivalent edit can change (spelling an option long, adding an
+  # allowlist entry), and a record that matches nothing, or matches a second
+  # occurrence, or rewrites text it does not read, tests a copy that is not the
+  # one it was written for. The opt-in run would catch it, minutes later and only
+  # when someone runs it; this costs seven processes per line-local expression.
+  # THE RULE'S OWN SELF-TEST FIRST, on a fixed fixture whose verdicts are known,
+  # through the gate the records use: a wrong verdict, or a red (`_mut_corr_bad`,
+  # status, message) present on `fresh` or missing on another row, is red under
+  # `$_af_lbl`, whose records (one per verdict arm, the gate's red step, the exact path and the two probes) pin
+  # each, and a variant pass this machine's awk or sed made vacuous (every record
+  # read fresh) reds the carry row. ⚠ ABOVE THE SKIP BELOW, so a record that
+  # disables an arm is exercised inside its own mutant.
+  printf '%s\n' 'a=1' 'x ab ab' 'k=vx' > "$_VFY/.affix"
+  # The last three rows pin the variant pass's mechanisms (R7f, R7g, R7h): the range ends at the first variant laid in
+  # place, so only the exact path reds it; the `[a-z]` read is caught only by the same-class probe, the `.` one only by \001.
+  for _af_r in 's/^a=1$/a=2/ fresh' 's/^zz$/y/ stale' 's/=/:/ count:2' 's/ab/XY/ twice' 's/^k=.*/k=wx/ carry' \
+    '/^x/,/=/s/^k=.*/k=wx/ carry' 's/^k=v[a-z]$/k=wx/ carry' 's/^x.ab ab$/x ab XY/ carry'; do
+    _af_keep="$_mut_corr_bad"; _mut_corr_bad=0; _af_rc=0; _af_g=0; [ "${_af_r##* }" = fresh ] || _af_g=1
+    _mut_fresh_gate "${_af_r% *}" "$_VFY/.affix" "anchor self-test row" 2> "$_VFY/.afmsg" || _af_rc=1
+    _af_m=0; if [ -s "$_VFY/.afmsg" ]; then _af_m=1; fi; _af_red="$_mut_corr_bad:$_af_rc:$_af_m"; _mut_corr_bad="$_af_keep"
+    [ "$_mf_v" = "${_af_r##* }" ] && [ "${_af_red%%:*}" = "$_af_g" ] && [ "${_af_red#*:}" = "$_af_g:$_af_g" ] && continue
+    echo "!! CONTROL FAILED ($_af_lbl): the anchor gate reads \"${_af_r% *}\" on its fixture as \"$_mf_v\" (red:status:message $_af_red), not \"${_af_r##* }\" ($_af_g:$_af_g:$_af_g)." >&2
+    _mut_corr_bad=1
+  done
+  # ⚠ THE RECORDS NOT INSIDE A MUTANT: there one target is edited ON PURPOSE, so
+  # the records anchored on the edited text no longer apply, by design.
   case "${SELF##*/}" in
     *.mutant.*) : ;;
     *) while IFS= read -r _ma_rec; do
@@ -237,41 +377,18 @@ _mut_correspondence() {
            case "$_ma_x" in *:*) _ma_w="${_ma_x%%:*}"; case "$_ma_w" in ""|?|*[!A-Za-z]*) ;; *)
              echo "!! mutation record expression \"$_ma_x\": \"$_ma_w:\" is no prefix (one is read once, from a record's FIRST expression); sed would read it as a command (\`w\` writes, \`e\` runs)." >&2
              _mut_corr_bad=1; continue ;; esac ;; esac
-           # ⚠ EACH EXPRESSION ALONE, AND IT MUST CHANGE EXACTLY ONE LINE of its
-           # target. Whole-record, whole-file was the old granularity: an
-           # expression that also matched a COMMENT passed on the comment after the
-           # code line was respelled, and the second half of a `range-s;s` pair
-           # kept a record "fresh" when the range half had gone stale. `diff`
-           # counts a changed line once whether `s` rewrote it or `d` removed it.
-           if ! sed -e "$_ma_x" "$_mut_src" > "$_VFY/.anchor" 2>/dev/null; then
-             echo "!! mutation record expression \"$_ma_x\" is not a valid sed expression." >&2; _mut_corr_bad=1; continue
-           fi
-           _ma_drc=0; diff "$_mut_src" "$_VFY/.anchor" > "$_VFY/.anchordiff" || _ma_drc=$?
-           if [ "$_ma_drc" -gt 1 ]; then
-             echo "!! mutation record expression \"$_ma_x\": diff of ${_mut_src##*/} failed (exit $_ma_drc)." >&2; _mut_corr_bad=1; continue
-           fi
-           # Counted in the shell, not by a command substitution per expression:
-           # the larger of the `<` lines and the `>` lines of the diff.
-           _ma_d=0; _ma_a=0
-           while IFS= read -r _ma_l; do
-             case "$_ma_l" in '<'*) _ma_d=$((_ma_d + 1)) ;; '>'*) _ma_a=$((_ma_a + 1)) ;; esac
-           done < "$_VFY/.anchordiff"
-           _ma_n=$(( _ma_d > _ma_a ? _ma_d : _ma_a ))
-           if [ "$_ma_n" -eq 0 ]; then
-             echo "!! mutation record expression \"$_ma_x\" no longer matches ${_mut_src##*/}: its anchor is stale," >&2
-             echo "   so the record would test a copy identical to the shipped file." >&2
-             _mut_corr_bad=1
-           elif [ "$_ma_n" -ne 1 ]; then
-             echo "!! mutation record expression \"$_ma_x\" changes $_ma_n lines of ${_mut_src##*/}, not exactly one:" >&2
-             echo "   it is anchored on more than the line it is about (a comment, a second site), so" >&2
-             echo "   it stays \"fresh\" after the intended line is respelled. Anchor it on one line;" >&2
-             echo "   a record that needs several edits is several TAB-separated expressions." >&2
-             _mut_corr_bad=1
-           fi
+           # ⚠ EACH EXPRESSION ALONE, AND IT MUST BE FRESH on its target (one
+           # changed line, applied twice = once, faithful outside the changed span).
+           # Whole-record, whole-file was the old granularity: an expression that
+           # also matched a COMMENT passed on the comment after the code line was
+           # respelled, and the second half of a `range-s;s` pair kept a record
+           # "fresh" when the range half had gone stale. `diff` counts a changed
+           # line once whether `s` rewrote it or `d` removed it.
+           _mut_fresh_gate "$_ma_x" "$_mut_src" "mutation record expression" || :
          done
-       done < "$_VFY/.mutants"
-       command rm -f "$_VFY/.anchor" "$_VFY/.anchordiff" ;;
+       done < "$_VFY/.mutants" ;;
   esac
+  command rm -f "$_VFY/.anchor" "$_VFY/.anchordiff" "$_VFY/.anchor2" "$_VFY/.fvar" "$_VFY/.fvexp" "$_VFY/.fvout" "$_VFY/.affix" "$_VFY/.afmsg" "$_VFY"/.fv.* "$_VFY"/.fo.*
   # …the standing negative control must BE there, and the set may not shrink.
   # ⚠ `awk`, NOT `grep -c`: `grep` exits 1 when it selects nothing, and under
   # `pipefail` that aborts the required gate — the same trap as the `wc -l`

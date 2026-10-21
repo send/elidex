@@ -166,8 +166,9 @@ fi
 # and the run applies them together as `sed -e <expr 1> -e <expr 2> …`. A record
 # that needs two edits (a range-scoped one and an unscoped one, say) is therefore
 # two fields, never `expr1;expr2` in one — because the always-on anchor check
-# (in `…trip-wire.correspondence.sh`) applies EACH expression alone and requires it to change EXACTLY ONE
-# line of its target. A `;`-joined pair would be checked as one expression, and
+# (in `…trip-wire.correspondence.sh`) applies EACH expression alone and requires it to be FRESH: to change
+# EXACTLY ONE line of its target, to change nothing more when applied twice, and to keep (read or carry)
+# every character of that line outside its edit (`_mut_fresh`). A `;`-joined pair would be checked as one expression, and
 # one half going stale (a renamed function, a respelled line) would leave the
 # other half "fresh". The `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` / `mutations:` / `correspondence:` prefix (below) is
 # written on the FIRST expression and aims the whole record.
@@ -268,7 +269,7 @@ _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # The history of this figure (what removed and added records, and the step each pins) is stated once,
 # in that memo's §6.1; it is not restated here.
-_MUT_RECORDS_MIN=251
+_MUT_RECORDS_MIN=258
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`

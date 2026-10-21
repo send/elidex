@@ -103,8 +103,8 @@ _cen_lbl="every label the run used is named by a mutation record"
 # blocks, the defined-labels check, the three standing checks (their producers are
 # below), the table check (`$_capt_lbl`, `_cap_check`), the capability groups' and
 # the limit's labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`: the table's group and
-# `limit` rows hold them) and the orderly-end check (in the wire) —, defined HERE so
-# the check that follows can ask for every label at once:
+# `limit` rows hold them), the orderly-end check (in the wire) and the anchor rule's self-test
+# (`$_af_lbl`, in the correspondence part) —, defined HERE so the check that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
 _fsm_lbl="a caller's fsmonitor hook does not run"
 _lbd_lbl="every label the parts use is defined"
@@ -116,6 +116,7 @@ _fifo_lbl="this machine holds a FIFO, or its caller declared that it cannot"
 _perm_lbl="this user cannot read a mode-000 file, or its caller declared that it can"
 _pfl_lbl="this env lists its environment NUL-separated, or its caller declared that it cannot"
 _ev_lbl="a previous run's channel evidence never answers for the next"
+_af_lbl="a record's anchor is fresh only if it changes one line, once, and keeps what it does not read"
 # THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
 # derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
 # label check below, in the correspondence part the sibling guard, and in the

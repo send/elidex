@@ -42,7 +42,7 @@ _mutants() {
   done <<'MUTANTS'
 s/grep -aEn --/grep -En --/	K2 fires inside binary content, and the content is READ
 s/"$_mrc" -gt 1/"$_mrc" -gt 99/	a failed NAME matcher fails closed
-s#^K2RE_PATH=.*#K2RE_PATH='(^|/)\\.claude/(skills|tools)/[^/"]+/[^/]+'#	a quote inside a name segment
+s#^\(K2RE_PATH='(^|/)\\\.claude/(skills|tools)/\[^/\)\(\]+/\[^/\]+'\)$#\1"\2#	a quote inside a name segment
 s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a STAGED symlink target is a stored path
 s/elif \[ "$_mode" = 120000 \]; then/elif [ "$_mode" = 120000 ] \&\& [ "$_src" = index ]; then/	a COMMITTED symlink target is a stored path
 s|${1//$'\\n'/$_REC_SEP}|${1}|	a NEWLINE inside a name segment
@@ -52,7 +52,7 @@ s/\[ "$_hrc" -eq 0 \]/false/	a COMMITTED violation fixed only in the index still
 s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not a path
 s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
 s/export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1/export GIT_NO_LAZY_FETCH=1/	a replace ref cannot substitute the staged blob
-s|^_esc() .*|_esc() { printf '%s' "$1"; }|	a name cannot forge a verdict record
+s|^\(_esc() { \).*\("; }\)$|\1printf '%s' "$1\2|	a name cannot forge a verdict record
 s/^export LC_ALL=C$/&.UTF-8/	the fixture build window reads in the wire's locale
 s/_co="$(grep -aEn -- "$K2RE"/_co="$(LC_ALL=C.UTF-8 grep -aEn -- "$K2RE"/	a byte no UTF-8 locale can bracket
 s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
@@ -68,7 +68,7 @@ s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inv
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
 s/\[ "$_shrc" -eq 0 \]/false/	a failed HEAD PROBE is not an unborn HEAD
 s/\[ "$_shrc" -ne 1 \]/true/	an orphan branch is an unborn HEAD, not a read failure
-s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.~+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_\.~@+%-\]/[^A-Za-z0-9_.~+%-]/	a PATH character before .claude is not a prose boundary
 s/\[^A-Za-z0-9_.~@+%-\]/[[:space:]"]/	the leading boundary covers =, --opt=, :, a backtick, ** and ,
 s/elif _ancestor_link "$rel"; then/elif false; then/	the worktree read does not traverse an ancestor symlink
 s/\[ "$_catrc" -ne 0 \]/false/	a failed staged-blob read is not a clean target
@@ -77,8 +77,8 @@ s/elif ! _git -C "$ROOT" --literal-pathspecs/elif false \&\& ! _git -C "$ROOT" -
 s/--literal-pathspecs ls-files --error-unmatch/ls-files --error-unmatch/	the vanished-path question is asked of a LITERAL path
 s/\[ "$_hrc" -ne 0 \]/false/	a malformed HEAD ref is not an unborn repository
 s|\[^/\[:space:\]\]+/(|[^/[:space:])}>,;]+/(|	punctuation BEFORE a slash is part of the path
-s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
-s#^K2RE_PATH=.*#K2RE_PATH='\\.claude/(skills|tools)/[^/]+/[^/]+'#	a segment merely ENDING in .claude is not the host path
+s/(^|\/)\\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
+# (A RECORD WAS REMOVED HERE in CR2: it rewrote K2RE_PATH's whole value, `.*`, restating text it never read, and its mutant was byte-identical to the line above's, K2RE_PATH without `(^|/)`; the corpus §6.1 remove row for records.sh:81. The line stays because the documents cite records by their records.sh line.)
 s/_SELFTEST="$2"/_SELFTEST="${WEBREF_WIRE_SELFTEST:-$2}"/	an exported SELFTEST cannot redirect the scan
 s/\[ ! -d "${2:-}" \]/false/	a missing self-test root decides nothing
 s/^SCRATCH="$(_phys "$_raw_scratch")"/SCRATCH="$_raw_scratch"/	a relative scratch dir is removed on exit
@@ -86,27 +86,27 @@ s/if \[ "$_ENDS" -ne 1 \] || /if false \&\& /	a walk killed mid-scan is not a ve
 s/\[ -x "$_ab_p" \] && return 0/return 0/	a tracked file under an unsearchable dir is not absent
 s/|| \[ -L "$_ab_p" \] || continue/|| [ -L "$_ab_p" ] || return 1/	a tracked directory deleted wholesale stays green
 s/\[ -d "$_ab_p" \] || return 0/[ -d "$_ab_p" ] || return 1/	a tracked directory replaced by a file stays green
-s|\[^/\[:space:\]\]+/|[^]/[:space:]]+/|	a ] inside a first segment
-s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a double quote inside a first segment
-s|\[^/\[:space:\]\]+/|[^/[:space:]'"'"']+/|	a single quote inside a first segment
-s|\[^/\[:space:\]\]+/|[^/[:space:]`]+/|	a backtick inside a first segment
+s|\[^/\[:space:\]\]+/(|[^]/[:space:]]+/(|	a ] inside a first segment
+s|\[^/\[:space:\]\]+/(|[^/[:space:]"]+/(|	a double quote inside a first segment
+s|\[^/\[:space:\]\]+/(|[^/[:space:]'"'"']+/(|	a single quote inside a first segment
+s|\[^/\[:space:\]\]+/(|[^/[:space:]`]+/(|	a backtick inside a first segment
 s|\[^/\[:space:\]\]+/|[^]/[:space:]]+/|2	a ] inside an intermediate segment
 s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|2	a double quote inside an intermediate segment
 s|\[^/\[:space:\]\]+/|[^/[:space:]'"'"']+/|2	a single quote inside an intermediate segment
 s|\[^/\[:space:\]\]+/|[^/[:space:]`]+/|2	a backtick inside an intermediate segment
-s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a quoted one-segment reference before a slash token fails safe
+s|\[^/\[:space:\]\]+/(|[^/[:space:]"]+/(|	a quoted one-segment reference before a slash token fails safe
 s/SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""/SCRATCH="$(_phys "$_raw_scratch")"/	a restrictive umask decides nothing
 s/_root_p="$(_phys "$ROOT")" || _root_p=""/_root_p="$(_phys "$ROOT")"/	an unresolvable self-test root decides nothing
 s/^unset GREP_OPTIONS$/:/	a caller's GREP_OPTIONS cannot hide a file
-s/exec git -c core.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
+s/exec git -c core\.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
 s/^K2RE='(^|\[/K2RE='([/	a reference at the start of a line fires
-s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.@+%-]/	a PATH character before .claude is not a prose boundary
-s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.~@]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_\.~@+%-\]/[^A-Za-z0-9_.@+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_\.~@+%-\]/[^A-Za-z0-9_.~@]/	a PATH character before .claude is not a prose boundary
 s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_~@+%-]/	a PATH character before .claude is not a prose boundary
-s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9.~@+%-]/	a PATH character before .claude is not a prose boundary
-s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z_.~@+%-]/	a PATH character before .claude is not a prose boundary
-s/\[^A-Za-z0-9_.~@+%-\]/[^a-z0-9_.~@+%-]/	a PATH character before .claude is not a prose boundary
-s|\[^A-Za-z0-9_.~@+%-\]|[^A-Za-z0-9_.~@+%/-]|	a reference written after a slash fires
+s/\[^A-Za-z0-9_\.~@+%-\]/[^A-Za-z0-9.~@+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_\.~@+%-\]/[^A-Za-z_.~@+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_\.~@+%-\]/[^a-z0-9_.~@+%-]/	a PATH character before .claude is not a prose boundary
+s|\[^A-Za-z0-9_\.~@+%-\]|[^A-Za-z0-9_.~@+%/-]|	a reference written after a slash fires
 s|`\]\*\[^\]|`]+[^]|	a ONE-character final segment fires
 s#(\[^/\[:space:\]\]+/|#([^/[:space:]]{2,}/|#	a ONE-character intermediate segment fires
 s#^K2RE_PATH='\(.*\)/\[^/\]+/\[^/\]+'#K2RE_PATH='\1/[^/]{2,}/[^/]+'#	a ONE-character first segment in a STORED path fires
@@ -131,10 +131,10 @@ s/\[^\]\/\[:space:\]"'"'"'`)}>,;\])'$/[^]\/[:space:]"'"'"')}>,;])'/	running text
 s/\[^\]\/\[:space:\]"'"'"'`)}>,;\])'$/[^\/[:space:]"'"'"'`)}>,;])'/	running text that only looks like a two-segment reference stays green
 s/^K2RE='\(.*\)\\\.claude/K2RE='\1.claude/	running text that only looks like a two-segment reference stays green
 s#^K2RE_PATH='(^|/)#K2RE_PATH='^#	a stored path naming .claude after a slash, under tools, fires
-s#^K2RE_PATH='(^|/)\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/(skills)#	a stored path naming .claude after a slash, under tools, fires
-s#^K2RE_PATH='(^|/)\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/[a-z]+#	a stored path that only looks like one stays green
+s#^K2RE_PATH='(^|/)\\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/(skills)#	a stored path naming .claude after a slash, under tools, fires
+s#^K2RE_PATH='(^|/)\\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/[a-z]+#	a stored path that only looks like one stays green
 s#^K2RE_PATH='\(.*\)/\[^/\]+/\[^/\]+'#K2RE_PATH='\1/[^/]*/[^/]+'#	a stored path that only looks like one stays green
-s#^K2RE_PATH='(^|/)\\.claude#K2RE_PATH='(^|/).claude#	a stored path that only looks like one stays green
+s#^K2RE_PATH='(^|/)\\\.claude#K2RE_PATH='(^|/).claude#	a stored path that only looks like one stays green
 # THE FIXTURE BUILD WINDOW's records (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6).
 # One or more per label; most edit the harness, where the window's producers
 # live, and the rest the fixtures file, whose own shape the window checks.
@@ -221,9 +221,9 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/( printf x > "$_FW_DIR\/zzh" \&\& mkdir -p 
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q "$_FW_DIR\/zzo" \&\& rm -f "$_FW_DIR\/zzo\/.git\/config" \&\& mkfifo "$_FW_DIR\/zzo\/.git\/config" \&\& ln -s "$_FW_DIR\/zzo" "$CTL\/zzl" \&\& printf '..\/..\/zzl\/.git\\n' > "$CTL\/clean\/.git\/commondir" ); &/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/pq\/a" "$_FW_DIR\/pq\/b" \&\& git init -q "$_FW_DIR\/pq\/a" \&\& git -C "$_FW_DIR\/pq\/a" config core.excludesFile \/nonexistent-k2 \&\& git init -q "$_FW_DIR\/pq\/b" \&\& git -C "$_FW_DIR\/pq\/b" config core.excludesFile \/nonexistent-k2 \&\& find "$CTL" -name .git -type d -print0 > "$_FW_DIR\/zzlist" \&\& while IFS= read -r -d "" _zd; do git config --file "$_zd\/config" core.excludesFile \/nonexistent-k2; done < "$_FW_DIR\/zzlist" ); &/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$_FW_DIR\/zzt\/a\/objects" \&\& : > "$_FW_DIR\/zzt\/a\/HEAD" \&\& ln -s "$_FW_DIR\/zzt" "$CTL\/zzy" \&\& ln -s \/dev\/null "$_FW_DIR\/prel" ); &/	every fixture repo persists only the configuration a plain git init writes
-harness:/^  find "[$]CTL" .*-iname .git/s/2> "[$]_pq\/pre.err" ||/2> "$_pq\/pre.err" \&\& false ||/	every fixture repo persists only the configuration a plain git init writes
+harness:/^  find "[$]CTL" .*-iname .git/s/2> "[$]_pq\/pre\.err" ||/2> "$_pq\/pre.err" \&\& false ||/	every fixture repo persists only the configuration a plain git init writes
 harness:s/^    find "[$]CTL" -type l -print0 >/    false "$CTL" -type l -print0 >/	every fixture repo persists only the configuration a plain git init writes
-harness:/^  find "[$]CTL" .*-iname .git/s/-print0/-print/g	every fixture repo persists only the configuration a plain git init writes
+harness:/^  find "[$]CTL" .*-iname .git/s/\(-iname \.git \)-print0\(.*-iname HEAD \)-print0\(.*-perm -u=rx \)-print0/\1-print\2-print\3-print/	every fixture repo persists only the configuration a plain git init writes
 harness:/^    find "[$]CTL" -type l -print0/s/-print0/-print/	every fixture repo persists only the configuration a plain git init writes
 harness:s/^    find "[$]CTL" -type l -print0 /    echo k2 >> "$_pq\/pre.err"; find "$CTL" -type l -print0 /	every fixture repo persists only the configuration a plain git init writes
 # The NUL-list policy's tail check in `_pg_z` (the other readers' tails are pinned by the
@@ -320,13 +320,13 @@ harness:s/"LC_ALL=C")$/"LC_ALL=C" "GIT_EXEC_PATH=$_FGIT_VOID")/	no exec-path ove
 # second path is C-quoted by the printf | sed form the line it extends uses, so a
 # scratch path holding a backslash or a quote still reaches that clause, not the stderr one.
 harness:s/> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/> \/dev\/null/	this git reports alternate object stores
-harness:s/^    printf '"%s"\\n' .*> "[$]_pq\/c\/.git\/objects\/info\/alternates"$/&; printf '"%s"\\n' "$(printf '%s' "$_pq\/b\/.git\/objects" | sed 's\/\\\\\/\\\\\\\\\/g; s\/"\/\\\\"\/g')" >> "$_pq\/c\/.git\/objects\/info\/alternates"/	this git reports alternate object stores
+harness:s/^    printf '"%s"\\n' .* > "[$]_pq\/c\/.git\/objects\/info\/alternates"$/&; printf '"%s"\\n' "$(printf '%s' "$_pq\/b\/.git\/objects" | sed 's\/\\\\\/\\\\\\\\\/g; s\/"\/\\\\"\/g')" >> "$_pq\/c\/.git\/objects\/info\/alternates"/	this git reports alternate object stores
 # The window's FIRST options check, alone: nounset dropped from the prelude, and
 # the check after the fixtures file removed, so only the first can refuse.
 harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	/^    _fw_opts_on || { echo "the fixtures file switched off/d	the fixture build window completed
 # Pass 1's NUL tail check: a duplicate record with no terminating NUL appended to
 # the list after the `find` reads as the same records, so only the tail check sees it.
-harness:s/^  find "[$]CTL" .*-iname .git.*$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/^  find "[$]CTL" .*-iname .git.* || _pgpre=" (census failed)"$/&; printf %s "$CTL\/clean\/.git" >> "$_pq\/pre"/	every fixture repo persists only the configuration a plain git init writes
 # The census (`$_cen_lbl`): the labels a run USED — the run registry (runtime)
 # and the values of the `_*_lbl` names the wire or a part EXPANDS outside this table
 # (`$_cen_used`, a text derivation, asserted defined) — against the records, and the
@@ -379,7 +379,7 @@ controls:s/^_cap_check || ctl_ok=1$/&; if [ "$_fifo_ok" -eq 0 ]; then _control "
 controls:s/^         for _wm_row in abort hang; do$/         for _wm_row in; do/	every label the run used is named by a mutation record
 controls:s/^         for _ev_row in ran stale; do$/         for _ev_row in; do/	every label the run used is named by a mutation record
 controls:s/^         while read -r _ca_t _ca_zz _ca_yy _ca_trust _ca_chan _ca_want _ca_ran; do$/         while false; do/	every label the run used is named by a mutation record
-controls:s/^\[ -z "[$]_fw_limits" \] || _limit_lines=.*$/&; _v1="$(_control "$CTL\/clean" 0 "PASSED" "green is reachable" || ctl_ok=1/	s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/)"; &/	every label the run used is named by a mutation record
+controls:s/^\[ -z "[$]_fw_limits" \] || _limit_lines=.*\/')"$/&; _v1="$(_control "$CTL\/clean" 0 "PASSED" "green is reachable" || ctl_ok=1/	s/^_control "[$]CTL\/clean" 0 "PASSED" *"green is reachable" *|| ctl_ok=1$/)"; &/	every label the run used is named by a mutation record
 ctlrun:s/^  printf '%s:%s\\t%s\\t%s\\n' /  printf '%s:%s\\t%s\\t%s\\tx\\n' /	every label the run used is named by a mutation record
 harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& # $_pkl_lbl/	every label the run used is named by a mutation record
 harness:/^  if \[ -n "[$]_pkl" \]; then echo "!! CONTROL NOT EXERCISED ([$]_pkl_lbl)" >&2; _fpv=1; fi$/d	s/^    _pkl=bad$/& ; : '$_pkl_lbl'/	every label the run used is named by a mutation record
@@ -466,5 +466,19 @@ s/^_git() { ( for _v in [$]_GIT_LOCAL_VARS; do$/_git() { ( case "${PATH%%:*}" in
 # skips after one that left `path`): measured in the CR-S2 claim table, not enforced by the opt-in run.
 ctlrun:s/command rm -rf "[$]_r_reach" && mkdir "[$]_r_reach"/mkdir -p "$_r_reach"/	a previous run's channel evidence never answers for the next
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
+# R7a-R7d - one verdict arm of `_mut_fresh` each disabled (stale, count, twice, carry): KILLED by the anchor rule's self-test
+# rows for that verdict, inside the mutant; each SURVIVES only with all of them removed (R7d: every carry row, four).
+correspondence:s/then _mf_v=stale; return 0; fi$/then :; fi/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+correspondence:s/then _mf_v="count:[$]_mf_n"; return 0; fi$/then :; fi/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+correspondence:s/then _mf_v=twice; return 0; fi$/then :; fi/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+correspondence:s/ \[1-9\]\*) _mf_v=carry ;; / [1-9]*) ;; /	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+# R7e - `_mut_fresh_gate`'s red step dropped (`_mut_corr_bad=1`): KILLED by the self-test's red assertion; without it SURVIVES.
+correspondence:s/^  _mut_corr_bad=1; return 1$/  return 1/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+# R7f/R7g - the variant pass's exact path forced off (every form streamed in place) / its same-class probe dropped (\001 only):
+# KILLED by the self-test's range row / `[a-z]` row respectively; with that row removed each SURVIVES.
+correspondence:s/^    END { printf "%s %d/    END { x = 0; printf "%s %d/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+correspondence:s/; q = "\\001" pr(substr([$]0, i, 1))$/; q = "\\001"/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
+# R7h - the variant pass's \001 probe dropped (same-class only): KILLED by the self-test's `x.ab` row; without it SURVIVES.
+correspondence:s/; q = "\\001" pr(substr([$]0, i, 1))$/; q = pr(substr($0, i, 1))/	a record's anchor is fresh only if it changes one line, once, and keeps what it does not read
 MUTANTS
 }
