@@ -44,9 +44,9 @@
 # `_mut_wrong_reason` (the wrong-reason diagnostic, printed by `_mut_trial` or its caller),
 # `_mut_src_for`, `_mut_target`, `_mut_parse`, `_mut_apply`,
 # `_mut_restore_copies`, `_mut_rm_copies`, `_mut_trial`, `_mut_run`. The
-# always-on half — `_mut_correspondence`, `_mut_census_end` (the controls file's last
-# statement) and `_mut_cap_member` (the census's membership callback, with its list `_mc_ctl`
-# and the list's delimiter `_mc_nl`) — is in `…trip-wire.correspondence.sh`; the
+# always-on half's definitions (the checks that run on every wire run)
+# are listed in the header of `…trip-wire.correspondence.sh`
+# (a reference, not a copy, so it cannot go stale); the
 # generated half — `_mut_equivalent`, `_mut_assign_value`, `_mut_regex_mutants`,
 # `_mut_splice`, `_mut_gen_floor`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`,
 # and the record table — `_mutants` — in `…trip-wire.records.sh`; all three are
@@ -170,7 +170,7 @@ fi
 # EXACTLY ONE line of its target, to change nothing more when applied twice, and to keep (read or carry)
 # every character of that line outside its edit (`_mut_fresh`). A `;`-joined pair would be checked as one expression, and
 # one half going stale (a renamed function, a respelled line) would leave the
-# other half "fresh". The `controls:` / `harness:` / `ctlrun:` / `fixtures:` / `mutgen:` / `mutations:` / `correspondence:` prefix (below) is
+# other half "fresh". The prefix (a word of `_MUT_TARGETS`; below) is
 # written on the FIRST expression and aims the whole record.
 # ⚠ SIZE RULE, DISCHARGED: this file's growth was the record here-document, a
 # flat case table with no seam inside it, and the rule here read "the edit that

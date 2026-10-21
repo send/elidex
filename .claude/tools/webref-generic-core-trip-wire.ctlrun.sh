@@ -133,7 +133,7 @@ fi
 # before any control), so "did the tree this control is about actually get built?" is one
 # lookup rather than a probe re-derived per site: without it a broken build leaves
 # a plausible-looking tree that can still satisfy the assertion — a control green
-# over a question never posed. The controls file's four standing checks run over
+# over a question never posed. The controls file's standing checks run over
 # `$_VFY` (a root no fixture build makes, so no failed build can be named for
 # it) and ask no fixture question: their stubs read no tree. Each reads
 # `_fw_trusted` itself before its rows and, untrusted, reds in silence (W2 is this

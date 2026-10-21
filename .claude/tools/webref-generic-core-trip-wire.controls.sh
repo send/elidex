@@ -100,7 +100,7 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
-# blocks, the defined-labels check, the four standing checks (their producers are
+# blocks, the defined-labels check, the standing checks (their producers are
 # below), the table check (`$_capt_lbl`, `_cap_check`), the capability groups' and
 # the limit's labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`: the table's group and
 # `limit` rows hold them), the orderly-end check (in the wire) and the anchor rule's self-test
@@ -315,7 +315,7 @@ _cap_chk_member() {
   case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) ;; *) _cap_chk_red "member \"${_cr_f[2]}\" names group \"${_cr_f[1]}\", which no group row declares" ;; esac
 }
 _cap_check || ctl_ok=1
-# THE FOUR STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
+# THE STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
 # always exists: their stubs read no tree, so they ask no fixture question) in
 # a subshell. Each opens by reading `_fw_trusted` — untrusted is red
 # (`ctl_ok=1`) with no line of its own: W2 is the gate's report, printed once
@@ -517,7 +517,7 @@ elif ! ( _og_bad=""
            command rm -rf "$_K2_REAP_D/og"; mkdir "$_K2_REAP_D/og"; SELF="$_VFY/.og_$_og_row"; _og_t0=$SECONDS
            _og_rd="$_K2_REAP_D/og"; [ "$_og_row" != norec ] || _og_rd="$_VFY/.og_none"
            _og_st="$( ( _ctl_wd_s=5; [ "$_og_row" != sig ] || _og_trap; ( _K2_REAP_D="$_og_rd"; _ctl_run "$_og_lbl" "$_VFY" 9>&1 > /dev/null 2> "$_VFY/.og_err"; echo "returned $?" ) 9>&- ) 2>/dev/null; echo "ended $?" )"
-           _og_dt=$((SECONDS - _og_t0)); _og_m="$_og_st"
+           _og_dt=$((SECONDS - _og_t0))
            case "$_og_row" in
              kill)
                [ "$_og_dt" -lt 3 ] || _og_bad="$_og_bad; kill: a group of the call held its killed caller's stream for $_og_dt s"
@@ -526,12 +526,12 @@ elif ! ( _og_bad=""
                  _og_gone "-$_og_p" || _og_bad="$_og_bad; kill: the reap left group $_og_p running"; done ;;
              norec)
                case "$_og_st" in *"ended 2") ;; *) _og_bad="$_og_bad; norec: the call did not end 2 ($_og_st)" ;; esac
-               case "$_og_m" in *"could not record process group "*) _og_p="${_og_m##*process group }"; _og_p="${_og_p%%,*}" ;; *) _og_p="" ;; esac
+               case "$_og_st" in *"could not record process group "*) _og_p="${_og_st##*process group }"; _og_p="${_og_p%%,*}" ;; *) _og_p="" ;; esac
                case "$_og_p" in ''|*[!0-9]*) _og_bad="$_og_bad; norec: no line named the unrecorded group" ;;
                  *) _og_gone "-$_og_p" || _og_bad="$_og_bad; norec: the unrecorded group $_og_p was left running" ;; esac ;;
              nodel)
                case "$_og_st" in *"ended 2") ;; *) _og_bad="$_og_bad; nodel: the call did not end 2 ($_og_st)" ;; esac
-               case "$_og_m" in *"could not drop process group "*) ;; *) _og_bad="$_og_bad; nodel: no line named the undropped group" ;; esac ;;
+               case "$_og_st" in *"could not drop process group "*) ;; *) _og_bad="$_og_bad; nodel: no line named the undropped group" ;; esac ;;
              sig)
                case "$_og_st" in *"stopped by SIGTERM"*"ended 143") ;; *) _og_bad="$_og_bad; sig: the signalled call did not end 143 with its line ($_og_st)" ;; esac
                [ ! -e "$_VFY/.og_scr" ] || _og_bad="$_og_bad; sig: the signalled call's exit path left its scratch dir"
@@ -770,7 +770,7 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" 
 # (a record of these rows then SURVIVES: red, never green; the opt-in starts the wire with the three at default).
 # The group redirection silences bash's report of the probe's death.
 for _sg in HUP:129 INT:130 TERM:143; do _sg_n="${_sg%:*}"; _sg_e="${_sg#*:}"; _sg_m="stopped by SIG$_sg_n"
-  { sh -c "kill -$_sg_n \$\$; exit 0"; } 2>/dev/null && { _sg_e=0; _sg_m=PASSED; }
+  case "$_sg_n" in TERM) [ "$_wm_tg" -eq 0 ] ;; *) { sh -c "kill -$_sg_n \$\$; exit 0"; } 2>/dev/null ;; esac && { _sg_e=0; _sg_m=PASSED; }
   _control "$CTL/clean" "$_sg_e" "$_sg_m" "a signal ends the run red and says so" "" "" "$CTL/sig$_sg_n" || ctl_ok=1
 done
 # A SCRATCH DIR THAT CANNOT BE REMOVED is reported and the status stands: the `failrm` prefix's `rm` fails exactly

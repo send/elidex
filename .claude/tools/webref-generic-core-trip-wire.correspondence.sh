@@ -361,7 +361,7 @@ _mut_correspondence() {
     _af_keep="$_mut_corr_bad"; _mut_corr_bad=0; _af_rc=0; _af_g=0; [ "${_af_r##* }" = fresh ] || _af_g=1
     _mut_fresh_gate "${_af_r% *}" "$_VFY/.affix" "anchor self-test row" 2> "$_VFY/.afmsg" || _af_rc=1
     _af_m=0; if [ -s "$_VFY/.afmsg" ]; then _af_m=1; fi; _af_red="$_mut_corr_bad:$_af_rc:$_af_m"; _mut_corr_bad="$_af_keep"
-    [ "$_mf_v" = "${_af_r##* }" ] && [ "${_af_red%%:*}" = "$_af_g" ] && [ "${_af_red#*:}" = "$_af_g:$_af_g" ] && continue
+    [ "$_mf_v" = "${_af_r##* }" ] && [ "$_af_red" = "$_af_g:$_af_g:$_af_g" ] && continue
     echo "!! CONTROL FAILED ($_af_lbl): the anchor gate reads \"${_af_r% *}\" on its fixture as \"$_mf_v\" (red:status:message $_af_red), not \"${_af_r##* }\" ($_af_g:$_af_g:$_af_g)." >&2
     _mut_corr_bad=1
   done
