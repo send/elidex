@@ -26,8 +26,8 @@
 # file, which spells the list of parts once), the capability table's READER
 # (`_cap_rows`, `_cap_group_of`, `_cap_flag_of`, from the run primitives: functions
 # only, asserted below by `declare -F`; neither the table nor a flag is named here, the functions answer,
-# for `_mut_run`'s capability excuse), and `$SELF`, `$SCRATCH`, `$K2RE`
-# and `$K2RE_PATH` (from the wire); every other part it names is derived from
+# for `_mut_run`'s capability excuse), and `$SELF`, `$K2RE`, `$K2RE_PATH` and the exit path's body `_k2_exit`
+# (from the wire: the opt-in run's trap calls it); every other part it names is derived from
 # `$SELF` (`_mut_part_path`, controls); the per-run copies iterate `_MUT_PARTS`.
 # `_mut_run` copies every part in that list — the controls, the harness, its run
 # primitives, this file, the always-on half, the record table, the fixture build
@@ -96,10 +96,10 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in _VFY _lbd_names _lbd_files _CONTROLS _MUT_PARTS SELF SCRATCH K2RE K2RE_PATH; do
+for _n in _VFY _lbd_names _lbd_files _CONTROLS _MUT_PARTS SELF K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
-for _n in _cap_rows _cap_group_of _cap_flag_of _mut_part_path; do
+for _n in _cap_rows _cap_group_of _cap_flag_of _mut_part_path _k2_exit; do
   declare -F "$_n" > /dev/null || _mut_missing="$_mut_missing $_n()"
 done
 if [ -n "$_mut_missing" ]; then
@@ -270,9 +270,9 @@ _MUT_TARGETS="${_MUT_TARGETS# }"
 # and labels are the same on every machine, measured; the figure is exact on every profile).
 _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
-# The history of this figure (what removed and added records, and the step each pins) is stated once,
-# in that memo's §6.1; it is not restated here.
-_MUT_RECORDS_MIN=274
+# The history of this figure (what removed and added records, and the step each pins) is stated once, in
+# 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1; it is not restated here.
+_MUT_RECORDS_MIN=275
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`
@@ -398,7 +398,8 @@ _mut_trial() {
   # machine's mutants see the same declaration, so a probe-flip mutant SURVIVES there (an absence the caller
   # declared is accepted, and `_mut_run` excuses that record: by the table's flag for the FIFO and permission flips, by the P-x half for
   # P-f's); it reds under its group's (or the limit's) label only if the inheritance is cut.)
-  _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1)" || _mt_rc=$?
+  # `< /dev/null`: the hand records' loop reads its records on fd 0, so a mutant that read its stdin would eat records.
+  _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1 < /dev/null)" || _mt_rc=$?
   if [ "$2" = '!survive' ]; then
     # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
     # cannot change any verdict by construction and the wire MUST still be
@@ -413,6 +414,12 @@ _mut_trial() {
     return 2
   fi
   [ "$_mt_rc" -eq 0 ] && return 1
+  # ⚠ A TIMEOUT IS NOT A KILL: `_ctl_run`'s watchdog line ("CONTROL FAILED (<label>): the wire did not finish — killed
+  # after Ns") names its control's label, but says only that the run blocked, which a loaded machine does under any
+  # mutation or none. Both arms below read `$_mt_k`, the output without those lines: a run whose only red is a timeout
+  # is reported (wrong subject, or wrong reason), never counted as killed.
+  _mt_k=""
+  while IFS= read -r _mt_x; do case "$_mt_x" in *"): the wire did not finish — killed after "*) ;; *) _mt_k="$_mt_k$_mt_x"$'\n' ;; esac; done <<< "$_mt_out"
   if [ "$2" = '!kill' ]; then
     # ⚠ AN ALLOWLIST, NOT AN EXCLUSION: a generated mutant is killed only if the
     # output holds `CONTROL FAILED (<label>)` for a label of `$_VFY/.ctllabels`
@@ -431,7 +438,7 @@ _mut_trial() {
       echo "   red raised by something else. This run decided nothing." >&2
       return 2; }
     while IFS= read -r _mt_l; do
-      case "$_mt_out" in *"CONTROL FAILED ($_mt_l)"*) return 0 ;; esac
+      case "$_mt_k" in *"CONTROL FAILED ($_mt_l)"*) return 0 ;; esac
     done < "$_VFY/.ctllabels"
     echo "!! MUTANT $1 was killed BY THE WRONG SUBJECT (exit $_mt_rc): no _control failed," >&2
     echo "   so what reddened the run was the mutated predicate itself, the real tree," >&2
@@ -445,7 +452,7 @@ _mut_trial() {
   # that is printed on a GREEN line (a summary naming a control, say): any
   # unrelated late red then "killed as named" though no check under that label
   # failed. The slot closes that for every summary line at once.
-  case "$_mt_out" in
+  case "$_mt_k" in
     *"CONTROL FAILED ($2)"* | *"CONTROL NOT EXERCISED ($2)"*) return 0 ;;
     *) [ "$_mt_rc" -eq 1 ] && return 3
        _mut_wrong_reason "$1" "$2"
@@ -499,6 +506,8 @@ _mut_run() {
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$_VFY/.mutants"
+    # …and the loop must TRY every record it holds, as the generated half below must: counted apart from the loop.
+    _mut_want="$(awk 'length { n++ } END { print n + 0 }' "$_VFY/.mutants")" || _mut_want=""
     _mut_n=0; _mut_bad=0; _mut_exc=0
     while IFS= read -r _mrec; do
       [ -n "$_mrec" ] || continue
@@ -570,6 +579,11 @@ EOF_MLIM
         _mut_bad=$((_mut_bad + 1)); }
     done < "$_VFY/.mutants"
     command rm -f "$_VFY/.mutants"
+    # A string comparison, so an empty count (the `awk` failed) is a mismatch, never a pass.
+    if [ "$_mut_n" != "$_mut_want" ] || [ "$_mut_n" = 0 ]; then
+      echo "!! the hand-record loop tried $_mut_n record(s), but the mutation set holds ${_mut_want:-an uncounted number}: this run did not test every record." >&2
+      _mut_bad=$((_mut_bad + 1))
+    fi
     echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named, $_mut_exc not exercisable on this machine"
     # …and the population the wire's own regexes define, which no list here
     # enumerates. Run whatever the hand set did, so one run answers both

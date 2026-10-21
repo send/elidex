@@ -13,7 +13,7 @@
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3), so the git it
 # calls is plain `git` and inherits nothing the caller carries. What it can read
 # is what the window's prelude hands it: `$CTL`, `$_FW_DIR` (for its last line
-# and for `_seal`), the five `CONTROL_*` samples, `$_REAL_GIT`, `$_REAL_GREP`,
+# and for `_seal`), the five `CONTROL_*` samples, `$_REAL_GIT`, `$_REAL_GREP`, `$_REAL_RM`, `$_REAL_CHMOD`,
 # `$_fifo_ok`, `_fixture_failed`, `_shq`, `_fgit_shim` (every exec-through shim
 # here is built by it, so each drops its own directory from `PATH` before it
 # execs) and `_seal`. The controls file refuses
@@ -105,7 +105,7 @@ mkdir -p "$CTL/fakegit"
 # `fakegrep`: a control shims the ONE call it is about.
 # ⚠ The exception is `goptgrep` (below, beside `fakegrep`): it answers EVERY grep call,
 # because k2's question is whether the caller's variable reached any grep the wire
-# ran, not what one particular call returned (`…-cr-plan.md` §2.1).
+# ran, not what one particular call returned (`2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` §2.1).
 _fgit_shim "$CTL/fakegit/git" 'case " $* " in *" --stage "*) : > "${K2_CTL_REACHED:?}/path"; printf "ok.py\000"; exit 1;; esac' "$_REAL_GIT"
 # …and its sibling for the WORKTREE/untracked inventory, which had no shim and
 # therefore no control of its own.
@@ -367,8 +367,8 @@ _fgit_shim "$CTL/goptgrep/grep" ': > "${K2_CTL_REACHED:?}/path"; [ -z "${GREP_OP
 for _sg in HUP INT TERM; do mkdir -p "$CTL/sig$_sg"
   _fgit_shim "$CTL/sig$_sg/git" 'case " $* " in *" rev-parse --verify "*) : > "${K2_CTL_REACHED:?}/path"; kill -'"$_sg"' 0 ;; esac' "$_REAL_GIT"; done
 mkdir -p "$CTL/failrm"
-_fgit_shim "$CTL/failrm/rm" 'case "$1" in -rf) : > "${K2_CTL_REACHED:?}/path"; rm "$@"; exit 1 ;; esac' rm
-_fgit_shim "$CTL/failrm/chmod" 'case "$1" in -R) chmod "$@"; exit 1 ;; esac' chmod
+_fgit_shim "$CTL/failrm/rm" 'case "$1" in -rf) : > "${K2_CTL_REACHED:?}/path"; '"$_REAL_RM"' "$@"; exit 1 ;; esac' "$_REAL_RM"
+_fgit_shim "$CTL/failrm/chmod" 'case "$1" in -R) '"$_REAL_CHMOD"' "$@"; exit 1 ;; esac' "$_REAL_CHMOD"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
 mkdir -p "$CTL/grepfail/.claude/skills/team"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfail/.claude/skills/team/rule.md"

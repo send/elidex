@@ -392,19 +392,19 @@ _mut_correspondence() {
        done < "$_VFY/.mutants" ;;
   esac
   command rm -f "$_VFY/.anchor" "$_VFY/.anchordiff" "$_VFY/.anchor2" "$_VFY/.fvar" "$_VFY/.fvexp" "$_VFY/.fvout" "$_VFY/.affix" "$_VFY/.afmsg" "$_VFY"/.fv.* "$_VFY"/.fo.*
-  # …the standing negative control must BE there, and the set may not shrink.
-  # ⚠ `awk`, NOT `grep -c`: `grep` exits 1 when it selects nothing, and under
-  # `pipefail` that aborts the required gate — the same trap as the `wc -l`
-  # below, and the failing case would be exactly the one being reported.
+  # …the standing negative control must BE there, and the set may not shrink. ⚠ EACH TEST BELOW IS `! [ … ]`: a
+  # non-integer operand (an empty count, a mistyped floor or ratchet) makes `[` exit 2; errexit is off in this body (it runs
+  # as `_mut_correspondence || ctl_ok=1`; records.sh says so), so a bare `[` is read as false and the test silently passes;
+  # `! [ … ]` makes that 2 a red (as at `_control`'s exit check). ⚠ `awk`, NOT `grep -c`: it exits 1 on no match (the `wc -l` trap below).
   _mut_surv="$(awk '$0=="!survive"{n++} END{print n+0}' "$_VFY/.needles")"
-  if [ "$_mut_surv" -ne 1 ]; then
+  if ! [ "$_mut_surv" -eq 1 ]; then
     echo "!! the standing negative control (\`!survive\`) is not in the mutation set" >&2
     echo "   exactly once (found $_mut_surv), so a broken harness cannot be told" >&2
     echo "   from a real kill." >&2
     _mut_corr_bad=1
   fi
   _mut_recs="$(awk 'END{print NR+0}' "$_VFY/.needles")"
-  if [ "$_mut_recs" -lt "$_MUT_RECORDS_MIN" ]; then
+  if ! [ "$_mut_recs" -ge "$_MUT_RECORDS_MIN" ]; then
     echo "!! the mutation set holds $_mut_recs records, against a floor of $_MUT_RECORDS_MIN." >&2
     echo "   A record was deleted. If that is deliberate, say why and LOWER the floor" >&2
     echo "   in the same edit — so a smaller set is a visible decision." >&2
@@ -416,14 +416,14 @@ _mut_correspondence() {
   # assignment failed and `set -e` aborted the required gate before the
   # comparison ran. The success case was the one that broke it.
   _mut_bare="$(wc -l < "$_VFY/.bare" | tr -d '[:space:]')"
-  if [ "$_mut_bare" -gt "$_MUT_UNRECORDED_MAX" ]; then
+  if ! [ "$_mut_bare" -le "$_MUT_UNRECORDED_MAX" ]; then
     echo "!! CONTROL FAILED ($_cen_lbl): $_mut_bare labels have no mutation record, against a ratchet of $_MUT_UNRECORDED_MAX." >&2
     echo "   Either the new label needs a record, or a record was deleted. The bare ones:" >&2
     sed 's/^/     /' "$_VFY/.bare" >&2
     echo "   If a label genuinely cannot have one, say why and RAISE the ratchet in the" >&2
     echo "   same edit — so widening the gap is a visible decision rather than a silence." >&2
     _mut_corr_bad=1
-  elif [ "$_mut_bare" -lt "$_MUT_UNRECORDED_MAX" ]; then
+  elif ! [ "$_mut_bare" -ge "$_MUT_UNRECORDED_MAX" ]; then
     echo "!! CONTROL FAILED ($_cen_lbl): only $_mut_bare labels have no mutation record, below the ratchet of $_MUT_UNRECORDED_MAX:" >&2
     echo "   a label gained a record, or went away. LOWER the ratchet to $_mut_bare in the" >&2
     echo "   same edit — a slack ratchet lets the next label go bare in silence." >&2

@@ -19,8 +19,8 @@
 # from the controls file, `$_fw2_lbl`, `$_VFY` and `$_CAP_TABLE` (the capability
 # table, whose ONLY expander is this file's reader), and the capability flags
 # by the names the table's `group` rows give (`_fifo_ok`, `_perm_ok`: set by the
-# harness's probes, read here by `_cap_flag_of` alone); from the wire,
-# `$SELF`, `$BASH` and `$_CONTROLS` (the string the wire sourced the controls
+# harness's probes, read here by `_cap_flag_of` alone); from the wire, the exit path's
+# `$_K2_STOP`, `_k2_reap_add` and `_k2_end` (a launch's record, the call's end), `$SELF`, `$BASH` and `$_CONTROLS` (the string the wire sourced the controls
 # file by, which is what `BASH_SOURCE` holds for that file's frames: the
 # registry's site walk looks for it).
 # ⚠ ASSERTED AT SOURCE TIME, below, every name above but `$_VFY` (the controls
@@ -54,7 +54,7 @@ fi
 # A run's ENVIRONMENT is no name: it travels as `_ctl_run`'s trailing arguments.
 _ctl_wd_s=30
 # THE CAPABILITY TABLE'S READER, the only code that expands `$_CAP_TABLE` or a flag
-# (plan §2.2). The callback runs once per row — kind `group`, `member`, `limit` or
+# (`2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` §2.2). The callback runs once per row — kind `group`, `member`, `limit` or
 # `fact`: each WELL-FORMED row of it (any other kind is a programming error: exit 2, below); `-`: every row, `_cr_bad` set on a malformed one
 # (unknown kind, wrong field count, an empty field, a `group` flag field that is no
 # variable name: `${!x-}` on `a-b` aborts bash 5.3, is empty on 3.2) — sees it through
@@ -104,10 +104,10 @@ _cap_flag_cb() { [ "${_cr_f[1]}" != "$_cf_g" ] || { _cf_n="${_cr_f[2]}"; _cap_v=
 # a rename in the file that declares a name is a named exit 2 here, not an unbound
 # abort at the first read. The flags are asserted by the table's own names.
 _cap_missing=
-for _cap_n in _fw_trusted _fw2_said _fw2_lbl SELF BASH _CONTROLS _CAP_TABLE; do
+for _cap_n in _fw_trusted _fw2_said _fw2_lbl SELF BASH _CONTROLS _CAP_TABLE _K2_STOP; do
   [ -n "${!_cap_n:-}" ] || _cap_missing="$_cap_missing \$$_cap_n"
 done
-declare -F _fixture_did_fail > /dev/null || _cap_missing="$_cap_missing _fixture_did_fail()"
+for _cap_n in _fixture_did_fail _k2_reap_add _k2_end; do declare -F "$_cap_n" > /dev/null || _cap_missing="$_cap_missing $_cap_n()"; done
 _cap_guard_cb() { local _cap_gn="${_cr_f[2]}"; [ -n "${!_cap_gn:-}" ] || _cap_missing="$_cap_missing \$$_cap_gn"; }
 [ -z "${_CAP_TABLE:-}" ] || _cap_rows group _cap_guard_cb
 if [ -n "$_cap_missing" ]; then
@@ -341,7 +341,7 @@ _ctl_run() {
   # bash 3.2 base 0 of 20, head 0 of 20; no stray line in any series. The whole-wire
   # counts therefore do not separate the two launches. The evidence for the
   # silencing is a launch-shape probe, not whole-wire runs: 0 of 2500 launches
-  # failed under tostop with the silenced shape. The watchdog's `exec`ed bash runs after that setpgid, in the same child.
+  # failed under tostop with the silenced shape. The watchdog's `exec`ed bash runs after that setpgid, in the same child. The child (and its recorder) starts without the caller's `BASH_ENV` and `SHELLOPTS`, as the watchdog and the stop do: a `BASH_ENV` that prepended to `PATH` put the prefix's shims behind another dir.
   # The output file goes with the marker, fail-closed: a redirect that cannot open it would read the last run's output.
   # Not pinned: root writes a read-only file, so a record's plant survives a root runner (BS-7); EMFILE breaks the parent's read.
   _r_wmark="$_VFY/.control_timeout"; command rm -f "$_r_wmark" "$_out_f" || { echo "!! CONTROL FAILED ($_r_for): a previous run's output or timeout marker could not be cleared" >&2; return 1; }
@@ -349,7 +349,7 @@ _ctl_run() {
   { ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
     [ -z "$_r_umask" ] || umask "$_r_umask"
     export PATH="${_r_pfx:+$_r_pfx:}$PATH"
-    exec ${_r_pre[@]+"${_r_pre[@]}"} "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
+    exec "${_FGIT_ENVBIN:?env not resolved on PATH (harness _fgit_resolve)}" -u SHELLOPTS -u BASH_ENV ${_r_pre[@]+"${_r_pre[@]}"} "$BASH" "$SELF" --selftest "$_r_root" "${6:-}" "${7:-}" ) \
     < /dev/null > "$_out_f" 2>&1 9>&- & _cpid=$!; } 2>/dev/null; _k2_reap_add "$_r_for" "$_cpid"
   # THE MARKER IS WRITTEN BEFORE THE STOP, and it is the timeout fact. The
   # watchdog's own exit status cannot be: the child dies the moment the kill

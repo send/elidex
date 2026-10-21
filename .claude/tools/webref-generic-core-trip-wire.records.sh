@@ -27,11 +27,11 @@
 # record's expression cannot begin with a literal `#` except as a sed comment,
 # which is inert. The always-on validator (in the correspondence part) stays — a line that is neither a
 # comment nor a record is still an error, not a skip.
-# ⚠ FILTERED IN BASH, NOT THROUGH `grep -v`. The mutation set runs under `pipefail`:
-# `grep` exits 1 when it selects nothing, so a set that happened to be all
-# comments — or a grep on `PATH` that answers differently — would abort the
-# required gate from inside the thing reporting it. Same trap as the `wc -l`
-# and `awk` notes in `…trip-wire.correspondence.sh`. Measured byte-identical to the `grep -v '^#'` pipe on
+# ⚠ FILTERED IN BASH, NOT THROUGH `grep -v`. `grep` exits 1 when it selects nothing (and under `pipefail` the
+# pipe with it), so a set that happened to be all comments — or a grep on `PATH` that answers differently —
+# would end the opt-in run (errexit on) at its `_mutants` line with no report, and hand the always-on census a
+# status it ignores (it runs as an operand of `||`, so errexit is off in its whole body): a status about the
+# filter, not the records. Measured byte-identical to the `grep -v '^#'` pipe on
 # bash 3.2.57 and 5.3, with status 0 at EOF on both.
 _mutants() {
   while IFS= read -r _mu_line; do
@@ -78,7 +78,7 @@ s/--literal-pathspecs ls-files --error-unmatch/ls-files --error-unmatch/	the van
 s/\[ "$_hrc" -ne 0 \]/false/	a malformed HEAD ref is not an unborn repository
 s|\[^/\[:space:\]\]+/(|[^/[:space:])}>,;]+/(|	punctuation BEFORE a slash is part of the path
 s/(^|\/)\\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
-# (A RECORD WAS REMOVED HERE in CR2: it rewrote K2RE_PATH's whole value, `.*`, restating text it never read, and its mutant was byte-identical to the line above's, K2RE_PATH without `(^|/)`; the corpus §6.1 remove row for records.sh:81. The line stays because the documents cite records by their records.sh line.)
+# (A RECORD WAS REMOVED HERE in CR2: it rewrote K2RE_PATH's whole value, `.*`, restating text it never read, and its mutant was byte-identical to the line above's, K2RE_PATH without `(^|/)`; the `2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6.1 remove row for records.sh:81. The line stays because the documents cite records by their records.sh line.)
 s/_SELFTEST="$2"/_SELFTEST="${WEBREF_WIRE_SELFTEST:-$2}"/	an exported SELFTEST cannot redirect the scan
 s/\[ ! -d "${2:-}" \]/false/	a missing self-test root decides nothing
 s/^SCRATCH="$(_phys "$_raw_scratch")"/SCRATCH="$_raw_scratch"/	a relative scratch dir is removed on exit
@@ -520,5 +520,8 @@ s/^  _k2_reap$/  :/	a call's process groups end with it and hold none of its cal
 s/^\(  for _kr_f in "[$]_K2_REAP_D"\/\*\) "[$]_K2_REAP_D"\/\*\/\*;/\1;/	a call's process groups end with it and hold none of its caller's streams
 # The `_og` check's verdict marker, pinned as the other three checks' markers are (the abort-injection records above).
 controls:s/^elif ! ( _og_bad=""$/elif ! ( : "${_no_such_name_x}"; _og_bad=""/	a call's process groups end with it and hold none of its caller's streams
+# R11k - the `_og` kill row's stub returns instead of SIGKILLing its caller: KILLED by the row's end-137 assertion (the call
+# `returned`); with that assertion removed it SURVIVES (the timing and reap assertions pass on a call that returned).
+controls:s/; kill -KILL [$]PPID' > /; :' > /	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }

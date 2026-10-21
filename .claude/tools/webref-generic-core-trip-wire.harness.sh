@@ -620,15 +620,15 @@ _fgit_window() {
     # Plain assignments, never `declare -p`: that would carry an `export`
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
-      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_REQ _FGIT_WIRE_EXEC \
+      _REAL_GIT _REAL_GREP _REAL_RM _REAL_CHMOD _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_REQ _FGIT_WIRE_EXEC \
       _FGIT_WIRE_LC _FGIT_BIN _FW_DIR _FW_CANARY; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
     # The postcondition labels, by the names `_fgit_postconditions` USES —
-    # derived from its body, not listed — each of which the controls file must
+    # derived from its body by the controls file's `$_LBL_RE`, not listed — each of which it must
     # define non-empty; one it does not refuses the window, so a renamed label
     # cannot be forwarded empty in silence.
-    _fwls="$(declare -f _fgit_postconditions | grep -o '_[A-Za-z0-9_]*_lbl' | sort -u)" || _fwls=""
+    _fwls="$(declare -f _fgit_postconditions | grep -o "$_LBL_RE" | sort -u)" || _fwls=""
     for _fwn in $_fwls; do
       if [ -z "${!_fwn:-}" ]; then
         printf 'echo %q > "$_FW_DIR/cause"; exit 1\n' "the postcondition label \$$_fwn is not defined, or is empty"
@@ -835,6 +835,7 @@ if [ -r "$SCRATCH/permprobe" ]; then _perm_ok=0; fi
 
 _REAL_GIT="$(_shq "$_FGIT_GIT")"
 _REAL_GREP="$(_shq "$(_fgit_resolve grep)")"
+_REAL_RM="$(_shq "$(_fgit_resolve rm)")"; _REAL_CHMOD="$(_shq "$(_fgit_resolve chmod)")"   # `failrm`'s, by path: a shim that ran them by name re-found itself
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
 # wire. It is checked by round-tripping a path that holds each thing that broke
 # it.

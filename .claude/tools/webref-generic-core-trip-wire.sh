@@ -415,8 +415,8 @@ SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
 # ONE function, called by this trap and by the mutation run's (which replaces
 # this one for the run). NO RECORD for removing the check itself: bash 5 already
 # exits 1 on such an abort, so a record that removes it could die only on 3.2 and
-# would SURVIVE on 5.3; the evidence is the R2-3 cell, 3.2 rc 0 before and rc 1
-# after (Stage 5 E-1). The assignment of the flag HAS a record.
+# would SURVIVE on 5.3; the evidence is the cell `2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` names R2-3,
+# 3.2 rc 0 before and rc 1 after (Stage 5 E-1). The assignment of the flag HAS a record.
 # The label comes from the controls file, which is not sourced yet when this
 # trap can first fire, hence the fallback.
 # THE EXIT PATH, the few lines every end runs (CR#11, CR#12). What each keeps:

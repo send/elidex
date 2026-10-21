@@ -17,7 +17,8 @@
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
 # `$_CONTROLS` (this file's own path: the entry check, the run registry's site walk in
 # the run primitives and the label census in the correspondence part read it; the
-# defined-labels check does not), the five `CONTROL_*` sample strings. That list — and only that list — is checked
+# defined-labels check does not), the five `CONTROL_*` sample strings, and the exit path's `_k2_age`, `_k2_traps`, `_k2_reap`,
+# its reap set `$_K2_REAP_D` (set here) and git's `$_GIT_LOCAL_VARS` (the first may be empty: asserted SET; the second asserted non-empty). That list — and only that list — is checked
 # at entry. (No part calls the wire's `_git`, so the entry check no longer asks
 # for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
@@ -27,8 +28,8 @@
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
-# harness beside this file. The data flow is one-way, and saying otherwise
-# invented a contract nobody could break.
+# harness beside this file. The data flow is one-way but for `$_K2_REAP_D` and `_ord_lbl`, the wire's, which this file sets and its
+# exit path reads; saying otherwise invented a contract nobody could break.
 # ⚠ AND THE CONSUMES LIST HAS BEEN WRONG TWICE. It first claimed `$ROOT` and
 # `_phys`, which this file did not then mention; the revision that said so also
 # added a mutation harness that consumes `$_CONTROLS`, which the same revision
@@ -65,6 +66,8 @@ _ctl_missing=
 for _n in SELF SCRATCH _CONTROLS CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN; do
   [ -n "${!_n:-}" ] || _ctl_missing="$_ctl_missing \$$_n"
 done
+[ -n "${_K2_REAP_D+x}" ] || _ctl_missing="$_ctl_missing \$_K2_REAP_D"; [ -n "${_GIT_LOCAL_VARS:-}" ] || _ctl_missing="$_ctl_missing \$_GIT_LOCAL_VARS"
+for _n in _k2_age _k2_traps _k2_reap; do declare -F "$_n" > /dev/null || _ctl_missing="$_ctl_missing $_n()"; done
 if [ -n "$_ctl_missing" ]; then
   echo "!! This file is the CONTROLS for \`webref-generic-core-trip-wire.sh\`. It is" >&2
   echo "   SOURCED by that wire and has no meaning on its own; missing:$_ctl_missing" >&2
@@ -146,8 +149,8 @@ fi
 # ⚠ EVERY LABEL A PART REFERENCES IS DEFINED AND NON-EMPTY, asked before anything
 # else runs. A label renamed here and left in a producer is reached only when
 # that producer fires, so the rename can sit unseen behind a green run: the names
-# are derived from the text, by the regex the harness uses to forward the
-# postconditions' labels, not listed. The files read are the wire and every part of
+# are derived from the text, by `$_LBL_RE` (set below; the harness reads it to forward the
+# postconditions' labels: one definition), not listed. The files read are the wire and every part of
 # `_MUT_PARTS` (the wire spells `_ord_lbl`'s one expansion: the orphan check's population is
 # a subset of what is asserted here, the ratchet's is this list; a label variable whose name is never
 # spelled, built by `printf -v` or `eval`, is the one thing neither sees: none exists). A part that is not readable is skipped here and reported by its
@@ -155,12 +158,12 @@ fi
 # just above; fixtures - below, after the harness is sourced; ctlrun - at the
 # end of the harness; mutations - at the end of this file; correspondence, records and
 # mutgen - in the mutation set.
-_lbd_files=("$SELF")
+_LBL_RE='_[A-Za-z0-9_]*_lbl'; _lbd_files=("$SELF")
 for _lbd_p in $_MUT_PARTS; do
   _mut_part_path "$_lbd_p"; _lbd_f="$_mut_pp"
   [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
 done
-_lbd_names="$(grep -ho '_[A-Za-z0-9_]*_lbl' "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
+_lbd_names="$(grep -ho "$_LBL_RE" "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
 _lbd_missing=""
 for _lbd_n in $_lbd_names; do
   [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
@@ -175,7 +178,7 @@ fi
 # THE CAPABILITY TABLE: which controls need a capability this machine may lack. Declared
 # HERE, AFTER the label check above (it expands the group labels that check asked about)
 # and BEFORE the harness is sourced (ctlrun's source-time guard reads it); read only
-# through ctlrun's `_cap_rows` (plan §2.2). Rows, TAB-separated, no empty field: `group`
+# through ctlrun's `_cap_rows` (`2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` §2.2). Rows, TAB-separated, no empty field: `group`
 # (name, the harness probe's flag variable, label, why absent, the claim its controls
 # support), `member` (group, a `_control` label spelled literally), `limit` (a P-x ID a
 # probe answers, label, why), `fact` (a P-x ID whose limit is decided, why).
@@ -244,7 +247,7 @@ _fgit_window_verdict_exit "$_fw_lbl"
 # every word of WEBREF_WIRE_LACKS names a group or a `limit` row, and every ID in
 # `$_fw_limits` has a `limit` or `fact` row. Two reds are under their own labels:
 # an ABSENCE the wire learned from a probe and its caller did not declare (a group whose
-# flag is 0, a `limit` row's ID in `$_fw_limits`; plan §2.3). Returns 1 on any red; its
+# flag is 0, a `limit` row's ID in `$_fw_limits`; `2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` §2.3). Returns 1 on any red; its
 # call line is the writer (`[ "$ctl_ok" -eq 0 ] || exit 1` follows, before the mutation
 # set and the summary).
 # ⚠ WEBREF_WIRE_LACKS (read here and nowhere else, in the parent; the window is built
@@ -492,7 +495,7 @@ command rm -f "$_VFY/.cap_end" "$_VFY/.cap_run" "$_VFY/.cap_err"
 # `( … ) 9>&-` with a 5 s watchdog and its own reap set, `$_K2_REAP_D/og` (a directory inside the run's, which the
 # run's end reads too), and sends fd 9 into the substitution (`9>&1`, before its `> /dev/null`), whose output the
 # rows read. The inner starts with fd 9 closed: bash 3.2 saves a redirected fd 9 at fd 10 without close-on-exec.
-# kill: the stub waits until both groups' entries hold their content, then SIGKILLs the shell running the call;
+# kill: the stub waits until both groups' entries hold their content, then SIGKILLs the shell running the call (it must end 137, never `returned`);
 # the substitution must end at once (under 3 s), not when the watchdog's sleep ends (a watchdog that kept fd 9 or
 # a saved stream holds it), and the reap must stop what the killed call left. norec: the reap set is a missing
 # directory, so the first record fails: the call must end 2, name the group on fd 9, and leave nothing in it.
@@ -520,6 +523,7 @@ elif ! ( _og_bad=""
            _og_dt=$((SECONDS - _og_t0))
            case "$_og_row" in
              kill)
+               case "$_og_st" in *returned*) _og_bad="$_og_bad; kill: the call returned instead of dying ($_og_st)" ;; *"ended 137") ;; *) _og_bad="$_og_bad; kill: the call did not end 137 ($_og_st)" ;; esac
                [ "$_og_dt" -lt 3 ] || _og_bad="$_og_bad; kill: a group of the call held its killed caller's stream for $_og_dt s"
                ( _K2_REAP_D="$_og_rd"; _k2_reap )
                for _og_f in "$_og_rd"/*; do _og_p="${_og_f##*/}"; case "$_og_p" in ''|*[!0-9]*) continue ;; esac
@@ -686,10 +690,10 @@ _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the
 # that sentence. Five hand-written probes, each re-deriving from the fixture's
 # END STATE a fact the BUILD already knew.
 # ⚠ AND ONE OF THOSE PROBES HAD TO BE SUBTLE, which is the other argument for
-# not writing them: this run exports `GIT_NO_REPLACE_OBJECTS=1`, so reading the
-# blob returns the violating bytes whether or not the replacement took — the
-# obvious probe would have passed vacuously for the very reason the control
-# exists, and only `replace -l` worked. A build status has no such trap.
+# not writing them: the fixtures were then built under this run's exported `GIT_NO_REPLACE_OBJECTS=1`, so
+# reading the blob returned the violating bytes whether or not the replacement took — the obvious probe
+# would have passed vacuously for the very reason the control exists, and only `replace -l` worked. (The
+# window is built from nothing and no longer carries it.) A build status has no such trap.
 _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
 # A `git` that answers `ls-files` with nothing unless the caller's
 # `GIT_CONFIG_COUNT` reached it. The fixture holds a violation, so a run that
