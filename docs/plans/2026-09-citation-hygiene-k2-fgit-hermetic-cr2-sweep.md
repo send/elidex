@@ -149,6 +149,29 @@ review_rounds	Ai-wire-k2-trip-wire-review-rounds
 plan_memo_s1x	plan memo §1[01]	i
 parent_s1x	[Pp]arent('s)?[^|.]{0,40}§1[01]	
 parent_d	[Pp]arent D[0-9]+	
+k2_reap_d	_K2_REAP_D	
+k2_reap	_k2_reap([^_A-Za-z0-9]|$)	
+k2_reap_add	_k2_reap_add	
+k2_sig	_k2_sig	
+k2_stop_text	_K2_STOP	
+k2_stop	_k2_stop	
+k2_end	_k2_end	
+k2_age	_k2_age	
+k2_traps	_k2_traps	
+ctl_left	_ctl_left	
+ctl_wd_pg	_ctl_wd_pg	
+og_trap	_og_trap	
+og_lbl	_og_lbl	
+k2_orderly	_K2_ORDERLY	
+exit_trap	exit trap	i
+outlived	outlived	i
+watchdog	watchdog	i
+killed_when	killed when the child returns	i
+sigkill	SIGKILL	
+reap_entry	reap (set|entr)	i
+three_standing	three standing	i
+other_end	every other end	i
+sig_exit	128\+n|stopped by SIG	
 ```
 
 ### §E.1 The plan's §2–§5 (CR#4, CR#7, CR#9, CR#14)

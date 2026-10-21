@@ -100,7 +100,7 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
 # …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
-# blocks, the defined-labels check, the three standing checks (their producers are
+# blocks, the defined-labels check, the four standing checks (their producers are
 # below), the table check (`$_capt_lbl`, `_cap_check`), the capability groups' and
 # the limit's labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`: the table's group and
 # `limit` rows hold them), the orderly-end check (in the wire) and the anchor rule's self-test
@@ -116,6 +116,7 @@ _fifo_lbl="this machine holds a FIFO, or its caller declared that it cannot"
 _perm_lbl="this user cannot read a mode-000 file, or its caller declared that it can"
 _pfl_lbl="this env lists its environment NUL-separated, or its caller declared that it cannot"
 _ev_lbl="a previous run's channel evidence never answers for the next"
+_og_lbl="a call's process groups end with it and hold none of its caller's streams"
 _af_lbl="a record's anchor is fresh only if it changes one line, once, and keeps what it does not read"
 # THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
 # derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
@@ -215,10 +216,15 @@ _fgit_window "$_FIXTURES"
 # Out of the fixtures' reach except through the declared class (c) of
 # docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3 (an executable
 # written into a caller-`PATH` directory, `staleshim`).
-if ! _VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")" || [ -z "$_VFY" ] || [ ! -d "$_VFY" ]; then
+if ! _VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")" || [ -z "$_VFY" ] || [ ! -d "$_VFY" ] || ! mkdir "$_VFY/.reap"; then
   echo "!! could not create the verifier's directory (TMPDIR/disk?); decided nothing." >&2
   exit 2
 fi
+# The run's REAP SET (the wire's exit path, beside `_k2_reap`) is `$_VFY/.reap`: `_ctl_run` records every group it
+# launches there. Its identity check reads `ps -o etime=`; a machine where that cannot read this run's own pid
+# decides nothing here rather than red a check later.
+_K2_REAP_D="$_VFY/.reap"
+_k2_age $$ 0 || { echo "!! decided nothing: the reap's identity check needs \`ps -o etime=\` (read through awk), which this machine does not give" >&2; exit 2; }
 
 
 # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
@@ -309,11 +315,11 @@ _cap_chk_member() {
   case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) ;; *) _cap_chk_red "member \"${_cr_f[2]}\" names group \"${_cr_f[1]}\", which no group row declares" ;; esac
 }
 _cap_check || ctl_ok=1
-# THE THREE STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
+# THE FOUR STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
 # always exists: their stubs read no tree, so they ask no fixture question) in
 # a subshell. Each opens by reading `_fw_trusted` — untrusted is red
 # (`ctl_ok=1`) with no line of its own: W2 is the gate's report, printed once
-# by the first gated run, and these three reads decide nothing about any run.
+# by the first gated run, and these four reads decide nothing about any run.
 # STANDING CHECK of `_ctl_run`'s timeout clause, both ways. A status >= 128 is a
 # timeout ONLY beside the watchdog's own marker: `SELF` is pointed (in a
 # subshell) at a script that signals itself at once (KILL: no core dump, and no
@@ -326,17 +332,22 @@ _cap_check || ctl_ok=1
 # its marker and reported the kill as "killed after 1s" — the marker write and
 # the message are pinned here, not by a record. The reaping is pinned here too:
 # the hang script leaves a background descendant (its pid in `<script>.pid`),
-# which must be dead after the call (the child's group kill), and after each row
-# the watchdog's group (`_ctl_wd_pg`) must be gone (the watchdog's group kill).
-# Both are asked with a bounded poll (`_wm_gone`, 20 × 0.05 s): a killed process
-# can stay visible to `kill -0` until its reparenting reaper collects it. A row
+# which must be dead after the call (the child's group stop: a bounded poll,
+# `_wm_gone`, 20 × 0.05 s, as a killed process can stay visible to `kill -0` until
+# its reparenting reaper collects it), and after each row the call's end must have
+# confirmed the watchdog's group (`_ctl_wd_pg`) gone: `_ctl_left` does not name it.
+# The hung run is sent TERM before its KILL (the stop procedure), so its own exit
+# path runs: the hang script traps TERM and leaves `<script>.term`, asserted when
+# a TERM can reach a child of this run (`_wm_tg`: a `sh` that signals itself exits
+# 0 only when TERM was ignored at the run's entry, which its children inherit). A row
 # with no arm below is red, as `_cap`'s is. Two rows, ONE call line: the
 # registry's site is the line, and one label has one site. The subshell writes
 # `$_VFY/.wm_end` once it has its verdict (green or red); the `then` branch reds under the
 # label when it is absent, as an abort inside the subshell would otherwise red the run unlabelled.
 printf '%s\n' 'kill -KILL $$' > "$_VFY/.wm_abort"
-printf '%s\n' 'sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
+printf '%s\n' 'trap '\'': > "$0.term"; exit 143'\'' TERM; sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
 command rm -f "$_VFY/.wm_end"
+{ sh -c 'kill -TERM $$; exit 0'; } 2>/dev/null && _wm_tg=0 || _wm_tg=1
 if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( _wm_bad=""
          _wm_gone() { _wm_i=0; while kill -0 "$1" 2>/dev/null; do
@@ -345,7 +356,7 @@ elif ! ( _wm_bad=""
            SELF="$_VFY/.wm_$_wm_row"; [ "$_wm_row" != hang ] || _ctl_wd_s=1
            _wm_r=0; _ctl_run "$_wm_lbl" "$_VFY" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
            _wm_msg="$(cat "$_VFY/.wm_err")"
-           _wm_gone "-$_ctl_wd_pg" || _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call"
+           case " ${_ctl_left-} " in *" $_ctl_wd_pg "*) _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call" ;; esac
            case "$_wm_row" in
              abort)
                [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; the run returned $_wm_r, not 0"
@@ -354,6 +365,7 @@ elif ! ( _wm_bad=""
              hang)
                [ "$_wm_r" -eq 1 ] || _wm_bad="$_wm_bad; a run the watchdog killed returned $_wm_r, not 1"
                [ -e "$_VFY/.control_timeout" ] || _wm_bad="$_wm_bad; the watchdog wrote no marker"
+               [ "$_wm_tg" -eq 0 ] || [ -e "$_VFY/.wm_hang.term" ] || _wm_bad="$_wm_bad; the hung run was sent no TERM before its KILL, so its own exit path could not run"
                case "$_wm_msg" in *"killed after ${_ctl_wd_s}s"*) ;; *) _wm_bad="$_wm_bad; the kill was not reported as a ${_ctl_wd_s} s timeout" ;; esac
                _wm_d="$(cat "$_VFY/.wm_hang.pid" 2>/dev/null)" || _wm_d=""
                case "$_wm_d" in ''|*[!0-9]*) _wm_bad="$_wm_bad; the hung run recorded no descendant pid" ;;
@@ -366,7 +378,7 @@ elif ! ( _wm_bad=""
   [ -e "$_VFY/.wm_end" ] || echo "!! CONTROL FAILED ($_wm_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -f "$_VFY/.wm_end" "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_err" "$_VFY/.control_timeout"
+command rm -f "$_VFY/.wm_end" "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_hang.term" "$_VFY/.wm_err" "$_VFY/.control_timeout"
 # STANDING CHECK of the evidence directory's freshness (`_ctl_run` makes it
 # afresh, `rm -rf` then `mkdir`, for every call that delivers a channel): a
 # `path` a previous run left must not answer for this one. Two rows, ONE call
@@ -475,6 +487,67 @@ EOF_CAP
   ctl_ok=1
 fi
 command rm -f "$_VFY/.cap_end" "$_VFY/.cap_run" "$_VFY/.cap_err"
+# STANDING CHECK of a call's process groups against its caller (the wire's exit path: the reap set, the stop, the
+# watchdog's `exec`). Four rows, ONE call line, over `$_VFY`, each inside `$( ( … ) )`: the call runs in an inner
+# `( … ) 9>&-` with a 5 s watchdog and its own reap set, `$_K2_REAP_D/og` (a directory inside the run's, which the
+# run's end reads too), and sends fd 9 into the substitution (`9>&1`, before its `> /dev/null`), whose output the
+# rows read. The inner starts with fd 9 closed: bash 3.2 saves a redirected fd 9 at fd 10 without close-on-exec.
+# kill: the stub waits until both groups' entries hold their content, then SIGKILLs the shell running the call;
+# the substitution must end at once (under 3 s), not when the watchdog's sleep ends (a watchdog that kept fd 9 or
+# a saved stream holds it), and the reap must stop what the killed call left. norec: the reap set is a missing
+# directory, so the first record fails: the call must end 2, name the group on fd 9, and leave nothing in it.
+# nodel: the stub turns its own entry into a directory, which `rm -f` cannot remove, root included: the call must
+# end 2 and name the group. sig: an outer shell holds the wire's traps (`_og_trap`) and the run's reap set; the stub
+# TERMs it, then the inner, which dies by the default action, so the outer's exit path must read the nested set:
+# 143 with its line, its scratch dir gone, both groups gone. It stands down when TERM cannot reach a child (`_wm_tg`).
+# Each row starts, and the check ends, with `rm -rf` of the nested set, which removes a live entry only after a red
+# row: each row confirms its groups gone first (kill and sig by `_og_gone`, norec its one group, nodel by the call's end).
+printf '%s\n' 'd="$2/.reap/og"; until n=0; for f in "$d"/*; do [ ! -s "$f" ] || n=$((n + 1)); done; [ "$n" -ge 2 ]; do sleep 0.05; done; kill -KILL $PPID' > "$_VFY/.og_kill"
+printf '%s\n' 'sleep 5 & wait' > "$_VFY/.og_norec"
+printf '%s\n' 'e="$2/.reap/og/$$"; while [ ! -f "$e" ]; do sleep 0.05; done; rm -f "$e"; mkdir "$e"' > "$_VFY/.og_nodel"
+printf '%s\n' 'd="$2/.reap/og"; until n=0; for f in "$d"/*; do [ ! -s "$f" ] || n=$((n + 1)); done; [ "$n" -ge 2 ]; do sleep 0.05; done; kill -TERM "$(cat "$2/.og_outer")"; kill -TERM $PPID; sleep 5' > "$_VFY/.og_sig"
+command rm -rf "$_VFY/.og_end" "$_K2_REAP_D/og" "$_VFY/.og_scr"
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
+elif ! ( _og_bad=""
+         _og_gone() { _og_i=0; while kill -0 "$1" 2>/dev/null; do
+             [ "$_og_i" -lt 40 ] || return 1; _og_i=$((_og_i + 1)); sleep 0.05; done; }
+         _og_trap() { SCRATCH="$_VFY/.og_scr"; mkdir -p "$SCRATCH"; exec 9>&1; sh -c 'echo $PPID' > "$_VFY/.og_outer"; _k2_traps; }
+         for _og_row in kill norec nodel sig; do
+           [ "$_og_row" != sig ] || [ "$_wm_tg" -eq 1 ] || continue
+           command rm -rf "$_K2_REAP_D/og"; mkdir "$_K2_REAP_D/og"; SELF="$_VFY/.og_$_og_row"; _og_t0=$SECONDS
+           _og_rd="$_K2_REAP_D/og"; [ "$_og_row" != norec ] || _og_rd="$_VFY/.og_none"
+           _og_st="$( ( _ctl_wd_s=5; [ "$_og_row" != sig ] || _og_trap; ( _K2_REAP_D="$_og_rd"; _ctl_run "$_og_lbl" "$_VFY" 9>&1 > /dev/null 2> "$_VFY/.og_err"; echo "returned $?" ) 9>&- ) 2>/dev/null; echo "ended $?" )"
+           _og_dt=$((SECONDS - _og_t0)); _og_m="$_og_st"
+           case "$_og_row" in
+             kill)
+               [ "$_og_dt" -lt 3 ] || _og_bad="$_og_bad; kill: a group of the call held its killed caller's stream for $_og_dt s"
+               ( _K2_REAP_D="$_og_rd"; _k2_reap )
+               for _og_f in "$_og_rd"/*; do _og_p="${_og_f##*/}"; case "$_og_p" in ''|*[!0-9]*) continue ;; esac
+                 _og_gone "-$_og_p" || _og_bad="$_og_bad; kill: the reap left group $_og_p running"; done ;;
+             norec)
+               case "$_og_st" in *"ended 2") ;; *) _og_bad="$_og_bad; norec: the call did not end 2 ($_og_st)" ;; esac
+               case "$_og_m" in *"could not record process group "*) _og_p="${_og_m##*process group }"; _og_p="${_og_p%%,*}" ;; *) _og_p="" ;; esac
+               case "$_og_p" in ''|*[!0-9]*) _og_bad="$_og_bad; norec: no line named the unrecorded group" ;;
+                 *) _og_gone "-$_og_p" || _og_bad="$_og_bad; norec: the unrecorded group $_og_p was left running" ;; esac ;;
+             nodel)
+               case "$_og_st" in *"ended 2") ;; *) _og_bad="$_og_bad; nodel: the call did not end 2 ($_og_st)" ;; esac
+               case "$_og_m" in *"could not drop process group "*) ;; *) _og_bad="$_og_bad; nodel: no line named the undropped group" ;; esac ;;
+             sig)
+               case "$_og_st" in *"stopped by SIGTERM"*"ended 143") ;; *) _og_bad="$_og_bad; sig: the signalled call did not end 143 with its line ($_og_st)" ;; esac
+               [ ! -e "$_VFY/.og_scr" ] || _og_bad="$_og_bad; sig: the signalled call's exit path left its scratch dir"
+               _og_n=0; for _og_f in "$_og_rd"/*; do _og_p="${_og_f##*/}"; case "$_og_p" in ''|*[!0-9]*) continue ;; esac; _og_n=$((_og_n + 1))
+                 _og_gone "-$_og_p" || _og_bad="$_og_bad; sig: the exit path left group $_og_p running"; done
+               [ "$_og_n" -eq 2 ] || _og_bad="$_og_bad; sig: the reap set held $_og_n groups, not 2" ;;
+             *) _og_bad="$_og_bad; no arm for row \"$_og_row\"" ;;
+           esac
+         done
+         command rm -rf "$_K2_REAP_D/og"
+         : > "$_VFY/.og_end"
+         [ -z "$_og_bad" ] || { echo "!! CONTROL FAILED ($_og_lbl)$_og_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.og_end" ] || echo "!! CONTROL FAILED ($_og_lbl): the check ended before its verdict" >&2
+  ctl_ok=1
+fi
+command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.
@@ -690,6 +763,20 @@ _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash to
 # and only the opt-in record that pins k2 (`unset GREP_OPTIONS`), run on a grep
 # that ignores the variable (the GNU-like profile), reds it.
 _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "$CTL/goptgrep" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
+# A SIGNAL ENDS THE RUN 128+n AND SAYS SO, on the stderr the run started with. Each `sig<n>` shim (the fixtures
+# file) marks `path` and signals its own group on the wire's HEAD probe; the child is `_ctl_run`'s, launched under
+# `set -m`, so its SIGINT is not ignored. The row expects 0 and PASSED instead when a `sh` that signals itself
+# exits 0: the signal was ignored at this run's entry, its children inherit that, and none can be stopped by it
+# (a record of these rows then SURVIVES: red, never green; the opt-in starts the wire with the three at default).
+# The group redirection silences bash's report of the probe's death.
+for _sg in HUP:129 INT:130 TERM:143; do _sg_n="${_sg%:*}"; _sg_e="${_sg#*:}"; _sg_m="stopped by SIG$_sg_n"
+  { sh -c "kill -$_sg_n \$\$; exit 0"; } 2>/dev/null && { _sg_e=0; _sg_m=PASSED; }
+  _control "$CTL/clean" "$_sg_e" "$_sg_m" "a signal ends the run red and says so" "" "" "$CTL/sig$_sg_n" || ctl_ok=1
+done
+# A SCRATCH DIR THAT CANNOT BE REMOVED is reported and the status stands: the `failrm` prefix's `rm` fails exactly
+# `rm -rf <dir>` (the exit path's removal, after removing it), its `chmod` fails `chmod -R` (the exit path's only one,
+# which errexit, off in the exit path, would otherwise turn into status 1).
+_control "$CTL/clean" 0 "could not remove the scratch dir" "a scratch dir that cannot be removed does not change the verdict" "" "" "$CTL/failrm" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the
 # verdict cannot say. ⚠ The same hook is then shown to run under a plain git

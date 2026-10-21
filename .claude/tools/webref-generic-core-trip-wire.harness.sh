@@ -733,7 +733,7 @@ _fgit_window() {
   # they returned 0 — the absence of `post_bad` is not that: a postcondition
   # that never ran to its end writes neither), none red, no shell diagnostic. The verdict function below only
   # REPORTS it, so where that call sits (or whether an exit in it survives)
-  # cannot change what `_ctl_gate` reads (nor what the controls file's three
+  # cannot change what `_ctl_gate` reads (nor what the controls file's four
   # standing checks read before their rows: the same flag).
   [ "$_fw_fd2" -lt 2 ] || _fw_diag="${_fw_diag:+$_fw_diag }(the canary scan of the window's stderr failed: awk exited $_fw_fd2)"
   if [ "$_fw_done" -eq 1 ] && [ "$_fw_post_ok" -eq 1 ] && [ "$_fw_post_bad" -eq 0 ] && [ -z "$_fw_diag" ] && [ -z "$_fw_unread" ]; then _fw_trusted=1; fi
@@ -747,7 +747,7 @@ _fgit_window() {
 # postcondition ends the run before any control") gets its diagnostic reported
 # here and the run ended at 1, before any control. This function computes
 # NOTHING: `_fw_trusted` comes from `_fgit_window`; this function reads it to
-# report, `_ctl_gate` reads it to gate, and the controls file's three standing
+# report, `_ctl_gate` reads it to gate, and the controls file's four standing
 # checks read it to skip their rows in silence (W2 stays the gate's line).
 _fgit_window_verdict_exit() { # $1 = the window label
   _ctl_reg "$1"

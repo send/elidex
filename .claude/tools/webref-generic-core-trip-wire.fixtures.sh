@@ -362,6 +362,13 @@ mkdir -p "$CTL/fakegrep"
 _fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) : > "${K2_CTL_REACHED:?}/path"; exit 2;; esac' "$_REAL_GREP"
 mkdir -p "$CTL/goptgrep"
 _fgit_shim "$CTL/goptgrep/grep" ': > "${K2_CTL_REACHED:?}/path"; [ -z "${GREP_OPTIONS+x}" ] || exit 1' "$_REAL_GREP"
+# The exit path's controls (the controls file says why): `sig<n>`'s `git` marks `path` and sends <n> to its own
+# group on the wire's HEAD probe; `failrm`'s `rm` and `chmod` fail only the exit path's calls, after making them.
+for _sg in HUP INT TERM; do mkdir -p "$CTL/sig$_sg"
+  _fgit_shim "$CTL/sig$_sg/git" 'case " $* " in *" rev-parse --verify "*) : > "${K2_CTL_REACHED:?}/path"; kill -'"$_sg"' 0 ;; esac' "$_REAL_GIT"; done
+mkdir -p "$CTL/failrm"
+_fgit_shim "$CTL/failrm/rm" 'case "$1" in -rf) : > "${K2_CTL_REACHED:?}/path"; rm "$@"; exit 1 ;; esac' rm
+_fgit_shim "$CTL/failrm/chmod" 'case "$1" in -R) chmod "$@"; exit 1 ;; esac' chmod
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
 mkdir -p "$CTL/grepfail/.claude/skills/team"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfail/.claude/skills/team/rule.md"

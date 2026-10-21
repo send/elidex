@@ -410,8 +410,8 @@ SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
 # So the status is POSITIVE EVIDENCE: `_K2_ORDERLY=1` is set at the one place this
 # wire ends green -- immediately before the PASSED line at the end of this file
 # (the `--selftest` green end falls through to the same line; every other end is
-# `exit 1` or `exit 2`, and the mutation run does its work BEFORE that line, see
-# its header) -- and a status of 0 without it is turned into 1 here. The body is
+# `exit 1`, `exit 2` or a signal's `exit 128+n` (below), and the mutation run does
+# its work BEFORE that line, see its header) -- and a status of 0 without it is turned into 1 here. The body is
 # ONE function, called by this trap and by the mutation run's (which replaces
 # this one for the run). NO RECORD for removing the check itself: bash 5 already
 # exits 1 on such an abort, so a record that removes it could die only on 3.2 and
@@ -419,16 +419,98 @@ SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
 # after (Stage 5 E-1). The assignment of the flag HAS a record.
 # The label comes from the controls file, which is not sourced yet when this
 # trap can first fire, hence the fallback.
-_K2_ORDERLY=0
+# THE EXIT PATH, the few lines every end runs (CR#11, CR#12). What each keeps:
+# STATUS: HUP, INT and TERM end the run `exit 128+n` (`_k2_sig`); untrapped, they reached the EXIT
+# trap with `$?` 0 and printed a false "ended before its verdict". Nothing here changes the status it
+# was given: each body (and the mutation run's trap string) first ignores the three, so a second
+# signal cannot cut it, then turns errexit off, live in a trap body (a failing `rm` made a PASSED 0 a 1).
+# LINE: fd 9 is the stderr the run was started with, saved before any trap (`|| /dev/null`: a stderr
+# closed at entry would end the run under errexit). A trap runs under the redirections where the
+# signal landed (a launch's `2>/dev/null`, a redirected call), so every exit-path line goes to fd 9.
+# REAP: `_ctl_run`'s child and watchdog are process groups of their own (`set -m`), which a signal to
+# the run's group does not reach, and the standing checks run it in subshells whose traps are reset
+# and whose variables the parent never sees. So the groups are FILES, the reap set `$_K2_REAP_D`
+# (`$_VFY/.reap`, set by the controls file; a nested call's set is a directory inside it): one per
+# live group, named by its leader's pid, holding its record's `$SECONDS`. The exit path stops each
+# group still the run's, before the scratch removal (the set lives in the scratch). Left open: a
+# launch's instant before its record (residual R14); SIGKILL, the signals not trapped, and a TERM
+# ignored at the run's entry, which no trap can undo and its children inherit (residual R15).
+exec 9>&2 || exec 9>/dev/null
+_K2_ORDERLY=0; _K2_REAP_D=""
+# STOP, one procedure for the reap and the watchdog: TERM to each group, so a selftest child runs its
+# own exit path (its scratch dir); then until all are gone or `SECONDS` reaches 2 (1-2 s: whole
+# seconds, counted from this text's own `SECONDS=0`, the one assignment of that clock; a child's own
+# cleanup ends well inside 1 s), then KILL. Its own process, started without the caller's exported
+# errexit and nounset (`SHELLOPTS`) and `BASH_ENV`; it holds no fd 9. bash 3.2 prints a job notice
+# ("Killed: 9") for a stopped job of its own while it waits on that process, hence the group's
+# `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
+_K2_STOP='SECONDS=0
+for p; do kill -TERM -"$p"; done
+for p; do while kill -0 -"$p" && [ "$SECONDS" -lt 2 ]; do sleep 0.1 || sleep 1; done; done
+for p; do kill -9 -"$p"; done; exit 0'
+_k2_stop() { local _ks_p
+  { env -u SHELLOPTS -u BASH_ENV "$BASH" -c "$_K2_STOP" k2stop "$@" < /dev/null > /dev/null 2>&1 9>&- \
+      || for _ks_p in "$@"; do kill -9 -"$_ks_p"; done
+    for _ks_p in "$@"; do wait "$_ks_p" || :; done; } 2>/dev/null; return 0; }
+# IDENTITY: `_k2_age <pid> <s>` is true when `ps -o etime=` shows <pid> at least <s> seconds old; a
+# machine whose `ps` cannot read the run's own pid is refused by the controls file (exit 2).
+_k2_age() { ps -o etime= -p "$1" 2>/dev/null | _K2_AGE="$2" awk '{ n = split($1, f, /[-:]/)
+    split("1 60 3600 86400", u, " "); for (i = n; i > 0; i--) s += f[i] * u[n - i + 1]; ok = n >= 2 && n <= 4 && $1 ~ /^[0-9:-]+$/ }
+    END { exit !(ok && s >= ENVIRON["_K2_AGE"]) }'; }
+# An entry is acted on only as a number > 1 (`-0` is the run's own group, `-1` every process) and
+# only while its group exists and is the run's: no live leader (no id is reused while its group
+# exists), or a leader no younger than the record, less 1 s. Anything else is skipped: a leftover,
+# never a wrong kill (the residue, a group that emptied and whose id was reused: BS-12).
+_k2_reap() { local _kr_f _kr_p _kr_t; local -a _kr_g=()
+  [ -n "$_K2_REAP_D" ] || return 0
+  for _kr_f in "$_K2_REAP_D"/* "$_K2_REAP_D"/*/*; do _kr_p="${_kr_f##*/}"
+    case "$_kr_p" in ''|*[!0-9]*|0*|1) continue ;; esac
+    kill -0 -"$_kr_p" 2>/dev/null || continue
+    if kill -0 "$_kr_p" 2>/dev/null; then _kr_t=""; read -r _kr_t 2>/dev/null < "$_kr_f"
+      case "$_kr_t" in ''|*[!0-9]*) continue ;; esac
+      _k2_age "$_kr_p" $((SECONDS - _kr_t - 1)) || continue; fi
+    _kr_g+=("$_kr_p"); done
+  [ "${#_kr_g[@]}" -eq 0 ] || _k2_stop "${_kr_g[@]}"; }
+# Each group is recorded right after its own launch. A record that cannot be written ends the call:
+# `set +m` back, the cause on fd 9, its groups stopped, their entries removed, `exit 2` (at top level
+# the run's 2; in a standing check's subshell that subshell's, and the check reds). The call's end
+# KILLs the watchdog (unwaited until then, so its id is not reused), then KILLs each group again,
+# without TERM (the child's leader ended through its own exit path), while it has members and no
+# leader: one group KILL can miss a member forked as it lands. A group still there goes to
+# `_ctl_left` and keeps its entry for the run's end; one gone, or whose id now names a reused leader,
+# is dropped, and a drop that fails is named on fd 9 and `exit 2`s after the rest are tried.
+_k2_reap_add() { # $1 = the label, $2 = a group just launched, $3... = the call's groups already recorded
+  local _ka_p; [ -n "$_K2_REAP_D" ] && printf '%s\n' "$SECONDS" 2>/dev/null > "$_K2_REAP_D/$2" && return 0
+  set +m; echo "!! $1: the reap set could not record process group $2, so a signal would leave it running; decided nothing" >&9
+  _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do command rm -f "$_K2_REAP_D/$_ka_p" 2>/dev/null; done; exit 2; }
+_k2_end() { # $1 = the label, $2 = the child's group (its leader waited), $3 = the watchdog's: each KILLed until empty, then dropped
+  local _ke_p _ke_i _ke_f=0; _ctl_left=""; kill -9 -"$3" 2>/dev/null || true; wait "$3" 2>/dev/null || true
+  for _ke_p in "${@:2}"; do _ke_i=0
+    while kill -0 -"$_ke_p" 2>/dev/null && ! kill -0 "$_ke_p" 2>/dev/null; do
+      [ "$_ke_i" -lt 20 ] || { _ctl_left="$_ctl_left $_ke_p"; continue 2; }
+      kill -9 -"$_ke_p" 2>/dev/null || true; sleep 0.05 || sleep 1; _ke_i=$((_ke_i + 1)); done
+    command rm -f "$_K2_REAP_D/$_ke_p" 2>/dev/null && continue; _ke_f=1
+    echo "!! $1: the reap set could not drop process group $_ke_p, so the run's end could stop another's; decided nothing" >&9; done
+  [ "$_ke_f" -eq 0 ] || exit 2; }
 _k2_exit() { # $1 = the status the shell was leaving with
-  case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac
+  trap '' HUP INT TERM; set +e
+  _k2_reap
+  # No `|| true` on the `chmod`: errexit is off. A removal that fails says so; the status is the run's.
+  case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null
+    rm -rf "$SCRATCH" || echo "!! could not remove the scratch dir $SCRATCH (the exit status is the run's own)" >&9 ;; esac
   if [ "$1" -eq 0 ] && [ "${_K2_ORDERLY:-0}" -ne 1 ]; then
-    echo "!! CONTROL FAILED (${_ord_lbl:-the run ends only through a verdict}): the run ended before reaching its verdict" >&2
+    echo "!! CONTROL FAILED (${_ord_lbl:-the run ends only through a verdict}): the run ended before reaching its verdict" >&9
     exit 1
   fi
   exit "$1"
 }
-trap '_k2_rc=$?; _k2_exit "$_k2_rc"' EXIT
+# One installer, called here and by the `_og` standing check's sig row, which needs the wire's traps.
+_k2_sig() { trap '' HUP INT TERM; set +e; echo "!! the run was stopped by SIG$1, so nothing was decided" >&9; exit "$2"; }
+_k2_traps() { trap '_k2_rc=$?; trap "" HUP INT TERM; _k2_exit "$_k2_rc"' EXIT
+trap '_k2_sig HUP 129' HUP
+trap '_k2_sig INT 130' INT
+trap '_k2_sig TERM 143' TERM
+}; _k2_traps
 if [ -z "$SCRATCH" ]; then
   rmdir "$_raw_scratch" 2>/dev/null || true
   echo "!! could not resolve the scratch dir ($_raw_scratch) to a physical path, so nothing here was proved" >&2

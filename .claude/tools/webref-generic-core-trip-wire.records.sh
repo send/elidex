@@ -150,7 +150,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; &/	the fixture build window complet
 # expressions: the verdict function only reports, so with its exits gone the run
 # reaches the first control, and only the gate can say W2. W2's producer is
 # `_ctl_gate`, asked by `_ctl_run` alone (every `_control` and the two non-`_control` blocks run
-# through it; the fsmonitor `git ls-files` follow-up, after the run, sits inside its `_ctl_run`'s branch; the three standing checks
+# through it; the fsmonitor `git ls-files` follow-up, after the run, sits inside its `_ctl_run`'s branch; the four standing checks
 # that read `_fw_trusted` print NOTHING: W2's text has one site); the record pins that W2 is reported when the
 # exits are gone. It SURVIVES with `_fw_done` removed from `_fgit_window`'s trust
 # computation. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds
@@ -488,5 +488,37 @@ controls:s/^\(_pe\)\(_lbl\)="no exec-path override reaches the fixture git"$/&; 
 # three `unset`s and a caller's `GIT_OBJECT_DIRECTORY` exported (appended to the `_fsm_root` line), the retry cannot run the hook and the control reds, KILLED by its
 # NOT EXERCISED message; with the export alone it SURVIVES (the purge is what passes). Both on the one block, so each expression is fresh alone.
 controls:s/for _v in [$]_GIT_LOCAL_VARS; do unset "[$]_v"; done;/unset GIT_DIR; unset GIT_WORK_TREE; unset GIT_INDEX_FILE;/	s/^_fsm_root="[$]CTL\/fsmon"$/&; export GIT_OBJECT_DIRECTORY=\/nonexistent-k2/	a caller's fsmonitor hook does not run
+# THE EXIT PATH (CR#11, CR#12). These records need HUP, INT and TERM deliverable at the run's entry: a run that inherits one
+# ignored cannot trap it, the signal rows expect PASSED and the `_wm_tg` assertions stand down, so R11h/i/t, R11w, R11r and
+# R11n SURVIVE there (red, never green); the opt-in is started with the three at their default (BS-11).
+# R11h/R11i/R11t - one trap line of `_k2_traps` each made `:`: that signal's child dies by default, 128+n with no `stopped by`
+# line, KILLED by the signal control's message; each SURVIVES with that row removed (R11t, pinned twice: and the `_og` sig row).
+s/^trap '_k2_sig HUP 129' HUP$/:/	a signal ends the run red and says so
+s/^trap '_k2_sig INT 130' INT$/:/	a signal ends the run red and says so
+s/^trap '_k2_sig TERM 143' TERM$/:/	a signal ends the run red and says so
+# R12 - the removal's report dropped (`failrm`'s `rm` fails it silently): KILLED (the line absent); with the control expecting
+# PASSED it SURVIVES. R12e - `_k2_exit`'s `set +e` dropped: `failrm`'s failing `chmod` ends the trap with 1, KILLED (expected
+# exit 0); with no `chmod` shim it SURVIVES. Removing the control's call is no survive arm: it orphans both needles.
+s/^    rm -rf "[$]SCRATCH" || echo "!! could not remove the scratch dir [$]SCRATCH (the exit status is the run's own)" >&9 ;; esac$/    rm -rf "$SCRATCH" ;; esac/	a scratch dir that cannot be removed does not change the verdict
+s/^  trap '' HUP INT TERM; set +e$/  trap '' HUP INT TERM/	a scratch dir that cannot be removed does not change the verdict
+# R11w - the stop procedure's TERM step made `:`: the watchdog KILLs the hung run with no TERM, KILLED by the `_wm` hang row's
+# `.term` assertion; with that assertion removed it SURVIVES.
+s/^for p; do kill -TERM -"[$]p"; done$/:/	only the watchdog's marker makes a signal status a timeout
+# R11d (the watchdog a bash that stays: a trap set in the subshell stops bash's implicit `exec` of its one command, so dropping
+# `exec` alone is an equivalent mutant), R11a (a failed record returns instead of ending the call), R11x (a failed drop does not
+# end the call), R11e (the watchdog's launch keeps fd 9): KILLED by the `_og` check's kill, norec, nodel and kill rows; with
+# that row's assertions removed each SURVIVES.
+ctlrun:s/^  { ( exec env -u SHELLOPTS /  { ( trap : USR2; env -u SHELLOPTS /	a call's process groups end with it and hold none of its caller's streams
+s/^  _k2_stop "[$]{@:2}"; for _ka_p in "[$]{@:3}"; do command rm -f "[$]_K2_REAP_D\/[$]_ka_p" 2>\/dev\/null; done; exit 2; }$/  return 0; }/	a call's process groups end with it and hold none of its caller's streams
+s/^  \[ "[$]_ke_f" -eq 0 \] || exit 2; }$/  :; }/	a call's process groups end with it and hold none of its caller's streams
+ctlrun:s/^\(      k2wd "[$]{_ctl_wd_s-}" "[$]_r_wmark" "[$]_cpid" ) < \/dev\/null > \/dev\/null 2>&1\) 9>&- \(& _wpid=[$]!; } 2>\/dev\/null\)$/\1 \2/	a call's process groups end with it and hold none of its caller's streams
+# R11g - the `_og` check's row loop emptied: KILLED by the census (its call line registered by no run), as GC-3 pins the other three.
+controls:s/^         for _og_row in kill norec nodel sig; do$/         for _og_row in; do/	every label the run used is named by a mutation record
+# R11r - the exit path's reap made `:`; R11n - the reap's glob cut to one level (the nested set unread): KILLED by the `_og` sig
+# row (a group left running); with that row's assertions removed each SURVIVES.
+s/^  _k2_reap$/  :/	a call's process groups end with it and hold none of its caller's streams
+s/^\(  for _kr_f in "[$]_K2_REAP_D"\/\*\) "[$]_K2_REAP_D"\/\*\/\*;/\1;/	a call's process groups end with it and hold none of its caller's streams
+# The `_og` check's verdict marker, pinned as the other three checks' markers are (the abort-injection records above).
+controls:s/^elif ! ( _og_bad=""$/elif ! ( : "${_no_such_name_x}"; _og_bad=""/	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }
