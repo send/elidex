@@ -18,7 +18,7 @@ checked out at `706049ad` and named `cr2-wt` (the `*-clone.sh` scripts clone it)
 copy of the CR round's (`…-cr-sweep.md` §E, which stays as run): the same file set, with CR2's own plan, its companion,
 this file and its instrument companions (every `…-cr2-*.md`) excluded instead of that round's two files; CR2-0 adds the new part to the set and CR2-D the #519
 memo's companion; each slice adds the identifier groups it introduces, in the commit that adds them. `idents.tsv` is
-the CR round's as committed at `706049ad`, with each slice's groups appended after its last row (CR2-0: `correspondence`; CR2-B: `_mut_fresh` (word-bounded, so that its fix round's `_mut_fresh_gate` is a group of its own), `_mut_fresh_gate`, `_mf_v`, `_af_lbl` and the phrases its B2a I-2 groups re-classify, "fresh", "exactly one line" and "anchor"; CR2-A: `.mvalues` and the phrases of its B2a I-2 groups, "expand" and "spell" — its other two, `.vlabels` and `$_cen_used`, are rows already, `lbd` and `cen_vars`; CR2-C1: its B2a I-2 groups, `_rc`/`_out` (CR14-G's reader expression, `rc_out`), `.control_out` with the variable naming it, `_out_f`, the timeout marker removed beside it, `.control_timeout` and `_r_wmark`, and "RETURN CONTRACT"). The `perl -0777` wrap backstop is run as the CR round ran it
+the CR round's as committed at `706049ad`, with each slice's groups appended after its last row (CR2-0: `correspondence`; CR2-B: `_mut_fresh` (word-bounded, so that its fix round's `_mut_fresh_gate` is a group of its own), `_mut_fresh_gate`, `_mf_v`, `_af_lbl` and the phrases its B2a I-2 groups re-classify, "fresh", "exactly one line" and "anchor"; CR2-A: `.mvalues` and the phrases of its B2a I-2 groups, "expand" and "spell" — its other two, `.vlabels` and `$_cen_used`, are rows already, `lbd` and `cen_vars`; CR2-C1: its B2a I-2 groups, `_rc`/`_out` (CR14-G's reader expression, `rc_out`), `.control_out` with the variable naming it, `_out_f`, the timeout marker removed beside it, `.control_timeout` and `_r_wmark`, and "RETURN CONTRACT"; CR2-D: the companion's name, `review_rounds`, and its B2a I-2 groups, "plan memo §1" (`plan_memo_s1x`), "parent … §1" (`parent_s1x`, instrument (2)'s first form) and "parent D" (`parent_d`)). The `perl -0777` wrap backstop is run as the CR round ran it
 (`…-cr-plan.md` §7; `…-impl-cr.md` §S.2).
 
 ## §0 Spec coverage map
@@ -36,7 +36,7 @@ runs it from there (no extractor: the copy is the block).
 §E was split over four files at CR2-M (touch-time, the 1000-line rule: one file held 2725 lines). A `§E.<name>`
 cite resolves in the file this table names, under the heading `#### §E.<name>` (`### §E.<name>` for the sweep's
 two files); each block except `§E.sweep.sh` (its exclusion widened to `…-cr2-*` at the split, the plan's §11; its file set widened by the
-new part at CR2-0) and `§E.idents.tsv` (the groups each slice appends, from CR2-0) is byte-identical to the one it was in this file before the split. The three companions open with the same
+new part at CR2-0 and by the #519 memo's companion at CR2-D) and `§E.idents.tsv` (the groups each slice appends, from CR2-0) is byte-identical to the one it was in this file before the split. The three companions open with the same
 no-spec-surface §0 and are excluded from CR2's sweep and from the plan's claim rows over `docs/plans/*k2-fgit*`, as this file is (the plan's §10 and §11).
 
 | part | file | blocks |
@@ -62,10 +62,11 @@ c="$1"; here="$(cd "$(dirname "$0")" && pwd)"
 cd "$c" || exit 2
 files=( .claude/tools/webref-generic-core-trip-wire.sh .claude/tools/webref-generic-core-trip-wire.{controls,ctlrun,fixtures,harness,mutations,correspondence,mutgen,records}.sh
         docs/plans/*k2-fgit* docs/plans/2026-07-citation-hygiene-umbrella.md docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md
+        docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md
         CLAUDE.md .github/workflows/ci.yml scripts/* )
-# CR2-0 added the new part (`correspondence`) to the list above; CR2-D's split commit adds the #519 memo's companion (the plan's §11).
+# CR2-0 added the new part (`correspondence`) to the list above; CR2-D adds the #519 memo's companion (the file its split commit creates; the plan's §11).
 # Excluded (the plan's §11, on the CR round's R3 H1 precedent): CR2's plan, its companion, this file and its
-# instrument companions (every `…-cr2-*.md`; `…-impl-cr2.md` stays in), which match the glob above; they are the
+# instrument companions (every `…-cr2-*.md`; `…-impl-cr2.md` and `…-impl-cr2-d.md` stay in), which match the glob above; they are the
 # ledger's own statement of the identifiers, not sites. The CR round's plan and
 # ledger are in the set: that round is closed, and their hits are provenance (`hist`, the plan's §11).
 keep=(); for f in "${files[@]}"; do case "$f" in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-*) ;; *) keep+=( "$f" ) ;; esac; done; files=( "${keep[@]}" )
@@ -144,6 +145,10 @@ rc_out	\$\{?_(rc|out)([^A-Za-z0-9_]|$)|unset _(rc|out)
 control_out	\.control_out|_out_f([^A-Za-z0-9_]|$)	
 control_timeout	\.control_timeout|_r_wmark	
 retcontract	RETURN CONTRACT	i
+review_rounds	Ai-wire-k2-trip-wire-review-rounds	
+plan_memo_s1x	plan memo §1[01]	i
+parent_s1x	[Pp]arent('s)?[^|.]{0,40}§1[01]	
+parent_d	[Pp]arent D[0-9]+	
 ```
 
 ### §E.1 The plan's §2–§5 (CR#4, CR#7, CR#9, CR#14)

@@ -676,7 +676,7 @@ _control "$CTL/d3m4" 1 "K2: a" "a backtick inside an intermediate segment" || ct
 _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash token fails safe" || ctl_ok=1
 # k2: a caller's `GREP_OPTIONS` over a violating file. BSD grep honours it, so
 # without the wire's `unset` the file reads as "no match"; GNU grep — CI's — does
-# not (2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §11.1; the note's own
+# not (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11.1; the note's own
 # measurement is BSD only), so the real tool cannot pose this question on every
 # machine. The control does not ask the machine's grep: `goptgrep` (the fixtures
 # file, beside `fakegrep`) answers "no match" whenever a `GREP_OPTIONS` reached it

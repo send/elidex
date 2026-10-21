@@ -6,7 +6,7 @@ after the enumeration attestation, its review and what the implementation decide
 unchanged as a touch-time split by PR #527's CR2 round (`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan.md`
 §7, O-1 (A)); the #519 memo keeps a pointer at §10's place, and its banner lists the statements here that are
 no longer true. §10 and §11 keep their numbers, so a bare §10.x or §11.x resolves here; every other section
-reference without a file name is to `2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`.
+reference without a file name is to `2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, and "this memo" in the moved text means that memo, the #519 memo.
 
 ---
 

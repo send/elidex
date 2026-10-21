@@ -797,3 +797,4 @@ same 7 here (the new group's `…-cr-plan.md` :283, `hist`). With this entry: 34
 correspondence 450 (untouched); corpus 431, `…-cr2-sweep.md` 761, this file 799 (< 800).
 
 Review: CRITICAL 0 / IMPORTANT 1 / MINOR 3, each fixed in place (net 0 lines). Battery (`BASE_REV=dd5b86cc`): 88/88 new == base, b53, b32.
+This file closed at 800 lines (`wc -l`); every later entry, from CR2-D's on, and every correction to this file's body, are recorded in `…-impl-cr2-d.md` §T, which continues from §T.6 (design memo §13).

@@ -320,7 +320,7 @@ export LC_ALL=C
 # ⚠ AND NO CALLER-SUPPLIED GREP ARGUMENTS. BSD grep (macOS) places
 # `GREP_OPTIONS` at the start of its argument list (`man grep`, ENVIRONMENT),
 # so `GREP_OPTIONS=--exclude=*` makes a named file read as "no match" (measured
-# on this grep) and a local run went green over a violation (plan memo §11, D1).
+# on this grep) and a local run went green over a violation (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D1).
 unset GREP_OPTIONS
 # ⚠ THE TWO GIT READING SWITCHES LIVE IN `_git`, NOT HERE, and that is the
 # whole of it — see the `export` inside it. They were stated at BOTH levels
@@ -400,7 +400,7 @@ fi
 _phys() { ( cd "$1" 2>/dev/null && pwd -P ); }
 _raw_scratch="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so nothing here was proved" >&2; exit 2; }
 # ⚠ `|| SCRATCH=""`: under `set -e` a failing substitution exits HERE, before
-# the guard below can say why (a restrictive umask does it — plan memo §11, D5).
+# the guard below can say why (a restrictive umask does it — 2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D5).
 SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
 # ⚠ A RUN MAY LEAVE WITH STATUS 0 ONLY THROUGH ITS VERDICT (`#11-k2-wire-exit-trap-masks-set-u-abort`).
 # On `/bin/bash` 3.2 an EXIT trap hides a `set -u` abort: the trap is entered with
@@ -479,7 +479,7 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 #
 # A segment FOLLOWED BY `/` runs to that `/`, stopping only at whitespace: a
 # `]`, a quote or a backtick inside it is part of the path, and while they ended
-# it `.claude/tools/team]inc/rule.md` was missed (plan memo §11, D3). Only the
+# it `.claude/tools/team]inc/rule.md` was missed (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D3). Only the
 # segment that ENDS the match stops at the characters that end a path in
 # running text — whitespace, `]`, quotes and a backtick. Past the first segment
 # the pattern is an ALTERNATION of those two readings, so a segment that could
@@ -708,7 +708,7 @@ _git() { ( for _v in $_GIT_LOCAL_VARS; do
            # survives the purge above on purpose, so it can carry
            # `core.fsmonitor`, which names a command git RUNS during this
            # wire's own `ls-files` and `cat-file` calls (measured) and whose
-           # answer git takes for what the worktree holds (plan memo §11.6).
+           # answer git takes for what the worktree holds (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11.6).
            # `-c` wins over `GIT_CONFIG_COUNT` (measured), so the caller's
            # other keys, such as `safe.directory`, still reach git. The
            # untracked cache is caller state of the same kind; it is turned off
@@ -747,7 +747,7 @@ _ancestor_link() {
 
 # IS $1 (relative to $ROOT) PROVABLY ABSENT? rc 0 = yes, 1 = not established.
 # `[ -L ] / [ -f ] / [ -e ]` all answer "no" when the lookup fails with EACCES,
-# so their joint failure is not a negative (plan memo §11, D2: a tracked file
+# so their joint failure is not a negative (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D2: a tracked file
 # under a directory with read but no search permission read as tracked-and-gone,
 # with no record, green). The negative is established here instead: walk up to
 # the NEAREST EXISTING ancestor. If it is a directory it must be searchable, and
@@ -1187,7 +1187,7 @@ _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
   # ⚠ DID THE WALK COMPLETE? `_scan` runs inside `$( )`, so its status is
   # lost, and a subshell killed mid-walk (reproduced with `POSIXLY_CORRECT=1`
   # and a failing `cat`) handed over only what it had emitted before dying —
-  # which read as a verdict (plan memo §11, D4). Exactly one terminal record,
+  # which read as a verdict (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D4). Exactly one terminal record,
   # in last position, or this run decided nothing. ⚠ The POSITION half is not
   # reachable by any input — see item 7 of WHAT THIS WIRE DOES NOT DECIDE — and
   # is kept for a `_scan` that emits after its terminal record.

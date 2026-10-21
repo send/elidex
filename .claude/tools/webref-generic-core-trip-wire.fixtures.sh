@@ -221,7 +221,7 @@ printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
   printf '**%s**\n' "$CONTROL_K2"
   printf 'x,%s\n' "$CONTROL_K2"; } > "$CTL/bnd/control.py"
 
-# THE BOUNDARY RULES' OTHER DIRECTIONS (2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §11, D10).
+# THE BOUNDARY RULES' OTHER DIRECTIONS (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D10).
 # Each was shown
 # missing by a mutant that survived the control set as it then stood; the
 # record beside each rule is that mutant.
@@ -561,7 +561,7 @@ done
   && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catkill
 # A TRACKED file under a directory with read but NOT search permission, its
 # worktree copy made violating, and no untracked sibling beside it. The
-# geometry is 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §11.2's, chosen
+# geometry is 2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11.2's, chosen
 # to discriminate: with an
 # untracked sibling, or with the violation in the index blob, another arm reds
 # the run and `_absent` is not what is under test.

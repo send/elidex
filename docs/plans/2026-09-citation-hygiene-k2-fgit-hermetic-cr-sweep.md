@@ -8,6 +8,8 @@ CR-B1 moves this file to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-c
 instruments the slices run (`sweep.sh`, `idents.tsv`, `ledger-check.py`, `completion.sh`), as run; the logs stay in
 the handoff directory, measured outside the repo (the plan memo's §7, "The move", R3 H1).
 
+⚠ **Corrective note** (dated; added by the CR2 round's slice that falsifies it, under its G36 rule, `…-cr2-plan.md` §7: the body below is left as written, because it is provenance; its line numbers are the body's as at `706049ad`, before this note, which shifts it by the note's own two lines): **§F row 12 (CV2)**, "the PR that next touches the memo splits it first, as a standalone prereq PR" (2026-10-21, CR2-D): that touch is PR #527 itself. CR2-D splits the #519 memo inside #527 as a standalone commit (§10–§11 moved unchanged to `2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md`; the CLAUDE.md rule admits "単独 PR / 単独 commit"), and its next commit discharges R10, R12 and R13 and removes them (`…-cr2-plan.md` §7, O-1 (A)).
+
 ## §0 Spec coverage map
 
 **No spec surface** — as the plan memo's §0: this file is the ledger of a shell trip-wire's self-test changes.

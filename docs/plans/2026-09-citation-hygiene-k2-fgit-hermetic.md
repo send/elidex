@@ -15,7 +15,7 @@ with the implementation results, in `docs/plans/2026-09-citation-hygiene-k2-fgit
 ("`…-pr527-r15.md`"; closed at 799 lines by the §13 rollover), and the implementation record from review round 3 on in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl.md` ("`…-impl.md`", §R; closed at 799 lines, §13), continued, after it closed, in
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr.md` ("`…-impl-cr.md`", §S; its §S.1 backfills the
-code review's first-half results §R lacks; closed at 797 lines, §13), continued, after it closed, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2.md` ("`…-impl-cr2.md`", §T; the open record while under 800 lines, §13). **CR round**: the plan
+code review's first-half results §R lacks; closed at 797 lines, §13), continued, after it closed, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2.md` ("`…-impl-cr2.md`", §T; closed at 800 lines, §13), continued, after it closed, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2-d.md` ("`…-impl-cr2-d.md`", §T from §T.6; the open record while under 800 lines, §13). **CR round**: the plan
 of PR #527's CR round (clusters B and C of the branch-wide `/code-review max`), approved by plan-review R1–R3 and a
 focused re-check, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` ("`…-cr-plan.md`"), with its
 sweep ledger and the instruments the slices run (its §E) in
@@ -29,10 +29,10 @@ mutation records (split out of this memo's §6 unchanged). **Landing**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-landing.md` ("`…-landing.md`"), §9 (the commits,
 the land order and the ledger text) and §11 (the exit criteria), split out of this memo unchanged.
 **Residuals**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` ("`…-residuals.md`"),
-§5 (class (c), the residuals R1–R13 and the pre-existing defect), split out of this memo unchanged at
+§5 (class (c), the residuals R1–R9 and R11 and the pre-existing defect), split out of this memo unchanged at
 `f8ea983a`; extended since by D17-A and D18-A (§5.1). This memo holds only the live decisions.
 
-**Parent memo**: `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, #519's record (`…-reviews.md` §8.2).
+**Parent memo**: `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, #519's record (`…-reviews.md` §8.2); its §10–§11 are in `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md` ("the parent's companion", split out unchanged at CR2-D, `…-cr2-plan.md` §7).
 
 **Branch**: `k2-wire-fgit-hermetic`, base `e8f78896` (#501's head: `gh pr view 501 --json headRefOid`).
 
@@ -54,7 +54,7 @@ measurement on a named artifact, given with its command.
   E1–E4 (round 8), A1–A3 (round 9), K10-1…K10-6 (round 10), D13-A…D13-C (round 13), D14-A…D14-D
   (round 14), D15-A…D15-C (round 15), D16-A…D16-D (round 16), D17-A…D17-D
   (round 17), D18-A…D18-C (round 18), D19-A…D19-C (round 19) and PX1 (the base `~+/bin` experiment).
-  In this memo a bare "R1"–"R13" is a §5.2 residual. Any other review round names its source: "Codex Rn"
+  In this memo a bare "R1"–"R9" and "R11" is a §5.2 residual. Any other review round names its source: "Codex Rn"
   or "PR #527 Rn" for #527's external review, and "#501 Rn" or "#519's Rn" for the parent PRs' rounds.
   A finding within a Codex round is "Codex R26③". In `…-pr527.md`, whose subject is the Codex rounds, a
   bare "Rn" is a Codex round, and a residual is written "§5.2 Rn".
@@ -65,7 +65,7 @@ measurement on a named artifact, given with its command.
 
 Codex raised a P2 on #501: the helper that builds the K2 wire's fixture repos did not neutralise
 `GIT_TEMPLATE_DIR`. Name lists failed three times:
-1. #519's R7 (`GIT_CONFIG_COUNT`, parent §10.6);
+1. #519's R7 (`GIT_CONFIG_COUNT`, the parent's companion §10.6);
 2. this P2;
 3. `ff6b99a3`'s `GIT_*` sweep plus keep-set, on the *default* of `core.excludesFile`
    (companion §A.1).
@@ -76,7 +76,7 @@ nothing (§3).
 
 ### §0.1 The acceptance criterion, and where it stops
 
-For the fixture build, the parent's §11.1 rule, "unreachable or loud, never silent", is replaced by
+For the fixture build, the parent's §11.1 rule (in the parent's companion), "unreachable or loud, never silent", is replaced by
 **property P** (§1). A loud failure that the caller causes is a defect too. The measured failures
 were loud (rc 1), and they came from ordinary developer configuration (companion §A.1). In a required
 gate, a false red from that setup blocks a valid checkout.
@@ -130,7 +130,7 @@ The slice is property P for the fixture build: the window (§3), the postconditi
   pin machine-dependent behaviour must say so at the record.
 
 CLAUDE.md's clause "(feature PR に bundle しない — split は単独 PR / 単独 commit)" admits a
-standalone commit; parent §11.7 row 7 is the precedent (`…-reviews.md` §D.2, row R2-6).
+standalone commit; the parent's companion §11.7 row 7 is the precedent (`…-reviews.md` §D.2, row R2-6).
 
 ### §0.3 Threat model
 
@@ -648,7 +648,7 @@ unchanged at `0d411df2`), so "§4, \"The boundary\"", "§4, \"The references and
 ## §5 Residuals, the slot, and a pre-existing defect
 
 Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-residuals.md` §5 (touch-time split, text
-unchanged at `f8ea983a`; extended since by D17-A and D18-A; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R13 and the
+unchanged at `f8ea983a`; extended since by D17-A and D18-A; §5.1 what the window does not close, class (c); §5.2 the other residuals R1–R9 and R11 and the
 pre-existing defect, closed by `8f4ad3c8`), so "§5.1", "§5.2" and "§5.2 Rn" in this memo resolve there.
 
 ## §6 The corpus — evidence, and the source of the records
@@ -741,7 +741,7 @@ not re-reviewed as a plan.
 The results before PR #527 are in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §13
 (touch-time split; history). PR #527's results through plan-review round 14 are in `…-pr527.md` §P,
 which is closed. Every result from round 15 on, the planned commits included when they are made, goes to
-one place at a time, **the open implementation record**: `…-pr527-r15.md` §Q (closed at 799 lines) → `…-impl.md` §R (closed at 799 lines) → `…-impl-cr.md` §S (closed at 797 lines) → `…-impl-cr2.md` §T (open
+one place at a time, **the open implementation record**: `…-pr527-r15.md` §Q (closed at 799 lines) → `…-impl.md` §R (closed at 799 lines) → `…-impl-cr.md` §S (closed at 797 lines) → `…-impl-cr2.md` §T (closed at 800 lines) → `…-impl-cr2-d.md` §T (open
 while under 800 lines). Future-tense routes say "the open record (§13)", not a file
 name (`…-landing.md` §9.1, step 2).
 
@@ -750,7 +750,7 @@ and every later one go to a new file, `docs/plans/2026-09-citation-hygiene-k2-fg
 §R, with the same no-spec-surface §0, and §Q ends with a pointer to it. `…-impl.md` reached 799 lines with
 CR-S8a (`161ae982`); every entry from then on goes to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr.md`,
 §S, by the same rule, and §R ends with a pointer to it. `…-impl-cr.md` reached 796 lines with CR-S8b's entry and its X3 run; every entry from PR #527's CR2 round on goes to
-`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2.md`, §T, by the same rule, and §S ends with a pointer to it. This memo's split at 950 lines is
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2.md`, §T, by the same rule, and §S ends with a pointer to it. `…-impl-cr2.md` reached 799 lines with CR2-C1's entry; every entry from CR2-D's on goes to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-impl-cr2-d.md`, whose §T continues from §T.6 (`…-cr2-plan.md` §12 names the round's entries §T.1…§T.Z), by the same rule, and §T ends with a pointer to it. This memo's split at 950 lines is
 done (S4c-0): §4 from "P-g's population, and the census before any git" to the end of §4 (the census,
 the boundary, the references and working files, the parent's directory, sealing and what P-g cannot
 see) was moved unchanged to `…-census.md`, with a pointer left in §4; the memo went from 950 to 729

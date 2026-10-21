@@ -516,7 +516,7 @@ In the harness and controls, round-6 item 5. Found by the command below, which r
 - Parent §5 is live substance: parent §7 criterion 4 relies on it, parent §9 says "the substance is in
   §5 and §8", and so does the parent's header L8.
 - Parent §10 is cited by live parent §11 (`awk '/^### §11/{s=1} s' <parent> | /usr/bin/grep -o '§10\.[0-9]' | sort -u` →
-  `§10.4 §10.8`).
+  `§10.4 §10.8`). Both sections moved to `2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md` at PR #527's CR2-D split commit (`…-cr2-plan.md` §7, O-1 (A)); this command and the seed below are kept as run, their file named as of `706049ad`.
 
 **Finding the banner's sites.** The candidate lines come from a seed command, widened per round 5:
 

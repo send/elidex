@@ -10,34 +10,34 @@ disposition left open — where this instrument should live at all — was **dec
 revision that followed them.
 
 ⚠ **SUPERSEDED IN PART — read `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` first**
-(slice A-i-wire-fgit, branch `k2-wire-fgit-hermetic`). That slice rebuilds how the K2 wire's fixtures
-are built, splits the controls, harness and mutation files, and lets mutation records target the other parts
-(`_MUT_TARGETS`, in `…trip-wire.mutations.sh`). The body below is left as #519 wrote it, because it is provenance. These statements in
-it are no longer true once that slice lands; the lines are as of `e8f78896`, and the reason for each is
-in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §8.2:
+(slice A-i-wire-fgit, branch `k2-wire-fgit-hermetic`). That slice rebuilds how the K2 wire's fixtures are built, splits the controls, harness and mutation files, and lets mutation records target the other parts
+(`_MUT_TARGETS`, in `…trip-wire.mutations.sh`). The body below is left as #519 wrote it, because it is provenance; its §10 and §11 are in
+`docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md` ("the companion", moved there unchanged by PR #527's CR2 round). These statements in
+it are no longer true once that slice lands. **Line bases:** an `L<n>` is a line of this memo as of `e8f78896` (`git show e8f78896:<this file>`, before
+this banner and the split); a reference into §10–§11 is the companion's section with the companion's own line number (unchanged since the split). The
+reason for each is in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §8.2, unless the bullet names its own:
 - **Status** (L5): the status of this slice, not of the fixture build.
-- **§0's command** (L61) names the controls file, which no longer holds the fixture build: that moved
-  to `…trip-wire.fixtures.sh`.
+- **§0's command** (L61) names the controls file, which no longer holds the fixture build: that moved to `…trip-wire.fixtures.sh`.
 - **§4's file rows** (L278–280): the controls, harness and mutation files are split
   (`…trip-wire.fixtures.sh`, `…trip-wire.ctlrun.sh` (the control run primitives, split from the harness by `16efb423`),
-  `…trip-wire.mutgen.sh`, `…trip-wire.records.sh`), and the harness no longer holds a fixture git
-  helper: the fixtures are built in a window constructed from nothing.
+  `…trip-wire.mutgen.sh`, `…trip-wire.records.sh`, `…trip-wire.correspondence.sh` (the mutation set's always-on half, split from it by `f35bfde3`)), and the harness no longer holds a fixture git helper: the fixtures are built in a window constructed from nothing.
 - **§7 criterion 3** (L675–677, L683): the records are enumerated across `…records.sh` (read by `…mutations.sh`), and a record's
-  `sed` expression may target any part `_MUT_TARGETS` names, not only the wire.
-- **§7 criterion 5** (L747–748): the file table in §4 no longer lists every part.
-- **Slot 2** (L816) and **§9** (L866–868): the ratchet counts the labels with no record — every label a
-  run registered (its `_control`, `_ctl_run`, `_ctl_gate` and window-verdict calls) and the value of every `_*_lbl` name the parts
-  spell — not only controls.
-- **§11.1** (L1212–1214, L1220): for the fixture build, "unreachable or loud, never silent" is replaced
-  by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
-- **§11.1 D1** (L1218) and **§11.6's prototype D1 row** (L1360): both say the GNU-grep case is "not measured" or "passes trivially". The memo did not
-  measure GNU grep. The harness now asks the run's grep each run (`_gopt_ok`), and where it ignores `GREP_OPTIONS` the control declines through
-  `_ctl_need` and the run prints `⚠ NOT EXERCISED on this machine` instead of passing trivially (the reason is in §8.2 of that slice's review record). §11.6's row also names `_ctl_env`, which `8c952d6d` removed (a run's
-  environment travels as `_ctl_run`'s trailing `NAME=VALUE` arguments).
-- **§11.4 P1** (L1281–1282): the file list gains the fixtures, ctlrun, mutgen and records files.
+  `sed` expression may target any part `_MUT_TARGETS` names, not only the wire. **§7 criterion 5** (L747–748): the file table in §4 no longer lists every part.
+- **Slot 2** (L816) and **§9** (L866–868): the ratchet counts the labels with no record — every label a run registered (its `_control`, `_ctl_run`, `_ctl_gate`
+  and window-verdict calls) and the value of every `_*_lbl` name the wire or a part spells, the record table included (`$_lbd_names`) — not only controls. The census
+  reads two populations (`…-k2-fgit-hermetic-cr2-plan.md` §2.3): that one feeds the ratchet and the literal rule; the orphan check alone reads the names the wire or a
+  part expands outside a comment and outside the record table, whose errors go both ways (the design memo's §4 row C).
+- **§11.1** (companion §11.1 :333–335, :341): for the fixture build, "unreachable or loud, never silent" is replaced by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
+- **§11.1 D1** (companion §11.1 :339) and **§11.6's prototype D1 row** (companion §11.6 :481): both say the GNU-grep case is "not measured" or "passes trivially". The memo did not
+  measure GNU grep. k2 is posed on every machine, through the `goptgrep` shim in the fixtures file (it answers "no match" whenever a `GREP_OPTIONS` reached it), and is
+  declined nowhere; the harness asks nothing about the grep (CR-B1, `…-k2-fgit-hermetic-cr-plan.md` §2.1). §11.6's row also names `_ctl_env`, which `8c952d6d` removed (a run's environment travels as `_ctl_run`'s trailing `NAME=VALUE` arguments).
+- **The FIFO and file-permission controls** (L394–397, L416–419, L422; companion §11.2 :365 and §11.6 :482) are given a machine limit's decline ("a line in the run's own
+  summary saying so, run stays green"; "NOT EXERCISED otherwise"). An absence the wire learns from a probe is declared by the caller (`WEBREF_WIRE_LACKS`), an undeclared one is
+  red under the group's own label, and the summary line, on a machine that declares, is the capability table's (`_cap_lines`) (CR-B2a, CR-B2b: `…-k2-fgit-hermetic-cr-plan.md` §2.3).
+- **§11.4 P1** (companion §11.4 :402–403): the file list gains the fixtures, ctlrun, mutgen, records and correspondence files.
 
-Which memo each unqualified "plan memo" or "§N" in a K2 wire file refers to is resolved per line
-by that slice's `…-k2-fgit-hermetic-reviews.md` §8.3 table.
+Which memo each unqualified "plan memo" or "§N" in a K2 wire file referred to at `e8f78896` is resolved per line by that slice's `…-k2-fgit-hermetic-reviews.md`
+§8.3 table; since PR #527's CR2 round, a K2 wire file's reference into §10–§11 names the companion.
 
 ⚠ **The rule for this memo is to state no quantity that moves with a commit.** Where a number
 matters it appears as the command that produces it. Historical quantities (review-round numbers, gate
