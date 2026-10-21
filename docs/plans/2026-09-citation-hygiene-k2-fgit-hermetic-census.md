@@ -195,11 +195,11 @@ made of it (written to `.genmutants`, read back, split on TAB):
   `$SCRATCH` so that the checker below lists no working file without an exception;
 - `fsmhook`, the hook the fsmonitor control installs, moves with its mark.
 
-The checker is static, over the six parent parts: every write, `mkfifo` or assignment of a path under
+The checker is static, over the seven parent parts: every write, `mkfifo` or assignment of a path under
 `$CTL`:
 
 ```sh
-/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,ctlrun,mutations,mutgen,records}.sh
+/usr/bin/grep -nE '(>|>>|[A-Za-z_]=) *"\$CTL/|mkfifo "\$CTL/' .claude/tools/webref-generic-core-trip-wire.{controls,harness,ctlrun,mutations,mutgen,records,correspondence}.sh
 ```
 
 Over the parts that existed then (four at `8413a4db`: `controls`, `harness`, `mutations`, `mutgen`; five at `e271cb02`: those and `records`; no `ctlrun` at either), it lists 16 lines at `8413a4db` and two at `e271cb02`; the six-part command lists the same two at `20615255`: `_seal_apply_probe`'s `: > "$CTL/real/f"`

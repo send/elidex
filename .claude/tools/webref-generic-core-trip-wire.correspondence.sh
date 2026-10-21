@@ -242,7 +242,7 @@ _mut_correspondence() {
   # producer reusing a recorded label would otherwise pass under the first's
   # record. The line is the finest site bash reports: under rule 2 only calls on ONE
   # physical line are one site; a fold across separate call lines (a `trap` body, a
-  # multi-line `eval`) is red, the unreported line having no site (record 380). And a direct block (an `if ! _ctl_run`
+  # multi-line `eval`) is red, the unreported line having no site (records.sh:382). And a direct block (an `if ! _ctl_run`
   # passing a variable label) under a label whose own producer is an `echo` line is one
   # site, as the literal rule above does not reach it.
   wc -l < "$_VFY/.registry" | tr -d '[:space:]' > "$_VFY/.census"
