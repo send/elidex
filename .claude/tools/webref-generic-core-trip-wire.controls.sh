@@ -707,7 +707,10 @@ elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
   echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
   printf '%s\n' "$_out" | sed 's/^/     /' >&2
   ctl_ok=1
-elif ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$_fsm_root" \
+# The plain call purges git's own list, `$_GIT_LOCAL_VARS` (a hand-named subset let a
+# caller's GIT_OBJECT_DIRECTORY or GIT_COMMON_DIR break the call); `env` gives the one
+# configuration it asks about back.
+elif ( for _v in $_GIT_LOCAL_VARS; do unset "$_v"; done; cd "$_fsm_root" \
        && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
      [ ! -e "$_fsm_mark" ]; then
   echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2

@@ -225,19 +225,19 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # it, so a `TMPDIR` holding a space broke the routed control with
 # `env: 'dir/.../.git': No such file or directory` and the whole gate exited 1 for a
 # contributor whose temp path has a space (#501 R96). A path is data here too.
-# RETURN CONTRACT: 1 ONLY when the gate refused (an untrusted window: reported
-# once per run under `$_fw2_lbl`, by the first refusal; a member of a group the
-# table does not declare, a failed fixture: each under the label), a channel argument is malformed (not NAME=VALUE) or reserved (below), the evidence directory
-# could not be made, a delivered channel is missing from the evidence (`CONTROL NOT
-# EXERCISED`: it never reached the run), or the WATCHDOG killed the run (under the
-# label); 2 ONLY when the gate
-# declined the run for a capability this machine lacks (the label is a member of a
-# group whose flag is 0, above: nothing ran, nothing was reported); every other outcome
-# — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE)
-# included — returns 0 with `_rc` and `_out` set (the run's status and its
-# stdout+stderr), and the caller's own comparison is the verdict on it. Every
-# run that launched sets `_ctl_wd_pg` too: the watchdog's process group, which
-# the `_wm` standing check asserts gone after the call.
+# RETURN CONTRACT: BEFORE A LAUNCH it returns with `_rc` and `_out` untouched (not reset at entry: the
+# `_cap` check reads "`_rc` is set" as "a run was made"): 1 ONLY when the gate refused (an untrusted window:
+# reported once per run under `$_fw2_lbl`, by the first refusal; a member of a group the table does not
+# declare, a failed fixture: each under the label), a channel argument is malformed (not NAME=VALUE) or
+# reserved (below), the evidence directory could not be made, or the previous run's output or timeout marker
+# could not be cleared; 2 ONLY when the gate declined the run for a capability this machine lacks (the label
+# is a member of a group whose flag is 0, above: nothing ran, nothing was reported). AFTER A LAUNCH every
+# return has `_rc` and `_out` assigned from it: 1 when a delivered channel is missing from the evidence
+# (`CONTROL NOT EXERCISED`: it never reached the run) or the WATCHDOG killed the run (under the label); 0
+# otherwise — a status >= 128 the wire came back with at once (a 134 abort, a 141 SIGPIPE) included — and
+# the caller's comparison is the verdict. `_wm` reads them and reds a non-zero return by its own
+# assertion; `_cap` reads only whether they are set, which the before-launch clause guarantees. A launched
+# run sets `_ctl_wd_pg` too: the watchdog's group, which the `_wm` standing check asserts gone.
 # EVIDENCE THAT A DELIVERED CHANNEL REACHED THE RUN (every env channel, the
 # umask and the PATH prefix the call delivers is demanded, derived from the
 # delivery, not judged per caller; the prefix's evidence is `path`, written by a
@@ -341,7 +341,9 @@ _ctl_run() {
   # counts therefore do not separate the two launches. The evidence for the
   # silencing is a launch-shape probe, not whole-wire runs: 0 of 2500 launches
   # failed under tostop with the silenced shape.
-  _r_wmark="$_VFY/.control_timeout"; command rm -f "$_r_wmark"
+  # The output file goes with the marker, fail-closed: a redirect that cannot open it would read the last run's output.
+  # Not pinned: root writes a read-only file, so a record's plant survives a root runner (BS-7); EMFILE breaks the parent's read.
+  _r_wmark="$_VFY/.control_timeout"; command rm -f "$_r_wmark" "$_out_f" || { echo "!! CONTROL FAILED ($_r_for): a previous run's output or timeout marker could not be cleared" >&2; return 1; }
   set -m
   { ( [ -z "$_r_cwd" ] || cd "$_r_cwd" || exit 97
     [ -z "$_r_umask" ] || umask "$_r_umask"

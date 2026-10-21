@@ -484,5 +484,9 @@ correspondence:s/; q = "\\001" pr(substr([$]0, i, 1))$/; q = pr(substr($0, i, 1)
 # the spelled names, so it counts the label bare, 19 against 18, KILLED by the census's message; with the orphan check's population it SURVIVES.
 # The name is built from the anchor by backreference (`\1r4a\2`), so no new token is spelled here.
 controls:s/^\(_pe\)\(_lbl\)="no exec-path override reaches the fixture git"$/&; \1r4a\2="cr2 r4a probe"; : "it's $\1r4a\2's"/	every label the run used is named by a mutation record
+# R9 - the fsmonitor block's plain-git retry purges git's own list (`$_GIT_LOCAL_VARS`), not three hand-named variables: with the loop put back to
+# three `unset`s and a caller's `GIT_OBJECT_DIRECTORY` exported (appended to the `_fsm_root` line), the retry cannot run the hook and the control reds, KILLED by its
+# NOT EXERCISED message; with the export alone it SURVIVES (the purge is what passes). Both on the one block, so each expression is fresh alone.
+controls:s/for _v in [$]_GIT_LOCAL_VARS; do unset "[$]_v"; done;/unset GIT_DIR; unset GIT_WORK_TREE; unset GIT_INDEX_FILE;/	s/^_fsm_root="[$]CTL\/fsmon"$/&; export GIT_OBJECT_DIRECTORY=\/nonexistent-k2/	a caller's fsmonitor hook does not run
 MUTANTS
 }

@@ -747,3 +747,53 @@ Review: CRITICAL 0, IMPORTANT 0, MINOR 6, each fixed (above). Battery (`BASE_REV
 final code; handoff `runners/logs/battery-{b53,b32}.cr2-a-full.out`): 88 of 88 new == base on b53 and b32, no case
 edit-failed. (Two earlier runs were stopped by the driver before they finished: one on the record-shifting header,
 one before the review's comment fixes.)
+
+### T.5 CR2-C1 — the plain-git retry's purge, and the control's stale output (CR#9, CR#14)
+
+**CR2-A after its transplant** (`dd5b86cc`, the plan's §11 procedure): ship ×4 ({BSD, GNU-like grep} × {b53, b32}) and `scripts/trip-wires.sh`, all rc 0, PASSED, 0 CONTROL FAILED (the handoff's `cr2/logs/cr2m-ship/cr2-a/`).
+
+This commit (on `dd5b86cc`; the plan's §4, §5, its CR2-C1 row, claim rows CR9-1, CR14-a/b, CR14-G). **CR#9:** the fsmonitor
+control's plain-git retry (controls :713) unset three hand-named variables, so a caller's `GIT_OBJECT_DIRECTORY` or
+`GIT_COMMON_DIR` broke the call and the control reported NOT EXERCISED; it now unsets git's own list, `for _v in
+$_GIT_LOCAL_VARS; do unset "$_v"; done`, and `env` gives back the one configuration it asks about (reason :710–:712). R9
+(records.sh :490, comment :487–:489) pins it; `_MUT_RECORDS_MIN` 259 → 260 (mutations :275); corpus §6.1 has R9's row and
+the totals (166 of this PR, 260 in all). **CR#14:** `_ctl_run` removed the timeout marker before the launch but not the
+output file, so a launch whose redirect could not open it was judged on the previous control's output; ctlrun :346 now
+removes both, fail-closed (`… could not be cleared`, return 1; reason :344–:345). No record (the plan's §5: a read-only file
+is the only constructible case, and root writes it). The RETURN CONTRACT (ctlrun :228–:240, rewritten in place, 13 lines)
+has a before-launch clause (`_rc`/`_out` untouched, not reset at entry, since the `_cap` check reads "`_rc` is set" as "a
+run was made"; the new return is one of its 1s) and an after-launch clause (both assigned); a caller reads them after a 0
+return only, the standing checks beside their own red. 259 of 259 record lines keep their number.
+
+**The author's checks** (the coder's, on the slice's tree; re-runnable commands, not kept logs; the PROGRESS file lists them): `-n` on the nine files × b53, b32: clean; the
+anchor rule (`cr2b-ftest.sh`, both): 273 expressions, 0 not fresh. R9's opt-in (`r3-optin.sh … default`): 260 entries, 0 not
+killed as named, both; the survive arm (the second expression alone): `MUTANT 260 (a caller's fsmonitor hook does not run)
+SURVIVED`, 1 not killed, both. CR14-a: the plan's read-only stale file → `CONTROL FAILED (cr2 stale probe): expected exit 1,
+got 0` (the probe runs), both; the clearing taken out → no red under its label (it passes unrun), both. CR14-b: a directory
+at `$_VFY/.control_out` → `CONTROL FAILED (cr2 stale probe): a previous run's output or timeout marker could not be
+cleared`, both. CR14-G (the plan's expression, wire and parts): 19 hits, each read: `_wm` (controls :352), `_cap` (:445,
+:451), relcwd (:541, :548–:549), fsmonitor (:706–:708), `_control` (ctlrun :425–:434, after `[ "$_cr" -eq 0 ] || return 1`),
+`_ctl_run`'s own (:380–:400), records :286 (a record's text); the returns before `_rc=` (:290, :293, :297, :300, :346) leave
+both untouched, those after (:384, :401, :403) have both assigned, none falls between `_rc=` (:374) and `_out=` (:376). Ship
+×4: PASSED, rc 0 (31–39 s); the ship with `GIT_OBJECT_DIRECTORY=/nonexistent-k2`, and with `GIT_COMMON_DIR=/nonexistent-k2`:
+PASSED, rc 0, b53 and b32. CR9-1: `unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE` in 0 of the parts. CR-8: 0 and 0. The
+driver's dispositions, accepted: (a) R9's first expression writes three separate `unset` statements, not one `unset` of
+three names, so CR9-1 stays 0 with records.sh in its population; (b) the `_wm` check's `hang` row cannot tell the new
+pre-launch return 1 from a timeout by status; its message assertion (controls :357) reds in every case (the red says `could
+not be cleared`), its marker assertion (:356) when the output file is what could not be cleared.
+
+**Docs.** Line cites into the moved or rewritten lines (controls :710 on, +3; ctlrun :228–:240 in place, :344 on, +2;
+records :487 on, +4), over the sweep's file set (838 cites the instrument attributes to the three parts): 45 there, 18 true
+at this tree (this entry's 17, corpus R9's :490), 5 misattributed (not cites into the parts), 22 `hist` (`…-cr-plan.md` 4,
+`…-cr-sweep.md` 16, `…-impl-cr2.md` :170, the design memo :582 "at base"); 0 re-pointed. The sweep (b53 = b32), with this
+slice's groups (`rc_out`, `control_out`, `control_timeout`, `retcontract`; `…-cr2-sweep.md` §E): base 3396 hits, this tree
+before the entry 3403 (final minus 12, no log of its own; 13 removed, 20 added, each on a diff line). B2a I-2, every hit re-classified: `rc_out` 20 (the CR14-G
+19; `…-impl-cr.md` :104, `hist`); `control_out` 13 (ctlrun :282, :307, :346, :352, :376, code; census :192, landing :372,
+true; `…-impl-cr2.md` :51, the finding; `…-impl.md` :439, `…-pr527-r15.md` :144, :182, :429, :614, `hist`);
+`control_timeout` 9 (controls :356, :369, ctlrun :282, :346, :370, :380, records :286, code; `…-impl.md` :439–:440, `hist`);
+`retcontract` 5 (ctlrun :228, new; `…-cr-sweep.md` :273–:275, `…-impl.md` :502, `hist`). Wrap backstop: 7 at the base, the
+same 7 here (the new group's `…-cr-plan.md` :283, `hist`). With this entry: 3415 (its own 12, in nine groups, `hist`).
+**Budgets** (`wc -l`): ctlrun 438 (≤ 439, leaving CR2-C2 exactly +1), controls 779, records 492, mutations 609,
+correspondence 450 (untouched); corpus 431, `…-cr2-sweep.md` 761, this file 799 (< 800).
+
+Review: CRITICAL 0 / IMPORTANT 1 / MINOR 3, each fixed in place (net 0 lines). Battery (`BASE_REV=dd5b86cc`): 88/88 new == base, b53, b32.
