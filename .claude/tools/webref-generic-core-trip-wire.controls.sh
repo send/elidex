@@ -224,10 +224,10 @@ if ! _VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")" || [ -z "$_VFY" ] || [ ! -d "$_
   exit 2
 fi
 # The run's REAP SET (the wire's exit path, beside `_k2_reap`) is `$_VFY/.reap`: `_ctl_run` records every group it
-# launches there. Its identity check reads `ps -o etime=`; a machine where that cannot read this run's own pid
-# decides nothing here rather than red a check later.
+# launches there. Its identity check reads `ps -o etime=` and its liveness probe `_k2_ptab`; a machine where either
+# cannot read this run's own row (its pid, its own pgid, no zombie) decides nothing here rather than red a check later.
 _K2_REAP_D="$_VFY/.reap"
-_k2_age $$ 0 || { echo "!! decided nothing: the reap's identity check needs \`ps -o etime=\` (read through awk), which this machine does not give" >&2; exit 2; }
+_k2_age $$ 0 && _k2_ptab | awk -v p=$$ -v g="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')" '$2 == p && $1 == g && $3 !~ /^Z/ { f = 1 } END { exit !f }' || { echo "!! decided nothing: the reap needs \`ps -o etime=\` and \`ps -A -o pgid= -o pid= -o stat=\` (read through awk), which this machine does not give" >&2; exit 2; }
 
 
 # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
@@ -336,30 +336,30 @@ _cap_check || ctl_ok=1
 # the message are pinned here, not by a record. The reaping is pinned here too:
 # the hang script leaves a background descendant (its pid in `<script>.pid`),
 # which must be dead after the call (the child's group stop: a bounded poll,
-# `_wm_gone`, 20 × 0.05 s, as a killed process can stay visible to `kill -0` until
-# its reparenting reaper collects it), and after each row the call's end must have
-# confirmed the watchdog's group (`_ctl_wd_pg`) gone: `_ctl_left` does not name it, nor does `kill -0` find it.
-# The hung run is sent TERM before its KILL (the stop procedure), so its own exit
-# path runs: the hang script traps TERM and leaves `<script>.term`, asserted when
-# a TERM can reach a child of this run (`_wm_tg`: a `sh` that signals itself exits
+# `_wm_gone`, 20 × 0.05 s, as a killed process can stay visible to `_k2_live` until
+# its signal lands), and after each row the call's end must have
+# confirmed the watchdog's group (`_ctl_wd_pg`) gone: `_ctl_left` does not name it, nor does `_k2_live` find it.
+# The hung run is sent TERM before its KILL (the stop procedure), so its own exit path runs: the
+# hang script traps TERM and, 0.2 s on, leaves `<script>.term` (none if the stop KILLs before the group
+# is gone), asserted when a TERM can reach a child of this run (`_wm_tg`: a `sh` that signals itself exits
 # 0 only when TERM was ignored at the run's entry, which its children inherit). A row
 # with no arm below is red, as `_cap`'s is. Two rows, ONE call line: the
 # registry's site is the line, and one label has one site. The subshell writes
 # `$_VFY/.wm_end` once it has its verdict (green or red); the `then` branch reds under the
 # label when it is absent, as an abort inside the subshell would otherwise red the run unlabelled.
 printf '%s\n' 'kill -KILL $$' > "$_VFY/.wm_abort"
-printf '%s\n' 'trap '\'': > "$0.term"; exit 143'\'' TERM; sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
+printf '%s\n' 'trap '\''sleep 0.2; : > "$0.term"; exit 143'\'' TERM; sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
 command rm -f "$_VFY/.wm_end"
 { sh -c 'kill -TERM $$; exit 0'; } 2>/dev/null && _wm_tg=0 || _wm_tg=1
 if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( _wm_bad=""
-         _wm_gone() { _wm_i=0; while kill -0 "$1" 2>/dev/null; do
+         _wm_gone() { _wm_i=0; while _k2_live "$1"; do
              [ "$_wm_i" -lt 20 ] || return 1; _wm_i=$((_wm_i + 1)); sleep 0.05; done; }
          for _wm_row in abort hang; do
            SELF="$_VFY/.wm_$_wm_row"; [ "$_wm_row" != hang ] || _ctl_wd_s=1
            _wm_r=0; _ctl_run "$_wm_lbl" "$_VFY" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?; _wm_msg="$(cat "$_VFY/.wm_err")"
            case " ${_ctl_left-} " in *" $_ctl_wd_pg "*) _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call" ;;
-             *) ! kill -0 -"$_ctl_wd_pg" 2>/dev/null || _wm_bad="$_wm_bad; $_wm_row: the watchdog's group outlived the call unreported" ;; esac
+             *) ! _k2_live -"$_ctl_wd_pg" || _wm_bad="$_wm_bad; $_wm_row: the watchdog's group outlived the call unreported" ;; esac
            case "$_wm_row" in
              abort)
                [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; the run returned $_wm_r, not 0"
@@ -512,7 +512,7 @@ printf '%s\n' 'd="$2/.reap/og"; until n=0; for f in "$d"/*; do [ ! -s "$f" ] || 
 command rm -rf "$_VFY/.og_end" "$_K2_REAP_D/og" "$_VFY/.og_scr"
 if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( _og_bad=""
-         _og_gone() { _og_i=0; while kill -0 "$1" 2>/dev/null; do
+         _og_gone() { _og_i=0; while _k2_live "$1"; do
              [ "$_og_i" -lt 40 ] || return 1; _og_i=$((_og_i + 1)); sleep 0.05; done; }
          _og_trap() { SCRATCH="$_VFY/.og_scr"; mkdir -p "$SCRATCH"; exec 9>&1; sh -c 'echo $PPID' > "$_VFY/.og_outer"; _k2_traps; }
          for _og_row in kill norec nodel sig; do
@@ -545,13 +545,24 @@ elif ! ( _og_bad=""
              *) _og_bad="$_og_bad; no arm for row \"$_og_row\"" ;;
            esac
          done
+         # zomb: `_k2_live`, the probe every row above reads, with `kill -0` as found and made to succeed (`kill` a function:
+         # Linux's answer, so the table decides on macOS too). A group of one zombie (`sleep 0.2`, its parent exec'd a `sleep`
+         # that reaps nothing) reads gone, as a group and as a pid, as does the exited leader of a group whose member lives on
+         # (`sleep 5`, `_k2_end`'s case), which reads alive; a `ps` failing (as 3, the gone status) under pipefail reads both alive.
+         ( set -m; sleep 0.2 & echo $! > "$_VFY/.og_zp"; { sleep 5 & } & echo $! >> "$_VFY/.og_zp"; exec sleep 5 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_h=$!
+         _og_i=0; _og_z=""; _og_l=""; until [ "$_og_i" -ge 40 ] || case "$_og_l:$(ps -o stat= -p "$_og_z" 2>/dev/null)" in ?*:Z*) ;; *) false ;; esac
+           do _og_i=$((_og_i + 1)); sleep 0.05; { read -r _og_z && read -r _og_l; } < "$_VFY/.og_zp" 2>/dev/null; done
+         if [ "$_og_i" -ge 40 ]; then _og_bad="$_og_bad; zomb: no group of one zombie could be built"
+         elif _k2_live -"$_og_z" || ( kill() { :; }; _k2_live -"$_og_z" || _k2_live "$_og_z" || _k2_live "$_og_l" ); then _og_bad="$_og_bad; zomb: a group of one zombie read alive"
+         elif ! _k2_live -"$_og_l" || ! ( kill() { :; }; _k2_live -"$_og_l" ) || ! ( set -o pipefail; kill() { :; }; ps() { return 3; }; _k2_live -"$_og_l" && _k2_live -"$_og_z" ) || ! ( set -o pipefail; kill() { :; }; awk() { cat >/dev/null; return 2; }; _k2_live -"$_og_l" ); then _og_bad="$_og_bad; zomb: a live group, or one read by a failing \`ps\` or \`awk\`, read gone"; fi
+         { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
          command rm -rf "$_K2_REAP_D/og"
          : > "$_VFY/.og_end"
          [ -z "$_og_bad" ] || { echo "!! CONTROL FAILED ($_og_lbl)$_og_bad" >&2; exit 1; } ); then
   [ -e "$_VFY/.og_end" ] || echo "!! CONTROL FAILED ($_og_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
+command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.

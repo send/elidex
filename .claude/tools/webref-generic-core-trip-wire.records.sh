@@ -526,5 +526,21 @@ controls:s/; kill -KILL [$]PPID' > /; :' > /	a call's process groups end with it
 # S5 - `_k2_end`'s watchdog KILL+wait dropped: the abort row's watchdog (leader alive) leaves the reap set unreported, and the
 # `_wm` check must red on its group outliving the call.
 s/^\(  local _ke_p _ke_i _ke_f=0; _ctl_left=""\); kill -9 -"[$]3" 2>\/dev\/null || true; wait "[$]3" 2>\/dev\/null || true$/\1/	only the watchdog's marker makes a signal status a timeout
+# R29a - `_k2_live`'s zombie filter dropped (a group of zombies reads alive, Codex R29): KILLED by the `_og` check's zomb
+# arm, whose `kill` made to succeed reaches the table on macOS too; R29b - `_k2_live` always gone: KILLED by its live arm.
+s/) && [$]3 !~ \/^Z\/ { f = 1 }/) { f = 1 }/	a call's process groups end with it and hold none of its caller's streams
+s/^_k2_live() { kill -0 /_k2_live() { return 1; kill -0 /	a call's process groups end with it and hold none of its caller's streams
+# R29c - the stop's text without `_k2_live` (its loop then ends at once: "command not found"); R29d - that loop's probe made
+# false: the stop KILLs before the group is gone, KILLED by the `_wm` hang row's `.term` assertion (its trap writes 0.2 s on).
+s/^_K2_STOP="[$](declare -f _k2_ptab _k2_live)"'; SECONDS=0$/_K2_STOP='SECONDS=0/	only the watchdog's marker makes a signal status a timeout
+s/^for p; do while _k2_live -"[$]p" && /for p; do while false \&\& /	only the watchdog's marker makes a signal status a timeout
+# R29e - `_k2_live` reads the pid column for a group too: KILLED by zomb's live group, whose leader has exited.
+s/(k < 0 ? [$]1 == -k : [$]2 == k)/($2 == (k < 0 ? -k : k))/	a call's process groups end with it and hold none of its caller's streams
+# R29f - `_k2_ptab` without its `|| :`, the old form (the pipeline's status decides): a `ps` failing as 3, `_k2_live`'s gone
+# status, reads gone under pipefail. KILLED by zomb's case of a failing `ps`, which must read both groups alive.
+s/^\(_k2_ptab() { ps .* 2>\/dev\/null\) || :; }$/\1; }/	a call's process groups end with it and hold none of its caller's streams
+# R29g - `_k2_live` with the old decision form (the pipeline's status decides, any failure reads gone): a failing awk reads
+# a live group gone. KILLED by zomb's case of a failing `awk`, which must read the live group alive.
+s/END { if (NR \&\& !f) exit 3 }' || \[ [$]? -ne 3 \]; }$/END { exit !(f || !NR) }'; }/	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }
