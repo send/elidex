@@ -542,5 +542,8 @@ s/^\(_k2_ptab() { ps .* 2>\/dev\/null\) || :; }$/\1; }/	a call's process groups 
 # R29g - `_k2_live` with the old decision form (the pipeline's status decides, any failure reads gone): a failing awk reads
 # a live group gone. KILLED by zomb's case of a failing `awk`, which must read the live group alive.
 s/END { if (NR \&\& !f) exit 3 }' || \[ [$]? -ne 3 \]; }$/END { exit !(f || !NR) }'; }/	a call's process groups end with it and hold none of its caller's streams
+# R29h - `_k2_live`'s empty-table guard dropped (`NR &&`): a table that reads no row (a failing `ps`, under `_k2_ptab`'s
+# `|| :`) reads every group gone. KILLED by zomb's case of a failing `ps`, which must read both groups alive.
+s/END { if (NR \&\& !f) exit 3 }/END { if (!f) exit 3 }/	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }

@@ -444,17 +444,17 @@ _K2_ORDERLY=0; _K2_REAP_D=""
 _k2_ptab() { ps -A -o pgid= -o pid= -o stat= 2>/dev/null || :; }
 _k2_live() { kill -0 "$1" 2>/dev/null || return 1; _k2_ptab | awk -v k="$1" \
     '(k < 0 ? $1 == -k : $2 == k) && $3 !~ /^Z/ { f = 1 } END { if (NR && !f) exit 3 }' || [ $? -ne 3 ]; }
-# STOP, one procedure for the reap and the watchdog: TERM to each group, so a selftest child runs its
-# own exit path (its scratch dir); then until all are gone or `SECONDS` reaches 2 (1-2 s: whole
-# seconds, counted from this text's own `SECONDS=0`, the one assignment of that clock; a child's own
-# cleanup ends well inside 1 s), then KILL. Its own process (its text holds `_k2_live`), started without the
-# caller's exported errexit and nounset (`SHELLOPTS`) and `BASH_ENV`; it holds no fd 9. bash 3.2 prints a
-# job notice ("Killed: 9") for a stopped job of its own while it waits on that process, hence the group's
-# `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
+# STOP, one procedure for the reap and the watchdog: TERM to each group, so a selftest child runs its own exit path
+# (its scratch dir); then until all are gone or `SECONDS` reaches 2 (1-2 s: whole seconds, counted from this text's own
+# `SECONDS=0`, the one assignment of that clock; a child's own cleanup ends well inside 1 s), then KILL, again while the
+# group reads live (bounded: 20 more, 0.05 s apart; as at `_k2_end`, one KILL can miss a member forked as it lands). Its
+# own process (its text holds `_k2_live`), started without the caller's exported errexit and nounset (`SHELLOPTS`) and
+# `BASH_ENV`; it holds no fd 9. bash 3.2 prints a job notice ("Killed: 9") for a stopped job of its own while it waits on
+# that process, hence the group's `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
 _K2_STOP="$(declare -f _k2_ptab _k2_live)"'; SECONDS=0
 for p; do kill -TERM -"$p"; done
 for p; do while _k2_live -"$p" && [ "$SECONDS" -lt 2 ]; do sleep 0.1 || sleep 1; done; done
-for p; do kill -9 -"$p"; done; exit 0'
+for p; do kill -9 -"$p"; _kz=0; while _k2_live -"$p" && [ "$_kz" -lt 20 ]; do sleep 0.05 || sleep 1; kill -9 -"$p"; _kz=$((_kz + 1)); done; done; exit 0'
 _k2_stop() { local _ks_p
   { env -u SHELLOPTS -u BASH_ENV "$BASH" -c "$_K2_STOP" k2stop "$@" < /dev/null > /dev/null 2>&1 9>&- \
       || for _ks_p in "$@"; do kill -9 -"$_ks_p"; done
