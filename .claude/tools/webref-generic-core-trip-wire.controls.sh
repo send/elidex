@@ -338,7 +338,7 @@ _cap_check || ctl_ok=1
 # which must be dead after the call (the child's group stop: a bounded poll,
 # `_wm_gone`, 20 × 0.05 s, as a killed process can stay visible to `kill -0` until
 # its reparenting reaper collects it), and after each row the call's end must have
-# confirmed the watchdog's group (`_ctl_wd_pg`) gone: `_ctl_left` does not name it.
+# confirmed the watchdog's group (`_ctl_wd_pg`) gone: `_ctl_left` does not name it, nor does `kill -0` find it.
 # The hung run is sent TERM before its KILL (the stop procedure), so its own exit
 # path runs: the hang script traps TERM and leaves `<script>.term`, asserted when
 # a TERM can reach a child of this run (`_wm_tg`: a `sh` that signals itself exits
@@ -357,9 +357,9 @@ elif ! ( _wm_bad=""
              [ "$_wm_i" -lt 20 ] || return 1; _wm_i=$((_wm_i + 1)); sleep 0.05; done; }
          for _wm_row in abort hang; do
            SELF="$_VFY/.wm_$_wm_row"; [ "$_wm_row" != hang ] || _ctl_wd_s=1
-           _wm_r=0; _ctl_run "$_wm_lbl" "$_VFY" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?
-           _wm_msg="$(cat "$_VFY/.wm_err")"
-           case " ${_ctl_left-} " in *" $_ctl_wd_pg "*) _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call" ;; esac
+           _wm_r=0; _ctl_run "$_wm_lbl" "$_VFY" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?; _wm_msg="$(cat "$_VFY/.wm_err")"
+           case " ${_ctl_left-} " in *" $_ctl_wd_pg "*) _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call" ;;
+             *) ! kill -0 -"$_ctl_wd_pg" 2>/dev/null || _wm_bad="$_wm_bad; $_wm_row: the watchdog's group outlived the call unreported" ;; esac
            case "$_wm_row" in
              abort)
                [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; the run returned $_wm_r, not 0"

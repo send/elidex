@@ -523,5 +523,8 @@ controls:s/^elif ! ( _og_bad=""$/elif ! ( : "${_no_such_name_x}"; _og_bad=""/	a 
 # R11k - the `_og` kill row's stub returns instead of SIGKILLing its caller: KILLED by the row's end-137 assertion (the call
 # `returned`); with that assertion removed it SURVIVES (the timing and reap assertions pass on a call that returned).
 controls:s/; kill -KILL [$]PPID' > /; :' > /	a call's process groups end with it and hold none of its caller's streams
+# S5 - `_k2_end`'s watchdog KILL+wait dropped: the abort row's watchdog (leader alive) leaves the reap set unreported, and the
+# `_wm` check must red on its group outliving the call.
+s/^\(  local _ke_p _ke_i _ke_f=0; _ctl_left=""\); kill -9 -"[$]3" 2>\/dev\/null || true; wait "[$]3" 2>\/dev\/null || true$/\1/	only the watchdog's marker makes a signal status a timeout
 MUTANTS
 }

@@ -700,7 +700,7 @@ import sys
 # f13drift.py <clone>: a CONSTRUCTED drift of the address-range-end shape for record records.sh:403
 # (`ctlrun:/^    if \[ -z "[$]_cap_f" \]; then$/,/^    fi$/s/^      return 1$/      return 0/`): the range's end line and
 # the line the record was written for are both respelled (a trailing comment each, behaviour unchanged), so the range
-# runs on to the next `    fi` and the record now edits `_fixture_did_fail`'s `return 1` (ctlrun.sh:205) instead.
+# runs on to the next `    fi` and the record now edits `_ctl_gate`'s `return 1` after `if _fixture_did_fail …` (ctlrun.sh:205) instead.
 p = sys.argv[1] + "/.claude/tools/webref-generic-core-trip-wire.ctlrun.sh"; s = open(p).read()
 a = '      return 1\n    fi\n    _cap_flag_of "$_cap_g"\n'; assert s.count(a) == 1
 open(p, "w").write(s.replace(a, '      return 1 # undeclared group\n    fi # undeclared group\n    _cap_flag_of "$_cap_g"\n'))
