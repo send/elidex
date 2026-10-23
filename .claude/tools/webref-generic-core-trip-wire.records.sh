@@ -562,7 +562,7 @@ s/ || { _kg_left="[$]_kg_left [$]_kg_p"; continue; }$/ || continue/	a call's pro
 # fallback and waited rows too; with those rows removed each SURVIVES.
 s/then \[ "[$]{_kg_w\[_kg_p\]-0}" = 0 \] || continue$/then :/	a call's process groups end with it and hold none of its caller's streams
 s/^      else _kg_w\[_kg_p\]=1; fi;/      else :; fi;/	a call's process groups end with it and hold none of its caller's streams
-# R29s - `_k2_kill_gone`'s first read dropped (a latch starts only from a mark): KILLED by the batch row; R29t - the
+# R29s - `_k2_kill_gone`'s first read dropped (a latch starts only from a mark or a later probe): KILLED by the batch row; R29t - the
 # reap's `:1` mark dropped (a leaderless group's latch starts unset): KILLED by the mark row; with that row removed each
 # SURVIVES.
 s/ \&\& kill -0 "[$]_kg_p" 2>\/dev\/null || _kg_w/ || _kg_w/	a call's process groups end with it and hold none of its caller's streams

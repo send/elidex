@@ -577,7 +577,7 @@ elif ! ( _og_bad=""
          # named, not stopped; age: so is one whose leader's age cannot be read. keep: a failed record removes the entries of the
          # groups the stop confirmed gone and keeps the rest, 2. end: `_k2_end` keeps the entry of a group still live at the bound
          # and names it in `_ctl_left`, and drops the other; waited: it passes its groups as seen free, so ids answering at both
-         # leaders are reused and both entries dropped. Zomb's processes live 5 s from its launch: its build (at most 2 s) and
+         # leaders are reused and both entries dropped. Zomb's processes live 5 s from its launch: its build (≈ 40 × (0.05 s + a `ps`)) and
          # these rows run inside them; on the wire unmutated, its ids' only real signals are the name row's TERM and the cleanup's KILL.
          if [ "$_og_i" -lt 40 ]; then
            _og_kg() { ( unset SECONDS; _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }

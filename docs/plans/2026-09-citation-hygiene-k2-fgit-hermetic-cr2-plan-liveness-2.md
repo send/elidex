@@ -9,6 +9,10 @@ the mechanism before the slice (`feedback_plan-ratified-surface-is-a-design-chan
 fresh R29-D review, the handoff's `DECISIONS-R7.md`, last section). Moved into `docs/plans/` as `…-cr2-plan-liveness-2.md`
 by R29-E's docs commit (§9), body as accepted, the authority for §5's lines; the notes it supersedes stay records.
 
+⚠ **Corrective notes** (dated; one line per falsified line, added by the slice that falsifies it, under G36's rule, as the notes atop `…-cr2-plan-liveness.md`: the body below is left as accepted):
+- **:480 (§6 pins, the R29s row)**, "a latch starts only from a mark" (2026-10-24, R29-E review): a latch starts from a mark or from a later probe. With the first read's `&& kill -0 "$_kg_p" 2>/dev/null` dropped, the per-tick read (the wire's `else _kg_w[_kg_p]=1`) still latches; only an unmarked group's first-read latch is lost, so R29s is red on the batch row only, not on the set row (whose group is free at tick 1). The comment at records.sh:565 and the corpus row (`…-corpus.md` :453) say it so.
+- **:232 (§1.5 (iii), the deaf row's bound)**, "its build (≤ 2 s)" (2026-10-24, R29-E review): the build is 40 × (`ps` + `sleep 0.05`), ≈ 2.37 s on the measured host (so not ≤ 2 s); the 5 s bound's conclusion stands. controls.sh:580 says "≈ 40 × (0.05 s + a `ps`)".
+
 **Names.** As delta 1: wire = `.claude/tools/webref-generic-core-trip-wire.sh`; controls, ctlrun, records, mutations =
 its parts `…trip-wire.<part>.sh`; plan = `…-cr2-plan.md`; x = `…-cr2-plan-exitpath.md`; impl-d = `…-impl-cr2-d.md`;
 residuals, landing, corpus = `…-residuals.md`, `…-landing.md`, `…-corpus.md`; design memo = `…-k2-fgit-hermetic.md`;
