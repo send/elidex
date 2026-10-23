@@ -566,39 +566,67 @@ elif ! ( _og_bad=""
          [ "$_og_i" -ge 40 ] || ( kill() { :; }; ps() { if [ -e "$_VFY/.og_r1" ]; then echo "$_og_z 1 S"; else : > "$_VFY/.og_r1"; echo "1 1 S"; fi; }
            command rm -f "$_VFY/.og_r1"; _k2_live -"$_og_z" ) || _og_bad="$_og_bad; zomb: a group one table read saw gone and the next live read gone"
          # KILL until gone, on zomb's zombie group (held until the cleanup below), `kill`, `sleep` and `_k2_live` shadowed (no
-         # signal is sent): always live is 1 after 21 KILLs; live for three probes, 0 after 3; a reused leader (<w> 1, `kill -0`
-         # answering) gets none; the latch (<w> 0, grace 2, the leader free at probe 2 and answering at 3) none. batch: the
-         # stop's text over two groups, the 2nd free at the batch probe and answering once the 1st group's loop has read a
-         # table, KILLs neither. mark: the reap passes a leaderless group to the stop as <g>:1. name: the real `_k2_stop` on
-         # the zombie group (its TERM reaches only that group), the caller's `_k2_live` live, names it once and returns 0.
-         # reap: an entry with no record time named by zomb's live group (`kill` answering, as above) is named, not
-         # stopped. keep: a failed record removes the entries of the groups the stop confirmed gone and keeps the rest, 2.
-         # Zomb's processes live 5 s from its launch: its build (at most 2 s) and these rows run inside them; on the wire unmutated,
-         # its ids' only real signals are the name row's TERM and the cleanup's KILL.
+         # signal is sent): always live is left after 21 KILLs; live for three probes, none left after 3; a reused leader (`<g>:1`, `kill -0`
+         # answering) gets none; the latch (grace 2, the leader free at probe 2 and answering at 3) none. batch: the stop's text
+         # over two groups, the 2nd free at the first read and answering once the 1st group's probe has read a table, KILLs
+         # neither. set: the 2nd answering at the first read and the first tick, free at the next, answering after: no KILL to it.
+         # order: no table read between a group's identity read and its KILL. mark: the reap passes a leaderless group to the stop
+         # as <g>:1. name: the real `_k2_stop` on the zombie group (its TERM reaches only that group), the caller's `_k2_live` live,
+         # names it once and returns 0. fallback: a stop process that cannot start (`$BASH` a missing file): `_k2_stop` runs the
+         # primitive itself over the set, marks kept. reap: an entry with no record time, `kill` and `_k2_live` answering, is
+         # named, not stopped; age: so is one whose leader's age cannot be read. keep: a failed record removes the entries of the
+         # groups the stop confirmed gone and keeps the rest, 2. end: `_k2_end` keeps the entry of a group still live at the bound
+         # and names it in `_ctl_left`, and drops the other; waited: it passes its groups as seen free, so ids answering at both
+         # leaders are reused and both entries dropped. Zomb's processes live 5 s from its launch: its build (at most 2 s) and
+         # these rows run inside them; on the wire unmutated, its ids' only real signals are the name row's TERM and the cleanup's KILL.
          if [ "$_og_i" -lt 40 ]; then
-           _og_kg() { ( _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }
+           _og_kg() { ( unset SECONDS; _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }
              kill() { case "$1" in -9) _og_k=$((_og_k + 1)) ;; -0) _og_n=$((_og_n + 1)); [ "$_og_n" -ne "$_og_f" ] ;; esac; }
              _k2_live() { [ "$_og_lv" -lt 0 ] && return 0; [ "$_og_lv" -gt 0 ] || return 1; _og_lv=$((_og_lv - 1)); }
-             _k2_kill_gone "$_og_z" "$@"; echo "$? $_og_k" ); }
-           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 0)"; [ "$_og_r" = "1 21" ] || _og_bad="$_og_bad; kill until gone: a group always live gave \"$_og_r\", not 1 after 21 KILLs"
-           _og_r="$(_og_lv=3 _og_f=0 _og_kg 0)"; [ "$_og_r" = "0 3" ] || _og_bad="$_og_bad; kill until gone: a group live for three probes gave \"$_og_r\", not 0 after 3 KILLs"
-           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 1)"; [ "$_og_r" = "0 0" ] || _og_bad="$_og_bad; kill until gone: a reused leader (seen free, answering) gave \"$_og_r\", not 0 with no KILL"
-           _og_r="$(_og_lv=-1 _og_f=2 _og_kg 0 2)"; [ "$_og_r" = "0 0" ] || _og_bad="$_og_bad; kill until gone: a leader free at probe 2 and answering at 3 gave \"$_og_r\", not 0 with no KILL"
+             _k2_kill_gone "$@"; echo "left$_kg_left $_og_k" ); }
+           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 0 "$_og_z")"; [ "$_og_r" = "left $_og_z 21" ] || _og_bad="$_og_bad; kill until gone: a group always live gave \"$_og_r\", not left after 21 KILLs"
+           _og_r="$(_og_lv=3 _og_f=0 _og_kg 0 "$_og_z")"; [ "$_og_r" = "left 3" ] || _og_bad="$_og_bad; kill until gone: a group live for three probes gave \"$_og_r\", not none left after 3 KILLs"
+           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 0 "$_og_z:1")"; [ "$_og_r" = "left 0" ] || _og_bad="$_og_bad; kill until gone: a reused leader (seen free, answering) gave \"$_og_r\", not none left and no KILL"
+           _og_r="$(_og_lv=-1 _og_f=2 _og_kg 2 "$_og_z")"; [ "$_og_r" = "left 0" ] || _og_bad="$_og_bad; kill until gone: a leader free at probe 2 and answering at 3 gave \"$_og_r\", not none left and no KILL"
            command rm -f "$_VFY/.og_ph"
            _og_bt() { ( set -- "$_og_z" "$_og_l"; sleep() { SECONDS=5; }; ps() { : > "$_VFY/.og_ph"; echo "$_og_l $_og_l S"; }
              kill() { case "$1" in -9) echo "$2" ;; -0) case "$2" in "$_og_l") [ -e "$_VFY/.og_ph" ] ;; esac ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
-           _og_r="$(_og_bt)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; batch: the stop KILLed a group whose leader was free at its batch probe ($_og_r)"
+           _og_r="$(_og_bt)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; batch: the stop KILLed a group whose leader was free at its first read ($_og_r)"
+           _og_rg() { ( unset SECONDS; set -- "$_og_z" "$_og_l"; _og_t=0; sleep() { _og_t=$((_og_t + 1)); SECONDS=$_og_t; }; ps() { echo "$_og_z $_og_z S"; echo "$_og_l $_og_l S"; }
+             kill() { case "$1" in -9) [ "$2" != "-$_og_l" ] || echo "$2" ;; -0) [ "$2" != "$_og_l" ] || [ "$_og_t" -ne 1 ] ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
+           _og_r="$(_og_rg)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; set: the stop KILLed a group whose leader it had seen free after its first tick ($(echo $_og_r))"
+           command rm -f "$_VFY/.og_ph"; _og_or() { ( set -- "$_og_z" "$_og_l"; sleep() { SECONDS=5; }; ps() { : > "$_VFY/.og_ph"; echo "$_og_z $_og_z S"; echo "$_og_l $_og_l S"; }
+             kill() { case "$1:$2" in -0:-*) ;; -0:*) command rm -f "$_VFY/.og_ph" ;; -9:*) [ ! -e "$_VFY/.og_ph" ] || echo "$2" ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
+           _og_r="$(_og_or)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; order: the stop read a table between a group's identity read and its KILL ($(echo $_og_r | cut -c1-60))"
            command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"
            _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; _k2_live() { :; }; kill() { [ "${2#-}" != "$2" ]; }; _k2_stop() { echo "$*"; }; _k2_reap ) 2>&1 )"
            [ "$_og_r" = "$_og_z:1" ] || _og_bad="$_og_bad; mark: the reap passed a leaderless group as \"$_og_r\", not \"$_og_z:1\""
            _og_r="$( ( _k2_live() { :; }; _k2_stop "$_og_z" 9>&1 > /dev/null; echo "rc $?" ) 2>/dev/null )"
            [ "$_og_r" = "!! could not confirm that group $_og_z ended; it may still be running"$'\n'"rc 0" ] || _og_bad="$_og_bad; name: a group the caller reads live after the stop gave \"$_og_r\", not one line and 0"
+           _og_fb() { ( BASH="$_VFY/.og_nobash"; sleep() { :; }; wait() { :; }; _k2_live() { :; }; kill() { case "$1" in -9) echo "$2" ;; esac; }; _k2_stop "$_og_z" "$_og_l:1" 9>/dev/null ) 2>/dev/null; }
+           _og_r="$(_og_fb | sort | uniq -c | awk '{ print $2 ":" $1 }')"
+           [ "$_og_r" = "-$_og_z:21" ] || _og_bad="$_og_bad; fallback: a stop process that could not start left \"$(echo $_og_r)\", not 21 KILLs to the unmarked group and none to the marked"
            command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_l"
            _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_live() { :; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
            [ "$_og_r" = "!! could not confirm that group $_og_l ended; it may still be running" ] || _og_bad="$_og_bad; reap: an entry whose identity is unknown gave \"$_og_r\", not one line and no stop"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; echo 0 > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_live() { :; }; _k2_age() { return 1; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
+           [ "$_og_r" = "!! could not confirm that group $_og_l ended; it may still be running" ] || _og_bad="$_og_bad; age: an entry whose leader's age cannot be read gave \"$_og_r\", not one line and no stop"
            command rm -rf "$_VFY/.og_rd"; mkdir -p "$_VFY/.og_rd/$_og_h"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
            ( _K2_REAP_D="$_VFY/.og_rd"; _k2_stop() { _k2_left=" $_og_l"; }; _k2_reap_add keep "$_og_h" "$_og_z" "$_og_l" 9>/dev/null ); _og_r=$?
            [ "$_og_r" -eq 2 ] && [ -e "$_VFY/.og_rd/$_og_l" ] && [ ! -e "$_VFY/.og_rd/$_og_z" ] || _og_bad="$_og_bad; keep: a failed record (status $_og_r) did not keep exactly the entry of the group the stop could not confirm ended"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; wait() { :; }; _k2_kill_gone() { _kg_left=" $_og_z"; }; _k2_end end "$_og_z" "$_og_l" 9>&1; echo "left$_ctl_left" ) 2>/dev/null )"
+           [ "$_og_r" = "left $_og_z" ] && [ -e "$_VFY/.og_rd/$_og_z" ] && [ ! -e "$_VFY/.og_rd/$_og_l" ] || _og_bad="$_og_bad; end: a group live at the bound gave \"$_og_r\" or lost its entry, or the other kept one"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; wait() { :; }; sleep() { :; }; _k2_live() { :; }; _k2_end waited "$_og_z" "$_og_l" 9>&1; echo "left$_ctl_left" ) 2>/dev/null )"
+           [ "$_og_r" = "left" ] && [ ! -e "$_VFY/.og_rd/$_og_z" ] && [ ! -e "$_VFY/.og_rd/$_og_l" ] || _og_bad="$_og_bad; waited: \`_k2_end\` KILLed or kept a group whose waited leader's id answered (\"$_og_r\")"
+           # tick: the stop's grace waits 40 ticks of 0.05 s to its 2 s, 2 of 1 s where `sleep` refuses a fraction (`sleep` a fake
+           # clock; `SECONDS` unset, so a plain variable the fake clock sets; 99 sleeps at most).
+           _og_tk() { ( unset SECONDS; set -- "$_og_z"; _og_c=0; _og_n=0; _og_m=0; ps() { echo "$_og_z $_og_z S"; }; kill() { case "$1" in -9) echo "$_og_n"; exit 0 ;; esac; }
+             sleep() { _og_m=$((_og_m + 1)); [ "$_og_m" -lt 99 ] || { echo spin; exit 0; }; case "$1" in *.*) [ "$_og_ti" = 0 ] || return 1; _og_s="${1#*.}00"
+               _og_c=$((_og_c + ${1%%.*} * 100 + 10#${_og_s:0:2})) ;; *) _og_c=$((_og_c + $1 * 100)) ;; esac; _og_n=$((_og_n + 1)); SECONDS=$((_og_c / 100)); }; eval "$_K2_STOP" ) 2>/dev/null; }
+           _og_r="$(_og_ti=0 _og_tk) $(_og_ti=1 _og_tk)"; [ "$_og_r" = "40 2" ] || _og_bad="$_og_bad; tick: the stop's grace took \"$_og_r\" ticks, not 40 of 0.05 s and 2 of 1 s where \`sleep\` is integer-only"
          fi
          { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
          command rm -rf "$_K2_REAP_D/og"

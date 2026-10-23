@@ -525,15 +525,15 @@ controls:s/^elif ! ( _og_bad=""$/elif ! ( : "${_no_such_name_x}"; _og_bad=""/	a 
 controls:s/; kill -KILL [$]PPID' > /; :' > /	a call's process groups end with it and hold none of its caller's streams
 # S5 - `_k2_end`'s watchdog KILL+wait dropped: the abort row's watchdog (leader alive) leaves the reap set unreported, and the
 # `_wm` check must red on its group outliving the call.
-s/^\(  local _ke_p _ke_f=0; _ctl_left=""\); kill -9 -"[$]3" 2>\/dev\/null || true; wait "[$]3" 2>\/dev\/null || true$/\1/	only the watchdog's marker makes a signal status a timeout
+s/^\(  local _ke_p _ke_f=0\); kill -9 -"[$]3" 2>\/dev\/null || true; wait "[$]3" 2>\/dev\/null || true$/\1/	only the watchdog's marker makes a signal status a timeout
 # R29a - `_k2_live`'s zombie filter dropped (a group of zombies reads alive, Codex R29): KILLED by the `_og` check's zomb
 # arm, whose `kill` made to succeed reaches the table on macOS too; R29b - `_k2_live` always gone: KILLED by its live arm.
 s/) && [$]3 !~ \/^Z\/ { f = 1 }/) { f = 1 }/	a call's process groups end with it and hold none of its caller's streams
 s/^_k2_live() { kill -0 /_k2_live() { return 1; kill -0 /	a call's process groups end with it and hold none of its caller's streams
 # R29c - the stop's text without its functions ("command not found": no KILL is sent): KILLED as R29j below; R29d - the
-# grace's test made false: the stop KILLs at once, KILLED by the `_wm` hang row's `.term` (written 0.2 s on).
+# grace's test made true (KILLs at once): KILLED by the latch, set, tick and `_wm` hang (`.term`) rows; without them SURVIVES.
 s/^_K2_STOP="[$](declare -f _k2_ptab _k2_live _k2_kill_gone)"'; SECONDS=0$/_K2_STOP='SECONDS=0/	a call's process groups end with it and hold none of its caller's streams
-s/if \[ "[$]SECONDS" -lt "[$]{3:-0}" \]; then/if false; then/	only the watchdog's marker makes a signal status a timeout
+s/if \[ "[$]SECONDS" -ge "[$]_kg_s" \]; then/if :; then/	only the watchdog's marker makes a signal status a timeout
 # R29e - `_k2_live` reads the pid column for a group too: KILLED by zomb's live group, whose leader has exited.
 s/(k < 0 ? [$]1 == -k : [$]2 == k)/($2 == (k < 0 ? -k : k))/	a call's process groups end with it and hold none of its caller's streams
 # R29f - `_k2_ptab` without its `|| :`, the old form (the pipeline's status decides): a `ps` failing as 3, `_k2_live`'s gone
@@ -549,23 +549,23 @@ s/END { if (NR \&\& !f) exit 3 }/END { if (!f) exit 3 }/	a call's process groups
 # shadowed `ps` reads the group gone, then live: alive); with that row removed it SURVIVES.
 s/for _kl_n in 1 2; do/for _kl_n in 1; do/	a call's process groups end with it and hold none of its caller's streams
 # R29i - the stop's `_k2_kill_gone` call made `:` (TERM only); R29j - `_k2_kill_gone` dropped from `$_K2_STOP`'s `declare -f`
-# (no KILL): KILLED by the `_og` deaf row's elapsed bound (the TERM-deaf `sleep 10`); the norec row may also kill them (R22's
-# race, rate not pinned); with those rows removed each SURVIVES.
-s/^for p; do _k2_kill_gone "[$]{p%:1}" "[$]{_kw\[[$]{p%:1}\]-0}" 2; done; exit 0'$/for p; do :; done; exit 0'/	a call's process groups end with it and hold none of its caller's streams
+# (no KILL): KILLED by the `_og` deaf row's elapsed bound (the TERM-deaf `sleep 10`), R29i by the tick row too (it runs the
+# stop's text in-process); the norec row may also kill them (R22's race, rate not pinned); with those rows removed each SURVIVES.
+s/^_k2_kill_gone 2 "[$]@"; exit 0'$/:; exit 0'/	a call's process groups end with it and hold none of its caller's streams
 s/^_K2_STOP="[$](declare -f _k2_ptab _k2_live _k2_kill_gone)"/_K2_STOP="$(declare -f _k2_ptab _k2_live)"/	a call's process groups end with it and hold none of its caller's streams
-# R29k - `_k2_kill_gone`'s KILL bound cut to one; R29l - its exhaustion status made 0: KILLED by the `_og` check's
-# always-live row (1 after 21 KILLs); with that row removed each SURVIVES.
-s/\[ "[$]_kg_i" -lt 21 \]/[ "$_kg_i" -lt 1 ]/	a call's process groups end with it and hold none of its caller's streams
-s/ || return 1; kill -9 -"[$]1"/ || return 0; kill -9 -"$1"/	a call's process groups end with it and hold none of its caller's streams
-# R29m - the latch's reuse return dropped (a reused leader is KILLed): KILLED by the reused-leader row; R29p - the latch's
-# set dropped (an id seen free, then answering, is not read as reused): KILLED by the latch row; with that row removed
-# each SURVIVES.
-s/then \[ "[$]_kg_w" = 0 \] || return 0$/then :/	a call's process groups end with it and hold none of its caller's streams
-s/^    else _kg_w=1; fi;/    else :; fi;/	a call's process groups end with it and hold none of its caller's streams
-# R29s - the stop's batch probe dropped (each latch starts at its own group's loop): KILLED by the batch row; R29t - the
+# R29k - `_k2_kill_gone`'s KILL bound cut to one; R29l - its exhaustion not written to `_kg_left`: KILLED by the `_og`
+# check's always-live row (left after 21 KILLs), R29k by the three-probe and fallback rows too; with those rows removed each SURVIVES.
+s/\[ "[$]{_kg_k\[_kg_p\]-0}" -lt 21 \]/[ "${_kg_k[_kg_p]-0}" -lt 1 ]/	a call's process groups end with it and hold none of its caller's streams
+s/ || { _kg_left="[$]_kg_left [$]_kg_p"; continue; }$/ || continue/	a call's process groups end with it and hold none of its caller's streams
+# R29m - the latch's reuse return dropped (a reused leader is KILLed); R29p - the latch's set dropped (a leader seen not
+# answering, then answering, is not read as reused): KILLED by the latch and set rows, R29m by the reused-leader, batch,
+# fallback and waited rows too; with those rows removed each SURVIVES.
+s/then \[ "[$]{_kg_w\[_kg_p\]-0}" = 0 \] || continue$/then :/	a call's process groups end with it and hold none of its caller's streams
+s/^      else _kg_w\[_kg_p\]=1; fi;/      else :; fi;/	a call's process groups end with it and hold none of its caller's streams
+# R29s - `_k2_kill_gone`'s first read dropped (a latch starts only from a mark): KILLED by the batch row; R29t - the
 # reap's `:1` mark dropped (a leaderless group's latch starts unset): KILLED by the mark row; with that row removed each
 # SURVIVES.
-s/ \&\& kill -0 "[$]p" 2>\/dev\/null || _kw/ || _kw/	a call's process groups end with it and hold none of its caller's streams
+s/ \&\& kill -0 "[$]_kg_p" 2>\/dev\/null || _kg_w/ || _kg_w/	a call's process groups end with it and hold none of its caller's streams
 s/_kr_w=":1"; if kill -0/_kr_w=""; if kill -0/	a call's process groups end with it and hold none of its caller's streams
 # R29n - `_k2_stop`'s name dropped (a group not confirmed ended goes unnamed): KILLED by the `_og` check's name row; R29q -
 # the reap's name of an entry with no readable record time dropped: KILLED by the reap row; R29r - `_k2_reap_add`'s keep
@@ -573,5 +573,24 @@ s/_kr_w=":1"; if kill -0/_kr_w=""; if kill -0/	a call's process groups end with 
 s/_k2_left="[$]_k2_left [$]_ks_p"; _k2_name "[$]_ks_p"; done; return 0; }$/_k2_left="$_k2_left $_ks_p"; done; return 0; }/	a call's process groups end with it and hold none of its caller's streams
 s/''|\*\[!0-9\]\*) _k2_name "[$]_kr_p"; continue ;; esac$/''|*[!0-9]*) continue ;; esac/	a call's process groups end with it and hold none of its caller's streams
 s/^  _k2_stop "[$]{@:2}"; for _ka_p in "[$]{@:3}"; do case "[$]_k2_left " in \*" [$]_ka_p "\*) continue ;; esac$/  _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do/	a call's process groups end with it and hold none of its caller's streams
+# R29u - `_k2_end`'s keep dropped (a group live at the bound loses its entry); R29v - its `_ctl_left` emptied; R29w - the stop's
+# set split into one call per group (a later group's latch waits out the earlier groups): KILLED by the end row (R29u, R29v)
+# and by the set and batch rows (R29w); with those rows removed each SURVIVES.
+s/; for _ke_p in "[$]{@:2}"; do case "[$]_ctl_left " in \*" [$]_ke_p "\*) continue ;; esac$/; for _ke_p in "${@:2}"; do/	a call's process groups end with it and hold none of its caller's streams
+s/; _ctl_left="[$]_kg_left"; /; _ctl_left=""; /	a call's process groups end with it and hold none of its caller's streams
+s/^_k2_kill_gone 2 "[$]@"; exit 0'$/for p; do _k2_kill_gone 2 "$p"; done; exit 0'/	a call's process groups end with it and hold none of its caller's streams
+# R29x - `_k2_end`'s `:1` marks dropped (its latches start at the first read, not at the waited leader): KILLED by the waited
+# row (ids answering at both leaders are KILLed to the bound and kept); R29y - a liveness read added between a group's
+# identity read and its KILL: KILLED by the order and three-probe rows; R29z - the reap's name of an entry whose leader's
+# age cannot be read dropped: KILLED by the age row; R29aa - `_k2_stop`'s fallback dropped: KILLED by the fallback row; with
+# those rows removed each SURVIVES.
+s/_k2_kill_gone 0 "[$]2:1" "[$]3:1"; /_k2_kill_gone 0 "$2" "$3"; /	a call's process groups end with it and hold none of its caller's streams
+s/^      else _kg_w\[_kg_p\]=1; fi; if /      else _kg_w[_kg_p]=1; fi; _k2_live -"$_kg_p" || continue; if /	a call's process groups end with it and hold none of its caller's streams
+s/ || { _k2_name "[$]_kr_p"; continue; }; fi$/ || continue; fi/	a call's process groups end with it and hold none of its caller's streams
+s/^      || _k2_kill_gone 0 "[$]@"$/      || :/	a call's process groups end with it and hold none of its caller's streams
+# R29ab - the stop's tick made 0.5 s: KILLED by the tick row (4 ticks to the grace's 2 s, not 40); R29ac - the tick's
+# whole-second fallback dropped: KILLED by the tick row's integer-only arm (no wait, so it spins); with it removed each SURVIVES.
+s/sleep 0\.05 || sleep 1; done; return 0; }$/sleep 0.5 || sleep 1; done; return 0; }/	a call's process groups end with it and hold none of its caller's streams
+s/sleep 0\.05 || sleep 1; done; return 0; }$/sleep 0.05; done; return 0; }/	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }

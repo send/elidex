@@ -445,32 +445,34 @@ _K2_ORDERLY=0; _K2_REAP_D=""
 _k2_ptab() { ps -A -o pgid= -o pid= -o stat= 2>/dev/null || :; }
 _k2_live() { kill -0 "$1" 2>/dev/null || return 1; local _kl_n; for _kl_n in 1 2; do _k2_ptab | awk -v k="$1" \
     '(k < 0 ? $1 == -k : $2 == k) && $3 !~ /^Z/ { f = 1 } END { if (NR && !f) exit 3 }' || [ $? -ne 3 ] && return 0; done; return 1; }
-# KILL UNTIL GONE, one text for the stop, its fallback and the call's end: `_k2_kill_gone <pgid> <w> [<grace>]` probes
-# first and, while the group reads live, waits 0.1 s while `SECONDS` < <grace>, then KILLs it, 0.05 s apart, at most 21
-# times (one KILL can miss a member forked as it lands): 1 if still live at that bound, else 0. IDENTITY, a latch: once
-# its leader's id is seen free (<w> 1: it was waited), an id that answers again is reused and is left alone (0).
-_k2_kill_gone() { local _kg_i=0 _kg_w="$2"; while _k2_live -"$1"; do if kill -0 "$1" 2>/dev/null; then [ "$_kg_w" = 0 ] || return 0
-    else _kg_w=1; fi; if [ "$SECONDS" -lt "${3:-0}" ]; then sleep 0.1 || sleep 1; continue; fi
-    [ "$_kg_i" -lt 21 ] || return 1; kill -9 -"$1" 2>/dev/null; _kg_i=$((_kg_i + 1)); sleep 0.05 || sleep 1; done; return 0; }
+# KILL UNTIL GONE, one text for the stop, its fallback and the call's end: `_k2_kill_gone <grace> <g>[:1]...` reads every
+# group still pending once a tick (0.05 s): gone is done; while `SECONDS` < <grace> it waits, else it KILLs the group, at most
+# 21 times a group (one KILL can miss a member forked as it lands). IDENTITY, a latch per group, set at any read: once its
+# leader is seen not answering (`:1`: seen before the call), an answer after is a reused id, left alone. Its one answer is
+# `_kg_left`, the groups still live at that bound (it returns 0: every caller runs with errexit off or ignored).
+_k2_kill_gone() { local _kg_s="$1" _kg_p _kg_q; local -a _kg_w=() _kg_k=(); _kg_left=""; shift
+  for _kg_p; do [ "$_kg_p" = "${_kg_p%:1}" ] && kill -0 "$_kg_p" 2>/dev/null || _kg_w[${_kg_p%:1}]=1; done; set -- "${@%:1}"; while [ "$#" -gt 0 ]; do _kg_q=""
+    for _kg_p; do _k2_live -"$_kg_p" || continue; if kill -0 "$_kg_p" 2>/dev/null; then [ "${_kg_w[_kg_p]-0}" = 0 ] || continue
+      else _kg_w[_kg_p]=1; fi; if [ "$SECONDS" -ge "$_kg_s" ]; then [ "${_kg_k[_kg_p]-0}" -lt 21 ] || { _kg_left="$_kg_left $_kg_p"; continue; }
+        kill -9 -"$_kg_p" 2>/dev/null; _kg_k[_kg_p]=$((${_kg_k[_kg_p]-0} + 1)); fi; _kg_q="$_kg_q $_kg_p"; done
+    set -- $_kg_q; [ "$#" -eq 0 ] || sleep 0.05 || sleep 1; done; return 0; }
 # STOP, one procedure for the reap and the watchdog: TERM to each group, so a selftest child runs its own exit path
-# (its scratch dir); one `kill -0` over all leaders then starts every latch at once (`<g>:1`: the reap saw that id
-# free), so no group's latch waits out the loops before it; then each until gone, its grace ending when `SECONDS`
-# reaches 2 (1-2 s: whole seconds, counted from this text's own `SECONDS=0`, the one assignment of that clock; a
-# child's own cleanup ends well inside 1 s), then KILLed until gone (`_k2_kill_gone`). Its own process (its text holds
-# the three functions), started without the caller's exported errexit and nounset (`SHELLOPTS`) and `BASH_ENV`; it
+# (its scratch dir); then all of them, as one set, until gone (`_k2_kill_gone`, each latch live from its first read; `<g>:1`:
+# the reap saw no leader answer), the grace ending when `SECONDS` reaches 2 (1-2 s: whole seconds, counted from this text's own
+# `SECONDS=0`, the one assignment of that clock; a child's own cleanup ends well inside 1 s). Its own process (its text
+# holds the three functions), started without the caller's exported errexit and nounset (`SHELLOPTS`) and `BASH_ENV`; it
 # holds no fd 9 and reports nothing: `_k2_stop` reads after it.
 # bash 3.2 prints a job notice ("Killed: 9") for a stopped job of its own while it waits on that process, hence the
 # group's `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
 _K2_STOP="$(declare -f _k2_ptab _k2_live _k2_kill_gone)"'; SECONDS=0
 for p; do kill -TERM -"${p%:1}"; done
-_kw=(); for p; do [ "$p" = "${p%:1}" ] && kill -0 "$p" 2>/dev/null || _kw[${p%:1}]=1; done
-for p; do _k2_kill_gone "${p%:1}" "${_kw[${p%:1}]-0}" 2; done; exit 0'
+_k2_kill_gone 2 "$@"; exit 0'
 # NAMED: a group not confirmed ended is named on fd 9 (never "process group": the `_og` norec row parses that phrase).
 # `_k2_left` is the last stop's unconfirmed groups, set first in `_k2_stop` (so set under nounset), read by `_k2_reap_add`.
 _k2_name() { echo "!! could not confirm that group $1 ended; it may still be running" >&9; }
 _k2_stop() { local _ks_p; _k2_left=""
   { env -u SHELLOPTS -u BASH_ENV "$BASH" -c "$_K2_STOP" k2stop "$@" < /dev/null > /dev/null 2>&1 9>&- \
-      || for _ks_p in "$@"; do case "$_ks_p" in *:1) _k2_kill_gone "${_ks_p%:1}" 1 ;; *) _k2_kill_gone "$_ks_p" 0 ;; esac; done
+      || _k2_kill_gone 0 "$@"
     for _ks_p in "$@"; do wait "${_ks_p%:1}" || :; done; } 2>/dev/null
   for _ks_p in "${@%:1}"; do _k2_live -"$_ks_p" || continue; _k2_left="$_k2_left $_ks_p"; _k2_name "$_ks_p"; done; return 0; }
 # IDENTITY: `_k2_age <pid> <s>` is true when `ps -o etime=` shows <pid> at least <s> seconds old; a
@@ -505,8 +507,8 @@ _k2_reap_add() { # $1 = the label, $2 = a group just launched, $3... = the call'
   _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do case "$_k2_left " in *" $_ka_p "*) continue ;; esac
     command rm -f "$_K2_REAP_D/$_ka_p" 2>/dev/null; done; exit 2; }
 _k2_end() { # $1 = the label, $2 = the child's group (its leader waited), $3 = the watchdog's: each KILLed until empty, then dropped
-  local _ke_p _ke_f=0; _ctl_left=""; kill -9 -"$3" 2>/dev/null || true; wait "$3" 2>/dev/null || true
-  for _ke_p in "${@:2}"; do _k2_kill_gone "$_ke_p" 1 || { _ctl_left="$_ctl_left $_ke_p"; continue; }
+  local _ke_p _ke_f=0; kill -9 -"$3" 2>/dev/null || true; wait "$3" 2>/dev/null || true
+  _k2_kill_gone 0 "$2:1" "$3:1"; _ctl_left="$_kg_left"; for _ke_p in "${@:2}"; do case "$_ctl_left " in *" $_ke_p "*) continue ;; esac
     command rm -f "$_K2_REAP_D/$_ke_p" 2>/dev/null && continue; _ke_f=1
     echo "!! $1: the reap set could not drop process group $_ke_p, so the run's end could stop another's; decided nothing" >&9; done
   [ "$_ke_f" -eq 0 ] || exit 2; }
