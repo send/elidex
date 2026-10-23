@@ -458,17 +458,21 @@ _k2_kill_gone() { local _kg_i=0 _kg_w="$2"; while _k2_live -"$1"; do if kill -0 
 # reaches 2 (1-2 s: whole seconds, counted from this text's own `SECONDS=0`, the one assignment of that clock; a
 # child's own cleanup ends well inside 1 s), then KILLed until gone (`_k2_kill_gone`). Its own process (its text holds
 # the three functions), started without the caller's exported errexit and nounset (`SHELLOPTS`) and `BASH_ENV`; it
-# holds no fd 9.
+# holds no fd 9 and reports nothing: `_k2_stop` reads after it.
 # bash 3.2 prints a job notice ("Killed: 9") for a stopped job of its own while it waits on that process, hence the
 # group's `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
 _K2_STOP="$(declare -f _k2_ptab _k2_live _k2_kill_gone)"'; SECONDS=0
 for p; do kill -TERM -"${p%:1}"; done
 _kw=(); for p; do [ "$p" = "${p%:1}" ] && kill -0 "$p" 2>/dev/null || _kw[${p%:1}]=1; done
 for p; do _k2_kill_gone "${p%:1}" "${_kw[${p%:1}]-0}" 2; done; exit 0'
-_k2_stop() { local _ks_p
+# NAMED: a group not confirmed ended is named on fd 9 (never "process group": the `_og` norec row parses that phrase).
+# `_k2_left` is the last stop's unconfirmed groups, set first in `_k2_stop` (so set under nounset), read by `_k2_reap_add`.
+_k2_name() { echo "!! could not confirm that group $1 ended; it may still be running" >&9; }
+_k2_stop() { local _ks_p; _k2_left=""
   { env -u SHELLOPTS -u BASH_ENV "$BASH" -c "$_K2_STOP" k2stop "$@" < /dev/null > /dev/null 2>&1 9>&- \
       || for _ks_p in "$@"; do case "$_ks_p" in *:1) _k2_kill_gone "${_ks_p%:1}" 1 ;; *) _k2_kill_gone "$_ks_p" 0 ;; esac; done
-    for _ks_p in "$@"; do wait "${_ks_p%:1}" || :; done; } 2>/dev/null; return 0; }
+    for _ks_p in "$@"; do wait "${_ks_p%:1}" || :; done; } 2>/dev/null
+  for _ks_p in "${@%:1}"; do _k2_live -"$_ks_p" || continue; _k2_left="$_k2_left $_ks_p"; _k2_name "$_ks_p"; done; return 0; }
 # IDENTITY: `_k2_age <pid> <s>` is true when `ps -o etime=` shows <pid> at least <s> seconds old; a
 # machine whose `ps` cannot read the run's own pid is refused by the controls file (exit 2).
 _k2_age() { ps -o etime= -p "$1" 2>/dev/null | _K2_AGE="$2" awk '{ n = split($1, f, /[-:]/)
@@ -476,21 +480,21 @@ _k2_age() { ps -o etime= -p "$1" 2>/dev/null | _K2_AGE="$2" awk '{ n = split($1,
     END { exit !(ok && s >= ENVIRON["_K2_AGE"]) }'; }
 # An entry is acted on only as a number > 1 (`-0` is the run's own group, `-1` every process) and
 # only while its group is live and is the run's: no leader (no id is reused while its group exists), or
-# a leader (a zombie one too: it holds its id) no younger than the record, less 1 s. Anything else is
-# skipped: a leftover, never a wrong kill (the residue, a group that emptied and whose id was reused: BS-12).
+# a leader (a zombie one too: it holds its id) no younger than the record, less 1 s. One whose identity is unknown is
+# named, never signalled: a leftover, never a wrong kill (the residue, a group that emptied and whose id was reused: BS-12).
 _k2_reap() { local _kr_f _kr_p _kr_t _kr_w; local -a _kr_g=()
   [ -n "$_K2_REAP_D" ] || return 0
   for _kr_f in "$_K2_REAP_D"/* "$_K2_REAP_D"/*/*; do _kr_p="${_kr_f##*/}"
     case "$_kr_p" in ''|*[!0-9]*|0*|1) continue ;; esac
     _k2_live -"$_kr_p" || continue
     _kr_w=":1"; if kill -0 "$_kr_p" 2>/dev/null; then _kr_w=""; _kr_t=""; read -r _kr_t 2>/dev/null < "$_kr_f"
-      case "$_kr_t" in ''|*[!0-9]*) continue ;; esac
-      _k2_age "$_kr_p" $((SECONDS - _kr_t - 1)) || continue; fi
+      case "$_kr_t" in ''|*[!0-9]*) _k2_name "$_kr_p"; continue ;; esac
+      _k2_age "$_kr_p" $((SECONDS - _kr_t - 1)) || { _k2_name "$_kr_p"; continue; }; fi
     _kr_g+=("$_kr_p$_kr_w"); done
   [ "${#_kr_g[@]}" -eq 0 ] || _k2_stop "${_kr_g[@]}"; }
 # Each group is recorded right after its own launch. A record that cannot be written ends the call:
-# `set +m` back, the cause on fd 9, its groups stopped, their entries removed, `exit 2` (at top level
-# the run's 2; in a standing check's subshell that subshell's, and the check reds). The call's end
+# `set +m` back, the cause on fd 9, its groups stopped, the entries of those confirmed gone removed, `exit 2` (at top
+# level the run's 2; in a standing check's subshell that subshell's, and the check reds). The call's end
 # KILLs the watchdog (unwaited until then, so its id is not reused), then KILLs each group until gone,
 # without TERM (the child's leader ended through its own exit path), its leader seen free (waited): a
 # group still there goes to `_ctl_left` and keeps its entry for the run's end; one gone, or whose id now names a reused
@@ -498,7 +502,8 @@ _k2_reap() { local _kr_f _kr_p _kr_t _kr_w; local -a _kr_g=()
 _k2_reap_add() { # $1 = the label, $2 = a group just launched, $3... = the call's groups already recorded
   local _ka_p; [ -n "$_K2_REAP_D" ] && printf '%s\n' "$SECONDS" 2>/dev/null > "$_K2_REAP_D/$2" && return 0
   set +m; echo "!! $1: the reap set could not record process group $2, so a signal would leave it running; decided nothing" >&9
-  _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do command rm -f "$_K2_REAP_D/$_ka_p" 2>/dev/null; done; exit 2; }
+  _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do case "$_k2_left " in *" $_ka_p "*) continue ;; esac
+    command rm -f "$_K2_REAP_D/$_ka_p" 2>/dev/null; done; exit 2; }
 _k2_end() { # $1 = the label, $2 = the child's group (its leader waited), $3 = the watchdog's: each KILLed until empty, then dropped
   local _ke_p _ke_f=0; _ctl_left=""; kill -9 -"$3" 2>/dev/null || true; wait "$3" 2>/dev/null || true
   for _ke_p in "${@:2}"; do _k2_kill_gone "$_ke_p" 1 || { _ctl_left="$_ctl_left $_ke_p"; continue; }

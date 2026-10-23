@@ -558,16 +558,15 @@ elif ! ( _og_bad=""
          # two reads (L4): gone takes two table reads gone, so a shadowed `ps` that reads the group gone, then live, reads alive.
          [ "$_og_i" -ge 40 ] || ( kill() { :; }; ps() { if [ -e "$_VFY/.og_r1" ]; then echo "$_og_z 1 S"; else : > "$_VFY/.og_r1"; echo "1 1 S"; fi; }
            command rm -f "$_VFY/.og_r1"; _k2_live -"$_og_z" ) || _og_bad="$_og_bad; zomb: a group one table read saw gone and the next live read gone"
-         # deaf: a group that ignores TERM, stopped by the real `_k2_stop` in this shell, whose `wait` lasts as long as the
-         # group does: it ends within 5 s, reads gone and is not named on fd 9.
-         set -m; ( trap '' TERM; exec sleep 30 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_d=$!; set +m; sleep 0.2
-         _og_t0=$SECONDS; { _k2_stop "$_og_d" 9> "$_VFY/.og_d9"; } 2>/dev/null; _og_dt=$((SECONDS - _og_t0))
-         [ "$_og_dt" -lt 5 ] && ! _k2_live -"$_og_d" && [ ! -s "$_VFY/.og_d9" ] || _og_bad="$_og_bad; deaf: a group ignoring TERM took $_og_dt s to stop, read live or was named ($(cat "$_VFY/.og_d9" 2>/dev/null))"
          # KILL until gone, on zomb's zombie group (held until the cleanup below), `kill`, `sleep` and `_k2_live` shadowed (no
          # signal is sent): always live is 1 after 21 KILLs; live for three probes, 0 after 3; a reused leader (<w> 1, `kill -0`
          # answering) gets none; the latch (<w> 0, grace 2, the leader free at probe 2 and answering at 3) none. batch: the
          # stop's text over two groups, the 2nd free at the batch probe and answering once the 1st group's loop has read a
-         # table, KILLs neither. mark: the reap passes a leaderless group to the stop as <g>:1.
+         # table, KILLs neither. mark: the reap passes a leaderless group to the stop as <g>:1. name: the real `_k2_stop` on
+         # the zombie group (its TERM reaches only that group), the caller's `_k2_live` live, names it once and returns 0.
+         # reap: an entry with no record time named by zomb's live group (`kill` answering, as above) is named, not
+         # stopped. keep: a failed record removes the entries of the groups the stop confirmed gone and keeps the rest, 2.
+         # (These read zomb's `sleep 5` member alive, so the deaf row, which waits 2 s, follows them.)
          if [ "$_og_i" -lt 40 ]; then
            _og_kg() { ( _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }
              kill() { case "$1" in -9) _og_k=$((_og_k + 1)) ;; -0) _og_n=$((_og_n + 1)); [ "$_og_n" -ne "$_og_f" ] ;; esac; }
@@ -584,7 +583,20 @@ elif ! ( _og_bad=""
            command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"
            _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; _k2_live() { :; }; kill() { [ "${2#-}" != "$2" ]; }; _k2_stop() { echo "$*"; }; _k2_reap ) 2>&1 )"
            [ "$_og_r" = "$_og_z:1" ] || _og_bad="$_og_bad; mark: the reap passed a leaderless group as \"$_og_r\", not \"$_og_z:1\""
+           _og_r="$( ( _k2_live() { :; }; _k2_stop "$_og_z" 9>&1 > /dev/null; echo "rc $?" ) 2>/dev/null )"
+           [ "$_og_r" = "!! could not confirm that group $_og_z ended; it may still be running"$'\n'"rc 0" ] || _og_bad="$_og_bad; name: a group the caller reads live after the stop gave \"$_og_r\", not one line and 0"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
+           [ "$_og_r" = "!! could not confirm that group $_og_l ended; it may still be running" ] || _og_bad="$_og_bad; reap: an entry whose identity is unknown gave \"$_og_r\", not one line and no stop"
+           command rm -rf "$_VFY/.og_rd"; mkdir -p "$_VFY/.og_rd/$_og_h"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
+           ( _K2_REAP_D="$_VFY/.og_rd"; _k2_stop() { _k2_left=" $_og_l"; }; _k2_reap_add keep "$_og_h" "$_og_z" "$_og_l" 9>/dev/null ); _og_r=$?
+           [ "$_og_r" -eq 2 ] && [ -e "$_VFY/.og_rd/$_og_l" ] && [ ! -e "$_VFY/.og_rd/$_og_z" ] || _og_bad="$_og_bad; keep: a failed record (status $_og_r) did not keep exactly the entry of the group the stop could not confirm ended"
          fi
+         # deaf: a group that ignores TERM, stopped by the real `_k2_stop` in this shell, whose `wait` lasts as long as the
+         # group does: it ends within 5 s, reads gone and is not named on fd 9.
+         set -m; ( trap '' TERM; exec sleep 30 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_d=$!; set +m; sleep 0.2
+         _og_t0=$SECONDS; { _k2_stop "$_og_d" 9> "$_VFY/.og_d9"; } 2>/dev/null; _og_dt=$((SECONDS - _og_t0))
+         [ "$_og_dt" -lt 5 ] && ! _k2_live -"$_og_d" && [ ! -s "$_VFY/.og_d9" ] || _og_bad="$_og_bad; deaf: a group ignoring TERM took $_og_dt s to stop, read live or was named ($(cat "$_VFY/.og_d9" 2>/dev/null))"
          { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
          command rm -rf "$_K2_REAP_D/og"
          : > "$_VFY/.og_end"

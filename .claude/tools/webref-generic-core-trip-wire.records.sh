@@ -509,7 +509,7 @@ s/^for p; do kill -TERM -"[$]{p%:1}"; done$/:/	only the watchdog's marker makes 
 # end the call), R11e (the watchdog's launch keeps fd 9): KILLED by the `_og` check's kill, norec, nodel and kill rows; with
 # that row's assertions removed each SURVIVES.
 ctlrun:s/^  { ( exec env -u SHELLOPTS /  { ( trap : USR2; env -u SHELLOPTS /	a call's process groups end with it and hold none of its caller's streams
-s/^  _k2_stop "[$]{@:2}"; for _ka_p in "[$]{@:3}"; do command rm -f "[$]_K2_REAP_D\/[$]_ka_p" 2>\/dev\/null; done; exit 2; }$/  return 0; }/	a call's process groups end with it and hold none of its caller's streams
+s/^  _k2_stop "[$]{@:2}"; for _ka_p in "[$]{@:3}"; do case "[$]_k2_left " in /  return 0; for _ka_p in "${@:3}"; do case "$_k2_left " in /	a call's process groups end with it and hold none of its caller's streams
 s/^  \[ "[$]_ke_f" -eq 0 \] || exit 2; }$/  :; }/	a call's process groups end with it and hold none of its caller's streams
 ctlrun:s/^\(      k2wd "[$]{_ctl_wd_s-}" "[$]_r_wmark" "[$]_cpid" ) < \/dev\/null > \/dev\/null 2>&1\) 9>&- \(& _wpid=[$]!; } 2>\/dev\/null\)$/\1 \2/	a call's process groups end with it and hold none of its caller's streams
 # R11g - the `_og` check's row loop emptied: KILLED by the census (its call line registered by no run), as GC-3 pins the other three.
@@ -567,5 +567,11 @@ s/^    else _kg_w=1; fi;/    else :; fi;/	a call's process groups end with it an
 # SURVIVES.
 s/ \&\& kill -0 "[$]p" 2>\/dev\/null || _kw/ || _kw/	a call's process groups end with it and hold none of its caller's streams
 s/_kr_w=":1"; if kill -0/_kr_w=""; if kill -0/	a call's process groups end with it and hold none of its caller's streams
+# R29n - `_k2_stop`'s name dropped (a group not confirmed ended goes unnamed): KILLED by the `_og` check's name row; R29q -
+# the reap's name of an entry with no readable record time dropped: KILLED by the reap row; R29r - `_k2_reap_add`'s keep
+# dropped (every recorded entry removed): KILLED by the keep row; with that row removed each SURVIVES.
+s/_k2_left="[$]_k2_left [$]_ks_p"; _k2_name "[$]_ks_p"; done; return 0; }$/_k2_left="$_k2_left $_ks_p"; done; return 0; }/	a call's process groups end with it and hold none of its caller's streams
+s/''|\*\[!0-9\]\*) _k2_name "[$]_kr_p"; continue ;; esac$/''|*[!0-9]*) continue ;; esac/	a call's process groups end with it and hold none of its caller's streams
+s/^  _k2_stop "[$]{@:2}"; for _ka_p in "[$]{@:3}"; do case "[$]_k2_left " in \*" [$]_ka_p "\*) continue ;; esac$/  _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do/	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }
