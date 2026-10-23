@@ -558,6 +558,33 @@ elif ! ( _og_bad=""
          # two reads (L4): gone takes two table reads gone, so a shadowed `ps` that reads the group gone, then live, reads alive.
          [ "$_og_i" -ge 40 ] || ( kill() { :; }; ps() { if [ -e "$_VFY/.og_r1" ]; then echo "$_og_z 1 S"; else : > "$_VFY/.og_r1"; echo "1 1 S"; fi; }
            command rm -f "$_VFY/.og_r1"; _k2_live -"$_og_z" ) || _og_bad="$_og_bad; zomb: a group one table read saw gone and the next live read gone"
+         # deaf: a group that ignores TERM, stopped by the real `_k2_stop` in this shell, whose `wait` lasts as long as the
+         # group does: it ends within 5 s, reads gone and is not named on fd 9.
+         set -m; ( trap '' TERM; exec sleep 30 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_d=$!; set +m; sleep 0.2
+         _og_t0=$SECONDS; { _k2_stop "$_og_d" 9> "$_VFY/.og_d9"; } 2>/dev/null; _og_dt=$((SECONDS - _og_t0))
+         [ "$_og_dt" -lt 5 ] && ! _k2_live -"$_og_d" && [ ! -s "$_VFY/.og_d9" ] || _og_bad="$_og_bad; deaf: a group ignoring TERM took $_og_dt s to stop, read live or was named ($(cat "$_VFY/.og_d9" 2>/dev/null))"
+         # KILL until gone, on zomb's zombie group (held until the cleanup below), `kill`, `sleep` and `_k2_live` shadowed (no
+         # signal is sent): always live is 1 after 21 KILLs; live for three probes, 0 after 3; a reused leader (<w> 1, `kill -0`
+         # answering) gets none; the latch (<w> 0, grace 2, the leader free at probe 2 and answering at 3) none. batch: the
+         # stop's text over two groups, the 2nd free at the batch probe and answering once the 1st group's loop has read a
+         # table, KILLs neither. mark: the reap passes a leaderless group to the stop as <g>:1.
+         if [ "$_og_i" -lt 40 ]; then
+           _og_kg() { ( _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }
+             kill() { case "$1" in -9) _og_k=$((_og_k + 1)) ;; -0) _og_n=$((_og_n + 1)); [ "$_og_n" -ne "$_og_f" ] ;; esac; }
+             _k2_live() { [ "$_og_lv" -lt 0 ] && return 0; [ "$_og_lv" -gt 0 ] || return 1; _og_lv=$((_og_lv - 1)); }
+             _k2_kill_gone "$_og_z" "$@"; echo "$? $_og_k" ); }
+           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 0)"; [ "$_og_r" = "1 21" ] || _og_bad="$_og_bad; kill until gone: a group always live gave \"$_og_r\", not 1 after 21 KILLs"
+           _og_r="$(_og_lv=3 _og_f=0 _og_kg 0)"; [ "$_og_r" = "0 3" ] || _og_bad="$_og_bad; kill until gone: a group live for three probes gave \"$_og_r\", not 0 after 3 KILLs"
+           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 1)"; [ "$_og_r" = "0 0" ] || _og_bad="$_og_bad; kill until gone: a reused leader (seen free, answering) gave \"$_og_r\", not 0 with no KILL"
+           _og_r="$(_og_lv=-1 _og_f=2 _og_kg 0 2)"; [ "$_og_r" = "0 0" ] || _og_bad="$_og_bad; kill until gone: a leader free at probe 2 and answering at 3 gave \"$_og_r\", not 0 with no KILL"
+           command rm -f "$_VFY/.og_ph"
+           _og_bt() { ( set -- "$_og_z" "$_og_l"; sleep() { SECONDS=5; }; ps() { : > "$_VFY/.og_ph"; echo "$_og_l $_og_l S"; }
+             kill() { case "$1" in -9) echo "$2" ;; -0) case "$2" in "$_og_l") [ -e "$_VFY/.og_ph" ] ;; esac ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
+           _og_r="$(_og_bt)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; batch: the stop KILLed a group whose leader was free at its batch probe ($_og_r)"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; _k2_live() { :; }; kill() { [ "${2#-}" != "$2" ]; }; _k2_stop() { echo "$*"; }; _k2_reap ) 2>&1 )"
+           [ "$_og_r" = "$_og_z:1" ] || _og_bad="$_og_bad; mark: the reap passed a leaderless group as \"$_og_r\", not \"$_og_z:1\""
+         fi
          { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
          command rm -rf "$_K2_REAP_D/og"
          : > "$_VFY/.og_end"
@@ -565,7 +592,7 @@ elif ! ( _og_bad=""
   [ -e "$_VFY/.og_end" ] || echo "!! CONTROL FAILED ($_og_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_VFY/.og_r1" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
+command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_VFY/.og_r1" "$_VFY/.og_d9" "$_VFY/.og_ph" "$_VFY/.og_rd" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.

@@ -445,21 +445,30 @@ _K2_ORDERLY=0; _K2_REAP_D=""
 _k2_ptab() { ps -A -o pgid= -o pid= -o stat= 2>/dev/null || :; }
 _k2_live() { kill -0 "$1" 2>/dev/null || return 1; local _kl_n; for _kl_n in 1 2; do _k2_ptab | awk -v k="$1" \
     '(k < 0 ? $1 == -k : $2 == k) && $3 !~ /^Z/ { f = 1 } END { if (NR && !f) exit 3 }' || [ $? -ne 3 ] && return 0; done; return 1; }
+# KILL UNTIL GONE, one text for the stop, its fallback and the call's end: `_k2_kill_gone <pgid> <w> [<grace>]` probes
+# first and, while the group reads live, waits 0.1 s while `SECONDS` < <grace>, then KILLs it, 0.05 s apart, at most 21
+# times (one KILL can miss a member forked as it lands): 1 if still live at that bound, else 0. IDENTITY, a latch: once
+# its leader's id is seen free (<w> 1: it was waited), an id that answers again is reused and is left alone (0).
+_k2_kill_gone() { local _kg_i=0 _kg_w="$2"; while _k2_live -"$1"; do if kill -0 "$1" 2>/dev/null; then [ "$_kg_w" = 0 ] || return 0
+    else _kg_w=1; fi; if [ "$SECONDS" -lt "${3:-0}" ]; then sleep 0.1 || sleep 1; continue; fi
+    [ "$_kg_i" -lt 21 ] || return 1; kill -9 -"$1" 2>/dev/null; _kg_i=$((_kg_i + 1)); sleep 0.05 || sleep 1; done; return 0; }
 # STOP, one procedure for the reap and the watchdog: TERM to each group, so a selftest child runs its own exit path
-# (its scratch dir); then until all are gone or `SECONDS` reaches 2 (1-2 s: whole seconds, counted from this text's own
-# `SECONDS=0`, the one assignment of that clock; a child's own cleanup ends well inside 1 s), then KILL, again while the
-# group reads live (bounded: 20 more, 0.05 s apart; as at `_k2_end`, one KILL can miss a member forked as it lands). Its
-# own process (its text holds `_k2_live`), started without the caller's exported errexit and nounset (`SHELLOPTS`) and
-# `BASH_ENV`; it holds no fd 9. bash 3.2 prints a job notice ("Killed: 9") for a stopped job of its own while it waits on
-# that process, hence the group's `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
-_K2_STOP="$(declare -f _k2_ptab _k2_live)"'; SECONDS=0
-for p; do kill -TERM -"$p"; done
-for p; do while _k2_live -"$p" && [ "$SECONDS" -lt 2 ]; do sleep 0.1 || sleep 1; done; done
-for p; do kill -9 -"$p"; _kz=0; while _k2_live -"$p" && [ "$_kz" -lt 20 ]; do sleep 0.05 || sleep 1; kill -9 -"$p"; _kz=$((_kz + 1)); done; done; exit 0'
+# (its scratch dir); one `kill -0` over all leaders then starts every latch at once (`<g>:1`: the reap saw that id
+# free), so no group's latch waits out the loops before it; then each until gone, its grace ending when `SECONDS`
+# reaches 2 (1-2 s: whole seconds, counted from this text's own `SECONDS=0`, the one assignment of that clock; a
+# child's own cleanup ends well inside 1 s), then KILLed until gone (`_k2_kill_gone`). Its own process (its text holds
+# the three functions), started without the caller's exported errexit and nounset (`SHELLOPTS`) and `BASH_ENV`; it
+# holds no fd 9.
+# bash 3.2 prints a job notice ("Killed: 9") for a stopped job of its own while it waits on that process, hence the
+# group's `2>/dev/null`; the notice for a standing check's subshell the signal killed stays (a true event).
+_K2_STOP="$(declare -f _k2_ptab _k2_live _k2_kill_gone)"'; SECONDS=0
+for p; do kill -TERM -"${p%:1}"; done
+_kw=(); for p; do [ "$p" = "${p%:1}" ] && kill -0 "$p" 2>/dev/null || _kw[${p%:1}]=1; done
+for p; do _k2_kill_gone "${p%:1}" "${_kw[${p%:1}]-0}" 2; done; exit 0'
 _k2_stop() { local _ks_p
   { env -u SHELLOPTS -u BASH_ENV "$BASH" -c "$_K2_STOP" k2stop "$@" < /dev/null > /dev/null 2>&1 9>&- \
-      || for _ks_p in "$@"; do kill -9 -"$_ks_p"; done
-    for _ks_p in "$@"; do wait "$_ks_p" || :; done; } 2>/dev/null; return 0; }
+      || for _ks_p in "$@"; do case "$_ks_p" in *:1) _k2_kill_gone "${_ks_p%:1}" 1 ;; *) _k2_kill_gone "$_ks_p" 0 ;; esac; done
+    for _ks_p in "$@"; do wait "${_ks_p%:1}" || :; done; } 2>/dev/null; return 0; }
 # IDENTITY: `_k2_age <pid> <s>` is true when `ps -o etime=` shows <pid> at least <s> seconds old; a
 # machine whose `ps` cannot read the run's own pid is refused by the controls file (exit 2).
 _k2_age() { ps -o etime= -p "$1" 2>/dev/null | _K2_AGE="$2" awk '{ n = split($1, f, /[-:]/)
@@ -469,34 +478,30 @@ _k2_age() { ps -o etime= -p "$1" 2>/dev/null | _K2_AGE="$2" awk '{ n = split($1,
 # only while its group is live and is the run's: no leader (no id is reused while its group exists), or
 # a leader (a zombie one too: it holds its id) no younger than the record, less 1 s. Anything else is
 # skipped: a leftover, never a wrong kill (the residue, a group that emptied and whose id was reused: BS-12).
-_k2_reap() { local _kr_f _kr_p _kr_t; local -a _kr_g=()
+_k2_reap() { local _kr_f _kr_p _kr_t _kr_w; local -a _kr_g=()
   [ -n "$_K2_REAP_D" ] || return 0
   for _kr_f in "$_K2_REAP_D"/* "$_K2_REAP_D"/*/*; do _kr_p="${_kr_f##*/}"
     case "$_kr_p" in ''|*[!0-9]*|0*|1) continue ;; esac
     _k2_live -"$_kr_p" || continue
-    if kill -0 "$_kr_p" 2>/dev/null; then _kr_t=""; read -r _kr_t 2>/dev/null < "$_kr_f"
+    _kr_w=":1"; if kill -0 "$_kr_p" 2>/dev/null; then _kr_w=""; _kr_t=""; read -r _kr_t 2>/dev/null < "$_kr_f"
       case "$_kr_t" in ''|*[!0-9]*) continue ;; esac
       _k2_age "$_kr_p" $((SECONDS - _kr_t - 1)) || continue; fi
-    _kr_g+=("$_kr_p"); done
+    _kr_g+=("$_kr_p$_kr_w"); done
   [ "${#_kr_g[@]}" -eq 0 ] || _k2_stop "${_kr_g[@]}"; }
 # Each group is recorded right after its own launch. A record that cannot be written ends the call:
 # `set +m` back, the cause on fd 9, its groups stopped, their entries removed, `exit 2` (at top level
 # the run's 2; in a standing check's subshell that subshell's, and the check reds). The call's end
-# KILLs the watchdog (unwaited until then, so its id is not reused), then KILLs each group again,
-# without TERM (the child's leader ended through its own exit path), while it has live members and no
-# leader: one group KILL can miss a member forked as it lands. A group still there goes to
-# `_ctl_left` and keeps its entry for the run's end; one gone, or whose id now names a reused leader,
-# is dropped, and a drop that fails is named on fd 9 and `exit 2`s after the rest are tried.
+# KILLs the watchdog (unwaited until then, so its id is not reused), then KILLs each group until gone,
+# without TERM (the child's leader ended through its own exit path), its leader seen free (waited): a
+# group still there goes to `_ctl_left` and keeps its entry for the run's end; one gone, or whose id now names a reused
+# leader, is dropped, and a drop that fails is named on fd 9 and `exit 2`s after the rest are tried.
 _k2_reap_add() { # $1 = the label, $2 = a group just launched, $3... = the call's groups already recorded
   local _ka_p; [ -n "$_K2_REAP_D" ] && printf '%s\n' "$SECONDS" 2>/dev/null > "$_K2_REAP_D/$2" && return 0
   set +m; echo "!! $1: the reap set could not record process group $2, so a signal would leave it running; decided nothing" >&9
   _k2_stop "${@:2}"; for _ka_p in "${@:3}"; do command rm -f "$_K2_REAP_D/$_ka_p" 2>/dev/null; done; exit 2; }
 _k2_end() { # $1 = the label, $2 = the child's group (its leader waited), $3 = the watchdog's: each KILLed until empty, then dropped
-  local _ke_p _ke_i _ke_f=0; _ctl_left=""; kill -9 -"$3" 2>/dev/null || true; wait "$3" 2>/dev/null || true
-  for _ke_p in "${@:2}"; do _ke_i=0
-    while _k2_live -"$_ke_p" && ! kill -0 "$_ke_p" 2>/dev/null; do
-      [ "$_ke_i" -lt 20 ] || { _ctl_left="$_ctl_left $_ke_p"; continue 2; }
-      kill -9 -"$_ke_p" 2>/dev/null || true; sleep 0.05 || sleep 1; _ke_i=$((_ke_i + 1)); done
+  local _ke_p _ke_f=0; _ctl_left=""; kill -9 -"$3" 2>/dev/null || true; wait "$3" 2>/dev/null || true
+  for _ke_p in "${@:2}"; do _k2_kill_gone "$_ke_p" 1 || { _ctl_left="$_ctl_left $_ke_p"; continue; }
     command rm -f "$_K2_REAP_D/$_ke_p" 2>/dev/null && continue; _ke_f=1
     echo "!! $1: the reap set could not drop process group $_ke_p, so the run's end could stop another's; decided nothing" >&9; done
   [ "$_ke_f" -eq 0 ] || exit 2; }
