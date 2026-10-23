@@ -530,8 +530,8 @@ s/^\(  local _ke_p _ke_f=0; _ctl_left=""\); kill -9 -"[$]3" 2>\/dev\/null || tru
 # arm, whose `kill` made to succeed reaches the table on macOS too; R29b - `_k2_live` always gone: KILLED by its live arm.
 s/) && [$]3 !~ \/^Z\/ { f = 1 }/) { f = 1 }/	a call's process groups end with it and hold none of its caller's streams
 s/^_k2_live() { kill -0 /_k2_live() { return 1; kill -0 /	a call's process groups end with it and hold none of its caller's streams
-# R29c - the stop's text without its functions (no KILL is sent: "command not found"): KILLED by the `_og` deaf row's elapsed
-# bound; R29d - the grace's test made false: the stop KILLs at once, KILLED by the `_wm` hang row's `.term` (written 0.2 s on).
+# R29c - the stop's text without its functions ("command not found": no KILL is sent): KILLED as R29j below; R29d - the
+# grace's test made false: the stop KILLs at once, KILLED by the `_wm` hang row's `.term` (written 0.2 s on).
 s/^_K2_STOP="[$](declare -f _k2_ptab _k2_live _k2_kill_gone)"'; SECONDS=0$/_K2_STOP='SECONDS=0/	a call's process groups end with it and hold none of its caller's streams
 s/if \[ "[$]SECONDS" -lt "[$]{3:-0}" \]; then/if false; then/	only the watchdog's marker makes a signal status a timeout
 # R29e - `_k2_live` reads the pid column for a group too: KILLED by zomb's live group, whose leader has exited.
@@ -549,8 +549,8 @@ s/END { if (NR \&\& !f) exit 3 }/END { if (!f) exit 3 }/	a call's process groups
 # shadowed `ps` reads the group gone, then live: alive); with that row removed it SURVIVES.
 s/for _kl_n in 1 2; do/for _kl_n in 1; do/	a call's process groups end with it and hold none of its caller's streams
 # R29i - the stop's `_k2_kill_gone` call made `:` (TERM only); R29j - `_k2_kill_gone` dropped from `$_K2_STOP`'s `declare -f`
-# (no KILL): KILLED by the `_og` deaf row's elapsed bound (`_k2_stop`'s `wait` lasts the TERM-deaf `sleep 30`); with that
-# bound removed each SURVIVES.
+# (no KILL): KILLED by the `_og` deaf row's elapsed bound (the TERM-deaf `sleep 10`); the norec row may also kill them (R22's
+# race, rate not pinned); with those rows removed each SURVIVES.
 s/^for p; do _k2_kill_gone "[$]{p%:1}" "[$]{_kw\[[$]{p%:1}\]-0}" 2; done; exit 0'$/for p; do :; done; exit 0'/	a call's process groups end with it and hold none of its caller's streams
 s/^_K2_STOP="[$](declare -f _k2_ptab _k2_live _k2_kill_gone)"/_K2_STOP="$(declare -f _k2_ptab _k2_live)"/	a call's process groups end with it and hold none of its caller's streams
 # R29k - `_k2_kill_gone`'s KILL bound cut to one; R29l - its exhaustion status made 0: KILLED by the `_og` check's

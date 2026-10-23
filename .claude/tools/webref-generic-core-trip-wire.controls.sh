@@ -545,6 +545,13 @@ elif ! ( _og_bad=""
              *) _og_bad="$_og_bad; no arm for row \"$_og_row\"" ;;
            esac
          done
+         # deaf: a group that ignores TERM (its `.og_dr` written once the ignore is set, which `exec` keeps; waited for, 40 polls,
+         # 0.05 s apart, 1 s where `sleep` is integer-only), stopped by the real `_k2_stop` in this shell, whose `wait` lasts as long
+         # as the group does: it ends within 5 s (unstopped, 10), reads gone and is not named on fd 9. Before zomb (no zomb id).
+         command rm -f "$_VFY/.og_dr"; set -m; ( trap '' TERM; : > "$_VFY/.og_dr"; exec sleep 10 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_d=$!; set +m
+         _og_w=0; until [ -e "$_VFY/.og_dr" ] || [ "$_og_w" -ge 40 ]; do _og_w=$((_og_w + 1)); sleep 0.05 || sleep 1; done
+         _og_t0=$SECONDS; { _k2_stop "$_og_d" 9> "$_VFY/.og_d9"; } 2>/dev/null; _og_dt=$((SECONDS - _og_t0))
+         [ -e "$_VFY/.og_dr" ] && [ "$_og_dt" -lt 5 ] && ! _k2_live -"$_og_d" && [ ! -s "$_VFY/.og_d9" ] || _og_bad="$_og_bad; deaf: a group ignoring TERM (ready: $([ -e "$_VFY/.og_dr" ] && echo yes || echo no)) took $_og_dt s to stop, read live or was named ($(cat "$_VFY/.og_d9" 2>/dev/null))"
          # zomb: `_k2_live`, the probe every row above reads, with `kill -0` as found and made to succeed (`kill` a function:
          # Linux's answer, so the table decides on macOS too). A group of one zombie (`sleep 0.2`, its parent exec'd a `sleep`
          # that reaps nothing) reads gone, as a group and as a pid, as does the exited leader of a group whose member lives on
@@ -566,7 +573,8 @@ elif ! ( _og_bad=""
          # the zombie group (its TERM reaches only that group), the caller's `_k2_live` live, names it once and returns 0.
          # reap: an entry with no record time named by zomb's live group (`kill` answering, as above) is named, not
          # stopped. keep: a failed record removes the entries of the groups the stop confirmed gone and keeps the rest, 2.
-         # (These read zomb's `sleep 5` member alive, so the deaf row, which waits 2 s, follows them.)
+         # Zomb's processes live 5 s from its launch: its build (at most 2 s) and these rows run inside them; on the wire unmutated,
+         # its ids' only real signals are the name row's TERM and the cleanup's KILL.
          if [ "$_og_i" -lt 40 ]; then
            _og_kg() { ( _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }
              kill() { case "$1" in -9) _og_k=$((_og_k + 1)) ;; -0) _og_n=$((_og_n + 1)); [ "$_og_n" -ne "$_og_f" ] ;; esac; }
@@ -586,17 +594,12 @@ elif ! ( _og_bad=""
            _og_r="$( ( _k2_live() { :; }; _k2_stop "$_og_z" 9>&1 > /dev/null; echo "rc $?" ) 2>/dev/null )"
            [ "$_og_r" = "!! could not confirm that group $_og_z ended; it may still be running"$'\n'"rc 0" ] || _og_bad="$_og_bad; name: a group the caller reads live after the stop gave \"$_og_r\", not one line and 0"
            command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_l"
-           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_live() { :; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
            [ "$_og_r" = "!! could not confirm that group $_og_l ended; it may still be running" ] || _og_bad="$_og_bad; reap: an entry whose identity is unknown gave \"$_og_r\", not one line and no stop"
            command rm -rf "$_VFY/.og_rd"; mkdir -p "$_VFY/.og_rd/$_og_h"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
            ( _K2_REAP_D="$_VFY/.og_rd"; _k2_stop() { _k2_left=" $_og_l"; }; _k2_reap_add keep "$_og_h" "$_og_z" "$_og_l" 9>/dev/null ); _og_r=$?
            [ "$_og_r" -eq 2 ] && [ -e "$_VFY/.og_rd/$_og_l" ] && [ ! -e "$_VFY/.og_rd/$_og_z" ] || _og_bad="$_og_bad; keep: a failed record (status $_og_r) did not keep exactly the entry of the group the stop could not confirm ended"
          fi
-         # deaf: a group that ignores TERM, stopped by the real `_k2_stop` in this shell, whose `wait` lasts as long as the
-         # group does: it ends within 5 s, reads gone and is not named on fd 9.
-         set -m; ( trap '' TERM; exec sleep 30 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_d=$!; set +m; sleep 0.2
-         _og_t0=$SECONDS; { _k2_stop "$_og_d" 9> "$_VFY/.og_d9"; } 2>/dev/null; _og_dt=$((SECONDS - _og_t0))
-         [ "$_og_dt" -lt 5 ] && ! _k2_live -"$_og_d" && [ ! -s "$_VFY/.og_d9" ] || _og_bad="$_og_bad; deaf: a group ignoring TERM took $_og_dt s to stop, read live or was named ($(cat "$_VFY/.og_d9" 2>/dev/null))"
          { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
          command rm -rf "$_K2_REAP_D/og"
          : > "$_VFY/.og_end"
@@ -604,7 +607,7 @@ elif ! ( _og_bad=""
   [ -e "$_VFY/.og_end" ] || echo "!! CONTROL FAILED ($_og_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_VFY/.og_r1" "$_VFY/.og_d9" "$_VFY/.og_ph" "$_VFY/.og_rd" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
+command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_VFY/.og_r1" "$_VFY/.og_d9" "$_VFY/.og_dr" "$_VFY/.og_ph" "$_VFY/.og_rd" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.
