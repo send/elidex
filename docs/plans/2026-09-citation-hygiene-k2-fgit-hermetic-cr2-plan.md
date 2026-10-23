@@ -15,6 +15,20 @@ edit of a record-anchored line to simulate a profile, no tool installs. r2 imple
 R2's G1–G40, r4 R3's H1–H28, r5 R4's J1–J29, each as the driver decided them; the change maps at the end name the sections.
 **Section references:** `x§6.n` is the companion's; a § after a file name is that file's; any other § is this memo's.
 
+⚠ **Corrective notes** (dated; one line per falsified line, added by the slice that falsifies it, under G36's rule, §7 and `…-cr-plan.md`'s notes: the body below is left as accepted, because it is provenance; the line numbers are the body's as accepted, before the first note, which shifts it by the notes' own lines; the authority for each new text is `…-cr2-plan-liveness.md` §5, and `…-impl-cr2-d.md` §T.J records the slice):
+- **:90 (CR#11's row) and :460**, "(TERM, 1–2 s, KILL …)" (2026-10-23, R29-D): TERM, a 1–2 s grace, then KILL until gone (`_k2_kill_gone`).
+- **:562**, "`_k2_reap_add` and `_k2_end` (12 lines)" (2026-10-23, R29-D): 5 + 6 = 11 lines at R29-D's head (`_k2_reap_add`, the wire :502–:506; `_k2_end`, :507–:512).
+- **:555 (the wire's budget) and :704 (CR-B)**, **1376** = base + 90 (2026-10-23, R29-D): the wire's stop line is **1389** (`…-cr2-plan-liveness.md` §5, its Q8: the R29-D mechanism keeps its code in the wire, by its cohesion re-judgment); 1386 at R29-D's head.
+- **:625 (G11-2c)**, "TERM, then 1–2 s (whole `SECONDS`), then KILL" (2026-10-23, R29-D; "then KILL" already corrected by `…-impl-cr2-d.md` §T.I D3): TERM, then `_k2_kill_gone` (a grace, then ≤ 21 KILLs while the group reads live, with an identity latch); pinned by R11w, R29d and the `_og` deaf row (R29i, R29j).
+- **:635 (G11-10)**, "stopped only when `kill -0 -<pgid>` fails: `_k2_end` re-KILLs … (bounded)" (2026-10-23, R29-D; first corrected by `…-impl-cr2-d.md` §T.H (1)): … when `_k2_live -<pgid>` fails (a member that is not a zombie, and two table reads gone); `_k2_kill_gone <g> 1`; pinned by zomb, R29a–R29h and R29k–R29p.
+- **:636 (G11-11)**, "unknown → skip; a `ps -o etime=` that cannot read the run's own pid refuses" (2026-10-23, R29-D): unknown → skip and named on fd 9 (R29q); either `ps` read failing on the run's row refuses (controls :230).
+- **:649 (BS-12)**, (4) "… is skipped and a signal leaves that group running", the refusal by `etime` only, items (1)–(4) (2026-10-23, R29-D): (4) is skipped and named; the refusal needs both `ps` reads; (5) is residual R19 (`…-residuals.md`).
+- **:698 (CR11-K)**, "dropped only when `kill -0 -<pgid>` fails (H2)" (2026-10-23, R29-D; first corrected by `…-impl-cr2-d.md` §T.H (1)): … when `_k2_live -<pgid>` fails; its probe (`cr2/bin/cr2c2-r4race.sh`) extracts the stop's three functions first.
+- **:431**, `_ctl_left`'s groups "could not confirm empty" (2026-10-23, R29-D): could not confirm ended (a group of zombies has ended).
+- **:637 (G11-12) and :700 (CR11-A)**, "stops the call's groups, then removes their entries"; "restores `set +m`, stops, then removes (H17)" (2026-10-23, R29-D): … stops, names and keeps the groups not confirmed gone, and removes the rest (R29r).
+- **:701 (CR11-J)**, the J1 text, "the reap's identity check needs `ps -o etime=`" (2026-10-23, R29-D): controls :230's text: the reap needs both `ps` reads (`etime` and the process table).
+- **:819**, "`kill -0 -<pgid>` and `ps -o etime=` are read here on macOS only" (2026-10-23, R29-D; first corrected by `…-impl-cr2-d.md` §T.H (4)): the table read too, refused where it cannot list the run's own row.
+
 **Frame: `706049ad`** (the git clone `cr2-wt`, branch `cr2`). Every line number is at `706049ad` unless a commit is
 named beside it. **(M)** = measured in `git clone --local` copies of it under `cr2/work/` (never in `cr2-wt` or the
 worktree); scripts in `cr2/bin/`, logs in `cr2/logs/` (paths relative to the handoff directory); b53 =
