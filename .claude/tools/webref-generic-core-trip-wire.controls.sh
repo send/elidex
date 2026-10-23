@@ -555,6 +555,9 @@ elif ! ( _og_bad=""
          if [ "$_og_i" -ge 40 ]; then _og_bad="$_og_bad; zomb: no group of one zombie could be built"
          elif _k2_live -"$_og_z" || ( kill() { :; }; _k2_live -"$_og_z" || _k2_live "$_og_z" || _k2_live "$_og_l" ); then _og_bad="$_og_bad; zomb: a group of one zombie read alive"
          elif ! _k2_live -"$_og_l" || ! ( kill() { :; }; _k2_live -"$_og_l" ) || ! ( set -o pipefail; kill() { :; }; ps() { return 3; }; _k2_live -"$_og_l" && _k2_live -"$_og_z" ) || ! ( set -o pipefail; kill() { :; }; awk() { cat >/dev/null; return 2; }; _k2_live -"$_og_l" ); then _og_bad="$_og_bad; zomb: a live group, or one read by a failing \`ps\` or \`awk\`, read gone"; fi
+         # two reads (L4): gone takes two table reads gone, so a shadowed `ps` that reads the group gone, then live, reads alive.
+         [ "$_og_i" -ge 40 ] || ( kill() { :; }; ps() { if [ -e "$_VFY/.og_r1" ]; then echo "$_og_z 1 S"; else : > "$_VFY/.og_r1"; echo "1 1 S"; fi; }
+           command rm -f "$_VFY/.og_r1"; _k2_live -"$_og_z" ) || _og_bad="$_og_bad; zomb: a group one table read saw gone and the next live read gone"
          { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
          command rm -rf "$_K2_REAP_D/og"
          : > "$_VFY/.og_end"
@@ -562,7 +565,7 @@ elif ! ( _og_bad=""
   [ -e "$_VFY/.og_end" ] || echo "!! CONTROL FAILED ($_og_lbl): the check ended before its verdict" >&2
   ctl_ok=1
 fi
-command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
+command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_VFY/.og_r1" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
 # A mode a fixture sealed and the window could not apply (or refused) is red
 # here, with its own label: the controls gated on that mode having taken effect
 # would otherwise be skipped as if this machine could not enforce it.

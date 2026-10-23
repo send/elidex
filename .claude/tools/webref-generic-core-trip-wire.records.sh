@@ -541,9 +541,12 @@ s/(k < 0 ? [$]1 == -k : [$]2 == k)/($2 == (k < 0 ? -k : k))/	a call's process gr
 s/^\(_k2_ptab() { ps .* 2>\/dev\/null\) || :; }$/\1; }/	a call's process groups end with it and hold none of its caller's streams
 # R29g - `_k2_live` with the old decision form (the pipeline's status decides, any failure reads gone): a failing awk reads
 # a live group gone. KILLED by zomb's case of a failing `awk`, which must read the live group alive.
-s/END { if (NR \&\& !f) exit 3 }' || \[ [$]? -ne 3 \]; }$/END { exit !(f || !NR) }'; }/	a call's process groups end with it and hold none of its caller's streams
+s/END { if (NR \&\& !f) exit 3 }' || \[ [$]? -ne 3 \] \&\& return 0; done; return 1; }$/END { exit !(f || !NR) }' \&\& return 0; done; return 1; }/	a call's process groups end with it and hold none of its caller's streams
 # R29h - `_k2_live`'s empty-table guard dropped (`NR &&`): a table that reads no row (a failing `ps`, under `_k2_ptab`'s
 # `|| :`) reads every group gone. KILLED by zomb's case of a failing `ps`, which must read both groups alive.
 s/END { if (NR \&\& !f) exit 3 }/END { if (!f) exit 3 }/	a call's process groups end with it and hold none of its caller's streams
+# R29o - `_k2_live`'s second table read dropped (one read gone is gone, L4): KILLED by the `_og` check's two-read row (a
+# shadowed `ps` reads the group gone, then live: alive); with that row removed it SURVIVES.
+s/for _kl_n in 1 2; do/for _kl_n in 1; do/	a call's process groups end with it and hold none of its caller's streams
 MUTANTS
 }

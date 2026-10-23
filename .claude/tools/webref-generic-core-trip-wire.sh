@@ -441,9 +441,10 @@ _K2_ORDERLY=0; _K2_REAP_D=""
 # A zombie runs nothing, holds no fd and keeps its id from reuse: a group of zombies (orphans of a PID 1 that reaps
 # none) has ended. `kill -0` failing is gone (macOS: EPERM on one); else the table (`_k2_ptab`, checked at the controls
 # file's start) decides: only awk's `exit 3` (rows, no live match) is gone; any other status, pipefail or not, is alive.
+# A table read is a walk that can miss a member forked during it, so gone takes two reads gone (one decision text, looped).
 _k2_ptab() { ps -A -o pgid= -o pid= -o stat= 2>/dev/null || :; }
-_k2_live() { kill -0 "$1" 2>/dev/null || return 1; _k2_ptab | awk -v k="$1" \
-    '(k < 0 ? $1 == -k : $2 == k) && $3 !~ /^Z/ { f = 1 } END { if (NR && !f) exit 3 }' || [ $? -ne 3 ]; }
+_k2_live() { kill -0 "$1" 2>/dev/null || return 1; local _kl_n; for _kl_n in 1 2; do _k2_ptab | awk -v k="$1" \
+    '(k < 0 ? $1 == -k : $2 == k) && $3 !~ /^Z/ { f = 1 } END { if (NR && !f) exit 3 }' || [ $? -ne 3 ] && return 0; done; return 1; }
 # STOP, one procedure for the reap and the watchdog: TERM to each group, so a selftest child runs its own exit path
 # (its scratch dir); then until all are gone or `SECONDS` reaches 2 (1-2 s: whole seconds, counted from this text's own
 # `SECONDS=0`, the one assignment of that clock; a child's own cleanup ends well inside 1 s), then KILL, again while the
