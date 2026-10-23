@@ -5,6 +5,18 @@ applies its `cr2/PLAN-REVIEW-R29-R1.md`, R1 and R2, mapped below). Moved into `d
 the authority for §5's lines; the G36 notes it supersedes stay records and §T.I D6's "no separate plan-review" is
 withdrawn (§5's last paragraph): a change to a ratified surface is a design change, reviewed as the mechanism, not the diff.
 
+⚠ **Corrective notes** (dated; one line per falsified line, added by the slice that falsifies it, under G36's rule, as the notes atop `…-cr2-plan.md` and `…-cr2-plan-exitpath.md`: the body below is left as accepted, because it is provenance; the line numbers are the body's as accepted, before the first note, which shifts it by the notes' own lines; the authority for each new text is `…-cr2-plan-liveness-2.md` §5, and `…-impl-cr2-d.md` §T.K records the slice):
+- **:60, :61 (§1.2 table)**, "the stop's batch probe … `<w>` 0 / `<w>` 1"; "K1's latch … if seen free before: reused" (2026-10-24, R29-E): the primitive's first read, for every caller; the latch read at every probe of every pending group.
+- **:66 (the call's end)**, `_k2_kill_gone g 1` (2026-10-24, R29-E): `_k2_kill_gone 0 g:1 w:1`, and `_kg_left` → `_ctl_left`.
+- **:105–:113, :117–:122 (K1)**, `_k2_kill_gone <pgid> <w> [<grace>]`; "one batch `kill -0`", "per group"; "the fallback … no batch probe"; "1 if still live at that bound, else 0" (2026-10-24, R29-E): `_k2_kill_gone <grace> <g>[:1]...`, one primitive over the set, every pending group read once a tick; one answer, `_kg_left` (it returns 0) (`…-cr2-plan-liveness-2.md` §1.2, §1.3).
+- **:160 (ID×TB), :168 (TB×KX), :170 (TB×FS)**, "from one batch probe"; "per group, sequential; … 21 s"; "n × 21 × …" (2026-10-24, R29-E): `…-cr2-plan-liveness-2.md` §2's rows (the latches from the first read, read every tick; ≤ 21 KILL ticks for the set).
+- **:207 (K1)**, "one batch probe starts the stop's latches" (2026-10-24, R29-E): `…-cr2-plan-liveness-2.md` D2.1–D2.3 (one call over the set; each latch live from its first read).
+- **:237, :240, :242 (its §5 rows for x)**, "the batch probe, `_k2_kill_gone <g> <w> 2`"; "`_k2_kill_gone "$_ke_p" 1 || {…}`"; "`_k2_kill_gone <g> 1`" (2026-10-24, R29-E): `_k2_kill_gone 2 "$@"`; `_k2_kill_gone 0 "$2:1" "$3:1"; _ctl_left="$_kg_left"` (the R29-E notes in `…-cr2-plan-exitpath.md` say so for x).
+- **:264–:267 (deaf)**, "`exec sleep 30`", readiness unstated (2026-10-24, R29-E): a readiness handshake (a file written once the ignore is set, waited for by `sleep 0.05 || sleep 1`), `exec sleep 10`, the row before zomb's build (`…-cr2-plan-liveness-2.md` §1.5).
+- **:268–:270 (batch), :271–:275 (shadow rows)**, "the 2nd id fails `kill -0` until the 1st group's loop reads a table"; the `<w>` forms; the status `1` / `0` (2026-10-24, R29-E): the 2nd free at its first read; the `<grace> <g>[:1]` forms; the rows read `_kg_left` (`…-cr2-plan-liveness-2.md` §6).
+- **:287, :290, :293, :296**, the killers "`<w>` 1 row", "latch row", "batch row"; "Each survive arm: its killing row removed" (2026-10-24, R29-E): `…-cr2-plan-liveness-2.md` §6's killer table (the last first corrected by `…-impl-cr2-d.md` §T.J).
+- **:329 (C13), :338–:341 (R19)**, "latches start together"; R19's window (2026-10-24, R29-E): the latches start at the first read and are read every tick (`…-cr2-plan-liveness-2.md` §7 C13); R19 as that memo's §8 restates it (`…-residuals.md` R19).
+
 **Names.** wire = `.claude/tools/webref-generic-core-trip-wire.sh`; controls, ctlrun, records, mutations = its parts
 `…trip-wire.<part>.sh`; plan = `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan.md`; x = its companion
 `…-cr2-plan-exitpath.md`; impl-d = `…-impl-cr2-d.md`; logs = the handoff's `cr2/logs/r29-delta/`. **Every tool line
