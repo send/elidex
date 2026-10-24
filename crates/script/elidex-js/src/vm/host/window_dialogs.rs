@@ -211,8 +211,8 @@ pub(super) fn native_window_open(
     // `#11-transient-activation-tracking`, memo §4.3.3).  The flags read
     // happens inside the batch-bind bracket by construction (the native
     // runs under `eval`).
-    // Unbound default stays HEAD's permissive read (J2 makes it fail closed
-    // at N4).
+    // Unbound default keeps the allow-form type's permissive read
+    // (`docs/plans/2026-09-ibp-sandbox.md` J2 makes it fail closed at N4).
     let flags = ctx
         .host_opt()
         .map_or(elidex_plugin::SandboxingFlagSet::unsandboxed(), |hd| {

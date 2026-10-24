@@ -44,12 +44,13 @@ bitflags::bitflags! {
 /// A sandboxing flag set (WHATWG HTML §7.1.5 *sandboxing flag set*,
 /// `html#sandboxing-flag-set`) in the spec's restriction form.
 ///
-/// Nine of the spec's sixteen flags are represented: those HEAD's gates or
-/// the IBP-sandbox program's PRs read (the navigation flag and the propagate
-/// flag have no reader at HEAD; their readers are N2b and N8). The other
-/// seven (pointer lock, automatic features, `document.domain`, orientation
-/// lock, presentation, downloads, custom protocols navigation) have no reader
-/// in either and belong to `#11-sandbox-flag-set-sources`.
+/// Nine of the spec's sixteen flags are represented: the seven the allow-form
+/// type this replaced already gated, plus the navigation flag and the
+/// propagate flag, whose readers land later in the IBP-sandbox program
+/// (`docs/plans/2026-09-ibp-sandbox.md`, N2b and N8). The other seven
+/// (pointer lock, automatic features, `document.domain`, orientation lock,
+/// presentation, downloads, custom protocols navigation) have no reader in
+/// that program and belong to `#11-sandbox-flag-set-sources`.
 ///
 /// The constructors are the whole public surface for building a value:
 /// [`Self::unsandboxed`], [`Self::all_represented`],
@@ -94,10 +95,11 @@ impl SandboxingFlagSet {
 /// steps 1–3).
 ///
 /// The set starts empty and each represented flag is **added** unless its
-/// clearing token is present, so an unrecognised or mis-cased token clears
-/// nothing. The with-user-activation top-level navigation flag is cleared by
-/// either `allow-top-navigation-by-user-activation` or `allow-top-navigation`;
-/// the navigation flag is always added. Tokens are matched ASCII
+/// clearing token is present, so an unrecognised token (including a non-ASCII
+/// lookalike of a keyword) clears nothing. The with-user-activation top-level
+/// navigation flag is cleared by either
+/// `allow-top-navigation-by-user-activation` or `allow-top-navigation`; the
+/// navigation flag is always added. Tokens are matched ASCII
 /// case-insensitively: the `sandbox` attribute's value is "an unordered set
 /// of unique space-separated tokens that are **ASCII case-insensitive**"
 /// (WHATWG HTML §4.8.5, `html#attr-iframe-sandbox`). An empty directive
@@ -238,8 +240,9 @@ pub fn scripting_enabled(flags: SandboxingFlagSet) -> bool {
 mod tests {
     use super::*;
 
-    /// The first 7 are HEAD's tokens (C10b/C10c enumerate those); the 8th is
-    /// `allow-popups-to-escape-sandbox`, which HEAD did not model.
+    /// The first 7 are the tokens the replaced allow-form type modelled
+    /// (C10b/C10c enumerate those); the 8th is
+    /// `allow-popups-to-escape-sandbox`, which it did not.
     const TOKENS: [&str; 8] = [
         "allow-scripts",
         "allow-same-origin",
@@ -260,7 +263,7 @@ mod tests {
             .collect()
     }
 
-    // ── C10: parse truth table (§7.1.5 step 3) ──────────────────────────────
+    // ── C10: parse truth table (§7.1.5 *parse a sandboxing directive* step 3)
 
     #[test]
     fn parse_matches_spec_arms_over_every_token_subset() {
@@ -390,7 +393,7 @@ mod tests {
         );
     }
 
-    // ── C10b: HEAD equivalence (K1) over token strings ──────────────────────
+    // ── C10b: allow-form equivalence (K1) over token strings ────────────────
 
     #[test]
     fn predicates_match_head_token_presence_verdicts() {

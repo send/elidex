@@ -169,8 +169,9 @@ fn modal_arg_coercion_runs_even_when_sandboxed() {
 // ---------------------------------------------------------------------------
 
 /// C10g: an unbound read (no `HostData` installed) yields `unsandboxed()`,
-/// HEAD's permissive default (J2 makes it fail closed at N4): `_blank` takes
-/// the unsandboxed (open-tab) disposition.
+/// the allow-form type's permissive default
+/// (`docs/plans/2026-09-ibp-sandbox.md` J2 makes it fail closed at N4):
+/// `_blank` takes the unsandboxed (open-tab) disposition.
 #[test]
 fn open_blank_without_host_data_takes_the_unsandboxed_disposition() {
     let mut vm = Vm::new();

@@ -659,8 +659,8 @@ impl HostDriver for ElidexJsEngine {
     }
 
     fn sandbox_flags(&self) -> elidex_plugin::SandboxingFlagSet {
-        // Unbound default stays HEAD's permissive read (J2 makes it fail
-        // closed at N4).
+        // Unbound default keeps the allow-form type's permissive read
+        // (`docs/plans/2026-09-ibp-sandbox.md` J2 makes it fail closed at N4).
         self.vm.inner.host_data.as_deref().map_or(
             elidex_plugin::SandboxingFlagSet::unsandboxed(),
             HostData::sandbox_flags,
