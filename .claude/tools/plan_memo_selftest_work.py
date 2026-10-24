@@ -274,7 +274,7 @@ def linear_file_token_control(M):
                            # ⚠ AND THE RUN'S TRAILING PUNCTUATION (PR #510 Codex
                            # R72 of 2026-10-24): the arm above has no tail, so a
                            # per-suffix trim of it cost nothing there. A fragment
-                           # tail is trimmed back from the run end at each suffix,
+                           # tail was trimmed back from the run end at each suffix,
                            # so N suffixes followed by an N-character `!` tail
                            # trimmed that tail N times -- found by the reviewer, not
                            # by this control. The tail belongs to the RUN, like the

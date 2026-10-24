@@ -6,9 +6,10 @@ round, every design re-gate, and the handoff each session resumes from. Carved o
 at PR #510 R47-3, which reported it — §6 had reached 1,790 lines by holding a stable ACCEPTANCE
 CONTRACT and an append-only HISTORY in one bullet, and the two have opposite lifetimes.
 
-▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-23).** Pushed head: `00dfd095`. On top of it, LOCAL and
-UNPUSHED on `vm-p4-plan-memo-checker` (worktree `elidex-wt-vmp4checker`), each commit a fresh-agent
-attestation's findings closed:
+▶▶▶▶ **THE CURRENT HEAD IS THE PR'S** (`gh pr view 510 --json headRefOid`), not written here: a head
+written into this block went stale at the next push (2026-10-24, the PM's note). The table below is
+the **2026-09-23 record**, kept as written: the branch was then pushed at `00dfd095`, with these
+commits local on top, each closing a fresh-agent attestation's findings (all pushed since):
 
 | commit | what it closed |
 |---|---|
@@ -91,8 +92,8 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 
 **OPEN — the lane**
 - The **A-iii wire move**: the self-test wire goes to the `tools` job, whose budget is undecided; the
-  `--self-test --mutants` wall clock is an input (min-of-3, load ~3: `00dfd095` 26.8 s, `3edb6c91`
-  31.7 s, head 32.6 s).
+  `--self-test --mutants` wall clock is an input, measured from a run when the move is planned. Owner
+  since 2026-10-24: the CI/tools lane (the PM's note).
 - ~~The **cap PAUSE question** for #510's merge~~ — **SETTLED 2026-09-26**: the user re-accepted
   option (d) at the current enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
   record is at the top of the umbrella memo's §8. A later change to §8's list re-opens it. The merge
@@ -215,7 +216,7 @@ binding and requires EXACTLY one call per line (a mis-bound counter sees fewer: 
 mutant re-binding it. One mutant deleted as EQUIVALENT (the licensing rule's stream read: since the
 scanners read the stream, no fixture reaches it with raw ≠ stream at a mention boundary — reason in
 `plan_memo_selftest_mutants.py`). `.github/workflows/ci.yml` `trip-wires` `timeout-minutes` 2 → 5
-(211 s on Codex's runner had cancelled a green job). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
+(211 s on Codex's runner had cancelled a green job). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled the `Layering trip-wires` job of run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
 ⚠ **PR #510 Codex R13 (2026-09-07) — the block-grammar family closed**: `plan_memo_blocks.py` had
 drawn IMP findings three rounds running, each on a §3.0 PROSE-AS-WRITTEN disposition; the root was
 that the 27 conformance exclusions were the unmodelled grammar. §4.4 indented code is now a RAW
@@ -1037,7 +1038,7 @@ the block above it was re-measured. Removing that copy surfaced what no single r
 and it is now written beside the timeout: **~10× (R12) → 5.9× (R27) → 5.1× (R29) → 4.4× (R30)** —
 every round's controls and mutants land in an ALWAYS-RUN job, so the headroom is a **budget, not a
 constant**, and the point to act is before a runner cancels a green job (which is what the
-`timeout-minutes: 2` this 5 replaced did, at 211 s). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
+`timeout-minutes: 2` this 5 replaced did, at 211 s). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled the `Layering trip-wires` job of run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
 #2 (P2) an unmatched decoration run made an id cell "blank": `**`, `*`, `` ` ``, ``` `` ```, `***`
 all returned True from `is_blank_id_cell`, so a slice row keyed `**` with the marker and a non-empty
 `Deps` returned **rc 0 with no findings** — in neither `ids` nor assertion (b). Correct is **rc 2**,

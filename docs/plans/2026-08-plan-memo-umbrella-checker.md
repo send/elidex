@@ -6,8 +6,10 @@
 > command -- ranges and `--grep` locators included -- against `FETCH_HEAD` (a range's base, `658cc302`,
 > is on `main`). The `--grep` locators also resolve on `main`, because the repo squashes with the commit
 > messages (`gh api repos/send/elidex --jq .squash_merge_commit_message` = `COMMIT_MESSAGES`).
-> In "Codex R<n> of 2026-09-27" and "of 2026-09-28" the date is the UTC date of the round's review
-> comments (`gh api repos/send/elidex/pulls/510/comments`, `created_at`); the carve and acceptance dates
+> In a round label carrying a date ("Codex R<n> of <date>", "Codex R<n> (<date>, …)") the date is the UTC
+> date of the round's review comments (`gh api repos/send/elidex/pulls/510/comments`, `created_at`;
+> every such date in this memo and the checker's files — 09-08, 09-27, 09-28, 10-24 — is a UTC date
+> carrying the bot's review comments); the carve and acceptance dates
 > beside them ("carved 2026-09-28") are local, JST (UTC+9).
 
 **Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
@@ -1046,15 +1048,16 @@ committed here by the note that corrected it.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
 - **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
-  ⚠ **How to read this entry** (2026-09-30): it holds NO current figure. The measurements below are
-  the record as each round wrote it; read each with the subject and condition its own sentence
+  ⚠ **How to read this entry** (2026-09-30): it holds NO current figure. EVERYTHING below this note is
+  the record as each round wrote it — the measurements, the conclusions drawn from them, and the dated
+  ⚠ annotations added later; read each measurement with the subject and condition its own sentence
   gives — where a sentence gives none, it has none — and never as one series. The job is measured on
   the runner (`gh run view <run-id> --json jobs`), and is re-measured there when a second heavy wire
   (`claim-provenance-trip-wire.sh`, the `stale-claim-detector` lane) joins it. `ci.yml` keeps the
   rule and that command, and no figure.
   Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
-  `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block, then the declared single
-  home, had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
+  `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
+  home (⚠ 2026-09-30: it no longer is — it keeps no figure) had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
   re-measuring. The timeout is re-derived there (5 → 10 min) under that block's own rule. ⚠ What is
   NOT fixed is the driver: the generated corpus costs ~3.6 s and runs once in `--self-test` plus once
   per mutant naming it, and **six** rows name it (measured by loading `MUTANTS`; a `grep -c` counts
