@@ -255,8 +255,14 @@ def linear_file_token_control(M):
     N suffixes (the worst case of per-suffix work on the run's boundary, the
     R36-2 mutant's shape); `a.md#`xN then N `!` is one run holding N suffixes
     and an N-character punctuation tail (the worst case of per-suffix work on
-    the run's tail, the R72 mutant's shape).  A control missing any one of
-    them would leave that clause unwatched.
+    the run's tail, the R72 mutant's shape).  ⚠ WHAT THE MUTATION PROOF NEEDS
+    IS LESS THAN THAT (run each mutant row against each probe alone, PR #510
+    attestation of c9820b45): the R26-2 row is killed by the `x.md ` probe and
+    by the `a.md#` probe, the R36-2 row by the `a.md` probe and by the `a.md#`
+    probe, the R72 row by the `a.md#` probe only, and the `(a)` probe kills no
+    row -- it watches the retired `re` pattern's shape, which no row
+    re-injects.  So at today's rows the `a.md#` probe alone kills all three;
+    the others state their clause directly, and are not what proves it.
 
     Counted by `_count_lines`: the work is a `for` inside one function and
     passes through no module binding `_count_calls` could watch."""

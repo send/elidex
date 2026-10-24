@@ -1563,7 +1563,8 @@ committed here by the note that corrected it.
   the commit that `git log -F --grep="prototype's diff, carried verbatim" --format=%H` names, between
   the EXACT lines `R30 PROTOTYPE DIFF` and `END OF DIFF` -- `awk '/^R30 PROTOTYPE DIFF$/{f=1;next}
   /^END OF DIFF$/{f=0} f'` -- and the pre-squash commits remain on `refs/pull/510/head`) turned the R35 property red on `notes.md#a)b` and `linear_file_token_control` red ("100
-  x.md names cost more than 6000 source lines"), and 15 mutant rows target `plan_memo_tokens.py`.
+  x.md names cost more than 6000 source lines"), and 15 mutant rows targeted `plan_memo_tokens.py` at
+  `e59ef3d7` (`git show e59ef3d7:.claude/tools/plan_memo_selftest_manifest.txt | awk -F'\t' '$1=="MUTANT" && $3=="plan_memo_tokens.py"' | wc -l`).
   HYPOTHESIS for the plan review, not a decision: unify on R26-2, since splitting at `)` reports the
   id and widening a mask is the dangerous direction (`_TRAILING`'s comment); that amends the R35
   property to expect a report on `#a)b` / `#9z)`. The paren grammar, the resolver correspondence,
