@@ -111,9 +111,19 @@ description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
 # — one definition instead of two copies asserted to be identical.
 run = "bash scripts/trip-wires.sh"
 
+[tasks.tools-test]
+description = "Run every tracked Python suite (test_*.py), offline, on the 3.9 floor."
+# The procedure (the set, the complement checks, the derived roots, skip-is-red),
+# the offline regime, the interpreter floor and the wrapper contract for
+# command-shaped self-tests all live in the header of `scripts/python-suites.sh` --
+# the same script the ungated `tools` job in `.github/workflows/ci.yml` runs, so
+# the two callers cannot diverge. No `sources` / `outputs`: mise would skip the
+# task when they are unchanged, and a suite could then go unrun locally.
+run = "bash scripts/python-suites.sh"
+
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "doc", "deny", "trip-wires", "ci-sweep"]
+depends = ["check", "lint", "test-all", "doc", "deny", "trip-wires", "tools-test", "ci-sweep"]
 
 [tasks.bench]
 description = "Run all benchmarks"
