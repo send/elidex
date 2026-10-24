@@ -34,7 +34,7 @@ CHECK_JOB = (
 )
 TOOLS_HEAD = (
     "  tools:\n"
-    "    runs-on: ubuntu-latest\n"
+    "    runs-on: ubuntu-24.04\n"
     "    strategy:\n"
     "      fail-fast: false\n"
     "      matrix:\n"
@@ -133,6 +133,8 @@ class TestReaderPins(unittest.TestCase):
         self.assertTrue(self.q7(workflow(after)))
         one_leg = good.replace('["3.9", "3.x"]', '["3.x"]')
         self.assertTrue(self.q7(one_leg))
+        floating = good.replace("ubuntu-24.04", "ubuntu-latest")
+        self.assertEqual(self.q7(floating), ["runs-on is not exactly ubuntu-24.04"])
         include = good.replace('        python-version: ["3.9", "3.x"]\n', '        python-version: ["3.9", "3.x"]\n        include:\n          - os: macos-latest\n')
         self.assertTrue(self.q7(include))
 
@@ -154,8 +156,20 @@ class TestReaderPins(unittest.TestCase):
     # R-rows.
 
     def test_R1_keys_recognised_in_any_quoting(self):
-        for line in ('    "needs": changes\n', "    'if': x\n"):
-            self.assertTrue(job_key_problems(self.tools_job(workflow(tools_with(line)))), line)
+        for line, key in (('    "needs": changes\n', "needs"), ("    'if': x\n", "if")):
+            self.assertEqual(
+                job_key_problems(self.tools_job(workflow(tools_with(line)))),
+                ["job key %r is not in the tools-job allowlist" % key],
+                line,
+            )
+
+    def test_R1_keys_differing_only_in_quoting_are_duplicates(self):
+        dup_job = workflow(after='\n  "tools":\n    runs-on: ubuntu-24.04\n')
+        self.assertReaderRed(Workflow, dup_job, self.line_of(dup_job, '"tools":'))
+        dup_on = workflow(on=ON_OK + '  "pull_request":\n    branches: [main]\n')
+        self.assertReaderRed(lambda t: Workflow(t).on(), dup_on, self.line_of(dup_on, '"pull_request":'))
+        dup_key = workflow(tools_with("    timeout-minutes: 5\n    \"timeout-minutes\": 6\n"))
+        self.assertReaderRed(self.tools_job, dup_key, self.line_of(dup_key, '"timeout-minutes":'))
 
     def test_R2_modelled_values_read_correctly(self):
         self.assertEqual(list(Workflow(workflow()).on()["pull_request"]["branches"]), ["main"])
@@ -165,7 +179,7 @@ class TestReaderPins(unittest.TestCase):
 
     def test_R3_value_position_constructs_are_red(self):
         for line in ("    env: {a: 1}\n", "    timeout-minutes: &x 10\n", "    runs-on: *x\n"):
-            text = workflow(tools_with(line).replace("    runs-on: ubuntu-latest\n", "", 1 if "runs-on" in line else 0))
+            text = workflow(tools_with(line).replace("    runs-on: ubuntu-24.04\n", "", 1 if "runs-on" in line else 0))
             self.assertReaderRed(self.tools_job, text, self.line_of(text, line.strip()))
 
     def test_R4_key_position_constructs_are_red(self):
@@ -285,6 +299,19 @@ class TestReaderPins(unittest.TestCase):
         elsewhere = mise_fixture(ci='depends = ["check"]', extra='\n[tasks.other]\ndepends = ["tools-test"]\n')
         self.assertIn('[tasks.ci].depends does not contain "tools-test"', mise_problems(elsewhere))
         self.assertReaderRed(mise_problems, mise_fixture(extra='\n[tasks.tools-test.env]\nX = "1"\n'))
+
+    def test_M3_multi_line_string_bodies_are_text(self):
+        live = (REPO / "mise.toml").read_text(encoding="utf-8")
+        body = '\n[tasks.other]\nrun = """\n[ -d target ] || mkdir -p target\n[tasks.tools-test]\nrun = "x"\n"""\n'
+        self.assertEqual(mise_problems(live + body), [])
+        lit = "\n[tasks.other]\nrun = '''\n[ -d target ] || mkdir -p target\n'''\n"
+        self.assertEqual(mise_problems(live + lit), [])
+        for bad in (
+            '\n[tasks.other]\nrun = """\nnever closed\n',
+            '\n[tasks.other]\nrun = """\nescaped close \\"""\n',
+            '\n[tasks.other]\nrun = """\nfour quotes""""\n',
+        ):
+            self.assertReaderRed(mise_problems, live + bad)
 
     def test_M2_tools_test_has_no_sources_or_outputs(self):
         for line in ('sources = ["scripts/**"]', 'outputs = ["x"]'):

@@ -7,7 +7,8 @@ Thanks for your interest in contributing!
 1. Fork the repository and clone your fork.
 2. Install prerequisites: Rust stable toolchain, [mise](https://mise.jdx.dev/),
    [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`),
-   and [cargo-deny](https://github.com/EmbarkStudios/cargo-deny).
+   [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and Python 3.9 or newer
+   (`python3` on `PATH`; `mise run tools-test` runs the Python suites with it).
 3. Run `mise run ci` to verify everything works locally.
 
 ## Development Workflow
@@ -48,3 +49,5 @@ the flag):
 - `cargo doc --workspace --no-deps --all-features` (with `-D warnings`)
 - `cargo deny check` (licenses and vulnerabilities)
 - MSRV compatibility (Rust 1.88)
+- `bash scripts/python-suites.sh` (the `tools` job: every tracked `test_*.py`, offline, on
+  Python 3.9 and the newest 3.x)

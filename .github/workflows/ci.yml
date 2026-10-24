@@ -195,7 +195,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.x"]
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: the "3.9" leg needs an image setup-python serves
+    # 3.9 for. Re-check when Slice B raises the floor or ubuntu-24.04 retires.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 

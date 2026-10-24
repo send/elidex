@@ -601,3 +601,106 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
             ["ERROR g11g/test_b_connect.py::B.test_connect_after_a_member_undid_the_guard"],
         )
 
+    def test_G12_git_variables_are_dropped_for_the_loader_and_members(self):
+        decoy = self.tmpdir("python-suites-decoy-")
+        member = """
+            import os
+            import subprocess
+            import tempfile
+            import unittest
+
+
+            class G12(unittest.TestCase):
+                def test_no_git_variable(self):
+                    self.assertEqual([k for k in os.environ if k.startswith("GIT_")], [])
+
+                def test_git_init_in_a_tempdir(self):
+                    d = tempfile.mkdtemp()
+                    subprocess.run(["git", "init", "-q", d], check=True)
+                    open(os.path.join(d, "f"), "w").close()
+                    subprocess.run(["git", "-C", d, "add", "f"], check=True)
+                    self.assertTrue(os.path.exists(os.path.join(d, ".git", "index")))
+        """
+        s = self.scratch({"g12/test_g12.py": member})
+        self.assertGreen(
+            s.run({"GIT_DIR": str(decoy / "decoy.git"), "GIT_INDEX_FILE": str(decoy / "decoy-index")})
+        )
+        self.assertEqual(sorted(p.name for p in decoy.iterdir()), [])
+
+    def test_G13_af_unix_goes_through_and_af_inet_stays_denied(self):
+        member = """
+            import multiprocessing
+            import os
+            import socket
+            import sys
+            import tempfile
+            import unittest
+
+
+            class G13(unittest.TestCase):
+                def test_af_unix_pair_and_connect(self):
+                    a, b = socket.socketpair()
+                    a.close()
+                    b.close()
+                    d = tempfile.mkdtemp()
+                    path = os.path.join(d, "s")
+                    srv = socket.socket(socket.AF_UNIX)
+                    srv.bind(path)
+                    srv.listen(2)
+                    cli = socket.socket(socket.AF_UNIX)
+                    self.assertEqual(cli.connect_ex(path), 0)
+                    cli2 = socket.socket(socket.AF_UNIX)
+                    cli2.connect(path)
+                    for s in (cli, cli2, srv):
+                        s.close()
+
+                def test_forkserver_where_it_exists(self):
+                    if not sys.platform.startswith("linux"):
+                        return  # forkserver is Linux's 3.14+ default; elsewhere only this part is skipped
+                    p = multiprocessing.get_context("forkserver").Process(target=len, args=([],))
+                    p.start()
+                    p.join(60)
+                    self.assertEqual(p.exitcode, 0)
+
+                def test_af_inet_connect_is_denied(self):
+                    srv = socket.socket()
+                    srv.bind(("127.0.0.1", 0))
+                    srv.listen(1)
+                    cli = socket.socket()
+                    try:
+                        with self.assertRaises(OSError) as cm:
+                            cli.connect(srv.getsockname())
+                        self.assertIn("python-suites offline regime", str(cm.exception))
+                        with self.assertRaises(OSError):
+                            cli.connect_ex(srv.getsockname())
+                    finally:
+                        cli.close()
+                        srv.close()
+        """
+        s = self.scratch({"g13/test_g13.py": member})
+        self.assertGreen(s.run())
+
+    def test_G14_marker_changes_are_not_hidden(self):
+        # A chained sitecustomize that bumps the install marker: the loader refuses (98).
+        bump = self.tmpdir("python-suites-bump-")
+        (bump / "sitecustomize.py").write_text(
+            "import socket\nsocket._python_suites_guard_installs += 1\n", encoding="utf-8"
+        )
+        s = self.scratch({"a/test_ok.py": PASSING})
+        code, out = s.run({"PYTHONPATH": self.pythonpath_after(bump)})
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("loader exited 98", out)
+        self.assertIn("the offline guard is not installed exactly once", out)
+        self.assertNotIn("test ok", out)
+        # A member that bumps it is seen by the next member's count test, not re-stamped to 1.
+        bumper = """
+            import socket
+            import unittest
+
+
+            class A(unittest.TestCase):
+                def test_bumps(self):
+                    socket._python_suites_guard_installs += 1
+        """
+        s = self.scratch({"c/test_a_bump.py": bumper, "c/test_b_count.py": G7_COUNT_MEMBER})
+        self.assertRed(s.run(), "c/test_b_count.py::G7.test_count_in_loader")

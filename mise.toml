@@ -112,7 +112,7 @@ description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
 run = "bash scripts/trip-wires.sh"
 
 [tasks.tools-test]
-description = "Run every tracked Python suite (test_*.py), offline, on the 3.9 floor."
+description = "Run every tracked Python suite (test_*.py), offline, on the `python3` first on PATH (floor: Python 3.9)."
 # The procedure (the set, the complement checks, the derived roots, skip-is-red),
 # the offline regime, the interpreter floor and the wrapper contract for
 # command-shaped self-tests all live in the header of `scripts/python-suites.sh` --

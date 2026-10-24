@@ -288,3 +288,121 @@ class TestComplementPins(DriverCase, unittest.TestCase):
             {"ok/test_ok.py": PASSING, "bad.py": "def (:\n", "q/test_bad.py": "class (:\n"}
         )
         self.assertRed(s.run(), "bad.py does not parse", "q/test_bad.py does not parse")
+
+    def test_P8_pathspec_environment_cannot_empty_the_population(self):
+        # GIT_NOGLOB_PATHSPECS / GIT_GLOB_PATHSPECS reinterpret `*.py`; the driver's git
+        # runs without any GIT_* and with `:(glob)**/*.py`, so the non-member is found.
+        s = self.scratch(
+            {
+                "ok/test_ok.py": PASSING,
+                "p8/helper.py": "import unittest\n\n\nclass A(unittest.TestCase):\n    pass\n",
+            }
+        )
+        for var in ("GIT_NOGLOB_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_LITERAL_PATHSPECS"):
+            out = self.assertRed(s.run({var: "1"}), "p8/helper.py defines")
+            self.assertNotIn(" 0 tracked .py parsed", out)
+
+    def test_P9_every_unittest_import_form_is_resolved_or_red(self):
+        tc = "\n\nclass A(%s):\n    pass\n"
+        forms = {
+            "p9a": "import unittest.mock" + tc % "unittest.TestCase",
+            "p9b": "import unittest.util\nimport unittest" + tc % "unittest.IsolatedAsyncioTestCase",
+            "p9c": "import unittest.async_case" + tc % "unittest.async_case.IsolatedAsyncioTestCase",
+            "p9d": "import unittest.case as c" + tc % "c.TestCase",
+            "p9e": "from unittest import mock, async_case as ac" + tc % "ac.IsolatedAsyncioTestCase",
+            "p9f": "from unittest.async_case import IsolatedAsyncioTestCase" + tc % "IsolatedAsyncioTestCase",
+            "p9g": "import unittest\nT: type = unittest.TestCase" + tc % "T",
+            "p9h": "import unittest\nT = U = unittest.TestCase" + tc % "U",
+        }
+        files = {"ok/test_ok.py": PASSING, "p9z/helper.py": "import unittest.mock\n\n\nclass Plain:\n    pass\n"}
+        files.update({d + "/helper.py": src for d, src in forms.items()})
+        files["p9x/helper.py"] = 'import importlib\n\nu = importlib.import_module("unittest.case")\n'
+        files["p9y/helper.py"] = '__import__("unittest")\n'
+        out = self.assertRed(
+            self.scratch(files).run(),
+            *[d + "/helper.py defines" for d in forms],
+            "p9x/helper.py imports unittest in a form step 3(a) cannot resolve",
+            "p9y/helper.py imports unittest in a form step 3(a) cannot resolve",
+        )
+        self.assertNotNamed(out, "p9z/helper.py")
+
+    def test_P10_member_is_loaded_from_its_own_path(self):
+        # The live _webref idiom: a member puts its parent directory on sys.path; a
+        # later member of the same root, imported by name, would resolve to the
+        # same-named file of another root and the real file would never run.
+        s = self.scratch(
+            {
+                "t/w/test_a.py": PASSING
+                + "\nimport os, sys\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n",
+                "t/w/test_refresh.py": """
+                    import unittest
+
+
+                    class Real(unittest.TestCase):
+                        def test_fails(self):
+                            self.fail("the real member ran")
+                """,
+                "t/test_refresh.py": PASSING,
+            }
+        )
+        self.assertRed(s.run(), "t/w/test_refresh.py::Real.test_fails")
+
+    def test_P11_coroutine_and_generator_tests_on_a_plain_testcase_are_red(self):
+        s = self.scratch(
+            {
+                "ok/test_ok.py": PASSING,
+                "a/test_co.py": """
+                    import unittest
+
+
+                    class Plain(unittest.TestCase):
+                        def test_ok(self):
+                            pass
+
+                        async def test_co(self):
+                            self.fail("never runs")
+
+                        def test_gen(self):
+                            self.fail("never runs")
+                            yield
+
+                        async def test_agen(self):
+                            self.fail("never runs")
+                            yield
+                """,
+                "b/test_iso.py": """
+                    import unittest
+
+
+                    class Iso(unittest.IsolatedAsyncioTestCase):
+                        async def test_co(self):
+                            self.assertTrue(True)
+                """,
+            }
+        )
+        out = self.assertRed(
+            s.run(),
+            "a/test_co.py::Plain.test_co is a coroutine function",
+            "a/test_co.py::Plain.test_gen is a generator function",
+            "a/test_co.py::Plain.test_agen is a async generator function",
+        )
+        self.assertNotNamed(out, "b/test_iso.py")
+        self.assertIn("python-suites: test ok b/test_iso.py::Iso.test_co", out)
+
+    def test_P12_subtest_failure_is_red_naming_the_subtest(self):
+        s = self.scratch(
+            {
+                "a/test_sub.py": """
+                    import unittest
+
+
+                    class S(unittest.TestCase):
+                        def test_x(self):
+                            for i in range(3):
+                                with self.subTest(i=i):
+                                    self.assertNotEqual(i, 1)
+                """
+            }
+        )
+        out = self.assertRed(s.run(), "FAILED a/test_sub.py::S.test_x (i=1)")
+        self.assertNotNamed(out, "(i=0)", "(i=2)")

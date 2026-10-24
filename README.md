@@ -69,6 +69,7 @@ docs/
 - [mise](https://mise.jdx.dev/) (task runner)
 - [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all` / `ci`
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)
+- Python 3.9+ (`python3` on `PATH`) — used by `mise run tools-test` / `ci` (the CI `tools` job runs the same script)
 
 ### Common Tasks
 

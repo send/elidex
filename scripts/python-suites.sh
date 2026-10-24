@@ -20,15 +20,20 @@
 # 2. The set is `git ls-files ':(glob)**/test_*.py'` (MEMBER_PATHSPEC) -- tracked files, repo-wide
 #    (the `:(glob)` magic is what makes a top-level `test_x.py` count). An empty
 #    set fails.
-# 3. The complement, by property, over every tracked `.py` that is NOT a set
-#    member (members are run by steps 4-5):
+# 3. The complement, by property, over every tracked `.py`
+#    (`git ls-files ':(glob)**/*.py'`; the set must be a subset of it) that is
+#    NOT a set member (members are run by steps 4-5):
 #    (a) a non-member defining a class whose base resolves, within that file, to
-#        `unittest.TestCase` / `unittest.IsolatedAsyncioTestCase` fails, naming
-#        it -- whether or not any member names it (rename it `test_*.py`).
-#        Resolution covers `import unittest [as u]`, `import unittest.case`,
-#        `from unittest[.case] import TestCase [as T]` / `*`, simple aliases
-#        (`T = unittest.TestCase`) and in-file subclass chains; a base reached
-#        only through another file is outside (a), by design.
+#        a `TestCase` / `IsolatedAsyncioTestCase` of any `unittest.*` module
+#        fails, naming it -- whether or not any member names it (rename it
+#        `test_*.py`). Resolution covers `import unittest [as u]`, any
+#        `import unittest.<x>` (which binds `unittest`), `from unittest[.<x>]
+#        import TestCase [as T]` / `*` / a submodule, simple and annotated
+#        aliases (`T = unittest.TestCase`) and in-file subclass chains; a base
+#        reached only through another file is outside (a), by design. A
+#        dynamic import of a unittest module (`__import__("unittest...")`,
+#        `importlib.import_module("unittest...")`) is a form the resolver
+#        cannot follow: it fails, naming the file.
 #    (b) a non-member entry-point self-test -- a top-level
 #        `if __name__ == "__main__":` (either operand order, a single `==`) AND
 #        a string constant `"--self-test"` anywhere in the file, both read from
@@ -43,13 +48,17 @@
 #    interpreter fails, naming it.
 # 4. The roots are the set's unique dirnames, derived on every run. Each root
 #    runs in its own interpreter, NON-recursively: it imports exactly the set
-#    members whose dirname is that root, as top-level modules (sys.path[0] = the
-#    root, cwd = the repository root), in sorted order; the loader never walks a
-#    directory. Every root runs under the offline regime below.
+#    members whose dirname is that root, each loaded from its PATH under a
+#    unique module name (sys.path[0] = the root, cwd = the repository root), in
+#    sorted order; a member that does not come from its own path fails, naming
+#    both. The loader never walks a directory. Every root runs under the offline
+#    regime below.
 # 5. Every member contributes at least one test that executed and passed, else
 #    the run fails naming the file. A test counts only if it executed and
 #    passed: a failure, an error, a skip, an expected failure or an unexpected
-#    success makes the run red, naming the test.
+#    success makes the run red, naming the test; so does a `test_*` method that
+#    is a coroutine / generator / async generator function on a class that is
+#    not IsolatedAsyncioTestCase (calling it runs no body).
 #
 # ----------------------------------------------------------------------------
 # THE OFFLINE REGIME
@@ -59,6 +68,7 @@
 #   http_proxy/https_proxy  http://127.0.0.1:<a closed local port>
 #   NO_PROXY/no_proxy     absent
 #   XDG_CACHE_HOME        a fresh empty directory per root
+#   GIT_*                 every variable dropped (the driver's own git calls too)
 # Before each member is imported and run, the loader restores the regime in one
 # step: these keys (os.environ and the process environment) AND the socket guard
 # (re-installed from the table the guard publishes), so one member's mutation
@@ -68,7 +78,9 @@
 # directory, so it is installed at interpreter startup in the loader and in every
 # Python child that inherits the regime. In a guarded process these fail with an
 # OSError whose message starts "python-suites offline regime:":
-#   socket.socket.connect, socket.socket.connect_ex (AF_INET and AF_INET6),
+#   socket.socket.connect, socket.socket.connect_ex (every family except AF_UNIX:
+#   AF_INET, AF_INET6 and any family not known here are denied; AF_UNIX is local
+#   IPC, e.g. multiprocessing's forkserver and Manager, and goes through),
 #   socket.getaddrinfo, socket.gethostbyname, socket.gethostbyname_ex,
 #   socket.gethostbyaddr, socket.getnameinfo.
 # The guard installs exactly once per process (a marker on the socket module;
@@ -158,7 +170,8 @@ cat > "$tmp/driver/python_suites.py" <<'PY_DRIVER'
 """Python half of scripts/python-suites.sh -- see that file's header."""
 
 import ast
-import importlib
+import importlib.util
+import inspect
 import json
 import os
 import posixpath
@@ -173,9 +186,9 @@ PREFIX = "python-suites:"
 # pathspec the driver lists, and the regex for the same names on a path string.
 MEMBER_PATHSPEC = ":(glob)**/test_*.py"
 MEMBER_RE = r"(^|/)test_[^/]*\.py$"
+ALL_PY_PATHSPEC = ":(glob)**/*.py"
 SELF_TEST_FLAG = "--self-test"
 TESTCASE_BASES = ("TestCase", "IsolatedAsyncioTestCase")
-UNITTEST_MODULES = ("unittest", "unittest.case")
 GUARD_MARK = "_python_suites_guard_installs"
 GUARD_TABLE = "_python_suites_guard_table"  # [(owner, name, guarded value)], published by the guard
 REGIME_KEYS = (
@@ -186,9 +199,7 @@ REGIME_KEYS = (
     "no_proxy",
     "XDG_CACHE_HOME",
 )
-# git variables that relocate the repository; the driver's own git calls drop
-# them so the set is always read from the root this script lives in.
-GIT_LOCATION_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
+MEMBER_MODULE_PREFIX = "python_suites_member_"
 
 
 def say(msg):
@@ -248,37 +259,53 @@ def names_by_path(constants, entry, member):
     return rel in constants
 
 
-def testcase_classes(tree):
-    """3(a): [(name, lineno)] of classes whose base resolves in-file to a TestCase."""
-    modules = set()  # names bound to unittest or unittest.case
+def _is_unittest_name(name):
+    return name == "unittest" or name.startswith("unittest.")
+
+
+def testcase_analysis(tree):
+    """3(a): ([(name, lineno)], [unresolved]) for one file.
+
+    The first list is the classes whose base resolves in-file to a TestCase /
+    IsolatedAsyncioTestCase of any `unittest.*` module. The second lists the
+    unittest import forms this resolver cannot follow (a dynamic import of a
+    unittest module): the caller fails closed on any."""
+    modules = set()  # names bound to unittest or a unittest.* module
     direct = set()  # names bound to TestCase / IsolatedAsyncioTestCase
+    unresolved = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
-                if a.name in UNITTEST_MODULES:
+                if _is_unittest_name(a.name):
+                    # `import unittest.mock` binds `unittest`; `... as m` binds the submodule.
                     modules.add(a.asname or "unittest")
         elif isinstance(node, ast.ImportFrom):
-            if node.level:
+            if node.level or not node.module or not _is_unittest_name(node.module):
                 continue
-            if node.module in UNITTEST_MODULES:
-                for a in node.names:
-                    if a.name == "*":
-                        direct.update(TESTCASE_BASES)
-                    elif a.name in TESTCASE_BASES:
-                        direct.add(a.asname or a.name)
-            if node.module == "unittest":
-                for a in node.names:
-                    if a.name == "case":
-                        modules.add(a.asname or "case")
+            for a in node.names:
+                if a.name == "*":
+                    direct.update(TESTCASE_BASES)
+                elif a.name in TESTCASE_BASES:
+                    direct.add(a.asname or a.name)
+                else:
+                    # any other imported name may be a submodule (`from unittest import mock`)
+                    modules.add(a.asname or a.name)
+        elif isinstance(node, ast.Call):
+            fn = node.func
+            callee = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else None
+            if (
+                callee in ("__import__", "import_module")
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and _is_unittest_name(node.args[0].value)
+            ):
+                unresolved.append("%s(%r) (line %d)" % (callee, node.args[0].value, node.lineno))
 
     def is_module(expr):
         if isinstance(expr, ast.Name):
             return expr.id in modules
-        return (
-            isinstance(expr, ast.Attribute)
-            and expr.attr == "case"
-            and is_module(expr.value)
-        )
+        return isinstance(expr, ast.Attribute) and is_module(expr.value)
 
     def resolves(expr):
         if isinstance(expr, ast.Name):
@@ -286,6 +313,18 @@ def testcase_classes(tree):
         if isinstance(expr, ast.Attribute):
             return expr.attr in TESTCASE_BASES and is_module(expr.value)
         return False
+
+    def alias_targets(node):
+        if isinstance(node, ast.Assign) and resolves(node.value):
+            return [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if (
+            isinstance(node, ast.AnnAssign)
+            and node.value is not None
+            and isinstance(node.target, ast.Name)
+            and resolves(node.value)
+        ):
+            return [node.target.id]
+        return []
 
     found = {}
     changed = True
@@ -297,16 +336,12 @@ def testcase_classes(tree):
                     found[node.name] = node.lineno
                     direct.add(node.name)
                     changed = True
-            elif (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id not in direct
-                and resolves(node.value)
-            ):
-                direct.add(node.targets[0].id)
-                changed = True
-    return sorted(found.items(), key=lambda kv: kv[1])
+            else:
+                for name in alias_targets(node):
+                    if name not in direct:
+                        direct.add(name)
+                        changed = True
+    return sorted(found.items(), key=lambda kv: kv[1]), unresolved
 
 
 def complement_failures(members, trees, all_py):
@@ -320,7 +355,13 @@ def complement_failures(members, trees, all_py):
         if path in member_set or path not in trees:
             continue
         tree = trees[path]
-        classes = testcase_classes(tree)
+        classes, unresolved = testcase_analysis(tree)
+        if unresolved:
+            failures.append(
+                "%s imports unittest in a form step 3(a) cannot resolve: %s"
+                " (use a plain `import unittest` / `from unittest import ...`)"
+                % (path, ", ".join(unresolved))
+            )
         if classes:
             failures.append(
                 "%s defines unittest.TestCase subclass(es) %s but is not a set member"
@@ -342,8 +383,16 @@ def complement_failures(members, trees, all_py):
 # The driver.
 
 
+def without_git_env(env):
+    """`env` minus every GIT_* variable: the caller's hook / worktree context
+    must neither relocate the driver's own git calls (GIT_DIR, GIT_INDEX_FILE,
+    ...), reinterpret its pathspecs (GIT_NOGLOB_PATHSPECS, ...) nor reach a
+    member's git children."""
+    return {k: v for k, v in env.items() if not k.startswith("GIT_")}
+
+
 def git_lines(root, *args):
-    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_VARS}
+    env = without_git_env(os.environ)
     out = subprocess.run(
         ["git", "-C", root] + list(args),
         env=env,
@@ -365,7 +414,7 @@ def closed_local_port():
 
 
 def regime_env(base, guard_dir, port, cache_dir):
-    env = dict(base)
+    env = without_git_env(base)
     inherited = env.get("PYTHONPATH")
     env["PYTHONPATH"] = guard_dir + (os.pathsep + inherited if inherited else "")
     env["http_proxy"] = "http://127.0.0.1:%d" % port
@@ -383,7 +432,11 @@ def run(root, tmp):
     if not members:
         say("FAIL set: git ls-files '%s' is empty -- nothing to run" % MEMBER_PATHSPEC)
         return 1
-    all_py = git_lines(root, "ls-files", "-z", "--", "*.py")
+    all_py = git_lines(root, "ls-files", "-z", "--", ALL_PY_PATHSPEC)
+    outside = sorted(set(members) - set(all_py))
+    if outside:
+        say("FAIL set: member(s) %s missing from the tracked .py population" % ", ".join(outside))
+        return 1
 
     trees = {}
     for path in all_py:
@@ -457,7 +510,9 @@ def run(root, tmp):
 def _restore_regime(snapshot, guard):
     """The one way the regime is put back: the REGIME_KEYS environment and the
     socket guard (re-installed from the guard's own table), so a member that
-    undid either in-process cannot leave a later member unguarded."""
+    undid either in-process cannot leave a later member unguarded. The install
+    marker is left as the member left it: stamping it here would hide a member
+    (or a chained sitecustomize) that changed the count."""
     for k, v in snapshot.items():
         if v is None:
             os.environ.pop(k, None)
@@ -465,11 +520,8 @@ def _restore_regime(snapshot, guard):
                 os.unsetenv(k)
         else:
             os.environ[k] = v
-    import socket
-
     for owner, name, value in guard:
         setattr(owner, name, value)
-    setattr(socket, GUARD_MARK, 1)
 
 
 class _Result(unittest.TestResult):
@@ -524,6 +576,36 @@ class _Result(unittest.TestResult):
             self._bad("FAILED", subtest, self._exc_info_to_string(err, subtest))
 
 
+def _never_runs_body(test):
+    """A test method whose call only creates a coroutine / generator (its body
+    never runs) on a class that is not IsolatedAsyncioTestCase; else None."""
+    if isinstance(test, unittest.IsolatedAsyncioTestCase):
+        return None
+    method = getattr(test, getattr(test, "_testMethodName", ""), None)
+    if method is None:
+        return None
+    try:
+        method = inspect.unwrap(method)
+    except ValueError:
+        pass
+    for kind, check in (
+        ("coroutine function", inspect.iscoroutinefunction),
+        ("generator function", inspect.isgeneratorfunction),
+        ("async generator function", inspect.isasyncgenfunction),
+    ):
+        if check(method):
+            return kind
+    return None
+
+
+def _flatten(suite):
+    for t in suite:
+        if isinstance(t, unittest.TestSuite):
+            yield from _flatten(t)
+        else:
+            yield t
+
+
 def load(root, rdir, out, members):
     import socket
 
@@ -546,14 +628,33 @@ def load(root, rdir, out, members):
         sys.path.insert(0, rootdir)
     os.chdir(root)
     results = {}
-    for member in sorted(members):
+    for n, member in enumerate(sorted(members)):
         _restore_regime(snapshot, guard)
-        modname = posixpath.splitext(posixpath.basename(member))[0]
+        # Loaded from its PATH under a unique name: a same-named module elsewhere
+        # on sys.path or in sys.modules can never stand in for the member.
+        modname = "%s%d_%s" % (MEMBER_MODULE_PREFIX, n, posixpath.splitext(posixpath.basename(member))[0])
         r = _Result(member, modname)
         try:
-            mod = importlib.import_module(modname)
+            path = os.path.join(root, member)
+            spec = importlib.util.spec_from_file_location(modname, path)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[modname] = mod
+            spec.loader.exec_module(mod)
+            if os.path.realpath(getattr(mod, "__file__", "") or "") != os.path.realpath(path):
+                raise ImportError(
+                    "member %s loaded from %s, not from %s"
+                    % (member, getattr(mod, "__file__", None), path)
+                )
             loader = unittest.TestLoader()
             suite = loader.loadTestsFromModule(mod)
+            for t in _flatten(suite):
+                kind = _never_runs_body(t)
+                if kind:
+                    r.problems.append(
+                        "%s::%s is a %s on a class that is not IsolatedAsyncioTestCase"
+                        " (calling it runs no body)"
+                        % (member, t.id()[len(modname) + 1 :], kind)
+                    )
             for e in loader.errors:
                 r.problems.append("%s: loader error: %s" % (member, e.strip().splitlines()[-1]))
                 sys.stdout.write(e)
@@ -609,14 +710,32 @@ def _deny(what):
     return deny
 
 
+def _deny_unless_unix(what, original):
+    """connect / connect_ex: AF_UNIX (local IPC: multiprocessing's forkserver
+    and Manager, ...) goes through; every other family -- AF_INET, AF_INET6 and
+    any family not known here -- is denied (fail closed)."""
+    import socket
+
+    unix = getattr(socket, "AF_UNIX", None)
+    deny = _deny(what)
+
+    def guarded(self, *args, **kwargs):
+        if unix is not None and self.family == unix:
+            return original(self, *args, **kwargs)
+        return deny()
+
+    guarded.__name__ = what.rsplit(".", 1)[-1]
+    return guarded
+
+
 def _install():
     import socket
 
     if getattr(socket, _MARK, 0):
         return
     table = [
-        (socket.socket, "connect", _deny("socket.connect")),
-        (socket.socket, "connect_ex", _deny("socket.connect_ex")),
+        (socket.socket, "connect", _deny_unless_unix("socket.connect", socket.socket.connect)),
+        (socket.socket, "connect_ex", _deny_unless_unix("socket.connect_ex", socket.socket.connect_ex)),
     ] + [
         (socket, name, _deny("socket." + name))
         for name in (

@@ -316,8 +316,10 @@ The floor is **3.9**, and the **only measurement of it is the `"3.9"` matrix leg
 every tracked `.py` is a different property, not a floor instrument.
 
 **The legs.** `"3.9"` and `"3.x"` — the newest the action resolves, so a newest-runtime breakage shows on the
-PR that meets it. `setup-python` serves 3.9 on both current Ubuntu runner images: the action's manifest lists a
-3.9.x build for linux x64 on 22.04 and 24.04 (`gh api repos/actions/python-versions/contents/versions-manifest.json
+PR that meets it. The job pins `runs-on: ubuntu-24.04` (not `ubuntu-latest`): the `"3.9"` leg needs an image
+`setup-python` serves 3.9 for, and a floating label would move to an image whose manifest has no 3.9 build
+(Q7 requires the pinned value; re-check when Slice B raises the floor or 24.04 retires). The action's manifest
+lists a 3.9.x build for linux x64 on 22.04 and 24.04 (`gh api repos/actions/python-versions/contents/versions-manifest.json
 --jq .content | base64 -d | jq '[.[] | select(.version|startswith("3.9.")) | .files[] | select(.platform=="linux"
 and .arch=="x64") | .platform_version] | unique'`).
 
@@ -401,7 +403,7 @@ step 5's command).
 ## §6 Pins
 
 **Every pin is a test in `scripts/test_python_suites_driver.py`, `scripts/test_python_suites_regime.py` or
-`scripts/test_python_suites_ci.py`** (45 tests: 15 / 13 / 17); "Red at main" says whether it fails on
+`scripts/test_python_suites_ci.py`** (57 tests: 20 / 17 / 20); "Red at main" says whether it fails on
 `origin/main`, the base. **No pin runs the driver on the live tree** — the driver runs this file, so such a pin
 would recurse. Every pin that executes the driver builds a **scratch repository** (`git init` in a temporary
 directory, the driver copied in, fixture files staged with `git add`; never the pins file itself; every git call and driver run with
@@ -416,7 +418,7 @@ those checks can fire.
 `mise.toml`'s `[tasks.ci]` and `[tasks.tools-test]`), **any construct the reader does not model reads red,
 naming the line** — the unknown falls to red, never to "absent", because a reader that skipped an unreadable
 construct could read a gated job as ungated. The grammar the reader models is the implementation's choice,
-stated in the test; §6.1 rows R1–R9 and M1–M2 are the constructs it must provably handle or refuse.
+stated in the test; §6.1 rows R1–R9 and M1–M3 are the constructs it must provably handle or refuse.
 
 | Pin | What it executes | §5 rows | Red at main? |
 |---|---|---|---|
@@ -430,10 +432,10 @@ stated in the test; §6.1 rows R1–R9 and M1–M2 are the constructs it must pr
 | **Q4** | `mise.toml`'s `[tasks.ci].depends` contains `"tools-test"`, and `[tasks.tools-test]` runs `bash scripts/python-suites.sh` and has no `sources` / `outputs` key (a task with `sources` is skipped by `mise` when its sources are unchanged, so a suite could go unrun locally) — §6.1 M1–M2 | 3 | **yes** |
 | **Q5** | the floor assertion: the script exits non-zero naming the floor when the `python3` it finds reports a version below 3.9 (fixture: a PATH-shadowing `python3` shim) | — | **yes** |
 | **Q6** | `ci.yml`'s `tools` job region (bounds: §6.1 R9) contains a **`run:` step that executes the driver** — the driver is the command, not text in the region, and is not masked (§6.1 D1). Without it an empty `tools` job satisfies §12(3) (Codex R14/R36/R48) | 1, 2 | **yes** — the job does not exist |
-| **Q7** | the same region carries a `python-version:` matrix with legs `"3.9"` and `"3.x"` **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`, before Q6's `run:` step** — a matrix no step consumes runs one interpreter on every leg (Codex R48), and a `setup-python` after the driver step measures nothing (Codex R49) | — | **yes** |
+| **Q7** | the same region runs on `runs-on: ubuntu-24.04` exactly (an image `setup-python` serves 3.9 for; `ubuntu-latest` floats off it) and carries a `python-version:` matrix with legs `"3.9"` and `"3.x"` **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`, before Q6's `run:` step** — a matrix no step consumes runs one interpreter on every leg (Codex R48), and a `setup-python` after the driver step measures nothing (Codex R49) | — | **yes** |
 | **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs` and no `if` key — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads `check` (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` carries no `paths:` / `paths-ignore:` and its `branches` is exactly `[main]` | 1, 2 | **yes** |
 | **Q13** | the text readers' property (§6 above), §6.1 R1–R9 and M1–M2 | — | **yes** — the readers do not exist |
-| **T-net** | the offline regime, §6.1 G1–G11: each network plant is **green without the regime and red with it**, making the script exit non-zero naming the plant | 7 | **yes** |
+| **T-net** | the offline regime, §6.1 G1–G14: each network plant is **green without the regime and red with it**, making the script exit non-zero naming the plant | 7 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, §4.5; the
 interpreter floor on `SKILL.md`'s direct `preflight.py` path, which bypasses the script — **assigned to Slice
@@ -454,7 +456,12 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **P5** | S1: set members are excluded from 3(a) and 3(b) | green: a member `a/test_wrap.py` with `if __name__ == "__main__": unittest.main()` **and** the constant `"--self-test"`, named by nothing, defining a passing `TestCase` |
 | **P6** | the pins are members and never credit a live entry point | a test parses each of the five pin files (the three members and the two helper modules; no driver run) and, calling **the driver's own** entry-point and named-by-path predicates, asserts it names by path none of the live tree's tracked **non-member entry points** (its fixture paths name files inside scratch repos only); **control**: the same predicate credits a planted root-relative and member-dir-relative constant |
 | **P7** | a tracked `.py` that does not parse under the running interpreter is red, member or not | red: non-member `bad.py` with a syntax error; red: member `test_bad.py` with a syntax error |
-| **R1** | keys are recognised in any quoting | in the `tools` region, `"needs": changes` and `'if': x` each read as gated |
+| **P8** | step 3's `*.py` population is not reinterpretable from the environment | a scratch repo with a non-member `TestCase` run with `GIT_NOGLOB_PATHSPECS=1` (and `GIT_GLOB_PATHSPECS=1`, `GIT_LITERAL_PATHSPECS=1`) is still red naming it, and never reads "0 tracked .py parsed" (the driver's git runs with every `GIT_*` removed and the pathspec `:(glob)**/*.py`; members ⊆ that population is asserted) |
+| **P9** | 3(a) resolves every `unittest.<x>` import form or fails closed | red, each in its own non-member: `import unittest.mock` + `unittest.TestCase`; `import unittest.util` + `unittest.IsolatedAsyncioTestCase`; `import unittest.async_case` + `unittest.async_case.IsolatedAsyncioTestCase`; `import unittest.case as c`; `from unittest import mock, async_case as ac`; `from unittest.async_case import IsolatedAsyncioTestCase`; `T: type = unittest.TestCase`; `T = U = unittest.TestCase`; red naming the file: `importlib.import_module("unittest.case")` and `__import__("unittest")`; **control**: `import unittest.mock` with no `TestCase` base is green |
+| **P10** | a member is loaded from its own path | a member whose sibling inserts its parent directory on `sys.path`, with a same-named passing `test_refresh.py` one directory up: the failing real `t/w/test_refresh.py` is reported red |
+| **P11** | a `test_*` coroutine / generator / async generator function on a class that is not `IsolatedAsyncioTestCase` is red (calling it runs no body) | red naming `Plain.test_co` / `test_gen` / `test_agen`; **control**: the same `async def` on `IsolatedAsyncioTestCase` runs and passes |
+| **P12** | a failing `subTest` is red naming the subtest | `for i in range(3): with self.subTest(i=i): assertNotEqual(i, 1)` makes the run name `::S.test_x (i=1)` and not `(i=0)` / `(i=2)` |
+| **R1** | keys are recognised in any quoting, and keys differing only in quoting are duplicates | in the `tools` region, `"needs": changes` and `'if': x` each read as exactly `job key 'needs' is not in the tools-job allowlist` / `... 'if' ...`; `tools:` + `"tools":`, `pull_request:` + `"pull_request":` and `timeout-minutes` + `"timeout-minutes"` each raise `ReaderError` (duplicate) |
 | **R2** | the modelled values read correctly | green: `branches: [main]`, `python-version: ["3.9", "3.x"]`, `python-version: ${{ matrix.python-version }}` |
 | **R3** | value-position constructs not modelled are red | red, in the `tools` region: a value `{a: 1}`, `&x`, `*x` |
 | **R4** | key-position constructs not modelled are red | red: `&a needs: x`, `!!str needs: x`, an explicit key `? needs` |
@@ -464,6 +471,7 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **R8** | block scalars: headers `\|` `>` `\|-` `>-` `\|+` are recognised; the body is text | for each header, a body containing `*.py` and a line `needs: x` is green and reads as no key; an unrecognised header (`\|9x`) is red |
 | **R9** | the `tools` region is bounded by the next job | a fixture whose **next** job carries `needs:`, a driver `run:` and a `setup-python` step: none is credited to `tools` (Q6–Q8); a two-space-indent comment inside `tools` does not end its region |
 | **M1** | `mise.toml` sections the pins read: unmodelled constructs are red | green: `depends = ["check", "tools-test"]`; red: `depends = { a = 1 }`, a multi-line `depends = [` array, a `run` not beginning a quoted string; a `depends` containing `"tools-test"` in another section is not credited |
+| **M3** | the body of a multi-line string is text, not structure | the live `mise.toml` plus another task's `run = """` / `'''` string holding `[ -d target ] || mkdir -p target` or a fake `[tasks.tools-test]` header reads green; an unterminated string, an escaped `\"""` close and a `""""` close are `ReaderError` |
 | **M2** | S4: `[tasks.tools-test]` has no `sources` / `outputs` | red: the fixture section with `sources = ["scripts/**"]`; red: with `outputs = [...]` |
 | **D1** | S3: the driver is the command — argv[0], or the argument after `bash` / `sh` — and is not masked; what can mask it or alter its shell / Python is closed by **allowlist**, not by a list of known maskers: the step's keys, the `tools` job's keys, the workflow's top-level keys and the workflow-level `env:` keys must each be in an allowlist of exactly what `ci.yml` has today (`BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PATH`, any `PYTHON*` and any proxy variable are never in it), and any other key is red | green: `run: bash scripts/python-suites.sh`, `run: scripts/python-suites.sh`, `run: mise run tools-test`; **red**: `env: DRIVER: scripts/python-suites.sh` alone, `run: echo scripts/python-suites.sh`, `bash scripts/python-suites.sh \|\| true`, `bash scripts/python-suites.sh; true`, `continue-on-error: true` on that step, and on the job; **allowlist controls** (each red): job `defaults: run: shell: sh`, job `env: PYTHONPATH: x`, an unknown job key (`some-future-key`), a job `needs` / `if`, workflow `env: BASH_ENV: x` (and `ENV`, `SHELLOPTS`, `BASHOPTS`, `PATH`, `PYTHONSTARTUP`, `HTTP_PROXY`, `http_proxy`), workflow `defaults:`, an unknown workflow key; **green**: the real `ci.yml`, and a workflow `env:` of `CARGO_TERM_COLOR` alone |
 | **G1** | socket-layer connection fails in-process | a member doing `http.client.HTTPConnection` and `urllib.request.urlopen` to a `127.0.0.1` listener (an `https://` URL included — red at connect, before TLS) |
@@ -476,6 +484,9 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **G8** | B2: a `sitecustomize` that would run without the guard is not suppressed | with a pre-existing `sitecustomize.py` later on `PYTHONPATH` that sets a marker, a member asserts the marker is set **and** G1 is still red |
 | **G9** | B3: the pins' own members of the unguarded-child class are deliberate | every G-row's baseline launches the member outside the regime (regime keys stripped), against a loopback listener only, and is green (so each plant can fire); G6's driver launch with altered regime keys is another (its descendants are under the inner driver's regime, G7); the set of pin launches that change a regime key equals the named set (G9's baseline, G6's driver launch, and G10's override children), and the pin fails if a regime-key-changing launch is not in it |
 | **G10** | B1: the class is defined by regime-key difference, not by spawn mechanism | under the regime, the test asserts: a child with `env={**os.environ, "PYTHONPATH": d}` (guard entry dropped) **can** connect, and a child spawned after the parent sets `os.environ["NO_PROXY"] = "*"` sees it — each **in** the class (the limit is real, documented by a passing assertion); "connect" is a raw `socket.connect` to a `127.0.0.1` listener the same test opens (no proxy, no name resolution, no external host), so G10 needs no network and holds offline (L4); any `os.environ` change G10 makes happens inside a scratch-repo member's own process and is restored before the member returns; a child that `os.execve`s `sys.executable` with `os.environ`, and one with `env={**os.environ, "X": "1"}`, **cannot** connect — **outside** the class; **control**: a non-network `sys.executable` child passes |
+| **G12** | the caller's `GIT_*` reach neither the driver's git nor a member | the driver run with `GIT_DIR` / `GIT_INDEX_FILE` pointing at a decoy path; a member asserts no `GIT_*` in its environment and runs `git init` + `git add` in a tempdir; the decoy is never created |
+| **G13** | the guard denies `connect` / `connect_ex` for every family except `AF_UNIX` | a member using an `AF_UNIX` `socketpair`, bind/listen/`connect`/`connect_ex`, and on Linux `multiprocessing.get_context("forkserver")` (only that part is skipped elsewhere) is green; in the same member an `AF_INET` `connect` / `connect_ex` raises the regime error |
+| **G14** | the install marker is never re-stamped | a chained `sitecustomize` that bumps the marker: the loader exits 98 naming the guard, no test runs; a member that bumps it makes the next member's count test red (the restore leaves the marker as the member left it) |
 | **G11** | the loader restores the regime before each member — the keys **and** the socket guard, in one step used per member | two members in one root: the first mutates `NO_PROXY`, `PYTHONPATH` (via `os.environ`) and `https_proxy` (via `os.putenv`); the second asserts a `/bin/sh -c env` child sees the regime's values and a `sys.executable` child is still refused a loopback connect — green only if the keys were restored; **guard control**: two members in one root, the first putting the original `socket.socket.connect` back (`socket._socket.socket.connect`), the second connecting to a loopback listener — green without the regime, red with it (the loader re-installed the guard for the second) |
 
 ---
@@ -503,7 +514,9 @@ one way — by being a tracked `test_*.py` (§4.2), which step 3 makes the only 
 
 ## §8 Budget — lines and wall clock
 
-**Lines.** Two new files under `scripts/`; `mise.toml` and `ci.yml` gain a task and a job; §4.6's docs gain a
+**Lines.** Six new files under `scripts/` (the driver `python-suites.sh`, the three pin files
+`test_python_suites_{driver,regime,ci}.py`, and the helper modules `python_suites_fixtures.py` /
+`python_suites_readers.py`); `mise.toml` and `ci.yml` gain a task and a job; §4.6's docs gain a
 phrase or a paragraph each. No touched file is near a split (`git show origin/main:<file> | wc -l` for each).
 
 **Wall clock.** The legs run in parallel, so the job's wall clock is the slower leg's. `timeout-minutes` is

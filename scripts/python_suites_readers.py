@@ -428,9 +428,16 @@ def driver_step_index(job):
     return None
 
 
+TOOLS_RUNS_ON = "ubuntu-24.04"
+
+
 def q7_problems(job, di):
-    """Q7: the two-leg matrix, consumed by the last setup-python before the driver."""
+    """Q7: the two-leg matrix, consumed by the last setup-python before the driver,
+    on the runner image that serves the "3.9" leg (`ubuntu-latest` will not
+    keep doing so)."""
     problems = []
+    if job.get("runs-on") != TOOLS_RUNS_ON:
+        problems.append("runs-on is not exactly %s" % TOOLS_RUNS_ON)
     matrix = job.get("strategy", {}).get("matrix") if isinstance(job.get("strategy"), YMap) else None
     if not isinstance(matrix, YMap):
         return ["no strategy.matrix mapping"]
@@ -526,6 +533,37 @@ def _toml_value(v, lineno):
     raise ReaderError(lineno, "unmodelled value", v)
 
 
+def _scan_strings(raw, state, lineno):
+    """Advance the multi-line-string state over one line; return the new state
+    (None, or the open delimiter `\"\"\"` / `'''`). The body of a multi-line
+    string is text, never structure. A close that cannot be read unambiguously
+    (an escaped `\"\"\"`, or a fourth quote right after it) raises."""
+    i, n = 0, len(raw)
+    while i < n:
+        if state is not None:
+            j = raw.find(state, i)
+            if j < 0:
+                return state
+            slashes = len(raw[:j]) - len(raw[:j].rstrip("\\"))
+            if (state == '"""' and slashes % 2) or raw[j + 3 : j + 4] == state[0]:
+                raise ReaderError(lineno, "ambiguous multi-line string close", raw)
+            state, i = None, j + 3
+            continue
+        c = raw[i]
+        if c == "#":
+            return None
+        if raw.startswith(('"""', "'''"), i):
+            state, i = raw[i : i + 3], i + 3
+        elif c in "\"'":
+            j = i + 1
+            while j < n and raw[j] != c:
+                j += 2 if (c == '"' and raw[j] == "\\") else 1
+            i = j + 1
+        else:
+            i += 1
+    return state
+
+
 def mise_sections(text, wanted):
     """Reads the `[tasks.<name>]` sections in `wanted` of `mise.toml`.
 
@@ -535,10 +573,17 @@ def mise_sections(text, wanted):
     comment. Anything else inside them raises ReaderError naming the line, and
     so does anything elsewhere that could also define those tasks: a `[tasks]`
     table, a subtable `[tasks.<name>.x]`, or a dotted `tasks.` key. A missing
-    or duplicated section is red."""
+    or duplicated section is red. The body of a multi-line string (`\"\"\"` /
+    `'''`) opened outside the read sections is text: the file is tracked across
+    lines, so a line in it that looks like a header or a key is neither; an
+    unterminated string, or a close that is ambiguous, is a ReaderError."""
     out = {}
     current = None
+    in_string = None
     for lineno, raw in enumerate(text.splitlines(), 1):
+        if in_string is not None:
+            in_string = _scan_strings(raw, in_string, lineno)
+            continue
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -560,6 +605,7 @@ def mise_sections(text, wanted):
         if current is None:
             if re.match(r"""^["']?tasks["']?\s*\.""", line):
                 raise ReaderError(lineno, "a dotted tasks. key", raw)
+            in_string = _scan_strings(raw, None, lineno)
             continue
         km = _TKEY.match(line)
         if km is None:
@@ -568,6 +614,8 @@ def mise_sections(text, wanted):
         if key in out[current]:
             raise ReaderError(lineno, "duplicate key %r" % key, raw)
         out[current][key] = (_toml_value(line[km.end():], lineno), lineno)
+    if in_string is not None:
+        raise ReaderError(0, "unterminated multi-line string", in_string)
     for w in wanted:
         if w not in out:
             raise ReaderError(0, "section [tasks.%s] missing" % w, "")
