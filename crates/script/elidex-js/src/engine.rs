@@ -652,18 +652,19 @@ impl HostDriver for ElidexJsEngine {
         self.vm.inner.storage_origin_key()
     }
 
-    fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+    fn set_sandbox_flags(&mut self, flags: elidex_plugin::SandboxingFlagSet) {
         if let Some(hd) = self.vm.host_data() {
             hd.set_sandbox_flags(flags);
         }
     }
 
-    fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
-        self.vm
-            .inner
-            .host_data
-            .as_deref()
-            .and_then(HostData::sandbox_flags)
+    fn sandbox_flags(&self) -> elidex_plugin::SandboxingFlagSet {
+        // Unbound default stays HEAD's permissive read (J2 makes it fail
+        // closed at N4).
+        self.vm.inner.host_data.as_deref().map_or(
+            elidex_plugin::SandboxingFlagSet::unsandboxed(),
+            HostData::sandbox_flags,
+        )
     }
 
     fn forms_allowed(&self) -> bool {

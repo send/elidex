@@ -10,7 +10,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{IframeSandboxFlags, SecurityOrigin};
+use elidex_plugin::{parse_sandboxing_directive, SandboxingFlagSet, SecurityOrigin};
 use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use url::Url;
 
@@ -162,24 +162,24 @@ fn iframe_depth_round_trips() {
 #[test]
 fn sandbox_capability_accessors_track_flags() {
     let mut engine = fresh_unbound().0;
-    // Unsandboxed (no flags) → everything allowed; getter is None.
-    assert_eq!(engine.sandbox_flags(), None);
+    // Unsandboxed (no flags) → everything allowed; getter is `unsandboxed()`.
+    assert_eq!(engine.sandbox_flags(), SandboxingFlagSet::unsandboxed());
     assert!(engine.forms_allowed());
     assert!(engine.popups_allowed());
 
     // Sandboxed with no allow-* tokens → forms + popups denied.
-    engine.set_sandbox_flags(Some(IframeSandboxFlags::empty()));
-    assert_eq!(engine.sandbox_flags(), Some(IframeSandboxFlags::empty()));
+    engine.set_sandbox_flags(SandboxingFlagSet::all_represented());
+    assert_eq!(engine.sandbox_flags(), SandboxingFlagSet::all_represented());
     assert!(!engine.forms_allowed());
     assert!(!engine.popups_allowed());
 
     // Granting allow-forms flips only forms.
-    engine.set_sandbox_flags(Some(IframeSandboxFlags::ALLOW_FORMS));
+    engine.set_sandbox_flags(parse_sandboxing_directive("allow-forms"));
     assert!(engine.forms_allowed());
     assert!(!engine.popups_allowed());
 
     // Granting allow-popups flips only popups.
-    engine.set_sandbox_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
+    engine.set_sandbox_flags(parse_sandboxing_directive("allow-popups"));
     assert!(!engine.forms_allowed());
     assert!(engine.popups_allowed());
 }
@@ -193,7 +193,7 @@ fn sandbox_accessors_default_open() {
     let engine = ElidexJsEngine::new();
     assert!(engine.forms_allowed());
     assert!(engine.popups_allowed());
-    assert_eq!(engine.sandbox_flags(), None);
+    assert_eq!(engine.sandbox_flags(), SandboxingFlagSet::unsandboxed());
     assert_eq!(engine.iframe_depth(), 0);
 }
 

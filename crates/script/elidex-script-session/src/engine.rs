@@ -510,15 +510,18 @@ pub trait HostDriver {
     #[must_use]
     fn storage_origin_key(&self) -> String;
 
-    /// Install the sandbox flags for this document's browsing context (the
-    /// embedder parses `sandbox=""` → `IframeSandboxFlags`).
-    fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>);
+    /// Install the sandboxing flag set for this document's browsing context
+    /// (the embedder parses `sandbox=""` via
+    /// `elidex_plugin::parse_sandboxing_directive`; a document that is not a
+    /// sandboxed iframe holds `SandboxingFlagSet::unsandboxed()`).
+    fn set_sandbox_flags(&mut self, flags: elidex_plugin::SandboxingFlagSet);
 
-    /// The sandbox flags for this document's browsing context, if sandboxed.
+    /// The sandboxing flag set for this document's browsing context
+    /// (`SandboxingFlagSet::unsandboxed()` when it is not sandboxed).
     #[must_use]
-    fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags>;
+    fn sandbox_flags(&self) -> elidex_plugin::SandboxingFlagSet;
 
-    /// Whether form submission is allowed (sandbox `allow-forms`; §7.1.5).
+    /// Whether form submission is allowed (sandboxed forms flag unset; §7.1.5).
     /// `true` on an unsandboxed / un-configured engine. Implementations
     /// answer via the canonical predicate home `elidex_plugin::sandbox`
     /// over their stored flags.
