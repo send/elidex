@@ -33,8 +33,8 @@ style(+layout) update point, first read by reveal's post-mutation scroll and `fo
 engine-independent instantiation function; the second slot's style is a cascade-derived `:host(:not([open]))` UA rule, no
 stored inline declaration; F4, F5), D6's seam (the `elidex-ecs` attribute chokepoint family, not the VM dispatcher; F5), D9
 (item 11's literal: every nested PR follows E20 and E22; F15), D10 (selection producers → the absent-readers slot; F10, F13),
-K1 (the spec's distinctions: S1/S2, their hidden arm, the computed-ancestor query C; F10, F13, F28), K5 (pseudo-elements are
-contents per css-contain-2 §3.1, no probe; F8), K8, K11 (re-checks 4.1, 4.2.1, 4.2.3, 4.2.4; F14), K16 (items 9–10 exactly,
+K1 (the spec's distinctions: S1/S2, their hidden arm, the computed-ancestor query C; F10, F13, F28), K5 (pseudo-elements classified once in S1/S2's
+definition; outcome default "contents", Chromium-measured at CV-render; F8), K8, K11 (re-checks 4.1, 4.2.1, 4.2.3, 4.2.4; F14), K16 (items 9–10 exactly,
 un-skip set in the caller; F7, F18), K17 (per reader). Added: CV-reveal builds the initial-load *try to scroll to the
 fragment* (F9); `summary` activation in one engine-independent home both shells reach, the default summary by §15.5.5's
 rendering expectation (F6); edges c9–c11 (F2, F11); §3 rows (F6, F8, F9, F12, F19, F23, DOM slot assignment); §6's fact →
@@ -296,9 +296,14 @@ last, K9).
 - **K5 What "contents" is** — flat-tree descendants (including `::before`/`::after`, DOM child entities of the originating
   element, B19) ∪ the element's replaced content (F4, the parent's IBP-classify) ∪ its widget content (elidex paints
   controls without UA shadow trees, `elidex-render/src/builder/form.rs`) ∪ its `::marker` (`ListItemMarker` on the element,
-  B19; D3's S1 arm). css-contain-2 §3.1: "treated as having no content—not even through pseudo-elements such as ::before,
-  ::after, or ::marker" — decided, no Chromium probe. The element's own box (background, border, outline, its box's hit
-  area) is not contents.
+  B19; D3's S1 arm). **Decided**: the three pseudo-elements are classified in S1/S2's definition (one place, never per
+  reader), with **one** outcome for all three. **Outcome — spec-silent edge, default candidate "contents"**: B6's
+  *contents* is flat-tree descendants, which pseudo-elements are not; the candidate rests on css-contain-2 §3.1 (size
+  containment: "treated as having no content—not even through pseudo-elements such as ::before, ::after, or ::marker"),
+  which is the sizing rule, not the definition of contents. CV-render's plan measures Chromium (`::before`, `::after`,
+  an outside `::marker` of an `li` with `content-visibility: hidden`) before fixing the outcome
+  (`feedback_measure-browser-before-deciding-spec-silent-outcomes`); a measured split would amend this K. The element's own
+  box (background, border, outline, its box's hit area) is not contents.
 - **K6 Traversal independence** — a reader whose traversal is not the flat tree reads S2 per owning entity. Stacking-context
   participants, out-of-flow and positioned descendants (their containing block and stacking context lie outside the S1
   element while `#11-css-containment` is out) are skipped by flat-tree ancestry, not by where the walk meets them.
@@ -376,7 +381,7 @@ operation: reveal first, then the skip check — a target still skipped after re
 | CSS CONTAIN 2 §4 Suppressing An Element’s Contents Entirely: the content-visibility property | `hidden`: not accessible to UA features, not selectable, not focusable | focus: CV-focus; selection producers, find-in-page → K17's slots | CV-focus | ✗ | yes |
 | CSS CONTAIN 2 §4.1 Animating and Interpolating content-visibility | discrete; `hidden` ↔ other maps (0,1) to the non-hidden value | | CV-core | ✓ | yes |
 | CSS CONTAIN 2 §3.1 Size Containment | the four "no effect" bullets (applies-to) | ruby arm vacuous at HEAD (P2) | CV-render | ✓ | yes |
-| CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | all three are contents (K5) | CV-render | ✓ | yes |
+| CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | the sizing rule only; K5's default candidate, Chromium-measured at CV-render | CV-render | ✗ | yes |
 | CSS CONTAIN 2 §4.5 Restrictions and Clarifications | items 1–12 | 1, 2, 5, 9, 10: CV-readers (U1); 8, 11, 12 → K17's slots (absent in elidex); 3, 4, 6 `auto`-only (3 in effect: *update content relevancy for a document* step 2 iterates only elements with `auto` used value) → `#11-content-visibility-auto`; 7 (iframe SHOULD) → out | CV-readers | ✗ | yes |
 | CSS CONTAIN 2 §4.6 Accessibility Implications | `hidden`'s skipped contents omitted | `auto` paragraph → `#11-content-visibility-auto` | CV-a11y | ✓ | yes |
 | CSS DISPLAY 3 §2.4 Layout-Internal Display Types: the table-* and ruby-* keywords | *internal table box*, *internal ruby box* | | CV-render | ✓ | yes |
@@ -613,7 +618,7 @@ rule, §6.1's revealing algorithm (same-document and initial-load fragment navig
 incl. `HIDDEN=UNTIL-FOUND` (CV-core); C3 fragment reveal: `beforematch` fired, attribute removed, scroll after — same-document
 and initial load, both shells (CV-reveal); C4 a handler that disconnects or re-hides (K11's four re-checks; CV-reveal); C5
 paint: contents unpainted, the element's border painted, `<img hidden=until-found>`'s image unpainted, `::before`/`::after`
-and an `li`'s `::marker` unpainted (CV-render); C6 abspos/z-index descendant skipped (CV-render); C7 hit passes through to
+and an `li`'s `::marker` per K5's measured outcome (CV-render); C6 abspos/z-index descendant skipped (CV-render); C7 hit passes through to
 the S1 element (CV-render); C8 applies-to: `display: inline`/`contents`/`table`/`table-cell` no effect, `inline-block`,
 `table-caption`, an inline `img` applies (CV-render); C9 the parent pins flipped (CV-render); C10 a11y omission (CV-a11y);
 C11 `<button hidden=until-found tabindex=0>` focusable, its descendants not, render-time blur (CV-focus); C12 `details`:
