@@ -8,9 +8,10 @@ user decided so on 2026-10-20 (U1: the reader set widened; U2: CV-details builds
 as amendments of item 11 under the A114 idiom ("recorded, not edited", §0.5, §8 records) and ratified by the approval PR.
 
 **Approval scope (the #526/#532 idiom, parent `:3-9`).** This memo **decides**: the nested-PR set, their order and edges
-(§5.1–§5.2), and how the parent edges E20, E22 and E26 bind to them; the **contracts** this program places on its three
-sibling programs — FU, forced style/layout update (D12); P1, element lifecycle hooks (D6); P2, shadow slot assignment and
-flat tree (D8, D11) — and their edges into it; each fact's home and representation kind (§4's *Home/kind* lines); the
+(§5.1–§5.2), and how the parent edges E20, E22 and E26 bind to them; the **observable invariants** this program needs from
+its sibling programs — FU, forced style/layout update (D12); P1, element lifecycle hooks (D6); P2, shadow slot assignment
+and flat tree (D8, D11) — and the canonical-focus gates (CF), each with a named cell (§7), and their edges into it (a
+sibling's mechanism and §5.3's risks for it are its own plan-review's input); each fact's home and representation kind for this program's own nested PRs (§4's *Home/kind* lines); the
 program-level invariants K1–K17 with their landing qualifiers (§2); the D-items (§0.4); the user decisions U1–U2 and the
 decisions O1–O2 (§0.5); the spec-semantics decisions (which algorithm, which steps, which outcome — §0.4, §3's *Branch*
 column); **which nested PR wires skipped contents into each reader** (§5.1's reader table — the flip event every parent pin
@@ -27,26 +28,19 @@ approval precedes IBP-sandbox's first nested landing (parent `:1415`; IBP-sandbo
 drafted: nothing here amends a surface the umbrella (`docs/plans/2026-08-line-box-decorated-inline-content.md`) ratified;
 additions to the parent are recorded here under the A114 idiom ("recorded, not edited", §8 records).
 
-**Revision 6** (2026-10-24) — folds plan-review R4 (0 CRIT, 7 IMP, 20 MIN; localized). The external edge **A2c →
-CV-focus** (§5.2, K8, K15, §9, §11); K16's marker is **CV-readers'** — defined in `elidex-ecs` and written by a system on
-FU's per-invocation hook, FU supplying the hook and the old-style baseline (D1, D12 (a), K16; the style change event is
-css-transitions-1 §3's); P2's contract gains the flat-tree queries' home and a **UA assignment-rule seam** (D11 (a), (f);
-K13's input closed); the default summary's keyboard subwidget is declared in the UA template and read by the one focus
-predicate (K13); P1's MutationObserver requirement overlaps three MO slots and B1's dispatcher install point (D6 (b));
-DOM §2.9's *activationTarget* steps renumbered (6.5, 6.9.6.1, 6.9.8.2); MINs (cites, media wording, §8 rows, risks).
+**Revision 7** (2026-10-24) — altitude lowering (PM approved, 2026-10-24: the terminator of the R3–R5 findings on sibling
+mechanisms). The contracts on FU (D12), P1 (D6), P2 (D8, D11) and the canonical-focus gates are restated as **observable
+invariants** with named cells (FU-1–5, P1-1–4, P2-1–4, CF-1–2; cells C12, C16, C18, C20–C29). Every sibling "how" revs
+4–6 had written as decided (hook position, record channel and drain, assignment-rule seam, subwidget predicate,
+dispatch-path unification, queue reuse) is withdrawn and listed as a **named risk** for the sibling's plan-review (§5.3),
+carrying R3–R5 (the rev-6 re-check's IMP-1–4). No mechanism or decision is added. MINs: K4's fallback names a UA rule;
+K15 / Q-s8 read at CV-focus's base; one decider for the MO slots; D11's pair cites *insert* 7.7.1 / 9; a §6 idiom row.
 
-**Revision 5** (2026-10-24) — folded R3 (17 IMP; IMP counts R1 19 → R2 20 → R3 17 on the same mechanisms: a mis-drawn
-slice, `feedback_defer-accumulation-signals-mis-drawn-slice`). **Re-slice (PM decided, 2026-10-24; owners TBD (user))**:
-two engine primitives left the program as **sibling programs** like FU — **P1**, element lifecycle hooks (D6; planned
-`docs/plans/2026-10-element-lifecycle-hooks.md`, slot `#11-element-lifecycle-hooks`), and **P2**, shadow slot assignment
-and flat tree (ex CV-flat-tree; D8, D11; planned `docs/plans/2026-10-shadow-slot-assignment.md`, slot
-`#11-shadow-slot-assignment-flat-tree`); seven nested PRs; the event path's *get the parent* / `composedPath` change is
-P2's; K16's boundary the style change event; FU gains layout and `focus()` via `focusing_steps` (A2c; B23). R2's H2, H3,
-H4's `summary` member, H5's end-of-update marker and D12 (b)'s VM-entry call site are superseded.
-
-**Earlier revisions.** Rev 4 folded R2 (H1–H8: FU a sibling program with D12's contract; contracts for the flat tree and
-the forced point; D7's `:host([open])` pair; §2's arm table; K5 by measurement, B26; the conditional initial-load cell).
-Rev 3 folded R1 (F1–F30). Rev 2 (2026-10-20): U1, U2, O1, O2, PE6. Rev 1 (2026-10-20): first draft.
+**Earlier revisions.** Rev 6 folded R4 (the external edge **A2c → CV-focus**; K16's marker **CV-readers'**; DOM §2.9's
+*activationTarget* steps renumbered). Rev 5 folded R3 (IMP 19 → 20 → 17 on the same mechanisms: a mis-drawn slice,
+`feedback_defer-accumulation-signals-mis-drawn-slice`) — **re-slice (PM decided, 2026-10-24)**: P1 and P2 (ex
+CV-flat-tree) left as **sibling programs** like FU; R2's H2, H3, H4's `summary` member, H5's marker and D12 (b)'s VM-entry
+call site superseded. Rev 4 folded R2 (H1–H8). Rev 3 folded R1 (F1–F30). Rev 2: U1, U2, O1, O2, PE6. Rev 1: first draft.
 
 ## §0. Frame, premises, decisions
 
@@ -149,29 +143,24 @@ the default summary's activation (K13) and the reveal algorithm's `details` arm;
 with** the rule that styles the second slot `content-visibility: hidden` (K9). These are bounded repairs the program's own
 PRs make necessary — by the parent's ownership rule, not a widening of item 11 (O2).
 
-**D6 — Contract on P1 (element lifecycle hooks).** Not a nested PR: the sibling program **P1** (planned umbrella
-`docs/plans/2026-10-element-lifecycle-hooks.md`, own plan-review; slot `#11-element-lifecycle-hooks`, NEW, registered by the
-PM at approval; owner **TBD (user)** — PM recommends the L3 DOM/form lane). Edges **P1 → CV-reveal, CV-details**. This
-program consumes, as P1's requirements:
-- (a) **every writer runs the element's steps** — attribute change steps, insertion steps and removing steps run for every
-  writer: VM IDL setters, `setAttribute`, the parser (*create an element for a token* appends attributes, so attribute
-  change steps run at parse — a parsed `<details open>` queues `toggle`; insertion steps give exclusivity), shell-side
-  writers outside VM bind brackets (the fragment-navigation reveal), activation, and documents with no VM. Always
-  installed — not bound to `Vm::bind`/unbind (B18);
-- (b) **synchronous, with mutation allowed** under a defined ordering (HEAD's dispatcher forbids mutation in dispatch,
-  B18), with event-loop access for queued element tasks (the `toggle` task and its tracker) and MutationObserver records
-  for every writer. This overlaps `#11-tree-mutation-record-pipeline`, `#11-method-driven-attribute-records` and
-  `#11-ce-reaction-mutation-observer-ordering`, and moves B1's dispatcher install point
-  (`docs/plans/2026-06-b1-mutationobserver-plan.md:142`, a P1 input): records go through the **existing** channel
-  (`apply_set_attribute` / `attribute_record` → `commit_notify_records`) — no second MO path (ScriptSession the sole
-  boundary). The three slots stay open as P1's inputs; absorption is P1's plan-review's (PM, ledger, 2026-10-24);
-- (c) **activation** — DOM §2.9's activation step (step 6.5 selects *activationTarget*, the ancestor selections steps
-  6.9.6.1 / 6.9.8.2; step 12.1 runs its activation behavior) runs in **every** dispatch path — both shells, script
-  `dispatchEvent` (a separate VM walk, B18) and the VM's `DispatchTarget::VmObject` targets (#264) — with no dependency
-  cycle (`elidex-script-session` cannot call `elidex-dom-api`; the inverted registration is P1's design); whether to
-  unify the two dispatch implementations is P1's input, with why there are two recorded; it serves a UA shadow tree's
-  element (the default summary, K13) and the keyboard subwidget of HTML §6.6.2;
-- (d) **one seam** — P1 migrates checkbox/radio/label activation (B13) onto it; no fourth seam (*One issue, one way*).
+**D6 — Contract on P1 (element lifecycle hooks), as observable invariants.** Not a nested PR: the sibling program **P1**
+(planned umbrella `docs/plans/2026-10-element-lifecycle-hooks.md`, own plan-review; slot `#11-element-lifecycle-hooks`,
+NEW, registered by the PM at approval; owner **TBD (user)** — PM recommends the L3 DOM/form lane). Edges **P1 → CV-reveal,
+CV-details**. P1 owns how element steps and DOM §2.9's activation step run; this program registers behaviours and builds
+no step-running or activation path of its own (*One issue, one way*). Invariants (cells, §7):
+- **P1-1 every writer runs the element's steps** (K10) — attribute change, insertion and removing steps run for VM IDL
+  setters, `setAttribute`, the parser (a parsed `<details open>` queues `toggle`; HTML §4.11.1, B18), shell-side writers
+  outside a VM bind bracket (the reveal), activation, and a document with no VM (C12, C24);
+- **P1-2 a step may mutate and queue** (K10) — exclusivity closes another group member; `toggle` is queued once, with its
+  tracker (C12, C24);
+- **P1-3 every writer's mutation is observable** (K10) — MutationObserver sees it as it sees a script's, in one record
+  stream (CLAUDE.md: ScriptSession the sole Script↔ECS boundary) (C24);
+- **P1-4 activation in every dispatch path** (K13) — DOM §2.9's activation step (step 6.5 selects *activationTarget*,
+  ancestors 6.9.6.1 / 6.9.8.2; step 12.1 runs it) for a shell click, a script `dispatchEvent` click and keyboard
+  activation, on a UA shadow tree's element too (the default summary) (C12).
+The MO slots `#11-tree-mutation-record-pipeline`, `#11-method-driven-attribute-records`,
+`#11-ce-reaction-mutation-observer-ordering` overlap P1-3 and stay open; whether P1 absorbs any is decided by P1's
+plan-review alone (PM ledger, 2026-10-24). How P1 meets P1-1–4 is P1's (§5.3's P1 risks as input).
 What this program supplies on P1's mechanisms (CV-details, CV-reveal): `details`' attribute change and insertion steps
 (HTML §4.11.1: the toggle task with its tracker; *ensure details exclusivity*), `summary`'s activation behavior (§4.11.2),
 the default summary's UA activation behavior and keyboard subwidget (K13), and the reveal's attribute writes — as
@@ -196,7 +185,7 @@ HTML words it "its style attribute set to"; the UA tree is not script-observable
 directly visible to author code", so the cascade-derived value has the same impact — equivalence, not a deviation.
 
 **D8 — `flat_tree_parent` is P2's primitive** — one builder (P2), read by S2 and by the reveal algorithm's walk ("parent
-node within the flat tree", HTML §6.1 step 3); its cases are K4's (D11 (a)).
+node within the flat tree", HTML §6.1 step 3); its cases are K4's (P2-1).
 
 **D9 — E20 and E22 bind every nested PR** (item 11's literal: "it follows its inputs, `IBP-predicate` (E20) and
 `IBP-css-machinery` (E22)", parent `:997-998`, and the home slot's ledger entry) — the literal over the node paragraph's
@@ -210,66 +199,53 @@ for document content (Q-s5: the shells' selection code is form-control text edit
 `Range` over skipped nodes is legal). The obligation (producers read S2) is recorded on
 `#11-content-visibility-absent-readers` (K17, §8); a form control inside skipped contents cannot be focused (K15).
 
-**D11 — Contract on P2 (shadow slot assignment and flat tree).** Not a nested PR: the sibling program **P2** (ex nested PR
-CV-flat-tree; planned umbrella `docs/plans/2026-10-shadow-slot-assignment.md`, own plan-review; slot
+**D11 — Contract on P2 (shadow slot assignment and flat tree), as observable invariants.** Not a nested PR: the sibling
+program **P2** (ex CV-flat-tree; planned umbrella `docs/plans/2026-10-shadow-slot-assignment.md`, own plan-review; slot
 `#11-shadow-slot-assignment-flat-tree`, NEW, registered by the PM at approval; owner **TBD (user)** — PM recommends the
-Layout lane). Edges **P2 → CV-reveal** (`flat_tree_parent` for the reveal walk), **CV-render** (S2), **CV-details**. This
-program consumes, as P2's requirements:
-- (a) **the flat tree** of css-shadow-1 §4.1 *Flattening the DOM into an Element Tree* (*find slottables*), one relation
-  queried in both directions — `flat_tree_parent` upward and `composed_children` downward agree, including a shadow host's
-  `::before`/`::after` entities, which HEAD's `composed_children(host)` omits (`shadow.rs:529-537`); whether a host's
-  pseudo-elements render (e.g. a `details` host's `::after`) is spec-silent → P2 measures Chromium. Pseudo-element entities are never
-  slottables; their flat-tree parent is the originating element (K4, K5). The queries (`flat_tree_parent`,
-  `composed_children`) live in or below `elidex-ecs` — S2's home, and its readers (render, layout, a11y, observers) depend
-  on `elidex-ecs`, not `elidex-dom-api`; the writer's placement is P2's;
-- (b) **current after every DOM trigger** without a style pass — R2's list (DOM *insert*, *remove*, *move*; a slot's `name`
-  and a slottable's `slot` change; `HTMLSlotElement.assign()`), elidex's entity destroy, and `moveBefore` when it is built;
-- (c) **manual vs computed assignment defined**: DOM's stored *assigned nodes* and *find slottables* differ on a manual
-  re-insertion (*insert* step 7.4 assigns for named mode only); P2 decides which the flat tree reads, and measures;
-- (d) Node's *get the parent* (DOM §4.4 Interface Node) reads the *assigned slot*, which DOM never clears — clearing it on removal is a deviation
-  (a spec defect), which P2 records and measures. The event path's *get the parent* / `composedPath` change is P2's, not
-  this program's;
-- (e) **`slotchange`**: one ordered channel — HEAD's VM queue `pending_slot_change_signals` (B25) sets the requirement on
-  order and on a single channel, its reuse as the mechanism is P2's / P1's input — fed by every signal source (*assign
-  slottables* step 2; *insert* step 7.5; *remove* step 9; *move* steps 15, 23), writers outside VM bind brackets included
-  (P1's always-installed requirement, D6 (a));
-- (f) a **UA assignment-rule seam** in the one writer: an element kind may declare its shadow tree's assignment rule
-  (declared by the UA template, D7); `details` declares "first `summary` child → slot 1 (none → the default summary),
-  every other child node → slot 2", re-derived by the one writer on every child-list change of the host (the triggers of
-  (b)). P1 therefore needs no children-changed hook for it; the order of *insert* step 7.4's assignment against the
-  insertion steps (P1) is a P1 × P2 pair, input to both.
-The expected values of rev 4's cell C17 are P2's cells (current without a style pass after each trigger; a removed node's
-`flat_tree_parent`; a manual root's assignment surviving the style walk; manual re-insertion per (c); a host child's
-pseudo-elements never slotted; a slot's fallback out of the flat tree when the flat tree's assignment — *find slottables*, or P2's decided assignment per
-(c) — is non-empty; named-mode `slotchange`
-on a light-tree mutation). P2 absorbs `#11-shadow-slotchange-named-mode-detection`, `#11-shadow-slot-flatten` and the
-assignment-writer part of `#11-shadow-light-tree-distribution-rendering` (§8); the code-cited slot names
-(`html_slot_proto.rs:13`, `:28`, `:30`; `shadow.rs:389`) are retargeted at P2's landing (P2's record).
+Layout lane). Edges **P2 → CV-reveal** (the reveal walk), **CV-render** (S2), **CV-details**. P2 owns slot assignment (one
+writer) and the flat tree of css-shadow-1 §4.1 (*find slottables*); this program reads it. Invariants (cells, §7):
+- **P2-1 K4's cases, current** (K4, K5, K11) — pseudo-element entities never slottables, their flat-tree parent the
+  originating element; current with no style pass after DOM *insert*, *remove*, *move*, a slot's `name` or a slottable's
+  `slot` change, `HTMLSlotElement.assign()`, entity destroy, and `moveBefore` when built (C26);
+- **P2-2 a UA element kind's assignment, current** (K13) — `details`' rule (HTML §15.5.5; first `summary` child → slot 1,
+  none → the default summary; every other child node → slot 2; CV-details' fact) holds after every child-list change,
+  with no style pass between and no VM bound (C27);
+- **P2-3 one relation** (K5, K6, D3) — `flat_tree_parent` and `composed_children` describe one flat tree, a host's
+  `::before`/`::after` included (C26);
+- **P2-4 S2's home can read it** (K1, K4) — S2's readers query the flat tree from `elidex-ecs`, not `elidex-dom-api` (C28).
+`slotchange`, manual vs computed assignment, the *assigned slot*'s clearing and the event path's *get the parent* /
+`composedPath` are P2's own surfaces; how P2 meets P2-1–4 is P2's (§5.3's P2 risks as input); rev 4's C17 is P2's.
+P2 absorbs `#11-shadow-slotchange-named-mode-detection`, `#11-shadow-slot-flatten` and the assignment-writer part of
+`#11-shadow-light-tree-distribution-rendering` (§8); the code-cited slot names (`html_slot_proto.rs:13`, `:28`, `:30`;
+`shadow.rs:389`) are retargeted at P2's landing (P2's record).
 
-**D12 — Contract on FU (forced style/layout update)** (rev 4 H1, PM decided 2026-10-24). Not a nested PR: the sibling
-program **FU** (planned umbrella `docs/plans/2026-10-forced-style-layout-update.md`, own plan-review; slot
-`#11-forced-style-layout-flush-on-script-read`, B21, id kept — not an item-11 amendment; owner the Layout lane; its other
-consumers, e.g. VM host `getBoundingClientRect` / layout queries, are FU's to register). Edges **FU → CV-reveal, CV-focus,
-CV-readers**. This program places on FU:
-- (a) **one style-phase system** — the frame's style pass with its animation phases (B24) — invoked at two times, frame and
-  forced. Every invocation is a **style change event** (css-transitions-1 §3 Starting of transitions,
-  `#style-change-event`, leaves its timing to the implementation: elidex's decision, not item 10's ground). FU
-  **provides** a per-invocation hook and the old-style baseline at every invocation (frame and forced); it neither computes
-  S2 nor writes K16's marker — CV-readers defines the marker and writes it from a system registered on that hook (K16; no
-  cycle: FU → … → CV-readers only). A forced pass must not lose transitions (old == new) and must not disagree with the
-  frame pass on S1 under an animated `content-visibility`;
-- (b) **style and layout** (K11's scroll offset reads layout);
-- (c) an **injected trait boundary** (shells implement; `elidex-dom-api` and the VM cannot depend on a shell). `focus()`'s
-  path follows canonical-focus A2c (`#11-vm-host-synthetic-dom-event-dispatch`): the VM becomes a thin caller of
-  `elidex-dom-api` `focusing_steps` (B23), so FU's point is reached on `focusing_steps`' path, not a second focus path; no
-  focusability predicate calls it, nor the render-time fixup (`reconcile_focus` would recurse, B23);
-- (d) the session flush (`SessionCore::flush`, B24) precedes it; it runs in an explicit phase window (CLAUDE.md
-  *Concurrency by ownership and phases*);
-- (e) the consumers this program needs: the reveal's post-mutation scroll (K11), `focus()` (K15) and `getComputedStyle`
-  (K16 item 9 sampling) — a **decided** consumer and the slot's own subject, so FU, not this program, discharges the slot.
-(a)'s S1 agreement and its hook's baseline are testable only after CV-render / CV-readers: they are cells there (C21, C20).
-Rejected (rev 3, standing): deriving until-found from the attribute (a second derivation, K1); a stale read plus a
-render-time blur (a deviation).
+**D12 — Contract on FU (forced style/layout update), as observable invariants** (rev 4 H1, PM decided 2026-10-24). Not a
+nested PR: the sibling program **FU** (planned umbrella `docs/plans/2026-10-forced-style-layout-update.md`, own
+plan-review; slot `#11-forced-style-layout-flush-on-script-read`, B21, id kept — not an item-11 amendment; owner the
+Layout lane; other consumers, e.g. `getBoundingClientRect`, FU's to register). Edges **FU → CV-reveal, CV-focus,
+CV-readers**. FU owns the one style-phase system (the frame's style pass with its animation phases, B24), invoked frame
+and forced, and the script-time update point; this program calls the point and owns K16's marker (CV-readers). Spec
+semantics decided here: every invocation, frame or forced, is one **style change event** (css-transitions-1 §3,
+`#style-change-event`, leaves its timing to the implementation: elidex's decision). Invariants (cells, §7):
+- **FU-1 un-skip starts no transition** (K16; §4.5 item 10) — frame or forced, including moving `p` out of a hidden
+  ancestor while its `color` changes in the same task (C16, C22);
+- **FU-2 a forced pass is a style change event** (K16) — of two forced passes in one task, the second starts the
+  transition of an element the first un-skipped (C20);
+- **FU-3 one S1 answer** (K3, K16) — forced and next frame pass agree on S1 under an animated `content-visibility` (C21);
+- **FU-4 script-time reads are fresh** (K8, K11, K15, K16) — style **and layout** reflect the task's earlier mutations:
+  `focus()`, the reveal's scroll offset after a `beforematch` mutation (C18), `getComputedStyle`'s sampling (C23);
+- **FU-5 reachable from engine-independent callers, never from a predicate** (K11, K15) — from `elidex-dom-api` (the
+  reveal, `focusing_steps`' path) and the VM, which cannot depend on a shell; no focusability predicate and not
+  `reconcile_focus` (it would recurse, B23) (C29).
+The reveal's scroll (K11), `focus()` (K15) and `getComputedStyle` (K16 item 9) are **decided** consumers and the slot's
+own subject: FU discharges the slot. How FU meets FU-1–5 is FU's (§5.3's FU risks as input). Rejected (rev 3, standing):
+deriving until-found from the attribute (a second derivation, K1); a stale read plus a render-time blur (a deviation).
+
+**CF — canonical-focus gates** (external; the canonical-focus lane, driver-less). **CF-1** (K8, K15; A2c,
+`#11-vm-host-synthetic-dom-event-dispatch`) — the VM's `focus()` runs `focusing_steps` (B23), reaching FU's point and the
+predicates CV-focus wires (C18, through the VM). **CF-2** (K13, K15; CV-details' own, with A3's unified predicate) — the
+default summary's keyboard subwidget is a focusable area that sequential navigation reaches and the render-time fixup does
+not blur (C25); which predicates read it is input (CF-R1).
 
 ### §0.5 Decisions on rev 1's open questions
 
@@ -304,13 +280,11 @@ render-time blur (a deviation).
 |---|---|---|
 | CSS property | grammar, cascade, computed as specified, discrete animation with the `hidden` mapping (§4.1), UA rule with `i` | applies-to, CSSOM |
 | Used-time skip | S1 over the principal box via F1; S2 over the flat tree; C; each reader's arm classified (K1) | every reader; containment out |
-| Flat tree | consumed from P2 (D11's contract), not built here | S2, the reveal walk, K13's assignment, U2's slot emissions |
-| Element lifecycle | consumed from P1 (D6's contract), not built here | the reveal's writes, `details`' steps, `summary` and default-summary activation |
-| Script-time freshness | consumed from FU (D12's contract), not built here | FU's one style-phase system, `focus()`, the reveal scroll, `getComputedStyle` |
+| Flat tree; element lifecycle; script-time freshness | consumed from P2 (D11), P1 (D6), FU (D12) as invariants, not built here | S2, the reveal walk and writes, K13's assignment, `details`' steps and activation, `focus()`, the reveal scroll, `getComputedStyle` |
 | Paint + hit test | contents unpainted / pass-through; owner-entity gate; out-of-flow descendants; pseudo-elements | stacking contexts, PR-1c's inline hits, IBP-layout's F4 sites, U2's slot/fallback emissions |
 | A11y | omission (§4.6) | composed-tree walk |
 | Focus | being rendered vs skipped; Hidden / Hidden Until Found split; render-time fixup | `focusing_steps`, `reconcile_focus`, the canonical-focus lane (driver-less) |
-| Navigation + script | reveal fires `beforematch` (script) and mutates before the scroll; same-document and initial-load; two shells | P1's hooks, FU |
+| Navigation + script | reveal fires `beforematch` (script) and mutates before the scroll; same-document and initial-load; two shells | P1, FU |
 | UA shadow tree | declared template, one instantiation function, never script-observable, UA-styled by cascade; the shadow surfaces it needs (U2) | P2's flat tree, P1's activation, serialization, clone, the shadow-lane slots |
 | Further readers (U1) | scrolling operations skip; observers see no intersection / no size change; animations frozen, transitions not started | IBP-observer (F13), `elidex-css-anim`'s tick, the shell's transition detection, both shells' scroll |
 
@@ -321,7 +295,7 @@ shells × same-document and initial-load paths); **CV-render** may be edge-dense
 replaced/widget content × pseudo-elements); **CV-a11y** narrow; **CV-focus** narrow-to-moderate; **CV-readers** may be
 edge-dense (four reader families in four crates × the animation semantics; its plan may divide it per family);
 **CV-details** is a **node** — likely edge-dense (UA shadow template and instantiation × fallback rendering × slotted
-rendering × host-as-ancestor matching × the behaviours on P1's hooks × reveal arm × style) — its plan divides it (seeds:
+rendering × host-as-ancestor matching × the behaviours run by P1 × reveal arm × style) — its plan divides it (seeds:
 UA-shadow mechanism; the U2 facets — fallback rendering and host-as-ancestor matching; behaviours + reveal arm; the slot
 style rule last, K9).
 
@@ -359,8 +333,9 @@ style rule last, K9).
   F1's (the parent's IBP-predicate moves blockification to style resolution, E20).
 - **K4 Flat tree** — consumed from **P2's landing** (D8, D11): `flat_tree_parent` maps a slotted node to its slot, a shadow
   root's child to the host, a pseudo-element entity to its originating element, an unassigned light child of a host to
-  *none*, a child of a slot whose flat-tree assignment (*find slottables*, or P2's decided assignment per D11 (c)) is
-  non-empty to *none* (fallback is not in the flat tree), else the DOM parent; the assignment is current after every trigger (D11 (b)), so whenever any reader runs. Text nodes are contents.
+  *none*, a child of a slot whose assignment as the flat tree reads it (P2's: named, manual, or a UA element kind's rule
+  such as `details`', P2-2) is non-empty to *none* (fallback is not in the flat tree), else the DOM parent; current after
+  every trigger (P2-1), so whenever any reader runs. Text nodes are contents.
 - **K5 What "contents" is** — the spec's *contents* is the flat-tree descendants plus the replaced content (B6);
   pseudo-elements are not flat-tree descendants, so whether they are contents is a spec-silent edge, **decided by
   measurement** (B26; `feedback_measure-browser-before-deciding-spec-silent-outcomes`): `::before`, `::after` and
@@ -379,7 +354,7 @@ style rule last, K9).
   umbrella `:1810-1811` as the parent cites it at `:1015-1018`; CV-details' slot and fallback emissions) cannot bypass it.
 - **K8 Freshness** — render-time readers (paint, hit, a11y, `reconcile_focus`) read the last style pass, which they run
   after. Script-time readers (`focus()`, the reveal's post-mutation scroll offset, `getComputedStyle`'s animation sampling)
-  read through FU's point (D12) — `focus()` once A2c has made the VM a thin caller of `focusing_steps` (§5.2) — so
+  read through FU's point (FU-4) — `focus()` once A2c has put the VM on `focusing_steps`' path (CF-1, §5.2) — so
   `setAttribute('hidden', 'until-found')` then `inner.focus()` in one task is refused, as at HEAD, and `details.open = true` then `inner.focus()` succeeds. A focused node that becomes skipped later is blurred by
   the render-time fixup (K15).
 - **K9 Reveal before skip** — no landing state makes an until-found descendant unpainted while fragment navigation
@@ -387,52 +362,49 @@ style rule last, K9).
   activation, the default summary's activation or the reveal `details` arm is missing (CV-details' internal order: the
   second slot's `content-visibility: hidden` rule lands last).
 - **K10 Writes run the element's steps** — from **CV-reveal** (`hidden` removal) and **CV-details** (`open`; `details`' steps
-  on P1's hooks, D6), so every writer reaches them, the parser and shell-side writers included. No writer calls a VM IDL
-  setter.
+  run by P1, D6), so every writer reaches them, the parser and shell-side writers included (P1-1–P1-3). No writer calls a
+  VM IDL setter.
 - **K11 Reveal × script × geometry** — from **CV-reveal**: `beforematch` runs script; the algorithm's re-checks are kept —
   step 4.1 (connected), 4.2.1 (still until-found), 4.2.3 (connected after `beforematch`), 4.2.4 (still until-found after
-  it); the scroll offset is computed after the reveal through FU's point, from layout that reflects any mutation (both
-  shells, one function; same-document and initial-load).
+  it); the scroll offset is computed after the reveal through FU's point, from layout that reflects any mutation (FU-4;
+  both shells, one function; same-document and initial-load).
 - **K12 UA shadow tree** — from **CV-details**: instantiated from the declared template at every creation of a `details`
   (both parsers, `createElement`, `cloneNode` — which re-creates it —, fragment parsing); `UserAgentShadowRoot` marks it;
   never exposed — every exposure site reads the one "script-visible shadow root" query (D7) — and styled by the UA shadow
   sheet only.
 - **K13 `details` slot assignment and the default summary** — from **CV-details**, through P2's assignment: first `summary`
-  child → slot 1 (none → the default summary, its fallback content), every other child node → slot 2; current on
-  child-list changes (D11 (b)). The `details` rule is a **UA slot rule P2 reads** — declared by the UA template through
-  P2's assignment-rule seam (D11 (f)), not manual assignment on P1's hooks. The second slot's style follows `open` by cascade
-  (D7). §15.5.5's expectation ("The summary element that this slot represents is expected to allow the user to request the
-  details be shown or hidden") has as subject the summary the first slot represents — the author's or the default. For the
-  **default summary** the affordance is a UA-specific **activation behavior of the default summary itself**: DOM §2.9 step
-  6.5 selects it as *activationTarget* (a host-level behavior would toggle on a click anywhere in the contents), plus a
-  **keyboard** subwidget focusable area (HTML §6.6.2: "the part of a details element's rendering that enables the element to
-  be opened or closed using keyboard input"), **declared in the UA template** as a focusable area and read by the one focus
-  predicate (`is_focusable_area`, via `focusing_steps`); activation dispatch stays P1's (D6 (c)), the behaviours
-  CV-details'. Not §4.11.2, whose step 1 returns (its parent is the slot, not a `details`).
+  child → slot 1 (none → the default summary, its fallback content), every other child node → slot 2; current after every
+  child-list change, from every writer (P2-2). The second slot's style follows `open` by cascade (D7). §15.5.5's
+  expectation ("The summary element that this slot represents is expected to allow the user to request the details be
+  shown or hidden") has as subject the summary the first slot represents — the author's or the default. For the **default
+  summary** the affordance is a UA-specific **activation behavior of the default summary itself**: DOM §2.9 step 6.5
+  selects it as *activationTarget* (a host-level behavior would toggle on a click anywhere in the contents), plus a
+  **keyboard** subwidget focusable area (HTML §6.6.2: "the part of a details element's rendering that enables the element
+  to be opened or closed using keyboard input"; CF-2). Activation dispatch is P1's (P1-4), the behaviours CV-details'. Not
+  §4.11.2, whose step 1 returns (its parent is the slot, not a `details`).
 - **K14 Pins** — every parent pin (§5.1) flips at **CV-render**, conditional on firing at its exposer's actual base; CV-render
   flips each landed pin's assertion.
 - **K15 Focus** — from **CV-focus**: a node in skipped contents is not a focusable area; the S1 element itself is (it is
-  being rendered, HTML §15.1). The readers: `focusing_steps` reads `is_focusable_area` (`update_steps.rs:113`); the VM entry
-  (until A2c) and `reconcile_focus` read `is_focusable` (B23) — CV-focus wires the predicates they read (Q-s8). `focus()`
-  reads through FU's point on `focusing_steps`' path (D12 (c)), so CV-focus lands **after A2c** (§5.2): before it the VM
-  entry would read a stale S2 without FU's point — a regression against HEAD's attribute test. A focused node that becomes skipped is blurred at render
-  time: HTML §8.1.7.3 *update the rendering* step 17 (the focused area is not a focusable area → the focusing steps for
-  the viewport), HEAD's `reconcile_focus`, which reads the predicate.
+  being rendered, HTML §15.1). At CV-focus's base (after A2c) `focusing_steps` — the VM's `focus()` included (CF-1) —
+  reads `is_focusable_area` (`update_steps.rs:113`) and `reconcile_focus` reads `is_focusable` (B23); CV-focus wires the
+  predicates they read (Q-s8). `focus()` reads through FU's point (FU-4, FU-5), so CV-focus lands **after A2c** (§5.2): at
+  HEAD the VM entry calls `is_focusable` directly (B23) and would read a stale S2 — a regression against HEAD's attribute
+  test. A focused node that becomes skipped is blurred at render time: HTML §8.1.7.3 *update the rendering* step 17 (the
+  focused area is not a focusable area → the focusing steps for the viewport), HEAD's `reconcile_focus`.
 - **K16 Every present reader reads K1's query** (U1) — from **CV-readers**: scrolling operations do not scroll to a node in
   skipped contents ("as if it did not have a layout box", §4.5 item 5); IntersectionObserver reports such a target as never
   intersecting, even when root and target are both skipped (item 1); ResizeObserver reports no size change for it and
   delivers on un-skip only if the size differs from the last reported (item 2). Animations, exactly per items 9–10: while
   an element is skipped no new animation is created, existing ones do not advance and running ones do not end; a script
-  style query samples them (through FU's point, D12 (e)); on un-skip they are sampled and resume; no transition starts
-  while skipped, nor from the un-skip style change event. *Skipped at the last style change* is a **historical** fact (not
-  a stored copy of a current one, D1): a per-entity marker component **defined by CV-readers** (home `elidex-ecs`, beside
-  the S1/S2 queries' file) and **written by CV-readers' system registered on FU's per-invocation hook** at **every**
-  style-phase invocation (frame and forced), from FU's old-style baseline (D12 (a)); read by transition detection and
-  un-skip handling. The boundary is the **style change event** (item 10; css-transitions-1 §3, each style-phase invocation
-  by elidex's decision), not the rendering update: two forced passes in one task are two style
-  change events, so the second starts a real transition. Not a reader-local per-pass set: P2's tree is current at mutation
-  time (D11 (b)), so a pre-pass S2 reads the new tree with old styles — moving `p` out of a hidden ancestor must not start a
-  transition. Freeze = the tick does not advance skipped entities (no stored freeze state). The callers: shell
+  style query samples them (through FU's point, FU-4); on un-skip they are sampled and resume; no transition starts
+  while skipped, nor from the un-skip style change event (FU-1). *Skipped at the last style change* is a **historical**
+  fact (not a stored copy, D1): a per-entity marker component **defined by CV-readers** (home `elidex-ecs`, beside the
+  S1/S2 file), holding S2 as of the previous style change event; read by transition detection and un-skip handling. The
+  boundary is the **style change event** (item 10; every invocation, frame or forced, D12), not the rendering update: two
+  forced passes in one task are two, so the second starts a real transition (FU-2). Not a reader-local per-pass set: P2's
+  tree is current at mutation time (P2-1), so a pre-pass S2 reads the new tree with old styles — moving `p` out of a
+  hidden ancestor must not start a transition (FU-1). How the marker is written at every invocation is FU × CV-readers
+  input (FU-R1). Freeze = the tick does not advance skipped entities (no stored freeze state). The callers: shell
   `animation.rs:87` `detect_and_start_transitions` (`lib.rs:692`) and the event-loop tick (`content/event_loop.rs:256`).
 - **K17 Standing obligation for absent readers** (U1) — each, when built, reads K1's form per the arm table: `innerText` →
   S2; `checkVisibility` → C's ancestor form; the top layer → C's ancestor form; media → §8's media obligation;
@@ -446,13 +418,12 @@ decides `flat_tree_parent`; the `details` rule only feeds it); K5×F4/F7 (replac
 classifications); K6×`#11-css-containment` (the ancestry rule still holds when containment lands); K6/K7×U2 (slotted nodes
 painted at their slot and fallback content pass the same owner-entity gate — hence CV-render → CV-details); K7×PR-1c (new
 candidates pass the gate); K8×K11, K8×K15, K8×K16 (the reveal's scroll, `focus()` and script sampling read through FU);
-K10×P1/P2 (`details`' steps on P1's hooks, assignment P2's core invariant — different seams); K12×K13 (the UA tree is
-instantiated before the `details`' children are assigned — in parser order and in clone order); FU-contract ×
-ScriptSession / Concurrency (D12 (d), owned by the FU umbrella); K9×K10 (activation and reveal write `open` through the
+K10×P1/P2 (`details`' steps run by P1, P1-1; its assignment P2's, P2-2 — different owners); K12×K13 (the UA tree is
+instantiated before the `details`' children are assigned — in parser order and in clone order); K9×K10 (activation and reveal write `open` through the
 steps; the slot style follows by cascade); K10×B12 (the IDL setter becomes marshalling); K14×§5.2 (CV-core precedes
 CV-render, so the hit-test reader is the flip, PE5); K16×F13 (ResizeObserver's observed box is IBP-observer's; CV-readers
-gates after it); K16×D12 (a) (CV-readers' marker writer runs on FU's hook at every invocation, so forced and frame passes
-share one baseline); K16×K11 (the fragment scroll is both a reveal caller and a scrolling operation: reveal first,
+gates after it); K16×FU-2 (the marker's boundary is every style change event, so forced and frame passes share one
+baseline); K16×K11 (the fragment scroll is both a reveal caller and a scrolling operation: reveal first,
 then the skip check — a target still skipped under an author `content-visibility: hidden` is not scrolled to); K17×K1 (C
 lives in K1's file).
 
@@ -467,10 +438,10 @@ lives in K1's file).
 | CSS CONTAIN 2 §3.1 Size Containment | the four "no effect" bullets (applies-to) | ruby arm vacuous at HEAD (PE2) | CV-render | ✓ | yes |
 | CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | the sizing rule only; K5 decided by measurement (B26), consistent with it | CV-render | ✗ | yes |
 | CSS CONTAIN 2 §4.5 Restrictions and Clarifications | items 1–12 (each reader's arm: §2's table); item 10's style change event (K16's marker boundary) | 1, 2, 5, 9, 10: CV-readers (U1); 8, 11, 12 (incl. its iframe clause) → K17's slots; 3, 4, 6 `auto`-only (3 in effect: *update content relevancy for a document* step 2 iterates only `auto` elements) → `#11-content-visibility-auto`; 7 (iframe SHOULD) → out | CV-readers | ✗ | yes |
-| CSS TRANSITIONS 1 §3 Starting of transitions | *style change event* (`#style-change-event`; timing not defined by the spec) | every style-phase invocation, frame and forced, is one — elidex's decision (D12 (a), K16) | CV-readers | ✗ | yes |
+| CSS TRANSITIONS 1 §3 Starting of transitions | *style change event* (`#style-change-event`; timing not defined by the spec) | every style-phase invocation, frame and forced, is one — elidex's decision (D12, K16) | CV-readers | ✗ | yes |
 | CSS CONTAIN 2 §4.6 Accessibility Implications | `hidden`'s skipped contents omitted | `auto` paragraph → `#11-content-visibility-auto` | CV-a11y | ✓ | yes |
 | CSS DISPLAY 3 §2.4 Layout-Internal Display Types: the table-* and ruby-* keywords | *internal table box*, *internal ruby box* | | CV-render | ✓ | yes |
-| CSS SHADOW 1 §4.1 Flattening the DOM into an Element Tree | the flat tree (*find slottables*) | consumed from P2 (D11 (a)); S2 and the reveal walk read it | P2 (sibling) | ✗ | yes |
+| CSS SHADOW 1 §4.1 Flattening the DOM into an Element Tree | the flat tree (*find slottables*) | consumed from P2 (P2-1, P2-3); S2 and the reveal walk read it | P2 (sibling) | ✗ | yes |
 | CSS SHADOW 1 §3.2.2 Selecting Shadow Hosts from within a Shadow Tree | the host matched in shadow-tree context | host-as-ancestor (`:host summary`, the `:host([open])` pair) built once for all origins (D7) | CV-details | ✗ | yes |
 | CSS SHADOW 1 §3.2.3 Selecting Into the Light: the :host, :host(), and :host-context() pseudo-classes | `:host`, `:host()` | `:host-context()`, `:not` inside `:host()` → `#11-shadow-tree-style-isolation` (§8) | CV-details | ✗ | yes |
 | WHATWG HTML §15.3.1 Hidden elements | `[hidden=until-found i]:not(embed)` | `[hidden]:not([hidden=until-found i]):not(embed)` and `embed[hidden]` → IBP-ua-display / IBP-layout (parent) | CV-core | ✗ | yes |
@@ -480,9 +451,9 @@ lives in K1's file).
 | WHATWG HTML §6.9.2 Interaction with details and hidden=until-found | find-in-page | → `#11-find-in-page` (B16) | — | ✗ | yes |
 | WHATWG HTML §15.5.5 The details and summary elements | the internal shadow tree, three children; the second slot's style by `open` | cascade-derived (D7); `::details-content` → `#11-details-content-pseudo` (O1) | CV-details | ✗ | yes |
 | WHATWG HTML §15.5.5 The details and summary elements | the default summary "is expected to allow the user to request the details be shown or hidden" | the default summary's own UA activation behavior plus keyboard subwidget (K13) | CV-details | ✓ | yes |
-| WHATWG HTML §4.11.1 The details element | attribute change steps (toggle task + tracker; exclusivity); insertion steps (*ensure details exclusivity*); run for the parser | on P1's hooks, every writer (D6 (a)) | CV-details | ✓ | yes |
+| WHATWG HTML §4.11.1 The details element | attribute change steps (toggle task + tracker; exclusivity); insertion steps (*ensure details exclusivity*); run for the parser | run by P1 for every writer (P1-1, P1-2) | CV-details | ✓ | yes |
 | WHATWG HTML §4.11.2 The summary element | activation behavior steps 1–3 | step 1 excludes the default summary (K13) | CV-details | ✓ | yes |
-| WHATWG DOM §2.9 Dispatching events | step 6.5 (*activationTarget*; ancestors 6.9.6.1, 6.9.8.2), step 12.1 (activation behavior) | P1's activation step in every dispatch path (D6 (c)); `summary` and default-summary behaviours registered on it | CV-details | ✗ | yes |
+| WHATWG DOM §2.9 Dispatching events | step 6.5 (*activationTarget*; ancestors 6.9.6.1, 6.9.8.2), step 12.1 (activation behavior) | P1's activation step in every dispatch path (P1-4); `summary` and default-summary behaviours registered on it | CV-details | ✗ | yes |
 | WHATWG HTML §6.6.2 Data model | focusable-area criteria (being rendered); the `details` keyboard subwidget | the Hidden arm → IBP-ua-display / `#11-focusable-area-being-rendered`; the subwidget: K13 (CV-details) | CV-focus, CV-details | ✗ | yes |
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 17 (focused area not a focusable area → focusing steps for the viewport) | K15's render-time blur (`reconcile_focus`) | CV-focus | ✓ | no |
 | WHATWG HTML §15.1 Introduction | *being rendered* | the S1 element itself is | CV-focus | ✓ | no |
@@ -494,7 +465,7 @@ lives in K1's file).
 default (preflight SPLIT-DEFAULT); the split is §5 (seven nested PRs, CV-details a node) plus the sibling programs. The
 CSS-module rows are `webref heading` output; preflight's §3 hard-gate does not map CSS labels
 (`#11-preflight-css-module-labels`), so those rows were checked by hand. DOM §4.2.2–§4.2.3 and HTML §4.12.4 (slot
-assignment) are P2's map, Node's *get the parent* (DOM §4.4 Interface Node) P2's contract text (D11 (d)).
+assignment) are P2's map, Node's *get the parent* (DOM §4.4 Interface Node) P2's (§5.3).
 
 ### §3.1 User-input touch audit
 
@@ -516,9 +487,8 @@ CV-details moves it to a queued task.
   `visibility`'s special case (`:24`).
 - **UA rule** (CV-core) — *Home/kind*: the core UA sheet, `elidex-style/src/ua.rs` (436 lines), one rule. Input: consumes
   IBP-css-machinery's `i` flag (E22) and the existing simple `:not(embed)`.
-- **Slot assignment, flat-tree parent** — not this program's: P2's (D8, D11); this program's PRs read `flat_tree_parent`.
-- **Element steps, activation dispatch** — not this program's mechanism: P1's (D6); this program registers behaviours.
-- **Script-time update point** — not this program's: FU's (D12); this program's PRs call it, per D12's contract.
+- **Not this program's**: slot assignment and `flat_tree_parent` (P2, D8, D11; read here); element steps and activation
+  dispatch (P1, D6; behaviours registered here); the script-time update point (FU, D12; called here).
 - **S1, S2, C** (CV-render; C by its first consumer) — *Home/kind*: `EcsDom::skips_contents(element)` and
   `EcsDom::in_skipped_contents(node)` (NEW), with C, queries (no writer), all in one new file
   `elidex-ecs/src/dom/content_visibility.rs` (NEW): K3 over `ComputedStyle` and F1 (`EcsDom::is_inline_box`, the parent's
@@ -527,7 +497,7 @@ CV-details moves it to a queued task.
   `MAX_ANCESTOR_DEPTH`; per-frame memoisation only if a reader's plan measures the need, and then reader-local, dropped with
   its pass (never a component).
 - **Ancestor revealing** (CV-reveal; `details` arm CV-details) — *Home/kind*: one engine-independent function,
-  `elidex_dom_api::reveal::run_ancestor_revealing` (NEW), over `flat_tree_parent`, attribute mutation on P1's hooks (K10)
+  `elidex_dom_api::reveal::run_ancestor_revealing` (NEW), over `flat_tree_parent`, attribute mutation run through P1 (K10, P1-1)
   and an event-fire callback the caller supplies (the shells dispatch `beforematch` through the session boundary).
   Callers: both shells' same-document fragment navigation and the initial-load *try to scroll to the fragment* (NEW, both
   shells), before the scroll; later find-in-page. The **Hidden Until Found classifier** has one engine-independent home,
@@ -544,14 +514,14 @@ CV-details moves it to a queued task.
   (pruning at S1 is valid: the walk is the composed tree, D3).
 - **Focus reader** (CV-focus) — *Home/kind*: the focusability predicates (`is_focusable`, `focus/predicate.rs:205`;
   `is_focusable_area`, `delegate.rs:133`, read by `focusing_steps`) with `is_in_hidden_subtree` split by state, the Hidden
-  Until Found state read through S2 (K1, K15); `focus()` through FU's point on `focusing_steps`' path (D12 (c)), never from
+  Until Found state read through S2 (K1, K15); `focus()` through FU's point (FU-4, FU-5; CF-1), never from
   a predicate. Input: Q-s8; `focus/tests.rs` is 999 lines — a touch-time split precedes any added cell.
 - **Selection** — D10 (K17's slot; no code).
 - **`details` steps and activation behaviours** (CV-details) — *Home/kind*: `elidex-dom-api` functions (beside
-  `element/details_exclusion.rs`) run by P1's hooks (D6): the attribute change and insertion steps, the toggle event
+  `element/details_exclusion.rs`) run by P1 (D6): the attribute change and insertion steps, the toggle event
   **queued** as an element task with the tracker (HTML §4.11.1) — the tracker a component on the `details` entity
   (`Send + Sync`; the side-store rule); `summary`'s activation behavior; the default summary's UA activation behavior; its
-  keyboard subwidget declared in the UA template (K13). The VM keeps only dispatch marshalling.
+  keyboard subwidget (K13, CF-2; its representation input, §5.3). The VM keeps only dispatch marshalling.
 - **Scrolling-operation reader** (CV-readers) — *Home/kind*: one `elidex-dom-api` "scroll a target into view" resolution,
   called by `ScrollIntoView` (`layout_query.rs:257`) and by the shell fragment scroll (`content/scroll.rs:210`), reading S2
   for the target (K16). Input: the other scroll-into-view callers (focus) its plan measures (Q-s12).
@@ -562,8 +532,8 @@ CV-details moves it to a queued task.
 - **Animation reader** (CV-readers) — *Home/kind*: the caller in elidex-shell (K16: `animation.rs:87`, `lib.rs:692`, the tick)
   evaluates S2 — `elidex-css-anim` does not depend on `elidex-ecs` (its `[dependencies]`: `elidex-plugin`, `elidex-css`,
   `cssparser`) — passing the engine a skipped set per pass; *skipped at the last style change* is a per-entity marker
-  component (home `elidex-ecs`, beside `dom/content_visibility.rs`) defined by CV-readers and written by its system on FU's
-  per-invocation hook (K16, D12 (a)). Input: the engine's API shape, the writer's registration on the hook; `engine.rs` is 809 lines — 1000-line watch.
+  component (home `elidex-ecs`, beside `dom/content_visibility.rs`) defined by CV-readers (K16). Input: the engine's API
+  shape; how the marker is written at every style-phase invocation (FU × CV-readers, §5.3); `engine.rs` is 809 lines.
 - **Absent readers** (K17) — no code; the obligation lives on §8's slots.
 - **UA shadow tree** (CV-details) — *Home/kind*: a template declared on `HtmlElementHandler` (data, D7); one engine-independent
   instantiation function (crate *input*, Q-s10); `UserAgentShadowRoot` (NEW) marker in `elidex-ecs/src/components.rs` (822
@@ -578,11 +548,11 @@ CV-details moves it to a queued task.
 | Nested PR | Scope |
 |---|---|
 | **CV-core** | the property (D2, §4 computed value), §4.1 interpolation, the `[hidden=until-found i]:not(embed)` UA rule |
-| **CV-reveal** | the ancestor revealing algorithm's until-found arm, `beforematch`, K10/K11 (writes on P1's hooks; scroll through FU's point); the Hidden Until Found classifier (§4); wired into both shells' same-document fragment navigation and the initial-load *try to scroll to the fragment* (built, every load path, D5) |
+| **CV-reveal** | the ancestor revealing algorithm's until-found arm, `beforematch`, K10/K11 (writes run through P1; scroll through FU's point); the Hidden Until Found classifier (§4); wired into both shells' same-document fragment navigation and the initial-load *try to scroll to the fragment* (built, every load path, D5) |
 | **CV-render** | S1 (K3, F1), S2 (K4, over P2's `flat_tree_parent`); paint and hit-test readers (D4, K5–K7); flips every landed parent pin (K14) |
 | **CV-a11y** | a11y omission (§4.6) |
 | **CV-focus** | the focus reader (K1's state split, K15; `focus()` through FU's point); after A2c (§5.2) |
-| **CV-readers** | U1: scrolling operations, IntersectionObserver, ResizeObserver, animations/transitions (K16; the skipped-at-last-style-change marker, defined here and written on FU's hook; script sampling through FU's point) |
+| **CV-readers** | U1: scrolling operations, IntersectionObserver, ResizeObserver, animations/transitions (K16; the skipped-at-last-style-change marker, defined here; script sampling through FU's point) |
 | **CV-details** (node) | the shadow surfaces it consumes (U2; §8's per-slot table); the UA shadow template and instantiation (D7, K12); `details`' assignment rule over P2 (K13); `details`' steps, `summary` and default-summary activation behaviours and keyboard subwidget on P1's mechanisms (D6, K13); the reveal `details` arm (D5); the second slot's style rule, last (K9) |
 
 Not in this list: the sibling programs FU (D12), P1 (D6) and P2 (D8, D11), whose edges into this program are §5.2's.
@@ -619,10 +589,10 @@ pre-existing class (A96); a cell one of them fires inside this program is repair
 | c7 | IBP-observer → CV-readers | data flow (F13, the observed box the ResizeObserver gate reads) — **an addition to the parent's edge list** (§8 records); U1 |
 | c8 | CV-reveal → CV-readers | data flow (K16×K11: the fragment scroll's skip check sits after the reveal call CV-reveal places) |
 | c11 | CV-render → CV-details | data flow (U2's slot and fallback paint emissions pass K7's gate; S1, S2) |
-| FU | FU (sibling; its consumer landing) → CV-reveal, CV-focus, CV-readers | data flow (the update point K11's scroll, K15's `focus()` and K16's sampling read through; D12) — **external**, like E20/E22 |
-| P1 | P1 (sibling) → CV-reveal, CV-details | data flow (hooks for every writer: the reveal's `hidden` removal and `open` set from the shell; `details`' steps; the activation step; D6) — **external** |
-| A2c | canonical-focus A2c (`#11-vm-host-synthetic-dom-event-dispatch`; after S5) → CV-focus | data flow (the VM's `focus()` a thin caller of `focusing_steps`, so it reaches FU's point and the S2-wired predicate; else a stale-S2 regression, K15) — **external**; A2c's ownership unchanged (the canonical-focus lane, driver-less) |
-| P2 | P2 (sibling) → CV-reveal, CV-render, CV-details | data flow (`flat_tree_parent` for the reveal walk and S2; the assignment K13 feeds; D11) — **external** |
+| FU | FU (sibling; its consumer landing) → CV-reveal, CV-focus, CV-readers | data flow (FU-1–FU-5: the update point K11's scroll, K15's `focus()` and K16's sampling read through; D12) — **external**, like E20/E22 |
+| P1 | P1 (sibling) → CV-reveal, CV-details | data flow (P1-1–P1-4: steps for every writer — the reveal's `hidden` removal and `open` set from the shell; `details`' steps; the activation step; D6) — **external** |
+| A2c | canonical-focus A2c (`#11-vm-host-synthetic-dom-event-dispatch`; after S5) → CV-focus | data flow (CF-1: the VM's `focus()` on `focusing_steps`' path, so it reaches FU's point and the S2-wired predicates; else a stale-S2 regression, K15) — **external**; A2c's ownership unchanged (the canonical-focus lane, driver-less) |
+| P2 | P2 (sibling) → CV-reveal, CV-render, CV-details | data flow (P2-1–P2-4: `flat_tree_parent` for the reveal walk and S2; `details`' assignment, K13; D11) — **external** |
 
 Acyclic: the program precedes nothing (item 12); its inputs (IBP-css-machinery, IBP-predicate, IBP-classify, IBP-observer,
 FU, P1, P2, A2c) have no predecessor in it; E26 is a docs artefact. Inside, one topological order is CV-core, CV-reveal,
@@ -636,14 +606,35 @@ and everything after it — CV-a11y, CV-focus, CV-readers, CV-details — sit be
 are TBD (user); the PM-recommended P1 owner (the L3 DOM/form lane) is paused since 07-27, until #527/#501 land. CV-focus
 also waits on A2c, which is driver-less and follows S5.
 
-### §5.3 Named risks per nested PR (input lines)
+### §5.3 Named risks per sibling and per nested PR (input lines)
 
-- **Siblings** (not nested): the risks of FU (both shells, style vs style+layout per reader, re-entrancy inside
-  `beforematch` or event dispatch, a forced pass's cost, Q-s3, Q-s7), P1 (bracket-independent installation, mutation
-  ordering, the activation path without a dependency cycle, the form-activation migration) and P2 (rev 4's CV-flat-tree
-  risks: `tree_clone.rs:30`'s never-copied list, destroy, `distribute_slots`' walk call sites `walk.rs:459`, `:582`,
-  `docs/architecture/core.md:22`; the P1 × P2 order of *insert* step 7.4's assignment against the insertion steps, D11 (f))
-  are input to their umbrellas, with D12's, D6's and D11's contracts.
+**Sibling risks** (input to each sibling's plan-review with its invariants; withdrawn from decided text by rev 7):
+- **FU-R1** (R5-1) hook vs transition detection: the marker is S2 at the end of invocation N over N's after-change styles;
+  detection reads the previous marker first; the old-style baseline feeds detection, not the marker (else pre-pass S2).
+- **FU-R2** (R2/R3) a forced pass's phase and aliasing: order against `SessionCore::flush` (B24), the phase window, a bind
+  bracket's `*mut EcsDom` (`#11-bound-safe-dispatch-dom-aliasing`). **FU-R3** FU-5's boundary (revs 4–6: an injected
+  trait). **FU-R4** both shells; style vs style+layout per reader; re-entrancy in `beforematch` / dispatch; cost; Q-s3, Q-s7.
+- **P1-R1** (R5-3) MO records for writers with no VM bound: `commit_notify_records` (`vm/host/dom_bridge.rs:57`) drops
+  them when unbound; reuse the record-producing primitives (`apply_set_attribute` / `attribute_record`); the drain.
+- **P1-R2** (R3) dispatcher lifetime per bind bracket (B18); the mutation-in-dispatch ban (`dom/mod.rs:193-205`) vs P1-2;
+  event-loop access for `toggle`; B1's install point (`docs/plans/2026-06-b1-mutationobserver-plan.md:142`) moves.
+- **P1-R3** (R3) dispatch paths: both shells, script `dispatchEvent` (a VM walk, B18), `DispatchTarget::VmObject` (#264);
+  no `elidex-script-session` → `elidex-dom-api` cycle; whether to unify the two walks; the form-activation migration (B13).
+- **P1-R4** (R5-4b) D7's instantiation at every creation path: `EcsDom::create_element*` holds no handler registry, so the
+  finding's candidate is components on the UA root / slots (P1 × CV-details, Q-s10). **P1-R5** the three MO slots (D6).
+- **P2-R1** (R5-4a) `details`' rule reachable from the `elidex-ecs` writer, destroy included, with no registry lookup
+  (candidate: a component). **P2-R2** (R3/R4) stored *assigned nodes* vs *find slottables* on a manual re-insertion
+  (*insert* step 7.4 is named-mode only). **P2-R3** (R3) the *assigned slot* DOM never clears (Node's *get the parent*,
+  DOM §4.4) — a deviation to record; the event path's *get the parent* / `composedPath`.
+- **P2-R4** (R3/R4) `slotchange` order and one channel from every source (*assign slottables* 2; *insert* 7.5; *remove* 9;
+  *move* 15, 23), out-of-bracket writers included; reuse of `pending_slot_change_signals` (B25). **P2-R5** (R4) host
+  pseudo-element entities (`composed_children(host)` omits them, `shadow.rs:529-537`); whether they render → Chromium.
+- **P2-R6** a UA rule's re-derivation point vs *insert*'s insertion steps (7.7.1) and children changed steps (9), a P1 × P2
+  pair; `moveBefore`; rev 4's list (`tree_clone.rs:30`, destroy, `walk.rs:459`, `:582`, `docs/architecture/core.md:22`).
+- **CF-R1** (R5-2) the subwidget read by the base predicate `is_focusable` (`reconcile_focus`'s, B23), not only
+  `is_focusable_area`; anchor the `details` element (HTML §6.6.2); A3's unification and sequential navigation.
+
+**Nested-PR risks**:
 - **CV-core**: CSSOM `getComputedStyle(el).contentVisibility` is the only observable change; the until-found rule against
   §15.3.1's other two rules (B4) — the two `:not(embed)` rules partition `[hidden]:not(embed)`, and `embed[hidden]` is the
   third rule; `computed_style/tests.rs` 947 lines.
@@ -651,29 +642,28 @@ also waits on A2c, which is driver-less and follows S5.
   global task, step 2.1's abort and its retry); iframe documents' load path — at HEAD a same-document iframe fragment
   navigation rebuilds through a load (`content/iframe/thread.rs:199`, B20), so it reaches the initial-load *try to scroll*,
   overlapping the OOP-iframe re-tag of `#11-iframe-fragment-navigation`; the callback shape against the bind bracket (the
-  reveal holds `&mut EcsDom` across the `beforematch` dispatch, which needs the pipeline mutably) — P1's contract covers
-  the shell-side writers (D6 (a)); scroll geometry after mutation through FU's point (K11); the classifier's crate.
+  reveal holds `&mut EcsDom` across the `beforematch` dispatch, which needs the pipeline mutably) — P1-1 covers the
+  shell-side writers; scroll geometry after mutation through FU's point (K11, FU-4); the classifier's crate.
 - **CV-render**: per-owner gating sites (Q-s9); pseudo-elements (K5); out-of-flow (K6); replaced content vs the element's box
   for `<img hidden="until-found" src=a.png>` (the parent's no-pin note, `:1024-1025`); `builder/mod.rs` is 1002 lines
   (split before touching), `builder/walk.rs` 836 and `hit_test.rs` 764; the pin flips; FU's S1-agreement cell (C21).
 - **CV-a11y**: the walk's handling of unassigned light children (K4); `a11y/tree.rs` is a `LayoutBox` reader on
   `.claude/tools/layout-box-reader-allowlist.tsv` (C-3c) — the allowlist and its trip-wire are updated with it.
 - **CV-focus**: the predicates (Q-s8) — the canonical-focus A3 unified predicate overlaps it (§9), and A2c moves the VM onto
-  `focusing_steps` (D12 (c)); `focus/tests.rs` 999 lines (split first); the flipped cells (K1).
+  `focusing_steps` (CF-1); CF-R1; `focus/tests.rs` 999 lines (split first); the flipped cells (K1).
 - **CV-readers**: the animation semantics (items 9–10) against `elidex-css-anim`'s tick model, the shell caller and the
-  marker's writer on FU's per-invocation hook (K16); script sampling through FU's point; the app shell's tick site;
+  marker's writing at every invocation (K16, FU-R1); script sampling through FU's point; the app shell's tick site;
   ResizeObserver's "deliver on un-skip only if the size differs" against F13; IntersectionObserver's both-skipped case; the
-  scroll callers' population (Q-s12); may divide per family; the marker cell (C20); the scrolling reader's
-  files are on `layout-box-reader-allowlist.tsv` (`layout_query.rs` C-3b, `content/scroll.rs` C-3d) — updated with it.
-- **CV-details**: the template / instantiation crate and how it reaches every creation path (Q-s10) — `EcsDom::create_element*`
-  (`elidex-ecs`) cannot reach the handler registry or the CSS parser, and an injected hook shares P1's lifetime problem;
-  the "script-visible shadow root" query's crate — a home in `elidex-dom-api` cycles with `composed_path_for_js` in
+  scroll callers' population (Q-s12); may divide per family; the marker cells (C20, C22); the scrolling reader's files are
+  on `layout-box-reader-allowlist.tsv` (`layout_query.rs` C-3b, `content/scroll.rs` C-3d) — updated with it.
+- **CV-details**: the template / instantiation crate and how it reaches every creation path (Q-s10, P1-R4; nor can
+  `EcsDom::create_element*` reach the CSS parser); the "script-visible shadow root" query's crate — a home in `elidex-dom-api` cycles with `composed_path_for_js` in
   `elidex-script-session` (`event_dispatch/mod.rs:156`), so at or below `elidex-script-session`; the shadow surfaces it
-  builds (U2, Q-s2; B22); the UA slot rule on P2's seam (D11 (f)); the keyboard subwidget (K13) across K12 × K13 × K15 —
-its exposure (`activeElement` and the like through the one script-visible-root query), `reconcile_focus`, sequential
-navigation (Q-s8); `toggle` from synchronous to queued (an
-  author-visible timing change, toward the spec); the exposure sites moved onto the one query (K12);
-  `focus/predicate.rs`'s `is_first_summary_of_details` (`:122`) still holds; `details_set_open` becomes marshalling.
+  builds (U2, Q-s2; B22); how P2's writer obtains `details`' rule (P2-R1, P1-R4); the keyboard subwidget (K13) across
+  K12 × K13 × K15 — its exposure (`activeElement` and the like through the one script-visible-root query),
+  `reconcile_focus` (CF-R1), sequential navigation (Q-s8); `toggle` from synchronous to queued (an author-visible timing
+  change, toward the spec); the exposure sites moved onto the one query (K12); `focus/predicate.rs`'s
+  `is_first_summary_of_details` (`:122`) still holds; `details_set_open` becomes marshalling.
 
 ## §6. ECS-native and Layering checks (seed; input)
 
@@ -684,7 +674,9 @@ the element-kind plugin seam, instantiated by one function, + a `UserAgentShadow
 closed/UA" check → one "script-visible shadow root" query (D7); the per-element "style attribute set to" rewrite → a
 cascade-derived positive `:host([open])` pair (D7); animation "paused while locked" state → the tick not advancing skipped
 entities, plus a per-entity *skipped at the last style change* marker component (K16); the details' toggle task tracker
-held on the element object → a tracker component on the `details` entity (`Send + Sync`, the side-store rule; §4). (The slot-object idioms are P2's; the per-element virtual steps and
+held on the element object → a tracker component on the `details` entity (`Send + Sync`, the side-store rule; §4); a
+per-element-kind slot-assignment override (a virtual on the element class) → a per-element-kind assignment rule P2's one
+writer reads (*input*: its representation, P2-R1). (The slot-object idioms are P2's; the per-element virtual steps and
 activation are P1's.)
 
 **Fact → existing API → crate** (a9866498; reuse before adding):
@@ -705,7 +697,7 @@ Layering: the S1/S2/C queries in `elidex-ecs`; reveal, `details` behaviours, the
 scroll-into-view resolution in `elidex-dom-api`; the script-visible-root query engine-independent (§5.3); the UA template
 declared in `elidex-plugin`, instantiated engine-independently; readers in their crates; the VM marshals
 (`details_set_open`, `beforematch` handler compile only); shells call one reveal function, implement FU's trait, and
-dispatch through the session. P1's hooks, P2's assignment and FU's point are their programs' layering.
+dispatch through the session. P1's, P2's and FU's mechanisms and their crates are their programs' layering.
 
 ## §7. Test and coverage plan (input)
 
@@ -726,32 +718,42 @@ Cells (owner):
   effect, `inline-block`, `table-caption`, an inline `img` applies; C9 the parent pins flipped (all CV-render).
 - C10 a11y omission (CV-a11y); C11 `<button hidden=until-found tabindex=0>` focusable, its descendants not, render-time blur
   (CV-focus).
-- C12 `details` (CV-details): closed contents unpainted; a shell click and a script-dispatched click on `summary` open it;
-  a summary-less `details` opens by clicking its default summary, and a click elsewhere in its contents does not toggle
-  it; keyboard activation of the default summary's subwidget toggles it; the default summary is exposed as its summary in
-  the a11y tree; `toggle` queued once; name-group exclusivity on `setAttribute`, on insertion and on a parsed
-  `<details open name>`, and a parsed `<details open>` queues `toggle`; fragment into a closed `details` opens it; no
-  `shadowRoot` exposed; clone re-creates; `:host`-as-ancestor rules match in author shadow sheets too.
+- C12 `details` (CV-details; P1-1, P1-2, P1-4): closed contents unpainted; a shell click and a script-dispatched click
+  on `summary` open it; a summary-less `details` opens by clicking its default summary, and a click elsewhere in its
+  contents does not toggle it; keyboard activation of the default summary's subwidget toggles it; the default summary is
+  exposed as its summary in the a11y tree; `toggle` queued once; name-group exclusivity on `setAttribute`, on insertion and
+  on a parsed `<details open name>`, and a parsed `<details open>` queues `toggle` once; fragment into a closed `details`
+  opens it; no `shadowRoot` exposed; clone re-creates; `:host`-as-ancestor rules match in author shadow sheets too.
 - C13 `scrollIntoView()` on a skipped node and a fragment into author `content-visibility: hidden` do not scroll; C14
   IntersectionObserver reports a skipped target non-intersecting; C15 ResizeObserver silent while skipped, delivers on
-  un-skip only on a size change; C16 while skipped a running animation does not advance or end and no animation or
-  transition starts; on un-skip the animation resumes and no transition starts; moving `p` out of a
-  `content-visibility: hidden` ancestor starts no transition (all CV-readers).
-- C18 `setAttribute('hidden','until-found')` then `inner.focus()` in one task refused; `details.open = true` then
-  `inner.focus()` succeeds; a `beforematch` handler's mutation is reflected in the scroll offset (CV-reveal, CV-focus, over
-  FU's landed point and, for `focus()`, A2c).
+  un-skip only on a size change; C16 (FU-1) while skipped a running animation does not advance or end and no animation or
+  transition starts; on un-skip the animation resumes and no transition starts; C22 (FU-1) moving `p` out of a
+  `content-visibility: hidden` ancestor while changing its `color` in the task starts no transition, under the frame pass
+  and under a forced pass; C23 (FU-4) a `getComputedStyle` read of a skipped element in the task that changed its
+  animation style samples per the styles at that style change event (§4.5 item 9) (all CV-readers).
+- C18 (FU-4, CF-1) through the VM, `setAttribute('hidden','until-found')` then `inner.focus()` in one task refused,
+  `details.open = true` then `inner.focus()` succeeds; a `beforematch` handler's mutation is reflected in the scroll offset
+  (CV-reveal, CV-focus).
 - C19 a parsed and a cloned `details` get the UA tree before their children are assigned (K12×K13; CV-details).
-- C20 (FU's hook and baseline, CV-readers' marker): two forced passes in one task — the element un-skipped by the first,
-  its color changed before the second — the second style change starts its transition.
-- C21 (FU's S1 agreement, CV-render): under an animated `content-visibility`, a forced pass and the next frame pass agree
-  on S1.
+- C20 (FU-2, CV-readers' marker): two forced passes in one task — the element un-skipped by the first, its color changed
+  before the second — the second style change starts its transition; C21 (FU-3, CV-render): under an animated
+  `content-visibility`, a forced pass and the next frame pass agree on S1.
+- C24 (P1-1–P1-3; CV-reveal, CV-details): a shell-side fragment reveal (no VM bound during the write) removes `hidden` and
+  opens a closed `details` — `toggle` queued once, exclusivity run, a page MutationObserver given the attribute records;
+  in a document with no VM, a parsed `<details name=g open>` pair runs exclusivity. C25 (CF-2, CV-details): sequential
+  navigation focuses the default summary's keyboard subwidget and the next rendering update does not blur it.
+- C26 (P2-1, P2-3; CV-render): after *remove*, *move* and entity destroy, with no style pass between, `flat_tree_parent`
+  and S2 reflect the new tree; a host's `::before` entity is reached alike upward and downward. C27 (P2-2, CV-details):
+  `d.append('x'); d.prepend(summary)` with no style pass between puts `summary` in slot 1, `x` in slot 2; likewise a
+  parser-built `details` and a shell-side writer's change. C28 (P2-4, CV-render): `cargo tree -p elidex-ecs -e normal`
+  lists no `elidex-dom-api` while `dom/content_visibility.rs` reads the flat tree. C29 (FU-5): §11's D12 greps.
 (C17 — slot assignment — is P2's, D11.)
 
 ## §8. Out of scope, dispositions, records
 
 **Out** (item 11): layout skipping (the spec's SHOULD); container-side containments (`#11-css-containment`); `auto`
 (`#11-content-visibility-auto`); css-contain-2 §4.5 item 7 (an iframe's update-the-rendering skip, a SHOULD). The event
-path's *get the parent* / `composedPath` (P2's, D11 (d)).
+path's *get the parent* / `composedPath` (P2's, D11).
 
 **Registration timing** (the IBP-sandbox §8 rule): a gap that exists at HEAD (A96) is registered **at approval**
 (re-eval = approval merge + 1 month); a gap created by a nested PR's code at that landing (+1 month).
@@ -761,7 +763,7 @@ path's *get the parent* / `composedPath` (P2's, D11 (d)).
 | Slot | Disposition |
 |---|---|
 | `#11-content-visibility-skip-contents` (home, opened 2026-09-30) | its trigger ("the approval PR lands — authoring of its umbrella memo starts") has fired; restate at approval: *Trigger* = each nested landing in §5.2's order; discharged by the last; re-eval per the timing rule. This memo is its umbrella |
-| `#11-element-lifecycle-hooks` (NEW, P1); `#11-shadow-slot-assignment-flat-tree` (NEW, P2) | **registered by the PM at approval**; owners **TBD (user)** (PM recommends the L3 DOM/form lane for P1, the Layout lane for P2); homes = their planned umbrellas, which inherit D6's / D11's contracts; this memo records only their consumer edges. *Trigger*: the user's owner assignment (PM escalated). *Re-eval*: approval merge + 1 month; the approval PR may merge with owners TBD (sibling programs are dependency edges; D9 orders CV-reveal late). P1's MO overlap (D6 (b)): `#11-tree-mutation-record-pipeline`, `#11-method-driven-attribute-records`, `#11-ce-reaction-mutation-observer-ordering` stay open as P1's inputs. P2 absorbs `#11-shadow-slotchange-named-mode-detection` (cited in code, not in the ledger, B25), `#11-shadow-slot-flatten` (unledgered; recorded by the PM) and the writer part of `#11-shadow-light-tree-distribution-rendering` |
+| `#11-element-lifecycle-hooks` (NEW, P1); `#11-shadow-slot-assignment-flat-tree` (NEW, P2) | **registered by the PM at approval**; owners **TBD (user)** (PM recommends the L3 DOM/form lane for P1, the Layout lane for P2); homes = their planned umbrellas, which inherit D6's / D11's invariants and §5.3's risks for them; this memo records only their consumer edges. *Trigger*: the user's owner assignment (PM escalated). *Re-eval*: approval merge + 1 month; the approval PR may merge with owners TBD (sibling programs are dependency edges; D9 orders CV-reveal late). P1's MO overlap (P1-3): `#11-tree-mutation-record-pipeline`, `#11-method-driven-attribute-records`, `#11-ce-reaction-mutation-observer-ordering` stay open; whether P1 absorbs any is decided by P1's plan-review alone (PM ledger, 2026-10-24). P2 absorbs `#11-shadow-slotchange-named-mode-detection` (cited in code, not in the ledger, B25), `#11-shadow-slot-flatten` (unledgered; recorded by the PM) and the writer part of `#11-shadow-light-tree-distribution-rendering` |
 | `#11-forced-style-layout-flush-on-script-read` (#388) | **not this program's**: the PM re-pointed it (2026-10-24; home = the FU umbrella; owner the Layout lane); id kept, not an item-11 amendment; this memo records only FU's consumer edges and D12's contract; FU discharges it |
 | `#11-ua-sheet-html-rendering-display-fidelity` | **not registered** at HEAD (registered by IBP-ua-display only if a remainder exists, parent `:587`, `:1693`). Its `summary` member is the document-level `details > summary:first-of-type { display: list-item }` (light DOM; needs `:first-of-type`, parent `:1961-1965`), which **stays** there. CV-details builds only §15.5.5's shadow `:host summary` (the default summary's display): it touches only a default-summary facet, and only if that slot exists |
 | `#11-iframe-fragment-navigation` | cross-reference: CV-reveal's initial-load path covers iframe documents' loads (D5), and at HEAD a same-document iframe fragment navigation reaches it through a load (§5.3) — overlap with the slot's OOP-iframe re-tag, recorded for its owner |
@@ -788,7 +790,7 @@ each moved part owned by the program that receives it — P2 for the assignment 
 | Record | Ships with |
 |---|---|
 | **Amendments of the parent's §0.6 item 11 decided content** (recorded, not edited; USER DECIDED 2026-10-20): U1 — the reader list becomes every reader elidex has (K16) plus the standing obligation for absent readers (K17); U2 — the `details` UA shadow tree's scope includes the shadow surfaces it consumes (the per-slot table above). Parent premise errors PE1–PE6 (recorded, not edited); the parent's edge list gains c5 (IBP-classify → CV-details) and c7 (IBP-observer → CV-readers); E20/E22 bind every nested PR (D9); the sibling programs FU, P1, P2 and their edges into this program; the reader→PR table naming the flip for every parent pin (§5.1); the parent's §6 Open row for the home slot read with U1/U2 | **the approval PR** |
-| Memory — every shared-ledger write (the open-slot ledger, the roadmap, the landings ledger), at approval **and at each nested landing** (slot closures and narrowings), is **transcribed by the PM** from the driver's report (`project_pm-and-lane-driver-structure.md`). At approval: the P1 and P2 slots registered (owners TBD (user)) with P2's absorptions; the home slot's restated trigger and scope (U1, U2); `#11-find-in-page`, `#11-details-content-pseudo` and `#11-content-visibility-absent-readers` (media included) registered; the appends to `#11-css-containment`, `#11-content-visibility-auto` (the arm table), `#11-dialog-top-layer` and `#11-focusable-area-being-rendered`; the HTMLMediaElement row's pointer; the shadow-lane roadmap rows marked "moved to `#11-content-visibility-skip-contents` (CV-details) / P2"; the stale `#11-shadow-composed-event-retargeting` roadmap rows struck. FU's slot re-point is the PM's (already recorded) — FU's consumer edges and its contract's rev-5/6 additions (the hook and baseline, S1 agreement, layout) are reported for it. The earlier ledger promise "the slotchange slot registered at approval, CV-flat-tree closes it" is superseded by P2's absorption | **the approval PR** |
+| Memory — every shared-ledger write (the open-slot ledger, the roadmap, the landings ledger), at approval **and at each nested landing** (slot closures and narrowings), is **transcribed by the PM** from the driver's report (`project_pm-and-lane-driver-structure.md`). At approval: the P1 and P2 slots registered (owners TBD (user)) with P2's absorptions; the home slot's restated trigger and scope (U1, U2); `#11-find-in-page`, `#11-details-content-pseudo` and `#11-content-visibility-absent-readers` (media included) registered; the appends to `#11-css-containment`, `#11-content-visibility-auto` (the arm table), `#11-dialog-top-layer` and `#11-focusable-area-being-rendered`; the HTMLMediaElement row's pointer; the shadow-lane roadmap rows marked "moved to `#11-content-visibility-skip-contents` (CV-details) / P2"; the stale `#11-shadow-composed-event-retargeting` roadmap rows struck. FU's slot re-point is the PM's (already recorded) — FU's consumer edges and its invariants FU-1–FU-5 (rev 7) are reported for it. The earlier ledger promise "the slotchange slot registered at approval, CV-flat-tree closes it" is superseded by P2's absorption | **the approval PR** |
 | The parent pins flipped; the home slot's paint/hit facets | CV-render |
 | The home slot's further-reader facets (K16) | CV-readers |
 | The shadow-lane slots closed or narrowed per the table above (Q-s2's answer recorded); the default-summary facet of `#11-ua-sheet-html-rendering-display-fidelity`, if that slot exists | CV-details |
@@ -798,8 +800,8 @@ each moved part owned by the program that receives it — P2 for the assignment 
 
 - **E20** and **E22** before **every** nested PR (D9); **c5** (IBP-classify) before CV-details; **c7** (IBP-observer) before
   CV-readers; the sibling programs — **FU** before CV-reveal, CV-focus, CV-readers; **P1** before CV-reveal, CV-details;
-  **P2** before CV-reveal, CV-render, CV-details (§5.2's cost); **A2c** (canonical-focus, external) before CV-focus; **E26** (this memo's approval) before IBP-sandbox's first
-  nested landing.
+  **P2** before CV-reveal, CV-render, CV-details (§5.2's cost); **A2c** (canonical-focus, external) before CV-focus;
+  **E26** (this memo's approval) before IBP-sandbox's first nested landing.
 - **Touch-time splits** (origin/main counts, §0.1): `elidex-render/src/builder/mod.rs` (1002) and
   `elidex-dom-api/src/selection.rs` (1036) are over 1000 — a standalone split precedes any nested PR that touches them;
   `focus/tests.rs` (999) before CV-focus adds a cell. Watch: `content/event_handlers.rs` 966 (P1's activation migration),
@@ -808,12 +810,11 @@ each moved part owned by the program that receives it — P2 for the assignment 
   `elidex-css-anim/src/engine.rs` 809, `hit_test.rs` 764. `elidex-ecs/src/dom/mod.rs` (929 after E1) is not touched (§4's
   new file).
 - **Lanes**: the canonical-focus lane (`#11-canonical-focus-update-steps`) is driver-less and has no branch; its planned A2c
-  (the VM onto `focusing_steps`, D12 (c); an edge into CV-focus, §5.2) and A3 (the unified focusability predicate plus sequential navigation, its
-  memory file's A3 section) overlap CV-focus (Q-s8): CV-focus coordinates with them at its cut. IBP-sandbox's nested PRs
+  (CF-1; an edge into CV-focus, §5.2) and A3 (the unified focusability predicate plus sequential navigation, its memory
+  file's A3 section; CF-R1) overlap CV-focus (Q-s8): CV-focus coordinates with them at its cut. IBP-sandbox's nested PRs
   edit the shells' navigation files (`content/navigation.rs`, `app/navigation.rs`) — CV-reveal's plan checks at its cut;
-  IBP-observer edits `elidex-api-observers/src/resize.rs` before CV-readers (c7). FU edits the shells' frame pass
-  (`lib.rs`'s `re_render`) — CV-readers' marker writer registers on FU's hook (K16). P1 edits the content shell's activation
-  (`content/event_handlers.rs`) — CV-details registers on its result.
+  IBP-observer edits `elidex-api-observers/src/resize.rs` before CV-readers (c7). FU edits the frame pass (`lib.rs`'s
+  `re_render`; FU-R1); P1 may edit the content shell's activation (`content/event_handlers.rs`; P1-R3).
 
 ## §10. Questions for the scout
 
@@ -823,15 +824,16 @@ Answered: **Q-s1** (slot assignment writers) — B17, now P2's input; **Q-s4** (
 parent link) — the originating element (B19, K5).
 
 Moved to the owning nested PR's plan-review, or to a sibling umbrella:
-- **FU umbrella** — **Q-s3** Which script-time reads join the update point beyond D12 (e)'s decided consumers (layout
+- **FU umbrella** — **Q-s3** Which script-time reads join the update point beyond D12's decided consumers (layout
   queries, `getBoundingClientRect`). **Q-s7** How each shell dispatches a DOM event synchronously during a same-document
   fragment step, and how style and layout are re-run before the scroll offset is computed.
 - **CV-details** — **Q-s2** At its base, which facets of `#11-shadow-light-tree-distribution-rendering`,
   `#11-slot-fallback-content-rendering` and `#11-shadow-tree-style-isolation` are real? **Q-s10** Every production creation
   path of an HTML element (both parsers, `createElement`, `cloneNode`, fragment parsing, `importNode`/adopt) and how D7's
   instantiation reaches them all.
-- **CV-focus** — **Q-s8** `focusing_steps` reads `is_focusable_area` (`update_steps.rs:113`); the VM entry (until A2c) and
-  `reconcile_focus` read `is_focusable` (`predicate.rs:205`); sequential navigation's order builder reads which? CV-focus
+- **CV-focus** — **Q-s8** At CV-focus's base (after A2c, CF-1) `focusing_steps`, the VM's `focus()` included, reads
+  `is_focusable_area` (`update_steps.rs:113`); `reconcile_focus` reads `is_focusable` (`predicate.rs:205`); sequential
+  navigation's order builder reads which? CV-focus
   wires S2 into each predicate these reach, coordinated with A3's unification.
 - **CV-render** — **Q-s9** The display-list builder's emission sites and the owning entity each item carries (text runs,
   replaced images, form-control content, list markers, pseudo-elements).
