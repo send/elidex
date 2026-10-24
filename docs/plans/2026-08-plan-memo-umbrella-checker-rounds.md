@@ -28,7 +28,7 @@ changing a mutation row, a control or a case — a control's body, docstring or 
 requires `python3 .claude/tools/plan-memo-umbrella-check.py --write-manifest` and committing the
 manifest's diff. `--self-test` fails on ANY difference.
 
-**THE FIX LOOP IS STOPPED** after four attestation passes, each of which closed the reported
+*(2026-09-23 record, kept as written:)* **THE FIX LOOP IS STOPPED** after four attestation passes, each of which closed the reported
 findings **and introduced a CRIT of its own** (`1a231335` → `baa06e59` → `10d02095` → this one: a
 bytecode digest that made the manifest interpreter-specific, an escape that fell back to the
 identity after `unload()`, a handle that became mutable). The close-out commit fixes exactly the two
@@ -93,7 +93,7 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 **OPEN — the lane**
 - The **A-iii wire move**: the self-test wire goes to the `tools` job, whose budget is undecided; the
   `--self-test --mutants` wall clock is an input, measured from a run when the move is planned. Owner
-  since 2026-10-24: the CI/tools lane (the PM's note).
+  since 2026-10-24: the CI/tools lane.
 - ~~The **cap PAUSE question** for #510's merge~~ — **SETTLED 2026-09-26**: the user re-accepted
   option (d) at the current enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
   record is at the top of the umbrella memo's §8. A later change to §8's list re-opens it. The merge
@@ -216,7 +216,7 @@ binding and requires EXACTLY one call per line (a mis-bound counter sees fewer: 
 mutant re-binding it. One mutant deleted as EQUIVALENT (the licensing rule's stream read: since the
 scanners read the stream, no fixture reaches it with raw ≠ stream at a mention boundary — reason in
 `plan_memo_selftest_mutants.py`). `.github/workflows/ci.yml` `trip-wires` `timeout-minutes` 2 → 5
-(211 s on Codex's runner had cancelled a green job). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled the `Layering trip-wires` job of run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
+(211 s on Codex's runner had cancelled a green job).
 ⚠ **PR #510 Codex R13 (2026-09-07) — the block-grammar family closed**: `plan_memo_blocks.py` had
 drawn IMP findings three rounds running, each on a §3.0 PROSE-AS-WRITTEN disposition; the root was
 that the 27 conformance exclusions were the unmodelled grammar. §4.4 indented code is now a RAW
@@ -1038,7 +1038,7 @@ the block above it was re-measured. Removing that copy surfaced what no single r
 and it is now written beside the timeout: **~10× (R12) → 5.9× (R27) → 5.1× (R29) → 4.4× (R30)** —
 every round's controls and mutants land in an ALWAYS-RUN job, so the headroom is a **budget, not a
 constant**, and the point to act is before a runner cancels a green job (which is what the
-`timeout-minutes: 2` this 5 replaced did, at 211 s). ⚠ (2026-09-30: no job was cancelled at 211 s — the runner cancelled the `Layering trip-wires` job of run 34104840164 at 09:13:54Z→09:16:10Z, 136 s; 211 s was Codex's runner timing the mutant run.)
+`timeout-minutes: 2` this 5 replaced did, at 211 s).
 #2 (P2) an unmatched decoration run made an id cell "blank": `**`, `*`, `` ` ``, ``` `` ```, `***`
 all returned True from `is_blank_id_cell`, so a slice row keyed `**` with the marker and a non-empty
 `Deps` returned **rc 0 with no findings** — in neither `ids` nor assertion (b). Correct is **rc 2**,
@@ -1666,10 +1666,6 @@ entry with scope / owner / EVENT trigger / re-eval, and is measured rather than 
 split had to widen `_IMPORT_SEAMS`, landing inside the territory declared undetected); the
 `stale-claim-detector` lane's second wire is now an explicit §1 merge obligation on `REQUIRED_WIRES`
 (append, never `--ours`) and the `ci.yml` budget block states that its figures cover THIS wire alone
-(⚠ that label was FALSE — the R12 / R27 / R29 points timed the whole `scripts/trip-wires.sh`. Found
-by the STOP-CLEAN attestation of `900c16eb..2d4f932f`; the corrections then drew findings from the
-next three attestations, and the series was removed from the block — history at
-`git show d7f12732:.github/workflows/ci.yml`)
 — ⚠ Axis 5 refuted the premise that the collision is a BUDGET problem: 26 s + 6 s against a
 10-minute timeout is a merge hazard on the inventory, not a cost one; the **three parallel
 plan-memo checkers** now cross-reference, with the boundary written as three questions (this =

@@ -6,10 +6,9 @@
 > command -- ranges and `--grep` locators included -- against `FETCH_HEAD` (a range's base, `658cc302`,
 > is on `main`). The `--grep` locators also resolve on `main`, because the repo squashes with the commit
 > messages (`gh api repos/send/elidex --jq .squash_merge_commit_message` = `COMMIT_MESSAGES`).
-> In a round label carrying a date ("Codex R<n> of <date>", "Codex R<n> (<date>, …)") the date is the UTC
-> date of the round's review comments (`gh api repos/send/elidex/pulls/510/comments`, `created_at`;
-> every such date in this memo and the checker's files — 09-08, 09-27, 09-28, 10-24 — is a UTC date
-> carrying the bot's review comments); the carve and acceptance dates
+> In a round label carrying a date (`Codex R<n> of <date>`, `Codex R<n> (<date>, …)`) the date is a UTC
+> date. To check a label, its date must match the `created_at` UTC date of the bot's review comments of
+> that round (`gh api --paginate repos/send/elidex/pulls/510/comments`); the carve and acceptance dates
 > beside them ("carved 2026-09-28") are local, JST (UTC+9).
 
 **Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
@@ -1048,16 +1047,23 @@ committed here by the note that corrected it.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
 - **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
-  ⚠ **How to read this entry** (2026-09-30): it holds NO current figure. EVERYTHING below this note is
-  the record as each round wrote it — the measurements, the conclusions drawn from them, and the dated
-  ⚠ annotations added later; read each measurement with the subject and condition its own sentence
-  gives — where a sentence gives none, it has none — and never as one series. The job is measured on
-  the runner (`gh run view <run-id> --json jobs`), and is re-measured there when a second heavy wire
-  (`claim-provenance-trip-wire.sh`, the `stale-claim-detector` lane) joins it. `ci.yml` keeps the
-  rule and that command, and no figure.
+  **The contract (present tense).** The defect: the always-run `Layering trip-wires` job's cost grows
+  with review rounds, not with the program, because the generated growth corpus
+  (`generated_growth_control`, `plan_memo_selftest_growth.py`) runs once in `--self-test` plus once per
+  mutant naming the growth property (`R27_GROWTH` in `plan_memo_selftest_mutants.py`; its `run`
+  re-runs each mutant row's named controls). The job is measured on the runner,
+  `gh run view <run-id> --json jobs`, and is re-measured there when a second heavy wire,
+  `claim-provenance-trip-wire.sh` from the `stale-claim-detector` lane, joins the job. No current
+  figure is kept anywhere: not in this entry, not in `ci.yml`, not in `CLAUDE.md`. Trigger = the round whose head measures under
+  2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
+  property. No slot: this is the wire's own budget, not a platform gap. ⚠ **And no date — this is
+  trigger-only, stated rather than left to inference** (PR #510 R45, the second of the two entries
+  the hygiene audit found carrying neither).
+  **Record (as written by PR #510's rounds, `7eabcead` through `be8fd1a9`; not current — read each
+  figure with the subject and condition its own sentence gives, never as one series):**
   Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
   `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
-  home (⚠ 2026-09-30: it no longer is — it keeps no figure) had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
+  home had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
   re-measuring. The timeout is re-derived there (5 → 10 min) under that block's own rule. ⚠ What is
   NOT fixed is the driver: the generated corpus costs ~3.6 s and runs once in `--self-test` plus once
   per mutant naming it, and **six** rows name it (measured by loading `MUTANTS`; a `grep -c` counts
@@ -1070,19 +1076,14 @@ committed here by the note that corrected it.
   26.10 / 26.22 / 26.73, self-test alone ~6.5 s. The wire is **~25 s**; the FP verdict is retracted.
   ⚠ **What the episode shows is not who measured badly — it is that the ABSOLUTE is not reproducible
   on this host to better than ~20%**: three "quiet clean clone" runs of the same command at nearby
-  heads gave 24.9, 26.1 and 28.5 s. ⚠ (2026-09-30) Not the same command: the 26.1 is the five-wire
-  run above, so this sentence and the ~20% drawn from it are withdrawn. And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
+  heads gave 24.9, 26.1 and 28.5 s. And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
   concurrently with other work") is **not supported**: the whole job measured quiet lands in that same
   neighbourhood, so SUBJECT (one wire vs five) explains as much as load does. The figure that has
   never moved is the RATIO — self-test ≈ 6.5 s of the wire — which is what the derivation rests on;
   an absolute is written only with its SUBJECT beside its condition. Making
   that not grow means a mutant run answering only "does this control go red", which a smaller corpus
   can do — but corpus size is the proof's STRENGTH, so shrinking it per-row is a change to what the
-  proof asserts and needs its own measurement per row. Trigger = the round whose head measures under
-  2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
-  property. No slot: this is the wire's own budget, not a platform gap. ⚠ **And no date — this is
-  trigger-only, stated rather than left to inference** (PR #510 R45, the second of the two entries
-  the hygiene audit found carrying neither).
+  proof asserts and needs its own measurement per row.
   ⚠ **The "six rows name it" figure is WITHDRAWN**: the entry never named the constant or the
   command, `MUTANTS` has grown since (re-derive: `grep -c '^MUTANT' .claude/tools/plan_memo_selftest_manifest.txt`),
   and no stated reading discriminates six from any other count. A figure whose command is not written down cannot be re-derived, which is the same

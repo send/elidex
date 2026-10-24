@@ -247,11 +247,16 @@ def linear_file_token_control(M):
     cost fix are one edit, because "balanced at any depth" is not a regular
     language and leaving `re` is what made the reading expressible at all.
 
-    Two probes, and they fail differently: `(a)`xN has N groups and NO
-    candidate end (the retired pattern's worst case, a run it had to reject),
-    while `x.md `xN has N candidate ends and N segments (this scan's own worst
-    case, and the shape the mutant re-injects a per-candidate walk into).  A
-    control on either alone would leave the other's clause unwatched.
+    Four probes, each the worst case of a different clause, and they fail
+    differently: `(a)`xN has N groups and NO candidate end (the retired
+    pattern's worst case, a run it had to reject); `x.md `xN has N candidate
+    ends and N segments (this scan's own worst case, and the shape the R26-2
+    mutant re-injects a per-candidate walk into); `a.md`xN is ONE run holding
+    N suffixes (the worst case of per-suffix work on the run's boundary, the
+    R36-2 mutant's shape); `a.md#`xN then N `!` is one run holding N suffixes
+    and an N-character punctuation tail (the worst case of per-suffix work on
+    the run's tail, the R72 mutant's shape).  A control missing any one of
+    them would leave that clause unwatched.
 
     Counted by `_count_lines`: the work is a `for` inside one function and
     passes through no module binding `_count_calls` could watch."""
