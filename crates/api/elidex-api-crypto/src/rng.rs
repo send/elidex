@@ -82,7 +82,9 @@ impl ClosureRng<'_> {
     }
 }
 
-/// `rand_core` 0.6 (RSA keygen).
+/// `rand_core` 0.6 (RSA keygen).  Exists only because `rsa`'s stable line (0.9)
+/// is still on the 0.6 generation; when `rsa` 0.10 is stable (rand_core 0.10),
+/// bump it, delete this impl and the workspace `rand_core = "0.6"` dependency.
 impl rand_core::RngCore for ClosureRng<'_> {
     fn next_u32(&mut self) -> u32 {
         let mut b = [0u8; 4];
