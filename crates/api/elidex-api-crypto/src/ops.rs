@@ -65,7 +65,7 @@ pub enum GeneratedKey {
 /// VM owns the entropy source).  For the symmetric algorithms it is invoked
 /// **after** the step-1 usage-kind check and step-2 length resolution, so an
 /// invalid usage or zero length is rejected before any key-sized buffer is
-/// allocated or filled; for EC it backs `SecretKey::random` via the crate's
+/// allocated or filled; for EC it backs `SecretKey::generate_from_rng` via the crate's
 /// `ClosureRng`.  All spec ordering + validation stays inside this crate
 /// boundary (the VM only supplies entropy).  The bound is `FnMut` (not
 /// `FnOnce`) because EC key generation may draw multiple times (rejection

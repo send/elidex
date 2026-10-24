@@ -1,15 +1,16 @@
 //! The VM entropy-seam adapter shared by the asymmetric key generators.
 //!
-//! Elliptic-curve (`ec::generate` → `SecretKey::random`) and RSA
+//! Elliptic-curve (`ec::generate` → `SecretKey::generate_from_rng`) and RSA
 //! (`rsa::generate` → `RsaPrivateKey::new_with_exp`) both draw their
-//! randomness through the RustCrypto `rand_core` 0.6 `RngCore` + `CryptoRng`
-//! traits.  Rather than each backend reaching for a separate `getrandom`
+//! randomness through the RustCrypto `rand_core` `RngCore` + `CryptoRng`
+//! traits — but from two generations: EC (`elliptic-curve` 0.14) uses
+//! `rand_core` 0.10, RSA (`rsa` 0.9) still uses 0.6.  Rather than each backend reaching for a separate `getrandom`
 //! path, [`ClosureRng`] adapts the VM's single fallible `fill_random` closure
 //! (which ultimately calls the OS CSPRNG) into those traits, so all key
 //! generation flows through the one VM entropy seam while the curve / RSA
 //! crates still perform their own vetted rejection sampling.
 
-use rand_core::{CryptoRng, RngCore};
+use elliptic_curve::rand_core as rand_core10;
 
 use crate::error::AlgorithmError;
 
@@ -22,7 +23,7 @@ use crate::error::AlgorithmError;
 /// rejection-sampling loop still **terminates** — and the resulting key is
 /// discarded because `into_result` returns the captured error.
 ///
-/// The fill must *vary* per call, not be constant: EC's `SecretKey::random`
+/// The fill must *vary* per call, not be constant: EC's `SecretKey::generate_from_rng`
 /// would accept a constant valid scalar after one iteration, but RSA's
 /// `RsaPrivateKey::new_with_exp` does iterative **prime search** — a *constant*
 /// candidate never becomes prime, so a fixed fill would spin its loop forever
@@ -54,20 +55,9 @@ impl<'a> ClosureRng<'a> {
     }
 }
 
-impl RngCore for ClosureRng<'_> {
-    fn next_u32(&mut self) -> u32 {
-        let mut b = [0u8; 4];
-        self.fill_bytes(&mut b);
-        u32::from_le_bytes(b)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut b = [0u8; 8];
-        self.fill_bytes(&mut b);
-        u64::from_le_bytes(b)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+impl ClosureRng<'_> {
+    /// The single fill path behind both `rand_core` generations' traits.
+    fn fill(&mut self, dest: &mut [u8]) {
         if self.error.is_none() {
             if let Err(e) = (self.fill)(dest) {
                 self.error = Some(e);
@@ -90,11 +80,54 @@ impl RngCore for ClosureRng<'_> {
             }
         }
     }
+}
+
+/// `rand_core` 0.6 (RSA keygen).
+impl rand_core::RngCore for ClosureRng<'_> {
+    fn next_u32(&mut self) -> u32 {
+        let mut b = [0u8; 4];
+        self.fill(&mut b);
+        u32::from_le_bytes(b)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut b = [0u8; 8];
+        self.fill(&mut b);
+        u64::from_le_bytes(b)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill(dest);
+    }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
+        self.fill(dest);
         Ok(())
     }
 }
 
-impl CryptoRng for ClosureRng<'_> {}
+impl rand_core::CryptoRng for ClosureRng<'_> {}
+
+/// `rand_core` 0.10 (EC keygen); `Rng` / `CryptoRng` follow by blanket impl.
+impl rand_core10::TryRng for ClosureRng<'_> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        let mut b = [0u8; 4];
+        self.fill(&mut b);
+        Ok(u32::from_le_bytes(b))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        let mut b = [0u8; 8];
+        self.fill(&mut b);
+        Ok(u64::from_le_bytes(b))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        self.fill(dst);
+        Ok(())
+    }
+}
+
+impl rand_core10::TryCryptoRng for ClosureRng<'_> {}
