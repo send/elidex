@@ -135,6 +135,9 @@ getrandom = "0.4"
 # RUSTSEC-2026-0387 (crypto-bigint timing variability) is fixed only in
 # crypto-bigint >= 0.7.6, which is reachable only through the 0.14 EC line
 # (elliptic-curve 0.14 requires crypto-bigint ^0.7); the 0.13 line pins 0.5.
+# crypto-bigint >= 0.7.6 is guaranteed by Cargo.lock and checked by `cargo deny`;
+# the manifest cannot floor it because it is transitive (elliptic-curve 0.14 /
+# primefield require only ^0.7.5).
 # Elliptic-curve stack for WebCrypto ECDSA / ECDH (PR-4).  The stable 0.14 EC
 # line (crypto-bigint 0.7 generation); ECDSA is driven via
 # `sign_prehash` / `verify_prehash` so our `sha2 0.11` digest stays decoupled
@@ -158,11 +161,13 @@ rsa = { version = "0.9", default-features = false, features = ["std"] }
 # sha1 / sha2 hash.rs uses for the actual digest computation.
 sha1-oid = { package = "sha1", version = "0.10", features = ["oid"] }
 sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
-# rand_core 0.6 (the rsa 0.9 generation) — direct dep for the shared `ClosureRng`
-# entropy-seam adapter: it feeds both EC `SecretKey::try_generate_from_rng` and
-# RSA `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure,
-# implementing rand_core 0.6 for RSA and 0.10 (via `elliptic_curve::rand_core`)
-# for EC.
+# rand_core 0.6 (the rsa 0.9 generation) — direct dep for the VM entropy-seam
+# adapters in `rng.rs`: `ClosureRng` = rand_core 0.6 for RSA key generation and
+# signing (with the error latch); `TryClosureRng` = rand_core 0.10 via
+# `elliptic_curve::rand_core` for EC `NonZeroScalar::try_generate_from_rng`.
+# When rsa 0.10 is stable, `ClosureRng` moves to the rand_core 0.10 infallible
+# traits (latch kept; `TryClosureRng` stays for EC) and this dependency is
+# removed (`#11-closure-rng-rand-core-06-bridge`).
 rand_core = "0.6"
 # aws-lc-rs (AWS-LC, a BoringSSL fork) — the workspace's **single crypto C library**, shared by
 # the rustls TLS stack (the `CryptoProvider` for elidex-net + reqwest + tungstenite; replaces the

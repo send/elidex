@@ -4,10 +4,13 @@
 //! entry points (the same path WebCrypto uses).  They pin the RFC 6979
 //! deterministic output and the digest-length behaviour.
 //!
-//! **New behaviour since ecdsa 0.17:** a digest shorter than the curve order
-//! (P-384 + SHA-1 / SHA-256, P-521 + SHA-1 / SHA-256) is accepted, as WebCrypto
-//! §23.7.1 imposes no minimum digest length.  Those cases are the
-//! `short_digest` tests below.  For those pairs the RFC `r‖s` is only checked
+//! **New behaviour since ecdsa 0.17:** ecdsa 0.16's `bits2field` rejected a
+//! digest shorter than half the field size; 0.17 accepts it, as WebCrypto
+//! §23.7.1 Sign / §23.7.2 Verify (no minimum digest length) impose none.  The
+//! new pairs are exactly P-384 + SHA-1 (20 < 24), P-521 + SHA-1 (20 < 33) and
+//! P-521 + SHA-256 (32 < 33); P-384 + SHA-256 (32 >= 24) was already accepted
+//! and is only a mismatched-hash pair.  They are the `short_digest` tests below.
+//! For the short and mismatched pairs the RFC `r‖s` is only checked
 //! to *verify* (ecdsa seeds RFC 6979 with the curve's digest, not the signing
 //! hash, so our deterministic signature differs from the RFC's).
 
@@ -186,9 +189,9 @@ fn rfc6979_p384_sha384() {
 }
 
 #[test]
-fn rfc6979_p384_sha256_short_digest() {
-    // New behaviour since ecdsa 0.17: short digests are accepted per WebCrypto
-    // §23.7.1 (no minimum digest length).
+fn rfc6979_p384_sha256_mismatched_hash() {
+    // Mismatched-hash pair (SHA-256 digest is 32 >= 24 bytes), NOT new behaviour:
+    // ecdsa 0.16 already accepted it.
     check(
         NamedCurve::P384,
         "SHA-256",
@@ -203,7 +206,7 @@ fn rfc6979_p384_sha256_short_digest() {
 #[test]
 fn rfc6979_p384_sha1_short_digest() {
     // New behaviour since ecdsa 0.17: short digests are accepted per WebCrypto
-    // §23.7.1 (no minimum digest length).
+    // §23.7.1 Sign / §23.7.2 Verify (no minimum digest length).
     check(
         NamedCurve::P384,
         "SHA-1",
@@ -231,7 +234,7 @@ fn rfc6979_p521_sha512() {
 #[test]
 fn rfc6979_p521_sha256_short_digest() {
     // New behaviour since ecdsa 0.17: short digests are accepted per WebCrypto
-    // §23.7.1 (no minimum digest length).
+    // §23.7.1 Sign / §23.7.2 Verify (no minimum digest length).
     check(
         NamedCurve::P521,
         "SHA-256",
@@ -246,7 +249,7 @@ fn rfc6979_p521_sha256_short_digest() {
 #[test]
 fn rfc6979_p521_sha1_short_digest() {
     // New behaviour since ecdsa 0.17: short digests are accepted per WebCrypto
-    // §23.7.1 (no minimum digest length).
+    // §23.7.1 Sign / §23.7.2 Verify (no minimum digest length).
     check(
         NamedCurve::P521,
         "SHA-1",

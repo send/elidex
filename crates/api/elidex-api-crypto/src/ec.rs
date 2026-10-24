@@ -313,7 +313,10 @@ where
     validate_generate_usages(algorithm, usages)?;
     // §23.7.3 step 2-3 / §24.4.1 step 2-3: generate the curve key pair.  The
     // `fill_random` closure's error is propagated as-is (the EC path has no
-    // latch), exactly as the caller's closure produced it.
+    // latch), exactly as the caller's closure produced it.  Step 3's
+    // OperationError is met by the caller's contract: the VM's `fill_random`
+    // closure returns `AlgorithmError::Operation` on entropy failure
+    // (`vm/host/subtle_crypto/ops.rs`, generateKey), and it is propagated as-is.
     let (public_point, private_scalar) = generate_keypair(curve, fill_random)?;
     let key_alg = algorithm.key_algorithm(curve);
     // steps 7-11: the public key — usages = ∩(usages, public-permitted),

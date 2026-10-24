@@ -1,7 +1,8 @@
 //! The VM entropy-seam adapters shared by the asymmetric key generators.
 //!
 //! Elliptic-curve (`ec::generate` -> `NonZeroScalar::try_generate_from_rng`)
-//! and RSA (`rsa::generate` -> `RsaPrivateKey::new_with_exp`) both draw their
+//! and RSA (`rsa::generate` -> `RsaPrivateKey::new_with_exp`, plus RSA signing
+//! via `sign_with_rng`) both draw their
 //! randomness through RustCrypto `rand_core` traits, but from two
 //! generations: EC (`elliptic-curve` 0.14) uses `rand_core` 0.10, RSA
 //! (`rsa` 0.9) still uses 0.6.  Rather than each backend reaching for a
@@ -11,14 +12,17 @@
 //! crates still perform their own vetted rejection sampling:
 //!
 //! - [`TryClosureRng`]: `rand_core` 0.10 (EC), fallible, stateless.
-//! - [`ClosureRng`]: `rand_core` 0.6 (RSA), infallible, with the error latch;
-//!   deleted together with `rsa` 0.9.
+//! - [`ClosureRng`]: `rand_core` 0.6 (RSA key generation and signing),
+//!   infallible, with the error latch.  When `rsa` 0.10 is stable it moves to
+//!   the `rand_core` 0.10 infallible traits (keeping the latch and SplitMix64
+//!   fallback) and the 0.6 impl goes (`#11-closure-rng-rand-core-06-bridge`); [`TryClosureRng`] stays
+//!   for EC.
 
 use elliptic_curve::rand_core as rand_core10;
 
 use crate::error::AlgorithmError;
 
-/// A `rand_core` 0.6 RNG over the VM's `fill_random` closure, for RSA only.
+/// A `rand_core` 0.6 RNG over the VM's `fill_random` closure, for RSA (key generation and signing).
 ///
 /// The 0.6 `fill_bytes` is infallible, so a closure error is captured and
 /// surfaced by [`Self::into_result`] **after** key generation.  Once the error
@@ -27,9 +31,10 @@ use crate::error::AlgorithmError;
 /// **terminates**, and the resulting key is discarded because `into_result`
 /// returns the captured error.
 ///
-/// This capture / SplitMix64 / `into_result` workaround exists for the 0.6
-/// (RSA) path only; the type is deleted with `rsa` 0.9 (see the removal
-/// trigger on the 0.6 impl).  The EC path uses [`TryClosureRng`].
+/// The `rand_core` 0.6 *impl* is what goes away with `rsa` 0.9 (see the removal
+/// statement on it); the type stays, since `rsa` 0.10 takes an infallible
+/// `rand_core` 0.10 `CryptoRng` and so still needs this latch / SplitMix64 /
+/// `into_result` workaround.  The EC path uses [`TryClosureRng`].
 ///
 /// The fill must *vary* per call, not be constant: RSA's
 /// `RsaPrivateKey::new_with_exp` does iterative **prime search**, and a
@@ -91,9 +96,14 @@ impl ClosureRng<'_> {
     }
 }
 
-/// `rand_core` 0.6 (RSA keygen).  Exists only because `rsa`'s stable line (0.9)
-/// is still on the 0.6 generation; when `rsa` 0.10 is stable (rand_core 0.10),
-/// bump it, delete this impl and the workspace `rand_core = "0.6"` dependency.
+/// `rand_core` 0.6 (RSA key generation and signing).  Exists only because
+/// `rsa`'s stable line (0.9) is still on the 0.6 generation.  When `rsa` 0.10 is
+/// stable (its `RsaPrivateKey::new_with_exp` / `sign_with_rng` take an infallible
+/// `rand_core` 0.10 `CryptoRng`, which `rand_core` blanket-implements only for
+/// `TryRng<Error = Infallible>`, so [`TryClosureRng`] cannot serve RSA),
+/// `ClosureRng` moves to the 0.10 infallible traits, keeping its error latch and
+/// SplitMix64 fallback; this 0.6 impl and the workspace `rand_core = "0.6"`
+/// dependency are then removed (`#11-closure-rng-rand-core-06-bridge`).
 impl rand_core::RngCore for ClosureRng<'_> {
     fn next_u32(&mut self) -> u32 {
         rand_core::impls::next_u32_via_fill(self)
