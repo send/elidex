@@ -1,0 +1,125 @@
+"""Canonical spec shortname ↔ human display label.
+
+Two sites in this package carried a hand-maintained copy of this
+enumeration:
+
+  - `commands/coverage_map.py` — shortname → label, for its table rows
+  - `cli.py`'s `COMMON_SHORTNAMES` help blurb
+
+Adding a spec to one did not reach the other, so the two drifted apart by
+construction. Both now derive from `SPECS` below, which is the single
+SOURCE site: neither consumer carries an enumeration any more.
+
+⚠ One SOURCE site is not the same as "a spec is added in exactly one place".
+Adding a row also requires re-deriving every pin that vendors a snapshot of
+this map — the suite beside this module holds one — and reaching any consumer
+outside this package that still keeps a reverse map of its own. Those pins are
+deliberate: they exist to redden when the map moves.
+"""
+from __future__ import annotations
+
+# (shortname, canonical display label, help blurb)
+#
+# ⚠ THE LABELS ARE THIS PROJECT'S RENDERING, NOT THE UPSTREAM TITLE, and no
+# test here can tell the difference: every pin below is an internal round-trip,
+# S7 forbids importing the upstream fetcher, and T-net poisons the network on
+# the import path. So a wrong label is unfalsifiable in-tree by construction.
+# The criterion is EVERY ROW WHOSE LABEL IS NOT THE UPSTREAM `title`, which is
+# seven — not the four whose titles merely differ. ⚠ It said FIVE until #501
+# design re-gate 5, and the two it omitted are the two that diverge hardest: a
+# count is not the same as a predicate, and this block is the ONLY record of
+# label correctness (see the warning above), so a row missing from it is a row
+# nothing states anything about.
+#   webidl       "Web IDL Standard"                   WHATWG  -> `Web IDL` (no prefix)
+#   xhr          "XMLHttpRequest Standard"            WHATWG  -> `WHATWG XHR` (abbreviated)
+#   selectors-4  "Selectors Level 4"                  W3C     -> `CSS Selectors L4`
+#   geometry-1   "Geometry Interfaces Module Level 1" W3C     -> `Geometry Interfaces L1`
+#   webcrypto    no spec by that shortname; it is a SERIES whose current spec is
+#                `webcrypto-2` "Web Cryptography API Level 2" W3C
+#                                                     -> `Web Cryptography API`
+#   ecma262      ABSENT from the index as spec AND series -> `ECMA-262`
+#   ecma402      ABSENT from the index as spec AND series -> `ECMA-402`
+# Re-derive: `webref specs <shortname>` for the first five. ⚠ NOT for the last
+# two — `specs` searches w3c/webref's index only, and the tc39 pair are
+# shortnames this project coined (`sources/tc39.py`'s `TC39_FAMILY`), so `specs`
+# prints nothing for them AND prints nothing for a typo, which is the same
+# answer. Re-derive those two with `webref heading ecma262 1` (they resolve
+# against the tc39 biblio, and a wrong shortname does not).
+# A label is a published spelling: changing one is a change to every citation
+# already written against it, not a local edit.
+#
+# The canonical label is the display form `coverage-map` prints, and the
+# spelling any consumer should emit for that spec; the blurb is `cli.py`'s
+# `Common shortnames:` help text, which was the second of the two copies
+# this module replaces. The tuple's ORDER is the order `cli.py` renders,
+# so it is part of the help output, not an implementation detail.
+#
+# No separate parse-alias column: `LABEL_TO_SHORTNAME` keys the shortname
+# itself, and every abbreviation these labels are actually written with
+# (`HTML`, `DOM`,
+# `URL`) lower-cases to its own shortname, so an alias column would add
+# no key.
+SPECS: tuple[tuple[str, str, str], ...] = (
+    ("html", "WHATWG HTML",
+     "HTML LS (Custom Elements / Canvas / Workers / Form / Events — monolithic)"),
+    ("dom", "WHATWG DOM", "DOM LS"),
+    ("selectors-4", "CSS Selectors L4", "CSS Selectors L4"),
+    ("geometry-1", "Geometry Interfaces L1",
+     "Geometry Interfaces (DOMRect / DOMMatrix)"),
+    ("url", "WHATWG URL", "URL LS"),
+    ("fetch", "WHATWG Fetch", "Fetch LS"),
+    ("streams", "WHATWG Streams", "Streams LS"),
+    ("webcrypto", "Web Cryptography API",
+     "Web Cryptography API (series → current spec webcrypto-2)"),
+    ("xhr", "WHATWG XHR", "XMLHttpRequest LS"),
+    ("webidl", "Web IDL", "Web IDL"),
+    ("ecma262", "ECMA-262",
+     "ECMAScript Language Specification (tc39, biblio.json)"),
+    ("ecma402", "ECMA-402",
+     "ECMAScript Internationalization API (tc39, biblio.json)"),
+)
+
+#: shortname → canonical display label, for the specs `SPECS` pins.
+SHORTNAME_TO_LABEL: dict[str, str] = {e[0]: e[1] for e in SPECS}
+
+#: shortname → one-line help blurb (consumed by `cli.py`).
+SHORTNAME_TO_BLURB: dict[str, str] = {e[0]: e[2] for e in SPECS}
+
+#: **lower-cased** display label or shortname → shortname, for the specs
+#: `SPECS` pins. Keys are lower-cased so callers look up
+#: case-insensitively without a second scan; the shortname is its own
+#: parse key, so `"selectors-4"` resolves whether a comment writes the
+#: label or the shortname. Built as a comprehension rather than an
+#: accumulating loop so no module-level temporaries exist to `del`: a
+#: trailing `del _entry, …` raises `NameError` **at import** if `SPECS`
+#: is ever empty, and this module is imported at load time by
+#: `coverage-map` and `cli`, so an import-time failure is a failure of
+#: every consumer at once.
+LABEL_TO_SHORTNAME: dict[str, str] = {
+    key.lower(): entry[0]
+    for entry in SPECS
+    # shortname + CANONICAL LABEL. Omitting `entry[1]` here would leave
+    # `shortname_for("WHATWG HTML")` returning None — the canonical label
+    # is the primary parse key, not just a display string.
+    for key in (entry[0], entry[1])
+}
+
+
+def label_for(shortname: str) -> str | None:
+    """Canonical display label for `shortname`, or None if unknown.
+
+    `SPECS` pins the display conventions these labels follow (the
+    `"WHATWG "` prefix,
+    the tc39 pair), so the answer is a pinned one or no answer at all.
+    """
+    return SHORTNAME_TO_LABEL.get(shortname)
+
+
+def shortname_for(label: str) -> str | None:
+    """Shortname for a display label or a shortname — case-insensitively.
+
+    Whitespace-tolerant because callers pass text lifted from table cells
+    and source comments, where a stray leading space is not a different
+    spec.
+    """
+    return LABEL_TO_SHORTNAME.get(label.strip().lower())
