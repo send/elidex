@@ -1076,11 +1076,32 @@ committed here by the note that corrected it.
   26.10 / 26.22 / 26.73, self-test alone ~6.5 s. The wire is **~25 s**; the FP verdict is retracted.
   ⚠ **What the episode shows is not who measured badly — it is that the ABSOLUTE is not reproducible
   on this host to better than ~20%**: three "quiet clean clone" runs of the same command at nearby
-  heads gave 24.9, 26.1 and 28.5 s. And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
+  heads gave 24.9, 26.1 and 28.5 s.
+  ⚠ **Correction (2026-10-24):** the three are not runs of the same command. 24.9 is this wire
+  alone and 26.1 is the whole job (all five wires), both on the `7121476e` clone (the figures just
+  above); 28.5 is this wire at `b8324d06`. The "not reproducible on this host to better than ~20%"
+  conclusion drawn from the three therefore rests on mixed subjects
+  (`git show 0fd691fe -- .github/workflows/ci.yml | /usr/bin/grep -nE 'Arbitrated on|this wire alone +24\.88|the whole job \(5\) +26\.10'`;
+  `git show -s 7121476e | /usr/bin/grep -n -B1 '28.53'`).
+  And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
   concurrently with other work") is **not supported**: the whole job measured quiet lands in that same
-  neighbourhood, so SUBJECT (one wire vs five) explains as much as load does. The figure that has
+  neighbourhood, so SUBJECT (one wire vs five) explains as much as load does.
+  ⚠ **Correction (2026-10-24):** by this entry's own figures, one wire vs five is 24.88–25.05 s
+  against 26.10–26.73 s on the `7121476e` clone (~1.2 s), while the concurrently measured set,
+  31.96–39.85 s, lies above every quiet clean-clone timing of the wire or the job in this entry
+  (the highest, 29.34 s); the whole job measured quiet does not land in that neighbourhood, and
+  subject accounts for ~1.2 s, not for as much as that gap (`git show 0fd691fe -- .github/workflows/ci.yml | /usr/bin/grep -nE 'this wire alone +24\.88|the whole job \(5\) +26\.10'`;
+  `git show -s 7121476e | /usr/bin/grep -nE '28\.53|31\.96'`).
+  The figure that has
   never moved is the RATIO — self-test ≈ 6.5 s of the wire — which is what the derivation rests on;
-  an absolute is written only with its SUBJECT beside its condition. Making
+  an absolute is written only with its SUBJECT beside its condition.
+  ⚠ **Correction (2026-10-24):** the R32 derivation does not rest on the self-test share.
+  `7eabcead` derives the timeout from the head-against-head ratio `2c713e51` → `7d43d7cd` (11.80 /
+  12.13 / 12.19 s against 26.05 / 26.04 / 27.25 s, 2.2×), scaled back to the host that recorded
+  16.0 s (~35 s) and to the 4.3×-slower runner (~152 s, ~2.0× against 5 minutes), and re-derives 10
+  minutes to restore ~4×; the self-test's ~6.5 s appears there only in explaining why the timeout was
+  re-derived rather than the wire split (`git show 7eabcead -- .github/workflows/ci.yml | /usr/bin/grep -nE '7d43d7cd|2c713e51|2\.2x|152 s|6\.5 s'`).
+  Making
   that not grow means a mutant run answering only "does this control go red", which a smaller corpus
   can do — but corpus size is the proof's STRENGTH, so shrinking it per-row is a change to what the
   proof asserts and needs its own measurement per row.

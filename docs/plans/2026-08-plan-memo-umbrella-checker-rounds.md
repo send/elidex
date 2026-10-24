@@ -217,6 +217,16 @@ mutant re-binding it. One mutant deleted as EQUIVALENT (the licensing rule's str
 scanners read the stream, no fixture reaches it with raw ≠ stream at a mention boundary — reason in
 `plan_memo_selftest_mutants.py`). `.github/workflows/ci.yml` `trip-wires` `timeout-minutes` 2 → 5
 (211 s on Codex's runner had cancelled a green job).
+⚠ **Correction (2026-10-24):** no job was cancelled at 211 s. The one CI run at `29dc1eb7`
+(34104840164) cancelled the `Layering trip-wires` job at 136 s (09:13:54Z → 09:16:10Z) under
+`timeout-minutes: 2`, and the run concluded `failure`; 211 s is the time `5b2ecdd3`'s `ci.yml` text
+gives for the `--self-test --mutants` run on Codex's runner. The run data does not show the job
+green: the wires before the self-test wire printed OK, and the self-test wire printed no result
+before the cancellation (`gh run list -R send/elidex --commit 29dc1eb759458ae7d4f0e02aa3b02f5e5377d8af --workflow ci.yml --json databaseId,conclusion`;
+`gh run view 34104840164 -R send/elidex --json headSha,conclusion,jobs`;
+`gh run view -R send/elidex --job 101687374367 --log | /usr/bin/grep -E 'OK|=====|trip-wire:|canceled'`;
+`git show 29dc1eb7:.github/workflows/ci.yml | /usr/bin/grep -n -A1 'name: Layering trip-wires'`;
+`git show 5b2ecdd3 -- .github/workflows/ci.yml | /usr/bin/grep -n 211`).
 ⚠ **PR #510 Codex R13 (2026-09-07) — the block-grammar family closed**: `plan_memo_blocks.py` had
 drawn IMP findings three rounds running, each on a §3.0 PROSE-AS-WRITTEN disposition; the root was
 that the 27 conformance exclusions were the unmodelled grammar. §4.4 indented code is now a RAW
@@ -1039,6 +1049,16 @@ and it is now written beside the timeout: **~10× (R12) → 5.9× (R27) → 5.1�
 every round's controls and mutants land in an ALWAYS-RUN job, so the headroom is a **budget, not a
 constant**, and the point to act is before a runner cancels a green job (which is what the
 `timeout-minutes: 2` this 5 replaced did, at 211 s).
+⚠ **Correction (2026-10-24):** no job was cancelled at 211 s. The one CI run at `29dc1eb7`
+(34104840164) cancelled the `Layering trip-wires` job at 136 s (09:13:54Z → 09:16:10Z) under
+`timeout-minutes: 2`, and the run concluded `failure`; 211 s is the time `5b2ecdd3`'s `ci.yml` text
+gives for the `--self-test --mutants` run on Codex's runner. The run data does not show the job
+green: the wires before the self-test wire printed OK, and the self-test wire printed no result
+before the cancellation (`gh run list -R send/elidex --commit 29dc1eb759458ae7d4f0e02aa3b02f5e5377d8af --workflow ci.yml --json databaseId,conclusion`;
+`gh run view 34104840164 -R send/elidex --json headSha,conclusion,jobs`;
+`gh run view -R send/elidex --job 101687374367 --log | /usr/bin/grep -E 'OK|=====|trip-wire:|canceled'`;
+`git show 29dc1eb7:.github/workflows/ci.yml | /usr/bin/grep -n -A1 'name: Layering trip-wires'`;
+`git show 5b2ecdd3 -- .github/workflows/ci.yml | /usr/bin/grep -n 211`).
 #2 (P2) an unmatched decoration run made an id cell "blank": `**`, `*`, `` ` ``, ``` `` ```, `***`
 all returned True from `is_blank_id_cell`, so a slice row keyed `**` with the marker and a non-empty
 `Deps` returned **rc 0 with no findings** — in neither `ids` nor assertion (b). Correct is **rc 2**,
@@ -1666,6 +1686,16 @@ entry with scope / owner / EVENT trigger / re-eval, and is measured rather than 
 split had to widen `_IMPORT_SEAMS`, landing inside the territory declared undetected); the
 `stale-claim-detector` lane's second wire is now an explicit §1 merge obligation on `REQUIRED_WIRES`
 (append, never `--ours`) and the `ci.yml` budget block states that its figures cover THIS wire alone
+⚠ **Correction (2026-10-24):** the block's label was false. The R12, R27 and R29 points timed the
+whole `scripts/trip-wires.sh` (R12: the block's own text at `d7f12732`, "the whole
+`scripts/trip-wires.sh` 5.8 s"; R27 and R29: the `CLAUDE.md` line at `7b931db4` and at `745337b6`,
+"`scripts/trip-wires.sh` 全体 ~11.8 s" and "… 全体 ~13.7 s"), and the commits that took the R30
+figure (`0a8741a5`) and the R32 pair (`7eabcead`) name the timer, `/usr/bin/time -p`, but not the
+command timed (`git show d7f12732:.github/workflows/ci.yml | /usr/bin/grep -n 'whole .scripts/trip-wires.sh. 5.8 s'`;
+`git show 7b931db4:CLAUDE.md | /usr/bin/grep -o 'scripts/trip-wires.sh. 全体 \*\*~11.8 s'`;
+`git show 745337b6:CLAUDE.md | /usr/bin/grep -o 'scripts/trip-wires.sh. 全体 \*\*~13.7 s'`;
+`git show 0a8741a5 7eabcead -- .github/workflows/ci.yml | /usr/bin/grep -cE 'trip-wires\.sh|umbrella-check'`
+prints 0).
 — ⚠ Axis 5 refuted the premise that the collision is a BUDGET problem: 26 s + 6 s against a
 10-minute timeout is a merge hazard on the inventory, not a cost one; the **three parallel
 plan-memo checkers** now cross-reference, with the boundary written as three questions (this =
