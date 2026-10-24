@@ -27,7 +27,7 @@ set -euo pipefail
 #
 # Resolve symlinks first: a bare `dirname "$0"` points at the LINK, so this script
 # symlinked onto someone's PATH would `cd` outside the repo, match no wires, and
-# report it as "required trip-wire(s) did not run" — telling the reader that four
+# report it as "required trip-wire(s) did not run" — telling the reader that all
 # wires were deleted and inviting them to edit REQUIRED_WIRES, which is the one
 # edit that genuinely disables the gate. A gate whose diagnostic misdirects toward
 # switching it off is worse than one that simply refuses to run. `readlink -f` is
@@ -85,6 +85,7 @@ fi
 REQUIRED_WIRES="
 layout-box-reader-trip-wire.sh
 native-ctor-guard-trip-wire.sh
+plan-memo-umbrella-selftest-trip-wire.sh
 wasm-runtime-trip-wire.sh
 wasm-vm-trip-wire.sh
 "
@@ -129,7 +130,7 @@ if [ -z "${TRIP_WIRES_SELFTEST:-}" ]; then
 
   # $3 (a substring the diagnostic MUST contain) is not decoration: the two failing
   # assertions produce the SAME exit code, and the retention check fires on a wrong root
-  # too (no root -> no wires -> all four missing). Keying on the status alone therefore
+  # too (no root -> no wires -> all of them missing). Keying on the status alone therefore
   # cannot tell "root verification works" from "retention masked its absence" — verified:
   # deleting the root check left an exit-code-only probe green. Asserting the message is
   # what pins the property that matters, namely that a cwd problem is never reported as
