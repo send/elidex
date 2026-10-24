@@ -8,6 +8,8 @@ decisions; its **input** lines (§4's mechanism prose, §5.3 population (e), §5
 
 **Rev 1** (2026-10-24) — first draft, before `/elidex-plan-review`.
 
+**Revision 4** (2026-10-24) — clerical; USER + PM decided 2026-10-24: no further memo review; the implementation's /pre-push + /elidex-review confirm in code: no operator impls, in-module `Flags` use only in C10's oracle, population (p) = the compiler error list.
+
 **Revision 2** (2026-10-24) — plan-review R1. The polarity flip is made **safe by construction**: `SandboxingFlagSet` is a
 newtype over a module-private `bitflags` type, so it has no public `empty()`, `all()`, flag constant or `Option` form;
 its only constructors are `unsandboxed()` and `all_represented()` (both `const fn`) and `parse_sandboxing_directive`
@@ -144,7 +146,7 @@ approval is `d306af5a` (#541), the branch cut.
   **`same_origin_allowed`** (NEW) — `!flags.0.contains(Flags::SANDBOXED_ORIGIN)`, the *determine the origin* step 1
   test that `apply_sandbox_origin` open-codes today (B6). Outside `elidex-plugin/src/sandbox.rs` no code can name a flag
   constant or test a flag (D-N1, by construction; G4 is the textual backstop); every reader goes through a predicate,
-  every constructor through `parse_sandboxing_directive`, `unsandboxed()` or `all_represented()`. This keeps S5-4 §4.1's
+  every function that returns a set is `parse_sandboxing_directive`, `unsandboxed()`, `all_represented()` or `union_restrictions`. This keeps S5-4 §4.1's
   ratified predicate home and its module contract (`sandbox.rs:9-14`), now with no exception. The S5-4 §4.1 *Shape*
   block's contract comment ("`None` = unsandboxed (all allowed); `Some(empty)` = max restriction",
   `docs/plans/2026-07-s5-4-sandbox-enforcement.md:525`) is superseded together with that section's rejection
@@ -185,14 +187,17 @@ approval is `d306af5a` (#541), the branch cut.
   `const MAX_RESTRICTION` → `all_represented()`; names kept so their use sites compile unchanged). Production builds a
   present attribute's set with `parse_sandboxing_directive`, and C10 pins `parse_sandboxing_directive("") ==
   all_represented()`, so every fixture value is one production produces (user CLAUDE.md "fixture は実物の形を反映させる").
-  **The `sandbox.rs` test module** (`mod tests`, `:184` to the end of the file; `use super::*` makes the private
+  **The `sandbox.rs` test module** (`mod tests`, `:184` to `:395`, the end of the file; `use super::*` makes the private
   `Flags` and its constants visible there, so the compiler guarantee of D-N1 does not hold inside it) constructs values
-  **only** through the public constructors — `unsandboxed()`, `all_represented()`, `parse_sandboxing_directive` — and
+  **only** through the public constructors — `unsandboxed()`, `all_represented()`, `parse_sandboxing_directive` — **except** C10's
+  256-subset oracle, which is the single sanctioned in-module use of the private `Flags` constants: because the navigation
+  and propagate flags have no predicate, the oracle cannot be built from the public constructors (no test-only constructor
+  is added). It
   reads them only through the predicates or `==`; a flag without a predicate (navigation, propagate) is observed by
   equality between two parses, not through `Flags`. Its two halves are treated differently. The **predicate tests**
   (`:284`–`:394`) are **migrated** by the value-class rule: each assert keeps its predicate and its polarity, only the
   value expression inside it is rewritten (inline value expressions are why G10's textual check is for the other
-  migrated files). The **token-parser tests** (`:186`–`:282`) assert through `contains` / `is_empty` on the old type,
+  migrated files). The **token-parser tests** (`:189`–`:282`) assert through `contains` / `is_empty` on the old type,
   which the new type does not expose, so they cannot migrate; they are **replaced** by C10 / C10b, which carry every
   scenario they hold (empty string, single / multiple / unrecognised tokens, case folding, all seven tokens, the
   `allow-top-navigation-by-user-activation` token and its implication).
@@ -447,7 +452,7 @@ assertions unchanged.
 | C10e (NEW) | origin: `apply_sandbox_origin` returns opaque iff `allow-same-origin` is absent from a present attribute or the frame is credentialless; absent attribute keeps the input origin | `content_iframe_security_tests.rs` (existing order-proof arms re-asserted) |
 | C10f (NEW) | `unsandboxed()` allows every predicate: `scripts_allowed`, `forms_allowed`, `popups_allowed`, `modals_allowed`, `scripting_enabled`, `same_origin_allowed` true, and `top_navigation_allowed(unsandboxed(), act)` true for both `act` (HEAD's `None` row) | `sandbox.rs` tests |
 | C10g (NEW) | an unbound read yields `unsandboxed()` as HEAD's `None`: `window.open('/x', '_blank')` on a `Vm` with no `HostData` installed (`Vm::new()` without `install_host_data`; `vm/init.rs:250` `host_data: None`) takes the unsandboxed disposition; the cell is written and run at the base first, so its expected result is HEAD's. The engine getter's unbound arm (`elidex-js/src/engine.rs:661-667`) is unreachable through `ElidexJsEngine`'s constructors (both install `HostData`, `engine.rs:44`, `:100`) and is covered by D-N6's `None` class and G7 alone. If the `window.open` native cannot run without `HostData` (Q-N1), the implementer stops and reports rather than substituting another cell | `vm/tests/tests_window_open_modals.rs` |
-| C10h (NEW) | no operator surface (D-N1): a grep gate — **`trybuild` is not a workspace dev-dependency** (`/usr/bin/grep -rn trybuild Cargo.toml crates/*/*/Cargo.toml` → no match, verified 2026-10-24), so no compile-fail harness is added: `git grep -n -E 'impl[^{]*(BitOr\|BitAnd\|BitXor\|Not\|Sub\|Add)(Assign)?[^{]*for[^{]*SandboxingFlagSet' -- crates/core/elidex-plugin` → 0. It is blind to a macro-generated impl, which the module cannot contain: the only macro is `bitflags!` on the private `Flags`, and the newtype derives only `Clone, Copy, Debug, PartialEq, Eq, Hash` | CI step / reviewer command (no test file) |
+| C10h (NEW) | no operator surface (D-N1): a grep gate — **`trybuild` is not a workspace dev-dependency** (`/usr/bin/grep -rn trybuild Cargo.toml crates/*/*/Cargo.toml` → no match, verified 2026-10-24), so no compile-fail harness is added: `git grep -n -E 'impl[^{]*(BitOr\|BitAnd\|BitXor\|Not\|Sub\|Add)(Assign)?[^{]*for[^{]*SandboxingFlagSet' -- crates/core/elidex-plugin` → 0. It is blind to a macro-generated impl, which the module cannot contain: the only macro is `bitflags!` on the private `Flags`, and the newtype derives only `Clone, Copy, Debug, PartialEq, Eq, Hash` | reviewer command (§9), not a CI step |
 | — | migrated suites green with assertions unchanged (the `sandbox.rs` predicate tests migrate, its token-parser tests are replaced by C10 / C10b: D-N6): `tests_window_open_modals.rs`, `tests_engine_s1a.rs`, `tests_engine_s1b.rs`, `tests_call_listener.rs`, `tests_event_handler_attrs.rs`, `scripting.rs` and `navigation.rs` in-file tests, `content_iframe_security_tests.rs`, `content_window_open_tests.rs` | per crate |
 
 C10b is the mutation guard for the predicates' flip: inverting one predicate's polarity or dropping the two-token arm
@@ -533,6 +538,8 @@ Mechanical greps (each over `crates`, at the PR head):
   none other than C10e's and C10g's (the ADDED cells, §6) (reviewer check: `git diff origin/main -- <file> | grep -E
   '^[-+].*assert'`). The `sandbox.rs` test module is outside this textual check (D-N6: inline value expressions; its
   predicate asserts keep predicate and polarity).
+
+Reviewer command (not a CI step) for D-N6's test-module rule: `/usr/bin/grep -n 'Flags::' crates/core/elidex-plugin/src/sandbox.rs` — within the test module, hits are expected only inside C10's oracle.
 
 Behavioural: C10, C10b, C10c, C10e, C10f, C10g present and green, C10h's command returns 0; the four `cargo test -p` commands and `mise run ci`
 pass. Preflight: `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-10-ibp-sandbox-flagset.md`
