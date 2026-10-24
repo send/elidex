@@ -273,8 +273,10 @@ os.environ)` inherits and is not), **or that runs Python with `-I` / `-E` / `-S`
 socket-layer path T-net does not plant (`_socket` used directly, a raw `sendto`). Every other mention of the
 limit (L4, §2, the wrapper contract, §5 row 7, §12(4)) refers here. The claim is exactly: **a green run is
 the offline measurement for the loader and every child outside the class, over the paths T-net plants**. The
-class's one intended member is A-iii's own: T-net's no-regime baseline, launched deliberately outside the
-regime against a loopback listener (G9). **Rejected: OS-level network isolation** (a network namespace)
+class is stated as a property: every launch the pins make that changes a regime key is a named, intended
+member of the class (the T-net no-regime baseline in G9, launched deliberately outside the regime against a
+loopback listener, and the override children in G10); every non-Python child the pins start (git, the bash
+driver, `/bin/sh`) is a member by definition and is outside the network measurement, not an escape from it. **Rejected: OS-level network isolation** (a network namespace)
 covers every child on the Linux runner but has no macOS equivalent for the local `mise` caller, so the
 callers would differ in *whether* — breaking L1 (§2 L1 × L4).
 
@@ -453,8 +455,8 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **G6** | the environment half, per regime key | the driver launched with an inherited `NO_PROXY=*`, `no_proxy=*`, a real `http_proxy` / `https_proxy` and a set `XDG_CACHE_HOME`; a member asserts a **non-Python** child (`/bin/sh -c env`) sees each inherited value — red under the regime, once per key |
 | **G7** | B2: installed exactly once per process; a nested driver run is idempotent | a member asserts the guard's install marker counts 1 in the loader and in a child; the driver run from inside a guarded process (the way the pins run it) gives the same G1–G5 result and a count of 1 |
 | **G8** | B2: a `sitecustomize` that would run without the guard is not suppressed | with a pre-existing `sitecustomize.py` later on `PYTHONPATH` that sets a marker, a member asserts the marker is set **and** G1 is still red |
-| **G9** | B3: the pins' own members of the unguarded-child class are deliberate | every G-row's baseline launches the member outside the regime (regime keys stripped), against a loopback listener only, and is green (so each plant can fire); G6's driver launch with altered regime keys is the other one (its descendants are under the inner driver's regime, G7); the test names both as such |
-| **G10** | B1: the class is defined by regime-key difference, not by spawn mechanism | under the regime, the test asserts: a child with `env={**os.environ, "PYTHONPATH": d}` (guard entry dropped) **can** connect, and a child spawned after the parent sets `os.environ["NO_PROXY"] = "*"` sees it — both **in** the class (the limit is real, documented by a passing assertion); a child that `os.execve`s `sys.executable` with `os.environ`, and one with `env={**os.environ, "X": "1"}`, **cannot** connect — **outside** the class; **control**: a non-network `sys.executable` child passes |
+| **G9** | B3: the pins' own members of the unguarded-child class are deliberate | every G-row's baseline launches the member outside the regime (regime keys stripped), against a loopback listener only, and is green (so each plant can fire); G6's driver launch with altered regime keys is another (its descendants are under the inner driver's regime, G7); the set of pin launches that change a regime key equals the named set (G9's baseline and G10's override children), and the pin fails if a regime-key-changing launch is not in it |
+| **G10** | B1: the class is defined by regime-key difference, not by spawn mechanism | under the regime, the test asserts: a child with `env={**os.environ, "PYTHONPATH": d}` (guard entry dropped) **can** connect, and a child spawned after the parent sets `os.environ["NO_PROXY"] = "*"` sees it — each **in** the class (the limit is real, documented by a passing assertion); "connect" is a raw `socket.connect` to a `127.0.0.1` listener the same test opens (no proxy, no name resolution, no external host), so G10 needs no network and holds offline (L4); any `os.environ` change G10 makes happens inside a scratch-repo member's own process and is restored before the member returns; a child that `os.execve`s `sys.executable` with `os.environ`, and one with `env={**os.environ, "X": "1"}`, **cannot** connect — **outside** the class; **control**: a non-network `sys.executable` child passes |
 
 ---
 
