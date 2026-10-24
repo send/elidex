@@ -1,61 +1,40 @@
 # Slice A-iii's part of the re-derivation harness (`…-Aiii-suite-scheduler.md`)
 # — sourced by `2026-07-citation-hygiene-A-rederive.sh`, the only entry point.
 #
-# A-iii's shared blocks -- `suites` (cited by the umbrella too), `couplings`,
-# `budget`, `lanes` -- are in `-common.sh`, per the seam rule the dispatcher
-# states: cited by more than one memo -> common. `suites` sat here as a
-# recorded exception until Codex R17; the rule has no exceptions.
+# A-iii's shared blocks -- `suites` (cited by the umbrella too), `budget`,
+# `lanes` -- are in `-common.sh`, per the seam rule: cited by more than one memo
+# -> common.
 
-suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range over
-  # `git ls-files` exits 0 for a pathspec that matches NOTHING, and this block IS
-  # that census, so an empty set was indistinguishable from the real one -- and
-  # the block's status was the trailing `echo`'s, i.e. always 0. J4 is a claim
-  # about which suites EXIST; an empty answer is a broken glob, not a repo with
-  # no tests.
-  local n
-  # `:(glob)` magic: without it a `/**/` still demands a directory component,
-  # so a suite directly under `.claude/` is not enumerated (Codex R45).
+suiteset() {  # §2 L2 / §4.2 — the set the scheduler ranges over, and why its roots do not recurse
+  # `git ls-files` exits 0 for a pathspec that matches NOTHING, so the census is
+  # checked for emptiness: an empty answer is a broken glob, not a repo with no
+  # tests. `:(glob)` magic: without it a `/**/` still demands a directory
+  # component (Codex R45).
+  local n rc=0
   _measure n git ls-files ':(glob).claude/**/test_*.py' || return 1
   _measured
-  [ "$n" -gt 0 ] || { echo "!! EMPTY SUITE SET — the pathspec matched no file; J4 has"
-                      echo "!! nothing to range over, which is not the same as 'no uncollected suite'."
-                      return 1; }
-  echo "-- discover roots --"; echo ".claude/tools/_webref"; echo ".claude/skills/elidex-plan-review"
-  # J4's claim is not only that the set is non-empty but that EVERY member is
-  # under one of the two discover roots -- a suite outside both is the
-  # uncollected suite J4 exists to catch, and the roots were echoed rather than
-  # applied (the block-audit of 2026-08-22).
-  local outside
-  outside=$(printf '%s\n' "$_MEASURE_OUT" | grep -vE '^\.claude/(tools/_webref|skills/elidex-plan-review)/' || true)
-  [ -z "$outside" ] || { echo "!! suite(s) outside both discover roots — J4's uncollected-suite case:"; printf '%s\n' "$outside" | sed 's/^/     /'; return 1; }
-  # Under a root is not yet collected: `unittest discover` recurses only into
-  # PACKAGE directories (every directory between the root and the file needs an
-  # `__init__.py`; the Python 3.9+ discovery contract the floor admits), so a
-  # suite in `<root>/fixtures/test_x.py` passed the prefix test above and was
-  # still never run (Codex R9). The package chain is checked for every file.
-  # The checker is a `_measure`d command: a python that cannot start is a
-  # validation that never ran, and an empty capture from it read as "every
-  # suite is collectable" (Codex R12, reproduced with python3 at exit 127).
-  local files n_unc uncollected
-  files=$_MEASURE_OUT
-  # A quoted heredoc, not `python3 -c '…'`: a `-c` payload is wrapped in the
-  # shell's single quotes, so one apostrophe in a comment ended the program
-  # mid-line twice in one session (R15/R16). The heredoc idiom has no such
-  # hazard, so the harness uses it everywhere and carries no payload guard.
-  _measure n_unc python3 - "$files" <<'PY' || return 1
-import os, sys
-ROOTS = (".claude/tools/_webref", ".claude/skills/elidex-plan-review")
-for f in sys.argv[1].split():
-    root = next(r for r in ROOTS if f.startswith(r + "/"))
-    d = os.path.dirname(f)
-    while d != root:
-        if not os.path.isfile(os.path.join(d, "__init__.py")):
-            print(f"{f}  (no __init__.py in {d})"); break
-        d = os.path.dirname(d)
+  [ "$n" -gt 0 ] || { echo "!! EMPTY SUITE SET — the pathspec matched no file"; return 1; }
+  echo "-- derived roots (unique dirnames of the set; D2) --"
+  _measured | sed 's#/[^/]*$##' | sort -u | sed 's/^/  /'
+  # WHY EACH ROOT RUNS NON-RECURSIVELY, measured rather than asserted: `_webref`
+  # is a package, so a recursive `discover` rooted at its parent collects
+  # `_webref`'s suites under a second import name. The day a `test_*.py` lands
+  # directly under `.claude/tools/` (PR #510's wrapper is the known candidate),
+  # `.claude/tools` becomes a root -- and a recursive root there would run
+  # `_webref`'s suites twice. This block fails if that hazard is NOT
+  # reproducible, because then §4.2's argument for non-recursion has no subject.
+  [ -f .claude/tools/_webref/__init__.py ] || { echo "!! _webref is not a package; §4.2's non-recursion argument has moved"; rc=1; }
+  python3 - <<'PY' || rc=1
+import unittest
+s = unittest.defaultTestLoader.discover(".claude/tools", pattern="test_*.py", top_level_dir=".claude/tools")
+def ids(x):
+    for t in x:
+        yield from (ids(t) if isinstance(t, unittest.TestSuite) else [t.id()])
+dup = [i for i in ids(s) if i.startswith("_webref.")]
+print(f"  recursive discover from .claude/tools collects {len(dup)} test(s) as `_webref.*`")
+raise SystemExit(0 if dup else "!! the double-collection hazard did not reproduce")
 PY
-  uncollected=$(_measured)
-  [ -z "$uncollected" ] || { echo "!! suite(s) under a root but below a non-package directory — discover never reaches them:"; printf '%s\n' "$uncollected" | sed 's/^/     /'; return 1; }
-  return 0
+  return "$rc"
 }
 
 # `_gated JOB TEXT`: exit 0 iff JOB's region in TEXT carries both `needs:
@@ -77,11 +56,11 @@ _job_region() { printf '%s\n' "$2" | awk -v j="$1" -v q="'" '$0 ~ "^  [\"" q "]?
 # the header already admits (Codex R39).
 _gated() { _job_region "$1" "$2" | awk -v q="'" '$0 ~ ("^    [\"" q "]?needs[\"" q "]?: changes$") {n=1} $0 ~ ("^    [\"" q "]?if[\"" q "]?: needs\\.changes\\.outputs\\.(rust|config) == " q "true" q "( \\|\\| github\\.event_name == " q "push" q ")?$") {g=1} END {exit !(n && g)}'; }
 
-filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
+filters() {  # §4.1 — ci.yml's path filters at the base A-iii argues from
   # `git show | sed -n` under `pipefail` catches an unresolvable ref, but not the
   # other half: a sed range that matches nothing prints nothing and exits 0, so a
   # renamed `filters:` key reads as "this workflow has no filters" -- the claim
-  # A-iii's §4.3.2 argues AGAINST, handed to it for free.
+  # A-iii's §4.1 argues AGAINST, handed to it for free.
   local n body
   _measure n git show "$MAIN:.github/workflows/ci.yml" || return 1
   # The filter census is the `filters:` mapping INSIDE the `changes` job: the
@@ -132,7 +111,7 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # Same region reader as the gated jobs (quoted header admitted); "present
   # AND ungated" = a non-empty region with no `needs:`/`if:` line.
   { r=$(_job_region trip-wires "$ci"); [ -n "$r" ] && ! printf '%s\n' "$r" | grep -qE "^    [\"']?(needs|if)[\"']?:"; } \
-    || { echo "!! \`trip-wires\` is absent or gated — §9's 'present and ungated since #496' no longer holds"; rc=1; }
+    || { echo "!! \`trip-wires\` is absent or gated — §4.1's 'present and ungated' (#496) no longer holds"; rc=1; }
   # "Invokes mise" was read by a hand-rolled YAML step reader for four rounds
   # (R10 block scalars, R14 indentation indicators, R26 flow mappings, R27 the
   # grammar statement) and a shlex tokenizer for three (R14/R15/R16); each round
@@ -158,7 +137,7 @@ PY
   return "$rc"
 }
 
-ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
+ruleset() {  # §4.5 — main's ruleset, READ rather than recalled
   # THREE `gh api` calls, and this block used to return the LAST one's status. So
   # when the first call -- the ONLY measurement of `enforcement` and `target`,
   # which is exactly what A-iii's memo cites this block for -- failed transiently,
@@ -248,108 +227,20 @@ _rulesetcheck() {  # $1 = projected detail JSON, $2 = rule types GitHub applies 
   return 0
 }
 
-floor() {  # §4.4 — a STATIC PRE-CHECK of the declared 3.9 floor, not a proof of it
-  # What this block can decide: grammar (`ast` feature_version), def-time PEP 604
-  # unions, and a sample of runtime-only 3.10+ names. What it cannot: every
-  # newer-runtime API (`tomllib`, `Path.walk`, …) or an evaluated type alias
-  # under a future import (Codex R21). The only proof that the suites run on
-  # 3.9 is running them on 3.9, which CI does only once A-iii's matrix leg
-  # lands (§4.4, Q7); until then §4.4
-  # claims "declared and pre-checked", not "measured".
-  # "No .claude Python source uses syntax newer than 3.9" was a sentence with
-  # no instrument behind it (Codex R17 -- whose own evidence, `str | None` in
-  # `cache.py` and `preflight.py`, is a string annotation under `from __future__
-  # import annotations` and parses on 3.9; the point stands that nothing
-  # CHECKED). Three readings, each a way a 3.9 interpreter fails: grammar
-  # (`ast.parse` with `feature_version`), PEP 604 unions evaluated at def time
-  # (no future-import), and runtime-only 3.10+ APIs. The memo figure is 3.9.
-  local files
-  _measure files git ls-files ':(glob).claude/**/*.py' || return 1
-  [ "$files" -gt 0 ] || { echo "!! no .claude Python files enumerated"; return 1; }
-  # (The heredoc IS python3's stdin, so the file list cannot also arrive on
-  # it -- the first cut piped `git ls-files` into a heredoc and measured 0 files.)
-  python3 - <<'FLOORPY'
-import ast, re, subprocess, sys
-_ls = subprocess.run(["git", "ls-files", ":(glob).claude/**/*.py"], capture_output=True, text=True)  # glob magic: zero intervening dirs allowed
-if _ls.returncode != 0 or not _ls.stdout.split():
-    raise SystemExit("!! `git ls-files :(glob).claude/**/*.py` enumerated nothing; 'floor 3.0' would be the reading")
-files = _ls.stdout.split()
-RUNTIME = re.compile(r"isinstance\([^)]*\|[^)]*\)|zip\([^)]*strict=|slots=True|kw_only=|pairwise\(|TypeAlias|ParamSpec")
-def pep604(tree, future):
-    # THE COMPLEMENT, not a list of positions (Codex R37 annotations -> R38
-    # assignment values -> R39 defaults/decorators/bases: one evaluated
-    # position per round, and a language has no end of them). On 3.9 EVERY
-    # expression is evaluated at import or definition time except an
-    # annotation under `from __future__ import annotations`. So: the set of
-    # nodes to inspect is the whole tree minus (if `future`) the annotation
-    # subtrees, and any type-shaped `X | Y` in that set raises. "Type-shaped"
-    # = both operands are bare names / subscripts / None / further unions.
-    # THE OPERAND PREDICATE IS A COMPLEMENT TOO (Codex R45: listing Name /
-    # Attribute / Subscript missed `type(...) | None`, a Call). An operand is
-    # PLAINLY NOT A TYPE only when the grammar says so: a non-None literal
-    # (`1 | 2`, `"a" | x`), a collection display (`{1} | s`), or a PEP 8
-    # constant (an ALL-CAPS name or attribute: `FLAGS | MASK`, `re.I | re.M`,
-    # the tree's only dotted `|`), or a call of a lower_case function/method
-    # (`before.keys() | after.keys()`, `diff.py:85` -- PEP 8 names functions
-    # lower_case and classes CapWords; `type(...)` is the builtin exception and
-    # stays type-shaped). EVERYTHING ELSE is type-shaped -- names, dotted
-    # names, subscripts, CapWords/`type` calls, nested unions -- so the unknown
-    # reads RED (a false RED makes a reader look; a false GREEN certifies).
-    def is_const_name(s):
-        return s.isupper() or (s.replace("_", "").isupper() and "_" in s)
-    def callee_name(c):
-        f = c.func
-        return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
-    def plainly_not_type(o):
-        return ((isinstance(o, ast.Constant) and o.value is not None) or
-                isinstance(o, (ast.Set, ast.List, ast.Dict, ast.Tuple, ast.JoinedStr)) or
-                (isinstance(o, ast.Name) and is_const_name(o.id)) or
-                (isinstance(o, ast.Attribute) and is_const_name(o.attr)) or
-                (isinstance(o, ast.Call) and callee_name(o) != "type" and callee_name(o)[:1].islower()) or
-                (isinstance(o, ast.BinOp) and not isinstance(o.op, ast.BitOr)))
-    def typelike(o):
-        return not plainly_not_type(o)
-    deferred = set()
-    if future:
-        for node in ast.walk(tree):
-            anns = []
-            if isinstance(node, ast.AnnAssign): anns.append(node.annotation)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                a = node.args
-                anns += [x.annotation for x in a.args + a.posonlyargs + a.kwonlyargs + [a.vararg, a.kwarg] if x is not None and x.annotation is not None]
-                if node.returns is not None: anns.append(node.returns)
-            for ann in anns:
-                deferred.update(id(n) for n in ast.walk(ann))
-    for n in ast.walk(tree):
-        if id(n) in deferred: continue
-        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr) and typelike(n.left) and typelike(n.right):
-            return True
-    return False
-need, bad = {}, []
-for f in files:
-    src = open(f, encoding="utf-8").read()
-    floor = None; tree = None
-    for minor in (9, 10, 11, 12, 13):
-        try:
-            tree = ast.parse(src, feature_version=(3, minor)); floor = minor; break
-        except SyntaxError:
-            continue
-    if floor is None:
-        bad.append((f, "does not parse under any feature_version 3.9..3.13")); continue
-    future = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and any(a.name == "annotations" for a in n.names) for n in tree.body)
-    if floor == 9 and pep604(tree, future):
-        floor = 10
-    if floor < 10 and RUNTIME.search(src):
-        floor = 10
-    need[f] = floor
-mx = max(need.values()) if need else 0
-print(f"  {len(need)} files; highest floor measured: 3.{mx}")
-for f, why in bad: print(f"  !! {f}: {why}")
-if mx != 9 or bad:
-    for f, v in sorted(need.items()):
-        if v > 9: print(f"  !! needs 3.{v}: {f}")
-    print("  !! A-iii §4.4 states the floor is 3.9; the tree says otherwise")
-    sys.exit(1)
-FLOORPY
-  return $?    # the heredoc'd command IS the measurement; say so
+
+touchset() {  # §7 — A-iii's diff stays inside its edit set
+  # At plan stage the diff is this memo and its harness; after implementation it
+  # is also the three files §4.2 names. Anything else -- a `_webref` file, a
+  # `test_*.py` (the #510 wrapper is #510's to write, §4.2) -- is RED. Committed
+  # range and working tree both.
+  local n m rc=0 out
+  _measure n git diff --name-only "$MAIN"...HEAD || return 1
+  out=$_MEASURE_OUT
+  _measure m git status --porcelain --untracked-files=all || return 1
+  out=$(printf '%s\n%s\n' "$out" "$(_measured | sed 's/^...//')" | sed '/^$/d' | sort -u)
+  printf '%s\n' "$out" | sed 's/^/  /'
+  local bad
+  bad=$(printf '%s\n' "$out" | grep -vE '^(docs/plans/2026-07-citation-hygiene-(Aiii-suite-scheduler\.md|A-rederive(-[A-Za-z]+)?\.sh)|scripts/python-suites\.sh|mise\.toml|\.github/workflows/ci\.yml)$' || true)
+  [ -z "$bad" ] || { echo "!! outside A-iii's edit set (§4.2 / §7):"; printf '%s\n' "$bad" | sed 's/^/     /'; rc=1; }
+  return "$rc"
 }
