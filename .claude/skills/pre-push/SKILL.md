@@ -25,13 +25,13 @@ cargo fmt --all
 
 ### Stage 2 — Verify
 ```sh
-mise run ci   # check + lint + test-all + doc + deny + ci-sweep cleanup (no-op without cargo-sweep) — CLAUDE.md "Push 前"
+mise run ci   # check + lint + test-all + doc + deny + trip-wires + tools-test + ci-sweep cleanup (no-op without cargo-sweep) — CLAUDE.md "Push 前"
 ```
 All jobs must be green. (`test-all` includes doc-tests; cargo tasks are `--all-features`-gated, so feature-gated code is covered.)
 
 Fallback: if `mise run ci` reports a spurious `target/`-missing failure (the `ci-sweep` cleanup task can race the build and wipe `target/` mid-compile), re-run the verification jobs serially — this sidesteps the race by omitting `ci-sweep`:
 ```sh
-mise run check && mise run lint && mise run test-all && mise run doc && mise run deny
+mise run check && mise run lint && mise run test-all && mise run doc && mise run deny && mise run trip-wires && mise run tools-test
 ```
 
 ### Stage 3 — `/simplify`

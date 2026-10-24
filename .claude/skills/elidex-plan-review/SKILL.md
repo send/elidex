@@ -100,9 +100,10 @@ Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container
   falsified by the file that carried it. Per
   `feedback_every-triggered-pr-must-be-on-the-loop`, a checker reachable only by remembering it is
   the habit it was built to end. One PR, the **tooling PR** of the umbrella that authored these
-  files: (a) invoke both from Step 1.5 (or the ungated `trip-wires` job — ⚠ open PR #510 registers
-  its own plan-memo checker wire in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and ships a
-  lexer/blocks/tables substrate, so the tooling PR's own plan-memo, under `/elidex-plan-review`,
+  files: (a) invoke both from Step 1.5 (or the ungated `tools` job, entering as a tracked `test_*.py` —
+  a command-shaped self-test through the wrapper contract in `scripts/python-suites.sh`'s header;
+  a check that needs an interpreter does not belong in `trip-wires`. ⚠ Open PR #510 ships its own
+  plan-memo checker and a lexer/blocks/tables substrate, so the tooling PR's own plan-memo, under `/elidex-plan-review`,
   decides build-on-vs-beside that substrate first) — `plan-xcheck.py` currently hard-codes one
   memo's PR labels and slot names, so generalising is part of the work; (b) two-file awareness of
   both checkers, decided on its merits in that PR's memo whichever substrate it builds on (the

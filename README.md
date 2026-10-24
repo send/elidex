@@ -80,7 +80,8 @@ mise run test-all  # nextest + doc-tests (full suite, run by `ci`)
 mise run lint      # clippy + fmt check
 mise run fmt       # format code
 mise run deny      # license/vulnerability check
-mise run ci        # run all CI checks locally (check + lint + test-all + doc + deny)
+mise run tools-test # every tracked Python suite (test_*.py), offline (scripts/python-suites.sh)
+mise run ci        # run all CI checks locally (check + lint + test-all + doc + deny + trip-wires + tools-test)
 ```
 
 ### Running the Crawler
