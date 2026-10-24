@@ -6,8 +6,9 @@
 > command -- ranges and `--grep` locators included -- against `FETCH_HEAD` (a range's base, `658cc302`,
 > is on `main`). The `--grep` locators also resolve on `main`, because the repo squashes with the commit
 > messages (`gh api repos/send/elidex --jq .squash_merge_commit_message` = `COMMIT_MESSAGES`).
-> In a round label carrying a date (`Codex R<n> of <date>`, `Codex R<n> (<date>, …)`) the date is a UTC
-> date. To check a label, its date must match the `created_at` UTC date of the bot's review comments of
+> In this memo and the checker's files, a round label carrying a date (`Codex R<n> of <date>`,
+> `Codex R<n> (<date>, …)`) gives a UTC date; the rounds ledger's labels are its record and are not
+> governed by this rule. To check a label, its date must match the `created_at` UTC date of the bot's review comments of
 > that round (`gh api --paginate repos/send/elidex/pulls/510/comments`); the carve and acceptance dates
 > beside them ("carved 2026-09-28") are local, JST (UTC+9).
 

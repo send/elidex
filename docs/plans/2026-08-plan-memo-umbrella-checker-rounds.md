@@ -1690,7 +1690,7 @@ split had to widen `_IMPORT_SEAMS`, landing inside the territory declared undete
 whole `scripts/trip-wires.sh` (R12: the block's own text at `d7f12732`, "the whole
 `scripts/trip-wires.sh` 5.8 s"; R27 and R29: the `CLAUDE.md` line at `7b931db4` and at `745337b6`,
 "`scripts/trip-wires.sh` 全体 ~11.8 s" and "… 全体 ~13.7 s"), and neither commit that took the R30
-figure or the R32 pair names the command timed: `0a8741a5` names only the timer, `/usr/bin/time -p`,
+figure or the R32 pair names the command timed: `0a8741a5` names the timer, `/usr/bin/time -p`, and the clone condition,
 and `7eabcead` only "one clean `git clone --local`" (its one `time -p` is a deleted line) (`git show d7f12732:.github/workflows/ci.yml | /usr/bin/grep -n 'whole .scripts/trip-wires.sh. 5.8 s'`;
 `git show 7b931db4:CLAUDE.md | /usr/bin/grep -o 'scripts/trip-wires.sh. 全体 \*\*~11.8 s'`;
 `git show 745337b6:CLAUDE.md | /usr/bin/grep -o 'scripts/trip-wires.sh. 全体 \*\*~13.7 s'`;
