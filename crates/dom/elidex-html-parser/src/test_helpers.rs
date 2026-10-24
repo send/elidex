@@ -1,6 +1,6 @@
 //! Shared test helpers for DOM tree inspection.
 //!
-//! Used by tests in both `lib.rs` and `convert.rs` to avoid duplication.
+//! Used by tests in both `tests.rs` and `convert.rs` to avoid duplication.
 
 use elidex_ecs::{EcsDom, Entity, TagType, TextContent};
 
