@@ -7,24 +7,29 @@
 # touch such a file — not to defer it. This is that seam, and it was visible
 # well before the line count: the wire ANSWERS about a tree, and everything here
 # exists to show those answers are reachable. Not all of them are covered — the
-# verdict sites with no control are a defer slot in the plan memo's §8. One
+# verdict sites with no control are the defer slot
+# `#11-k2-wire-verdict-site-controls`, in
+# 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md §8. One
 # green run of the scanner tells you nothing this file has not earned.
 #
 # THE INTERFACE, AND IT IS ASSERTED BELOW RATHER THAN DESCRIBED. What this file
 # (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
-# `$_CONTROLS` (this file's own path, which the mutation harness copies), the
-# five `CONTROL_*` sample strings, and the `_git` helper. That list — and only
-# that list — is checked at entry.
+# `$_CONTROLS` (this file's own path: the entry check, the run registry's site walk in
+# the run primitives and the label census in the correspondence part read it; the
+# defined-labels check does not), the five `CONTROL_*` sample strings, and the exit path's `_k2_age`, `_k2_traps`, `_k2_reap`,
+# its reap set `$_K2_REAP_D` (set here) and git's `$_GIT_LOCAL_VARS` (the first may be empty: asserted SET; the second asserted non-empty). That list — and only that list — is checked
+# at entry. (No part calls the wire's `_git`, so the entry check no longer asks
+# for it: a tracer over a full run counted 0 calls.)
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
-# was: it named `$CTL`, `_fgit`, `_control`, `_ctl_env`, `$_perm_line`,
-# `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
-# them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|_fgit\|\$CTL\|ctl_ok\|\b_control\b'`
+# was: it named `$CTL`, `_control`, a per-run env global, two summary-line globals
+# and `ctl_ok` "for the wire to read", and the wire reads NONE of
+# them (`grep -c '\$CTL\|ctl_ok\|\b_control\b'`
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
-# harness beside this file. The data flow is one-way, and saying otherwise
-# invented a contract nobody could break.
+# harness beside this file. The data flow is one-way but for `$_K2_REAP_D` and `_ord_lbl`, the wire's, which this file sets and its
+# exit path reads; saying otherwise invented a contract nobody could break.
 # ⚠ AND THE CONSUMES LIST HAS BEEN WRONG TWICE. It first claimed `$ROOT` and
 # `_phys`, which this file did not then mention; the revision that said so also
 # added a mutation harness that consumes `$_CONTROLS`, which the same revision
@@ -35,8 +40,8 @@
 #
 # WHY SOURCED AND NOT A SEPARATE PROGRAM. The alternative the plan-review
 # offered — a real entry point taking explicit parameters — costs a second copy
-# of `_git`, the locale pin and the `GIT_NO_*` exports, i.e. a second statement
-# of how this gate reads git. That is the decision-surface duplication this
+# of the wire's locale pin and `GIT_NO_*` exports, i.e. a second statement of
+# how this gate reads git. That is the decision-surface duplication this
 # instrument spent four review rounds collapsing (#501 R76, R80, R81, R89), and
 # it is what CLAUDE.md's "one issue, one way" forbids. The seam is real (answers
 # vs. proof the answers are reachable); what was missing was the interface being
@@ -61,682 +66,595 @@ _ctl_missing=
 for _n in SELF SCRATCH _CONTROLS CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN; do
   [ -n "${!_n:-}" ] || _ctl_missing="$_ctl_missing \$$_n"
 done
-declare -f _git >/dev/null 2>&1 || _ctl_missing="$_ctl_missing _git()"
+[ -n "${_K2_REAP_D+x}" ] || _ctl_missing="$_ctl_missing \$_K2_REAP_D"; [ -n "${_GIT_LOCAL_VARS:-}" ] || _ctl_missing="$_ctl_missing \$_GIT_LOCAL_VARS"
+for _n in _k2_age _k2_traps _k2_reap; do declare -F "$_n" > /dev/null || _ctl_missing="$_ctl_missing $_n()"; done
 if [ -n "$_ctl_missing" ]; then
   echo "!! This file is the CONTROLS for \`webref-generic-core-trip-wire.sh\`. It is" >&2
   echo "   SOURCED by that wire and has no meaning on its own; missing:$_ctl_missing" >&2
   echo "   Run the wire instead — it sources this file and refuses to run without it." >&2
   exit 2
 fi
+# DEFINED BEFORE THE HARNESS IS SOURCED: the harness uses `$_fws_lbl` while it loads.
+# ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
+# a mutation record (the census in the correspondence part counts the `_*_lbl` variables
+# the wire or a part SPELLS as well as the labels the run's calls registered).
+# What each asserts is tabled in docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
+_fw_lbl="the fixture build window completed"
+_fw2_lbl="no control runs over an incomplete or untrusted fixture build window"
+_fwd_lbl="the fixture build window ran without a shell diagnostic"
+_pa_lbl="a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file"
+_pal_lbl="this git reports a configuration origin outside the repo's file"
+_pb_lbl="the fixture git has no system or global layer outside the void"
+_pbl_lbl="this git names its system files through git var"
+_pc_lbl="nothing is written into the fixture git's void"
+_pd_lbl="the fixture git copies no template"
+_pe_lbl="no exec-path override reaches the fixture git"
+_pf_lbl="the fixture build window's environment holds only its allowlist"
+_pg_lbl="every fixture repo persists only the configuration a plain git init writes"
+_ph_lbl="the fixture build window reads in the wire's locale"
+_pi_lbl="the fixture repos use the files ref format"
+_pj_lbl="the fixture build window runs the pinned git first on its PATH"
+_pk_lbl="no fixture repo reads objects from a store outside it"
+_pkl_lbl="this git reports alternate object stores"
+_fws_lbl="every mode restriction a fixture sealed was applied"
+_mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's regexes"
+# (the census: the run registry, bijected with this file's call lines, and the
+# expanded (orphans) or spelled (the ratchet) `_*_lbl` variables, against the records — in the correspondence part; the
+# records whose needle this is pin it)
+_cen_lbl="every label the run used is named by a mutation record"
+# …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
+# blocks, the defined-labels check, the standing checks (their producers are
+# below), the table check (`$_capt_lbl`, `_cap_check`), the capability groups' and
+# the limit's labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`: the table's group and
+# `limit` rows hold them), the orderly-end check (in the wire) and the anchor rule's self-test
+# (`$_af_lbl`, in the correspondence part) —, defined HERE so the check that follows can ask for every label at once:
+_rel_lbl="a relative scratch dir is removed on exit"
+_fsm_lbl="a caller's fsmonitor hook does not run"
+_lbd_lbl="every label the parts use is defined"
+_ord_lbl="the run ends only through a verdict"
+_wm_lbl="only the watchdog's marker makes a signal status a timeout"
+_cap_lbl="the gate declines exactly the members of a group whose flag is 0"
+_capt_lbl="the capability table is well formed and names every absence it is asked about"
+_fifo_lbl="this machine holds a FIFO, or its caller declared that it cannot"
+_perm_lbl="this user cannot read a mode-000 file, or its caller declared that it can"
+_pfl_lbl="this env lists its environment NUL-separated, or its caller declared that it cannot"
+_ev_lbl="a previous run's channel evidence never answers for the next"
+_og_lbl="a call's process groups end with it and hold none of its caller's streams"
+_af_lbl="a record's anchor is fresh only if it changes one line, once, and keeps what it does not read"
+# THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
+# derives from its own `$SELF` (`<wire>.<part>.sh`). Read from this list: the
+# label check below, in the correspondence part the sibling guard, and in the
+# mutation set its entry check, the per-run copies and `_mut_rm_copies` (the trap and the end of the run), and the
+# derivation of `_MUT_TARGETS` (the prefix words), which `_mut_parse` and `_mut_restore_copies` read.
+_MUT_PARTS="controls harness ctlrun mutations correspondence records fixtures mutgen"
+# …AND THE PATH A PART HAS, spelled once too: `_mut_part_path <part>` sets `_mut_pp` to
+# `<wire stem>.<part>.sh`, derived from the CALLER'S OWN `$SELF` (so a `.mutant.<pid>` copy finds
+# its own copies), and `_mut_pp_pre` / `_mut_pp_suf` to the two halves around the part name: a glob
+# over the parts is `"$_mut_pp_pre"*"$_mut_pp_suf"` (the stem stays quoted, so a metacharacter in the
+# checkout's path is literal). An optional second argument is the STEM to use instead of the caller's
+# own (`${SELF%<ext>}`): the mutation run names its per-run copies through it, so what the run writes
+# and what a copy's own helper looks for are one rule (`_mut_pp_ext` is the wire's extension, which the
+# stem strips and the run's copy of the wire carries). Every site goes through it; the wire alone
+# spells the path itself (it finds this file before this helper exists).
+_mut_part_path() { _mut_pp_ext=".sh"; _mut_pp_pre="${2:-${SELF%"$_mut_pp_ext"}}."; _mut_pp_suf=".sh"; _mut_pp="$_mut_pp_pre$1$_mut_pp_suf"; }
 # THE HARNESS — how a control runs — LIVES BESIDE THIS FILE; this file is which
 # controls exist. Its absence ends the run at "decided nothing", as this file's
 # own absence does in the wire.
-_HARNESS="${SELF%.sh}.harness.sh"
+_mut_part_path harness; _HARNESS="$_mut_pp"
 if [ ! -r "$_HARNESS" ]; then
   echo "!! the control harness beside these controls ($_HARNESS) is missing or" >&2
   echo "   unreadable, so no control here can run. This run decided nothing." >&2
   exit 2
 fi
+# ⚠ EVERY LABEL A PART REFERENCES IS DEFINED AND NON-EMPTY, asked before anything
+# else runs. A label renamed here and left in a producer is reached only when
+# that producer fires, so the rename can sit unseen behind a green run: the names
+# are derived from the text, by `$_LBL_RE` (set below; the harness reads it to forward the
+# postconditions' labels: one definition), not listed. The files read are the wire and every part of
+# `_MUT_PARTS` (the wire spells `_ord_lbl`'s one expansion: the orphan check's population is
+# a subset of what is asserted here, the ratchet's is this list; a label variable whose name is never
+# spelled, built by `printf -v` or `eval`, is the one thing neither sees: none exists). A part that is not readable is skipped here and reported by its
+# own existence check: controls - by the wire, before this file runs; harness -
+# just above; fixtures - below, after the harness is sourced; ctlrun - at the
+# end of the harness; mutations - at the end of this file; correspondence, records and
+# mutgen - in the mutation set.
+_LBL_RE='_[A-Za-z0-9_]*_lbl'; _lbd_files=("$SELF")
+for _lbd_p in $_MUT_PARTS; do
+  _mut_part_path "$_lbd_p"; _lbd_f="$_mut_pp"
+  [ ! -r "$_lbd_f" ] || _lbd_files+=("$_lbd_f")
+done
+_lbd_names="$(grep -ho "$_LBL_RE" "${_lbd_files[@]}" | sort -u)" || _lbd_names=""
+_lbd_missing=""
+for _lbd_n in $_lbd_names; do
+  [ -n "${!_lbd_n:-}" ] || _lbd_missing="$_lbd_missing $_lbd_n"
+done
+if [ -z "$_lbd_names" ]; then
+  echo "!! CONTROL FAILED ($_lbd_lbl): no label was found in the files read (${_lbd_files[*]}: the wire, then each readable part), so none was checked" >&2
+  exit 2
+elif [ -n "$_lbd_missing" ]; then
+  echo "!! CONTROL FAILED ($_lbd_lbl): used but not defined, or empty:$_lbd_missing" >&2
+  exit 2
+fi
+# THE CAPABILITY TABLE: which controls need a capability this machine may lack. Declared
+# HERE, AFTER the label check above (it expands the group labels that check asked about)
+# and BEFORE the harness is sourced (ctlrun's source-time guard reads it); read only
+# through ctlrun's `_cap_rows` (`2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` §2.2). Rows, TAB-separated, no empty field: `group`
+# (name, the harness probe's flag variable, label, why absent, the claim its controls
+# support), `member` (group, a `_control` label spelled literally), `limit` (a P-x ID a
+# probe answers, label, why), `fact` (a P-x ID whose limit is decided, why).
+_CAP_TABLE="group	fifo	_fifo_ok	$_fifo_lbl	this filesystem holds no FIFO	an entry git cannot store neither hangs nor hides a verdict, and a tracked path replaced by one is not opened
+member	fifo	a tracked path replaced by a FIFO is not opened
+member	fifo	an unstorable entry neither hangs nor hides
+group	perm	_perm_ok	$_perm_lbl	this user can read a mode-000 file	an unreadable file or an unsearchable directory fails closed, and a restrictive umask decides nothing
+member	perm	an unreadable file fails closed
+member	perm	an unsearchable dir fails closed
+member	perm	a tracked file under an unsearchable dir is not absent
+member	perm	an unresolvable self-test root decides nothing
+member	perm	a restrictive umask decides nothing
+limit	P-f	$_pfl_lbl	this env refuses -0
+fact	P-b	keyed on git's documented 2.42 boundary (CR-S3), not a probe"
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do mkdir -p "$CTL/$d"; done
-mkdir -p "$CTL/walk/sub"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
-printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
-printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/pin/control.py"
-printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/k2/control.py"
-printf 'ART  = "%s"\n' "$CONTROL_TOOLS"   > "$CTL/tools/control.py"
-printf 'x\000%s\000y\n' "$CONTROL_BINARY"  > "$CTL/binary/control.dat"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/link/ok.py"
-ln -s "$CONTROL_K2" "$CTL/link/forbidden-target"
-# An entry git cannot store. ⚠ This fixture's expected verdict CHANGED at
-# #501 R74: it used to require exit 1 ("the wire cannot say what this holds"),
-# and now requires exit 0 with the sibling still read. The reason is §2's
-# wording, not convenience — K2 is about a path this tree *names*, i.e. stored
-# text, and a fifo holds none: it cannot be committed and cannot survive a
-# checkout. What the control still pins is that such an entry neither hangs
-# the walk nor suppresses the verdict over its siblings.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/odd/ok.py"
-# ⚠ NOT a bare `|| mkfifo`: under the wire's `set -e` a post-probe failure
-# (EEXIST, ENOSPC, a race) aborts the sourced file with NO diagnostic at all —
-# no `$_fifo_line`, no `$_perm_line`, no summary — which is the "a diagnostic
-# about the wrong subject" failure this file exists to avoid, in its purest
-# form: no subject.
-if [ "$_fifo_ok" -eq 1 ] && ! mkfifo "$CTL/odd/pipe" 2>/dev/null; then
-  echo "!! mkfifo succeeded as a probe and then failed for the fixture ($CTL/odd/pipe)." >&2
-  echo "   The FIFO controls cannot be built, and this run is not reporting a wire defect." >&2
+# THE FIXTURE BUILD LIVES BESIDE THIS FILE: that one builds the trees, this one
+# asserts over them. Its absence ends the run at "decided nothing", as the
+# harness's does. It is NOT sourced here: the harness runs it in the fixture
+# build window (`_fgit_window`), a child built from nothing, and checks the
+# window's postconditions inside it.
+_mut_part_path fixtures; _FIXTURES="$_mut_pp"
+if [ ! -r "$_FIXTURES" ]; then
+  echo "!! the fixture build beside these controls ($_FIXTURES) is missing or" >&2
+  echo "   unreadable, so no control here has a tree to run over. This run decided nothing." >&2
   exit 2
 fi
-# A filename holding a newline: `-print` plus `read` would split it into
-# fragments and scan those instead of the file (#501 R74).
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nl/foo"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nl/bar"
-printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/nl/$(printf 'foo\nbar')"
-# Segments §2 admits that a `[A-Za-z0-9_.-]` class did not.
-printf 'A = "%s"\nB = "%s"\n' '.claude/tools/@scope/policy.md' '.claude/skills/日本語/rule.md' \
-                                           > "$CTL/seg/control.py"
-# A REGULAR FILE named `__pycache__`: pruning by name alone skipped it.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cache/ok.py"
-printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cache/__pycache__"
-# A file under a REAL cache directory. Excluding it by location hid it from
-# both passes even when tracked (#501 R77).
-mkdir -p "$CTL/cachedir/__pycache__"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/ok.py"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/__pycache__/probe.txt"
-# A CLEAN file whose own path is the forbidden hierarchy. A content search
-# contents, so without a name pass this reads as a file with nothing in it.
-mkdir -p "$CTL/name/$(dirname "$CONTROL_K2")"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/name/$CONTROL_K2"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/name/ok.py"
-# …and the same shape as a SYMLINK, whose name pass is a separate arm.
-mkdir -p "$CTL/linkname/$(dirname "$CONTROL_K2")"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/linkname/ok.py"
-ln -s "$CTL/linkname/ok.py" "$CTL/linkname/$CONTROL_K2"
-# An inventory that fails AFTER printing something. `git ls-files` exiting
-# nonzero with nothing on stderr is the one signal a truncated population has,
-# and it was discarded (#501 R85).
-mkdir -p "$CTL/fakegit"
-# ⚠ ONLY THE TRACKED (`--stage`) INVENTORY FAILS, and the discriminator is that
-# flag. This matched `" ls-files "`, which is in BOTH the tracked call and the
-# worktree/untracked one — so one shim failed both, and the surviving error from
-# whichever arm remained MASKED the removal of the other's status check.
-# Measured by the external reviewer: deleting the worktree inventory's error
-# emission left the whole run green. A shim shims the one call it is about.
-# ⚠ ONLY `ls-files` FAILS. The shim used to answer every `git` invocation,
-# which made it a control for whatever the wire asked git next rather than for
-# a failing inventory — and #501 R95 added a `rev-parse` preflight that the
-# blanket shim then answered with the fixture's own bytes. Same shape as
-# `fakegrep`: a control shims the ONE call it is about.
-printf '#!/bin/sh\ncase " $* " in *" --stage "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegit/git"
-chmod +x "$CTL/fakegit/git"
-# …and its sibling for the WORKTREE/untracked inventory, which had no shim and
-# therefore no control of its own.
-mkdir -p "$CTL/fakegitwt"
-printf '#!/bin/sh\ncase " $* " in *" --others "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegitwt/git"
-chmod +x "$CTL/fakegitwt/git"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
-# …AND THE SAME FOR `ls-tree`, because the HEAD inventory is a THIRD list with a
-# status check of its own and nothing exercised it: `fakegit` fails `ls-files`
-# only, so the `ls-tree` arm added at #501 R95 could be deleted and every
-# control here stayed green (found by this slice's review — the one mutation
-# record covering all three `_ls_rc` checks hid it, because killing the first
-# was enough to red the run).
-mkdir -p "$CTL/fakegitls"
-printf '#!/bin/sh\ncase " $* " in *" ls-tree "*) printf "x\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegitls/git"
-chmod +x "$CTL/fakegitls/git"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lstreefail/ok.py"
-
-# ⚠ THE TWO FALSE-POSITIVE FIXTURES. A required gate that reds a legitimate
-# tree is the one people switch off, so both repairs the external reviewer
-# found get a control asserting the wire stays GREEN — the direction a
-# violation-shaped fixture can never test.
-#  (a) CLOSING PUNCTUATION: prose naming a ONE-segment directory in parentheses
-#      used to match, with `)` as the second segment.
-printf '# See (%s) for details\n' '.claude/tools/foo/' > "$CTL/punct/ok.py"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/punct/other.py"
-#  (b) A LEADING BOUNDARY: `.claude` as the SUFFIX of another segment is not
-#      the top-level host path. The subject here is the entry's own NAME, which
-#      is where the stored-path predicate reads.
-mkdir -p "$CTL/suffixpath/fixtures/example.claude/skills/team"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/suffixpath/fixtures/example.claude/skills/team/rule.md"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/suffixpath/ok.py"
-#      ⚠ …and the SAME repair in the RUNNING-TEXT predicate needs its own
-#      fixture, because the two regexes are independent: the entry-name fixture
-#      above exercises `$K2RE_PATH` only, so removing the boundary from `$K2RE`
-#      reintroduced the URL false positive with every control still green
-#      (external reviewer, R2). This one is file CONTENT.
-printf '# see https://example.claude/skills/team/rule.md for the upstream note\n' \
-  > "$CTL/suffixpath/url.py"
-
-# A `git` that fails ONLY the HEAD existence probe, so "unborn" and "git could
-# not answer" can be told apart. ⚠ BOTH TOKENS ARE NEEDED. `rev-parse` alone
-# would also break the `--local-env-vars` call the wire makes at startup, and
-# `--verify` alone breaks `show-ref --verify` — which is the very command that
-# now establishes unbornness, so the shim silently became a control for the
-# wrong arm and reported the wrong message. A shim shims the ONE call it is
-# about, which here takes the verb AND the flag to pin down.
-# ⚠ AS ONE ADJACENT SEQUENCE, not two globs. `*" rev-parse "*" --verify "*`
-# cannot match: the first half consumes the space that the second half needs,
-# so the shim matched nothing and the control silently exercised an unshimmed
-# git — the failure a glob makes look like a passing fixture.
-mkdir -p "$CTL/headprobe"
-printf '#!/bin/sh\ncase " $* " in *" rev-parse --verify "*) exit 2;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/headprobe/git"
-chmod +x "$CTL/headprobe/git"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
-
-# A `cat` that always fails, for the one read whose status used to be swallowed
-# by the trailing-newline sentinel.
-mkdir -p "$CTL/catfail"
-printf '#!/bin/sh\nexit 1\n' > "$CTL/catfail/cat"
-chmod +x "$CTL/catfail/cat"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
-
-# A `git` whose UNTRACKED inventory names a path that is not there — the
-# deterministic form of "the file vanished between `ls-files` and the read".
-# The real race (another process rewriting an untracked file) cannot be staged
-# reliably; this shim poses the same question to the same arm.
-mkdir -p "$CTL/fakegitphantom"
-printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "phantom-gone.py\\000"; exit 0;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" "$_REAL_GIT" > "$CTL/fakegitphantom/git"
-chmod +x "$CTL/fakegitphantom/git"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/phantom/ok.py"
-
-#  (c) PUNCTUATION BEFORE A SLASH is not prose punctuation — the `/` settles
-#      where the reference ends — so a path whose INTERMEDIATE segment ends in
-#      one is a real K2 hit. This is the red-direction partner of `punct`, and
-#      the two together are what pin the rule to the FINAL segment only:
-#      `punct` alone admitted a predicate that missed this, and this one alone
-#      admitted the predicate that reddened prose.
-printf 'RULE = "%s"\n' '.claude/tools/team,/rule.md' > "$CTL/punctslash/control.py"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/punctslash/ok.py"
-
-# A repository whose branch ref holds malformed data: `rev-parse --verify
-# --quiet HEAD` exits 1 exactly as an unborn repository does, so this fixture is
-# what separates "there is no commit" from "HEAD could not be read".
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/badref/ok.py"
-
-# A tracked `foo1.py` beside an untracked `foo[1].py` that the inventory names
-# and the filesystem does not have. Without a literal pathspec the membership
-# question matches the WRONG file and the vanished entry is passed over.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/globspec/foo1.py"
-
-#  (d) `@` IS A PATH CHARACTER, NOT A PROSE BOUNDARY. `foo@.claude/...` is the
-#      suffix of a component and must not match — the first boundary spelling
-#      admitted it, because it was written as "not one of these few path
-#      characters" instead of "one of these prose delimiters".
-printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
-#      …and the rest of that exclusion set, one line per member group. ⚠ `A-Z`
-#      was the member group with no line here: removing it from the class made
-#      an upper-case letter a prose boundary, and every control stayed green.
-{ for _c in '~' '+' '%' '-' '.' '_' '0' 'o' 'O'; do
-    printf '# fo%s.claude/skills/team/rule.md\n' "$_c"
-  done; } >> "$CTL/atclaude/ok.py"
-
-#  (e) THE RED DIRECTION OF THE SAME BOUNDARY RULE, which nothing tested until
-#      the design re-gate measured it: the red fixtures then in place wrote
-#      their paths after a SPACE or a QUOTE, so the leading class could be
-#      narrowed to almost nothing and stay green. The lines below are the
-#      spellings a contributor can write; which of them the scanned tree holds
-#      today is derived at `$K2RE`, not claimed here.
-{ printf 'DEFAULT=%s\n' "$CONTROL_K2"
-  printf -- '--paths=%s\n' "$CONTROL_K2"
-  printf 'key:%s\n' "$CONTROL_K2"
-  printf 'see `%s` here\n' "$CONTROL_K2"
-  printf '**%s**\n' "$CONTROL_K2"
-  printf 'x,%s\n' "$CONTROL_K2"; } > "$CTL/bnd/control.py"
-
-# THE BOUNDARY RULES' OTHER DIRECTIONS (plan memo §11, D10). Each was shown
-# missing by a mutant that survived the control set as it then stood; the
-# record beside each rule is that mutant.
-#  (f) A reference at the very START of a line: the `^` half of the leading
-#      boundary.
-printf '%s\n' "$CONTROL_K2" > "$CTL/linestart/control.md"
-#  (g) Running text that only LOOKS like a two-segment reference, one line per
-#      rule it pins: another `.claude` root; `.claude` without its dot;
-#      whitespace or an empty segment where a segment followed by `/` would
-#      be; and a one-segment reference directly followed by a character the
-#      final segment may not end in. The whitespace line is the shape
-#      `cli.py`'s `--help` text uses.
-{ printf '%s\n' '.claude/hooks/team/rule.md' 'see _claude/skills/team/rule.md' \
-    '  .claude/tools/webref snapshot html --output /tmp/html-old.json' \
-    '.claude/skills//rule.md' 'see .claude/tools/foo/ and/or more' '.claude/tools/foo//' \
-    '.claude/tools/foo//bar/x'
-  for _c in '}' '>' ',' ';' '"' "'" '`' ']'; do
-    printf '(%s.claude/tools/foo/%s)\n' "$_c" "$_c"
-  done; } > "$CTL/textgreen/ok.md"
-#      ⚠ THE `)` IS WHY THOSE LOOP LINES PIN ONLY THE LAST CHARACTER. The final
-#      segment is `<middle>*<last>`, and a line ending `/<c>)` cannot match
-#      however the MIDDLE class is widened, because the `)` after `<c>` is
-#      still not a legal LAST character. Dropping `]`, `/`, `"`, `'` or a
-#      backtick from the middle class therefore survived every one of them —
-#      see `midclass` below, whose lines end in an ordinary character instead.
-#      The `//bar/x` line above is the other half of the same blind spot, one
-#      element earlier: an intermediate segment is `<seg>/`, and nothing here
-#      held a `/` where that `<seg>` starts, so letting `<seg>` span `/` was
-#      invisible too. Neither was found by reading the list; both came out of
-#      the generator that derives the population from `$K2RE` itself.
-#  (h) A STORED path naming `.claude` after a `/`, under the `tools` root.
-mkdir -p "$CTL/slashname/sub/.claude/tools/team"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/slashname/sub/.claude/tools/team/rule.md"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/slashname/ok.py"
-#  (i) Stored paths that only LOOK like one: another `.claude` root, `.claude`
-#      without its dot, and a symlink target whose first segment is empty.
-mkdir -p "$CTL/pathgreen/.claude/hooks/team" "$CTL/pathgreen/_claude/skills/team"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/.claude/hooks/team/rule.md"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/_claude/skills/team/rule.md"
-ln -s '.claude/skills//rule.md' "$CTL/pathgreen/entry"
-#      …and the two shapes that pin `[^/]` on BOTH of `$K2RE_PATH`'s segments.
-#      Widening either to "any character" lets the segment swallow a `/`, and
-#      each of these is green only because it does not: an EMPTY FIRST segment
-#      (`//a/b`, the first `[^/]+`) and an EMPTY SECOND one (`a//b`, the
-#      second). Nothing here held either shape, so both widenings survived the
-#      whole control set. Both are symlink TARGETS because a filesystem
-#      collapses `//` in a name, and a stored target is kept verbatim.
-ln -s '.claude/skills//a/b' "$CTL/pathgreen/emptyfirst"
-ln -s '.claude/skills/a//b' "$CTL/pathgreen/emptylast"
-#  (j) A reference written after a `/` — the OTHER half of the leading boundary,
-#      in running text. `$K2RE_PATH` spells the same rule as `(^|/)` and
-#      `slashname` pins it there; nothing pinned it here, so adding `/` to the
-#      exclusion class survived the whole control set. Alone in its own fixture:
-#      `bnd`'s other spellings would keep that fixture red and prove nothing
-#      about this one.
-printf 'see elidex/%s here\n' "$CONTROL_K2" > "$CTL/slashtext/control.md"
-#  (k) A FINAL SEGMENT OF ONE CHARACTER. The final segment is `[…]*[…]`, so its
-#      minimum length is one; raising that to two survived the whole control set
-#      because every red fixture's last segment was longer. Alone in its own
-#      fixture, for the reason (j) gives.
-printf 'X = %s\n' '.claude/tools/a/b' > "$CTL/finalone/control.py"
-#  (l) A ONE-CHARACTER INTERMEDIATE SEGMENT. `finalone` above pins the FINAL
-#      segment's minimum length; the OTHER reading of the same group —
-#      `<seg>/`, taken when the final one cannot start here — has a minimum
-#      length of its own, and raising it to two survived the whole control set
-#      — measured; the reds that reach this arm at all (`d3m1`…`d3m4`) name a
-#      longer segment there. The `]`
-#      matters: it is what stops the final-segment reading, so this line can
-#      only match through the `<seg>/` arm. Alone in its own fixture, for the
-#      reason (j) gives.
-printf 'X = %s\n' '.claude/tools/xx/]/y' > "$CTL/interone/control.py"
-#  (m) THE FINAL SEGMENT'S MIDDLE CLASS, one line per member. The final segment
-#      is `<middle>*<last>`, two classes that differ only in the closing
-#      punctuation `<last>` also refuses — so `textgreen`'s lines, which end in
-#      `)`, discriminate `<last>` and nothing else. These end in an ORDINARY
-#      character, so each is green only because its leading `<c>` is in neither
-#      class, and dropping `<c>` from the middle reds exactly this line.
-#      Green-direction, so the members share one fixture: any line that fires
-#      reds it, which is the opposite of (j)'s red-direction case, where a
-#      second line would keep the fixture red and prove nothing.
-{ for _mc in ']' '/' ' ' '"' "'" '`'; do
-    printf 'X = .claude/tools/foo/%sx\n' "$_mc"
-  done; } > "$CTL/midclass/ok.md"
-#  (n) A ONE-CHARACTER FIRST SEGMENT IN A STORED PATH. `$K2RE_PATH`'s first
-#      `[^/]+` has a minimum length of one, and raising it to two survived the
-#      whole control set — measured. ⚠ A fixture here DOES name a
-#      one-character first segment (`linkslash`, target `.claude/skills/a/`),
-#      and it cannot see this: it is green for a different reason, its final
-#      segment being empty. A required gate then reads `.claude/skills/a/rule.md` — an
-#      entry whose own NAME is the forbidden hierarchy — as K2 zero, and says
-#      so in the line it prints. Alone in its own fixture, for the reason (j)
-#      gives; `ok.py` is clean and keeps the run off the zero-read guard.
-mkdir -p "$CTL/pathfirstone/.claude/skills/a"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathfirstone/.claude/skills/a/rule.md"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathfirstone/ok.py"
-
-# An ORPHAN branch with commits on another branch: HEAD is legitimately unborn
-# while the repository is not empty, which is the case that separates "this HEAD
-# has nothing committed" from "the repository has nothing committed".
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/orphan/ok.py"
-
-# A tracked directory replaced in the worktree by a symlink to somewhere else.
-# The inventory then holds BOTH the untracked symlink and the formerly-tracked
-# descendant, and reading the descendant follows the ancestor out of the tree.
-printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/external/a.py"
-mkdir -p "$CTL/fakegitglob"
-printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "foo[1].py\\000"; exit 0;; esac\nexec %s "$@"\n' \
-  "$_REAL_GIT" "$_REAL_GIT" > "$CTL/fakegitglob/git"
-chmod +x "$CTL/fakegitglob/git"
-# A `grep` that fails ONLY for the stored-path predicate's invocation, so the
-# control discriminates that arm rather than every grep in the run (shadowing
-# them all would abort in `_verdict` instead, for a different reason).
-# A `mktemp` that hands back a directory INSIDE the tree under scan — what a
-# workspace-confined `TMPDIR` does. ⚠ macOS's `/usr/bin/mktemp` ignores
-# `TMPDIR` when given no template, which is why the control shims the command
-# instead of setting the variable: the same defect reproduces on the machines
-# that honour it, and a control that only fires on some of them is not one.
-# A `git` that answers `ls-files` with nothing unless the caller's
-# `GIT_CONFIG_COUNT` reached it. The fixture holds a violation, so a run that
-# KEEPS the configuration reds on K2 and a run that strips it reads zero and
-# exits 2 — the two verdicts differ in status AND message, which is what makes
-# this control discriminate rather than merely fire.
-# ⚠ Shimmed because the real case — a checkout owned by another UID, reachable
-# only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
-# the property under test, and that is constructible; the ownership is not.
-mkdir -p "$CTL/fakegitcfg"
-printf '#!/bin/sh\nif [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi\nexec %s "$@"\n' \
-  "$_REAL_GIT" > "$CTL/fakegitcfg/git"
-chmod +x "$CTL/fakegitcfg/git"
-printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
-mkdir -p "$CTL/fakemktemp"
-printf '#!/bin/sh\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
-  "$(_shq "$CTL/inscope")" > "$CTL/fakemktemp/mktemp"
-chmod +x "$CTL/fakemktemp/mktemp"
-# A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
-# relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
-# cannot pose this question here).
-mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp"
-printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp"
-chmod +x "$CTL/fakerelmktemp/mktemp"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
-mkdir -p "$CTL/fakegrep"
-printf '#!/bin/sh\ncase " $* " in *" -aEo "*) exit 2;; esac\nexec %s "$@"\n' \
-  "$_REAL_GREP" > "$CTL/fakegrep/grep"
-chmod +x "$CTL/fakegrep/grep"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
-mkdir -p "$CTL/grepfail/.claude/skills/team"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfail/.claude/skills/team/rule.md"
-# SEPARATELY, because a fixture another entry can satisfy proves nothing about
-# the entry it is named for (#501 R75/R80, twice). `grepfail` above would go
-# red from its NAME arm alone, so it cannot show that the TARGET arm reports a
-# failed matcher. Here the only entries are a clean-named symlink whose stored
-# target is the forbidden hierarchy, and a clean regular file to keep the run
-# off the zero-read guard.
-# ⚠ What discriminates here is the MESSAGE, not the exit status: the shim
-# fails `-aEo` for every subject, so each entry's NAME matcher reports a
-# failure too and the run exits 1 whatever the TARGET arm does. Measured —
-# reverting only the target arm still exits 1, and the control catches it on
-# "the symlink TARGET went unchecked" being absent. `_control` asserts both,
-# which is why that is enough; said here so the exit status is not read as
-# the thing under test.
-ln -s "$CONTROL_K2" "$CTL/grepfaillink/entry"
-# A target whose FINAL SEGMENT IS A NEWLINE — the bytes `$( )` throws away.
-ln -s $'.claude/skills/team/\n' "$CTL/nltarget/entry"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nltarget/ok.py"
-# The OTHER direction, and the reason `-n` is not merely tidiness: a target
-# ending in `/` names a DIRECTORY, not an `<a>/<b>` path, so it must stay
-# green. Without `-n`, readlink's own newline lands where the empty final
-# segment was and `[^/]+` matches it — the wire would fire on a target that
-# holds no violation. The sentinel alone does not catch that; this does
-# (measured: dropping only `-n` leaves `nltarget` green and turns this red).
-ln -s '.claude/skills/a/' "$CTL/linkslash/entry"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/linkslash/ok.py"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfaillink/ok.py"
-# An IGNORED generated artefact carrying a forbidden path. It must NOT fire:
-# a `.pyc` embeds its source's absolute path, and scanning build products
-# turned the wire red for anyone who had merely run the tool (#501 R79).
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/ignored/ok.py"
-printf 'generated/\n'                      > "$CTL/ignored/.gitignore"
-mkdir -p "$CTL/ignored/generated"
-printf 'SRC = "%s"\n' "$CONTROL_K2"       > "$CTL/ignored/generated/artefact.bin"
-# An EMPTY tracked file whose NAME is the hierarchy, ALONE in its own fixture.
-# It shared `name/` with a non-empty forbidden name until #501 R80, so the
-# control passed on that one and a scanner skipping every empty file was
-# green (reproduced). A fixture another entry can satisfy proves nothing
-# about the entry it is named for.
-# A NEWLINE inside a name segment: it is data, not a record separator.
-mkdir -p "$CTL/nlname/.claude/skills/$(printf 'team\nname')"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/.claude/skills/$(printf 'team\nname')/rule.md"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/ok.py"
-# A byte no UTF-8 locale can place in a bracket expression. ⚠ This control is
-# environment-sensitive: it discriminates the `LC_ALL=C` export only where the
-# INHERITED locale is multibyte, so on a C-locale machine the mutation that
-# deletes the export survives it. Said here rather than left implied.
-printf 'X = ".claude/skills/\377name/rule.md"\n' > "$CTL/rawbyte/probe.bin"
-printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/rawbyte/ok.py"
-# A quote inside a NAME segment: `/` is the only delimiter a stored path has.
-mkdir -p "$CTL/quotename/.claude/skills/team\"name"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/quotename/.claude/skills/team\"name/rule.md"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/quotename/ok.py"
-mkdir -p "$CTL/emptyname/$(dirname "$CONTROL_K2")"
-: > "$CTL/emptyname/$CONTROL_K2"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/emptyname/ok.py"
-# A CLEAN file whose NAME carries a record separator and a classifier tag.
-# Unescaped, the continuation became a synthetic K2 hit (#501 R80).
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforged')"
-# …and one carrying the TERMINAL tag, which `_verdict` requires exactly once.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nend\tscan')"
-# A WALK KILLED MID-SCAN: the `catfail` geometry (built below) plus a tracked
-# entry that sorts BEFORE the one whose read kills the walk, so the walk has
-# emitted an `ok` before it dies. Run under `POSIXLY_CORRECT=1`.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catkill/ok.py"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catkill/a.py"
-# A clean repository for the injected-`core.fsmonitor` control.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/fsmon/ok.py"
-# A `]`, a quote or a backtick inside a segment FOLLOWED BY `/`: as the first
-# segment, and LEADING a later intermediate one (`a/team]inc/…` already matched
-# before the widening, through its `a/team` prefix, so only the leading position
-# discriminates there).
-_d3i=0
-for _d3c in ']' '"' "'" '`'; do
-  _d3i=$((_d3i + 1))
-  printf 'X = %s\n' ".claude/tools/team${_d3c}inc/rule.md" > "$CTL/d3f$_d3i/c.py"
-  printf 'X = %s\n' ".claude/tools/a/${_d3c}inc/rule.md"  > "$CTL/d3m$_d3i/c.py"
-done
-# …and the boundary that widening opens: a quoted ONE-segment reference followed
-# directly by a `/`-bearing token now matches. Red is the fail-safe direction.
-printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
-
-# Every fixture is a repository, because the population is git's answer:
-# tracked, plus untracked minus ignored. A fixture that is not a repo cannot
-# reproduce that distinction — and the distinction is now load-bearing.
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
-         catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
-         slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do
-  ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
-    && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
-done
-# ⚠ `cachedir` IS ABSENT FROM THAT LIST ON PURPOSE, built below in the only
-# order that makes its force-add load-bearing.
-# ⚠ `lsfail` USED TO BE ABSENT TOO, on the ground that its shim failed
-# `ls-files` "whatever the directory is" — which stopped being true the moment
-# that shim was narrowed to the TRACKED call alone. Its worktree inventory then
-# ran for real against a non-repository, both lists came back empty, and the
-# control got `read 0 stored objects` (exit 2) instead of the inventory error it
-# names. **An exclusion justified by another mechanism's breadth expires when
-# that mechanism is narrowed**, and nothing links the two but this note.
-# …and the cache fixture's probe is FORCE-added under an ignored path, which
-# is the case `--cached` exists to keep (#501 R77).
-# ⚠ BUILT OUTSIDE THE LOOP ABOVE, AND THE ORDER IS THE WHOLE CONTROL. Inside
-# it, `add -A` ran BEFORE `.gitignore` existed, so the probe was already tracked
-# and the force-add changed nothing: measured, deleting `add -f` outright left
-# this control GREEN and the wire exit 0. `.gitignore` first, then the ordinary
-# add — which must now SKIP the probe — then the force-add as the only thing
-# that can track it.
-# ⚠ THE VIOLATION IS IN THE WORKTREE ONLY, AND THE STAGED BLOB IS CLEAN. With
-# the forbidden content in both, this control passed from the INDEX arm alone —
-# so a regression that stopped scanning the worktree copy of a tracked file
-# beneath an ignored directory stayed green, which is the exact combination the
-# fixture exists to cover (external reviewer, P2). Order: `.gitignore` first (so
-# the ordinary add skips the probe), then the force-add of the CLEAN blob (the
-# only thing that can track it), then the worktree copy is made violating.
-( cd "$CTL/cachedir" && _fgit init -q . >/dev/null 2>&1 \
-  && printf '__pycache__/\n' > .gitignore \
-  && _fgit add -A >/dev/null 2>&1 \
-  && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 \
-  && printf 'RULE = "%s"\n' "$CONTROL_K2" > __pycache__/probe.txt ) || _fixture_failed cachedir
-# THE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
-# built AFTER the add loop above, because each needs the index to hold one
-# thing while the worktree holds another.
-# (1) A violation STAGED and reverted in the worktree. `git show :victim.py`
-#     still carries it, so a pre-push run that reads only the worktree
-#     certifies the very commit that pushes it.
-( cd "$CTL/staged" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || _fixture_failed staged
-# (2) A TRACKED path replaced by a FIFO. `--cached` still lists it, and
-#     opening it blocks forever with no writer — the local gate hangs instead
-#     of failing closed. Nothing here may open it.
-[ "$_fifo_ok" -eq 0 ] || \
-( cd "$CTL/fifotracked" && printf '# %s\n' "$CONTROL_CLEAN" > sub.py \
-  && _fgit add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || _fixture_failed fifotracked
-# (2b) A STAGED SYMLINK whose target holds a SPACE inside a segment, with the
-#      worktree target since made clean. The index mode says it is a symlink,
-#      so its blob is a stored path; sent through the running-text predicate
-#      the space terminated the match and the wire read GREEN (#501 R93).
-( cd "$CTL/stagedlink" && ln -s '.claude/skills/team name/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
-  && command rm -f entry && ln -s 'harmless/target' entry \
-  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed stagedlink
-# (2b') …and the same stored-target question asked of HEAD, which is the source
-#      `stagedlink` cannot pose. The symlink is COMMITTED and then replaced, in
-#      the index AND the worktree, by a clean regular file — so mode 120000
-#      reaches the blob arm only from `ls-tree`, and an arm that asks for the
-#      index before reading the blob as a path goes green over the commit a
-#      push sends. ⚠ The target holds a SPACE for the reason (2b)'s does: it is
-#      what separates the stored-path predicate from the running-text one, so a
-#      mutant that routes this blob to `_content` cannot be caught by `$K2RE`
-#      finding the same string anyway.
-( cd "$CTL/headlink" && ln -s '.claude/skills/team name/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && command rm -f entry && printf '# %s\n' "$CONTROL_CLEAN" > entry \
-  && _fgit add entry >/dev/null 2>&1 ) || _fixture_failed headlink
-# (2c) A mode-120000 index entry whose BLOB HOLDS A NUL. git will store and
-#      commit it; no filesystem can realise it as a symlink. It must red the
-#      gate as unreadable, not be quietly shortened into something clean.
-( cd "$CTL/nulblob" \
-  && printf '.claude/skills/\000/rule.md' > raw.bin \
-  && _sha="$(_fgit hash-object -w --stdin < raw.bin)" \
-  && command rm -f raw.bin \
-  && _fgit update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
-  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed nulblob
-# (2c') A SCOPE WHOSE EVERY ENTRY GOES UNREAD, which is the state that tells
-#      `SCANNED` apart from the size of the inventory. The one entry's index
-#      blob is a sha that was COMPUTED BUT NEVER WRITTEN, so `cat-file` fails;
-#      it has no worktree copy, so the worktree pass answers for it with no
-#      record either. Both sources therefore leave `_read` at 0 and the run
-#      must stop at "read 0" — whereas an `ok` printed for every entry
-#      regardless makes `SCANNED` the inventory's LENGTH, and the zero-read
-#      guard stops guarding anything.
-#      ⚠ `empty` cannot pose this: with no entries at all `SCANNED` is 0 either
-#      way. The entries have to EXIST and go unread.
-( cd "$CTL/unread" \
-  && _sha="$(printf 'computed, never written\n' | _fgit hash-object --stdin)" \
-  && _fgit update-index --add --cacheinfo "100644,$_sha,victim.py" >/dev/null 2>&1 ) || _fixture_failed unread
-# The `ls-tree` shim only reaches its arm if the fixture HAS a HEAD — an unborn
-# HEAD skips the whole block, which would make the control green over a branch
-# it never took.
-( cd "$CTL/lstreefail" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed lstreefail
-# …and the same staged-symlink geometry for the `cat`-failure control: the blob
-# is what `cat` reads, so the fixture must HAVE one.
-( cd "$CTL/catfail" && ln -s '.claude/skills/team/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
-  && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catfail
-( cd "$CTL/catkill" && ln -s '.claude/skills/team/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
-  && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catkill
-# A TRACKED file under a directory with read but NOT search permission, its
-# worktree copy made violating, and no untracked sibling beside it. The
-# geometry is the plan memo's (§11.2), chosen to discriminate: with an
-# untracked sibling, or with the violation in the index blob, another arm reds
-# the run and `_absent` is not what is under test.
-( cd "$CTL/d2red" && _fgit init -q . >/dev/null 2>&1 && mkdir sub \
-  && printf '# %s\n' "$CONTROL_CLEAN" > sub/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add -A >/dev/null 2>&1 \
-  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py && chmod 0444 sub ) || _fixture_failed d2red
-# …and its green partners: a tracked directory deleted wholesale (every
-# ancestor below the root is missing), and one replaced by a regular FILE (the
-# nearest existing ancestor is not a directory).
-( cd "$CTL/d2green" && _fgit init -q . >/dev/null 2>&1 && mkdir -p dir/deep \
-  && printf '# %s\n' "$CONTROL_CLEAN" > dir/deep/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add -A >/dev/null 2>&1 && command rm -rf dir ) || _fixture_failed d2green
-( cd "$CTL/d2file" && _fgit init -q . >/dev/null 2>&1 && mkdir dir \
-  && printf '# %s\n' "$CONTROL_CLEAN" > dir/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add -A >/dev/null 2>&1 && command rm -rf dir \
-  && printf '# %s\n' "$CONTROL_CLEAN" > dir ) || _fixture_failed d2file
-# A `--selftest` root that IS a directory but cannot be resolved to a physical
-# path.
-chmod 000 "$CTL/d5root" || _fixture_failed d5root
-# …the orphan-branch fixture: commit on one branch, then check out an orphan.
-( cd "$CTL/orphan" && _fgit init -q . >/dev/null 2>&1 \
-  && printf 'x\n' > seed.txt && _fgit add seed.txt >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && _fgit checkout -q --orphan fresh >/dev/null 2>&1 \
-  && command rm -f seed.txt && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed orphan
-# …and the ancestor-symlink fixture: commit `dir/a.py` clean, then replace `dir`
-# with a link to a directory outside the tree whose `a.py` is NOT clean.
-( cd "$CTL/ancestorlink" && _fgit init -q . >/dev/null 2>&1 \
-  && mkdir -p dir && printf '# %s\n' "$CONTROL_CLEAN" > dir/a.py \
-  && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && command rm -rf dir && ln -s "$CTL/external" dir ) || _fixture_failed ancestorlink
-# ⚠ THE HEAD-PROBE FIXTURE NEEDS A COMMIT, and did not have one until the rule
-# it encodes was corrected. R2 asserted "a failed probe is an error"; R3 showed
-# the property is really "exit 1 is not by itself absence", so the fixture must
-# be a repository that DOES have a commit — otherwise the probe failing and the
-# repository being unborn are the same situation and the control cannot tell
-# the two apart. A control written against a rule outlives the rule.
-( cd "$CTL/headprobe" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed headprobe
-# …and the malformed-ref fixture: commit, then overwrite the branch ref with
-# data git cannot resolve. ⚠ Built after the add loop, because it needs a HEAD
-# to break.
-( cd "$CTL/badref" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && _br="$(_fgit symbolic-ref --short HEAD)" \
-  && printf 'deadbeef\n' > ".git/refs/heads/$_br" ) || _fixture_failed badref
-# (2d) A violation COMMITTED and then fixed only in the index and worktree. A
-#      push sends the commit, so a gate that reads the index alone calls this
-#      clean while `git show HEAD:victim.py` still carries it (#501 R95).
-( cd "$CTL/committed" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 ) || _fixture_failed committed
-# (2e) A local `replace` ref pointing the staged blob at a clean one. What is
-#      committed is the object the index NAMES, so that is what must be read.
-( cd "$CTL/replaced" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 \
-  && _bad="$(_fgit rev-parse :0:victim.py)" \
-  && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
-  && _good="$(_fgit hash-object -w victim.py)" \
-  && _fgit replace "$_bad" "$_good" >/dev/null 2>&1 ) || _fixture_failed replaced
-# (2f) `GIT_DIR`/`GIT_WORK_TREE` exported at another checkout. `-C` does not
-#      win over them, so the inventory described the decoy while the worktree
-#      arm read files here — one clean entry, exit 0, over a violation (#501
-#      R95). The decoy is a real repo holding nothing forbidden.
-printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/routed/probe.py"
-printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
-( cd "$CTL/routed" && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed routed
-( cd "$CTL/routeddecoy" && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed routeddecoy
-# (2g) A checkout path holding a GLOB CHARACTER. Built outside the fixture
-#      loop on purpose: the loop's word list would itself glob the name.
-#      The violation sits BESIDE the scope, so a widened `REL_DIR` — the
-#      defect — turns this green fixture red.
-mkdir -p "$CTL/glob[1]/scope"
-printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/glob[1]/scope/ok.py"
-printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
-( cd "$CTL/glob[1]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "glob[1]"
-# (2g') …and the SECOND site that strips `$ROOT` from a scope path: the EXTRA
-#      ENTRY's. `glob[1]` passes no extra entry, so nothing asked this half —
-#      and `[1]` is the wrong shape for it anyway: the strip then fails
-#      outright and leaves an ABSOLUTE pathspec, which git resolves to the same
-#      entry, so the mutant survives. Measured on the pre-fix wire, with an
-#      extra entry added to `glob[1]`'s own geometry: exit 0, PASSED.
-#      ⚠ THE NAME IS THE FIXTURE. What discriminates is a pattern that matches
-#      a LONGER prefix than the literal it came from: `*[e]` cannot match
-#      `*[e]`, but `*` can absorb up to `sid` and `[e]` take the `e` of
-#      `side/` — so the unquoted strip removes `…/side/` and hands git `entry`,
-#      a path that does not exist. The entry is then absent from the inventory
-#      and its violation is never read: silently green, which is why the
-#      fixture's violation lives THERE and not beside it.
-mkdir -p "$CTL/globextra*[e]/scope" "$CTL/globextra*[e]/side"
-printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/globextra*[e]/scope/ok.py"
-printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
-( cd "$CTL/globextra*[e]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "globextra*[e]"
-# (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
-#     uncommitted state that `--exclude-standard` honours and no other clone
-#     of the same commit shares. (The machine-wide `core.excludesFile` is the
-#     same code path; it is reproduced in #501 R92's thread rather than given
-#     a fixture, because neutralising the config layer above would also
-#     neutralise the fixture that tried to set it.)
-( cd "$CTL/notcommitted" && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add ok.py >/dev/null 2>&1 \
-  && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \
-  && printf 'probe.txt\n' > .git/info/exclude ) || _fixture_failed notcommitted
-
-# The real geometry: a scope directory and, BESIDE it, an entry script that
-# is itself a symlink holding a forbidden target.
-mkdir -p "$CTL/extra/sub"
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/extra/sub/ok.py"
-ln -s "$CONTROL_K2" "$CTL/extra/entry"
-printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
-# A readable sibling, so the run reaches the ERROR verdict instead of stopping
-# at the zero-read guard — the fixture must exercise the arm it names.
-printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/err/readable.py"
-printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/walk/sub/hidden.py"
-chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
+# The labels `_fgit_postconditions` uses reach the window by name, through its prelude.
+_fgit_window "$_FIXTURES"
+# THE PARENT'S VERIFIER DIRECTORY. Every file the parent writes and reads
+# back after the build (the fsmonitor hook and its mark, the run primitives'
+# evidence directory, where the PATH-prefix shims leave their marks, the controls'
+# output, the mutation runner's lists) lives here, made now, after the
+# build, by `mktemp -d` beside `$CTL` and `$_FW_DIR`, never under either:
+# `$CTL` is the fixtures' tree, and the verifier writes nothing there
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md §4, "The parent's directory").
+# Out of the fixtures' reach except through the declared class (c) of
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3 (an executable
+# written into a caller-`PATH` directory, `staleshim`).
+if ! _VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")" || [ -z "$_VFY" ] || [ ! -d "$_VFY" ] || ! mkdir "$_VFY/.reap"; then
+  echo "!! could not create the verifier's directory (TMPDIR/disk?); decided nothing." >&2
+  exit 2
+fi
+# The run's REAP SET (the wire's exit path, beside `_k2_reap`) is `$_VFY/.reap`: `_ctl_run` records every group it
+# launches there. Its identity check reads `ps -o etime=` and its liveness probe `_k2_ptab`; a machine where either
+# cannot read this run's own row (its pid, its own pgid, no zombie) decides nothing here rather than red a check later.
+_K2_REAP_D="$_VFY/.reap"
+_k2_age $$ 0 && _k2_ptab | awk -v p=$$ -v g="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')" '$2 == p && $1 == g && $3 !~ /^Z/ { f = 1 } END { exit !f }' || { echo "!! decided nothing: the reap needs \`ps -o etime=\` and \`ps -A -o pgid= -o pid= -o stat=\` (read through awk), which this machine does not give" >&2; exit 2; }
 
 
 # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
 # inside such a command, so a bare call would abort the script on the first
 # non-zero and the remaining arms would never run.
 ctl_ok=0
-_ctl_env=()   # per-control environment; `_control` clears it after each use
+# THE WINDOW'S VERDICT, WRITTEN AFTER `ctl_ok=0`. An incomplete window built
+# nothing, so it ends the run here with W alone ("decided nothing"); a
+# complete but UNTRUSTED window (a red postcondition, or W3) ends it here too,
+# after its own reports — a control over it asserts nothing. `_control` itself
+# refuses over a build that is not complete and trusted too (W2), wherever
+# this line sits (it does so through `_ctl_run`, which asks `_ctl_gate`).
+_fgit_window_verdict_exit "$_fw_lbl"
+# THE TABLE CHECK (not a standing check: it runs no `_ctl_run` row), asked once, before
+# the first gated run, each red under `$_capt_lbl`: every row parses, group names and
+# member labels are unique, every member's group is declared, every flag is 0 or 1,
+# every word of WEBREF_WIRE_LACKS names a group or a `limit` row, and every ID in
+# `$_fw_limits` has a `limit` or `fact` row. Two reds are under their own labels:
+# an ABSENCE the wire learned from a probe and its caller did not declare (a group whose
+# flag is 0, a `limit` row's ID in `$_fw_limits`; `2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` §2.3). Returns 1 on any red; its
+# call line is the writer (`[ "$ctl_ok" -eq 0 ] || exit 1` follows, before the mutation
+# set and the summary).
+# ⚠ WEBREF_WIRE_LACKS (read here and nowhere else, in the parent; the window is built
+# from nothing and `--selftest` children do not source this file): the caller's list of
+# the absences it declares, space-separated group names (`fifo`: no FIFO on this
+# filesystem; `perm`: this user reads a mode-000 file, i.e. root) and `limit` IDs (`P-f`:
+# an `env` that refuses -0). THE COST: a root, FIFO-less or `-0`-less contributor sets it
+# once (`WEBREF_WIRE_LACKS="fifo perm P-f"`); the red line says so. A no-FIFO contributor's
+# declaration does not make the opt-in mutation run green: the records that plant a FIFO
+# (needle `$_pg_lbl`) end at "decided nothing" there, WRONG REASON (BS-7). An undeclared absence
+# is red, never a green with a `⚠`. The probe still decides what the gate does, so a
+# declaration cannot make a capable machine skip anything (a stale one runs every
+# control); it decides only whether a probe's 0 is acceptable. A `fact` row (P-b) needs
+# none. Mutants inherit it (`_mut_trial` does not clear it), so a declaring machine's
+# mutants see the same declaration. The table is read through ctlrun's readers only.
+_cap_check() {
+  local _cc_bad=0 _cc_nl=$'\n' _cc_tb=$'\t' _cc_gs _cc_ms _cc_lm _cc_fs _cc_lk _cc_r _cc_w _cc_l _cc_id _cc_t
+  _cc_gs="$_cc_nl"; _cc_ms="$_cc_nl"; _cc_lm="$_cc_nl"; _cc_fs="$_cc_nl"
+  _cc_lk="${WEBREF_WIRE_LACKS-}"; _cc_lk="${_cc_lk//$_cc_tb/ }"; _cc_lk=" ${_cc_lk//$_cc_nl/ } "
+  _cap_rows - _cap_chk_row
+  _cap_rows member _cap_chk_member
+  _cc_r="$_cc_lk"
+  while :; do
+    while [ "${_cc_r# }" != "$_cc_r" ]; do _cc_r="${_cc_r# }"; done
+    [ -n "$_cc_r" ] || break
+    _cc_w="${_cc_r%% *}"; _cc_r="${_cc_r#"$_cc_w"}"
+    case "$_cc_gs" in *"$_cc_nl$_cc_w$_cc_nl"*) continue ;; esac
+    case "$_cc_lm" in *"$_cc_nl$_cc_w$_cc_tb"*) continue ;; esac
+    _cap_chk_red "WEBREF_WIRE_LACKS names \"$_cc_w\", which is no group and no limit row of the capability table"
+  done
+  while IFS= read -r _cc_l; do
+    [ -n "$_cc_l" ] || continue
+    _cc_id="${_cc_l%% —*}"
+    case "$_cc_lm" in
+      *"$_cc_nl$_cc_id$_cc_tb"*)
+        _cc_t="${_cc_lm#*"$_cc_nl$_cc_id$_cc_tb"}"; _cc_t="${_cc_t%%"$_cc_nl"*}"
+        case "$_cc_lk" in *" $_cc_id "*) ;; *) _cap_chk_absent "${_cc_t%%"$_cc_tb"*}" "limit \"$_cc_id\"" "$_cc_id" "${_cc_t#*"$_cc_tb"}" ;; esac ;;
+      *) case "$_cc_fs" in *"$_cc_nl$_cc_id$_cc_nl"*) ;; *) _cap_chk_red "the window reported a machine limit \"$_cc_id\", which no limit or fact row names" ;; esac ;;
+    esac
+  done <<EOF_LIM
+${_fw_limits:-}
+EOF_LIM
+  [ "$_cc_bad" -eq 0 ]
+}
+_cap_chk_red() { echo "!! CONTROL FAILED ($_capt_lbl): $1" >&2; _cc_bad=1; }
+# $1 = the row's label, $2 = what is absent, $3 = the name that declares it, $4 = why it is absent
+_cap_chk_absent() {
+  echo "!! CONTROL FAILED ($1): $2 is absent on this machine ($4) and its caller did not declare it. A contributor on such a machine declares it once: WEBREF_WIRE_LACKS=\"$3\" (several names: space-separated)." >&2
+  _cc_bad=1
+}
+_cap_chk_row() {
+  if [ -n "$_cr_bad" ]; then _cap_chk_red "row \"$_cr_row\": $_cr_bad"; return 0; fi
+  case "${_cr_f[0]}" in
+    group)
+      case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) _cap_chk_red "group \"${_cr_f[1]}\" is declared twice" ;; esac
+      _cc_gs="$_cc_gs${_cr_f[1]}$_cc_nl"
+      _cap_flag_of "${_cr_f[1]}"
+      case "$_cap_v" in 0|1) ;; *) _cap_chk_red "group \"${_cr_f[1]}\": its flag ${_cr_f[2]} holds \"$_cap_v\", not 0 or 1" ;; esac
+      [ "$_cap_v" != 0 ] || case "$_cc_lk" in *" ${_cr_f[1]} "*) ;; *) _cap_chk_absent "${_cr_f[3]}" "group \"${_cr_f[1]}\"" "${_cr_f[1]}" "${_cr_f[4]}" ;; esac ;;
+    limit) _cc_lm="$_cc_lm${_cr_f[1]}$_cc_tb${_cr_f[2]}$_cc_tb${_cr_f[3]}$_cc_nl" ;;
+    fact) _cc_fs="$_cc_fs${_cr_f[1]}$_cc_nl" ;;
+    member)
+      case "$_cc_ms" in *"$_cc_nl${_cr_f[2]}$_cc_nl"*) _cap_chk_red "member label \"${_cr_f[2]}\" is listed twice" ;; esac
+      _cc_ms="$_cc_ms${_cr_f[2]}$_cc_nl" ;;
+  esac
+}
+_cap_chk_member() {
+  case "$_cc_gs" in *"$_cc_nl${_cr_f[1]}$_cc_nl"*) ;; *) _cap_chk_red "member \"${_cr_f[2]}\" names group \"${_cr_f[1]}\", which no group row declares" ;; esac
+}
+_cap_check || ctl_ok=1
+# THE STANDING CHECKS BELOW run `_ctl_run` over `$_VFY` (a root that
+# always exists: their stubs read no tree, so they ask no fixture question) in
+# a subshell. Each opens by reading `_fw_trusted` — untrusted is red
+# (`ctl_ok=1`) with no line of its own: W2 is the gate's report, printed once
+# by the first gated run, and these four reads decide nothing about any run.
+# STANDING CHECK of `_ctl_run`'s timeout clause, both ways. A status >= 128 is a
+# timeout ONLY beside the watchdog's own marker: `SELF` is pointed (in a
+# subshell) at a script that signals itself at once (KILL: no core dump, and no
+# disposition a caller hands down can ignore it): `_ctl_run` must return 0
+# with `_rc` >= 128 and report no kill — that status is the caller's "expected N,
+# got M", not "killed after …s". The record that deletes the marker clause (in
+# the record table) is killed through this check's label. And a wire that hangs
+# IS a timeout: with the watchdog at 1 s (`_ctl_wd_s`, set in the subshell) and
+# `SELF` a script that sleeps past it, `_ctl_run` must return 1, having written
+# its marker and reported the kill as "killed after 1s" — the marker write and
+# the message are pinned here, not by a record. The reaping is pinned here too:
+# the hang script leaves a background descendant (its pid in `<script>.pid`),
+# which must be dead after the call (the child's group stop: a bounded poll,
+# `_wm_gone`, 20 × 0.05 s, as a killed process can stay visible to `_k2_live` until
+# its signal lands), and after each row the call's end must have
+# confirmed the watchdog's group (`_ctl_wd_pg`) gone: `_ctl_left` does not name it, nor does `_k2_live` find it.
+# The hung run is sent TERM before its KILL (the stop procedure), so its own exit path runs: the
+# hang script traps TERM and, 0.2 s on, leaves `<script>.term` (none if the stop KILLs before the group
+# is gone), asserted when a TERM can reach a child of this run (`_wm_tg`: a `sh` that signals itself exits
+# 0 only when TERM was ignored at the run's entry, which its children inherit). A row
+# with no arm below is red, as `_cap`'s is. Two rows, ONE call line: the
+# registry's site is the line, and one label has one site. The subshell writes
+# `$_VFY/.wm_end` once it has its verdict (green or red); the `then` branch reds under the
+# label when it is absent, as an abort inside the subshell would otherwise red the run unlabelled.
+printf '%s\n' 'kill -KILL $$' > "$_VFY/.wm_abort"
+printf '%s\n' 'trap '\''sleep 0.2; : > "$0.term"; exit 143'\'' TERM; sleep 5 & echo $! > "$0.pid"; wait' > "$_VFY/.wm_hang"
+command rm -f "$_VFY/.wm_end"
+{ sh -c 'kill -TERM $$; exit 0'; } 2>/dev/null && _wm_tg=0 || _wm_tg=1
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
+elif ! ( _wm_bad=""
+         _wm_gone() { _wm_i=0; while _k2_live "$1"; do
+             [ "$_wm_i" -lt 20 ] || return 1; _wm_i=$((_wm_i + 1)); sleep 0.05; done; }
+         for _wm_row in abort hang; do
+           SELF="$_VFY/.wm_$_wm_row"; [ "$_wm_row" != hang ] || _ctl_wd_s=1
+           _wm_r=0; _ctl_run "$_wm_lbl" "$_VFY" > /dev/null 2> "$_VFY/.wm_err" || _wm_r=$?; _wm_msg="$(cat "$_VFY/.wm_err")"
+           case " ${_ctl_left-} " in *" $_ctl_wd_pg "*) _wm_bad="$_wm_bad; $_wm_row: the watchdog's process group outlived the call" ;;
+             *) ! _k2_live -"$_ctl_wd_pg" || _wm_bad="$_wm_bad; $_wm_row: the watchdog's group outlived the call unreported" ;; esac
+           case "$_wm_row" in
+             abort)
+               [ "$_wm_r" -eq 0 ] || _wm_bad="$_wm_bad; the run returned $_wm_r, not 0"
+               [ "${_rc:-0}" -ge 128 ] || _wm_bad="$_wm_bad; _rc is ${_rc:-unset}, not a signal status"
+               case "$_wm_msg" in *"killed after "*) _wm_bad="$_wm_bad; a signal at once was reported as a timeout" ;; esac ;;
+             hang)
+               [ "$_wm_r" -eq 1 ] || _wm_bad="$_wm_bad; a run the watchdog killed returned $_wm_r, not 1"
+               [ -e "$_VFY/.control_timeout" ] || _wm_bad="$_wm_bad; the watchdog wrote no marker"
+               [ "$_wm_tg" -eq 0 ] || [ -e "$_VFY/.wm_hang.term" ] || _wm_bad="$_wm_bad; the hung run was sent no TERM before its KILL, so its own exit path could not run"
+               case "$_wm_msg" in *"killed after ${_ctl_wd_s}s"*) ;; *) _wm_bad="$_wm_bad; the kill was not reported as a ${_ctl_wd_s} s timeout" ;; esac
+               _wm_d="$(cat "$_VFY/.wm_hang.pid" 2>/dev/null)" || _wm_d=""
+               case "$_wm_d" in ''|*[!0-9]*) _wm_bad="$_wm_bad; the hung run recorded no descendant pid" ;;
+                 *) _wm_gone "$_wm_d" || _wm_bad="$_wm_bad; the hung run's descendant ($_wm_d) outlived the kill" ;; esac ;;
+             *) _wm_bad="$_wm_bad; no arm for row \"$_wm_row\"" ;;
+           esac
+         done
+         : > "$_VFY/.wm_end"
+         [ -z "$_wm_bad" ] || { echo "!! CONTROL FAILED ($_wm_lbl)$_wm_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.wm_end" ] || echo "!! CONTROL FAILED ($_wm_lbl): the check ended before its verdict" >&2
+  ctl_ok=1
+fi
+command rm -f "$_VFY/.wm_end" "$_VFY/.wm_abort" "$_VFY/.wm_hang" "$_VFY/.wm_hang.pid" "$_VFY/.wm_hang.term" "$_VFY/.wm_err" "$_VFY/.control_timeout"
+# STANDING CHECK of the evidence directory's freshness (`_ctl_run` makes it
+# afresh, `rm -rf` then `mkdir`, for every call that delivers a channel): a
+# `path` a previous run left must not answer for this one. Two rows, ONE call
+# line, over `$_VFY` with `SELF` a stub that calls `k2evprobe` and exits 0.
+# `ran` delivers the PATH prefix `$_VFY/.ev_ran`, whose `k2evprobe` shim writes
+# `path`: `_ctl_run` returns 0 and `path` is there. `stale` then delivers
+# `$_VFY/.ev_stale`, which holds no `k2evprobe`, so the run calls no shim: it
+# must return 1 naming "PATH prefix never reached the run" — a 0 is the first
+# row's `path` answering. A row with no arm below is red, as `_cap`'s is. The subshell writes
+# `$_VFY/.ev_end` once it has its verdict (green or red); the `then` branch reds under the
+# label when it is absent, as an abort inside the subshell would otherwise red the run unlabelled.
+command mkdir "$_VFY/.ev_ran" "$_VFY/.ev_stale"
+printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\n' > "$_VFY/.ev_ran/k2evprobe"
+chmod +x "$_VFY/.ev_ran/k2evprobe"
+printf '%s\n' 'k2evprobe 2>/dev/null; exit 0' > "$_VFY/.ev_run"
+command rm -f "$_VFY/.ev_end"
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
+elif ! ( SELF="$_VFY/.ev_run"; _ev_bad=""
+         for _ev_row in ran stale; do
+           _ev_r=0; _ctl_run "$_ev_lbl" "$_VFY" "" "" "$_VFY/.ev_$_ev_row" > /dev/null 2> "$_VFY/.ev_err" || _ev_r=$?
+           case "$_ev_row" in
+             ran)
+               [ "$_ev_r" -eq 0 ] || _ev_bad="$_ev_bad; ran: the run returned $_ev_r, not 0"
+               [ -f "$_VFY/.reached/path" ] || _ev_bad="$_ev_bad; ran: the shim left no path" ;;
+             stale)
+               [ "$_ev_r" -eq 1 ] || _ev_bad="$_ev_bad; stale: a prefix the run never called returned $_ev_r, not 1 (the previous run's path answered)"
+               case "$(cat "$_VFY/.ev_err")" in *"PATH prefix never reached the run"*) ;; *) _ev_bad="$_ev_bad; stale: the red did not name the PATH prefix" ;; esac ;;
+             *) _ev_bad="$_ev_bad; no arm for row \"$_ev_row\"" ;;
+           esac
+         done
+         : > "$_VFY/.ev_end"
+         [ -z "$_ev_bad" ] || { echo "!! CONTROL FAILED ($_ev_lbl)$_ev_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.ev_end" ] || echo "!! CONTROL FAILED ($_ev_lbl): the check ended before its verdict" >&2
+  ctl_ok=1
+fi
+command rm -rf "$_VFY/.ev_end" "$_VFY/.ev_ran" "$_VFY/.ev_stale" "$_VFY/.ev_run" "$_VFY/.ev_err" "$_VFY/.reached"
+# STANDING CHECK of the gate's capability arm (`_ctl_gate`, over the table `_cap_rows`
+# reads), through `_ctl_run` over `$_VFY` with `SELF` a stub that exits at once, so
+# "ran" is `_rc` set. ONE call line (the registry's site is the line); each row replaces
+# `_CAP_TABLE` and the synthetic flags `_zz_ok` / `_yy_ok` in the subshell (the subject is
+# the gate's mechanism, not the real table), does NOT redirect `_VFY` (the label registers
+# in the run's registry), and sends its stderr to `$_VFY/.cap_err`: a row's EXPECTED red
+# must never reach the run's output, where it would let any unrelated red "kill" every
+# `$_cap_lbl` record. `$_cap_lbl` is a member of: M `zz`; N neither (`zz`'s members a proper
+# prefix and a proper superstring of it); Y `yy` (`zz` declared first); U `xx`, which no
+# group row declares; F1, F2 `zz`, whose flag field is `a-b`, `1a`. Columns: table, the two
+# flags, trust (`no` = `_fw_trusted=0`, `_fw2_said=1` for that row alone), channel (`X` =
+# malformed), the return wanted, whether a run was made. A row the loop cannot parse, or
+# that no arm below asserts, is red naming the row. The subshell writes `$_VFY/.cap_end` once it
+# has its verdict (green or red); the `then` branch reds under the label when it is absent, as an
+# abort inside the subshell (a flag name the reader's validation let through, `${!x-}` on bash 5.3)
+# would otherwise red the run unlabelled.
+printf '%s\n' 'exit 0' > "$_VFY/.cap_run"
+command rm -f "$_VFY/.cap_end"
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
+elif ! ( SELF="$_VFY/.cap_run"; _ca_bad=""; _ca_tb=$'\t'; _ca_nl=$'\n'
+         _ca_gz="group${_ca_tb}zz${_ca_tb}_zz_ok${_ca_tb}zz label${_ca_tb}no zz${_ca_tb}zz claim"
+         _ca_gy="group${_ca_tb}yy${_ca_tb}_yy_ok${_ca_tb}yy label${_ca_tb}no yy${_ca_tb}yy claim"
+         while read -r _ca_t _ca_zz _ca_yy _ca_trust _ca_chan _ca_want _ca_ran; do
+           _ca_line="$_ca_t $_ca_zz $_ca_yy $_ca_trust $_ca_chan $_ca_want $_ca_ran"
+           case "$_ca_t:$_ca_zz$_ca_yy:$_ca_trust:$_ca_chan:$_ca_want:$_ca_ran" in
+             [MNYU]:[01][01]:yes:-:[012]:ran|[MNYU]:[01][01]:yes:-:[012]:-|[MNYU]:[01][01]:no:-:[012]:-|M:[01][01]:yes:X:[012]:-|F[12]:[01][01]:yes:-:[012]:-) ;;
+             *) _ca_bad="$_ca_bad; row \"$_ca_line\" did not parse"; continue ;;
+           esac
+           case "$_ca_t" in
+             M) _CAP_TABLE="$_ca_gz${_ca_nl}member${_ca_tb}zz${_ca_tb}$_cap_lbl${_ca_nl}$_ca_gy" ;;
+             N) _CAP_TABLE="$_ca_gz${_ca_nl}member${_ca_tb}zz${_ca_tb}${_cap_lbl%?}${_ca_nl}member${_ca_tb}zz${_ca_tb}${_cap_lbl}x${_ca_nl}$_ca_gy" ;;
+             Y) _CAP_TABLE="$_ca_gz${_ca_nl}$_ca_gy${_ca_nl}member${_ca_tb}yy${_ca_tb}$_cap_lbl" ;;
+             U) _CAP_TABLE="$_ca_gz${_ca_nl}member${_ca_tb}xx${_ca_tb}$_cap_lbl" ;;
+             F1) _CAP_TABLE="group${_ca_tb}zz${_ca_tb}a-b${_ca_tb}zz label${_ca_tb}no zz${_ca_tb}zz claim${_ca_nl}member${_ca_tb}zz${_ca_tb}$_cap_lbl" ;;
+             F2) _CAP_TABLE="group${_ca_tb}zz${_ca_tb}1a${_ca_tb}zz label${_ca_tb}no zz${_ca_tb}zz claim${_ca_nl}member${_ca_tb}zz${_ca_tb}$_cap_lbl" ;;
+           esac
+           _zz_ok="$_ca_zz"; _yy_ok="$_ca_yy"
+           _ca_tr="$_fw_trusted"; _ca_sd="$_fw2_said"; [ "$_ca_trust" != no ] || { _fw_trusted=0; _fw2_said=1; }
+           _ca_ch=""; [ "$_ca_chan" = - ] || _ca_ch="$_ca_chan"
+           unset _rc; _ca_got=0
+           _ctl_run "$_cap_lbl" "$_VFY" "" "" "" "" "" ${_ca_ch:+"$_ca_ch"} > /dev/null 2> "$_VFY/.cap_err" || _ca_got=$?
+           _fw_trusted="$_ca_tr"; _fw2_said="$_ca_sd"
+           _ca_err="$(cat "$_VFY/.cap_err")"
+           [ "$_ca_got" -eq "$_ca_want" ] || _ca_bad="$_ca_bad; row \"$_ca_line\": returned $_ca_got, not $_ca_want"
+           _ca_exp=""; [ "$_ca_ran" != ran ] || _ca_exp=ran
+           [ "${_rc+ran}" = "$_ca_exp" ] || _ca_bad="$_ca_bad; row \"$_ca_line\": a run was$([ -n "${_rc+x}" ] || echo " not") made"
+           case "$_ca_t:$_ca_trust:$_ca_chan" in
+             [MNY]:yes:-) ;; # the return and the run above are the whole assertion
+             M:no:-) [ -z "$_ca_err" ] || _ca_bad="$_ca_bad; row \"$_ca_line\": an untrusted window reported more than W2's one line" ;;
+             U:yes:-) case "$_ca_err" in *'group "xx"'*) ;; *) _ca_bad="$_ca_bad; row \"$_ca_line\": the red did not name xx" ;; esac ;;
+             F[12]:yes:-) case "$_ca_err" in *'group "zz"'*) ;; *) _ca_bad="$_ca_bad; row \"$_ca_line\": the red did not name zz" ;; esac ;;
+             M:yes:X) case "$_ca_err" in *"malformed channel argument"*) ;; *) _ca_bad="$_ca_bad; row \"$_ca_line\": the red did not name the malformed channel" ;; esac ;;
+             *) _ca_bad="$_ca_bad; row \"$_ca_line\": no arm" ;;
+           esac
+         done <<EOF_CAP
+M 1 1 yes - 0 ran
+M 0 1 yes - 2 -
+N 0 0 yes - 0 ran
+Y 0 1 yes - 0 ran
+Y 1 0 yes - 2 -
+U 0 0 yes - 1 -
+M 0 1 no - 1 -
+M 0 1 yes X 1 -
+F1 0 0 yes - 1 -
+F2 0 0 yes - 1 -
+EOF_CAP
+         : > "$_VFY/.cap_end"
+         [ -z "$_ca_bad" ] || { echo "!! CONTROL FAILED ($_cap_lbl)$_ca_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.cap_end" ] || echo "!! CONTROL FAILED ($_cap_lbl): the check ended before its verdict" >&2
+  ctl_ok=1
+fi
+command rm -f "$_VFY/.cap_end" "$_VFY/.cap_run" "$_VFY/.cap_err"
+# STANDING CHECK of a call's process groups against its caller (the wire's exit path: the reap set, the stop, the
+# watchdog's `exec`). Four rows, ONE call line, over `$_VFY`, each inside `$( ( … ) )`: the call runs in an inner
+# `( … ) 9>&-` with a 5 s watchdog and its own reap set, `$_K2_REAP_D/og` (a directory inside the run's, which the
+# run's end reads too), and sends fd 9 into the substitution (`9>&1`, before its `> /dev/null`), whose output the
+# rows read. The inner starts with fd 9 closed: bash 3.2 saves a redirected fd 9 at fd 10 without close-on-exec.
+# kill: the stub waits until both groups' entries hold their content, then SIGKILLs the shell running the call (it must end 137, never `returned`);
+# the substitution must end at once (under 3 s), not when the watchdog's sleep ends (a watchdog that kept fd 9 or
+# a saved stream holds it), and the reap must stop what the killed call left. norec: the reap set is a missing
+# directory, so the first record fails: the call must end 2, name the group on fd 9, and leave nothing in it.
+# nodel: the stub turns its own entry into a directory, which `rm -f` cannot remove, root included: the call must
+# end 2 and name the group. sig: an outer shell holds the wire's traps (`_og_trap`) and the run's reap set; the stub
+# TERMs it, then the inner, which dies by the default action, so the outer's exit path must read the nested set:
+# 143 with its line, its scratch dir gone, both groups gone. It stands down when TERM cannot reach a child (`_wm_tg`).
+# Each row starts, and the check ends, with `rm -rf` of the nested set, which removes a live entry only after a red
+# row: each row confirms its groups gone first (kill and sig by `_og_gone`, norec its one group, nodel by the call's end).
+printf '%s\n' 'd="$2/.reap/og"; until n=0; for f in "$d"/*; do [ ! -s "$f" ] || n=$((n + 1)); done; [ "$n" -ge 2 ]; do sleep 0.05; done; kill -KILL $PPID' > "$_VFY/.og_kill"
+printf '%s\n' 'sleep 5 & wait' > "$_VFY/.og_norec"
+printf '%s\n' 'e="$2/.reap/og/$$"; while [ ! -f "$e" ]; do sleep 0.05; done; rm -f "$e"; mkdir "$e"' > "$_VFY/.og_nodel"
+printf '%s\n' 'd="$2/.reap/og"; until n=0; for f in "$d"/*; do [ ! -s "$f" ] || n=$((n + 1)); done; [ "$n" -ge 2 ]; do sleep 0.05; done; kill -TERM "$(cat "$2/.og_outer")"; kill -TERM $PPID; sleep 5' > "$_VFY/.og_sig"
+command rm -rf "$_VFY/.og_end" "$_K2_REAP_D/og" "$_VFY/.og_scr"
+if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
+elif ! ( _og_bad=""
+         _og_gone() { _og_i=0; while _k2_live "$1"; do
+             [ "$_og_i" -lt 40 ] || return 1; _og_i=$((_og_i + 1)); sleep 0.05; done; }
+         _og_trap() { SCRATCH="$_VFY/.og_scr"; mkdir -p "$SCRATCH"; exec 9>&1; sh -c 'echo $PPID' > "$_VFY/.og_outer"; _k2_traps; }
+         for _og_row in kill norec nodel sig; do
+           [ "$_og_row" != sig ] || [ "$_wm_tg" -eq 1 ] || continue
+           command rm -rf "$_K2_REAP_D/og"; mkdir "$_K2_REAP_D/og"; SELF="$_VFY/.og_$_og_row"; _og_t0=$SECONDS
+           _og_rd="$_K2_REAP_D/og"; [ "$_og_row" != norec ] || _og_rd="$_VFY/.og_none"
+           _og_st="$( ( _ctl_wd_s=5; [ "$_og_row" != sig ] || _og_trap; ( _K2_REAP_D="$_og_rd"; _ctl_run "$_og_lbl" "$_VFY" 9>&1 > /dev/null 2> "$_VFY/.og_err"; echo "returned $?" ) 9>&- ) 2>/dev/null; echo "ended $?" )"
+           _og_dt=$((SECONDS - _og_t0))
+           case "$_og_row" in
+             kill)
+               case "$_og_st" in *returned*) _og_bad="$_og_bad; kill: the call returned instead of dying ($_og_st)" ;; *"ended 137") ;; *) _og_bad="$_og_bad; kill: the call did not end 137 ($_og_st)" ;; esac
+               [ "$_og_dt" -lt 3 ] || _og_bad="$_og_bad; kill: a group of the call held its killed caller's stream for $_og_dt s"
+               ( _K2_REAP_D="$_og_rd"; _k2_reap )
+               for _og_f in "$_og_rd"/*; do _og_p="${_og_f##*/}"; case "$_og_p" in ''|*[!0-9]*) continue ;; esac
+                 _og_gone "-$_og_p" || _og_bad="$_og_bad; kill: the reap left group $_og_p running"; done ;;
+             norec)
+               case "$_og_st" in *"ended 2") ;; *) _og_bad="$_og_bad; norec: the call did not end 2 ($_og_st)" ;; esac
+               case "$_og_st" in *"could not record process group "*) _og_p="${_og_st##*process group }"; _og_p="${_og_p%%,*}" ;; *) _og_p="" ;; esac
+               case "$_og_p" in ''|*[!0-9]*) _og_bad="$_og_bad; norec: no line named the unrecorded group" ;;
+                 *) _og_gone "-$_og_p" || _og_bad="$_og_bad; norec: the unrecorded group $_og_p was left running" ;; esac ;;
+             nodel)
+               case "$_og_st" in *"ended 2") ;; *) _og_bad="$_og_bad; nodel: the call did not end 2 ($_og_st)" ;; esac
+               case "$_og_st" in *"could not drop process group "*) ;; *) _og_bad="$_og_bad; nodel: no line named the undropped group" ;; esac ;;
+             sig)
+               case "$_og_st" in *"stopped by SIGTERM"*"ended 143") ;; *) _og_bad="$_og_bad; sig: the signalled call did not end 143 with its line ($_og_st)" ;; esac
+               [ ! -e "$_VFY/.og_scr" ] || _og_bad="$_og_bad; sig: the signalled call's exit path left its scratch dir"
+               _og_n=0; for _og_f in "$_og_rd"/*; do _og_p="${_og_f##*/}"; case "$_og_p" in ''|*[!0-9]*) continue ;; esac; _og_n=$((_og_n + 1))
+                 _og_gone "-$_og_p" || _og_bad="$_og_bad; sig: the exit path left group $_og_p running"; done
+               [ "$_og_n" -eq 2 ] || _og_bad="$_og_bad; sig: the reap set held $_og_n groups, not 2" ;;
+             *) _og_bad="$_og_bad; no arm for row \"$_og_row\"" ;;
+           esac
+         done
+         # deaf: a group that ignores TERM (its `.og_dr` written once the ignore is set, which `exec` keeps; waited for, 40 polls,
+         # 0.05 s apart, 1 s where `sleep` is integer-only), stopped by the real `_k2_stop` in this shell, whose `wait` lasts as long
+         # as the group does: it ends within 5 s (unstopped, 10), reads gone and is not named on fd 9. Before zomb (no zomb id).
+         command rm -f "$_VFY/.og_dr"; set -m; ( trap '' TERM; : > "$_VFY/.og_dr"; exec sleep 10 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_d=$!; set +m
+         _og_w=0; until [ -e "$_VFY/.og_dr" ] || [ "$_og_w" -ge 40 ]; do _og_w=$((_og_w + 1)); sleep 0.05 || sleep 1; done
+         _og_t0=$SECONDS; { _k2_stop "$_og_d" 9> "$_VFY/.og_d9"; } 2>/dev/null; _og_dt=$((SECONDS - _og_t0))
+         [ -e "$_VFY/.og_dr" ] && [ "$_og_dt" -lt 5 ] && ! _k2_live -"$_og_d" && [ ! -s "$_VFY/.og_d9" ] || _og_bad="$_og_bad; deaf: a group ignoring TERM (ready: $([ -e "$_VFY/.og_dr" ] && echo yes || echo no)) took $_og_dt s to stop, read live or was named ($(cat "$_VFY/.og_d9" 2>/dev/null))"
+         # zomb: `_k2_live`, the probe every row above reads, with `kill -0` as found and made to succeed (`kill` a function:
+         # Linux's answer, so the table decides on macOS too). A group of one zombie (`sleep 0.2`, its parent exec'd a `sleep`
+         # that reaps nothing) reads gone, as a group and as a pid, as does the exited leader of a group whose member lives on
+         # (`sleep 5`, `_k2_end`'s case), which reads alive; a `ps` failing (as 3, the gone status) under pipefail reads both alive.
+         ( set -m; sleep 0.2 & echo $! > "$_VFY/.og_zp"; { sleep 5 & } & echo $! >> "$_VFY/.og_zp"; exec sleep 5 ) 9>&- < /dev/null > /dev/null 2>&1 & _og_h=$!
+         _og_i=0; _og_z=""; _og_l=""; until [ "$_og_i" -ge 40 ] || case "$_og_l:$(ps -o stat= -p "$_og_z" 2>/dev/null)" in ?*:Z*) ;; *) false ;; esac
+           do _og_i=$((_og_i + 1)); sleep 0.05; { read -r _og_z && read -r _og_l; } < "$_VFY/.og_zp" 2>/dev/null; done
+         if [ "$_og_i" -ge 40 ]; then _og_bad="$_og_bad; zomb: no group of one zombie could be built"
+         elif _k2_live -"$_og_z" || ( kill() { :; }; _k2_live -"$_og_z" || _k2_live "$_og_z" || _k2_live "$_og_l" ); then _og_bad="$_og_bad; zomb: a group of one zombie read alive"
+         elif ! _k2_live -"$_og_l" || ! ( kill() { :; }; _k2_live -"$_og_l" ) || ! ( set -o pipefail; kill() { :; }; ps() { return 3; }; _k2_live -"$_og_l" && _k2_live -"$_og_z" ) || ! ( set -o pipefail; kill() { :; }; awk() { cat >/dev/null; return 2; }; _k2_live -"$_og_l" ); then _og_bad="$_og_bad; zomb: a live group, or one read by a failing \`ps\` or \`awk\`, read gone"; fi
+         # two reads (L4): gone takes two table reads gone, so a shadowed `ps` that reads the group gone, then live, reads alive.
+         [ "$_og_i" -ge 40 ] || ( kill() { :; }; ps() { if [ -e "$_VFY/.og_r1" ]; then echo "$_og_z 1 S"; else : > "$_VFY/.og_r1"; echo "1 1 S"; fi; }
+           command rm -f "$_VFY/.og_r1"; _k2_live -"$_og_z" ) || _og_bad="$_og_bad; zomb: a group one table read saw gone and the next live read gone"
+         # KILL until gone, on zomb's zombie group (held until the cleanup below), `kill`, `sleep` and `_k2_live` shadowed (no
+         # signal is sent): always live is left after 21 KILLs; live for three probes, none left after 3; a reused leader (`<g>:1`, `kill -0`
+         # answering) gets none; the latch (grace 2, the leader free at probe 2 and answering at 3) none. batch: the stop's text
+         # over two groups, the 2nd free at the first read and answering once the 1st group's probe has read a table, KILLs
+         # neither. set: the 2nd answering at the first read and the first tick, free at the next, answering after: no KILL to it.
+         # order: no table read between a group's identity read and its KILL. mark: the reap passes a leaderless group to the stop
+         # as <g>:1. name: the real `_k2_stop` on the zombie group (its TERM reaches only that group), the caller's `_k2_live` live,
+         # names it once and returns 0. fallback: a stop process that cannot start (`$BASH` a missing file): `_k2_stop` runs the
+         # primitive itself over the set, marks kept. reap: an entry with no record time, `kill` and `_k2_live` answering, is
+         # named, not stopped; age: so is one whose leader's age cannot be read. keep: a failed record removes the entries of the
+         # groups the stop confirmed gone and keeps the rest, 2. end: `_k2_end` keeps the entry of a group still live at the bound
+         # and names it in `_ctl_left`, and drops the other; waited: it passes its groups as seen free, so ids answering at both
+         # leaders are reused and both entries dropped. Zomb's processes live 5 s from its launch: its build (≈ 40 × (0.05 s + a `ps`)) and
+         # these rows run inside them; on the wire unmutated, its ids' only real signals are the name row's TERM and the cleanup's KILL.
+         if [ "$_og_i" -lt 40 ]; then
+           _og_kg() { ( unset SECONDS; _og_k=0; _og_n=0; SECONDS=0; sleep() { SECONDS=$((SECONDS + 1)); }
+             kill() { case "$1" in -9) _og_k=$((_og_k + 1)) ;; -0) _og_n=$((_og_n + 1)); [ "$_og_n" -ne "$_og_f" ] ;; esac; }
+             _k2_live() { [ "$_og_lv" -lt 0 ] && return 0; [ "$_og_lv" -gt 0 ] || return 1; _og_lv=$((_og_lv - 1)); }
+             _k2_kill_gone "$@"; echo "left$_kg_left $_og_k" ); }
+           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 0 "$_og_z")"; [ "$_og_r" = "left $_og_z 21" ] || _og_bad="$_og_bad; kill until gone: a group always live gave \"$_og_r\", not left after 21 KILLs"
+           _og_r="$(_og_lv=3 _og_f=0 _og_kg 0 "$_og_z")"; [ "$_og_r" = "left 3" ] || _og_bad="$_og_bad; kill until gone: a group live for three probes gave \"$_og_r\", not none left after 3 KILLs"
+           _og_r="$(_og_lv=-1 _og_f=0 _og_kg 0 "$_og_z:1")"; [ "$_og_r" = "left 0" ] || _og_bad="$_og_bad; kill until gone: a reused leader (seen free, answering) gave \"$_og_r\", not none left and no KILL"
+           _og_r="$(_og_lv=-1 _og_f=2 _og_kg 2 "$_og_z")"; [ "$_og_r" = "left 0" ] || _og_bad="$_og_bad; kill until gone: a leader free at probe 2 and answering at 3 gave \"$_og_r\", not none left and no KILL"
+           command rm -f "$_VFY/.og_ph"
+           _og_bt() { ( set -- "$_og_z" "$_og_l"; sleep() { SECONDS=5; }; ps() { : > "$_VFY/.og_ph"; echo "$_og_l $_og_l S"; }
+             kill() { case "$1" in -9) echo "$2" ;; -0) case "$2" in "$_og_l") [ -e "$_VFY/.og_ph" ] ;; esac ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
+           _og_r="$(_og_bt)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; batch: the stop KILLed a group whose leader was free at its first read ($_og_r)"
+           _og_rg() { ( unset SECONDS; set -- "$_og_z" "$_og_l"; _og_t=0; sleep() { _og_t=$((_og_t + 1)); SECONDS=$_og_t; }; ps() { echo "$_og_z $_og_z S"; echo "$_og_l $_og_l S"; }
+             kill() { case "$1" in -9) [ "$2" != "-$_og_l" ] || echo "$2" ;; -0) [ "$2" != "$_og_l" ] || [ "$_og_t" -ne 1 ] ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
+           _og_r="$(_og_rg)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; set: the stop KILLed a group whose leader it had seen free after its first tick ($(echo $_og_r))"
+           command rm -f "$_VFY/.og_ph"; _og_or() { ( set -- "$_og_z" "$_og_l"; sleep() { SECONDS=5; }; ps() { : > "$_VFY/.og_ph"; echo "$_og_z $_og_z S"; echo "$_og_l $_og_l S"; }
+             kill() { case "$1:$2" in -0:-*) ;; -0:*) command rm -f "$_VFY/.og_ph" ;; -9:*) [ ! -e "$_VFY/.og_ph" ] || echo "$2" ;; esac; }; eval "$_K2_STOP" ) 2>&1; }
+           _og_r="$(_og_or)"; [ -z "$_og_r" ] || _og_bad="$_og_bad; order: the stop read a table between a group's identity read and its KILL ($(echo $_og_r | cut -c1-60))"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; _k2_live() { :; }; kill() { [ "${2#-}" != "$2" ]; }; _k2_stop() { echo "$*"; }; _k2_reap ) 2>&1 )"
+           [ "$_og_r" = "$_og_z:1" ] || _og_bad="$_og_bad; mark: the reap passed a leaderless group as \"$_og_r\", not \"$_og_z:1\""
+           _og_r="$( ( _k2_live() { :; }; _k2_stop "$_og_z" 9>&1 > /dev/null; echo "rc $?" ) 2>/dev/null )"
+           [ "$_og_r" = "!! could not confirm that group $_og_z ended; it may still be running"$'\n'"rc 0" ] || _og_bad="$_og_bad; name: a group the caller reads live after the stop gave \"$_og_r\", not one line and 0"
+           _og_fb() { ( BASH="$_VFY/.og_nobash"; sleep() { :; }; wait() { :; }; _k2_live() { :; }; kill() { case "$1" in -9) echo "$2" ;; esac; }; _k2_stop "$_og_z" "$_og_l:1" 9>/dev/null ) 2>/dev/null; }
+           _og_r="$(_og_fb | sort | uniq -c | awk '{ print $2 ":" $1 }')"
+           [ "$_og_r" = "-$_og_z:21" ] || _og_bad="$_og_bad; fallback: a stop process that could not start left \"$(echo $_og_r)\", not 21 KILLs to the unmarked group and none to the marked"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_live() { :; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
+           [ "$_og_r" = "!! could not confirm that group $_og_l ended; it may still be running" ] || _og_bad="$_og_bad; reap: an entry whose identity is unknown gave \"$_og_r\", not one line and no stop"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; echo 0 > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; _k2_live() { :; }; _k2_age() { return 1; }; _k2_stop() { echo "stopped $*"; }; _k2_reap 9>&1 ) 2>/dev/null )"
+           [ "$_og_r" = "!! could not confirm that group $_og_l ended; it may still be running" ] || _og_bad="$_og_bad; age: an entry whose leader's age cannot be read gave \"$_og_r\", not one line and no stop"
+           command rm -rf "$_VFY/.og_rd"; mkdir -p "$_VFY/.og_rd/$_og_h"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
+           ( _K2_REAP_D="$_VFY/.og_rd"; _k2_stop() { _k2_left=" $_og_l"; }; _k2_reap_add keep "$_og_h" "$_og_z" "$_og_l" 9>/dev/null ); _og_r=$?
+           [ "$_og_r" -eq 2 ] && [ -e "$_VFY/.og_rd/$_og_l" ] && [ ! -e "$_VFY/.og_rd/$_og_z" ] || _og_bad="$_og_bad; keep: a failed record (status $_og_r) did not keep exactly the entry of the group the stop could not confirm ended"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; wait() { :; }; _k2_kill_gone() { _kg_left=" $_og_z"; }; _k2_end end "$_og_z" "$_og_l" 9>&1; echo "left$_ctl_left" ) 2>/dev/null )"
+           [ "$_og_r" = "left $_og_z" ] && [ -e "$_VFY/.og_rd/$_og_z" ] && [ ! -e "$_VFY/.og_rd/$_og_l" ] || _og_bad="$_og_bad; end: a group live at the bound gave \"$_og_r\" or lost its entry, or the other kept one"
+           command rm -rf "$_VFY/.og_rd"; mkdir "$_VFY/.og_rd"; : > "$_VFY/.og_rd/$_og_z"; : > "$_VFY/.og_rd/$_og_l"
+           _og_r="$( ( _K2_REAP_D="$_VFY/.og_rd"; kill() { :; }; wait() { :; }; sleep() { :; }; _k2_live() { :; }; _k2_end waited "$_og_z" "$_og_l" 9>&1; echo "left$_ctl_left" ) 2>/dev/null )"
+           [ "$_og_r" = "left" ] && [ ! -e "$_VFY/.og_rd/$_og_z" ] && [ ! -e "$_VFY/.og_rd/$_og_l" ] || _og_bad="$_og_bad; waited: \`_k2_end\` KILLed or kept a group whose waited leader's id answered (\"$_og_r\")"
+           # tick: the stop's grace waits 40 ticks of 0.05 s to its 2 s, 2 of 1 s where `sleep` refuses a fraction (`sleep` a fake
+           # clock; `SECONDS` unset, so a plain variable the fake clock sets; 99 sleeps at most).
+           _og_tk() { ( unset SECONDS; set -- "$_og_z"; _og_c=0; _og_n=0; _og_m=0; ps() { echo "$_og_z $_og_z S"; }; kill() { case "$1" in -9) echo "$_og_n"; exit 0 ;; esac; }
+             sleep() { _og_m=$((_og_m + 1)); [ "$_og_m" -lt 99 ] || { echo spin; exit 0; }; case "$1" in *.*) [ "$_og_ti" = 0 ] || return 1; _og_s="${1#*.}00"
+               _og_c=$((_og_c + ${1%%.*} * 100 + 10#${_og_s:0:2})) ;; *) _og_c=$((_og_c + $1 * 100)) ;; esac; _og_n=$((_og_n + 1)); SECONDS=$((_og_c / 100)); }; eval "$_K2_STOP" ) 2>/dev/null; }
+           _og_r="$(_og_ti=0 _og_tk) $(_og_ti=1 _og_tk)"; [ "$_og_r" = "40 2" ] || _og_bad="$_og_bad; tick: the stop's grace took \"$_og_r\" ticks, not 40 of 0.05 s and 2 of 1 s where \`sleep\` is integer-only"
+         fi
+         { kill -9 -"$_og_l" "$_og_h"; wait "$_og_h"; } 2>/dev/null
+         command rm -rf "$_K2_REAP_D/og"
+         : > "$_VFY/.og_end"
+         [ -z "$_og_bad" ] || { echo "!! CONTROL FAILED ($_og_lbl)$_og_bad" >&2; exit 1; } ); then
+  [ -e "$_VFY/.og_end" ] || echo "!! CONTROL FAILED ($_og_lbl): the check ended before its verdict" >&2
+  ctl_ok=1
+fi
+command rm -rf "$_VFY/.og_end" "$_VFY/.og_kill" "$_VFY/.og_norec" "$_VFY/.og_nodel" "$_VFY/.og_sig" "$_VFY/.og_scr" "$_VFY/.og_outer" "$_VFY/.og_err" "$_VFY/.og_zp" "$_VFY/.og_r1" "$_VFY/.og_d9" "$_VFY/.og_dr" "$_VFY/.og_ph" "$_VFY/.og_rd" "$_K2_REAP_D/og" "$_VFY/.control_timeout"
+# A mode a fixture sealed and the window could not apply (or refused) is red
+# here, with its own label: the controls gated on that mode having taken effect
+# would otherwise be skipped as if this machine could not enforce it.
+if [ -n "$_fw_seal_bad" ]; then
+  echo "!! CONTROL FAILED ($_fws_lbl): $(printf '%s' "$_fw_seal_bad" | tr '\n' ';')" >&2
+  ctl_ok=1
+fi
+# A postcondition this machine cannot evaluate is a machine limitation: P-b's
+# (`git var` before git 2.42) is a FACT, keyed on git's documented boundary, so it is
+# reported below and green; P-f's (an `env` that refuses -0) is a probe's answer, so
+# it is green only where its caller declared it (WEBREF_WIRE_LACKS, `_cap_check`) and
+# red otherwise. The window writes one line per limitation, naming the postcondition
+# by its ID only. THE SLOT RULE: a record's needle is the postcondition's LABEL, which
+# only a diagnostic prints, in its label slot (`CONTROL FAILED (<needle>)` /
+# `CONTROL NOT EXERCISED (<needle>)`); the limit line below is green and carries the
+# ID alone, since a label on it would let any unrelated red "kill" that record for
+# the right-looking reason.
+_limit_lines=""
+[ -z "$_fw_limits" ] || _limit_lines="$(printf '%s\n' "$_fw_limits" | sed 's/^/            ⚠ NOT EXERCISED on this machine: /')"
 _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1
 _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
 _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
@@ -769,15 +687,27 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # Not a `_control`: the question is what the run leaves BEHIND, which its exit
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
-_rel_lbl="a relative scratch dir is removed on exit"
-if ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
+# A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
+# relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
+# cannot pose this question here). Built by the fixtures file, bare, beside the
+# other PATH-prefix shims. It marks `path` whenever it runs, and `_ctl_run` demands that mark
+# back for the prefix it was given — a run that never reached the shim had no
+# relative scratch to leave behind, so its clean cwd is no evidence (the
+# shim's path was dropped from the prefix once, and the block stayed green).
+# Deleting the prefix ARGUMENT at the call site drops that demand too - the
+# opt-in `SCRATCH=…` record's class; the always-on `path` demand catches a
+# prefix the delivery fails to deliver, and a run that never calls the shim.
+# ⚠ Run through `_ctl_run`, like every `_control`: gated, watchdogged, one report.
+if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$CTL/fakerelmktemp"; then ctl_ok=1
+elif [ "$_rc" -eq 0 ]; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
     ls -A "$CTL/relcwd" | sed 's/^/     /' >&2
     ctl_ok=1
   fi
 else
-  echo "!! CONTROL FAILED ($_rel_lbl): the run itself did not pass" >&2
+  echo "!! CONTROL FAILED ($_rel_lbl): the run itself did not pass (exit $_rc)" >&2
+  printf '%s\n' "$_out" | sed 's/^/     /' >&2
   ctl_ok=1
 fi
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
@@ -806,11 +736,11 @@ _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree r
 # "every other control here proves the wire can RED"; both halves were false
 # when written, and the second one still is — derive the count instead of
 # reading one:
-#     awk -F'"' '/^ *_control /{gsub(/ /,"",$3); print $3}' <this file> | sort | uniq -c
+#     awk -F'"' '/^(if ! )?_control /{gsub(/ /,"",$3); print $3}' <this file> | sort | uniq -c
 # (`$3` is the EXPECTED-EXIT argument: 0 = green-direction, 1 = red, 2 = the
-# wire refusing to decide. ⚠ The first spelling of this command printed `$4`,
-# the expected MESSAGE, which counts nothing — a derivation offered in place of
-# a claim has to be run once before it is written down.)
+# wire refusing to decide. ⚠ The first spelling of this command
+# printed `$4`, the expected MESSAGE, which counts nothing — a derivation offered
+# in place of a claim has to be run once before it is written down.)
 _control "$CTL/punct" 0 "PASSED" "closing punctuation is not a path segment" || ctl_ok=1
 _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not the host path" || ctl_ok=1
 # …and the self-test escape hatch, which must not be reachable from the
@@ -818,30 +748,19 @@ _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not
 # exported, the companion set to the PID that IS the wire's parent here, and
 # pointing at the CLEAN fixture. The argument names a violating one; an
 # environment channel would scan the clean tree and exit 0.
-_ctl_env=("WEBREF_WIRE_SELFTEST=$CTL/clean" "WEBREF_WIRE_SELFTEST_PPID=$$")
-_control "$CTL/committed" 1 "(in HEAD)" "an exported SELFTEST cannot redirect the scan" || ctl_ok=1
+_control "$CTL/committed" 1 "(in HEAD)" "an exported SELFTEST cannot redirect the scan" "" "" "" "" \
+  "WEBREF_WIRE_SELFTEST=$CTL/clean" "WEBREF_WIRE_SELFTEST_PPID=$$" || ctl_ok=1
 _control "$CTL/no-such-fixture" 2 "--selftest needs a fixture root" "a missing self-test root decides nothing" || ctl_ok=1
 _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
 _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stored content" || ctl_ok=1
 _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
-# ⚠ THE TWO FIFO CONTROLS SHARE ONE PRECONDITION AND ONE REPORT LINE, built
-# HERE beside the decision that produces it (the `$_perm_line` shape, and for
-# the same reason: a summary written apart from its decision can disagree with
-# it). A machine that cannot hold a FIFO is a capability limit, not a wire
-# defect — but it is also not something this run may pass over in silence.
-_fifo_line="            an entry git cannot store neither hangs nor hides a verdict, and a
-            tracked path replaced by one is not opened"
-if [ "$_fifo_ok" -eq 1 ]; then
-  _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
-else
-  _fifo_line="            ⚠ NOT EXERCISED on this machine: BOTH FIFO controls (this
-            filesystem holds no fifo), so this run carries no evidence that an
-            entry git cannot store neither hangs nor hides a verdict, NOR that a
-            tracked path replaced by one is not opened — the second being the
-            control whose original finding was a local gate that HUNG"
-fi
+# THE TWO FIFO CONTROLS (`fifotracked`, `odd`) are the table's `fifo` group (`_CAP_TABLE`):
+# the calls run on every machine and register their labels for the census, and where
+# the flag is 0 the gate declines them without a run; a declaring machine's summary
+# line (`_cap_lines`) reports it, and undeclared, `_cap_check` has already redded it.
+_control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
 _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1
 # ⚠ A FIXTURE THAT DID NOT BUILD MUST NOT PASS, and `_fixture_failed` is where
@@ -855,15 +774,34 @@ _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the
 # that sentence. Five hand-written probes, each re-deriving from the fixture's
 # END STATE a fact the BUILD already knew.
 # ⚠ AND ONE OF THOSE PROBES HAD TO BE SUBTLE, which is the other argument for
-# not writing them: this run exports `GIT_NO_REPLACE_OBJECTS=1`, so reading the
-# blob returns the violating bytes whether or not the replacement took — the
-# obvious probe would have passed vacuously for the very reason the control
-# exists, and only `replace -l` worked. A build status has no such trap.
+# not writing them: the fixtures were then built under this run's exported `GIT_NO_REPLACE_OBJECTS=1`, so
+# reading the blob returned the violating bytes whether or not the replacement took — the obvious probe
+# would have passed vacuously for the very reason the control exists, and only `replace -l` worked. (The
+# window is built from nothing and no longer carries it.) A build status has no such trap.
 _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
-_ctl_env=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*")
-_control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$CTL/fakegitcfg" || ctl_ok=1
-_ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
-_control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || ctl_ok=1
+# A `git` that answers `ls-files` with nothing unless the caller's
+# `GIT_CONFIG_COUNT` reached it. The fixture holds a violation, so a run that
+# KEEPS the configuration reds on K2 and a run that strips it reads zero and
+# exits 2 — the two verdicts differ in status AND message, which is what makes
+# this control discriminate rather than merely fire.
+# ⚠ Shimmed because the real case — a checkout owned by another UID, reachable
+# only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
+# the property under test, and that is constructible; the ownership is not.
+# Built by the fixtures file, bare, beside the other PATH-prefix shims, through
+# the same builder as every exec-through shim. It marks `path` whenever the `ls-files` arm is
+# reached, BEFORE the configuration test, and `_ctl_run` demands that mark back
+# for the prefix it was given — a run that never reached the shim had no
+# configuration to keep or strip, so its K2 red is no evidence (the shim's
+# path was dropped from the prefix once, and the control stayed green).
+# Deleting the prefix ARGUMENT at the call site drops that demand too - the
+# opt-in `GIT_CONFIG*) unset` record's class; the always-on `path` demand
+# catches a prefix the delivery fails to deliver, and a run that never calls
+# the shim.
+if ! _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$CTL/fakegitcfg" "" \
+  "GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*"; then ctl_ok=1
+fi
+_control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" "" "" "" "" \
+  "GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy" || ctl_ok=1
 _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1
 _control "$CTL/globextra*[e]" 1 "K2: a" "a pattern character in the checkout path does not misplace the entry script" "scope" "side/entry" || ctl_ok=1
 _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
@@ -871,10 +809,7 @@ _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored 
 _control "$CTL/headlink" 1 "(in HEAD) ->" "a COMMITTED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
 _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
-# …the second of the pair `$_fifo_line` above reports on.
-if [ "$_fifo_ok" -eq 1 ]; then
-  _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
-fi
+_control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
 # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
 # read" are different answers and only one of them is green.
 # ⚠ THIS ONE IS WHY THE BUILD STATUS IS RECORDED RATHER THAN PROBED. A `git
@@ -888,8 +823,7 @@ _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" ||
 _control "$CTL/unread" 2 "read 0 stored objects" "an inventoried entry that was never read is not counted as scanned" || ctl_ok=1
 # A WALK KILLED MID-SCAN is not a verdict: `POSIXLY_CORRECT` plus the failing
 # `cat` ends the `_scan` subshell after it has emitted `a.py`'s record.
-_ctl_env=("POSIXLY_CORRECT=1")
-_control "$CTL/catkill" 2 "did not complete" "a walk killed mid-scan is not a verdict" "" "" "$CTL/catfail" || ctl_ok=1
+_control "$CTL/catkill" 2 "did not complete" "a walk killed mid-scan is not a verdict" "" "" "$CTL/catfail" "" POSIXLY_CORRECT=1 || ctl_ok=1
 _control "$CTL/d2green" 0 "PASSED" "a tracked directory deleted wholesale stays green" || ctl_ok=1
 _control "$CTL/d2file" 0 "PASSED" "a tracked directory replaced by a file stays green" || ctl_ok=1
 _control "$CTL/d3f1" 1 "K2: a" "a ] inside a first segment" || ctl_ok=1
@@ -901,71 +835,79 @@ _control "$CTL/d3m2" 1 "K2: a" "a double quote inside an intermediate segment" |
 _control "$CTL/d3m3" 1 "K2: a" "a single quote inside an intermediate segment" || ctl_ok=1
 _control "$CTL/d3m4" 1 "K2: a" "a backtick inside an intermediate segment" || ctl_ok=1
 _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash token fails safe" || ctl_ok=1
-# A caller's `GREP_OPTIONS` over a violating file. BSD grep honours it, so
-# without the wire's `unset` the file reads as "no match". ⚠ GNU grep — CI's —
-# does not honour it (plan memo §11.1; not measured here), and there this
-# control passes whatever the wire does.
-_ctl_env=("GREP_OPTIONS=--exclude=*")
-_control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl_ok=1
+# k2: a caller's `GREP_OPTIONS` over a violating file. BSD grep honours it, so
+# without the wire's `unset` the file reads as "no match"; GNU grep — CI's — does
+# not (2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11.1; the note's own
+# measurement is BSD only), so the real tool cannot pose this question on every
+# machine. The control does not ask the machine's grep: `goptgrep` (the fixtures
+# file, beside `fakegrep`) answers "no match" whenever a `GREP_OPTIONS` reached it
+# and execs the real grep otherwise. It models the property under test — did the
+# caller's variable reach grep? — not the value's meaning to one grep, as
+# `fakegitcfg` does for `GIT_CONFIG_COUNT` (`fakerelmktemp` is not that kind: it
+# returns a relative path unconditionally); so the question is posed on every
+# machine and declined on none. The shim marks `path` before the test, and
+# `_ctl_run` demands that mark back. ⚠ Deleting the prefix ARGUMENT below drops
+# that demand with it (as relcwd's comment says): the shipped run stays green,
+# and only the opt-in record that pins k2 (`unset GREP_OPTIONS`), run on a grep
+# that ignores the variable (the GNU-like profile), reds it.
+_control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "$CTL/goptgrep" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
+# A SIGNAL ENDS THE RUN 128+n AND SAYS SO, on the stderr the run started with. Each `sig<n>` shim (the fixtures
+# file) marks `path` and signals its own group on the wire's HEAD probe; the child is `_ctl_run`'s, launched under
+# `set -m`, so its SIGINT is not ignored. The row expects 0 and PASSED instead when a `sh` that signals itself
+# exits 0: the signal was ignored at this run's entry, its children inherit that, and none can be stopped by it
+# (a record of these rows then SURVIVES: red, never green; the opt-in starts the wire with the three at default).
+# The group redirection silences bash's report of the probe's death.
+for _sg in HUP:129 INT:130 TERM:143; do _sg_n="${_sg%:*}"; _sg_e="${_sg#*:}"; _sg_m="stopped by SIG$_sg_n"
+  case "$_sg_n" in TERM) [ "$_wm_tg" -eq 0 ] ;; *) { sh -c "kill -$_sg_n \$\$; exit 0"; } 2>/dev/null ;; esac && { _sg_e=0; _sg_m=PASSED; }
+  _control "$CTL/clean" "$_sg_e" "$_sg_m" "a signal ends the run red and says so" "" "" "$CTL/sig$_sg_n" || ctl_ok=1
+done
+# A SCRATCH DIR THAT CANNOT BE REMOVED is reported and the status stands: the `failrm` prefix's `rm` fails exactly
+# `rm -rf <dir>` (the exit path's removal, after removing it), its `chmod` fails `chmod -R` (the exit path's only one,
+# which errexit, off in the exit path, would otherwise turn into status 1).
+_control "$CTL/clean" 0 "could not remove the scratch dir" "a scratch dir that cannot be removed does not change the verdict" "" "" "$CTL/failrm" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the
-# verdict cannot say. ⚠ The hook is first shown to run under a plain git call
-# over the same fixture, or its not running under the wire would prove nothing.
-# The hook's path goes through `_shq`, as every embedded path here does.
-_fsm_lbl="a caller's fsmonitor hook does not run"
-_fsm_mark="$CTL/.fsmonitor_ran"
-printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$CTL/fsmhook"
-chmod +x "$CTL/fsmhook"
-_fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$CTL/fsmhook")")
-( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$CTL/fsmon" \
-  && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
-if [ ! -e "$_fsm_mark" ]; then
-  echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2
-  echo "   git call either, so its not running under the wire would prove nothing." >&2
+# verdict cannot say. ⚠ The same hook is then shown to run under a plain git
+# call over the same fixture — inside the branch `_ctl_run`'s ask opened, so
+# this block asks the gate ONCE, under its one label — or its not running under
+# the wire would prove nothing. The hook's path goes through `_shq`.
+_fsm_root="$CTL/fsmon"
+_fsm_mark="$_VFY/.fsmonitor_ran"
+printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$_VFY/fsmhook"
+chmod +x "$_VFY/fsmhook"
+_fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$_VFY/fsmhook")")
+command rm -f "$_fsm_mark"
+if ! _ctl_run "$_fsm_lbl" "$_fsm_root" "" "" "" "" "" "${_fsm_cfg[@]}"; then ctl_ok=1
+elif [ "$_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
+  echo "!! CONTROL FAILED ($_fsm_lbl): exit $_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
+  printf '%s\n' "$_out" | sed 's/^/     /' >&2
   ctl_ok=1
-else
-  command rm -f "$_fsm_mark"
-  _fsm_rc=0
-  env "${_fsm_cfg[@]}" "$SELF" --selftest "$CTL/fsmon" "" "" > "$CTL/.fsm_out" 2>&1 || _fsm_rc=$?
-  if [ "$_fsm_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
-    echo "!! CONTROL FAILED ($_fsm_lbl): exit $_fsm_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
-    sed 's/^/     /' "$CTL/.fsm_out" >&2
-    ctl_ok=1
-  fi
+# The plain call purges git's own list, `$_GIT_LOCAL_VARS` (a hand-named subset let a
+# caller's GIT_OBJECT_DIRECTORY or GIT_COMMON_DIR break the call); `env` gives the one
+# configuration it asks about back.
+elif ( for _v in $_GIT_LOCAL_VARS; do unset "$_v"; done; cd "$_fsm_root" \
+       && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
+     [ ! -e "$_fsm_mark" ]; then
+  echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2
+  echo "   git call either, so its not running under the wire proved nothing." >&2
+  ctl_ok=1
 fi
-# ⚠ The line is built HERE, beside the decision that produces it. An earlier
-# shape decided here and described it in the summary below, so the two could
-# disagree — and an unconditional summary claimed exit-status evidence the run
-# had not obtained (#501 R78). One site, one truth.
-_perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
-          permissions enforced (this user can read a mode-000 file), so this
-          run carries no evidence for them"
-if [ -r "$CTL/err/control.py" ]; then
-  :
-else
-  _perm_line="            the controls that need file permissions enforced ran too"
-  _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
-  _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
-  _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
-  _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
-  # Not a `_control`: `_control` has no umask channel. A umask that leaves the
-  # scratch dir unsearchable makes it unresolvable to a physical path.
-  _umask_lbl="a restrictive umask decides nothing"
-  _um_rc=0
-  ( umask 777; "$SELF" --selftest "$CTL/clean" "" "" ) > "$CTL/.umask_out" 2>&1 || _um_rc=$?
-  if [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$CTL/.umask_out"; then
-    echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
-    sed 's/^/     /' "$CTL/.umask_out" >&2
-    ctl_ok=1
-  fi
-fi
+# THE FIVE PERMISSION CONTROLS are the table's `perm` group, as the FIFO pair is the
+# `fifo` group. The fifth runs the clean fixture under umask 777 (`_control`'s
+# `$8`): a umask that leaves the scratch dir unsearchable makes it unresolvable
+# to a physical path, which the wire refuses to decide over.
+_control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
+_control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
+_control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
+_control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
+_control "$CTL/clean" 2 "could not resolve the scratch dir" "a restrictive umask decides nothing" "" "" "" 777 || ctl_ok=1
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
 # Two subjects, two files: this one runs the wire over a fixture and asserts the
 # exit status; that one proves each control is about the arm it names. Its
 # absence is not a skipped check — the correspondence between the two lists is
 # what keeps either list honest, so the run ends at "decided nothing" rather
 # than without it.
-_MUTATIONS="${SELF%.sh}.mutations.sh"
+_mut_part_path mutations; _MUTATIONS="$_mut_pp"
 if [ ! -r "$_MUTATIONS" ]; then
   echo "!! the mutation set beside these controls ($_MUTATIONS) is missing or" >&2
   echo "   unreadable, so nothing here was shown to be about the arm it names." >&2
@@ -976,14 +918,37 @@ fi
 . "$_MUTATIONS"
 _mut_correspondence || ctl_ok=1
 
+# (No check after the controls: every `_control` and every block that is not one
+# runs through `_ctl_run` (which asks `_ctl_gate`), so none runs over an unbuilt tree;
+# the fsmonitor block's plain `git ls-files` follow-up, made after `_ctl_run` returns,
+# sits inside the branch that its `_ctl_run`'s ask opened.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run
 
+# THE SUMMARY, one line per group in table order: any flag value but 0 states the claim,
+# 0 what this run did NOT exercise (the member count from the table). `!= 0` is the
+# gate's own predicate (`_ctl_gate`), so the summary and the gate cannot disagree; a
+# value that is not 0 or 1 is `_cap_check`'s red. One site, one truth: the gate's decision is a function of (table,
+# flag) through one lookup, which `_cap` pins, and every member reached the gate (the census).
+_cap_lines() { _cap_rows group _cap_line_cb; }
+_cap_line_cb() {
+  local _cl_g="${_cr_f[1]}" _cl_why="${_cr_f[4]}" _cl_claim="${_cr_f[5]}" _cl_n=0
+  _cap_rows member _cap_count_cb
+  _cap_flag_of "$_cl_g"
+  if [ "$_cap_v" != 0 ]; then printf '            %s\n' "$_cl_claim"
+  else printf '            ⚠ NOT EXERCISED on this machine: %s control(s) of the %s group (%s), so this run carries no evidence that %s\n' \
+    "$_cl_n" "$_cl_g" "$_cl_why" "$_cl_claim"; fi
+}
+_cap_count_cb() { [ "${_cr_f[1]}" != "$_cl_g" ] || _cl_n=$((_cl_n + 1)); }
 echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
 echo "            inside binary content, on a symlink's stored target, on an entry's"
-echo "            own NAME, and on a symlinked entry script beside the scope; an empty"
-echo "            scope fails closed"
-printf '%s\n' "$_fifo_line"
-printf '%s\n' "$_perm_line"
+echo "            own NAME, on a symlinked entry script beside the scope, and under a"
+echo "            caller's GREP_OPTIONS; an empty scope fails closed"
+_cap_lines
+[ -z "$_limit_lines" ] || printf '%s\n' "$_limit_lines"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
+# …and no label-taking call ran after the label census (`_mut_census_end`, in the
+# correspondence part). This file's last statement: the wire makes no label-taking call
+# after this file returns, so a late call is one made here, after the census.
+_mut_census_end || exit 1
