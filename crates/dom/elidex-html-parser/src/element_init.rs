@@ -129,7 +129,7 @@ mod tests {
     /// (no derivation) and run [`derive_element_components`] explicitly, so
     /// these tests exercise the derivation logic in isolation. (The public
     /// `crate::parse_strict` wrapper derives on its own — covered separately
-    /// in `lib.rs`.) Returns the dom + document root.
+    /// in the crate-root `tests.rs`.) Returns the dom + document root.
     fn parse_and_derive(html: &str) -> (EcsDom, Entity) {
         let mut result = elidex_html_parser_strict::parse_strict(html).expect("conforming HTML5");
         derive_element_components(&mut result.dom, result.document);
