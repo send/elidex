@@ -270,7 +270,16 @@ def linear_file_token_control(M):
                            # x3.80 then x4.02 per doubling, caught by the reviewer
                            # and not by this control. The boundary belongs to the
                            # RUN, so a run with many suffixes is the shape.
-                           ("a.md run (no separators)", lambda n: "a.md" * n, 60)):
+                           ("a.md run (no separators)", lambda n: "a.md" * n, 60),
+                           # ⚠ AND THE RUN'S TRAILING PUNCTUATION (PR #510 Codex
+                           # R72 of 2026-10-24): the arm above has no tail, so a
+                           # per-suffix trim of it cost nothing there. A fragment
+                           # tail is trimmed back from the run end at each suffix,
+                           # so N suffixes followed by an N-character `!` tail
+                           # trimmed that tail N times -- found by the reviewer, not
+                           # by this control. The tail belongs to the RUN, like the
+                           # boundary, so the shape is one run with both.
+                           ("a.md# run + punctuation tail", lambda n: "a.md#" * n + "!" * n, 90)):
         seen = {}
         for n in (100, 400):
             try:

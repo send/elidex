@@ -181,7 +181,29 @@ def _run_end_from(text, e, n, cached):
     return j
 
 
-def _terminates_run(text, e, n, run_end):
+def _trail_start_from(text, run_end, cached):
+    """The smallest index `t` such that `text[t:run_end]` is all `_TRAILING`
+    -- where the run's trailing punctuation begins -- reusing `cached`, the
+    `(run_end, t)` pair last computed, while `run_end` has not changed.
+
+    ⚠ THE TRIM WAS RE-DONE AT EVERY SUFFIX, SO IT WAS QUADRATIC TOO (PR #510
+    Codex R72 of 2026-10-24; the same class as R36-2 above, one level in).
+    `_terminates_run` trimmed the run's trailing punctuation from `run_end`
+    back at each `.md` suffix, and a run holding N suffixes followed by an
+    N-character punctuation tail trimmed that same tail N times: measured by
+    the reviewer on `'a.md#' * N + '!' * N` at ~0.27 / 0.62 / 1.97 s for
+    N = 1,000 / 2,000 / 4,000.  The tail belongs to the RUN, exactly as the
+    boundary does, so it is found once per run and each suffix only compares
+    its own position against it."""
+    if cached[0] == run_end:
+        return cached
+    t = run_end
+    while t > 0 and text[t - 1] in _TRAILING:
+        t -= 1
+    return (run_end, t)
+
+
+def _terminates_run(text, e, n, run_end, trail):
     """The END OF THE FILE SPAN when the run ends acceptably at `e` -- the
     suffix is the last of the NAME and what follows it is not more name -- or
     None when the run continues into more name.
@@ -206,7 +228,11 @@ def _terminates_run(text, e, n, run_end):
     What is refused is the third case: a run that CONTINUES into more name
     (`9z+notes.md_tail`), which the resolver rejects whole and out of which the
     old test -- "not followed by an ASCII alphanumeric" -- still masked a
-    prefix, hiding the ids in it."""
+    prefix, hiding the ids in it.
+
+    `trail` is where the run's trailing punctuation starts (see
+    `_trail_start_from`), computed once per run by the caller and not here: both
+    branches below are a comparison of `e` against it."""
     if e < n and text[e] in "#?":
         # THE TAIL IS PART OF THE NAME, not merely permission to stop (PR #510
         # R35).  R34-1 admitted a fragment or query here and still recorded the
@@ -216,10 +242,8 @@ def _terminates_run(text, e, n, run_end):
         # very split the correspondence forbids, re-created by the fix that
         # cited the correspondence.  The span therefore covers the tail, less
         # any trailing punctuation, which is prose on this side of the reader.
-        while run_end > e and text[run_end - 1] in _TRAILING:
-            run_end -= 1
-        return run_end
-    return e if all(c in _TRAILING for c in text[e:run_end]) else None
+        return max(trail, e)
+    return e if e >= trail else None
 
 
 def file_and_cite_spans(text):
@@ -268,7 +292,7 @@ def file_and_cite_spans(text):
         `<div data-note="slice-9z-sib.md">` reported a `9z` naming site that
         the identical file name in a paragraph does not."""
     n, k = len(text), len(FILE_SUFFIX)
-    run_end = 0
+    run_end, trail = 0, (0, 0)
     stack, seg, longest = [], 0, {}
     for i, c in enumerate(text):
         if c in _NAME_BOUNDARY or c.isspace():
@@ -285,7 +309,8 @@ def file_and_cite_spans(text):
         e = i + 1
         if text[e - k:e] == FILE_SUFFIX:
             run_end = _run_end_from(text, e, n, run_end)
-            span_end = _terminates_run(text, e, n, run_end)
+            trail = _trail_start_from(text, run_end, trail)
+            span_end = _terminates_run(text, e, n, run_end, trail[1])
         else:
             span_end = None
         if span_end is not None:

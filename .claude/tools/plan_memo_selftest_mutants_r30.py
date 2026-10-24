@@ -478,6 +478,12 @@ MUTANTS += [
      "            run_end = _run_end_from(text, e, n, 0)",
      ["file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every "
       "start position"]),
+    ("R72 file token: the run's trailing-punctuation start is computed once per run (recompute it at "
+     "every suffix: pass a cache that never matches)", TOKENS,
+     "            trail = _trail_start_from(text, run_end, trail)",
+     "            trail = _trail_start_from(text, run_end, (-1, 0))",
+     ["file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every "
+      "start position"]),
 ]
 
 

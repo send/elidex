@@ -489,7 +489,7 @@ MUTANTS = [
      "ending in the suffix is ever a token)", TOKENS,
      # ⚠ THE END TEST MOVED AT R34-1 (an alphanumeric look-ahead -> "the
      # suffix terminates the run"); the arm this row drops is the same one.
-     '            span_end = _terminates_run(text, e, n, run_end)',
+     '            span_end = _terminates_run(text, e, n, run_end, trail[1])',
      '            span_end = None',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
     ("#3 bare id: a dotted number is one token", IDS,
