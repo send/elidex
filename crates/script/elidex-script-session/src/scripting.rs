@@ -119,6 +119,8 @@ mod tests {
     use super::*;
     use elidex_ecs::Attributes;
 
+    const UNSANDBOXED: SandboxingFlagSet = SandboxingFlagSet::unsandboxed();
+
     /// Bound document + a second (throwaway, `DOMParser`-like) document
     /// with one element owned by it.
     fn two_doc_fixture() -> (EcsDom, Entity, Entity, Entity) {
@@ -157,7 +159,7 @@ mod tests {
             &dom,
             None,
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
         // Unbound (no document context): fail open even for a clause-(b)
         // candidate node.
@@ -165,7 +167,7 @@ mod tests {
             &dom,
             Some(foreign),
             None,
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 
@@ -176,13 +178,13 @@ mod tests {
             &dom,
             Some(doc),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
         assert!(scripting_disabled_for_platform_object(
             &dom,
             Some(doc2),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 
@@ -193,7 +195,7 @@ mod tests {
             &dom,
             Some(foreign),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 
@@ -218,7 +220,7 @@ mod tests {
             &dom,
             Some(foreign),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
         // Removed again: back to the stale-owner comparison → suppressed.
         assert!(dom.remove_child(container, foreign));
@@ -226,7 +228,7 @@ mod tests {
             &dom,
             Some(foreign),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 
@@ -251,7 +253,7 @@ mod tests {
             &dom,
             Some(el),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 
@@ -264,14 +266,14 @@ mod tests {
             &dom,
             Some(el),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
         assert!(dom.append_child(doc, el));
         assert!(!scripting_disabled_for_platform_object(
             &dom,
             Some(el),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 
@@ -285,7 +287,7 @@ mod tests {
             &dom,
             Some(orphan),
             Some(doc),
-            SandboxingFlagSet::unsandboxed()
+            UNSANDBOXED
         ));
     }
 }

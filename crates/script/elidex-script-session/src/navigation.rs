@@ -374,6 +374,7 @@ mod tests {
         // parameter (the full truth table over the predicate itself lives
         // in elidex-plugin; this pins the dispatch arm's wiring).
         let by_ua = "allow-top-navigation-by-user-activation";
+        let by_ua_flags = parse_sandboxing_directive(by_ua);
         for target in ["_parent", "_top", "_TOP", "_Parent"] {
             // Unsandboxed: allowed either way.
             assert_eq!(
@@ -400,12 +401,12 @@ mod tests {
             // `allow-top-navigation-by-user-activation` alone: gated on the
             // activation fact.
             assert_eq!(
-                window_open_disposition(target, parse_sandboxing_directive(by_ua), false),
+                window_open_disposition(target, by_ua_flags, false),
                 D::Blocked,
                 "target = {target:?}"
             );
             assert_eq!(
-                window_open_disposition(target, parse_sandboxing_directive(by_ua), true),
+                window_open_disposition(target, by_ua_flags, true),
                 D::TopNavigate,
                 "target = {target:?}"
             );

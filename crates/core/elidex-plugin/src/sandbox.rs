@@ -102,35 +102,42 @@ impl SandboxingFlagSet {
 /// yields [`SandboxingFlagSet::all_represented`].
 #[must_use]
 pub fn parse_sandboxing_directive(input: &str) -> SandboxingFlagSet {
-    let has = |name: &str| {
-        input
-            .split_ascii_whitespace()
-            .any(|t| t.eq_ignore_ascii_case(name))
-    };
-    let allow_top = has("allow-top-navigation");
+    let (mut popups, mut top, mut top_ua, mut same_origin) = (false, false, false, false);
+    let (mut forms, mut scripts, mut escape, mut modals) = (false, false, false, false);
+    for t in input.split_ascii_whitespace() {
+        let seen = |name: &str| t.eq_ignore_ascii_case(name);
+        popups |= seen("allow-popups");
+        top |= seen("allow-top-navigation");
+        top_ua |= seen("allow-top-navigation-by-user-activation");
+        same_origin |= seen("allow-same-origin");
+        forms |= seen("allow-forms");
+        scripts |= seen("allow-scripts");
+        escape |= seen("allow-popups-to-escape-sandbox");
+        modals |= seen("allow-modals");
+    }
     let mut flags = Flags::SANDBOXED_NAVIGATION;
-    if !has("allow-popups") {
+    if !popups {
         flags |= Flags::SANDBOXED_AUXILIARY_NAVIGATION;
     }
-    if !allow_top {
+    if !top {
         flags |= Flags::SANDBOXED_TOP_LEVEL_NAVIGATION_WITHOUT_USER_ACTIVATION;
     }
-    if !(allow_top || has("allow-top-navigation-by-user-activation")) {
+    if !(top || top_ua) {
         flags |= Flags::SANDBOXED_TOP_LEVEL_NAVIGATION_WITH_USER_ACTIVATION;
     }
-    if !has("allow-same-origin") {
+    if !same_origin {
         flags |= Flags::SANDBOXED_ORIGIN;
     }
-    if !has("allow-forms") {
+    if !forms {
         flags |= Flags::SANDBOXED_FORMS;
     }
-    if !has("allow-scripts") {
+    if !scripts {
         flags |= Flags::SANDBOXED_SCRIPTS;
     }
-    if !has("allow-popups-to-escape-sandbox") {
+    if !escape {
         flags |= Flags::SANDBOX_PROPAGATES_TO_AUXILIARY_BROWSING_CONTEXTS;
     }
-    if !has("allow-modals") {
+    if !modals {
         flags |= Flags::SANDBOXED_MODALS;
     }
     SandboxingFlagSet(flags)
@@ -206,15 +213,12 @@ pub fn same_origin_allowed(flags: SandboxingFlagSet) -> bool {
 /// direct user-gesture site passes `true` statically.
 #[must_use]
 pub fn top_navigation_allowed(flags: SandboxingFlagSet, has_transient_activation: bool) -> bool {
-    if has_transient_activation {
-        !flags
-            .0
-            .contains(Flags::SANDBOXED_TOP_LEVEL_NAVIGATION_WITH_USER_ACTIVATION)
+    let flag = if has_transient_activation {
+        Flags::SANDBOXED_TOP_LEVEL_NAVIGATION_WITH_USER_ACTIVATION
     } else {
-        !flags
-            .0
-            .contains(Flags::SANDBOXED_TOP_LEVEL_NAVIGATION_WITHOUT_USER_ACTIVATION)
-    }
+        Flags::SANDBOXED_TOP_LEVEL_NAVIGATION_WITHOUT_USER_ACTIVATION
+    };
+    !flags.0.contains(flag)
 }
 
 /// WHATWG HTML §8.1.3.4 "scripting is enabled" for an environment settings
@@ -232,7 +236,9 @@ pub fn scripting_enabled(flags: SandboxingFlagSet) -> bool {
 mod tests {
     use super::*;
 
-    const HEAD_TOKENS: [&str; 7] = [
+    /// The first 7 are HEAD's tokens (C10b/C10c enumerate those); the 8th is
+    /// `allow-popups-to-escape-sandbox`, which HEAD did not model.
+    const TOKENS: [&str; 8] = [
         "allow-scripts",
         "allow-same-origin",
         "allow-forms",
@@ -240,6 +246,7 @@ mod tests {
         "allow-top-navigation",
         "allow-modals",
         "allow-top-navigation-by-user-activation",
+        "allow-popups-to-escape-sandbox",
     ];
 
     fn subset(tokens: &[&'static str], mask: u32) -> Vec<&'static str> {
@@ -279,18 +286,8 @@ mod tests {
             ),
             (Flags::SANDBOXED_MODALS, &["allow-modals"]),
         ];
-        let tokens = [
-            "allow-scripts",
-            "allow-same-origin",
-            "allow-forms",
-            "allow-popups",
-            "allow-top-navigation",
-            "allow-top-navigation-by-user-activation",
-            "allow-modals",
-            "allow-popups-to-escape-sandbox",
-        ];
         for mask in 0..256u32 {
-            let present = subset(&tokens, mask);
+            let present = subset(&TOKENS, mask);
             let mut expected = Flags::empty();
             for (flag, clearers) in &table {
                 if !clearers.iter().any(|c| present.contains(c)) {
@@ -321,10 +318,7 @@ mod tests {
     fn parse_navigation_flag_is_always_set() {
         // Observed by equality: adding every clearing token still differs
         // from `unsandboxed()`.
-        let everything = parse_sandboxing_directive(&format!(
-            "{} allow-popups-to-escape-sandbox",
-            HEAD_TOKENS.join(" ")
-        ));
+        let everything = parse_sandboxing_directive(&TOKENS.join(" "));
         assert_ne!(everything, SandboxingFlagSet::unsandboxed());
     }
 
@@ -399,7 +393,7 @@ mod tests {
     #[test]
     fn predicates_match_head_token_presence_verdicts() {
         for mask in 0..128u32 {
-            let present = subset(&HEAD_TOKENS, mask);
+            let present = subset(&TOKENS[..7], mask);
             let has = |t: &str| present.contains(&t);
             let set = parse_sandboxing_directive(&present.join(" "));
             assert_eq!(scripts_allowed(set), has("allow-scripts"), "{present:?}");
@@ -428,7 +422,7 @@ mod tests {
     #[test]
     fn union_restrictions_restricts_at_least_as_much_as_either() {
         let sets: Vec<SandboxingFlagSet> = (0..128u32)
-            .map(|m| parse_sandboxing_directive(&subset(&HEAD_TOKENS, m).join(" ")))
+            .map(|m| parse_sandboxing_directive(&subset(&TOKENS[..7], m).join(" ")))
             .collect();
         let singles: [fn(SandboxingFlagSet) -> bool; 6] = [
             scripts_allowed,
@@ -502,7 +496,11 @@ mod tests {
     fn top_navigation_allowed_full_truth_table() {
         // §7.4.2.4 steps 3.2/3.3 over the 2-flag pair:
         // flags ∈ {unsandboxed, all, TOP_NAV, BY_UA, both} × activation ∈ {f, t}.
-        let by_ua = "allow-top-navigation-by-user-activation";
+        let by_ua = parse_sandboxing_directive("allow-top-navigation-by-user-activation");
+        let top = parse_sandboxing_directive("allow-top-navigation");
+        let both = parse_sandboxing_directive(
+            "allow-top-navigation allow-top-navigation-by-user-activation",
+        );
         let cases: [(SandboxingFlagSet, bool, bool); 10] = [
             // Unsandboxed: allowed regardless of activation.
             (SandboxingFlagSet::unsandboxed(), false, true),
@@ -512,35 +510,15 @@ mod tests {
             (SandboxingFlagSet::all_represented(), true, false),
             // `allow-top-navigation` clears BOTH restriction flags (the
             // §7.1.5 implication): allowed regardless of activation.
-            (
-                parse_sandboxing_directive("allow-top-navigation"),
-                false,
-                true,
-            ),
-            (
-                parse_sandboxing_directive("allow-top-navigation"),
-                true,
-                true,
-            ),
+            (top, false, true),
+            (top, true, true),
             // `allow-top-navigation-by-user-activation` alone clears only
             // the *with-user-activation* flag: activation-gated.
-            (parse_sandboxing_directive(by_ua), false, false),
-            (parse_sandboxing_directive(by_ua), true, true),
+            (by_ua, false, false),
+            (by_ua, true, true),
             // Both tokens: `allow-top-navigation` wins — same as TOP_NAV.
-            (
-                parse_sandboxing_directive(
-                    "allow-top-navigation allow-top-navigation-by-user-activation",
-                ),
-                false,
-                true,
-            ),
-            (
-                parse_sandboxing_directive(
-                    "allow-top-navigation allow-top-navigation-by-user-activation",
-                ),
-                true,
-                true,
-            ),
+            (both, false, true),
+            (both, true, true),
         ];
         for (flags, activation, expected) in cases {
             assert_eq!(
@@ -589,7 +567,7 @@ mod tests {
             SandboxingFlagSet::unsandboxed(),
             SandboxingFlagSet::all_represented(),
             parse_sandboxing_directive("allow-scripts"),
-            parse_sandboxing_directive(&HEAD_TOKENS.join(" ")),
+            parse_sandboxing_directive(&TOKENS[..7].join(" ")),
         ] {
             assert_eq!(scripting_enabled(flags), scripts_allowed(flags));
         }

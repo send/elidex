@@ -285,7 +285,7 @@ fn blank_entry_fallback_installs_sandbox_state() {
     assert_eq!(
         ip.pipeline.runtime.sandbox_flags(),
         elidex_plugin::SandboxingFlagSet::all_represented(),
-        "sandbox=\"\" must install maximally-restrictive (empty) flags"
+        "sandbox=\"\" must install maximally-restrictive (all_represented()) flags"
     );
     assert!(
         matches!(
