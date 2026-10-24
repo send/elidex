@@ -1689,13 +1689,13 @@ split had to widen `_IMPORT_SEAMS`, landing inside the territory declared undete
 ⚠ **Correction (2026-10-24):** the block's label was false. The R12, R27 and R29 points timed the
 whole `scripts/trip-wires.sh` (R12: the block's own text at `d7f12732`, "the whole
 `scripts/trip-wires.sh` 5.8 s"; R27 and R29: the `CLAUDE.md` line at `7b931db4` and at `745337b6`,
-"`scripts/trip-wires.sh` 全体 ~11.8 s" and "… 全体 ~13.7 s"), and the commits that took the R30
-figure (`0a8741a5`) and the R32 pair (`7eabcead`) name the timer, `/usr/bin/time -p`, but not the
-command timed (`git show d7f12732:.github/workflows/ci.yml | /usr/bin/grep -n 'whole .scripts/trip-wires.sh. 5.8 s'`;
+"`scripts/trip-wires.sh` 全体 ~11.8 s" and "… 全体 ~13.7 s"), and neither commit that took the R30
+figure or the R32 pair names the command timed: `0a8741a5` names only the timer, `/usr/bin/time -p`,
+and `7eabcead` only "one clean `git clone --local`" (its one `time -p` is a deleted line) (`git show d7f12732:.github/workflows/ci.yml | /usr/bin/grep -n 'whole .scripts/trip-wires.sh. 5.8 s'`;
 `git show 7b931db4:CLAUDE.md | /usr/bin/grep -o 'scripts/trip-wires.sh. 全体 \*\*~11.8 s'`;
 `git show 745337b6:CLAUDE.md | /usr/bin/grep -o 'scripts/trip-wires.sh. 全体 \*\*~13.7 s'`;
 `git show 0a8741a5 7eabcead -- .github/workflows/ci.yml | /usr/bin/grep -cE 'trip-wires\.sh|umbrella-check'`
-prints 0).
+prints 0; `git show 7eabcead | /usr/bin/grep -n 'time -p'` prints one line, starting `-`).
 — ⚠ Axis 5 refuted the premise that the collision is a BUDGET problem: 26 s + 6 s against a
 10-minute timeout is a merge hazard on the inventory, not a cost one; the **three parallel
 plan-memo checkers** now cross-reference, with the boundary written as three questions (this =
