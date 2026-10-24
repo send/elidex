@@ -150,8 +150,7 @@ p521 = { version = "0.14", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 # new transitive).  `std` only (no `pem`: WebCrypto is DER-only); keygen RNG
 # is passed explicitly (no `getrandom`).  Signing uses the prehash
 # `RsaPrivateKey::sign` / `RsaPublicKey::verify`, so the message digest stays on
-# hash.rs (sha2 0.11);
-# the digest *types* below supply only the `AssociatedOid` markers for the
+# hash.rs (sha2 0.11); the digest *types* below supply only the `AssociatedOid` markers for the
 # PKCS#1 v1.5 DigestInfo prefix + the PSS MGF1 hash.
 rsa = { version = "0.9", default-features = false, features = ["std"] }
 # sha1 / sha2 0.10 (the rsa 0.9 digest generation) — `oid` for the

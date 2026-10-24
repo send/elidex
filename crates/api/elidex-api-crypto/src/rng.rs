@@ -1,38 +1,42 @@
-//! The VM entropy-seam adapter shared by the asymmetric key generators.
+//! The VM entropy-seam adapters shared by the asymmetric key generators.
 //!
-//! Elliptic-curve (`ec::generate` → `SecretKey::try_generate_from_rng`) and RSA
-//! (`rsa::generate` → `RsaPrivateKey::new_with_exp`) both draw their
-//! randomness through the RustCrypto `rand_core` `RngCore` + `CryptoRng`
-//! traits — but from two generations: EC (`elliptic-curve` 0.14) uses
-//! `rand_core` 0.10, RSA (`rsa` 0.9) still uses 0.6.  Rather than each backend
-//! reaching for a separate `getrandom` path, [`ClosureRng`] adapts the VM's single fallible `fill_random` closure
-//! (which ultimately calls the OS CSPRNG) into those traits, so all key
+//! Elliptic-curve (`ec::generate` -> `NonZeroScalar::try_generate_from_rng`)
+//! and RSA (`rsa::generate` -> `RsaPrivateKey::new_with_exp`) both draw their
+//! randomness through RustCrypto `rand_core` traits, but from two
+//! generations: EC (`elliptic-curve` 0.14) uses `rand_core` 0.10, RSA
+//! (`rsa` 0.9) still uses 0.6.  Rather than each backend reaching for a
+//! separate `getrandom` path, two thin adapters wrap the VM's single fallible
+//! `fill_random` closure (which ultimately calls the OS CSPRNG), so all key
 //! generation flows through the one VM entropy seam while the curve / RSA
-//! crates still perform their own vetted rejection sampling.
+//! crates still perform their own vetted rejection sampling:
+//!
+//! - [`TryClosureRng`]: `rand_core` 0.10 (EC), fallible, stateless.
+//! - [`ClosureRng`]: `rand_core` 0.6 (RSA), infallible, with the error latch;
+//!   deleted together with `rsa` 0.9.
 
 use elliptic_curve::rand_core as rand_core10;
 
 use crate::error::AlgorithmError;
 
-/// An RNG over the VM's `fill_random` closure (the single entropy seam).
+/// A `rand_core` 0.6 RNG over the VM's `fill_random` closure, for RSA only.
 ///
-/// The `rand_core` 0.10 impl (EC) is fallible, so a closure error is returned
-/// directly.  The `rand_core` 0.6 impl (RSA) has an infallible `fill_bytes`, so
-/// there a closure error is captured and surfaced by [`Self::into_result`]
-/// **after** key generation.  Once the error is latched, the buffer is filled
-/// from a deterministic but *varying* SplitMix64 stream so the consumer's
-/// rejection-sampling loop still **terminates** — and the resulting key is
-/// discarded because `into_result` returns the captured error.
+/// The 0.6 `fill_bytes` is infallible, so a closure error is captured and
+/// surfaced by [`Self::into_result`] **after** key generation.  Once the error
+/// is latched, the buffer is filled from a deterministic but *varying*
+/// SplitMix64 stream so the consumer's rejection-sampling loop still
+/// **terminates**, and the resulting key is discarded because `into_result`
+/// returns the captured error.
 ///
 /// This capture / SplitMix64 / `into_result` workaround exists for the 0.6
-/// (RSA) path only and goes away with it (see the removal trigger on the 0.6
-/// impl).
+/// (RSA) path only; the type is deleted with `rsa` 0.9 (see the removal
+/// trigger on the 0.6 impl).  The EC path uses [`TryClosureRng`].
 ///
 /// The fill must *vary* per call, not be constant: RSA's
-/// `RsaPrivateKey::new_with_exp` does iterative **prime search** — a *constant*
-/// candidate never becomes prime, so a fixed fill would spin its loop forever
-/// (the entropy error would never surface). The SplitMix64 stream feeds the
-/// prime search fresh candidates so it converges, then the key is discarded.
+/// `RsaPrivateKey::new_with_exp` does iterative **prime search**, and a
+/// *constant* candidate never becomes prime, so a fixed fill would spin its
+/// loop forever (the entropy error would never surface). The SplitMix64
+/// stream feeds the prime search fresh candidates so it converges, then the
+/// key is discarded.
 pub(crate) struct ClosureRng<'a> {
     fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
     error: Option<AlgorithmError>,
@@ -49,9 +53,8 @@ impl<'a> ClosureRng<'a> {
         }
     }
 
-    /// The first captured `fill_random` error, if any — checked by the RSA
-    /// caller after key generation to reject a key built over failed entropy
-    /// (the 0.6 path only; the 0.10 EC impl returns the error directly).
+    /// The first captured `fill_random` error, if any, checked by the RSA
+    /// caller after key generation to reject a key built over failed entropy.
     pub(crate) fn into_result(self) -> Result<(), AlgorithmError> {
         match self.error {
             Some(e) => Err(e),
@@ -112,9 +115,24 @@ impl rand_core::RngCore for ClosureRng<'_> {
 
 impl rand_core::CryptoRng for ClosureRng<'_> {}
 
-/// `rand_core` 0.10 (EC keygen); `Rng` / `CryptoRng` follow by blanket impl.
-/// Fallible: a `fill_random` failure is returned as-is (no latch / fallback).
-impl rand_core10::TryRng for ClosureRng<'_> {
+/// A fallible `rand_core` 0.10 RNG over the VM's `fill_random` closure, for the
+/// EC key generators.  A closure failure is returned as-is (no latch, no
+/// fallback stream), so the caller's `?` propagates the original error.
+pub(crate) struct TryClosureRng<'a> {
+    fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+}
+
+impl<'a> TryClosureRng<'a> {
+    pub(crate) fn new(fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>) -> Self {
+        Self { fill }
+    }
+}
+
+/// `rand_core` 0.10 `TryRng` / `TryCryptoRng` only.  The infallible `Rng` /
+/// `CryptoRng` are blanket-implemented by `rand_core` solely for
+/// `Error = Infallible`, so they do **not** follow here: consumers must use
+/// the `try_*` entry points (e.g. `try_generate_from_rng`).
+impl rand_core10::TryRng for TryClosureRng<'_> {
     type Error = AlgorithmError;
 
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
@@ -130,4 +148,4 @@ impl rand_core10::TryRng for ClosureRng<'_> {
     }
 }
 
-impl rand_core10::TryCryptoRng for ClosureRng<'_> {}
+impl rand_core10::TryCryptoRng for TryClosureRng<'_> {}

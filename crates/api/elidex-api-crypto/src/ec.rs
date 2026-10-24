@@ -26,7 +26,7 @@ use crate::hash::HashAlgorithm;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage};
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
-use crate::rng::ClosureRng;
+use crate::rng::TryClosureRng;
 
 /// Dispatch to the RustCrypto curve crate matching `$curve`, binding it as
 /// `$cc` inside `$body`.  Each curve crate (`p256` / `p384` / `p521`)
@@ -296,8 +296,8 @@ fn import_jwk(
 
 /// `generateKey` for an EC algorithm (WebCrypto §23.7.3 ECDSA / §24.4.1 ECDH)
 /// — returns the `(publicKey, privateKey)` pair (the §14.3.6 `CryptoKeyPair`).
-/// `fill_random` is the VM entropy seam, fed through [`ClosureRng`] into
-/// `SecretKey::try_generate_from_rng`'s vetted rejection sampling.
+/// `fill_random` is the VM entropy seam, fed through [`TryClosureRng`] into
+/// `NonZeroScalar::try_generate_from_rng`'s vetted rejection sampling.
 pub(crate) fn generate<F>(
     algorithm: EcAlgorithm,
     curve: NamedCurve,
@@ -311,8 +311,9 @@ where
     // §23.7.3 step 1 / §24.4.1 step 1: a usage outside the algorithm's set is a
     // SyntaxError — before key generation.
     validate_generate_usages(algorithm, usages)?;
-    // §23.7.3 step 2-3 / §24.4.1 step 2-3: generate the curve key pair (a
-    // generation failure is an OperationError, surfaced by the ClosureRng).
+    // §23.7.3 step 2-3 / §24.4.1 step 2-3: generate the curve key pair.  The
+    // `fill_random` closure's error is propagated as-is (the EC path has no
+    // latch), exactly as the caller's closure produced it.
     let (public_point, private_scalar) = generate_keypair(curve, fill_random)?;
     let key_alg = algorithm.key_algorithm(curve);
     // steps 7-11: the public key — usages = ∩(usages, public-permitted),
@@ -350,8 +351,10 @@ where
 
 /// Generate a curve key pair, returning the SEC1 uncompressed public point +
 /// the big-endian private scalar.  The scalar is produced by
-/// `SecretKey::try_generate_from_rng`'s rejection sampling over the [`ClosureRng`] (the VM
-/// entropy seam); a `fill_random` failure surfaces as an OperationError.
+/// `NonZeroScalar::try_generate_from_rng`'s rejection sampling over the
+/// [`TryClosureRng`] (the VM entropy seam).  Zero is rejected here, which
+/// `SecretKey::try_generate_from_rng` alone would NOT do.  A `fill_random`
+/// failure is returned as-is.
 fn generate_keypair<F>(
     curve: NamedCurve,
     mut fill_random: F,
@@ -360,8 +363,9 @@ where
     F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
     with_curve!(curve, cc, {
-        let mut rng = ClosureRng::new(&mut fill_random);
-        let sk = cc::SecretKey::try_generate_from_rng(&mut rng)?;
+        let mut rng = TryClosureRng::new(&mut fill_random);
+        let nz = cc::NonZeroScalar::try_generate_from_rng(&mut rng)?;
+        let sk = cc::SecretKey::from(nz);
         Ok((
             sk.public_key().to_sec1_point(false).as_bytes().to_vec(),
             sk.to_bytes().to_vec(),

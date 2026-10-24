@@ -667,3 +667,78 @@ fn ec_generate_key_fill_random_failure_is_operation_error() {
     assert!(matches!(&err, crate::AlgorithmError::Operation(m) if m == "entropy down"));
     assert_eq!(err.exception_name(), "OperationError");
 }
+
+fn ecdsa_generate_with<F>(
+    curve: NamedCurve,
+    fill: F,
+) -> Result<crate::CryptoKeyData, crate::AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), crate::AlgorithmError>,
+{
+    generate_key(
+        ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, curve),
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        fill,
+    )
+    .map(|g| expect_pair(g).1)
+}
+
+fn private_scalar_of(key: &crate::CryptoKeyData) -> Vec<u8> {
+    match &key.material {
+        crate::KeyMaterial::Ec {
+            private_scalar: Some(d),
+            ..
+        } => d.clone(),
+        _ => panic!("expected an EC private key"),
+    }
+}
+
+#[test]
+fn ec_generate_rejects_zero_scalar_and_redraws() {
+    // `SecretKey::try_generate_from_rng` alone samples [0, n) and would accept
+    // a zero draw; keygen must use NonZeroScalar rejection sampling.
+    for curve in [NamedCurve::P256, NamedCurve::P384, NamedCurve::P521] {
+        let mut calls = 0usize;
+        let key = ecdsa_generate_with(curve, |buf| {
+            calls += 1;
+            if calls == 1 {
+                buf.fill(0);
+                Ok(())
+            } else {
+                fill_seq(buf)
+            }
+        })
+        .expect("keygen succeeds after the zero draw is rejected");
+        assert!(
+            calls >= 2,
+            "{}: a second draw must follow the zero draw",
+            curve.as_str()
+        );
+        assert!(
+            private_scalar_of(&key).iter().any(|&b| b != 0),
+            "{}: private scalar must be nonzero",
+            curve.as_str()
+        );
+    }
+}
+
+#[test]
+fn ec_generate_all_zero_entropy_never_yields_zero_key() {
+    // An always-zero source is rejected by rejection sampling; a bounded
+    // closure turns the otherwise-endless loop into the closure's own error.
+    let mut calls = 0usize;
+    let err = ecdsa_generate_with(NamedCurve::P256, |buf| {
+        calls += 1;
+        if calls > 4 {
+            return Err(crate::AlgorithmError::Operation(
+                "entropy exhausted".to_string(),
+            ));
+        }
+        buf.fill(0);
+        Ok(())
+    })
+    .expect_err("zero scalar must never be accepted");
+    assert!(matches!(&err, crate::AlgorithmError::Operation(m) if m == "entropy exhausted"));
+    assert!(calls > 1, "zero draws must be re-drawn, not accepted");
+}
