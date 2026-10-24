@@ -15,7 +15,9 @@ by this lane.
 **Nature**: repo infrastructure — one driver script and its pins, one `mise` task, one CI job, and the project
 docs that enumerate `mise run ci` and the CI jobs. Zero `crates/**` diff, zero `_webref` diff, zero
 gate-semantics change.
-**Status**: plan-memo, **draft 6**. `/elidex-plan-review` **required before implementation**.
+**Status**: plan-memo draft 6 — **implemented in this PR** (`scripts/python-suites.sh`, `scripts/test_python_suites.py`,
+`mise.toml`, `ci.yml`, §4.6's docs), with the ten first-fix items the user carried from the draft-6 re-check
+into the implementation applied below (2026-10-24).
 
 **This memo carries no measurements and no harness.** The program's rule (2026-08-23): a plan memo holds
 neither measured digits nor a self-measuring apparatus; what needs measuring is measured by a test or a CI
@@ -89,15 +91,16 @@ job is ungated (§4.2).
 - **L1 — one script, two callers.** If `mise` and `ci.yml` each spell the suite invocation, a later suite is
   added to one and not the other.
 - **L2 — no suite is silently uncollected.** Every member of `git ls-files ':(glob)**/test_*.py'` (repo-wide)
-  is run and contributes at least one test; a tracked non-member `.py` that *is* a suite or a self-test by
-  property, unreferenced by the set, fails the run (§4.2 step 3).
+  is run and contributes at least one test; a tracked non-member `.py` that is a suite by property (a
+  `TestCase`, step 3(a)) fails the run whether or not a member names it, and one that is an entry-point
+  self-test (step 3(b)) fails it unless a member names it by path (§4.2 step 3).
 - **L3 — the trigger cannot be silently narrowed.** No job-level gate and no workflow-level path filter: the
   job runs on every pull request targeting `main` (§4.2.2).
 - **L4 — A-iii adds no network dependency.** The script runs every member under an offline regime: network
   access through Python's socket layer — connection and name resolution — fails in the loader and in every
   child outside the **unguarded-child class**, and those children see the regime's environment; a green run
-  is the offline measurement **for that coverage**, and the class is the stated limit (§4.3, defined once
-  there).
+  is the offline measurement **for that coverage**, and the class — with the socket-layer paths T-net does not
+  plant — is the stated limit (§4.3, defined once there).
 - **L5 — the interpreter floor is 3.9, measured by the `"3.9"` leg** running the whole set; the script's
   assertion is the statement (§4.4).
 - **L6 — the job boundary.** `trip-wires` declares no interpreter; `tools` declares one; a check that needs a
@@ -200,7 +203,9 @@ including `--self-test` as the normative spelling; `mise.toml`'s task comment po
 **Entering the set from a non-`discover`-shaped self-test — the contract.** A self-test that is a command
 rather than a unittest module (PR #510's `python3 .claude/tools/plan-memo-umbrella-check.py --self-test
 --mutants`) enters as a thin tracked `test_*.py` beside it. The contract: the command's self-test is
-reached by the flag **`--self-test`** from a top-level `__main__` guard (the repo's one spelling); the wrapper
+reached by the flag **`--self-test`** from a top-level `__main__` guard (the repo's one spelling); the
+command's own file is **not named `test_*.py`** (a member is excluded from 3(b), so its self-test would never
+be required to run) and **defines no `TestCase`** (3(a) would keep it red); the wrapper
 names the command's file by path (step 3(b)); runs the command through `sys.executable` (so the matrix leg's
 interpreter is the one measured), without `-I` / `-E` / `-S`, **in an environment equal to the regime on
 every regime key** (§4.3) — it may add or change only non-regime keys, and `PYTHONPATH` only by appending
@@ -258,10 +263,15 @@ stdlib network client passes — the socket layer — rather than at named clien
   before any member loads, through the environment (one mechanism for the loader and for every Python
   child, `webref` included). The guard is installed **exactly once per process**, **does not suppress a
   `sitecustomize` that would run without it**, and a driver run nested inside a guarded process (as the pins
-  do) is idempotent (G7–G8). The functions it covers are exactly those T-net plants (G1–G5).
+  do) is idempotent (G7–G8). **A guard that fails to install fails the process closed** (nonzero exit) —
+  CPython's `site` would print a raising `sitecustomize` and carry on unguarded (G7). The functions it
+  covers are exactly those T-net plants (G1–G5, the resolvers `gethostbyname` / `gethostbyname_ex` /
+  `gethostbyaddr` / `getnameinfo` included beside `getaddrinfo`).
 - **The environment half.** The **regime keys**: `PYTHONPATH` (the guard's entry), `http_proxy` /
   `https_proxy` (a closed local port), `NO_PROXY` / `no_proxy` (absent — an inherited `NO_PROXY=*` would
-  bypass the proxy), `XDG_CACHE_HOME` (a fresh empty directory).
+  bypass the proxy), `XDG_CACHE_HOME` (a fresh empty directory). The loader **restores the regime keys before each member** (in
+  `os.environ` and the process environment), so one member's mutation cannot silently unguard a later
+  member's conforming children (G11).
 
 **The limit, stated once — the unguarded-child class**, by property: **a child whose environment differs
 from the regime (of the nearest enclosing driver run — a nested driver sets its own) on any regime key** —
@@ -387,7 +397,9 @@ step 5's command).
 **Every pin is a test in `scripts/test_python_suites.py`**; "Red at main" says whether it fails on
 `origin/main`, the base. **No pin runs the driver on the live tree** — the driver runs this file, so such a pin
 would recurse. Every pin that executes the driver builds a **scratch repository** (`git init` in a temporary
-directory, the driver copied in, fixture files staged with `git add`; never the pins file itself), so the live
+directory, the driver copied in, fixture files staged with `git add`; never the pins file itself; every git call and driver run with
+**all `GIT_*` variables removed**, so an inherited `GIT_DIR` / `GIT_INDEX_FILE` cannot point git at another
+repository), so the live
 tree's properties are the driver's own checks on every run (§4.2 steps 1–5, §4.3), and the pins prove each of
 those checks can fire.
 
@@ -414,7 +426,7 @@ stated in the test; §6.1 rows R1–R9 and M1–M2 are the constructs it must pr
 | **Q7** | the same region carries a `python-version:` matrix with legs `"3.9"` and `"3.x"` **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`, before Q6's `run:` step** — a matrix no step consumes runs one interpreter on every leg (Codex R48), and a `setup-python` after the driver step measures nothing (Codex R49) | — | **yes** |
 | **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs` and no `if` key — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads `check` (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` carries no `paths:` / `paths-ignore:` and its `branches` is exactly `[main]` | 1, 2 | **yes** |
 | **Q13** | the text readers' property (§6 above), §6.1 R1–R9 and M1–M2 | — | **yes** — the readers do not exist |
-| **T-net** | the offline regime, §6.1 G1–G10: each network plant is **green without the regime and red with it**, making the script exit non-zero naming the plant | 7 | **yes** |
+| **T-net** | the offline regime, §6.1 G1–G11: each network plant is **green without the regime and red with it**, making the script exit non-zero naming the plant | 7 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, §4.5; the
 interpreter floor on `SKILL.md`'s direct `preflight.py` path, which bypasses the script — **assigned to Slice
@@ -433,14 +445,14 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **P3** | 3(b)'s predicate is syntactic: a top-level `__main__` guard **and** the constant `'--self-test'`, never a string grep | red: `a/tool.py` with guard + constant, named by no member; **green controls**: constant without guard; guard without constant; guard + `--self-test` only in a comment; guard nested in a function (not top-level) |
 | **P4** | *named by path*: one constant, root-relative or member-dir-relative | green: `a/test_tool.py` holding `"tool.py"`; a member elsewhere holding `"a/tool.py"`; **red**: a second `b/tool.py` beside `a/test_tool.py`'s `"tool.py"` stays red naming `b/tool.py` (filename is not a name); a member holding `"a/" + "tool.py"` (assembled) leaves `a/tool.py` red |
 | **P5** | S1: set members are excluded from 3(a) and 3(b) | green: a member `a/test_wrap.py` with `if __name__ == "__main__": unittest.main()` **and** the constant `"--self-test"`, named by nothing, defining a passing `TestCase` |
-| **P6** | the pins file is a member and never credits a live entry point | a test parses `scripts/test_python_suites.py` itself (text, no driver run) and asserts no string constant in it equals the root-relative or `scripts/`-relative path of any tracked `.py` (its fixture paths name files inside scratch repos only) |
+| **P6** | the pins file is a member and never credits a live entry point | a test parses `scripts/test_python_suites.py` itself (no driver run) and, calling **the driver's own** entry-point and named-by-path predicates, asserts it names by path none of the live tree's tracked **non-member entry points** (its fixture paths name files inside scratch repos only); **control**: the same predicate credits a planted root-relative and member-dir-relative constant |
 | **P7** | a tracked `.py` that does not parse under the running interpreter is red, member or not | red: non-member `bad.py` with a syntax error; red: member `test_bad.py` with a syntax error |
 | **R1** | keys are recognised in any quoting | in the `tools` region, `"needs": changes` and `'if': x` each read as gated |
 | **R2** | the modelled values read correctly | green: `branches: [main]`, `python-version: ["3.9", "3.x"]`, `python-version: ${{ matrix.python-version }}` |
 | **R3** | value-position constructs not modelled are red | red, in the `tools` region: a value `{a: 1}`, `&x`, `*x` |
 | **R4** | key-position constructs not modelled are red | red: `&a needs: x`, `!!str needs: x`, an explicit key `? needs` |
 | **R5** | merge keys are red | red: `<<: *x` and `<<: {needs: changes}` in the `tools` region |
-| **R6** | a multi-line flow sequence never reads as something else | `branches: [main,` / `  dev]` across two lines is red (never read as `[main]`); a `python-version: [` multi-line list is red or reads both legs exactly |
+| **R6** | a multi-line flow sequence never reads as something else | `branches: [main,` / `  dev]` across two lines is red (never read as `[main]`); a `python-version: [` multi-line list is red (fail closed — no exact multi-line reading is modelled) |
 | **R7** | comments, including trailing, are not values and not keys | `needs: changes # x` reads as gated; a `# needs: changes` line reads as no key (job ungated); `tools: # c` is still the region's header; `run: bash scripts/python-suites.sh # c` still satisfies D1 |
 | **R8** | block scalars: headers `\|` `>` `\|-` `>-` `\|+` are recognised; the body is text | for each header, a body containing `*.py` and a line `needs: x` is green and reads as no key; an unrecognised header (`\|9x`) is red |
 | **R9** | the `tools` region is bounded by the next job | a fixture whose **next** job carries `needs:`, a driver `run:` and a `setup-python` step: none is credited to `tools` (Q6–Q8); a two-space-indent comment inside `tools` does not end its region |
@@ -451,12 +463,13 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **G2** | … in a Python child (`webref` included) | a member's `sys.executable` child doing a raw `socket.socket().connect` to the listener, the member asserting the child's exit 0; the same through an executable with a `#!/usr/bin/env python3` shebang (`webref`'s shape) |
 | **G3** | `connect_ex` | in-process `socket.socket().connect_ex` to the listener, asserting a return of 0 |
 | **G4** | `AF_INET6` | `connect` to a listener on `::1` (a host without IPv6 loopback fails the unguarded run — red, not a skip) |
-| **G5** | name resolution fails | in-process `socket.getaddrinfo('localhost', …)`; the guard is active at import time — the same call at a member's module top level is red |
+| **G5** | name resolution fails | in-process `socket.getaddrinfo('localhost', …)`, `gethostbyname`, `gethostbyname_ex`, `gethostbyaddr('127.0.0.1')` and `getnameinfo` (numeric flags), each red; the guard is active at import time — the `getaddrinfo` call at a member's module top level is red |
 | **G6** | the environment half, per regime key | the driver launched with an inherited `NO_PROXY=*`, `no_proxy=*`, a real `http_proxy` / `https_proxy` and a set `XDG_CACHE_HOME`; a member asserts a **non-Python** child (`/bin/sh -c env`) sees each inherited value — red under the regime, once per key |
-| **G7** | B2: installed exactly once per process; a nested driver run is idempotent | a member asserts the guard's install marker counts 1 in the loader and in a child; the driver run from inside a guarded process (the way the pins run it) gives the same G1–G5 result and a count of 1 |
+| **G7** | B2: installed exactly once per process; a nested driver run is idempotent | a member asserts the guard's install marker counts 1 in the loader and in a child; the driver run from inside a guarded process (the way the pins run it) gives the same G1–G5 result and a count of 1; **fail closed**: with a raising `socket.py` shadow later on `PYTHONPATH`, the guard's install fails and the run is red naming the guard, with no test run |
 | **G8** | B2: a `sitecustomize` that would run without the guard is not suppressed | with a pre-existing `sitecustomize.py` later on `PYTHONPATH` that sets a marker, a member asserts the marker is set **and** G1 is still red |
-| **G9** | B3: the pins' own members of the unguarded-child class are deliberate | every G-row's baseline launches the member outside the regime (regime keys stripped), against a loopback listener only, and is green (so each plant can fire); G6's driver launch with altered regime keys is another (its descendants are under the inner driver's regime, G7); the set of pin launches that change a regime key equals the named set (G9's baseline and G10's override children), and the pin fails if a regime-key-changing launch is not in it |
+| **G9** | B3: the pins' own members of the unguarded-child class are deliberate | every G-row's baseline launches the member outside the regime (regime keys stripped), against a loopback listener only, and is green (so each plant can fire); G6's driver launch with altered regime keys is another (its descendants are under the inner driver's regime, G7); the set of pin launches that change a regime key equals the named set (G9's baseline, G6's driver launch, and G10's override children), and the pin fails if a regime-key-changing launch is not in it |
 | **G10** | B1: the class is defined by regime-key difference, not by spawn mechanism | under the regime, the test asserts: a child with `env={**os.environ, "PYTHONPATH": d}` (guard entry dropped) **can** connect, and a child spawned after the parent sets `os.environ["NO_PROXY"] = "*"` sees it — each **in** the class (the limit is real, documented by a passing assertion); "connect" is a raw `socket.connect` to a `127.0.0.1` listener the same test opens (no proxy, no name resolution, no external host), so G10 needs no network and holds offline (L4); any `os.environ` change G10 makes happens inside a scratch-repo member's own process and is restored before the member returns; a child that `os.execve`s `sys.executable` with `os.environ`, and one with `env={**os.environ, "X": "1"}`, **cannot** connect — **outside** the class; **control**: a non-network `sys.executable` child passes |
+| **G11** | the loader restores the regime keys before each member | two members in one root: the first mutates `NO_PROXY`, `PYTHONPATH` (via `os.environ`) and `https_proxy` (via `os.putenv`); the second asserts a `/bin/sh -c env` child sees the regime's values and a `sys.executable` child is still refused a loopback connect — green only if the keys were restored |
 
 ---
 
@@ -588,14 +601,16 @@ gh pr list --state open --limit 200 --json number --jq '.[].number' | while read
 
 It ranges over A-iii's contended files in every open PR — CI and doc paths, and every `*.py` (step 3's
 population) — not over `docs/plans/`, the shape that hid #496 from the merged memo. For a PR whose `*.py`
-lines show, step 3(b)'s predicate is run over its head (`n` set to the PR number):
+lines show, step 3 is run over its head (`n` set to the PR number) by **the driver itself** — its own
+predicate, not a re-spelling of it — on a detached worktree of that head:
 
 ```sh
-git fetch -q origin "refs/pull/$n/head" && git ls-tree -r --name-only FETCH_HEAD | grep '\.py$' | grep -vE '(^|/)test_[^/]*\.py$' | while read f; do git show "FETCH_HEAD:$f" | python3 -c 'import ast,sys; t=ast.parse(sys.stdin.read()); g=any(isinstance(n,ast.If) and isinstance(n.test,ast.Compare) and getattr(n.test.left,"id","")=="__name__" for n in t.body); c=any(isinstance(n,ast.Constant) and n.value=="--self-test" for n in ast.walk(t)); g and c and print(sys.argv[1])' "$f"; done
+git fetch -q origin "refs/pull/$n/head" && w=$(mktemp -d) && git worktree add -q --detach "$w/t" FETCH_HEAD && cp scripts/python-suites.sh "$w/t/scripts/" && { bash "$w/t/scripts/python-suites.sh" > "$w/log" 2>&1; true; }; grep 'entry point that no set member names by path' "$w/log"; git worktree remove --force "$w/t"
 ```
 
-It filters set members out, as step 3 does. Each file it prints needs a member naming it by path on that
-PR's head, or that PR's `tools` job is red.
+Each entry point it names needs a member naming it by path on that PR's head, or that PR's `tools` job is
+red. (Draft 6's `ast` one-liner checked only `left.id == "__name__"`; it is retired for this reason.) On #510's
+head `a322b845` this names exactly `.claude/tools/plan-memo-umbrella-check.py` (verified 2026-10-24).
 
 **Landing checklist**
 
@@ -621,4 +636,7 @@ PR's head, or that PR's `tools` job is red.
 - Draft 5 (2026-10-24, subtractive): other lanes' follow-ups moved to the CI/tools lane SSoT; cross-file line
   numbers dropped; §4.6 as a property; reader by value position (Q13); unguarded-child class stated once;
   `sitecustomize` chain-load; §3's grep-pass runnable; T-net `connect_ex` / `AF_INET6`.
+- Implementation (2026-10-24): first-fix items 1–10 applied (L2 split, L4 limit, guard fail-closed, per-member
+  regime restore + G11, resolver plants in G5, contract clauses, P6 via the driver's predicate, `GIT_*` cleared,
+  R6 fail-closed, §13 sweep through the driver); G9's named set gains G6's driver launch.
 - Draft 6 (2026-10-24, decision altitude): mechanism prose → §6.1 Property → pin; S1 members out of step 3; B1 class by regime key; §4.6 task lists; S2–S4, B2–B3, C1.
