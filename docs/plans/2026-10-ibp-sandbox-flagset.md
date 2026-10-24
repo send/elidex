@@ -13,10 +13,20 @@ newtype over a module-private `bitflags` type, so it has no public `empty()`, `a
 its only constructors are `unsandboxed()` and `all_represented()` (both `const fn`) and `parse_sandboxing_directive`
 (D-N1). Every HEAD spelling of a flag value then fails to compile at the type swap, and the migration population is
 **(p) := the compiler's error list** (§5.1), mapped by a total rule over HEAD's *value class* (D-N6, §4.2); populations
-(e), (e+), (e!) stay as premise cross-checks, not the gate. G5 is withdrawn, G6 and G7 are rewritten, G3b, G8b and G11
+(e), (e+), (e!) stay as premise cross-checks, not the gate. G5 is withdrawn, G6 and G7 are rewritten, G3b and G8b
 are new; C10d is folded into C10, C10f and C10g are new (§6, §9). Also: (e!)'s count corrected to 8 in `sandbox.rs` / 17
 outside (B4); §1 counts two intersecting pairs; B7, B9, D-N2, D-N3, D-N4, §3, §3.1, §5, §7, §8 corrected per the R1
 minors; J14's `empty()` is read as the empty set's value (§0.3 R4).
+
+**Revision 3** (2026-10-24) — plan-review R2 re-check; PM-approved, narrow. (1) **G11 and the §5.1 partition rule
+((p) ∪ (d)) are dropped**: (p) stays the compiler's error list, recorded per pass with each site's HEAD value class →
+new spelling, with no accounting rule; G10 stays, with C10e / C10g named as ADDED cells. (2) **The operator surface is
+by construction**: the new type implements no `BitOr` / `BitOrAssign` / `BitAnd` / `BitXor` / `Not` / `Sub` (or `Add`),
+so a HEAD `a | b` of allow bits fails to compile and joins (p); the J7 union is a named method,
+`union_restrictions`; cell C10h checks the absence (grep gate — the workspace has no `trybuild`). (3) the
+`sandbox.rs` test module sees the private `Flags`, so its treatment is stated (D-N6). (4) "no `Option`" is restated as a
+property of parameter / field / return types and G3 / G3b are widened. (5) §8 hands N5 the `unsandboxed()` reading of
+J14's DoD grep. (6) G8a no longer bans "maximum restriction". Rev 3 adds no other gate, count or partition.
 
 ## §0. Frame, premises, decisions
 
@@ -42,7 +52,7 @@ in commands is `git grep`; `-P` wherever `\b` appears (this git's `-E` has no `\
 | B6 | `apply_sandbox_origin` open-codes a flag test, against the module's "every capability check delegates here" contract (`sandbox.rs:9-14`) | `sed -n 541,553p crates/shell/elidex-shell/src/content/iframe/load.rs` | holds: `:545-546` `if let Some(flags) … !flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN)` |
 | B7 | Readers that default on a **missing `HostData`** (unbound) through the flag *value* | `git grep -n -E 'and_then\(.*sandbox_flags' -- crates` | two: `crates/script/elidex-js/src/engine.rs:666`, `crates/script/elidex-js/src/vm/host/window_dialogs.rs:214`; the verdict-defaulting sites do not name the value: `is_none_or(\|hd\| hd.*_allowed())` (`engine.rs:674`, `:682`; `window_dialogs.rs:52`) and `.is_some_and(\|hd\| !hd.scripts_allowed())` (`vm/host/event_handler_attrs.rs:553`) — the same default (unbound → not refused) |
 | B8 | No struct holding the flags derives `Default` (so the set needs no `Default`) | `grep -n 'derive' crates/shell/elidex-shell/src/pipeline.rs`; `sed -n 855,870p crates/script/elidex-js/src/vm/host_data/mod.rs` | holds: `PreEvalFrameState`/`PreEvalFrameInputs` derive nothing; `HostData::new` sets `sandbox_flags: None` explicitly (`:863`) |
-| B9 | The modules' docstrings and comments name the old contract and deleted code | G8a's and G8b's commands (§9) at `d306af5a` over §5.1's 21 touched files; plus G1's command for comments naming the type | **20 lines** (verified 2026-10-24 via those commands): `sandbox.rs:2`, `:3`, `:11`, `:12`, `:23`, `:92`, `:94`, `:156`, `:327`; `host_data/mod.rs:188`, `:1091`, `:1110`, `:1111`; `tests_window_open_modals.rs:132`, `:246`; `elidex-script-session/src/engine.rs:517`; `navigation.rs:376`; `content/iframe/load.rs:400`; `pipeline.rs:55`, `:83`. G1 adds the comment lines naming `IframeSandboxFlags` (e.g. `host_data/mod.rs:190`, `:1093`; `elidex-script-session/src/engine.rs:514`). **Filter**: sandbox-domain hits only — `boa` is searched in `sandbox.rs` alone (G8b), because the touched files' other `boa` hits are S1/S5 cutover history unrelated to the flag contract (e.g. `pipeline.rs:219`, `navigation.rs:57`), and G8a's terms run over the touched files only, which excludes the unrelated `Some(empty)` hits elsewhere (`vm/host/fetch/dispatch.rs:656`, `vm/host/request_response/request_ctor.rs:341`, `vm/host/url/setters.rs:74`) |
+| B9 | The modules' docstrings and comments name the old contract and deleted code | G8a's and G8b's commands (§9) at `d306af5a` over §5.1's 21 touched files; plus G1's command for comments naming the type | **15 lines** (verified 2026-10-24 via those commands; rev 3's G8a drops the `maximum restriction` term, which five still-correct or type-bound comment lines use — `sandbox.rs:23`, `:92`, `:327`, `tests_window_open_modals.rs:246`, `navigation.rs:376`; `:23` and `:92` name the deleted type and are G1's): `sandbox.rs:2`, `:3`, `:11`, `:12`, `:94`, `:156`; `host_data/mod.rs:188`, `:1091`, `:1110`, `:1111`; `tests_window_open_modals.rs:132`; `elidex-script-session/src/engine.rs:517`; `content/iframe/load.rs:400`; `pipeline.rs:55`, `:83`. G1 adds the comment lines naming `IframeSandboxFlags` (e.g. `sandbox.rs:23`, `:92`; `host_data/mod.rs:190`, `:1093`; `elidex-script-session/src/engine.rs:514`). **Filter**: sandbox-domain hits only — `boa` is searched in `sandbox.rs` alone (G8b), because the touched files' other `boa` hits are S1/S5 cutover history unrelated to the flag contract (e.g. `pipeline.rs:219`, `navigation.rs:57`), and G8a's terms run over the touched files only, which excludes the unrelated `Some(empty)` hits elsewhere (`vm/host/fetch/dispatch.rs:656`, `vm/host/request_response/request_ctor.rs:341`, `vm/host/url/setters.rs:74`) |
 | B10 | No HEAD feature reads one of the seven flags D1 leaves unrepresented | `git grep -n -i -E 'autofocus\|"domain"\|document_domain\|autoplay\|requestPointerLock\|pointer_lock' -- 'crates/**/*.rs'` less tests | holds: the only hits are the focus-delegate walk (`elidex-dom-api/src/focus/delegate.rs`), which is not *flush autofocus candidates* (slot `#11-flush-autofocus-candidates-page-load`, `delegate.rs:163`); no `document.domain` setter, Pointer Lock, downloads, orientation lock, presentation |
 | B11 | Files N2a touches and the 1000-line rule | `git show d306af5a:<file> \| wc -l` on §5.1's touched files (verified 2026-10-24) | one file >1000: `crates/script/elidex-js/src/vm/host_data/mod.rs` (2023); watch: `crates/shell/elidex-shell/src/pipeline.rs` (973) |
 | B12 | The iframe's flag set is read from the attribute at load | `sed -n 399,407p crates/shell/elidex-shell/src/content/iframe/load.rs` | `parse_sandbox` (`:401`): absent → `None`, present → parse; spec (§4.8.5): post-connection steps step 2 parses, attribute set/changed re-parses, removal empties, and "these flags only take effect when the content navigable … is navigated" — on the **in-process** load paths a read at navigation is observationally the maintained set. The OOP `Navigate` rebuild (`content/iframe/thread.rs:227`) instead re-reads the retiring document's stored set (B14) |
@@ -98,11 +108,18 @@ approval is `d306af5a` (#541), the branch cut.
   spec's empty set, HEAD's `None`); `SandboxingFlagSet::all_represented()` (NEW, `const fn`, `Self(Flags::all())` —
   "every flag this representation holds", the parse of an empty directive (C10 asserts the equality) and the value F10r
   returns from N4/N5; the name carries that the seven unrepresented flags are absent from it);
-  `parse_sandboxing_directive` (D-N2); `BitOr` / `BitOrAssign` (the union, J7); derives `Clone, Copy, Debug, PartialEq,
-  Eq, Hash` (the set-valued test asserts, D-N6). There is **no** public `empty()`, `all()`, `contains`, `from_bits*`,
-  flag constant, `Default` or `Option<SandboxingFlagSet>` anywhere (G3, G6): every HEAD spelling of a flag value —
-  `F::empty()`, `F::all()`, an `ALLOW_*` constant, `None`, `Some(..)`, `Option<F>` — fails to compile against the new type, which
-  is what makes (p) the complete population (§5.1). **No `Default`**: a defaulted set would be an implicit *unsandboxed*;
+  `parse_sandboxing_directive` (D-N2); `union_restrictions(self, other: Self) -> Self` (NEW — the union, J7; the
+  polarity is in the name: the result is restricted at least as much as either operand, which is the reverse of what
+  `a | b` meant on HEAD's allow-form bits; it is `pub` because J7 decides the union from N2a and its callers, N7 and N8
+  (n6a), are outside the module — a private helper would be dead code in N2a's production build); derives `Clone,
+  Copy, Debug, PartialEq, Eq, Hash` (the set-valued test asserts, D-N6). There is **no** public `empty()`, `all()`,
+  `contains`, `from_bits*`, flag constant, `Default` or operator, and **no `Option<SandboxingFlagSet>` in any
+  parameter, field or return type** (G3, G6, C10h): the type implements **none** of `BitOr`, `BitOrAssign`, `BitAnd`,
+  `BitAndAssign`, `BitXor`, `BitXorAssign`, `Not`, `Sub`, `SubAssign`, `Add`, `AddAssign` — any set operator whose
+  meaning flips between allow-form and restriction-form is absent by construction, because an operator that compiles
+  against both forms is the silent-flip vector (R1) in operator position. Every HEAD spelling of a flag value or
+  combination — `F::empty()`, `F::all()`, an `ALLOW_*` constant, a bare bit binding, `a | b`, `None`, `Some(..)`,
+  `Option<F>` — fails to compile against the new type, which is what makes (p) the complete population (§5.1). **No `Default`**: a defaulted set would be an implicit *unsandboxed*;
   every construction names its value (fail-safe direction; B8 shows nothing needs it). A hand-built restriction set that
   omits a flag would *grant* it; with the constants private, no code outside the module can build one. The seven
   unrepresented flags (pointer lock, automatic features, `document.domain`, orientation lock, presentation, downloads,
@@ -152,15 +169,34 @@ approval is `d306af5a` (#541), the branch cut.
   - `Some(IframeSandboxFlags::empty())` (any alias) → `SandboxingFlagSet::all_represented()`;
   - `Some(<allow bits>)` → `parse_sandboxing_directive("<the same tokens>")` — HEAD's bit `ALLOW_X` is the token
     `allow-x`, and `IframeSandboxFlags::all()` is all seven of HEAD's tokens;
+  - HEAD `a | b` of allow bits (`sandbox.rs:340-341` `F::ALLOW_TOP_NAVIGATION | by_ua`) →
+    `parse_sandboxing_directive("<tokens of a> <tokens of b>")`: it is the union of *allows*, i.e. the parse of both
+    tokens, never `union_restrictions` (the two unions are duals); a HEAD **bit-value binding** (`sandbox.rs:322`,
+    `navigation.rs:368` `let by_ua = F::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION`) becomes a binding of the token string,
+    and each `Some(by_ua)` use becomes `parse_sandboxing_directive(by_ua)`. These are all the HEAD sites of the class
+    (verified 2026-10-24: `git grep -n -P 'ALLOW_[A-Z_]+\s*\||\|\s*(F::|IframeSandboxFlags::)?ALLOW_' -- crates` → the two
+    lines `sandbox.rs:340`, `:341`; `git grep -n -P '=\s*(F|IframeSandboxFlags)::ALLOW_[A-Z_]+;' -- crates` → the two
+    bindings);
   - a type position `Option<IframeSandboxFlags>` / `Option<F>` → `SandboxingFlagSet`; an import of
     `IframeSandboxFlags` (with or without `as F`) → `SandboxingFlagSet`, unaliased (G3b);
   - a HEAD **reader** of the option (`is_none_or`, `if let Some`, `and_then`) → §4.2's reader rows;
-  - **any other HEAD expression → stop and record** in the (p) record (G11) before choosing a spelling.
+  - **any other HEAD expression → stop and record** in the (p) record (§5.1) before choosing a spelling.
   `const` fixtures use the two `const fn`s (`navigation.rs:304` `const UNSANDBOXED` → `unsandboxed()`, `:305`
   `const MAX_RESTRICTION` → `all_represented()`; names kept so their use sites compile unchanged). Production builds a
   present attribute's set with `parse_sandboxing_directive`, and C10 pins `parse_sandboxing_directive("") ==
   all_represented()`, so every fixture value is one production produces (user CLAUDE.md "fixture は実物の形を反映させる").
-  The assertion lines of the migrated tests do not change except the set-valued equality asserts, which change only
+  **The `sandbox.rs` test module** (`mod tests`, `:184` to the end of the file; `use super::*` makes the private
+  `Flags` and its constants visible there, so the compiler guarantee of D-N1 does not hold inside it) constructs values
+  **only** through the public constructors — `unsandboxed()`, `all_represented()`, `parse_sandboxing_directive` — and
+  reads them only through the predicates or `==`; a flag without a predicate (navigation, propagate) is observed by
+  equality between two parses, not through `Flags`. Its two halves are treated differently. The **predicate tests**
+  (`:284`–`:394`) are **migrated** by the value-class rule: each assert keeps its predicate and its polarity, only the
+  value expression inside it is rewritten (inline value expressions are why G10's textual check is for the other
+  migrated files). The **token-parser tests** (`:186`–`:282`) assert through `contains` / `is_empty` on the old type,
+  which the new type does not expose, so they cannot migrate; they are **replaced** by C10 / C10b, which carry every
+  scenario they hold (empty string, single / multiple / unrecognised tokens, case folding, all seven tokens, the
+  `allow-top-navigation-by-user-activation` token and its implication).
+  The assertion lines of the other migrated test files do not change except the set-valued equality asserts, which change only
   their expected value (`tests_engine_s1b.rs:166`, `:172`, `:196`; `content_iframe_security_tests.rs:119`, `:232`,
   `:247`, `:263`, `:283`).
 
@@ -168,7 +204,7 @@ approval is `d306af5a` (#541), the branch cut.
 
 | Axis | Own invariant |
 |---|---|
-| Representation | restriction form; nine flags on a module-private type; public constructors `unsandboxed()`, `all_represented()`, `parse_sandboxing_directive` only; no `empty()`, `all()`, constant, `Option` form or `Default` |
+| Representation | restriction form; nine flags on a module-private type; public constructors `unsandboxed()`, `all_represented()`, `parse_sandboxing_directive` only; union by the named `union_restrictions`; no `empty()`, `all()`, constant, operator impl, `Option` form or `Default` |
 | Parse | *parse a sandboxing directive* steps 1–3, additive from empty; implied grant at parse |
 | Readers | every verdict through a predicate in `elidex-plugin::sandbox`; every HEAD verdict unchanged |
 | Interim stores (J14) | `None` → `unsandboxed()`; unbound defaults HEAD's (D-N5); population (p) = the compiler's, mapped by value class |
@@ -186,12 +222,12 @@ spec, M = 9 rows (§3), "ok → single PR scope" (`webref coverage-map`).
 - **K1 Behaviour equivalence** — for every token string `T` over HEAD's seven tokens and for the absent attribute, each
   predicate's verdict after N2a equals HEAD's (HEAD's verdict = presence of the clearing token; absent = permissive).
   Includes the unbound defaults (D-N5) and `apply_sandbox_origin`.
-- **K2 Restriction-form union (J7)** — `a | b` restricts at least as much as `a` and as `b`: for every single-flag
-  predicate `p`, `p(a | b) == p(a) && p(b)`; `unsandboxed()` is the identity and `all_represented()` absorbs. (No N2a
+- **K2 Restriction-form union (J7)** — `a.union_restrictions(b)` restricts at least as much as `a` and as `b`: for every
+  single-flag predicate `p`, `p(a.union_restrictions(b)) == p(a) && p(b)`; `unsandboxed()` is the identity and `all_represented()` absorbs. (No N2a
   reader; N7's embedder union and N8's popup copy rely on it, n6a.)
 - **K3 Interim mapping (J14)** — every site of (p) is rewritten by HEAD value class (D-N6): `None` → `unsandboxed()`,
-  `Some(empty)` → `all_represented()`, `Some(A)` → `parse(tokens(A))`; no `Option` of the set exists (D-N1, by
-  construction; G3).
+  `Some(empty)` → `all_represented()`, `Some(A)` → `parse(tokens(A))`, HEAD `a | b` → `parse` of both token lists; no operator impl and no
+  `Option<SandboxingFlagSet>` in a parameter, field or return type exists (D-N1, by construction; C10h, G3).
 - **K4 Parse totality** — `parse_sandboxing_directive("") == all_represented()`, so every represented constant has a
   parse arm (a constant added without one fails the cell).
 
@@ -201,7 +237,7 @@ and `Some(A)` → `parse(tokens(A))` is the same verdict per predicate because H
 "add `SANDBOXED_X` unless `allow-x`" read the same token (the top-navigation pair: HEAD's disjunction
 `TOP_NAV ∨ (act ∧ BY_UA)` equals "activation ? ¬with-UA : ¬without-UA" over the parsed set, because the with-UA arm is
 cleared by either token). The construction (D-N1) is what makes K3 range over **every** site: a site the rule does not
-reach does not compile. **K1 × K2** — none: no N2a reader takes a union. **K1 × K4** — K4's empty directive is HEAD's
+reach does not compile. **K1 × K2** — none: no N2a reader takes a union (and HEAD's `a | b`, a union of allows, is mapped by `parse`, never by `union_restrictions`, D-N6). **K1 × K4** — K4's empty directive is HEAD's
 `Some(empty())`: every predicate false, so K1's max-restriction row is K4's value and the `Some(empty)` →
 `all_represented()` class is sound. **K2 × K3**, **K2 × K4**, **K3 × K4** — none beyond the shared type.
 
@@ -246,6 +282,7 @@ parser at N6.
 | Fact | Home / kind | Status |
 |---|---|---|
 | sandboxing flag set (§7.1.5) | `SandboxingFlagSet` (NEW), a newtype over a module-private `bitflags` type over `u32`, `crates/core/elidex-plugin/src/sandbox.rs`; re-exported at `elidex_plugin::SandboxingFlagSet` (NEW) (`lib.rs:66` line replaced) | decided (D1, node §4); newtype, `u32`, private constants, no `Default`: D-N1 |
+| union of restriction sets (J7) | `SandboxingFlagSet::union_restrictions` (NEW); no operator impl (C10h) | D-N1; node memo J7 |
 | the empty set (unsandboxed) | `SandboxingFlagSet::unsandboxed()` (NEW, `const fn`) | D-N1; J14's value (R4) |
 | every represented restriction | `SandboxingFlagSet::all_represented()` (NEW, `const fn`) | D-N1 |
 | parse a sandboxing directive | `parse_sandboxing_directive` (NEW), same module; re-exported beside the type | D-N2 |
@@ -261,7 +298,8 @@ Value classes (constructors; D-N6 — total over HEAD values, anything else stop
 |---|---|---|
 | `None` — literal, positional argument, field initializer (`host_data/mod.rs:863`), `const` (`navigation.rs:304`), `parse_sandbox`'s absent arm | `SandboxingFlagSet::unsandboxed()` | every predicate permissive on both (C10f) |
 | `Some(IframeSandboxFlags::empty())` / `Some(F::empty())`, incl. `const` (`navigation.rs:305`) | `SandboxingFlagSet::all_represented()` | every predicate false on both (K1 × K4; C10) |
-| `Some(ALLOW_X \| ALLOW_Y …)` | `parse_sandboxing_directive("allow-x allow-y …")` | per-predicate token presence (§2 K1 × K3; C10b) |
+| `Some(ALLOW_X \| ALLOW_Y …)`; HEAD `a \| b` of allow bits (`sandbox.rs:340-341`) | `parse_sandboxing_directive("allow-x allow-y …")` — `<tokens of a> <tokens of b>` | per-predicate token presence (§2 K1 × K3; C10b); never `union_restrictions` (dual union) |
+| bit-value binding `let by_ua = F::ALLOW_…` (`sandbox.rs:322`, `navigation.rs:368`) | a token-string binding; `Some(by_ua)` → `parse_sandboxing_directive(by_ua)` | as the row above |
 | `Some(IframeSandboxFlags::all())` (`sandbox.rs:390`) | `parse_sandboxing_directive` of HEAD's seven tokens | every predicate true on both |
 | `parse_sandbox_attribute(s)` (`load.rs:405`) | `parse_sandboxing_directive(s)` | C10b |
 
@@ -294,6 +332,7 @@ predicates; no algorithm enters `vm/host/`. The one open-coded test (B6) moves i
 | Item | Cites |
 |---|---|
 | `SandboxingFlagSet` (NEW) | HTML §7.1.5 *sandboxing flag set* (`#sandboxing-flag-set`); each constant its flag's anchor (e.g. `#sandboxed-navigation-browsing-context-flag`); the unrepresented seven → `#11-sandbox-flag-set-sources` |
+| `union_restrictions` (NEW) | node memo J7 (elidex's own; no spec algorithm in N2a takes a union — N7 / N8 are the callers) |
 | `unsandboxed` (NEW) | HTML §7.1.5 the empty sandboxing flag set ("When the Document is created, its active sandboxing flag set must be empty"); J14's interim value |
 | `all_represented` (NEW) | HTML §7.1.5 *parse a sandboxing directive* step 3 over an empty token list; F10r's fail-closed value is elidex's own |
 | `parse_sandboxing_directive` (NEW) | HTML §7.1.5 *parse a sandboxing directive* steps 1–3; §4.8.5 `#attr-iframe-sandbox` (ASCII case-insensitive tokens) |
@@ -318,10 +357,12 @@ error's `file:line` before fixing any site. rustc suppresses errors behind a fai
 longer resolves silences every `F::…` use beneath it) and cargo does not check a crate whose dependency fails, so the
 collection is **iterated**: fix exactly the recorded sites (by D-N6), re-run, record the new errors, until the workspace
 checks clean. **(p) := the union of the recorded sites over all passes.** It is not counted here: a count derived
-before the swap would be the vocabulary measurement R1 rejects; the implementation PR records it (G11).
+before the swap would be the vocabulary measurement R1 rejects. The implementation PR description records, per pass,
+the `cargo check` command and its error sites, and per site the HEAD value class (D-N6) → the new spelling, plus every
+"stop and record" case with its resolution; no gate counts it.
 
 The vocabulary populations below are kept as **premise cross-checks** of (p), not as the gate: every line of
-(e) ∪ (e+) ∪ (e!) outside `sandbox.rs` must be in (p) or be a comment line of (d); a grep line missing from (p) is a site
+(e) ∪ (e+) ∪ (e!) outside `sandbox.rs` that is code (not a comment) should be in (p); a grep line missing from (p) is a site
 the compiler did not see (e.g. a `cfg` that `--all-features` on the check host does not enable) and is recorded and
 mapped by hand.
 
@@ -352,8 +393,8 @@ files, all tests** (verified 2026-10-24 via that command): `tests_call_listener.
 `MAX_RESTRICTION` uses (in (e+)). Each is `Some(empty)` or `all()` at HEAD and maps by D-N6's value class; under D-N1
 none can compile unchanged, which is the point.
 
-**(d) — comment and docstring sites** (B9): the 20 lines G8a/G8b find at the base plus G1's comment hits; each is
-rewritten with the new contract. (d) is the only class of changed line outside (p).
+**Comment and docstring sites** (B9): the 15 lines G8a/G8b find at the base plus G1's comment hits; each is rewritten
+with the new contract.
 
 **Touched files** (21; docstring-only `elidex-js/src/vm/host/storage.rs:79-80` excluded — it pairs `set_sandbox_flags`
 with `set_origin` and encodes no polarity): the 17 above, plus four whose sites only carry the value (B14) and are
@@ -369,7 +410,7 @@ reaching them is the producer's (§4.2).
   outside every vocabulary population: `scripting.rs`'s eleven positional `None` arguments (B13, `:160` … `:288`), where
   mapping them to `all_represented()` would keep the suppression asserts at `:181`, `:192`, `:225`, `:250` green
   through the settings clause instead of the node-document clause they test. Mitigation: D-N1 (no spelling of HEAD's values compiles, so no site is migrated by accident), (p) as the
-  population, D-N6's value-class rule, the (p) record (G11), and C10b's equivalence oracle written over **token
+  population, D-N6's value-class rule, the (p) record (§5.1), and C10b's equivalence oracle written over **token
   strings**, not over constants.
 - **NR2 unbound defaults** — D-N5's two sites keep HEAD's permissive read; N4 must delete them with the route (J2). G7
   names them and C10g pins their value, so N4's plan inherits a named population.
@@ -383,7 +424,7 @@ reaching them is the producer's (§4.2).
 - **NR4 `pipeline.rs` (973)** — two field types and two doc lines; net 0; G9.
 - **NR5 newly recognised token** — `allow-popups-to-escape-sandbox` clears the propagate flag, which nothing reads until
   N8: no verdict changes (C10b covers HEAD's seven tokens; C10 the eighth).
-- **NR6 docstrings** — (d)'s sites are rewritten with the new contract; `sandbox.rs`'s boa citations are deleted (the
+- **NR6 docstrings** — the comment and docstring sites (§5.1) are rewritten with the new contract; `sandbox.rs`'s boa citations are deleted (the
   boa engine no longer exists in `crates/script`).
 - **NR7 OOP `Navigate` rebuild (latent)** — `content/iframe/thread.rs:227` fills `PreEvalFrameInputs.sandbox_flags` from
   `pipeline.runtime.sandbox_flags()` — the retiring document's stored set, through the getter whose impl carries D-N5's
@@ -401,16 +442,19 @@ assertions unchanged.
 |---|---|---|
 | C10 | parse truth table (node cell): for every subset of the eight recognised tokens (256), the parsed set equals the spec list's arms evaluated on that subset (a table of `(flag, clearing tokens)` transcribed from step 3); plus literal rows — **`SandboxingFlagSet::all_represented() == parse_sandboxing_directive("")`** (K4) and whitespace-only → `all_represented()`; navigation flag always set; `allow-top-navigation` alone clears both top-level flags; case folding; non-ASCII look-alike does not clear; unknown tokens and the five unrepresented-only tokens clear nothing; TAB/LF/FF/CR separators | `sandbox.rs` tests |
 | C10b (NEW) | HEAD equivalence (K1): for every subset `T` of HEAD's seven tokens and `activation ∈ {false, true}`, each predicate on `parse(T)` equals HEAD's token-presence verdict (`allow-x ∈ T`; top navigation: `allow-top-navigation ∈ T ∨ (activation ∧ allow-top-navigation-by-user-activation ∈ T)`) | `sandbox.rs` tests |
-| C10c (NEW) | union (K2, J7): for every pair of parsed subsets, `p(a \| b) == p(a) && p(b)` for each single-flag predicate, and `top_navigation_allowed(a \| b, act)` implies it on `a` and on `b`; `unsandboxed()` identity, `all_represented()` absorbing | `sandbox.rs` tests |
+| C10c (NEW) | union (K2, J7): for every pair of parsed subsets, `p(a.union_restrictions(b)) == p(a) && p(b)` for each single-flag predicate, and `top_navigation_allowed(a.union_restrictions(b), act)` implies it on `a` and on `b`; `unsandboxed()` identity, `all_represented()` absorbing | `sandbox.rs` tests |
 | C10d | withdrawn in rev 2 — folded into C10's K4 row (number not reused) | — |
 | C10e (NEW) | origin: `apply_sandbox_origin` returns opaque iff `allow-same-origin` is absent from a present attribute or the frame is credentialless; absent attribute keeps the input origin | `content_iframe_security_tests.rs` (existing order-proof arms re-asserted) |
 | C10f (NEW) | `unsandboxed()` allows every predicate: `scripts_allowed`, `forms_allowed`, `popups_allowed`, `modals_allowed`, `scripting_enabled`, `same_origin_allowed` true, and `top_navigation_allowed(unsandboxed(), act)` true for both `act` (HEAD's `None` row) | `sandbox.rs` tests |
 | C10g (NEW) | an unbound read yields `unsandboxed()` as HEAD's `None`: `window.open('/x', '_blank')` on a `Vm` with no `HostData` installed (`Vm::new()` without `install_host_data`; `vm/init.rs:250` `host_data: None`) takes the unsandboxed disposition; the cell is written and run at the base first, so its expected result is HEAD's. The engine getter's unbound arm (`elidex-js/src/engine.rs:661-667`) is unreachable through `ElidexJsEngine`'s constructors (both install `HostData`, `engine.rs:44`, `:100`) and is covered by D-N6's `None` class and G7 alone. If the `window.open` native cannot run without `HostData` (Q-N1), the implementer stops and reports rather than substituting another cell | `vm/tests/tests_window_open_modals.rs` |
-| — | migrated suites green with assertions unchanged: `tests_window_open_modals.rs`, `tests_engine_s1a.rs`, `tests_engine_s1b.rs`, `tests_call_listener.rs`, `tests_event_handler_attrs.rs`, `scripting.rs` and `navigation.rs` in-file tests, `content_iframe_security_tests.rs`, `content_window_open_tests.rs` | per crate |
+| C10h (NEW) | no operator surface (D-N1): a grep gate — **`trybuild` is not a workspace dev-dependency** (`/usr/bin/grep -rn trybuild Cargo.toml crates/*/*/Cargo.toml` → no match, verified 2026-10-24), so no compile-fail harness is added: `git grep -n -E 'impl[^{]*(BitOr\|BitAnd\|BitXor\|Not\|Sub\|Add)(Assign)?[^{]*for[^{]*SandboxingFlagSet' -- crates/core/elidex-plugin` → 0. It is blind to a macro-generated impl, which the module cannot contain: the only macro is `bitflags!` on the private `Flags`, and the newtype derives only `Clone, Copy, Debug, PartialEq, Eq, Hash` | CI step / reviewer command (no test file) |
+| — | migrated suites green with assertions unchanged (the `sandbox.rs` predicate tests migrate, its token-parser tests are replaced by C10 / C10b: D-N6): `tests_window_open_modals.rs`, `tests_engine_s1a.rs`, `tests_engine_s1b.rs`, `tests_call_listener.rs`, `tests_event_handler_attrs.rs`, `scripting.rs` and `navigation.rs` in-file tests, `content_iframe_security_tests.rs`, `content_window_open_tests.rs` | per crate |
 
 C10b is the mutation guard for the predicates' flip: inverting one predicate's polarity or dropping the two-token arm
 fails it. A site mis-mapped between `unsandboxed()` and `all_represented()` is not C10b's subject; it is caught by the
-(p) record's per-site value class (G11) and, where the site's test asserts a verdict, by that unchanged assertion (G10).
+(p) record's per-site value class (§5.1) and, where the site's test asserts a verdict, by that unchanged assertion (G10). C10e and C10g
+are **added** cells: their new lines in `content_iframe_security_tests.rs` and `tests_window_open_modals.rs` are
+additions to the migrated files, not G10 violations.
 Commands: `cargo test -p elidex-plugin --all-features`, `cargo test -p elidex-script-session --all-features`, `cargo test
 -p elidex-js --all-features`, `cargo test -p elidex-shell --all-features`; `mise run ci` before push.
 
@@ -437,9 +481,11 @@ Own deferrals: **0** (node memo §5.2). No slot is registered or appended by N2a
 
 - **n3** (N2a → N4): F10's flags argument is `SandboxingFlagSet`; N4 receives D-N5's two unbound-default sites (G7's
   list) as population to delete with the route, and NR7's `thread.rs:227` record (it reads through the getter's unbound
-  arm). N5 receives NR7 too (F9, the frame's set across the process boundary).
+  arm). N5 receives NR7 too (F9, the frame's set across the process boundary). **N5 also receives R4's consequence**:
+  its J14 DoD grep (node memo `:620`, "no interim `empty()` survives") reads `unsandboxed()` at the deleted stores — no
+  `empty()` exists on the new type to grep for (D-N1).
 - **n6a** (N2a → N2b, N6, N7, N8): N2b reads `SANDBOXED_NAVIGATION` and absorbs `top_navigation_allowed`; N6 calls
-  `parse_sandboxing_directive` for the CSP directive; N7 unions with `|` (K2); N8 reads the propagate flag. Each of
+  `parse_sandboxing_directive` for the CSP directive; N7 unions with `union_restrictions` (K2; there is no operator, D-N1); N8 reads the propagate flag. Each of
   those PRs adds its reader through a predicate in `elidex-plugin::sandbox` (the constants are module-private, D-N1) or
   argues the exception in its own plan (G4 is N2a's landing fact, not a node invariant).
 - Records: none ship with N2a (node memo §8 records table has no N2a row; D1's amendments shipped with the approval PR).
@@ -454,10 +500,14 @@ Mechanical greps (each over `crates`, at the PR head):
 
 - **G1** `git grep -n -E 'IframeSandboxFlags|parse_sandbox_attribute' -- crates` → 0.
 - **G2** `git grep -n -E 'ALLOW_(SCRIPTS|SAME_ORIGIN|FORMS|POPUPS|TOP_NAVIGATION|MODALS)' -- crates` → 0.
-- **G3** `git grep -n -P 'Option<\s*(elidex_plugin::)?(sandbox::)?(SandboxingFlagSet|F)\s*>' -- crates` → 0 (the `F`
-  arm catches a surviving alias; at the base, with `IframeSandboxFlags` in the first arm, its `F` hits are only the alias
-  sites `sandbox.rs:323`, `navigation.rs:304`, `:305`).
-- **G3b** `git grep -n -P 'SandboxingFlagSet\s+as\s' -- crates` → 0 (no alias of the new type).
+- **G3** no `Option<SandboxingFlagSet>` in any parameter, field or return type, under any path spelling:
+  `git grep -n -P 'Option<\s*(::)?((elidex_plugin|crate|super|self)::)*(sandbox::)?(SandboxingFlagSet|F)\s*>' -- crates` →
+  0, and `git grep -n -P 'Option<\s*Self\s*>' -- crates/core/elidex-plugin/src/sandbox.rs` → 0 (`Self` is the flag type
+  only inside that module's `impl SandboxingFlagSet`; elsewhere `Option<Self>` is another type). The `F` arm catches a
+  surviving alias; at the base (with `IframeSandboxFlags` in place of the first arm) its `F` hits are only the alias sites
+  `sandbox.rs:323`, `navigation.rs:304`, `:305` (re-verified 2026-10-24 with the widened path prefix).
+- **G3b** `git grep -n -P 'SandboxingFlagSet\s+as\s|\btype\s+\w+\s*=\s*[^;]*SandboxingFlagSet' -- crates` → 0 (no
+  `use … as` or `type` alias of the new type, so G3's regex cannot be bypassed by renaming it).
 - **G4** `git grep -n -E 'SANDBOXED_|SANDBOX_PROPAGATES' -- crates ':!crates/core/elidex-plugin/src/sandbox.rs'` → 0
   (textual backstop; the constants are private, D-N1).
 - **G5** — withdrawn in rev 2 (`all_represented()` is a fixture constructor under D-N6's mapping rule).
@@ -470,20 +520,20 @@ Mechanical greps (each over `crates`, at the PR head):
   above, `vm/host/event_handler_attrs.rs:602`, which reads a host already resolved by its `let Some(host) … else`
   (`:597-601`), and the doc comment `engine.rs:134`) are enumerated and each optional-host caller is one of the two;
   C10g pins the value.
-- **G8a** over §5.1's 21 touched files, `git grep -n -i -P 'allow-token|positive allow|Some\(empty|maximum
-  restriction|<NONE>|, if sandboxed|, if it is\s*$' -- <files>` with `<NONE>` = `` `?None`? (for (a )?top-level|= no
-  `?sandbox|if no `?sandbox) `` → 0 (18 lines at the base; the pattern is one string — the line breaks above are
-  layout, and `maximum restriction` has one space).
+- **G8a** over §5.1's 21 touched files, `git grep -n -i -P 'allow-token|positive allow|Some\(empty|<NONE>|,
+  if sandboxed|, if it is\s*$' -- <files>` with `<NONE>` = `` `?None`? (for (a )?top-level|= no
+  `?sandbox|if no `?sandbox) `` → 0 (13 lines at the base, verified 2026-10-24; the pattern is one string — the line breaks above are
+  layout). The phrase "maximum restriction" is not a term: it is still correct under the new contract (`all_represented()`
+  is the maximum restriction), and the rev 2 term made five such comment lines, including still-correct ones
+  (`navigation.rs:376`), spurious hits. The gate targets the old contract's phrasing only (`Some(empty)` as the
+  maximum, "`None` for top-level / unsandboxed", "positive allow", "allow-token"; boa / `iframe_bridge` in G8b).
 - **G8b** `git grep -n -i 'boa\|iframe_bridge' -- crates/core/elidex-plugin/src/sandbox.rs` → 0 (2 at the base).
 - **G9** `wc -l crates/shell/elidex-shell/src/pipeline.rs` < 1000.
-- **G10** the diff of each migrated test file changes no `assert` line other than D-N6's set-valued ones (reviewer
-  check: `git diff origin/main -- <file> | grep -E '^[-+].*assert'`).
-- **G11** the implementation PR records (p): per pass, the `cargo check` command and its error sites; per site, its HEAD
-  value class (D-N6) → its new spelling, and every "stop and record" case with its resolution. The count of (p) equals
-  the count of changed sites outside `sandbox.rs` / `lib.rs`: every non-comment diff hunk outside those two files
-  contains a (p) site and every (p) site lies in a hunk; the remaining changed lines are (d)'s. Every (e) ∪ (e+) ∪ (e!)
-  line outside `sandbox.rs` is in (p) or (d) (§5.1 cross-check).
+- **G10** the diff of each migrated test file changes no `assert` line other than D-N6's set-valued ones, and adds
+  none other than C10e's and C10g's (the ADDED cells, §6) (reviewer check: `git diff origin/main -- <file> | grep -E
+  '^[-+].*assert'`). The `sandbox.rs` test module is outside this textual check (D-N6: inline value expressions; its
+  predicate asserts keep predicate and polarity).
 
-Behavioural: C10, C10b, C10c, C10e, C10f, C10g present and green; the four `cargo test -p` commands and `mise run ci`
+Behavioural: C10, C10b, C10c, C10e, C10f, C10g present and green, C10h's command returns 0; the four `cargo test -p` commands and `mise run ci`
 pass. Preflight: `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-10-ibp-sandbox-flagset.md`
 exits 0.
