@@ -297,7 +297,7 @@ fn import_jwk(
 /// `generateKey` for an EC algorithm (WebCrypto §23.7.3 ECDSA / §24.4.1 ECDH)
 /// — returns the `(publicKey, privateKey)` pair (the §14.3.6 `CryptoKeyPair`).
 /// `fill_random` is the VM entropy seam, fed through [`ClosureRng`] into
-/// `SecretKey::generate_from_rng`'s vetted rejection sampling.
+/// `SecretKey::try_generate_from_rng`'s vetted rejection sampling.
 pub(crate) fn generate<F>(
     algorithm: EcAlgorithm,
     curve: NamedCurve,
@@ -350,7 +350,7 @@ where
 
 /// Generate a curve key pair, returning the SEC1 uncompressed public point +
 /// the big-endian private scalar.  The scalar is produced by
-/// `SecretKey::generate_from_rng`'s rejection sampling over the [`ClosureRng`] (the VM
+/// `SecretKey::try_generate_from_rng`'s rejection sampling over the [`ClosureRng`] (the VM
 /// entropy seam); a `fill_random` failure surfaces as an OperationError.
 fn generate_keypair<F>(
     curve: NamedCurve,
@@ -361,10 +361,7 @@ where
 {
     with_curve!(curve, cc, {
         let mut rng = ClosureRng::new(&mut fill_random);
-        let sk = cc::SecretKey::generate_from_rng(&mut rng);
-        // Surface any `fill_random` error before using the (otherwise garbage)
-        // key.
-        rng.into_result()?;
+        let sk = cc::SecretKey::try_generate_from_rng(&mut rng)?;
         Ok((
             sk.public_key().to_sec1_point(false).as_bytes().to_vec(),
             sk.to_bytes().to_vec(),

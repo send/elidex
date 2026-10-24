@@ -652,3 +652,18 @@ fn ec_import_curve_mismatch_is_data_error() {
     .unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::Data(_)));
 }
+
+/// A `fill_random` failure during EC `generateKey` surfaces as the closure's own
+/// error (an OperationError), not a key built over failed entropy.
+#[test]
+fn ec_generate_key_fill_random_failure_is_operation_error() {
+    let err = generate_key(
+        ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, NamedCurve::P256),
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        |_buf: &mut [u8]| Err(crate::AlgorithmError::Operation("entropy down".into())),
+    )
+    .expect_err("generateKey must fail when fill_random fails");
+    assert!(matches!(&err, crate::AlgorithmError::Operation(m) if m == "entropy down"));
+    assert_eq!(err.exception_name(), "OperationError");
+}

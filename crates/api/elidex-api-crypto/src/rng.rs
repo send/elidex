@@ -1,11 +1,11 @@
 //! The VM entropy-seam adapter shared by the asymmetric key generators.
 //!
-//! Elliptic-curve (`ec::generate` → `SecretKey::generate_from_rng`) and RSA
+//! Elliptic-curve (`ec::generate` → `SecretKey::try_generate_from_rng`) and RSA
 //! (`rsa::generate` → `RsaPrivateKey::new_with_exp`) both draw their
 //! randomness through the RustCrypto `rand_core` `RngCore` + `CryptoRng`
 //! traits — but from two generations: EC (`elliptic-curve` 0.14) uses
-//! `rand_core` 0.10, RSA (`rsa` 0.9) still uses 0.6.  Rather than each backend reaching for a separate `getrandom`
-//! path, [`ClosureRng`] adapts the VM's single fallible `fill_random` closure
+//! `rand_core` 0.10, RSA (`rsa` 0.9) still uses 0.6.  Rather than each backend
+//! reaching for a separate `getrandom` path, [`ClosureRng`] adapts the VM's single fallible `fill_random` closure
 //! (which ultimately calls the OS CSPRNG) into those traits, so all key
 //! generation flows through the one VM entropy seam while the curve / RSA
 //! crates still perform their own vetted rejection sampling.
@@ -16,15 +16,19 @@ use crate::error::AlgorithmError;
 
 /// An RNG over the VM's `fill_random` closure (the single entropy seam).
 ///
-/// `fill_random` is fallible but `RngCore::fill_bytes` is infallible, so a
-/// closure error is captured and surfaced by [`Self::into_result`] **after**
-/// key generation.  Once the error is latched, the buffer is filled from a
-/// deterministic but *varying* SplitMix64 stream so the consumer's
+/// The `rand_core` 0.10 impl (EC) is fallible, so a closure error is returned
+/// directly.  The `rand_core` 0.6 impl (RSA) has an infallible `fill_bytes`, so
+/// there a closure error is captured and surfaced by [`Self::into_result`]
+/// **after** key generation.  Once the error is latched, the buffer is filled
+/// from a deterministic but *varying* SplitMix64 stream so the consumer's
 /// rejection-sampling loop still **terminates** — and the resulting key is
 /// discarded because `into_result` returns the captured error.
 ///
-/// The fill must *vary* per call, not be constant: EC's `SecretKey::generate_from_rng`
-/// would accept a constant valid scalar after one iteration, but RSA's
+/// This capture / SplitMix64 / `into_result` workaround exists for the 0.6
+/// (RSA) path only and goes away with it (see the removal trigger on the 0.6
+/// impl).
+///
+/// The fill must *vary* per call, not be constant: RSA's
 /// `RsaPrivateKey::new_with_exp` does iterative **prime search** — a *constant*
 /// candidate never becomes prime, so a fixed fill would spin its loop forever
 /// (the entropy error would never surface). The SplitMix64 stream feeds the
@@ -45,8 +49,9 @@ impl<'a> ClosureRng<'a> {
         }
     }
 
-    /// The first captured `fill_random` error, if any — checked by the caller
-    /// after key generation to reject a key built over failed entropy.
+    /// The first captured `fill_random` error, if any — checked by the RSA
+    /// caller after key generation to reject a key built over failed entropy
+    /// (the 0.6 path only; the 0.10 EC impl returns the error directly).
     pub(crate) fn into_result(self) -> Result<(), AlgorithmError> {
         match self.error {
             Some(e) => Err(e),
@@ -56,7 +61,8 @@ impl<'a> ClosureRng<'a> {
 }
 
 impl ClosureRng<'_> {
-    /// The single fill path behind both `rand_core` generations' traits.
+    /// The infallible fill behind the `rand_core` 0.6 (RSA) impl: latches the
+    /// first closure error and keeps filling so the consumer terminates.
     fn fill(&mut self, dest: &mut [u8]) {
         if self.error.is_none() {
             if let Err(e) = (self.fill)(dest) {
@@ -66,9 +72,9 @@ impl ClosureRng<'_> {
         if self.error.is_some() {
             // The entropy seam failed: emit a deterministic but *varying*
             // SplitMix64 stream so the consumer's rejection sampling converges
-            // (EC scalar search AND RSA prime search both need fresh bytes per
-            // iteration — a constant fill would spin RSA keygen forever). The
-            // key built over these bytes is discarded via `into_result`.
+            // (RSA prime search needs fresh bytes per iteration — a constant
+            // fill would spin keygen forever). The key built over these bytes
+            // is discarded via `into_result`.
             for chunk in dest.chunks_mut(8) {
                 self.fallback = self.fallback.wrapping_add(0x9E37_79B9_7F4A_7C15);
                 let mut z = self.fallback;
@@ -87,15 +93,11 @@ impl ClosureRng<'_> {
 /// bump it, delete this impl and the workspace `rand_core = "0.6"` dependency.
 impl rand_core::RngCore for ClosureRng<'_> {
     fn next_u32(&mut self) -> u32 {
-        let mut b = [0u8; 4];
-        self.fill(&mut b);
-        u32::from_le_bytes(b)
+        rand_core::impls::next_u32_via_fill(self)
     }
 
     fn next_u64(&mut self) -> u64 {
-        let mut b = [0u8; 8];
-        self.fill(&mut b);
-        u64::from_le_bytes(b)
+        rand_core::impls::next_u64_via_fill(self)
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
@@ -111,24 +113,20 @@ impl rand_core::RngCore for ClosureRng<'_> {
 impl rand_core::CryptoRng for ClosureRng<'_> {}
 
 /// `rand_core` 0.10 (EC keygen); `Rng` / `CryptoRng` follow by blanket impl.
+/// Fallible: a `fill_random` failure is returned as-is (no latch / fallback).
 impl rand_core10::TryRng for ClosureRng<'_> {
-    type Error = core::convert::Infallible;
+    type Error = AlgorithmError;
 
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
-        let mut b = [0u8; 4];
-        self.fill(&mut b);
-        Ok(u32::from_le_bytes(b))
+        rand_core10::utils::next_word_via_fill(self)
     }
 
     fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
-        let mut b = [0u8; 8];
-        self.fill(&mut b);
-        Ok(u64::from_le_bytes(b))
+        rand_core10::utils::next_word_via_fill(self)
     }
 
     fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
-        self.fill(dst);
-        Ok(())
+        (self.fill)(dst)
     }
 }
 
