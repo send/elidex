@@ -7,7 +7,7 @@ at PR #510 R47-3, which reported it — §6 had reached 1,790 lines by holding a
 CONTRACT and an append-only HISTORY in one bullet, and the two have opposite lifetimes.
 
 ▶▶▶▶ **THE CURRENT HEAD IS THE PR'S** (`gh pr view 510 --json headRefOid`), not written here: a head
-written into this block went stale at the next push (2026-10-24, the PM's note). The table below is
+written into this block went stale at the next push (found 2026-10-24). The table below is
 the **2026-09-23 record**, kept as written: the branch was then pushed at `00dfd095`, with these
 commits local on top, each closing a fresh-agent attestation's findings (all pushed since):
 

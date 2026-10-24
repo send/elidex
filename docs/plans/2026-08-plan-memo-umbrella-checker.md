@@ -1054,7 +1054,7 @@ committed here by the note that corrected it.
   re-runs each mutant row's named controls). The job is measured on the runner,
   `gh run view <run-id> --json jobs`, and is re-measured there when a second heavy wire,
   `claim-provenance-trip-wire.sh` from the `stale-claim-detector` lane, joins the job. No current
-  figure is kept anywhere: not in this entry, not in `ci.yml`, not in `CLAUDE.md`. Trigger = the round whose head measures under
+  figure is kept in this entry, in `ci.yml` or in `CLAUDE.md`. Trigger = the round whose head measures under
   2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
   property. No slot: this is the wire's own budget, not a platform gap. ⚠ **And no date — this is
   trigger-only, stated rather than left to inference** (PR #510 R45, the second of the two entries
