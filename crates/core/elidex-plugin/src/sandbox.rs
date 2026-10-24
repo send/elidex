@@ -44,10 +44,12 @@ bitflags::bitflags! {
 /// A sandboxing flag set (WHATWG HTML §7.1.5 *sandboxing flag set*,
 /// `html#sandboxing-flag-set`) in the spec's restriction form.
 ///
-/// Nine of the spec's sixteen flags are represented; the other seven
-/// (pointer lock, automatic features, `document.domain`, orientation lock,
-/// presentation, downloads, custom protocols navigation) have no reader yet
-/// and belong to `#11-sandbox-flag-set-sources`.
+/// Nine of the spec's sixteen flags are represented: those HEAD's gates or
+/// the IBP-sandbox program's PRs read (the navigation flag and the propagate
+/// flag have no reader at HEAD; their readers are N2b and N8). The other
+/// seven (pointer lock, automatic features, `document.domain`, orientation
+/// lock, presentation, downloads, custom protocols navigation) have no reader
+/// in either and belong to `#11-sandbox-flag-set-sources`.
 ///
 /// The constructors are the whole public surface for building a value:
 /// [`Self::unsandboxed`], [`Self::all_represented`],
@@ -438,11 +440,14 @@ mod tests {
                 for p in singles {
                     assert_eq!(p(u), p(a) && p(b));
                 }
+                // The memo's cell asks only "allowed on the union implies
+                // allowed on both"; each activation arm tests one flag, so
+                // equality holds and also catches an over-restricting union.
                 for act in [false, true] {
-                    if top_navigation_allowed(u, act) {
-                        assert!(top_navigation_allowed(a, act));
-                        assert!(top_navigation_allowed(b, act));
-                    }
+                    assert_eq!(
+                        top_navigation_allowed(u, act),
+                        top_navigation_allowed(a, act) && top_navigation_allowed(b, act)
+                    );
                 }
             }
             assert_eq!(a.union_restrictions(SandboxingFlagSet::unsandboxed()), a);
