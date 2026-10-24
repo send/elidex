@@ -10,28 +10,17 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
-    # The RustCrypto stack is hand-pinned as ONE coordinated generation in
-    # Cargo.toml (elliptic-curve 0.13 / ecdsa 0.16 / p256·p384·p521 0.13 /
-    # rsa 0.9 / rand_core 0.6 / rand_chacha — the "digest 0.10 / rand_core 0.6"
-    # line; see the comments on those entries in Cargo.toml). These crates only
-    # move together, and only via a deliberate migration once compatible
-    # releases exist across the whole set. A partial bump splits the generation
-    # (two rand_core / two elliptic-curve in the tree) and breaks
-    # elidex-api-crypto — cf. PR #425, which bumped elliptic-curve 0.13→0.14 and
-    # rand_core 0.6→0.10 alone and failed with 45 compile errors. Hold these on
-    # their current 0.x line: patch updates still flow; a line move (major/minor
-    # for 0.x) is opt-in via this file, not a weekly Dependabot drive-by.
+    # The RustCrypto stack is now split across two generations (see the
+    # comments on those entries in Cargo.toml): the EC stack (elliptic-curve
+    # 0.14 / ecdsa 0.17 / p256·p384·p521 0.14) is on rand_core 0.10 and tracks
+    # upstream normally (no hold), while `rsa` 0.9 is still on rand_core 0.6
+    # (+ the test-only rand_chacha 0.3). Those three move only together: bumping
+    # `rand_core` / `rand_chacha` alone would split RSA from its RNG traits, and
+    # `rsa` has no stable release on rand_core 0.10 yet. Hold them on their
+    # current 0.x line; patch updates still flow. Removal trigger: rsa 0.10
+    # stable, which retires the 0.6 `ClosureRng` bridge (defer slot
+    # `#11-closure-rng-rand-core-06-bridge`) and with it these three entries.
     ignore:
-      - dependency-name: "elliptic-curve"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      - dependency-name: "ecdsa"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      - dependency-name: "p256"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      - dependency-name: "p384"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      - dependency-name: "p521"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "rsa"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "rand_core"
