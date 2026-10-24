@@ -19,7 +19,7 @@ code review's first-half results §R lacks; closed at 797 lines, §13), continue
 of PR #527's CR round (clusters B and C of the branch-wide `/code-review max`), approved by plan-review R1–R3 and a
 focused re-check, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-plan.md` ("`…-cr-plan.md`"), with its
 sweep ledger and the instruments the slices run (its §E) in
-`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-sweep.md` ("`…-cr-sweep.md`"). **CR2 round**: the plan of PR #527's CR2 round (the pre-push gate's eight own items), accepted by plan-review R1–R4 and the driver's diff read of r5, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan.md` ("`…-cr2-plan.md`") with its companion `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-exitpath.md` (its §6, the run's exit), and its sweep and the instruments its claims cite (its §E) in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-sweep.md` ("`…-cr2-sweep.md`"), with §E.2 and §E.3 in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-probes.md`, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-texts-r2-r3.md` and `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-texts-r4-r5.md` (its §E index names the file of each instrument). The plan delta of Codex R29 and its TERMINAL fix (slice R29-D), accepted by plan-review R1, R2 and the r3 fix pass, is `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-liveness.md` ("`…-cr2-plan-liveness.md`"), the authority for the plan lines its §5 changes; its successor for slice R29-E (the stop watches its groups as one set), accepted by plan-review rounds 1 and 2 and the r3 fix pass, is `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-liveness-2.md` ("`…-cr2-plan-liveness-2.md`"), the authority for the lines its §5 changes.
+`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr-sweep.md` ("`…-cr-sweep.md`"). **CR2 round**: the plan of PR #527's CR2 round (the pre-push gate's eight own items), accepted by plan-review R1–R4 and the driver's diff read of r5, in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan.md` ("`…-cr2-plan.md`") with its companion `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-exitpath.md` (its §6, the run's exit), and its sweep and the instruments its claims cite (its §E) in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-sweep.md` ("`…-cr2-sweep.md`"), with §E.2 and §E.3 in `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-probes.md`, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-texts-r2-r3.md` and `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-instruments-texts-r4-r5.md` (its §E index names the file of each instrument). The plan delta of Codex R29 and its TERMINAL fix (slice R29-D), accepted by plan-review R1, R2 and the r3 fix pass, is `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-liveness.md` ("`…-cr2-plan-liveness.md`"), the authority for the plan lines its §5 changes; its successor for slice R29-E (the stop watches its groups as one set), accepted by plan-review rounds 1 and 2 and the r3 fix pass, is `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-liveness-2.md` ("`…-cr2-plan-liveness-2.md`"), the authority for the lines its §5 changes. The final-head narrowing of PR #527's step 1 (option B), accepted by plan-review (its status line names the rounds), is `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead.md` ("`…-cr2-plan-finalhead.md`"), the authority for the lines its §5 changes, with its runbook `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead-runbook.md` and its checker `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead-check.sh`.
 **Census**:
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md` ("`…-census.md`"), the second half of §4 (P-g's
 population, the census, the boundary and the working files), split out of this memo unchanged at `20615255`.
@@ -226,25 +226,25 @@ writes the verifier's state, class (c).
 
 The completion markers are **a protocol, not a seal**: they make an accidental `return`, `exit` or
 abort, an option switched off and a redirected stderr loud (W); they cannot authenticate their writer. The measured boundary (`…-pr527.md`, round 14 and D14-D): a key
-persisted in `clean` alone is red by P-g (`xkey`); the key plus `exit 0` is W (`exit0`, bash 5.3); the key plus
-`built` and `done` written by the fixtures file (`xdone`), or plus a `_fgit_postconditions` redefined
-to return 0 (`xredef`), is rc 0, PASSED, and so is the key in every fixture plus a background process
-that the fixtures file leaves running and that writes the reference made after the build (`xrace`,
-round 15, D15-C), and so is a `mktemp` made to name a directory the fixtures prepared, by a
-fixtures-file function (`mkfn`, round 16, D16-C), by a `PATH` entry after the pin (`shimafter`) or by
-`hash -p` (`shimhash`, both round 17, D17-A), and so is a diagnostic hidden by a stderr redirect scoped
-to a group around the failing line (`xgroup`, round 17), and so is a stale mutation record hidden from
-the parent's anchor check by an executable the fixtures wrote into a caller-`PATH` directory
-(`staleshim`, round 18, D18-A; its control `stalectl`, the stale record alone, is rc 1, "its anchor is
-stale"), and so is the same stale record hidden by a `_mut_correspondence` the fixtures appended
-to the checkout's `mutations.sh` (`srcrw`, round 19, D19-B). The last nine are this boundary, not
-defects. `xkey`, `exit0`
-and `xredef` ran on `ebc90bc1`'s tool code, which is `8413a4db`'s except three comment-only path lines
-(Fable; `…-pr527.md` round 14); `xdone` on that tree and on the draft-16 prototype (`…-pr527.md` round
-14); `xrace` on the draft-16 prototype (round 15's Ax2 cell, as relayed) and on the draft-17 and
-draft-18 prototypes, `mkfn` on the draft-17 (round 16's Ax3 cell, as relayed) and draft-18
-prototypes, and `shimafter`, `shimhash` and `xgroup` on the draft-18 prototype (round 17's cells, as relayed:
-`shimafter` and `shimhash` Ax3's, `xgroup` Ax2's) and the draft-19 prototype, `staleshim` on the
+persisted in `clean` alone is red by P-g (`xkey`); the key plus `exit 0` is W (`exit0`, bash 5.3); the key
+plus `built` and `done` written by the fixtures file (`xdone`), or plus a `_fgit_postconditions` redefined
+to return 0 (`xredef`), is rc 0, PASSED, and so is the key in every fixture plus a background process that
+the fixtures file leaves running and that writes the reference made after the build (`xrace`, round 15,
+D15-C), and so is a `mktemp` made to name a directory the fixtures prepared, by a fixtures-file function
+(`mkfn`, round 16, D16-C), by a `PATH` entry after the pin (`shimafter`) or by `hash -p` (`shimhash`, both
+round 17, D17-A), and so is a diagnostic hidden by a stderr redirect scoped to a group around the failing
+line (`xgroup`, round 17), and so was, on its prototypes, a stale mutation record hidden from the parent's
+anchor check by an executable the fixtures wrote into a caller-`PATH` directory (`staleshim`, round 18,
+D18-A; red at T, restated 2026-10-25: the anchor gate's self-test reads the prepared `_VFY`, which does
+not close class (c), `…-impl-cr2-d.md` §T.L; its control `stalectl`, the stale record alone, is rc 1, "its
+anchor is stale"), and so is the same stale record hidden by a `_mut_correspondence` the fixtures appended
+to the checkout's `mutations.sh` (`srcrw`, round 19, D19-B). The last nine are this boundary, not defects.
+`xkey`, `exit0` and `xredef` ran on `ebc90bc1`'s tool code, which is `8413a4db`'s except three
+comment-only path lines (Fable; `…-pr527.md` round 14); `xdone` on that tree and on the draft-16 prototype
+(`…-pr527.md` round 14); `xrace` on the draft-16 prototype (round 15's Ax2 cell, as relayed) and on the
+draft-17 and draft-18 prototypes, `mkfn` on the draft-17 (round 16's Ax3 cell, as relayed) and draft-18
+prototypes, and `shimafter`, `shimhash` and `xgroup` on the draft-18 prototype (round 17's cells, as
+relayed: `shimafter` and `shimhash` Ax3's, `xgroup` Ax2's) and the draft-19 prototype, `staleshim` on the
 draft-19 prototype (round 18's Ax2+Ax3 cell, as relayed) and the draft-20 prototype, and `srcrw` on the
 draft-20 prototype (round 19's cell, as relayed) and the draft-21 prototype (`…-pr527-r15.md` §Q).
 
@@ -515,8 +515,9 @@ What **is** pinned are the properties a record can observe:
   (measured, `…-pr527-r15.md` §Q); `post_ok`'s two records (review R2, corpus §6.1) pin the fourth.
   A gate satisfies all three. `_ctl_run`'s ask is pinned always-on, not by a record: removing it reds the run under `$_cap_lbl` (six of the standing check's ten rows: the two that want a decline, `M 0 1 yes` and `Y 1 0`, get a run; the three that want the gate's red, U, F1 and F2, and the untrusted row `M 0 1 no` come back 0; row X stays green, since `_ctl_run` validates its channels itself) and `$_cen_lbl` (the gate is the registry's writer: every declared member is then no `_control` this run made), measured at CR-B2a, both shells — records.sh, beside W2's record. There is one ask per run, no second gate (the fsmonitor block's former ask before its preflight went when the plain-git check moved inside the branch of its `_ctl_run`'s ask, as a follow-up after the run) and one producer of W2's line (`_ctl_gate`; the four standing checks that read `_fw_trusted` print nothing), so W2's records separate the run path — the gate's trust arm bypassed, record 160's needle is not printed: W alone, the controls run over the untrusted build and the standing checks red in silence (measured, R7 S3 review-1 fixes, both shells, when there were two) — and the earlier declared gap — two producers each killing the other's record — has no subject.
 - Moving the exit below a control is an edit to the controls file. That
-  shape is pinned by the corpus RO/ROg cells (X5, re-anchored for T in `…-landing.md` §11), not by a
-  record. ROg is green again since the fix round (measured on both shells, `…-pr527-r15.md` §Q).
+  shape is pinned by the corpus RO/ROg cells, not by a record; at T by the RO cell alone (restated
+  2026-10-25): ROg needs the P-dump hook and is retired (`…-impl-cr2-d.md` §T.L L3). ROg was green
+  at `6ed414b2` (measured on both shells, `…-pr527-r15.md` §Q).
 - **W3** fires when bash reported a diagnostic located in the fixtures file (below).
 
 **A shell diagnostic in the fixtures file is red (W3; E4, AR).** An arithmetic-expansion error such as

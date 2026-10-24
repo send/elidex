@@ -292,3 +292,363 @@ The per-commit gate figures (`bash -n`, the anchor gate, `_mutants`) were re-run
 Review and battery: by delta 2's §9 procedure (a fresh reviewer on a frozen snapshot; the battery with `BASE_REV=662a7065`, where C6, C7, C9 and C11 are owed; ship ×4 after the transplant), after this commit; not part of it.
 
 **Qualification of `kill -0`'s failure** (2026-10-24, TERMINAL review; §T.H and the wire's comment are left as written). §T.H's "its failure is no member at all; macOS answers EPERM for a group of zombies" and the wire's comment on `_k2_ptab` ("`kill -0` failing is gone (macOS: EPERM on one)") name one case of EPERM. macOS `man 2 kill` gives two: the sender is not the super-user and its euid does not match the receiver's, and, for a process group, "if any members of the group could not be signaled". For the run's own groups EPERM means a zombie-only group (measured, §T.H's pins: `kill -0 -<zombie group>` exits 1), because the run starts no member under another euid (`/usr/bin/grep -n -e sudo -e 'su ' -e setuid -e runuser` over the wire and its parts: no hit). The comment's line is 119 columns against the 123 of its neighbours, so the qualification does not fit on it and the wire is not edited; nothing is decided by the distinction (EPERM and ESRCH both read as "fails", and the table decides the rest).
+
+### T.L The final-head sequence at T (the narrowing `…-cr2-plan-finalhead.md`, option B)
+
+**The route** (2026-10-24 and 2026-10-25). The final-head sequence's step 1 (landing §9.1 as `3b7ff6d5` states it) could not run as written: a verifier's runbook found that several of its checks need instruments that do not exist (the P-dump hook `K2_CORPUS_PDUMP`, the hostile files under `corpus/h/`, a nine-part `gen6.py`, a defined survive-check population, X14's setups, X16's `mkctl`). **The user's decision (2026-10-24): option B**: narrow step 1 to what runs with the instruments that exist, and record the rest as stated defects. The plan delta that applies it is `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead.md` (`…-cr2-plan-finalhead.md`, moved in by this commit, its body as accepted; its runbook `…-cr2-plan-finalhead-runbook.md` and its checker `…-cr2-plan-finalhead-check.sh` beside it), accepted by `/elidex-plan-review` on 2026-10-24: R1 (CRITICAL 0 / IMPORTANT 9 / MINOR 22 / FP 5), R2 (0 / 6 / about 19; R2-A: the narrowing holds for T = `01fb2924` only, and a move of T stops the sequence for the user), R3 (0 / 3 / 18; IMP-B decided by the PM session: the new slot below), R3's focused re-check after r5 (IMPORTANT 2 / MINOR 4) and its narrow re-check after r6 (0 / 0 / 5 MINOR, applied); the decisions are the handoff's `cr2/PLAN-REVIEW-FH-R1.md`, `-R2.md`, `-R3.md`. T = `01fb2924`, whose tool code the frame `3b7ff6d5` equals; this commit moves no T (below).
+
+**The narrowing** (the plan delta's §1.1, as accepted; a bare § or D-F in it is the plan delta's, its line cites at `3b7ff6d5`, its tool cites at T):
+
+| check | cells (runs = cells × shells) | decision | why (the rule's clause) |
+|---|---|---|---|
+| X2 | corpus §6 REF + 11 G × 4 configs = 48 runs | **RETIRED** (L1) | needs the hook (P equal), the hostile files `corpus/h/` (recorded nowhere), and a parts list for `gen6.py` (5 of 9, no documented re-anchor) |
+| X3 main | 1 × 2 shells = 2 | **RUN** | the row's own command; the bound is "Cell runners at T"'s form (§1.2 D-F2) |
+| X3 plant | 1 × 2 = 2 | **RUN** | the row's insert, re-anchored: before fixtures :705 (s8b's :698 at `21526e80`) |
+| X3 floor | 1 × 2 = 2 | **RUN** | the row's edit, at mutgen :304 (the same line as at `21526e80`) |
+| X3 survive check | "each §6.1 record": 305 / 211 / 203 / 129 / 130 by five readings | **RETIRED** (L2) | undefined population, no runner; it does not split (§1.2 D-F8) |
+| X5 corpus §6 R, RLOUD, RES, P | 128 runs (4 REF shared with X2) | **RETIRED** (L3) | R, RES: hook + `corpus/h/`; RLOUD: `corpus/h/home_ign`; P: 5 of 9 edit anchors absent at T, no documented re-anchor; all: `gen6.py`'s parts list (§1.2 D-F1) |
+| X5 draft-10 cells | 38 AFTER jobs (`gen11.py` at T, §7 C17) | **RUN** 32, **RETIRED** 6 (L3) | 32 judged without P equal and needing no file under `corpus/h/`; ROg ×2 and G ×4 need the hook, G also `corpus/h/` (§1.2 D-F6) |
+| X5 drafts 11–21's cells | the six corpus §6.1 names (§7 C16) | `xrace` **RUN** (1 × 2 = 2); `lnblind2`, `xbare`, `xanchor`, `xexecarith` run by X16; `Jm` **RETIRED** (L3; 2 trees × 2 = 4) | `xrace`: a verbatim insert, `cell15.sh`; `Jm`: its second edit is prose (§1.2 D-F7) |
+| X6 | 2 inserts × 2 = 4 | **RUN** | inserts verbatim (landing :397); runner `cell15.sh` |
+| X8 | 3 base + 3 branch = 6 | **RUN** | the row's command; `bash` = the one `PATH` resolves (§1.2 D-F3) |
+| X11 | 1 × 2 = 2 | **RUN** | lines verbatim (landing :401), after controls :123 (§1.2 D-F4) |
+| X13 | 9 cells × NOU {unset, 1} × 2 = 36 | **RUN** | `crc.sh` verbatim (PR527 :333–:396) + its documented patch (landing :536–:551); every cell anchor present at T (§7 C5) |
+| X14 | PX1, R23, R24 × 2 = 6 | **RETIRED** (L4) | setups prose only |
+| X15 | 1 × 2 = 2 | **RUN** | insert verbatim (landing :406); runner `cell15.sh` |
+| X16 | 23 cells: 20 × 2 = 40 runs | **RUN** (20 cells), three re-anchored (§1.2 D-F5) | inserts verbatim; tree edits re-anchored to T |
+| X16 shim cells | `shimprepend`, `shimafter`, `shimhash` × 2 = 6 | **RETIRED** (L5) | each starts with `mkctl`, a setup stated only as prose ("`lnblind2`'s `zzy` link plus …", R15 :192–:195) |
+
+**RUN: 130 runs** (X3 6, X5 34 = 32 + 2, X6 4, X8 6, X11 2, X13 36, X15 2, X16 40). **RETIRED, enumerated: 198 runs**
+(X2 48; X5 128 + 6 + 4; X14 6; X16 6; the 4 REF runs X2 and X5 share counted in each) **plus one unenumerated set**,
+X3's survive check. §7 C3, C4. L1–L5 are the five entries of impl-d's new §T.L, one per retired check (§8).
+
+**§T.Z's step-1 list.** §T.Z :102 ("**Open for the final-T sequence** … step 1 — X2, X3 (with corpus §6.1's survive check by hand, then the plant and floor cells, both shells), X5, X6, X8, X11, X13, X14, X15, X16; …") stands as written at its frame (`f4fb2466`); for the final T it is superseded by this entry and the narrowing above. §T.Z is not edited.
+
+**Step 1's results** (the driver's judgement, the handoff's `cr2/FINALHEAD-STEP1-RESULTS.md`; raw logs `cr2/work/fh/logs/{B1..B8,env}.txt`, per-run logs under `cr2/work/fh/B*/` and, for `stalectl` and `staleshim`, `cr2/work/fh/B2w/cells/`; `$K` = `cr2/work/fh`, setup rc 0, "frame guard: passed"). Batches: B1 12:43–12:45, B2 12:45–12:58, B3 12:58–13:21, B4 13:21–13:26, B5–B7 13:28–20:05, B8 20:05–20:07 (2026-10-24), each rc 0 with `stopgate` clean. **No run stopped** (no `fh.stop<n>`), and no run reached its bound (no rc 137 or 142, no watchdog line). **130 runs: 128 as expected, 2 not** (X16 `staleshim`, both shells: a fail-safe red, "`staleshim` at T" below). "time" is the runner's wall clock (`crc.sh` prints none); "found" is the expected text found in the run's log; CF and NE are the runner's `grep -c` of `CONTROL FAILED` and `CONTROL NOT EXERCISED`.
+
+| batch | cell | shell | rc | time | expected | found |
+|---|---|---|---|---|---|---|
+| B1 | X6 `x6tpl` | b53 | 1 | 6 s | red through **P-c**; not P-d, not P-a | found (P-g also red: `punctslash`, `d2red` persisted `core.ignorecase` / `core.precomposeunicode`; recorded, not excluded by the row) |
+| B1 | X6 `x6inc` | b53 | 1 | 5 s | red through **P-g** (`include.path=/nonexistent-k2`) | found |
+| B1 | X15 `x15` | b53 | 1 | 3 s | rc 1, P-g names `zzx` by shape; no "symlink to a tree holding a git dir" for `k2link` | found (that entry: 0) |
+| B1 | X11 `x11` | b53 | 1 | 33 s | red, the ratchet lists the probe | found ("19 labels have no mutation record, against a ratchet of 18") |
+| B1 | X6 `x6tpl` | b32 | 1 | 10 s | red through **P-c**; not P-d, not P-a | found (P-g also red: `punctslash`, `d2red` persisted `core.ignorecase` / `core.precomposeunicode`; recorded, not excluded by the row) |
+| B1 | X6 `x6inc` | b32 | 1 | 7 s | red through **P-g** (`include.path=/nonexistent-k2`) | found |
+| B1 | X15 `x15` | b32 | 1 | 4 s | rc 1, P-g names `zzx` by shape; no "symlink to a tree holding a git dir" for `k2link` | found (that entry: 0) |
+| B1 | X11 `x11` | b32 | 1 | 38 s | red, the ratchet lists the probe | found ("19 labels have no mutation record, against a ratchet of 18") |
+| B2 | X16 `fifo-commondir` | b53 | 1 | 3 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `fifo-HEAD` | b53 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `fifo-config` | b53 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `fifo-config.worktree` | b53 | 1 | 3 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `clean` | b53 | 0 | 33 s | rc 0, PASSED | found |
+| B2 | X16 `xcommon` | b53 | 1 | 3 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `bareh` | b53 | 1 | 3 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `outsidein` | b53 | 1 | 3 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `hard` | b53 | 1 | 3 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xlink` | b53 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xincreg` | b53 | 1 | 6 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xrefpoison` | b53 | 1 | 9 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xrefctl` | b53 | 1 | 7 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `lnblind2` | b53 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xexecarith` | b53 | 2 | 6 s | rc 2, W's "the fixtures file left the window's stderr redirected" | found |
+| B2 | X16 `gitfn` | b53 | 1 | 6 s | rc 1, P-a with `command line:` origins, no control run | found |
+| B2 | X5 `xrace` | b53 | 0 | 50 s | recorded, not judged (X5; class (c), not owed) | rc 0, PASSED; the cell's group swept after it (a `sleep` and the window's `bash` left, killed by `cell15.sh`) |
+| B2 | X16 `xbare` | b53 | 1 | 35 s | rc 1, "… against a ratchet of 0." | found |
+| B2 | X16 `xanchor` | b53 | 1 | 32 s | rc 1, "… its anchor is stale" | found |
+| B2 | X16 `fifo-commondir` | b32 | 1 | 5 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `fifo-HEAD` | b32 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `fifo-config` | b32 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `fifo-config.worktree` | b32 | 1 | 6 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `clean` | b32 | 0 | 39 s | rc 0, PASSED | found |
+| B2 | X16 `xcommon` | b32 | 1 | 5 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `bareh` | b32 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `outsidein` | b32 | 1 | 4 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `hard` | b32 | 1 | 5 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xlink` | b32 | 1 | 5 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xincreg` | b32 | 1 | 8 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xrefpoison` | b32 | 1 | 10 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xrefctl` | b32 | 1 | 11 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `lnblind2` | b32 | 1 | 5 s | rc 1, P-g, no control run, < 40 s | found (CF=1, P-g only) |
+| B2 | X16 `xexecarith` | b32 | 2 | 9 s | rc 2, W's "the fixtures file left the window's stderr redirected" | found |
+| B2 | X16 `gitfn` | b32 | 1 | 8 s | rc 1, P-a with `command line:` origins, no control run | found |
+| B2 | X5 `xrace` | b32 | 0 | 49 s | recorded, not judged (X5; class (c), not owed) | rc 0, PASSED; the cell's group swept after it (a `sleep` and the window's `bash` left, killed by `cell15.sh`) |
+| B2 | X16 `xbare` | b32 | 1 | 39 s | rc 1, "… against a ratchet of 0." | found |
+| B2 | X16 `xanchor` | b32 | 1 | 38 s | rc 1, "… its anchor is stale" | found |
+| B2 | X16 `stalectl` | b53 | 1 | 33 s | rc 1, "… its anchor is stale" | found |
+| B2 | X16 `stalectl` | b32 | 1 | 36 s | rc 1, "… its anchor is stale" | found |
+| B2 | X16 `staleshim` | b53 | 1 | 31 s | as run at T: rc 0, PASSED (D18-A) | **not found**: rc 1, CF=8, NE=4 ("`staleshim` at T", below); the restated expected value (landing X16) is what was observed |
+| B2 | X16 `staleshim` | b32 | 1 | 37 s | as run at T: rc 0, PASSED (D18-A) | **not found**: rc 1, CF=8, NE=4 ("`staleshim` at T", below); the restated expected value (landing X16) is what was observed |
+| B3 | X13 `clean`, nounset on | b53 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `clean`, nounset off (`NOU=1`) | b53 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `clean`, nounset on | b32 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `clean`, nounset off (`NOU=1`) | b32 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `sealfail`, nounset on | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `sealfail`, nounset off (`NOU=1`) | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `sealfail`, nounset on | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `sealfail`, nounset off (`NOU=1`) | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `env0`, nounset on | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `env0`, nounset off (`NOU=1`) | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `env0`, nounset on | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `env0`, nounset off (`NOU=1`) | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `garbagehead`, nounset on | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=2; the pair SAME) |
+| B3 | X13 `garbagehead`, nounset off (`NOU=1`) | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=2; the pair SAME) |
+| B3 | X13 `garbagehead`, nounset on | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=2; the pair SAME) |
+| B3 | X13 `garbagehead`, nounset off (`NOU=1`) | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=2; the pair SAME) |
+| B3 | X13 `w2rec`, nounset on | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=74, CF=7; the pair SAME) |
+| B3 | X13 `w2rec`, nounset off (`NOU=1`) | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=74, CF=7; the pair SAME) |
+| B3 | X13 `w2rec`, nounset on | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=74, CF=11; the pair SAME) |
+| B3 | X13 `w2rec`, nounset off (`NOU=1`) | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=74, CF=11; the pair SAME) |
+| B3 | X13 `lblrename`, nounset on | b53 | 2 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `lblrename`, nounset off (`NOU=1`) | b53 | 2 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `lblrename`, nounset on | b32 | 2 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `lblrename`, nounset off (`NOU=1`) | b32 | 2 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `w3ar`, nounset on | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `w3ar`, nounset off (`NOU=1`) | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `w3ar`, nounset on | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `w3ar`, nounset off (`NOU=1`) | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=1; the pair SAME) |
+| B3 | X13 `sealdotdot`, nounset on | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `sealdotdot`, nounset off (`NOU=1`) | b53 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `sealdotdot`, nounset on | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `sealdotdot`, nounset off (`NOU=1`) | b32 | 1 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=1, CF=1; the pair SAME) |
+| B3 | X13 `reftable`, nounset on | b53 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `reftable`, nounset off (`NOU=1`) | b53 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `reftable`, nounset on | b32 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B3 | X13 `reftable`, nounset off (`NOU=1`) | b32 | 0 | — | the same exit status, NE/CF counts and first four `!!` lines as its other nounset run | found (NE=0, CF=0; the pair SAME) |
+| B5 | X3 main | b32 | 0 | 9444 s | the three hits; PASSED | found: "305 entr(ies), 0 not killed as named", "50 mutant(s) … 0 neither killed nor argued equivalent", "trip-wire PASSED" |
+| B5 | X3 main | b53 | 0 | 9738 s | the three hits; PASSED | found: "305 entr(ies), 0 not killed as named", "50 mutant(s) … 0 neither killed nor argued equivalent", "trip-wire PASSED" |
+| B6 | X3 plant | b32 | 0 | 7585 s | the three hits, `50 mutant(s)`, PASSED | found (the same three lines) |
+| B6 | X3 plant | b53 | 0 | 7853 s | the three hits, `50 mutant(s)`, PASSED | found (the same three lines) |
+| B7 | X3 floor | b32 | 1 | 5969 s | red: "ran 0 mutant(s), but the generator derives" 50, "1 neither killed nor argued equivalent" | found; no PASSED |
+| B7 | X3 floor | b53 | 1 | 6228 s | red: "ran 0 mutant(s), but the generator derives" 50, "1 neither killed nor argued equivalent" | found; no PASSED |
+
+X13 (B3) also recorded beside its expectation, not judged, against `…-pr527.md` :323–:326 at `8413a4db`: clean 0 PASSED, sealfail 1, env0 **1** (0 there), garbagehead 1, w2rec 1, lblrename 2, w3ar 1, sealdotdot 1, reftable 0 PASSED.
+
+**B4, X5's 32 draft-10 jobs** (`cellT.sh`; `logs/B4.txt`, its 32 verdict lines verbatim; 0 `HARNESS-ERROR` in its `raw.tsv`):
+
+```
+PASS	b53-g255	AFTER-E2	arnoise: AR + 200 [ diagnostics	m0002	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	noise1k: 1000 [ diagnostics	m0003	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	ar: AR alone	m0004	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	rc5: sh -c 'exit 5' at the top level (cause named generically)	m0005	rc=2	Pdiff=0
+PASS	b53-g255	AFTER-E2	nr: a chmod 300 dir under walk	m0006	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	wtmeta: a linked worktree removed, its .git/worktrees entry left	m0007	rc=1	Pdiff=0
+PASS	b53-g255	REF	AFTER clean	m0001	rc=0	Pdiff=0
+PASS	b32-g254	AFTER-E2	arnoise: AR + 200 [ diagnostics	m0009	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E2	noise1k: 1000 [ diagnostics	m0010	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E2	ar: AR alone	m0011	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E2	rc5: sh -c 'exit 5' at the top level (cause named generically)	m0012	rc=2	Pdiff=0
+PASS	b32-g254	AFTER-E2	nr: a chmod 300 dir under walk	m0013	rc=1	Pdiff=0
+PASS	b32-g254	REF	AFTER clean	m0008	rc=0	Pdiff=0
+PASS	b32-g254	AFTER-E2	wtmeta: a linked worktree removed, its .git/worktrees entry left	m0014	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	m2h: nested repo under walk/sub with an outside core.excludesFile, gitlinked into walk	m0015	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E2	m2h: nested repo under walk/sub with an outside core.excludesFile, gitlinked into walk	m0016	rc=1	Pdiff=0
+PASS	b53-g254	AFTER-E2	m2h: nested repo under walk/sub with an outside core.excludesFile, gitlinked into walk	m0017	rc=1	Pdiff=0
+PASS	b32-g255	AFTER-E2	m2h: nested repo under walk/sub with an outside core.excludesFile, gitlinked into walk	m0018	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	d9 cachedir --separate-git-dir + key	m0019	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	d9 nested zz/inner	m0020	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E2	d9 hidden .hid	m0021	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-E3	d9 RO	m0023	rc=2	Pdiff=0
+PASS	b53-g255	AFTER-E2	d9 bare zbare	m0022	rc=1	Pdiff=0
+PASS	b53-g255	AFTER-SE1	d9 SE1 set +e	m0025	rc=2	Pdiff=0
+PASS	b32-g254	AFTER-E2	d9 cachedir --separate-git-dir + key	m0029	rc=1	Pdiff=0
+PASS	b53-g255	P	d9 W2 record	m0028	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E2	d9 nested zz/inner	m0030	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E2	d9 hidden .hid	m0031	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-E3	d9 RO	m0033	rc=2	Pdiff=0
+PASS	b32-g254	AFTER-E2	d9 bare zbare	m0032	rc=1	Pdiff=0
+PASS	b32-g254	AFTER-SE1	d9 SE1 set +e	m0035	rc=2	Pdiff=0
+PASS	b32-g254	P	d9 W2 record	m0038	rc=1	Pdiff=0
+```
+
+**B8, X8's six times** (recorded, nothing judged; alternated base `e8f78896` and T, three each; `bash` = `/opt/homebrew/bin/bash` 5.3.20, `PATH`'s; nothing written to `ci.yml`):
+
+```
+X8 x8base 1 rc=0 real 15.96
+X8 x8t 1 rc=0 real 34.38
+X8 x8base 2 rc=0 real 13.69
+X8 x8t 2 rc=0 real 33.83
+X8 x8base 3 rc=0 real 13.54
+X8 x8t 3 rc=0 real 32.84
+```
+
+**`staleshim` at T: the expected value changed after the run** (2026-10-25). X16's `staleshim` cell (`cellw.sh`, its insert verbatim in `…-pr527-r15.md` §Q, the `stale` record `s/K2NEVERMATCHES/x/` added before records :595) was expected, as landing X16 stated it at `3b7ff6d5`, to give "rc 0, PASSED, the declared class-(c) boundary (D18-A)", the result measured on the draft-19 and draft-20 prototypes (`…-pr527-r15.md` :456, :614). At T it gave **rc 1 on both shells, CF=8, NE=4** (31 s and 37 s; `B2w/cells/staleshim.{b53,b32}.log`, 1284 lines each). The mechanism, read from the logs and the wire at T: the insert writes `cpath/mktemp`, which answers any `mktemp` whose arguments contain `verifyXXXXXX` with the prepared directory `prep/`, whose `.anchor` is a link to `/dev/null`; the parent's `_VFY` (controls :222, `mktemp -d "$SCRATCH/verifyXXXXXX"`) is then `prep/`, and the anchor gate (correspondence :57–:58) writes each `sed` image to `$_VFY/.anchor`, i.e. to `/dev/null`, and diffs the target against an empty file. So the anchor gate's self-test (the control "a record's anchor is fresh only if it changes one line, once, and keeps what it does not read") reads each of its eight fixtures as `count:3` (red:status:message 1:1:1) instead of its expected verdict: the eight `CONTROL FAILED` lines. The record gate itself reads every record expression as changing the whole target (319 "not exactly one" messages, the planted stale record's among them, "changes 1388 lines of webref-generic-core-trip-wire.sh"), and none as "stale". The four NE hits are not verdicts: each is a record expression quoting `CONTROL NOT EXERCISED`, printed by the record gate's message (no line outside those messages carries it). **Direction: fail-safe**: the run reds loudly and decides nothing green; the stale record is not hidden at T. **What it does not show:** that class (c) is closed. A fixtures-written executable on a caller-`PATH` directory still redirects the parent's `mktemp` (it did here); this cell's prepared directory is caught only incidentally, because the anchor gate's self-test runs in the same `_VFY`, and a shim that answered the self-test's reads correctly is not excluded by this run. The class-(c) declaration (design memo §0.3, residuals §5.1, census §4) stands. Under the plan delta's rule a red RUN cell is a finding and its expected value is never rewritten to the result (its §9, step 1; a change of a RUN row's expected value is a definition change, its §1.3: stop, the user decides). **The user decided (2026-10-25):** the tool is unchanged, T and step 1's results are kept, and this commit corrects the documents to the measurement, with the reason, recording here that the expected value was changed after the run. Restated in place, each stamped "(restated 2026-10-25)": landing X16 (staleshim's expected value: the observed red, its mechanism, and the former value), the design memo's §0.3 boundary paragraph (staleshim "was, on its prototypes", rc 0; red at T; the paragraph rewrapped in its own 21 lines, :229–:249, so no line moves), residuals §5.1's class-(c) paragraph (staleshim "did" on its prototypes; red at T; rewrapped in its own lines :50–:59). Not edited: the dated records (`…-pr527-r15.md` :456, :614; `…-reviews.md`; earlier entries of this file) and the accepted plan delta and its runbook, whose B2 judged `staleshim` against the former value.
+
+**The retired checks' defects** (the plan delta's §8, in this file's idiom for an unpinned gap, §T.J's "Declared, not pinned": Gap, Consequence, Why here, not a residual, Trigger, Owner; "retired" means not run at T, by the user's decision, option B, 2026-10-24; a bare §, C or D-F below is the plan delta's, its doc line cites at `3b7ff6d5`, its tool cites at T = `01fb2924`). The Triggers serve future PRs only, through two defer slots owned by the CI/tools lane (`ci-tools-lane-44`) and re-evaluated together on 2026-11-30: L1–L3 through `#11-k2-fixture-postcondition-coverage-at-t`, registered by step 4's ledger text (landing §9, "Ledger text", the new **Register** bullet), and L4–L5 through `#11-trip-wire-launch-environment`, routed to that lane by the PM session on 2026-10-24.
+
+- **L1 — X2, the corpus §6 G cells.** Eleven hostile callers (a `HOME` ignore of `*.py`, an XDG attributes filter, a
+  five-key `GIT_CONFIG_GLOBAL`, three `GIT_CONFIG_COUNT` injections, two `GIT_TEMPLATE_DIR`s, the DO cell,
+  `GIT_CONFIG_GLOBAL=/dev/null`, a caller `GIT_TRACE2_EVENT`) on four configurations, each to stay green with every
+  fixture repo's P equal to the same configuration's clean build (landing :392).
+  **Gap:** nothing at T compares the fixtures' P under a hostile caller with a clean build. What runs at T on the same
+  subject: the window's postconditions, always on (P-f "the fixture build window's environment holds only its
+  allowlist", P-a, P-b, P-g; controls :85–:97), and their records in X3's main run. Last verified: never at a commit
+  of #527 (§7 C11); the last run is the draft-6 prototype p6, 190 cells (PROV :344–:365). The instrument: "P equal"
+  reads the dump of `K2_CORPUS_PDUMP`, a prototype-only hook whose commits are unreachable (`7c07415c`, `50f9e31a`,
+  `22ea58f1`) and five of whose facts are recorded nowhere (landing :450–:491); the hostile files under `corpus/h/`
+  are recorded nowhere (§7 C9); `gen6.py` copies five of the wire's nine files (§7 C6).
+  **Consequence:** a caller environment that changes a fixture repo's P with the run green would be a false green for
+  that caller, and no evidence at T excludes one beyond the postconditions' allowlist.
+  **Why here, not a residual:** the residuals hold the gate's decision boundaries, each with its direction (residuals
+  :93–:96); this is verification #527 did not carry out at T, a statement about its evidence, recorded with the gaps
+  of this record (§T.J's idiom).
+  **Trigger:** a PR that changes the window's environment allowlist or the postconditions P-a, P-b, P-f, P-g; or a
+  decision to rebuild the hook (members of the slot's trigger).
+  **Owner:** the CI/tools lane, through `#11-k2-fixture-postcondition-coverage-at-t` (above).
+- **L2 — corpus §6.1's survive check.** Each §6.1 record was to survive with the clause it names removed (corpus
+  :242–:243), the FIFO records reaching the bound instead (:247–:255).
+  **Gap:** that each record pins the clause it names: no record is run at T with its clause removed. X3's main run
+  still requires each record killed with its own label as needle (corpus :236–:237), so a kill by an unrelated check
+  under another label is caught; a kill under the same label by another clause is not. A row that left its survive
+  result to this check is unmeasured: C9's `lnblind2` (corpus :277, "expected, not measured; X3's survive check
+  measures it"). Last verified: never as one check over §6.1; individual survive arms at the slices that measured
+  them, each at that slice's tree, as its row records (e.g. R29-E's arms at `8a1f746a`, impl-d :278, §T.K C4); a
+  partial re-run of those instruments decides nothing about "each §6.1 record" (§1.2 D-F8). The instrument never
+  existed as a runner: the population has five readings (305 / 211 / 203 / 129 / 130, §7 C12), several rows name no
+  clause (removals, relabels, re-anchors), and no runner applies "a record with its clause removed" in bulk.
+  **Consequence:** a record that stays killed with its named clause removed (the clause unpinned) would not show.
+  **Why here, not a residual:** as L1: unverified verification, not a decision boundary of the gate.
+  **Trigger:** a PR that changes a clause a §6.1 record names (a member of the slot's trigger).
+  **Owner:** as L1.
+- **L3 — X5's retired cells.** The corpus §6 R (eleven bypass spellings, two of them under every hostile caller),
+  RLOUD, RES and P cells (128 runs); the draft-10 ROg jobs (×2) and G jobs (HOME ignore, DO; ×4); the `Jm` cells
+  (draft-19 and draft-18 trees, ×2 shells).
+  **Gap:** no cell at T compares a bypass spelling's P with a clean build. The P rows (`gen6.py`'s nine:
+  the window's completion, P-a and its liveness probe, P-b and its liveness probe, P-c, P-d, P-e, P-f; `PROV@ff1322bb`
+  :743–:826) each edit the harness, and the run must turn red with that row's needle; RLOUD (`_git` under a `HOME`
+  ignoring `*.py`) must give `CONTROL NOT EXERCISED (`. No cell at T builds those edits or that caller; the shipped
+  records of the same postconditions are killed with their labels in X3's main run (corpus §6's records, :130–:166,
+  as §6.1 changes them), which is what runs at T on that subject. Twelve of the 32 draft-10 jobs that run (`m2h` ×4
+  and `d9` ×8, `m0015`–`m0022` and `m0029`–`m0032`) set `core.excludesFile` to a hostile ignore file, `corpus/h/pyglob`
+  or `r9ax3/outside/ign-py`, absent at T, so their fixture differs from the one the companion measured; their verdict
+  arm, P-g on the persisted key (harness :494), reads the key, not the file, and is unaffected (§1.2 D-F6). The green side of the RO/ROg shape (the
+  verdict call moved below the first control with the window complete, P equal) is pinned by no record (design memo
+  :517–:519, restated by step 2, §5) and by no run at T, while its red side runs (`d9 RO`, B4). `Jm`'s kill arm is X3's
+  main-run trial of C6's re-anchored record; its survive arm is L2's. What does run of X5: the 32 draft-10 jobs and
+  `xrace` (runbook §6). Last verified: corpus §6 on p6 (draft 6; PROV :344–:365); the draft-10 cells 38 of 38 PASS at C5
+  `d7812ffe` on a clone carrying the hook (PROV :576–:578, :597, :600–:601); ROg rc 0, PASSED on both shells at
+  `6ed414b2` (R15 :675–:677); `Jm` on the draft-19 and draft-18 prototypes, bash 5.3 (R15 :302–:303). The instrument:
+  R, RES, ROg and G need the hook (L1), RLOUD and G files under `corpus/h/`; the P rows' edits anchor on harness text
+  rewritten since (5 of 9 absent, §7 C6); `Jm`'s trees need "the record itself … pointed at the new line" (R15
+  :290–:292), an edit stated only as prose.
+  **Consequence:** an edit that moves the verdict call and changes a complete build's P, or a bypass spelling that
+  changes P with the run green, would not show at T.
+  **Why here, not a residual:** as L1.
+  **Trigger:** an edit that moves the verdict call (`_fgit_window_verdict_exit "$_fw_lbl"`, controls :243) relative to
+  the first control; an edit to a clause the P rows edit (the window's completion check, P-a, P-b and their liveness
+  probes, P-c's void, P-d's allowlist entry, P-e, P-f's `-i`); or a decision to rebuild the hook (members of the
+  slot's trigger: the completion check is clause W, named by the §6.1 rows of corpus :285, :307 and :312, whose
+  records are records :258, :306–:307 and :326 at T, label `the fixture build window completed`; P-a's and P-b's
+  liveness probes are named by corpus :288, which re-anchors their records, records :174 and :176 at T; so each is
+  "a clause named by a §6.1 record", and the slot's text needs no extension; §7 C29).
+  **Owner:** as L1.
+- **L4 — X14.** PX1's caller `PATH` (`~+/bin` first, a logging `git` in the repository's `bin/`), Codex R23's
+  `tools/bin` wrapper with its interpreter beside it, Codex R24's `~/bin` wrapper with a helper, each to end within
+  120 s (landing :405).
+  **Gap:** for those three callers, a wait (bounded only by CI's job timeout, residual R9) or a red is not excluded at
+  T; a green with the wrapper pinned is what M-PATH predicts (design memo §0.1). None of the three has run under
+  M-PATH at a commit of #527. Last runs (§7 C21): PX1 under M-PATH on the M-PATH prototype `$A/sb`, rc 0, PASSED, both
+  shells (PR527 :290–:296); R23's shape red on `cb8b0e09` and PASSED after it (corpus :192–:193; R23's fix is
+  `0116209d`, by its subject "fix(k2-wire): PR527 Codex R23 — …", §7 C21); a `tools/bin` wrapper P-e red on `da2730d4` and PASSED after it, and a `~/bin` wrapper
+  with 97 calls from inside the window, its commit not recorded (PR527 :50–:51, Codex R11–R13): commits of #527
+  before M-PATH (draft 11, PR527 :130). R24's own case, the `~/bin` wrapper's helper, is stated by its fix (PR527 :100–:102;
+  the fix is `f8a5f3e6`, by its subject "fix(k2-wire): PR527 Codex R24 — …", §7 C21), with no run recorded. The instrument: no setup is recorded beyond prose: PX1's run line is verbatim (PR527 :295–:296)
+  but its wrapper's text is not (:290–:291); R23's and R24's wrappers are described only (PR527 :93–:106, :50).
+  **Consequence:** a caller with such a wrapper could see a wait or a red that no run at T has excluded.
+  **Why here, not a residual:** as L1; and not a new slot: the class is member (3) of the open slot
+  `#11-trip-wire-launch-environment` (`PATH`: every external tool, `git` and `mktemp` among them, arrives through it),
+  which step 4's amend now tells that these three callers were not run under M-PATH at a commit of #527, naming
+  their last runs (§5, landing :191–:198).
+  **Trigger:** a report from a caller with a `tools/bin` or `~/bin` git wrapper or a `~+` `PATH` entry; a change to the
+  pin (harness, `_FGIT_PATH`); or the slot's own trigger. (PR527 :151–:153 names X14 as where these outcomes would be
+  recorded.)
+  **Owner:** the CI/tools lane, through `#11-trip-wire-launch-environment` (routed by the PM session on 2026-10-24,
+  memory `project_open-defer-slots.md` :308; re-evaluation 2026-11-30).
+- **L5 — X16's three shim cells.** `shimprepend` (a `mktemp` shim first on the window's `PATH`), `shimafter` (after the
+  pin) and `shimhash` (`hash -p`) (landing :403).
+  **Gap:** for `shimafter` and `shimhash`, that the declared class-(c) boundary (design memo §0.3, residuals §5.1 :54)
+  sits where it is stated: no run at T plants a `mktemp` shim behind the pin. `shimprepend`'s subject, P-j's
+  first-entry clause, is pinned at T by C6's re-anchored record (corpus :262), killed in X3's main run. `staleshim`
+  (X16, run) measures the parent's side of class (c), not the postconditions' `mktemp` [added 2026-10-25: at T it was red, rc 1, not rc 0, PASSED; "`staleshim` at T" below]. Last verified: the draft-19
+  prototype (R15 :298–:300). The instrument: each insert starts with `mkctl`'s two lines, stated as "`lnblind2`'s `zzy`
+  link plus …" (R15 :192–:195), and which of `lnblind2`'s five clauses (R15 :79) is "the `zzy` link" is not stated;
+  the reviewer's insert files are gone (R15 :282–:283, a `/tmp` path).
+  **Consequence:** a move of the class-(c) boundary (a red where rc 0 is declared, or a green where P-j should red)
+  would not show at T.
+  **Why here, not a residual:** as L4: the `mktemp` subject is the same slot's member (3); the amend names these two
+  cells.
+  **Trigger:** a change to how the window or the postconditions resolve `mktemp`, or to P-j; or the slot's own
+  trigger.
+  **Owner:** as L4.
+
+**The environment** (`logs/env.txt`, the same at each of B1–B8): `HOME=/Users/kazuaki`; `command -v`: bash `/opt/homebrew/bin/bash`, git `/opt/homebrew/bin/git`, mv `/opt/homebrew/opt/coreutils/libexec/gnubin/mv`, sed `/usr/bin/sed`, find `/usr/bin/find`, perl `/usr/bin/perl`, python3 `/Users/kazuaki/.local/share/mise/shims/python3`; mv (GNU coreutils) 9.12; `git --version` 2.56.0, `/opt/homebrew/bin/git` 2.56.0, `/usr/bin/git` 2.54.0 (Apple Git-157); `$SH53` GNU bash 5.3.20(1)-release (aarch64-apple-darwin25.6.0), `$SH32` GNU bash 3.2.57(1)-release (arm64-apple-darwin25). `PATH`, verbatim:
+
+```
+PATH=/Users/kazuaki/.cargo/bin:/Users/kazuaki/.local/share/mise/installs/rust-analyzer/latest:/Users/kazuaki/.local/share/mise/shims:/Applications/Orca.app/Contents/Resources/bin:/Users/kazuaki/.local/bin:/Users/kazuaki/bin:/Users/kazuaki/sbin:/Users/kazuaki/.jsvu/bin:/opt/homebrew/opt/coreutils/libexec/gnubin:/opt/homebrew/opt/rustup/bin:/opt/homebrew/opt/postgresql@16/bin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Applications/Orca.app/Contents/Resources/bin:/Users/kazuaki/Library/pnpm/bin:/Users/kazuaki/.volta/bin:/Users/kazuaki/.asdf/shims:/Users/kazuaki/.fnm/aliases/default/bin:/Users/kazuaki/Library/pnpm:/Users/kazuaki/.yarn/bin:/Users/kazuaki/.bun/bin:/nix/var/nix/profiles/default/bin:/Users/kazuaki/.nix-profile/bin:/Users/kazuaki/.opencode/bin:/Users/kazuaki/.vite-plus/bin:/Users/kazuaki/.local/share/mise/installs/node/lts/bin:/Users/kazuaki/.local/share/mise/installs/go/1.27.1/bin:/Users/kazuaki/.local/share/mise/installs/python/latest/bin:/Users/kazuaki/.local/share/mise/installs/ruby/latest/bin:/Users/kazuaki/.local/share/mise/installs/uv/latest/uv-aarch64-apple-darwin:/Users/kazuaki/.local/share/mise/installs/terraform/latest:/Users/kazuaki/.local/share/mise/installs/npm-yarn/latest/bin:/Users/kazuaki/.local/share/mise/installs/npm-jsvu/latest/node_modules/.bin:/Users/kazuaki/.local/share/mise/installs/npm-google-gemini-cli/latest/node_modules/.bin:/Users/kazuaki/.local/share/mise/installs/npm-openai-codex/latest/node_modules/.bin
+```
+
+**T's line numbers as runbook §6 used them** (at T = `01fb2924`; the checker's [anchors] and [_lbl …] sections): fixtures :705, the `built` line (X3's plant insert goes before it; `21526e80`'s :698); mutgen :304, the generator's append `>> "$_VFY/.genmutants"` (the floor edit), inside `_mut_gen_run` :287–:348; mutations :271 `_MUT_UNRECORDED_MAX=18` (`xbare`'s `U` → `0`) and :275 `_MUT_RECORDS_MIN=305`; records :196, the record `xanchor`'s `A` edits; records :595, the end of the `MUTANTS` here-document (the `stale` record goes before it); controls :82–:123, the 33 `_lbl="` definitions (X11's lines after :123); controls :222, the parent's `_VFY`; controls :243, the verdict call `_fgit_window_verdict_exit "$_fw_lbl"`; harness :494, P-g on the persisted key.
+
+**The checker** (`docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead-check.sh`, moved in unchanged): run from its `docs/plans/` location for this commit, rc 0, 364 output lines, its first line `## checker sha256 (the file as run): c1df1af1ebf728f69339c81d117ad5529db9d6c84e2adb8addfe301ec69494c1`, the sha256 of the file as run, equal to the handoff copy's; its output equals the handoff's `cr2/logs/fhd/check.out` but for the runbook's path on the second line (`diff` after normalising the memo, runbook and output paths). What it still reads outside the repository: the absolute paths `W` and `H`, the handoff's logs C8–C10 read, and the per-user memory directory (the plan delta's §9 item 3).
+
+**Docs** (this commit, the designer; the plan delta's §9, "Step 2's commit", items 1–6). (1) Landing §9.1 step 2's work: this entry is the results record; the trip-wires comments in `.github/workflows/ci.yml` are rewritten to the runner method with no figure (the block above the job: "Derive it if you need it (`/usr/bin/time -p bash scripts/trip-wires.sh`)" and "re-derived when a wire lands" replaced by the budget being measured from a run of the job on the runner; the job's comment: "RE-DERIVED WHEN THE K2 WIRE LANDED" dropped and its reason kept, "Derive it instead:" with its command, the rule "a wire … re-derives this line" and "THE METHOD" with its local three-run comparison replaced by the runner method, #510's `gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="Layering trip-wires")|[.startedAt,.completedAt]'`, the rule that a PR adding fixture self-tests re-measures the job that way, and "NO FIGURE IS KEPT HERE", the figure's one home being the open implementation record, design memo §13); `CLAUDE.md`'s trip-wires paragraph (line 94) loses "必要なら導出する (`/usr/bin/time -p bash scripts/trip-wires.sh`)" and "`timeout-minutes` は wire が増えた PR で再導出する", its closing parenthesis now saying that the job's comment is the one home of the budget's method. **The complement check** (run after the rewrite, on this tree): `/usr/bin/grep -c 'time -p bash scripts/trip-wires.sh' CLAUDE.md .github/workflows/ci.yml` → `CLAUDE.md:0`, `.github/workflows/ci.yml:0`; `/usr/bin/grep -n -i -e 're-derive' -e 'rederive' -e '導出' CLAUDE.md .github/workflows/ci.yml` → one line, `.github/workflows/ci.yml:159:  # nobody re-derives.`: the end of "for these wires and for any wire added later whose path coverage nobody re-derives", the path filter's coverage, not a local derivation of the job's time, so it asks for none. T does not move: `git diff --name-only 01fb2924 -- .claude/tools scripts` on this tree is empty, and the `trip-wires` job's non-comment lines (landing §9.1's `_job`) are equal at T and on this tree. (2) The plan delta moved into `docs/plans/` as `…-cr2-plan-finalhead.md` (status "accepted", naming the rounds; the handoff name dropped from its §6; `preflight` exit 0, its §3 mapping its own sections) and its runbook as `…-cr2-plan-finalhead-runbook.md` (its Status paragraph's three replacements; `preflight` exit 1 by its §0's declaration). (3) The checker, unchanged (above). (4) The edits of the plan delta's §5 table, 32 of 32 rows, each new text stamped "(restated 2026-10-25)" where §5 says so (the banner note of `…-cr2-plan.md` carries the date in its own form; umbrella :23, :111, `…-cr2-sweep.md` :68 and design memo :22 carry none, by their precedents); the user's `staleshim` decision adds the three sites above. The umbrella's count, measured on this tree with `preflight.py` over the 25 `2026-09-citation-hygiene-k2-fgit-hermetic*.md` files: 22 exit 1, 3 exit 0 (`…-cr2-plan-liveness.md`, `…-cr2-plan-liveness-2.md`, `…-cr2-plan-finalhead.md`). (5) This entry. (6) Not edited, below.
+
+**Cites** (moved and rewritten lines; measured on this commit's files with `/usr/bin/grep -n` against `git show 3b7ff6d5:<file>`). The landing's edits at :152–:156, :162–:164, :170, :173–:177, :191–:200, :318–:320, :330–:333, :337–:344, :346, :349–:351, :427–:431 and :444 and the corpus's at :54, :242–:255, :484 and :486–:488 rewrap hard-wrapped prose (the landing's at most 123 columns, the corpus's at most 105) and add lines, and the corpus gains one table row after :462; the table rows :392–:405 change in place. Old → new:
+
+| file | old (at `3b7ff6d5`) | new (this commit) | kind |
+|---|---|---|---|
+| landing | :152–:164 | :152–:165 | rewritten, rewrapped |
+| landing | :165–:169 | :166–:170 | unchanged, +1 |
+| landing | :170–:171 | :171–:173 | rewritten, rewrapped |
+| landing | :172 | :174 | unchanged, +2 |
+| landing | :173–:177 | :175–:180 | rewritten, rewrapped |
+| landing | :178–:190 | :181–:193 | unchanged, +3 |
+| landing | :191–:200 | :194–:224 | rewritten, rewrapped |
+| landing | :201–:270 | :225–:294 | unchanged, +24 |
+| landing | :271 | :295 | rewritten |
+| landing | :272–:313 | :296–:337 | unchanged, +24 |
+| landing | :314–:333 | :338–:364 | rewritten, rewrapped |
+| landing | :334–:336 | :365–:367 | unchanged, +31 |
+| landing | :337–:344 | :368–:379 | rewritten, rewrapped |
+| landing | :345 | :380 | unchanged, +35 |
+| landing | :346 | :381–:383 | rewritten, rewrapped |
+| landing | :347–:348 | :384–:385 | unchanged, +37 |
+| landing | :349–:351 | :386–:389 | rewritten, rewrapped |
+| landing | :352–:391 | :390–:429 | unchanged, +38 |
+| landing | :392–:393 | :430–:431 | rewritten |
+| landing | :394–:395 | :432–:433 | unchanged, +38 |
+| landing | :396 | :434 | rewritten |
+| landing | :397–:402 | :435–:440 | unchanged, +38 |
+| landing | :403 | :441 | rewritten |
+| landing | :404 | :442 | unchanged, +38 |
+| landing | :405 | :443 | rewritten |
+| landing | :406–:422 | :444–:460 | unchanged, +38 |
+| landing | :423–:433 | :461–:475 | rewritten, rewrapped |
+| landing | :434–:443 | :476–:485 | unchanged, +42 |
+| landing | (after :443) | :486–:489 | new |
+| landing | :444–:552 | :490–:598 | unchanged, +46 |
+| corpus | :54 | :54–:57 | rewritten, rewrapped |
+| corpus | :55–:241 | :58–:244 | unchanged, +3 |
+| corpus | :242–:255 | :245–:259 | rewritten, rewrapped |
+| corpus | :256–:462 | :260–:466 | unchanged, +4 |
+| corpus | (after :462) | :467 | new |
+| corpus | :463–:483 | :468–:488 | unchanged, +5 |
+| corpus | :484–:485 | :489–:490 | rewritten |
+| corpus | :486 | :491 | unchanged, +5 |
+| corpus | :487–:488 | :492–:493 | rewritten |
+| corpus | :489–:490 | :494–:495 | unchanged, +5 |
+| design memo | :22 | :22 | rewritten |
+| design memo | :229–:247 | :229–:247 | rewritten |
+| design memo | :518–:519 | :518–:520 | rewritten, rewrapped |
+| design memo | :520–:759 | :521–:760 | unchanged, +1 |
+| `…-cr2-plan.md` | (after :32) | :33 | new |
+| `…-cr2-plan.md` | :33–:978 | :34–:979 | unchanged, +1 |
+| residuals | :50–:59 | :50–:59 | rewritten in place (`staleshim`), no line moves |
+| residuals | :90–:93 | :90–:93 | rewritten in place (the accounting), no line moves |
+
+The block boundaries come from a line diff of each file against `git show 3b7ff6d5:<file>`; their anchors, by `/usr/bin/grep -n` on both sides: landing 7.4 :152 → :152, step 9 :170 → :171, "**Ledger text.**" :173 → :175, "**Amend**" :191 → :194, "**Fix the header count.**" :199 → :223 (the new **Register** bullet :209), §9.2 :202 → :226, "**Accounting**" :271 → :295, §9.1 :304 → :328, its step 1 :319 → :345, step 2 :321 → :352, the terminator :349 → :386, §11 :385 → :423, X1 :391 → :429, X2 :392 → :430, X3 :393 → :431, X5 :396 → :434, X8 :398 → :436, X9 :399 → :437, X16 :403 → :441, X13 :404 → :442, X14 :405 → :443, "**Cell runners at T" :423 → :461, "**X5 at T.**" :444 → :490, "**X13 at T.**" :529 → :575; corpus "**Draft 6's recast corpus**" :56 → :59, "Each record is planned" :242 → :245, the §6.1 table header :257 → :261, its last row R29ac :462 → :466, the new "final head" row :467, "**Current totals**" :467 → :472, "**ROg**" :481 → :486, "**Not records" :484 → :489, "**Cost (X3).**" :486 → :491, "**Retired with C6:**" :489 → :494. `…-cr2-plan.md`'s body moves by its banner's new note; a cite into it names the body's line as accepted, as its notes say.
+
+Into those, the cites at `3b7ff6d5` in the plan delta and its runbook stay at their frame (their convention); every other cite in the k2 docs into a moved landing, corpus or design memo line is a dated record's or names its frame, and is left as written.
+
+**Not edited** (stated): §T.Z (its :102) and every earlier entry; the accepted plan bodies (`…-cr2-plan.md`, whose banner gains one note, its own convention; `…-cr2-plan-exitpath.md`, `…-cr2-plan-liveness.md`, `…-cr2-plan-liveness-2.md`) and the plan delta's and runbook's bodies; every earlier dated note; every corpus §6.1 row; the residuals ledger but its accounting sentence (:90–:93, rewrapped in its four lines) and, by the user's `staleshim` decision, its class-(c) paragraph (:50–:59, in its own lines); `…-cr2-sweep.md` but its comment :68; every `.sh` part, `.claude/tools/**` and `scripts/**`. The sweep (`…-cr2-sweep.md` §E's `sweep.sh`) was not re-run for this commit. Budgets (`wc -l`): landing 598 (< 1000), corpus 495 (< 1000), design memo 760 (≤ 760: at its budget; the next edit that adds a line to it owes the touch-time split judgement first), residuals 152, this file 654 (< 800).
+
+Next (not part of this commit): step 3, one fresh Codex round on the new head; step 4, the ledger text handed to the session that owns `project_open-defer-slots.md`; step 5, the user's squash approval (landing §9.1 as restated).

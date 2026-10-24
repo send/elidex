@@ -30,6 +30,7 @@ R2's G1–G40, r4 R3's H1–H28, r5 R4's J1–J29, each as the driver decided th
 - **:637 (G11-12) and :700 (CR11-A)**, "stops the call's groups, then removes their entries"; "restores `set +m`, stops, then removes (H17)" (2026-10-23, R29-D): … stops, names and keeps the groups not confirmed gone, and removes the rest (R29r).
 - **:701 (CR11-J)**, the J1 text, "the reap's identity check needs `ps -o etime=`" (2026-10-23, R29-D): controls :230's text: the reap needs both `ps` reads (`etime` and the process table).
 - **:819**, "`kill -0 -<pgid>` and `ps -o etime=` are read here on macOS only" (2026-10-23, R29-D; first corrected by `…-impl-cr2-d.md` §T.H (4)): the table read too, refused where it cannot list the run's own row.
+- **:757 (CR2-Z's row)**, "X3 and the rest of `…-landing.md` §9.1 run at the new final T as already planned" (2026-10-25, final head; `…-cr2-plan-finalhead.md` §5, `…-impl-cr2-d.md` §T.L): at #527's final head step 1 runs the cells `…-cr2-plan-finalhead.md` §1.1 marks RUN; X2, X3's survive check, X5's retired cells, X14 and X16's shim cells are retired (§T.L L1–L5).
 
 **Frame: `706049ad`** (the git clone `cr2-wt`, branch `cr2`). Every line number is at `706049ad` unless a commit is
 named beside it. **(M)** = measured in `git clone --local` copies of it under `cr2/work/` (never in `cr2-wt` or the

@@ -47,16 +47,16 @@ sees what is **still persisted when the build ends**. A form that persists and t
 **Class (c) is the residual, by property.** It is any fixtures-file command that gives a git an outside
 input and leaves no persisted, observable state when the build ends (§0.3 gives examples). Measured on
 p8: `git -C . -c include.path=<file> add -A` gives rc 0, `PASSED`, and Pdiff 50 on both shells. That is
-silently wrong, and it is **declared**, not closed. A write to the verifier's own state is the same:
-`xdone` (the markers written by the fixtures file) and `xredef` (`_fgit_postconditions` redefined), each
-with a key persisted in `clean`, give rc 0, PASSED (§0.3; `…-pr527.md` round 14), and so does `xrace`,
-a background process that outlives the build and writes the reference, and so do `mkfn`,
-`shimafter` and `shimhash`, which change what the `mktemp` the postconditions run resolves to (a
-fixtures-file function, a `PATH` entry after the pin, `hash -p`; §0.3 states the class by that
-property, D17-A; `…-pr527-r15.md` §Q), and so does `staleshim`, an executable the fixtures write into a
-caller-`PATH` directory, which changes what the **parent's** `mktemp` resolves to after the window
-(D18-A extends the property to the parent), and `srcrw`, a `_mut_correspondence` the fixtures append
-to the checkout's `mutations.sh` (D19-B: the property is which executable or code the verifier runs).
+silently wrong, and it is **declared**, not closed. A write to the verifier's own state is the same: `xdone`
+(the markers written by the fixtures file) and `xredef` (`_fgit_postconditions` redefined), each with a key
+persisted in `clean`, give rc 0, PASSED (§0.3; `…-pr527.md` round 14), and so does `xrace`, a background
+process that outlives the build and writes the reference, and so do `mkfn`, `shimafter` and `shimhash`, which
+change what the `mktemp` the postconditions run resolves to (a fixtures-file function, a `PATH` entry after
+the pin, `hash -p`; §0.3 states the class by that property, D17-A; `…-pr527-r15.md` §Q), and so did
+`staleshim` on its prototypes (red at T, restated 2026-10-25: `…-impl-cr2-d.md` §T.L), an executable the
+fixtures write into a caller-`PATH` directory, which changes what the **parent's** `mktemp` resolves to after
+the window (D18-A extends the property to the parent), and `srcrw`, a `_mut_correspondence` the fixtures
+append to the checkout's `mutations.sh` (D19-B: the property is which executable or code the verifier runs).
 
 **D1: seed S is deleted.** Round 7 (Ax3) measured literal spellings passing S end to end with Pdiff 50
 on both shells:
@@ -87,10 +87,10 @@ example if fixtures come from untrusted contributors, that is a new decision wit
 slot's trigger. The slot's original premise, verbatim from the ledger, "Measured 2026-09-26: the build
 region contains no bare `git ` outside comments", is **moot**.
 
-**Accounting:** 1 own deferral, `#11-trip-wire-liveness-bound` (§5.2 R9, draft 13). With
-`#11-k2-fixture-git-invocation-convention` closed, the keep-set slot dissolved below and
-`#11-k2-wire-exit-trap-masks-set-u-abort` closed (§5.2, `8f4ad3c8`), the ledger nets to **−2**.
-The count is of defer slots (`#11-*`) only. The defer policy counts work a PR postpones; a residual (§5.1,
+**Accounting:** 2 own deferrals (restated 2026-10-25), `#11-trip-wire-liveness-bound` (§5.2 R9, draft 13) and
+`#11-k2-fixture-postcondition-coverage-at-t`. With `#11-k2-fixture-git-invocation-convention` closed, the keep-set
+slot dissolved below and `#11-k2-wire-exit-trap-masks-set-u-abort` closed (§5.2, `8f4ad3c8`), the ledger nets to
+**−1**. The count is of defer slots (`#11-*`) only. The defer policy counts work a PR postpones; a residual (§5.1,
 and §5.2's R1–R9, R11, R14, R15 and R17–R23) is a measured boundary of what the gate decides: a declared limitation
 with a stated direction (through it the run's verdict is never a false green, or the residue is named, as
 R1's and R3's silent cases are), not deferred planned work, so it is not counted here. Each of R14, R15 and R17–R23

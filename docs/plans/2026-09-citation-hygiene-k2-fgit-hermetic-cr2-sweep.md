@@ -65,7 +65,7 @@ files=( .claude/tools/webref-generic-core-trip-wire.sh .claude/tools/webref-gene
         docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md
         CLAUDE.md .github/workflows/ci.yml scripts/* )
 # CR2-0 added the new part (`correspondence`) to the list above; CR2-D adds the #519 memo's companion (the file its split commit creates; the plan's §11).
-# Excluded (the plan's §11, on the CR round's R3 H1 precedent): CR2's plan, its companion, its plan deltas (`…-cr2-plan-liveness.md`, R29-D; `…-cr2-plan-liveness-2.md`, R29-E), this file and its
+# Excluded (the plan's §11, on the CR round's R3 H1 precedent): CR2's plan, its companion, its plan deltas (`…-cr2-plan-liveness.md`, R29-D; `…-cr2-plan-liveness-2.md`, R29-E; `…-cr2-plan-finalhead.md` with its runbook `…-cr2-plan-finalhead-runbook.md` and its checker `…-cr2-plan-finalhead-check.sh` (the final-head narrowing)), this file and its
 # instrument companions (every `…-cr2-*.md`; `…-impl-cr2.md` and `…-impl-cr2-d.md` stay in), which match the glob above; they are the
 # ledger's own statement of the identifiers, not sites. The CR round's plan and
 # ledger are in the set: that round is closed, and their hits are provenance (`hist`, the plan's §11).

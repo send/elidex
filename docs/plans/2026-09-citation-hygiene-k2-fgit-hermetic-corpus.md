@@ -51,7 +51,10 @@ tr '\n' '\0' < c6/jobs.tsv | xargs -0 -n1 -P2 c6/cell6.sh > c6/raw.tsv   # K2_CO
 c6/eval6.sh > c6/results.tsv                                     # verdicts, P compared per config
 ```
 
-For X2/X5 on the implementing head, clone that head as `<dir>/p6`. The scripts take no other paths.
+For X2/X5 on the implementing head, clone that head as `<dir>/p6`. The scripts take no other paths. X2
+and X5's corpus §6 cells are retired at T (restated 2026-10-25; `…-impl-cr2-d.md` §T.L L1, L3): the
+recipe also reads `<dir>/corpus/h/`, hostile files recorded nowhere, and `gen6.py` copies five of the
+wire's nine files.
 
 **Draft 6's recast corpus** covered 190 cells on p6, across all four configurations. The cell list is
 in companion §A.9. It contains:
@@ -239,20 +242,21 @@ records this PR adds (the table above); "all" is every entry the runner counts, 
 (`awk -F'\t' '!/^#/ && NF>1'` over the `MUTANTS` here-document: 145 at `8413a4db`). Draft 12's C7 and
 its two records were withdrawn with the time bound.
 
-Each record is planned to be **killed** when X3 runs at T (`…-landing.md` §9.1), and to **survive**
-with the clause it names removed; that **survive check** is run by hand as part of X3 (`…-landing.md`
-§11). Per commit, the ordinary run reads the records in three places, and none of them runs a record
-(X1): the always-on anchor check in `_mut_correspondence` (every record's expression must change its
-target; `mutations.sh:537–560` at `8413a4db`), the records floor (`_MUT_RECORDS_MIN`, line 574) and the
-label ratchet (`_MUT_UNRECORDED_MAX`, line 595). A record that plants a FIFO is the exception to the
-survive check, because without its clause git blocks on the FIFO and the run waits (no time bound,
-design memo §5.2 R9). For those, the removed-clause run is a **necessary-condition check** only. It
-runs by `cell15.sh`'s method (`…-pr527.md`, round 13): its own process group under
-`perl -e 'setpgrp; alarm 120; exec @ARGV'`, with a `kill -9 -<pgid>` watchdog 3 s after it, because
-bash 3.2 does not end a hung wire at the alarm (`…-landing.md` §11, "Cell runners at T"). It is
-expected to reach that bound with
-`ps -ax -o pid=,pgid=,command=` showing the P-g `git … config --list` of that group blocked; then that
-group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
+Each record is planned to be **killed** when X3 runs at T (`…-landing.md` §9.1), and to **survive** with
+the clause it names removed. The survive check is retired at T (restated 2026-10-25; `…-impl-cr2-d.md`
+§T.L L2): its population is not defined and it has no runner. A survive arm measured at a slice stands
+at that slice's tree, as its row records. Per commit, the ordinary run reads the records in three
+places, and none of them runs a record (X1): the always-on anchor check in `_mut_correspondence` (every
+record's expression must change its target; `mutations.sh:537–560` at `8413a4db`), the records floor
+(`_MUT_RECORDS_MIN`, line 574) and the label ratchet (`_MUT_UNRECORDED_MAX`, line 595). As planned
+(retired at T): A record that plants a FIFO is the exception to the survive check, because without its
+clause git blocks on the FIFO and the run waits (no time bound, design memo §5.2 R9). For those, the
+removed-clause run is a **necessary-condition check** only. It runs by `cell15.sh`'s method
+(`…-pr527.md`, round 13): its own process group under `perl -e 'setpgrp; alarm 120; exec @ARGV'`, with a
+`kill -9 -<pgid>` watchdog 3 s after it, because bash 3.2 does not end a hung wire at the alarm
+(`…-landing.md` §11, "Cell runners at T"). It is expected to reach that bound with `ps -ax -o
+pid=,pgid=,command=` showing the P-g `git … config --list` of that group blocked; then that group alone
+is killed with `kill -9 -<pgid>`, so nothing is left behind.
 
 | commit | change | label | target | this PR's / all |
 |---|---|---|---|---|
@@ -460,6 +464,7 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 | R29-E set | **add**, R29aa (records.sh:590), `_k2_stop`'s fallback dropped (`      \|\| _k2_kill_gone 0 "$@"` made `      \|\| :`), so a stop process that cannot start leaves its groups unstopped. Killed as named by the fallback row (controls :606–:608: `$BASH` a missing file, the unmarked group must get 21 KILLs, the marked none), both shells; it SURVIVES with that row removed (one-record trials, the handoff's `cr2/logs/r29d/opt-e2-L590.*`; its survive arm, `cr2/logs/r29e/arms.{b53,b32}.out`; `…-impl-cr2-d.md` §T.K) | `a call's process groups end with it and hold none of its caller's streams` | wire | 209 / 303 |
 | R29-E set | **add**, R29ab (records.sh:593), the primitive's tick made 0.5 s (`sleep 0.05 \|\| sleep 1` made `sleep 0.5 \|\| sleep 1`). Killed as named by the tick row (controls :624–:629: a fake clock counts the grace's ticks, 40 of 0.05 s to its 2 s; the mutant gives 4, `…-cr2-plan-liveness-2.md` §6), both shells; it SURVIVES with that row removed (one-record trials, the handoff's `cr2/logs/r29d/opt-e2-L593.*`; its survive arm, `cr2/logs/r29e/arms.{b53,b32}.out`; `…-impl-cr2-d.md` §T.K) | `a call's process groups end with it and hold none of its caller's streams` | wire | 210 / 304 |
 | R29-E set | **add**, R29ac (records.sh:594), the tick's whole-second fallback dropped (`sleep 0.05 \|\| sleep 1` made `sleep 0.05`), so where `sleep` refuses a fraction the grace spins. Killed as named by the tick row's integer-only arm (it must count 2 ticks of 1 s; the mutant spins to the row's 99-sleep cap, `…-cr2-plan-liveness-2.md` §6), both shells; it SURVIVES with that row removed (one-record trials, the handoff's `cr2/logs/r29d/opt-e2-L594.*`; its survive arm, `cr2/logs/r29e/arms.{b53,b32}.out`; `…-impl-cr2-d.md` §T.K). The nine adds are `$_og_lbl`'s twenty-eighth to thirty-sixth records, so the ratchet is unchanged (`…-impl-cr2-d.md` §T.K) | `a call's process groups end with it and hold none of its caller's streams` | wire | 211 / 305 |
+| final head | **no change**: the survive check is retired at T (`…-impl-cr2-d.md` §T.L L2). A row whose survive result was left to it (C9's `lnblind2`, :277: "expected, not measured; X3's survive check measures it") stays unmeasured | — | — | — |
 
 - **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
   FIFO" keep their text and target. After C9 they die by the census's shape pass rather than by the
@@ -481,10 +486,10 @@ group alone is killed with `kill -9 -<pgid>`, so nothing is left behind.
 - **ROg** (§6, E3: the exit moved below the first control, window complete) went red with C8, because
   the verdict function then set `_fw_trusted`; with trust decided by the window it is green again on
   both shells at `6ed414b2` (`…-pr527-r15.md` §Q).
-- **Not records, by the caller's `PATH`:** the X14 outcomes. A record's run uses the caller's `PATH`, so
-  no record can pose them.
+- **Not records, by the caller's `PATH`:** the X14 outcomes. X14 is retired at T (restated 2026-10-25;
+  `…-impl-cr2-d.md` §T.L L4). A record's run uses the caller's `PATH`, so no record can pose them.
 - **Cost (X3).** No new record runs to a bound. The FIFO records end in seconds, because the census
-  stops them before git runs (`…-landing.md` X16). Only X3's survive check runs a FIFO record with its
-  clause removed; there it waits, by the FIFO procedure above.
+  stops them before git runs (`…-landing.md` X16). No run at T runs a FIFO record with its clause
+  removed: the survive check is retired (restated 2026-10-25; `…-impl-cr2-d.md` §T.L L2).
 - **Retired with C6:** the "resolving relative `PATH` entries" bullet under "What is not a record"
   above describes the normaliser C6 deletes.
