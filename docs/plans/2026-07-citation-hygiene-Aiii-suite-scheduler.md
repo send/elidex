@@ -10,12 +10,14 @@ user's 2026-09-22 decision ("option A1") a check that needs an interpreter leave
 (§4.2.1) — while #501, which A-ii stacks on, is blocked on items unrelated to A-iii. The umbrella's slice
 order and A-ii memo's §13 row ("A-iii | after A-ii") are amended **in this lane's rework of PR #514** (A-ii's
 rebase onto landed `main`, §13). ⚠ If #501 lands before that rework, `main` carries a stale order statement
-for the interval between the two; the window closes at the rework, and until then this memo is the record of
-the reorder.
+(the umbrella's A-iii rows, §13) for the interval between the two; until then this memo is the record of the
+reorder. **Why the window is accepted rather than closed now**: its opening is set by #501's landing, which
+this lane does not control, and its close is this lane's own #514 rework — the next thing this lane does after
+#501 lands, so the window is bounded by an action this lane owns.
 **Nature**: repo infrastructure — one driver script and its pins, one `mise` task, one CI job, and the project
 docs that enumerate `mise run ci` and the CI jobs. Zero `crates/**` diff, zero `_webref` diff, zero
 gate-semantics change.
-**Status**: plan-memo, **draft 3**. `/elidex-plan-review` **required before implementation**.
+**Status**: plan-memo, **draft 4**. `/elidex-plan-review` **required before implementation**.
 
 **This memo carries no measurements and no harness.** The program's rule (2026-08-23): a plan memo holds
 neither measured digits nor a self-measuring apparatus; what needs measuring is measured by a test or a CI
@@ -32,16 +34,18 @@ the suites `main` already has. A-iii gives the Python suites a scheduler, and no
 
 ## §3. Spec coverage map
 
-A-iii has no spec surface. `main`'s preflight hard-fails a memo whose §3 has no table or no `§<number>` row,
-and the `No spec surface` declaration that would replace this is A-ii's (§4.2.5 there), which lands after
-A-iii (§0). So, per draft 1's own fallback, this section carries the program's two-row fixture table. **They
-cite nothing A-iii implements**: the `citation verify: ok` the gate prints on this memo is a statement about
-these two rows, not about A-iii.
+**No spec surface** — A-iii touches no spec-defined behaviour: a shell script, its pins, a `mise` task, a CI
+job, and the docs that enumerate them.
 
-| Spec section | Step | Branch | Touch | Full enum? | User-input flow |
-|---|---|---|---|---|---|
-| WHATWG HTML §4.10.21 Constraints | fixture | none — A-iii has no spec surface | none | n/a | no |
-| WHATWG HTML §4.10.21.2 Constraint validation | fixture | none — A-iii has no spec surface | none | n/a | no |
+⚠ **`main`'s preflight exits 1 on this memo, by design.** `main`'s preflight hard-fails a §3 with no table;
+the declaration above is the form A-ii's §4.2.5 adds (the bold spelling A-ii's `MARKER_RE` recognises), and
+A-ii lands after A-iii (§0). Until then the hard fail is the expected outcome and the only one: any **other**
+preflight hard fail on this memo is a defect. This is the program's recorded position, not a local exception —
+the umbrella on #501 records "A-iii … `preflight` EXIT **1 is by design**" (its slice table), C declares
+**No spec surface** "exactly as A-iii does — not fixture rows" (C memo on #514, §3 item 4), and A-i-wire on
+#519 does the same. Fixture rows would make the gate print `citation verify: ok` for behaviour A-iii does not
+implement — the fabricated-citation shape §4.2.5 exists to retire. When A-ii lands, preflight recognises this
+declaration with no edit here.
 
 ### §3.1 User-input touch audit + discovery method
 
@@ -76,8 +80,10 @@ job is ungated (§4.2).
   is outside the set or unreferenced by it, fails the run (§4.2 step 3).
 - **L3 — the trigger cannot be silently narrowed.** No job-level gate and no workflow-level path filter: the
   job runs on every pull request targeting `main` (§4.2.2).
-- **L4 — A-iii adds no network dependency.** The script runs every member under an offline regime, so a green
-  run *is* the offline measurement (§4.3).
+- **L4 — A-iii adds no network dependency.** The script runs every member under an offline regime that
+  blocks socket connects and name lookups in the loader and in every Python child, and sets an offline
+  environment for every child; a green run is the offline measurement **for that coverage**, and a non-Python
+  child that ignores proxy settings is the stated limit (§4.3).
 - **L5 — the interpreter floor is 3.9, measured by the `"3.9"` leg** running the whole set; the script's
   assertion is the statement (§4.4).
 - **L6 — the job boundary.** `trip-wires` declares no interpreter; `tools` declares one; a check that needs a
@@ -91,8 +97,8 @@ job is ungated (§4.2).
 | L1 × L5 | the floor assertion is the script's, so both callers state it; only the CI caller *measures* it (the local interpreter is whatever is installed) |
 | L1 × L6 | the `tools` job's one driving step is the script (Q6), so a check moving in under L6 enters the script's set — the job has no second invocation site to add it to |
 | L2 × L3 | the set L2 ranges over is a repo fact, not a filter list — and under D2 it is also the set the script **runs**, so L2 holds by construction |
-| L2 × L4 | every member, a wrapper included, runs under the regime; a wrapper's child inherits only its environment half (§4.3), which is why the wrapper contract also says "stays offline" |
-| L2 × L5 | every member runs on both legs; a member that needs more than 3.9 is red on the floor leg, not skipped — and step 3 parses every tracked `.py` with the leg's interpreter, so an unparsable file is red too |
+| L2 × L4 | every member, a wrapper included, runs under the regime, and a wrapper's `sys.executable` child carries the same socket guard (§4.3); a non-Python child gets the environment half only, which is why the wrapper contract also says "stays offline" — and a test that skips is red (step 5), so skipping is no way out of the regime |
+| L2 × L5 | every member runs on both legs; a member that needs more than 3.9 is red on the floor leg — a `skipIf` on the version included, because a skipped test is red (step 5) — and step 3 parses every tracked `.py` with the leg's interpreter, so an unparsable file is red too |
 | L2 × L6 | a check leaving `trip-wires` under L6 enters through L2's one door (a tracked `test_*.py`, a wrapper if command-shaped), and step 3(b) makes that door mandatory for a `--self-test` command |
 | L3 × L4 | an ungated job runs on every pull request targeting `main`, so a network-dependent suite would fail every unrelated one |
 | L3 × L5 | both legs fire on every such pull request, so the floor is measured on every one, not only those touching `.claude/` |
@@ -140,13 +146,23 @@ runs on every pull request targeting `main`.
    **(a)** a file that defines a `unittest.TestCase` subclass (read with `ast`; a base spelled `TestCase` or
    `<x>.TestCase`) and is not in the set fails, naming it; **(b)** an **entry-point self-test** — a file
    with a top-level `if __name__ == "__main__":` guard **and** an `ast.Constant` whose value equals
-   `'--self-test'`, both read with `ast`, never a string grep — must be named, by its filename, in the source
-   of some set member, else the run fails naming it — the wrapper contract below, made checkable. The
-   population is fixed by property: a helper that merely carries `--self-test` as text is not in it (on
+   `'--self-test'`, both read with `ast`, never a string grep — must be **named by path** in some set member,
+   else the run fails naming it — the wrapper contract below, made checkable. *Named by path*: the member
+   holds a string constant (read with `ast`) whose value is exactly the entry point's path relative to the
+   repository root (`.claude/tools/plan-memo-umbrella-check.py`) or relative to the member's own directory
+   (`plan-memo-umbrella-check.py` from a member beside it). A bare filename is not a name: two `tool.py` in
+   different directories are not both satisfied by one wrapper. A path the member assembles from several
+   constants does not match, so it is red — the unknown falls to red, and the wrapper spells its target
+   as one constant. **3(b) checks the naming clause only**; the contract's other clauses (`sys.executable`,
+   nonzero control and mutant counts, offline) are the wrapper's own test body, reviewed in the wrapper's PR.
+   The population is fixed by property: a helper that merely carries `--self-test` as text is not in it (on
    #510's head, 18 of the 19 files containing the literal — `git grep -l -e '--self-test' FETCH_HEAD -- '*.py' |
-   wc -l`, verified 2026-10-24), and no self-test that can actually be launched
-   is missed. On #510's head (`a322b845`) the predicate selects exactly one file,
-   `plan-memo-umbrella-check.py`:
+   wc -l` → 19, verified 2026-10-24). **`--self-test` is the repo's normative spelling** of a command
+   self-test (part of the contract), so the claim is: *every entry point using the contract's flag* is
+   caught. A `--selftest` spelling, or a guard-less `__main__.py` package entry, is outside the predicate —
+   and outside the contract, which is the reason it is not chased: such a file is non-conforming, and the
+   contract is where that is decided, not the predicate. On #510's head (`a322b845`) the predicate selects
+   exactly one file, `.claude/tools/plan-memo-umbrella-check.py`:
    `git fetch -q origin refs/pull/510/head && git ls-tree -r --name-only FETCH_HEAD | grep '\.py$' | while read f; do git show "FETCH_HEAD:$f" | python3 -c 'import ast,sys; t=ast.parse(sys.stdin.read()); g=any(isinstance(n,ast.If) and isinstance(n.test,ast.Compare) and getattr(n.test.left,"id","")=="__name__" for n in t.body); c=any(isinstance(n,ast.Constant) and n.value=="--self-test" for n in ast.walk(t)); g and c and print(sys.argv[1])' "$f"; done`. A tracked `.py` that does not parse under the running interpreter
    fails, naming it: an unreadable file could hide a suite, so the unknown falls to red. **Limit, stated:**
    there is no count ratchet; a suite renamed away from `test_*.py` is caught by (a), a deleted one is a
@@ -158,23 +174,33 @@ runs on every pull request targeting `main`.
    time under a package-qualified import name (Q9 plants that shape), and `.claude/tools` becomes a root the
    day a `test_*.py` lands directly in it. One process per root also keeps two roots' same-named modules apart.
    Every root runs under the offline regime of §4.3.
-5. **Every member contributes at least one test**, else the script fails naming the **file** — per file, not
-   per root, so a no-test file beside passing siblings is caught. Every member is in the set the script runs
-   (step 2), so the residual failure of a scheduler is a member that is *collected* and runs nothing; this step
-   is that failure's check.
+5. **Every member contributes at least one test that executed and passed**, else the script fails naming the
+   **file** — per file, not per root, so a no-test file beside passing siblings is caught. Every member is in
+   the set the script runs (step 2), so the residual failure of a scheduler is a member that is *collected*
+   and runs nothing; this step is that failure's check. **A test counts only if it executed and passed**:
+   **any skipped test makes the run red, naming it** (and likewise an expected failure or an unexpected
+   success — neither is a pass). A skip is not a way out of the floor leg (a `skipIf` on the version) or of
+   the offline regime (a skip on a failed connect). At the base no test file skips:
+   `git grep -nE 'expectedFailure|SkipTest|skip(If|Unless|Test)?\(|unittest\.skip' origin/main --
+   ':(glob)**/test_*.py'` matches nothing.
 
 The script's header comment carries the procedure; `mise.toml`'s task comment points at it (L1).
 
 **Entering the set from a non-`discover`-shaped self-test — the contract.** A self-test that is a command
 rather than a unittest module (PR #510's `python3 .claude/tools/plan-memo-umbrella-check.py --self-test
---mutants`) enters as a thin tracked `test_*.py` beside it, which: names the command's file (step 3(b));
-runs the command through `sys.executable` (so the matrix leg's interpreter is the one measured); asserts exit
-0 **and** nonzero control and mutant counts as the self-test reports them (a self-test that ran no control is
-not a pass — step 5, one level down); and stays offline (L4). **The wrapper is #510's to write, not
-A-iii's** (the #519 boundary rule); A-iii defines the contract and, through step 3(b), makes it the only way
-in. Under A1 the same PR removes that self-test from `trip-wires`. A second known candidate fitting the same
-contract: the stale-claim lane's `claim_gate_selftest.py` (`refs/backup/stale-claim-detector`, parked) — no
-action here; it meets step 3(b) when it lands.
+--mutants`) enters as a thin tracked `test_*.py` beside it. The contract: the command's self-test is
+reached by the flag **`--self-test`** from a top-level `__main__` guard (the repo's one spelling); the wrapper
+names the command's file by path (step 3(b)); runs the command through `sys.executable` (so the matrix leg's
+interpreter is the one measured); asserts exit 0 **and** nonzero control and mutant counts as the self-test
+reports them (a self-test that ran no control is not a pass — step 5, one level down); and stays offline
+(L4 — a non-Python child the command spawns is outside the socket guard, §4.3). **The wrapper is #510's to
+write, not A-iii's** (the #519 boundary rule); A-iii defines the contract and, through step 3(b), makes its
+naming clause the only way in. Under A1 the same PR removes that self-test from `trip-wires`. A second known
+candidate: the stale-claim lane (`refs/backup/stale-claim-detector` @ `01b645e6`, parked — a backup ref, not
+a branch: `git ls-remote origin | grep stale-claim`), where the predicate selects
+`.claude/tools/claim-gate-plan-check.py` (the §4.2 step 3 command with `refs/backup/stale-claim-detector` for
+the ref). Whether its self-test output reports control and mutant counts in a form a wrapper can assert is
+**unverified**; fitting the contract is that lane's work when it lands, and step 3(b) holds it red until then.
 
 #### §4.2.1 The job boundary — stated as a property
 
@@ -184,9 +210,12 @@ builds — in the floor, so its criterion is not "the tool's version can matter"
 language runtime"**. Definition: an **interpreter** is a language runtime (`python3`, `node`, …) whose version
 the check's result depends on; the POSIX text utilities (`grep`, `sed`, `awk`) are part of the shell floor.
 Consequence: **no existing wire moves** — `main`'s `layout-box-reader-trip-wire.sh` and
-`wasm-runtime-trip-wire.sh` and #527's K2 wire use `awk` and stay in `trip-wires`
-(`git grep -nwE 'awk|python3?|node|perl' origin/main -- '.claude/tools/*trip-wire*.sh'`); #510's `python3` wire is
-the one that moves.
+`wasm-runtime-trip-wire.sh` use `awk` and stay in `trip-wires`
+(`git grep -nwE 'awk|python3?|node|perl' origin/main -- '.claude/tools/*trip-wire*.sh'`); the K2 wire
+(`webref-generic-core-trip-wire*.sh`, on #501's branch, which #527 edits) uses `awk` too, and its one
+`python3` hit is a comment recording that an earlier revision used it
+(`git grep -nwE 'awk|python3?|node|perl' origin/webref-cite-audit-tool -- '.claude/tools/*trip-wire*.sh'`);
+#510's `python3` wire is the one that moves.
 
 The rule, as three properties:
 
@@ -210,16 +239,33 @@ origin/main:.github/workflows/ci.yml`, lines before `jobs:`), and Q8 pins that b
 **Accepted behaviour delta**: every pull request targeting `main`, a Dependabot bump included, runs the
 suites (§5 row 2).
 
-### §4.3 The network question — answered by construction
+### §4.3 The network question — answered in the script, with a stated limit
 
-The script runs each root's interpreter under an **offline regime**: environment half — `http_proxy` /
-`https_proxy` at a closed local port, `NO_PROXY` / `no_proxy` removed (an inherited `NO_PROXY=*` would bypass
-the proxy), `XDG_CACHE_HOME` a fresh empty directory; in-process half — `urllib.request.urlopen` replaced by a
-raiser before any member loads, and a `subprocess` spawn whose argv names the `webref` entry script refused
-(the in-process half catches a lookup the proxy alone does not, Codex R16; `webref`, not every spawn, because a
-wrapper legitimately spawns its check). A wrapper's child inherits the environment half only. So **every green
-run is the offline measurement**, and T-net proves each half can fire. At the base, no suite calls `urlopen` or
-imports `subprocess` (`git grep -nE 'urlopen|import subprocess|from subprocess' origin/main --
+The script runs each root's interpreter under an **offline regime** with two halves, and the guard is placed
+where every stdlib network client passes — the socket layer — rather than at named clients:
+
+- **The socket guard (behaviour half).** The script writes a `sitecustomize.py` into a fresh temporary
+  directory and puts that directory **first on `PYTHONPATH`** for every interpreter it starts. Python
+  imports it at startup, before any member loads, and it replaces `socket.socket.connect` /
+  `socket.socket.connect_ex` (for the `AF_INET` / `AF_INET6` families) and `socket.create_connection` with
+  raisers, and `socket.getaddrinfo` with a raiser so a name lookup fails too. `urllib`, `http.client` and
+  `ssl` all connect through these, so one guard covers them (`ssl.SSLSocket` is a `socket.socket` subclass).
+  The loader process gets it by the same route as any child, so there is **one mechanism**: a member's
+  `sys.executable` child — a wrapper's command — inherits `PYTHONPATH` and is guarded the same way, and so is
+  `webref`, which is Python, so `webref` needs no mechanism of its own. Being first on the path, it
+  shadows any `sitecustomize` the interpreter would otherwise load.
+- **The environment half.** `http_proxy` / `https_proxy` at a closed local port, `NO_PROXY` / `no_proxy`
+  removed (an inherited `NO_PROXY=*` would bypass the proxy), `XDG_CACHE_HOME` a fresh empty directory.
+  Every child inherits it.
+
+**The limit, stated.** A **non-Python** child is covered by the environment half only, and a non-Python
+network tool can ignore proxy settings, so it is not blocked. The same holds for a Python child started with
+`-I`, `-E` or `-S`, which skips `PYTHONPATH` or `site`. Those children are outside what the regime measures,
+which is why the wrapper contract (§4.2) carries "stays offline" as its own clause. So the claim is exactly:
+**a green run is the offline measurement for the loader and every Python child started without `-I` / `-E`
+/ `-S`, plus the environment half for every child** — and T-net proves each covered path can fire. At the
+base, no test file reaches for the network or spawns
+(`git grep -nE 'socket|http\.client|urlopen|import subprocess|from subprocess' origin/main --
 ':(glob)**/test_*.py'` matches nothing) — a statement about the test files only; what the modules under test
 do is the regime's to catch.
 
@@ -266,8 +312,9 @@ deprecated legacy endpoint, not "unprotected".) The claim A-iii may make: the jo
 
 ### §4.6 The project docs that enumerate the gate
 
-The docs that list `mise run ci`'s parts or the CI jobs change in the same PR (located by
-`git grep -nE 'mise run ci|つ目の job' origin/main -- CLAUDE.md README.md .claude/skills/pre-push/SKILL.md`):
+The docs that list `mise run ci`'s parts or the CI jobs, or state a premise A-iii falsifies, change in the
+same PR. Discovery is **repo-wide over `*.md`**, not over a file list:
+`git grep -nE 'mise run ci|trip-wires|つ目の job|cargo-only' origin/main -- '*.md'`. The hits that change:
 
 - **`CLAUDE.md` `### Workflow`**, "Push 前": the `mise run ci (…)` list gains `tools-test` after
   `trip-wires`.
@@ -281,8 +328,34 @@ The docs that list `mise run ci`'s parts or the CI jobs change in the same PR (l
 - **`.claude/skills/pre-push/SKILL.md`** Stage 2: the `mise run ci` comment and the serial fallback chain gain
   `trip-wires` and `tools-test` (both lack `trip-wires` today — the same enumeration, fixed where it is
   touched).
-- **`README.md`**: the `mise run ci` comment's list gains `trip-wires` and `tools-test` (same reason), and the
-  task list gains a `mise run tools-test` line.
+- **`README.md`** (83): the `mise run ci` comment's list gains `trip-wires` and `tools-test` (same reason),
+  and the task list gains a `mise run tools-test` line.
+- **`CONTRIBUTING.md`** (18–19): the `mise run ci` parts list ("formatting, clippy, tests, docs, license
+  checks, and the layering trip-wires") gains the Python tool suites, and the clause "the last of these also
+  run as their own CI job" covers both (each of the two runs as its own ungated job).
+- **`.claude/skills/elidex-review/SKILL.md`** (35): "`mise run ci` is cargo-only, so the correctness/quality
+  stages are its only coverage" — the premise is false after A-iii. It becomes: `mise run ci` runs the
+  tracked Python suites and the shell trip-wires, which check only what the gate code's own tests assert, so
+  the correctness/quality stages remain its only *review* coverage. The conclusion (a gate-tooling edit is
+  never skippable) is unchanged.
+- **`.claude/skills/elidex-plan-review/SKILL.md`** (103): the maintenance note offers "the ungated
+  `trip-wires` job" as a home for the plan-memo checkers (`plan-sweep.py` / `plan-xcheck.py`, Python) —
+  contrary to L6. It becomes: Step 1.5, **or the ungated `tools` job** (a check that needs an interpreter
+  belongs to the job that declares one, CLAUDE.md `## CI`), entering as a tracked `test_*.py`; the ⚠ about
+  #510's `REQUIRED_WIRES` registration becomes "#510 moves its self-test into `tools` (A1)". The note's
+  "nothing … runs them" stays true: A-iii runs only set members, and none references either checker
+(`git grep -nE 'plan-sweep|plan-xcheck|plan_sweep|plan_xcheck' origin/main -- ':(glob)**/test_*.py'` matches
+nothing).
+
+The other hits do not change, each for a stated reason: `CLAUDE.md` 59 and 77, `README.md` 119,
+`CONTRIBUTING.md` 11, `pre-push/SKILL.md` 3 and 32, `external-converge/project.md` and
+`external-review/project.md` 11/13 name `mise run ci` without enumerating its parts, so they stay true;
+`plan-review/SKILL.md` 97 ("nothing in `scripts/trip-wires.sh`, `mise.toml` or `ci.yml` runs them") stays
+true (above); `docs/audits/**` and `docs/plans/**` are landed records of their own slice — their statements
+are true of their time, and those that remain live are true after A-iii (`trip-wires` ⊂ `mise run ci`, the
+ungated `trip-wires` job). One live plan text repeats the plan-review note's "trip-wires job" option
+(`2026-08-line-box-decorated-inline-content.md` ~7081 / ~7097), but that memo assigns the task's durable
+home to the plan-review `SKILL.md` note by its own words, so the note above is the one site to correct.
 
 ---
 
@@ -295,13 +368,15 @@ The docs that list `mise run ci`'s parts or the CI jobs change in the same PR (l
 | 3 | `mise run ci` locally | does not run the Python suites | runs them via `[tasks.tools-test]` |
 | 4 | a new tracked `test_*.py` anywhere in the repo | runs nowhere | runs; a failure is red |
 | 5 | a tracked `test_*.py` that loads no test, beside a passing sibling | runs nowhere | **script fails loudly** naming the file |
-| 6 | a tracked `.py` defining a `TestCase` outside the set, or a `--self-test` entry point (step 3(b): `__main__` guard + `ast.Constant` `'--self-test'`) named by no member | nothing | **script fails loudly** naming the file |
-| 7 | the suites, offline | n/a — nothing runs them | every run is offline (L4) |
+| 6 | a tracked `.py` defining a `TestCase` outside the set, or a `--self-test` entry point (step 3(b): `__main__` guard + `ast.Constant` `'--self-test'`) that no member names by path | nothing | **script fails loudly** naming the file |
+| 7 | the suites, offline | n/a — nothing runs them | the loader and every Python child under the socket guard, every child under the environment half (L4, with §4.3's limit) |
+| 8 | a member with a skipped test beside a passing one | runs nowhere | **script fails loudly** naming the test |
 
-**Newly-red**: 4 (a failing suite), 5 and 6 — A-iii adds a job; it does not change what any existing job
-asserts. Rows 5 and 6 are green at `origin/main`: every member contributes tests, no `TestCase` is outside the
-set, and no tracked `.py` contains `--self-test` (`git grep -l -e '--self-test' origin/main -- '*.py'` matches
-nothing; `git grep -l TestCase origin/main -- '*.py'` lists only set members).
+**Newly-red**: 4 (a failing suite), 5, 6 and 8 — A-iii adds a job; it does not change what any existing job
+asserts. Rows 5, 6 and 8 are green at `origin/main`: every member contributes tests, no `TestCase` is outside
+the set, no tracked `.py` contains `--self-test` (`git grep -l -e '--self-test' origin/main -- '*.py'` matches
+nothing; `git grep -l TestCase origin/main -- '*.py'` lists only set members), and no test skips (§4.2
+step 5's command).
 
 ---
 
@@ -315,6 +390,13 @@ driver's own checks on every run (§4.2 steps 1–5, §4.3), and the pins prove 
 Pins that read `ci.yml` or `mise.toml` read text: the floor interpreter has neither a YAML parser nor
 `tomllib` (3.11+) in its stdlib.
 
+**The `ci.yml` text reader's contract** (Q6–Q8 share one reader, stated in the test itself): (1) a key is
+recognised plain, double-quoted or single-quoted — `needs` / `"needs"` / `'needs'`, and likewise `if`,
+`tools`, `pull_request`, `paths`, `paths-ignore`, `branches`; (2) **in the regions it reads** (the `on:`
+block and the `tools` job region), any shape it cannot read — a flow mapping (`{`), an anchor or alias (`&`
+/ `*`), a merge key (`<<:`) — fails the pin red, naming the line. The unknown falls to red: a reader that
+skipped an unreadable line could read a gated job as ungated.
+
 | Pin | What it executes | §5 rows | Red at main? |
 |---|---|---|---|
 | **Q1** | a scratch repo with passing members in two directories exits 0, and the output names **every member** with a nonzero test count — compared against the scratch repo's `git ls-files ':(glob)**/test_*.py'`, not against a list | 3, 4 | **yes** — the script does not exist |
@@ -322,13 +404,14 @@ Pins that read `ci.yml` or `mise.toml` read text: the floor interpreter has neit
 | **Q3** | a `test_empty.py` defining no test, **beside a passing sibling** in the same directory, makes the script exit non-zero naming `test_empty.py`; and a scratch repo with no tracked `test_*.py` exits non-zero (the empty set) | 5 | **yes** |
 | **Q9** | non-recursion: a package directory (`__init__.py` + a passing member) with a passing member in its parent directory — every test id appears **exactly once** in the run | 4 | **yes** |
 | **Q10** | complement (a): a tracked `helper.py` defining a `unittest.TestCase` subclass, no `test_*.py` name, makes the script exit non-zero naming it | 6 | **yes** |
-| **Q11** | complement (b): a tracked `tool.py` with a top-level `if __name__ == "__main__":` guard and an `ast.Constant` `'--self-test'`, named by no member, makes the script exit non-zero naming it; **controls**: adding a passing `test_tool.py` whose source names `tool.py` turns the run green, and a tracked `helper.py` carrying the same constant **without** the guard is outside the predicate — green with no member naming it. And a tracked `.py` that does not parse makes the run exit non-zero naming it | 6 | **yes** |
+| **Q11** | complement (b): a tracked `a/tool.py` with a top-level `if __name__ == "__main__":` guard and an `ast.Constant` `'--self-test'`, named by no member, makes the script exit non-zero naming it; **controls**: adding a passing `a/test_tool.py` holding the constant `"tool.py"` (its own directory) turns the run green, and so does a member elsewhere holding `"a/tool.py"` (repo root); a tracked `helper.py` carrying the same constant **without** the guard is outside the predicate — green with no member naming it. **Path, not filename**: a second such `b/tool.py` beside `a/test_tool.py`'s `"tool.py"` stays red, naming `b/tool.py`. And a tracked `.py` that does not parse makes the run exit non-zero naming it | 6 | **yes** |
+| **Q12** | skip is red: a member holding one passing test and one `@unittest.skip` test makes the script exit non-zero naming the skipped test (a per-file count alone would read the file as contributing) | 8 | **yes** |
 | **Q4** | `mise.toml`'s `[tasks.ci].depends` contains `"tools-test"`, and `[tasks.tools-test]` runs `bash scripts/python-suites.sh` (text read, section-bounded) | 3 | **yes** |
 | **Q5** | the floor assertion: the script exits non-zero naming the floor when the `python3` it finds reports a version below 3.9 (fixture: a PATH-shadowing `python3` shim) | — | **yes** |
-| **Q6** | `ci.yml`'s `tools` job region — from the line `  tools:` (plain or quoted key) to the next line at two-space indent that is not blank, a comment or a list item; the rule is stated in the test itself — contains a **`run:` step that executes the driver**: after shell word-splitting, some command line of a `run:` scalar has an argv token resolving to `scripts/python-suites.sh`, or is `mise run tools-test`. The token *anywhere* in the region is not enough: `env: DRIVER: scripts/python-suites.sh` runs nothing (Codex R48). Without it an empty `tools` job satisfies §12(3) (Codex R14/R36) | 1, 2 | **yes** — the job does not exist |
+| **Q6** | `ci.yml`'s `tools` job region — from the line `  tools:` (the reader's contract above) to the next line at two-space indent that is not blank, a comment or a list item; the rule is stated in the test itself — contains a **`run:` step that executes the driver**: after shell word-splitting, some command line of a `run:` scalar has an argv token resolving to `scripts/python-suites.sh`, or is `mise run tools-test`. The token *anywhere* in the region is not enough: `env: DRIVER: scripts/python-suites.sh` runs nothing (Codex R48). Without it an empty `tools` job satisfies §12(3) (Codex R14/R36) | 1, 2 | **yes** — the job does not exist |
 | **Q7** | the same region carries a `python-version:` matrix with legs `"3.9"` and `"3.x"` **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`, before Q6's `run:` step** — a matrix no step consumes runs one interpreter on every leg (Codex R48), and a `setup-python` after the driver step measures nothing (Codex R49) | — | **yes** |
-| **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs:` and no `if:` line — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads `check` (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` carries no `paths:` / `paths-ignore:` and its `branches` is exactly `[main]` | 1, 2 | **yes** |
-| **T-net** | in a scratch repo, three plants each make the script exit non-zero naming the plant: a member calling `urllib.request.urlopen`; a member spawning the `webref` entry script; a member asserting its environment — run with an inherited `NO_PROXY=*` and a real proxy setting, it must see the closed-port proxy, no `NO_PROXY`/`no_proxy`, and an empty `XDG_CACHE_HOME`, so it fails if the regime is absent. **Control**: a member spawning a non-`webref` child via `sys.executable` passes | 7 | **yes** |
+| **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs` and no `if` key, in any quoting — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads `check` (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` carries no `paths:` / `paths-ignore:` and its `branches` is exactly `[main]`. **Reader controls**: a `tools` region spelling `"needs": changes` reads as gated, and one carrying a flow mapping, an anchor/alias or a `<<:` merge key is red naming the line, not read as ungated | 1, 2 | **yes** |
+| **T-net** | in a scratch repo, one plant per covered path, each **green without the regime and red with it**, each making the script exit non-zero naming the plant. Each network plant first opens a listening socket on `127.0.0.1` so its connect succeeds when unguarded: **(i)** in-process — an `http.client.HTTPConnection` to that port; **(ii)** Python child — a `sys.executable` child doing a raw `socket.socket().connect` to it, the member asserting the child's exit 0; **(iii)** name lookup — `socket.getaddrinfo('localhost', …)` in-process; **(iv)** environment half — run with an inherited `NO_PROXY=*`, a real proxy setting and a set `XDG_CACHE_HOME`, a member asserts a **non-Python** child (`/bin/sh -c env`) sees those inherited values, so it is red when the regime replaced them. **Control**: a member spawning a non-network `sys.executable` child passes | 7 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, §4.5; the
 interpreter floor on `SKILL.md`'s direct `preflight.py` path, which bypasses the script — **assigned to Slice
@@ -343,7 +426,8 @@ B's floor raise** (§4.4).
 **Generic core vs elidex adapter.** A-iii touches **no `_webref` file** and adds **exactly one `test_*.py`,
 under `scripts/`** (its pins). The implementation PR's `git diff --name-only origin/main...HEAD` is
 `scripts/python-suites.sh`, `scripts/test_python_suites.py`, `mise.toml`, `.github/workflows/ci.yml`,
-`CLAUDE.md`, `.claude/skills/pre-push/SKILL.md`, `README.md`, and this memo.
+`CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.claude/skills/pre-push/SKILL.md`,
+`.claude/skills/elidex-review/SKILL.md`, `.claude/skills/elidex-plan-review/SKILL.md` (§4.6), and this memo.
 
 The `mise` task, the CI job and the floor are recorded in `python-suites.sh`'s header, the `mise.toml` task
 comment, the `tools` job comment and §4.6's docs, not in `_webref/DESIGN.md`: that file's core is meant to move
@@ -381,10 +465,13 @@ machine.
 **(i)** The umbrella (on #501) names A-iii and its scope; the order change is §0's, carried into the umbrella
 at #514's rework.
 
-**(ii)** L1–L6 are **configuration** invariants with one observable (does the job run, and is it green). This
-is the least dense of the three A slices and would not trip the edge-dense trigger on its own; it is a
-separate slice because it was **invisible** inside the merged memo — the one cross-lane collision that memo
-missed lived here.
+**(ii)** §2's six invariants L1–L6 are **configuration invariants of one observable** (does the job run the
+whole set, offline, on the floor, and is it green), and they intersect — all 15 pairs are mapped in §2. By the
+≥3-intersecting-axes count the work is edge-dense, which is why plan-review is mandatory before
+implementation. It is nonetheless **one PR**: it is a narrowly-scoped slice under the approved umbrella, i.e.
+the base-case terminal unit (CLAUDE.md, *Edge-dense work*, (c)), and splitting it would separate the script
+from the job that is its only observable. It is a separate slice from A-i / A-ii because it was **invisible**
+inside the merged memo — the one cross-lane collision that memo missed lived here.
 
 ---
 
@@ -423,7 +510,8 @@ deferred**: the rule alone is author-bypassable given the bypass actor, so it is
 read as gated by the same predicate), and a `.claude/**`-only commit shows the `tools` job on the PR page.
 Stated as a positive observation.
 
-**(4) Offline:** T-net, and (1) — every green run is under the regime (§4.3).
+**(4) Offline:** T-net, and (1) — every green run is under the regime, with exactly §4.3's coverage and its
+stated limit (non-Python children: environment half only).
 
 **(5) The job runs the driver:** Q6. (3) alone is satisfiable by a job that runs nothing.
 
@@ -435,8 +523,9 @@ Stated as a positive observation.
 
 | Lane | Overlap | Ordering |
 |---|---|---|
-| **A-ii** ([PR #514](https://github.com/send/elidex/pull/514), stacked on #501) | none in A-iii's files | **A-iii first** (§0, D1). **#514 rework checklist** (this lane): rebase onto landed `main`; replace §3's fixture table here with A-ii's `No spec surface` declaration; amend the umbrella's slice order and A-ii memo's §13 row "A-iii \| after A-ii" (§0) |
-| **[PR #510](https://github.com/send/elidex/pull/510)** (VM P4) | `ci.yml`, `mise.toml`, `scripts/trip-wires.sh`, `CLAUDE.md` `## CI` | **A-iii first**; #510 then adds its §4.2 wrapper, drops its self-test from `trip-wires` (A1), and re-derives `tools`' timeout (§8). Step 3(b) **requires the wrapper**: on #510's branch the `tools` job is red until a member names the self-test's file — the intended forcing function |
+| **A-ii** ([PR #514](https://github.com/send/elidex/pull/514), stacked on #501) | none in A-iii's files | **A-iii first** (§0, D1). **#514 rework checklist** (this lane): (1) rebase onto landed `main`; (2) amend the umbrella's A-iii rows (line numbers on #501's branch, which the rebase carries: slice table line 24 "new, stacked on A-ii", status table line 111 "on **#514**") and A-ii memo's §13 row "A-iii \| after A-ii" (§0); (3) **B memo lines 251–257** cite draft 1 — "A-iii §4.3 defers the raise", the harness `rederive floor` block (`2026-07-citation-hygiene-A-rederive-Aiii.sh`, `mx != 9`) and the `ast` pre-check; rewrite them against draft 4: the floor and its raise are §4.4, and **the `"3.9"` leg is the only floor instrument** (no harness, no `ast` pre-check), so B's raise moves the script's assertion, the leg's `python-version`, and the direct `preflight.py` / `webref` paths; (4) the SKILL.md-direct-`preflight.py` floor path belongs to **Slice B** (§4.4) — A-ii memo line 512's "(A-iii's)" becomes "(Slice B's)"; (5) drop #514's copy of A-iii draft 1 (`2026-07-citation-hygiene-Aiii-suite-scheduler.md`; this branch is its home) and all seven `2026-07-citation-hygiene-A-rederive*.sh` files (`git ls-tree -r --name-only origin/citation-hygiene-slice-memos docs/plans \| grep rederive`) — the 2026-08-23 rule removes harnesses from the program. Nothing replaces §3 here: A-ii's landing makes preflight recognise the declaration (§3) |
+| **[PR #510](https://github.com/send/elidex/pull/510)** (VM P4) | `ci.yml`, `mise.toml`, `scripts/trip-wires.sh`, `CLAUDE.md` `### Workflow` and `## CI` | **A-iii first**; #510 then adds its §4.2 wrapper, drops its self-test from `trip-wires` (A1), and re-derives `tools`' timeout (§8). Step 3(b) **requires the wrapper**: on #510's branch the `tools` job is red until a member names the self-test's file by path — the intended forcing function. **#510's own follow-ups under A1** (its work, not A-iii's): its new `CLAUDE.md` `### Workflow` bullet "**Plan-memo umbrella checker**" says the self-test is registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` (`git show refs/pull/510/head:CLAUDE.md \| sed -n 54p`) — false after the move, so it is rewritten to name the wrapper and the `tools` job; and `trip-wires`' `timeout-minutes`, which #510 raises 2 → 10 for that wire (`git diff origin/main...refs/pull/510/head -- .github/workflows/ci.yml`), is restored once the wire leaves |
+| **[PR #506](https://github.com/send/elidex/pull/506)** (VM P4 umbrella plan; base `main`, head `190d2adb`) | adds its own `.claude/tools/plan-memo-umbrella-check.py`, which step 3(b) selects, with **no wrapper** (no tracked `test_*.py` on its head names it) | after A-iii, #506's `tools` job is **red**. #506 already waits on #510 (it will take #510's wrapper with #510's checker), so the red is the same forcing function, not a new block. Re-run: the predicate one-liner below with `n=506` |
 | **[PR #501](https://github.com/send/elidex/pull/501)** | `ci.yml` (the `trip-wires` comment and timeout), `CLAUDE.md` `## CI`; adds `test_spec_labels.py`, which §4.2 picks up with no edit | either order; the umbrella amendment rides #514's rework (§0) |
 | **[PR #527](https://github.com/send/elidex/pull/527)**, **[#381](https://github.com/send/elidex/pull/381)**, **[#502](https://github.com/send/elidex/pull/502)** | `ci.yml` (#527 also `scripts/trip-wires.sh` and `CLAUDE.md`; the two Dependabot bumps `steps:` only) | whichever lands second adapts textually |
 | **Slices B / C** | after A-iii these are scheduled from their first commit; **B** owns the floor raise and with it `SKILL.md` Step 0's direct `preflight.py` invocation (§4.4) | after |
@@ -449,11 +538,19 @@ job until #501 lands and they retarget `main`.
 reads it by line, not by file:
 
 ```sh
-gh pr list --state open --limit 200 --json number --jq '.[].number' | while read n; do git fetch -q origin "refs/pull/$n/head" && git diff --stat origin/main...FETCH_HEAD -- .github mise.toml scripts ':(glob)**/test_*.py' CLAUDE.md README.md .claude/skills/pre-push/SKILL.md | sed "s/^/#$n /"; done
+gh pr list --state open --limit 200 --json number --jq '.[].number' | while read n; do git fetch -q origin "refs/pull/$n/head" && git diff --stat origin/main...FETCH_HEAD -- .github mise.toml scripts '*.py' CLAUDE.md CONTRIBUTING.md README.md .claude/skills/pre-push/SKILL.md .claude/skills/elidex-review/SKILL.md .claude/skills/elidex-plan-review/SKILL.md | sed "s/^/#$n /"; done
 ```
 
-It ranges over the files A-iii contends on in every open PR, not over `docs/plans/` — the shape that hid #496
-from the merged memo.
+It ranges over the files A-iii contends on in every open PR — the CI and doc paths, and every tracked `*.py`
+(step 3's population, so a PR adding an entry point or a `TestCase` shows up) — not over `docs/plans/`, the
+shape that hid #496 from the merged memo. For a PR whose `*.py` lines show, step 3(b)'s predicate is run over
+its head (`n` set to the PR number):
+
+```sh
+git fetch -q origin "refs/pull/$n/head" && git ls-tree -r --name-only FETCH_HEAD | grep '\.py$' | while read f; do git show "FETCH_HEAD:$f" | python3 -c 'import ast,sys; t=ast.parse(sys.stdin.read()); g=any(isinstance(n,ast.If) and isinstance(n.test,ast.Compare) and getattr(n.test.left,"id","")=="__name__" for n in t.body); c=any(isinstance(n,ast.Constant) and n.value=="--self-test" for n in ast.walk(t)); g and c and print(sys.argv[1])' "$f"; done
+```
+
+Each file it prints needs a member naming it by path on that PR's head, or that PR's `tools` job is red.
 
 **Landing checklist**
 
@@ -480,3 +577,8 @@ from the merged memo.
   2026-08-23 rule; every claim a §6 pin or a command), pins in `scripts/test_python_suites.py` and a repo-wide
   set, per-file zero-test grain, complement checks by property, offline regime in the script, L5/L6 and all
   15 pairs, §4.6 docs, trigger-level Q8, A1's interpreter definition, legs `"3.9"`/`"3.x"`, PM-owned SoT.
+- Draft 4 (2026-10-24): plan-review R2 G1–G14 applied — §3 a **No spec surface** declaration (preflight EXIT 1
+  by design until A-ii), socket-layer offline guard via `sitecustomize` with the non-Python limit, skip is red
+  (Q12), #514-rework items for B / A-ii / harness files, #506 row, repo-wide §4.6 discovery, 3(b) by path with
+  `--self-test` normative, stale-claim candidate `claim-gate-plan-check.py`, quoted-key / fail-red YAML reader,
+  stale-window reason, K2 claim on #501's ref, #510's own A1 follow-ups, §9(ii) aligned with §2.
