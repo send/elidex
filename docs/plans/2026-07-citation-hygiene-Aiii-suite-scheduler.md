@@ -15,8 +15,8 @@ by this lane.
 **Nature**: repo infrastructure — one driver script and its pins, one `mise` task, one CI job, and the project
 docs that enumerate `mise run ci` and the CI jobs. Zero `crates/**` diff, zero `_webref` diff, zero
 gate-semantics change.
-**Status**: plan-memo draft 6 — **implemented in this PR** (`scripts/python-suites.sh`, `scripts/test_python_suites.py`,
-`mise.toml`, `ci.yml`, §4.6's docs), with the ten first-fix items the user carried from the draft-6 re-check
+**Status**: plan-memo draft 6 — **implemented in this PR** (`scripts/python-suites.sh`, `scripts/test_python_suites_{driver,regime,ci}.py` and their two helper
+modules, `mise.toml`, `ci.yml`, §4.6's docs), with the ten first-fix items the user carried from the draft-6 re-check
 into the implementation applied below (2026-10-24).
 
 **This memo carries no measurements and no harness.** The program's rule (2026-08-23): a plan memo holds
@@ -26,7 +26,7 @@ command that reproduces it at `origin/main`**. The one exception is §8's wall-c
 measurements with their frame.
 
 **Altitude (draft 6).** The memo states **properties**; the implementation PR chooses the mechanism and
-proves each property with a pin in `scripts/test_python_suites.py`. Mechanism detail earlier drafts wrote in
+proves each property with a pin in `scripts/test_python_suites_{driver,regime,ci}.py`. Mechanism detail earlier drafts wrote in
 prose (the text readers' grammar, the guard's internals, the list of guarded functions) is not specified
 here: each such detail is a row of **§6.1 Property → pin**, which is what the pre-push review and Codex check
 the implementation against, row by row.
@@ -148,8 +148,14 @@ runs the Python suites.**
 the same file, so the procedure has one home. `mise.toml` gains `[tasks.tools-test]` running it, added to
 `[tasks.ci].depends`; `ci.yml` gains a `tools` job that is **deliberately ungated** — no `needs:`, no `if:`, no
 path-filter entry — with a two-leg `python-version` matrix consumed by `actions/setup-python` (§4.4). A-iii's
-pins ship beside the driver as `scripts/test_python_suites.py` (§6), which is therefore itself a set member and
-runs on every pull request targeting `main`.
+pins ship beside the driver as three set members, `scripts/test_python_suites_driver.py` (driver + complement
+pins), `scripts/test_python_suites_regime.py` (offline-regime pins and their fixture member sources) and
+`scripts/test_python_suites_ci.py` (reader, `ci.yml` and `mise.toml` pins) (§6), which therefore run on every pull
+request targeting `main`. Two helper modules sit beside them and are **not** set members: `python_suites_fixtures.py`
+(shared fixtures; `DriverCase` is a plain mixin, so it defines no `unittest.TestCase` subclass and no
+`--self-test` constant — complement check (a)/(b) would otherwise fail it) and `python_suites_readers.py` (the
+`ci.yml` / `mise.toml` text readers; no tests, no entry point). The split is the touch-time split of the single
+1839-line file the first implementation shipped.
 
 **The procedure (decision D2 — one way for a suite to enter):**
 
@@ -394,7 +400,8 @@ step 5's command).
 
 ## §6 Pins
 
-**Every pin is a test in `scripts/test_python_suites.py`**; "Red at main" says whether it fails on
+**Every pin is a test in `scripts/test_python_suites_driver.py`, `scripts/test_python_suites_regime.py` or
+`scripts/test_python_suites_ci.py`** (45 tests: 15 / 13 / 17); "Red at main" says whether it fails on
 `origin/main`, the base. **No pin runs the driver on the live tree** — the driver runs this file, so such a pin
 would recurse. Every pin that executes the driver builds a **scratch repository** (`git init` in a temporary
 directory, the driver copied in, fixture files staged with `git add`; never the pins file itself; every git call and driver run with
@@ -435,7 +442,7 @@ B's floor raise** (§4.4).
 ### §6.1 Property → pin
 
 Every mechanism detail the memo does not specify is pinned here. Each row reads "a test exists in
-`scripts/test_python_suites.py` that …"; "red" = the driver (or the reader) exits non-zero **naming** the
+one of the three `scripts/test_python_suites_*.py` files that …"; "red" = the driver (or the reader) exits non-zero **naming** the
 file, test, plant or line. Driver rows run in scratch repos (§6).
 
 | Row | Property kept in the memo | Pin (test shape, with its controls) |
@@ -445,7 +452,7 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **P3** | 3(b)'s predicate is syntactic: a top-level `__main__` guard **and** the constant `'--self-test'`, never a string grep | red: `a/tool.py` with guard + constant, named by no member; **green controls**: constant without guard; guard without constant; guard + `--self-test` only in a comment; guard nested in a function (not top-level) |
 | **P4** | *named by path*: one constant, root-relative or member-dir-relative | green: `a/test_tool.py` holding `"tool.py"`; a member elsewhere holding `"a/tool.py"`; **red**: a second `b/tool.py` beside `a/test_tool.py`'s `"tool.py"` stays red naming `b/tool.py` (filename is not a name); a member holding `"a/" + "tool.py"` (assembled) leaves `a/tool.py` red |
 | **P5** | S1: set members are excluded from 3(a) and 3(b) | green: a member `a/test_wrap.py` with `if __name__ == "__main__": unittest.main()` **and** the constant `"--self-test"`, named by nothing, defining a passing `TestCase` |
-| **P6** | the pins file is a member and never credits a live entry point | a test parses `scripts/test_python_suites.py` itself (no driver run) and, calling **the driver's own** entry-point and named-by-path predicates, asserts it names by path none of the live tree's tracked **non-member entry points** (its fixture paths name files inside scratch repos only); **control**: the same predicate credits a planted root-relative and member-dir-relative constant |
+| **P6** | the pins are members and never credit a live entry point | a test parses each of the five pin files (the three members and the two helper modules; no driver run) and, calling **the driver's own** entry-point and named-by-path predicates, asserts it names by path none of the live tree's tracked **non-member entry points** (its fixture paths name files inside scratch repos only); **control**: the same predicate credits a planted root-relative and member-dir-relative constant |
 | **P7** | a tracked `.py` that does not parse under the running interpreter is red, member or not | red: non-member `bad.py` with a syntax error; red: member `test_bad.py` with a syntax error |
 | **R1** | keys are recognised in any quoting | in the `tools` region, `"needs": changes` and `'if': x` each read as gated |
 | **R2** | the modelled values read correctly | green: `branches: [main]`, `python-version: ["3.9", "3.x"]`, `python-version: ${{ matrix.python-version }}` |
@@ -477,9 +484,11 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 
 **VM host/ / ECS-native** — not applicable.
 
-**Generic core vs elidex adapter.** A-iii touches **no `_webref` file** and adds **exactly one `test_*.py`,
-under `scripts/`** (its pins). The implementation PR's `git diff --name-only origin/main...HEAD` is
-`scripts/python-suites.sh`, `scripts/test_python_suites.py`, `mise.toml`, `.github/workflows/ci.yml`,
+**Generic core vs elidex adapter.** A-iii touches **no `_webref` file** and adds **exactly three `test_*.py`,
+under `scripts/`** (its pins) plus two non-member helper modules. The implementation PR's `git diff --name-only origin/main...HEAD` is
+`scripts/python-suites.sh`, `scripts/test_python_suites_driver.py`, `scripts/test_python_suites_regime.py`,
+`scripts/test_python_suites_ci.py`, `scripts/python_suites_fixtures.py` and `scripts/python_suites_readers.py`
+(neither helper is a set member; neither defines a `unittest.TestCase`), `mise.toml`, `.github/workflows/ci.yml`,
 `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.claude/skills/pre-push/SKILL.md`,
 `.claude/skills/elidex-review/SKILL.md`, `.claude/skills/elidex-plan-review/SKILL.md` (§4.6), and this memo.
 

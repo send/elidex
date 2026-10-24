@@ -111,8 +111,9 @@
 # Step 3(b) checks the naming clause; the other clauses are the wrapper's own
 # test body, reviewed in the wrapper's PR.
 #
-# The pins for every clause above live in scripts/test_python_suites.py (itself a
-# set member, so it runs here too; it never runs this driver on the live tree --
+# The pins for every clause above live in scripts/test_python_suites_{driver,regime,ci}.py
+# (set members, so they run here too, with the helper modules python_suites_fixtures.py /
+# python_suites_readers.py, which are not members; none ever runs this driver on the live tree --
 # only on scratch repositories).
 
 set -euo pipefail
@@ -190,7 +191,7 @@ def say(msg):
 
 
 # --------------------------------------------------------------------------
-# Step 3 predicates (also imported by scripts/test_python_suites.py, P6).
+# Step 3 predicates (also imported by scripts/test_python_suites_driver.py, P6).
 
 
 def parse(source, path):
