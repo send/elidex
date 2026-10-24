@@ -1,4 +1,4 @@
-"""Reader and CI-wiring pins (R1-R9, M1-M2, ...) for scripts/python-suites.sh.
+"""Reader and CI-wiring pins (R1-R9, M1-M3, ...) for scripts/python-suites.sh.
 
 Reads `.github/workflows/ci.yml` and `mise.toml` through the text readers in
 `python_suites_readers.py`; fixtures for them are below.
@@ -262,6 +262,19 @@ class TestReaderPins(unittest.TestCase):
         self.assertFalse(credited("      - env:\n          DRIVER: scripts/python-suites.sh\n"))
         self.assertFalse(credited("      - run: bash scripts/python-suites.sh\n        continue-on-error: true\n"))
         self.assertFalse(credited(job_lines="    continue-on-error: true\n"))
+        # The driver step's keys are an allowlist too: any key outside it refuses the credit.
+        drv = "      - run: bash scripts/python-suites.sh\n"
+        for key in (
+            "env:\n          PYTHONPATH: x",
+            "env:\n          BASH_ENV: x",
+            "shell: sh",
+            "if: always()",
+            "working-directory: x",
+            "some-future-key: x",
+        ):
+            self.assertFalse(credited(drv + "        %s\n" % key), key)
+        for key in ("name: x", "id: x", "timeout-minutes: 5"):
+            self.assertTrue(credited(drv + "        %s\n" % key), key)
         # The job's keys are an allowlist: any key outside it refuses the credit, named or not.
         for lines in (
             "    defaults:\n      run:\n        shell: sh\n",

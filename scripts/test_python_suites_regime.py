@@ -1,6 +1,6 @@
-"""Offline-regime pins (T-net, §6.1 G1-G11) for scripts/python-suites.sh.
+"""Offline-regime pins (T-net, §6.1 G1-G14) for scripts/python-suites.sh.
 
-The fixture member sources (G1-G11 classes) are string constants here: each is
+The fixture member sources (G1-G14 classes) are string constants here: each is
 written into a scratch repository and run by the copied driver. Shared helpers:
 `python_suites_fixtures.py`.
 """
@@ -27,7 +27,7 @@ from python_suites_fixtures import (
 )
 
 # ---------------------------------------------------------------------------
-# T-net: the offline regime (§6.1 G1-G11).
+# T-net: the offline regime (§6.1 G1-G14).
 
 
 class Listener:

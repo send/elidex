@@ -306,7 +306,7 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         tc = "\n\nclass A(%s):\n    pass\n"
         forms = {
             "p9a": "import unittest.mock" + tc % "unittest.TestCase",
-            "p9b": "import unittest.util\nimport unittest" + tc % "unittest.IsolatedAsyncioTestCase",
+            "p9b": "import unittest.util" + tc % "unittest.IsolatedAsyncioTestCase",
             "p9c": "import unittest.async_case" + tc % "unittest.async_case.IsolatedAsyncioTestCase",
             "p9d": "import unittest.case as c" + tc % "c.TestCase",
             "p9e": "from unittest import mock, async_case as ac" + tc % "ac.IsolatedAsyncioTestCase",
