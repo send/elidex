@@ -14,7 +14,7 @@ from python_suites_readers import (
     ReaderError,
     Workflow,
     driver_step_index,
-    gate_keys,
+    job_key_problems,
     mise_problems,
     q7_problems,
     tools_problems,
@@ -51,9 +51,9 @@ TOOLS_STEPS = (
 )
 
 
-def workflow(tools=None, on=ON_OK, after=""):
+def workflow(tools=None, on=ON_OK, after="", top=""):
     tools = TOOLS_HEAD + TOOLS_STEPS if tools is None else tools
-    return "name: CI\n\n" + on + "\njobs:\n" + CHECK_JOB + "\n" + tools + after
+    return "name: CI\n\n" + on + top + "\njobs:\n" + CHECK_JOB + "\n" + tools + after
 
 
 def tools_with(extra_job_lines="", step=None):
@@ -95,6 +95,10 @@ class TestReaderPins(unittest.TestCase):
         assert job is not None
         return job
 
+    def q7(self, text):
+        job = self.tools_job(text)
+        return q7_problems(job, driver_step_index(job))
+
     # Live files.
 
     def test_Q4_live_mise_toml(self):
@@ -104,8 +108,10 @@ class TestReaderPins(unittest.TestCase):
         text = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertEqual(tools_problems(text), [])
         wf = Workflow(text)
-        # Q8 negative control: the same predicate reads `check` as gated.
-        self.assertEqual(gate_keys(wf.job("check")), ["if", "needs"])
+        # Q8 negative control: the same allowlist refuses `check`'s gating keys.
+        refused = " ".join(job_key_problems(wf.job("check")))
+        self.assertIn("'needs'", refused)
+        self.assertIn("'if'", refused)
 
     def test_Q6_driver_step_required(self):
         empty = TOOLS_HEAD + "    steps:\n      - uses: actions/checkout@v6\n"
@@ -114,9 +120,9 @@ class TestReaderPins(unittest.TestCase):
 
     def test_Q7_matrix_consumed_by_setup_python_before_the_driver(self):
         good = workflow()
-        self.assertEqual(q7_problems(self.tools_job(good)), [])
+        self.assertEqual(self.q7(good), [])
         unconsumed = good.replace("          python-version: ${{ matrix.python-version }}\n", "          python-version: '3.12'\n")
-        self.assertTrue(q7_problems(self.tools_job(unconsumed)))
+        self.assertTrue(self.q7(unconsumed))
         after = TOOLS_HEAD + (
             "    steps:\n"
             "      - run: bash scripts/python-suites.sh\n"
@@ -124,19 +130,19 @@ class TestReaderPins(unittest.TestCase):
             "        with:\n"
             "          python-version: ${{ matrix.python-version }}\n"
         )
-        self.assertTrue(q7_problems(self.tools_job(workflow(after))))
+        self.assertTrue(self.q7(workflow(after)))
         one_leg = good.replace('["3.9", "3.x"]', '["3.x"]')
-        self.assertTrue(q7_problems(self.tools_job(one_leg)))
+        self.assertTrue(self.q7(one_leg))
         include = good.replace('        python-version: ["3.9", "3.x"]\n', '        python-version: ["3.9", "3.x"]\n        include:\n          - os: macos-latest\n')
-        self.assertTrue(q7_problems(self.tools_job(include)))
+        self.assertTrue(self.q7(include))
 
     def test_Q8_present_ungated_and_trigger(self):
-        self.assertEqual(gate_keys(self.tools_job(workflow())), [])
+        self.assertEqual(job_key_problems(self.tools_job(workflow())), [])
         self.assertIn("tools job absent or empty", tools_problems(workflow(tools="")))
         gated_new_output = workflow(tools_with("    needs: changes\n    if: needs.changes.outputs.tools == 'true'\n"))
-        self.assertIn("tools job gated by if", tools_problems(gated_new_output))
-        self.assertIn("tools job gated by needs", tools_problems(gated_new_output))
-        self.assertEqual(gate_keys(Workflow(workflow()).job("check")), ["if", "needs"])
+        problems = tools_problems(gated_new_output)
+        self.assertIn("job key 'if' is not in the tools-job allowlist", problems)
+        self.assertIn("job key 'needs' is not in the tools-job allowlist", problems)
         for on in (
             "on:\n  pull_request:\n    branches: [main]\n    paths: ['crates/**']\n",
             "on:\n  pull_request:\n    branches: [main]\n    paths-ignore: ['docs/**']\n",
@@ -149,13 +155,11 @@ class TestReaderPins(unittest.TestCase):
 
     def test_R1_keys_recognised_in_any_quoting(self):
         for line in ('    "needs": changes\n', "    'if': x\n"):
-            self.assertTrue(gate_keys(self.tools_job(workflow(tools_with(line)))), line)
+            self.assertTrue(job_key_problems(self.tools_job(workflow(tools_with(line)))), line)
 
     def test_R2_modelled_values_read_correctly(self):
-        wf = Workflow(workflow())
-        self.assertEqual(list(wf.on()["pull_request"]["branches"]), ["main"])
-        job = wf.job("tools")
-        assert job is not None
+        self.assertEqual(list(Workflow(workflow()).on()["pull_request"]["branches"]), ["main"])
+        job = self.tools_job(workflow())
         self.assertEqual(list(job["strategy"]["matrix"]["python-version"]), ["3.9", "3.x"])
         self.assertEqual(str(job["steps"][1]["with"]["python-version"]), MATRIX_EXPR)
 
@@ -183,9 +187,10 @@ class TestReaderPins(unittest.TestCase):
         self.assertReaderRed(self.tools_job, legs, self.line_of(legs, "python-version: ["))
 
     def test_R7_comments_are_neither_values_nor_keys(self):
-        self.assertEqual(gate_keys(self.tools_job(workflow(tools_with("    needs: changes # x\n")))), ["needs"])
-        self.assertEqual(str(self.tools_job(workflow(tools_with("    needs: changes # x\n")))["needs"]), "changes")
-        self.assertEqual(gate_keys(self.tools_job(workflow(tools_with("    # needs: changes\n")))), [])
+        trailing_comment = self.tools_job(workflow(tools_with("    needs: changes # x\n")))
+        self.assertEqual(job_key_problems(trailing_comment), ["job key 'needs' is not in the tools-job allowlist"])
+        self.assertEqual(str(trailing_comment["needs"]), "changes")
+        self.assertEqual(job_key_problems(self.tools_job(workflow(tools_with("    # needs: changes\n")))), [])
         hdr = workflow(tools_with().replace("  tools:\n", "  tools: # c\n"))
         self.assertEqual(tools_problems(hdr), [])
         trailing = workflow(tools_with().replace("run: bash scripts/python-suites.sh\n", "run: bash scripts/python-suites.sh # c\n"))
@@ -202,7 +207,7 @@ class TestReaderPins(unittest.TestCase):
                 "          needs: x\n" % header
             )
             job = self.tools_job(workflow(tools_with(step=step)))
-            self.assertEqual(gate_keys(job), [], header)
+            self.assertEqual(job_key_problems(job), [], header)
             self.assertIn("needs: x", str(job["steps"][3]["run"]))
             self.assertEqual(tools_problems(workflow(tools_with(step=step))), [], header)
         bad = workflow(tools_with(step="      - run: |9x\n          ls\n"))
@@ -220,9 +225,9 @@ class TestReaderPins(unittest.TestCase):
             "      - run: bash scripts/python-suites.sh\n"
         )
         job = self.tools_job(workflow(bare, after=nxt))
-        self.assertEqual(gate_keys(job), [])
+        self.assertEqual(job_key_problems(job), [])
         self.assertIsNone(driver_step_index(job))
-        self.assertTrue(q7_problems(job))
+        self.assertTrue(q7_problems(job, driver_step_index(job)))
         commented = workflow(TOOLS_HEAD + "  # a two-space comment inside tools\n" + TOOLS_STEPS)
         self.assertEqual(tools_problems(commented), [])
 
@@ -243,6 +248,29 @@ class TestReaderPins(unittest.TestCase):
         self.assertFalse(credited("      - env:\n          DRIVER: scripts/python-suites.sh\n"))
         self.assertFalse(credited("      - run: bash scripts/python-suites.sh\n        continue-on-error: true\n"))
         self.assertFalse(credited(job_lines="    continue-on-error: true\n"))
+        # The job's keys are an allowlist: any key outside it refuses the credit, named or not.
+        for lines in (
+            "    defaults:\n      run:\n        shell: sh\n",
+            "    env:\n      PYTHONPATH: x\n",
+            "    needs: changes\n",
+            "    if: always()\n",
+            "    some-future-key: x\n",
+        ):
+            self.assertFalse(credited(job_lines=lines), lines)
+            self.assertTrue(job_key_problems(self.tools_job(workflow(tools_with(lines)))), lines)
+
+    def test_D1_workflow_keys_and_env_are_allowlists(self):
+        # The real ci.yml is green (its workflow-level env is CARGO_*).
+        live = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertEqual(tools_problems(live), [])
+        self.assertTrue(Workflow(live).env())
+        for key in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PATH", "PYTHONPATH", "PYTHONSTARTUP", "HTTP_PROXY", "http_proxy"):
+            text = workflow(top="\nenv:\n  CARGO_TERM_COLOR: always\n  %s: x\n" % key)
+            self.assertIn("workflow env key %r is not in the allowlist" % key, tools_problems(text), key)
+        # Allowed keys alone are green; a workflow key outside the allowlist is red.
+        self.assertEqual(tools_problems(workflow(top="\nenv:\n  CARGO_TERM_COLOR: always\n")), [])
+        for top in ("\ndefaults:\n  run:\n    shell: sh\n", "\nsome-future-key: x\n"):
+            self.assertReaderRed(tools_problems, workflow(top=top))
 
     # M-rows.
 

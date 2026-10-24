@@ -17,7 +17,7 @@
 # 1. The floor. `python3` (first on PATH) must report >= 3.9, checked before
 #    anything else; `python3 -VV` is echoed. The floor is only *measured* by the
 #    CI job's "3.9" leg; this assertion is its statement.
-# 2. The set is `git ls-files ':(glob)**/test_*.py'` -- tracked files, repo-wide
+# 2. The set is `git ls-files ':(glob)**/test_*.py'` (MEMBER_PATHSPEC) -- tracked files, repo-wide
 #    (the `:(glob)` magic is what makes a top-level `test_x.py` count). An empty
 #    set fails.
 # 3. The complement, by property, over every tracked `.py` that is NOT a set
@@ -59,9 +59,10 @@
 #   http_proxy/https_proxy  http://127.0.0.1:<a closed local port>
 #   NO_PROXY/no_proxy     absent
 #   XDG_CACHE_HOME        a fresh empty directory per root
-# The loader restores these keys (os.environ and the process environment) to the
-# regime before each member is imported and run, so one member's mutation cannot
-# unguard the next member's children.
+# Before each member is imported and run, the loader restores the regime in one
+# step: these keys (os.environ and the process environment) AND the socket guard
+# (re-installed from the table the guard publishes), so one member's mutation
+# cannot unguard the next member or its children.
 #
 # Behaviour half -- the socket guard, a `sitecustomize.py` in the guard
 # directory, so it is installed at interpreter startup in the loader and in every
@@ -168,11 +169,15 @@ import unittest
 import warnings
 
 PREFIX = "python-suites:"
-FLOOR = (3, 9)
+# The set definition, in one place (the pins read it from here): the git
+# pathspec the driver lists, and the regex for the same names on a path string.
+MEMBER_PATHSPEC = ":(glob)**/test_*.py"
+MEMBER_RE = r"(^|/)test_[^/]*\.py$"
 SELF_TEST_FLAG = "--self-test"
 TESTCASE_BASES = ("TestCase", "IsolatedAsyncioTestCase")
 UNITTEST_MODULES = ("unittest", "unittest.case")
 GUARD_MARK = "_python_suites_guard_installs"
+GUARD_TABLE = "_python_suites_guard_table"  # [(owner, name, guarded value)], published by the guard
 REGIME_KEYS = (
     "PYTHONPATH",
     "http_proxy",
@@ -311,7 +316,7 @@ def complement_failures(members, trees, all_py):
         m: string_constants(trees[m]) for m in members if m in trees
     }
     failures = []
-    for path in sorted(all_py):
+    for path in all_py:  # git_lines returns it sorted
         if path in member_set or path not in trees:
             continue
         tree = trees[path]
@@ -372,14 +377,11 @@ def regime_env(base, guard_dir, port, cache_dir):
 
 
 def run(root, tmp):
-    if sys.version_info[:2] < FLOOR:
-        say("FAIL floor: the interpreter floor is Python %d.%d" % FLOOR)
-        return 1
     failures = []
 
-    members = git_lines(root, "ls-files", "-z", "--", ":(glob)**/test_*.py")
+    members = git_lines(root, "ls-files", "-z", "--", MEMBER_PATHSPEC)
     if not members:
-        say("FAIL set: git ls-files ':(glob)**/test_*.py' is empty -- nothing to run")
+        say("FAIL set: git ls-files '%s' is empty -- nothing to run" % MEMBER_PATHSPEC)
         return 1
     all_py = git_lines(root, "ls-files", "-z", "--", "*.py")
 
@@ -452,7 +454,10 @@ def run(root, tmp):
 # The per-root loader (runs under the regime).
 
 
-def _restore(snapshot):
+def _restore_regime(snapshot, guard):
+    """The one way the regime is put back: the REGIME_KEYS environment and the
+    socket guard (re-installed from the guard's own table), so a member that
+    undid either in-process cannot leave a later member unguarded."""
     for k, v in snapshot.items():
         if v is None:
             os.environ.pop(k, None)
@@ -460,6 +465,11 @@ def _restore(snapshot):
                 os.unsetenv(k)
         else:
             os.environ[k] = v
+    import socket
+
+    for owner, name, value in guard:
+        setattr(owner, name, value)
+    setattr(socket, GUARD_MARK, 1)
 
 
 class _Result(unittest.TestResult):
@@ -523,6 +533,10 @@ def load(root, rdir, out, members):
             " (marker %r) -- refusing to run" % (rdir or ".", getattr(socket, GUARD_MARK, 0))
         )
         sys.exit(98)
+    guard = list(getattr(socket, GUARD_TABLE, ()))
+    if not guard:
+        say("FAIL root %s: the offline guard published no table -- refusing to run" % (rdir or "."))
+        sys.exit(98)
     snapshot = {k: os.environ.get(k) for k in REGIME_KEYS}
     rootdir = os.path.join(root, rdir)
     here = os.path.dirname(os.path.abspath(__file__))
@@ -533,7 +547,7 @@ def load(root, rdir, out, members):
     os.chdir(root)
     results = {}
     for member in sorted(members):
-        _restore(snapshot)
+        _restore_regime(snapshot, guard)
         modname = posixpath.splitext(posixpath.basename(member))[0]
         r = _Result(member, modname)
         try:
@@ -554,7 +568,7 @@ def load(root, rdir, out, members):
             )
         results[member] = {"passed": r.passed, "problems": r.problems}
         sys.stdout.flush()
-    _restore(snapshot)
+    _restore_regime(snapshot, guard)
     with open(out, "w") as f:
         json.dump(results, f)
     return 0
@@ -580,6 +594,7 @@ import os
 import sys
 
 _MARK = "_python_suites_guard_installs"
+_TABLE = "_python_suites_guard_table"
 
 
 class _OfflineRegimeError(OSError):
@@ -599,16 +614,22 @@ def _install():
 
     if getattr(socket, _MARK, 0):
         return
-    socket.socket.connect = _deny("socket.connect")
-    socket.socket.connect_ex = _deny("socket.connect_ex")
-    for name in (
-        "getaddrinfo",
-        "gethostbyname",
-        "gethostbyname_ex",
-        "gethostbyaddr",
-        "getnameinfo",
-    ):
-        setattr(socket, name, _deny("socket." + name))
+    table = [
+        (socket.socket, "connect", _deny("socket.connect")),
+        (socket.socket, "connect_ex", _deny("socket.connect_ex")),
+    ] + [
+        (socket, name, _deny("socket." + name))
+        for name in (
+            "getaddrinfo",
+            "gethostbyname",
+            "gethostbyname_ex",
+            "gethostbyaddr",
+            "getnameinfo",
+        )
+    ]
+    for owner, name, fn in table:
+        setattr(owner, name, fn)
+    setattr(socket, _TABLE, table)  # the loader re-installs it before each member
     setattr(socket, _MARK, getattr(socket, _MARK, 0) + 1)
 
 

@@ -29,7 +29,6 @@ class YMap(dict):
 
 class YSeq(list):
     lineno = 0
-    _after_item = False
 
 
 def _scalar(value, lineno, style):
@@ -42,6 +41,11 @@ def _scalar(value, lineno, style):
 _YKEY = re.compile(r"""^(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_][A-Za-z0-9_.-]*))[ ]*:(?=[ ]|$)""")
 _BLOCK_HEADER = re.compile(r"^[|>][+-]?$")
 _BAD_PLAIN_START = set("&*!{}[]|>'\"%@`,#")
+
+
+def _key(km):
+    """The key text of a `_YKEY` / `_TKEY` match, whichever alternative matched."""
+    return next(g for g in km.groups() if g is not None)
 
 
 class _YamlSubset:
@@ -81,14 +85,14 @@ class _YamlSubset:
         p = self._peek()
         if p is None:
             return None
-        node = self.block(p[1])
+        node = self.block()
         rest = self._peek()
         if rest is not None:
             lineno, _, content = rest
             raise ReaderError(lineno, "unexpected indentation", content)
         return node
 
-    def block(self, indent):
+    def block(self):
         lineno, ind, content = self._peek()
         return self.seq(ind) if self._is_item(content) else self.mapping(ind)
 
@@ -112,7 +116,7 @@ class _YamlSubset:
             self.i += 1
             if not m:
                 m.lineno = lineno
-            key = next(g for g in km.groups() if g is not None)
+            key = _key(km)
             self._entry(m, indent, key, content[km.end():], lineno)
         return m
 
@@ -126,7 +130,7 @@ class _YamlSubset:
         if v == "" or v.startswith("#"):
             p = self._peek()
             if p is not None and p[1] > indent:
-                return self.block(p[1])
+                return self.block()
             if p is not None and p[1] == indent and self._is_item(p[2]):
                 return self.seq(indent)
             return _scalar("", lineno, "null")
@@ -203,10 +207,11 @@ class _YamlSubset:
         s = YSeq()
         s.lineno = lineno
         body = v[1:]
+        after_item = False
         while True:
             body = body.lstrip(" ")
             if body.startswith("]"):
-                if s and not getattr(s, "_after_item", False):
+                if s and not after_item:
                     raise ReaderError(lineno, "trailing comma in a flow sequence", v)
                 if not self._tail_ok(body[1:]):
                     raise ReaderError(lineno, "text after a flow sequence", v)
@@ -222,11 +227,11 @@ class _YamlSubset:
                     raise ReaderError(lineno, "unmodelled flow-sequence item", v)
                 s.append(_scalar(m.group(0).strip(), lineno, "plain"))
                 body = body[m.end():]
-            s._after_item = True
+            after_item = True
             body = body.lstrip(" ")
             if body.startswith(","):
                 body = body[1:]
-                s._after_item = False
+                after_item = False
             elif not body.startswith("]"):
                 raise ReaderError(lineno, "unmodelled flow-sequence syntax", v)
 
@@ -251,7 +256,7 @@ class _YamlSubset:
             if rest == "" or rest.startswith("#"):
                 p2 = self._peek()
                 if p2 is not None and p2[1] > indent:
-                    s.append(self.block(p2[1]))
+                    s.append(self.block())
                 else:
                     s.append(_scalar("", lineno, "null"))
                 continue
@@ -259,18 +264,11 @@ class _YamlSubset:
                 raise ReaderError(lineno, "unmodelled nested compact sequence", content)
             km = _YKEY.match(rest)
             if km is not None:
-                key = next(g for g in km.groups() if g is not None)
+                key = _key(km)
                 s.append(self.mapping(col, first=(key, rest[km.end():], lineno)))
             else:
-                s.append(self.value(rest, indent, lineno) if rest[0] in "|>" else self._item_scalar(rest, indent, lineno))
+                s.append(self.value(rest, indent, lineno))
         return s
-
-    def _item_scalar(self, rest, indent, lineno):
-        node = self.inline(rest, lineno)
-        p = self._peek()
-        if p is not None and p[1] > indent:
-            raise ReaderError(p[0], "unmodelled continuation", p[2])
-        return node
 
 
 class Workflow:
@@ -280,8 +278,9 @@ class Workflow:
     jobs are the lines at the indent of the first key under `jobs:`; comment
     and blank lines never bound a region. Only the regions asked for are
     parsed, with `_YamlSubset`. A top-level line that is not a modelled key,
-    a top-level `defaults:` (it would change how the tools job's `run:` is
-    interpreted), or a line at job indent that is not a modelled key, is red."""
+    a top-level key outside `WORKFLOW_KEYS` (an allowlist: `defaults:` would
+    change how a `run:` is interpreted), or a line at job indent that is not a
+    modelled key, is red."""
 
     def __init__(self, text):
         self.lines = list(enumerate(text.splitlines(), 1))
@@ -293,11 +292,11 @@ class Workflow:
             km = _YKEY.match(raw)
             if km is None:
                 raise ReaderError(lineno, "unmodelled top-level construct", raw)
-            key = next(g for g in km.groups() if g is not None)
+            key = _key(km)
             if key in self.top:
                 raise ReaderError(lineno, "duplicate top-level key %r" % key, raw)
-            if key == "defaults":
-                raise ReaderError(lineno, "workflow-level defaults are not modelled", raw)
+            if key not in WORKFLOW_KEYS:
+                raise ReaderError(lineno, "workflow-level key %r is not in the allowlist" % key, raw)
             self.top[key] = idx
             order.append(idx)
         self.top_end = {}
@@ -328,7 +327,7 @@ class Workflow:
                     km = _YKEY.match(c)
                     if km is None:
                         raise ReaderError(lineno, "unmodelled job-position construct", raw)
-                    name = next(g for g in km.groups() if g is not None)
+                    name = _key(km)
                     if name in self.jobs:
                         raise ReaderError(lineno, "duplicate job %r" % name, raw)
                     heads.append((name, idx))
@@ -350,6 +349,13 @@ class Workflow:
             raise ReaderError(0, "empty workflow-level on: block", "")
         return node["on"]
 
+    def env(self):
+        """The workflow-level `env:` mapping, or None when absent."""
+        if "env" not in self.top:
+            return None
+        idx = self.top["env"]
+        return self._parse(idx, self.top_end[idx])["env"]
+
     def job(self, name):
         """The job's parsed mapping, or None when the job is absent."""
         span = self.jobs.get(name)
@@ -369,6 +375,14 @@ DRIVER_ARGVS = (
     ["./" + DRIVER_REL],
     ["mise", "run", "tools-test"],
 )
+# The allowlists. Each is exactly what today's ci.yml uses; any other key is
+# red, so a key that could mask the driver's exit or alter its shell / Python
+# (job `defaults:` / `env:` / `continue-on-error`, workflow `defaults:`,
+# `needs` / `if`, BASH_ENV, PYTHON*, proxy variables, ...) is refused without
+# being named.
+WORKFLOW_KEYS = {"name", "on", "concurrency", "permissions", "env", "jobs"}
+TOOLS_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "strategy", "steps"}
+WORKFLOW_ENV_KEYS = {"CARGO_TERM_COLOR", "CARGO_INCREMENTAL"}  # neither touches the shell or Python
 DRIVER_STEP_KEYS = {"name", "id", "run", "timeout-minutes"}
 SETUP_STEP_KEYS = {"name", "id", "uses", "with"}
 MATRIX_EXPR = "${{ matrix.python-version }}"
@@ -377,14 +391,26 @@ MATRIX_EXPR = "${{ matrix.python-version }}"
 def driver_is_command(cmd):
     """D1: the driver is the whole command -- argv[0], or the argument after
     bash / sh -- with no shell syntax at all (so nothing can mask its exit)."""
-    if any(ch in cmd for ch in ";&|`$<>()\n\\'\"*?~{}[]#!="):
-        return False
-    return cmd.split() in [list(a) for a in DRIVER_ARGVS]
+    return cmd.split() in DRIVER_ARGVS
+
+
+def job_key_problems(job):
+    """D1 / Q8: every job key outside the `tools` job's allowlist."""
+    return ["job key %r is not in the tools-job allowlist" % k for k in sorted(set(job) - TOOLS_JOB_KEYS)]
+
+
+def env_problems(env):
+    """D1: every workflow-level `env:` key outside the allowlist (None = no `env:`)."""
+    if env is None:
+        return []
+    if not isinstance(env, YMap):
+        return ["workflow env is not a mapping"]
+    return ["workflow env key %r is not in the allowlist" % k for k in sorted(set(env) - WORKFLOW_ENV_KEYS)]
 
 
 def driver_step_index(job):
     """Q6: index of the credited driver step, or None."""
-    if not isinstance(job, YMap) or "continue-on-error" in job:
+    if not isinstance(job, YMap) or job_key_problems(job):
         return None
     steps = job.get("steps")
     if not isinstance(steps, YSeq):
@@ -402,7 +428,7 @@ def driver_step_index(job):
     return None
 
 
-def q7_problems(job):
+def q7_problems(job, di):
     """Q7: the two-leg matrix, consumed by the last setup-python before the driver."""
     problems = []
     matrix = job.get("strategy", {}).get("matrix") if isinstance(job.get("strategy"), YMap) else None
@@ -417,7 +443,6 @@ def q7_problems(job):
         and all(isinstance(l, YScalar) and l.style == "quoted" for l in legs)
     ):
         problems.append("python-version legs are not exactly quoted \"3.9\" and \"3.x\"")
-    di = driver_step_index(job)
     if di is None:
         return problems + ["no credited driver step to precede"]
     setup = None
@@ -435,11 +460,6 @@ def q7_problems(job):
     ):
         problems.append("the last setup-python before the driver does not consume %s" % MATRIX_EXPR)
     return problems
-
-
-def gate_keys(job):
-    """Q8: the job's gating keys (any needs / if, whatever the value)."""
-    return sorted(k for k in job if k in ("needs", "if"))
 
 
 def trigger_problems(on):
@@ -460,10 +480,12 @@ def tools_problems(text):
     job = wf.job("tools")
     if not isinstance(job, YMap) or not job:
         return problems + ["tools job absent or empty"]
-    problems += ["tools job gated by %s" % k for k in gate_keys(job)]
-    if driver_step_index(job) is None:
+    problems += env_problems(wf.env())
+    problems += job_key_problems(job)
+    di = driver_step_index(job)
+    if di is None:
         problems.append("no run: step executes the driver")
-    problems += q7_problems(job)
+    problems += q7_problems(job, di)
     return problems
 
 
@@ -542,7 +564,7 @@ def mise_sections(text, wanted):
         km = _TKEY.match(line)
         if km is None:
             raise ReaderError(lineno, "unmodelled key", raw)
-        key = next(g for g in km.groups() if g is not None)
+        key = _key(km)
         if key in out[current]:
             raise ReaderError(lineno, "duplicate key %r" % key, raw)
         out[current][key] = (_toml_value(line[km.end():], lineno), lineno)

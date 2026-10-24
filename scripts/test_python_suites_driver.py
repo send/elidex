@@ -11,12 +11,9 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import sys
-import tempfile
 import textwrap
 import unittest
-from pathlib import Path
 
 from python_suites_fixtures import (
     DRV,
@@ -78,8 +75,7 @@ class TestDriverPins(DriverCase, unittest.TestCase):
         self.assertRed(s.run(), "set:")
 
     def test_Q5_floor_below_3_9_is_red_naming_the_floor(self):
-        bindir = Path(tempfile.mkdtemp(prefix="python-suites-shim-"))
-        self.addCleanup(shutil.rmtree, str(bindir), True)
+        bindir = self.tmpdir("python-suites-shim-")
         real = sys.executable
         (bindir / "shim.py").write_text(
             textwrap.dedent(
@@ -271,7 +267,7 @@ class TestComplementPins(DriverCase, unittest.TestCase):
             self.assertIn(rel, tracked)
         entry_points = []
         for path in tracked:
-            if re.search(r"(^|/)test_[^/]*\.py$", path):
+            if re.search(DRV.MEMBER_RE, path):
                 continue  # members are not entry points for 3(b)
             ptree = DRV.parse((REPO / path).read_bytes(), path)
             if DRV.is_self_test_entry_point(ptree):

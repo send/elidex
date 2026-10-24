@@ -19,7 +19,6 @@ import os
 import posixpath
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -124,18 +123,14 @@ def _launch(argv, *, env, purpose, cwd=None, timeout=LAUNCH_TIMEOUT):
 
 
 class Scratch:
-    def __init__(self, case, files, executable=()):
-        self.dir = Path(tempfile.mkdtemp(prefix="python-suites-pin-"))
-        case.addCleanup(shutil.rmtree, str(self.dir), True)
+    def __init__(self, case, files):
+        self.dir = case.tmpdir("python-suites-pin-")
         (self.dir / "scripts").mkdir()
         shutil.copy(str(DRIVER), str(self.dir / "scripts" / "python-suites.sh"))
         for rel, body in files.items():
             p = self.dir / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
-        for rel in executable:
-            p = self.dir / rel
-            p.chmod(p.stat().st_mode | stat.S_IXUSR)
         self.git("-c", "init.defaultBranch=main", "init", "-q")
         self.git("add", "-A")
 
@@ -146,11 +141,11 @@ class Scratch:
         return out
 
     def members(self):
-        out = self.git("ls-files", "-z", "--", ":(glob)**/test_*.py")
+        out = self.git("ls-files", "-z", "--", DRV.MEMBER_PATHSPEC)
         return sorted(p for p in out.split("\0") if p)
 
-    def run(self, extra_env=None, purpose="driver", env=None):
-        e = base_env() if env is None else env
+    def run(self, extra_env=None, purpose="driver"):
+        e = base_env()
         e.update(extra_env or {})
         return _launch(
             ["bash", self.dir / "scripts" / "python-suites.sh"],
@@ -185,8 +180,20 @@ class DriverCase:
 
     maxDiff = None
 
-    def scratch(self, files, executable=()):
-        return Scratch(self, files, executable)
+    def scratch(self, files):
+        return Scratch(self, files)
+
+    def tmpdir(self, prefix):
+        """A fresh directory, removed when the test ends."""
+        d = Path(tempfile.mkdtemp(prefix=prefix))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        return d
+
+    @staticmethod
+    def pythonpath_after(d):
+        """PYTHONPATH with `d` appended after any inherited entries (the contract's one allowed change)."""
+        inherited = os.environ.get("PYTHONPATH")
+        return (inherited + os.pathsep if inherited else "") + str(d)
 
     def assertGreen(self, result):
         code, out = result

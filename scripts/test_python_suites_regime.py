@@ -9,13 +9,10 @@ from __future__ import annotations
 
 import ast
 import os
-import shutil
 import socket
 import sys
-import tempfile
 import threading
 import unittest
-from pathlib import Path
 
 from python_suites_fixtures import (
     PIN_FILES,
@@ -41,7 +38,7 @@ class Listener:
         self.sock = socket.socket(family, socket.SOCK_STREAM)
         self.sock.bind((host, 0))
         self.sock.listen(32)
-        self.sock.settimeout(0.2)
+        self.sock.settimeout(0.2)  # only bounds how long close() can wait
         self.port = self.sock.getsockname()[1]
         self.stop = False
         self.thread = threading.Thread(target=self._serve, daemon=True)
@@ -55,12 +52,8 @@ class Listener:
             except OSError:
                 continue
             try:
-                conn.settimeout(0.5)
-                try:
-                    while conn.recv(65536):
-                        pass
-                except OSError:
-                    pass
+                conn.settimeout(5)
+                conn.recv(65536)  # the request (or a TLS hello, or nothing): answer at once
                 conn.sendall(b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             except OSError:
                 pass
@@ -69,8 +62,8 @@ class Listener:
 
     def close(self):
         self.stop = True
+        self.sock.close()  # first, so a blocked accept() fails now
         self.thread.join(5)
-        self.sock.close()
 
 
 G1_MEMBER = """
@@ -103,6 +96,15 @@ class G1(unittest.TestCase):
             DIRECT.open("https://127.0.0.1:%d/" % PORT, timeout=10)
         self.assertIsInstance(cm.exception.reason, (ssl.SSLError, ConnectionError))
 """
+
+# Exit 0: connected. 42: refused by the offline regime. 3: any other failure.
+CONNECT_CHILD = (
+    "import socket, sys\n"
+    "try:\n"
+    "    s = socket.socket(); s.connect(('127.0.0.1', int(sys.argv[1]))); s.close()\n"
+    "except OSError as e:\n"
+    "    sys.exit(42 if 'python-suites offline regime' in str(e) else 3)\n"
+)
 
 RAW_CONNECT_CHILD = (
     "import os, socket; s = socket.socket(); "
@@ -319,14 +321,7 @@ import sys
 import tempfile
 import unittest
 
-# Exit 0: connected. 42: refused by the offline regime. 3: any other failure.
-CONNECT = (
-    "import socket, sys\\n"
-    "try:\\n"
-    "    s = socket.socket(); s.connect(('127.0.0.1', int(sys.argv[1]))); s.close()\\n"
-    "except OSError as e:\\n"
-    "    sys.exit(42 if 'python-suites offline regime' in str(e) else 3)\\n"
-)
+CONNECT = @CONNECT@
 
 
 class G10(unittest.TestCase):
@@ -371,7 +366,7 @@ class G10(unittest.TestCase):
 
     def test_control_non_network_child_passes(self):
         self.assertEqual(self.child([sys.executable, "-c", "pass"]), 0)
-"""
+""".replace("@CONNECT@", repr(CONNECT_CHILD))
 
 G11_MUTATOR = """
 import os
@@ -392,13 +387,7 @@ import subprocess
 import sys
 import unittest
 
-CONNECT = (
-    "import socket, sys\\n"
-    "try:\\n"
-    "    s = socket.socket(); s.connect(('127.0.0.1', int(sys.argv[1]))); s.close()\\n"
-    "except OSError as e:\\n"
-    "    sys.exit(42 if 'python-suites offline regime' in str(e) else 3)\\n"
-)
+CONNECT = @CONNECT@
 
 
 class B(unittest.TestCase):
@@ -417,6 +406,31 @@ class B(unittest.TestCase):
             self.assertEqual(r.returncode, 42)
         finally:
             srv.close()
+""".replace("@CONNECT@", repr(CONNECT_CHILD))
+
+G11_GUARD_UNDO = """
+import socket
+import unittest
+
+
+class A(unittest.TestCase):
+    def test_undoes_the_guard(self):
+        socket.socket.connect = socket._socket.socket.connect
+"""
+
+G11_GUARD_CONNECT = """
+import os
+import socket
+import unittest
+
+
+class B(unittest.TestCase):
+    def test_connect_after_a_member_undid_the_guard(self):
+        s = socket.socket()
+        try:
+            s.connect(("127.0.0.1", int(os.environ["PYSUITES_PIN_PORT"])))
+        finally:
+            s.close()
 """
 
 
@@ -501,13 +515,10 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         self.assertGreen(outer.run(dict(port, PYSUITES_PIN_INNER=str(inner.dir))))
 
     def test_G7_guard_install_failure_fails_closed(self):
-        shadow = Path(tempfile.mkdtemp(prefix="python-suites-shadow-"))
-        self.addCleanup(shutil.rmtree, str(shadow), True)
+        shadow = self.tmpdir("python-suites-shadow-")
         (shadow / "socket.py").write_text('raise ImportError("planted socket shadow")\n', encoding="utf-8")
-        inherited = os.environ.get("PYTHONPATH")
-        pp = (inherited + os.pathsep if inherited else "") + str(shadow)
         s = self.scratch({"a/test_ok.py": PASSING})
-        code, out = s.run({"PYTHONPATH": pp})
+        code, out = s.run({"PYTHONPATH": self.pythonpath_after(shadow)})
         self.assertNotEqual(code, 0, out)
         self.assertIn("the offline guard did not install (ImportError: planted socket shadow)", out)
         self.assertIn("loader exited 97", out)
@@ -515,13 +526,11 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
 
     def test_G8_existing_sitecustomize_still_runs(self):
         lst = Listener(self)
-        site = Path(tempfile.mkdtemp(prefix="python-suites-site-"))
-        self.addCleanup(shutil.rmtree, str(site), True)
+        site = self.tmpdir("python-suites-site-")
         (site / "sitecustomize.py").write_text(
             'import sys\nsys._python_suites_pin_site_marker = "set"\n', encoding="utf-8"
         )
-        inherited = os.environ.get("PYTHONPATH")
-        pp = (inherited + os.pathsep if inherited else "") + str(site)
+        pp = self.pythonpath_after(site)
         s = self.scratch({"m/test_mark.py": G8_MARK_MEMBER, "r/test_raw.py": RAW_CONNECT_MEMBER})
         self.assertBaselineGreen(s, "r/test_raw.py", {"PYSUITES_PIN_PORT": str(lst.port)})
         out = self.assertRed(
@@ -580,4 +589,15 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
     def test_G11_regime_keys_restored_before_each_member(self):
         s = self.scratch({"e/test_a_mutator.py": G11_MUTATOR, "e/test_b_checker.py": G11_CHECKER})
         self.assertGreen(s.run())
+
+    def test_G11_socket_guard_restored_before_each_member(self):
+        # Member A puts the original connect back; member B, later in the same
+        # root, connects to a loopback listener. Green without the regime;
+        # red with it only if the loader re-installed the guard for B.
+        lst = Listener(self)
+        self.plant(
+            {"g11g/test_a_undo.py": G11_GUARD_UNDO, "g11g/test_b_connect.py": G11_GUARD_CONNECT},
+            {"PYSUITES_PIN_PORT": str(lst.port)},
+            ["ERROR g11g/test_b_connect.py::B.test_connect_after_a_member_undid_the_guard"],
+        )
 
