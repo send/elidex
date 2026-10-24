@@ -86,7 +86,10 @@ markup5ever_rcdom = "0.39"
 reqwest = { version = "0.13", default-features = false, features = ["gzip", "brotli", "rustls", "http2", "charset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
+# Patch-level floor: RUSTSEC-2026-0386 (`AsyncFd::new` and related constructors
+# violate I/O safety) is fixed in 1.51.6 on the 1.51 line and from 1.53.3 on;
+# 1.52.x has no fix, so a bare `"1"` would admit it.
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "2", features = ["full"] }
@@ -167,7 +170,9 @@ rand_core = "0.6"
 # families stay on `rsa` 0.9.  The non-FIPS backend (`aws-lc-sys`, built via cmake/cc) is
 # constant-time; no `fips` feature.  License Apache-2.0/ISC.
 aws-lc-rs = "1.13"
-webpki-roots = "1"
+# Patch-level floor: RUSTSEC-2026-0381 (bundled roots trust the distrusted emSign
+# intermediates) is unpatched below 1.0.10.
+webpki-roots = "1.0.10"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }
 elidex-render = { path = "crates/core/elidex-render" }
@@ -234,9 +239,11 @@ accesskit_winit = "0.33"
 # 0327 (component async callback stack buffer overflow): 49.x from 49.0.2, 48.x
 # from 48.0.4. RUSTSEC-2026-0353 … 0364 (component-model panics and limits,
 # exception-tag alignment, recursive-type drop): 49.x from 49.0.3, 48.x from
-# 48.0.6 except 0360, which has no 48.x fix. A bare `"49"` (= `>=49.0.0`) would
-# admit the vulnerable 49.0.x releases. Keep the `.0.3`.
-wasmtime = "49.0.3"
+# 48.0.6 except 0360, which has no 48.x fix. RUSTSEC-2026-0378 (component-model
+# stream payload-type panic) and 0379 (aarch64 Cranelift `br_table` jump target):
+# 49.x from 49.0.4, 48.x from 48.0.7. A bare `"49"` (= `>=49.0.0`) would admit
+# the vulnerable 49.0.x releases. Keep the `.0.4`.
+wasmtime = "49.0.4"
 wat = "1"
 static_assertions = "1"
 rayon = "1"
