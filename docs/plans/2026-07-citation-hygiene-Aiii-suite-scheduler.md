@@ -255,7 +255,7 @@ Earlier drafts of the merged Slice A specified a `tools` path filter. A-iii drop
 issue, one way): a filter makes a gate's tamper path an allowlist entry someone must keep current — a PR
 editing only a suite's input would skip the job that reads it. The triggers are `pull_request` and `push`, both
 `branches: [main]`, with no `paths:` / `paths-ignore:` (`git show origin/main:.github/workflows/ci.yml`, lines before
-`jobs:`); Q8 pins the `pull_request` block (exactly `branches: [main]`; `push` is not read) as well as the job.
+`jobs:`); Q8 pins both the `pull_request` and the `push` block (each exactly `branches: [main]`) as well as the job.
 **Accepted behaviour delta**: every pull request targeting `main`, a Dependabot bump included, runs the
 suites (§5 row 2).
 
@@ -434,7 +434,7 @@ stated in the test; §6.1 rows R1–R9 and M1–M3 are the constructs it must pr
 | **Q5** | the floor assertion: the script exits non-zero naming the floor when the `python3` it finds reports a version below 3.9 (fixture: a PATH-shadowing `python3` shim) | — | **yes** |
 | **Q6** | `ci.yml`'s `tools` job region (bounds: §6.1 R9) contains a **`run:` step that executes the driver** — the driver is the command, not text in the region, and is not masked (§6.1 D1). Without it an empty `tools` job satisfies §12(3) (Codex R14/R36/R48) | 1, 2 | **yes** — the job does not exist |
 | **Q7** | the same region runs on `runs-on: ubuntu-24.04` exactly (an image `setup-python` serves 3.9 for; `ubuntu-latest` floats off it) and carries a `python-version:` matrix with legs `"3.9"` and `"3.x"` **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`, before Q6's `run:` step** — a matrix no step consumes runs one interpreter on every leg (Codex R48), and a `setup-python` after the driver step measures nothing (Codex R49) | — | **yes** |
-| **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs` and no `if` key — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads `check` (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` carries no `paths:` / `paths-ignore:` and its `branches` is exactly `[main]` | 1, 2 | **yes** |
+| **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs` and no `if` key — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads `check` (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` **and** `push` each carry no `paths:` / `paths-ignore:` and their `branches` is exactly `[main]` | 1, 2 | **yes** |
 | **Q13** | the text readers' property (§6 above), §6.1 R1–R9 and M1–M3 | — | **yes** — the readers do not exist |
 | **T-net** | the offline regime, §6.1 G1–G14: each network plant is **green without the regime and red with it**, making the script exit non-zero naming the plant | 7 | **yes** |
 

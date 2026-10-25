@@ -279,6 +279,13 @@ class TestComplementPins(DriverCase, unittest.TestCase):
                     DRV.names_by_path(constants, e, rel),
                     "the pins credit live entry point %s (checked from %s)" % (e, rel),
                 )
+        # Positive control for the entry-point predicate (no live tracked file carries
+        # `--self-test`, so the planted file is the only True case): without it the loop
+        # above passes vacuously if the predicate is broken.
+        planted = 'FLAG = "--self-test"\n\nif __name__ == "__main__":\n    pass\n'
+        self.assertTrue(DRV.is_self_test_entry_point(DRV.parse(planted.encode(), "planted.py")))
+        for no in ('if __name__ == "__main__":\n    pass\n', 'FLAG = "--self-test"\n'):
+            self.assertFalse(DRV.is_self_test_entry_point(DRV.parse(no.encode(), "planted.py")), no)
         # Controls: the same predicate does credit, root- and member-dir-relative.
         self.assertTrue(DRV.names_by_path(constants | {"x/tool.py"}, "x/tool.py", PIN_FILES[0]))
         self.assertTrue(DRV.names_by_path({"tool.py"}, "scripts/tool.py", PIN_FILES[0]))
