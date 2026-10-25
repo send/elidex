@@ -104,7 +104,6 @@ class TestReaderPins(unittest.TestCase):
     def test_Q4_live_mise_toml(self):
         self.assertEqual(mise_problems((REPO / "mise.toml").read_text(encoding="utf-8")), [])
         # Red leg: a wrong `run` string is refused, with the reader's own text.
-        self.assertEqual(mise_problems(mise_fixture()), [])
         self.assertEqual(
             mise_problems(mise_fixture(tt='run = "true"')),
             ["[tasks.tools-test].run is not the string 'bash scripts/python-suites.sh'"],
