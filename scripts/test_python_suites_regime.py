@@ -594,6 +594,10 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_child", out)
         verdicts = [l for l in out.splitlines() if l.startswith(G7_VERDICT_PREFIXES)]
         self.assertGreater(len(verdicts), len(files), out)
+        # Every prefix selects something, so a prefix that no longer matches the
+        # driver's wording cannot silently shrink the comparison.
+        for prefix in G7_VERDICT_PREFIXES:
+            self.assertTrue(any(l.startswith(prefix) for l in verdicts), (prefix, out))
         # The same run nested inside a guarded driver run gives the same per-member verdicts.
         outer = self.scratch({"n/test_nested.py": G7_NESTED_MEMBER})
         self.assertGreen(
