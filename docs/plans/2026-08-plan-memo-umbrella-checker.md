@@ -109,11 +109,12 @@ it enters the `tools` job through a wrapper, and its cost with it. The budget ha
 "The always-run self-test's cost grows with REVIEW ROUNDS, not with the program", where the job is
 re-measured on the runner when that suite joins it.
 
-⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
+⚠ **THREE plan-memo checkers exist, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
-(worktree `elidex-wt-claimcheck` — quantitative-claim provenance and staleness) and `plan-xcheck.py`
-(worktree `elidex-wt-decinline` — the layout memo cross-check); the latter two have reconciled with
-each other and neither knows about this one. Their CI entries differ: this one's self-test runs in the
+(unpushed, branch `claim-gate-plan-check`, backed up as `refs/backup/claim-gate-plan-check` —
+quantitative-claim provenance and staleness) and `plan-xcheck.py` (on `main`, #523 — the layout memo
+cross-check); `claim-gate-plan-check.py` names `plan-xcheck.py`, `plan-xcheck.py` names neither of the
+others, and neither knows about this one. Their CI entries differ: this one's self-test runs in the
 `tools` job through its wrapper (above); the `stale-claim-detector` lane ships a shell wire for
 `trip-wires` and a Python `--self-test` that has no wrapper yet (the paragraph above);
 `plan-xcheck.py` is on `main` (#523) with no `*-trip-wire.sh` of its own and no `"--self-test"` constant. **The boundary, stated so the next author does not have to guess**:
@@ -896,7 +897,7 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
-✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 of 2026-09-27 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job.
+✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 of 2026-09-27 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job. ⚠ **Correction (2026-10-25):** that move is done — A-iii landed (#545, `ad80b5ca`) and 8a81b93d moved the self-test into the `tools` job through the wrapper.
 ⚠ The acceptance below was the earlier one, given at sixteen.
 ✅ ~~**RE-ACCEPTED AT THE CURRENT COUNT**~~ **RE-ACCEPTED AT SIXTEEN — BY THE USER, ON 2026-09-26, FOR THIS PR.** The 2026-09-21
 acceptance was given at ten own; the list below has since grown (the notes further down record each

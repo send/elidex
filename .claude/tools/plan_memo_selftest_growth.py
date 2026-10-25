@@ -320,7 +320,7 @@ def generated_growth_control(M):
         # the verdict needs ONE confirmation and the report needs a few, so a
         # red run stops confirming after `GROWTH_REPORT` of them.  The GREEN
         # path is unaffected -- it confirms every candidate, because none of
-        # them confirms -- and it is the green path the trip-wire pays for.
+        # them confirms -- and it is the green path the `tools` job's self-test wrapper pays for.
         if len(bad) >= GROWTH_REPORT:
             break
         tested += 1

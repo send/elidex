@@ -683,9 +683,10 @@ def printable(text):
     A control name may legitimately BE its fixture -- the R24 NUL control spells
     a literal U+0000 in a link destination, because that is what it is about --
     and
-    the trip-wire captures the run through `$(...)`, which bash strips NULs from.
-    The rc was unaffected, so the wire's verdict was right and only its captured
-    TEXT was silently altered; but a gate whose output cannot be grepped is a
+    the trip-wire (retired at 8a81b93d) captured the run through `$(...)`, which
+    bash strips NULs from.  The rc was unaffected, so the wire's verdict was
+    right and only its captured TEXT was silently altered (the `tools` job's
+    wrapper keeps a NUL in the str it reads -- measured); but a gate whose output cannot be grepped is a
     gate nobody reads (the memo's §6 note already tells a reader to reach for
     `grep -a`, which is the workaround naming the defect).  Renaming that one
     control would be the enumerated exemption this suite keeps being bitten by

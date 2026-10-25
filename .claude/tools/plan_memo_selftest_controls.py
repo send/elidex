@@ -126,8 +126,9 @@ def split_locator_control(M):
 def empty_registry_fails(n_controls, n_mutants):
     """The emptiness guard: a run over ZERO controls or (when mutants are
     requested) ZERO mutants proves nothing and must be a FAIL, not a green
-    `0 mutant(s), 0 survived` -- the trip-wire checks the same two counts
-    from the outside, so neither guard is the only one.  `n_mutants` is None
+    `0 mutant(s), 0 survived` -- the `tools` job's wrapper
+    (`test_plan_memo_umbrella_check.py`) checks the same two counts from the
+    outside, so neither guard is the only one.  `n_mutants` is None
     when mutants were not requested.  Returns the FAIL strings."""
     out = []
     if n_controls == 0:
