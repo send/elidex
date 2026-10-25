@@ -375,8 +375,9 @@ DRIVER_ARGVS = (
     ["./" + DRIVER_REL],
     ["mise", "run", "tools-test"],
 )
-# The allowlists. Each is exactly what today's ci.yml uses; any other key is
-# red, so a key that could mask the driver's exit or alter its shell / Python
+# The allowlists. Each admits what today's ci.yml uses; the two step allowlists
+# also admit inert labels whether or not a step uses them (`name` / `id` on both,
+# `timeout-minutes` on the driver step). Any other key is red, so a key that could mask the driver's exit or alter its shell / Python
 # (job `defaults:` / `env:` / `continue-on-error`, workflow `defaults:`,
 # `needs` / `if`, BASH_ENV, PYTHON*, proxy variables, ...) is refused without
 # being named.
