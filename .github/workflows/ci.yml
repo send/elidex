@@ -192,3 +192,60 @@ jobs:
       # for why this is stated as a property and not as a list of tools.
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh
+
+  # Deliberately UNGATED, like `trip-wires` above -- no `needs:`, no `if:`, no
+  # path-filter entry. This job runs every tracked Python suite
+  # (`git ls-files ':(glob)**/test_*.py'`) through `scripts/python-suites.sh`, the
+  # same script `mise run tools-test` runs. A filter would make the suites' tamper
+  # path an allowlist entry someone must keep current: a PR editing only a suite's
+  # input would skip the job that reads it. So every pull request targeting `main`
+  # runs it, a Dependabot bump included. The set, the complement checks, the
+  # offline regime and the interpreter floor belong to the script (its header is
+  # the procedure); this job adds only the interpreter.
+  #
+  # The job boundary, as three properties (rule source: the `trip-wires` comment
+  # of PR #501):
+  #   - `trip-wires` declares no interpreter: it has no setup step, so a wire runs
+  #     on what the runner image ships (shell, git and the POSIX text utilities).
+  #   - `tools` declares its interpreter: `actions/setup-python`, on every leg.
+  #   - A check that needs a language runtime (one whose result depends on the
+  #     runtime's version: python3, node, ...) belongs to the job that declares
+  #     one. A Python check enters here as a tracked `test_*.py` -- a thin wrapper
+  #     if it is a command-shaped self-test (the contract is in the script header).
+  #
+  # The legs: "3.9" is the interpreter floor and the only measurement of it;
+  # "3.x" is the newest the action resolves, so a newest-runtime break shows on the
+  # PR that meets it. Both legs run the whole set, with no per-leg branching.
+  #
+  # Timeout: a PR that adds suite cost re-derives `timeout-minutes` in the same PR
+  # from its own run of this job (the slower leg bounds the job), e.g.
+  #   gh run view <run-id> --json jobs \
+  #     --jq '.jobs[] | select(.name | startswith("Python suites")) | [.name, .startedAt, .completedAt]'
+  # The value below is the conservative first setting, re-derived from this job's
+  # first CI run.
+  #
+  # What this does and does not buy: a failing suite is RED on the PR. It does not
+  # block the merge -- the `main-protection` ruleset carries no
+  # required-status-check rule -- so merging still rests on the CLAUDE.md
+  # convention of eyeballing CI before squashing.
+  tools:
+    name: Python suites
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.x"]
+    # Pinned, not `ubuntu-latest`: the "3.9" leg needs an image setup-python serves
+    # 3.9 for. Re-check when Slice B raises the floor or ubuntu-24.04 retires.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The same script `mise run tools-test` runs, so the local gate and CI
+      # cannot diverge. It asserts the floor and echoes `python3 -VV` first.
+      - name: Run the Python suites
+        run: bash scripts/python-suites.sh

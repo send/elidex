@@ -107,7 +107,7 @@ fn sandboxed_window_open_blank_surfaces_no_open_new_tab() {
     state
         .pipeline
         .runtime
-        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS));
+        .set_sandbox_flags(elidex_plugin::parse_sandboxing_directive("allow-scripts"));
     let _ = state
         .pipeline
         .runtime
@@ -386,8 +386,8 @@ fn named_hit_empty_url_is_a_noop() {
 /// `elidex_plugin::sandbox::top_navigation_allowed(flags, true)` — a click IS a
 /// user gesture, so `activation = true`. This delivers the 2-flag fidelity: a
 /// sandboxed iframe with ONLY `allow-top-navigation-by-user-activation`
-/// permits a `_top` click (whereas the pre-S5-4c raw
-/// `contains(ALLOW_TOP_NAVIGATION)` would have blocked it), while a sandbox
+/// permits a `_top` click (whereas the pre-S5-4c raw single-flag test
+/// would have blocked it), while a sandbox
 /// with no top-nav token blocks it.
 ///
 /// **Harness gap**: there is no shell click-simulation harness for a real
@@ -397,17 +397,17 @@ fn named_hit_empty_url_is_a_noop() {
 /// coverage lands with a click harness (noted in the S5-4c report).
 #[test]
 fn link_top_nav_rekey_honours_user_activation_flag() {
-    use elidex_plugin::IframeSandboxFlags as F;
+    use elidex_plugin::{parse_sandboxing_directive, SandboxingFlagSet};
     // The re-keyed shell site passes activation=true (a click is a gesture).
     assert!(
         elidex_plugin::sandbox::top_navigation_allowed(
-            Some(F::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION),
+            parse_sandboxing_directive("allow-top-navigation-by-user-activation"),
             true,
         ),
         "allow-top-navigation-by-user-activation must permit a _top link CLICK (activation=true)"
     );
     assert!(
-        !elidex_plugin::sandbox::top_navigation_allowed(Some(F::empty()), true),
+        !elidex_plugin::sandbox::top_navigation_allowed(SandboxingFlagSet::all_represented(), true),
         "a sandbox with no top-nav token blocks a _top link click"
     );
 }

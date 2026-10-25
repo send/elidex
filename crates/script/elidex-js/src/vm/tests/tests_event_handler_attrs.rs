@@ -548,7 +548,7 @@ fn sandboxed_no_allow_scripts_compile_gate_nulls_getter_and_dispatch() {
     with_el(|vm| {
         vm.host_data()
             .expect("bound VM has HostData installed")
-            .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+            .set_sandbox_flags(elidex_plugin::SandboxingFlagSet::all_represented());
         vm.eval(
             "globalThis.ran = false; \
              el.setAttribute('onclick', 'globalThis.ran = true'); \

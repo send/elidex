@@ -184,12 +184,12 @@ mod engine_feature {
         /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG HTML §3.1.4).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
-        /// Iframe sandbox flags for this document's browsing context
-        /// (WHATWG HTML §7.1.5 Sandboxing).  `None` for top-level /
-        /// unsandboxed documents — the cutover's shell installs parsed
-        /// `IframeSandboxFlags` (from the iframe `sandbox=""` attribute)
-        /// via [`Self::set_sandbox_flags`] when a document loads inside a
-        /// sandboxed iframe.  A member of the current-document-state cluster (cf. the
+        /// Sandboxing flag set for this document's browsing context
+        /// (WHATWG HTML §7.1.5 Sandboxing).  `unsandboxed()` (the empty set)
+        /// for top-level / unsandboxed documents — the cutover's shell
+        /// installs the parsed `SandboxingFlagSet` (from the iframe
+        /// `sandbox=""` attribute) via [`Self::set_sandbox_flags`] when a
+        /// document loads inside a sandboxed iframe.  A member of the current-document-state cluster (cf. the
         /// `document_origin_override` note below); under B1 it migrates to an ECS
         /// component at its spec-correct grain per the decision's grain rule (PR #434
         /// §5 req 5), *not* a permanent CLAUDE.md side-store (b) exception like
@@ -197,7 +197,7 @@ mod engine_feature {
         /// by [`Self::scripts_allowed`] (the eval gate) and the
         /// per-capability [`Self::forms_allowed`] / [`Self::popups_allowed`] /
         /// [`Self::modals_allowed`] accessors.
-        sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+        sandbox_flags: elidex_plugin::SandboxingFlagSet,
         /// The document's security origin override (WHATWG HTML §7.1.1).
         /// `None` until the embedder's load path installs it via
         /// [`Self::set_origin`]; while `None`,
@@ -860,7 +860,7 @@ mod engine_feature {
                 wrapper_store: HashMap::new(),
                 tab_hidden: false,
                 cookie_jar: None,
-                sandbox_flags: None,
+                sandbox_flags: elidex_plugin::SandboxingFlagSet::unsandboxed(),
                 document_origin_override: None,
                 fallback_opaque_origin: elidex_plugin::SecurityOrigin::opaque(),
                 iframe_depth: 0,
@@ -1087,12 +1087,13 @@ mod engine_feature {
             self.cookie_jar.as_ref()
         }
 
-        /// Install this document's iframe sandbox flags (WHATWG HTML
-        /// §7.1.5).  Pass `None` for a top-level / unsandboxed document
-        /// (the default).  The shell parses the iframe `sandbox=""`
-        /// attribute into `IframeSandboxFlags` and installs them here when
-        /// a document loads inside a sandboxed iframe.
-        pub fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+        /// Install this document's sandboxing flag set (WHATWG HTML
+        /// §7.1.5).  Pass `SandboxingFlagSet::unsandboxed()` for a
+        /// top-level / unsandboxed document (the default).  The shell parses
+        /// the iframe `sandbox=""` attribute with
+        /// `parse_sandboxing_directive` and installs the set here when a
+        /// document loads inside a sandboxed iframe.
+        pub fn set_sandbox_flags(&mut self, flags: elidex_plugin::SandboxingFlagSet) {
             self.sandbox_flags = flags;
         }
 
@@ -1107,12 +1108,12 @@ mod engine_feature {
             elidex_plugin::sandbox::scripts_allowed(self.sandbox_flags)
         }
 
-        /// The sandbox flags for this document's browsing context, if it is
-        /// sandboxed (`None` for top-level / unsandboxed).  Read by the shell
+        /// The sandboxing flag set for this document's browsing context
+        /// (`unsandboxed()` for top-level / unsandboxed).  Read by the shell
         /// (via the `ElidexJsEngine` forwarder) to gate `target="_blank"`
-        /// navigation; the per-capability `allow-*` predicates below are the
+        /// navigation; the per-capability predicates below are the
         /// preferred entry points.
-        pub(crate) fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
+        pub(crate) fn sandbox_flags(&self) -> elidex_plugin::SandboxingFlagSet {
             self.sandbox_flags
         }
 
