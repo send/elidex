@@ -23,6 +23,7 @@ from python_suites_fixtures import (
     PASSING,
     _launch,
     base_env,
+    fail_lines,
 )
 
 # ---------------------------------------------------------------------------
@@ -347,47 +348,84 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         )
         self.assertRed(s.run(), "t/w/test_refresh.py::Real.test_fails")
 
-    def test_P11_coroutine_and_generator_tests_on_a_plain_testcase_are_red(self):
-        s = self.scratch(
+    def test_P11_function_kind_by_class_eight_cells(self):
+        # function kind (plain / coroutine / generator / async generator) x class
+        # (TestCase / IsolatedAsyncioTestCase). Only an Iso coroutine is exempt.
+        # The "runs" cells print a marker from the body: "test ok" alone would not
+        # show the body executed.
+        runs = self.scratch(
             {
-                "ok/test_ok.py": PASSING,
-                "a/test_co.py": """
+                "r/test_runs.py": """
                     import unittest
 
 
-                    class Plain(unittest.TestCase):
-                        def test_ok(self):
-                            pass
+                    class PlainTC(unittest.TestCase):
+                        def test_plain(self):
+                            print("BODY-RAN plain-on-TestCase")
 
+
+                    class PlainIso(unittest.IsolatedAsyncioTestCase):
+                        def test_plain(self):
+                            print("BODY-RAN plain-on-Iso")
+
+
+                    class CoIso(unittest.IsolatedAsyncioTestCase):
                         async def test_co(self):
-                            self.fail("never runs")
-
-                        def test_gen(self):
-                            self.fail("never runs")
-                            yield
-
-                        async def test_agen(self):
-                            self.fail("never runs")
-                            yield
-                """,
-                "b/test_iso.py": """
-                    import unittest
-
-
-                    class Iso(unittest.IsolatedAsyncioTestCase):
-                        async def test_co(self):
-                            self.assertTrue(True)
+                            print("BODY-RAN coroutine-on-Iso")
                 """,
             }
         )
-        out = self.assertRed(
-            s.run(),
-            "a/test_co.py::Plain.test_co is a coroutine function",
-            "a/test_co.py::Plain.test_gen is a generator function",
-            "a/test_co.py::Plain.test_agen is a async generator function",
+        code, out = runs.run()
+        for cell, marker, line in (
+            ("plain on TestCase", "plain-on-TestCase", "r/test_runs.py::PlainTC.test_plain"),
+            ("plain on Iso", "plain-on-Iso", "r/test_runs.py::PlainIso.test_plain"),
+            ("coroutine on Iso", "coroutine-on-Iso", "r/test_runs.py::CoIso.test_co"),
+        ):
+            with self.subTest(cell=cell):
+                self.assertIn("BODY-RAN " + marker, out)
+                self.assertIn("python-suites: test ok " + line, out)
+                self.assertNotNamed(out, line)
+        self.assertEqual(code, 0, out)
+        red = self.scratch(
+            {
+                "ok/test_ok.py": PASSING,
+                "a/test_red.py": """
+                    import unittest
+
+
+                    class TC(unittest.TestCase):
+                        async def test_co(self):
+                            pass
+
+                        def test_gen(self):
+                            yield
+
+                        async def test_agen(self):
+                            yield
+
+
+                    class Iso(unittest.IsolatedAsyncioTestCase):
+                        def test_gen(self):
+                            yield
+
+                        async def test_agen(self):
+                            yield
+                """,
+            }
         )
-        self.assertNotNamed(out, "b/test_iso.py")
-        self.assertIn("python-suites: test ok b/test_iso.py::Iso.test_co", out)
+        out = self.assertRed(red.run())
+        fl = fail_lines(out)
+        suffix = " (calling it runs no body)"
+        nc = " on a class that is not IsolatedAsyncioTestCase"
+        for cell, expect in (
+            ("coroutine on TestCase", "a/test_red.py::TC.test_co is a coroutine function" + nc + suffix),
+            ("generator on TestCase", "a/test_red.py::TC.test_gen is a generator function" + suffix),
+            ("async generator on TestCase", "a/test_red.py::TC.test_agen is a async generator function" + suffix),
+            ("generator on Iso", "a/test_red.py::Iso.test_gen is a generator function" + suffix),
+            ("async generator on Iso", "a/test_red.py::Iso.test_agen is a async generator function" + suffix),
+        ):
+            with self.subTest(cell=cell):
+                self.assertTrue(any(expect in l for l in fl), "%r not in FAIL lines:\n%s" % (expect, out))
 
     def test_P12_subtest_failure_is_red_naming_the_subtest(self):
         s = self.scratch(

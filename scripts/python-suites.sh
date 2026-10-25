@@ -56,9 +56,11 @@
 # 5. Every member contributes at least one test that executed and passed, else
 #    the run fails naming the file. A test counts only if it executed and
 #    passed: a failure, an error, a skip, an expected failure or an unexpected
-#    success makes the run red, naming the test; so does a `test_*` method that
-#    is a coroutine / generator / async generator function on a class that is
-#    not IsolatedAsyncioTestCase (calling it runs no body).
+#    success makes the run red, naming the test; so does a `test_*` method whose
+#    body we cannot show runs: a generator / async generator function on any
+#    class, or a coroutine function on a class that is not
+#    IsolatedAsyncioTestCase (calling it runs no body). The only exemption is a
+#    coroutine function on an IsolatedAsyncioTestCase.
 #
 # ----------------------------------------------------------------------------
 # THE OFFLINE REGIME
@@ -163,6 +165,7 @@ fi
 echo "python-suites: python3 -VV: $(python3 -VV 2>&1 | tr '\n' ' ')"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/python-suites.XXXXXX")"
+case $tmp in /*) ;; *) tmp="$PWD/$tmp" ;; esac
 trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/driver" "$tmp/guard"
 
@@ -577,10 +580,11 @@ class _Result(unittest.TestResult):
 
 
 def _never_runs_body(test):
-    """A test method whose call only creates a coroutine / generator (its body
-    never runs) on a class that is not IsolatedAsyncioTestCase; else None."""
-    if isinstance(test, unittest.IsolatedAsyncioTestCase):
-        return None
+    """The function kind of a test method whose body we cannot show runs, else
+    None: a generator / async generator function on any class, or a coroutine
+    function on a class that is not IsolatedAsyncioTestCase (calling it only
+    creates the coroutine / generator). The one exemption is a coroutine
+    function on an IsolatedAsyncioTestCase, which awaits it."""
     method = getattr(test, getattr(test, "_testMethodName", ""), None)
     if method is None:
         return None
@@ -594,6 +598,8 @@ def _never_runs_body(test):
         ("async generator function", inspect.isasyncgenfunction),
     ):
         if check(method):
+            if kind == "coroutine function" and isinstance(test, unittest.IsolatedAsyncioTestCase):
+                return None
             return kind
     return None
 
@@ -650,10 +656,14 @@ def load(root, rdir, out, members):
             for t in _flatten(suite):
                 kind = _never_runs_body(t)
                 if kind:
+                    where = (
+                        " on a class that is not IsolatedAsyncioTestCase"
+                        if kind == "coroutine function"
+                        else ""
+                    )
                     r.problems.append(
-                        "%s::%s is a %s on a class that is not IsolatedAsyncioTestCase"
-                        " (calling it runs no body)"
-                        % (member, t.id()[len(modname) + 1 :], kind)
+                        "%s::%s is a %s%s (calling it runs no body)"
+                        % (member, t.id()[len(modname) + 1 :], kind, where)
                     )
             for e in loader.errors:
                 r.problems.append("%s: loader error: %s" % (member, e.strip().splitlines()[-1]))
