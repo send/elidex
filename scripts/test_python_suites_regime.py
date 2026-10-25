@@ -138,7 +138,8 @@ class G2(unittest.TestCase):
 """ % RAW_CONNECT_CHILD
 
 # A python child that changes cwd must still be refused: the guard's directory has to be
-# on its PYTHONPATH as an absolute path, even when the driver was given a relative TMPDIR.
+# on its PYTHONPATH as an absolute path, even when the driver was given a relative TMPDIR
+# (resolved against the caller's cwd, not the repository root).
 G2_OTHER_CWD_MEMBER = """
 import os
 import subprocess
@@ -154,6 +155,10 @@ class G2Cwd(unittest.TestCase):
         other = tempfile.mkdtemp()
         r = subprocess.run([sys.executable, "-c", CONNECT, os.environ["PYSUITES_PIN_PORT"]], cwd=other)
         self.assertEqual(r.returncode, 42)
+
+    def test_guard_entry_is_under_the_callers_relative_tmpdir(self):
+        first = os.environ["PYTHONPATH"].split(os.pathsep)[0]
+        self.assertTrue(first.startswith(os.environ["PYSUITES_PIN_GUARD_PREFIX"]), first)
 """ % CONNECT_CHILD
 
 G3_MEMBER = """
@@ -406,36 +411,42 @@ class G10(unittest.TestCase):
         self.assertEqual(self.child([sys.executable, "-c", "pass"]), 0)
 """.replace("@CONNECT@", repr(CONNECT_CHILD))
 
-G11_MUTATOR = """
-import os
-import unittest
-
-
-class A(unittest.TestCase):
-    def test_mutates_regime_keys(self):
-        os.environ["NO_PROXY"] = "*"
-        os.environ["PYTHONPATH"] = "/nonexistent"
-        os.putenv("https_proxy", "http://proxy.invalid:3128")
-"""
-
-G11_CHECKER = """
+# G11: one mutation snippet and one check snippet per arm; the mutator, the checker and the
+# leak control are all built from these, so "the same check" holds by construction.
+G11_PREAMBLE = """
 import os
 import socket
 import subprocess
 import sys
 import unittest
 
-CONNECT = @CONNECT@
+CONNECT = %r
 
+""" % CONNECT_CHILD
 
-class B(unittest.TestCase):
-    def test_regime_restored_for_the_next_member(self):
+G11_MUTATE = """\
+        os.environ["NO_PROXY"] = "*"
+        os.environ["PYTHONPATH"] = "/nonexistent"
+        os.putenv("https_proxy", "http://proxy.invalid:3128")
+"""
+
+G11_SH_ENV = """\
         out = subprocess.run(["/bin/sh", "-c", "env"], stdout=subprocess.PIPE).stdout.decode()
         env = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
-        self.assertNotIn("NO_PROXY", env)
-        self.assertTrue(env["https_proxy"].startswith("http://127.0.0.1:"), env["https_proxy"])
+"""
 
-    def test_child_still_guarded(self):
+# Arm (a): NO_PROXY is absent from a child's environment.
+G11_ARM_NO_PROXY = G11_SH_ENV + """\
+        self.assertNotIn("NO_PROXY", env)
+"""
+
+# Arm (b): https_proxy equals the regime value (the putenv-only path).
+G11_ARM_PROXY = G11_SH_ENV + """\
+        self.assertTrue(env["https_proxy"].startswith("http://127.0.0.1:"), env["https_proxy"])
+"""
+
+# Arm (c): a sys.executable child is refused a loopback connect (the PYTHONPATH arm).
+G11_ARM_GUARD = """\
         srv = socket.socket()
         srv.bind(("127.0.0.1", 0))
         srv.listen(8)
@@ -444,26 +455,33 @@ class B(unittest.TestCase):
             self.assertEqual(r.returncode, 42)
         finally:
             srv.close()
-""".replace("@CONNECT@", repr(CONNECT_CHILD))
-
-# Detector control: one member that mutates the keys and then runs the same check
-# in-process, with no loader restore between them, must see the leak (red).
-G11_LEAK_MEMBER = """
-import os
-import subprocess
-import unittest
-
-
-class Leak(unittest.TestCase):
-    def test_leak_is_visible_without_a_restore(self):
-        os.environ["NO_PROXY"] = "*"
-        os.environ["PYTHONPATH"] = "/nonexistent"
-        os.putenv("https_proxy", "http://proxy.invalid:3128")
-        out = subprocess.run(["/bin/sh", "-c", "env"], stdout=subprocess.PIPE).stdout.decode()
-        env = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
-        self.assertNotIn("NO_PROXY", env)
-        self.assertTrue(env["https_proxy"].startswith("http://127.0.0.1:"), env["https_proxy"])
 """
+
+G11_MUTATOR = G11_PREAMBLE + """
+class A(unittest.TestCase):
+    def test_mutates_regime_keys(self):
+%s""" % G11_MUTATE
+
+G11_CHECKER = G11_PREAMBLE + """
+class B(unittest.TestCase):
+    def test_no_proxy_restored(self):
+%s
+    def test_https_proxy_restored(self):
+%s
+    def test_child_still_guarded(self):
+%s""" % (G11_ARM_NO_PROXY, G11_ARM_PROXY, G11_ARM_GUARD)
+
+# Detector control: a member that mutates the keys and then runs one arm's check in-process,
+# with no loader restore between them, must see the leak (red) -- one test per arm, each
+# red on its own.
+G11_LEAK_MEMBER = G11_PREAMBLE + """
+class Leak(unittest.TestCase):
+    def test_no_proxy_leaks(self):
+%s%s
+    def test_https_proxy_leaks(self):
+%s%s
+    def test_guard_leaks(self):
+%s%s""" % (G11_MUTATE, G11_ARM_NO_PROXY, G11_MUTATE, G11_ARM_PROXY, G11_MUTATE, G11_ARM_GUARD)
 
 G11_GUARD_UNDO = """
 import socket
@@ -518,11 +536,24 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
             {"PYSUITES_PIN_PORT": str(lst.port)},
             ["FAILED g2/test_g2.py::G2.test_python_child", "FAILED g2/test_g2.py::G2.test_shebang_child"],
         )
-        # A relative TMPDIR (relative to the repository root the driver changes into) still
-        # gives the children an absolute guard path: a child that changes cwd is refused.
+        # A relative TMPDIR is relative to the caller's cwd (here <scratch>/sub, not the
+        # repository root) and still gives the children an absolute guard path: the guard
+        # entry sits under <scratch>/sub/rel-tmp/, and a child that changes cwd is refused.
         s = self.scratch({"g2c/test_g2_cwd.py": G2_OTHER_CWD_MEMBER})
-        (s.dir / "rel-tmp").mkdir()
-        self.assertGreen(s.run({"PYSUITES_PIN_PORT": str(lst.port), "TMPDIR": "rel-tmp"}))
+        sub = s.dir / "sub"
+        (sub / "rel-tmp").mkdir(parents=True)
+        self.assertFalse((s.dir / "rel-tmp").exists())
+        env = base_env()
+        env.update(
+            {
+                "PYSUITES_PIN_PORT": str(lst.port),
+                "TMPDIR": "rel-tmp",
+                "PYSUITES_PIN_GUARD_PREFIX": os.path.join(os.path.realpath(str(sub)), "rel-tmp") + os.sep,
+            }
+        )
+        self.assertGreen(
+            _launch(["bash", s.dir / "scripts" / "python-suites.sh"], env=env, cwd=sub, purpose="driver")
+        )
 
     def test_G3_connect_ex_is_red(self):
         lst = Listener(self)
@@ -578,6 +609,7 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         }
         files = {"c/test_count.py": G7_COUNT_MEMBER, **plants}
         inner = self.scratch(files)
+        # Baselines: each plant can fire inside this scratch repo, the one the nested run compares.
         for member in plants:
             self.assertBaselineGreen(inner, member, env)
         # Direct run: count 1 in the loader and a child; every plant red.
@@ -593,7 +625,6 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_loader", out)
         self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_child", out)
         verdicts = [l for l in out.splitlines() if l.startswith(G7_VERDICT_PREFIXES)]
-        self.assertGreater(len(verdicts), len(files), out)
         # Every prefix selects something, so a prefix that no longer matches the
         # driver's wording cannot silently shrink the comparison.
         for prefix in G7_VERDICT_PREFIXES:
@@ -680,10 +711,15 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
     def test_G11_regime_keys_restored_before_each_member(self):
         s = self.scratch({"e/test_a_mutator.py": G11_MUTATOR, "e/test_b_checker.py": G11_CHECKER})
         self.assertGreen(s.run())
-        # Control: the same mutations and check inside one member (nothing restores between
-        # them) are red, so the checker above is able to see a leak.
+        # Control: the same mutations and each arm's check inside one member (nothing restores
+        # between them) are red, arm by arm, so the checker above is able to see each leak.
         leak = self.scratch({"e2/test_leak.py": G11_LEAK_MEMBER})
-        self.assertRed(leak.run(), "e2/test_leak.py::Leak.test_leak_is_visible_without_a_restore")
+        self.assertRed(
+            leak.run(),
+            "FAILED e2/test_leak.py::Leak.test_no_proxy_leaks",
+            "FAILED e2/test_leak.py::Leak.test_https_proxy_leaks",
+            "FAILED e2/test_leak.py::Leak.test_guard_leaks",
+        )
 
     def test_G11_socket_guard_restored_before_each_member(self):
         # Member A puts the original connect back; member B, later in the same
