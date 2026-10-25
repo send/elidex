@@ -91,9 +91,12 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
   mechanism class this triage declines.
 
 **OPEN — the lane**
-- The **A-iii wire move**: the self-test wire goes to the `tools` job, whose budget is undecided; the
+- ~~The **A-iii wire move**: the self-test wire goes to the `tools` job, whose budget is undecided; the
   `--self-test --mutants` wall clock is an input, measured from a run when the move is planned. Owner
-  since 2026-10-24: the CI/tools lane.
+  since 2026-10-24: the CI/tools lane.~~ — **SETTLED 2026-10-25**: A-iii landed (#545, `ad80b5ca`), and
+  this PR moved the self-test into the `tools` job through the tracked wrapper
+  `.claude/tools/test_plan_memo_umbrella_check.py`, retiring the wire (`8a81b93d`). The `tools` job's
+  `timeout-minutes` is re-derived from this PR's own CI run.
 - ~~The **cap PAUSE question** for #510's merge~~ — **SETTLED 2026-09-26**: the user re-accepted
   option (d) at the current enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
   record is at the top of the umbrella memo's §8. A later change to §8's list re-opens it. The merge

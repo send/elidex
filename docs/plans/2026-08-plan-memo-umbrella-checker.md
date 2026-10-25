@@ -65,17 +65,21 @@ that name a no-owner row (umbrella or kind-undetermined) as an owner, ordering s
 acceptance holder. Exit 0 = mechanical assertions clean / 1 = mechanical finding / 2 = schema miss
 or unscanned population (never a clean exit for "could not scan"). Seeds never gate.
 
-**Interim connection on `main`** (the checker's subject memo lands with #506, later): Slice 1 adds
-`.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh` (runs `python3 … --self-test --mutants`;
-fixtures live in `tempfile` dirs, but it reads `docs/plans/*.md` for `symbol_attribution_control`
-(since 7d43d7cd); its cost is §8's entry "The always-run wire's cost grows with REVIEW ROUNDS, not with the program") **and registers it in `REQUIRED_WIRES`
-in `scripts/trip-wires.sh` in the same commit** — the driver diffs the glob against that list in both
-directions and FAILs an unregistered wire (the list is `REQUIRED_WIRES` in `scripts/trip-wires.sh`, the diff + FAIL
-the `missing` / `unregistered` blocks after its loop; measured: a stub wire → rc 1 "ran but are not registered"). Two documentation claims become false and are updated in the
-same commit: `.github/workflows/ci.yml`'s "No toolchain step: the wires are grep-only" (this wire
-needs `python3`, present on `ubuntu-latest` but named nowhere in the workflow — state the dependency
-there) and the wire inventory comment in `mise.toml:103-106`. A CLAUDE.md *Development Rules*
-sentence names the tool + its trip-wire. The memo-specific invocation clause stays in #506. **#506's
+**Interim connection on `main`** (the checker's subject memo lands with #506, later): since A-iii
+(#545) the self-test enters CI through the tracked wrapper `.claude/tools/test_plan_memo_umbrella_check.py`,
+a member of `scripts/python-suites.sh`'s set (`git ls-files ':(glob)**/test_*.py'`), which the `tools`
+job (`Python suites`) runs on both matrix legs. The wrapper runs `plan-memo-umbrella-check.py
+--self-test --mutants` through `sys.executable` and asserts exit 0 with a nonzero control count and a
+nonzero mutant count. Fixtures live in `tempfile` dirs, but the self-test reads `docs/plans/*.md` for
+`symbol_attribution_control` (since 7d43d7cd), so a memo edit can turn the job red; its cost is §8's
+entry "The always-run self-test's cost grows with REVIEW ROUNDS, not with the program". The wrapper is
+not registered in `REQUIRED_WIRES` (`scripts/trip-wires.sh`): the `tools` job's comment in
+`.github/workflows/ci.yml` places a check that needs a language runtime in the job that declares one,
+and `trip-wires` declares none. Until A-iii this slice carried the self-test as a trip-wire,
+`.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh`, registered in `REQUIRED_WIRES` with the
+`ci.yml` and `mise.toml` comments it made false updated beside it; 8a81b93d retired the wire and
+reverted its changes to `.github/workflows/ci.yml`, `mise.toml` and `scripts/trip-wires.sh`. A CLAUDE.md *Development Rules* sentence names the tool and where
+its self-test runs. The memo-specific invocation clause stays in #506. **#506's
 concurrent-branch obligations at its `git merge origin/main`** (both branches touch the same paths;
 neither is resolved by the merge driver): (a) the three pre-split tool files #506 carries
 (`plan-memo-umbrella-check.py` / `plan_memo_tables.py` / `plan_memo_umbrella_selftest.py`, last touched
@@ -84,26 +88,35 @@ there at `190d2adb`) conflict modify/modify against this PR's rewrite of the sam
 its versions are the pre-Slice-0 monolith this program replaces; (b) `CLAUDE.md:54` is duplicated: #506's
 "Plan-memo checker" bullet must **shrink to the memo-specific invocation clause only** (which memo, when to
 run it, what its exit means for that memo) — this PR's bullet carries the tool description, exit codes and
-the trip-wire — and must **reword** its "だから `trip-wires` には入れない" sentence (true of the memo run,
-false of the self-test wire once this lands). The file header's "branch `vm-p4-plan-doc`" / "home is
+where the self-test runs. Its "だから `trip-wires` には入れない" sentence is true of the memo run and, since
+the wire's retirement, of the self-test as well (it runs in `tools`, not in `trip-wires`), so the
+obligation this paragraph used to add, to reword that sentence, no longer holds. The file header's "branch `vm-p4-plan-doc`" / "home is
 CLAUDE.md" / "duplicated four ways" lines and the two `§6.6` docstrings (in `plan_memo_tables.py`,
 CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
 
-⚠ **A SECOND concurrent lane touches the same one-line list, and no obligation named it until PR #510
-Axis 5 (2026-09-20)**: the `stale-claim-detector` lane (worktree `elidex-wt-staleclaim`) adds
-`claim-provenance-trip-wire.sh` to `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, the list whose entire
-purpose is that a wire cannot be added or lost without a line — so `--ours` / `--theirs` on it is the
-one resolution neither lane may take. **Whichever lands second APPENDS its line**; both wires then
-stand. The collision is a MERGE hazard on the inventory; the cost of the second wire is the budget's
-question, and the budget has one home, §8's entry "The always-run wire's cost grows with REVIEW
-ROUNDS, not with the program", where the job is re-measured on the runner when the second wire lands.
+⚠ **A SECOND concurrent lane shares a CI job with this one, and no obligation named it until PR #510
+Axis 5 (2026-09-20)**: the `stale-claim-detector` lane (local branch `stale-claim-detector` at
+`01b645e6`; `origin` carries it only as `refs/backup/stale-claim-detector`, same commit) adds
+`claim-provenance-trip-wire.sh` to `scripts/trip-wires.sh`'s `REQUIRED_WIRES`. Since the self-test
+wire's retirement this PR adds no line to that list, so the merge hazard on the inventory that this
+paragraph used to name is gone; that wire calls no `python` (`git show
+stale-claim-detector:.claude/tools/claim-provenance-trip-wire.sh | grep -c python` → 0) and stays in
+`trip-wires`. What the two lanes still share is the `tools` job: the lane also carries a command-shaped
+Python self-test, `claim-gate-plan-check.py --self-test` (a top-level `if __name__ == "__main__":` and a
+`"--self-test"` string constant), and at `01b645e6` no tracked `test_*.py` names it. On `main`,
+`scripts/python-suites.sh` step 3(b) fails such an entry point until a set member names it by path, so
+it enters the `tools` job through a wrapper, and its cost with it. The budget has one home, §8's entry
+"The always-run self-test's cost grows with REVIEW ROUNDS, not with the program", where the job is
+re-measured on the runner when that suite joins it.
 
 ⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
 (worktree `elidex-wt-claimcheck` — quantitative-claim provenance and staleness) and `plan-xcheck.py`
 (worktree `elidex-wt-decinline` — the layout memo cross-check); the latter two have reconciled with
-each other and neither knows about this one. Each also ships an always-run wire, which is how three
-tools become one CI job's budget. **The boundary, stated so the next author does not have to guess**:
+each other and neither knows about this one. Their CI entries differ: this one's self-test runs in the
+`tools` job through its wrapper (above); the `stale-claim-detector` lane ships a shell wire for
+`trip-wires` and a Python `--self-test` that has no wrapper yet (the paragraph above);
+`plan-xcheck.py` is on `main` (#523) with no `*-trip-wire.sh` of its own and no `"--self-test"` constant. **The boundary, stated so the next author does not have to guess**:
 this tool answers *"does this memo's row-kind census parse, and is every naming site licensed"*;
 `claim-gate` answers *"is a number in a memo still true"*; `plan-xcheck` answers *"do two layout memos
 agree"*. ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
@@ -339,7 +352,8 @@ share. Re-eval: 2026-12-31.
   its module; the patched module is exec'd from the patched source and installed in `sys.modules`
   under its import name **before** the checker module is loaded; every mutant gets a fresh module
   set; the substring must occur **exactly once** (`count == 1`, else FAIL — `len(cells)` occurs 10×
-  today). The trip-wire runs both `--self-test` and `--mutants`. **Duplicate declarations**: the
+  today). The `tools`-job wrapper (`.claude/tools/test_plan_memo_umbrella_check.py`) runs both, as
+`--self-test --mutants`. **Duplicate declarations**: the
   transitive `Population` is a map `id → (kind, declaring memo)`; the same id declared in two memos is
   a schema miss (exit 2 — "could not scan" is never clean); link cycles (A→B→A) are walked with a
   visited set and are not an error. Controls for both.
@@ -858,8 +872,10 @@ ground for either option; it is not cited.
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,
-  keep-set, guard deletion), `plan_memo_roles.py` (guard deletion only), selftest, the trip-wire,
-  `scripts/trip-wires.sh`, `ci.yml` comment, `mise.toml` comment, CLAUDE.md sentence. **Per-PR plan = THIS
+  keep-set, guard deletion), `plan_memo_roles.py` (guard deletion only), selftest, the `tools`-job
+  wrapper `.claude/tools/test_plan_memo_umbrella_check.py`, CLAUDE.md sentence (since A-iii, #545; the
+  trip-wire, `scripts/trip-wires.sh`, `ci.yml` comment and `mise.toml` comment this list named before
+  were retired in 8a81b93d). **Per-PR plan = THIS
   document**: §2–§7 are the umbrella AND Slice 0 + Slice 1's per-PR plan in one memo, and the plan-review the
   Status line records (three rounds, converged 2026-08-22) is Slice 1's pre-implementation review — no second
   memo exists or is owed. Under CLAUDE.md *Edge-dense work*'s base case ("承認済 umbrella 配下で plan-review を
@@ -892,7 +908,7 @@ review of the head pushed then. A later change to the list re-opens the question
 ⚠ **THE COUNT IS GIVEN AS AN ENUMERATION, NOT AS A FIGURE** — a bare number here has gone stale three
 times in this document (`memory/feedback_attestation-by-enumeration-not-assertion.md`). The entries
 below, in order: (1) acceptance half of assertion (b); (2) the four assertions' single-home slot;
-(3) two KNOWN-MISS bare-id shapes; (4) the always-run wire's cost per review round; (5) the id
+(3) two KNOWN-MISS bare-id shapes; (4) the always-run self-test's cost per review round; (5) the id
 grammar's released trailing decoration; (6) Slice 3, Phase 1 offsets; (7) `symbol_attribution_control`'s
 existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the `self_id`
 suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the §6.2 demotion
@@ -987,7 +1003,7 @@ plan-review* that `memory/feedback_edge-dense-mandatory-plan-review-and-split.md
 **WHY (b) NARROW SCOPE IS NOT AVAILABLE — AND WHERE IT WAS TAKEN.** Narrowing removes a deferral only
 when the narrowed remainder is empty. It was taken where it could be: (11) is a narrowing, its
 census-claim half shipped with four controls and five mutants and only the no-claim residual carried.
-Narrowing the rest does not reduce the list — (4) is the wire's own budget with a measured trigger,
+Narrowing the rest does not reduce the list — (4) is the self-test's own budget with a measured trigger,
 (7) is blocked on §3's `(NEW)` / `✗ (absent)` conventions, (8) is trigger-only on a condition
 (`two of them on main`) that is measurably not met.
 
@@ -1047,17 +1063,20 @@ committed here by the note that corrected it.
   Stated, because an entry a reader cannot schedule is indistinguishable from one nobody re-reads.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
-- **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
-  **The contract (present tense).** The defect: the always-run `Layering trip-wires` job's cost grows
-  with review rounds, not with the program, because the generated growth corpus
+- **The always-run self-test's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
+  **The contract (present tense).** The defect: the always-run `tools` job's (`Python suites`) cost
+  grows with review rounds, not with the program, because the generated growth corpus
   (`generated_growth_control`, `plan_memo_selftest_growth.py`) runs once in `--self-test` plus once per
   mutant naming the growth property (`R27_GROWTH` in `plan_memo_selftest_mutants.py`; its `run`
-  re-runs each mutant row's named controls). The job is measured on the runner,
-  `gh run view <run-id> --json jobs`, and is re-measured there when a second heavy wire,
-  `claim-provenance-trip-wire.sh` from the `stale-claim-detector` lane, joins the job. No current
-  figure is kept in this entry, in `ci.yml` or in `CLAUDE.md`. Trigger = the round whose head measures under
-  2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
-  property. No slot: this is the wire's own budget, not a platform gap. ⚠ **And no date — this is
+  re-runs each mutant row's named controls), and the self-test enters that job through
+  `.claude/tools/test_plan_memo_umbrella_check.py` on both matrix legs; the slower leg bounds the job.
+  The job is measured on the runner, from a run with `main`'s tools-job command
+  (`bash scripts/python-suites.sh`): `gh run view <run-id> --json jobs --jq '.jobs[] | select(.name |
+  startswith("Python suites")) | [.name, .startedAt, .completedAt]'`. It is re-measured there when the
+  `stale-claim-detector` lane's Python self-test (`claim-gate-plan-check.py --self-test`, §1) joins the
+  job. No measured run time is kept in this entry, in `ci.yml` or in `CLAUDE.md`. Trigger = the round
+  whose run measures under 2× against the `tools` job's `timeout-minutes`, or the next round that adds
+  a mutant naming the growth property. No slot: this is the self-test's own budget, not a platform gap. ⚠ **And no date — this is
   trigger-only, stated rather than left to inference** (PR #510 R45, the second of the two entries
   the hygiene audit found carrying neither).
   **Record (as written by PR #510's rounds, `7eabcead` through `be8fd1a9`; not current — read each
