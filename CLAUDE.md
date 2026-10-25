@@ -49,7 +49,7 @@ webref の cache refresh / snapshot / semantic diff / agent-brief workflow の�
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + trip-wires + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
+- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + trip-wires + tools-test + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 - **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 worktree で隔離して作業** (新規ブランチ = `git worktree add -b <branch> <dir> origin/main` ← clean base 明示で汚染 HEAD を継がない / 既存ブランチ [in-progress PR の復旧等] = shared tree から外してから `git worktree add <dir> <branch>` ← `-b` は既存名で fail) (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
@@ -80,7 +80,7 @@ mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
 
-その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
+その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `tools-test` (tracked な `test_*.py` 全部を offline で実行 = `scripts/python-suites.sh`、CI の `tools` job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
 
 ## Architecture
 
@@ -110,6 +110,8 @@ mise run fmt         # cargo fmt --all
 
 4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は toolchain 不要 (~1s) なので filter は何も買わない。理由の正典 = 同 job のコメント。
 
-⚠ **買えるものの範囲**: allowlist drift が **PR で赤くなる**ところまで。`main-protection` ruleset に required-status-check は無いので **merge はブロックされない** (上記「CI 全 pass を目視確認してから squash merge」の慣行が引き続き最終ゲート)。
+5 つ目の job `tools` (`bash scripts/python-suites.sh` = `mise run tools-test` と同一 script) も **filter で gate しない** (`needs:` / `if:` / path filter なし) — `main` 宛 PR / `main` への push で常時実行、Dependabot bump も含む。理由は `trip-wires` と同じ: filter を置くと suite の入力だけを触る PR がそれを読む job を skip でき、改竄経路が allowlist 項目になる。matrix は `python-version: ["3.9", "3.x"]` (`actions/setup-python`) — `"3.9"` leg が interpreter floor の唯一の測定、`"3.x"` は action が解決する最新。suite の集合 (`git ls-files ':(glob)**/test_*.py'`)・complement check・offline regime・wrapper contract は script header が正典。**job 境界**: `trip-wires` は interpreter を宣言しない (setup step なし)、`tools` は宣言する (`setup-python`)、language runtime を要する check は宣言する job に置く — Python の check は tracked な `test_*.py` (command 形の self-test なら薄い wrapper) として `tools` に入る。理由の正典 = 同 job のコメント。
+
+⚠ **買えるものの範囲**: allowlist drift や失敗した suite が **PR で赤くなる**ところまで (`trip-wires` / `tools` 共通)。`main-protection` ruleset に required-status-check は無いので **merge はブロックされない** (上記「CI 全 pass を目視確認してから squash merge」の慣行が引き続き最終ゲート)。
 
 コマンド詳細 = `.github/workflows/ci.yml`。
