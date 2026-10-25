@@ -644,8 +644,9 @@ head `a322b845` this names exactly `.claude/tools/plan-memo-umbrella-check.py` (
 1. Re-run the sweep above; a PR it shows on an A-iii line and not in the table gets a row before landing.
 2. §4.6's rule holds: its discovery command is re-run and every update target it shows is updated in the
    same PR.
-3. Report the landing — the order change (A-iii before A-ii) and the slot
-   `#11-elidex-ci-required-status-checks` to register — to the **PM**, who owns `project_open-defer-slots.md`
+3. Report the landing — the order change (A-iii before A-ii) and the slots
+   `#11-elidex-ci-required-status-checks` and `#11-aiii-gate-tamper-hardening` (§11) to register — to the
+   **PM**, who owns `project_open-defer-slots.md`
    and `project_citation-hygiene-program.md`.
 4. PR description: §4.2's ungated decision and D2's derived roots; §4.2.1's boundary; §4.5's honest
    "enforced".
