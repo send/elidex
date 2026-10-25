@@ -52,8 +52,9 @@ pub struct PreEvalFrameState {
     /// The document origin, with sandbox / credentialless opaqueness already
     /// applied (`apply_sandbox_origin`).
     pub origin: elidex_plugin::SecurityOrigin,
-    /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
-    pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Parsed `sandbox` attribute flag set (`unsandboxed()` = no `sandbox`
+    /// attribute).
+    pub sandbox_flags: elidex_plugin::SandboxingFlagSet,
     /// Iframe nesting depth (`MAX_IFRAME_DEPTH` enforcement across `EcsDom`s).
     pub iframe_depth: usize,
     /// Whether this is a `credentialless` iframe. Persisted on the bridge (like
@@ -80,8 +81,9 @@ pub struct PreEvalFrameState {
 /// srcdoc / inherited-origin paths derive their origin before the build and
 /// pass a fully-formed [`PreEvalFrameState`] instead.
 pub struct PreEvalFrameInputs {
-    /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
-    pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Parsed `sandbox` attribute flag set (`unsandboxed()` = no `sandbox`
+    /// attribute).
+    pub sandbox_flags: elidex_plugin::SandboxingFlagSet,
     /// Whether this is a `credentialless` iframe (opaques the origin).
     pub credentialless: bool,
     /// Iframe nesting depth.

@@ -1,7 +1,7 @@
 //! Iframe loading: URL resolution, security checks, pipeline construction.
 
 use elidex_navigation::NavigationController;
-use elidex_plugin::{IframeSandboxFlags, SecurityOrigin};
+use elidex_plugin::{SandboxingFlagSet, SecurityOrigin};
 
 use super::referrer::{compute_referrer, iframe_referrer_policy};
 use super::thread::iframe_thread_main;
@@ -86,7 +86,7 @@ pub fn load_iframe(
 fn load_iframe_from_url(
     src: &str,
     iframe_data: &elidex_ecs::IframeData,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    sandbox_flags: SandboxingFlagSet,
     referrer_policy: &str,
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
@@ -380,7 +380,7 @@ pub(in crate::content) fn make_out_of_process_entry(
 /// `sandbox` attribute.
 fn blank_entry(
     origin: SecurityOrigin,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    sandbox_flags: SandboxingFlagSet,
     credentialless: bool,
     referrer_policy: &str,
     ctx: &IframeLoadContext<'_>,
@@ -397,12 +397,14 @@ fn blank_entry(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Parse sandbox flags from `IframeData`. Returns `None` if no `sandbox` attribute.
-fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFlags> {
-    iframe_data
-        .sandbox
-        .as_deref()
-        .map(elidex_plugin::parse_sandbox_attribute)
+/// Parse the sandboxing flag set from `IframeData` (WHATWG HTML §4.8.5
+/// post-connection steps step 2). An absent `sandbox` attribute yields
+/// `SandboxingFlagSet::unsandboxed()` (removal empties the set).
+fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> SandboxingFlagSet {
+    iframe_data.sandbox.as_deref().map_or(
+        SandboxingFlagSet::unsandboxed(),
+        elidex_plugin::parse_sandboxing_directive,
+    )
 }
 
 /// Bundle the security state an iframe build (in-process or OOP-thread)
@@ -418,7 +420,7 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
 /// request origin instead.
 fn pre_eval_state(
     origin: SecurityOrigin,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    sandbox_flags: SandboxingFlagSet,
     credentialless: bool,
     referrer_policy: &str,
     ctx: &IframeLoadContext<'_>,
@@ -449,7 +451,7 @@ fn pre_eval_state(
 /// so this collapses the repeated `apply_sandbox_origin(parent_origin, …)`.
 fn parent_inherited_origin(
     iframe_data: &elidex_ecs::IframeData,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    sandbox_flags: SandboxingFlagSet,
     ctx: &IframeLoadContext<'_>,
 ) -> SecurityOrigin {
     apply_sandbox_origin(
@@ -539,13 +541,11 @@ pub(super) fn check_framing_allowed(
 /// leaves this module.
 fn apply_sandbox_origin(
     origin: SecurityOrigin,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    sandbox_flags: SandboxingFlagSet,
     credentialless: bool,
 ) -> SecurityOrigin {
-    if let Some(flags) = sandbox_flags {
-        if !flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN) {
-            return SecurityOrigin::opaque();
-        }
+    if !elidex_plugin::sandbox::same_origin_allowed(sandbox_flags) {
+        return SecurityOrigin::opaque();
     }
     if credentialless {
         return SecurityOrigin::opaque();
@@ -578,6 +578,46 @@ impl crate::PreEvalFrameInputs {
             iframe_depth: self.iframe_depth,
             credentialless: self.credentialless,
             referrer: self.referrer,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elidex_plugin::parse_sandboxing_directive;
+
+    fn is_opaque(origin: &SecurityOrigin) -> bool {
+        matches!(origin, SecurityOrigin::Opaque(_))
+    }
+
+    fn tuple() -> SecurityOrigin {
+        SecurityOrigin::from_url(&url::Url::parse("https://example.com/").unwrap())
+    }
+
+    /// C10e: the origin goes opaque iff `allow-same-origin` is absent from a
+    /// present `sandbox` attribute, or the frame is credentialless; an absent
+    /// attribute keeps the input origin.
+    #[test]
+    fn apply_sandbox_origin_is_opaque_iff_sandboxed_without_same_origin_or_credentialless() {
+        let unsandboxed = SandboxingFlagSet::unsandboxed();
+        assert_eq!(
+            apply_sandbox_origin(tuple(), unsandboxed, false),
+            tuple(),
+            "absent attribute keeps the input origin"
+        );
+        assert!(is_opaque(&apply_sandbox_origin(tuple(), unsandboxed, true)));
+        for (directive, opaque) in [
+            ("", true),
+            ("allow-scripts", true),
+            ("allow-same-origin", false),
+            ("ALLOW-SAME-ORIGIN allow-scripts", false),
+        ] {
+            let origin =
+                apply_sandbox_origin(tuple(), parse_sandboxing_directive(directive), false);
+            assert_eq!(is_opaque(&origin), opaque, "sandbox = {directive:?}");
+            let cred = apply_sandbox_origin(tuple(), parse_sandboxing_directive(directive), true);
+            assert!(is_opaque(&cred), "credentialless, sandbox = {directive:?}");
         }
     }
 }

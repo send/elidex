@@ -63,7 +63,7 @@ pub use origin::{
 };
 pub use process_sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
 pub use registry::PluginRegistry;
-pub use sandbox::{parse_sandbox_attribute, IframeSandboxFlags};
+pub use sandbox::{parse_sandboxing_directive, SandboxingFlagSet};
 /// Shared CSS shorthand-collapse helpers for
 /// [`CssPropertyHandler::serialize_shorthand`] implementations. Homed in the base
 /// crate so every handler crate can reach them (`elidex-css-flex` depends only on

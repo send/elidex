@@ -209,7 +209,7 @@ fn call_listener_skips_inline_handler_when_scripting_disabled() {
         .vm()
         .host_data()
         .expect("HostData")
-        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+        .set_sandbox_flags(elidex_plugin::SandboxingFlagSet::all_represented());
     unsafe {
         engine.vm().bind(
             std::ptr::from_mut(&mut session),

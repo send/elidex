@@ -13,7 +13,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_plugin::IframeSandboxFlags;
+use elidex_plugin::{parse_sandboxing_directive, SandboxingFlagSet};
 use elidex_script_session::{
     NamedFrameNavigation, NavigationRequest, NavigationType, OpenTabRequest, WindowOpenIntent,
 };
@@ -26,7 +26,7 @@ use super::super::Vm;
 /// natives read them via `host_opt`, no DOM bind required) and a committed
 /// tuple base URL so relative `window.open` inputs resolve like
 /// `location.assign` inputs.
-fn vm_with_flags(flags: Option<IframeSandboxFlags>) -> Vm {
+fn vm_with_flags(flags: SandboxingFlagSet) -> Vm {
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
     vm.host_data()
@@ -118,7 +118,7 @@ fn assert_modal_return_triple(vm: &mut Vm) {
 
 #[test]
 fn modals_return_triple_unsandboxed() {
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     assert_modal_return_triple(&mut vm);
     // Also reachable as bare globals (Window methods on the prototype).
     assert!(eval_bool(
@@ -129,11 +129,11 @@ fn modals_return_triple_unsandboxed() {
 
 #[test]
 fn modals_return_triple_sandboxed_no_allow_modals() {
-    // Some(empty) = maximum restriction → the sandboxed modals flag is set
+    // `all_represented()` = maximum restriction → the sandboxed modals flag is set
     // (§8.9.1 cannot-show step 1 fires).  The observable shape is IDENTICAL
     // to the unsandboxed row — no throw, same returns (E12: the oracle is
     // the return shape, not a UI diff).
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     assert_modal_return_triple(&mut vm);
 }
 
@@ -141,7 +141,7 @@ fn modals_return_triple_sandboxed_no_allow_modals() {
 fn modals_return_triple_with_allow_modals() {
     // `allow-modals` clears step 1; the permanent step-4 opt-in still keeps
     // the triple identical (presentation never happens).
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_MODALS));
+    let mut vm = vm_with_flags(parse_sandboxing_directive("allow-modals"));
     assert_modal_return_triple(&mut vm);
 }
 
@@ -150,7 +150,7 @@ fn modal_arg_coercion_runs_even_when_sandboxed() {
     // WebIDL argument conversion precedes the method steps, so a passed
     // object's `toString` MUST run even when the modals gate would return
     // at step 1 — and `prompt` converts BOTH of its arguments.
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     vm.eval(
         "globalThis.calls = ''; \
          function probe(tag) { \
@@ -168,9 +168,29 @@ fn modal_arg_coercion_runs_even_when_sandboxed() {
 // window.open — target × flag dispatch onto the back-channels
 // ---------------------------------------------------------------------------
 
+/// C10g: an unbound read (no `HostData` installed) yields `unsandboxed()`,
+/// the allow-form type's permissive default
+/// (`docs/plans/2026-09-ibp-sandbox.md` J2 makes it fail closed at N4):
+/// `_blank` takes the unsandboxed (open-tab) disposition.
+#[test]
+fn open_blank_without_host_data_takes_the_unsandboxed_disposition() {
+    let mut vm = Vm::new();
+    assert!(vm.host_data().is_none());
+    vm.inner
+        .navigation
+        .set_current_url(Some(url::Url::parse("https://example.com/").unwrap()));
+    assert!(eval_bool(&mut vm, "window.open('/x', '_blank') === null;"));
+    assert_eq!(
+        open_tabs(&mut vm),
+        vec![OpenTabRequest {
+            url: "https://example.com/x".to_string()
+        }]
+    );
+}
+
 #[test]
 fn open_blank_unsandboxed_queues_open_tab_and_returns_null() {
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     // Returns null on the gate-passed path too (WindowProxy = S5-8).
     assert!(eval_bool(
         &mut vm,
@@ -191,7 +211,7 @@ fn open_blank_unsandboxed_queues_open_tab_and_returns_null() {
 fn open_blank_sandboxed_is_a_silent_null_and_never_enqueues() {
     // §7.3.1.7 step 8 sandboxed-auxiliary-navigation case: blocked popup =
     // silent null; the request never enters the queue (enqueue-time gating).
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     assert!(eval_bool(
         &mut vm,
         "window.open('https://other.example/', '_blank') === null;",
@@ -201,7 +221,7 @@ fn open_blank_sandboxed_is_a_silent_null_and_never_enqueues() {
 
 #[test]
 fn open_blank_allow_popups_queues() {
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
+    let mut vm = vm_with_flags(parse_sandboxing_directive("allow-popups"));
     vm.eval("window.open('https://other.example/', '_blank');")
         .unwrap();
     assert_eq!(open_tabs(&mut vm).len(), 1);
@@ -209,7 +229,7 @@ fn open_blank_allow_popups_queues() {
 
 #[test]
 fn open_top_sandboxed_blocked() {
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     assert!(eval_bool(&mut vm, "window.open('/x', '_top') === null;"));
     assert_no_intents(&mut vm);
 }
@@ -219,7 +239,7 @@ fn open_top_allow_top_navigation_enqueues_navigation() {
     // Gate passed → the own-context NavigationRequest channel (single-
     // navigable model routing), with the RESOLVED absolute URL — the same
     // shape `location.assign` enqueues.
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
+    let mut vm = vm_with_flags(parse_sandboxing_directive("allow-top-navigation"));
     assert!(eval_bool(&mut vm, "window.open('/x', '_top') === null;"));
     let nav = take_nav(&mut vm).expect("a navigation request was enqueued");
     assert_eq!(nav.url, "https://example.com/x");
@@ -233,8 +253,8 @@ fn open_top_by_user_activation_only_is_blocked_for_script() {
     // arm only (§7.4.2.4 step 3.2); a script-initiated `window.open` passes
     // the conservative no-activation constant (no user-activation tracking
     // yet — carve `#11-transient-activation-tracking`), so step 3.3 blocks.
-    let mut vm = vm_with_flags(Some(
-        IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION,
+    let mut vm = vm_with_flags(parse_sandboxing_directive(
+        "allow-top-navigation-by-user-activation",
     ));
     assert!(eval_bool(&mut vm, "window.open('/x', '_top') === null;"));
     assert_no_intents(&mut vm);
@@ -244,7 +264,7 @@ fn open_top_by_user_activation_only_is_blocked_for_script() {
 fn open_self_is_never_popup_gated() {
     // §7.3.1.7 resolves `_self` to the current navigable before any flag
     // check — maximum restriction still navigates the own context.
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     assert!(eval_bool(&mut vm, "window.open('/y', '_self') === null;"));
     let nav = take_nav(&mut vm).expect("a navigation request was enqueued");
     assert_eq!(nav.url, "https://example.com/y");
@@ -255,7 +275,7 @@ fn open_self_is_never_popup_gated() {
 fn open_named_sandboxed_snapshots_negative_aux_verdict() {
     // A named target is never blocked at enqueue — the §7.3.1.7 step-3
     // flag-set snapshot rides the payload for the shell's MISS branch.
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     assert!(eval_bool(&mut vm, "window.open('/f', 'frameA') === null;"));
     assert_eq!(
         frame_navs(&mut vm),
@@ -271,7 +291,7 @@ fn open_named_sandboxed_snapshots_negative_aux_verdict() {
 
 #[test]
 fn open_named_allow_popups_snapshots_positive_aux_verdict() {
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
+    let mut vm = vm_with_flags(parse_sandboxing_directive("allow-popups"));
     vm.eval("window.open('/f', 'frameA');").unwrap();
     let navs = frame_navs(&mut vm);
     assert_eq!(navs.len(), 1);
@@ -281,7 +301,7 @@ fn open_named_allow_popups_snapshots_positive_aux_verdict() {
 #[test]
 fn open_keyword_detection_is_ascii_case_insensitive() {
     // "_BLANK" is the `_blank` keyword (§7.3.1.7), not a frame name.
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     vm.eval("window.open('https://other.example/', '_BLANK');")
         .unwrap();
     assert_eq!(open_tabs(&mut vm).len(), 1);
@@ -293,7 +313,7 @@ fn open_invalid_url_throws_syntax_error_dom_exception() {
     // §7.2.2.1 step 4.2: "If urlRecord is failure, then throw a
     // \"SyntaxError\" DOMException" — thrown at the boundary, BEFORE any
     // dispatch/enqueue (nothing reaches a queue).
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     let check = vm
         .eval(
             "var thrown = null;\
@@ -311,7 +331,7 @@ fn open_invalid_url_throws_syntax_error_dom_exception() {
 fn open_no_args_opens_about_blank_tab() {
     // WebIDL defaults: url = "" (→ about:blank, §7.2.2.1 step 15.3),
     // target = "_blank".
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     assert!(eval_bool(&mut vm, "window.open() === null;"));
     assert_eq!(
         open_tabs(&mut vm),
@@ -330,7 +350,7 @@ fn open_empty_url_to_existing_navigable_is_a_noop() {
     // is a NO-OP that preserves the current document, NOT a navigation to
     // about:blank. Regression pin: an earlier draft materialized about:blank
     // for every empty-url path and would have destroyed the page here.
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     assert!(eval_bool(&mut vm, "window.open('', '_self') === null;"));
     assert!(eval_bool(&mut vm, "window.open('', '_top') === null;"));
     assert!(eval_bool(&mut vm, "window.open('', '_parent') === null;"));
@@ -347,7 +367,7 @@ fn open_empty_url_named_target_carries_none_urlrecord() {
     // channel (`url: None`), leaving the existing-vs-new navigable choice —
     // step 16.1 no-op on HIT vs step 15.3 about:blank on MISS — to the
     // shell's frame-tree lookup at drain time.
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
+    let mut vm = vm_with_flags(parse_sandboxing_directive("allow-popups"));
     vm.eval("window.open('', 'frameA');").unwrap();
     assert_eq!(
         frame_navs(&mut vm),
@@ -369,7 +389,7 @@ fn open_whitespace_only_url_is_not_the_empty_string() {
     // the intended divergence from boa's non-spec `trim().is_empty()` guard:
     // a future regression to a trim-based empty check would wrongly make this
     // a no-op and fail here.
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     assert!(eval_bool(&mut vm, "window.open('   ', '_self') === null;"));
     let nav = take_nav(&mut vm).expect("whitespace url resolves to a non-null urlRecord");
     assert_eq!(nav.url, "https://example.com/");
@@ -378,10 +398,10 @@ fn open_whitespace_only_url_is_not_the_empty_string() {
 #[test]
 fn open_empty_target_string_is_blank() {
     // §7.2.2.1 step 5: an empty target is `_blank` — popup-gated.
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::empty()));
+    let mut vm = vm_with_flags(SandboxingFlagSet::all_represented());
     assert!(eval_bool(&mut vm, "window.open('/z', '') === null;"));
     assert_no_intents(&mut vm);
-    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
+    let mut vm = vm_with_flags(parse_sandboxing_directive("allow-popups"));
     vm.eval("window.open('/z', '');").unwrap();
     assert_eq!(open_tabs(&mut vm).len(), 1);
 }
@@ -393,7 +413,7 @@ fn open_mixed_named_and_blank_preserve_global_call_order() {
     // first', 'missing'); window.open('/second', '_blank')` must route /first
     // (named) BEFORE /second (_blank). Two separate queues (drained
     // popups-then-named) would reverse this, opening /second's tab first.
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     vm.eval(
         "window.open('/first', 'missing'); \
          window.open('/second', '_blank'); \
@@ -423,7 +443,7 @@ fn open_mixed_named_and_blank_preserve_global_call_order() {
 fn open_multiple_calls_preserve_fifo_order() {
     // Several `window.open` calls in one turn must ALL surface, in call
     // order (the FIFO queue contract — a last-wins slot would drop work).
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     vm.eval(
         "window.open('https://a.example/', '_blank'); \
          window.open('https://b.example/', '_blank'); \
@@ -446,7 +466,7 @@ fn open_queue_clamps_at_max_dropping_new_intents() {
     // window.open(...)` loop stops adding work instead of rotating which
     // opens survive (contrast `pending_history`, which evicts the oldest).
     // So the retained intents are the EARLIEST calls, in call order.
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     vm.eval("for (let i = 0; i < 1100; i++) { window.open('/p' + i, '_blank'); }")
         .unwrap();
     let intents = window_opens(&mut vm);
@@ -471,7 +491,7 @@ fn open_features_string_is_converted_then_ignored() {
     // `features` is WebIDL-converted (side effects observable) then ignored
     // (tokenization = S5-8); junk and `null` (`[LegacyNullToEmptyString]`)
     // both leave the call functional.
-    let mut vm = vm_with_flags(None);
+    let mut vm = vm_with_flags(SandboxingFlagSet::unsandboxed());
     vm.eval(
         "globalThis.fRan = false; \
          window.open('https://a.example/', '_blank', \
