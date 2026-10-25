@@ -117,7 +117,7 @@ fn sandboxed_iframe_flags_installed_before_initial_scripts() {
     // The flags themselves are installed on the entry's bridge.
     assert_eq!(
         ip.pipeline.runtime.sandbox_flags(),
-        Some(elidex_plugin::IframeSandboxFlags::ALLOW_SAME_ORIGIN),
+        elidex_plugin::parse_sandboxing_directive("allow-same-origin"),
         "parsed sandbox flags must be installed on the iframe bridge"
     );
 }
@@ -229,7 +229,10 @@ fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
         ),
         "the unsandboxed entry must keep the inherited tuple origin"
     );
-    assert_eq!(ip.pipeline.runtime.sandbox_flags(), None);
+    assert_eq!(
+        ip.pipeline.runtime.sandbox_flags(),
+        elidex_plugin::SandboxingFlagSet::unsandboxed()
+    );
 }
 
 /// `src="about:blank"` arm: the reordered plumbing still installs the
@@ -245,7 +248,7 @@ fn about_blank_iframe_installs_sandbox_state() {
     let ip = in_process_entry(&state);
     assert_eq!(
         ip.pipeline.runtime.sandbox_flags(),
-        Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS)
+        elidex_plugin::parse_sandboxing_directive("allow-scripts")
     );
     assert!(matches!(
         ip.pipeline.runtime.origin(),
@@ -261,7 +264,7 @@ fn no_src_iframe_installs_sandbox_state() {
     let ip = in_process_entry(&state);
     assert_eq!(
         ip.pipeline.runtime.sandbox_flags(),
-        Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS)
+        elidex_plugin::parse_sandboxing_directive("allow-scripts")
     );
     assert!(matches!(
         ip.pipeline.runtime.origin(),
@@ -281,8 +284,8 @@ fn blank_entry_fallback_installs_sandbox_state() {
     let ip = in_process_entry(&state);
     assert_eq!(
         ip.pipeline.runtime.sandbox_flags(),
-        Some(elidex_plugin::IframeSandboxFlags::empty()),
-        "sandbox=\"\" must install maximally-restrictive (empty) flags"
+        elidex_plugin::SandboxingFlagSet::all_represented(),
+        "sandbox=\"\" must install maximally-restrictive (all_represented()) flags"
     );
     assert!(
         matches!(
@@ -465,7 +468,7 @@ fn oop_iframe_flags_installed_before_initial_scripts() {
         loaded,
         crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::opaque(),
-            sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::empty()),
+            sandbox_flags: elidex_plugin::SandboxingFlagSet::all_represented(),
             iframe_depth: 1,
             credentialless: false,
             referrer: None,
@@ -499,7 +502,7 @@ fn oop_sandboxed_iframe_initial_script_observes_opaque_origin() {
         loaded,
         crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::opaque(),
-            sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS),
+            sandbox_flags: elidex_plugin::parse_sandboxing_directive("allow-scripts"),
             iframe_depth: 1,
             credentialless: false,
             referrer: None,
@@ -535,7 +538,7 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
         loaded,
         crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::from_url(&url::Url::parse(url).unwrap()),
-            sandbox_flags: None,
+            sandbox_flags: elidex_plugin::SandboxingFlagSet::unsandboxed(),
             iframe_depth: 1,
             credentialless: false,
             referrer: None,
@@ -577,7 +580,7 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
             origin: elidex_plugin::SecurityOrigin::from_url(
                 &url::Url::parse("https://other.example/").unwrap(),
             ),
-            sandbox_flags: None,
+            sandbox_flags: elidex_plugin::SandboxingFlagSet::unsandboxed(),
             iframe_depth: 1,
             credentialless: false,
             // The cross-origin default: parent ORIGIN-as-URL (trailing slash,
@@ -615,7 +618,7 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
 #[test]
 fn navigate_inputs_derive_origin_from_loaded_url() {
     let inputs = crate::PreEvalFrameInputs {
-        sandbox_flags: None,
+        sandbox_flags: elidex_plugin::SandboxingFlagSet::unsandboxed(),
         credentialless: false,
         iframe_depth: 2,
         referrer: Some(url::Url::parse("https://parent.example/").unwrap()),
@@ -645,7 +648,7 @@ fn navigate_inputs_derive_origin_from_loaded_url() {
 #[test]
 fn navigate_inputs_credentialless_stays_opaque() {
     let inputs = crate::PreEvalFrameInputs {
-        sandbox_flags: None,
+        sandbox_flags: elidex_plugin::SandboxingFlagSet::unsandboxed(),
         credentialless: true,
         iframe_depth: 1,
         referrer: None,

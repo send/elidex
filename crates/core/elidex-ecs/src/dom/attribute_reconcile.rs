@@ -1,6 +1,6 @@
 //! The attribute-write chokepoint's derived-component reconcile seam.
 //!
-//! Extracted from `dom/mod.rs` (which is already over the 1000-line review
+//! Extracted from `dom/mod.rs` (when it was over the 1000-line review
 //! convention) so the attribute→component reconcile logic lives in a focused
 //! module. See [`EcsDom::reconcile_attribute_derived_components`].
 

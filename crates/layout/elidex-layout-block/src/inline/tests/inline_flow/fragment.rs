@@ -42,8 +42,8 @@ fn multicol_whole_run_now_persists() {
     // (`skip_lines == 0`, fits → no break) now persists an `InlineFlow` — it was gated
     // to legacy pre-I-multicol. And persisting changes ONLY `InlineFlow` presence: the
     // persisted geometry is byte-identical to the trusted non-fragmented layout of the
-    // same content (D-mc2 — the optimistic `flow_align` for `Column` does not perturb
-    // `entity_bounds`/the packer geometry, which the packer commits unconditionally).
+    // same content (D-mc2 — the packer's optimistic recording for `Column` does not
+    // perturb `entity_bounds`/the packer geometry, which it commits unconditionally).
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
         return;
     };

@@ -5,7 +5,7 @@
 //!
 //! Each operation dispatches on [`NamedCurve`] to the matching RustCrypto
 //! curve crate (`p256` / `p384` / `p521`) via the [`with_curve!`] macro:
-//! the curve crates re-export `PublicKey` / `SecretKey` / `EncodedPoint`
+//! the curve crates re-export `PublicKey` / `SecretKey` / `Sec1Point`
 //! specialized to their curve, so one macro body type-checks for all three.
 //! The engine-independent [`crate::key::KeyMaterial::Ec`] stores the SEC1
 //! uncompressed public point (`0x04‖x‖y`) plus the optional big-endian
@@ -17,7 +17,8 @@ use base64::Engine as _;
 use ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use elliptic_curve::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
 use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
-use elliptic_curve::sec1::ToEncodedPoint;
+use elliptic_curve::sec1::ToSec1Point;
+use elliptic_curve::Generate;
 
 use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
 use crate::error::AlgorithmError;
@@ -25,11 +26,11 @@ use crate::hash::HashAlgorithm;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage};
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
-use crate::rng::ClosureRng;
+use crate::rng::TryClosureRng;
 
 /// Dispatch to the RustCrypto curve crate matching `$curve`, binding it as
 /// `$cc` inside `$body`.  Each curve crate (`p256` / `p384` / `p521`)
-/// re-exports `PublicKey` / `SecretKey` / `EncodedPoint` / `FieldBytes`
+/// re-exports `PublicKey` / `SecretKey` / `Sec1Point` / `FieldBytes`
 /// specialized to its curve, so one `$body` type-checks for all three and
 /// the `?` / `return` inside it act on the enclosing function.
 macro_rules! with_curve {
@@ -133,7 +134,7 @@ fn import_sec1_point(curve: NamedCurve, bytes: &[u8]) -> Result<Vec<u8>, Algorit
     with_curve!(curve, cc, {
         let pk = cc::PublicKey::from_sec1_bytes(bytes)
             .map_err(|_| data("invalid elliptic-curve public key point"))?;
-        Ok(pk.to_encoded_point(false).as_bytes().to_vec())
+        Ok(pk.to_sec1_point(false).as_bytes().to_vec())
     })
 }
 
@@ -146,7 +147,7 @@ fn import_spki(curve: NamedCurve, der: &[u8]) -> Result<Vec<u8>, AlgorithmError>
     with_curve!(curve, cc, {
         let pk = cc::PublicKey::from_public_key_der(der)
             .map_err(|_| data("invalid SubjectPublicKeyInfo elliptic-curve public key"))?;
-        Ok(pk.to_encoded_point(false).as_bytes().to_vec())
+        Ok(pk.to_sec1_point(false).as_bytes().to_vec())
     })
 }
 
@@ -158,7 +159,7 @@ fn import_pkcs8(curve: NamedCurve, der: &[u8]) -> Result<KeyMaterial, AlgorithmE
         let sk = cc::SecretKey::from_pkcs8_der(der)
             .map_err(|_| data("invalid PKCS#8 elliptic-curve private key"))?;
         Ok(KeyMaterial::Ec {
-            public_point: sk.public_key().to_encoded_point(false).as_bytes().to_vec(),
+            public_point: sk.public_key().to_sec1_point(false).as_bytes().to_vec(),
             private_scalar: Some(sk.to_bytes().to_vec()),
         })
     })
@@ -273,7 +274,7 @@ fn import_jwk(
                     .map_err(|_| data("JWK 'd' member is not a valid private scalar"))?;
                 // The public key derived from `d` must match x / y (§6.2.2
                 // "the public key must be consistent with the private key").
-                if sk.public_key().to_encoded_point(false).as_bytes() != public_point.as_slice() {
+                if sk.public_key().to_sec1_point(false).as_bytes() != public_point.as_slice() {
                     return Err(data("JWK 'd' member is inconsistent with 'x' / 'y'"));
                 }
                 Some(sk.to_bytes().to_vec())
@@ -295,8 +296,8 @@ fn import_jwk(
 
 /// `generateKey` for an EC algorithm (WebCrypto §23.7.3 ECDSA / §24.4.1 ECDH)
 /// — returns the `(publicKey, privateKey)` pair (the §14.3.6 `CryptoKeyPair`).
-/// `fill_random` is the VM entropy seam, fed through [`ClosureRng`] into
-/// `SecretKey::random`'s vetted rejection sampling.
+/// `fill_random` is the VM entropy seam, fed through [`TryClosureRng`] into
+/// `NonZeroScalar::try_generate_from_rng`'s vetted rejection sampling.
 pub(crate) fn generate<F>(
     algorithm: EcAlgorithm,
     curve: NamedCurve,
@@ -310,8 +311,12 @@ where
     // §23.7.3 step 1 / §24.4.1 step 1: a usage outside the algorithm's set is a
     // SyntaxError — before key generation.
     validate_generate_usages(algorithm, usages)?;
-    // §23.7.3 step 2-3 / §24.4.1 step 2-3: generate the curve key pair (a
-    // generation failure is an OperationError, surfaced by the ClosureRng).
+    // §23.7.3 step 2-3 / §24.4.1 step 2-3: generate the curve key pair.  The
+    // `fill_random` closure's error is propagated as-is (the EC path has no
+    // latch), exactly as the caller's closure produced it.  Step 3's
+    // OperationError is met by the caller's contract: the VM's `fill_random`
+    // closure returns `AlgorithmError::Operation` on entropy failure
+    // (`vm/host/subtle_crypto/ops.rs`, generateKey), and it is propagated as-is.
     let (public_point, private_scalar) = generate_keypair(curve, fill_random)?;
     let key_alg = algorithm.key_algorithm(curve);
     // steps 7-11: the public key — usages = ∩(usages, public-permitted),
@@ -349,8 +354,10 @@ where
 
 /// Generate a curve key pair, returning the SEC1 uncompressed public point +
 /// the big-endian private scalar.  The scalar is produced by
-/// `SecretKey::random`'s rejection sampling over the [`ClosureRng`] (the VM
-/// entropy seam); a `fill_random` failure surfaces as an OperationError.
+/// `NonZeroScalar::try_generate_from_rng`'s rejection sampling over the
+/// [`TryClosureRng`] (the VM entropy seam).  Zero is rejected here, which
+/// `SecretKey::try_generate_from_rng` alone would NOT do.  A `fill_random`
+/// failure is returned as-is.
 fn generate_keypair<F>(
     curve: NamedCurve,
     mut fill_random: F,
@@ -359,13 +366,11 @@ where
     F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
     with_curve!(curve, cc, {
-        let mut rng = ClosureRng::new(&mut fill_random);
-        let sk = cc::SecretKey::random(&mut rng);
-        // Surface any `fill_random` error before using the (otherwise garbage)
-        // key.
-        rng.into_result()?;
+        let mut rng = TryClosureRng::new(&mut fill_random);
+        let nz = cc::NonZeroScalar::try_generate_from_rng(&mut rng)?;
+        let sk = cc::SecretKey::from(nz);
         Ok((
-            sk.public_key().to_encoded_point(false).as_bytes().to_vec(),
+            sk.public_key().to_sec1_point(false).as_bytes().to_vec(),
             sk.to_bytes().to_vec(),
         ))
     })

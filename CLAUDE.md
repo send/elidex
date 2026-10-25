@@ -49,11 +49,28 @@ webref の cache refresh / snapshot / semantic diff / agent-brief workflow の�
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + trip-wires + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
+- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + trip-wires + tools-test + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Plan-memo umbrella checker**: `.claude/tools/plan-memo-umbrella-check.py <memo>` は plan memo の §5/§8 row-kind census (umbrella / kind-undetermined) と、それらを owner / ordering / acceptance の役割で名指しする prose/cell site を、memo がリンクする memo 群 (transitive) まで含めて機械列挙する (exit 0 = assertion clean / 1 = mechanical finding / 2 = schema miss = 未走査、clean ではない)。memo 実行は手動 (SCHEMAS が特定 memo 族の header に束縛されるため trip-wire に入れない) だが、その self-test + mutation proof (`--self-test --mutants`。fixture は tempfile だが `symbol_attribution_control` が `docs/plans/*.md` を読むので memo 編集でも赤になり得る) は `.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh` として `scripts/trip-wires.sh` の `REQUIRED_WIRES` に登録済 (`python3` 必須)。lexer / population / assertion を触ったら control + mutant を同 commit で足す。
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 - **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 worktree で隔離して作業** (新規ブランチ = `git worktree add -b <branch> <dir> origin/main` ← clean base 明示で汚染 HEAD を継がない / 既存ブランチ [in-progress PR の復旧等] = shared tree から外してから `git worktree add <dir> <branch>` ← `-b` は既存名で fail) (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
+- **サブエージェント振り分け (model tiering、2026-09 trial)**: `general-purpose` は使わない。振り分けの**唯一の置き場はここ**。skill の手順 (global skill を含む) の Agent 起動すべてに適用する — skill が型を指定していない場合、または `general-purpose` / `Explore` を指定している場合は、この表の型に置き換える。型の定義は repo ではなく dotfiles 管理の `~/.claude/agents/*.md` (global) にあり、それが無い環境 (dotfiles 未導入の checkout) では `subagent_type` を省略して起動する (この場合に限り既定 agent を許容):
+  - 修正・実装 (範囲と完了条件が決まったもの) → `coder`。設計判断はドライバーが済ませて brief に書く (coder は判断が要ると停止する定義 — 例: converge Step 5.1 の symptom vs root 判断)。反復修正 (converge の各ラウンド等) はラウンドごとに新しい coder を起こし、そのラウンドの finding と判断、および settled な制約 (過去ラウンドで棄却・撤回した修正案) を brief に明記して渡す (前ラウンドの文脈は持ち越さない)。ラウンド境界での新規起動は規則 5 の停止に数えない
+  - plan-memo の改訂 → wording / typo / scope-doc のみ `coder`。citation を含む修正 (plan-review Step 5 は clerical を re-review skip 可とするので、lookup を要する citation を clerical 扱いで下位 tier に通さない)・design-affecting・structural・新規作成・generator-layer 除去 (#374 型) は `designer`
+  - 手順どおりの機械的確認で出力が大きいもの (多数項目の突き合わせ、チェックリスト照合) → `verifier`。背景実行 + 固定マーカーの grep で判定できる実行 (`mise run ci` / `build_verify` の pass/fail 判定、`grep 'ERROR task failed'` 等) と数行で済む確認 (head==assessed commit、`git log origin/main..HEAD`、件数) はドライバーがその場で行う (agent 起動の固定費 ≈ 55k tokens がこれらの作業量を上回るため)。失敗の原因調査はドライバーが判断し、修正が要れば `coder` に渡す
+  - 判断を要するレビュー (5 軸 review agent、converge の enumeration attestation) → `reviewer`。attestation を verifier に回さないのは、#508 で attestation が捕まえた欠陥 (6→3→2+4) が「修正を受けた側」「over-correction」「概念 sweep」= 判断を要するものだったため (`memory/feedback_attestation-by-enumeration-not-assertion.md`)
+  - 読み取り専用の調査 (Explore の代わり) → `scout`。ただし概念での sibling sweep (同じ意味クラスの兄弟箇所探し — 文字列でなく concept を grep) は判断を要するので `reviewer`
+  - **階層**: Haiku < Sonnet < Opus < Fable。ドライバーと判断は Opus、大体の作業は Sonnet、Opus で嵌まりそうな箇所は Fable。各 agent の既定 model は `~/.claude/agents/*.md` の frontmatter が正 (ここに書き写さない)。trial 中は、agent description に書かれた振り分け・昇格条件 (例: reviewer の「影響範囲の大きい変更は fable」、coder の「設計判断が必要なものは designer へ」) より本規則を優先する。`model` パラメータは定義より優先されるので、渡すのは次の 2 つの時だけ: (a) brief の時点で既定より上の tier が要ると分かっている単位を、既定の 1 段上で始める — 対象は、brief が実装の中の判断 (何を作るかは決まっていて、どう書くかに残る判断) を明示的に委ねた実装 (委ねない限り coder は判断で停止する) と、既定の tier では嵌まりそうな設計・判断。何を作るか自体が未定なら coder ではなく `designer` かドライバー。(b) 規則 5 の昇格。brief の指示 (読む範囲・出力形式) は agent 定義本文より優先する — 定義の既定 (例: reviewer の「差分と呼び出し元/先に絞る」) を超える調査が要る時は brief で範囲を明示する
+  - **上限は引き継ぎ境界であって scope cap ではない** (`memory/feedback_cap-vs-completeness.md` の読み替え)。完全性は次の 5 つで保つ:
+    1. 途中報告 (済/残/次) は判定に数えない — 残がある限り未完了。レビュー軸の途中停止を「0 件」、attestation の途中停止を PASS と読まない。報告は分母 (N 中 M) 付き。
+    2. 状態の正典は成果物 (`git diff` / scratchpad file)、報告は目次。soft limit での引き継ぎは SendMessage で続行させず (同じ文脈のまま膨らむ)、新しい同種 agent に報告 + 成果物を渡す。レビュー軸のように途中成果物が残らない単位は、前任の報告の「済」を成果物として扱い、後継は「残」だけを行う (単調に進むので終わる)。
+    3. maxTurns の強制停止で報告が失われたら SendMessage で「現状を要約して終了」を 1 回だけ送る。回収できなければ成果物から済んだ分を再構成して残りだけ渡す。何も残らない単位は最初からやり直すが、同じ単位で報告喪失が 2 回続いたら user に上げる (skip もループもしない)。報告喪失は規則 5 の停止に数えず、本規則だけで扱う。
+    4. cap に合わせて brief を縮めない (上限に達した時の扱いは規則 5)。
+    5. 報告を伴う途中停止は原因で扱いを分ける (報告喪失は規則 3)。設計判断が要るための停止 (coder の「指示にない設計判断」) はどの tier でもドライバーが判断して brief に足す (対象が設計文書なら `designer`) — 回数に数えず、昇格もしない。回数は同じ単位 (その切り直し分を含む) について現在の tier で数え、昇格したら 0 に戻す。段は **Haiku → Sonnet → Opus → Fable → user** で、昇格は agent の型を変えずに `model` だけを現在の 1 段上にする (段を飛ばさない。例: Sonnet の coder を designer に替えるのは昇格ではない)。
+       - **量の停止** (soft limit / maxTurns で残作業がある): 1 回目は model を変えず slice を小さく切り直す。2 回続いたら slice を切り直したうえで 1 段上げる。verifier は手順どおりの作業で、強い model でも 1 ターンにこなせる項目は増えないので昇格せず切り直しだけを続け、それ以上切れなければ user に上げる。
+       - **能力の停止** (coder の「3 回試して停止」、行き詰まりの報告): その場で 1 段上げる。
+       - Fable で量の停止が 2 回続く、または能力の停止なら、上位 tier は無いので user に上げる (slice の切り直しを含めて判断を仰ぐ)。
+  - 本規則は elidex で trial 中 (2026-09-29 開始、2026-10-14 改訂 — 経緯は `memory/project_agent-model-tiering-rollout.md`)。**2026-10-21** に再計測 (Sonnet coder の実績と、規則 5 の昇格・user 上げの発生回数) して、問題なければ global へ移す — それまで SSoT はここ。
 
 ## Commands
 
@@ -64,7 +81,7 @@ mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
 
-その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
+その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `tools-test` (tracked な `test_*.py` 全部を offline で実行 = `scripts/python-suites.sh`、CI の `tools` job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
 
 ## Architecture
 
@@ -94,6 +111,8 @@ mise run fmt         # cargo fmt --all
 
 4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は Rust toolchain 不要 (layering wire 4 本 = `scripts/trip-wires.sh` の `REQUIRED_WIRES` のうち self-test wire 以外は cargo / rustc / python を呼ばない、self-test wire は `ubuntu-latest` 標準の `python3` だけを要し、無ければ skip でなく FAIL する) なので filter は何も買わない。**理由の正典は同 job のコメント 1 箇所。実行時間と `timeout-minutes` の余裕の現在値はどこにも置かず、runner の run から測る** (測り方は同コメント、budget が review round ごとに増える欠陥は `docs/plans/2026-08-plan-memo-umbrella-checker.md` §8 の entry "The always-run wire's cost grows with REVIEW ROUNDS, not with the program")。ここには写さない (写した結果、2 つの live な数字が食い違う状態を 1 ラウンド作った。PR #510 では、置いた数値の subject を直すたびに別の食い違いが出たので、数値そのものを置くのをやめた)。
 
-⚠ **買えるものの範囲**: allowlist drift が **PR で赤くなる**ところまで。`main-protection` ruleset に required-status-check は無いので **merge はブロックされない** (上記「CI 全 pass を目視確認してから squash merge」の慣行が引き続き最終ゲート)。
+5 つ目の job `tools` (`bash scripts/python-suites.sh` = `mise run tools-test` と同一 script) も **filter で gate しない** (`needs:` / `if:` / path filter なし) — `main` 宛 PR / `main` への push で常時実行、Dependabot bump も含む。理由は `trip-wires` と同じ: filter を置くと suite の入力だけを触る PR がそれを読む job を skip でき、改竄経路が allowlist 項目になる。matrix は `python-version: ["3.9", "3.x"]` (`actions/setup-python`) — `"3.9"` leg が interpreter floor の唯一の測定、`"3.x"` は action が解決する最新。suite の集合 (`git ls-files ':(glob)**/test_*.py'`)・complement check・offline regime・wrapper contract は script header が正典。**job 境界**: `trip-wires` は interpreter を宣言しない (setup step なし)、`tools` は宣言する (`setup-python`)、language runtime を要する check は宣言する job に置く — Python の check は tracked な `test_*.py` (command 形の self-test なら薄い wrapper) として `tools` に入る。理由の正典 = 同 job のコメント。
+
+⚠ **買えるものの範囲**: allowlist drift や失敗した suite が **PR で赤くなる**ところまで (`trip-wires` / `tools` 共通)。`main-protection` ruleset に required-status-check は無いので **merge はブロックされない** (上記「CI 全 pass を目視確認してから squash merge」の慣行が引き続き最終ゲート)。
 
 コマンド詳細 = `.github/workflows/ci.yml`。

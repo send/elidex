@@ -60,7 +60,7 @@ fn eval_gate_silent_success_when_scripts_disabled() {
         .vm()
         .host_data()
         .expect("host data installed")
-        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+        .set_sandbox_flags(elidex_plugin::SandboxingFlagSet::all_represented());
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     let r = ScriptEngine::eval(&mut engine, "globalThis.ran = true;", &mut ctx);
     assert!(
@@ -80,7 +80,7 @@ fn eval_runs_when_sandbox_grants_allow_scripts() {
         .vm()
         .host_data()
         .expect("host data installed")
-        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS));
+        .set_sandbox_flags(elidex_plugin::parse_sandboxing_directive("allow-scripts"));
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     let r = ScriptEngine::eval(&mut engine, "globalThis.ran = true;", &mut ctx);
     assert!(r.success);

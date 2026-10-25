@@ -69,6 +69,7 @@ docs/
 - [mise](https://mise.jdx.dev/) (task runner)
 - [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all` / `ci`
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)
+- Python 3.9+ (`python3` on `PATH`) — used by `mise run tools-test` / `ci` (the CI `tools` job runs the same script)
 
 ### Common Tasks
 
@@ -80,7 +81,8 @@ mise run test-all  # nextest + doc-tests (full suite, run by `ci`)
 mise run lint      # clippy + fmt check
 mise run fmt       # format code
 mise run deny      # license/vulnerability check
-mise run ci        # run all CI checks locally (check + lint + test-all + doc + deny)
+mise run tools-test # every tracked Python suite (test_*.py), offline (scripts/python-suites.sh)
+mise run ci        # run all CI checks locally (check + lint + test-all + doc + deny + trip-wires + tools-test)
 ```
 
 ### Running the Crawler
