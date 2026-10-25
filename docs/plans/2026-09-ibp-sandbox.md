@@ -22,20 +22,20 @@ ledger row (the A-row idiom) is drafted: no amendment here touches a surface the
 the S5-4 plan, neither of which keeps an A-row ledger; their records live in this memo under the A114 idiom ("recorded,
 not edited").
 
-**Erratum** (2026-10-25; PM decision 16; ships with N1's per-PR memo rev 2,
-`docs/plans/2026-10-ibp-sandbox-handler-gates.md`) — a premise error, recorded, and its statements corrected in place
-(each marked "erratum 2026-10-25"). Rev ≤ 12 quoted *get the current value of the event handler* step 3.2 as "If
-scripting is disabled for document, then return null" and numbered *the event handler processing algorithm*'s gating
-steps 1–3 with "not fully active" at step 3. Current webref reads (`.claude/tools/webref body html
-getting-the-current-value-of-the-event-handler`; `.claude/tools/webref body html the-event-handler-processing-algorithm`;
-2026-10-25): step 3.2 "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed
-scripts browsing context flag set, then return null"; processing steps 1 WebDriver BiDi scripting is enabled → return,
-2 get the current value, 3 null → return, 4 not fully active → return. Whether the spec changed or the earlier output was
-misread is not decided (webref keeps no spec history). Corrected: A16, A17, P4, D2, D8's `NodeDocumentOf` line, §3's
-§8.1.8.1 row, §4 F10's readers, §5.2 n3, §8 B1 append (2). No decision changes: no §8.1.3.4 check runs at invocation
-under either text, and the compile gate carries the scripting check; which step 3.2 text N4's `NodeDocumentOf`
-implements is recorded on edge n3. Clerical: §5.1's *Closed* D2 × D8 entry names its means (N1's D-N3). The sweep
-(stating sections, DoD, downstream) and each hit's disposition: N1 memo rev 2 §0.3 P-N1.
+**Erratum** (2026-10-25; PM decision 16 — the PM's ruling that N1's PR corrects this memo's §8.1.8.1 citation in place,
+that N1's D-N3 reconcile order is the means of D2 × D8's closure, and that O5's home is `#11-event-handler-target-determination`;
+wording revised under PM decision 17, below; ships with N1's per-PR memo, `docs/plans/2026-10-ibp-sandbox-handler-gates.md`) — a premise error, recorded, and its statements corrected **in place** (each marked "erratum 2026-10-25").
+The in-place edit is an **exception**, by PM decision 16, to the approval scope's rule that a finding against this memo changes it only through a decision (`:12-14`) and to §0.3's A114 idiom ("recorded, not edited"); it edits no other surface.
+Rev ≤ 12 quoted *get the current value of the event handler* step 3.2 as "If scripting is disabled for document, then return null" and numbered *the event handler processing algorithm*'s gating steps 1–3 with "not fully active" at step 3.
+Current webref reads (`.claude/tools/webref body html getting-the-current-value-of-the-event-handler`; `.claude/tools/webref body html the-event-handler-processing-algorithm`; 2026-10-25):
+step 3.2 "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null";
+processing steps 1 "If the result of WebDriver BiDi scripting is enabled with eventTarget's relevant settings object is false, then return", 2 get the current value, 3 callback null → return, 4 not fully active → return.
+Whether the spec changed or the earlier output was misread is not decided (webref keeps no spec history). Corrected: A16, A17, P4, D2, D8's `NodeDocumentOf` line, §3's §8.1.8.1 row, §4 F10's readers, §5.2 n3, §8 B1 append (2).
+No decision changes: no §8.1.3.4 check runs at invocation under either text, and the compile gate carries the scripting check. D2's compile-gate wording is neutral (PM decision 17):
+the current step 3.2 text and D8's "scripting is disabled for *el's node document*" give the same outcome at N1, and which one is implemented is N4's, recorded on edge n3.
+Clerical: §5.1's *Closed* D2 × D8 entry names its means (N1's D-N3). The sweep (stating sections, DoD, downstream) and each hit's disposition: N1 memo §0.3 P-N1.
+
+**Prerequisite outside the DAG** (clerical; PM decision 17 — the PM's ruling of 2026-10-25 that the event-handler consumer's Insert arm, which turns every `on*` attribute raw again on every insertion including a move, is fixed by a standalone prerequisite PR, not in N1; that D2's wording is neutral between the two step-3.2 readings; that `#11-unhandledrejection-dispatch-target` is registered; and that the §13.4 step number is N9's): N1 depends on `EH-insert-once` (`docs/plans/2026-10-event-handler-insert-once.md`: a baked attribute becomes a raw value once per element, never on a later move) landing first. It is not a node of this program and adds no edge to §5.2.
 
 **Revision 12** (2026-10-01) folds Codex round 3 on #532 (`bb4b92cf`: 3 real) and a self-root-check. Rounds 1–3 kept
 finding gaps in one mechanism — D-e's target selection (current-navigable name, `<base target>`, call-time resolution,
@@ -169,7 +169,7 @@ navigation browsing context flag*, because D-a's steps 4.2 and 5 read it (the pa
 sets that a program cell reads). Amendments (recorded, not edited) of the parent's F9 cell inner type, the parent's F10r cell text "`Some(IframeSandboxFlags::empty())`" and S5-4 §4.1's rejection
 (`2026-07-s5-4-sandbox-enforcement.md:538-542`); support: the parent's rev 42.
 
-**D2 — handler gates follow the current spec** (N1): compile gate = *get the current value of the event handler* step 3.2 as current webref reads it — document's browsing context null, or its active sandboxing flag set has the sandboxed scripts browsing context flag (A16; rev ≤ 12 quoted "scripting is disabled for document", erratum 2026-10-25; the two agree for every document N1 can see, N1 memo P-N1); the
+**D2 — handler gates follow the current spec** (N1): compile gate = *get the current value of the event handler* step 3.2 (A16) — erratum 2026-10-25: two readings of step 3.2 are candidates, the current webref text (document's browsing context null, or its active sandboxing flag set has the sandboxed scripts browsing context flag) and D8's "scripting is disabled for *el's node document*" (rev ≤ 12 quoted step 3.2 as "scripting is disabled for document"); they give the same outcome at N1 (N1 memo §0.3 P-N1), and which one is implemented is N4's, edge n3; the
 invoke-time §8.1.3.4 gate for event handlers is removed (A17). History: S5-4a #444 `24c9b0d4`; the slot's S1a origin and the user's
 design-review request (`boa-vm-cutover-s1-plan.md:379`, `:489-497`). Lens attestation as rev 3. Whether S5-4's 2026-07-02
 cite was stale or the spec changed is undetermined (webref has no spec history). S5-4 surfaces amended (recorded, not
@@ -585,7 +585,7 @@ runs from N1 (C8b) — the spec's outcome (A17), not a window.
 |---|---|---|
 | n1 | IBP-split-ecs → N4 | code predecessor (E1: N4 is the first to edit `dom/mod.rs`, adding `dom/document_policy.rs`) |
 | n2 | IBP-split-parser → N5 | code predecessor (E2: N5 is the first to edit `elidex-html-parser/src/lib.rs` — its parse entries take the input; measured: no N1–N4 scope touches that file) |
-| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`; N4 settles which step 3.2 text the compile gate implements — D8's erratum note, N1 memo O1) |
+| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`; N4 decides which of the two step-3.2 readings — the current webref text or D8's "scripting is disabled for *el's node document*" — the compile gate implements; they give the same outcome at N1 (D8's erratum note; N1 memo §0.3 P-N1, O1)) |
 | n4 | N4 → N5 | data flow (N5 re-sources N4's route and F10) |
 | n5 | N3 → N6 | data flow (`CspList`) |
 | n6a | N2a → N2b, N6, N7, N8 | data flow (the restriction-form set D-a reads; union-safe set; propagate flag) |
