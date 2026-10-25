@@ -103,6 +103,11 @@ class TestReaderPins(unittest.TestCase):
 
     def test_Q4_live_mise_toml(self):
         self.assertEqual(mise_problems((REPO / "mise.toml").read_text(encoding="utf-8")), [])
+        # Red leg: a wrong `run` string is refused, with the reader's own text.
+        self.assertEqual(
+            mise_problems(mise_fixture(tt='run = "true"')),
+            ["[tasks.tools-test].run is not the string 'bash scripts/python-suites.sh'"],
+        )
 
     def test_Q6_Q7_Q8_live_ci_yml(self):
         text = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
@@ -122,7 +127,8 @@ class TestReaderPins(unittest.TestCase):
         good = workflow()
         self.assertEqual(self.q7(good), [])
         unconsumed = good.replace("          python-version: ${{ matrix.python-version }}\n", "          python-version: '3.12'\n")
-        self.assertTrue(self.q7(unconsumed))
+        consume = ["the last setup-python before the driver does not consume ${{ matrix.python-version }}"]
+        self.assertEqual(self.q7(unconsumed), consume)
         after = TOOLS_HEAD + (
             "    steps:\n"
             "      - run: bash scripts/python-suites.sh\n"
@@ -130,13 +136,13 @@ class TestReaderPins(unittest.TestCase):
             "        with:\n"
             "          python-version: ${{ matrix.python-version }}\n"
         )
-        self.assertTrue(self.q7(workflow(after)))
+        self.assertEqual(self.q7(workflow(after)), ["no actions/setup-python step before the driver step"])
         one_leg = good.replace('["3.9", "3.x"]', '["3.x"]')
-        self.assertTrue(self.q7(one_leg))
+        self.assertEqual(self.q7(one_leg), ['python-version legs are not exactly quoted "3.9" and "3.x"'])
         floating = good.replace("ubuntu-24.04", "ubuntu-latest")
         self.assertEqual(self.q7(floating), ["runs-on is not exactly ubuntu-24.04"])
         include = good.replace('        python-version: ["3.9", "3.x"]\n', '        python-version: ["3.9", "3.x"]\n        include:\n          - os: macos-latest\n')
-        self.assertTrue(self.q7(include))
+        self.assertEqual(self.q7(include), ["matrix keys ['include', 'python-version'] are not exactly python-version"])
 
     def test_Q8_present_ungated_and_trigger(self):
         self.assertEqual(job_key_problems(self.tools_job(workflow())), [])
@@ -145,13 +151,19 @@ class TestReaderPins(unittest.TestCase):
         problems = tools_problems(gated_new_output)
         self.assertIn("job key 'if' is not in the tools-job allowlist", problems)
         self.assertIn("job key 'needs' is not in the tools-job allowlist", problems)
-        for on in (
-            "on:\n  pull_request:\n    branches: [main]\n    paths: ['crates/**']\n",
-            "on:\n  pull_request:\n    branches: [main]\n    paths-ignore: ['docs/**']\n",
-            "on:\n  pull_request:\n    branches: [main, dev]\n",
-            "on:\n  push:\n    branches: [main]\n",
-        ):
-            self.assertTrue(trigger_problems(Workflow(workflow(on=on)).on()), on)
+        # Both triggers are read: green when each is exactly `branches: [main]`.
+        self.assertEqual(trigger_problems(Workflow(workflow()).on()), [])
+        ok = "    branches: [main]\n"
+        bad_keys = ("    branches: [main]\n    paths: ['crates/**']\n", "    branches: [main]\n    paths-ignore: ['docs/**']\n")
+        bad_branches = ("    branches: [main, dev]\n", "    branches: [dev]\n")
+        for trig, other in (("pull_request", "push"), ("push", "pull_request")):
+            cases = [(bad, "%s keys are not exactly branches" % trig) for bad in bad_keys]
+            cases += [(bad, "%s branches is not exactly [main]" % trig) for bad in bad_branches]
+            for bad, want in cases:
+                on = "on:\n  %s:\n%s  %s:\n%s" % (trig, bad, other, ok)
+                self.assertEqual(trigger_problems(Workflow(workflow(on=on)).on()), [want], on)
+            lone = "on:\n  %s:\n%s" % (trig, ok)
+            self.assertEqual(trigger_problems(Workflow(workflow(on=lone)).on()), ["on: has no %s mapping" % other], lone)
 
     # R-rows.
 
