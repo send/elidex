@@ -98,9 +98,11 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
   `.claude/tools/test_plan_memo_umbrella_check.py`, retiring the wire (`8a81b93d`). The `tools` job's
   `timeout-minutes` is re-derived from this PR's own CI run.
 - ~~The **cap PAUSE question** for #510's merge~~ — **SETTLED 2026-09-26**: the user re-accepted
-  option (d) at the current enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
-  record is at the top of the umbrella memo's §8. A later change to §8's list re-opens it. The merge
-  itself still waits on the A-iii wire move, and needs a fresh review of whatever head is pushed then.
+  option (d) at that day's enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
+  record is the third block of the umbrella memo's §8 head (after the 2026-09-21 acceptance and the
+  2026-09-28 re-acceptance at nineteen). A later change to §8's list re-opens it. The A-iii wire move
+  the merge waited on is done (the bullet above); the merge needs a fresh review of whatever head is
+  pushed then.
 - ~~⚠ **2026-09-28: §8's list is now 17 entries (15 own + 2 pre-existing)**~~ — **SUPERSEDED 2026-09-28** by
   the next bullet. (17), gap-pattern
   population completeness, was carved with the user's approval. By the rule above that re-opens the

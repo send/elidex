@@ -199,7 +199,7 @@ def _source_digest(code):
 
     ⚠ IT WAS THE BYTECODE until the CI attestation, and that made the manifest
     an INTERPRETER-VERSION artefact: `co_code` differs between 3.9, 3.12 and
-    3.14, so every control line changed and the `tools` job's wrapper would have been
+    3.14, so every control line changed and the always-run wire would have been
     red on the CI runner's python3 while green here.  The source text is the
     thing a reader edits, and it is the same on every interpreter.
 

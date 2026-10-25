@@ -505,8 +505,9 @@ def _inner(kind, text):
     # goes red under a fix is the fix's subject being wrong, not the control's.
     # ⚠ AN EXPLICIT CLOSED SET, NOT A SILENT FALLBACK (PR #510 R42-10).  This
     # was `return text` for every other kind.  (That a linked memo's table
-    # binding to no schema leaves the census at rc 0 is the umbrella memo's §8
-    # (11), "AN UNBOUND TABLE THAT MAKES NO KIND CLAIM IS STILL SILENT" -- not an
+    # binding to no schema AND MAKING NO KIND CLAIM (no `KIND_PHRASES` phrase)
+    # leaves the census at rc 0 is the umbrella memo's §8 (11), "AN UNBOUND
+    # TABLE THAT MAKES NO KIND CLAIM IS STILL SILENT" -- not an
     # image question.)  A fallback that answers
     # for kinds nobody enumerated is where the next kind hides; the kinds whose
     # reader text IS the span are named, and anything else is a defect this

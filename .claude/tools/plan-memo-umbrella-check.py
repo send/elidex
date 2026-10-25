@@ -191,17 +191,19 @@ Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
 
-THE OTHER TWO PLAN-MEMO CHECKERS, and the boundary (PR #510 Axis 5).  Three
-tools that read plan memos were built in parallel, and until this line none
-named another.  THIS one asks *does this memo's row-kind census parse, and is
-every naming site licensed* over ONE document family.  `plan-xcheck.py` asks
-*do two named layout memos agree*; it landed on main in #518 (`4394af4c`), which
-this branch's base predates.  `claim-gate-plan-check.py` asks *is a number
-written in a memo still true* over any memo's figures; it has not landed.
-They share no predicate today, which is why they are three and not one;
-CLAUDE.md's *One issue, one way* asks for the collapse only once "why
-three" can be written, and the plan's §1 carries the trigger and the re-eval
-date.  A reader deciding where a new memo check belongs reads the three
+THE OTHER THREE PLAN-MEMO CHECKERS, and the boundary (PR #510 Axis 5).  Four
+tools read plan memos (⚠ this said three until 2026-10-25, missing
+`plan-sweep.py`), and until this line none named another.  THIS one asks
+*does this memo's row-kind census parse, and is every naming site licensed*
+over ONE document family.  `plan-xcheck.py` asks *do two named layout memos
+agree*; it landed on main in #518 (`4394af4c`).  `plan-sweep.py`, landed in the
+same commit, asks *where does this memo restate the decision I am changing*
+(a lexical sweep; it reports and never gates).  `claim-gate-plan-check.py`
+asks *is a number written in a memo still true* over any memo's figures; it
+has not landed.  They share no predicate today, which is why they are four and
+not one; CLAUDE.md's *One issue, one way* asks for the collapse only once "why
+four" can be written, and the plan's §1 carries the trigger and the re-eval
+date.  A reader deciding where a new memo check belongs reads the four
 questions above, not the file names.
 
 Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the population)
@@ -686,7 +688,12 @@ def printable(text):
     the trip-wire (retired at 8a81b93d) captured the run through `$(...)`, which
     bash strips NULs from.  The rc was unaffected, so the wire's verdict was
     right and only its captured TEXT was silently altered (the `tools` job's
-    wrapper keeps a NUL in the str it reads -- measured); but a gate whose output cannot be grepped is a
+    wrapper, which decodes with `encoding="utf-8"`, would keep any NUL the
+    child wrote -- `python3 -c 'import subprocess,sys;print(repr(subprocess.run(
+    [sys.executable,"-c","import sys;sys.stdout.write(chr(0))"],
+    stdout=subprocess.PIPE,encoding="utf-8").stdout))'` prints a one-character
+    string holding U+0000 -- and `printable()` leaves none); but a gate whose
+    output cannot be grepped is a
     gate nobody reads (the memo's §6 note already tells a reader to reach for
     `grep -a`, which is the workaround naming the defect).  Renaming that one
     control would be the enumerated exemption this suite keeps being bitten by

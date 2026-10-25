@@ -180,10 +180,11 @@ def _growth_corpus(atoms):
     4,030 probes and turn the R31-2 defect RED, green on the fixed code.  What
     keeps them out is COST, which is the thing that was never written down:
     this corpus runs once per self-test plus once per mutant naming it, SIX
-    rows name it, and ~+1.2 s each is ~+8 s on the `tools` job's self-test wrapper, whose
+    rows name it, and ~+1.2 s each is ~+8 s on an always-run wire whose
     headroom R32 had just re-derived from ~2.0x.  So the honest boundary is not
     "this vocabulary cannot spell it" -- it can, for a measured price -- and
-    the price is carried with the wire's own budget in the plan's §8.  R31-2's
+    the price is carried in the plan's §8 entry "The always-run self-test's
+    cost grows with REVIEW ROUNDS, not with the program".  R31-2's
     hand-written witness stands until that is settled, as the stopgap it is.
 
     Blocked pairs are ORDERED (`x+y` and `y+x` are different shapes: openers

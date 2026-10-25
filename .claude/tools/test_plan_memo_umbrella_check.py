@@ -7,8 +7,13 @@ Contract: THE WRAPPER CONTRACT in scripts/python-suites.sh.
     environment inherited unchanged (a copy of os.environ that sets only the
     non-regime key PYTHONDONTWRITEBYTECODE), so every regime key is untouched;
   - asserts exit 0 AND a nonzero control count AND a nonzero mutant count, as
-    the self-test's own summary lines report them (an empty registry prints
-    "0 mutant(s), 0 survived" and exits 0, which is not a pass);
+    the self-test's own summary lines report them -- defence in depth: the
+    self-test has its own emptiness guard
+    (`plan_memo_selftest_controls.empty_registry_fails` makes an empty run
+    exit 1), and this wrapper does not rely on it;
+  - decodes the captured output as UTF-8 explicitly (`encoding="utf-8"`): the
+    checker writes UTF-8 whatever the locale, so a locale-derived decode
+    (under `LC_ALL=C PYTHONUTF8=0`, US-ASCII) dies on its first non-ASCII byte;
   - stays offline (the checker reads only local files and builds tempdirs).
 `--mutants` runs the mutation proof as well as the controls.
 """
@@ -35,7 +40,7 @@ class PlanMemoUmbrellaCheckSelfTest(unittest.TestCase):
             [sys.executable, os.path.join(HERE, CHECKER), "--self-test", "--mutants"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            encoding="utf-8",
             env=env,
         )
         out = proc.stdout

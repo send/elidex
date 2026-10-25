@@ -1,10 +1,12 @@
 # Umbrella plan — `plan-memo-umbrella-check` carved out of #506 into a 2-slice prerequisite program
 
 > Commit ids cited in this memo and in the checker's comments are PR #510 branch commits, except
-> `190d2adb` (PR #506's: `git fetch origin pull/506/head`) and `4394af4c` (on `main`). After the squash
+> `190d2adb` (PR #506's: `git fetch origin pull/506/head`), `4394af4c` and `ad80b5ca` (on `main`; the
+> latter is A-iii, #545) and `01b645e6` (only on the local branch `stale-claim-detector` and on
+> `origin`'s `refs/backup/stale-claim-detector`). After the squash
 > merge the #510 ones resolve from the PR ref: `git fetch origin pull/510/head`, then run any cited git
-> command -- ranges and `--grep` locators included -- against `FETCH_HEAD` (a range's base, `658cc302`,
-> is on `main`). The `--grep` locators also resolve on `main`, because the repo squashes with the commit
+> command -- ranges and `--grep` locators included -- against `FETCH_HEAD` (a range's base is
+> `origin/main`, or a cited #510 commit). The `--grep` locators also resolve on `main`, because the repo squashes with the commit
 > messages (`gh api repos/send/elidex --jq .squash_merge_commit_message` = `COMMIT_MESSAGES`).
 > In this memo and the checker's files, a round label carrying a date (`Codex R<n> of <date>`,
 > `Codex R<n> (<date>, …)`) gives a UTC date; the rounds ledger's labels are its record and are not
@@ -68,7 +70,8 @@ or unscanned population (never a clean exit for "could not scan"). Seeds never g
 **Interim connection on `main`** (the checker's subject memo lands with #506, later): since A-iii
 (#545) the self-test enters CI through the tracked wrapper `.claude/tools/test_plan_memo_umbrella_check.py`,
 a member of `scripts/python-suites.sh`'s set (`git ls-files ':(glob)**/test_*.py'`), which the `tools`
-job (`Python suites`) runs on both matrix legs. The wrapper runs `plan-memo-umbrella-check.py
+job (`Python suites`) runs on both matrix legs; this PR re-derives that job's `timeout-minutes` from
+its own run. The wrapper runs `plan-memo-umbrella-check.py
 --self-test --mutants` through `sys.executable` and asserts exit 0 with a nonzero control count and a
 nonzero mutant count. Fixtures live in `tempfile` dirs, but the self-test reads `docs/plans/*.md` for
 `symbol_attribution_control` (since 7d43d7cd), so a memo edit can turn the job red; its cost is §8's
@@ -83,7 +86,9 @@ its self-test runs. The memo-specific invocation clause stays in #506. **#506's
 concurrent-branch obligations at its `git merge origin/main`** (both branches touch the same paths;
 neither is resolved by the merge driver): (a) the three pre-split tool files #506 carries
 (`plan-memo-umbrella-check.py` / `plan_memo_tables.py` / `plan_memo_umbrella_selftest.py`, last touched
-there at `190d2adb`) conflict modify/modify against this PR's rewrite of the same names — #506 must
+there at `190d2adb`) conflict add/add against this PR's rewrite of the same names (`git merge-base
+190d2adb origin/main` lacks all three; `git merge-tree --write-tree --name-only 190d2adb <#510 head>`
+reports `CONFLICT (add/add)` for each) — #506 must
 **DROP its side** (`git checkout --theirs`, i.e. take `main`'s) rather than resolve hunk by hunk, since
 its versions are the pre-Slice-0 monolith this program replaces; (b) `CLAUDE.md:54` is duplicated: #506's
 "Plan-memo checker" bullet must **shrink to the memo-specific invocation clause only** (which memo, when to
@@ -109,28 +114,39 @@ it enters the `tools` job through a wrapper, and its cost with it. The budget ha
 "The always-run self-test's cost grows with REVIEW ROUNDS, not with the program", where the job is
 re-measured on the runner when that suite joins it.
 
-⚠ **THREE plan-memo checkers exist, and until PR #510 Axis 5 not one of them named
-another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
+⚠ **FOUR plan-memo checkers exist, and until PR #510 Axis 5 not one of them named
+another** (⚠ this said THREE until 2026-10-25, missing `plan-sweep.py`). This one (the umbrella
+row-kind census + naming-site scan), `claim-gate-plan-check.py`
 (unpushed, branch `claim-gate-plan-check`, backed up as `refs/backup/claim-gate-plan-check` —
-quantitative-claim provenance and staleness) and `plan-xcheck.py` (on `main`, #523 — the layout memo
-cross-check); `claim-gate-plan-check.py` names `plan-xcheck.py`, `plan-xcheck.py` names neither of the
-others, and neither knows about this one. Their CI entries differ: this one's self-test runs in the
-`tools` job through its wrapper (above); the `stale-claim-detector` lane ships a shell wire for
-`trip-wires` and a Python `--self-test` that has no wrapper yet (the paragraph above);
-`plan-xcheck.py` is on `main` (#523) with no `*-trip-wire.sh` of its own and no `"--self-test"` constant. **The boundary, stated so the next author does not have to guess**:
+quantitative-claim provenance and staleness), `plan-xcheck.py` (landed with `plan-sweep.py` in #518,
+`4394af4c`; latest change #523 — the layout memo cross-check) and `plan-sweep.py` (on `main`, #518 —
+the restatement sweep); `claim-gate-plan-check.py` names `plan-xcheck.py`, `plan-xcheck.py` and
+`plan-sweep.py` name none of the others, and of the other three only this one names
+`plan-sweep.py` (its header, since 2026-10-25; `grep -c plan-sweep` over `plan-xcheck.py` and
+`git show claim-gate-plan-check:.claude/tools/claim-gate-plan-check.py` → 0, 0). Their CI entries
+differ: this one's self-test runs in the `tools` job through its wrapper (above); the
+`stale-claim-detector` lane ships a shell wire for `trip-wires` and a Python `--self-test` that has no
+wrapper yet (the paragraph above); `plan-xcheck.py` and `plan-sweep.py` are on `main` with no
+`*-trip-wire.sh` of their own and no `"--self-test"` constant (`grep -c -- --self-test` → 0 in each).
+**The boundary, stated so the next author does not have to guess**:
 this tool answers *"does this memo's row-kind census parse, and is every naming site licensed"*;
 `claim-gate` answers *"is a number in a memo still true"*; `plan-xcheck` answers *"do two layout memos
-agree"*. ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
-collapse only once "why N" can be WRITTEN, and nobody has written it — three populations (one memo
-family / any memo's figures / two named memos) that today share no predicate. The obligation this
+agree"*; `plan-sweep` answers *"where does this memo restate the decision I am changing"* (a lexical
+sweep that reports and never gates: its exit code is always 0). ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
+collapse only once "why N" can be WRITTEN, and nobody has written it — four populations (one memo
+family / any memo's figures / two named memos / one memo's restatements of an ad-hoc pattern) that
+today share no predicate. The obligation this
 raises is the cross-reference, not the merge. ⚠ **And it is discharged in ONE of three directions,
 which this paragraph first reported as done** (PR #510 Axis 3 + Axis 5, measured independently):
-only `.claude/tools/plan-memo-umbrella-check.py` — this PR's — names the other two.
+only `.claude/tools/plan-memo-umbrella-check.py` — this PR's — names the other two (and, since
+2026-10-25, `plan-sweep.py` as well).
 `claim-gate-plan-check.py` names `plan-xcheck.py` and not this one; `plan-xcheck.py` names neither.
 This PR cannot edit those trees, so the reciprocal is **OWED on the two lanes**
 (`claim-gate-plan-check` in `elidex-wt-claimcheck`, `plan-xcheck.py` on `layout-decorated-inline`)
-and is carried into their memos rather than asserted here. **Trigger (an EVENT)**: whichever of
-those two lanes next touches its tool's header. **Re-eval: 2026-12-31.** **Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the three need to
+and is carried into their memos rather than asserted here. `plan-sweep.py` was not counted when
+this obligation was set (the three directions above are among the other three tools), and whether
+the reciprocal is owed on it too is not decided here. **Trigger (an EVENT)**: whichever of
+those two lanes next touches its tool's header. **Re-eval: 2026-12-31.** **Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the four need to
 share. Re-eval: 2026-12-31.
 
 ## §2 Coupled invariants (edge-dense)
@@ -874,8 +890,9 @@ ground for either option; it is not cited.
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,
   keep-set, guard deletion), `plan_memo_roles.py` (guard deletion only), selftest, the `tools`-job
-  wrapper `.claude/tools/test_plan_memo_umbrella_check.py`, CLAUDE.md sentence (since A-iii, #545; the
-  trip-wire, `scripts/trip-wires.sh`, `ci.yml` comment and `mise.toml` comment this list named before
+  wrapper `.claude/tools/test_plan_memo_umbrella_check.py`, `.github/workflows/ci.yml` (the `tools`
+  job's `timeout-minutes` and its comment, re-derived by 785a27a0 from this PR's own run), CLAUDE.md
+  sentence (since A-iii, #545; the trip-wire, `scripts/trip-wires.sh`, `ci.yml` comment and `mise.toml` comment this list named before
   were retired in 8a81b93d). **Per-PR plan = THIS
   document**: §2–§7 are the umbrella AND Slice 0 + Slice 1's per-PR plan in one memo, and the plan-review the
   Status line records (three rounds, converged 2026-08-22) is Slice 1's pre-implementation review — no second
@@ -921,13 +938,16 @@ pre-existing** — (9) and (10) are the pre-existing ones, each with its groundi
 policy asks for it. Count the list rather than trusting this sentence: `awk` the `^- \*\*` lines
 of this section and you must get nineteen.
 ⚠ **(17) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FOURTEEN TO
-FIFTEEN.** The re-acceptance above was given at sixteen; by its own last sentence this change to the
+FIFTEEN.** The 2026-09-26 re-acceptance above (the third block of this section's head) was given at
+sixteen; by its own last sentence this change to the
 list re-opens the cap question for #510's merge, and this note records the movement rather than
 absorbing it.
 ⚠ **(18) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FIFTEEN TO
 SIXTEEN.** It re-opens the cap question again, for the same reason as (17).
 ⚠ **(19) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM SIXTEEN TO
 SEVENTEEN.** It re-opens the cap question again, for the same reason as (17).
+✅ The question (17), (18) and (19) re-opened was settled at nineteen on 2026-09-28 — the
+re-acceptance at nineteen above (the second block of this section's head).
 ⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
 RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
 once, the hand-written table three times)
@@ -1015,7 +1035,7 @@ attestation, a hand-written set that the entries added since had outgrown) — w
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for. Splitting what remains
 would mean cutting the checker itself, and the pieces do not separate: every entry names the SAME
 program, and the split this PR could take at a real seam it has already taken as standalone
-touch-time commits (among `git log --oneline 658cc302..FETCH_HEAD --grep='touch-time'`, after the head
+touch-time commits (among `git log --oneline origin/main..FETCH_HEAD --grep='touch-time'`, after the head
 note's fetch). A further split would be a split of the deferral LIST,
 not of the work — which changes no reader's decision and loses the one home that ties the entries to
 the design they came from.
