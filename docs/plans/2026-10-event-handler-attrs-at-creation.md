@@ -23,6 +23,15 @@ memo; this umbrella is meant to be precise enough that it can be derived from §
 
 **Approval vehicle**: open (§11 O10).
 
+**Rev 4.1** (2026-10-25). Applies the PM's three conditions on rev 4 (decision 23 follow-up); nothing else changes.
+(1) D-5 and D-10 now name the cell that pins the removal of the third timing: U9 (a shadow-root-direct child is not
+processed at a later bind, nor at its host's move). (2) Branch B keeps the Insert arm only as the template-contents
+processing point. New clause K-B and cell B9 pin "in branch B, the Insert arm processes no element other than template
+contents". The slot `#11-eh-template-contents-at-creation` is not registered now: the PM registers it when branch B
+is decided, its trigger is "C1's handling changes", and whether to delete the Insert arm is decided again then (§1.6,
+§8.2). (3) §8 records when the text of `#11-eh-attrs-creation-time-call-sites` goes to the PM (when the
+umbrella-approval PR lands) and that the PM registers it then.
+
 **Rev 4** (2026-10-25). Folds PM decision 23 and the umbrella plan-review R1 (CRIT 0 / IMP 9 / MIN 18; disposition
 §12). (1) §L (new) settles the landing order with cells: N1 on HEAD without slice a returns null from the getter of a
 compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function; so no N1-first order is
@@ -211,8 +220,15 @@ Every § number ↔ title pair and every algorithm step comes from `.claude/tool
   and that bind (H9). Elements created after it are created while a consumer is installed, except elements created
   while unbound between brackets. That gap is G7, registered as `#11-unbound-attribute-writes-bypass-consumers`
   (latent, not reachable today). So the bind pass never reaches an element a consumer could have seen, and the third
-  timing R1 found (A2 IMP-1) cannot occur. The pass stays after slice b (the pre-bind parse has no consumer at creation,
-  H9). In branch A of §1.6, slice b also walks template contents (§4.3).
+  timing R1 found (A2 IMP-1) cannot occur. That timing existed because no `MutationEvent` fires when the parent is a
+  shadow root (`crates/core/elidex-ecs/src/dom/tree/mutation.rs:289`): an element placed directly under one stays
+  unmarked, so rev 3's pass at every bind reached it at the next bind. **Pinned by cell U9** (§6.1): a shadow-root-direct
+  `x` with a guarded IDL write, then its host moved, then a second `initialize_from_tree`. `x` stays unmarked and its
+  `click` entry keeps no source. HEAD never processes `x`, so U9's outcome is HEAD's (and the spec's for that write).
+  The §6.4 mutation "dropping the document-marker check" fails U9. U9 reaches the later bind by calling
+  `initialize_from_tree` directly, the function every bind calls through `initialize_consumers` (H13). The pass stays
+  after slice b (the pre-bind parse has no consumer at creation, H9). In branch A of §1.6, slice b also walks template
+  contents (§4.3).
 - **D-6: VM surface.** The two element setters (`native_event_handler_set` `:344`, `native_body_weh_set` `:459`) call
   `note_handler_write` before `activate_event_handler`, passing `VmInner::spec_level_policy` (H19). In
   `native_body_weh_set` the call is placed **after** the no-Window early return (`:468-470`, H24), so a setter that
@@ -238,6 +254,9 @@ Every § number ↔ title pair and every algorithm step comes from `.claude/tool
   (`for_each_shadow_inclusive_descendant`). The shadow-including Insert walk of rev 3 is rejected (R11). It would process
   shadow content at a host's insertion, an event at which HEAD processes none of it. An element placed directly under a
   shadow root that took a guarded write (two or more deliverable attributes) would then lose that write. HEAD keeps it.
+  With D-5, this removes the third timing that the shadow-root filter (`mutation.rs:289`) used to create. **Pinned by
+  cell U9**: its host move is the Insert at which a shadow-including walk would reach `x`, and the §6.4 mutation "a
+  shadow-including Insert walk" fails U9. Its outcome is HEAD's (D-5).
 
 ### §0.5 Contract (single citable statement, with landing qualifiers)
 
@@ -284,7 +303,9 @@ creation-time handler content attributes (D-1). An "observable step" is an IDL g
   any script can observe E. For elements created with no consumer (the pre-bind parse), it happens at the first bind of
   their document, before that bind's first script. Processing writes the internal raw uncompiled handler on the resolved
   target. *The bind arm from slice a; the creation arm from slice b. In branch B of §1.6, template contents are
-  processed when they leave the template contents, not at creation (slot `#11-eh-template-contents-at-creation`).*
+  processed when they leave the template contents, not at creation, through the Insert arm. The Insert arm stays as
+  that processing point only if branch B is chosen, and in branch B it processes nothing else (K-B). The slot
+  `#11-eh-template-contents-at-creation` is registered when branch B is decided (§8.2).*
 - **K-5, inert documents read null.** A raw value that processing writes on a node whose node document has a null
   browsing context (a DOMParser document, template contents) reads as null and never runs. *Slice a: the bind pass writes
   no such value (it reaches neither, U8 (i), (ii)). Slice a's Insert arm writes HEAD's raw values when an unmarked
@@ -292,14 +313,24 @@ creation-time handler content attributes (D-1). An "observable step" is an IDL g
   script append into `tpl.content`, and into a DOMParser document after its build (`inert_document.rs:198-199`). Those
   values read non-null, and in template contents they run. That is the accepted window W-K5 (§1.5; cells C14, C15),
   HEAD-equal. From N1, the DOMParser half reads null (N1's node clause). From slice b in branch A of §1.6, for every
-  node. In branch B, every node except template contents and their clones (slot `#11-eh-template-contents-at-creation`).*
+  node. In branch B, every node except template contents and their clones, which the Insert arm, kept only because
+  branch B is chosen, still processes when they leave the template contents (K-B; slot
+  `#11-eh-template-contents-at-creation`, registered when branch B is decided).*
 - **K-6, bind completeness (G1).** At the first bind of a document, every element of its shadow-including tree
   (template contents excluded) is processed before any script of that bind runs. Later binds of the same document
   process nothing. *From slice a.*
+- **K-B, branch B only: the Insert arm processes template contents and nothing else.** If §1.6 branch B is chosen,
+  then from slice b the Insert arm processes no element other than template contents (and their clones) leaving the
+  template contents. Every other element is processed at its creation or at its document's first bind, so it is marked
+  before its first Insert and the arm's once check skips it. An element the arm processes that is not template
+  contents is an omitted creation path (D-3). (Open, not decided in rev 4.1: a pre-bind element deeper than the bind
+  pass's depth cap, §1.5, is unmarked at its first Insert. It is reported to the PM with this rev.) *From slice b, in
+  branch B only. In branch A the Insert arm is deleted and
+  K-B is void.*
 
 Red cells per clause (§6): K-0 guards U5 (ii), U9, C6, C13, C16 (no red: K-0 is HEAD-equality or improvement); K-1 C1–C3,
 C8, U1, U2, E3; K-2 C4, C11, U5 (i), B1, B8; K-3 C5, B1, B8; K-4 E1, E2, U7, B6; K-5 B4, B5 (window pins C14, C15);
-K-6 E1, E2, E4–E7, U7.
+K-6 E1, E2, E4–E7, U7; K-B B9 (branch B only).
 
 ## §1. Program shape (decided)
 
@@ -340,7 +371,7 @@ handling is decided** (§1.6). The PM decides C1's handling once slice a and N1 
 | x2 | slice a → slice b | code predecessor + data flow | slice b extends slice a's marker, `process_handler_content_attrs` and `note_handler_write` with creation-time call sites, deletes the D-8 guard and deletes the Insert arm |
 | x3 | T3 (`#11-event-handler-target-determination` step 3; owner Layout) → slice b | semantic precondition | slice b processes a DOMParser (or fragment-throwaway) `<body>` at creation; without step 3 its WindowEventHandlers attributes land on the **page** Window (§9.2 (b), I8) |
 | x4 | N1 → slice b | semantic precondition (P11) | slice b writes raw values at DOMParser-node creation; they read null only under N1's compile-gate node clause (§9.2 (a), I7) |
-| x5 | C1's **handling decided** (`#11-template-contents-owner-document`; no driver; deliberately deferred) → slice b | decision precondition; in branch A also C1's landing | branch A: slice b processes template contents at creation, which reads null only once C1 carries the inert owner per node (§9.2 (c), H15). Branch B: slice b leaves template contents to the kept Insert arm (§1.6) |
+| x5 | C1's **handling decided** (`#11-template-contents-owner-document`; no driver; deliberately deferred) → slice b | decision precondition; in branch A also C1's landing | branch A: slice b processes template contents at creation, which reads null only once C1 carries the inert owner per node (§9.2 (c), H15). Branch B: slice b leaves template contents to the Insert arm, which is kept only because branch B is chosen and only as the template-contents processing point (K-B, cell B9; §1.6) |
 
 Acyclic. x4 is satisfied transitively by the order (x1, and x5's decision point after N1 lands); it is listed so that a
 re-ordering cannot drop it.
@@ -361,8 +392,9 @@ requires it:
   parse); the clone-policy row; the `note_handler_write` call sites in the AttributeChange arm and both VM setters (D-6).
 - **Extended by slice b:** new call sites of `process_handler_content_attrs` at creation (O9).
 - **Deleted by slice b (the interim's whole surface):** (1) the D-8 guard line in `note_handler_write`; (2) the Insert
-  arm: `handle_insert` and the `MutationEvent::Insert` match arm of the consumer's `handle` (`event_handler_consumer.rs:373`, `:381`) (D-3). In §1.6
-  branch B, (2) is deferred to the template-contents residue slot.
+  arm: `handle_insert` and the `MutationEvent::Insert` match arm of the consumer's `handle` (`event_handler_consumer.rs:373`, `:381`) (D-3). Only if
+  §1.6 branch B is chosen is (2) kept, as the template-contents processing point and nothing else (K-B). Whether to delete
+  it is then decided again when `#11-eh-template-contents-at-creation`'s trigger fires (§8.2).
 - **Interim behaviour, all HEAD-equal (K-0):** §1.5's windows.
 - **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2) names the interim, what deletes it and when.
 
@@ -392,11 +424,11 @@ Every window below exists at HEAD with the same outcome. Slice a introduces none
 |---|---|---|
 | slice b's start | after C1 lands | after the decision |
 | template contents at creation | processed (call site at `attach_template_contents`; the bind pass also walks pre-bind template contents, §4.3); they read null under C1's per-node inert owner | **not** processed at creation. The Insert arm is kept, and it is their only processing point when they leave the template contents (HEAD's) |
-| the Insert arm | deleted (§1.4 (2)) | kept unchanged. After slice b, every other bound creation path marks at creation, so the arm processes only template contents leaving their fragment, plus any omitted path. B7's pre-insertion cells catch omitted paths, because the arm cannot mask a read made before insertion |
+| the Insert arm | deleted (§1.4 (2)) | kept unchanged, **only because branch B is chosen**, and only as the template-contents processing point. After slice b, every other bound creation path marks at creation, so the arm processes template contents leaving their fragment and no other element (K-B, cell B9). An omitted path would break K-B; B7's pre-insertion cells and B9 catch it, because the arm cannot mask a read made before insertion |
 | K-4 | unqualified | qualified: template contents are processed when they leave the template contents |
 | K-5 | unqualified | qualified: template contents and their clones read non-null (W-K5 persists, HEAD-equal) |
-| slot | `#11-eh-attrs-creation-time-call-sites` closes at slice b's landing | the same slot closes at slice b's landing for every defect except template contents, which move to the new slot `#11-eh-template-contents-at-creation` (§8.2; its trigger is C1's landing; it owns the Insert arm's deletion) |
-| §10.3 | K-0–K-6 unqualified | K-4 and K-5 carry the slot's qualifier; the rest unqualified |
+| slot | `#11-eh-attrs-creation-time-call-sites` closes at slice b's landing | the same slot closes at slice b's landing for every defect except template contents, which move to the slot `#11-eh-template-contents-at-creation`. That slot is not registered now: the PM registers it when branch B is decided. Its trigger is "C1's handling changes", and whether to delete the Insert arm is decided again then (§8.2) |
+| §10.3 | K-0–K-6 unqualified; K-B void | K-4 and K-5 carry the slot's qualifier; K-B holds (B9); the rest unqualified |
 
 ## §2. Coupled invariants
 
@@ -540,8 +572,9 @@ impl EventHandlerAttributeConsumer { pub fn initialize_from_tree(&mut self, dom:
 - Call `process_handler_content_attrs_in_subtree` at the end of each bound creation path: the fragment build (before
   `finish_detached_fragment`'s adopt, so step 3 sees the throwaway document), the DOMParser build, the clone (H18), and,
   in §1.6 branch A, template-contents attachment. The call-site shape is O9.
-- Delete the Insert arm (D-3). In §1.6 branch B, keep it unchanged and record its deletion under
-  `#11-eh-template-contents-at-creation`.
+- Delete the Insert arm (D-3). Only if §1.6 branch B is chosen, keep it unchanged, as the template-contents processing
+  point and nothing else (K-B, cell B9). Whether to delete it is decided again at `#11-eh-template-contents-at-creation`'s
+  trigger (§8.2).
 - In branch A, the bind pass also walks template contents of the pre-bind tree (R1 A1's cross-axis note: without this
   the pre-bind parse's template contents would have no processing point once the Insert arm is gone). The walker is
   slice b's choice (H10's walker does not follow template contents).
@@ -836,6 +869,7 @@ Control: `data-ran == "1"`.
 | B6 | red (G2 rest) | (i) `sr.appendChild(x)` of an `onclick` element directly under a shadow root; (ii) `sr.innerHTML`; (iii) rev 3's C10: `h = createElement('div')`, `sr = h.attachShadow({mode:'open'})`, `sr.innerHTML = '<button id=b onclick="…">'`, `el.append(h)` | processed at creation; dispatch runs it | — |
 | B7 | red (detector; D-3) | for each creation path of §5.3's slice-b column, a read before any insertion (`typeof x.onclick === 'function'` on the fresh node), plus the `debug_assert!` that slice b's plan places, exercised by a test-only creation path that skips processing | each path's pre-insertion read is a function; the assertion fires on the test-only path | — |
 | B8 | red | live post-bind `c` with `onclick=A onmouseover=C`, never inserted; `c.onclick = fn` (and the `setAttribute` form); `el.append(c)` | `c.onclick === fn` (the D-8 guard's residual) | — |
+| B9 | red (K-B; branch B only) | unit, `EventHandlerAttributeConsumer` installed. For each bound creation path of §5.3's slice-b column other than template contents (fragment build, DOMParser build, clone, declarative shadow content, `createElement` + `setAttribute`), an element `x` with `onclick=A`, taken before its first insertion (for the fragment build: the detached fragment before placement). Read the marker, `take_uncompiled` the `click` entry, then insert `x`. Control: `y` with `onclick=A` in `tpl.content`, `take_uncompiled` if an entry exists, then moved out of the template contents | each `x` is marked before the insertion, and after it the `click` entry's `uncompiled_source == None`: the arm processed nothing. `y` is unmarked before and raw `A` after: the arm's one remaining processing point, live (the non-vacuity control). HEAD: the arm re-raws `x` at every insertion (`Some("A")`); slice b's base (slice a): `x` is unmarked before its first insertion and comes out `Some("A")`, except on the `createElement` + `setAttribute` path, which slice a already marks (D-8) | branch B chosen |
 
 Rev 3's "U5 (ii) inverted" row is withdrawn: U5 (ii) no longer pins the guard's internal state (§12 A3-IMP-1), and B8 is
 the red cell for the residual.
@@ -902,6 +936,10 @@ scope; any other becomes a slot proposal.
 **Registration timing**: a gap that exists at HEAD is registered when the PM accepts the proposal; a gap created by code
 a slice adds is registered at that slice's landing. The PM registers every slot; this memo writes defect texts only.
 
+**Hand-off timing (rev 4.1, PM condition).** The text of `#11-eh-attrs-creation-time-call-sites` (§8.2) is sent to the
+PM when the umbrella-approval PR lands, and the PM registers the slot then. `#11-eh-template-contents-at-creation`
+(§8.2) is not registered now: the PM registers it when §1.6 branch B is decided, and not at all in branch A.
+
 ### §8.1 Existing slots cited
 
 - `#11-event-handler-target-determination` (registered by the PM 2026-10-25; facets (1) step 3, (2) step 4, (3)
@@ -938,23 +976,27 @@ a slice adds is registered at that slice's landing. The PM registers every slot;
 > non-null handler (W-K5). **Classification:** all five are **pre-existing**. Each exists at HEAD with the same
 > outcome or a wider population, and slice a narrows (1) to multi-attribute elements and makes no other worse (K-0).
 > The guard line and the Insert-arm processing call are slice a's own code, but each carries a pre-existing defect and
-> creates none. So under §8's rule the slot is **registered when the PM accepts this text** (at this umbrella's
-> approval), not at slice a's landing. **Why deferred:** the end state processes at creation. That writes raw values on
+> creates none. So under §8's rule the slot is **registered when the PM accepts this text**: the text is sent to the PM
+> when the umbrella-approval PR lands, and the PM registers it then (§8 hand-off timing), not at slice a's landing. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1, x4), on DOMParser bodies (needs T3, x3), and on template contents (needs
 > C1, x5). N1 itself needs slice a first (§L). **Closes:** at slice b's landing. Slice b deletes the guard line and the
-> Insert arm (§1.4). In §1.6 branch B, defect (5)'s template half moves to `#11-eh-template-contents-at-creation`.
+> Insert arm (§1.4). Only if §1.6 branch B is chosen, the Insert arm is kept, as the template-contents processing
+> point and nothing else (K-B), and defect (5)'s template half moves to `#11-eh-template-contents-at-creation`.
 > **Trigger:** T3 and N1 landed, and C1's handling decided. **Re-eval:** 2026-12-31. **Confidence:** medium. The order is
 > fixed (PM decisions 21, 23), but slice b's start waits on T3 (owner Layout, not started) and on C1's handling (no
 > driver).
 
-> **`#11-eh-template-contents-at-creation`** (proposed only for §1.6 branch B; register when the PM decides not to land
-> C1) — owner: Layout lane (program `EH-attrs-at-creation`). **Defect:** template contents (and clones of them) are
-> processed when they leave the template contents, through the consumer's Insert arm, not at creation. Contents placed
-> by `tpl.innerHTML` or a script append read a non-null handler and run it while inert (WHATWG HTML §4.12.3: the
-> template contents owner document has a null browsing context). **Classification:** pre-existing (HEAD-equal; slice b
-> leaves it). **Why deferred:** processing at creation without C1's per-node inert owner would make parser-built
-> contents read non-null where HEAD reads null (worse than HEAD). **Closes:** after C1 lands, processing at creation
-> plus deleting the Insert arm. **Trigger:** `#11-template-contents-owner-document` landed. **Re-eval:** at the C1
+> **`#11-eh-template-contents-at-creation`** (proposed only for §1.6 branch B. **Not registered now:** the PM
+> registers it at the moment branch B is decided, and never in branch A) — owner: Layout lane (program
+> `EH-attrs-at-creation`). **Defect:** template contents (and clones of them) are processed when they leave the
+> template contents, through the consumer's Insert arm, not at creation. Contents placed by `tpl.innerHTML` or a script
+> append read a non-null handler and run it while inert (WHATWG HTML §4.12.3: the template contents owner document has
+> a null browsing context). **Classification:** pre-existing (HEAD-equal; slice b leaves it). **The Insert arm:** it
+> is kept only because branch B is chosen, and only as the template-contents processing point. It processes no other
+> element (K-B, cell B9). **Why deferred:** processing at creation without C1's per-node inert owner would make
+> parser-built contents read non-null where HEAD reads null (worse than HEAD). **Trigger:** C1's handling changes
+> (`#11-template-contents-owner-document`). **At the trigger:** whether to delete the Insert arm is decided again,
+> together with how template contents are then processed; nothing is pre-committed here. **Re-eval:** at the C1
 > decision + 90 days. **Confidence:** low (C1 has no driver).
 
 ### §8.3 Records for existing slots (for the PM)
@@ -1063,7 +1105,8 @@ no component that slice b deletes. Slice a's timing is interim, and so are the g
   All pass at the head.
 - `cargo test -p elidex-script-session --all-features`, `cargo test -p elidex-js --all-features`,
   `cargo test -p elidex-shell --all-features`, `cargo test -p elidex-ecs --all-features`, and `mise run ci` are green.
-- `#11-eh-attrs-creation-time-call-sites` (§8.2) was registered at this umbrella's approval; slice a's PR cites it.
+- `#11-eh-attrs-creation-time-call-sites` (§8.2) was registered by the PM when the umbrella-approval PR landed (§8
+  hand-off timing); slice a's PR cites it.
 
 ### §10.2 Slice b
 
@@ -1073,19 +1116,22 @@ no component that slice b deletes. Slice a's timing is interim, and so are the g
   removed line plus its comment).
 - Branch A: `handle_insert` and the `MutationEvent::Insert` match arm of the consumer's `handle` (`event_handler_consumer.rs:373`, `:381`) are deleted;
   `/usr/bin/grep -n 'MutationEvent::Insert' crates/script/elidex-script-session/src/event_handler_consumer.rs` → no
-  non-test hit. Branch B: both are unchanged, and their doc names `#11-eh-template-contents-at-creation`.
+  non-test hit. Branch B: both are unchanged, kept only because branch B was chosen and only as the template-contents
+  processing point (K-B). Their doc says so and names `#11-eh-template-contents-at-creation`, which the PM registered
+  when branch B was decided.
 - Every bound creation path of §5.3's slice-b column calls `process_handler_content_attrs_in_subtree` at creation (O9's
   chosen shape); in branch B, template-contents attachment does not.
 - `inert_document.rs:78-84` corrected (P3).
-- Cells B1–B8 present, red-first on slice b's base (B4 in branch A only); slice a's cells and pins stay green, except the
+- Cells B1–B8 present, red-first on slice b's base (B4 in branch A only); in branch B, cell B9 (K-B) too; slice a's cells and pins stay green, except the
   window pins C14 (inverted by B4 in branch A) and C15 (replaced by N1's C8 once N1 has landed).
 - `#11-eh-attrs-creation-time-call-sites` is closed by the PM.
 
 ### §10.3 Program
 
 - Both slices have landed in the §1.3 order, each with its own reviewed plan-memo.
-- Branch A: K-0 to K-6 hold at slice b's landing without qualifiers. Branch B: K-4 and K-5 carry the
-  `#11-eh-template-contents-at-creation` qualifier; the others hold without qualifiers.
+- Branch A: K-0 to K-6 hold at slice b's landing without qualifiers; K-B is void (no Insert arm). Branch B: the Insert
+  arm exists only because branch B was chosen, as the template-contents processing point. K-4 and K-5 carry the
+  `#11-eh-template-contents-at-creation` qualifier, K-B holds (cell B9), and the others hold without qualifiers.
 - **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
   docs/plans/2026-10-event-handler-attrs-at-creation.md` exits 0.
 
