@@ -933,10 +933,11 @@ suppression homed in §4 row #5; (11) the unbound table making no kind claim; (1
 tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the residue
 gate's presence comparison; (15) the declaration site that produced no table; (16) the hand-written
 table with no detector; (17) gap-pattern population completeness; (18) a vocabulary match read
-across a masked span; (19) an unmatched `)` with two ratified notions. **Seventeen own and two
+across a masked span; (19) an unmatched `)` with two ratified notions; (20) nested strong pairs'
+interiors re-read by `dispose`. **Eighteen own and two
 pre-existing** — (9) and (10) are the pre-existing ones, each with its grounding stated where the
 policy asks for it. Count the list rather than trusting this sentence: `awk` the `^- \*\*` lines
-of this section and you must get nineteen.
+of this section and you must get twenty.
 ⚠ **(17) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FOURTEEN TO
 FIFTEEN.** The 2026-09-26 re-acceptance above (the third block of this section's head) was given at
 sixteen; by its own last sentence this change to the
@@ -948,6 +949,7 @@ SIXTEEN.** It re-opens the cap question again, for the same reason as (17).
 SEVENTEEN.** It re-opens the cap question again, for the same reason as (17).
 ✅ The question (17), (18) and (19) re-opened was settled at nineteen on 2026-09-28 — the
 re-acceptance at nineteen above (the second block of this section's head).
+⚠ (2026-10-25) (20) was carved after the acceptance at nineteen; the cap question is open again.
 ⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
 RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
 once, the hand-written table three times)
@@ -1002,7 +1004,7 @@ split folded because the work was done; the GFM splitter re-classified own on a 
 できるが念のため defer 化" — is the case for folding, and this PR has already taken it **twice by
 measurement**: the §6.4 carve folded at R42-5 once the fix measured ≈45 lines across two modules with
 one reader each, and the §6.6 reading folded this session at ~20 lines once a reference implementation
-settled it. What is left does not fit that shape. (5), (6), (12), (14), (17), (18) and (19) — the entries whose
+settled it. What is left does not fit that shape. (5), (6), (12), (14), (17), (18), (19) and (20) — the entries whose
 OWN text puts them under the edge-dense rule — are each explicitly
 `/elidex-plan-review`-before-implementation **by CLAUDE.md's edge-dense rule, not by judgment** — (5)
 intersects the id grammar, the grammar↔scan agreement property, the `_glued` boundary rule, the
@@ -1012,7 +1014,9 @@ exception, §6.4's demotion, `MARKER_RE`, the residue gate and the `keep` set; (
 `_kind`'s ordering, the attribution pass, I-A's straddle rule and a ratified control; (17) has no
 canonical algorithm at all ("every gap-bearing pattern") and four in-PR attempts at one each
 introduced its own defect; (18) spans nine patterns under five consumer semantics; (19) intersects
-the paren grammar, the resolver correspondence, R26-2, the trailing policy and the cost contract.
+the paren grammar, the resolver correspondence, R26-2, the trailing policy and the cost contract;
+(20) meets the §6.2 pairing, `id_only`'s meaning, the reader stream's coordinates, the linearity
+contract and the generated growth corpus.
 ⚠ **This set read "(5), (6) and (16)" at `79309486`** (re-indexed from "(11)", which at `f87dd8f2` was
 the hand-written table), and (16)'s own text claims neither edge-dense nor plan-review, while (12) and
 (14) — added after the sentence — say BY RULE. Re-derived from the entries' text (the fifth
@@ -1042,7 +1046,7 @@ the design they came from.
 
 ⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **The own entries whose
 own text names a review round, a design re-gate or a review axis as their origin** — (4)–(7) and
-(11)–(19), thirteen of the seventeen — were produced by the REVIEW LOOP rather than by the plan, and that is
+(11)–(20), fourteen of the eighteen — were produced by the REVIEW LOOP rather than by the plan, and that is
 the honest reading of why the cap is breached:
 ⚠ **THE SET THAT STOOD HERE, "(4)–(8) and (11)–(15)", FOLLOWED NO STATED RULE** (2026-09-22, the fourth
 attestation). It counted (8), whose text names no round — it is own because a MEASUREMENT reclassified
@@ -1614,3 +1618,32 @@ committed here by the note that corrected it.
   **Scope**: one notion of where a file-name run ends at `)`, on both sides of the suffix.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (Codex R30 of 2026-09-27). **Re-eval: 2026-12-31.**
+- **(own)** **`dispose` RE-READS EVERY KEPT-CANDIDATE STRONG PAIR'S INTERIOR, SO NESTED STRONG PAIRS MAKE
+  DISPOSITION QUADRATIC** (PR #510 Codex F-R1 of 2026-10-25 on `785a27a0` — **own**; **real, reproduced,
+  NOT fixed here**). In `plan_memo_stream.dispose`, every `**` pair (`ch == "*" and use == 2`) asks
+  `id_only(_reading(rd, ob, ca), keep)`: `_reading` copies the pair's whole interior out of the reader
+  stream and `id_only` re-tokenizes that copy, so a character inside N nested pairs is copied N times
+  and the interiors sum to O(N²) characters. Measured on `785a27a0`'s code (`/opt/homebrew/bin/python3.14` = 3.14.9, arm64 macOS,
+  no other load; one run each; the probe is in the body of the first commit whose message contains
+  F-R1 NESTING PROBE: `git log --reverse --grep='F-R1 NESTING PROBE' --format=%H | head -1 | xargs git
+  log -1 --format=%B`; `dispose` timed after `plan_memo_lexer.Lexed(text).resolve({})`, keep =
+  `plan_memo_selftest_growth.GROWTH_KEEP`, and the same text appended as prose to the harness fixture
+  `build()` through `run_on`, where `check()` exits 0):
+
+  | shape | N | `dispose` | interior chars copied | `check()` |
+  |---|---|---|---|---|
+  | `'**a ' * N + 'z' + ' b**' * N` | 500 / 1000 / 2000 | 0.071 / 0.279 / 1.159 s | 501,500 / 2,003,000 / 8,006,000 | 0.08 / 0.29 / 1.13 s |
+  | `'**9z ' * N + '9z' + ' 9z**' * N` | 500 / 1000 / 2000 | 0.084 / 0.330 / 1.287 s | 752,500 / 3,005,000 / 12,010,000 | 0.09 / 0.34 / 1.36 s |
+  | `'**a** ' * (2 * N)` (flat, the control) | 500 / 1000 / 2000 | 0.002 / 0.003 / 0.007 s | 1,000 / 2,000 / 4,000 | — |
+
+  Each doubling of N about quadruples the nested shapes and about doubles the flat one. ⚠ **An early
+  exit in `id_only` does not close it**: in the first shape `id_only` already answers False on every
+  pair (0 of N True) and the cost is still quadratic, because `_reading`'s copy is paid before `id_only`
+  runs; in the second every interior IS id-only over a declared id (`9z`; N of N True), so no early
+  exit is available and the tokenizer reads the whole interior each time. The generated growth corpus
+  (`generated_growth_control`) does not flag it: the self-test is green on this code. It meets the
+  §6.2 pairing `dispose` reads, the meaning of `id_only`, the reader stream's source↔stream
+  coordinates (`Stream.src`, `Stream.at`), the linearity contract and the generated growth corpus that
+  holds it, so it is edge-dense by CLAUDE.md's own test and `/elidex-plan-review`-before-implementation
+  **BY RULE**. **Owner**: Slice 2's plan-review, the occasion already scheduled (as for (5)).
+  **Re-eval: 2026-12-31.** No slot: it is this checker's own code, not a platform gap.

@@ -114,6 +114,10 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - ✅ **SETTLED 2026-09-28 — the user re-accepted (d) at 19 entries (17 own + 2 pre-existing)** (recorded at the head of §8, under the `## §8` title; Codex R38 of 2026-09-27, P1). ~~⚠ **OPEN — 2026-09-28: §8's list is now 19 entries (17 own + 2 pre-existing)**~~ — (19), an unmatched
   `)` with two ratified notions (Codex R30 of 2026-09-27), was carved with the user's approval. It re-opened the cap
   question for #510's merge again; the umbrella memo's §8 records the movement.
+- ⚠ **OPEN — 2026-10-25: §8's list is now 20 entries (18 own + 2 pre-existing)** — (20), `dispose`
+  re-reading every nested strong pair's interior (Codex F-R1 of 2026-10-25), was carved by the PM's
+  ruling after the acceptance at nineteen. The cap question for #510's merge is open again until the
+  user answers it at twenty; the umbrella memo's §8 records the movement.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 
