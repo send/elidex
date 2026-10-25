@@ -87,7 +87,7 @@ def linear_emphasis_control(M):
     runs this shape needs.  Until R32 that was written up as a limit of the
     generator's VOCABULARY.  It is not: three atoms derived from
     `plan_memo_emphasis.DELIMS` turn the defect red there, and what actually
-    keeps them out is the ~+8 s they cost on an always-run wire.  Cost is a
+    keeps them out is the ~+8 s they cost in the `tools` job's self-test wrapper.  Cost is a
     reason; "the property cannot reach this" was not one, and stating the wrong
     one is how a stopgap becomes the tenth per-shape control this module's own
     header argues against.  Carried in the plan's §8."""

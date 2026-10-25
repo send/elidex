@@ -154,8 +154,9 @@ MODULES
 WHERE THIS RUNS.  By hand on a memo: `SCHEMAS` matches one document family's
 exact header rows, so against any other plan memo it prints `FATAL: no table
 matched schema ...` and exits 2 -- which is why the MEMO run is not a
-trip-wire.  Its self-test IS one: `plan-memo-umbrella-selftest-trip-wire.sh`
-runs `--self-test --mutants` under `scripts/trip-wires.sh` on every PR.
+trip-wire.  Its self-test runs on every PR in the `tools` job: the wrapper
+`test_plan_memo_umbrella_check.py` runs `--self-test --mutants` through
+`scripts/python-suites.sh` (both matrix legs).
 
 FINDING CODES.  Mechanical (gate the exit status): UMBRELLA-MARK (a),
 UMBRELLA-CELL (b, the `Deps` half only -- the acceptance half has no cell and

@@ -126,9 +126,8 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none (the
-  # layering wires call no cargo, rustc or python, and the self-test wire needs
-  # only the `python3` already on `ubuntu-latest`), so a filter would buy nothing and cost the
+  # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
+  # the whole set, no toolchain, no cache), so a filter would buy nothing and cost the
   # one property the wires exist for. Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
@@ -138,45 +137,19 @@ jobs:
   # construction, for these wires and for any wire added later whose path coverage
   # nobody re-derives.
   #
-  # THE BUDGET. The self-test wire's `--self-test --mutants` grows with every
-  # review round that adds controls or mutants, so this job's run time is a
-  # budget against `timeout-minutes` below, not a constant. NO FIGURE IS KEPT
-  # HERE: the budget and its growth driver are the plan's §8 entry "The
-  # always-run wire's cost grows with REVIEW ROUNDS, not with the program".
-  # Measure the job on the runner itself:
-  #   gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="Layering trip-wires")|[.startedAt,.completedAt]'
-  # A second heavy wire (`claim-provenance-trip-wire.sh`, the
-  # `stale-claim-detector` lane) will run in this same job; when it lands,
-  # re-measure. The plan's §1 carries the merge obligation on `REQUIRED_WIRES`.
-  #
   # What this does and does not buy: it makes a drifted allowlist RED on the PR. It
   # does not block the merge — the `main-protection` ruleset carries no
   # required-status-check rule, so merging still rests on the CLAUDE.md convention of
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    # 10 minutes. The headroom multiple is NOT written here: it is read off a
-    # run (the command is in the comment above). This line once carried its own
-    # copy and went stale at the next re-measurement -- the same two-live-copies
-    # defect PR #510 R30 removed from CLAUDE.md. A number that moves is measured,
-    # not kept.
-    # ⚠ And it moves one way, because every round's new controls and mutants land
-    # in an always-run job: that is a budget, not a constant. When it nears 2x,
-    # split the wire or re-derive the timeout deliberately -- do not discover it
-    # when the runner cancels the job, as it did under the original 2-minute
-    # timeout (run 34104840164). The RULE is here; the figure it is read
-    # against is measured from a run. This 10 is the deliberate re-derivation
-    # that rule asked for, made at R32.
-    timeout-minutes: 10
+    timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       # The same script `mise run trip-wires` runs, so the local gate and CI
-      # cannot diverge. No toolchain step: the wires are grep-only except
-      # `plan-memo-umbrella-selftest-trip-wire.sh`, which needs `python3`
-      # (stdlib only, no packages) — present on `ubuntu-latest`; that wire
-      # FAILs rather than skips if the interpreter is absent.
+      # cannot diverge. No toolchain step: the wires are grep-only.
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh
 
