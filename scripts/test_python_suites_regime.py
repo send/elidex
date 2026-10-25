@@ -300,13 +300,16 @@ class Raw(unittest.TestCase):
             s.close()
 """
 
+# The driver's per-member verdict lines; the nested member compares the same prefixes.
+G7_VERDICT_PREFIXES = ("python-suites: test ", "python-suites: FAIL ", "python-suites: ok ", "python-suites: RED")
+
 G7_NESTED_MEMBER = """
 import json
 import os
 import subprocess
 import unittest
 
-VERDICT = ("python-suites: test ", "python-suites: FAIL ", "python-suites: ok ", "python-suites: RED")
+VERDICT = %r
 
 
 class Nested(unittest.TestCase):
@@ -323,10 +326,7 @@ class Nested(unittest.TestCase):
         got = [l for l in out.splitlines() if l.startswith(VERDICT)]
         want = json.loads(os.environ["PYSUITES_PIN_EXPECT"])
         self.assertEqual(got, want, out)
-"""
-
-# The driver's per-member verdict lines (the nested member compares the same prefixes).
-G7_VERDICT_PREFIXES = ("python-suites: test ", "python-suites: FAIL ", "python-suites: ok ", "python-suites: RED")
+""" % (G7_VERDICT_PREFIXES,)
 
 G8_MARK_MEMBER = """
 import sys
@@ -568,8 +568,7 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         lst6 = Listener(self, socket.AF_INET6, "::1")
         env = {"PYSUITES_PIN_PORT": str(lst.port), "PYSUITES_PIN_PORT6": str(lst6.port)}
         # The G1-G5 plants (the member set those rows use) plus the install-count member.
-        files = {
-            "c/test_count.py": G7_COUNT_MEMBER,
+        plants = {
             "g1/test_g1.py": G1_MEMBER,
             "g2/test_g2.py": G2_MEMBER,
             "g3/test_g3.py": G3_MEMBER,
@@ -577,10 +576,10 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
             "g5/test_g5.py": G5_MEMBER,
             "g5top/test_g5_top.py": G5_TOPLEVEL_MEMBER,
         }
+        files = {"c/test_count.py": G7_COUNT_MEMBER, **plants}
         inner = self.scratch(files)
-        for member in files:
-            if member != "c/test_count.py":
-                self.assertBaselineGreen(inner, member, env)
+        for member in plants:
+            self.assertBaselineGreen(inner, member, env)
         # Direct run: count 1 in the loader and a child; every plant red.
         out = self.assertRed(
             inner.run(env),
@@ -627,10 +626,8 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         self.assertIn("python-suites: test ok m/test_mark.py::G8.test_chained_sitecustomize_ran", out)
 
     def test_G9_unnamed_regime_changing_launch_is_refused(self):
-        # Scrub the caller's proxy variables so a caller that already exports NO_PROXY=*
-        # (or any proxy variable) cannot make the launch's env equal to this process's.
-        env = {k: v for k, v in base_env().items() if k.lower() not in ("no_proxy", "http_proxy", "https_proxy")}
-        env["NO_PROXY"] = "python-suites-pin-not-the-callers-value"
+        # NO_PROXY must differ from the caller's: a caller already exporting NO_PROXY=* would otherwise make the launch env equal.
+        env = dict(base_env(), NO_PROXY=os.environ.get("NO_PROXY", "") + "-pin")
         with self.assertRaises(AssertionError) as cm:
             _launch([sys.executable, "-c", "pass"], env=env, purpose="driver")
         self.assertIn("not a named member of the unguarded-child class", str(cm.exception))

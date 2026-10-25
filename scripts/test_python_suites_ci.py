@@ -154,27 +154,17 @@ class TestReaderPins(unittest.TestCase):
         self.assertIn("job key 'needs' is not in the tools-job allowlist", problems)
         # Both triggers are read: green when each is exactly `branches: [main]`.
         self.assertEqual(trigger_problems(Workflow(workflow()).on()), [])
-        pr_ok = "  pull_request:\n    branches: [main]\n"
-        push_ok = "  push:\n    branches: [main]\n"
-        for trig, bad, want in (
-            ("pull_request", "    branches: [main]\n    paths: ['crates/**']\n", "pull_request keys are not exactly branches"),
-            ("pull_request", "    branches: [main]\n    paths-ignore: ['docs/**']\n", "pull_request keys are not exactly branches"),
-            ("pull_request", "    branches: [main, dev]\n", "pull_request branches is not exactly [main]"),
-            ("push", "    branches: [main]\n    paths: ['crates/**']\n", "push keys are not exactly branches"),
-            ("push", "    branches: [main]\n    paths-ignore: ['docs/**']\n", "push keys are not exactly branches"),
-            ("push", "    branches: [main, dev]\n", "push branches is not exactly [main]"),
-            ("push", "    branches: [dev]\n", "push branches is not exactly [main]"),
-        ):
-            on = "on:\n" + (pr_ok if trig == "push" else "") + "  %s:\n" % trig + bad + (push_ok if trig == "pull_request" else "")
-            self.assertEqual(trigger_problems(Workflow(workflow(on=on)).on()), [want], on)
-        self.assertEqual(
-            trigger_problems(Workflow(workflow(on="on:\n  push:\n    branches: [main]\n")).on()),
-            ["on: has no pull_request mapping"],
-        )
-        self.assertEqual(
-            trigger_problems(Workflow(workflow(on="on:\n  pull_request:\n    branches: [main]\n")).on()),
-            ["on: has no push mapping"],
-        )
+        ok = "    branches: [main]\n"
+        bad_keys = ("    branches: [main]\n    paths: ['crates/**']\n", "    branches: [main]\n    paths-ignore: ['docs/**']\n")
+        bad_branches = ("    branches: [main, dev]\n", "    branches: [dev]\n")
+        for trig, other in (("pull_request", "push"), ("push", "pull_request")):
+            cases = [(bad, "%s keys are not exactly branches" % trig) for bad in bad_keys]
+            cases += [(bad, "%s branches is not exactly [main]" % trig) for bad in bad_branches]
+            for bad, want in cases:
+                on = "on:\n  %s:\n%s  %s:\n%s" % (trig, bad, other, ok)
+                self.assertEqual(trigger_problems(Workflow(workflow(on=on)).on()), [want], on)
+            lone = "on:\n  %s:\n%s" % (trig, ok)
+            self.assertEqual(trigger_problems(Workflow(workflow(on=lone)).on()), ["on: has no %s mapping" % other], lone)
 
     # R-rows.
 
