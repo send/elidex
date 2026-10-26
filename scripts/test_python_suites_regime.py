@@ -589,14 +589,9 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         )
 
     def test_G6_environment_half_once_per_regime_key(self):
-        s = self.scratch({"g6/test_g6.py": G6_MEMBER})
-        self.assertBaselineGreen(s, "g6/test_g6.py", G6_INHERITED)
-        out = self.assertRed(
-            s.run(G6_INHERITED, purpose="g6-inherited-driver"),
-            *["FAILED g6/test_g6.py::G6.test_%s" % k for k in G6_INHERITED]
-        )
-        self.assertEqual(len([l for l in out.splitlines() if l.startswith("python-suites: test FAILED")]), 5, out)
-        # The regime keys are spelled three times in the driver; tie them to REGIME_KEYS.
+        # The key set is spelled in REGIME_KEYS, regime_env and the header's Environment-half
+        # list (the STATED LIMIT refers to it as "any regime key"); tie all three, and
+        # G6_INHERITED, to REGIME_KEYS before the driver launch, so a launch failure cannot hide it.
         base = {**{k: "sentinel-" + k for k in REGIME_KEYS}, "UNRELATED": "u", "GIT_DIR": "/x"}
         env = DRV.regime_env(base, "/g", 1234, "/c")
         moved = {k for k in base.keys() | env if base.get(k) != env.get(k)} - {"GIT_DIR"}
@@ -607,6 +602,13 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         listed = {n for m in re.findall(r"^#   (\S+)", half, re.M) for n in m.split("/")}
         self.assertEqual(listed, set(REGIME_KEYS) | {"GIT_*"})
         self.assertEqual(set(G6_INHERITED) | {"PYTHONPATH"}, set(REGIME_KEYS))
+        s = self.scratch({"g6/test_g6.py": G6_MEMBER})
+        self.assertBaselineGreen(s, "g6/test_g6.py", G6_INHERITED)
+        out = self.assertRed(
+            s.run(G6_INHERITED, purpose="g6-inherited-driver"),
+            *["FAILED g6/test_g6.py::G6.test_%s" % k for k in G6_INHERITED]
+        )
+        self.assertEqual(len([l for l in out.splitlines() if l.startswith("python-suites: test FAILED")]), 5, out)
 
     def test_G7_guard_installed_exactly_once_and_nested_run_idempotent(self):
         lst = Listener(self)

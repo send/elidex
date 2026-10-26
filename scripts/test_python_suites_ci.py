@@ -330,6 +330,15 @@ class TestReaderPins(unittest.TestCase):
         self.assertReaderRed(mise_problems, junk, self.line_of(junk, '"x]'))
         # A quoted part is one key, dots included: this is not a subtable of tools-test.
         self.assertEqual(mise_problems(mise_fixture(extra='\n[tasks."tools-test.env"]\nX = "1"\n')), [])
+        # Unbalanced brackets (on a header that is not a read section, so no duplicate fires) and
+        # an array of tables under tasks are red.
+        for header in ("[tasks.other]]", "[[tasks.other]]", "[[tasks.tools-test]]"):
+            text = mise_fixture(extra="\n%s\nX = 1\n" % header)
+            self.assertReaderRed(mise_problems, text, self.line_of(text, header))
+        # Keys outside the read sections use the header grammar: a dotted `tasks` key in any
+        # quoting is red, and so is an escaped key.
+        for key in ('tasks."tools-test".env.X = "1"', 'tasks = { x = { run = "y" } }', '"task\\u0073".tools-test.env.X = "1"'):
+            self.assertReaderRed(mise_problems, key + "\n" + mise_fixture(), 1)
         text = mise_fixture(tt="run =")
         self.assertReaderRed(mise_problems, text, text.splitlines().index("run =") + 1)
 
@@ -348,7 +357,8 @@ class TestReaderPins(unittest.TestCase):
         for cont in ('  [ "x" ],', '  ["a"],', '  "[ -d t ]",'):
             arr = '\n[tasks.other]\nrun = [\n%s\n  "b",\n]\n[tasks.another]\nrun = "x"\n' % cont
             self.assertEqual(mise_problems(live + arr), [], cont)
-        self.assertReaderRed(mise_problems, live + '\n[tasks.other]\nrun = [\n  [ "x" ],\n')
+        # An array never closed is red at the line that opened it.
+        self.assertReaderRed(mise_problems, live + '\n[tasks.other]\nrun = [\n  [ "x" ],\n', len(live.splitlines()) + 3)
         stray = live + '\n[tasks.other]\nrun = "x" ]\n'
         self.assertReaderRed(mise_problems, stray, self.line_of(stray, '"x" ]'))
 

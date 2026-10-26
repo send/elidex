@@ -268,24 +268,40 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         constants = set()
         for rel in PIN_FILES:
             constants |= DRV.string_constants(trees[rel])
-        # Completeness, by property: a module a pin file imports from scripts/, and a file that
-        # imports a helper module of the pins, are pin files too.
-        def imports(rel):
+        # Completeness, by property: a tracked file a pin file imports, and a file that imports a
+        # helper module of the pins, are pin files too. An import statement's dotted names (and
+        # `from M import n` as M.n) resolve against the importer's directory, scripts/ and the
+        # root, as a module or a package. Outside the check: a module loaded by a computed name
+        # (importlib, __import__).
+        def imports(rel, tree=None, known=frozenset(tracked)):
             names = set()
-            for n in ast.walk(trees[rel]):
+            for n in ast.walk(trees[rel] if tree is None else tree):
                 if isinstance(n, ast.Import):
-                    names |= {a.name.split(".")[0] for a in n.names}
+                    names |= {a.name for a in n.names}
                 elif isinstance(n, ast.ImportFrom) and not n.level and n.module:
-                    names.add(n.module.split(".")[0])
-            return names
+                    names |= {n.module} | {n.module + "." + a.name for a in n.names}
+            bases = {os.path.dirname(rel) + "/", "scripts/", ""} - {"/"}
+            dotted = {".".join(d.split(".")[:i]) for d in names for i in range(1, d.count(".") + 2)}
+            found = set()
+            for b in bases:
+                for d in dotted:
+                    stem = b + d.replace(".", "/")
+                    found |= {stem + ".py", stem + "/__init__.py"} & known
+            return found - {rel}
 
-        by_stem = {p[len("scripts/") : -3]: p for p in tracked if p.startswith("scripts/") and p.count("/") == 1}
+        # Control: a helper in a subdirectory and a scripts.-qualified import both resolve.
+        planted = ast.parse("from pins.launch import go\nfrom scripts import python_suites_fixtures\n")
+        self.assertEqual(
+            imports("scripts/p.py", planted, set(tracked) | {"scripts/pins/launch.py"}),
+            {"scripts/pins/launch.py", "scripts/python_suites_fixtures.py"},
+        )
+
         helpers = set()
         for rel in PIN_FILES:
-            for m in imports(rel) & set(by_stem):
-                self.assertIn(by_stem[m], PIN_FILES, "%s imports %s, which is not a pin file" % (rel, m))
-                helpers.add(m)
-        self.assertLessEqual({"python_suites_fixtures", "python_suites_readers"}, helpers)
+            for dep in imports(rel):
+                self.assertIn(dep, PIN_FILES, "%s imports %s, which is not a pin file" % (rel, dep))
+                helpers.add(dep)
+        self.assertLessEqual({"scripts/python_suites_fixtures.py", "scripts/python_suites_readers.py"}, helpers)
         for path in tracked:
             self.assertTrue(path in PIN_FILES or not imports(path) & helpers, "%s imports a pin helper but is not a pin file" % path)
         entry_points = []

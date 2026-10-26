@@ -503,25 +503,23 @@ def tools_problems(text):
 
 
 _TKEY = re.compile(r"""^(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))[ ]*=[ ]*""")
-_THEADER = re.compile(r"^\[\[?([^\[\]]+)\]\]?[ ]*(#.*)?$")
+_THEADER = re.compile(r"^(\[\[?)([^\[\]]+)(\]\]?)[ ]*(#.*)?$")
 _TPART = re.compile(r"""[ ]*(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))[ ]*""")
 
 
-def _toml_header_path(h, lineno):
-    """The header's key parts, each bare or quoted (the `_TKEY` key grammar), joined
-    by `.`. Anything else -- a backslash escape, a part that is not one key, text
-    between parts -- raises."""
+def _toml_key_path(s, lineno):
+    """The dotted key at the start of `s` as (list of parts, end offset), each part
+    bare or quoted (the `_TKEY` key grammar). A part that is not one key -- a
+    backslash escape included -- raises."""
     parts, pos = [], 0
     while True:
-        m = _TPART.match(h, pos)
+        m = _TPART.match(s, pos)
         if m is None:
-            raise ReaderError(lineno, "unmodelled header key", h)
+            raise ReaderError(lineno, "unmodelled key", s)
         parts.append(_key(m))
         pos = m.end()
-        if pos == len(h):
-            return parts
-        if h[pos] != ".":
-            raise ReaderError(lineno, "unmodelled header key", h)
+        if s[pos : pos + 1] != ".":
+            return parts, pos
         pos += 1
 
 
@@ -597,7 +595,10 @@ def mise_sections(text, wanted):
     one-line array of such strings, or true/false, with an optional trailing
     comment. Anything else inside them raises ReaderError naming the line, and
     so does anything elsewhere that could also define those tasks: a `[tasks]`
-    table, a subtable `[tasks.<name>.x]`, or a dotted `tasks.` key. A missing
+    table, a subtable `[tasks.<name>.x]`, an array of tables `[[tasks...]]`, or a
+    dotted `tasks.` key. Headers and the keys of lines outside the read sections
+    are read with the same key grammar; a key or header outside it (a backslash
+    escape included) is a ReaderError. A missing
     or duplicated section is red. The body of a multi-line string (`\"\"\"` /
     `'''`) opened outside the read sections is text, and so are the continuation
     lines of an array left open there: the file is tracked across lines, so a
@@ -605,7 +606,7 @@ def mise_sections(text, wanted):
     string or array, or a close that is ambiguous, is a ReaderError."""
     out = {}
     current = None
-    carry = _CLOSED
+    carry, opened = _CLOSED, 0
     for lineno, raw in enumerate(text.splitlines(), 1):
         if carry != _CLOSED:
             carry = _scan_strings(raw, carry, lineno)
@@ -615,10 +616,13 @@ def mise_sections(text, wanted):
             continue
         hm = _THEADER.match(line)
         if line.startswith("["):
-            if hm is None:
+            if hm is None or len(hm.group(1)) != len(hm.group(3)):
                 raise ReaderError(lineno, "unmodelled table header", raw)
-            path = _toml_header_path(hm.group(1), lineno)
-            if path == ["tasks"] or (len(path) > 2 and path[:2] in (["tasks", w] for w in wanted)):
+            path, end = _toml_key_path(hm.group(2), lineno)
+            if end != len(hm.group(2)):
+                raise ReaderError(lineno, "unmodelled header key", raw)
+            under_read = len(path) > 2 and path[1] in wanted
+            if path == ["tasks"] or (path[0] == "tasks" and (len(hm.group(1)) == 2 or under_read)):
                 raise ReaderError(lineno, "a second way to define a read task", raw)
             current = None
             for w in wanted:
@@ -629,9 +633,12 @@ def mise_sections(text, wanted):
                     current = w
             continue
         if current is None:
-            if re.match(r"""^["']?tasks["']?\s*\.""", line):
-                raise ReaderError(lineno, "a dotted tasks. key", raw)
-            carry = _scan_strings(raw, carry, lineno)
+            path, end = _toml_key_path(line, lineno)
+            if line[end : end + 1] != "=":
+                raise ReaderError(lineno, "unmodelled key", raw)
+            if path[0] == "tasks":  # dotted, or `tasks = { ... }` (an inline table)
+                raise ReaderError(lineno, "a tasks key outside the read sections", raw)
+            carry, opened = _scan_strings(line[end + 1 :], carry, lineno), lineno
             continue
         km = _TKEY.match(line)
         if km is None:
@@ -641,7 +648,7 @@ def mise_sections(text, wanted):
             raise ReaderError(lineno, "duplicate key %r" % key, raw)
         out[current][key] = (_toml_value(line[km.end():], lineno), lineno)
     if carry != _CLOSED:
-        raise ReaderError(0, "unterminated multi-line string or array", carry)
+        raise ReaderError(opened, "unterminated multi-line string or array", text.splitlines()[opened - 1])
     for w in wanted:
         if w not in out:
             raise ReaderError(0, "section [tasks.%s] missing" % w, "")
