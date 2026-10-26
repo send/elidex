@@ -11,7 +11,7 @@ and **slice b** (§1), and it also owns **T3**, slice b's independent prerequisi
 - the nested-PR set, their order and edges (§1.2–§1.3);
 - the classification of slice a as an **approved interim, required by dependency**, and what slice b removes (§1.4,
   PM decision 23);
-- for **slice a**: the contract clauses K-0 to K-6 with their landing qualifiers (§0.5), the complete list of its
+- for **slice a**: the contract clauses K-0 to K-6 with their landing qualifiers and the rule X-W (§0.5), the complete list of its
   processing timings with the cell that proves each no worse than HEAD (§0.5 K-0), the D-items (§0.4), and its cells and
   pins (§6.1–§6.2, the red-first rule included);
 - for **slice b**: only the observable invariants S-1 to S-7 (§0.6);
@@ -31,7 +31,11 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Rev 6* (2026-10-25): PM decision 25 and R3 (CRIT 0 / IMP 1 / MIN 16; §13.1). The R3 IMP is fixed
+**Changelog.** *Rev 7* (2026-10-26): the user's decision 案 X and the rev-6 focused re-check (CRIT 0 / IMP 2 / MIN 13,
+11 after dedup; §13.2). Both IMPs had one root: slice a's once rule on a `<body>` depends on step 3 of target
+determination (T3), which slice a lacks. D-8 (b)'s document test is replaced by the property rule **X-W** (§0.5): a
+Window-delegating pair, judged on (tag, handler name) alone, stays on HEAD's path at every slice-a timing except the
+bind pass. New cells C18, C19; C8 and U2 become window pins. *Rev 6* (2026-10-25): PM decision 25 and R3 (CRIT 0 / IMP 1 / MIN 16; §13.1). The R3 IMP is fixed
 (D-8 (b), K-0, I2×I8, cell C17). T3 is slice b's independent prerequisite PR, owned by this program (§1.2, §1.4,
 §8.1). The CSP exposure is E-G1 (iii). New: U12, S-7. *Rev 5* (2026-10-25): PM decision 24. The R2 review (CRIT 0 / IMP 4 / MIN 14 distinct) found all four
 IMPs in text that rev 4 / 4.1 added, three of them slice-b or branch-B mechanism decided below this umbrella's altitude.
@@ -157,7 +161,8 @@ IBP-sandbox umbrella is cited at the same commit. Both are read-only here.
 
 - **D-1, once-key.** `HandlerAttrsProcessed` is a unit marker component on the **origin** element, never on the
   handler's target (the Window for `<body>` delegation). Meaning: *this element carries no creation-time handler content
-  attribute that is still unprocessed.* It is sparse: it is inserted only on an element that had a handler content
+  attribute of an ordinary pair that is still unprocessed* (§0.5). It neither gates nor records a Window-delegating pair
+  (X-W). It is sparse: it is inserted only on an element that had a handler content
   attribute when processed. Absent means unprocessed, which fails toward HEAD's delivery, never toward loss. That holds for an **unmarked** element
 only. For a **marked** element a silent `Attributes` write is never processed again, so it fails toward loss. The one
 such writer is `clone_attributes` onto an existing `dst` (`tree_clone.rs:59-72`), which has no production caller
@@ -179,18 +184,18 @@ such writer is `clone_attributes` onto an existing `dst` (`tree_clone.rs:59-72`)
   unbound between brackets are G7, slot `#11-unbound-attribute-writes-bypass-consumers` (§8.1). D-5 relies on that slot.
 - **D-6, VM surface.** The two element setters call the D-4 entry with `VmInner::spec_level_policy` (H19) before they
   activate the handler. In `native_body_weh_set` the call comes **after** the no-Window early return (H24), so a setter
-  that writes nothing also processes nothing. The `<body>` receiver is the origin (D-1). The VM does marshalling only
-  (Layering mandate).
+  that writes nothing also processes nothing. The `<body>` receiver is the origin (D-1). Every name that setter serves
+  is a Window-delegating pair, so in slice a its call processes nothing (X-W); the call site is kept for slice b (S-6).
+  The VM does marshalling only (Layering mandate).
 - **D-7, program shape (PM decision 21).** Two nested PRs, slice a and slice b, as in §1.
-- **D-8, writer restriction (observable form; rev 6: two reasons).** In slice a, a handler write on an unprocessed
-  element E processes E first **only if both** hold: (a) the written name is E's only deliverable handler content
-  attribute (deliverable means named in `EVENT_HANDLER_ATTRS` and installed by the policy); (b) E is not a `<body>` or
-  `<frameset>` whose node document is not the bound document (D-5). Otherwise the write processes nothing, which is
-  HEAD's outcome, and E is left to T-a2, HEAD's own path. In the passing case the write then overwrites the only
-  processed value, so the state right after the write equals HEAD's (K-0 T-a3). Reason for (b): such a `<body>`'s
-  attribute is delivered to the **page** Window (`resolve_handler_target` has no step 3; G3, T3). Processing it at the
-  write would make the later skip at insertion leave the write's value on the Window, where HEAD ends with the compiled
-  attribute (cell C17). Slice b removes the restriction (S-5), after T3. The code shape is input to slice a's plan.
+- **D-8, writer restriction (observable form; rev 7: (b) is X-W).** In slice a, a handler write on an unprocessed
+  element E processes E's ordinary pairs first **only if both** hold: (a) the written name is E's only deliverable
+  handler content attribute of an ordinary pair (deliverable means named in `EVENT_HANDLER_ATTRS` and installed by the
+  policy); (b) the written pair is ordinary (X-W, §0.5). Otherwise the write processes nothing, which is HEAD's outcome,
+  and E is left to T-a2, HEAD's own path. In the passing case the write then overwrites the only processed value, so the
+  state right after the write equals HEAD's (K-0 T-a3). Rev 6's (b) tested E's node document; the rev-6 re-check found
+  that every such test leaks another path (C17's DOMParser `<body>`, then C18's template contents), so (b) is now the property rule.
+  Slice b removes the restriction (S-5), after T3. The code shape is input to slice a's plan.
 - **D-9, G1 pins by path, red first.** Slice a carries end-to-end pins on three paths: the main document, a URL-loaded
   iframe, and a srcdoc iframe (§6.2). Each pin runs red on the pre-fix base with a green non-vacuity control, and that is
   recorded before the fix lands.
@@ -212,7 +217,39 @@ Definitions. For an element E, the **creation-time attributes** are the `Attribu
 `MutationEvent::AttributeChange` at E's creation: the four parser bakes and the clone copy (§5.0 (a)). **Handler state**
 is the `EventListeners` entry for an event type on E's resolved target, together with its stored callable.
 **Processed** means the attribute change steps have run for E's creation-time handler content attributes (D-1). An
-**observable step** is an IDL getter read or a dispatch.
+**observable step** is an IDL getter read or a dispatch. A **Window-delegating pair** is an (element, handler name)
+pair for which steps 1 and 2 of *determining the target of an event handler* (WHATWG HTML §8.1.8.1 Event handlers) do
+not return the element: the element is a `body` or a `frameset` (its tag compared as HEAD's `is_body_element` compares
+it, `event_handler_consumer.rs:337-341`), and the name is a WindowEventHandlers member or in the Window-reflecting body
+element event handler set (`onblur`, `onerror`, `onfocus`, `onload`, `onresize`, `onscroll`). Every other pair is
+**ordinary**. The test reads the tag and the name only, never a document, a position or a connectedness.
+
+- **X-W, Window-delegating pairs stay on HEAD's path (rev 7; the user's decision 案 X).** Slice a's once rule (K-1),
+  its write-time processing (T-a3) and its skip at insertion (T-a2) do not apply to a Window-delegating pair. Such a
+  pair is written exactly where and as HEAD writes it: by the AttributeChange arm and the VM setters, and by the Insert
+  arm at **every** insertion of HEAD's walk set (H1). Slice a adds one timing for it, T-a1: the bind pass delivers the
+  pairs of the bound document's tree, which is active, so step 3 does not fire there and HEAD's target for a `<body>`
+  WindowEventHandlers name is the spec's (E-G1 covers the rest).
+  - *Why.* HEAD's target determination has no step 3 (`resolve_handler_target`, `event_handler_consumer.rs:328-334`),
+    so HEAD's setters and its AttributeChange arm write the page Window, or the element, where the spec's step 3 makes
+    the target null. HEAD's re-raw at each insertion then overwrites that write with the attribute. Any once rule on
+    such a pair (processing at a write, or a skip at insertion) removes the overwrite and leaves a value that is neither
+    HEAD's nor the spec's (C17, C18, C19).
+  - *Fail-safe direction.* The test reads no document, so no path (a DOMParser document, template contents, a node
+    document left stale by an insertion without adoption, or a path not yet known) can carry a pair past it, and a pair
+    it classifies as Window-delegating gets HEAD's outcome at every step, which K-0 allows.
+  - *`<frameset>`.* HEAD does not delegate it: `resolve_handler_target` tests `body` only, and the VM's delegation
+    accessors are installed for the `HandlerScope::Window` rows on `HTMLBodyElement.prototype` only
+    (`event_handler_attrs.rs:207-213`) with a `body` brand check (`:425`). It is included because the test is the
+    spec's step 1, which names `frameset`, and inclusion can only yield HEAD's outcome.
+  - *The six reflecting names.* HEAD scopes them `HandlerScope::Global` (`event_handler_consumer.rs:68`, `:90`, `:91`,
+    `:99`, `:125`, `:126`), so HEAD's target for them is the `<body>` itself (G4), and their IDL setter is the element's
+    own. They are Window-delegating by the test all the same: the spec's step 3 makes their target null in an inactive
+    document, so a once rule leaks for them as for the WindowEventHandlers rows.
+  - *Status.* X-W is not an exception to K-0, which holds literally (the outcome is HEAD's at every step). It is the
+    named exception to K-1 to K-3 in slice a. T3 (`#11-event-handler-target-determination`, facet 1 for step 3 and
+    facet 4 for the reflecting set) then slice b (S-5) remove it; the closure record is
+    `#11-eh-attrs-creation-time-call-sites` (§8.2 defect (7)).
 
 - **K-0, no step worse than HEAD.** For every element and every observable step, slice a's outcome equals HEAD's at
   the same step, or equals the spec's where HEAD's does not.
@@ -222,7 +259,8 @@ is the `EventListeners` entry for an event type on E's resolved target, together
   defect, which the G1 fix now reaches. E-G1 has three members:
   - (i) The Window-reflecting body set lands on the `<body>`. For example, an initial `<body onfocus="…">` runs on a
     focus event dispatched at the body, where the spec puts it on the Window. This is facet 4 of
-    `#11-event-handler-target-determination`.
+    `#11-event-handler-target-determination`. Likewise every Window-delegating pair of an initial `<frameset>` lands on
+    the `<frameset>` (HEAD delegates `body` only, X-W), the same slot's `<frameset>` deviation.
   - (ii) The handler scope chain is missing. *Get the current value of the event handler* step 3.9 (WHATWG HTML
     §8.1.8.1 Event handlers) builds the function with a scope of document, form owner and element. It also gives
     `onerror` on a Window its five-parameter list. elidex compiles with the global scope only (H25), so an initial
@@ -238,32 +276,38 @@ is the `EventListeners` entry for an event type on E's resolved target, together
 
   Members (i) and (ii) are registered with the trigger "slice a's landing"; (iii) under its own slot (§8.1).
 
+  **`<body>` / `<frameset>` Window-delegating handlers (X-W).** In slice a they keep HEAD's behaviour at every step
+  after the bind pass. That is a named exception to K-1 to K-3, not to K-0 and not an E-G1 member, because the outcome
+  is HEAD's. T3 (`#11-event-handler-target-determination`) then slice b correct it.
+
   **Slice a's processing timings (complete) and the cells that prove each no worse than HEAD:**
 
   | timing | what is processed | outcome vs HEAD | cells |
   |---|---|---|---|
-  | **T-a1**, the bound document's first bind (D-5, D-11) | every element of its shadow-including tree, uncapped, template contents excluded | HEAD processes none of them at this point, and no script has run since their creation (H9), so no handler state exists to overwrite. Every outcome is the spec's, or E-G1 | E1, E2, E4, E5, E6, E7, U7 (first call), U10, U11 |
+  | **T-a1**, the bound document's first bind (D-5, D-11) | every element of its shadow-including tree, uncapped, template contents excluded; Window-delegating pairs are delivered too, outside the once rule (X-W) | HEAD processes none of them at this point, and no script has run since their creation (H9), so no handler state exists to overwrite. Every outcome is the spec's, or E-G1 | E1, E2, E4, E5, E6, E7, U7 (first call), U10, U11 |
   | (T-a1, later binds) | nothing | equal to HEAD, which also processes nothing at a bind. A guarded write on an unprocessed element survives | U7 (second call), U9, E3, E8 |
-  | **T-a2**, Insert (D-10) | the unmarked elements of HEAD's own walk set, at the Insert at which HEAD processes them, with HEAD's policy filter and target | an unmarked element gets HEAD's outcome. A marked element is skipped where HEAD re-raws, and the skip is the spec's outcome. A host's insertion does not reach its shadow content (HEAD-equal) | equal: C6, C13, C14, C15. Spec: C1, C3, C8, U1, U2. Shadow: U9, E8 |
-  | **T-a3**, the first handler write (D-4, D-8) | the restriction passes: E's only deliverable attribute, which the write then overwrites. The restriction returns (two reasons: two or more deliverable attributes; or E is a `<body>` / `<frameset>` outside the bound document): nothing | passes: the state right after the write equals HEAD's, and the later effect is T-a2's skip (spec). Returns: nothing is processed, so the write and the later insertion take HEAD's own path, T-a2, and the outcome is HEAD's | passes: U5 (i); later effect C2, C4, C5, C11. Returns: U5 (ii), C16, C17 |
+  | **T-a2**, Insert (D-10) | the unmarked elements of HEAD's own walk set, at the Insert at which HEAD processes them, with HEAD's policy filter and target; and the Window-delegating pairs of every element of that set, marked or not (X-W) | an unmarked element gets HEAD's outcome. A marked element's ordinary pairs are skipped where HEAD re-raws, and the skip is the spec's outcome. Its Window-delegating pairs are re-raw'd, as at HEAD. A host's insertion does not reach its shadow content (HEAD-equal) | equal: C6, C13, C14, C15, C8, C19, U2. Spec: C1, C3, U1. Shadow: U9, E8 |
+  | **T-a3**, the first handler write (D-4, D-8) | the restriction passes: E's only deliverable ordinary attribute, which the write then overwrites. The restriction returns (two reasons: two or more deliverable ordinary attributes; or the written pair is Window-delegating, X-W): nothing | passes: the state right after the write equals HEAD's, and the later effect is T-a2's skip (spec). Returns: nothing is processed, so the write and the later insertion take HEAD's own path, T-a2, and the outcome is HEAD's | passes: U5 (i); later effect C2, C4, C5, C11. Returns: U5 (ii), C16, C17, C18 |
 
-  **Reconciliation of K-0's wording with D-8 (b) (rev 6).** K-0 reads "slice a's outcome equals HEAD's at the same
-  step, or equals the spec's where HEAD's does not". The `<body>` case is not an exception to it. In the returns case
-  slice a processes nothing, so its outcome at every step is HEAD's, and K-0 holds literally; K-0's wording is
-  unchanged. What changed is D-8 and the T-a3 row: rev 5 let such a `<body>` pass, and the passing case's claim "the
-  state after the write equals HEAD's" is false for it (C17). It is a second reason for "returns" inside T-a3's existing
-  disposition, not a class beside E-G1. The residual divergence from the spec is G3 (§1.5), closed by T3 then slice b.
+  **K-0's wording and X-W.** K-0 reads "slice a's outcome equals HEAD's at the same step, or equals the spec's where
+  HEAD's does not". Under X-W a Window-delegating pair's outcome at every step is HEAD's, so K-0 holds literally and
+  its wording is unchanged. Rev 6 instead let a `<body>` pass T-a3 inside the bound document and skipped every marked
+  `<body>` at insertion; C18 and C19 show values that are neither HEAD's nor the spec's for both. The residual
+  divergence from the spec is the X-W window (§1.5), closed by T3 then slice b.
 
   No other timing exists in slice a. Nothing is processed at a placement under a shadow root (no `MutationEvent` fires
   there, H2, and nothing is hooked), at a read, or at an internal adopt (the marker survives `adopt_subtree`).
 - **K-1, once.** E's creation-time handler content attributes are processed at most once. After that, no insertion,
   move or rebind writes handler state derived from them. A compiled callable keeps its identity across moves and
-  rebinds, in the live document and into a DOMParser document alike. *From slice a, for every element.*
+  rebinds, in the live document and into a DOMParser document alike. *From slice a, for every ordinary pair of every
+  element; a Window-delegating pair keeps HEAD's behaviour (X-W). From slice b, for every pair (S-5).*
 - **K-2, an AttributeChange write wins.** Processing never overwrites a handler written by `setAttribute` /
-  `removeAttribute` of `on<T>` on E, including a callable compiled from it. *From slice a, for every element with at
-  most one deliverable handler content attribute (D-8). From slice b, for every element (S-5).*
+  `removeAttribute` of `on<T>` on E, including a callable compiled from it. *From slice a, for every ordinary pair of
+  an element with at most one deliverable ordinary handler content attribute (D-8); a Window-delegating pair keeps
+  HEAD's behaviour (X-W). From slice b, for every element and pair (S-5).*
 - **K-3, an IDL write wins.** Processing never overwrites a callable or null assigned through `E.on<T>`, or through a
-  `<body>`'s delegated WindowEventHandlers accessor, whatever wrote E's `Attributes` silently. *Same qualifier as K-2.*
+  `<body>`'s delegated WindowEventHandlers accessor, whatever wrote E's `Attributes` silently. *Same qualifier as K-2;
+  the delegated accessor serves Window-delegating pairs only, so K-3 covers it from slice b on.*
 - **K-4, timing (bind arm).** For elements created with no consumer (the pre-bind parse), processing happens at the
   first bind of their document, before that bind's first script. It writes the internal raw uncompiled handler on the
   resolved target. *From slice a.* The creation arm is S-1.
@@ -278,8 +322,8 @@ is the `EventListeners` entry for an event type on E's resolved target, together
   excluded in slice a. Later binds of the same document process nothing. *From slice a.* This is why the bind pass
   stays after slice b: it is the creation-equivalent point for the pre-bind parse.
 
-Red cells per clause (§6): K-0 guards U5 (ii), U9, E8, C6, C13, C16, C17 (no red: K-0 is HEAD-equality or improvement). K-1:
-C1–C3, C8, U1, U2, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (window pins C14, C15). K-6: E1, E2,
+Red cells per clause (§6): K-0 guards U5 (ii), U9, E8, C6, C13, C16 (no red: K-0 is HEAD-equality or improvement). X-W:
+C8, C17, C18, C19, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (window pins C14, C15). K-6: E1, E2,
 E4–E7, U7, U10, U11, U12.
 
 ### §0.6 Slice b's invariants (decided; mechanism is slice b's plan)
@@ -300,7 +344,9 @@ how it satisfies each of the following, and its plan-review checks that:
   creation and read null. In branch B, slice b's plan decides how they are processed, subject to S-3 and S-4, and S-3
   allows **no** exception. S-1 processes a clone at creation unconditionally, and S-3 forbids a clone of template
   contents from reading a function where HEAD and the spec read null. So branch B requires slice b to **supply a
-  per-node template-origin fact** that a clone and a clone of a clone both carry. Where its plan cannot supply it, the
+  per-node template-origin fact** that a clone and a clone of a clone both carry. The fact tracks the node's spec node
+  document (an inert template contents owner document), not its history: a node moved out of template contents into
+  another document no longer carries it, nor does a clone made after that move. Where its plan cannot supply it, the
   unsupplied case is not processed at creation and stays a §1.5 window, so S-3 still holds. Input N-2 (§9) records why
   a clone of template contents carries no such fact without C1 part (a).
 - **S-3, no step worse than HEAD.** K-0 holds against HEAD at `fd6955e8` and against slice b's own base, for every
@@ -309,12 +355,14 @@ how it satisfies each of the following, and its plan-review checks that:
   that read E before any insertion, and by a `debug_assert!`. No release path exists whose effect is to process an
   element that a creation path omitted. If slice b keeps any processing at insertion (branch B), its plan must show that
   this processing cannot serve as such a path.
-- **S-5, writes win unconditionally.** K-2 and K-3 hold for every element: the D-8 restriction is gone.
+- **S-5, writes win unconditionally.** K-1 to K-3 hold for every element and every pair: the D-8 restriction and X-W
+  are gone, and Window-delegating pairs take the spec's target through T3.
 - **S-6, slice a's surface is kept.** D-1's marker and meaning, D-2's function, the bind pass (D-5, D-11) and the
   writer call sites (D-4, D-6) are kept and extended, not replaced. What slice b removes is §1.4's list.
 - **S-7, census and fail direction (restored from rev 4; R3 A3 MIN).** Slice b's plan re-runs the §5.0 census at its
-  own base and shows that every silent `on*` writer and every creation path is covered by S-1, the marked-element
-  silent writer (D-1) included. In branch A nothing is processed at insertion, so an omitted path fails toward **never
+  own base and shows that every creation path is covered by S-1, and that every silent `on*` writer is either such a
+  creation path or a post-creation writer whose disposition its plan states (processing at the write, or a slot). The
+  known post-creation member is `clone_attributes` onto an existing, possibly marked `dst` (D-1). In branch A nothing is processed at insertion, so an omitted path fails toward **never
   delivered**, worse than HEAD's delivery at first insertion. S-4 and this census are then the only protection.
 
 ## §1. Program shape (decided)
@@ -324,13 +372,13 @@ how it satisfies each of the following, and its plan-review checks that:
 | axis | source | slice a | slice b |
 |---|---|---|---|
 | I1 once (per element, across moves and rebinds) | K-1, H13 | owns it: marker, once check, document marker on the bound document (D-5) | extends it to creation time (S-1, S-6) |
-| I2 writer order | K-2, K-3 | restricted (D-8, two reasons) | full (S-5) |
+| I2 writer order | K-2, K-3 | restricted (D-8; X-W) | full (S-5) |
 | I3 origin key | D-1 | owns it | — |
 | I4 freshness (new elements start unprocessed; clone does not copy) | §5.0 | owns it (clone-policy row) | clone processed at creation (S-1) |
 | I5 coverage (every creation path, the pre-bind tree, shadow trees, template contents) | K-4, K-6, G1, G2 | the pre-bind tree, shadow-including, uncapped (D-11); first insertion over HEAD's light walk (D-10) | creation-time coverage (S-1, S-2) |
 | I6 policy | `event_handler_consumer.rs:405`, `:447` | owns it (one `policy.installs` filter on every path) | — |
 | I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal | owns it (S-1, S-2; needs N1 and C1's handling) |
-| I8 target determination (step 3) | G3 | not reached: the bind pass walks only the bound, active document, and a `<body>` outside it is not processed at a write (D-8 (b), C17) | owns it (needs T3) |
+| I8 target determination (step 3) | G3 | not reached: the bind pass walks only the bound, active document, and every Window-delegating pair otherwise takes HEAD's path (X-W; C8, C17–C19) | owns it (needs T3) |
 | I9 layering / re-entry | Layering mandate | owns it for the VM setters and the bind pass | owns it for the creation-time sites |
 
 **Count: 9 (≥ 3).** The work is edge-dense, so it is a multi-PR program, and each slice gets its own
@@ -341,7 +389,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 
 | nested PR | scope | prerequisites |
 |---|---|---|
-| **slice a** `EH-attrs-at-creation-a` (branch cut from main after the approval PR lands) | D-1 to D-11; K-0 to K-6; the cells and pins of §6.1–§6.2; the clone-policy row; G1; the G6 docstring | the umbrella-approval PR |
+| **slice a** `EH-attrs-at-creation-a` (branch cut from main after the approval PR lands) | D-1 to D-11; K-0 to K-6; X-W; the cells and pins of §6.1–§6.2; the clone-policy row; G1; the G6 docstring | the umbrella-approval PR |
 | **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*. Facets (2)–(4) ride with it unless its plan splits them. Its own plan, plan-review and PR | slice a landed |
 | **slice b** `EH-attrs-at-creation-b` | S-1 to S-7; G2 rest, G5, K2 (§1.5) | T3, N1, C1's handling decided |
 
@@ -357,7 +405,7 @@ slice b. N1 and T3 are independent of each other. The PM decides C1's handling o
 | x3 | T3 (`#11-event-handler-target-determination` facet 1, step 3; **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a DOMParser or fragment-throwaway `<body>` would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b)) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)) |
 | x5 | C1's handling decided (`#11-template-contents-owner-document`) → slice b | decision precondition; in branch A also C1's landing | S-2 (§9 N-4 (c)) |
-| x6 | slice a → T3 | scheduling precondition (PM decision 25) | T3 is started once slice a lands. No code or semantic dependency is claimed. Slice a's C17 and G3 window (§1.5) are what T3's landing then inverts |
+| x6 | slice a → T3 | scheduling precondition (PM decision 25) | T3 is started once slice a lands. No code or semantic dependency is claimed. Slice a's X-W window (§1.5) is what T3 then slice b close |
 
 Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it.
 
@@ -370,8 +418,8 @@ because a dependency requires it. N1 requires K-1 (§L), and slice b requires T3
 only order that satisfies both is slice a → N1 (with T3) → slice b.
 
 - **Kept by slice b:** S-6.
-- **Removed by slice b (the interim's whole surface):** (1) the D-8 restriction (S-5); (2) processing at insertion, for
-  every element that S-1 covers. In branch A, nothing is processed at insertion. Whether any processing at insertion
+- **Removed by slice b (the interim's whole surface):** (1) the D-8 restriction and X-W (S-5); (2) processing at
+  insertion, for every element that S-1 covers. In branch A, nothing is processed at insertion. Whether any processing at insertion
   remains in branch B is slice b's plan's decision, under S-2 to S-4.
 - **Interim behaviour:** §1.5, all HEAD-equal (K-0). **Closure record:** slot `#11-eh-attrs-creation-time-call-sites`
   (§8.2).
@@ -387,11 +435,12 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
 - **K2.** The body-clone cross-origin write is overwritten at the clone's first insertion.
 - **G2 rest.** An element placed directly under a shadow root after bind, or inside a subtree placed there, is not
   processed. Neither is the shadow content of a host inserted after bind.
-- **G3.** A DOMParser `<body>` with a WindowEventHandlers attribute is delivered to the page Window at its first
-  insertion. Its handler writes are not processed at the write (D-8 (b)), so the page Window ends with HEAD's compiled
-  attribute even after an IDL write (C17). T3 then slice b close it.
-- **Post-bind width cap.** The Insert arm keeps HEAD's `children_iter_rev` cap (D-10, H10). An element past the
-  10 000th child of a parent in a subtree inserted after bind is never processed in slice a (HEAD-equal). The bind
+- **X-W (G3, G4).** A Window-delegating pair keeps HEAD's behaviour after the bind pass: it is re-raw'd at every
+  insertion, over any write, and a `<body>` outside an active document delivers it to the page Window (C8, C17–C19,
+  U2). T3 then slice b close it.
+- **Post-bind width cap.** The Insert arm keeps HEAD's `children_iter_rev` cap (D-10, H10). That iterator starts at
+  the last child, so of a parent with n > 10 000 children in a subtree inserted after bind, the **first n − 10 000**
+  children (and their subtrees) are never processed in slice a (HEAD-equal). The bind
   walk is uncapped (D-11). Slice b's S-1 covers "any depth and width" at creation.
 - **W-K5.** As K-5.
 - **E-G1.** As K-0.
@@ -426,25 +475,25 @@ at creation time.
 | pair | intersect? | owner | resolution |
 |---|---|---|---|
 | I1×I2 | yes | a → b | A processed element is marked, and a write on a marked element processes nothing. Cells C1, C4, U5 (iii) |
-| I1×I3 | yes | a | The marker is per origin. A second `<body>` (a clone) is unmarked and processes once to the Window. Cells C8, U2 |
+| I1×I3 | yes | a | The marker is per origin and governs ordinary pairs only. A Window-delegating pair is outside the once rule and is re-raw'd at every insertion, as at HEAD (X-W). Cells C8, C19, U2 |
 | I1×I4 | yes | a → b | A clone does not copy the marker (clone-policy row). Slice b processes the clone at creation (S-1). Cells C9, U6 |
 | I1×I5 | yes | a → b | Every timing calls D-2's function. The document marker makes the bind pass run once per document across H13's rebinds (D-5). Cells E3, E8, U7, U9 |
-| I1×I6 | yes | a | The marker is set when the element has any handler content attribute, excluded or not, so an excluded-only element is not rescanned. Cell U3 |
+| I1×I6 | yes | a | The marker is set when the element has any ordinary handler content attribute, excluded or not, so an excluded-only element is not rescanned. Cell U3 (i) |
 | I1×I7 | yes | a, b | Slice a: a compiled callable keeps its identity when moved into a DOMParser document (C2). Slice b: S-1, S-2 |
 | I1×I8 | yes | b | S-1 with T3 |
 | I1×I9 | yes | a | The once check is inside D-2's function. The VM has no once logic |
-| I2×I3 | yes | a | A delegated write passes the `<body>` receiver (D-6). Cell C8 |
+| I2×I3 | yes | a | A delegated write passes the `<body>` receiver (D-6). Its pair is Window-delegating, so it processes nothing (X-W). Cells C17, C18 |
 | I2×I4 | yes | a | A clone starts unmarked. A write on the source never marks the clone. Cell C9 |
 | I2×I5 | yes | a → b | Slice a: D-8 (C4, C5, C11, U5). No later bind and no Insert walk reaches a shadow-root-direct element (D-5, D-10; U9, E8). Slice b: S-5 |
 | I2×I6 | yes | a | An excluded name never reaches the D-4 entry from the AttributeChange arm (`:405`), and its IDL setter is not installed |
 | I2×I7 | yes | b | An unrestricted write-time processing of a DOMParser node needs N1 (x4). That is why D-8 exists |
-| I2×I8 | yes | a → b | The same on a DOMParser `<body>` needs T3 (x3). Slice a: a `<body>` / `<frameset>` outside the bound document is not processed at a write (D-8 (b), C17); T3 and slice b re-derive it |
+| I2×I8 | yes | a → b | The same on a DOMParser `<body>` needs T3 (x3). Slice a: no Window-delegating pair is processed at a write or skipped at an insertion (X-W; C17, C18, C19); T3 and slice b re-derive it |
 | I2×I9 | yes | a | Both VM setters call the engine-independent entry (D-6) |
-| I3×I4 | yes | a | A clone of a `<body>` is a new origin: unmarked, processed once to the Window. Cells U2, C9 |
-| I3×I5 | yes | a | The bind pass resolves `<body>` WindowEventHandlers rows to the Window, which exists at bind (H14). Cell E4 |
-| I3×I6 | yes | a | An excluded WindowEventHandlers attribute (`onstorage` under `BrowserCore`) marks the `<body>` and writes nothing to the Window. Cell U3 |
+| I3×I4 | yes | a | A clone of a `<body>` is a new origin, unmarked; its Window-delegating pairs follow X-W. Cell C9 |
+| I3×I5 | yes | a | The bind pass resolves `<body>` WindowEventHandlers rows to the Window, which exists at bind (H14); later insertions re-raw them (X-W). Cell E4 |
+| I3×I6 | yes | a | An excluded WindowEventHandlers attribute (`onstorage` under `BrowserCore`) on a `<body>` writes nothing to the Window at bind or at any insertion. Cell U3 (ii) |
 | I3×I7 | yes | b | S-1 |
-| I3×I8 | yes | b | Slice a keeps HEAD's target: the bind pass reaches only the active bound document, where step 3 does not fire. Slice b: x3 |
+| I3×I8 | yes | b | Slice a keeps HEAD's target: the bind pass reaches only the active bound document, where step 3 does not fire, and X-W keeps HEAD's path elsewhere. Slice b: x3 |
 | I3×I9 | yes | a | The origin is chosen in engine-independent code; `native_body_weh_set` passes the `<body>` receiver (D-6) |
 | I4×I5 | yes | a → b | Fragment-parsed nodes and clones: first insertion in slice a (H6), creation in slice b (S-1) |
 | I4×I6 | no | — | The clone's non-copy is independent of the policy, and the filter applies at processing |
@@ -471,7 +520,7 @@ Count: 36 pairs; 32 intersect and 4 do not (I4×I6, I6×I7, I6×I8, I8×I9). Of 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | WHATWG HTML §8.1.8.1 Event handlers | event handler content attribute *attribute change steps* 1–5.6 | step 1 non-handler name → return; step 2 determine the target; step 3 null target → return; step 4 value null → deactivate; step 5.1 CSP inline check (not modelled: `frame-ancestors` is parsed and enforced, `crates/core/elidex-plugin/src/origin.rs:172-303`, `parse_frame_ancestors` `:202`, but no `script-src` handling exists in `crates/`, so no inline script or inline handler passes a CSP check; slot `#11-csp-inline-handler-enforcement`); step 5.5 set raw uncompiled handler; step 5.6 activate | a: D-2's function (NEW) for creation-time attributes; `handle_attribute_change` `crates/script/elidex-script-session/src/event_handler_consumer.rs:389` for writes (D-4 entry first). b: its plan | ✓ (5.1 listed, not modelled; E-G1 (iii)) | yes |
-| WHATWG HTML §8.1.8.1 Event handlers | *determining the target of an event handler* 1–4 | non-body → self; not WEH and not the reflecting set → self; step 3 inactive node document → null; else relevant global | `resolve_handler_target` `event_handler_consumer.rs:328` (unchanged; step 3 is T3, the reflecting set facet 4) | ✗ | no |
+| WHATWG HTML §8.1.8.1 Event handlers | *determining the target of an event handler* 1–4 | non-body → self; not WEH and not the reflecting set → self; step 3 inactive node document → null; else relevant global | `resolve_handler_target` `event_handler_consumer.rs:328` (unchanged; step 3 is T3, the reflecting set facet 4); a: steps 1–2 are X-W's test, on (tag, name) only | ✗ | no |
 | WHATWG HTML §8.1.8.1 Event handlers | event handler IDL attribute setter 1–4 | target null → return; value null → deactivate; else set value + activate | a: `native_event_handler_set` `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:344`, `native_body_weh_set` `:459` (after `:468-470`) → D-4 entry | ✓ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | *get the current value of the event handler* steps 3.2 and 3.9 | 3.2: raw value in a null-browsing-context document → null; 3.9: function created with the document / form owner / element scope, and the `onerror` five-parameter list on a Window | `ensure_event_handler_current` `event_handler_attrs.rs:521` (unchanged; 3.2 is N1's and S-1's; 3.9 is E-G1 (ii), not modelled here) | ✗ | no |
 | WHATWG HTML §8.1.8.2 Event handlers on elements, Document objects, and Window objects | WindowEventHandlers rows | WEH rows on `<body>` delegated (HEAD) | `EVENT_HANDLER_ATTRS` `event_handler_consumer.rs:61`; cells C8, E4 | ✗ | no |
@@ -516,13 +565,14 @@ clone does not copy it.
   than `on<event_type>`; otherwise process.
 - Rewrite sites: `handle_insert` (`event_handler_consumer.rs:427-463`), `handle_attribute_change` (`:389-421`), the two
   VM setters (§3), `initialize_consumers` and its doc (`consumer_dispatcher.rs:113-137`), the clone-policy rows
-  (`tree_clone.rs:30` for the element marker, a new row beside `DocumentBaseUrl` at `:31` for the Document marker), the
+  (`tree_clone.rs:30` for both markers, deliberate non-copy), the
   re-exports (`elidex-script-session` `lib.rs`), the G6 docstring (`attribute_reconcile.rs:21-23`), and the
   `Vm::bind` comment at `vm_api.rs:298-312` ("other consumers … are no-ops here; see
   `ConsumerDispatcher::initialize_consumers`"), which goes stale when the consumer gains an init pass.
-- Clone policy of the Document marker: `PreBindHandlerAttrsProcessed` is **out-of-domain** (Document-entity state owned
-  by the event-handler consumer, never copied), the same row as `DocumentBaseUrl` (`tree_clone.rs:31`; the table
-  starts at `:20`).
+- Clone policy of the Document marker: `PreBindHandlerAttrsProcessed` is a **deliberate non-copy** (`tree_clone.rs:30`;
+  the table starts at `:20`). Documents are cloneable (`clone_subtree`'s Document branch, `tree_clone.rs:163-230`),
+  and a cloned Document has had no first bind, so it must start unmarked. `DocumentBaseUrl`'s "out-of-domain" row
+  (`:31`) is not this row's precedent.
 - Two init keys in one hook (input; no decision): D-5 keys the bind pass on the bound document, while
   the base-URL maintainer's `initialize_from_tree` (`crates/dom/elidex-dom-api/src/element/document_base.rs:276-285`) keys on
   `document_root()`, in the same `initialize_consumers` call. They are equal in production, so no harm is shown. Slice
@@ -600,7 +650,7 @@ Result:
 | main-document parse, URL-loaded iframe, srcdoc / about:blank iframe (pre-bind; H16/H17) | **first bind** (G1) | same (K-6) |
 | fragment (innerHTML / outerHTML / setHTMLUnsafe) | first insertion (placement, H6); none when placed directly under a shadow root (HEAD) | S-1 |
 | DOMParser | first insertion after return (W-K5 when into a DOMParser document) | S-1 |
-| `createElement` + `setAttribute` | the write processes and marks (D-8) | same |
+| `createElement` + `setAttribute` | the write processes and marks (D-8); a Window-delegating pair is not processed at the write (X-W) | same (S-5) |
 | `cloneNode` | first insertion | S-1 |
 | declarative shadow (parser) | first bind (pre-bind parse); not processed in a fragment parse (D-10) | S-1 |
 | template contents | placement into contents (W-K5), or when moved out (HEAD) | S-2 |
@@ -636,7 +686,7 @@ VM cells drive the VM through `dispatchEvent(new Event('click'))` (the VM has no
 | C5 | red | DOMParser `<div id=d onclick="A">`; `d.onclick = fn`; variants (i) `dp2.body.append(d)`, (ii) `el.append(d)`, (iii) `c = d.cloneNode()`, `c.onclick = fn`, `el.append(c)` (§L L6) | first insert raws A over `fn` | `d.onclick === fn` (`c.onclick === fn`); dispatch runs `fn` in (ii), (iii) |
 | C6 | guard | DOMParser `<div id=d onclick="A">` appended into `el` | delivered at insert | `typeof d.onclick === 'function'`; dispatch runs A |
 | C7 | guard | delivered `t`, `f = t.onclick`; `t.setAttribute('onclick', B)` | — | `t.onclick !== f`; dispatch runs B |
-| C8 | red | `b = createElement('body')`; `el.append(b)`; `b.setAttribute('onhashchange', X)`; `window.onhashchange = fn`; move `b` | move re-raws X onto the Window | `window.onhashchange === fn`; store: marker on `b`, none on the Window |
+| C8 | window pin (X-W; rev 7, was red) | `b = createElement('body')`; `el.append(b)`; `b.setAttribute('onhashchange', X)`; `window.onhashchange = fn`; move `b` | move re-raws X onto the Window | `typeof window.onhashchange === 'function'` and `!== fn` (HEAD's). **Spec** (not asserted): `fn`; slice b (S-5) inverts it. It discriminates X-W's test from a document-keyed one: `b` is in the live, bound document, so a test that exempts that document fails C8 |
 | C9 | guard | `t` delivered and IDL-set to `fn`; `c = t.cloneNode()`; insert `c` | — | before insert: `c` unmarked; after: `c.onclick` is compiled A (not `fn`) |
 | C11 | red | `c = createElement('div')`; `c.setAttribute('onclick', A)`; `c.onclick = fn`; `el.append(c)` | first insert raws A over `fn` | `c.onclick === fn` |
 | C12 | guard | clone of `onclick=A`; `c.removeAttribute('onclick')`; insert | — | `c.onclick === null` |
@@ -644,7 +694,9 @@ VM cells drive the VM through `dispatchEvent(new Event('click'))` (the VM has no
 | C14 | window pin (W-K5, template) | `tpl.innerHTML = '<b id=x onclick="window.hit=1">'`; `tpl.content.getElementById('x').dispatchEvent(new Event('click'))` | runs | `window.hit === 1` (spec: does not run; slice b inverts it under S-2) |
 | C15 | window pin (W-K5, DOMParser) | `x` from `dp = parseFromString('<div id=x onclick="A">')` (unmarked, no entry); `x.onclick` (null); `dp2.body.append(x)`; getter | before `null`; after a function | after the append `typeof x.onclick === 'function'` (spec: null; N1's node clause inverts it) |
 | C16 | guard (T-a3, restriction returns) | DOMParser `<div id=d onclick="A" onmouseover="C">`; `d.setAttribute('onclick', 'B')`; `d.onmouseover` | `null` (no `mouseover` entry, H5) | `d.onmouseover === null` (an unrestricted write would raw `C`, and the flag-only gate would compile it) |
-| C17 | guard (T-a3 restriction (b); window pin for G3; R3 IMP) | `dp = new DOMParser().parseFromString('<body onhashchange="window.hit=1">', 'text/html')`; `b = dp.body` (its only deliverable attribute is `onhashchange`); `window.onhashchange` is null; step 1: `b.onhashchange = fn`; step 2: `el.append(b)`; step 3: dispatch `hashchange` on the Window | step 1: `window.onhashchange === fn` (HEAD's setter has no step 3). Step 2: the Insert re-raws `hit=1` over `fn`; the getter compiles it. Step 3: runs `hit=1`, not `fn` | step 1 and step 2 as HEAD, step 3 as HEAD: `window.onhashchange === fn`, then `typeof window.onhashchange === 'function'` and `!== fn`, then `window.hit === 1` with `fn` not run. **Spec** (not asserted): step 1 the setter returns (null target), step 2 `window.onhashchange === null`, step 3 runs nothing. T3 inverts the cell. Rev 5 gave `window.onhashchange === fn` at step 2, which matches neither. An unrestricted write-side entry fails it |
+| C17 | guard (X-W at T-a3; window pin; R3 IMP) | `dp = new DOMParser().parseFromString('<body onhashchange="window.hit=1">', 'text/html')`; `b = dp.body` (its only deliverable attribute is `onhashchange`); `window.onhashchange` is null; step 1: `b.onhashchange = fn`; step 2: `el.append(b)`; step 3: dispatch `hashchange` on the Window | step 1: `window.onhashchange === fn` (HEAD's setter has no step 3). Step 2: the Insert re-raws `hit=1` over `fn`; the getter compiles it. Step 3: runs `hit=1`, not `fn` | step 1 and step 2 as HEAD, step 3 as HEAD: `window.onhashchange === fn`, then `typeof window.onhashchange === 'function'` and `!== fn`, then `window.hit === 1` with `fn` not run. **Spec** (not asserted): step 1 the setter returns (null target), step 2 `window.onhashchange === null`, step 3 runs nothing; reached after T3 and slice b (§1.5 X-W). Rev 5 gave `window.onhashchange === fn` at step 2, which matches neither. A write-side entry that processes a Window-delegating pair fails it. K-2 and K-3 do not claim this pair (X-W), so the cell and their qualifiers agree |
+| C18 | guard (X-W at T-a3; window pin; rev-6 re-check A2 IMP) | `b = createElement('body')`; `tpl.content.append(b)`; `b.setAttribute('onhashchange', 'window.hit=1')`; `b.onhashchange = fn`; `document.body.append(b)`; dispatch `hashchange` on the Window | the append into the contents fires Insert while `b` has no attribute (H22). The AttributeChange arm resolves to the Window (`event_handler_consumer.rs:389-421`, `:328-334`): raw `hit=1`. The setter writes `fn` to the Window (`event_handler_attrs.rs:459-479`). The append into the body re-raws `hit=1` over `fn` (H1); the getter compiles it; dispatch runs `hit=1` | as HEAD: after the setter `window.onhashchange === fn`; after the append `typeof window.onhashchange === 'function'` and `!== fn`; `window.hit === 1`, `fn` not run. **Spec** (not asserted): the contents' node document is inert, so step 3 makes both writes return and `window.onhashchange === null`; reached after T3 and slice b. It fails under rev 6's (b), which let `b` pass because elidex gives template contents the bound document (the C1 gap) |
+| C19 | guard (X-W at T-a2) | `b = createElement('body')`; `b.setAttribute('onclick', 'A')` (T-a3 passes and marks `b`); `b.setAttribute('onhashchange', 'window.hit=1')`; `dp.body.append(b)`; `b.onhashchange = fn`; `el.append(b)`; dispatch `hashchange` on the Window | the AttributeChange arm writes raw `hit=1` to the Window; each append re-raws both attributes; the setter writes `fn` to the Window; the second append re-raws `hit=1` over `fn` | `typeof window.onhashchange === 'function'` and `!== fn`; `window.hit === 1`. HEAD and the spec agree (spec: while `b` is in `dp` the setter's target is null, so the Window keeps `hit=1`). A skip at insertion that covers Window-delegating pairs gives `=== fn`, which is neither |
 
 Unit cells drive `EcsDom` with `EventHandlerAttributeConsumer` installed, through real `append_child` /
 `set_attribute` calls. A cell that calls `initialize_from_tree` more than once uses a **fresh consumer instance per
@@ -653,8 +705,8 @@ call**, as production does (H13).
 | cell | kind | shape | oracle |
 |---|---|---|---|
 | U1 | red | element spawned with `onclick=A`, appended; `take_uncompiled`; appended elsewhere | `uncompiled_source == None` (HEAD `Some("A")`) |
-| U2 | red | `<body onhashchange=X>` with a Window; append; `take_uncompiled` on the Window entry; move | Window entry `None`; marker on body only |
-| U3 | guard | `BrowserCore`, `<body onstorage=…>` appended twice | no `storage` entry; body marked after the first append |
+| U2 | window pin (X-W; rev 7, was red) | `<body onhashchange=X>` with a Window; append; `take_uncompiled` on the Window entry; move | the Window entry is raw `X` again (HEAD's re-raw). Spec: `None`; slice b inverts it |
+| U3 | guard | `BrowserCore`: (i) `<div onstorage=…>` (an ordinary pair) appended twice; (ii) `<body onstorage=…>` appended twice | (i) no `storage` entry; the div is marked after the first append. (ii) no `storage` entry on the Window after either append |
 | U4 | guard | element with no handler attributes appended | unmarked |
 | U5 | red (i) / guard (ii), (iii) | (i) unmarked element with only `onclick=A`: `set_attribute(onclick, B)`; then append. (ii) unmarked, never-inserted element with `onclick=A onmouseover=C`: `set_attribute(onclick, B)`, then append. (iii) the write-side entry on a marked element | (i) marked; raw `B` (HEAD's state after the write); after `take_uncompiled` and the append, still `None`. (ii) after the append: `click` raw `B`, `mouseover` raw `C` (HEAD's, and the spec's for this shape). (iii) no change |
 | U6 | guard | `clone_node_shallow` of a marked element | clone unmarked |
@@ -663,7 +715,7 @@ call**, as production does (H13).
 | U9 | guard (K-0; R1 A2 IMP-1) | after a first `initialize_from_tree`: a connected host `h` with shadow root `sr`; `x` spawned with `onclick=A onmouseover=C` and appended directly to `sr` (no Insert, H2); the write-side entry for `click` on `x` (the restriction returns); a `click` entry with no source on `x` (an IDL write's store state); `h` moved; `initialize_from_tree` again with a **fresh** consumer | `x` unmarked; the `click` entry still has no source (HEAD's outcome, and the spec's for that write) |
 | U10 | red (K-6, D-11 depth; R2 IMP 1) | pre-bind shape: a chain of more than `MAX_ANCESTOR_DEPTH` nested elements under the bound document's body, built bottom-up (the `destroy.rs:381` precedent), the deepest carrying `onclick=A`; `initialize_from_tree` | the deepest element is marked and its `click` entry is raw A. A depth-capped walk leaves it unmarked. A recursive walk overflows the stack (the precedent comment at `dom/tests/tree_ops.rs:259-266` states that recursion overflows at about 2–3k frames) |
 | U11 | red (K-6, D-11 width; R2 IMP 1) | pre-bind shape: one parent with more than `MAX_ANCESTOR_DEPTH` children, each carrying `onclick=A` (the `destroy.rs:419` precedent); `initialize_from_tree` | every child is marked (count = the number built), including the first and the last. A forward-capped walk misses the last children, and a reverse-capped walk (`children_iter_rev`) misses the first |
-| U12 | red (K-6, D-5; R3 A2 MIN) | a World where the bound document `d2` is **not** `document_root()`: `d2 = create_document_node()` (it leaves `document_root()` unchanged), with a `<button onclick=A>` in `d2`'s tree; a second `<button onclick>` in the `document_root()` tree; `initialize_from_tree` with `d2` | `d2`'s button is delivered (raw A) and `d2` is marked. The `document_root()` tree's button is unmarked and has no entry. A `document_root()`-keyed pass fails both. U8 (i) alone cannot tell the keys apart whenever the bound document is the root |
+| U12 | red (K-6, D-5; R3 A2 MIN) | pre-bind shape (built without a dispatcher, as U7), in a World where the bound document `d2` is **not** `document_root()`: `d2 = create_document_node()` (it leaves `document_root()` unchanged), with a `<button onclick=A>` in `d2`'s tree; a second `<button onclick>` in the `document_root()` tree; `initialize_from_tree` with `d2` | `d2`'s button is delivered (raw A) and `d2` is marked. The `document_root()` tree's button is unmarked and has no entry. A `document_root()`-keyed pass fails both. U8 (i) alone cannot tell the keys apart whenever the bound document is the root |
 
 ### §6.2 End-to-end pins (G1 and the rebind invariant), by path
 
@@ -691,10 +743,10 @@ Control: `data-ran == "1"`.
 ### §6.3 Mutation guards and kept-green (input)
 
 Kept green: `tests_event_handler_attrs.rs` and the consumer's `spec_level_tests`. Mutation guards: dropping the marker
-check fails C1–C3, C8, U1, U2, E3, U7. Deleting the bind delegate fails E1, E2, E4–E7, U7. Dropping the document-marker
+check fails C1–C3, U1, E3, U7. Deleting the bind delegate fails E1, E2, E4–E7, U7. Dropping the document-marker
 check, or holding the once-state on the consumer struct, fails U9 and E8. A light-tree bind pass fails E7 and U8 (iii).
 A capped bind walk fails U10 or U11, and a recursive one fails U10. A shadow-including Insert walk fails U9 and E8. A
-write-side entry that never processes fails C2, C4, C5, C11 and U5 (i). One without the restriction fails C16, and one without restriction (b) fails C17. A bind
+write-side entry that never processes fails C2, C4, C5, C11 and U5 (i). One without the restriction fails C16. One that processes a Window-delegating pair at a write fails C17 and C18; a skip at insertion that covers Window-delegating pairs fails C19; a test keyed on the node document or the bound document instead of (tag, name) fails C8 or C18. A bind
 pass that walks a document other than the bound one, or walks template contents, fails U8 (i) / (ii). A pass keyed on
 `document_root()` instead of the bound document fails U12. WPT: no subset
 is claimed.
@@ -720,10 +772,10 @@ scope; any other becomes a slot.
 - **G2, shadow-tree elements never delivered.** **In scope.** Slice a covers pre-bind shadow trees (E7, U8 (iii)).
   Slice b covers the rest (S-1). The shadow-root filter (`mutation.rs:289`) is **not** changed: it serves every consumer.
 - **G3, target step 3 not modelled.** Slot `#11-event-handler-target-determination` facet 1. It is T3, slice b's
-  independent prerequisite PR, owned by this program (PM decision 25; §1.2). Slice a leaves a DOMParser `<body>` to its
-  first insertion (D-8 (b), C17).
+  independent prerequisite PR, owned by this program (PM decision 25; §1.2). Slice a keeps HEAD's path for every
+  Window-delegating pair (X-W; C17, C18, C19).
 - **G4, the Window-reflecting body set.** Slot `#11-event-handler-target-determination` facet 4 (trigger: slice a's
-  landing). Interaction: E-G1 (i).
+  landing). Interaction: E-G1 (i); the six names are Window-delegating pairs under X-W.
 - **G5, reads never deliver.** **In scope, slice b** (S-1).
 - **G6, stale docstring** `crates/core/elidex-ecs/src/dom/attribute_reconcile.rs:21-23`. **Fixed in slice a**
   (docstring only).
@@ -767,7 +819,8 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > **`#11-eh-attrs-creation-time-call-sites`** — owner: Layout lane (program `EH-attrs-at-creation`). **What it
 > records:** the approved interim of slice a (PM decision 23). An element created after bind is processed at its first
 > insertion, over HEAD's light-tree walk, instead of at its creation. A handler write is restricted: it processes the
-> element first only when the written name is the element's only deliverable handler content attribute.
+> element first only when the written name is the element's only deliverable handler content attribute, and never for
+> a `<body>` / `<frameset>` handler that delegates to the Window.
 > **Defects** (observable both at HEAD and after slice a): (1) a handler write (`setAttribute` / `removeAttribute` of
 > `on<T>`, or `E.on<T> = …`) on a never-inserted element with two or more deliverable handler content attributes is
 > overwritten at the element's first insertion (at HEAD: for every element, at every insertion); (2) a never-inserted
@@ -777,13 +830,15 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > shadow tree of a host inserted after bind, is never processed; (5) DOMParser and template-content elements are
 > processed at their first insertion, not at creation, and an unmarked element placed into template contents or into a
 > DOMParser document reads a non-null handler (the DOMParser-document half holds only until N1 lands, K-5; the
-> template-contents half remains until slice b); (6) an element past the 10 000th child of a parent inside a subtree
-> inserted after bind is not reached by the Insert walk (HEAD's `children_iter_rev` cap, D-10), so it is never
-> processed. **Classification:** all six are **pre-existing**. Each exists at HEAD
+> template-contents half remains until slice b); (6) of a parent with n > 10 000 children inside a subtree inserted
+> after bind, the first n − 10 000 children are not reached by the Insert walk (HEAD's `children_iter_rev` cap, which
+> starts at the last child, D-10), so they are never processed; (7) a `<body>` / `<frameset>` handler that delegates
+> to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
+> delivers it to the page Window. **Classification:** all seven are **pre-existing**. Each exists at HEAD
 > with the same outcome or a wider population; slice a narrows (1) and makes nothing worse (K-0). **Registered** when
 > the umbrella-approval PR lands. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's
-> handling). N1 itself needs slice a first (§L). **Closes:** at slice b's landing, which removes the restriction and
+> handling). N1 itself needs slice a first (§L). **Closes:** at slice b's landing, which removes the restriction, X-W and
 > processing at insertion (§1.4). If §1.6 branch B leaves a template-contents residue, slice b's plan drafts its slot
 > text and the PM registers it when that plan passes plan-review (§1.6). **Closing path:** slice a lands → T3 (this
 > program) → C1's handling decided → slice b. **Trigger:** T3 and N1 landed, and C1's handling decided. **Re-eval:**
@@ -808,9 +863,18 @@ slice a's plan re-derives the cells.
    `:633`, `:634`, `:671`, `:728`, `:733`. `:540` is revision history; N1's idiom decides.
 2. **Restate P-N5 / H-P16 against K-1:** "creation-time handler content attributes are processed at most once; no
    insertion, move or rebind writes handler state from them", not "delivered at first insertion".
-3. **R2 G2 (R-a):** cite K-1 and K-2 with K-2's slice-a qualifier (at most one deliverable attribute). The
-   multi-attribute case is S-5. N1 decides whether the single-attribute form suffices for its cells (O5).
-4. **R2 G3 (R-b):** cite K-3 with the same qualifier. The multi-attribute case is S-5.
+3. **R2 G2 (R-a):** cite K-1 and K-2 with their slice-a qualifiers (ordinary pairs only, X-W; at most one
+   deliverable ordinary attribute, D-8). The multi-attribute case and Window-delegating pairs are S-5. N1 decides
+   whether this form suffices for its cells (O5).
+4. **R2 G3 (R-b):** cite K-3 with the same qualifier. The multi-attribute case and Window-delegating pairs are S-5.
+   For any N1 cell on a `<body>` / `<frameset>` Window-delegating pair, N1's expectation after slice a is HEAD's
+   outcome (X-W), not K-1 to K-3's. At N1 rev 3 (`0f99538d`) no R-a / R-b or C8-family cell uses such a pair: they
+   use `onclick` on a `div` or `button`. The only such shape is the Window `<body onpopstate>` arm of the `:635`
+   raw-form rewrite (O6; N1 `:502`, `:604`). It is a pair on the live document's `<body>`, where X-W gives HEAD's
+   outcome, so N1's expectation there must be HEAD's (the raw handler compiles and runs). Measured with
+   `git -C <N1 worktree> show 0f99538d:docs/plans/2026-10-ibp-sandbox-handler-gates.md | /usr/bin/grep -nE
+   '<body|onhashchange|onpopstate|WindowEventHandlers|frameset|Window-reflecting|window\.on|R-a|R-b'` (hits `:78`,
+   `:410`, `:604`, `:621`; none for `R-a` / `R-b`, which are N1 R2 labels, §L L5–L6).
 5. **H-P13 stays.** Cite K-5's slice-a statement (the bind pass walks only the bound document and writes nothing into a
    DOMParser document) as the evidence.
 6. **NR7 (`:575`):** "on a base without slice a". Cite §L's verdict as the measurement behind it: without slice a, N1
@@ -873,15 +937,16 @@ These are evidence that slice b's plan must account for. None of them is decided
 - The marker components and functions of §4 exist in `elidex-script-session` and are re-exported. The Insert arm walks
   HEAD's set (D-10). The bind walk is uncapped and iterative (D-11). It is keyed on, and marks, the bound document
   (D-5), and its once-state is not on the consumer struct.
-- The write-side entry has D-8's observable restriction, and its restriction line names
+- The write-side entry has D-8's observable restriction, X-W holds at every slice-a timing, and the restriction line names
   `#11-eh-attrs-creation-time-call-sites`. `handle_insert`'s doc names the same slot as the interim's closure.
 - `initialize_consumers` delegates to the consumer, and its doc and the `event_handler_attrs` field doc no longer say
   the consumer needs no init or is dual-arm only (§4).
 - Both VM element setters call the write-side entry as D-6 states. No other VM code touches either marker outside
   tests.
-- The clone-policy rows (element marker; Document marker beside `DocumentBaseUrl`) are added, the module and field docs
+- The clone-policy entries (element marker; Document marker, both deliberate non-copy) are added, the module and field docs
   and the `vm_api.rs:298-312` comment are updated, and the G6 docstring is corrected.
-- Cells C1–C9, C11–C17, U1–U12 and pins E1–E8 are present (E5b per the plan's recorded Q5 decision). Every red cell
+- Cells C1–C9, C11–C19, U1–U12 and pins E1–E8 are present (E5b per the plan's recorded Q5 decision; E8 in the form
+  Q7 settles). Every red cell
   and red pin was run red on the pre-fix base with its control green, and the failures are recorded in the PR
   description. All pass at the head.
 - `cargo test -p elidex-script-session --all-features`, `-p elidex-js`, `-p elidex-shell`, `-p elidex-ecs`, and
@@ -899,8 +964,10 @@ These are evidence that slice b's plan must account for. None of them is decided
 ### §10.3 Program
 
 - Both slices have landed in the §1.3 order, each with its own reviewed plan-memo.
-- K-0 to K-6 and S-1 to S-7 hold at slice b's landing, with no qualifier in either branch (S-3). In branch B that
-  requires the per-node template-origin fact of S-2.
+- T3 (`#11-event-handler-target-determination`) has landed before slice b (x3). Its DoD is its own plan's.
+- K-0 to K-6 and S-1 to S-7 hold at slice b's landing, X-W and the D-8 restriction gone (S-5). The one qualifier is
+  S-2's in branch B: a case for which slice b's plan cannot supply the per-node template-origin fact is not processed at
+  creation, stays HEAD-equal (S-3 has no exception), and is registered as the branch-B residue slot (§1.6).
 - **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
   docs/plans/2026-10-event-handler-attrs-at-creation.md` exits 0.
 
@@ -917,8 +984,9 @@ Open:
   `EventListeners` handler state outside the IDL activation path? **Owner: slice a's plan-review. Close point: that
   plan-review**, which runs the §5.0 census and a search of VM writers of `EventListeners` at its base and records the
   result. A path it finds is a K-0 case or a slot. Slice b re-runs it (S-7).
-- **O5, N1's R-a / R-b.** In slice a they hold only for elements with one deliverable handler attribute (K-2, K-3
-  qualifiers). Is that sufficient for N1's landing?
+- **O5, N1's R-a / R-b.** In slice a they hold only for ordinary pairs of elements with one deliverable ordinary
+  handler attribute (K-2, K-3 qualifiers); a Window-delegating pair gets HEAD's outcome (X-W; §8.4 item 4). Is that
+  sufficient for N1's landing?
 
 Questions for a scout:
 - **Q3:** does elidex fetch or fire `load` / `error` for an `<img>` in template contents, or in a clone of them? (The
@@ -927,8 +995,10 @@ Questions for a scout:
 - **Q7 (rev 5):** do E8's three brackets build as stated, specifically `attachShadow` on a `div` and `cloneNode` with
   two handler attributes in an initial script, through `build_pipeline_from_loaded`? **Fallback if not:** take `x` from a
   DOMParser document (`parseFromString('<div id=x onclick=… onmouseover=…>')`: unmarked, and no Insert when placed under
-  the shadow root) and keep brackets 2 and 3. If `attachShadow` cannot run there, E8 is dropped, U9 stays the only
-  guard, and slice a's plan records the loss.
+  the shadow root) and keep brackets 2 and 3. If `attachShadow` cannot run there either, E8 is not dropped: its
+  obligation (a real multi-bracket path showing that no later bind and no Insert reaches an unmarked
+  shadow-root-direct element) stays in §10.1, and slice a's plan-review decides the replacement shape before
+  implementation.
 
 Rev 4's Q2 (is the bound document equal to `document_root()` at every bind site) is moot: D-5 keys on the bound document.
 
@@ -997,3 +1067,31 @@ R3: CRIT 0 / IMP 1 / MIN 16, each re-verified against `fd6955e8` before disposit
 | R3-A5-FP | FP | call-sites slot not yet in ledger | no action | registration timing is already committed (§8) |
 
 Counts: IMP 1: 1 fixed. MIN 16: 15 fixed, 1 moved to slice a's plan input, 0 rejected.
+
+## §13.2 Rev-6 re-check disposition (focused re-check on rev 6 `e7586cf3`, applied in rev 7)
+
+The record lists CRIT 0 / IMP 2 / MIN 13. Two MINs appear under both axes (S-7, S-2's escape clause), which leaves
+11 distinct MINs; the `<frameset>` MIN also sits in A3's IMP text. Each line was re-verified against
+`fd6955e8` before disposition. Root pattern (the record's): slice a's once rule on a `<body>` depends on step 3 of
+target determination (T3), which slice a lacks, and every narrowing by "which document" leaks another path. The
+user's decision 案 X replaces the narrowing with the property rule X-W (§0.5).
+
+| id | sev | finding (short) | disposition | reason / where |
+|---|---|---|---|---|
+| A3-IMP | IMP | K-2 / K-3's slice-a qualifier contradicts C17 (DOMParser `<body onhashchange>`, one attribute, is re-raw'd) | **fixed** | X-W; K-1 to K-3 qualifiers exclude Window-delegating pairs; C17's note; §8.4 items 3–4; O5 |
+| A2-IMP | IMP | template-contents `<body>` passes rev 6's (b) (elidex gives the contents the bound document) and ends with `fn` on the Window | **fixed** | X-W reads no document; cell C18 (HEAD-equal; spec null, the T3 and slice b target) |
+| self (rev 7) | — | found while writing X-W: a **marked** `<body>` moved into a DOMParser document, IDL-set, moved back is skipped and keeps `fn`, where HEAD and the spec both give the attribute's function. Same root, timing T-a2 | **fixed** | X-W covers the skip at insertion; cell C19. C8 and U2 become window pins |
+| MIN-1 | MIN | `<frameset>` in rev 6's (b) has no HEAD basis | **fixed** | X-W's `<frameset>` paragraph: HEAD tests `body` only (`event_handler_consumer.rs:337-341`, VM `event_handler_attrs.rs:207-213`, `:425`); included because the test is the spec's step 1, and inclusion yields HEAD's outcome |
+| MIN-2 | MIN | C17 "T3 inverts the cell" contradicts §1.5 ("T3 then slice b") | **fixed** | C17, C18: "reached after T3 and slice b"; x6 |
+| MIN-3 | MIN | the width-cap population is reversed | **fixed** | `children_iter_rev` starts at the last child (`navigation.rs:323-330`), so the first n − 10 000 children are missed; §1.5, §8.2 defect (6) |
+| MIN-4 | MIN | Q7's fallback drops E8 against §10.1 | **fixed** | §11 Q7: E8's obligation stays; slice a's plan-review decides the replacement; §10.1 |
+| MIN-5 | MIN | T3 has no DoD; the ledger row's owner and trigger are stale | **fixed (memo half)** | §10.3 requires T3 landed before slice b and references the slot; the ledger row is the PM's to update and is not edited here |
+| MIN-6 | MIN | §10.3 "no qualifier" vs S-2's escape clause | **fixed** | §10.3 names S-2's branch-B case as the one qualifier, HEAD-equal and registered (§1.6) |
+| MIN-7 | MIN | S-7 is unsatisfiable for a silent writer onto a marked element (post-creation, outside S-1) | **fixed** | S-7: creation paths by S-1; post-creation silent writers by a stated disposition |
+| MIN-8 | MIN | U12 cannot be built with the consumer installed | **fixed** | U12: pre-bind shape, as U7 |
+| MIN-9 | MIN (uncertain) | the node document goes stale on a cross-document insert, so rev 6's (b) passes; the AttributeChange arm has no bound-document input | **FP after rev 7** | X-W reads neither the node document nor the bound document, so neither staleness nor a missing input reaches it |
+| MIN-10 | MIN (uncertain) | S-2's template-origin fact as provenance over-suppresses after a move out | **fixed** | S-2: the fact tracks the spec node document, not the node's history |
+| MIN-11 | MIN (uncertain) | the Document marker's "out-of-domain" clone row; Documents are cloneable | **fixed (verified)** | `clone_subtree`'s Document branch (`tree_clone.rs:163-230`); §4: deliberate non-copy (`:30`) |
+
+Counts: IMP 2: 2 fixed. MIN 11 distinct: 10 fixed (one of them on the memo half only), 1 FP after rev 7, 0 rejected.
+One self-found defect, fixed.
