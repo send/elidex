@@ -9,6 +9,7 @@ repository (never this file) and runs the copied driver there.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -266,6 +267,26 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         tracked = sorted(p for p in out.split("\0") if p)
         for rel in PIN_FILES:
             self.assertIn(rel, tracked)
+        # Completeness, by property: a module a pin file imports from scripts/, and a file that
+        # imports a helper module of the pins, are pin files too.
+        def imports(rel):
+            names = set()
+            for n in ast.walk(DRV.parse((REPO / rel).read_bytes(), rel)):
+                if isinstance(n, ast.Import):
+                    names |= {a.name.split(".")[0] for a in n.names}
+                elif isinstance(n, ast.ImportFrom) and not n.level and n.module:
+                    names.add(n.module.split(".")[0])
+            return names
+
+        by_stem = {p[len("scripts/") : -3]: p for p in tracked if p.startswith("scripts/") and p.count("/") == 1}
+        helpers = set()
+        for rel in PIN_FILES:
+            for m in imports(rel) & set(by_stem):
+                self.assertIn(by_stem[m], PIN_FILES, "%s imports %s, which is not a pin file" % (rel, m))
+                helpers.add(m)
+        self.assertLessEqual({"python_suites_fixtures", "python_suites_readers"}, helpers)
+        for path in tracked:
+            self.assertTrue(path in PIN_FILES or not imports(path) & helpers, "%s imports a pin helper but is not a pin file" % path)
         entry_points = []
         for path in tracked:
             if re.search(DRV.MEMBER_RE, path):

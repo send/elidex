@@ -10,12 +10,15 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import socket
 import sys
 import threading
 import unittest
 
 from python_suites_fixtures import (
+    DRIVER,
+    DRV,
     PIN_FILES,
     REGIME_KEYS,
     REPO,
@@ -70,6 +73,7 @@ class Listener:
 G1_MEMBER = """
 import http.client
 import os
+import re
 import ssl
 import unittest
 import urllib.error
@@ -114,6 +118,7 @@ RAW_CONNECT_CHILD = (
 
 G2_MEMBER = """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -142,6 +147,7 @@ class G2(unittest.TestCase):
 # (resolved against the caller's cwd, not the repository root).
 G2_OTHER_CWD_MEMBER = """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -163,6 +169,7 @@ class G2Cwd(unittest.TestCase):
 
 G3_MEMBER = """
 import os
+import re
 import socket
 import unittest
 
@@ -178,6 +185,7 @@ class G3(unittest.TestCase):
 
 G4_MEMBER = """
 import os
+import re
 import socket
 import unittest
 
@@ -193,6 +201,7 @@ class G4(unittest.TestCase):
 
 G5_MEMBER = """
 import os
+import re
 import socket
 import unittest
 
@@ -292,6 +301,7 @@ class G7(unittest.TestCase):
 
 RAW_CONNECT_MEMBER = """
 import os
+import re
 import socket
 import unittest
 
@@ -311,6 +321,7 @@ G7_VERDICT_PREFIXES = ("python-suites: test ", "python-suites: FAIL ", "python-s
 G7_NESTED_MEMBER = """
 import json
 import os
+import re
 import subprocess
 import unittest
 
@@ -345,6 +356,7 @@ class G8(unittest.TestCase):
 
 G10_MEMBER = """
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -415,6 +427,7 @@ class G10(unittest.TestCase):
 # leak control are all built from these, so "the same check" holds by construction.
 G11_PREAMBLE = """
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -495,6 +508,7 @@ class A(unittest.TestCase):
 
 G11_GUARD_CONNECT = """
 import os
+import re
 import socket
 import unittest
 
@@ -593,6 +607,17 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
             *["FAILED g6/test_g6.py::G6.test_%s" % k for k in G6_INHERITED]
         )
         self.assertEqual(len([l for l in out.splitlines() if l.startswith("python-suites: test FAILED")]), 5, out)
+        # The regime keys are spelled three times in the driver; tie them to REGIME_KEYS.
+        base = {**{k: "sentinel-" + k for k in REGIME_KEYS}, "UNRELATED": "u", "GIT_DIR": "/x"}
+        env = DRV.regime_env(base, "/g", 1234, "/c")
+        moved = {k for k in set(base) | set(env) if base.get(k) != env.get(k)} - {"GIT_DIR"}
+        self.assertEqual(moved, set(REGIME_KEYS))
+        self.assertEqual((env["UNRELATED"], "GIT_DIR" in env), ("u", False))
+        text = DRIVER.read_text(encoding="utf-8")
+        half = text[text.index("Environment half") : text.index("Before each member")]
+        listed = {n for m in re.findall(r"^#   (\S+)", half, re.M) for n in m.split("/")}
+        self.assertEqual(listed, set(REGIME_KEYS) | {"GIT_*"})
+        self.assertEqual(set(G6_INHERITED) | {"PYTHONPATH"}, set(REGIME_KEYS))
 
     def test_G7_guard_installed_exactly_once_and_nested_run_idempotent(self):
         lst = Listener(self)

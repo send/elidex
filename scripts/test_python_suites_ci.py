@@ -112,11 +112,6 @@ class TestReaderPins(unittest.TestCase):
     def test_Q6_Q7_Q8_live_ci_yml(self):
         text = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertEqual(tools_problems(text), [])
-        wf = Workflow(text)
-        # Q8 negative control: the same allowlist refuses `check`'s gating keys.
-        refused = " ".join(job_key_problems(wf.job("check")))
-        self.assertIn("'needs'", refused)
-        self.assertIn("'if'", refused)
 
     def test_Q6_driver_step_required(self):
         empty = TOOLS_HEAD + "    steps:\n      - uses: actions/checkout@v6\n"
@@ -146,6 +141,10 @@ class TestReaderPins(unittest.TestCase):
 
     def test_Q8_present_ungated_and_trigger(self):
         self.assertEqual(job_key_problems(self.tools_job(workflow())), [])
+        # Negative control on the fixture copy of `check`'s gating: the allowlist refuses it.
+        refused = " ".join(job_key_problems(Workflow(workflow()).job("check")))
+        self.assertIn("'needs'", refused)
+        self.assertIn("'if'", refused)
         self.assertIn("tools job absent or empty", tools_problems(workflow(tools="")))
         gated_new_output = workflow(tools_with("    needs: changes\n    if: needs.changes.outputs.tools == 'true'\n"))
         problems = tools_problems(gated_new_output)
@@ -324,6 +323,11 @@ class TestReaderPins(unittest.TestCase):
         elsewhere = mise_fixture(ci='depends = ["check"]', extra='\n[tasks.other]\ndepends = ["tools-test"]\n')
         self.assertIn('[tasks.ci].depends does not contain "tools-test"', mise_problems(elsewhere))
         self.assertReaderRed(mise_problems, mise_fixture(extra='\n[tasks.tools-test.env]\nX = "1"\n'))
+        self.assertReaderRed(mise_problems, mise_fixture(extra='\n[tasks."tools-test".env]\nX = "1"\n'))
+        esc = mise_fixture(extra='\n[tasks."tools\\u002dtest".env]\nX = "1"\n')
+        self.assertReaderRed(mise_problems, esc, self.line_of(esc, "u002d"))
+        text = mise_fixture(tt="run =")
+        self.assertReaderRed(mise_problems, text, text.splitlines().index("run =") + 1)
 
     def test_M3_multi_line_string_bodies_are_text(self):
         live = (REPO / "mise.toml").read_text(encoding="utf-8")
@@ -337,6 +341,10 @@ class TestReaderPins(unittest.TestCase):
             '\n[tasks.other]\nrun = """\nfour quotes""""\n',
         ):
             self.assertReaderRed(mise_problems, live + bad)
+        for cont in ('  [ "x" ],', '  ["a"],', '  "[ -d t ]",'):
+            arr = '\n[tasks.other]\nrun = [\n%s\n  "b",\n]\n[tasks.another]\nrun = "x"\n' % cont
+            self.assertEqual(mise_problems(live + arr), [], cont)
+        self.assertReaderRed(mise_problems, live + '\n[tasks.other]\nrun = [\n  [ "x" ],\n')
 
     def test_M2_tools_test_has_no_sources_or_outputs(self):
         for line in ('sources = ["scripts/**"]', 'outputs = ["x"]'):
