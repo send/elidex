@@ -65,7 +65,7 @@ docs/
 
 ### Prerequisites
 
-- Rust stable toolchain (MSRV: 1.88)
+- Rust via rustup, which uses the toolchain pinned in `rust-toolchain.toml` (no MSRV during development — ADR #36)
 - [mise](https://mise.jdx.dev/) (task runner)
 - [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all` / `ci`
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)

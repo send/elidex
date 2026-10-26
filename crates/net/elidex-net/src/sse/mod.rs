@@ -397,7 +397,7 @@ async fn sse_io_loop(
             // every retry burned through its own timeout (slot
             // #10.6a).
             let Some(read_outcome) =
-                read_line_with_cancel(&mut reader, &mut line, Duration::from_secs(60), &cancel)
+                read_line_with_cancel(&mut reader, &mut line, Duration::from_mins(1), &cancel)
                     .await
             else {
                 return;
@@ -804,7 +804,7 @@ mod tests {
         });
         let started = std::time::Instant::now();
         let pending = async {
-            tokio::time::sleep(Duration::from_secs(60)).await;
+            tokio::time::sleep(Duration::from_mins(1)).await;
             42_u32
         };
         let outcome = await_with_cancel(pending, &cancel).await;
@@ -859,7 +859,7 @@ mod tests {
         });
         let started = std::time::Instant::now();
         let outcome =
-            read_line_with_cancel(&mut reader, &mut line, Duration::from_secs(60), &cancel).await;
+            read_line_with_cancel(&mut reader, &mut line, Duration::from_mins(1), &cancel).await;
         let elapsed = started.elapsed();
         assert!(
             outcome.is_none(),

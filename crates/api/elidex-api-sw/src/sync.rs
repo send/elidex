@@ -15,15 +15,15 @@ const MAX_RETRIES: u32 = 5;
 
 /// Backoff durations for each retry attempt.
 const BACKOFF_DURATIONS: [Duration; 5] = [
-    Duration::from_secs(60),    // 1 min
-    Duration::from_secs(300),   // 5 min
-    Duration::from_secs(1800),  // 30 min
-    Duration::from_secs(7200),  // 2 hours
-    Duration::from_secs(43200), // 12 hours
+    Duration::from_mins(1),
+    Duration::from_mins(5),
+    Duration::from_mins(30),
+    Duration::from_hours(2),
+    Duration::from_hours(12),
 ];
 
 /// Minimum interval for periodic sync (browser enforced).
-pub const PERIODIC_SYNC_MIN_INTERVAL: Duration = Duration::from_secs(12 * 60 * 60); // 12 hours
+pub const PERIODIC_SYNC_MIN_INTERVAL: Duration = Duration::from_hours(12);
 
 /// State of a one-shot sync registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -311,7 +311,7 @@ mod tests {
     fn periodic_sync_min_interval_enforced() {
         let mut sm = SyncManager::new();
         // Request 1 minute — should be raised to 12 hours
-        sm.register_periodic("analytics".into(), Duration::from_secs(60));
+        sm.register_periodic("analytics".into(), Duration::from_mins(1));
 
         let reg = sm.periodic.get("analytics").unwrap();
         assert!(reg.min_interval >= PERIODIC_SYNC_MIN_INTERVAL);
