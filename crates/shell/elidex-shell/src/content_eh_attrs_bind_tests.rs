@@ -11,6 +11,14 @@
 //! report a string writes it into a `data-*` attribute on `<body>`, read back
 //! with `probe_body_attr` (a Rust-side read, no new bracket). Elements are
 //! resolved with `document.getElementById`.
+//!
+//! Each pin also carries the shared HEAD control (PM decision 48): an
+//! in-script `addEventListener` on the pin's own target and event type, and a
+//! `data-ctlend` marker written last. Neither depends on handler content
+//! attributes being processed, so on the pre-fix base it proves that the pin's
+//! script runs to the end and that the dispatch path and element lookup the pin
+//! observes through actually work — a red pin is red at its oracle, not at a
+//! fixture premise.
 
 use elidex_script_session::DispatchEvent;
 
@@ -20,10 +28,60 @@ use super::test_support::{
     run_oop_and_collect_posts, synth_loaded,
 };
 
+/// HEAD control, part 1 (PM decision 48): register, in script, a listener on
+/// `$target` for `$ty` that runs `$record` (default: count into `data-ctl`).
+macro_rules! ctl_listen {
+    ($target:literal, $ty:literal) => {
+        ctl_listen!(
+            $target,
+            $ty,
+            "document.body.dataset.ctl=(+document.body.dataset.ctl||0)+1"
+        )
+    };
+    ($target:literal, $ty:literal, $record:literal) => {
+        concat!(
+            $target,
+            ".addEventListener('",
+            $ty,
+            "',()=>{",
+            $record,
+            "});"
+        )
+    };
+}
+
+/// HEAD control, part 2: the marker a script writes as its last statement.
+macro_rules! ctl_end {
+    () => {
+        ";document.body.dataset.ctlend=1"
+    };
+}
+
+/// Assert the HEAD control: the pin's script reached its end, and the
+/// in-script listener saw `hits` dispatches through the pin's own path.
+fn assert_head_control(pipeline: &crate::PipelineResult, hits: &str) {
+    assert_eq!(
+        probe_body_attr(pipeline, "data-ctlend").as_deref(),
+        Some("1"),
+        "HEAD control: the pin's script ran to the end"
+    );
+    assert_eq!(
+        probe_body_attr(pipeline, "data-ctl").as_deref(),
+        Some(hits),
+        "HEAD control: the pin's lookup + dispatch path reaches an in-script listener"
+    );
+}
+
 /// Shared markup `M` (umbrella §6.2): an initial-HTML `<button onclick>` and
-/// an initial script that dispatches a click at it.
-const M: &str = "<body><button id=b onclick=\"document.body.dataset.hit=(+document.body.dataset.hit||0)+1\"></button>\
-<script>document.body.dataset.ran=1;document.getElementById('b').dispatchEvent(new MouseEvent('click'))</script></body>";
+/// an initial script that dispatches a click at it (plus the HEAD control).
+const M: &str = concat!(
+    "<body><button id=b onclick=\"document.body.dataset.hit=(+document.body.dataset.hit||0)+1\"></button>",
+    "<script>document.body.dataset.ran=1;",
+    ctl_listen!("document.getElementById('b')", "click"),
+    "document.getElementById('b').dispatchEvent(new MouseEvent('click'))",
+    ctl_end!(),
+    "</script></body>"
+);
 
 fn assert_ran(pipeline: &crate::PipelineResult) {
     assert_eq!(
@@ -53,6 +111,7 @@ fn eval_ok(pipeline: &mut crate::PipelineResult, src: &str) {
 fn e1_initial_html_handler_runs_in_initial_script() {
     let (pipeline, _np) = build_main_document(M);
     assert_ran(&pipeline);
+    assert_head_control(&pipeline, "1");
     assert_eq!(
         probe_body_attr(&pipeline, "data-hit").as_deref(),
         Some("1"),
@@ -66,6 +125,7 @@ fn e2_initial_html_handler_runs_on_later_dispatch() {
     let (mut pipeline, _np) = build_main_document(M);
     assert_ran(&pipeline);
     click(&mut pipeline, "b");
+    assert_head_control(&pipeline, "2");
     assert_eq!(
         probe_body_attr(&pipeline, "data-hit").as_deref(),
         Some("2"),
@@ -87,6 +147,7 @@ fn e3_callable_identity_across_rebinds() {
         &mut pipeline,
         "document.body.dataset.t2=String(document.getElementById('b').onclick===window.f)",
     );
+    assert_head_control(&pipeline, "2");
     assert_eq!(
         probe_body_attr(&pipeline, "data-t1").as_deref(),
         Some("function"),
@@ -102,11 +163,16 @@ fn e3_callable_identity_across_rebinds() {
 // ---- E4 (red): an initial <body> WindowEventHandlers attribute reaches the Window ----
 #[test]
 fn e4_initial_body_weh_attribute_delivered_to_window() {
-    let (pipeline, _np) = build_main_document(
-        "<body onhashchange=\"document.body.dataset.h=1\">\
-         <script>document.body.dataset.ran=1;dispatchEvent(new Event('hashchange'))</script>",
-    );
+    let (pipeline, _np) = build_main_document(concat!(
+        "<body onhashchange=\"document.body.dataset.h=1\">",
+        "<script>document.body.dataset.ran=1;",
+        ctl_listen!("window", "hashchange"),
+        "window.dispatchEvent(new Event('hashchange'))",
+        ctl_end!(),
+        "</script>"
+    ));
     assert_ran(&pipeline);
+    assert_head_control(&pipeline, "1");
     assert_eq!(
         probe_body_attr(&pipeline, "data-h").as_deref(),
         Some("1"),
@@ -118,9 +184,19 @@ fn e4_initial_body_weh_attribute_delivered_to_window() {
 #[test]
 fn e5_oop_iframe_initial_html_handler_runs() {
     let url = "https://other.example/";
+    // HEAD control over `postMessage` (no `probe_body_attr` across processes).
     let loaded = synth_loaded(
-        "<button id=b onclick=\"postMessage('eh-hit','*')\"></button>\
-         <script>postMessage('ran','*');document.getElementById('b').dispatchEvent(new MouseEvent('click'))</script>",
+        concat!(
+            "<button id=b onclick=\"postMessage('eh-hit','*')\"></button>",
+            "<script>postMessage('ran','*');",
+            ctl_listen!(
+                "document.getElementById('b')",
+                "click",
+                "postMessage('ctl-hit','*')"
+            ),
+            "document.getElementById('b').dispatchEvent(new MouseEvent('click'))",
+            ";postMessage('ctl-end','*')</script>"
+        ),
         url,
     );
     let entry = make_out_of_process_entry(
@@ -143,6 +219,14 @@ fn e5_oop_iframe_initial_html_handler_runs() {
         "control: the initial script ran: {posts:?}"
     );
     assert!(
+        posts.iter().any(|d| d == "ctl-end"),
+        "HEAD control: the pin's script ran to the end: {posts:?}"
+    );
+    assert!(
+        posts.iter().any(|d| d == "ctl-hit"),
+        "HEAD control: the pin's lookup + dispatch path reaches an in-script listener: {posts:?}"
+    );
+    assert!(
         posts.iter().any(|d| d == "eh-hit"),
         "E5: the handler posted: {posts:?}"
     );
@@ -157,6 +241,7 @@ fn e6_srcdoc_iframe_initial_html_handler_runs() {
         build_test_content_state(&format!("<iframe srcdoc='{srcdoc}'></iframe>"), "");
     let child = &in_process_entry(&state).pipeline;
     assert_ran(child);
+    assert_head_control(child, "1");
     assert_eq!(
         probe_body_attr(child, "data-hit").as_deref(),
         Some("1"),
@@ -165,10 +250,19 @@ fn e6_srcdoc_iframe_initial_html_handler_runs() {
 }
 
 /// E7's markup: a declarative shadow root holding `M`'s button.
-const E7: &str = "<!DOCTYPE html><div id=h><template shadowrootmode=open>\
-<button id=b onclick=\"document.body.dataset.hit=(+document.body.dataset.hit||0)+1\"></button>\
-</template></div>\
-<script>document.body.dataset.ran=1;document.getElementById('h').shadowRoot.getElementById('b').dispatchEvent(new MouseEvent('click'))</script>";
+const E7: &str = concat!(
+    "<!DOCTYPE html><div id=h><template shadowrootmode=open>",
+    "<button id=b onclick=\"document.body.dataset.hit=(+document.body.dataset.hit||0)+1\"></button>",
+    "</template></div>",
+    "<script>document.body.dataset.ran=1;",
+    ctl_listen!(
+        "document.getElementById('h').shadowRoot.querySelector('#b')",
+        "click"
+    ),
+    "document.getElementById('h').shadowRoot.querySelector('#b').dispatchEvent(new MouseEvent('click'))",
+    ctl_end!(),
+    "</script>"
+);
 
 // ---- E7 control: the markup yields a declarative shadow root before any bind ----
 // (the strict tier attaches it; a tolerant fallback would not, and would make
@@ -197,6 +291,7 @@ fn e7_initial_html_handler_in_declarative_shadow_root_runs() {
         pipeline.dom.get_shadow_root(h).is_some(),
         "control: shadow root present"
     );
+    assert_head_control(&pipeline, "1");
     assert_eq!(
         probe_body_attr(&pipeline, "data-hit").as_deref(),
         Some("1"),
@@ -207,15 +302,18 @@ fn e7_initial_html_handler_in_declarative_shadow_root_runs() {
 // ---- E8 (guard, K-0 T-a1 later binds, T-a2 shadow): three brackets ----
 #[test]
 fn e8_shadow_direct_clone_keeps_idl_handler_across_binds() {
-    let (mut pipeline, _np) = build_main_document(
+    let (mut pipeline, _np) = build_main_document(concat!(
         "<div id=src onclick=\"document.body.dataset.attr=1\" onmouseover=\"0\"></div><div id=h></div>\
          <script>document.body.dataset.ran=1;\
          const sr=document.getElementById('h').attachShadow({mode:'open'});\
          window.x=document.getElementById('src').cloneNode();\
-         sr.appendChild(x);\
-         x.onclick=()=>{document.body.dataset.fn=1};\
-         document.body.dataset.b1='ok'</script>",
-    );
+         sr.appendChild(x);",
+        ctl_listen!("x", "click"),
+        "x.onclick=()=>{document.body.dataset.fn=1};\
+         document.body.dataset.b1='ok'",
+        ctl_end!(),
+        "</script>"
+    ));
     assert_ran(&pipeline);
     assert_eq!(
         probe_body_attr(&pipeline, "data-b1").as_deref(),
@@ -232,6 +330,7 @@ fn e8_shadow_direct_clone_keeps_idl_handler_across_binds() {
         "x.dispatchEvent(new MouseEvent('click')); \
          document.body.dataset.b3=[document.body.dataset.fn, document.body.dataset.attr].join()",
     );
+    assert_head_control(&pipeline, "1");
     assert_eq!(
         probe_body_attr(&pipeline, "data-b2").as_deref(),
         Some("true"),
