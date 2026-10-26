@@ -375,8 +375,9 @@ DRIVER_ARGVS = (
     ["./" + DRIVER_REL],
     ["mise", "run", "tools-test"],
 )
-# The allowlists. Each is exactly what today's ci.yml uses; any other key is
-# red, so a key that could mask the driver's exit or alter its shell / Python
+# The allowlists. Each admits what today's ci.yml uses; the two step allowlists
+# also admit inert labels whether or not a step uses them (`name` / `id` on both,
+# `timeout-minutes` on the driver step). Any other key is red, so a key that could mask the driver's exit or alter its shell / Python
 # (job `defaults:` / `env:` / `continue-on-error`, workflow `defaults:`,
 # `needs` / `if`, BASH_ENV, PYTHON*, proxy variables, ...) is refused without
 # being named.
@@ -469,16 +470,21 @@ def q7_problems(job, di):
     return problems
 
 
-def trigger_problems(on):
-    """Q8: pull_request carries exactly branches: [main] and nothing that narrows it."""
-    if not isinstance(on, YMap) or "pull_request" not in on:
-        return ["on: has no pull_request mapping"]
-    pr = on["pull_request"]
-    if not isinstance(pr, YMap) or set(pr) != {"branches"}:
-        return ["pull_request keys are not exactly branches"]
-    if not (isinstance(pr["branches"], YSeq) and list(pr["branches"]) == ["main"]):
-        return ["pull_request branches is not exactly [main]"]
+def _one_trigger_problems(on, name):
+    if not isinstance(on, YMap) or name not in on:
+        return ["on: has no %s mapping" % name]
+    t = on[name]
+    if not isinstance(t, YMap) or set(t) != {"branches"}:
+        return ["%s keys are not exactly branches" % name]
+    if not (isinstance(t["branches"], YSeq) and list(t["branches"]) == ["main"]):
+        return ["%s branches is not exactly [main]" % name]
     return []
+
+
+def trigger_problems(on):
+    """Q8: pull_request and push each carry exactly branches: [main] and nothing
+    that narrows them."""
+    return _one_trigger_problems(on, "pull_request") + _one_trigger_problems(on, "push")
 
 
 def tools_problems(text):

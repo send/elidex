@@ -221,8 +221,8 @@ jobs:
   # from its own run of this job (the slower leg bounds the job), e.g.
   #   gh run view <run-id> --json jobs \
   #     --jq '.jobs[] | select(.name | startswith("Python suites")) | [.name, .startedAt, .completedAt]'
-  # The value below is the conservative first setting, re-derived from this job's
-  # first CI run.
+  # The value below is a conservative setting. Measured on PR #549's run
+  # (run 40168647140): the slower leg ("3.9") took 25 s end to end.
   #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no

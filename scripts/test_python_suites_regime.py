@@ -8,6 +8,7 @@ written into a scratch repository and run by the copied driver. Shared helpers:
 from __future__ import annotations
 
 import ast
+import json
 import os
 import socket
 import sys
@@ -135,6 +136,30 @@ class G2(unittest.TestCase):
         r = subprocess.run([p])
         self.assertEqual(r.returncode, 0)
 """ % RAW_CONNECT_CHILD
+
+# A python child that changes cwd must still be refused: the guard's directory has to be
+# on its PYTHONPATH as an absolute path, even when the driver was given a relative TMPDIR
+# (resolved against the caller's cwd, not the repository root).
+G2_OTHER_CWD_MEMBER = """
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+CONNECT = %r
+
+
+class G2Cwd(unittest.TestCase):
+    def test_child_in_another_cwd_is_refused(self):
+        other = tempfile.mkdtemp()
+        r = subprocess.run([sys.executable, "-c", CONNECT, os.environ["PYSUITES_PIN_PORT"]], cwd=other)
+        self.assertEqual(r.returncode, 42)
+
+    def test_guard_entry_is_under_the_callers_relative_tmpdir(self):
+        first = os.environ["PYTHONPATH"].split(os.pathsep)[0]
+        self.assertTrue(first.startswith(os.environ["PYSUITES_PIN_GUARD_PREFIX"]), first)
+""" % CONNECT_CHILD
 
 G3_MEMBER = """
 import os
@@ -280,10 +305,16 @@ class Raw(unittest.TestCase):
             s.close()
 """
 
+# The driver's per-member verdict lines; the nested member compares the same prefixes.
+G7_VERDICT_PREFIXES = ("python-suites: test ", "python-suites: FAIL ", "python-suites: ok ", "python-suites: RED")
+
 G7_NESTED_MEMBER = """
+import json
 import os
 import subprocess
 import unittest
+
+VERDICT = %r
 
 
 class Nested(unittest.TestCase):
@@ -297,11 +328,10 @@ class Nested(unittest.TestCase):
         )
         out = p.stdout.decode()
         self.assertNotEqual(p.returncode, 0, out)
-        fails = [l for l in out.splitlines() if l.startswith("python-suites: FAIL")]
-        self.assertTrue(any("r/test_raw.py::Raw.test_raw_connect" in l for l in fails), out)
-        self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_loader", out)
-        self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_child", out)
-"""
+        got = [l for l in out.splitlines() if l.startswith(VERDICT)]
+        want = json.loads(os.environ["PYSUITES_PIN_EXPECT"])
+        self.assertEqual(got, want, out)
+""" % (G7_VERDICT_PREFIXES,)
 
 G8_MARK_MEMBER = """
 import sys
@@ -359,6 +389,19 @@ class G10(unittest.TestCase):
     def test_execve_with_environ_is_outside_the_class(self):
         hop = "import os, sys; os.execve(sys.executable, [sys.executable, '-c', sys.argv[1], sys.argv[2]], os.environ)"
         self.assertEqual(self.child([sys.executable, "-c", hop, CONNECT, self.port]), 42)
+        # The same exec from a forked intermediate (the exec'd image is not the child launched here).
+        forked = (
+            "import os, sys\\n"
+            "pid = os.fork()\\n"
+            "if pid == 0:\\n"
+            "    os.execve(sys.executable, [sys.executable, '-c', sys.argv[1], sys.argv[2]], os.environ)\\n"
+            "sys.exit(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]))\\n"
+        )
+        self.assertEqual(self.child([sys.executable, "-c", forked, CONNECT, self.port]), 42)
+        # ... and the exec with an env that only adds a non-regime key.
+        hop_x = hop.replace("os.environ)", "{**os.environ, 'X': '1'})")
+        self.assertNotEqual(hop_x, hop)
+        self.assertEqual(self.child([sys.executable, "-c", hop_x, CONNECT, self.port]), 42)
 
     def test_non_regime_key_change_is_outside_the_class(self):
         env = {**os.environ, "X": "1"}
@@ -368,36 +411,42 @@ class G10(unittest.TestCase):
         self.assertEqual(self.child([sys.executable, "-c", "pass"]), 0)
 """.replace("@CONNECT@", repr(CONNECT_CHILD))
 
-G11_MUTATOR = """
-import os
-import unittest
-
-
-class A(unittest.TestCase):
-    def test_mutates_regime_keys(self):
-        os.environ["NO_PROXY"] = "*"
-        os.environ["PYTHONPATH"] = "/nonexistent"
-        os.putenv("https_proxy", "http://proxy.invalid:3128")
-"""
-
-G11_CHECKER = """
+# G11: one mutation snippet and one check snippet per arm; the mutator, the checker and the
+# leak control are all built from these, so "the same check" holds by construction.
+G11_PREAMBLE = """
 import os
 import socket
 import subprocess
 import sys
 import unittest
 
-CONNECT = @CONNECT@
+CONNECT = %r
 
+""" % CONNECT_CHILD
 
-class B(unittest.TestCase):
-    def test_regime_restored_for_the_next_member(self):
+G11_MUTATE = """\
+        os.environ["NO_PROXY"] = "*"
+        os.environ["PYTHONPATH"] = "/nonexistent"
+        os.putenv("https_proxy", "http://proxy.invalid:3128")
+"""
+
+G11_SH_ENV = """\
         out = subprocess.run(["/bin/sh", "-c", "env"], stdout=subprocess.PIPE).stdout.decode()
         env = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
-        self.assertNotIn("NO_PROXY", env)
-        self.assertTrue(env["https_proxy"].startswith("http://127.0.0.1:"), env["https_proxy"])
+"""
 
-    def test_child_still_guarded(self):
+# Arm (a): NO_PROXY is absent from a child's environment.
+G11_ARM_NO_PROXY = G11_SH_ENV + """\
+        self.assertNotIn("NO_PROXY", env)
+"""
+
+# Arm (b): https_proxy equals the regime value (the putenv-only path).
+G11_ARM_PROXY = G11_SH_ENV + """\
+        self.assertTrue(env["https_proxy"].startswith("http://127.0.0.1:"), env["https_proxy"])
+"""
+
+# Arm (c): a sys.executable child is refused a loopback connect (the PYTHONPATH arm).
+G11_ARM_GUARD = """\
         srv = socket.socket()
         srv.bind(("127.0.0.1", 0))
         srv.listen(8)
@@ -406,7 +455,33 @@ class B(unittest.TestCase):
             self.assertEqual(r.returncode, 42)
         finally:
             srv.close()
-""".replace("@CONNECT@", repr(CONNECT_CHILD))
+"""
+
+G11_MUTATOR = G11_PREAMBLE + """
+class A(unittest.TestCase):
+    def test_mutates_regime_keys(self):
+%s""" % G11_MUTATE
+
+G11_CHECKER = G11_PREAMBLE + """
+class B(unittest.TestCase):
+    def test_no_proxy_restored(self):
+%s
+    def test_https_proxy_restored(self):
+%s
+    def test_child_still_guarded(self):
+%s""" % (G11_ARM_NO_PROXY, G11_ARM_PROXY, G11_ARM_GUARD)
+
+# Detector control: a member that mutates the keys and then runs one arm's check in-process,
+# with no loader restore between them, must see the leak (red) -- one test per arm, each
+# red on its own.
+G11_LEAK_MEMBER = G11_PREAMBLE + """
+class Leak(unittest.TestCase):
+    def test_no_proxy_leaks(self):
+%s%s
+    def test_https_proxy_leaks(self):
+%s%s
+    def test_guard_leaks(self):
+%s%s""" % (G11_MUTATE, G11_ARM_NO_PROXY, G11_MUTATE, G11_ARM_PROXY, G11_MUTATE, G11_ARM_GUARD)
 
 G11_GUARD_UNDO = """
 import socket
@@ -461,6 +536,24 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
             {"PYSUITES_PIN_PORT": str(lst.port)},
             ["FAILED g2/test_g2.py::G2.test_python_child", "FAILED g2/test_g2.py::G2.test_shebang_child"],
         )
+        # A relative TMPDIR is relative to the caller's cwd (here <scratch>/sub, not the
+        # repository root) and still gives the children an absolute guard path: the guard
+        # entry sits under <scratch>/sub/rel-tmp/, and a child that changes cwd is refused.
+        s = self.scratch({"g2c/test_g2_cwd.py": G2_OTHER_CWD_MEMBER})
+        sub = s.dir / "sub"
+        (sub / "rel-tmp").mkdir(parents=True)
+        self.assertFalse((s.dir / "rel-tmp").exists())
+        env = base_env()
+        env.update(
+            {
+                "PYSUITES_PIN_PORT": str(lst.port),
+                "TMPDIR": "rel-tmp",
+                "PYSUITES_PIN_GUARD_PREFIX": os.path.join(os.path.realpath(str(sub)), "rel-tmp") + os.sep,
+            }
+        )
+        self.assertGreen(
+            _launch(["bash", s.dir / "scripts" / "python-suites.sh"], env=env, cwd=sub, purpose="driver")
+        )
 
     def test_G3_connect_ex_is_red(self):
         lst = Listener(self)
@@ -503,16 +596,44 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
 
     def test_G7_guard_installed_exactly_once_and_nested_run_idempotent(self):
         lst = Listener(self)
-        port = {"PYSUITES_PIN_PORT": str(lst.port)}
-        inner = self.scratch({"c/test_count.py": G7_COUNT_MEMBER, "r/test_raw.py": RAW_CONNECT_MEMBER})
-        self.assertBaselineGreen(inner, "r/test_raw.py", port)
-        # Direct run: count 1 in the loader and a child; the plant red.
-        out = self.assertRed(inner.run(port), "r/test_raw.py::Raw.test_raw_connect")
+        lst6 = Listener(self, socket.AF_INET6, "::1")
+        env = {"PYSUITES_PIN_PORT": str(lst.port), "PYSUITES_PIN_PORT6": str(lst6.port)}
+        # The G1-G5 plants (the member set those rows use) plus the install-count member.
+        plants = {
+            "g1/test_g1.py": G1_MEMBER,
+            "g2/test_g2.py": G2_MEMBER,
+            "g3/test_g3.py": G3_MEMBER,
+            "g4/test_g4.py": G4_MEMBER,
+            "g5/test_g5.py": G5_MEMBER,
+            "g5top/test_g5_top.py": G5_TOPLEVEL_MEMBER,
+        }
+        files = {"c/test_count.py": G7_COUNT_MEMBER, **plants}
+        inner = self.scratch(files)
+        # Baselines: each plant can fire inside this scratch repo, the one the nested run compares.
+        for member in plants:
+            self.assertBaselineGreen(inner, member, env)
+        # Direct run: count 1 in the loader and a child; every plant red.
+        out = self.assertRed(
+            inner.run(env),
+            "g1/test_g1.py::G1.test_http_client",
+            "g2/test_g2.py::G2.test_python_child",
+            "g3/test_g3.py::G3.test_connect_ex",
+            "g4/test_g4.py::G4.test_connect_inet6",
+            "g5/test_g5.py::G5.test_getaddrinfo",
+            "g5top/test_g5_top.py: import failed",
+        )
         self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_loader", out)
         self.assertIn("python-suites: test ok c/test_count.py::G7.test_count_in_child", out)
-        # The same run nested inside a guarded driver run gives the same result.
+        verdicts = [l for l in out.splitlines() if l.startswith(G7_VERDICT_PREFIXES)]
+        # Every prefix selects something, so a prefix that no longer matches the
+        # driver's wording cannot silently shrink the comparison.
+        for prefix in G7_VERDICT_PREFIXES:
+            self.assertTrue(any(l.startswith(prefix) for l in verdicts), (prefix, out))
+        # The same run nested inside a guarded driver run gives the same per-member verdicts.
         outer = self.scratch({"n/test_nested.py": G7_NESTED_MEMBER})
-        self.assertGreen(outer.run(dict(port, PYSUITES_PIN_INNER=str(inner.dir))))
+        self.assertGreen(
+            outer.run(dict(env, PYSUITES_PIN_INNER=str(inner.dir), PYSUITES_PIN_EXPECT=json.dumps(verdicts)))
+        )
 
     def test_G7_guard_install_failure_fails_closed(self):
         shadow = self.tmpdir("python-suites-shadow-")
@@ -540,7 +661,8 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         self.assertIn("python-suites: test ok m/test_mark.py::G8.test_chained_sitecustomize_ran", out)
 
     def test_G9_unnamed_regime_changing_launch_is_refused(self):
-        env = dict(base_env(), NO_PROXY="*")
+        # NO_PROXY must differ from the caller's: a caller already exporting NO_PROXY=* would otherwise make the launch env equal.
+        env = dict(base_env(), NO_PROXY=os.environ.get("NO_PROXY", "") + "-pin")
         with self.assertRaises(AssertionError) as cm:
             _launch([sys.executable, "-c", "pass"], env=env, purpose="driver")
         self.assertIn("not a named member of the unguarded-child class", str(cm.exception))
@@ -589,6 +711,15 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
     def test_G11_regime_keys_restored_before_each_member(self):
         s = self.scratch({"e/test_a_mutator.py": G11_MUTATOR, "e/test_b_checker.py": G11_CHECKER})
         self.assertGreen(s.run())
+        # Control: the same mutations and each arm's check inside one member (nothing restores
+        # between them) are red, arm by arm, so the checker above is able to see each leak.
+        leak = self.scratch({"e2/test_leak.py": G11_LEAK_MEMBER})
+        self.assertRed(
+            leak.run(),
+            "FAILED e2/test_leak.py::Leak.test_no_proxy_leaks",
+            "FAILED e2/test_leak.py::Leak.test_https_proxy_leaks",
+            "FAILED e2/test_leak.py::Leak.test_guard_leaks",
+        )
 
     def test_G11_socket_guard_restored_before_each_member(self):
         # Member A puts the original connect back; member B, later in the same

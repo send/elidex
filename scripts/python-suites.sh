@@ -149,6 +149,8 @@ while [ -L "$src" ]; do
   esac
 done
 root="$(cd -P "$(dirname "$src")/.." && pwd)"
+# A relative TMPDIR is relative to the caller's cwd: resolve it before the cd below.
+case ${TMPDIR:-} in "" | /*) ;; *) TMPDIR="$PWD/$TMPDIR" ;; esac
 cd "$root"
 
 # Step 1: the floor, before anything else. Written so any python3 can run it, and
@@ -165,7 +167,6 @@ fi
 echo "python-suites: python3 -VV: $(python3 -VV 2>&1 | tr '\n' ' ')"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/python-suites.XXXXXX")"
-case $tmp in /*) ;; *) tmp="$PWD/$tmp" ;; esac
 trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/driver" "$tmp/guard"
 
