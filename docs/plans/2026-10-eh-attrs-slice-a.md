@@ -1,12 +1,12 @@
-# EH-attrs-at-creation slice a: per-PR plan (rev 2)
+# EH-attrs-at-creation slice a: per-PR plan (rev 3)
 
 Label **`EH-attrs-at-creation-a`**. Program and contract: the approved umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md` (rev 8, landed by PR #551 at `b9122157`). Branch
 `layout-eh-attrs-slice-a`, cut from `origin/main` `b9122157`. Owner: Layout lane.
 
 This plan **derives the implementation** of the decided contract. It re-decides no clause the umbrella decided (its
-"Approval scope" paragraph). File placement inside a crate the umbrella decided is this plan's (the one such choice is
-recorded in §0.5, "marker home"). Where the umbrella left something to "slice a's plan" or "slice a's plan-review", this
+"Approval scope" paragraph); the one umbrella line this PR corrects is by PM decision 35 (§0.5, "marker home").
+Where the umbrella left something to "slice a's plan" or "slice a's plan-review", this
 plan decides it and says so (§0.5). Where the contract text and the code disagree, §0.6 records it. Changes since rev 1:
 §10.
 
@@ -42,17 +42,34 @@ plan decides it and says so (§0.5). Where the contract text and the code disagr
 - **Bind-pass reach set.** The bind pass runs inside `Vm::bind`, so it runs exactly where `Vm::bind` runs. Its only
   production caller is `ElidexJsEngine`'s `HostDriver::bind` (`crates/script/elidex-js/src/engine.rs:378`, the call at
   `:397`), and that has two callers: `teardown_document` (`engine.rs:412`, bind at `:419`) and `with_bound`
-  (`engine.rs:425`, bind at `:440`). No production code calls `HostDriver::bind` from outside
-  (`/usr/bin/grep -rnE --include='*.rs' 'runtime\.bind\(|engine\.bind\(|\.bind\(&mut ctx' crates` → no
-  production hit); the benches `crates/script/elidex-js/benches/event_dispatch.rs:55` and `dom_collection.rs:114` call
-  `vm.bind` directly and are not production. `Drop` (`engine.rs:828`) calls `Vm::teardown_document` without binding,
+  (`engine.rs:425`, bind at `:440`). Enumeration:
+  `/usr/bin/grep -rnE --include='*.rs' '\.bind\(\s*($|&|std::ptr::|ctx\)|session)' crates` (38 hits at `534ca697`).
+  Production hits that reach `Vm::bind` are exactly `engine.rs:397`, `:419`, `:440`. The rest are:
+  `HostData::bind` inside `Vm::bind` / `Vm::bind_worker` (`vm/vm_api.rs:217`, `:393`) and in `host_data/mod.rs:1937`
+  (`#[cfg(test)]`); the Wasm runtime's own state (`crates/script/elidex-wasm-runtime/src/host/state.rs:125`, `:167`,
+  `:183`; not a `Vm`); `#[cfg(test)]` modules (`tests_call_listener.rs:45`, `:140`, `:214`, `:439`,
+  `tests_dispatch_integration.rs:49`, `tests_engine_s1a.rs:42`, `s1b.rs:41`, `s1c.rs:36`, `s1d.rs:43`, `s2.rs:33`,
+  `s6a.rs:36`, and under `vm/tests/`: `tests_add_event_listener.rs:215`, `:266`, `tests_visual_viewport.rs:35`,
+  `:467`, `:487`,
+  `tests_match_media.rs:395`, `:801`, `:814`, `:857`, `:872`, `tests_match_media_keepalive.rs:39`, `:186`, `:198`, `:230`,
+  `:251`); the benches `crates/script/elidex-js/benches/event_dispatch.rs:55` and
+  `dom_collection.rs:114`; and `bind_vm` (`crates/script/elidex-js/src/vm/test_helpers.rs:49-54`, the call at `:54`).
+  `bind_vm` is compiled into the library (`#[cfg(feature = "engine")] #[doc(hidden)] pub mod test_helpers`,
+  `vm/mod.rs:82-84`) so the bench crate can use it, but every caller is a test or a bench
+  (`/usr/bin/grep -rln 'bind_vm(' crates --include='*.rs' | /usr/bin/grep -vE '/tests/|/tests_|benches/|test_helpers\.rs'`
+  → no output). So the bind pass runs in production only under `with_bound` and `teardown_document`.
+  `Drop` (`engine.rs:828`) calls `Vm::teardown_document` without binding,
   so it runs no bind pass. **Teardown-first bind**: `teardown_document` binds before tearing down, so if a document's
   first bind were its teardown, the pass would process a document that is being destroyed. Production never does
   this: the only production `ElidexJsEngine::new()` is `run_scripts_and_finalize` (`crates/shell/elidex-shell/src/pipeline.rs:226`),
   which opens a `with_bound` bracket unconditionally (`pipeline.rs:349-362`, no early return between `:226` and it) before it returns the engine to any
   `PipelineResult`, so every `teardown_document` (`lib.rs:475` and its shell callers) follows a first bind. If a test
-  tears down first, the pass's writes land on a document that is despawned next, which nothing can observe; the
-  document marker then makes any later bind a no-op. No code handles that case specially.
+  tears down first, the bind pass runs and its writes stay: `Vm::teardown_document`
+  (`crates/script/elidex-js/src/vm/lifecycle.rs:536`) closes realtime connections, terminates workers, releases
+  document-lifetime VM state and unbinds; it does not despawn the DOM. The document and its elements stay in `EcsDom`,
+  so the writes (handler state in `EventListeners`, the element and document markers) are observable through ECS. A
+  later bind of the same document does not reprocess: the document marker makes its bind pass a no-op. No code handles
+  that case specially.
 
 ### §0.3 Coordinate frame
 
@@ -84,7 +101,7 @@ plan's base. All greps use `/usr/bin/grep`. Every § number ↔ title pair and s
 |---|---|---|
 | A2-MIN-1 / A3-MIN-2 (D-1's sparse sentence vs Window-delegating-only elements) | review record r5, umbrella §13.3 | The element marker is inserted iff E carries **at least one handler content attribute of an ordinary pair** (policy-excluded or not, I1×I6). An element whose only handler content attributes are Window-delegating pairs is never marked: D-1 "neither gates nor records a Window-delegating pair". Unobservable; pinned white-box by plan cell P1 (§4.5) |
 | A2-MIN-2 (rev 4's three-line write shape is not ordinary-aware) | r5, §13.3; umbrella §4 | The write-side entry is the four-check shape of §1.4 (b): marked → return; written pair Window-delegating → return; E's deliverable **ordinary** set ≠ {written name} → return; else process with `ProcessingTiming::HandlerWrite` (NEW) |
-| A2-MIN-3 (X-W's name set has no SoT; complement falls to the once rule) | r5, §13.3 | The WindowEventHandlers half is **derived** from `EVENT_HANDLER_ATTRS` rows with `HandlerScope::Window` (a new WEH row lands in X-W with no edit). The reflecting half is a named const `WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET` (NEW) citing the webref anchor (A-11). Plan cell P2 pins: X-W ⊇ HEAD's delegation predicate (`scope == Window && is_body_element`), the const equals the spec's six, every const member is a table row, and a fixed ratchet of literal name lists (18 WEH + 6 reflecting) that does not use the derivation (§4.5). The complement is the once rule, i.e. the side the record calls leaking; the only way to grow it silently is a spec change to the reflecting set, which webref drift tooling surfaces (§1.4 (e)) |
+| A2-MIN-3 (X-W's name set has no SoT; complement falls to the once rule) | r5, §13.3 | The WindowEventHandlers half is **derived** from `EVENT_HANDLER_ATTRS` rows with `HandlerScope::Window` (a new WEH row needs no classifier edit; P2's literal list is updated by hand, and P2 is red until it is: intended, F12). The reflecting half is a named const `WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET` (NEW) citing the webref anchor (A-11). Plan cell P2 pins: X-W ⊇ HEAD's delegation predicate (`scope == Window && is_body_element`), the const equals the spec's six, every const member is a table row, and a fixed ratchet of literal name lists (18 WEH + 6 reflecting) that does not use the derivation (§4.5). The complement is the once rule, i.e. the side the record calls leaking; the only way to grow it silently is a spec change to the reflecting set, which webref drift tooling surfaces (§1.4 (e)) |
 | A3-MIN-1 (X-W's "HEAD outcome at every step" vs the bind pass) | r5, §13.3 | Umbrella wording only (its X-W already says "except the bind pass"). This plan states the realisation exactly: at T-a1 a Window-delegating pair gets the spec's or E-G1's outcome (HEAD processes nothing there); at every other step HEAD's (§1.4 (e)). No umbrella edit |
 | A3-MIN-3 (§8.2 slot text "deliverable" → "deliverable ordinary") | r5, §13.3 | Slot text is the PM's ledger. Handed to the PM (§9) |
 | rev-8 MIN: C20 (ii) needs a fresh VM after (i) | r5 rev-8 attestation | C20 (i) and C20 (ii) are **separate `#[test]` functions**, each with its own VM, session and DOM (§4.2). (i) leaves `fn` on `window.onhashchange`, which (ii) must not inherit |
@@ -92,7 +109,7 @@ plan's base. All greps use `/usr/bin/grep`. Every § number ↔ title pair and s
 | rev8:533 (§3 row 2, "step 3 is T3, the reflecting set facet 4") | r5 rev-8 attestation | Umbrella wording. Noted for the PM (§9); not edited |
 | umbrella §6.4 "takes C1–C17" (stale range) and placement | umbrella §6.4 decided obligation | Replaced by §5: the cells go to **new** files; `tests_event_handler_attrs.rs` is not touched. The C set is C1–C9, C11–C20 (there is no C10 in umbrella §6.1) |
 | Q7 / E8 replacement shape | umbrella §11 Q7 | E8 is written as decided. Fallback 1 (umbrella's): `x` from a DOMParser document. Fallback 2 (decided here): if `attachShadow` cannot run in an initial script, take `sr` from a declarative shadow root in the initial markup (`<div id=h><template shadowrootmode=open></template></div>`, as E7). Selection is by E8's pre-fix run (it is a guard: it must pass on the base) (§4.4). **Terminal, as for E7**: if the decided shape and both fallbacks fail at the scaffold run, implementation stops and this plan returns to plan-review. E8 is not reshaped or dropped during implementation |
-| marker home (file level) | umbrella §4 Home/kind | Umbrella §4 names `event_handler_consumer.rs` as the home of both markers and the processing function. This plan puts them in the new module `event_handler_processing/` (§1.1, §1.3) in the **same crate** (`elidex-script-session`), with the same re-exports from `lib.rs` and the same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: placement by the line numbers of §5 and the umbrella's own §6.4 risk (the consumer file at 590 lines plus the mechanism and its unit cells would cross 1000). No umbrella clause changes; the umbrella's §4 file name is superseded by this row |
+| marker home (file level) | umbrella §4 Home/kind; PM decision 35 | The home of both markers and the processing function moves from `event_handler_consumer.rs` to the new module `event_handler_processing/` (§1.1, §1.3), under PM decision 35. Same crate (`elidex-script-session`), same re-exports from `lib.rs`, same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: the 1000-line touch-time rule. Kept in the consumer file, the mechanism would bring it to ≈ 900 (590 + ≈ 400 for the mechanism − ≈ 74 for the six helpers it absorbs, `:313-341` and `:466-498`, and `handle_insert`'s walk), so the next touch would force a split. On umbrella §6.4's "standalone prerequisite split": this PR creates the new module from the start and moves the helpers out of the consumer file, so no existing file crosses 1000 (§5: the consumer file 590 → ≈ 500, every other touched file below 1000) and no prerequisite split of an existing file arises. The umbrella's §4 Home/kind line is corrected in this PR (§1.3, §1.7): before "Both are homed in `crates/script/elidex-script-session/src/event_handler_consumer.rs`, beside the consumer."; after "Both are homed in `crates/script/elidex-script-session/src/event_handler_processing/`, a module of `elidex-script-session` beside the consumer." |
 | Q5 / E5b | umbrella §6.2, §11 Q5 | **E5b is not written.** No hermetic same-origin URL loader exists (the in-process "URL-load" security test reaches only the `blank_entry` fallback, `content_iframe_security_tests.rs:278`). `load.rs:221` and `:327` call the same builder (A-9), and the processing point is inside `Vm::bind`, beneath every builder. E5 pins `:327` |
 | O4 (writer completeness) | umbrella §11 O4: closes at this plan-review | Closed: §6 re-runs the §5.0 census (unchanged) and enumerates every production writer of handler state in `EventListeners`. No VM path writes handler state outside the IDL activation path and the lazy-compile reconcile |
 | two init keys in one hook | umbrella §4 input, R3-A5-MIN-5 | **One key.** `initialize_consumers(dom, document)` passes the bound document to both delegates. `BaseUrlMaintainer`'s `initialize_from_tree` takes it in place of `document_root()`, which aligns its init with its own arms (A-4). In production the two keys are the same entity: (1) every production `Vm::bind` passes `ctx.document` (`engine.rs:397`, reached from `teardown_document` `:419` and `with_bound` `:440`; §0.2 reach set); (2) every production `ScriptContext` that reaches those is built from a pipeline's `document` (`crates/shell/elidex-shell/src/lib.rs:294`–`:526`, `self.document`; `pipeline.rs:128`, `:159`, `:350`, the `document` parameter); (3) that `document` is the parse result's (`pipeline.rs:572`, `:661`, `:752`; `build_pipeline_from_loaded` `pipeline.rs:850-852` takes `LoadedDocument.document`, set from the parse result at `crates/shell/elidex-navigation/src/loader.rs:214`); (4) both document parsers create it with `create_document_root()` on a fresh `EcsDom` (strict `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:101-102`, tolerant `crates/dom/elidex-html-parser/src/convert.rs:17-18`), which sets `document_root` (`crates/core/elidex-ecs/src/dom/mod.rs:397-399`). No production caller binds another document. The keys differ only for a test that binds a non-root document (scout Q-S3, §8) |
@@ -145,6 +162,7 @@ Line counts at `b9122157` (`wc -l`). Projection = estimated after-change size. 1
 | `crates/script/elidex-script-session/src/event_handler_processing/tests_insertion_and_write.rs` (NEW) | — | U1–U6, U9, P1, P2 |
 | `crates/script/elidex-script-session/src/event_handler_processing/tests_bind.rs` (NEW) | — | U7, U8, U10, U11, U12 |
 | `crates/script/elidex-script-session/src/event_handler_consumer.rs` | 590 | arms delegate (§1.4 (d)); helpers move out; `initialize_from_tree` (NEW) method; module doc `:1-33` rewritten; stale sentence in `web_storage_spec_level`'s doc (`:235-242`) fixed (§1.7) |
+| `docs/plans/2026-10-event-handler-attrs-at-creation.md` | — | umbrella §4 Home/kind — one-line correction (PM decision 35; ratified surface, shown to this plan-review): `:563-564` file name `event_handler_consumer.rs` → `event_handler_processing/` (exact text, §0.5 "marker home") |
 | `crates/script/elidex-script-session/src/lib.rs` | 62 | `mod event_handler_processing;` + re-exports of the markers and `process_before_handler_write` |
 | `crates/script/elidex-js/src/vm/consumer_dispatcher.rs` | 153 | `initialize_consumers(&mut self, dom, document)`; doc `:113-134`; field doc `:58-67` |
 | `crates/script/elidex-js/src/vm/vm_api.rs` | 762 | `:313` passes `document`; comment `:298-312` rewritten |
@@ -334,6 +352,11 @@ to slice b's input by name (§9). I10 (§2) covers only the three callers it nam
 
 ### §1.7 Docs, comments, clone policy (umbrella §4's rewrite-site list)
 
+- Umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md` §4 Home/kind (`:563-564`) — one-line correction
+  (PM decision 35; ratified surface, shown to this plan-review). Before: "Both are homed in
+  `crates/script/elidex-script-session/src/event_handler_consumer.rs`, beside the consumer." After: "Both are homed in
+  `crates/script/elidex-script-session/src/event_handler_processing/`, a module of `elidex-script-session` beside the
+  consumer." It lands with the implementation; no other umbrella text changes.
 - `event_handler_consumer.rs:1-33` module doc: three timings (bind, Insert, first handler write), the interim Insert arm
   naming `#11-eh-attrs-creation-time-call-sites`, X-W. `handle_insert`'s doc cites WHATWG DOM §4.2.3 Mutation
   algorithms (no event-handler insertion steps) and names the slot.
@@ -643,14 +666,23 @@ fabricated AttributeChange event carries no real attribute, so the entry returns
 `on*` attributes now get those handlers delivered at bind. A test whose oracle assumed G1 (inert initial handlers)
 would change. None is known (scout Q-S4); `cargo test -p` on every touched crate is the backstop.
 
-**Disposition of an existing test that flips.** A flip has exactly two allowed causes: the G1 inversion (initial
-handlers now delivered at bind) and the base-URL init key change (§0.5, one key). For such a test:
-- its oracle is rewritten to the outcome this plan derives from the spec or from K-0 for that case, never to whatever
-  the new code happens to produce;
-- the PR description lists it with the clause that flips it (G1 / D-5, or the §0.5 one-key row).
+**Disposition of an existing test that flips.** A flip has exactly these allowed causes:
+- the G1 inversion (initial handlers now delivered at bind; G1 / D-5);
+- the base-URL init key change (§0.5, one key);
+- the K-0 spec clauses at T-a2 (a marked element is skipped at insertion) and at T-a3 (the first handler write
+  processes the element). Example: an existing test that expects HEAD's re-raw after
+  `setAttribute('onclick','A'); el.onclick=fn; parent.append(el)` flips to `fn`.
 
-A flip that neither cause explains is a bug in the implementation, not an oracle to update: implementation stops
-until it is explained.
+For such a test:
+- its oracle is rewritten to the spec or K-0 value the umbrella cells derive for that case (C2, C4, C5, C11, U1),
+  never to whatever the new code happens to produce;
+- the PR description lists it with the clause that flips it (G1 / D-5, the §0.5 one-key row, or K-0 T-a2 / T-a3).
+
+Exception: `tests_event_handler_attrs.rs` is kept green (umbrella §6.3 "Kept green", umbrella `:758`). A flip there
+is not rewritten; implementation stops.
+
+**Terminal**: a flip that none of these causes explains is a bug in the implementation, not an oracle to update.
+Implementation stops and this plan returns to plan-review. The test is not reshaped or dropped during implementation.
 
 ## §5. 1000-line touch-time check
 
@@ -733,6 +765,7 @@ and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/sh
 - `cargo test -p elidex-script-session --all-features`, `-p elidex-js`, `-p elidex-shell`, `-p elidex-ecs`,
   `-p elidex-dom-api`, and `mise run ci` are green.
 - The PR cites `#11-eh-attrs-creation-time-call-sites` (registered at the approval PR's landing; the PM confirms).
+- The PR description lists every flipped existing test with the clause that flips it (§4.7).
 - `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-10-eh-attrs-slice-a.md` exits 0.
 
 ## §8. Questions for a scout (before implementation)
@@ -778,6 +811,19 @@ and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/sh
 
 ## §10. Changelog
 
+- **rev 3** (rev-2 focused re-check: CRIT 0 / IMP 1 / MIN 4, all fixed):
+  - N1: PM decision 35 — module kept; umbrella §4 line corrected in this PR; general licence removed: header paragraph,
+    §0.5 "marker home" row (reason: 1000-line touch-time rule; umbrella §6.4 prerequisite split does not arise), §1.3
+    umbrella row, §1.7 first bullet (before/after text).
+  - N2 flip disposition: allowed causes add the K-0 clauses at T-a2 / T-a3 (oracle → the value cells C2, C4, C5, C11,
+    U1 derive); `tests_event_handler_attrs.rs` excepted (kept green, umbrella §6.3); terminal (unexplained flip → stop,
+    return to plan-review): §4.7; PR-description list of flipped tests: §7 DoD.
+  - N3 teardown-first bind: `Vm::teardown_document` (`vm/lifecycle.rs:536`) does not despawn the DOM; the bind-pass
+    writes stay observable through ECS, and a rebind does not reprocess (document marker): §0.2.
+  - N4 reach set adds `bind_vm` (`vm/test_helpers.rs:49-54`, compiled, test/bench callers only); the enumeration grep
+    is replaced by one that reproduces it (38 hits, classified): §0.2.
+  - N5 A2-MIN-3: a new WEH row needs no classifier edit; P2's literal list is updated by hand (P2 red until then,
+    intended, F12): §0.5.
 - **rev 2** (plan-review R1: CRIT 0 / IMP 0 / 15 distinct MIN, all fixed):
   - F1 E8 terminal (all fallbacks fail → stop, return to plan-review): §0.5 Q7 row, §4.4 E8 note, §8 Q-S2.
   - F2 disposition of existing tests that flip (G1 inversion / init key; oracle → derived outcome, listed in the PR;
