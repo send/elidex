@@ -95,6 +95,62 @@ pub unsafe fn setup_with_element(
     el
 }
 
+/// Build a connected page under `doc` — `doc` → `html` → `body` → `div` —
+/// with no handler attributes, **before** binding (the pre-bind shape), then
+/// bind `vm` and install the `<div>` wrapper as `globalThis.el`. Returns the
+/// `<div>` entity.
+///
+/// Unlike [`setup_with_element`], whose `el` is detached, `el` here is
+/// connected, so insertions into it reach the live, bound document.
+///
+/// # Safety
+///
+/// Inherits the full safety contract of [`bind_vm`]: the caller must keep
+/// `session` and `dom` live and non-aliased until [`Vm::unbind`].
+#[allow(unsafe_code)]
+pub unsafe fn setup_page(
+    vm: &mut Vm,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    doc: Entity,
+) -> Entity {
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let el = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(doc, html), "setup_page: append html");
+    assert!(dom.append_child(html, body), "setup_page: append body");
+    assert!(dom.append_child(body, el), "setup_page: append div");
+    // SAFETY: forwarded from the caller (same contract as `bind_vm`).
+    unsafe {
+        bind_vm(vm, session, dom, doc);
+    }
+    let wrapper_id = vm.inner.create_element_wrapper(el);
+    vm.set_global("el", JsValue::Object(wrapper_id));
+    el
+}
+
+/// Run `body` against a fresh VM bound to a [`setup_page`] page (one VM,
+/// session and DOM per call). The VM is unbound on drop, including during a
+/// panic unwind, before `session` / `dom` are dropped.
+#[cfg(test)]
+pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
+    struct BoundVm(Vm);
+    impl Drop for BoundVm {
+        fn drop(&mut self) {
+            self.0.unbind();
+        }
+    }
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut vm = Vm::new();
+    #[allow(unsafe_code)]
+    // SAFETY: `session` / `dom` outlive `guard`, which unbinds first.
+    let _el = unsafe { setup_page(&mut vm, &mut session, &mut dom, doc) };
+    let mut guard = BoundVm(vm);
+    body(&mut guard.0);
+}
+
 /// Build a minimal [`DispatchEvent`] whose `target == current_target ==
 /// entity`, with `bubbles = false`, `phase = AtTarget`, and
 /// `dispatch_flag = true`.

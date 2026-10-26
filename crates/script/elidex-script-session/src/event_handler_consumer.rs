@@ -369,6 +369,15 @@ impl EventHandlerAttributeConsumer {
         Self { policy }
     }
 
+    /// Bind pass over the bound `document`'s shadow-including tree (umbrella
+    /// D-5 / D-11), called by `ConsumerDispatcher::initialize_consumers`
+    /// before the dispatcher is installed.
+    ///
+    /// Scaffold: a no-op, HEAD's behaviour (HEAD processes nothing at bind).
+    pub fn initialize_from_tree(&mut self, dom: &mut EcsDom, document: Entity) {
+        let _ = (self.policy, dom, document);
+    }
+
     /// Dispatch entry invoked by the binding-layer composer.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
