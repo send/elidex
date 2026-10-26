@@ -6,7 +6,8 @@ Thanks for your interest in contributing!
 
 1. Fork the repository and clone your fork.
 2. Install prerequisites: Rust via rustup, which uses the toolchain pinned in
-   `rust-toolchain.toml` (no MSRV during development — ADR #36), [mise](https://mise.jdx.dev/),
+   `rust-toolchain.toml` (the latest stable; no MSRV during development —
+   [ADR #36](docs/design/en/28-adr.md)), [mise](https://mise.jdx.dev/),
    [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`),
    [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and Python 3.9 or newer
    (`python3` on `PATH`; `mise run tools-test` runs the Python suites with it).
