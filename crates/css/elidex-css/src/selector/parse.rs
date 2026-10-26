@@ -185,10 +185,7 @@ fn parse_compound_selector(
                     }
                     Token::SquareBracketBlock => {
                         i.parse_nested_block(|block| {
-                            let name = match block.expect_ident() {
-                                Ok(n) => n.as_ref().to_ascii_lowercase(),
-                                Err(e) => return Err(e.into()),
-                            };
+                            let name = block.expect_ident()?.as_ref().to_ascii_lowercase();
                             let Ok(matcher) = parse_attribute_matcher(block) else {
                                 return Err(block.new_custom_error(()));
                             };
