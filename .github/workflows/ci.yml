@@ -181,8 +181,14 @@ jobs:
   # from its own run of this job (the slower leg bounds the job), e.g.
   #   gh run view <run-id> --json jobs \
   #     --jq '.jobs[] | select(.name | startswith("Python suites")) | [.name, .startedAt, .completedAt]'
-  # The value below is a conservative setting. Measured on PR #549's run
-  # (run 40168647140): the slower leg ("3.9") took 25 s end to end.
+  # PR #549 measured this job before the plan-memo checker's self-test joined
+  # it: on its run (run 40168647140) the slower leg ("3.9") took 25 s end to end.
+  # PR #510 then added that self-test and its mutation proof and re-derived the
+  # value below from its own run 40162851960 (slower leg = "3.9"): about 4x that
+  # leg -- the margin PR #510's R32 re-derivation restored for the retired
+  # trip-wire. The checker's plan asks for the next re-derivation when a run
+  # measures under 2x (its §8 entry "The always-run self-test's cost grows with
+  # REVIEW ROUNDS, not with the program").
   #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no
@@ -190,7 +196,7 @@ jobs:
   # convention of eyeballing CI before squashing.
   tools:
     name: Python suites
-    timeout-minutes: 10
+    timeout-minutes: 22
     strategy:
       fail-fast: false
       matrix:
