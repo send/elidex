@@ -191,20 +191,10 @@ Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
 
-THE OTHER THREE PLAN-MEMO CHECKERS, and the boundary (PR #510 Axis 5).  Four
-tools read plan memos (⚠ this said three until 2026-10-25, missing
-`plan-sweep.py`), and until this line none named another.  THIS one asks
-*does this memo's row-kind census parse, and is every naming site licensed*
-over ONE document family.  `plan-xcheck.py` asks *do two named layout memos
-agree*; it landed on main in #518 (`4394af4c`).  `plan-sweep.py`, landed in the
-same commit, asks *where does this memo restate the decision I am changing*
-(a lexical sweep; it reports and never gates).  `claim-gate-plan-check.py`
-asks *is a number written in a memo still true* over any memo's figures; it
-has not landed.  They share no predicate today, which is why they are four and
-not one; CLAUDE.md's *One issue, one way* asks for the collapse only once "why
-four" can be written, and the plan's §1 carries the trigger and the re-eval
-date.  A reader deciding where a new memo check belongs reads the four
-questions above, not the file names.
+THE OTHER THREE PLAN-MEMO CHECKERS (`plan-xcheck.py`, `plan-sweep.py`,
+`claim-gate-plan-check.py`): what each asks, and why they are not collapsed
+into one, is held in one place, the "FOUR plan-memo checkers" paragraph of
+`docs/plans/2026-08-plan-memo-umbrella-checker.md` §1.
 
 Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the population)
         plan-memo-umbrella-check.py --self-test [--mutants]

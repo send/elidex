@@ -22,7 +22,9 @@ straddle properties, the population walk, the module map, the id scan and the
 §4.6 tag list.  This module holds R30-R42: the id cell's blank test, the raw-seed
 and licensing linearity families, the code-span reading, the import seams and
 the attribution sweep, the dash class, the run-agreement property, the R38
-re-gate's second site, the Axis 5 report channel and the R42 families.  R45 on
+re-gate's second site, the Axis 5 report channel and the R42 families (with
+the later amendments that were written into those families in place: the
+R49-2 `Deps` row beside R34-2 and the R72 file-token row beside R36-2).  R45 on
 was carved out to `_mutants_r45.py` at the same seam when this file reached 998
 lines (PR #510 Codex R22's touch; that module's docstring has the measurement).
 

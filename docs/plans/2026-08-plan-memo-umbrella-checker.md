@@ -114,16 +114,16 @@ it enters the `tools` job through a wrapper, and its cost with it. The budget ha
 "The always-run self-test's cost grows with REVIEW ROUNDS, not with the program", where the job is
 re-measured on the runner when that suite joins it.
 
-⚠ **FOUR plan-memo checkers exist, and until PR #510 Axis 5 not one of them named
-another** (⚠ this said THREE until 2026-10-25, missing `plan-sweep.py`). This one (the umbrella
+⚠ **FOUR plan-memo checkers exist** (⚠ this said THREE until 2026-10-25, missing `plan-sweep.py`). This one (the umbrella
 row-kind census + naming-site scan), `claim-gate-plan-check.py`
 (unpushed, branch `claim-gate-plan-check`, backed up as `refs/backup/claim-gate-plan-check` —
 quantitative-claim provenance and staleness), `plan-xcheck.py` (landed with `plan-sweep.py` in #518,
 `4394af4c`; latest change #523 — the layout memo cross-check) and `plan-sweep.py` (on `main`, #518 —
-the restatement sweep); `claim-gate-plan-check.py` names `plan-xcheck.py`, `plan-xcheck.py` and
+the restatement sweep); `claim-gate-plan-check.py` names `plan-xcheck.py` and not this one, `plan-xcheck.py` and
 `plan-sweep.py` name none of the others, and of the other three only this one names
 `plan-sweep.py` (its header, since 2026-10-25; `grep -c plan-sweep` over `plan-xcheck.py` and
-`git show claim-gate-plan-check:.claude/tools/claim-gate-plan-check.py` → 0, 0). Their CI entries
+`git show claim-gate-plan-check:.claude/tools/claim-gate-plan-check.py` → 0, 0;
+`grep -c plan-memo-umbrella-check` over the same two and `plan-sweep.py` → 0, 0, 0). Their CI entries
 differ: this one's self-test runs in the `tools` job through its wrapper (above); the
 `stale-claim-detector` lane ships a shell wire for `trip-wires` and a Python `--self-test` that has no
 wrapper yet (the paragraph above); `plan-xcheck.py` and `plan-sweep.py` are on `main` with no
@@ -132,21 +132,11 @@ wrapper yet (the paragraph above); `plan-xcheck.py` and `plan-sweep.py` are on `
 this tool answers *"does this memo's row-kind census parse, and is every naming site licensed"*;
 `claim-gate` answers *"is a number in a memo still true"*; `plan-xcheck` answers *"do two layout memos
 agree"*; `plan-sweep` answers *"where does this memo restate the decision I am changing"* (a lexical
-sweep that reports and never gates: its exit code is always 0). ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
+sweep that reports and never gates). ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
 collapse only once "why N" can be WRITTEN, and nobody has written it — four populations (one memo
 family / any memo's figures / two named memos / one memo's restatements of an ad-hoc pattern) that
-today share no predicate. The obligation this
-raises is the cross-reference, not the merge. ⚠ **And it is discharged in ONE of three directions,
-which this paragraph first reported as done** (PR #510 Axis 3 + Axis 5, measured independently):
-only `.claude/tools/plan-memo-umbrella-check.py` — this PR's — names the other two (and, since
-2026-10-25, `plan-sweep.py` as well).
-`claim-gate-plan-check.py` names `plan-xcheck.py` and not this one; `plan-xcheck.py` names neither.
-This PR cannot edit those trees, so the reciprocal is **OWED on the two lanes**
-(`claim-gate-plan-check` in `elidex-wt-claimcheck`, `plan-xcheck.py` on `layout-decorated-inline`)
-and is carried into their memos rather than asserted here. `plan-sweep.py` was not counted when
-this obligation was set (the three directions above are among the other three tools), and whether
-the reciprocal is owed on it too is not decided here. **Trigger (an EVENT)**: whichever of
-those two lanes next touches its tool's header. **Re-eval: 2026-12-31.** **Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the four need to
+today share no predicate. Whether the other three should name this one is not decided here.
+**Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the four need to
 share. Re-eval: 2026-12-31.
 
 ## §2 Coupled invariants (edge-dense)
@@ -1102,7 +1092,8 @@ committed here by the note that corrected it.
   (`bash scripts/python-suites.sh`): `gh run view <run-id> --json jobs --jq '.jobs[] | select(.name |
   startswith("Python suites")) | [.name, .startedAt, .completedAt]'`. It is re-measured there when the
   `stale-claim-detector` lane's Python self-test (`claim-gate-plan-check.py --self-test`, §1) joins the
-  job. No measured run time is kept in this entry, in `ci.yml` or in `CLAUDE.md`. Trigger = the round
+  job. No current run time is kept in this entry (the figures after its **Record** marker are
+  history), in `ci.yml` or in `CLAUDE.md`. Trigger = the round
   whose run measures under 2× against the `tools` job's `timeout-minutes`, or the next round that adds
   a mutant naming the growth property. No slot: this is the self-test's own budget, not a platform gap. ⚠ **And no date — this is
   trigger-only, stated rather than left to inference** (PR #510 R45, the second of the two entries

@@ -929,7 +929,7 @@ CONTROL	CONTROL	block quotes are linear: N quotes cost <= 4N quote_content calls
 CONTROL	CONTROL	container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them	plan_memo_selftest_controls.deep_nesting_control#326431ebbe9d7e0a
 CONTROL	CONTROL	declaring-field parse and whole-line marker grep differ	plan_memo_selftest_controls.degenerate_control#c8f1c52ccab77659
 CONTROL	CONTROL	diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path	plan_memo_selftest_controls.display_path_control#a5a305bee8c94bee
-CONTROL	CONTROL	emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the Appendix's openers_bottom)	plan_memo_selftest_work.linear_emphasis_control#ead8bfe699d28967
+CONTROL	CONTROL	emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the Appendix's openers_bottom)	plan_memo_selftest_work.linear_emphasis_control#e4b0116e9eefea0e
 CONTROL	CONTROL	every vendored file the self-test reads matches its pin, and each half of the pin refuses on its own: a same-count one-byte edit by the digest, a count that disagrees by the count	plan_memo_selftest_controls.vendored_pin_control#590ad2a454d8fda2
 CONTROL	CONTROL	file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every start position	plan_memo_selftest_work.linear_file_token_control#2dcc624a560e1435
 CONTROL	CONTROL	inline_pass does not RUN the §6.6 grammar at a `<` whose closer stands nowhere ahead (the one cost the Python-level witnesses cannot see)	plan_memo_selftest_work.linear_html_attempts_control#84c45c55ebadc1c6
