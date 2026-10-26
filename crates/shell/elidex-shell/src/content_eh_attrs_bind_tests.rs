@@ -165,7 +165,7 @@ fn e6_srcdoc_iframe_initial_html_handler_runs() {
 }
 
 /// E7's markup: a declarative shadow root holding `M`'s button.
-const E7: &str = "<div id=h><template shadowrootmode=open>\
+const E7: &str = "<!DOCTYPE html><div id=h><template shadowrootmode=open>\
 <button id=b onclick=\"document.body.dataset.hit=(+document.body.dataset.hit||0)+1\"></button>\
 </template></div>\
 <script>document.body.dataset.ran=1;document.getElementById('h').shadowRoot.getElementById('b').dispatchEvent(new MouseEvent('click'))</script>";
