@@ -99,8 +99,7 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
   `timeout-minutes` is re-derived from this PR's own CI run.
 - ~~The **cap PAUSE question** for #510's merge~~ — **SETTLED 2026-09-26**: the user re-accepted
   option (d) at that day's enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
-  record is the third block of the umbrella memo's §8 head (after the 2026-09-21 acceptance and the
-  2026-09-28 re-acceptance at nineteen). A later change to §8's list re-opens it. The A-iii wire move
+  record is the 2026-09-26 re-acceptance at sixteen in the umbrella memo's §8 head. A later change to §8's list re-opens it. The A-iii wire move
   the merge waited on is done (the bullet above); the merge needs a fresh review of whatever head is
   pushed then.
 - ~~⚠ **2026-09-28: §8's list is now 17 entries (15 own + 2 pre-existing)**~~ — **SUPERSEDED 2026-09-28** by
@@ -114,10 +113,10 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - ✅ **SETTLED 2026-09-28 — the user re-accepted (d) at 19 entries (17 own + 2 pre-existing)** (recorded at the head of §8, under the `## §8` title; Codex R38 of 2026-09-27, P1). ~~⚠ **OPEN — 2026-09-28: §8's list is now 19 entries (17 own + 2 pre-existing)**~~ — (19), an unmatched
   `)` with two ratified notions (Codex R30 of 2026-09-27), was carved with the user's approval. It re-opened the cap
   question for #510's merge again; the umbrella memo's §8 records the movement.
-- ⚠ **OPEN — 2026-10-25: §8's list is now 20 entries (18 own + 2 pre-existing)** — (20), `dispose`
+- ✅ **SETTLED 2026-10-26 — the user re-accepted (d) at 20 entries (18 own + 2 pre-existing)** (recorded at the head of the umbrella memo's §8). ~~⚠ **OPEN — 2026-10-25: §8's list is now 20 entries (18 own + 2 pre-existing)**~~ — (20), `dispose`
   re-reading every nested strong pair's interior (Codex F-R1 of 2026-10-25), was carved by the PM's
-  ruling after the acceptance at nineteen. The cap question for #510's merge is open again until the
-  user answers it at twenty; the umbrella memo's §8 records the movement.
+  ruling after the acceptance at nineteen; it re-opened the cap question for #510's merge, and the
+  umbrella memo's §8 records the movement.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 

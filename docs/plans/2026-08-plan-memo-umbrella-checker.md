@@ -914,6 +914,8 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
+✅ **RE-ACCEPTED AT TWENTY — BY THE USER, ON 2026-10-26, FOR THIS PR** (eighteen own and two pre-existing, after (20) re-opened it; (20) was carved by the PM's ruling of 2026-10-25, and the user answered option (A), 「20 件で受け入れる」). It settles the cap question for #510's merge at twenty; a further change to the list re-opens it. The merge needs a fresh review of the head pushed then.
+⚠ The acceptance below was the previous one, given at nineteen.
 ✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 of 2026-09-27 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job. ⚠ **Correction (2026-10-25):** that move is done — A-iii landed (#545, `ad80b5ca`) and 8a81b93d moved the self-test into the `tools` job through the wrapper.
 ⚠ The acceptance below was the earlier one, given at sixteen.
 ✅ ~~**RE-ACCEPTED AT THE CURRENT COUNT**~~ **RE-ACCEPTED AT SIXTEEN — BY THE USER, ON 2026-09-26, FOR THIS PR.** The 2026-09-21
@@ -939,7 +941,7 @@ pre-existing** — (9) and (10) are the pre-existing ones, each with its groundi
 policy asks for it. Count the list rather than trusting this sentence: `awk` the `^- \*\*` lines
 of this section and you must get twenty.
 ⚠ **(17) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FOURTEEN TO
-FIFTEEN.** The 2026-09-26 re-acceptance above (the third block of this section's head) was given at
+FIFTEEN.** The 2026-09-26 re-acceptance, above, was given at
 sixteen; by its own last sentence this change to the
 list re-opens the cap question for #510's merge, and this note records the movement rather than
 absorbing it.
@@ -948,8 +950,9 @@ SIXTEEN.** It re-opens the cap question again, for the same reason as (17).
 ⚠ **(19) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM SIXTEEN TO
 SEVENTEEN.** It re-opens the cap question again, for the same reason as (17).
 ✅ The question (17), (18) and (19) re-opened was settled at nineteen on 2026-09-28 — the
-re-acceptance at nineteen above (the second block of this section's head).
+2026-09-28 re-acceptance at nineteen, above.
 ⚠ (2026-10-25) (20) was carved after the acceptance at nineteen; the cap question is open again.
+✅ The question (20) re-opened was settled at twenty on 2026-10-26 — the 2026-10-26 re-acceptance at twenty, above.
 ⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
 RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
 once, the hand-written table three times)
