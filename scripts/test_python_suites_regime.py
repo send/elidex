@@ -10,12 +10,15 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import socket
 import sys
 import threading
 import unittest
 
 from python_suites_fixtures import (
+    DRIVER,
+    DRV,
     PIN_FILES,
     REGIME_KEYS,
     REPO,
@@ -586,6 +589,19 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         )
 
     def test_G6_environment_half_once_per_regime_key(self):
+        # The key set is spelled in REGIME_KEYS, regime_env and the header's Environment-half
+        # list (the STATED LIMIT refers to it as "any regime key"); tie all three, and
+        # G6_INHERITED, to REGIME_KEYS before the driver launch, so a launch failure cannot hide it.
+        base = {**{k: "sentinel-" + k for k in REGIME_KEYS}, "UNRELATED": "u", "GIT_DIR": "/x"}
+        env = DRV.regime_env(base, "/g", 1234, "/c")
+        moved = {k for k in base.keys() | env if base.get(k) != env.get(k)} - {"GIT_DIR"}
+        self.assertEqual(moved, set(REGIME_KEYS))
+        self.assertEqual((env["UNRELATED"], "GIT_DIR" in env), ("u", False))
+        text = DRIVER.read_text(encoding="utf-8")
+        half = text[text.index("Environment half") : text.index("Before each member")]
+        listed = {n for m in re.findall(r"^#   (\S+)", half, re.M) for n in m.split("/")}
+        self.assertEqual(listed, set(REGIME_KEYS) | {"GIT_*"})
+        self.assertEqual(set(G6_INHERITED) | {"PYTHONPATH"}, set(REGIME_KEYS))
         s = self.scratch({"g6/test_g6.py": G6_MEMBER})
         self.assertBaselineGreen(s, "g6/test_g6.py", G6_INHERITED)
         out = self.assertRed(

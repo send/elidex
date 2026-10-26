@@ -32,7 +32,8 @@ LAUNCH_TIMEOUT = 600
 
 # Every file that is part of the pins (members and helper modules). P6 and G9
 # read all of them, so splitting the pins cannot hide a stray launch or a
-# credited entry point in one of the pieces.
+# credited entry point in one of the pieces. P6 also checks the list is closed:
+# a scripts/ module a pin file imports, or a file importing a pin helper, is listed.
 PIN_FILES = (
     "scripts/test_python_suites_driver.py",
     "scripts/test_python_suites_regime.py",
