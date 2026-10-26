@@ -519,39 +519,39 @@ mod tests {
     fn same_origin_http() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com/page").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("http://example.com/other").unwrap());
-        assert!(a == b);
+        assert_eq!(a, b);
     }
 
     #[test]
     fn cross_origin_different_scheme() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
-        assert!(a != b);
+        assert_ne!(a, b);
     }
 
     #[test]
     fn cross_origin_different_port() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("http://example.com:8080").unwrap());
-        assert!(a != b);
+        assert_ne!(a, b);
     }
 
     #[test]
     fn cross_origin_different_host() {
         let a = SecurityOrigin::from_url(&url::Url::parse("https://a.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("https://b.com").unwrap());
-        assert!(a != b);
+        assert_ne!(a, b);
     }
 
     #[test]
     fn default_port_normalization() {
         let a = SecurityOrigin::from_url(&url::Url::parse("http://example.com").unwrap());
         let b = SecurityOrigin::from_url(&url::Url::parse("http://example.com:80").unwrap());
-        assert!(a == b);
+        assert_eq!(a, b);
 
         let c = SecurityOrigin::from_url(&url::Url::parse("https://example.com").unwrap());
         let d = SecurityOrigin::from_url(&url::Url::parse("https://example.com:443").unwrap());
-        assert!(c == d);
+        assert_eq!(c, d);
     }
 
     #[test]
@@ -559,9 +559,9 @@ mod tests {
         let a = SecurityOrigin::opaque();
         let b = SecurityOrigin::opaque();
         // Different opaque origins (different IDs) are not same-origin.
-        assert!(a != b);
+        assert_ne!(a, b);
         // Same opaque origin (same ID) IS same-origin.
-        assert!(a == a);
+        assert_eq!(a, a);
     }
 
     #[test]

@@ -203,14 +203,12 @@ pub fn split_host_port(val: &str) -> Option<(String, Option<String>)> {
         let end = val.find(']')?;
         let host = val[..=end].to_owned();
         let rest = &val[end + 1..];
-        match rest {
-            "" => (host, None),
-            _ => match rest.strip_prefix(':') {
-                Some(p) => (host, Some(p.to_owned())),
-                // Trailing garbage after `]` (e.g. `[::1]abc`) — invalid host.
-                None => return None,
-            },
-        }
+        let port = match rest {
+            "" => None,
+            // Trailing garbage after `]` (e.g. `[::1]abc`) — invalid host.
+            r => Some(r.strip_prefix(':')?.to_owned()),
+        };
+        (host, port)
     } else {
         // Non-bracketed: at most one `:` separator.  `splitn(3, ':')`
         // surfaces a third part exactly when the input has more than
