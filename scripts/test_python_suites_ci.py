@@ -337,7 +337,13 @@ class TestReaderPins(unittest.TestCase):
             self.assertReaderRed(mise_problems, text, self.line_of(text, header))
         # Keys outside the read sections use the header grammar: a dotted `tasks` key in any
         # quoting is red, and so is an escaped key.
-        for key in ('tasks."tools-test".env.X = "1"', 'tasks = { x = { run = "y" } }', '"task\\u0073".tools-test.env.X = "1"'):
+        for key in (
+            'tasks."tools-test".env.X = "1"',
+            '"tasks".x = "1"',
+            "'tasks'.x = \"1\"",
+            'tasks = { x = { run = "y" } }',
+            '"task\\u0073".tools-test.env.X = "1"',
+        ):
             self.assertReaderRed(mise_problems, key + "\n" + mise_fixture(), 1)
         text = mise_fixture(tt="run =")
         self.assertReaderRed(mise_problems, text, text.splitlines().index("run =") + 1)

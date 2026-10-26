@@ -555,8 +555,9 @@ def _scan_strings(raw, carry, lineno):
     """Advance the carry (open multi-line string delimiter or None, open-array
     depth) over one line; return the new carry. The body of a multi-line string
     and the continuation lines of an open array are text, never structure. A
-    close that cannot be read unambiguously (an escaped `\"\"\"`, a fourth quote
-    right after it, a `]` with no array open) raises."""
+    close this reader does not model raises: an escaped `\"\"\"`, quotes right
+    after the close (valid TOML -- up to two quotes may end the body -- but not
+    read here), a `]` with no array open."""
     delim, depth = carry
     i, n = 0, len(raw)
     while i < n:

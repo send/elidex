@@ -271,8 +271,8 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         # Completeness, by property: a tracked file a pin file imports, and a file that imports a
         # helper module of the pins, are pin files too. An import statement's dotted names (and
         # `from M import n` as M.n) resolve against the importer's directory, scripts/ and the
-        # root, as a module or a package. Outside the check: a module loaded by a computed name
-        # (importlib, __import__).
+        # root, as a module or a package. Outside the check: a relative import (scripts/ is not a
+        # package) and a module loaded by a computed name (importlib, __import__).
         def imports(rel, tree=None, known=frozenset(tracked)):
             names = set()
             for n in ast.walk(trees[rel] if tree is None else tree):
