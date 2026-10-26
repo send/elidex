@@ -1,12 +1,14 @@
-# EH-attrs-at-creation slice a: per-PR plan (rev 4)
+# EH-attrs-at-creation slice a: per-PR plan (rev 4.2)
 
 Label **`EH-attrs-at-creation-a`**. Program and contract: the approved umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md` (rev 8, landed by PR #551 at `b9122157`). Branch
 `layout-eh-attrs-slice-a`, cut from `origin/main` `b9122157`. Owner: Layout lane.
 
 This plan **derives the implementation** of the decided contract. It re-decides no clause the umbrella decided (its
-"Approval scope" paragraph); the two umbrella sentences this PR corrects, §4 Home/kind (PM decision 35) and §6.4's
-placement sentence (PM decision 37), are shown before / after in §0.5 "marker home".
+"Approval scope" paragraph). File placement is stated in one place, this plan's §5 (PM decision 39, which supersedes
+PM decision 35's file-name edit and PM decision 37's sentence edit). The two umbrella edits this PR makes, §4 Home/kind
+(file name removed, pointer to §5) and §6.4's placement paragraph (replaced by one pointer sentence to §5), are shown
+before / after in §1.7 (decision: §0.5 "marker home").
 Where the umbrella left something to "slice a's plan" or "slice a's plan-review", this
 plan decides it and says so (§0.5). Where the contract text and the code disagree, §0.6 records it. Changes since rev 1:
 §10.
@@ -122,7 +124,7 @@ plan's base. All greps use `/usr/bin/grep`. Every § number ↔ title pair and s
 | rev8:533 (§3 row 2, "step 3 is T3, the reflecting set facet 4") | r5 rev-8 attestation | Umbrella wording. Noted for the PM (§9); not edited |
 | umbrella §6.4 "takes C1–C17" (stale range) and placement | umbrella §6.4 decided obligation | Replaced by §5: the cells go to **new** files; `tests_event_handler_attrs.rs` is not touched. The C set is C1–C9, C11–C20 (there is no C10 in umbrella §6.1) |
 | Q7 / E8 replacement shape | umbrella §11 Q7 | E8 is written as decided. Fallback 1 (umbrella's): `x` from a DOMParser document. Fallback 2 (decided here): if `attachShadow` cannot run in an initial script, take `sr` from a declarative shadow root in the initial markup (`<div id=h><template shadowrootmode=open></template></div>`, as E7). Selection is by E8's pre-fix run (it is a guard: it must pass on the base) (§4.4). **Terminal, as for E7**: if the decided shape and both fallbacks fail at the scaffold run, implementation stops and this plan returns to plan-review. E8 is not reshaped or dropped during implementation |
-| marker home (file level) | umbrella §4 Home/kind, PM decision 35; umbrella §6.4 placement, PM decision 37 | The home of both markers and the processing function moves from `event_handler_consumer.rs` to the new module `event_handler_processing/` (§1.1, §1.3), under PM decision 35. Same crate (`elidex-script-session`), same re-exports from `lib.rs`, same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: the 1000-line touch-time rule, applied to the umbrella's own placement. Umbrella §6.4 (`:773-774`) puts the mechanism **and** the inline cells U1–U12 in the consumer file. Figures (measured = re-runnable command; the rest are projections): the file is 590 lines (measured: `wc -l crates/script/elidex-script-session/src/event_handler_consumer.rs`); the mechanism adds ≈ 400 (projection, §5 `event_handler_processing/mod.rs`); it absorbs the six helpers, 62 lines (measured: `sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler_consumer.rs \| wc -l`), and ≈ 12 lines of `handle_insert`'s walk (`:427-465`; estimate); so ≈ 916 before any cell. The U-cells are projected at ≈ 650 + ≈ 450 (§5's two U-cell files, which also hold P1 and P2). The headroom is ≈ 84 lines, so under the umbrella's placement the consumer file crosses 1000 in this PR (≈ 2000 with §5's projections). On umbrella §6.4's "standalone prerequisite split": this PR creates the new module from the start and moves the helpers out of the consumer file, so no existing file crosses 1000 (§5: the consumer file 590 → ≈ 500, every other touched file below 1000) and no prerequisite split of an existing file arises. Exactly two umbrella sentences are corrected in this PR (§1.3, §1.7), and no other umbrella text. (1) §4 Home/kind (`:563-564`, PM decision 35): before "Both are homed in `crates/script/elidex-script-session/src/event_handler_consumer.rs`, beside the consumer."; after "Both are homed in `crates/script/elidex-script-session/src/event_handler_processing/`, a module of `elidex-script-session` beside the consumer.". (2) §6.4 placement (`:773-774`, PM decision 37): before "`event_handler_consumer.rs` takes the new mechanism and the inline cells U1–U12, and `tests_event_handler_attrs.rs` takes C1–C17, so either may cross 1000."; after "The new mechanism goes to `crates/script/elidex-script-session/src/event_handler_processing/` and the cells U1–U12 to that module's `tests_insertion_and_write.rs` (U1–U6, U9) and `tests_bind.rs` (U7, U8, U10–U12), so `event_handler_consumer.rs` only loses the helpers the mechanism absorbs; the cells C1–C9, C11–C20 go to the new files `tests_event_handler_attrs_once.rs` and `tests_event_handler_attrs_window_delegating.rs`, and `tests_event_handler_attrs.rs` is not touched.". The rest of §6.4 is unchanged and stays accurate: its prerequisite-split obligation (measure the projection at placement, split first as a standalone prerequisite where a real seam exists) still applies to the files it names and is discharged by §5. |
+| marker home (file level) | umbrella §4 Home/kind and §6.4, PM decisions 35 / 37 / 39 | The home of both markers and the processing function is the new module `event_handler_processing/` (§1.1, §1.3), not `event_handler_consumer.rs` (PM decision 35, module kept). Same crate (`elidex-script-session`), same re-exports from `lib.rs`, same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: the 1000-line touch-time rule, applied to the umbrella's own placement. Umbrella §6.4 (`:773-774`, pre-edit) puts the mechanism **and** the inline cells U1–U12 in the consumer file. Figures (measured = re-runnable command in §5 "N-c figures"; the rest are projections): the file is 590 lines (measured, command 1); the mechanism adds ≈ 400 (projection, §5 `event_handler_processing/mod.rs`); it absorbs the six helpers, 62 lines (measured, command 2), and ≈ 12 lines of `handle_insert`'s walk (`:427-465`; estimate); so ≈ 916 before any cell. The U-cells are projected at ≈ 650 + ≈ 450 (§5's two U-cell files, which also hold P1 and P2). The headroom is ≈ 84 lines, so under the umbrella's placement the consumer file crosses 1000 in this PR (≈ 2000 with §5's projections). **Placement is stated in one place (PM decision 39):** this plan's §5 is canonical for the file placement, the projection at placement of every touched or new file and the prerequisite-split decision; the umbrella names no file for the mechanism or its cells after this PR. PM decision 39 supersedes PM decision 35's file-name edit (§4 Home/kind would have named `event_handler_processing/`) and PM decision 37's sentence edit (§6.4 `:773-774` would have restated §5's placement), because a sentence-level edit left the rest of the §6.4 paragraph without referents (rev-4.1 attestation IMP-1). Exactly two umbrella edits land with the implementation, and no other umbrella text changes (§1.3, before / after in §1.7): (a) §4 Home/kind keeps the decided facts (crate, component kinds) and drops the file name, pointing to §5; (b) §6.4's heading figure reference and its whole placement paragraph (`:767-776`) become one sentence pointing to §5. |
 | Q5 / E5b | umbrella §6.2, §11 Q5 | **E5b is not written.** No hermetic same-origin URL loader exists (the in-process "URL-load" security test reaches only the `blank_entry` fallback, `content_iframe_security_tests.rs:278`). `load.rs:221` and `:327` call the same builder (A-9), and the processing point is inside `Vm::bind`, beneath every builder. E5 pins `:327` |
 | O4 (writer completeness) | umbrella §11 O4: closes at this plan-review | Closed: §6 re-runs the §5.0 census (unchanged) and enumerates every production writer of handler state in `EventListeners`. No VM path writes handler state outside the IDL activation path and the lazy-compile reconcile |
 | two init keys in one hook | umbrella §4 input, R3-A5-MIN-5 | **One key.** `initialize_consumers(dom, document)` passes the bound document to both delegates. `BaseUrlMaintainer`'s `initialize_from_tree` takes it in place of `document_root()`, which aligns its init with its own arms (A-4). In production the two keys are the same entity: (1) every production `Vm::bind` passes `ctx.document` (`engine.rs:397`, reached from `teardown_document` `:419` and `with_bound` `:440`; §0.2 reach set); (2) every production `ScriptContext` that reaches those is built from a pipeline's `document` (`crates/shell/elidex-shell/src/lib.rs:294`–`:526`, `self.document`; `pipeline.rs:128`, `:159`, `:350`, the `document` parameter); (3) that `document` is the parse result's (`pipeline.rs:572`, `:661`, `:752`; `build_pipeline_from_loaded` `pipeline.rs:850-852` takes `LoadedDocument.document`, set from the parse result at `crates/shell/elidex-navigation/src/loader.rs:214`); (4) both document parsers create it with `create_document_root()` on a fresh `EcsDom` (strict `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:101-102`, tolerant `crates/dom/elidex-html-parser/src/convert.rs:17-18`), which sets `document_root` (`crates/core/elidex-ecs/src/dom/mod.rs:397-399`). No production caller binds another document. The keys differ only for a test that binds a non-root document (scout Q-S3, §8) |
@@ -175,7 +177,7 @@ Line counts at `b9122157` (`wc -l`). Projection = estimated after-change size. 1
 | `crates/script/elidex-script-session/src/event_handler_processing/tests_insertion_and_write.rs` (NEW) | — | U1–U6, U9, P1, P2 |
 | `crates/script/elidex-script-session/src/event_handler_processing/tests_bind.rs` (NEW) | — | U7, U8, U10, U11, U12 |
 | `crates/script/elidex-script-session/src/event_handler_consumer.rs` | 590 | arms delegate (§1.4 (d)); helpers move out; `initialize_from_tree` (NEW) method; module doc `:1-33` rewritten; stale sentence in `web_storage_spec_level`'s doc (`:235-242`) fixed (§1.7) |
-| `docs/plans/2026-10-event-handler-attrs-at-creation.md` | — | exactly two sentence corrections (ratified surface, shown to this plan-review; exact text §0.5 "marker home", §1.7): §4 Home/kind `:563-564` (PM decision 35), file name `event_handler_consumer.rs` → `event_handler_processing/`; §6.4 `:773-774` (PM decision 37), the mechanism and U1–U12 placed in `event_handler_processing/` and its two U-cell test files |
+| `docs/plans/2026-10-event-handler-attrs-at-creation.md` | — | exactly two edits, PM decision 39 (ratified surface, shown to this plan-review; exact text §1.7, decision §0.5 "marker home"): (a) §4 Home/kind `:563-564`, the file name is removed and file placement points to this plan's §5; (b) §6.4 `:767-776` (heading and placement paragraph), replaced by one sentence pointing to this plan's §5 |
 | `crates/script/elidex-script-session/src/lib.rs` | 62 | `mod event_handler_processing;` + re-exports of the markers and `process_before_handler_write` |
 | `crates/script/elidex-js/src/vm/consumer_dispatcher.rs` | 153 | `initialize_consumers(&mut self, dom, document)`; doc `:113-134`; field doc `:58-67` |
 | `crates/script/elidex-js/src/vm/vm_api.rs` | 762 | `:313` passes `document`; comment `:298-312` rewritten |
@@ -365,16 +367,59 @@ to slice b's input by name (§9). I10 (§2) covers only the three callers it nam
 
 ### §1.7 Docs, comments, clone policy (umbrella §4's rewrite-site list)
 
-- Umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`: exactly two sentence corrections (ratified
-  surface, shown to this plan-review). They land with the implementation; no other umbrella text changes.
+- Umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`: exactly two edits (ratified surface, shown to
+  this plan-review), under PM decision 39, which supersedes PM decision 35's file-name edit and PM decision 37's
+  sentence edit. File placement is stated in one place, this plan's §5; the umbrella keeps only the decided facts
+  and a pointer. They land with the implementation; no other umbrella text changes. Line numbers are the umbrella at
+  `b9122157`; the before text is verbatim (line breaks as in the file).
 
-  | umbrella site | decision | before | after |
-  |---|---|---|---|
-  | §4 Home/kind, `:563-564` | PM decision 35 | "Both are homed in `crates/script/elidex-script-session/src/event_handler_consumer.rs`, beside the consumer." | "Both are homed in `crates/script/elidex-script-session/src/event_handler_processing/`, a module of `elidex-script-session` beside the consumer." |
-  | §6.4, `:773-774` | PM decision 37 | "`event_handler_consumer.rs` takes the new mechanism and the inline cells U1–U12, and `tests_event_handler_attrs.rs` takes C1–C17, so either may cross 1000." | "The new mechanism goes to `crates/script/elidex-script-session/src/event_handler_processing/` and the cells U1–U12 to that module's `tests_insertion_and_write.rs` (U1–U6, U9) and `tests_bind.rs` (U7, U8, U10–U12), so `event_handler_consumer.rs` only loses the helpers the mechanism absorbs; the cells C1–C9, C11–C20 go to the new files `tests_event_handler_attrs_once.rs` and `tests_event_handler_attrs_window_delegating.rs`, and `tests_event_handler_attrs.rs` is not touched." |
+  (a) §4 Home/kind, `:563-564` (the sentence; the rest of the paragraph, `:562-567`, already states only the two
+  component kinds, `Send + Sync`, and the despawn / adopt / clone behaviour, and names no file). Before:
 
-  The rest of §6.4 (pre-touch figures; the obligation to measure the projection at placement and split first as a
-  standalone prerequisite where a real seam exists) is unchanged and stays accurate; §5 discharges it.
+  ```text
+  Both are homed in
+  `crates/script/elidex-script-session/src/event_handler_consumer.rs`, beside the consumer.
+  ```
+
+  After:
+
+  ```text
+  Both are homed in the crate `elidex-script-session`. Their file placement is not decided here: slice a's per-PR
+  plan §5 (`docs/plans/2026-10-eh-attrs-slice-a.md`) is canonical (PM decision 39).
+  ```
+
+  (b) §6.4, `:767-776`, the heading and the whole paragraph. Every statement in it is placement (which files slice a
+  touches and which is not touched), pre-touch figures, projection at placement or the prerequisite-split
+  obligation; §5 carries each of them (pre-touch figures, projection for every touched or new file including
+  `teardown.rs`, and the split decision with its seam reasoning). The heading loses "`wc -l` at `fd6955e8`" because
+  no figure stays in the umbrella. Before:
+
+  ```text
+  ### §6.4 Touch-time 1000-line check (input; `wc -l` at `fd6955e8`)
+
+  No file slice a touches exceeds 1000 lines before the change: `event_handler_consumer.rs` 590, `event_handler_attrs.rs`
+  726, `consumer_dispatcher.rs` 153, `tree_clone.rs` 425, `content/mod.rs` 858, `content_test_support.rs` 288,
+  `content_iframe_security_tests.rs` 667, and `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs.rs` 735.
+  `crates/shell/elidex-shell/src/tests.rs` (1082) is not touched. If D-11 generalises the private walker, `teardown.rs`
+  joins the list. **Decided obligation (R3 A5 MIN):** the figures are pre-touch. `event_handler_consumer.rs` takes the new
+  mechanism and the inline cells U1–U12, and `tests_event_handler_attrs.rs` takes C1–C17, so either may cross 1000.
+  Slice a's plan measures the **projection at placement** for these two files (and `teardown.rs`) and splits first, as a
+  standalone prerequisite, where a real seam exists (CLAUDE.md, 1000-line debt).
+  ```
+
+  After:
+
+  ```text
+  ### §6.4 Touch-time 1000-line check (input)
+
+  Slice a's file placement, the 1000-line projection at placement of every file it touches or creates, and whether
+  a standalone prerequisite split is needed are canonical in slice a's per-PR plan §5
+  (`docs/plans/2026-10-eh-attrs-slice-a.md`; PM decision 39).
+  ```
+
+  Umbrella text that refers to §6.4 stays accurate after (b): `:23` lists "§6's file placement … (§6.3–§6.4)" as
+  input, and `:1078` is the R3 review ledger's historical row ("§6.4 decided obligation"), which records the fix at
+  the time and is not rewritten.
 - `event_handler_consumer.rs:1-33` module doc: three timings (bind, Insert, first handler write), the interim Insert arm
   naming `#11-eh-attrs-creation-time-call-sites`, X-W. `handle_insert`'s doc cites WHATWG DOM §4.2.3 Mutation
   algorithms (no event-handler insertion steps) and names the slot.
@@ -708,6 +753,14 @@ Implementation stops and this plan returns to plan-review. The test is not resha
 
 ## §5. 1000-line touch-time check
 
+**Canonical (PM decision 39).** This section is canonical for slice a's file placement (the "file"
+column: which existing files are touched, which are new, and which are not touched), the pre-touch line count of each
+("now"), its projection at placement ("projected"), and the prerequisite-split decision. Umbrella §4 Home/kind and
+§6.4 point here after this PR (§1.7); §1.3 is the change list over these files and defers to this table on
+placement. The obligation umbrella §6.4 set (R3 A5 MIN: measure the projection at placement for the consumer file,
+the C-cell test file and `teardown.rs`, and split first, as a standalone prerequisite, where a real seam exists) is
+discharged by the table and the two paragraphs below it.
+
 | file | now | projected | decision |
 |---|---|---|---|
 | `event_handler_consumer.rs` | 590 | ≈ 500 (helpers move out) | no split |
@@ -739,7 +792,30 @@ No touched file is over 1000 lines, and no projection crosses 1000, so **no prer
 goes to a new module, and the cells go to new files split by scenario (once and writes / Window-delegating; insertion
 and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/shell/elidex-shell/src/tests.rs` (1082),
 `viewport_tests.rs` (1172), `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` (1143). Line counts:
-`wc -l` at `b9122157`, verified 2026-10-26.
+`wc -l` at `b9122157`, verified 2026-10-26. The umbrella's pre-touch figures were taken at `fd6955e8`; they equal
+these, because `git diff --stat fd6955e8 b9122157 -- crates` is empty (§6).
+
+**Prerequisite split: none, with the seam reasoning.** A standalone prerequisite split is owed for a touched file
+that is over 1000 lines, or that this PR would take over 1000, where a real cohesion seam exists. Neither trigger
+fires: every touched file is under 1000 before the change, and every projection stays under 1000. The two files the
+umbrella's placement would have taken over 1000 are the consumer file (≈ 916 before any cell, ≈ 2000 with the
+U-cells; §0.5 "marker home") and `tests_event_handler_attrs.rs` (735 + the C cells). In both, the seam is the one this
+PR's placement uses, so it is cut as new files from the start, not as a split of an existing file:
+- the consumer file: the attribute-change-steps realisation (the markers, the classifier, D-2's function, the
+  write-side entry, the bind pass, and the six helpers it absorbs) is a separate cohesion unit from the consumer's
+  mutation-event routing, so it becomes `event_handler_processing/mod.rs`, and the consumer file shrinks (590 →
+  ≈ 500). Its unit cells split by scenario: insertion and writes (U1–U6, U9, P1, P2) / bind (U7, U8, U10–U12);
+- the C cells: they split by scenario, once and writes (C1–C7, C9, C11–C16) / Window-delegating pairs (C8, C17–C20,
+  C19b, C19c, P3), into two new files; `tests_event_handler_attrs.rs` is not touched;
+- `teardown.rs`: D-11 moves its private walker to `walkers.rs`, so it shrinks (367 → ≈ 335) and needs no split.
+
+**N-c figures (re-runnable, at `b9122157`; cited by §0.5 "marker home").** Command 1 prints 590 (the consumer file);
+command 2 prints 62 (the six helpers the mechanism absorbs):
+
+```sh
+wc -l crates/script/elidex-script-session/src/event_handler_consumer.rs
+sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler_consumer.rs | wc -l
+```
 
 ## §6. Verification artifacts
 
@@ -833,6 +909,23 @@ and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/sh
     C1's handling, then slice b).
 
 ## §10. Changelog
+
+- **rev 4.2** (rev-4.1 attestation: CRIT 0 / IMP 1 / MIN 2, all fixed; PM decision 39):
+  - IMP-1: PM decision 39 — file placement is stated in one place, this plan's §5; it supersedes PM decision 35's
+    file-name edit and PM decision 37's sentence edit, which left umbrella §6.4's paragraph without referents. The two
+    umbrella edits are now (a) §4 Home/kind `:563-564`, file name removed, pointer to §5, and (b) §6.4 `:767-776`
+    (heading and whole paragraph) replaced by one pointer sentence; exact before / after in §1.7. The claim that the
+    rest of §6.4 stays accurate is removed. Header paragraph, §0.5 "marker home" row, §1.3 umbrella row, §1.7.
+  - §5 carries everything the replaced §6.4 paragraph obliged: a "Canonical" paragraph (placement, pre-touch counts,
+    projection at placement for every touched or new file including `teardown.rs`, the split decision), the
+    `fd6955e8` / `b9122157` figure equivalence, and the prerequisite-split decision with its seam reasoning (moved
+    from the §0.5 row).
+  - MIN-1: title and changelog name the revision (rev 4.1 below, rev 4.2 here).
+  - MIN-2: the N-c re-runnable commands move out of the §0.5 table cell (no escaped pipe) into a code block, §5
+    "N-c figures"; the §0.5 row cites them as commands 1 and 2.
+- **rev 4.1** (`6d9f302d`): the §6.4 after-text gained the C-cell clause (C1–C9, C11–C20 to
+  `tests_event_handler_attrs_once.rs` and `tests_event_handler_attrs_window_delegating.rs`;
+  `tests_event_handler_attrs.rs` not touched), matching §5's placement. Superseded by rev 4.2's edit (b).
 
 - **rev 4** (rev-3 attestation: CRIT 0 / IMP 0 / MIN 4, all fixed; plus a PM ledger change):
   - N-a: the reach-set enumeration grep now matches fully-qualified calls (`(\.|::)bind\(`, 116 hits), excludes 28
