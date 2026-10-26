@@ -38,6 +38,7 @@ gathers every mutants module's list (`plan_memo_selftest_harness.registry_module
 decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.
 """
 
+from plan_memo_selftest_cases_inline import CODEX_0C3_FJLIG_NEG, CODEX_0C3_FJLIG_POS
 from plan_memo_selftest_cases_r26 import ( R30_3_DEMOTED_TAIL, R30_3_IMAGE_OPENER,
     R30_3_LINK_OPENER, R30_3_LOUD_MISS, R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED,
     R30_UNPAIRED, R31_1_DOLLAR_UNBOUND, R31_1_RENDERED_HEADER, R33_1_LONGER_WORD,
@@ -486,6 +487,19 @@ MUTANTS += [
      "            trail = _trail_start_from(text, run_end, (-1, 0))",
      ["file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every "
       "start position"]),
+]
+
+# -- PR #510 Codex review of 0c3cffd3 (2026-10-26): an amendment to the R23 stream family, placed
+# here by the R72 rule (see the docstring) because `_mutants_inline.py` is at 997 lines.  A
+# multi-code-point character reference is ONE buffer element but several `src` positions.
+MUTANTS += [
+    ("Codex 0c3cffd3 stream: a substitution adds one buffer element per rendered code point "
+     "(append the whole string as one element: every blank offset after `&fjlig;` is short by one)",
+     STREAM,
+     "            buf.extend(ch)\n            src.extend([i] * len(ch))\n"
+     "            assert len(buf) == len(src), \"stream(): a buffer element is not one code point\"\n",
+     "            buf.append(ch)\n            src.extend([i] * len(ch))\n",
+     [CODEX_0C3_FJLIG_NEG, CODEX_0C3_FJLIG_POS]),
 ]
 
 

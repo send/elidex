@@ -651,8 +651,13 @@ def stream(lx, reader=False):
     while i < n:
         if disp[i] == 0 and i in subst:
             end, ch = subst[i]
-            buf.append(ch)
+            # one buffer element per rendered CODE POINT, as `src` has: a reference
+            # that renders several (`&fjlig;` -> `fj`) as one element left every
+            # later `len(buf)` short of the joined stream (PR #510 Codex review of
+            # 0c3cffd3, 2026-10-26)
+            buf.extend(ch)
             src.extend([i] * len(ch))
+            assert len(buf) == len(src), "stream(): a buffer element is not one code point"
             i = end
             continue
         if disp[i] == 0:

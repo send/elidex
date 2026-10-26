@@ -693,6 +693,21 @@ case("POSITIVE", "(R23 kind) `KIND&ast;UNDETERMINED` is that same stream-side mi
                  "the one control over what a reader SEES where such a span is blanked -- render it as "
                  "spaces and the two readings agree on a kind neither should read",
      build(suz="KIND&ast;UNDETERMINED", duz="**9z**"), "", 1, measure=("schema", MISS))
+# PR #510 Codex review of 0c3cffd3 (2026-10-26): a character reference that renders MORE THAN ONE
+# code point (`&fjlig;` -> `fj`) put one element in the stream's buffer and two in its source map,
+# so every blank offset recorded after it was short by one per extra code point.
+case("NEGATIVE", "(Codex 0c3cffd3) `&fjlig; `KIND UNDETERMINED`` in a declaring field is no miss: "
+                 "the reference renders two code points, and the kind phrase sits whole inside the "
+                 "code span exactly as in the literal `fj` spelling -- the shifted blank offsets "
+                 "reported a straddle that is not there",
+     build(suz="&fjlig; `KIND UNDETERMINED`", duz="**9z**"), "", 0, measure=("schema", MISS))
+CODEX_0C3_FJLIG_NEG = CASES[-1].name
+case("POSITIVE", "(Codex 0c3cffd3) eight multi-code-point references before `KIND `x` UNDETERMINED` are still "
+                 "the schema miss: the blank offsets must index the joined stream, or the blank is "
+                 "measured eight positions early, clear of the phrase, and the required miss is "
+                 "suppressed",
+     build(suz="&fjlig;" * 8 + " KIND `x` UNDETERMINED", duz="**9z**"), "", 1, measure=("schema", MISS))
+CODEX_0C3_FJLIG_POS = CASES[-1].name
 case("POSITIVE", "(R23 kind) the POINTER phrase straddling a code span is the miss too -- the third "
                  "member, gated by arriving in `KIND_PHRASES` and not by being named here",
      build(suz="This row is a pointer rather than a `slice`."), "", 1, measure=("schema", MISS))
