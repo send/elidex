@@ -1,407 +1,479 @@
 #!/usr/bin/env python3
-"""Table parse for the VM-P4 umbrella plan memo -- rows, ids, kinds.
+"""Row grammar for `plan-memo-umbrella-check.py` -- how a row is named and
+keyed (the id-token grammar itself is `plan_memo_ids.py`'s), the table
+schemas, and `Row` / `Table` with the ONE admission site `admit_table`.
 
-Split out of `plan-memo-umbrella-check.py` at the touch-time threshold: that file
-had grown past 960 lines with a real cohesion seam down the middle.  Everything
-here answers "what rows does this document have, what is each one's id, and what
-kind does its declaring field declare?".  Everything left there answers "what
-does the prose say about those rows, and is that allowed?".
+Everything here answers "what is a row, and what is its id?".  What a block
+SAYS -- the mask disposition, the two readings, the kind phrases read out of
+them -- is `plan_memo_stream.py`'s, carved out of this module at PR #510 R31
+when it reached 1,006 lines (the seam, and the four references that crossed
+it, are stated in that module's docstring).  The direction is one way: this
+module imports it, for `Table.bind`'s one question about what a header
+RENDERS and for the marker its rows are read for.  The lexical substrate
+(Phase 1 blocks: `plan_memo_blocks.py`; Phase 2 inline: `plan_memo_lexer.py`)
+is the lexer's; the document driver is `plan_memo_memo.py`'s `Memo` and the
+transitive memo set `plan_memo_population.py`'s `Population`, both of which
+import this module and never the reverse; what the prose says about the rows,
+and whether that is allowed, is the checker and `plan_memo_roles.py`.
 
-⚠ This is also the residue the checker's own header names as worth collapsing
-across the four in-flight plan-memo programs -- the GFM row splitter that honours
-an escaped pipe.  It is a module here so that collapse is a MOVE rather than a
-rewrite; the trigger for it stays what that header says.
+Two rules decided here, once:
+  * a table is admitted in `admit_table` and nowhere else: header and
+    delimiter rows of equal width (GFM §4.10), and -- local policy over GFM's
+    "may vary" clause -- a body row of a SCHEMA table whose width differs from
+    the header is a schema miss (exit 2), never a silent skip or a shifted read;
+  * row ids are read from the raw id cell (`bare_id` reads the one decorated-id
+    grammar at the cell's START -- raw because it runs before the keep-set it
+    declares exists); a cell that starts with no such id is a deliberate blank
+    or an UNKEYED row and a schema miss, and THAT half is decided over what a
+    reader sees in the cell (`is_blank_id_cell`), because it declares nothing
+    and so waits for the disposition; kind markers come from the disposed
+    declaring field (a quoted marker declares nothing).
+
+A cell's `Lexed` is minted ONCE (`split_row`; `Memo.__init__` says why a
+header cell's is resolved twice), and `Table.bind`
+then asks `plan_memo_stream.rendered` which schema the header spells; every
+other predicate over a cell reads `plan_memo_stream.stream`, the block as the
+document renders it.
 """
 
-import pathlib
 import re
 
+from plan_memo_blocks import block_end, delimiter_width, split_row
+from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR_RUN, ROW_ID, ROW_KINDS, decorated_id, tokens
+from plan_memo_links import normalize_label
+from plan_memo_stream import GAP, MARKER_RE, phrase, rendered
 
-MARKER = "UMBRELLA, not a terminal unit"
+# A cell that carries nothing: the one predicate every reader of an optional
+# cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
+# by SHAPE -- after decoration is stripped, a cell with no alphanumeric
+# character carries nothing (`—`, `-`, `–`, `--`, `…`, `` ` ``) -- plus the
+# ONLY lexical exceptions, `EMPTY_WORDS`, matched exactly (case-insensitive)
+# after the strip.  A closed word list on a gating predicate leaves the next
+# spelling authoritative, so the list is the exception and the shape is the
+# rule; the polarity of a word outside the list (`nil`, `(none)`) is a
+# FALSE rc 1 -- the cell is read as a `Deps` edge and reported by assertion
+# (b) -- never a silent skip.
+EMPTY_WORDS = frozenset({"n/a", "none"})
 
-# §5's fifth row kind.  A kind-undetermined row carries the split and NOTHING
-# else -- no ordering, no owner, no acceptance -- which is the same obligation
-# the naming rule enforces against umbrellas.  Keying the population on the
-# UMBRELLA marker alone therefore left every such row outside every scan: a
-# population defined by the symptom's vocabulary rather than by the property the
-# rule is about (`feedback_checks-must-not-be-defined-by-the-symptom-vocabulary`,
-# cited in this file for ROLE_PATTERNS and violated one screen earlier).
-#
-# Two spellings are in use in the document.  This tolerates both AND reports the
-# divergence, rather than silently blessing it -- a kind with two spellings is a
-# kind no program can enumerate, which is the defect one level up.
-UNDETERMINED = re.compile(r"KIND\s*[\u2014-]?\s*UNDETERMINED", re.IGNORECASE)
+
+def is_empty(cell_stream):
+    """Whether a cell carries nothing, read from the cell's disposed STREAM
+    (`stream`): decoration does not fill a cell -- `**—**` renders `—` and is
+    as empty as it -- and neither does an HTML comment, which renders nothing
+    at all.  Reading the raw text here spelled the decoration strip a second
+    time (`.strip("*`")`), and that spelling knew about `**` and backticks
+    only; the stream knows every construct, because it is what the reader
+    reads (PR #510 design re-gate 4)."""
+    bare = cell_stream.strip(" \t")
+    # `isalnum` is DELIBERATELY Unicode: a letter in any script fills a cell
+    # (`—あ` is not empty); the shape rule is "no letter or digit at all"
+    return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS
+
+
+# The ID cell is the one place the shape rule is WRONG: an id cell is either
+# an id or a deliberate blank, and anything else (`?`, `…`, `**?**`, `--`) is
+# an UNKEYED row -- the silent-skip class the schema miss exists for.  So the
+# blanks are LITERAL here: exactly these four, as a READER sees the cell.
+ID_CELL_BLANKS = frozenset({""} | set(DASH))
+
+
+def is_blank_id_cell(cell_reading):
+    """Whether an id cell is a deliberate non-row (a literal blank), as
+    opposed to unkeyed content -- decided over WHAT A READER SEES in the cell
+    (`stream(reader=True)`), which is the reading its one caller composes
+    (`plan_memo_population.Population._unkeyed`), exactly as `is_empty`'s
+    caller composes the disposed stream.
+
+    THE READING, and why it is neither of the other two (PR #510 R30).
+
+      * NOT THE RAW CELL.  This predicate used to strip `*` and backticks off
+        the raw text UNCONDITIONALLY, justified by "the id cell is the one text
+        `bare_id` reads raw as well, because the decoration IS part of the id
+        grammar there (`**9z**`), so the two readings of that cell agree by
+        being the same reading".  That is true of `**9z**` and false of a
+        decoration run the inline grammar pairs NOTHING with: `**`, `*`,
+        `` ` ``, ``` `` ``` and `***` each render literally (§6.1 wants a
+        closing backtick string of EQUAL length, §6.2 a closing delimiter
+        run), so each is a cell carrying content -- and the strip turned every
+        one of them into the empty-string blank.  Measured: a slice row whose
+        id cell is `**`, with the umbrella marker in its declaring field and a
+        nonempty `Deps` edge, exited 0 -- the row entered neither `ids` nor
+        assertion (b), which is §1's forbidden clean exit for content that was
+        not scanned.  A hand-rolled "peel matched pairs" is the same mistake
+        one layer down: ``` `` ``` peels to nothing under the ID grammar's
+        decoration walk (two marks, `plan_memo_ids.DECOR_MARKS`) and renders
+        literally under CommonMark (one backtick string that closes nothing),
+        so the authority for "does this decoration pair" must be the inline
+        lexer and not that walk.
+      * NOT THE DISPOSED STREAM either, though every other predicate over a
+        block reads that one: the stream BLANKS a code span, so `` `?` `` would
+        come out empty and read as a deliberate blank -- the silent-skip class
+        above, re-opened by the other reading.  A reader sees `?` there, and
+        `?` is content.
+
+    `bare_id` still reads the cell RAW, and must: it runs before the keep-set
+    exists, because the keep-set is what it declares.  The two never read one
+    cell -- this predicate is asked ONLY of a cell `bare_id` found no id at the
+    START of -- so what survives of the agreement claim is one direction, and
+    it holds: a cell the raw grammar keys never arrives here, and a cell whose
+    RENDERING exposes an id the raw grammar could not see (`&#57;z` renders
+    `9z`) is reported as unkeyed rather than skipped, which is the polarity §1
+    asks for."""
+    return cell_reading.strip(" \t") in ID_CELL_BLANKS
+
+
 
 # --------------------------------------------------------------------------
-# GFM row parsing.  Split on UNESCAPED pipes only: a cell containing `\|`
-# is one cell, and a naive split reports a row with more fields than it has.
+# Table schemas, identified by HEADER ROW (a line range is a figure a later
+# edit silently invalidates).  Column indexes are BODY columns: the optional
+# leading pipe is stripped at admission, so column 0 is the first cell.
 # --------------------------------------------------------------------------
 
-_ESC = "\x01"
 
+class Schema:
+    """A table family: its exact header cells (trimmed, in order), the column
+    whose text DECLARES the row's kind, the column holding the row id (both
+    named by header cell and resolved to body-column indexes here), and
+    `kinds` -- the id KINDS that column may declare.
 
-def split_row(line):
-    return [c.replace(_ESC, r"\|") for c in line.replace(r"\|", _ESC).split("|")]
+    A table's id column is keyed by one kind set, not by "whatever the id
+    grammar reads": a §5 slice or a §8 slot is keyed by a `ROW_KINDS` id
+    (short or `#11-` slug) and a citation table by a `[C19]` citation id, and
+    the two sets are disjoint by the grammar.  The set is the schema's, and
+    `bare_id` is the ONE place it is applied, so an id of a foreign kind is
+    not admitted anywhere: before PR #510 R21 the column read the grammar
+    bare, and a citation-shaped id in a slice or slot table entered `ids` and
+    the census as an umbrella while BOTH mention passes ignored it (a
+    citation id is masked in prose and exempt from the reference walk), so
+    its ownership text could never be checked and the run still exited 0 --
+    while a short id in the citation table polluted the keep-set, un-masking
+    a `[C1]`-shaped span nothing declares."""
 
+    __slots__ = ("name", "header", "decl", "idc", "kinds")
 
-def is_row(line):
-    # `|---|` is a row of the table too: scoping to `| ` drops the separator and
-    # with it the loop that walks the body.
-    return line.startswith("|")
+    def __init__(self, name, header, decl=None, idc=None, kinds=()):
+        self.name, self.header = name, header
+        self.decl = header.index(decl) if decl is not None else None
+        self.idc = header.index(idc) if idc is not None else None
+        self.kinds = tuple(kinds)
+        assert (self.idc is None) == (not self.kinds), \
+            "a schema with an id column declares the kinds that column may key, and only such a schema does"
 
-
-def is_separator(cells):
-    return all(re.fullmatch(r"[:\- ]*", c) for c in cells[1:-1]) and len(cells) > 2
-
-
-# --------------------------------------------------------------------------
-# Table schemas.  Each table is identified by its HEADER ROW, not by line
-# ranges: a line range is a figure that a later edit silently invalidates,
-# and this document has already lost three figures that way.
-# --------------------------------------------------------------------------
 
 SCHEMAS = [
-    # name,          header cells (stripped, in order),                       declaring, id, mention-bearing columns
-    ("citation", ["ID", "Citation", "Anchor", "Used by"], None, 1, [4]),
-    ("stub", ["Site", "Syntax", "Emits", "Observable", "Tier", "Slice"], None, None, [6]),
-    ("slice", ["#", "Slice", "Primary module(s)", "Slot", "Tier", "Deps"], 2, 1, [6]),
-    ("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"], 2, 1, [3]),
+    Schema("citation", ["ID", "Citation", "Anchor", "Used by"], idc="ID", kinds=("cite",)),
+    Schema("stub", ["Site", "Syntax", "Emits", "Observable", "Tier", "Slice"]),
+    Schema("slice", ["#", "Slice", "Primary module(s)", "Slot", "Tier", "Deps"],
+           decl="Slice", idc="#", kinds=ROW_KINDS),
+    Schema("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"],
+           decl="Why deferred", idc="Slot", kinds=ROW_KINDS),
 ]
 
 
-def find_tables(lines):
-    """Return [(schema_name, header_lineno, [(lineno, cells), ...]), ...]."""
-    out = []
-    for i, line in enumerate(lines):
-        if not is_row(line):
-            continue
-        cells = [c.strip() for c in split_row(line)]
-        body = [c for c in cells[1:-1]]
-        for name, hdr, decl, idc, mention in SCHEMAS:
-            if body[: len(hdr)] == hdr and len(body) == len(hdr):
-                rows = []
-                j = i + 1
-                if j < len(lines) and is_row(lines[j]) and is_separator(split_row(lines[j])):
-                    j += 1
-                while j < len(lines) and is_row(lines[j]):
-                    rows.append((j + 1, split_row(lines[j])))
-                    j += 1
-                out.append((name, i + 1, rows))
-                break
-    return out
+# --------------------------------------------------------------------------
+# Row identity, part two: how a row is NAMED.
+# --------------------------------------------------------------------------
+
+# The nouns that name a row without naming its table: a row of ANY schema is a
+# `row`, and one whose kind is umbrella is an `umbrella`.  Closed, and closed
+# for a reason -- neither is a schema's name, so no schema can supply them.
+GENERIC_ROW_NOUNS = ("row", "umbrella")
+
+
+def _row_nouns():
+    """The nouns this document names a row with: the two generic ones and the
+    NAME OF EVERY ROW-KEYED SCHEMA.
+
+    DERIVED, not enumerated (PR #510 R27-2).  `ROW_NOUN` was a hand-written
+    `slices?|rows?|umbrellas?`, and the §8 slot table -- a schema of this very
+    list since before the checker was reviewed -- was not in it, so
+    ``Slot `#11-zz-alpha` — **UMBRELLA, not a terminal unit.**`` matched no
+    appositive, the marker was read as the containing row's OWN declaration,
+    no `UMBRELLA-MARK` was emitted and the census carried a pointer row as an
+    umbrella at rc 0.  Adding `slots?` to the literal would have fixed that
+    sentence and left the next schema's noun in the same place, which is the
+    mistake `KIND_PHRASES`' comment names one screen up: gating the phrase in
+    front of you leaves every other member of the class authoritative.
+
+    A schema's `name` IS the noun: it is what the schema-miss finding already
+    calls its rows (`the %r header`), and the row-keyed ones -- the schemas
+    whose id column keys `ROW_KINDS` ids, which is exactly the set whose rows
+    `ROW_NOUN_ID` can name -- are `slice` and `slot` today.  A citation table
+    is excluded by the same test that excludes it from `ids`: its column keys
+    `cite`, and `Citation `[C1]` — …` names no row.  The plural is `s?` on
+    each, and the alternation is longest-first so no noun is read as a prefix
+    of another.
+    """
+    nouns = set(GENERIC_ROW_NOUNS)
+    row_kinds = set(ROW_KINDS)
+    nouns |= {s.name for s in SCHEMAS if s.kinds and set(s.kinds) <= row_kinds}
+    return "(?ai:%s)" % "|".join(re.escape(n) + "s?" for n in sorted(nouns, key=lambda n: (-len(n), n)))
+
+
+ROW_NOUN = _row_nouns()
+"""How this document names a row when it refers to one.  Lives here because it
+is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
+kind a marker declares -- and BELOW `SCHEMAS` because it is derived from them
+(`_row_nouns`).  ASCII case-insensitive, in ONE place (the scoped
+`(?ai:…)`: `SLICE C`, `ROW 9`, `UMBRELLA C` name a row as `Slice C` does, and
+under `a` a long s never folds to `s`) -- every composer (`ROW_NOUN_SEP`,
+`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR`) inherits it (`LICENSE_BEFORE`'s
+trailing-noun clause, which did too, was deleted at R24); an
+enumeration of Title-case and lower-case spellings left `SLICE C owns it`
+naming no row (PR #510 R15)."""
+
+# `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
+# left them invisible to both passes; measured, four of five such sites in this
+# memo are real violations.
+# ⚠ THE DASH SET IS `DASH`'s, COMPOSED, NOT RE-SPELLED (PR #510 R47-1).  This
+# read `[ \t\n-]+` -- the ASCII hyphen alone -- while `plan_memo_ids.DASH`
+# already defines all three spellings for exactly this reason, and the comment
+# beside it records the last time the two disagreed (`KIND – UNDETERMINED` read
+# as terminal at rc 0).  With a narrower set here, `Slice — 9 owns the close
+# rule` matched no appositive, the bare pass deliberately ignores a numeric id,
+# and the ownership claim produced NO site at rc 0 -- measured: the ASCII
+# hyphen and a plain space both report it, the en and em dashes did not.
+# A second, narrower definition of a set that already has one home is the
+# duplicated decision surface CLAUDE.md's *One issue, one way* names.
+# ⚠ AND THE WHITESPACE IS `GAP`'s, COMPOSED, NOT RE-SPELLED (PR #510 Codex R22 of 2026-09-27),
+# for the same reason one level over: it read `[ \t\n]` -- three ASCII
+# characters -- while the kind phrases already composed the gap a reader sees,
+# so `Slice&nbsp;9z — **UMBRELLA, …**` named no row, the marker was read as the
+# containing row's own, and the attribution's `UMBRELLA-MARK` was lost at rc 0.
+ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|" + DASH_CLASS + ")+"   # §2.1 whitespace + the canonical dashes
+# A row noun then a row id of EVERY row kind (`ROW_ID`: slug or short, the
+# grammar's alternation) -- `Slice **E**`, `Slice `#11-zz-alpha``.  Built on
+# `SHORT_ID` alone until PR #510 R20, so a marker attributed to a slug row
+# (`Slice `#11-zz-alpha` — **UMBRELLA, …**`) named nobody and the pointer row
+# was counted as an umbrella.
+ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(ROW_ID)
+
+
+class Row:
+    """One table row, minted once at admission: its cells, the CONTENT line
+    they were split from (`line`: the raw line inside a block quote has the
+    marker in front, so a cell's raw column is a column of this text), its
+    schema (None for a non-schema table or a header row), its own id
+    (`self_id`, from the raw id cell), and -- set by `Population` -- `field`,
+    the masked declaring field, and `kind` ("umbrella" / "undetermined" /
+    "pointer" / "terminal")."""
+
+    __slots__ = ("memo", "lineno", "line", "cells", "schema", "self_id", "field", "kind")
+
+    def __init__(self, memo, lineno, line, cells, schema):
+        self.memo, self.lineno, self.line, self.cells, self.schema = memo, lineno, line, cells, schema
+        self.self_id = (bare_id(cells[schema.idc].text, schema.kinds)
+                        if schema and schema.idc is not None else None)
+        self.field, self.kind = None, None
+
+    def id_cell(self):
+        """The raw text of this row's id cell (None for a row without one)."""
+        return self.cells[self.schema.idc].text if self.schema and self.schema.idc is not None else None
+
+    def name(self):
+        """How a finding names this row -- the ONE spelling, so no printer
+        composes `row %r` of `self_id` itself: the repr of its id when the id
+        cell declares one (`'9z'`, `'#11-x'`), else its declaring LOCATOR,
+        `<no id> at :LINE (TOKEN)` -- the row's line and the first
+        whitespace-delimited token of its declaring field with the inline
+        decoration (backticks, asterisks) stripped, e.g. `<no id> at :1985
+        (Function/eval)` for the umbrella memo's `Function`/`eval` row, whose
+        id cell is the literal blank `**—**` (a deliberate non-row: unkeyed,
+        outside `ids`, still a data row the seeds and the declaring-field
+        printers read).  `row None` named nothing a reader could find (PR
+        #510 R20); a row with no declaring field is named by its line alone."""
+        if self.self_id is not None:
+            return repr(self.self_id)
+        token = ""
+        if self.schema is not None and self.schema.decl is not None:
+            words = re.sub(r"[`*]", "", self.cells[self.schema.decl].text).split()
+            token = words[0] if words else ""
+        return "<no id> at :%d%s" % (self.lineno, " (%s)" % token if token else "")
+
+    def col(self, header_cell):
+        """The cell under the schema's header cell named `header_cell`."""
+        return self.cells[self.schema.header.index(header_cell)]
+
+
+class Table:
+    """One GFM table.  ADMITTED IN PHASE 1 AND BOUND IN PHASE 2 (PR #510
+    R31-1): `admit_table` finds its extent and splits its lines into cells,
+    all of which is decided over RAW text; `bind` asks which schema it is,
+    which is a question about what the header RENDERS and so cannot be asked
+    until the cells are lexed and `Memo.defs` is complete.  `pending` holds
+    the split body lines in between, and is empty afterwards."""
+
+    __slots__ = ("schema", "header", "width", "rows", "misses", "pending")
+
+    def __init__(self, header, width):
+        self.schema = None              # Schema or None; set by `bind`
+        self.header = header            # Row (schema None)
+        self.width = width              # the delimiter row's cell count
+        self.rows = []                  # [Row], body rows only; minted by `bind`
+        self.misses = []                # [(lineno, message)] width policy
+        self.pending = []               # [(lineno, line, [Cell])] until `bind`
+
+    def bind(self):
+        """Decide the schema and mint the rows.  Phase 2 must have resolved
+        the header's cells (`Memo.__init__` does, ahead of every other block,
+        for this)."""
+        rendered_header = [rendered(c.lexed) for c in self.header.cells]
+        self.schema = next((s for s in SCHEMAS if rendered_header == s.header), None)
+        for lineno, line, body in self.pending:
+            if self.schema is not None and len(body) != self.width:
+                self.misses.append((lineno, "row has %d cell(s); the %r header has %d -- "
+                                    "a shifted read fabricates findings, so this row is "
+                                    "unscanned" % (len(body), self.schema.name, self.width)))
+            else:
+                self.rows.append(Row(self.header.memo, lineno, line, body[:self.width], self.schema))
+        del self.pending[:]
+
+
+def admit_table(memo, lines, linenos, i, lazy):
+    """Admit the GFM table whose header is content line `lines[i]` (raw line
+    `linenos[i]`; `lazy` = the container's lazy-candidate list, None at the
+    document level) -- the ONE admission site; the driver (`Memo._parse`)
+    found `table_header_at` there, off a raw line, a blank and a block
+    start.  Returns (Table, end): the table runs from the header to the
+    first `block_end` with NO PARAGRAPH OPEN -- a blank line or the
+    beginning of another block-level structure (GFM §4.10), a type-7 HTML
+    opener and an indented line included (a table is not a paragraph, so
+    `<span>` right after the rows opens an HTML block and `    x` an
+    indented code block; the lines after are raw, not one-cell rows), and a
+    lazy candidate of the enclosing quote (§5.1: continuation text only of
+    a paragraph, and a table is none); every line in between is a body
+    row, pipes or not (GFM Example 202: a pipe-less line after the rows is
+    a row -- so a reference definition written right after a table is a
+    row of it, never a definition).
+
+    Width: GFM §4.10 "The remainder of the table's rows may vary in the
+    number of cells.  If there are a number of cells fewer than the number
+    of cells in the header row, empty cells are inserted.  If there are
+    greater, the excess is ignored" (verbatim, GFM 0.29 §4.10 after Example
+    203) -- a NON-schema row is cut to the header's width in `bind`, before
+    its cells are ever resolved, so an ignored cell's `[x](absent.md)` is
+    never a link and its id never a site (PR #510 R13); a SCHEMA row of any
+    other width is the schema miss (local policy over "may vary": a shifted
+    read fabricates findings).  A short row is not padded: an empty cell
+    would hold nothing a scanner reads.
+
+    EVERYTHING DECIDED HERE IS DECIDED OVER RAW TEXT, and that is the right
+    text for every one of these questions, not a residue of the reading `bind`
+    moved (PR #510 R31-1).  Phase 1 runs over the source lines and Phase 2
+    over what a block holds, so a table's SHAPE -- that this line is a header
+    (`table_header_at`), that the next one is a delimiter row of N cells
+    (`delimiter_width`: "cells whose only content are hyphens"), where each
+    cell ends (`split_row`, on unescaped `|`), and how many cells a row has --
+    is settled before any inline construct exists.  `&#45;` is a §2.5
+    character reference, an INLINE construct, so a delimiter row spelled with
+    one is no delimiter row at all and the table never forms; the same goes
+    for a `|` written as `&#124;`, which does not split a cell.  What `bind`
+    asks is the one question here that was never block-level: which SCHEMA a
+    table is, which is this checker's own policy about the names a reader
+    sees in the header row.
+    """
+    n = len(lines)
+    t = Table(Row(memo, linenos[i], lines[i], split_row(lines[i]), None), delimiter_width(lines[i + 1]))
+    j = i + 2
+    while j < n and not block_end(lines, j, False, lazy):
+        t.pending.append((linenos[j], lines[j], split_row(lines[j])))
+        j += 1
+    return t, j
 
 
 # --------------------------------------------------------------------------
 # Row identity
 # --------------------------------------------------------------------------
 
-_BOLD = re.compile(r"^\*\*(.+?)\*\*$")
-_TICK = re.compile(r"^`(.+?)`$")
+def population_key(rid):
+    """The key an id takes in the population map: a CITATION id is a §6.3 LINK
+    LABEL, so `[C1]` and `[c1]` are one id and it is keyed by the canonical
+    label -- through `plan_memo_links.normalize_label`, the ONE function link
+    resolution already matches with, never a second case fold.
+
+    ⚠ The map keyed the RAW spelling until Codex's finding on `f183cc6a`, so a
+    citation declared twice differing only in case was not the "declared twice"
+    miss and its population was scanned as if it held two ids, at rc 0 -- while
+    the same two spellings resolve one link.
+
+    EVERY OTHER KIND IS VERBATIM, measured: a slug (`plan_memo_ids.SLUG_ID` =
+    `#11-[a-z0-9-]+`) admits no upper case at all, so it has no case variants
+    to fold; a short id (`ALNUM{1,4}`) does (`9z` / `9Z`), and it is NOT
+    bracketed, so §6.3 label matching does not reach it -- a slice or slot id
+    is the document's own identifier and stays case-sensitive."""
+    return "[%s]" % normalize_label(rid[1:-1]) if rid.startswith("[") and rid.endswith("]") else rid
 
 
-def _skip_ws(s, i, newlines=1):
-    seen = 0
-    while i < len(s):
-        if s[i] in " \t":
-            i += 1
-        elif s[i] == "\n" and seen < newlines:
-            seen += 1
-            i += 1
-        else:
-            break
-    return i
+def bare_id(cell_text, kinds):
+    """The row id an id cell declares: the grammar's first bounded token when
+    it stands at the cell's START (so `**7z** — MERGED` and `` `#11-x`
+    (carved from #483) `` read `7z` / `#11-x`, and `xxxxC` declares nothing
+    -- the boundary is the grammar's, `plan_memo_ids.tokens`), decoration
+    stripped, trailing prose ignored, AND of a kind the schema's id column
+    keys (`Schema.kinds`) -- or None when the cell does not start with such
+    an id (then the row declares nothing and, unless the cell is a literal
+    blank, is the unkeyed-row schema miss).
+
+    The kind test is HERE and nowhere else: it is the same question as "does
+    this cell start with an id" -- an id of a foreign kind is no id of this
+    table's -- so there is one predicate, not a caller-side re-test that the
+    next reader of the column can forget (PR #510 R21)."""
+    t = next(tokens(cell_text.strip(" \t")), None)
+    return t.id if t is not None and t.start == 0 and t.kind in kinds else None
 
 
-def _link_destination(s, i):
-    """CommonMark §6.6 link destination starting at `i`; returns (dest, end)."""
-    if i < len(s) and s[i] == "<":
-        j = i + 1
-        while j < len(s) and s[j] not in "<>\n":
-            j += 2 if s[j] == "\\" else 1
-        if j < len(s) and s[j] == ">":
-            return s[i + 1:j], j + 1
-        return None, i
-    j, depth = i, 0
-    while j < len(s) and not s[j].isspace() and ord(s[j]) > 31:
-        if s[j] == "\\":
-            j += 2
-            continue
-        if s[j] == "(":
-            depth += 1
-        elif s[j] == ")":
-            if depth == 0:
-                break
-            depth -= 1
-        j += 1
-    return (s[i:j], j) if j > i and depth == 0 else (None, i)
+# ⚠ `BEFORE` IS LOAD-BEARING AND WAS MISSING UNTIL PR #510 R33-1.  This is
+# `.search`ed over the field, and `ROW_NOUN_ID` opens with the row noun, so
+# without a left boundary the search could start INSIDE a longer word:
+# `Subslice 9z — **UMBRELLA, …**` (and even `xSlice 9z — …`) attributed the
+# marker to `9z`, the containing row was read as a POINTER, and a false
+# `UMBRELLA-MARK` mechanical failure was emitted.  `NOUN_ANCHOR` had carried
+# the same boundary since R24; this composer did not, which is the "spelled
+# twice, disagreeing" shape again.  Its gaps are composed by `phrase` (PR #510
+# Codex R22 of 2026-09-27): they were `\s` under `re.ASCII`, so
+# `Slice 9z&nbsp;— **UMBRELLA, …**` attributed nothing and lost the
+# `UMBRELLA-MARK` at rc 0, while a U+000B, which cmark does not read as
+# whitespace, stood in for a gap.
+# Linear by construction (disjoint alternatives, PR #510 Codex R31 of
+# 2026-09-27), shown by
+# the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
+# No control enforces it; §8 (17)'s follow-up owns that.  The detector that
+# message describes was removed: `git log --reverse -F --grep='drop the adjacency detector' --format=%H | head -1 | xargs git log -1 --format=%B`.
+_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + "(?: )?)?$"),
+                         re.ASCII)
 
 
-def _link_title(s, i):
-    if i >= len(s) or s[i] not in "\"'(":
-        return i
-    close = {"\"": "\"", "'": "'", "(": ")"}[s[i]]
-    j = i + 1
-    while j < len(s) and s[j] != close:
-        j += 2 if s[j] == "\\" else 1
-    return j + 1 if j < len(s) else i
+def attributed_to_other(field, rid):
+    """The row id a marker names, when it is not this row's own: the marker's
+    APPOSITIVE subject -- `Slice **E** — **UMBRELLA, …**`, or the slug form
+    `Slice `#11-zz-alpha` — **UMBRELLA, …**` (`ROW_NOUN_ID` reads every row
+    kind) -- with nothing between them but dash punctuation and emphasis.
+    Until PR #510 R20 the slug form did not match, so the field was read as
+    the row's OWN declaration: kind umbrella, no `UMBRELLA-MARK` attribution
+    finding, a pointer row inside the census, exit 0.  The self-test carries
+    both directions -- a field that merely MENTIONS a sibling ("Unlike Slice
+    7z, **UMBRELLA, not a terminal unit.**") is self-declaring and must not
+    attribute.  The FIRST marker occurrence decides: a field that declares
+    itself and then says a sibling "is not it" is self-declaring, and a later
+    occurrence never overrides the first.
 
-
-_REF_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:[ \t]*(<[^>\n]*>|\S+)", re.M)
-
-
-def links(s):
-    """Every Markdown link in `s`, by ONE grammar: CommonMark §6.6 inline links
-    (`](dest)`, `](<dest>)`, `](dest#frag)`, `](dest "title")`, balanced parens
-    in the destination) and full/collapsed reference links resolved through
-    `[label]: dest` definitions.  Returns [(start_of_tail, end, destination)]
-    where the span runs from the `]` closing the label to the end of the
-    link.  Three rounds each widened a regex by one symptom (label, fragment,
-    title); the grammar is the property, and it is written once.
-    """
-    # a definition's destination may be angle-bracketed; the brackets are not
-    # part of the path
-    defs = {m.group(1).strip().lower(): m.group(2).strip("<>")
-            for m in _REF_DEF.finditer(s)}
-    out = []
-    for m in re.finditer(r"\]\(", s):
-        i = _skip_ws(s, m.end())
-        dest, j = _link_destination(s, i)
-        if dest is None:
-            continue
-        k = _skip_ws(s, j)
-        if k > j:
-            k = _skip_ws(s, _link_title(s, k))
-        if k < len(s) and s[k] == ")":
-            out.append((m.start(), k + 1, dest))
-    for m in re.finditer(r"\]\[([^\]]*)\]", s):
-        label = m.group(1).strip().lower()
-        if not label:
-            # collapsed `[label][]`: the label is the preceding bracket text
-            b = s.rfind("[", 0, m.start())
-            label = s[b + 1:m.start()].strip().lower() if b >= 0 else ""
-        if label in defs:
-            out.append((m.start(), m.end(), defs[label]))
-    # shortcut `[label]` -- a bracket run that is neither an inline link nor a
-    # full/collapsed reference nor a definition, whose text is a defined label
-    if defs:
-        for m in re.finditer(r"\[([^\[\]\n]+)\](?![\(\[:])", s):
-            label = m.group(1).strip().lower()
-            if label in defs:
-                out.append((m.end() - 1, m.end(), defs[label]))
-    return out
-
-
-def code_spans(s, keep=()):
-    """Byte spans this scan must not read an id out of.
-
-    Inline code (`Reflect.construct(C, [], D)`), link targets and bare file
-    names (`2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` contains `1a` and
-    `1b`, and a file name is not a naming site).  A link's visible LABEL is
-    prose and is scanned.  The self-test carries both as
-    NEGATIVE controls; no figure is quoted here, because a count of what a mask
-    removes is a property of the document on the day it was run, and this file
-    has no way to re-derive it when the document changes under it.
-    """
-    out, i = [], 0
-    while True:
-        a = s.find("`", i)
-        if a < 0:
-            break
-        b = s.find("`", a + 1)
-        if b < 0:
-            break
-        # A backtick run whose whole content is a row id is the document
-        # spelling an id, not code -- `A` in "naming `A` itself would name
-        # nobody".  Masking those hid every one of row M's violations.
-        inner = s[a + 1:b]
-        # `10b → 10a` is two ids and an arrow: a Deps-shaped edge the document
-        # wrote inside backticks, not code.  Masking it hid an edge between two
-        # umbrella rows that neither triage generation ever saw.
-        toks = [x for x in re.split(r"[\s,;/→>+&|-]+", inner) if x]
-        if inner not in keep and not (toks and all(x in keep for x in toks)):
-            out.append((a, b + 1))
-        i = b + 1
-    # ⚠ A link's visible LABEL is prose and must be scanned; only the
-    # destination and a bare filename are not.  Masking `\[[^\]]*\]` removed the
-    # label too, so `[Slice 9z lands first](detail.md)` -- an ordering claim a
-    # reader sees -- was never reported.  The existing control only exercised an
-    # id in the DESTINATION, so it could not catch this.
-    #
-    # `[C19]`-style citation ids stay masked: a bracketed token that is a
-    # citation id, not a sentence.
-    # The bare-filename alternative is a filename character class, not `\S+`:
-    # `\S+\.md` started at the last label token of `[Slice 9z](detail.md)` and
-    # masked `9z` together with the destination, so an id that ends a label was
-    # never reported -- the control above kept `9z` safe only because extra
-    # label words followed it.
-    out += [(a, b) for a, b, _ in links(s)]
-    for m in re.finditer(r"\[[A-Z][0-9]+\]|[\w./-]+\.md\b", s):
-        out.append(m.span())
-    return out
-
-
-# An id is a short alphanumeric token or a `#11-` slug -- nothing else.  Without
-# a grammar the whole cell was taken as the id, so a retired row printed as
-# ``0a — MERGED `658cc302` `` and its real id `0a` never entered `all_row_ids`,
-# which meant a backticked `` `0a` `` was masked as code instead of read as a
-# mention.  Harmless only because `0a` is not an umbrella.
-ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"
-"""How this document names a row when it refers to one.
-
-Lives here rather than with the licensing rule because it is a fact about row
-IDENTITY -- `Memo._attributed_to_other` needs it to decide whose kind a marker
-declares, and that dependency is what the touch-time split surfaced.
-"""
-
-_ID_GRAMMAR = re.compile(r"^(#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})(?![0-9A-Za-z-])")
-
-
-def bare_id(cell):
-    """The row id as written, stripped of decoration and of trailing prose."""
-    s = cell.strip()
-    for pat in (_BOLD, _TICK, _BOLD):
-        m = pat.match(s)
-        if m:
-            s = m.group(1).strip()
-    g = _ID_GRAMMAR.match(s)
-    return g.group(1) if g else s
-
-
-class Memo:
-    def __init__(self, path):
-        self.path = pathlib.Path(path)
-        self.text = self.path.read_text()
-        self.lines = self.text.split("\n")
-        self.tables = find_tables(self.lines)
-        self.rows = {}          # table name -> [(lineno, cells)]
-        for name, _, rows in self.tables:
-            self.rows.setdefault(name, []).extend(rows)
-
-    # -- carved siblings ---------------------------------------------------
-
-    def linked_memos(self):
-        """Every `.md` this memo links, resolved beside it, in first-link order.
-
-        The naming population is the memo AND the files it carved prose into;
-        the memo's own links are the only authoritative list of those.  Taking
-        them as optional positional arguments made completeness depend on the
-        caller remembering three file names: the documented main-only
-        invocation scanned 611 sites and exited 0, the two-sibling one 658,
-        the three-sibling one 706 -- the same exit code for three populations.
-        """
-        out = []
-        for _, _, dest in links(self.text):
-            # the file is the destination before any fragment or query
-            name = re.split(r"[#?]", dest, 1)[0]
-            if not name.endswith(".md"):
-                continue
-            p = (self.path.parent / name).resolve()
-            if p != self.path.resolve() and p not in out:
-                out.append(p)
-        return out
-
-    # -- row inventories ---------------------------------------------------
-
-    def data_rows(self, table):
-        out = []
-        for lineno, cells in self.rows.get(table, []):
-            if is_separator([c.strip() for c in cells]):
-                continue
-            out.append((lineno, cells))
-        return out
-
-    def umbrella_ids(self, attributed=None):
-        """Umbrella ids, read from each table's DECLARING field.
-
-        Not from a grep over the marker: the marker's literal is a substring of
-        itself, so a whole-row or whole-file grep returns the marker count by
-        construction and cannot disagree for any content.
-
-        ⚠ Cell-scoping is not enough either.  A marker can sit in the declaring
-        field and attribute the kind to a DIFFERENT row -- a §8 slot whose cell
-        opens `Slice **E** -- **UMBRELLA, not a terminal unit**` is declaring
-        that §5's row E is an umbrella, not that the slot is.  §5's own rule
-        says a slot that is a pointer into §5 "carries no marker of its own", so
-        such a row must not be in the count, and the earlier program put it
-        there.  Markers attributed to another row are collected in `attributed`
-        and excluded, so the figure is what §5's rule says it is.
-        """
-        ids = {}
-        for name, hdr, decl, idc, _ in SCHEMAS:
-            if decl is None or idc is None:
-                continue
-            for lineno, cells in self.data_rows(name):
-                if len(cells) <= max(decl, idc):
-                    continue
-                if MARKER not in cells[decl]:
-                    continue
-                rid = bare_id(cells[idc])
-                other = self._attributed_to_other(cells[decl], rid)
-                if other:
-                    if attributed is not None:
-                        attributed.append((name, lineno, rid, other))
-                    continue
-                ids[rid] = (name, lineno)
-        return ids
-
-    @staticmethod
-    def _attributed_to_other(field, rid):
-        """The row id a marker names, when it is not this row's own."""
-        for m in re.finditer(re.escape(MARKER), field):
-            pre = field[max(0, m.start() - 70): m.start()]
-            # The id must be the marker's APPOSITIVE subject -- `Slice **E** —
-            # **UMBRELLA, …**` -- with nothing between them but dash punctuation
-            # and emphasis.  A 70-char proximity window instead excluded a
-            # genuine self-declaration that merely MENTIONED a sibling
-            # ("Unlike Slice 7z, **UMBRELLA, not a terminal unit.**"), which
-            # dropped that row from the census AND, silently, from the naming
-            # population -- so every site naming it as an owner stopped being
-            # reported.  The self-test carries both directions.
-            g = re.search(
-                ROW_NOUN + r"[\s-]+(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*"
-                r"\s*[\u2014\u2013-]\s*(?:\*\*|`)*\s*$", pre)
-            if g and g.group(1) != rid:
-                return g.group(1)
+    "IMMEDIATELY BEFORE" IS A GRAMMAR FACT, NOT A CHARACTER COUNT (PR #510
+    R24).  `_APPOSITIVE` ends in an optional gap and `$`, so it already says
+    "ending where the marker begins" -- the search is bounded by `endpos`, which is where `$`
+    matches, and the appositive is read over the whole field before that.  It
+    was a 70-character SLICE, and a slice that starts mid-phrase truncates the
+    match rather than the context: a declared 76-character `#11-…` slug (the
+    `ROW_ID` grammar puts no length bound on one) followed by ``Slice `<slug>`
+    — **UMBRELLA, not a terminal unit.**`` fell outside the window, the field
+    was read as the row's own declaration, no `UMBRELLA-MARK` was emitted, and
+    the census carried a corrupted row at rc 0.  The mention-only direction
+    was never the window's to hold: the discrimination is the DASH -- a dash
+    between the id and the marker -- and "Unlike Slice 7z, **UMBRELLA, …**"
+    fails on the comma, at any width."""
+    m = MARKER_RE.search(field)
+    if m is None:
         return None
-
-    def undetermined_ids(self, spellings=None):
-        """Rows whose declaring field says their kind is not settled."""
-        ids = {}
-        for name, hdr, decl, idc, _ in SCHEMAS:
-            if decl is None or idc is None:
-                continue
-            for lineno, cells in self.data_rows(name):
-                if len(cells) <= max(decl, idc):
-                    continue
-                m = UNDETERMINED.search(cells[decl])
-                if m:
-                    ids[bare_id(cells[idc])] = (name, lineno)
-                    if spellings is not None:
-                        spellings.add(m.group(0))
-        return ids
-
-    def no_owner_ids(self):
-        """Every row that carries no owner and no ordering.
-
-        This -- not "carries the UMBRELLA marker" -- is the property §5's naming
-        rule is stated over, so it is what the naming scan and the `Deps`
-        assertion are both derived from.
-        """
-        out = dict(self.umbrella_ids())
-        out.update(self.undetermined_ids())
-        return out
-
-    def all_row_ids(self):
-        ids = {}
-        for name, hdr, decl, idc, _ in SCHEMAS:
-            if idc is None:
-                continue
-            for lineno, cells in self.data_rows(name):
-                if len(cells) <= idc:
-                    continue
-                rid = bare_id(cells[idc])
-                if rid and rid != "—":
-                    ids.setdefault(rid, []).append((name, lineno))
-        return ids
-
-
+    g = _APPOSITIVE.search(field, 0, m.start())
+    if g and g.group("id") != rid:
+        return g.group("id")
+    return None

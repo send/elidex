@@ -8,6 +8,7 @@ mod aes_kw;
 mod derive;
 mod digest;
 mod ec;
+mod ec_kat;
 mod hmac;
 mod hmac_ops;
 mod normalize;

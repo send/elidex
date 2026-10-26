@@ -86,7 +86,10 @@ markup5ever_rcdom = "0.39"
 reqwest = { version = "0.13", default-features = false, features = ["gzip", "brotli", "rustls", "http2", "charset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
+# Patch-level floor: RUSTSEC-2026-0386 (`AsyncFd::new` and related constructors
+# violate I/O safety) is fixed in 1.51.6 on the 1.51 line and from 1.53.3 on;
+# 1.52.x has no fix, so a bare `"1"` would admit it.
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "2", features = ["full"] }
@@ -106,7 +109,12 @@ http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+# Patch-level floor: RUSTSEC-2026-0285 (TLS 1.3 handshake messages accepted
+# across encryption-level boundaries) is unpatched below 0.23.45, and
+# RUSTSEC-2026-0346 / 0347 / 0348 / 0349 (session-value `Debug` leaks secrets,
+# post-ECH-rejection data, Brotli certificate decompression size, ServerHello
+# key-exchange downgrade) below 0.23.46.
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pki-types = "1"
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
@@ -124,23 +132,28 @@ cbc = "0.2"
 ghash = "0.6"
 subtle = "2"
 getrandom = "0.4"
-# Elliptic-curve stack for WebCrypto ECDSA / ECDH (PR-4).  The stable 0.13 EC
-# line (digest 0.10 / rand_core 0.6 generation); ECDSA is driven via
+# RUSTSEC-2026-0387 (crypto-bigint timing variability) is fixed only in
+# crypto-bigint >= 0.7.6, which is reachable only through the 0.14 EC line
+# (elliptic-curve 0.14 requires crypto-bigint ^0.7); the 0.13 line pins 0.5.
+# crypto-bigint >= 0.7.6 is guaranteed by Cargo.lock and checked by `cargo deny`;
+# the manifest cannot floor it because it is transitive (elliptic-curve 0.14 /
+# primefield require only ^0.7.5).
+# Elliptic-curve stack for WebCrypto ECDSA / ECDH (PR-4).  The stable 0.14 EC
+# line (crypto-bigint 0.7 generation); ECDSA is driven via
 # `sign_prehash` / `verify_prehash` so our `sha2 0.11` digest stays decoupled
 # from ecdsa's digest generation.  `pkcs8` enables both PKCS#8 (private) and
 # SPKI (public) DER; `arithmetic` is required for ECDH scalar multiplication.
-elliptic-curve = { version = "0.13", features = ["arithmetic", "sec1", "ecdh", "pkcs8"] }
-ecdsa = "0.16"
-p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
-p384 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
-p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
+elliptic-curve = { version = "0.14", features = ["arithmetic", "sec1", "ecdh", "pkcs8"] }
+ecdsa = "0.17"
+p256 = { version = "0.14", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
+p384 = { version = "0.14", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
+p521 = { version = "0.14", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 # RSA stack for WebCrypto RSASSA-PKCS1-v1_5 / RSA-PSS (PR-5a).  The stable
-# 0.9 line (digest 0.10 / rand_core 0.6 generation — already in the tree via
-# the EC 0.13 stack; num-bigint-dig is the new transitive).  `std` only (no
-# `pem`: WebCrypto is DER-only); keygen RNG is passed explicitly (no
-# `getrandom`).  Signing uses the prehash `RsaPrivateKey::sign` /
-# `RsaPublicKey::verify`, so the message digest stays on hash.rs (sha2 0.11);
-# the digest *types* below supply only the `AssociatedOid` markers for the
+# 0.9 line (digest 0.10 / rand_core 0.6 generation; num-bigint-dig is the
+# new transitive).  `std` only (no `pem`: WebCrypto is DER-only); keygen RNG
+# is passed explicitly (no `getrandom`).  Signing uses the prehash
+# `RsaPrivateKey::sign` / `RsaPublicKey::verify`, so the message digest stays on
+# hash.rs (sha2 0.11); the digest *types* below supply only the `AssociatedOid` markers for the
 # PKCS#1 v1.5 DigestInfo prefix + the PSS MGF1 hash.
 rsa = { version = "0.9", default-features = false, features = ["std"] }
 # sha1 / sha2 0.10 (the rsa 0.9 digest generation) — `oid` for the
@@ -148,9 +161,13 @@ rsa = { version = "0.9", default-features = false, features = ["std"] }
 # sha1 / sha2 hash.rs uses for the actual digest computation.
 sha1-oid = { package = "sha1", version = "0.10", features = ["oid"] }
 sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
-# rand_core 0.6 (the EC 0.13 / rsa 0.9 generation) — direct dep for the shared
-# `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
-# `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.
+# rand_core 0.6 (the rsa 0.9 generation) — direct dep for the VM entropy-seam
+# adapters in `rng.rs`: `ClosureRng` = rand_core 0.6 for RSA key generation and
+# signing (with the error latch); `TryClosureRng` = rand_core 0.10 via
+# `elliptic_curve::rand_core` for EC `NonZeroScalar::try_generate_from_rng`.
+# When rsa 0.10 is stable, `ClosureRng` moves to the rand_core 0.10 infallible
+# traits (latch kept; `TryClosureRng` stays for EC) and this dependency is
+# removed (`#11-closure-rng-rand-core-06-bridge`).
 rand_core = "0.6"
 # aws-lc-rs (AWS-LC, a BoringSSL fork) — the workspace's **single crypto C library**, shared by
 # the rustls TLS stack (the `CryptoProvider` for elidex-net + reqwest + tungstenite; replaces the
@@ -162,7 +179,9 @@ rand_core = "0.6"
 # families stay on `rsa` 0.9.  The non-FIPS backend (`aws-lc-sys`, built via cmake/cc) is
 # constant-time; no `fips` feature.  License Apache-2.0/ISC.
 aws-lc-rs = "1.13"
-webpki-roots = "1"
+# Patch-level floor: RUSTSEC-2026-0381 (bundled roots trust the distrusted emSign
+# intermediates) is unpatched below 1.0.10.
+webpki-roots = "1.0.10"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }
 elidex-render = { path = "crates/core/elidex-render" }
@@ -223,12 +242,12 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# Patch-level floor is load-bearing, not a style slip: RUSTSEC-2026-0222
-# ("Stores can mix up type indices between engines") is unpatched in
-# 47.0.0-47.0.2, so a bare `"47"` (= `>=47.0.0`) would let a fresh resolve
-# land back on a vulnerable version. Keep the `.0.3`. Patched ranges are
-# `>=24.0.12,<25`, `>=36.0.13,<37`, `>=46.0.2,<47`, `>=47.0.3`.
-wasmtime = "47.0.3"
+# `"50.0.0"` is the same range as a bare `"50"`; it is written at patch level
+# so that the floor has somewhere to move. The wasmtime RUSTSECs are fixed per
+# release line (on 49.x, RUSTSEC-2026-0315 … 0379 needed 49.0.1 through
+# 49.0.4): when `cargo deny` reports one on 50.x, raise this floor to the
+# line's patched release. wasmtime 50 needs rustc 1.97 (`rust-toolchain.toml`).
+wasmtime = "50.0.0"
 wat = "1"
 static_assertions = "1"
 rayon = "1"

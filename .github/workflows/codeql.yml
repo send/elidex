@@ -38,7 +38,46 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: none
 
+      # Upload is split out of `analyze` so the SARIF can be filtered first.
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
+          category: "/language:${{ matrix.language }}"
+          upload: false
+          output: sarif-results
+
+      # Drop ONE rule on ONE path class: `rust/hard-coded-cryptographic-value`
+      # under `crates/**/src/tests/**`. Those files are WebCrypto test vectors
+      # (RFC / NIST keys, IVs and salts), which are hard-coded by definition, so
+      # every result there is a false positive. Every other rule still runs on the
+      # tests, and this rule still runs everywhere else.
+      # Why a SARIF filter and not the CodeQL config: `paths-ignore` drops the
+      # path for every rule, and `query-filters` drops the rule for every path;
+      # neither can express "this rule, this path". Dismissing alerts one by one
+      # would not stick either, because a new test vector files a new alert.
+      # The step prints how many results it dropped, so a change in that number
+      # shows up in the job log.
+      - name: Drop test-vector results for rust/hard-coded-cryptographic-value
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(sarif-results/*.sarif)
+          [ "${#files[@]}" -gt 0 ] || { echo "no SARIF produced in sarif-results/" >&2; exit 1; }
+          for f in "${files[@]}"; do
+            before=$(jq '[.runs[].results[]] | length' "$f")
+            jq '.runs |= map(.results |= map(select(
+                  (.ruleId == "rust/hard-coded-cryptographic-value"
+                   and ((.locations[0].physicalLocation.artifactLocation.uri // "")
+                        | test("^crates/(.+/)?src/tests/"))) | not)))' \
+              "$f" > "$f.tmp"
+            mv "$f.tmp" "$f"
+            after=$(jq '[.runs[].results[]] | length' "$f")
+            echo "$f: $before results, dropped $((before - after)) test-vector results"
+          done
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: sarif-results
           category: "/language:${{ matrix.language }}"

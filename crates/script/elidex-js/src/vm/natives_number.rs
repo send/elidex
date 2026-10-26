@@ -264,7 +264,7 @@ pub(super) fn native_number_to_precision(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §20.1.3.5: step 1 — ThisNumberValue
+    // ECMA-262 Number.prototype.toPrecision (§21.1.3.5) step 1 — ThisNumberValue
     let n = this_number_value(ctx, this)?;
     // step 2 — if undefined, return ToString(x)
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -351,7 +351,7 @@ fn fix_exponential_sign(s: &str) -> String {
 }
 
 /// Format a number with a given number of significant digits (for toPrecision).
-/// Implements ECMA-262 §21.1.3.5 steps 7-12.
+/// Implements ECMA-262 Number.prototype.toPrecision (§21.1.3.5) steps 7-15.
 /// Uses Rust's {:e} formatter to robustly extract the exponent (avoids log10
 /// floating-point imprecision near powers of 10).
 fn format_significant_digits(n: f64, precision: usize) -> String {
@@ -380,12 +380,12 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
     let mantissa = &exp_str[..e_pos];
     let digits: String = mantissa.chars().filter(|&c| c != '.').collect();
 
-    // §20.1.3.5 step 10-12: exponential notation if e >= p or e < -6
+    // Number.prototype.toPrecision (§21.1.3.5) step 11.c: exponential notation if e >= p or e < -6
     #[allow(clippy::cast_possible_wrap)]
     let p_i32 = p as i32;
     let formatted = if e >= p_i32 || e < -6 {
         if digits.len() == 1 {
-            format!("{}e{}{}", &digits, if e >= 0 { "+" } else { "" }, e)
+            format!("{}e{}{}", digits, if e >= 0 { "+" } else { "" }, e)
         } else {
             format!(
                 "{}.{}e{}{}",

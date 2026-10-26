@@ -7,7 +7,7 @@
 //! is marshalling only; §8.1.3.4 is an HTML algorithm and lives here).
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
-use elidex_plugin::IframeSandboxFlags;
+use elidex_plugin::SandboxingFlagSet;
 
 /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object"
 /// (`html#enabling-and-disabling-scripting`) — the canonical predicate
@@ -84,7 +84,7 @@ pub fn scripting_disabled_for_platform_object(
     dom: &EcsDom,
     target: Option<Entity>,
     bound_document: Option<Entity>,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    sandbox_flags: SandboxingFlagSet,
 ) -> bool {
     if !elidex_plugin::sandbox::scripting_enabled(sandbox_flags) {
         return true;
@@ -119,6 +119,8 @@ mod tests {
     use super::*;
     use elidex_ecs::Attributes;
 
+    const UNSANDBOXED: SandboxingFlagSet = SandboxingFlagSet::unsandboxed();
+
     /// Bound document + a second (throwaway, `DOMParser`-like) document
     /// with one element owned by it.
     fn two_doc_fixture() -> (EcsDom, Entity, Entity, Entity) {
@@ -133,7 +135,7 @@ mod tests {
     #[test]
     fn sandboxed_flags_disable_regardless_of_target() {
         let (dom, doc, _doc2, _foreign) = two_doc_fixture();
-        let flags = Some(IframeSandboxFlags::empty());
+        let flags = SandboxingFlagSet::all_represented();
         // Settings-level clause fires even for the bound document itself
         // and for a `None` target.
         assert!(scripting_disabled_for_platform_object(
@@ -157,7 +159,7 @@ mod tests {
             &dom,
             None,
             Some(doc),
-            None
+            UNSANDBOXED
         ));
         // Unbound (no document context): fail open even for a clause-(b)
         // candidate node.
@@ -165,7 +167,7 @@ mod tests {
             &dom,
             Some(foreign),
             None,
-            None
+            UNSANDBOXED
         ));
     }
 
@@ -176,13 +178,13 @@ mod tests {
             &dom,
             Some(doc),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
         assert!(scripting_disabled_for_platform_object(
             &dom,
             Some(doc2),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
     }
 
@@ -193,7 +195,7 @@ mod tests {
             &dom,
             Some(foreign),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
     }
 
@@ -218,7 +220,7 @@ mod tests {
             &dom,
             Some(foreign),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
         // Removed again: back to the stale-owner comparison → suppressed.
         assert!(dom.remove_child(container, foreign));
@@ -226,7 +228,7 @@ mod tests {
             &dom,
             Some(foreign),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
     }
 
@@ -251,7 +253,7 @@ mod tests {
             &dom,
             Some(el),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
     }
 
@@ -264,14 +266,14 @@ mod tests {
             &dom,
             Some(el),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
         assert!(dom.append_child(doc, el));
         assert!(!scripting_disabled_for_platform_object(
             &dom,
             Some(el),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
     }
 
@@ -285,7 +287,7 @@ mod tests {
             &dom,
             Some(orphan),
             Some(doc),
-            None
+            UNSANDBOXED
         ));
     }
 }

@@ -7,7 +7,8 @@ Thanks for your interest in contributing!
 1. Fork the repository and clone your fork.
 2. Install prerequisites: Rust stable toolchain, [mise](https://mise.jdx.dev/),
    [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`),
-   and [cargo-deny](https://github.com/EmbarkStudios/cargo-deny).
+   [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and Python 3.9 or newer
+   (`python3` on `PATH`; `mise run tools-test` runs the Python suites with it).
 3. Run `mise run ci` to verify everything works locally.
 
 ## Development Workflow
@@ -15,9 +16,10 @@ Thanks for your interest in contributing!
 1. Create a feature branch from `main`.
 2. Make your changes with clear, focused commits.
 3. Add tests for new functionality.
-4. Ensure `mise run ci` passes (formatting, clippy, tests, docs, license checks, and the
-   layering trip-wires — the last of these also run as their own CI job, so a drifted
-   trip-wire allowlist reds the PR).
+4. Ensure `mise run ci` passes (formatting, clippy, tests, docs, license checks, the
+   layering trip-wires and the Python suites — the last two also run as their own ungated
+   CI jobs, `trip-wires` and `tools`, so a drifted trip-wire allowlist or a failing suite
+   reds the PR).
 5. Open a pull request against `main`.
 
 ## Code Style
@@ -47,3 +49,5 @@ the flag):
 - `cargo doc --workspace --no-deps --all-features` (with `-D warnings`)
 - `cargo deny check` (licenses and vulnerabilities)
 - MSRV compatibility (Rust 1.88)
+- `bash scripts/python-suites.sh` (the `tools` job: every tracked `test_*.py`, offline, on
+  Python 3.9 and the newest 3.x)

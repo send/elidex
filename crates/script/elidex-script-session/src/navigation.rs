@@ -23,7 +23,7 @@
 //! decision function into the channels rather than open-coding the gate.
 
 use elidex_plugin::sandbox;
-use elidex_plugin::IframeSandboxFlags;
+use elidex_plugin::SandboxingFlagSet;
 
 /// The navigation TYPE (WHATWG HTML §7.4.2.2 "Beginning navigation" entry
 /// points). Orthogonal to the same-document URL classification: it distinguishes
@@ -269,7 +269,7 @@ pub enum WindowOpenDisposition {
 #[must_use]
 pub fn window_open_disposition(
     target: &str,
-    flags: Option<IframeSandboxFlags>,
+    flags: SandboxingFlagSet,
     has_transient_activation: bool,
 ) -> WindowOpenDisposition {
     if target.eq_ignore_ascii_case("_self") {
@@ -296,13 +296,13 @@ pub fn window_open_disposition(
 
 #[cfg(test)]
 mod tests {
-    use elidex_plugin::IframeSandboxFlags as F;
+    use elidex_plugin::parse_sandboxing_directive;
 
     use super::WindowOpenDisposition as D;
     use super::*;
 
-    const UNSANDBOXED: Option<F> = None;
-    const MAX_RESTRICTION: Option<F> = Some(F::empty());
+    const UNSANDBOXED: SandboxingFlagSet = SandboxingFlagSet::unsandboxed();
+    const MAX_RESTRICTION: SandboxingFlagSet = SandboxingFlagSet::all_represented();
 
     #[test]
     fn self_target_is_never_gated() {
@@ -311,8 +311,8 @@ mod tests {
         for flags in [
             UNSANDBOXED,
             MAX_RESTRICTION,
-            Some(F::ALLOW_POPUPS),
-            Some(F::ALLOW_TOP_NAVIGATION),
+            parse_sandboxing_directive("allow-popups"),
+            parse_sandboxing_directive("allow-top-navigation"),
         ] {
             for activation in [false, true] {
                 assert_eq!(
@@ -347,7 +347,11 @@ mod tests {
                     "target = {target:?}"
                 );
                 assert_eq!(
-                    window_open_disposition(target, Some(F::ALLOW_POPUPS), activation),
+                    window_open_disposition(
+                        target,
+                        parse_sandboxing_directive("allow-popups"),
+                        activation
+                    ),
                     D::OpenTab,
                     "target = {target:?}"
                 );
@@ -355,7 +359,11 @@ mod tests {
         }
         // An unrelated grant does not open the popup gate.
         assert_eq!(
-            window_open_disposition("_blank", Some(F::ALLOW_TOP_NAVIGATION), false),
+            window_open_disposition(
+                "_blank",
+                parse_sandboxing_directive("allow-top-navigation"),
+                false
+            ),
             D::Blocked
         );
     }
@@ -365,7 +373,8 @@ mod tests {
         // §7.4.2.4 steps 3.2/3.3 — the 2-flag pair with the activation
         // parameter (the full truth table over the predicate itself lives
         // in elidex-plugin; this pins the dispatch arm's wiring).
-        let by_ua = F::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION;
+        let by_ua = "allow-top-navigation-by-user-activation";
+        let by_ua_flags = parse_sandboxing_directive(by_ua);
         for target in ["_parent", "_top", "_TOP", "_Parent"] {
             // Unsandboxed: allowed either way.
             assert_eq!(
@@ -381,25 +390,29 @@ mod tests {
             );
             // `allow-top-navigation`: allowed regardless of activation.
             assert_eq!(
-                window_open_disposition(target, Some(F::ALLOW_TOP_NAVIGATION), false),
+                window_open_disposition(
+                    target,
+                    parse_sandboxing_directive("allow-top-navigation"),
+                    false
+                ),
                 D::TopNavigate,
                 "target = {target:?}"
             );
             // `allow-top-navigation-by-user-activation` alone: gated on the
             // activation fact.
             assert_eq!(
-                window_open_disposition(target, Some(by_ua), false),
+                window_open_disposition(target, by_ua_flags, false),
                 D::Blocked,
                 "target = {target:?}"
             );
             assert_eq!(
-                window_open_disposition(target, Some(by_ua), true),
+                window_open_disposition(target, by_ua_flags, true),
                 D::TopNavigate,
                 "target = {target:?}"
             );
             // A popup grant is not a top-navigation grant.
             assert_eq!(
-                window_open_disposition(target, Some(F::ALLOW_POPUPS), true),
+                window_open_disposition(target, parse_sandboxing_directive("allow-popups"), true),
                 D::Blocked,
                 "target = {target:?}"
             );
@@ -428,7 +441,11 @@ mod tests {
                     "target = {target:?}"
                 );
                 assert_eq!(
-                    window_open_disposition(target, Some(F::ALLOW_POPUPS), activation),
+                    window_open_disposition(
+                        target,
+                        parse_sandboxing_directive("allow-popups"),
+                        activation
+                    ),
                     D::Named {
                         aux_nav_allowed: true
                     },
@@ -436,7 +453,11 @@ mod tests {
                 );
                 // The verdict tracks popups_allowed, not top-navigation.
                 assert_eq!(
-                    window_open_disposition(target, Some(F::ALLOW_TOP_NAVIGATION), activation),
+                    window_open_disposition(
+                        target,
+                        parse_sandboxing_directive("allow-top-navigation"),
+                        activation
+                    ),
                     D::Named {
                         aux_nav_allowed: false
                     },

@@ -1,6 +1,6 @@
 //! The `EcsDom` CharacterData text-data write cluster.
 //!
-//! Extracted from `dom/mod.rs` (which is over the 1000-line review
+//! Extracted from `dom/mod.rs` (when it was over the 1000-line review
 //! convention) so the text-data write chokepoints live in a focused
 //! module — the CLAUDE.md "1000-line debt = touch-time split" seam for
 //! the CharacterData data path. These are the sanctioned `TextContent` /

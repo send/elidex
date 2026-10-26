@@ -211,7 +211,13 @@ pub(super) fn native_window_open(
     // `#11-transient-activation-tracking`, memo §4.3.3).  The flags read
     // happens inside the batch-bind bracket by construction (the native
     // runs under `eval`).
-    let flags = ctx.host_opt().and_then(|hd| hd.sandbox_flags());
+    // Unbound default keeps the allow-form type's permissive read
+    // (`docs/plans/2026-09-ibp-sandbox.md` J2 makes it fail closed at N4).
+    let flags = ctx
+        .host_opt()
+        .map_or(elidex_plugin::SandboxingFlagSet::unsandboxed(), |hd| {
+            hd.sandbox_flags()
+        });
     match window_open_disposition(&target, flags, false) {
         // §7.3.1.7 step 8 sandboxed-auxiliary-navigation case / §7.4.2.4
         // top-navigation denial: enqueue nothing — a blocked request never
