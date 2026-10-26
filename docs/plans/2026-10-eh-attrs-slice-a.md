@@ -1,12 +1,14 @@
-# EH-attrs-at-creation slice a: per-PR plan (rev 1)
+# EH-attrs-at-creation slice a: per-PR plan (rev 2)
 
 Label **`EH-attrs-at-creation-a`**. Program and contract: the approved umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md` (rev 8, landed by PR #551 at `b9122157`). Branch
 `layout-eh-attrs-slice-a`, cut from `origin/main` `b9122157`. Owner: Layout lane.
 
-This plan **derives the implementation** of the decided contract. It re-decides nothing the umbrella decided (its
-"Approval scope" paragraph). Where the umbrella left something to "slice a's plan" or "slice a's plan-review", this
-plan decides it and says so (§0.5). Where the contract text and the code disagree, §0.6 records it.
+This plan **derives the implementation** of the decided contract. It re-decides no clause the umbrella decided (its
+"Approval scope" paragraph). File placement inside a crate the umbrella decided is this plan's (the one such choice is
+recorded in §0.5, "marker home"). Where the umbrella left something to "slice a's plan" or "slice a's plan-review", this
+plan decides it and says so (§0.5). Where the contract text and the code disagree, §0.6 records it. Changes since rev 1:
+§10.
 
 ## §0. Scope
 
@@ -37,6 +39,20 @@ plan decides it and says so (§0.5). Where the contract text and the code disagr
 - G7 (`#11-unbound-attribute-writes-bypass-consumers`), `#11-cross-document-adopt-on-insert`: untouched.
 - Workers: `Vm::bind_worker` (`crates/script/elidex-js/src/vm/vm_api.rs:382`) installs no dispatcher and no
   consumer, so it has no bind pass. A worker scope has no elements.
+- **Bind-pass reach set.** The bind pass runs inside `Vm::bind`, so it runs exactly where `Vm::bind` runs. Its only
+  production caller is `ElidexJsEngine`'s `HostDriver::bind` (`crates/script/elidex-js/src/engine.rs:378`, the call at
+  `:397`), and that has two callers: `teardown_document` (`engine.rs:412`, bind at `:419`) and `with_bound`
+  (`engine.rs:425`, bind at `:440`). No production code calls `HostDriver::bind` from outside
+  (`/usr/bin/grep -rnE --include='*.rs' 'runtime\.bind\(|engine\.bind\(|\.bind\(&mut ctx' crates` → no
+  production hit); the benches `crates/script/elidex-js/benches/event_dispatch.rs:55` and `dom_collection.rs:114` call
+  `vm.bind` directly and are not production. `Drop` (`engine.rs:828`) calls `Vm::teardown_document` without binding,
+  so it runs no bind pass. **Teardown-first bind**: `teardown_document` binds before tearing down, so if a document's
+  first bind were its teardown, the pass would process a document that is being destroyed. Production never does
+  this: the only production `ElidexJsEngine::new()` is `run_scripts_and_finalize` (`crates/shell/elidex-shell/src/pipeline.rs:226`),
+  which opens a `with_bound` bracket unconditionally (`pipeline.rs:349-362`, no early return between `:226` and it) before it returns the engine to any
+  `PipelineResult`, so every `teardown_document` (`lib.rs:475` and its shell callers) follows a first bind. If a test
+  tears down first, the pass's writes land on a document that is despawned next, which nothing can observe; the
+  document marker then makes any later bind a no-op. No code handles that case specially.
 
 ### §0.3 Coordinate frame
 
@@ -68,17 +84,18 @@ plan's base. All greps use `/usr/bin/grep`. Every § number ↔ title pair and s
 |---|---|---|
 | A2-MIN-1 / A3-MIN-2 (D-1's sparse sentence vs Window-delegating-only elements) | review record r5, umbrella §13.3 | The element marker is inserted iff E carries **at least one handler content attribute of an ordinary pair** (policy-excluded or not, I1×I6). An element whose only handler content attributes are Window-delegating pairs is never marked: D-1 "neither gates nor records a Window-delegating pair". Unobservable; pinned white-box by plan cell P1 (§4.5) |
 | A2-MIN-2 (rev 4's three-line write shape is not ordinary-aware) | r5, §13.3; umbrella §4 | The write-side entry is the four-check shape of §1.4 (b): marked → return; written pair Window-delegating → return; E's deliverable **ordinary** set ≠ {written name} → return; else process with `ProcessingTiming::HandlerWrite` (NEW) |
-| A2-MIN-3 (X-W's name set has no SoT; complement falls to the once rule) | r5, §13.3 | The WindowEventHandlers half is **derived** from `EVENT_HANDLER_ATTRS` rows with `HandlerScope::Window` (a new WEH row lands in X-W with no edit). The reflecting half is a named const `WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET` (NEW) citing the webref anchor (A-11). Plan cell P2 pins: X-W ⊇ HEAD's delegation predicate (`scope == Window && is_body_element`), the const equals the spec's six, every const member is a table row. The complement is the once rule, i.e. the side the record calls leaking; the only way to grow it silently is a spec change to the reflecting set, which webref drift tooling surfaces (§1.4 (e)) |
+| A2-MIN-3 (X-W's name set has no SoT; complement falls to the once rule) | r5, §13.3 | The WindowEventHandlers half is **derived** from `EVENT_HANDLER_ATTRS` rows with `HandlerScope::Window` (a new WEH row lands in X-W with no edit). The reflecting half is a named const `WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET` (NEW) citing the webref anchor (A-11). Plan cell P2 pins: X-W ⊇ HEAD's delegation predicate (`scope == Window && is_body_element`), the const equals the spec's six, every const member is a table row, and a fixed ratchet of literal name lists (18 WEH + 6 reflecting) that does not use the derivation (§4.5). The complement is the once rule, i.e. the side the record calls leaking; the only way to grow it silently is a spec change to the reflecting set, which webref drift tooling surfaces (§1.4 (e)) |
 | A3-MIN-1 (X-W's "HEAD outcome at every step" vs the bind pass) | r5, §13.3 | Umbrella wording only (its X-W already says "except the bind pass"). This plan states the realisation exactly: at T-a1 a Window-delegating pair gets the spec's or E-G1's outcome (HEAD processes nothing there); at every other step HEAD's (§1.4 (e)). No umbrella edit |
 | A3-MIN-3 (§8.2 slot text "deliverable" → "deliverable ordinary") | r5, §13.3 | Slot text is the PM's ledger. Handed to the PM (§9) |
 | rev-8 MIN: C20 (ii) needs a fresh VM after (i) | r5 rev-8 attestation | C20 (i) and C20 (ii) are **separate `#[test]` functions**, each with its own VM, session and DOM (§4.2). (i) leaves `fn` on `window.onhashchange`, which (ii) must not inherit |
 | rev-8 MIN (uncertain): no cell for a WindowEventHandlers name on `<frameset>` | r5 rev-8 attestation | Plan cell **P3** (red; §4.5): a clone-sourced `<frameset onclick onhashchange>` where only the right classification passes D-8 (a). It fails an impl whose X-W misses `(frameset, WEH name)` |
 | rev8:533 (§3 row 2, "step 3 is T3, the reflecting set facet 4") | r5 rev-8 attestation | Umbrella wording. Noted for the PM (§9); not edited |
 | umbrella §6.4 "takes C1–C17" (stale range) and placement | umbrella §6.4 decided obligation | Replaced by §5: the cells go to **new** files; `tests_event_handler_attrs.rs` is not touched. The C set is C1–C9, C11–C20 (there is no C10 in umbrella §6.1) |
-| Q7 / E8 replacement shape | umbrella §11 Q7 | E8 is written as decided. Fallback 1 (umbrella's): `x` from a DOMParser document. Fallback 2 (decided here): if `attachShadow` cannot run in an initial script, take `sr` from a declarative shadow root in the initial markup (`<div id=h><template shadowrootmode=open></template></div>`, as E7). Selection is by E8's pre-fix run (it is a guard: it must pass on the base) (§4.4) |
+| Q7 / E8 replacement shape | umbrella §11 Q7 | E8 is written as decided. Fallback 1 (umbrella's): `x` from a DOMParser document. Fallback 2 (decided here): if `attachShadow` cannot run in an initial script, take `sr` from a declarative shadow root in the initial markup (`<div id=h><template shadowrootmode=open></template></div>`, as E7). Selection is by E8's pre-fix run (it is a guard: it must pass on the base) (§4.4). **Terminal, as for E7**: if the decided shape and both fallbacks fail at the scaffold run, implementation stops and this plan returns to plan-review. E8 is not reshaped or dropped during implementation |
+| marker home (file level) | umbrella §4 Home/kind | Umbrella §4 names `event_handler_consumer.rs` as the home of both markers and the processing function. This plan puts them in the new module `event_handler_processing/` (§1.1, §1.3) in the **same crate** (`elidex-script-session`), with the same re-exports from `lib.rs` and the same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: placement by the line numbers of §5 and the umbrella's own §6.4 risk (the consumer file at 590 lines plus the mechanism and its unit cells would cross 1000). No umbrella clause changes; the umbrella's §4 file name is superseded by this row |
 | Q5 / E5b | umbrella §6.2, §11 Q5 | **E5b is not written.** No hermetic same-origin URL loader exists (the in-process "URL-load" security test reaches only the `blank_entry` fallback, `content_iframe_security_tests.rs:278`). `load.rs:221` and `:327` call the same builder (A-9), and the processing point is inside `Vm::bind`, beneath every builder. E5 pins `:327` |
 | O4 (writer completeness) | umbrella §11 O4: closes at this plan-review | Closed: §6 re-runs the §5.0 census (unchanged) and enumerates every production writer of handler state in `EventListeners`. No VM path writes handler state outside the IDL activation path and the lazy-compile reconcile |
-| two init keys in one hook | umbrella §4 input, R3-A5-MIN-5 | **One key.** `initialize_consumers(dom, document)` passes the bound document to both delegates. `BaseUrlMaintainer`'s `initialize_from_tree` takes it in place of `document_root()`, which aligns its init with its own arms (A-4). Equal in production; differs only for a test that binds a non-root document (scout Q-S3, §8) |
+| two init keys in one hook | umbrella §4 input, R3-A5-MIN-5 | **One key.** `initialize_consumers(dom, document)` passes the bound document to both delegates. `BaseUrlMaintainer`'s `initialize_from_tree` takes it in place of `document_root()`, which aligns its init with its own arms (A-4). In production the two keys are the same entity: (1) every production `Vm::bind` passes `ctx.document` (`engine.rs:397`, reached from `teardown_document` `:419` and `with_bound` `:440`; §0.2 reach set); (2) every production `ScriptContext` that reaches those is built from a pipeline's `document` (`crates/shell/elidex-shell/src/lib.rs:294`–`:526`, `self.document`; `pipeline.rs:128`, `:159`, `:350`, the `document` parameter); (3) that `document` is the parse result's (`pipeline.rs:572`, `:661`, `:752`; `build_pipeline_from_loaded` `pipeline.rs:850-852` takes `LoadedDocument.document`, set from the parse result at `crates/shell/elidex-navigation/src/loader.rs:214`); (4) both document parsers create it with `create_document_root()` on a fresh `EcsDom` (strict `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:101-102`, tolerant `crates/dom/elidex-html-parser/src/convert.rs:17-18`), which sets `document_root` (`crates/core/elidex-ecs/src/dom/mod.rs:397-399`). No production caller binds another document. The keys differ only for a test that binds a non-root document (scout Q-S3, §8) |
 | U8 / U3 kinds vs the pre-fix base | umbrella §6.1 | See §0.6 C-1 |
 
 ### §0.6 Contract clauses found problematic (reported, not changed)
@@ -127,7 +144,7 @@ Line counts at `b9122157` (`wc -l`). Projection = estimated after-change size. 1
 | `crates/script/elidex-script-session/src/event_handler_processing/mod.rs` (NEW) | — | markers, classifier, `ProcessingTiming` (NEW), D-2 function, write-side entry, bind pass body; receives `event_handler_attr_lookup`, `resolve_handler_target`, `is_body_element`, `set_inline_handler`, `clear_inline_handler`, `ensure_event_listeners` moved from the consumer file (they are the attribute-change-steps realisation) |
 | `crates/script/elidex-script-session/src/event_handler_processing/tests_insertion_and_write.rs` (NEW) | — | U1–U6, U9, P1, P2 |
 | `crates/script/elidex-script-session/src/event_handler_processing/tests_bind.rs` (NEW) | — | U7, U8, U10, U11, U12 |
-| `crates/script/elidex-script-session/src/event_handler_consumer.rs` | 590 | arms delegate (§1.4 (d)); helpers move out; `initialize_from_tree` (NEW) method; module doc `:1-33` rewritten |
+| `crates/script/elidex-script-session/src/event_handler_consumer.rs` | 590 | arms delegate (§1.4 (d)); helpers move out; `initialize_from_tree` (NEW) method; module doc `:1-33` rewritten; stale sentence in `web_storage_spec_level`'s doc (`:235-242`) fixed (§1.7) |
 | `crates/script/elidex-script-session/src/lib.rs` | 62 | `mod event_handler_processing;` + re-exports of the markers and `process_before_handler_write` |
 | `crates/script/elidex-js/src/vm/consumer_dispatcher.rs` | 153 | `initialize_consumers(&mut self, dom, document)`; doc `:113-134`; field doc `:58-67` |
 | `crates/script/elidex-js/src/vm/vm_api.rs` | 762 | `:313` passes `document`; comment `:298-312` rewritten |
@@ -176,7 +193,7 @@ pub(crate) fn process_handler_content_attributes(
     }
     for (scope, event_type, value) in writes {
         let target = resolve_handler_target(element, scope, dom);  // HEAD's target, unchanged (no step 3: T3)
-        set_inline_handler(target, event_type, value, dom);         // step 5.5 raw uncompiled + 5.6 activate
+        set_inline_handler(target, event_type, value, dom);         // HTML §8.1.8.1 attribute change steps 5.5–5.6
     }
     if carries_ordinary && !marked { insert HandlerAttrsProcessed on element }   // D-1, §0.5 A2-MIN-1
 }
@@ -261,7 +278,11 @@ pub(crate) fn is_window_delegating_pair(dom: &EcsDom, element: Entity, name: &st
 }
 ```
 
-`resolve_handler_target` and `is_body_element` move unchanged; `is_body_or_frameset` (NEW) sits beside them. The
+`resolve_handler_target` and `is_body_element` move with their code unchanged; `is_body_or_frameset` (NEW) sits
+beside them. `resolve_handler_target`'s doc (`event_handler_consumer.rs:323-327`) cites "WHATWG HTML §8.1.8.2" for the
+`<body>` delegation; on the move its citation becomes WHATWG HTML §8.1.8.1 Event handlers, *determining the target of
+an event handler* (`#determining-the-target-of-an-event-handler`) steps 1–2, the algorithm it realises, with step 3
+named as unmodelled (T3). The WindowEventHandlers set itself stays cited at §8.1.8.2. The
 classifier decides *whether* a timing processes a pair; the *target* stays HEAD's (T3 owns step 3, `<frameset>`
 delegation and the reflecting set's target).
 
@@ -304,18 +325,44 @@ exactly as HEAD does.
 The shadow-root entity is visited; it has no `Attributes`, so processing returns. The walker name stays as is, so no
 caller outside `elidex-ecs` breaks.
 
+**Out of scope: `collect_template_inclusive_descendants` (`elidex-form`, `init` module)** (`crates/dom/elidex-form/src/init.rs:111`,
+`pub(crate)`, capped through `for_each_shadow_inclusive_descendant`; callers `inert_document.rs:168`, form
+`clone.rs:49`). It is a second template-inclusive walker for the same concept as `TemplateContentsWalk::Include`.
+Unifying it onto the new walker is not slice a's: umbrella §9 N-5 routes that reconciliation to slice b's input, its
+callers are slice b's creation-time call sites (inert-document parse, clone), and slice a changes neither. It is handed
+to slice b's input by name (§9). I10 (§2) covers only the three callers it names.
+
 ### §1.7 Docs, comments, clone policy (umbrella §4's rewrite-site list)
 
 - `event_handler_consumer.rs:1-33` module doc: three timings (bind, Insert, first handler write), the interim Insert arm
   naming `#11-eh-attrs-creation-time-call-sites`, X-W. `handle_insert`'s doc cites WHATWG DOM §4.2.3 Mutation
   algorithms (no event-handler insertion steps) and names the slot.
-- New items cite WHATWG HTML §8.1.8.1 Event handlers and WHATWG DOM §4.9 Interface Element (*append an attribute* step
-  4). The bind items cite WHATWG HTML §13.2.6.1 Creating and inserting nodes (*create an element for a token* step
-  17.2). The walker cites WHATWG DOM §4.8 Interface ShadowRoot and WHATWG HTML §4.12.3 The template element.
+- New items cite as the table below. "none" means no spec step defines the item: it is an elidex mechanism, and the
+  doc says so and names the slot that records it.
+
+  | NEW item | doc citation |
+  |---|---|
+  | `HandlerAttrsProcessed` | WHATWG DOM §4.9 Interface Element, *append an attribute* step 4 (each creation-time attribute runs the attribute change steps once); WHATWG HTML §8.1.8.1 Event handlers, *attribute change steps* |
+  | `PreBindHandlerAttrsProcessed` | WHATWG HTML §13.2.6.1 Creating and inserting nodes, *create an element for a token* step 17.2 (the parser appended the attributes before any bind). The once-per-document bind point itself: none — elidex mechanism (D-5) |
+  | `ProcessingTiming` | none — elidex mechanism (the K-0 timings T-a1 / T-a2 / T-a3), slot `#11-eh-attrs-creation-time-call-sites` |
+  | `process_handler_content_attributes` | WHATWG HTML §8.1.8.1 Event handlers, *attribute change steps* 1–5.6, per attribute; WHATWG DOM §4.9 Interface Element, *append an attribute* step 4 |
+  | `process_before_handler_write` | none — elidex mechanism (D-8), slot `#11-eh-attrs-creation-time-call-sites` |
+  | `EventHandlerAttributeConsumer::initialize_from_tree` | WHATWG HTML §13.2.6.1 Creating and inserting nodes, *create an element for a token* step 17.2; WHATWG HTML §8.1.8.1 Event handlers, *attribute change steps*. Running them at the first bind instead of at creation: none — elidex mechanism (D-5) |
+  | `WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET` | WHATWG HTML §8.1.8.2 Event handlers on elements, Document objects, and Window objects (`#window-reflecting-body-element-event-handler-set`) |
+  | `is_window_delegating_pair`, `is_body_or_frameset` | WHATWG HTML §8.1.8.1 Event handlers, *determining the target of an event handler* steps 1–2 |
+  | `TemplateContentsWalk` | WHATWG HTML §4.12.3 The template element (*template contents* are not descendants) |
+  | the moved walker (`pub`, `walkers.rs`) | WHATWG DOM §4.8 Interface ShadowRoot (*shadow-including descendant*, *shadow-including tree order*) |
+  | test helpers `setup_page`, `build_main_document`, `probe_body_attr` | none (test support) |
 - `consumer_dispatcher.rs:58-67` field doc ("Dual-arm") and `:113-134` method doc ("Add a delegate call only when a
   future consumer derives state…") rewritten: two delegates, both keyed on the bound document.
 - `vm_api.rs:298-312` comment: "Other consumers … are no-ops here" becomes the two-delegate statement.
 - `document_base.rs:258-275`: keyed on the bound document, matching its arms.
+- `event_handler_consumer.rs:235-242`, `web_storage_spec_level`'s doc: the clause "(it still runs the boa engine, not
+  this VM)" is false (A-8). The paragraph is rewritten to the ledger row of `#11-storage-event-mode-aware-delivery`
+  (PM re-homing, 2026-10-26): suppressing delivery for a Web-Storage-excluded session needs per-session mode plumbing
+  the shell does not have yet; it is not reachable today, because no production session selects an excluded mode
+  (`BrowserCompat` is the only one); so it is deferred to slot `#11-storage-event-mode-aware-delivery`. The slot name
+  stays. The sentence about the `window.onstorage` handler-attribute install being gated stays.
 - `tree_clone.rs:30` (deliberate non-copy): add `HandlerAttrsProcessed` and `PreBindHandlerAttrsProcessed`
   (elidex-script-session) with the reason: a clone is a new origin, unprocessed (I4); a cloned Document has had no first
   bind (`clone_subtree`'s Document branch, `tree_clone.rs:163-230`). WHATWG DOM §4.4 Interface Node, *clone a single
@@ -326,6 +373,12 @@ caller outside `elidex-ecs` breaks.
   (`attribute.rs:308`) and the shell iframe lifecycle (`content/iframe/lifecycle.rs:365`, `:526`)
   (`/usr/bin/grep -rn --include='*.rs' reconcile_attribute_derived_components crates`). The umbrella names `:21-23`
   only; `:30-32` is the same claim and is fixed with it.
+  Two nearby texts were checked and are **not** part of the fix: `crates/core/elidex-ecs/src/components.rs:731-733`
+  (`IframeData::from_attributes`'s doc) and `crates/core/elidex-ecs/src/dom/tree_clone.rs:24` (the clone-policy
+  "derived re-derive" row) both say the attribute→component direction is reconciled "at the `EcsDom::set_attribute` /
+  mutation-flush (reconcile) seam". Neither says the flush bypasses the chokepoint or reconciles without an event. The
+  flush reaches the reconcile through `set_attribute` (A-12), so "reconciled at the mutation flush" is true as written.
+  G6 is the false bypass claim, and these two texts do not make it.
 
 ### §1.8 Commit sequence (red-first, D-9)
 
@@ -340,7 +393,8 @@ caller outside `elidex-ecs` breaks.
 ## §2. Coupled invariants
 
 Axes I1–I9 are the umbrella's (§1.1). **I10** is added by this plan: *one uncapped walker serves teardown, adopt and the
-bind pass, in shadow-including tree order*, introduced by D-11's generalisation (§1.6).
+bind pass, in shadow-including tree order*, introduced by D-11's generalisation (§1.6). I10 is about those three
+callers only; `collect_template_inclusive_descendants` is outside it (§1.6, slice b input).
 
 Each line: pair — intersects? — slice-a mechanism (code) — cell. "b" = slice b owns it (no slice-a code).
 
@@ -410,6 +464,7 @@ Skeleton generated with `.claude/tools/webref coverage-map html 8.1.8.1 html 8.1
 | WHATWG HTML §8.1.8.2 Event handlers on elements, Document objects, and Window objects | WindowEventHandlers members; Window-reflecting body element event handler set | 18 WEH rows (A-10); 6 reflecting names (A-11) | `EVENT_HANDLER_ATTRS` (`HandlerScope::Window` rows) + `WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET` (NEW) | ✓ | no |
 | WHATWG DOM §4.9 Interface Element | *append an attribute* step 4; *handle attribute changes* | every attribute present at creation runs the attribute change steps once; later changes run them per change | D-2 function per creation-time attribute; AttributeChange arm per change | ✓ | yes |
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 17.2 | parser path appends every token attribute at creation | pre-bind parse: bind pass (`initialize_from_tree` (NEW)); post-bind parse (fragment, DOMParser): first insertion | ✓ | yes |
+| WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | start tag "template", step 13 "Keep", sub-step 1 (declarative shadow root; `body html parsing-main-inhead`) | the shadow root is attached while parsing; its children are parsed into it | strict `tree_builder/shadow.rs:137`, `:162` (umbrella §3 row); slice a: a pre-bind declarative shadow root is reached by the bind pass (E7, Q-S1); a fragment-parsed one is not processed at host insertion (D-10, HEAD-equal); slice b: S-1 | ✗ | yes |
 | WHATWG DOM §4.8 Interface ShadowRoot | *shadow-including descendant*; *shadow-including tree order* | shadow trees are included; host's shadow tree right after the host | `for_each_uncapped_shadow_inclusive` (moved to `walkers.rs`, `TemplateContentsWalk::Exclude`) | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | *template contents* | contents are not descendants | bind walk excludes them; Insert keeps W-K5 | ✗ | yes |
 | WHATWG DOM §4.4 Interface Node | *clone a single node* step 2.5 | clone's attributes appended at its own creation | clone-policy row `tree_clone.rs:30` (non-copy of both markers) | ✓ | yes |
@@ -517,7 +572,7 @@ W1–W4 test a new public API, so they have no pre-fix run; U10 and U11 carry th
 | E5 | red | `make_out_of_process_entry` + `run_oop_and_collect_posts` | posts contain `"ran"` and `"eh-hit"` | covers `load.rs:327`; `:221` by A-9 |
 | E6 | red | `build_test_content_state` with `<iframe srcdoc='…'>` | child `probe_body_attr("data-hit")` | M's `'b'` written as `&#39;b&#39;` inside `srcdoc='…'` |
 | E7 | red | `build_main_document` with a declarative shadow root | `data-hit` | depends on Q-S1 (§8) |
-| E8 | guard | three brackets (`build_main_document`, two `eval_script`) | bracket 2 `true`; bracket 3 `"1,"` | Q7: §0.5 fallbacks, chosen by its scaffold run |
+| E8 | guard | three brackets (`build_main_document`, two `eval_script`) | bracket 2 `true`; bracket 3 `"1,"` | Q7: §0.5 fallbacks, chosen by its scaffold run; if all fail, stop and return to plan-review (§0.5) |
 
 Every red pin's control (`data-ran == "1"`, or the `"ran"` post) must be green on the scaffold run, or the pin does
 not count as red (umbrella §6.2).
@@ -530,6 +585,14 @@ not count as red (umbrella §6.2).
   `is_window_delegating_pair` is true on a `body` and on a `frameset`. For each name in the reflecting const: true on
   both, and the name is a table row. For `onclick` on a `body`, and every name on a `div`: false. HEAD's predicate
   (`scope == Window && is_body_element`) implies the classifier for every row. The const equals the six names of A-11.
+  **Fixed ratchet**, independent of the table derivation: the test holds two literal lists, the 18 WindowEventHandlers
+  member names from `.claude/tools/webref idl html WindowEventHandlers` (`onafterprint onbeforeprint onbeforeunload
+  onhashchange onlanguagechange onmessage onmessageerror onoffline ononline onpagehide onpagereveal onpageshow
+  onpageswap onpopstate onrejectionhandled onstorage onunhandledrejection onunload`) and the 6 reflecting names
+  (`onblur onerror onfocus onload onresize onscroll`). It asserts that the set of `HandlerScope::Window` rows equals the
+  first list and the const equals the second, and that `is_window_delegating_pair` is true on `body` and `frameset`
+  for all 24 literal names. Demoting a row from `Window` to `Global`, or editing the const, fails the ratchet even
+  though the derived checks above would shrink with it. A spec change updates the literal lists by hand, from webref.
 - **P3** (red, VM; rev-8 MIN). `src = document.createElement('frameset')`; `src.setAttribute('onclick', 'A')`;
   `src.setAttribute('onhashchange', 'window.h=1')`; `f = src.cloneNode()` (unmarked, both attributes, no entries);
   `f.setAttribute('onclick', 'B')`; `f.onclick = fn`; `el.append(f)`; then `f.onclick === fn`, and
@@ -580,6 +643,15 @@ fabricated AttributeChange event carries no real attribute, so the entry returns
 `on*` attributes now get those handlers delivered at bind. A test whose oracle assumed G1 (inert initial handlers)
 would change. None is known (scout Q-S4); `cargo test -p` on every touched crate is the backstop.
 
+**Disposition of an existing test that flips.** A flip has exactly two allowed causes: the G1 inversion (initial
+handlers now delivered at bind) and the base-URL init key change (§0.5, one key). For such a test:
+- its oracle is rewritten to the outcome this plan derives from the spec or from K-0 for that case, never to whatever
+  the new code happens to produce;
+- the PR description lists it with the clause that flips it (G1 / D-5, or the §0.5 one-key row).
+
+A flip that neither cause explains is a bug in the implementation, not an oracle to update: implementation stops
+until it is explained.
+
 ## §5. 1000-line touch-time check
 
 | file | now | projected | decision |
@@ -629,9 +701,14 @@ and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/sh
   - `'get::<&mut (elidex_script_session::)?EventListeners>'` → prod 7. Beyond the sites above they are
     `event_dispatch/mod.rs:500` and `natives_promise.rs:567` (`{once}` removal of Normal listeners) and
     `dispatch_target.rs:126`, `:155` (the activation adapter).
-  - `'remove_listener_and_prune_back_ref\('` → prod 6: the lazy-compile drops (`event_handler_attrs.rs:576`, `:579`),
+  - `'remove_listener_and_prune_back_ref\('` → prod 7: the lazy-compile drops (`event_handler_attrs.rs:576`, `:579`),
     activation (`:692`), `removeEventListener` (`event_target.rs:619`, which ignores handler listeners per
-    `tests_event_handler_attrs.rs:321`), `{once}` (`event_target_dispatch.rs:509`), and the def (`inner.rs:49`).
+    `tests_event_handler_attrs.rs:321`), `{once}` (`event_target_dispatch.rs:509`), the `ScriptEngine` impl's `remove_listener`
+    (`crates/script/elidex-js/src/engine.rs:303`), and the def (`inner.rs:49`). Rev 1 missed `engine.rs:303`. It writes
+    no handler state: its only caller is the dispatch loop's `{once}` cleanup (`event_dispatch/mod.rs:519`, under
+    `if entry.once`), handler listeners are created with `once: false` (`event_listener.rs:178`,
+    `add_event_handler`), and it drops only the engine-side function store (`inner.rs:54`, `host.remove_listener`),
+    not `EventListeners` (the `{once}` `EventListeners` removal is `event_dispatch/mod.rs:500`, listed above).
   - Verdict: no VM path writes handler state outside the IDL activation path and the lazy-compile reconcile. O4 is
     closed with no new K-0 case and no slot.
 - **No VM code names the markers** (DoD check, at the head):
@@ -666,7 +743,7 @@ and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/sh
   needs a different shape and returns to plan-review.
 - **Q-S2 (Q7).** Do E8's bracket-1 calls (`attachShadow` on a `div`, `cloneNode` of a two-attribute `div`) run in an
   initial script through `build_pipeline_from_loaded`? The natives exist (`vm/host/element_shadow.rs`); the scaffold run
-  settles it (§0.5).
+  settles it (§0.5). If neither they nor both fallbacks work, E8 returns to plan-review, as E7 does.
 - **Q-S3 (init key).** Which tests bind a document that is not `document_root()` (`bind_vm` callers with
   `create_document_node`) and assert base-URL state? Those are the only tests the one-key decision can change.
 - **Q-S4 (kept green).** Which existing tests (VM, shell, form, dom-api) build a pre-bind DOM or initial HTML with `on*`
@@ -680,6 +757,45 @@ and writes / bind). Files over 1000 lines nearby and **not touched**: `crates/sh
 - **rev8:533**: umbrella §3 row 2's Touch cell reads "step 3 is T3, the reflecting set facet 4". T3 now carries facets 1,
   3 and 4. The cell would read better as "step 3, `<frameset>` and the reflecting set are T3 (facets 1, 3, 4)". Umbrella
   wording only.
-- **Stale docstring outside scope**: `web_storage_spec_level`'s doc (`event_handler_consumer.rs:235-242`) says the
-  shell "still runs the boa engine, not this VM". The shell runs the elidex-js VM (A-8). This plan moves no code there
-  and leaves it for its owner (`#11-storage-event-mode-aware-delivery`).
+- **`#11-storage-event-mode-aware-delivery`**: the stale docstring it is cited from (`event_handler_consumer.rs:235-242`)
+  is fixed in this PR (§1.7), to the wording of the slot's ledger row (re-homed by the PM, 2026-10-26). No ledger edit.
+- **Slice b input, N-5**: `collect_template_inclusive_descendants` (`elidex-form`, `init` module)
+  (`crates/dom/elidex-form/src/init.rs:111`) is not unified onto the new walker here (§1.6). Its reconciliation with
+  `TemplateContentsWalk::Include` goes to slice b's input (umbrella §9 N-5).
+- **Slots whose trigger fires at slice a's landing** (ledger `project_open-defer-slots.md`, found by slot ID; read
+  2026-10-26):
+  - `#11-event-handler-target-determination`: facet (4) (the reflecting set) has "slice a's landing is an added
+    trigger for this slot", because initial-HTML `<body onfocus>` etc. start landing on the body element (G1); facet (1)
+    (step 3, T3) has "Added trigger: slice a's landing" (PM decision 25: T3 starts after slice a lands).
+  - `#11-event-handler-attribute-edge-cases`: "Trigger: slice a's landing, …" (initial-HTML handlers start compiling,
+    so facet (1), the basic-scope compile, becomes reachable on ordinary pages). Exposure stated here: E-G1 (ii), §3.1.
+  - `#11-csp-inline-handler-enforcement`: "Trigger: … slice a's landing; …" (initial-HTML inline handlers join the set
+    that runs with no `script-src` check). Exposure stated here: E-G1 (iii), §3.1.
+  - `#11-template-contents-owner-document` (C1): "Added trigger: those two landings" (EH slice a and IBP-sandbox N1;
+    the PM assigns its owner at them, PM decision 21).
+  - `#11-eh-attrs-creation-time-call-sites` is not triggered; its closing path starts at slice a's landing (T3, then
+    C1's handling, then slice b).
+
+## §10. Changelog
+
+- **rev 2** (plan-review R1: CRIT 0 / IMP 0 / 15 distinct MIN, all fixed):
+  - F1 E8 terminal (all fallbacks fail → stop, return to plan-review): §0.5 Q7 row, §4.4 E8 note, §8 Q-S2.
+  - F2 disposition of existing tests that flip (G1 inversion / init key; oracle → derived outcome, listed in the PR;
+    any other flip stops implementation): §4.7.
+  - F3 stale `web_storage_spec_level` docstring fixed in this PR, to the re-homed ledger row's wording: §1.3 consumer
+    row, §1.7; §9 hand-off replaced by a citation.
+  - F4 marker home moved to `event_handler_processing/` (same crate, re-exports, kinds; reason §5 / umbrella §6.4):
+    §0.5 "marker home" row; header paragraph (file placement inside a decided crate is this plan's).
+  - F5 `collect_template_inclusive_descendants` out of scope, handed to slice b's input (umbrella §9 N-5); I10 limited
+    to its three callers: §1.6, §2, §9.
+  - F6 HTML §13.2.6.4.4 "in head" template step 13 "Keep" sub-step 1 row (E7): §3.
+  - F7 comment "HTML §8.1.8.1 attribute change steps 5.5–5.6": §1.4 (a).
+  - F8 `resolve_handler_target`'s moved doc cites §8.1.8.1 *determining the target of an event handler* steps 1–2:
+    §1.4 (e).
+  - F9 per-NEW-item citation table, "none — elidex mechanism" where no spec step exists: §1.7.
+  - F10 slots triggered by slice a's landing, by slot ID: §9.
+  - F11 O4 census adds `engine.rs:303` (prod 7) with why it writes no handler state: §6.
+  - F12 P2 fixed ratchet (18 WEH + 6 reflecting names as literal lists): §4.5 P2, §0.5 A2-MIN-3 row.
+  - F13 every production `Vm::bind` caller and the document it passes: §0.5 "two init keys" row.
+  - F14 `components.rs:731-733` and `tree_clone.rs:24` checked, not part of the G6 fix (no bypass claim): §1.7 G6.
+  - F15 bind-pass reach set (`with_bound`, `teardown_document`) and teardown-first bind: §0.2.
