@@ -116,7 +116,12 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - ✅ **SETTLED 2026-10-26 — the user re-accepted (d) at 20 entries (18 own + 2 pre-existing)** (recorded at the head of the umbrella memo's §8). ~~⚠ **OPEN — 2026-10-25: §8's list is now 20 entries (18 own + 2 pre-existing)**~~ — (20), `dispose`
   re-reading every nested strong pair's interior (Codex F-R1 of 2026-10-25), was carved by the PM's
   ruling after the acceptance at nineteen; it re-opened the cap question for #510's merge, and the
-  umbrella memo's §8 records the movement.
+  umbrella memo's §8 records the movement. ⚠ **SUPERSEDED 2026-10-26** by the next bullet.
+- ✅ **SETTLED 2026-10-26 — the user re-accepted (d) at 21 entries (19 own + 2 pre-existing)** (recorded at the head of the umbrella memo's §8). (21), the block-quote gather
+  re-gathering the rest of the document for every quote that ends before a lazy line (Codex F-R3 of
+  2026-10-26 on `0c3cffd3`), was carved after the acceptance at twenty; it is own (its origin is this
+  PR's `dd9c9ac5`), it re-opened the cap question for #510's merge, and the umbrella memo's §8 records
+  the movement.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 

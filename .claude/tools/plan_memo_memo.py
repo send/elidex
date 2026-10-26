@@ -648,8 +648,12 @@ class Memo:
         heading: Example 237 `> ```\\nfoo\\n```` -- ⚠ an earlier docstring
         cited Examples 128 / 174, which end their quotes at a BLANK line,
         this gather's stop, not `_parse`'s) -- or hands it to a table when
-        it is the header the paragraph's last line becomes.  Linear: each line of the document is
-        gathered once per enclosing quote, never re-scanned across quotes."""
+        it is the header the paragraph's last line becomes.  ⚠ NOT linear:
+        a lazy candidate is gathered as if a paragraph were open, and only
+        the inner `_parse` knows whether one is, so a quote that ends before
+        a lazy candidate has gathered past its end, and the next quote
+        gathers that tail again -- quadratic in the repetitions of
+        `> # heading\\nlazy\\n` (the plan's §8 (21))."""
         n = len(lines)
         content, nos, inner_lazy, j = [], [], [], i
         while j < n:

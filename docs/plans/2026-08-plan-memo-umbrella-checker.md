@@ -114,29 +114,40 @@ it enters the `tools` job through a wrapper, and its cost with it. The budget ha
 "The always-run self-test's cost grows with REVIEW ROUNDS, not with the program", where the job is
 re-measured on the runner when that suite joins it.
 
-⚠ **FOUR plan-memo checkers exist** (⚠ this said THREE until 2026-10-25, missing `plan-sweep.py`). This one (the umbrella
-row-kind census + naming-site scan), `claim-gate-plan-check.py`
+⚠ **Plan-memo checkers, and what each answers.** This paragraph names tools; it does not say how
+many plan-memo checkers exist. (History, not a claim: a count stood here and was wrong each time it
+was written — THREE until 2026-10-25, then FOUR, each missing a checker already on `main`.) Named
+here: this one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
 (unpushed, branch `claim-gate-plan-check`, backed up as `refs/backup/claim-gate-plan-check` —
 quantitative-claim provenance and staleness), `plan-xcheck.py` (landed with `plan-sweep.py` in #518,
-`4394af4c`; latest change #523 — the layout memo cross-check) and `plan-sweep.py` (on `main`, #518 —
-the restatement sweep); `claim-gate-plan-check.py` names `plan-xcheck.py` and not this one, `plan-xcheck.py` and
-`plan-sweep.py` name none of the others, and of the other three only this one names
-`plan-sweep.py` (its header, since 2026-10-25; `grep -c plan-sweep` over `plan-xcheck.py` and
-`git show claim-gate-plan-check:.claude/tools/claim-gate-plan-check.py` → 0, 0;
-`grep -c plan-memo-umbrella-check` over the same two and `plan-sweep.py` → 0, 0, 0). Their CI entries
-differ: this one's self-test runs in the `tools` job through its wrapper (above); the
+`4394af4c`; latest change #523 — the layout memo cross-check), `plan-sweep.py` (on `main`, #518 —
+the restatement sweep) and `.claude/skills/elidex-plan-review/preflight.py` (on `main` since #233,
+`30226f85` — `/elidex-plan-review`'s Step 0); `claim-gate-plan-check.py` names `plan-xcheck.py` and
+`preflight.py` (it imports and runs the latter) and not this one, `plan-xcheck.py`, `plan-sweep.py`
+and `preflight.py` name none of the others named here, and `plan-sweep.py` is named by this one
+alone (its header, since 2026-10-25; `grep -c plan-sweep` over `plan-xcheck.py`, `preflight.py` and
+`git show claim-gate-plan-check:.claude/tools/claim-gate-plan-check.py` → 0, 0, 0;
+`grep -c plan-memo-umbrella-check` over the same three and `plan-sweep.py` → 0, 0, 0, 0). Their CI
+entries differ: this one's self-test runs in the `tools` job through its wrapper (above); the
 `stale-claim-detector` lane ships a shell wire for `trip-wires` and a Python `--self-test` that has no
 wrapper yet (the paragraph above); `plan-xcheck.py` and `plan-sweep.py` are on `main` with no
-`*-trip-wire.sh` of their own and no `"--self-test"` constant (`grep -c -- --self-test` → 0 in each).
+`*-trip-wire.sh` of their own and no `"--self-test"` constant (`grep -c -- --self-test` → 0 in each);
+`preflight.py` has neither either (the same `grep` → 0) and runs when a plan-review runs, while its
+`grep_pass.py` half has a tracked `test_grep_pass.py`, which the `tools` job runs.
 **The boundary, stated so the next author does not have to guess**:
 this tool answers *"does this memo's row-kind census parse, and is every naming site licensed"*;
-`claim-gate` answers *"is a number in a memo still true"*; `plan-xcheck` answers *"do two layout memos
-agree"*; `plan-sweep` answers *"where does this memo restate the decision I am changing"* (a lexical
-sweep that reports and never gates). ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
-collapse only once "why N" can be WRITTEN, and nobody has written it — four populations (one memo
-family / any memo's figures / two named memos / one memo's restatements of an ad-hoc pattern) that
-today share no predicate. Whether the other three should name this one is not decided here.
-**Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the four need to
+`claim-gate` answers *"is a number in a memo still true"*; `plan-xcheck` answers *"do one layout
+memo's routing tables agree with each other and with that memo's own sections"*; `plan-sweep` answers
+*"where does this memo restate the decision I am changing"* (a lexical sweep that reports and never
+gates); `preflight` answers *"does this memo's §3 spec coverage map exist with citations that verify,
+and do the paths, symbols and enumeration claims its §3–§7 make hold"*. ⚠ They are NOT collapsed
+here, and deliberately: CLAUDE.md's *One issue, one way* demands the collapse only once "why N" can
+be WRITTEN, and nobody has written it — their populations (one memo family / any memo's figures /
+one named memo's routing tables / one memo's restatements of an ad-hoc pattern / one memo's §3 map
+and structural references) today share no predicate; `claim-gate-plan-check.py` running
+`preflight.py` is a call to check a pasted verdict against, not a predicate the two share. Whether
+the others should name this one is not decided here.
+**Trigger for revisiting the collapse (an EVENT)**: the first predicate two of them need to
 share. Re-eval: 2026-12-31.
 
 ## §2 Coupled invariants (edge-dense)
@@ -904,6 +915,8 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
+✅ **RE-ACCEPTED AT TWENTY-ONE — BY THE USER, ON 2026-10-26, FOR THIS PR** (nineteen own and two pre-existing, after (21) re-opened it; (21) was carved from Codex F-R3 of 2026-10-26, and the user's acceptance of twenty-one reached this PR through the PM session). It settles the cap question for #510's merge at twenty-one; a further change to the list re-opens it. The merge needs a fresh review of the head pushed then.
+⚠ The acceptance below was the previous one, given at twenty.
 ✅ **RE-ACCEPTED AT TWENTY — BY THE USER, ON 2026-10-26, FOR THIS PR** (eighteen own and two pre-existing, after (20) re-opened it; (20) was carved by the PM's ruling of 2026-10-25, and the user answered option (A), 「20 件で受け入れる」). It settles the cap question for #510's merge at twenty; a further change to the list re-opens it. The merge needs a fresh review of the head pushed then.
 ⚠ The acceptance below was the previous one, given at nineteen.
 ✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 of 2026-09-27 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job. ⚠ **Correction (2026-10-25):** that move is done — A-iii landed (#545, `ad80b5ca`) and 8a81b93d moved the self-test into the `tools` job through the wrapper.
@@ -926,10 +939,11 @@ tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth;
 gate's presence comparison; (15) the declaration site that produced no table; (16) the hand-written
 table with no detector; (17) gap-pattern population completeness; (18) a vocabulary match read
 across a masked span; (19) an unmatched `)` with two ratified notions; (20) nested strong pairs'
-interiors re-read by `dispose`. **Eighteen own and two
+interiors re-read by `dispose`; (21) the block-quote gather re-gathering the rest of the document.
+**Nineteen own and two
 pre-existing** — (9) and (10) are the pre-existing ones, each with its grounding stated where the
 policy asks for it. Count the list rather than trusting this sentence: `awk` the `^- \*\*` lines
-of this section and you must get twenty.
+of this section and you must get twenty-one.
 ⚠ **(17) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FOURTEEN TO
 FIFTEEN.** The 2026-09-26 re-acceptance, above, was given at
 sixteen; by its own last sentence this change to the
@@ -943,6 +957,9 @@ SEVENTEEN.** It re-opens the cap question again, for the same reason as (17).
 2026-09-28 re-acceptance at nineteen, above.
 ⚠ (2026-10-25) (20) was carved after the acceptance at nineteen; the cap question is open again.
 ✅ The question (20) re-opened was settled at twenty on 2026-10-26 — the 2026-10-26 re-acceptance at twenty, above.
+⚠ (2026-10-26) (21) was carved after the acceptance at twenty and moves the own count from eighteen to
+nineteen; the cap question was open again.
+✅ The question (21) re-opened was settled at twenty-one on 2026-10-26 — the 2026-10-26 re-acceptance at twenty-one, above.
 ⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
 RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
 once, the hand-written table three times)
@@ -1039,7 +1056,7 @@ the design they came from.
 
 ⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **The own entries whose
 own text names a review round, a design re-gate or a review axis as their origin** — (4)–(7) and
-(11)–(20), fourteen of the eighteen — were produced by the REVIEW LOOP rather than by the plan, and that is
+(11)–(21), fifteen of the nineteen — were produced by the REVIEW LOOP rather than by the plan, and that is
 the honest reading of why the cap is breached:
 ⚠ **THE SET THAT STOOD HERE, "(4)–(8) and (11)–(15)", FOLLOWED NO STATED RULE** (2026-09-22, the fourth
 attestation). It counted (8), whose text names no round — it is own because a MEASUREMENT reclassified
@@ -1641,3 +1658,37 @@ committed here by the note that corrected it.
   holds it, so it is edge-dense by CLAUDE.md's own test and `/elidex-plan-review`-before-implementation
   **BY RULE**. **Owner**: Slice 2's plan-review, the occasion already scheduled (as for (5)).
   **Re-eval: 2026-12-31.** No slot: it is this checker's own code, not a platform gap.
+- **(own)** **THE BLOCK-QUOTE GATHER RE-GATHERS THE REST OF THE DOCUMENT FOR EVERY QUOTE THAT ENDS BEFORE A LAZY
+  LINE, SO PHASE 1 IS QUADRATIC IN SUCH QUOTES** (PR #510 Codex F-R3 of 2026-10-26 on `0c3cffd3`, thread
+  4377112849 — **own**: the gather arrived in this PR at `dd9c9ac5` (R13, "block quotes are containers"),
+  and the same input is read linearly at its parent; **real, reproduced, NOT fixed here**). In
+  `plan_memo_memo.Memo._quote` the gather takes every following line: a line with a `>` marker is
+  always content, and a line without one (a lazy candidate) is taken unless `block_end(content, …,
+  True, inner_lazy)` calls it a boundary — asked with a paragraph OPEN, because whether a paragraph is
+  open at that line is the inner `_parse`'s state, which the gather does not have. On
+  `> # heading\nlazy\n` repeated N times, `lazy` is no boundary with a paragraph open, so the first
+  quote's gather takes the whole rest of the document; the inner `_parse` then ends the quote after its
+  heading (no paragraph is open at `lazy`, so there it is a boundary); the driver reads `lazy` as a
+  paragraph; and the next `> # heading` opens a quote whose gather takes the rest again — N quotes,
+  each gathering the lines after it. The blocks read are right (quote, heading, paragraph, N times, as
+  cmark 0.31.2 renders it); the cost is not. Measured on `a640a17b`'s code (`python3` = 3.14.7, arm64
+  macOS, one run each, the run whose output follows the probe in the body of the first commit whose message contains F-R3
+  QUOTE-GATHER PROBE: `git log --reverse --grep='F-R3 QUOTE-GATHER PROBE' --format=%H | head -1 |
+  xargs git log -1 --format=%B`; it builds `Memo` over the text written to a temporary file and counts
+  `quote_content` calls at the driver's binding, as `scaling_quotes_control` does):
+
+  | shape | N | `Memo` | `quote_content` calls |
+  |---|---|---|---|
+  | `'> # heading\nlazy\n' * N` | 250 / 500 / 1000 / 2000 | 0.053 / 0.214 / 0.864 / 3.340 s | 62,750 / 250,500 / 1,001,000 / 4,002,000 |
+  | `'> # heading\n\nlazy\n' * N` (blank-ended, the control) | 250 / 500 / 1000 / 2000 | 0.004 / 0.008 / 0.015 / 0.032 s | 500 / 1,000 / 2,000 / 4,000 |
+
+  Each doubling of N about quadruples the first shape and about doubles the control. The self-test's
+  quote witnesses (`scaling_quotes_control`, and `quote_build_once_control`'s three shapes) end every
+  repetition with a blank line or a nested marker, where the gather stops, so none of them reaches this
+  shape, and the self-test is green on this code. It is not Slice 3's cost ((6)): that one is the
+  characters materialised over the nesting DEPTH, and this one is at depth 1, across sibling quotes.
+  `_quote`'s docstring claimed "Linear: each line of the document is gathered once per enclosing
+  quote"; that claim, false on this input, was replaced by a pointer here when this entry was carved.
+  **Owner**: Slice 3's plan-review ((6)), the occasion that already opens both container passes and
+  the Phase-1 cost contract. **Re-eval: 2026-12-31.** No slot: it is this checker's own Phase 1, not a
+  platform gap.

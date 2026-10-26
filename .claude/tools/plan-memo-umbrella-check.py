@@ -191,10 +191,11 @@ Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
 
-THE OTHER THREE PLAN-MEMO CHECKERS (`plan-xcheck.py`, `plan-sweep.py`,
-`claim-gate-plan-check.py`): what each asks, and why they are not collapsed
-into one, is held in one place, the "FOUR plan-memo checkers" paragraph of
-`docs/plans/2026-08-plan-memo-umbrella-checker.md` §1.
+OTHER PLAN-MEMO CHECKERS (`plan-xcheck.py`, `plan-sweep.py`,
+`claim-gate-plan-check.py`, the plan-review skill's `preflight.py`): which
+ones the plan names, what each asks, and why they are not collapsed into
+one, is held in one place, the "Plan-memo checkers, and what each answers"
+paragraph of `docs/plans/2026-08-plan-memo-umbrella-checker.md` §1.
 
 Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the population)
         plan-memo-umbrella-check.py --self-test [--mutants]
