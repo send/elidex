@@ -596,8 +596,9 @@ class Memo:
         paragraph after the list).  "A list item can begin with at most one
         blank line" (§5.2 rule 3, Example 280 `-\\n\\n  foo`): an item whose
         first line is blank ends before a blank next line, and is the empty
-        item.  Linear: each line is gathered once per enclosing container,
-        as for quotes."""
+        item.  The item path is linear (measured: `- # heading\\nlazy`,
+        `- a\\n  # h\\nlazy`, `- > # h\\nlazy` and `> - # h\\n> lazy` take
+        0.01-0.05 s at 500-2000 repetitions, doubling with N)."""
         n = len(lines)
         _, offset, first = item_marker(lines[i])
         content, nos, inner_lazy, j = [first], [linenos[i]], [False], i + 1

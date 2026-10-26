@@ -1660,8 +1660,10 @@ committed here by the note that corrected it.
   **Re-eval: 2026-12-31.** No slot: it is this checker's own code, not a platform gap.
 - **(own)** **THE BLOCK-QUOTE GATHER RE-GATHERS THE REST OF THE DOCUMENT FOR EVERY QUOTE THAT ENDS BEFORE A LAZY
   LINE, SO PHASE 1 IS QUADRATIC IN SUCH QUOTES** (PR #510 Codex F-R3 of 2026-10-26 on `0c3cffd3`, thread
-  4377112849 — **own**: the gather arrived in this PR at `dd9c9ac5` (R13, "block quotes are containers"),
-  and the same input is read linearly at its parent; **real, reproduced, NOT fixed here**). In
+  4377112849 — **own**: the gather was introduced by `dd9c9ac5` (PR510 Codex R13, 2026-09-07, "block quotes
+  are containers"); `5c74cef7` only moved the code (`Memo` out of `plan_memo_tables.py`). At `dd9c9ac5^`
+  (`git archive dd9c9ac5^ .claude/tools | tar -x`, `Memo` then in `plan_memo_tables.py`, the same probe) the same
+  input is read linearly: 0.006 / 0.012 / 0.028 s at 500 / 1000 / 2000 repetitions; **real, reproduced, NOT fixed here**). In
   `plan_memo_memo.Memo._quote` the gather takes every following line: a line with a `>` marker is
   always content, and a line without one (a lazy candidate) is taken unless `block_end(content, …,
   True, inner_lazy)` calls it a boundary — asked with a paragraph OPEN, because whether a paragraph is
@@ -1671,7 +1673,8 @@ committed here by the note that corrected it.
   heading (no paragraph is open at `lazy`, so there it is a boundary); the driver reads `lazy` as a
   paragraph; and the next `> # heading` opens a quote whose gather takes the rest again — N quotes,
   each gathering the lines after it. The blocks read are right (quote, heading, paragraph, N times, as
-  cmark 0.31.2 renders it); the cost is not. Measured on `a640a17b`'s code (`python3` = 3.14.7, arm64
+  cmark 0.31.2 renders it); the cost is not, and the nested-quote shape
+  `> > # h\nlazy\n` is quadratic through the same gather (0.37 s at 500, 1.50 s at 1000 repetitions). Measured on `a640a17b`'s code (`python3` = 3.14.7, arm64
   macOS, one run each, the run whose output follows the probe in the body of the first commit whose message contains F-R3
   QUOTE-GATHER PROBE: `git log --reverse --grep='F-R3 QUOTE-GATHER PROBE' --format=%H | head -1 |
   xargs git log -1 --format=%B`; it builds `Memo` over the text written to a temporary file and counts
