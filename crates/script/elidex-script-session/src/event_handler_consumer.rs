@@ -32,9 +32,13 @@
 //! introduce a new `elidex-form → elidex-script-session` dependency
 //! edge. It is the first `MutationDispatcher` impl in this crate.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, MutationEvent, TagType};
+use elidex_ecs::{EcsDom, Entity, MutationEvent};
 
-use crate::EventListeners;
+use crate::event_handler_processing::{
+    clear_inline_handler, event_handler_attr_lookup, process_before_handler_write,
+    process_bound_document, process_handler_content_attributes, resolve_handler_target,
+    set_inline_handler, ProcessingTiming,
+};
 
 /// Which mixin / interface an event-handler IDL attribute belongs to
 /// (WHATWG HTML §8.1.8.2 / §8.1.8.2.1). Drives VM-side prototype
@@ -310,36 +314,6 @@ pub fn event_handler_attr_spec_level(name: &str) -> elidex_plugin::WebApiSpecLev
     }
 }
 
-/// If `name` is a known event-handler content attribute, return its event
-/// type (name minus `on`) and [`HandlerScope`]. Linear scan, off the hot
-/// path. The scope drives `<body>` WindowEventHandlers delegation (below).
-fn event_handler_attr_lookup(name: &str) -> Option<(&str, HandlerScope)> {
-    EVENT_HANDLER_ATTRS
-        .iter()
-        .find(|(attr, _)| *attr == name)
-        .map(|(attr, scope)| (&attr[2..], *scope))
-}
-
-/// Resolve the entity whose [`EventListeners`] component should hold an
-/// inline handler for `(origin, scope)`. WindowEventHandlers content
-/// attributes on a `<body>` element delegate to the Window object (WHATWG
-/// HTML §8.1.8.2) — the IDL accessors read/write the Window, so the inline
-/// source must land there too. Everything else stays on the origin entity.
-fn resolve_handler_target(origin: Entity, scope: HandlerScope, dom: &EcsDom) -> Entity {
-    if scope == HandlerScope::Window && is_body_element(origin, dom) {
-        dom.window_entity().unwrap_or(origin)
-    } else {
-        origin
-    }
-}
-
-/// `true` if `entity` is an HTML `<body>` element.
-fn is_body_element(entity: Entity, dom: &EcsDom) -> bool {
-    dom.world()
-        .get::<&TagType>(entity)
-        .is_ok_and(|t| t.0.eq_ignore_ascii_case("body"))
-}
-
 /// Inline event-handler content-attribute consumer. Per-entity handler state lives
 /// in the [`EventListeners`] ECS component; the struct itself carries only the
 /// session's [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) (immutable, set at
@@ -373,9 +347,11 @@ impl EventHandlerAttributeConsumer {
     /// D-5 / D-11), called by `ConsumerDispatcher::initialize_consumers`
     /// before the dispatcher is installed.
     ///
-    /// Scaffold: a no-op, HEAD's behaviour (HEAD processes nothing at bind).
+    /// Keyed on, and marked on, the bound `document` (not `document_root()`);
+    /// a document already marked [`PreBindHandlerAttrsProcessed`](crate::PreBindHandlerAttrsProcessed)
+    /// is not walked again.
     pub fn initialize_from_tree(&mut self, dom: &mut EcsDom, document: Entity) {
-        let _ = (self.policy, dom, document);
+        process_bound_document(dom, document, self.policy);
     }
 
     /// Dispatch entry invoked by the binding-layer composer.
@@ -414,6 +390,9 @@ fn handle_attribute_change(
     if !policy.installs(event_handler_attr_spec_level(name)) {
         return;
     }
+    // D-4 / D-8: the first handler write on an unprocessed element processes
+    // its creation-time handler attributes first (restricted; see the entry).
+    process_before_handler_write(dom, node, name, policy);
     let event_type = event_type.to_string();
     let target = resolve_handler_target(node, scope, dom);
     match new_value {
@@ -434,75 +413,16 @@ fn handle_attribute_change(
 /// [`EcsDom::traverse_descendants`] excludes the root, so process the
 /// inserted `node` itself plus every descendant.
 fn handle_insert(policy: elidex_plugin::SpecLevelPolicy, node: Entity, dom: &mut EcsDom) {
-    // Collect the subtree's entities first (closure captures only the
-    // Vec), then read attributes + mutate EventListeners — avoids
-    // overlapping borrows of `dom`.
+    // Collect the walk set first (closure captures only the Vec), then
+    // process each entity: a write touches only `EventListeners` and the
+    // entity's own marker, which no later read in this arm reads.
     let mut entities: Vec<Entity> = vec![node];
     dom.traverse_descendants(node, |descendant| {
         entities.push(descendant);
         true
     });
-    // (origin entity, scope, event_type, source). Target resolution is
-    // deferred to after the `Attributes` borrow is released to avoid
-    // overlapping `dom` borrows.
-    let mut pending: Vec<(Entity, HandlerScope, String, String)> = Vec::new();
     for entity in entities {
-        if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
-            for (attr_name, attr_value) in attrs.iter() {
-                if let Some((event_type, scope)) = event_handler_attr_lookup(attr_name) {
-                    // A2: skip a policy-excluded handler attr (`onstorage` in
-                    // `BrowserCore`/`App`) — same gate as the AttributeChange arm + the
-                    // IDL seam, so baked-in `<body onstorage=…>` markup stays inert too.
-                    if !policy.installs(event_handler_attr_spec_level(attr_name)) {
-                        continue;
-                    }
-                    pending.push((
-                        entity,
-                        scope,
-                        event_type.to_string(),
-                        attr_value.to_string(),
-                    ));
-                }
-            }
-        }
-    }
-    for (origin, scope, event_type, source) in pending {
-        let target = resolve_handler_target(origin, scope, dom);
-        set_inline_handler(target, &event_type, &source, dom);
-    }
-}
-
-/// Ensure an event-handler listener exists for `(entity, event_type)` and
-/// record its uncompiled inline source.
-fn set_inline_handler(entity: Entity, event_type: &str, source: &str, dom: &mut EcsDom) {
-    ensure_event_listeners(entity, dom);
-    if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
-        let id = listeners
-            .find_event_handler(event_type)
-            .unwrap_or_else(|| listeners.add_event_handler(event_type.to_string()));
-        listeners.set_uncompiled(id, source);
-    }
-}
-
-/// Content-attribute removal (`removeAttribute('onclick')`): mark the
-/// handler cleared (WHATWG HTML §8.1.8.1 — the handler value becomes
-/// null). The listener entry is kept for registration-order stability;
-/// the `cleared` flag makes the VM-side getter/dispatch drop any already-
-/// compiled callable (which this engine-independent crate cannot reach)
-/// and treat the handler as null until it is reactivated.
-fn clear_inline_handler(entity: Entity, event_type: &str, dom: &mut EcsDom) {
-    if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
-        if let Some(id) = listeners.find_event_handler(event_type) {
-            listeners.mark_cleared(id);
-        }
-    }
-}
-
-/// Attach an empty [`EventListeners`] component if absent (so the
-/// subsequent `&mut` borrow succeeds).
-fn ensure_event_listeners(entity: Entity, dom: &mut EcsDom) {
-    if dom.world().get::<&EventListeners>(entity).is_err() {
-        let _ = dom.world_mut().insert_one(entity, EventListeners::new());
+        process_handler_content_attributes(dom, entity, policy, ProcessingTiming::Insertion);
     }
 }
 

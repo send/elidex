@@ -31,6 +31,7 @@ pub use attribute::AttributeWrite;
 pub use geometry::{FragmentView, ScreenGeometry};
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 pub(crate) use text_util::splice_utf16;
+pub use tree::TemplateContentsWalk;
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,

@@ -30,7 +30,7 @@
 use elidex_api_canvas::CanvasReconciler;
 use elidex_custom_elements::CustomElementReactionConsumer;
 use elidex_dom_api::{BaseUrlMaintainer, LiveRangeBridge, NodeIteratorAdjuster};
-use elidex_ecs::{EcsDom, MutationDispatcher, MutationEvent};
+use elidex_ecs::{EcsDom, Entity, MutationDispatcher, MutationEvent};
 use elidex_form::FormControlReconciler;
 use elidex_script_session::EventHandlerAttributeConsumer;
 
@@ -132,8 +132,9 @@ impl ConsumerDispatcher {
     /// dispatcher is installed; post-install Insert events handle
     /// dynamic additions.  Add a delegate call only when a future
     /// consumer derives state from pre-bind tree structure.
-    pub fn initialize_consumers(&mut self, dom: &mut EcsDom) {
-        self.base_url.initialize_from_tree(dom);
+    pub fn initialize_consumers(&mut self, dom: &mut EcsDom, document: Entity) {
+        self.base_url.initialize_from_tree(dom, document);
+        self.event_handler_attrs.initialize_from_tree(dom, document);
     }
 }
 

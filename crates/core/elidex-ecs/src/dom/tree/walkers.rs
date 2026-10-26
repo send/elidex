@@ -2,9 +2,30 @@
 //! traversal, connectedness, document-order descent, tree-order comparison,
 //! inclusive-ancestor checks, and tree-root resolution.
 
+use std::collections::HashSet;
+
 use super::super::{EcsDom, MAX_ANCESTOR_DEPTH};
 use crate::components::{Attributes, NodeKind, ShadowRoot};
 use hecs::Entity;
+
+/// Whether [`EcsDom::for_each_uncapped_shadow_inclusive`] enters a
+/// `<template>`'s content fragment.
+///
+/// WHATWG HTML §4.12.3 The template element: the *template contents* are a
+/// `DocumentFragment` that is not a descendant of the template (held only by
+/// the `TemplateContents` component, never a light child), so tree-order and
+/// shadow-including-tree-order walks do not reach it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateContentsWalk {
+    /// Also visit each template's content fragment and its subtree. Used by
+    /// structural walks that must reach every entity a subtree owns:
+    /// teardown ([`EcsDom::despawn_subtree`], else the contents orphan) and
+    /// re-home ([`EcsDom::adopt_subtree`], so HTML §13.4 fragment adopt moves
+    /// the contents with the template).
+    Include,
+    /// Visit the shadow-including tree only, as the spec's tree order does.
+    Exclude,
+}
 
 impl EcsDom {
     /// Pre-order shadow-including descendant walk (WHATWG DOM §4.2.2
@@ -54,6 +75,56 @@ impl EcsDom {
             let children: Vec<Entity> = self.children_iter(node).collect();
             for child in children.into_iter().rev() {
                 stack.push((child, depth + 1));
+            }
+        }
+    }
+
+    /// Visit `root` and every shadow-including descendant exactly once, in
+    /// shadow-including tree order, with no `MAX_ANCESTOR_DEPTH` cap in either
+    /// dimension.
+    ///
+    /// WHATWG DOM §4.8 Interface ShadowRoot: *shadow-including tree order* is
+    /// "shadow-including preorder, depth-first traversal", so a host's shadow
+    /// tree is visited right after the host and before its light children
+    /// (the shadow-root entity itself is visited too). With
+    /// [`TemplateContentsWalk::Include`], each template's content fragment is
+    /// visited after the template's own subtree (it is outside tree order).
+    ///
+    /// The complete-subtree walk shared by [`Self::despawn_subtree`]
+    /// (teardown), [`Self::adopt_subtree`] (re-home) and the event-handler
+    /// bind pass (`elidex-script-session`). Breadth uses the uncapped
+    /// [`Self::child_list_uncapped`], depth an explicit work-list; a `visited`
+    /// set replaces the caps as the corruption/cycle termination guard (each
+    /// entity is enumerated once, however malformed the links).
+    pub fn for_each_uncapped_shadow_inclusive<F: FnMut(Entity)>(
+        &self,
+        root: Entity,
+        template_contents: TemplateContentsWalk,
+        visit: &mut F,
+    ) {
+        let mut visited = HashSet::new();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            visit(node);
+            // Pushed first, so popped last: the content fragment is visited
+            // after the template's whole subtree.
+            if template_contents == TemplateContentsWalk::Include {
+                if let Some(fragment) = self.template_contents_fragment(node) {
+                    stack.push(fragment);
+                }
+            }
+            // Light children in reverse, so `pop()` returns them in order.
+            for child in self.child_list_uncapped(node).into_iter().rev() {
+                stack.push(child);
+            }
+            // The shadow-root entity is attached out-of-band (not a light
+            // child). Pushed last, so popped next: the shadow tree comes
+            // right after the host, before its light children.
+            if let Some(sr) = self.get_shadow_root(node) {
+                stack.push(sr);
             }
         }
     }

@@ -310,7 +310,7 @@ impl Vm {
             // do not derive ECS state from pre-bind tree structure
             // and are no-ops here; see
             // `ConsumerDispatcher::initialize_consumers`.
-            dispatcher.initialize_consumers(hd.dom());
+            dispatcher.initialize_consumers(hd.dom(), document);
             let displaced = hd.dom().set_mutation_dispatcher(Box::new(dispatcher));
             debug_assert!(
                 displaced.is_none(),

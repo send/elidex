@@ -273,16 +273,16 @@ impl BaseUrlMaintainer {
     /// [`DocumentBaseUrl`] re-write).  Invoked by
     /// `ConsumerDispatcher::initialize_consumers` from the
     /// bind path.
-    pub fn initialize_from_tree(&mut self, dom: &mut EcsDom) {
-        let Some(root) = dom.document_root() else {
+    pub fn initialize_from_tree(&mut self, dom: &mut EcsDom, document: Entity) {
+        if !dom.contains(document) {
             return;
-        };
+        }
         // Delegate to the document-scoped primitive so the bind path and
         // the out-of-band population path (inert `DOMParser` document)
         // share ONE base-url finalizer (one-issue-one-way). The bind path's
         // fallback stays `about_blank_url()` — unchanged from before the
         // fallback parameter was threaded for the §8.5.1 DOMParser path.
-        initialize_base_url_for_document(dom, root, &about_blank_url());
+        initialize_base_url_for_document(dom, document, &about_blank_url());
     }
 
     /// Single-method dispatch entry invoked by

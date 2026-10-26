@@ -2,30 +2,29 @@
 //! (umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`,
 //! slice a; per-PR plan `docs/plans/2026-10-eh-attrs-slice-a.md`).
 //!
-//! **Scaffold (plan §1.8 step 1).** Every public name the slice adds exists
-//! here with a HEAD-equivalent body: both markers are declared and never
-//! inserted, and [`process_before_handler_write`] is a no-op. The X-W
-//! classifier is the one pure new function written in full, so plan cell P2
-//! can pin it. The fix commit (plan §1.4–§1.6) replaces the bodies and moves
-//! the attribute-change-steps helpers here from `event_handler_consumer.rs`.
+//! The realisation of the *attribute change steps* (WHATWG HTML §8.1.8.1
+//! Event handlers) for event-handler content attributes, at three timings
+//! ([`ProcessingTiming`]): the bound document's first bind, insertion, and
+//! the first handler write. The consumer's arms
+//! (`event_handler_consumer.rs`) and the VM's IDL setters call into here.
 
-use elidex_ecs::{EcsDom, Entity, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType, TemplateContentsWalk};
+use elidex_plugin::SpecLevelPolicy;
 
-use crate::event_handler_consumer::{HandlerScope, EVENT_HANDLER_ATTRS};
+use crate::event_handler_consumer::{
+    event_handler_attr_spec_level, HandlerScope, EVENT_HANDLER_ATTRS,
+};
+use crate::EventListeners;
 
 /// The origin element's creation-time event-handler content attributes have
 /// been processed (umbrella D-1). Unit, `Send + Sync`, sparse: inserted only
 /// on an element that carries at least one handler content attribute of an
 /// ordinary pair.
-///
-/// Scaffold: declared, never inserted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HandlerAttrsProcessed;
 
 /// The bound Document's pre-bind tree has had its handler content attributes
 /// processed by the bind pass (umbrella D-5). Unit, on the Document entity.
-///
-/// Scaffold: declared, never inserted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PreBindHandlerAttrsProcessed;
 
@@ -35,39 +34,241 @@ pub const WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET: [&str; 6] = [
     "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
 ];
 
+/// The timing at which [`process_handler_content_attributes`] runs (umbrella
+/// K-0's T-a1 / T-a2 / T-a3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProcessingTiming {
+    /// T-a1: the bound document's first bind.
+    Bind,
+    /// T-a2: the consumer's Insert arm.
+    Insertion,
+    /// T-a3: the first handler write that passes the D-8 restriction.
+    HandlerWrite,
+}
+
+/// Run the attribute change steps for `element`'s event-handler content
+/// attributes (umbrella D-2), in `Attributes` order.
+///
+/// Ordinary pairs are processed once (K-1): skipped when `element` is
+/// already marked. Window-delegating pairs (X-W) bypass the once rule: they
+/// are delivered at [`ProcessingTiming::Bind`] and
+/// [`ProcessingTiming::Insertion`] and never at
+/// [`ProcessingTiming::HandlerWrite`]. `element` is marked iff it carries at
+/// least one ordinary handler content attribute, policy-excluded or not.
+pub(crate) fn process_handler_content_attributes(
+    dom: &mut EcsDom,
+    element: Entity,
+    policy: SpecLevelPolicy,
+    timing: ProcessingTiming,
+) {
+    // Snapshot (name, event_type, scope, value); no `Attributes` → nothing to do
+    // (Document, Window, text nodes, shadow-root entities).
+    let snapshot: Vec<(String, String, HandlerScope, String)> = {
+        let Ok(attrs) = dom.world().get::<&Attributes>(element) else {
+            return;
+        };
+        attrs
+            .iter()
+            .filter_map(|(name, value)| {
+                event_handler_attr_lookup(name).map(|(event_type, scope)| {
+                    (
+                        name.to_owned(),
+                        event_type.to_owned(),
+                        scope,
+                        value.to_owned(),
+                    )
+                })
+            })
+            .collect()
+    };
+    let marked = is_processed(dom, element);
+    let mut carries_ordinary = false;
+    let mut writes: Vec<(HandlerScope, String, String)> = Vec::new();
+    for (name, event_type, scope, value) in snapshot {
+        let window_delegating = is_window_delegating_pair(dom, element, &name);
+        if !window_delegating {
+            // Counted before the policy filter: an element whose only ordinary
+            // attributes are policy-excluded is still marked.
+            carries_ordinary = true;
+        }
+        if !policy.installs(event_handler_attr_spec_level(&name)) {
+            continue;
+        }
+        let deliver = match (window_delegating, timing) {
+            (true, ProcessingTiming::Bind | ProcessingTiming::Insertion) => true,
+            (true, ProcessingTiming::HandlerWrite) => false,
+            (false, _) => !marked,
+        };
+        if deliver {
+            writes.push((scope, event_type, value));
+        }
+    }
+    for (scope, event_type, value) in writes {
+        let target = resolve_handler_target(element, scope, dom);
+        set_inline_handler(target, &event_type, &value, dom);
+    }
+    if carries_ordinary && !marked {
+        let _ = dom.world_mut().insert_one(element, HandlerAttrsProcessed);
+    }
+}
+
+/// Write-side entry, called before a handler write (umbrella D-4 / D-8): by
+/// the consumer's AttributeChange arm after its lookup and policy check, and
+/// by both VM element setters after receiver resolution (D-6).
+///
+/// Processes `element` only if it is unmarked, the written pair is not
+/// Window-delegating, and `name` is `element`'s only deliverable ordinary
+/// handler content attribute (D-8 (a)). The restriction is recorded by slot
+/// `#11-eh-attrs-creation-time-call-sites`.
+pub fn process_before_handler_write(
+    dom: &mut EcsDom,
+    element: Entity,
+    name: &str,
+    policy: SpecLevelPolicy,
+) {
+    if is_processed(dom, element) {
+        return;
+    }
+    if is_window_delegating_pair(dom, element, name) {
+        return;
+    }
+    if deliverable_ordinary_names(dom, element, policy) != [name] {
+        return;
+    }
+    process_handler_content_attributes(dom, element, policy, ProcessingTiming::HandlerWrite);
+}
+
+/// The bind pass (umbrella D-5 / D-11): process every element of the bound
+/// `document`'s shadow-including tree, uncapped, template contents excluded,
+/// once per document.
+pub(crate) fn process_bound_document(dom: &mut EcsDom, document: Entity, policy: SpecLevelPolicy) {
+    if !dom.contains(document)
+        || dom
+            .world()
+            .get::<&PreBindHandlerAttrsProcessed>(document)
+            .is_ok()
+    {
+        return;
+    }
+    let mut nodes = Vec::new();
+    dom.for_each_uncapped_shadow_inclusive(document, TemplateContentsWalk::Exclude, &mut |e| {
+        nodes.push(e);
+    });
+    for node in nodes {
+        process_handler_content_attributes(dom, node, policy, ProcessingTiming::Bind);
+    }
+    let _ = dom
+        .world_mut()
+        .insert_one(document, PreBindHandlerAttrsProcessed);
+}
+
+fn is_processed(dom: &EcsDom, element: Entity) -> bool {
+    dom.world().get::<&HandlerAttrsProcessed>(element).is_ok()
+}
+
+/// `element`'s handler content attribute names that are ordinary (not
+/// Window-delegating) and installed by `policy`, in `Attributes` order.
+fn deliverable_ordinary_names(
+    dom: &EcsDom,
+    element: Entity,
+    policy: SpecLevelPolicy,
+) -> Vec<String> {
+    let Ok(attrs) = dom.world().get::<&Attributes>(element) else {
+        return Vec::new();
+    };
+    attrs
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| {
+            event_handler_attr_lookup(name).is_some()
+                && policy.installs(event_handler_attr_spec_level(name))
+                && !is_window_delegating_pair(dom, element, name)
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Steps 1–2 of *determining the target of an event handler* (WHATWG HTML
 /// §8.1.8.1 Event handlers): `true` iff those steps do not return the
 /// element. Reads the tag and the name only (umbrella X-W).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "scaffold: wired by the fix commit (plan §1.8)")
-)]
 pub(crate) fn is_window_delegating_pair(dom: &EcsDom, element: Entity, name: &str) -> bool {
     is_body_or_frameset(dom, element)
-        && (EVENT_HANDLER_ATTRS
-            .iter()
-            .any(|(attr, scope)| *attr == name && *scope == HandlerScope::Window)
-            || WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET.contains(&name))
+        && (matches!(
+            event_handler_attr_lookup(name),
+            Some((_, HandlerScope::Window))
+        ) || WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET.contains(&name))
 }
 
 /// `true` if `element` is a `body` or a `frameset` element, its tag compared
-/// ASCII-case-insensitively as HEAD's `is_body_element` compares it.
+/// ASCII-case-insensitively as [`is_body_element`] compares it.
 pub(crate) fn is_body_or_frameset(dom: &EcsDom, element: Entity) -> bool {
     dom.world()
         .get::<&TagType>(element)
         .is_ok_and(|t| t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset"))
 }
 
-/// Write-side entry, called before a handler write (umbrella D-4 / D-8).
-///
-/// Scaffold: a no-op, HEAD's behaviour (HEAD processes nothing at a write).
-pub fn process_before_handler_write(
-    dom: &mut EcsDom,
-    element: Entity,
-    name: &str,
-    policy: elidex_plugin::SpecLevelPolicy,
-) {
-    let _ = (dom, element, name, policy);
+/// If `name` is a known event-handler content attribute, return its event
+/// type (name minus `on`) and [`HandlerScope`]. Linear scan, off the hot
+/// path. The scope drives `<body>` WindowEventHandlers delegation (below).
+pub(crate) fn event_handler_attr_lookup(name: &str) -> Option<(&str, HandlerScope)> {
+    EVENT_HANDLER_ATTRS
+        .iter()
+        .find(|(attr, _)| *attr == name)
+        .map(|(attr, scope)| (&attr[2..], *scope))
+}
+
+/// Resolve the entity whose [`EventListeners`] component should hold an
+/// inline handler for `(origin, scope)`. WindowEventHandlers content
+/// attributes on a `<body>` element delegate to the Window object (WHATWG
+/// HTML §8.1.8.2) — the IDL accessors read/write the Window, so the inline
+/// source must land there too. Everything else stays on the origin entity.
+pub(crate) fn resolve_handler_target(origin: Entity, scope: HandlerScope, dom: &EcsDom) -> Entity {
+    if scope == HandlerScope::Window && is_body_element(origin, dom) {
+        dom.window_entity().unwrap_or(origin)
+    } else {
+        origin
+    }
+}
+
+/// `true` if `entity` is an HTML `<body>` element.
+fn is_body_element(entity: Entity, dom: &EcsDom) -> bool {
+    dom.world()
+        .get::<&TagType>(entity)
+        .is_ok_and(|t| t.0.eq_ignore_ascii_case("body"))
+}
+
+/// Ensure an event-handler listener exists for `(entity, event_type)` and
+/// record its uncompiled inline source.
+pub(crate) fn set_inline_handler(entity: Entity, event_type: &str, source: &str, dom: &mut EcsDom) {
+    ensure_event_listeners(entity, dom);
+    if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
+        let id = listeners
+            .find_event_handler(event_type)
+            .unwrap_or_else(|| listeners.add_event_handler(event_type.to_string()));
+        listeners.set_uncompiled(id, source);
+    }
+}
+
+/// Content-attribute removal (`removeAttribute('onclick')`): mark the
+/// handler cleared (WHATWG HTML §8.1.8.1 — the handler value becomes
+/// null). The listener entry is kept for registration-order stability;
+/// the `cleared` flag makes the VM-side getter/dispatch drop any already-
+/// compiled callable (which this engine-independent crate cannot reach)
+/// and treat the handler as null until it is reactivated.
+pub(crate) fn clear_inline_handler(entity: Entity, event_type: &str, dom: &mut EcsDom) {
+    if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
+        if let Some(id) = listeners.find_event_handler(event_type) {
+            listeners.mark_cleared(id);
+        }
+    }
+}
+
+/// Attach an empty [`EventListeners`] component if absent (so the
+/// subsequent `&mut` borrow succeeds).
+fn ensure_event_listeners(entity: Entity, dom: &mut EcsDom) {
+    if dom.world().get::<&EventListeners>(entity).is_err() {
+        let _ = dom.world_mut().insert_one(entity, EventListeners::new());
+    }
 }
 
 /// Shared harness for the unit cells (plan §4.1 "Unit (session)").
