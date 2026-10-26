@@ -599,7 +599,7 @@ class TestOfflineRegimePins(DriverCase, unittest.TestCase):
         # The regime keys are spelled three times in the driver; tie them to REGIME_KEYS.
         base = {**{k: "sentinel-" + k for k in REGIME_KEYS}, "UNRELATED": "u", "GIT_DIR": "/x"}
         env = DRV.regime_env(base, "/g", 1234, "/c")
-        moved = {k for k in set(base) | set(env) if base.get(k) != env.get(k)} - {"GIT_DIR"}
+        moved = {k for k in base.keys() | env if base.get(k) != env.get(k)} - {"GIT_DIR"}
         self.assertEqual(moved, set(REGIME_KEYS))
         self.assertEqual((env["UNRELATED"], "GIT_DIR" in env), ("u", False))
         text = DRIVER.read_text(encoding="utf-8")

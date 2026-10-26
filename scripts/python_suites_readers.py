@@ -504,18 +504,25 @@ def tools_problems(text):
 
 _TKEY = re.compile(r"""^(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))[ ]*=[ ]*""")
 _THEADER = re.compile(r"^\[\[?([^\[\]]+)\]\]?[ ]*(#.*)?$")
+_TPART = re.compile(r"""[ ]*(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))[ ]*""")
 
 
 def _toml_header_path(h, lineno):
-    if '"' in h and "\\" in h:
-        raise ReaderError(lineno, "backslash escape in a quoted header part not modelled", h)
-    parts = []
-    for p in h.split("."):
-        p = p.strip()
-        if len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'":
-            p = p[1:-1]
-        parts.append(p)
-    return ".".join(parts)
+    """The header's key parts, each bare or quoted (the `_TKEY` key grammar), joined
+    by `.`. Anything else -- a backslash escape, a part that is not one key, text
+    between parts -- raises."""
+    parts, pos = [], 0
+    while True:
+        m = _TPART.match(h, pos)
+        if m is None:
+            raise ReaderError(lineno, "unmodelled header key", h)
+        parts.append(_key(m))
+        pos = m.end()
+        if pos == len(h):
+            return parts
+        if h[pos] != ".":
+            raise ReaderError(lineno, "unmodelled header key", h)
+        pos += 1
 
 
 def _toml_value(v, lineno):
@@ -543,38 +550,43 @@ def _toml_value(v, lineno):
     raise ReaderError(lineno, "unmodelled value", v)
 
 
-def _scan_strings(raw, state, lineno):
-    """Advance the (open multi-line string delimiter or None, open-array depth)
-    state over one line; return the new state. The body of a multi-line string
+_CLOSED = (None, 0)
+
+
+def _scan_strings(raw, carry, lineno):
+    """Advance the carry (open multi-line string delimiter or None, open-array
+    depth) over one line; return the new carry. The body of a multi-line string
     and the continuation lines of an open array are text, never structure. A
-    close that cannot be read unambiguously (an escaped `\"\"\"`, or a fourth
-    quote right after it) raises."""
-    state, depth = state
+    close that cannot be read unambiguously (an escaped `\"\"\"`, a fourth quote
+    right after it, a `]` with no array open) raises."""
+    delim, depth = carry
     i, n = 0, len(raw)
     while i < n:
-        if state is not None:
-            j = raw.find(state, i)
+        if delim is not None:
+            j = raw.find(delim, i)
             if j < 0:
-                return state, depth
+                return delim, depth
             slashes = len(raw[:j]) - len(raw[:j].rstrip("\\"))
-            if (state == '"""' and slashes % 2) or raw[j + 3 : j + 4] == state[0]:
+            if (delim == '"""' and slashes % 2) or raw[j + 3 : j + 4] == delim[0]:
                 raise ReaderError(lineno, "ambiguous multi-line string close", raw)
-            state, i = None, j + 3
+            delim, i = None, j + 3
             continue
         c = raw[i]
         if c == "#":
             return None, depth
         if raw.startswith(('"""', "'''"), i):
-            state, i = raw[i : i + 3], i + 3
+            delim, i = raw[i : i + 3], i + 3
         elif c in "\"'":
             j = i + 1
             while j < n and raw[j] != c:
                 j += 2 if (c == '"' and raw[j] == "\\") else 1
             i = j + 1
         else:
-            depth = max(0, depth + (c == "[") - (c == "]"))
+            depth += (c == "[") - (c == "]")
+            if depth < 0:
+                raise ReaderError(lineno, "a ] with no array open", raw)
             i += 1
-    return state, depth
+    return delim, depth
 
 
 def mise_sections(text, wanted):
@@ -593,10 +605,10 @@ def mise_sections(text, wanted):
     string or array, or a close that is ambiguous, is a ReaderError."""
     out = {}
     current = None
-    in_string = (None, 0)
+    carry = _CLOSED
     for lineno, raw in enumerate(text.splitlines(), 1):
-        if in_string != (None, 0):
-            in_string = _scan_strings(raw, in_string, lineno)
+        if carry != _CLOSED:
+            carry = _scan_strings(raw, carry, lineno)
             continue
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -606,11 +618,11 @@ def mise_sections(text, wanted):
             if hm is None:
                 raise ReaderError(lineno, "unmodelled table header", raw)
             path = _toml_header_path(hm.group(1), lineno)
-            if path == "tasks" or any(path.startswith("tasks.%s." % w) for w in wanted):
+            if path == ["tasks"] or (len(path) > 2 and path[:2] in (["tasks", w] for w in wanted)):
                 raise ReaderError(lineno, "a second way to define a read task", raw)
             current = None
             for w in wanted:
-                if path == "tasks." + w:
+                if path == ["tasks", w]:
                     if w in out:
                         raise ReaderError(lineno, "duplicate section", raw)
                     out[w] = {}
@@ -619,7 +631,7 @@ def mise_sections(text, wanted):
         if current is None:
             if re.match(r"""^["']?tasks["']?\s*\.""", line):
                 raise ReaderError(lineno, "a dotted tasks. key", raw)
-            in_string = _scan_strings(raw, (None, 0), lineno)
+            carry = _scan_strings(raw, carry, lineno)
             continue
         km = _TKEY.match(line)
         if km is None:
@@ -628,8 +640,8 @@ def mise_sections(text, wanted):
         if key in out[current]:
             raise ReaderError(lineno, "duplicate key %r" % key, raw)
         out[current][key] = (_toml_value(line[km.end():], lineno), lineno)
-    if in_string != (None, 0):
-        raise ReaderError(0, "unterminated multi-line string or array", in_string)
+    if carry != _CLOSED:
+        raise ReaderError(0, "unterminated multi-line string or array", carry)
     for w in wanted:
         if w not in out:
             raise ReaderError(0, "section [tasks.%s] missing" % w, "")

@@ -326,6 +326,10 @@ class TestReaderPins(unittest.TestCase):
         self.assertReaderRed(mise_problems, mise_fixture(extra='\n[tasks."tools-test".env]\nX = "1"\n'))
         esc = mise_fixture(extra='\n[tasks."tools\\u002dtest".env]\nX = "1"\n')
         self.assertReaderRed(mise_problems, esc, self.line_of(esc, "u002d"))
+        junk = mise_fixture(extra='\n[tasks."tools-test"x]\nX = "1"\n')
+        self.assertReaderRed(mise_problems, junk, self.line_of(junk, '"x]'))
+        # A quoted part is one key, dots included: this is not a subtable of tools-test.
+        self.assertEqual(mise_problems(mise_fixture(extra='\n[tasks."tools-test.env"]\nX = "1"\n')), [])
         text = mise_fixture(tt="run =")
         self.assertReaderRed(mise_problems, text, text.splitlines().index("run =") + 1)
 
@@ -345,6 +349,8 @@ class TestReaderPins(unittest.TestCase):
             arr = '\n[tasks.other]\nrun = [\n%s\n  "b",\n]\n[tasks.another]\nrun = "x"\n' % cont
             self.assertEqual(mise_problems(live + arr), [], cont)
         self.assertReaderRed(mise_problems, live + '\n[tasks.other]\nrun = [\n  [ "x" ],\n')
+        stray = live + '\n[tasks.other]\nrun = "x" ]\n'
+        self.assertReaderRed(mise_problems, stray, self.line_of(stray, '"x" ]'))
 
     def test_M2_tools_test_has_no_sources_or_outputs(self):
         for line in ('sources = ["scripts/**"]', 'outputs = ["x"]'):

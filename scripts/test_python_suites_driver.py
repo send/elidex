@@ -257,9 +257,6 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         self.assertGreen(s.run())
 
     def test_P6_pins_file_never_credits_a_live_entry_point(self):
-        constants = set()
-        for rel in PIN_FILES:
-            constants |= DRV.string_constants(DRV.parse((REPO / rel).read_bytes(), rel))
         code, out = _launch(
             ["git", "-C", REPO, "ls-files", "-z", "--", "*.py"], env=base_env(), purpose="git"
         )
@@ -267,11 +264,15 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         tracked = sorted(p for p in out.split("\0") if p)
         for rel in PIN_FILES:
             self.assertIn(rel, tracked)
+        trees = {p: DRV.parse((REPO / p).read_bytes(), p) for p in tracked}
+        constants = set()
+        for rel in PIN_FILES:
+            constants |= DRV.string_constants(trees[rel])
         # Completeness, by property: a module a pin file imports from scripts/, and a file that
         # imports a helper module of the pins, are pin files too.
         def imports(rel):
             names = set()
-            for n in ast.walk(DRV.parse((REPO / rel).read_bytes(), rel)):
+            for n in ast.walk(trees[rel]):
                 if isinstance(n, ast.Import):
                     names |= {a.name.split(".")[0] for a in n.names}
                 elif isinstance(n, ast.ImportFrom) and not n.level and n.module:
@@ -291,8 +292,7 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         for path in tracked:
             if re.search(DRV.MEMBER_RE, path):
                 continue  # members are not entry points for 3(b)
-            ptree = DRV.parse((REPO / path).read_bytes(), path)
-            if DRV.is_self_test_entry_point(ptree):
+            if DRV.is_self_test_entry_point(trees[path]):
                 entry_points.append(path)
         for e in entry_points:
             for rel in PIN_FILES:
