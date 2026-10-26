@@ -254,9 +254,10 @@ accesskit_winit = "0.33"
 # cache elidex never configures.)
 # - `runtime`, `std`: `Engine` / `Store` / `Module` / `Instance` / `Linker`.
 # - `cranelift`: `Module::new` compiles at run time; without a compiler it fails.
-# - `parallel-compilation`: that compile runs its functions on the shared rayon
+# - `parallel-compilation`: that compile runs its functions on rayon's global
 #   pool rather than on one thread.
-# - `gc`: `ExternRef` / `AnyRef` / `ExnRef` values (`engine_conv.rs`).
+# - `gc`: externref (reference types) in modules, and `ExternRef` values
+#   (`engine_conv.rs`, `handle.rs`).
 # - `gc-copying`: a GC engine needs a collector; this is the one
 #   `Collector::Auto` picked under the old defaults.
 wasmtime = { version = "50.0.0", default-features = false, features = [

@@ -188,7 +188,7 @@ fn module_static_methods_brand_check_and_return_arrays() {
 /// builder previously installed members with `PropertyAttrs::METHOD`
 /// (¬E), making `Object.keys(desc)` skip them.  Uses
 /// `ANSWER_MODULE_BYTES_JS` (one export) + `IMPORT_MODULE_BYTES_JS`
-/// (one import) defined later in this file as the descriptor input.
+/// (one import), imported from `tests_wasm.rs`, as the descriptor input.
 #[test]
 fn module_descriptors_are_enumerable_data_properties() {
     let mut vm = Vm::new();
