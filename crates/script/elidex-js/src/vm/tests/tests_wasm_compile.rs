@@ -255,3 +255,37 @@ fn compile_rejects_with_compile_error_on_invalid_bytes() {
         "compile"
     );
 }
+
+/// The text format is not a module. WASM JS API "compile a WebAssembly
+/// module" step 1 is `module_decode(bytes)`, the binary decoder, so the
+/// UTF-8 bytes of `(module)` are an error: `new WebAssembly.Module`
+/// throws `CompileError` (its step 3) and `WebAssembly.compile` rejects
+/// with one. wasmtime's `wat` feature would have parsed the text instead;
+/// elidex builds wasmtime without it.
+#[test]
+fn text_format_is_a_compile_error() {
+    const TEXT_MODULE_BYTES_JS: &str =
+        "new Uint8Array([0x28,0x6d,0x6f,0x64,0x75,0x6c,0x65,0x29]).buffer";
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "try {{ new WebAssembly.Module({TEXT_MODULE_BYTES_JS}); false }} \
+             catch (e) {{ e instanceof WebAssembly.CompileError }}"
+        )
+    ));
+    let _ = vm
+        .eval(&format!(
+            "globalThis.__text_test__ = {{}}; \
+             WebAssembly.compile({TEXT_MODULE_BYTES_JS}).then( \
+                 _ => {{ globalThis.__text_test__.outcome = 'resolved'; }}, \
+                 e => {{ globalThis.__text_test__.outcome = \
+                            e instanceof WebAssembly.CompileError ? 'compile' : 'other'; }} \
+             );"
+        ))
+        .unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "String(globalThis.__text_test__.outcome)"),
+        "compile"
+    );
+}

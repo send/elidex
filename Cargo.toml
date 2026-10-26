@@ -247,7 +247,26 @@ accesskit_winit = "0.33"
 # release line (on 49.x, RUSTSEC-2026-0315 … 0379 needed 49.0.1 through
 # 49.0.4): when `cargo deny` reports one on 50.x, raise this floor to the
 # line's patched release. wasmtime 50 needs rustc 1.97 (`rust-toolchain.toml`).
-wasmtime = "50.0.0"
+#
+# Default features are off: each feature below is one elidex-wasm-runtime uses,
+# and anything wasmtime adds to its defaults stays out until something here
+# needs it. (The default `cache` feature pulled in zstd for an on-disk compile
+# cache elidex never configures.)
+# - `runtime`, `std`: `Engine` / `Store` / `Module` / `Instance` / `Linker`.
+# - `cranelift`: `Module::new` compiles at run time; without a compiler it fails.
+# - `parallel-compilation`: that compile runs its functions on the shared rayon
+#   pool rather than on one thread.
+# - `gc`: `ExternRef` / `AnyRef` / `ExnRef` values (`engine_conv.rs`).
+# - `gc-copying`: a GC engine needs a collector; this is the one
+#   `Collector::Auto` picked under the old defaults.
+wasmtime = { version = "50.0.0", default-features = false, features = [
+    "runtime",
+    "std",
+    "cranelift",
+    "parallel-compilation",
+    "gc",
+    "gc-copying",
+] }
 wat = "1"
 static_assertions = "1"
 rayon = "1"
