@@ -81,7 +81,7 @@ s/(^|\/)\\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host
 # (A RECORD WAS REMOVED HERE in CR2: it rewrote K2RE_PATH's whole value, `.*`, restating text it never read, and its mutant was byte-identical to the line above's, K2RE_PATH without `(^|/)`; the `2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md` §6.1 remove row for records.sh:81. The line stays because the documents cite records by their records.sh line.)
 s/_SELFTEST="$2"/_SELFTEST="${WEBREF_WIRE_SELFTEST:-$2}"/	an exported SELFTEST cannot redirect the scan
 s/\[ ! -d "${2:-}" \]/false/	a missing self-test root decides nothing
-s/^SCRATCH="$(_phys "$_raw_scratch")"/SCRATCH="$_raw_scratch"/	a relative scratch dir is removed on exit
+s/_od_d="[$](_phys "[$]2")"/_od_d="${2%\/}"/	a relative scratch dir is removed on exit
 s/if \[ "$_ENDS" -ne 1 \] || /if false \&\& /	a walk killed mid-scan is not a verdict
 s/\[ -x "$_ab_p" \] && return 0/return 0/	a tracked file under an unsearchable dir is not absent
 s/|| \[ -L "$_ab_p" \] || continue/|| [ -L "$_ab_p" ] || return 1/	a tracked directory deleted wholesale stays green
@@ -95,8 +95,19 @@ s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|2	a double quote inside an intermediate s
 s|\[^/\[:space:\]\]+/|[^/[:space:]'"'"']+/|2	a single quote inside an intermediate segment
 s|\[^/\[:space:\]\]+/|[^/[:space:]`]+/|2	a backtick inside an intermediate segment
 s|\[^/\[:space:\]\]+/(|[^/[:space:]"]+/(|	a quoted one-segment reference before a slash token fails safe
-s/SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""/SCRATCH="$(_phys "$_raw_scratch")"/	a restrictive umask decides nothing
+s/^_k2_own_dir SCRATCH "[$]{TMPDIR:-\/tmp}" k2scratch || :$/_k2_own_dir SCRATCH "${TMPDIR:-\/tmp}" k2scratch/	a restrictive umask decides nothing
 s/_root_p="$(_phys "$ROOT")" || _root_p=""/_root_p="$(_phys "$ROOT")"/	an unresolvable self-test root decides nothing
+s/^  \[ -n "[$]_od_a" \] || {/  true || {/	a mktemp that prints no path decides nothing and removes nothing
+s/not a new name inside [$]_od_d"; return 1 ;; esac/not a new name inside $_od_d" ;; esac/	a mktemp that answers the cwd costs the cwd nothing
+s/printf -v "[$]1" %s "[$]_K2_OD_TOP\/run"/printf -v "$1" %s "$_K2_OD_TOP"/	the exit path removes only the directory this run made
+s/mkdir "[$]_K2_OD_TOP\/run" 2>\/dev\/null ||/mkdir -p "$_K2_OD_TOP\/run" 2>\/dev\/null ||/	a scratch dir whose run directory exists decides nothing
+s/rmdir "[$]_K2_SCR_TOP" 2>\/dev\/null ||/false ||/	a relative scratch dir is removed on exit
+s/rmdir "[$]_K2_SCR_TOP" 2>\/dev\/null/rm -rf "$_K2_SCR_TOP"/	the exit path removes only the directory this run made
+s/^if \[ -z "[$]SCRATCH" \]; then$/if false; then/	a scratch dir whose run directory exists decides nothing
+s/\] || { _K2_OD_WHY="could not resolve the directory/] || : || { _K2_OD_WHY="could not resolve the directory/	the own-dir helper refuses an answer outside its directory and makes nothing anywhere
+controls:s/ _K2_SCR_TOP=""; mkdir -p / mkdir -p /	a call's process groups end with it and hold none of its caller's streams
+s/XXXXXX")" || { _K2_OD_WHY="no directory from mktemp/XXXXXX")"; : || { _K2_OD_WHY="no directory from mktemp/	a mktemp that fails decides nothing
+s/^  \[ ! -L "[$]_od_a" \] || {/  true || {/	a mktemp that names a symbolic link decides nothing
 s/^unset GREP_OPTIONS$/:/	a caller's GREP_OPTIONS cannot hide a file
 s/exec git -c core\.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
 s/^K2RE='(^|\[/K2RE='([/	a reference at the start of a line fires

@@ -165,15 +165,15 @@ _fgit_postconditions() {
   # EVERY file the postconditions write and then read back (the census lists,
   # the per-link search results, `env -0`'s output, P-g's reference and
   # current listings) lives, with the references, in ONE directory made now,
-  # after the build, by `mktemp -d` beside the window's directory (never under
+  # after the build, by `_k2_own_dir` beside the window's directory (never under
   # `$_FW_DIR` or `$CTL`), whose name no fixture command that finished during
   # the build could know (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md §4,
   # "The references and the working files"). `$_FW_DIR` keeps only what
   # both sides name: the two sourced files, the seal manifest `seal`, and the
   # return channel (`built`, `done`, `cause`, `post_ok`, `post_bad`, `machine_limits`,
   # `seal_failed`, `fix_failed`, `stderr`).
-  _pq="$(mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX")" && [ -n "$_pq" ] && [ -d "$_pq" ] \
-    || { echo "!! CONTROL FAILED ($_pg_lbl): the postconditions' directory could not be made fresh" >&2; return 1; }
+  _k2_own_dir _pq "${_FW_DIR%/*}" pgref \
+    || { echo "!! CONTROL FAILED ($_pg_lbl): the postconditions' directory could not be made fresh ($_K2_OD_WHY)" >&2; return 1; }
   # `_fgit_in <repo dir> <git args…>`: git run AT one repository and nowhere
   # else. `--git-dir=.git` turns discovery off, so a `.git` git does not
   # recognise (a garbage `HEAD`) is an error here, never a walk to an ancestor
@@ -637,7 +637,7 @@ _fgit_window() {
       fi
     done
     printf '_FIX_FAILED=""\n'
-    declare -f _fixture_failed _fixture_did_fail _shq _fgit_shim _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
+    declare -f _phys _k2_own_dir _fixture_failed _fixture_did_fail _shq _fgit_shim _fgit_canon _fw_opts_on _seal_refuse _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
   # The fixtures file is sourced from a COPY in the window's own directory, by a
   # relative name: bash prefixes each diagnostic with the name it was given, so
@@ -797,11 +797,11 @@ _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # fixture $1 fail?
 _fixture_did_fail() { case " $_FIX_FAILED " in *" $1 "*) return 0 ;; esac; return 1; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
-# dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
-# the cleanup path is the physical absolute one the wire resolves it to (#501
-# R55: an unchecked `mktemp` made an `rm -rf` expand to the repo root).
-if ! CTL="$(mktemp -d "$SCRATCH/ctlXXXXXX")" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
-  echo "!! could not create a scratch dir for the controls (TMPDIR/disk?)," >&2
+# dir would exercise nothing and silently "pass". It is made by `_k2_own_dir` (the
+# wire), which refuses an answer that is not a new name inside `$SCRATCH`, and it is removed
+# with the scratch dir (#501 R55: an unchecked `mktemp` made an `rm -rf` expand to the repo root).
+if ! _k2_own_dir CTL "$SCRATCH" ctl; then
+  echo "!! could not create a scratch dir for the controls ($_K2_OD_WHY)," >&2
   echo "   so this run's assertions were never proved able to fire." >&2
   exit 2
 fi

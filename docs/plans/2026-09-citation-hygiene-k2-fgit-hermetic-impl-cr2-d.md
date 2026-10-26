@@ -578,6 +578,7 @@ X8 x8t 3 rc=0 real 32.84
   cells.
   **Trigger:** a change to how the window or the postconditions resolve `mktemp`, or to P-j; or the slot's own
   trigger.
+  [added 2026-10-26: CR#1 (#501, the CR#1 plan) fired this trigger: the postconditions' `mktemp` answer is now refused outside `${_FW_DIR%/*}` and never names the working directory itself; a shim behind the pin still changes which `mktemp` (and `mkdir`) runs; `shimafter`/`shimhash` were not run at CR#1's T, their instrument being prose only.]
   **Owner:** as L4.
 
 **The environment** (`logs/env.txt`, the same at each of B1–B8): `HOME=/Users/kazuaki`; `command -v`: bash `/opt/homebrew/bin/bash`, git `/opt/homebrew/bin/git`, mv `/opt/homebrew/opt/coreutils/libexec/gnubin/mv`, sed `/usr/bin/sed`, find `/usr/bin/find`, perl `/usr/bin/perl`, python3 `/Users/kazuaki/.local/share/mise/shims/python3`; mv (GNU coreutils) 9.12; `git --version` 2.56.0, `/opt/homebrew/bin/git` 2.56.0, `/usr/bin/git` 2.54.0 (Apple Git-157); `$SH53` GNU bash 5.3.20(1)-release (aarch64-apple-darwin25.6.0), `$SH32` GNU bash 3.2.57(1)-release (arm64-apple-darwin25). `PATH`, verbatim:

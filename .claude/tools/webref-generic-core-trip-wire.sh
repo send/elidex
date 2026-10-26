@@ -390,18 +390,37 @@ fi
 # answer whenever it cannot trust its own reading.
 # ⚠ Physical paths on both sides (`pwd -P`), or a symlinked `TMPDIR` walks
 # straight past a textual prefix test.
-# ⚠ RESOLVED BEFORE THE TRAP IS INSTALLED. GNU `mktemp -d` returns a RELATIVE
-# path when `TMPDIR` is relative, and the trap's `/*/*` guard (which keeps an
+# ⚠ AN ABSOLUTE ANSWER, MADE BEFORE THE TRAP IS INSTALLED. GNU `mktemp -d` returned a
+# RELATIVE path when `TMPDIR` was relative, and the trap's `/*/*` guard (which keeps an
 # empty or root-ish value away from `rm -rf`) then matched nothing, so every
 # run left its scratch — and in a normal run the whole controls fixture tree —
-# behind (PR519, reproduced by the external reviewer with `TMPDIR=tmp`). The
-# trap only ever sees the physical absolute path, which is also what the
-# in-tree check below compares.
+# behind (PR519, reproduced by the external reviewer with `TMPDIR=tmp`). Since CR#1
+# the template is `<${TMPDIR:-/tmp} resolved physically>/k2scratchXXXXXX`, so the
+# answer is absolute and physical (a relative `TMPDIR` is read against the cwd, on
+# every `mktemp`), which is also what the in-tree check below compares.
 _phys() { ( cd "$1" 2>/dev/null && pwd -P ); }
-_raw_scratch="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so nothing here was proved" >&2; exit 2; }
-# ⚠ `|| SCRATCH=""`: under `set -e` a failing substitution exits HERE, before
-# the guard below can say why (a restrictive umask does it — 2026-09-citation-hygiene-Ai-wire-k2-trip-wire-review-rounds.md §11, D5).
-SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
+# THE ONE WAY THIS RUN MAKES A DIRECTORY TO WORK IN (CR#1): `_k2_own_dir <var> <dir> <prefix>`, called
+# here for the scratch root (<dir> = `${TMPDIR:-/tmp}`) and by the three inner sites (controls, harness ×2;
+# the window gets it in its prelude). <dir> is resolved physically, once; `mktemp` then only NAMES a
+# place: its answer must be, as text, `<that dir>/<prefix>` and a name with no `/`, and not a symbolic link
+# (so, <dir> being physical, the answer is too), read before anything is touched. `$<var>` is `<answer>/run`, made by this run's own `mkdir` (no `-p`, so an existing name
+# fails), the only kind of directory any recursive removal reaches. A refusal leaves `$<var>` empty, says
+# why in `_K2_OD_WHY` and removes nothing; `_K2_OD_TOP` is the answer, set only once it passed the text
+# test. Its first `printf -v` is the one writer of an empty `$<var>`. Call it only as an `||`/`if`
+# operand or inside `$( … )`: errexit is off in both.
+_k2_own_dir() {
+  local _od_d _od_a; printf -v "$1" %s ""; _K2_OD_TOP=""; _K2_OD_WHY=""
+  [ -n "$2" ] && _od_d="$(_phys "$2")" && [ -n "$_od_d" ] || { _K2_OD_WHY="could not resolve the directory to make it in ([$2]) to a physical path"; return 1; }
+  _od_a="$(mktemp -d "$_od_d/${3}XXXXXX")" || { _K2_OD_WHY="no directory from mktemp (TMPDIR/disk?)"; return 1; }
+  [ -n "$_od_a" ] || { _K2_OD_WHY="mktemp exited 0 but printed no path"; return 1; }
+  case "${_od_a#"$_od_d/$3"}" in "$_od_a"|""|*/*) _K2_OD_WHY="mktemp answered [$_od_a], not a new name inside $_od_d"; return 1 ;; esac
+  [ ! -L "$_od_a" ] || { _K2_OD_WHY="mktemp answered [$_od_a], a symbolic link, not a new directory"; return 1; }
+  _K2_OD_TOP="$_od_a"
+  mkdir "$_K2_OD_TOP/run" 2>/dev/null || { _K2_OD_WHY="could not make this run's own directory inside $_K2_OD_TOP"; return 1; }
+  printf -v "$1" %s "$_K2_OD_TOP/run"
+}
+_k2_own_dir SCRATCH "${TMPDIR:-/tmp}" k2scratch || :
+_K2_SCR_TOP="$_K2_OD_TOP"
 # ⚠ A RUN MAY LEAVE WITH STATUS 0 ONLY THROUGH ITS VERDICT (`#11-k2-wire-exit-trap-masks-set-u-abort`).
 # On `/bin/bash` 3.2 an EXIT trap hides a `set -u` abort: the trap is entered with
 # `$?` = 0 and the shell leaves 0 -- a false green (measured at 3dde656e: rename
@@ -518,6 +537,11 @@ _k2_exit() { # $1 = the status the shell was leaving with
   # No `|| true` on the `chmod`: errexit is off. A removal that fails says so; the status is the run's.
   case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null
     rm -rf "$SCRATCH" || echo "!! could not remove the scratch dir $SCRATCH (the exit status is the run's own)" >&9 ;; esac
+  # ACCEPTED DEFECT (CR#1; residuals R24): this `rmdir` takes the scratch root's `mktemp` answer, which passed the
+  # containment test, so a broken `mktemp` naming an existing EMPTY `<physical TMPDIR>/k2scratch…` loses it; never
+  # removing it would leave one empty directory per run. Silent while `run` is still there: the line above said why.
+  case "${_K2_SCR_TOP:-}" in /*/*) rmdir "$_K2_SCR_TOP" 2>/dev/null || [ ! -d "$_K2_SCR_TOP" ] || [ -e "${SCRATCH:-}" ] \
+    || echo "!! left $_K2_SCR_TOP in place: the directory mktemp named holds more than this run made" >&9 ;; esac
   if [ "$1" -eq 0 ] && [ "${_K2_ORDERLY:-0}" -ne 1 ]; then
     echo "!! CONTROL FAILED (${_ord_lbl:-the run ends only through a verdict}): the run ended before reaching its verdict" >&9
     exit 1
@@ -532,8 +556,7 @@ trap '_k2_sig INT 130' INT
 trap '_k2_sig TERM 143' TERM
 }; _k2_traps
 if [ -z "$SCRATCH" ]; then
-  rmdir "$_raw_scratch" 2>/dev/null || true
-  echo "!! could not resolve the scratch dir ($_raw_scratch) to a physical path, so nothing here was proved" >&2
+  echo "!! $_K2_OD_WHY, so nothing here was proved" >&2
   exit 2
 fi
 _scratch_p="$SCRATCH"
@@ -1113,7 +1136,7 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
 
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # ⚠ FIXED NAMES UNDER `$SCRATCH`, NOT `mktemp`. `$SCRATCH` is already this
-  # PROCESS's own `mktemp -d` (and the run refuses to start if it sits inside
+  # PROCESS's own directory (`_k2_own_dir`; the run refuses to start if it sits inside
   # the scanned tree), and `_scan` is called exactly once per process — so five
   # `mktemp` spawns per invocation bought uniqueness that was already
   # guaranteed, once per control.

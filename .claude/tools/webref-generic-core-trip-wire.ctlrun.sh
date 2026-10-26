@@ -117,12 +117,13 @@ if [ -n "$_cap_missing" ]; then
 fi
 # No control may run over a build that is not COMPLETE AND TRUSTED, WHEREVER
 # the verdict exit sits (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3),
-# nor over a fixture that did not build. ONE GATE, asked by ONE run primitive:
+# nor over a fixture that did not build. ONE GATE, asked by ONE run primitive (and, directly, by
+# the own-dir block, for the fixtures its helper calls and its three `_control`s' shims read):
 # `_ctl_run` below asks `_ctl_gate <label> <fixture>…` about the fixture trees the
 # run is aimed at, derived from its own arguments (root and cwd) — not a name
-# picked per caller. The two blocks that are not a `_control` (relcwd, fsmonitor)
-# run through it as well, so a hang or a failed build is reported the same way in
-# all three paths. The one run made outside it (the fsmonitor block's plain `git
+# picked per caller. The four blocks that run the wire and are not a `_control` (relcwd,
+# the two cwd-mktemp blocks, fsmonitor) run through it as well, so a hang or a failed build
+# is reported the same way in all five paths. The one run made outside it (the fsmonitor block's plain `git
 # ls-files` follow-up, after `_ctl_run` returned) sits inside the branch that `_ctl_run`'s own ask opened.
 # W2 is asked by `_fw_trusted` alone — the trust flag `_fgit_window` sets at its end — and
 # reported ONCE per run (`_fw2_said`), under `$_fw2_lbl` (defined in the controls
@@ -211,7 +212,7 @@ _ctl_gate() { # $1 = the label to report under, $2… = fixture names (basenames
 # process group under a watchdog of `_ctl_wd_s` seconds (30, set at source time
 # above; the `_wm` standing check in the controls file sets 1 in its subshell and
 # runs a wire that sleeps past it). Every self-test run over a fixture is built
-# on it — `_control` and the two blocks that are not one; the controls file spawns
+# on it — `_control` and the four blocks that are not one; the controls file spawns
 # the wire nowhere else — so a hang there is reported ("killed after 30s") on
 # every such path, and only the ASSERTION is the caller's. The opt-in mutation
 # trials (`_mut_trial` in the mutations file, `WEBREF_WIRE_MUTANTS=1`) run the

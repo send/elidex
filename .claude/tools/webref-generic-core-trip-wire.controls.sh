@@ -102,13 +102,16 @@ _mg_lbl="the boundary-mutant generator derives a non-empty set from the wire's r
 # expanded (orphans) or spelled (the ratchet) `_*_lbl` variables, against the records — in the correspondence part; the
 # records whose needle this is pin it)
 _cen_lbl="every label the run used is named by a mutation record"
-# …the remaining labels, whose producer is not a `_control` — the relcwd and fsmonitor
-# blocks, the defined-labels check, the standing checks (their producers are
+# …the remaining labels, whose producer is not a `_control` — the relcwd, the two cwd-mktemp, the own-dir and the
+# fsmonitor blocks, the defined-labels check, the standing checks (their producers are
 # below), the table check (`$_capt_lbl`, `_cap_check`), the capability groups' and
 # the limit's labels (`$_fifo_lbl`, `$_perm_lbl`, `$_pfl_lbl`: the table's group and
 # `limit` rows hold them), the orderly-end check (in the wire) and the anchor rule's self-test
 # (`$_af_lbl`, in the correspondence part) —, defined HERE so the check that follows can ask for every label at once:
 _rel_lbl="a relative scratch dir is removed on exit"
+_mtn_lbl="a mktemp that prints no path decides nothing and removes nothing"
+_dot_lbl="a mktemp that answers the cwd costs the cwd nothing"
+_odu_lbl="the own-dir helper refuses an answer outside its directory and makes nothing anywhere"
 _fsm_lbl="a caller's fsmonitor hook does not run"
 _lbd_lbl="every label the parts use is defined"
 _ord_lbl="the run ends only through a verdict"
@@ -213,14 +216,14 @@ _fgit_window "$_FIXTURES"
 # back after the build (the fsmonitor hook and its mark, the run primitives'
 # evidence directory, where the PATH-prefix shims leave their marks, the controls'
 # output, the mutation runner's lists) lives here, made now, after the
-# build, by `mktemp -d` beside `$CTL` and `$_FW_DIR`, never under either:
+# build, by `_k2_own_dir` (the wire) beside `$CTL` and `$_FW_DIR`, never under either:
 # `$CTL` is the fixtures' tree, and the verifier writes nothing there
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-census.md §4, "The parent's directory").
 # Out of the fixtures' reach except through the declared class (c) of
-# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3 (an executable
-# written into a caller-`PATH` directory, `staleshim`).
-if ! _VFY="$(mktemp -d "$SCRATCH/verifyXXXXXX")" || [ -z "$_VFY" ] || [ ! -d "$_VFY" ] || ! mkdir "$_VFY/.reap"; then
-  echo "!! could not create the verifier's directory (TMPDIR/disk?); decided nothing." >&2
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §0.3: an executable written into a caller-`PATH`
+# directory still changes which `mktemp` and `mkdir` run (an answer outside `$SCRATCH` is refused: `staleshim`).
+if ! _k2_own_dir _VFY "$SCRATCH" verify || ! mkdir "$_VFY/.reap"; then
+  echo "!! could not create the verifier's directory (${_K2_OD_WHY:-its .reap could not be made}); decided nothing." >&2
   exit 2
 fi
 # The run's REAP SET (the wire's exit path, beside `_k2_reap`) is `$_VFY/.reap`: `_ctl_run` records every group it
@@ -514,7 +517,7 @@ if [ "$_fw_trusted" -ne 1 ]; then ctl_ok=1
 elif ! ( _og_bad=""
          _og_gone() { _og_i=0; while _k2_live "$1"; do
              [ "$_og_i" -lt 40 ] || return 1; _og_i=$((_og_i + 1)); sleep 0.05; done; }
-         _og_trap() { SCRATCH="$_VFY/.og_scr"; mkdir -p "$SCRATCH"; exec 9>&1; sh -c 'echo $PPID' > "$_VFY/.og_outer"; _k2_traps; }
+         _og_trap() { SCRATCH="$_VFY/.og_scr"; _K2_SCR_TOP=""; mkdir -p "$SCRATCH"; exec 9>&1; sh -c 'echo $PPID' > "$_VFY/.og_outer"; _k2_traps; }
          for _og_row in kill norec nodel sig; do
            [ "$_og_row" != sig ] || [ "$_wm_tg" -eq 1 ] || continue
            command rm -rf "$_K2_REAP_D/og"; mkdir "$_K2_REAP_D/og"; SELF="$_VFY/.og_$_og_row"; _og_t0=$SECONDS
@@ -539,6 +542,7 @@ elif ! ( _og_bad=""
              sig)
                case "$_og_st" in *"stopped by SIGTERM"*"ended 143") ;; *) _og_bad="$_og_bad; sig: the signalled call did not end 143 with its line ($_og_st)" ;; esac
                [ ! -e "$_VFY/.og_scr" ] || _og_bad="$_og_bad; sig: the signalled call's exit path left its scratch dir"
+               case "$_og_st" in *" in place: "*) _og_bad="$_og_bad; sig: the exit path reached a directory this row did not make ($_og_st)" ;; esac
                _og_n=0; for _og_f in "$_og_rd"/*; do _og_p="${_og_f##*/}"; case "$_og_p" in ''|*[!0-9]*) continue ;; esac; _og_n=$((_og_n + 1))
                  _og_gone "-$_og_p" || _og_bad="$_og_bad; sig: the exit path left group $_og_p running"; done
                [ "$_og_n" -eq 2 ] || _og_bad="$_og_bad; sig: the reap set held $_og_n groups, not 2" ;;
@@ -687,22 +691,18 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # Not a `_control`: the question is what the run leaves BEHIND, which its exit
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
-# A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
-# relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
-# cannot pose this question here). Built by the fixtures file, bare, beside the
-# other PATH-prefix shims. It marks `path` whenever it runs, and `_ctl_run` demands that mark
-# back for the prefix it was given — a run that never reached the shim had no
-# relative scratch to leave behind, so its clean cwd is no evidence (the
-# shim's path was dropped from the prefix once, and the block stayed green).
-# Deleting the prefix ARGUMENT at the call site drops that demand too - the
-# opt-in `SCRATCH=…` record's class; the always-on `path` demand catches a
-# prefix the delivery fails to deliver, and a run that never calls the shim.
+# A RELATIVE `TMPDIR` (`reltmp`, inside `relcwd`), handed to the run as a channel and
+# answered by the real `mktemp`: GNU `mktemp -d` answered a relative path under one
+# (PR519). Since CR#1 the wire resolves `TMPDIR` before it asks, so the run must
+# pass and leave `reltmp` empty: an unresolved template answers `reltmp/k2scratch…`,
+# which the trap's `/*/*` guard then skips. `_ctl_run` demands the channel back
+# (`env.TMPDIR`), so a delivery that drops it is NOT EXERCISED, not a clean cwd.
 # ⚠ Run through `_ctl_run`, like every `_control`: gated, watchdogged, one report.
-if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "$CTL/fakerelmktemp"; then ctl_ok=1
+if ! _ctl_run "$_rel_lbl" "$CTL/clean" "$CTL/relcwd" "" "" "" "" "TMPDIR=reltmp"; then ctl_ok=1
 elif [ "$_rc" -eq 0 ]; then
-  if [ -n "$(ls -A "$CTL/relcwd")" ]; then
+  if [ "$(ls -A "$CTL/relcwd")" != reltmp ] || [ -n "$(ls -A "$CTL/relcwd/reltmp")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
-    ls -A "$CTL/relcwd" | sed 's/^/     /' >&2
+    ( cd "$CTL/relcwd" && find . -mindepth 1 ) | sed 's/^/     /' >&2
     ctl_ok=1
   fi
 else
@@ -710,6 +710,46 @@ else
   printf '%s\n' "$_out" | sed 's/^/     /' >&2
   ctl_ok=1
 fi
+# CR#1: a `mktemp` that exits 0 and prints nothing, run from `mtcwd` (it holds `keep`; `TMPDIR=.` makes it the
+# directory the template names too, and keeps the run off the caller's `TMPDIR`, which may be relative). bash < 5.3 read `cd ""` as the
+# cwd, which the exit path then removed (`.git` and all, from a checkout's root). Refused, and `mtcwd` untouched.
+if ! _ctl_run "$_mtn_lbl" "$CTL/clean" "$CTL/mtcwd" "" "$CTL/fakenomktemp" "" "" "TMPDIR=."; then ctl_ok=1
+elif ! [ "$_rc" -eq 2 ] || case "$_out" in *"printed no path"*) false ;; esac || [ "$(ls -A "$CTL/mtcwd")" != keep ]; then
+  echo "!! CONTROL FAILED ($_mtn_lbl): exit $_rc, expected 2 and \"printed no path\"; mtcwd holds: $(ls -A "$CTL/mtcwd" | tr '\n' ' ')" >&2
+  printf '%s\n' "$_out" | sed 's/^/     /' >&2; ctl_ok=1
+fi
+# …a `mktemp` that answers `.`, run from `mtdot` (it holds `keep`): not a name inside `TMPDIR`, so refused before
+# anything is touched, and `mtdot` untouched (at the base both shells removed the cwd).
+if ! _ctl_run "$_dot_lbl" "$CTL/clean" "$CTL/mtdot" "" "$CTL/fakedotmktemp" "" "" "TMPDIR=."; then ctl_ok=1
+elif ! [ "$_rc" -eq 2 ] || case "$_out" in *"not a new name inside"*) false ;; esac || [ "$(ls -A "$CTL/mtdot")" != keep ]; then
+  echo "!! CONTROL FAILED ($_dot_lbl): exit $_rc, expected 2 and \"not a new name inside\"; mtdot holds: $(ls -A "$CTL/mtdot" | tr '\n' ' ')" >&2
+  printf '%s\n' "$_out" | sed 's/^/     /' >&2; ctl_ok=1
+fi
+# …a `mktemp` that exits non-zero: refused with its own reason (the scratch root's former "no scratch dir" exit).
+_control "$CTL/clean" 2 "no directory from mktemp" "a mktemp that fails decides nothing" "" "" "$CTL/fakefailmktemp" || ctl_ok=1
+# ONE GATE for the fixtures the rest of CR#1's controls read (the three `_control`s' shims and `TMPDIR` name `odtmp`,
+# which their own gate, derived from root and cwd, does not ask): a `mktemp` that names, inside `TMPDIR`, a directory
+# it did not make, which the exit path must leave holding what it held (the line is printed only while it still
+# exists, not empty); one whose run directory's name is taken; one that names a symbolic link there; then (NEW-1) the one call, `_k2_own_dir <var> <dir>
+# <prefix>`, asked in-process once per shim from `odcwd` with `odpar` as <dir> (and once with an empty <dir>, which
+# bash < 5.3 would resolve to the cwd): refused for that row's reason, nothing made in `odcwd`, `odpar` or the
+# named directory; then the real `mktemp`, which must answer `odpar/p…/run`. The helper's block runs after the
+# named directory's control. (The three inner sites' wiring: plan §6 N6.)
+if ! _ctl_gate "$_odu_lbl" odcwd odpar odtmp; then ctl_ok=1
+else _control "$CTL/clean" 0 "holds more than this run made" "the exit path removes only the directory this run made" "" "" "$CTL/fakeoldmktemp" "" "TMPDIR=$CTL/odtmp" || ctl_ok=1
+  _control "$CTL/clean" 2 "could not make this run's own directory" "a scratch dir whose run directory exists decides nothing" "" "" "$CTL/fakecollmktemp" "" "TMPDIR=$CTL/odtmp" || ctl_ok=1
+  _control "$CTL/clean" 2 "a symbolic link, not a new directory" "a mktemp that names a symbolic link decides nothing" "" "" "$CTL/fakelnkmktemp" "" "TMPDIR=$CTL/odtmp" || ctl_ok=1
+  mkdir -p "$_VFY/.odu"; for _odu in no:"printed no path" dot:"not a new name inside" old:"not a new name inside" unres:"could not resolve the directory" real:; do
+  _odu_k="${_odu%%:*}"; _odu_p="$CTL/odpar"; [ "$_odu_k" != unres ] || { _odu_k=real; _odu_p=""; }
+  _odu_r="$(cd "$CTL/odcwd" && export K2_CTL_REACHED="$_VFY/.odu" && { [ "$_odu_k" = real ] || PATH="$CTL/fake${_odu_k}mktemp:$PATH"; } \
+    && { _k2_own_dir _odu_d "$_odu_p" p; printf '%s|%s' "$_odu_d" "$_K2_OD_WHY"; })"
+  case "${_odu%%:*}|$_odu_r" in
+    "real|$CTL/odpar/p"?*"/run|") [ ! -d "${_odu_r%|}" ] || continue ;;
+    real\|*) ;;
+    *"||"*"${_odu#*:}"*) [ "$(ls -A "$CTL/odcwd")" != keep ] || [ -n "$(ls -A "$CTL/odpar")" ] || [ "$(ls -A "$CTL/odtmp/k2scratchnamed")" != keep ] || continue ;;
+  esac
+  echo "!! CONTROL FAILED ($_odu_lbl): the ${_odu%%:*} row gave [$_odu_r]; odcwd holds: $(ls -A "$CTL/odcwd" | tr '\n' ' ')" >&2; ctl_ok=1
+done; fi
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
 _control "$CTL/headprobe" 1 "that ref EXISTS, so this HEAD is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
 _control "$CTL/catfail" 1 "symlink blob (staged) could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
@@ -807,7 +847,7 @@ _control "$CTL/globextra*[e]" 1 "K2: a" "a pattern character in the checkout pat
 _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
 _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/headlink" 1 "(in HEAD) ->" "a COMMITTED symlink target is a stored path" || ctl_ok=1
-_control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
+_control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "" "" "TMPDIR=$CTL/inscope/scr" || ctl_ok=1
 _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
 _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
 # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
@@ -843,11 +883,10 @@ _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash to
 # file, beside `fakegrep`) answers "no match" whenever a `GREP_OPTIONS` reached it
 # and execs the real grep otherwise. It models the property under test — did the
 # caller's variable reach grep? — not the value's meaning to one grep, as
-# `fakegitcfg` does for `GIT_CONFIG_COUNT` (`fakerelmktemp` is not that kind: it
-# returns a relative path unconditionally); so the question is posed on every
+# `fakegitcfg` does for `GIT_CONFIG_COUNT`; so the question is posed on every
 # machine and declined on none. The shim marks `path` before the test, and
 # `_ctl_run` demands that mark back. ⚠ Deleting the prefix ARGUMENT below drops
-# that demand with it (as relcwd's comment says): the shipped run stays green,
+# that demand with it: the shipped run stays green,
 # and only the opt-in record that pins k2 (`unset GREP_OPTIONS`), run on a grep
 # that ignores the variable (the GNU-like profile), reds it.
 _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" "" "" "$CTL/goptgrep" "" "GREP_OPTIONS=--exclude=*" || ctl_ok=1
@@ -894,13 +933,13 @@ elif ( for _v in $_GIT_LOCAL_VARS; do unset "$_v"; done; cd "$_fsm_root" \
 fi
 # THE FIVE PERMISSION CONTROLS are the table's `perm` group, as the FIFO pair is the
 # `fifo` group. The fifth runs the clean fixture under umask 777 (`_control`'s
-# `$8`): a umask that leaves the scratch dir unsearchable makes it unresolvable
-# to a physical path, which the wire refuses to decide over.
+# `$8`): `mktemp` then makes a directory this run cannot enter, so the run's own
+# `run` directory cannot be made in it, which the wire refuses to decide over.
 _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
 _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
 _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
 _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
-_control "$CTL/clean" 2 "could not resolve the scratch dir" "a restrictive umask decides nothing" "" "" "" 777 || ctl_ok=1
+_control "$CTL/clean" 2 "could not make this run's own directory" "a restrictive umask decides nothing" "" "" "" 777 || ctl_ok=1
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
 # Two subjects, two files: this one runs the wire over a fixture and asserts the
 # exit status; that one proves each control is about the arm it names. Its

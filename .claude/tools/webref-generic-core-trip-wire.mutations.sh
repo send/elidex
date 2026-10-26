@@ -272,7 +272,7 @@ _MUT_UNRECORDED_MAX=18
 # The record floor; current totals: 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1.
 # The history of this figure (what removed and added records, and the step each pins) is stated once, in
 # 2026-09-citation-hygiene-k2-fgit-hermetic-corpus.md §6.1; it is not restated here.
-_MUT_RECORDS_MIN=305
+_MUT_RECORDS_MIN=316
 
 # The resolver: $1 = `wire` or a word of `$_MUT_TARGETS`; out = `$_mut_src` (the
 # shipped file) and `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial`

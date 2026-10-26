@@ -36,8 +36,7 @@ so no git runs. It is **one** census: P-g and P-k iterate pass 1's own list and 
 entries (the fix round deleted a second population scan). It covers the git dirs under `$CTL` it names. It does not cover what git
 reaches through a reference ("The boundary", below), nor the reference repos, which are outside fixture
 reach by construction ("The references and the working files", below) except through §0.3's declared
-class (c): they are made in a `mktemp -d` directory too, so a changed `mktemp` (`mkfn`, `shimafter`,
-`staleshim`) can hand them to the fixtures:
+class (c): they are made in the postconditions' directory too (since CR#1 a `run` directory the run's own `mkdir` makes inside a `mktemp -d` answer), so a changed `mktemp` or `mkdir` (`mkfn`, `shimafter`, `staleshim`) can still hand them to the fixtures, by naming a place inside `${_FW_DIR%/*}` that they prepared (restated 2026-10-26, the CR#1 plan):
 1. **Classification and shape.** One `find` from `$CTL`, with no `-L` and no per-directory fork, lists
    every `.git` entry and every `HEAD` entry, of **any type and any letter case** (a case-insensitive
    filesystem lets git read `head` and `.GIT`, so a case variant is red). It descends everywhere:
@@ -114,9 +113,9 @@ which the fixtures can write, and `git init` over an existing repo keeps its con
 every fixture repo: rc 0, PASSED, on both shells. Every reference a postcondition compares against, and
 every file it writes and reads back, by location:
 - **the postconditions' directory**, made at the start of the postconditions, **after the build**, by
-  `mktemp -d "${_FW_DIR%/*}/pgrefXXXXXX"`, beside `$_FW_DIR` and never under it or `$CTL`. No fixture
+  `_k2_own_dir _pq "${_FW_DIR%/*}" pgref`: a `run` directory its own `mkdir` (no `-p`) makes inside a `mktemp -d` answer that must be a new name inside `${_FW_DIR%/*}`, not a link (restated 2026-10-26, the CR#1 plan), beside `$_FW_DIR` and never under it or `$CTL`. No fixture
   command that finished by the end of the build can know its name, unless the fixtures file changed
-  what the `mktemp` the postconditions run resolves to (`mkfn`, `shimafter`, `shimhash`: class (c),
+  what the `mktemp` or `mkdir` the postconditions run resolves to (since CR#1, to name only a place inside `${_FW_DIR%/*}` (restated 2026-10-26, the CR#1 plan); `mkfn`, `shimafter`, `shimhash`: class (c),
   §0.3). It holds `a`, `b`, P-g's reference
   listings and P-k's probe repo (C10), and every working file below. `a` and `b` are made by `mkdir`
   without `-p` after a clean census, so one that already exists fails the reference, red (P-g). P-a,
@@ -155,10 +154,10 @@ subject, not a working file). At `8413a4db` the parent wrote its own working fil
 label ratchet at 0 (`xbare`), and `ln -s /dev/null "$CTL/.anchor"` with a stale record (`xanchor`), each
 rc 0, PASSED on both shells (round 16's cells, as relayed); with the files moved, rc 1 with the ratchet's own message
 (`…-pr527-r15.md` §Q). C11 makes one directory right after `_fgit_window` returns,
-`mktemp -d "$SCRATCH/verifyXXXXXX"`, outside `$CTL` and `$_FW_DIR`, and a failure to make it ends the run
+`_k2_own_dir _VFY "$SCRATCH" verify` (a `run` directory inside a `mktemp -d` answer) (restated 2026-10-26, the CR#1 plan), outside `$CTL` and `$_FW_DIR`, and a failure to make it ends the run
 "decided nothing" (exit 2), as a failed `$CTL` does. The directory is out of the fixtures' reach by
 construction **except** through the declared class (c) of §0.3: an executable the fixtures wrote into a
-caller-`PATH` directory can answer that `mktemp` with a directory they prepared (`staleshim`, D18-A). The mutation set's entry guard (`mutations.sh` line 90 at
+caller-`PATH` directory can answer that `mktemp` with a directory they prepared inside `$SCRATCH`, or change which `mkdir` makes `run`; one outside `$SCRATCH` is refused since CR#1 (`staleshim`, D18-A; rc 2 at the CR#1 T) (restated 2026-10-26, the CR#1 plan). The mutation set's entry guard (`mutations.sh` line 90 at
 `8413a4db`) and the two "WHAT IT CONSUMES" headers (`mutations.sh` line 29, `mutgen.sh` line 12) name
 `$_VFY` instead of `$CTL`: after C11 neither file reads `$CTL` outside the records' text, and the
 controls file sets `_VFY` before it sources the mutation set (the draft-19 prototype, `…-pr527-r15.md`

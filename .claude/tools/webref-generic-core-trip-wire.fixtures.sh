@@ -332,11 +332,6 @@ _fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) : > \"\${
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
 # them all would abort in `_verdict` instead, for a different reason).
-# A `mktemp` that hands back a directory INSIDE the tree under scan — what a
-# workspace-confined `TMPDIR` does. ⚠ macOS's `/usr/bin/mktemp` ignores
-# `TMPDIR` when given no template, which is why the control shims the command
-# instead of setting the variable: the same defect reproduces on the machines
-# that honour it, and a control that only fires on some of them is not one.
 # `cfgkept`'s violation — what its shimmed `git` reports or hides — and the
 # shim (`fakegitcfg`: `ls-files` answers nothing unless the caller's
 # `GIT_CONFIG_COUNT` reached it; the control says why). It writes `path` into
@@ -345,18 +340,23 @@ _fgit_shim "$CTL/fakegitglob/git" "case \" \$* \" in *\" --others \"*) : > \"\${
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakegitcfg"
 _fgit_shim "$CTL/fakegitcfg/git" 'case " $* " in *" ls-files "*) : > "${K2_CTL_REACHED:?}/path"; if [ -z "${GIT_CONFIG_COUNT:-}" ]; then exit 0; fi;; esac' "$_REAL_GIT"
-mkdir -p "$CTL/fakemktemp"
-printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
-  "$(_shq "$CTL/inscope")" > "$CTL/fakemktemp/mktemp"
-chmod +x "$CTL/fakemktemp/mktemp"
-# `relcwd`: the directory the relative-scratch run is made from, and its `mktemp`
-# shim (`fakerelmktemp`: it answers a RELATIVE path; the control says why). The
-# shim writes `path` into `_ctl_run`'s evidence directory (`$K2_CTL_REACHED`)
-# when it runs, and `_ctl_run` demands that back.
-mkdir -p "$CTL/relcwd" || _fixture_failed relcwd
-mkdir -p "$CTL/fakerelmktemp"
-printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp"
-chmod +x "$CTL/fakerelmktemp/mktemp"
+# `inscope/scr`: the `TMPDIR` the in-tree control hands its run, inside the tree that run scans, so the real
+# `mktemp` puts the scratch there and the in-tree check must refuse. `relcwd`: the directory the relative-`TMPDIR` run is made from, and `reltmp` in it, the relative `TMPDIR`
+# that run is handed.
+mkdir -p "$CTL/inscope/scr" || _fixture_failed inscope
+mkdir -p "$CTL/relcwd/reltmp" || _fixture_failed relcwd
+# CR#1's `mktemp` shims, each marking `path` as the others do: `fakenomktemp` exits 0 and prints nothing,
+# `fakefailmktemp` exits 1, `fakedotmktemp` prints `.` (the runs using it and `fakenomktemp` are made from `mtcwd` /
+# `mtdot`, each holding `keep`); `fakeoldmktemp` names `odtmp/k2scratchnamed`, which it did not make and which holds
+# `keep`; `fakecollmktemp` names `odtmp/k2scratchcoll`, which already holds the run directory's name (`odtmp` is the
+# `TMPDIR` those runs are handed); `fakelnkmktemp` names `odtmp/k2scratchlink`, a symbolic link to `odlnk`.
+# `odcwd` (holds `keep`) and `odpar` (empty): the helper's own block.
+for _mt in mtcwd mtdot odcwd odtmp/k2scratchnamed; do mkdir -p "$CTL/$_mt" && : > "$CTL/$_mt/keep" || _fixture_failed "${_mt%%/*}"; done
+mkdir -p "$CTL/odtmp/k2scratchcoll/run" "$CTL/odlnk" && ln -s "$CTL/odlnk" "$CTL/odtmp/k2scratchlink" || _fixture_failed odtmp
+mkdir -p "$CTL/odpar" || _fixture_failed odpar
+for _mt in no:'' fail:'' dot:. old:"$CTL/odtmp/k2scratchnamed" coll:"$CTL/odtmp/k2scratchcoll" lnk:"$CTL/odtmp/k2scratchlink"; do mkdir -p "$CTL/fake${_mt%%:*}mktemp"
+  printf '#!/bin/sh\n: > "${K2_CTL_REACHED:?}/path"\nprintf %%s %s\n%s\n' "$(_shq "${_mt#*:}")" "$([ "${_mt%%:*}" != fail ] || echo 'exit 1')" > "$CTL/fake${_mt%%:*}mktemp/mktemp"
+  chmod +x "$CTL/fake${_mt%%:*}mktemp/mktemp"; done
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
 _fgit_shim "$CTL/fakegrep/grep" 'case " $* " in *" -aEo "*) : > "${K2_CTL_REACHED:?}/path"; exit 2;; esac' "$_REAL_GREP"
