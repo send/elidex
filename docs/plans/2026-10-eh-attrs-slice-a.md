@@ -1,11 +1,12 @@
-# EH-attrs-at-creation slice a: per-PR plan (rev 4.2)
+# EH-attrs-at-creation slice a: per-PR plan (rev 4.3)
 
 Label **`EH-attrs-at-creation-a`**. Program and contract: the approved umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md` (rev 8, landed by PR #551 at `b9122157`). Branch
 `layout-eh-attrs-slice-a`, cut from `origin/main` `b9122157`. Owner: Layout lane.
 
 This plan **derives the implementation** of the decided contract. It re-decides no clause the umbrella decided (its
-"Approval scope" paragraph). File placement is stated in one place, this plan's §5 (PM decision 39, which supersedes
+"Approval scope" paragraph), except the file name in umbrella §4 Home/kind, which edit (a) removes (PM decisions 35/39,
+§1.7). File placement is stated in one place, this plan's §5 (PM decision 39, which supersedes
 PM decision 35's file-name edit and PM decision 37's sentence edit). The two umbrella edits this PR makes, §4 Home/kind
 (file name removed, pointer to §5) and §6.4's placement paragraph (replaced by one pointer sentence to §5), are shown
 before / after in §1.7 (decision: §0.5 "marker home").
@@ -124,7 +125,7 @@ plan's base. All greps use `/usr/bin/grep`. Every § number ↔ title pair and s
 | rev8:533 (§3 row 2, "step 3 is T3, the reflecting set facet 4") | r5 rev-8 attestation | Umbrella wording. Noted for the PM (§9); not edited |
 | umbrella §6.4 "takes C1–C17" (stale range) and placement | umbrella §6.4 decided obligation | Replaced by §5: the cells go to **new** files; `tests_event_handler_attrs.rs` is not touched. The C set is C1–C9, C11–C20 (there is no C10 in umbrella §6.1) |
 | Q7 / E8 replacement shape | umbrella §11 Q7 | E8 is written as decided. Fallback 1 (umbrella's): `x` from a DOMParser document. Fallback 2 (decided here): if `attachShadow` cannot run in an initial script, take `sr` from a declarative shadow root in the initial markup (`<div id=h><template shadowrootmode=open></template></div>`, as E7). Selection is by E8's pre-fix run (it is a guard: it must pass on the base) (§4.4). **Terminal, as for E7**: if the decided shape and both fallbacks fail at the scaffold run, implementation stops and this plan returns to plan-review. E8 is not reshaped or dropped during implementation |
-| marker home (file level) | umbrella §4 Home/kind and §6.4, PM decisions 35 / 37 / 39 | The home of both markers and the processing function is the new module `event_handler_processing/` (§1.1, §1.3), not `event_handler_consumer.rs` (PM decision 35, module kept). Same crate (`elidex-script-session`), same re-exports from `lib.rs`, same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: the 1000-line touch-time rule, applied to the umbrella's own placement. Umbrella §6.4 (`:773-774`, pre-edit) puts the mechanism **and** the inline cells U1–U12 in the consumer file. Figures (measured = re-runnable command in §5 "N-c figures"; the rest are projections): the file is 590 lines (measured, command 1); the mechanism adds ≈ 400 (projection, §5 `event_handler_processing/mod.rs`); it absorbs the six helpers, 62 lines (measured, command 2), and ≈ 12 lines of `handle_insert`'s walk (`:427-465`; estimate); so ≈ 916 before any cell. The U-cells are projected at ≈ 650 + ≈ 450 (§5's two U-cell files, which also hold P1 and P2). The headroom is ≈ 84 lines, so under the umbrella's placement the consumer file crosses 1000 in this PR (≈ 2000 with §5's projections). **Placement is stated in one place (PM decision 39):** this plan's §5 is canonical for the file placement, the projection at placement of every touched or new file and the prerequisite-split decision; the umbrella names no file for the mechanism or its cells after this PR. PM decision 39 supersedes PM decision 35's file-name edit (§4 Home/kind would have named `event_handler_processing/`) and PM decision 37's sentence edit (§6.4 `:773-774` would have restated §5's placement), because a sentence-level edit left the rest of the §6.4 paragraph without referents (rev-4.1 attestation IMP-1). Exactly two umbrella edits land with the implementation, and no other umbrella text changes (§1.3, before / after in §1.7): (a) §4 Home/kind keeps the decided facts (crate, component kinds) and drops the file name, pointing to §5; (b) §6.4's heading figure reference and its whole placement paragraph (`:767-776`) become one sentence pointing to §5. |
+| marker home (file level) | umbrella §4 Home/kind and §6.4, PM decisions 35 / 37 / 39 | The home of both markers and the processing function is the new module `event_handler_processing/` (§5), not `event_handler_consumer.rs` (PM decision 35, module kept). Same crate (`elidex-script-session`), same re-exports from `lib.rs`, same component kinds (unit, `Send + Sync`, on the origin element / on the Document). Reason: the 1000-line touch-time rule, applied to the umbrella's own placement. Umbrella §6.4 (`:773-774`, pre-edit) puts the mechanism **and** the inline cells U1–U12 in the consumer file. Figures (measured = re-runnable command in §5 "N-c figures"; the rest are projections): the file is 590 lines (measured, command 1); the mechanism adds ≈ 400 (projection, §5 `event_handler_processing/mod.rs`); it absorbs the six helpers, 62 lines (measured, command 2), and ≈ 12 lines of `handle_insert`'s walk (`:427-465`; estimate); so ≈ 916 before any cell. The U-cells are projected at ≈ 650 + ≈ 450 (§5's two U-cell files, which also hold P1 and P2). The headroom is ≈ 84 lines, so under the umbrella's placement the consumer file crosses 1000 in this PR (≈ 2000 with §5's projections). **Placement is stated in one place (PM decision 39):** this plan's §5 is canonical for the file placement, the projection at placement of every touched or new file and the prerequisite-split decision; the umbrella names no file for the mechanism or its cells after this PR. PM decision 39 supersedes PM decision 35's file-name edit (§4 Home/kind would have named `event_handler_processing/`) and PM decision 37's sentence edit (§6.4 `:773-774` would have restated §5's placement), because a sentence-level edit left the rest of the §6.4 paragraph without referents (rev-4.1 attestation IMP-1). Exactly two umbrella edits land with the implementation, and no other umbrella text changes (§1.3, before / after in §1.7): (a) §4 Home/kind keeps the decided facts (crate, component kinds) and drops the file name, pointing to §5; (b) §6.4's heading figure reference and its whole placement paragraph (`:767-776`) become one sentence pointing to §5. |
 | Q5 / E5b | umbrella §6.2, §11 Q5 | **E5b is not written.** No hermetic same-origin URL loader exists (the in-process "URL-load" security test reaches only the `blank_entry` fallback, `content_iframe_security_tests.rs:278`). `load.rs:221` and `:327` call the same builder (A-9), and the processing point is inside `Vm::bind`, beneath every builder. E5 pins `:327` |
 | O4 (writer completeness) | umbrella §11 O4: closes at this plan-review | Closed: §6 re-runs the §5.0 census (unchanged) and enumerates every production writer of handler state in `EventListeners`. No VM path writes handler state outside the IDL activation path and the lazy-compile reconcile |
 | two init keys in one hook | umbrella §4 input, R3-A5-MIN-5 | **One key.** `initialize_consumers(dom, document)` passes the bound document to both delegates. `BaseUrlMaintainer`'s `initialize_from_tree` takes it in place of `document_root()`, which aligns its init with its own arms (A-4). In production the two keys are the same entity: (1) every production `Vm::bind` passes `ctx.document` (`engine.rs:397`, reached from `teardown_document` `:419` and `with_bound` `:440`; §0.2 reach set); (2) every production `ScriptContext` that reaches those is built from a pipeline's `document` (`crates/shell/elidex-shell/src/lib.rs:294`–`:526`, `self.document`; `pipeline.rs:128`, `:159`, `:350`, the `document` parameter); (3) that `document` is the parse result's (`pipeline.rs:572`, `:661`, `:752`; `build_pipeline_from_loaded` `pipeline.rs:850-852` takes `LoadedDocument.document`, set from the parse result at `crates/shell/elidex-navigation/src/loader.rs:214`); (4) both document parsers create it with `create_document_root()` on a fresh `EcsDom` (strict `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:101-102`, tolerant `crates/dom/elidex-html-parser/src/convert.rs:17-18`), which sets `document_root` (`crates/core/elidex-ecs/src/dom/mod.rs:397-399`). No production caller binds another document. The keys differ only for a test that binds a non-root document (scout Q-S3, §8) |
@@ -753,39 +754,40 @@ Implementation stops and this plan returns to plan-review. The test is not resha
 
 ## §5. 1000-line touch-time check
 
-**Canonical (PM decision 39).** This section is canonical for slice a's file placement (the "file"
-column: which existing files are touched, which are new, and which are not touched), the pre-touch line count of each
-("now"), its projection at placement ("projected"), and the prerequisite-split decision. Umbrella §4 Home/kind and
-§6.4 point here after this PR (§1.7); §1.3 is the change list over these files and defers to this table on
-placement. The obligation umbrella §6.4 set (R3 A5 MIN: measure the projection at placement for the consumer file,
+**Canonical (PM decision 39).** §5 is the reference the umbrella points to for slice a's file placement (umbrella §4
+Home/kind and §6.4, PM decision 39). Every file column elsewhere in this plan (§0.5, §1.3, §4.2–§4.4) must agree with
+§5's table; where they differ, §5 wins and the other is corrected. This section holds the "file" column (which
+existing files are touched, which are new, and which are not touched), the pre-touch line count of each ("now"), its
+projection at placement ("projected") and the prerequisite-split decision. Umbrella §4 Home/kind and §6.4 point here
+after this PR (§1.7). The obligation umbrella §6.4 set (R3 A5 MIN: measure the projection at placement for the consumer file,
 the C-cell test file and `teardown.rs`, and split first, as a standalone prerequisite, where a real seam exists) is
 discharged by the table and the two paragraphs below it.
 
 | file | now | projected | decision |
 |---|---|---|---|
-| `event_handler_consumer.rs` | 590 | ≈ 500 (helpers move out) | no split |
-| `event_handler_processing/mod.rs` (NEW) | — | ≈ 400 | new file |
-| `event_handler_processing/tests_insertion_and_write.rs` (NEW) | — | ≈ 650 | new file |
-| `event_handler_processing/tests_bind.rs` (NEW) | — | ≈ 450 | new file |
-| `lib.rs` (session) | 62 | ≈ 66 | — |
-| `consumer_dispatcher.rs` | 153 | ≈ 165 | — |
-| `vm_api.rs` | 762 | ≈ 762 | — |
-| `event_handler_attrs.rs` | 726 | ≈ 745 | no split |
-| `test_helpers.rs` | 213 | ≈ 260 | — |
-| `vm/tests/mod.rs` | 197 | 199 | — |
-| `tests_event_handler_attrs_once.rs` (NEW) | — | ≈ 650 | new file |
-| `tests_event_handler_attrs_window_delegating.rs` (NEW) | — | ≈ 550 | new file |
-| `tests_event_handler_attrs.rs` | 735 | 735 | not touched |
-| `walkers.rs` | 321 | ≈ 390 | — |
-| `teardown.rs` | 367 | ≈ 335 | — |
-| `dom/tests/traversal.rs` | 267 | ≈ 380 | — |
-| `tree_clone.rs` | 425 | 425 | — |
-| `attribute_reconcile.rs` | 66 | ≈ 66 | — |
-| `document_base.rs` | 555 | ≈ 558 | — |
-| `content_eh_attrs_bind_tests.rs` (NEW) | — | ≈ 450 | new file |
-| `content_test_support.rs` | 288 | ≈ 390 | — |
-| `content_iframe_security_tests.rs` | 667 | ≈ 590 | — |
-| `content/mod.rs` | 858 | ≈ 861 | no split |
+| `crates/script/elidex-script-session/src/event_handler_consumer.rs` | 590 | ≈ 500 (helpers move out) | no split |
+| `crates/script/elidex-script-session/src/event_handler_processing/mod.rs` (NEW) | — | ≈ 400 | new file |
+| `crates/script/elidex-script-session/src/event_handler_processing/tests_insertion_and_write.rs` (NEW) | — | ≈ 650 | new file |
+| `crates/script/elidex-script-session/src/event_handler_processing/tests_bind.rs` (NEW) | — | ≈ 450 | new file |
+| `crates/script/elidex-script-session/src/lib.rs` | 62 | ≈ 66 | — |
+| `crates/script/elidex-js/src/vm/consumer_dispatcher.rs` | 153 | ≈ 165 | — |
+| `crates/script/elidex-js/src/vm/vm_api.rs` | 762 | ≈ 762 | — |
+| `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs` | 726 | ≈ 745 | no split |
+| `crates/script/elidex-js/src/vm/test_helpers.rs` | 213 | ≈ 260 | — |
+| `crates/script/elidex-js/src/vm/tests/mod.rs` | 197 | 199 | — |
+| `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs` (NEW) | — | ≈ 650 | new file |
+| `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_window_delegating.rs` (NEW) | — | ≈ 550 | new file |
+| `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs.rs` | 735 | 735 | not touched |
+| `crates/core/elidex-ecs/src/dom/tree/walkers.rs` | 321 | ≈ 390 | — |
+| `crates/core/elidex-ecs/src/dom/tree/teardown.rs` | 367 | ≈ 335 | — |
+| `crates/core/elidex-ecs/src/dom/tests/traversal.rs` | 267 | ≈ 380 | — |
+| `crates/core/elidex-ecs/src/dom/tree_clone.rs` | 425 | 425 | — |
+| `crates/core/elidex-ecs/src/dom/attribute_reconcile.rs` | 66 | ≈ 66 | — |
+| `crates/dom/elidex-dom-api/src/element/document_base.rs` | 555 | ≈ 558 | — |
+| `crates/shell/elidex-shell/src/content_eh_attrs_bind_tests.rs` (NEW) | — | ≈ 450 | new file |
+| `crates/shell/elidex-shell/src/content_test_support.rs` | 288 | ≈ 390 | — |
+| `crates/shell/elidex-shell/src/content_iframe_security_tests.rs` | 667 | ≈ 590 | — |
+| `crates/shell/elidex-shell/src/content/mod.rs` | 858 | ≈ 861 | no split |
 
 No touched file is over 1000 lines, and no projection crosses 1000, so **no prerequisite split PR**. The umbrella's
 §6.4 risk (the consumer file and `tests_event_handler_attrs.rs` crossing 1000) is avoided by placement: the mechanism
@@ -909,6 +911,13 @@ sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler
     C1's handling, then slice b).
 
 ## §10. Changelog
+
+- **rev 4.3** (user decision (ii) via PM):
+  - §5 "Canonical" paragraph narrowed to the umbrella's reference for slice a's file placement plus an agreement
+    obligation on every other file column (§0.5, §1.3, §4.2–§4.4); §5 wins on a difference.
+  - §5 table rows carry full repo-relative paths (new files marked NEW).
+  - §0.5 "marker home" row cites §5 for placement (was §1.1, §1.3).
+  - Header: the "re-decides no clause" sentence gains the exception for the umbrella §4 Home/kind file name (edit (a)).
 
 - **rev 4.2** (rev-4.1 attestation: CRIT 0 / IMP 1 / MIN 2, all fixed; PM decision 39):
   - IMP-1: PM decision 39 — file placement is stated in one place, this plan's §5; it supersedes PM decision 35's
