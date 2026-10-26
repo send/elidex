@@ -73,7 +73,6 @@ class Listener:
 G1_MEMBER = """
 import http.client
 import os
-import re
 import ssl
 import unittest
 import urllib.error
@@ -118,7 +117,6 @@ RAW_CONNECT_CHILD = (
 
 G2_MEMBER = """
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -147,7 +145,6 @@ class G2(unittest.TestCase):
 # (resolved against the caller's cwd, not the repository root).
 G2_OTHER_CWD_MEMBER = """
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -169,7 +166,6 @@ class G2Cwd(unittest.TestCase):
 
 G3_MEMBER = """
 import os
-import re
 import socket
 import unittest
 
@@ -185,7 +181,6 @@ class G3(unittest.TestCase):
 
 G4_MEMBER = """
 import os
-import re
 import socket
 import unittest
 
@@ -201,7 +196,6 @@ class G4(unittest.TestCase):
 
 G5_MEMBER = """
 import os
-import re
 import socket
 import unittest
 
@@ -301,7 +295,6 @@ class G7(unittest.TestCase):
 
 RAW_CONNECT_MEMBER = """
 import os
-import re
 import socket
 import unittest
 
@@ -321,7 +314,6 @@ G7_VERDICT_PREFIXES = ("python-suites: test ", "python-suites: FAIL ", "python-s
 G7_NESTED_MEMBER = """
 import json
 import os
-import re
 import subprocess
 import unittest
 
@@ -356,7 +348,6 @@ class G8(unittest.TestCase):
 
 G10_MEMBER = """
 import os
-import re
 import socket
 import subprocess
 import sys
@@ -427,7 +418,6 @@ class G10(unittest.TestCase):
 # leak control are all built from these, so "the same check" holds by construction.
 G11_PREAMBLE = """
 import os
-import re
 import socket
 import subprocess
 import sys
@@ -508,7 +498,6 @@ class A(unittest.TestCase):
 
 G11_GUARD_CONNECT = """
 import os
-import re
 import socket
 import unittest
 
