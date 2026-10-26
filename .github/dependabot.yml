@@ -6,10 +6,17 @@ updates:
       interval: weekly
     labels:
       - "dependencies"
+    # Minor and patch updates share one weekly PR. A major update gets a PR
+    # of its own: #548 grouped 52 updates, one of which (wasmtime 50) needed a
+    # newer toolchain than `rust-toolchain.toml`, and the failure at resolve
+    # hid every other update's result.
     groups:
       rust-dependencies:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
     # The RustCrypto stack is now split across two generations (see the
     # comments on those entries in Cargo.toml): the EC stack (elliptic-curve
     # 0.14 / ecdsa 0.17 / p256·p384·p521 0.14) is on rand_core 0.10 and tracks
