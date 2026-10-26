@@ -1,7 +1,7 @@
-//! `WebAssembly` namespace + 3 error classes + `validate` / `compile`
-//! / `Module` ctor + Stage 3 Instance + exports + exported function
-//! call smoke tests (slot `#11-wasm-vm` / D-16, plan-memo §5 Stage
-//! 2 + 3).
+//! Stage 3 Instance + exports + exported function call smoke tests
+//! (slot `#11-wasm-vm` / D-16, plan-memo §5 Stage 3). The Stage 2
+//! namespace / error-class / `validate` / `compile` / `Module` ctor
+//! tests are in `tests_wasm_compile.rs`.
 //!
 //! Stage 4 adds Memory/Table/Global ctors + DR-11 buffer aliasing
 //! tests; Stage 5 adds the end-to-end integration test + trip-wires.
@@ -964,7 +964,7 @@ fn immutable_global_setter_skips_coerce_side_effects() {
 // invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
 // `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #59-63
 // minus #62 (Module is already covered by `module_ctor_requires_new`
-// above — Stage 2 pilot regression).
+// in `tests_wasm_compile.rs` — Stage 2 pilot regression).
 // ---------------------------------------------------------------------------
 
 #[test]

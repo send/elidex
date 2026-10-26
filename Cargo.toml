@@ -256,10 +256,14 @@ accesskit_winit = "0.33"
 # - `cranelift`: `Module::new` compiles at run time; without a compiler it fails.
 # - `parallel-compilation`: that compile runs its functions on rayon's global
 #   pool rather than on one thread.
-# - `gc`: externref (reference types) in modules, and `ExternRef` values
-#   (`engine_conv.rs`, `handle.rs`).
+# - `gc`: the `ExternRef` host API (`engine_conv.rs`, `handle.rs`); it also
+#   keeps the Wasm GC and exception-handling proposals on.
 # - `gc-copying`: a GC engine needs a collector; this is the one
 #   `Collector::Auto` picked under the old defaults.
+# - `threads`: keeps the threads proposal (atomics, shared memory) on, so
+#   modules built with atomics still compile.
+# - `backtrace`, `demangle`: a trap's `RuntimeError` message carries the
+#   wasm backtrace with demangled names, as before.
 wasmtime = { version = "50.0.0", default-features = false, features = [
     "runtime",
     "std",
@@ -267,6 +271,9 @@ wasmtime = { version = "50.0.0", default-features = false, features = [
     "parallel-compilation",
     "gc",
     "gc-copying",
+    "threads",
+    "backtrace",
+    "demangle",
 ] }
 wat = "1"
 static_assertions = "1"
