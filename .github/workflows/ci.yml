@@ -37,6 +37,8 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - '.rustfmt.toml'
+              # No clippy.toml is tracked (ADR #36: no MSRV during development);
+              # one added later changes what clippy checks, so it runs the jobs.
               - 'clippy.toml'
               - 'mise.toml'
               - '.github/workflows/**'
