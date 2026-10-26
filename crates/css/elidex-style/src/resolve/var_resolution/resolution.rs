@@ -138,12 +138,12 @@ pub(super) fn substitute_vars(
             let resolved = substitute_vars(value.trim(), custom_props, depth + 1, visited)?;
             visited.remove(name);
             result.push_str(&resolved);
-        } else if let Some(fb) = fallback {
-            // Use fallback, which might contain var().
+        } else {
+            // Use fallback, which might contain var(). No fallback means
+            // unresolvable -- invalid at computed-value time.
+            let fb = fallback?;
             let resolved = substitute_vars(fb.trim(), custom_props, depth + 1, visited)?;
             result.push_str(&resolved);
-        } else {
-            return None; // Unresolvable -- invalid at computed-value time.
         }
 
         // Check output size limit after each substitution.

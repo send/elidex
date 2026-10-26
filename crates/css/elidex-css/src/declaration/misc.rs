@@ -462,10 +462,7 @@ pub(super) fn parse_content(input: &mut Parser) -> Vec<Declaration> {
                     Token::Function(ref name) if name.eq_ignore_ascii_case("attr") => {
                         i.parse_nested_block(
                             |block| -> Result<(), cssparser::ParseError<'_, ()>> {
-                                let attr_name = match block.expect_ident() {
-                                    Ok(n) => n.as_ref().to_string(),
-                                    Err(e) => return Err(e.into()),
-                                };
+                                let attr_name = block.expect_ident()?.as_ref().to_string();
                                 items.push(CssValue::Keyword(format!("attr:{attr_name}")));
                                 Ok(())
                             },

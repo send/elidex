@@ -205,11 +205,8 @@ pub fn split_host_port(val: &str) -> Option<(String, Option<String>)> {
         let rest = &val[end + 1..];
         match rest {
             "" => (host, None),
-            _ => match rest.strip_prefix(':') {
-                Some(p) => (host, Some(p.to_owned())),
-                // Trailing garbage after `]` (e.g. `[::1]abc`) — invalid host.
-                None => return None,
-            },
+            // Trailing garbage after `]` (e.g. `[::1]abc`) — invalid host.
+            _ => (host, Some(rest.strip_prefix(':')?.to_owned())),
         }
     } else {
         // Non-bracketed: at most one `:` separator.  `splitn(3, ':')`

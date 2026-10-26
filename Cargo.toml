@@ -242,17 +242,14 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# Patch-level floor is load-bearing, not a style slip: the wasmtime RUSTSECs are
-# fixed per release line. RUSTSEC-2026-0315 / 0316 (fuel accounting): 49.x from
-# 49.0.1, 48.x from 48.0.3. RUSTSEC-2026-0325 / 0326 (GC heap corruption) and
-# 0327 (component async callback stack buffer overflow): 49.x from 49.0.2, 48.x
-# from 48.0.4. RUSTSEC-2026-0353 … 0364 (component-model panics and limits,
-# exception-tag alignment, recursive-type drop): 49.x from 49.0.3, 48.x from
-# 48.0.6 except 0360, which has no 48.x fix. RUSTSEC-2026-0378 (component-model
-# stream payload-type panic) and 0379 (aarch64 Cranelift `br_table` jump target):
-# 49.x from 49.0.4, 48.x from 48.0.7. A bare `"49"` (= `>=49.0.0`) would admit
-# the vulnerable 49.0.x releases. Keep the `.0.4`.
-wasmtime = "49.0.4"
+# Written at patch level on purpose, against the workspace's bare-major
+# convention: the wasmtime RUSTSECs are fixed per release line (on 49.x,
+# RUSTSEC-2026-0315 … 0379 needed 49.0.1 through 49.0.4), so when an advisory
+# lands on 50.x the floor moves to that line's patched release, and a bare
+# `"50"` (= `>=50.0.0`) would keep admitting the vulnerable 50.0.x. No advisory
+# covers 50.0.0 yet (`cargo deny`, 2026-10-26). wasmtime 50 needs rustc 1.97
+# (`rust-toolchain.toml`).
+wasmtime = "50.0.0"
 wat = "1"
 static_assertions = "1"
 rayon = "1"

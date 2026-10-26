@@ -385,7 +385,7 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
     let p_i32 = p as i32;
     let formatted = if e >= p_i32 || e < -6 {
         if digits.len() == 1 {
-            format!("{}e{}{}", &digits, if e >= 0 { "+" } else { "" }, e)
+            format!("{}e{}{}", digits, if e >= 0 { "+" } else { "" }, e)
         } else {
             format!(
                 "{}.{}e{}{}",
