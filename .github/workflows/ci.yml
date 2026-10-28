@@ -44,11 +44,13 @@ jobs:
               - '.clippy.toml'
               - 'mise.toml'
               - '.github/workflows/**'
+              - '.github/actions/**'
             config:
               - 'deny.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/**'
+              - '.github/actions/**'
 
   check:
     name: Check, Test, Lint
@@ -63,9 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - name: Install fonts (Ubuntu)
         if: runner.os == 'Linux'
@@ -100,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - uses: Swatinem/rust-cache@v2
 
@@ -118,7 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - uses: Swatinem/rust-cache@v2
 

@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   audit:
     name: Cargo Audit
@@ -15,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2
