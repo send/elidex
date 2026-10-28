@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Minimum interval between soft update checks (WHATWG SW §2.3).
-const SOFT_UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
+const SOFT_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
 
 /// Result of a SW update check.
 #[derive(Debug)]

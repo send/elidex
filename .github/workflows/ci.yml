@@ -37,7 +37,11 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - '.rustfmt.toml'
+              # No clippy config is tracked (ADR #36: no MSRV during development);
+              # one added at the root (either spelling clippy reads) changes what
+              # clippy checks, so it runs the jobs. Per-crate ones fall under crates/**.
               - 'clippy.toml'
+              - '.clippy.toml'
               - 'mise.toml'
               - '.github/workflows/**'
             config:

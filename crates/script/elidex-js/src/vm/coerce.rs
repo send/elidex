@@ -447,8 +447,8 @@ pub(crate) fn f64_to_uint8_clamp(n: f64) -> u8 {
     if n >= 255.0 {
         return 255;
     }
-    // `f64::round_ties_even` stabilised Rust 1.77 — project pins
-    // 1.95 per `rust-toolchain.toml`, so the unconditional call
+    // `f64::round_ties_even` stabilised in Rust 1.77, older than the
+    // toolchain `rust-toolchain.toml` pins, so the unconditional call
     // is safe.  Produces 2.5 → 2, 3.5 → 4, 4.5 → 4, -0.5 → 0,
     // 255.5 → 255 (already clamped) behaviour.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
