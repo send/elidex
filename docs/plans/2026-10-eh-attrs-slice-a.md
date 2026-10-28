@@ -739,8 +739,10 @@ Measured (rev 4.4, 2026-10-28): head `65c7eed0`, row "bind walk recursive" re-me
 not named in a note had every listed cell fail. The table's own corrections follow the measurement (PM decision 60).
 The umbrella's §6.3 prose lists the pre-measurement cells; this table is the measured record.
 
-1. The marker check in the D-2 function: E3 and U7 pass under it. A second bind stops at the document marker before
-   it reaches any element, so those two cells test the document marker, not the element marker.
+1. The marker check in the D-2 function: E3 and U7 pass under it, and they also pass when only the document-marker
+   check is dropped. They fail when both checks are dropped together (measured). A second bind is stopped by either
+   guard on its own, so the two cells test the bind's idempotence as a whole, not one marker. The element marker is
+   proven by C1–C3 and U1, the document marker by U9 and E8.
 2. At HEAD's depth (`MAX_ANCESTOR_DEPTH + 5`) a recursive walk fit the test harness's default stack and U10 passed.
    U10 now runs the bind on a thread with a 256 KiB stack (PM decision 60). The iterative walk passes with 32 KiB in
    a debug build. The recursive mutant overflows it and aborts the test binary (SIGABRT), which is a fail but not a
