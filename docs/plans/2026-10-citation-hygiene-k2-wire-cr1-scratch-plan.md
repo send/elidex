@@ -560,7 +560,7 @@ runs at the new T first; the user's 2026-10-25 decision is the "continue", and t
 runbook is bound to `01fb2924` and `3b7ff6d5` (its frame guard, runbook :88–:102; the binding lines :96–:99) and is
 not edited; **the new-T instrument frame is the delta runbook**
 `docs/plans/2026-10-citation-hygiene-k2-wire-cr1-scratch-plan-runbook.md` (F5): it names T and replaces the guard
-(T's parent is `67488c8d`), reads every doc at T from `W` = this branch's worktree (`k2-wire-fgit-hermetic` is merged
+(T = `03560f32` on `eaa73f5e` on `67488c8d`; restated 2026-10-28, PM decision 67), reads every doc at T from `W` = this branch's worktree (`k2-wire-fgit-hermetic` is merged
 and gone from `origin`), byte-compares each extraction with `3b7ff6d5`'s, re-checks every RUN cell's anchors at T in
 a dry pass of its own (finalhead §7 C5), lists each fence of runbook §6.0–§6.8 that it replaces, and adds the fences
 of this plan's own cells (BN: N1, N2, N5, N6).

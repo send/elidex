@@ -19,8 +19,10 @@ cited here, `67488c8d` equals `fdded560` and `cdc7c6ec`: plan, Frame); a number 
 
 - **T** is the CR#1 fix commit: the last commit on `webref-cite-audit-tool` that changes `.claude/tools/**` or
   `scripts/**` or the trip-wires job (landing :339–:341), re-derived by landing :392–:397's command (its fence
-  :391–:398) in `W`; its parent is `67488c8d` (the branch's head, pushed: its merge of `origin/main` at `b9122157`, on
-  top of `fdded560`, the merge of `2e7c432c`, and `cdc7c6ec`, the merge of A-iii #545). The guard (§2) refuses any other.
+  :391–:398) in `W`. The fix is two commits on `67488c8d` (the merge of `origin/main` at `b9122157`, on
+  top of `fdded560`, the merge of `2e7c432c`, and `cdc7c6ec`, the merge of A-iii #545): `eaa73f5e`, then `03560f32`
+  (the U loop's helper call made an operand, PM decision 59), so **T = `03560f32`** (restated 2026-10-28, PM decision
+  67: T moved by PM 59 before step 1 ran). The guard (§2) refuses any other.
 - **The sequence** (plan §6): `origin/main` is merged **before** the fix commit (those merges are `fdded560` and `67488c8d`;
   until the fix commit is pushed, `origin`'s branch is `67488c8d`); the fix commit is pushed (user approval) **before** step 1, because the guard needs `origin`'s `webref-cite-audit-tool` to
   equal `W`'s HEAD; X9's CI run is that same push's; the verdict commit follows step 1 and X9; then Codex. No merge of
@@ -79,8 +81,9 @@ T=$(for c in $(git log --format=%H e8f78896..HEAD); do
 done)
 [ -n "$T" ] && [ -n "$(git diff --name-only "$T^" "$T" -- .claude/tools/webref-generic-core-trip-wire.sh)" ] ||
   { echo "T MOVED: '$T' is not a change to the wire, so not CR#1's fix (the user decides)"; exit 1; }
-[ "$(git rev-parse "$T^")" = 67488c8d404c355e8f650dbd807cfb7f923f0f9c ] ||
-  { echo "T'S PARENT IS NOT 67488c8d (main merged after the fix, or another commit under it: the user decides)"; exit 1; }
+[ "$(git rev-parse "$T")" = "$(git rev-parse 03560f32)" ] && [ "$(git rev-parse "$T^")" = "$(git rev-parse eaa73f5e)" ] &&
+  [ "$(git rev-parse "$T^^")" = 67488c8d404c355e8f650dbd807cfb7f923f0f9c ] ||
+  { echo "T IS NOT 03560f32 ON eaa73f5e ON 67488c8d (main merged after the fix, or another commit under it: the user decides)"; exit 1; }
 [ "$(git show "$T:.claude/tools/webref-generic-core-trip-wire.sh" | /usr/bin/grep -cx '_k2_own_dir() {')" -eq 1 ] ||
   { echo "T HOLDS NO OWN-DIR HELPER (not CR#1's fix)"; exit 1; }
 [ "$(git diff --name-only "$T" HEAD -- .claude/tools scripts | wc -l)" -eq 0 ] || { echo "TOOL CODE IS NOT T'S"; exit 1; }
@@ -95,8 +98,8 @@ echo "frame guard: passed, T=$T"
 
 **The clones** (replaces the fence at runbook :117–:121): `c0 x3main53 x3main32 x3plant53 x3plant32 x3floor53
 x3floor32 x11 u a stale x8t x5/p11 n1` by `mkclone` (T), `mkclone x8base e8f78896`, and `mkclone nbase 67488c8d`:
-the N cells' base tree. `nbase` is `67488c8d`, not `cdc7c6ec`: it is T's parent (the guard checks it), so the base
-and T rows compare exactly the fix commit's change; its wire and parts are byte-identical to `cdc7c6ec`'s and
+the N cells' base tree. `nbase` is `67488c8d`, not `cdc7c6ec`: it is T's grandparent, the base under the fix's two
+commits (the guard checks it), so the base and T rows compare exactly the fix's change; its wire and parts are byte-identical to `cdc7c6ec`'s and
 `6afa7d98`'s, where the plan's §1 was measured (the guard's last check). A stopped run's clean-up list (runbook §6.0,
 "A re-run after a stop") adds `n1` and `nbase`; BN's victim directories hold that cell's `log` and stay.
 
