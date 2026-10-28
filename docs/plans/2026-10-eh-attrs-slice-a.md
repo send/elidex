@@ -431,6 +431,10 @@ to slice b's input by name (§9). I10 (§2) covers only the three callers it nam
   HEAD control that runs before its oracle (`assert_head_control`), so a pin that is red is red for the intended
   reason.
 
+  (e) §6.3, one sentence added under the heading (PM decision 63): the mutation cells there are the pre-measurement
+  prediction, and §4.6 of this plan, with its notes 1–6, is the canonical measured record. The cells themselves are
+  not rewritten.
+
   Umbrella text that refers to §6.4 stays accurate after (b): `:23` lists "§6's file placement … (§6.3–§6.4)" as
   input, and `:1078` is the R3 review ledger's historical row ("§6.4 decided obligation"), which records the fix at
   the time and is not rewritten.
@@ -737,7 +741,8 @@ description. At most two mutants run in parallel.
 
 Measured (rev 4.4, 2026-10-28): head `65c7eed0`, row "bind walk recursive" re-measured at `17c35144`. Every row
 not named in a note had every listed cell fail. The table's own corrections follow the measurement (PM decision 60).
-The umbrella's §6.3 prose lists the pre-measurement cells; this table is the measured record.
+The umbrella's §6.3 prose lists the pre-measurement cells; this table is the measured record, and §6.3 gains one
+pointer sentence saying so (PM decision 63, §1.7 (e)).
 
 1. The marker check in the D-2 function: E3 and U7 pass under it, and they also pass when only the document-marker
    check is dropped. They fail when both checks are dropped together (measured). A second bind is stopped by either
@@ -954,7 +959,7 @@ sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler
 
 - **rev 4.4** (implementation records; PM decisions 43, 48, 60):
   - §1.7 gains umbrella edits (c) and (d), the E4 and E7 fixture cells of umbrella §6 (decisions 43 and 48); the
-    header names them.
+    header names them. Edit (e) adds a pointer sentence to umbrella §6.3 (decision 63).
   - §4.6: the mutation run's measured kill cells replace three rows' predictions (marker check, Window-delegating
     write, classifier keying), and notes 1–6 record why each survivor or alternative form behaves as it does. U10's
     bind runs on a fixed 256 KiB stack (decision 60).

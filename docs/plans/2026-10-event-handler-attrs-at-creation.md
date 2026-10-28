@@ -755,6 +755,9 @@ Control: `data-ran == "1"`.
 
 ### §6.3 Mutation guards and kept-green (input)
 
+The mutation cells below are the pre-measurement prediction. The measured record is slice a's per-PR plan §4.6
+(`docs/plans/2026-10-eh-attrs-slice-a.md`): its cells and notes 1–6 are canonical (PM decision 63).
+
 Kept green: `tests_event_handler_attrs.rs` and the consumer's `spec_level_tests`. Mutation guards: dropping the marker
 check fails C1–C3, U1, E3, U7. Deleting the bind delegate fails E1, E2, E4–E7, U7. Dropping the document-marker
 check, or holding the once-state on the consumer struct, fails U9 and E8. A light-tree bind pass fails E7 and U8 (iii).
