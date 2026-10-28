@@ -95,6 +95,117 @@ pub unsafe fn setup_with_element(
     el
 }
 
+/// Build a connected page under `doc` — `doc` → `html` → `body` → `div` —
+/// with no handler attributes, **before** binding (the pre-bind shape), then
+/// bind `vm` and install the `<div>` wrapper as `globalThis.el`. Returns the
+/// `<div>` entity.
+///
+/// Unlike [`setup_with_element`], whose `el` is detached, `el` here is
+/// connected, so insertions into it reach the live, bound document.
+/// Test support: no spec step.
+///
+/// # Safety
+///
+/// Inherits the full safety contract of [`bind_vm`]: the caller must keep
+/// `session` and `dom` live and non-aliased until [`Vm::unbind`].
+#[allow(unsafe_code)]
+pub unsafe fn setup_page(
+    vm: &mut Vm,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    doc: Entity,
+) -> Entity {
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let el = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(doc, html), "setup_page: append html");
+    assert!(dom.append_child(html, body), "setup_page: append body");
+    assert!(dom.append_child(body, el), "setup_page: append div");
+    // SAFETY: forwarded from the caller (same contract as `bind_vm`).
+    unsafe {
+        bind_vm(vm, session, dom, doc);
+    }
+    let wrapper_id = vm.inner.create_element_wrapper(el);
+    vm.set_global("el", JsValue::Object(wrapper_id));
+    el
+}
+
+/// Run `body` against a fresh VM bound by `setup` (one VM, session and DOM per
+/// call; `setup` gets the fresh `Vm`, `SessionCore`, `EcsDom` and document root).
+///
+/// RAII guard that unbinds the VM on drop — including during a panic unwind,
+/// so `session` / `dom` are never dropped while the VM still holds raw
+/// pointers into them (upholds [`Vm::bind`]'s safety contract even when a
+/// test assertion panics inside `body`). `session` / `dom` are declared
+/// **before** the VM so that, on unwind, the guard (dropped first) unbinds
+/// before they are dropped: [`Vm::bind`] stores raw pointers into them, so
+/// they MUST stay live and non-aliased until `unbind`.
+#[cfg(test)]
+pub(crate) fn with_bound_vm(
+    setup: impl FnOnce(&mut Vm, &mut SessionCore, &mut EcsDom, Entity),
+    body: impl FnOnce(&mut Vm),
+) {
+    struct BoundVm(Vm);
+    impl Drop for BoundVm {
+        fn drop(&mut self) {
+            self.0.unbind();
+        }
+    }
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut vm = Vm::new();
+    setup(&mut vm, &mut session, &mut dom, doc);
+    let mut guard = BoundVm(vm);
+    body(&mut guard.0);
+    // `guard` drops here (or on unwind), unbinding before `dom` / `session`.
+}
+
+/// Run `body` against a fresh VM bound to a [`setup_page`] page.
+#[cfg(test)]
+pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
+    with_bound_vm(
+        |vm, session, dom, doc| {
+            #[allow(unsafe_code)]
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            unsafe {
+                setup_page(vm, session, dom, doc);
+            }
+        },
+        body,
+    );
+}
+
+/// `fn` (a counted IDL callable), two DOMParser documents with an empty body
+/// (`dp`, `dp2`) and the result array `r`; the prelude of [`run`].
+#[cfg(test)]
+pub(crate) const PRELUDE: &str = "\
+    globalThis.fnRan = 0; \
+    globalThis.fn = function () { globalThis.fnRan++; }; \
+    globalThis.dp = new DOMParser().parseFromString('<body></body>', 'text/html'); \
+    globalThis.dp2 = new DOMParser().parseFromString('<body></body>', 'text/html'); \
+    globalThis.r = [];";
+
+/// Run [`PRELUDE`] and `script` (which pushes into `r`), return `r.join()`.
+#[cfg(test)]
+pub(crate) fn run(vm: &mut Vm, script: &str) -> String {
+    vm.eval(PRELUDE).expect("prelude");
+    vm.eval(script).expect("cell script");
+    eval_str(vm, "r.join()")
+}
+
+/// Resolve the `Entity` behind a `HostObject` wrapper value.
+#[cfg(test)]
+pub(crate) fn entity_of(vm: &Vm, value: JsValue) -> Entity {
+    let JsValue::Object(id) = value else {
+        panic!("value is not an object: {value:?}")
+    };
+    let super::value::ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
+        panic!("value is not a HostObject")
+    };
+    Entity::from_bits(entity_bits).expect("valid entity bits")
+}
+
 /// Build a minimal [`DispatchEvent`] whose `target == current_target ==
 /// entity`, with `bubbles = false`, `phase = AtTarget`, and
 /// `dispatch_flag = true`.

@@ -265,3 +265,149 @@ fn first_child_with_tag_does_not_recurse() {
     assert_eq!(dom.first_child_with_tag(root, "p"), None);
     assert_eq!(dom.first_child_with_tag(mid, "p"), Some(deep));
 }
+
+// ---------------------------------------------------------------------------
+// for_each_uncapped_shadow_inclusive (W1–W4, plan
+// `docs/plans/2026-10-eh-attrs-slice-a.md` §4.3)
+// ---------------------------------------------------------------------------
+
+fn uncapped_walk(dom: &EcsDom, root: Entity, mode: TemplateContentsWalk) -> Vec<Entity> {
+    let mut out = Vec::new();
+    dom.for_each_uncapped_shadow_inclusive(root, mode, &mut |e| out.push(e));
+    out
+}
+
+#[test]
+fn w1_uncapped_walk_reaches_past_depth_and_breadth_caps() {
+    // Depth: a chain past MAX_ANCESTOR_DEPTH, built bottom-up (O(1) appends).
+    let mut dom = EcsDom::new();
+    let deepest = elem(&mut dom, "div");
+    let mut root = deepest;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        let parent = elem(&mut dom, "div");
+        assert!(dom.append_child(parent, root));
+        root = parent;
+    }
+    let visited = uncapped_walk(&dom, root, TemplateContentsWalk::Exclude);
+    assert_eq!(visited.len(), MAX_ANCESTOR_DEPTH + 6, "every chain node");
+    assert_eq!(
+        visited.last(),
+        Some(&deepest),
+        "the node below the depth cap is visited"
+    );
+
+    // Breadth: one parent with more than MAX_ANCESTOR_DEPTH children (a
+    // separate DOM, so each append stays cheap).
+    let mut dom = EcsDom::new();
+    let wide = elem(&mut dom, "div");
+    let mut last = wide;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        last = elem(&mut dom, "span");
+        assert!(dom.append_child(wide, last));
+    }
+    let visited = uncapped_walk(&dom, wide, TemplateContentsWalk::Exclude);
+    assert_eq!(
+        visited.len(),
+        MAX_ANCESTOR_DEPTH + 6,
+        "parent + every child"
+    );
+    assert_eq!(
+        visited.last(),
+        Some(&last),
+        "the child past the breadth cap is visited"
+    );
+}
+
+#[test]
+fn w2_uncapped_walk_visits_in_shadow_including_tree_order() {
+    // WHATWG DOM §4.8: shadow-including preorder — host, its shadow root and
+    // shadow tree, then its light children.
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let light_a = elem(&mut dom, "p");
+    let light_a_child = elem(&mut dom, "em");
+    let light_b = elem(&mut dom, "p");
+    assert!(dom.append_child(host, light_a));
+    assert!(dom.append_child(light_a, light_a_child));
+    assert!(dom.append_child(host, light_b));
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach");
+    let shadow_a = elem(&mut dom, "span");
+    let shadow_a_child = elem(&mut dom, "b");
+    let shadow_b = elem(&mut dom, "span");
+    assert!(dom.append_child(sr, shadow_a));
+    assert!(dom.append_child(shadow_a, shadow_a_child));
+    assert!(dom.append_child(sr, shadow_b));
+
+    assert_eq!(
+        uncapped_walk(&dom, host, TemplateContentsWalk::Exclude),
+        vec![
+            host,
+            sr,
+            shadow_a,
+            shadow_a_child,
+            shadow_b,
+            light_a,
+            light_a_child,
+            light_b
+        ]
+    );
+}
+
+#[test]
+fn w3_template_contents_excluded_or_included_by_mode() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let root = elem(&mut dom, "div");
+    assert!(dom.append_child(doc, root));
+    let template = elem(&mut dom, "template");
+    assert!(dom.append_child(root, template));
+    let fragment = dom.attach_template_contents(template, Some(doc));
+    let inside = elem(&mut dom, "button");
+    assert!(dom.append_child(fragment, inside));
+    let after = elem(&mut dom, "p");
+    assert!(dom.append_child(root, after));
+
+    let excluded = uncapped_walk(&dom, root, TemplateContentsWalk::Exclude);
+    assert_eq!(
+        excluded,
+        vec![root, template, after],
+        "Exclude: contents are not descendants"
+    );
+
+    let included = uncapped_walk(&dom, root, TemplateContentsWalk::Include);
+    assert!(
+        included.contains(&fragment) && included.contains(&inside),
+        "Include reaches them"
+    );
+    let pos = |e: Entity| included.iter().position(|x| *x == e).expect("visited");
+    assert!(pos(template) < pos(fragment) && pos(fragment) < pos(inside));
+    assert_eq!(included.len(), 5);
+}
+
+#[test]
+fn w4_uncapped_walk_terminates_on_cyclic_links() {
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    let a = elem(&mut dom, "span");
+    let b = elem(&mut dom, "span");
+    assert!(dom.append_child(root, a));
+    assert!(dom.append_child(root, b));
+    // Corrupt: a cyclic sibling chain (b → a) and a child link back to an
+    // ancestor (a's first child is root).
+    dom.world_mut()
+        .get::<&mut TreeRelation>(b)
+        .expect("relation")
+        .next_sibling = Some(a);
+    dom.world_mut()
+        .get::<&mut TreeRelation>(a)
+        .expect("relation")
+        .first_child = Some(root);
+
+    let visited = uncapped_walk(&dom, root, TemplateContentsWalk::Include);
+    assert_eq!(visited.len(), 3, "each entity is visited once: {visited:?}");
+    for e in [root, a, b] {
+        assert!(visited.contains(&e));
+    }
+}

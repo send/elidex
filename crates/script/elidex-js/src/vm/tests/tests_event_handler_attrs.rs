@@ -10,41 +10,23 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::SessionCore;
-
-use super::super::test_helpers::{eval_str, setup_with_element};
-use super::super::value::{JsValue, ObjectKind};
+use super::super::test_helpers::{entity_of, eval_str, setup_with_element, with_bound_vm};
+use super::super::value::JsValue;
 use super::super::Vm;
-
-/// RAII guard that unbinds the VM on drop — including during a panic
-/// unwind, so `session`/`dom` are never dropped while the VM still holds
-/// raw pointers into them (upholds [`Vm::bind`]'s safety contract even
-/// when a test assertion panics inside the closure).
-struct BoundVm(Vm);
-impl Drop for BoundVm {
-    fn drop(&mut self) {
-        self.0.unbind();
-    }
-}
 
 /// Run `body` against a VM bound to a document with a single `<div>`
 /// exposed as the JS global `el`.
-///
-/// `session` / `dom` are declared **before** the VM so that, on unwind,
-/// the `BoundVm` guard (dropped first) unbinds before they are dropped —
-/// [`Vm::bind`] (via [`setup_with_element`]) stores raw pointers into
-/// them, so they MUST stay live and non-aliased until `unbind`.
 fn with_el(body: impl FnOnce(&mut Vm)) {
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    let mut vm = Vm::new();
-    #[allow(unsafe_code)]
-    let _el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
-    let mut guard = BoundVm(vm);
-    body(&mut guard.0);
-    // `guard` drops here (or on unwind), unbinding before `dom`/`session`.
+    with_bound_vm(
+        |vm, session, dom, doc| {
+            #[allow(unsafe_code)]
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            unsafe {
+                setup_with_element(vm, session, dom, doc, "div");
+            }
+        },
+        body,
+    );
 }
 
 /// Evaluate `src` and expect a boolean result.
@@ -53,17 +35,6 @@ fn eval_bool(vm: &mut Vm, src: &str) -> bool {
         JsValue::Boolean(b) => b,
         other => panic!("expected boolean, got {other:?}"),
     }
-}
-
-/// Resolve the `Entity` behind a `HostObject` wrapper value.
-fn entity_of(vm: &Vm, value: JsValue) -> Entity {
-    let JsValue::Object(id) = value else {
-        panic!("value is not an object: {value:?}")
-    };
-    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
-        panic!("value is not a HostObject")
-    };
-    Entity::from_bits(entity_bits).expect("valid entity bits")
 }
 
 /// Evaluate `src` and expect a number result.

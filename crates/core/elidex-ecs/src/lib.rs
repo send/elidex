@@ -38,7 +38,7 @@ pub use dom::equality::{
 pub use dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
 pub use dom::{
     AttributeWrite, EcsDom, FragmentView, MutationDispatcher, MutationEvent, ScreenGeometry,
-    MAX_ANCESTOR_DEPTH,
+    TemplateContentsWalk, MAX_ANCESTOR_DEPTH,
 };
 pub use fragment_tree::{BoxFragment, FragmentContent, FragmentId, FragmentNode, FragmentTree};
 

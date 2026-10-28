@@ -6,6 +6,7 @@
 
 use elidex_script_session::HostDriver;
 
+use super::iframe::{BrowserToIframe, IframeEntry, IframeHandle, IframeToBrowser, InProcessIframe};
 use super::{spawn_content_thread, ContentState};
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
@@ -279,10 +280,130 @@ pub(super) fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str)
             .ok()
             .is_some_and(|a| a.get("id") == Some(id))
     })?;
+    read_attr(pipeline, entity, attr)
+}
+
+/// Read attribute `attr` of `entity` from `pipeline.dom`.
+fn read_attr(
+    pipeline: &crate::PipelineResult,
+    entity: elidex_ecs::Entity,
+    attr: &str,
+) -> Option<String> {
     pipeline
         .dom
         .world()
         .get::<&elidex_ecs::Attributes>(entity)
         .ok()
         .and_then(|a| a.get(attr).map(str::to_owned))
+}
+
+/// The loaded entry for the single iframe, which must be in-process.
+pub(super) fn in_process_entry(state: &ContentState) -> &InProcessIframe {
+    let entity = iframe_entity(state);
+    let entry: &IframeEntry = state
+        .iframes
+        .get(entity)
+        .expect("the iframe should have loaded an entry");
+    match &entry.handle {
+        IframeHandle::InProcess(ip) => ip,
+        IframeHandle::OutOfProcess(_) => panic!("expected an in-process iframe entry"),
+    }
+}
+
+/// Synthesize the `LoadedDocument` a successful fetch of `url` would produce
+/// (the test network cannot produce a real one): `html` parsed with
+/// `parse_progressive_str` (strict first, tolerant fallback), as the loader
+/// parses a fetched document.
+pub(super) fn synth_loaded(html: &str, url: &str) -> elidex_navigation::LoadedDocument {
+    let parsed = elidex_html_parser::parse_progressive_str(html);
+    let scripts = elidex_navigation::extract_inline_scripts(&parsed.dom, parsed.document);
+    elidex_navigation::LoadedDocument {
+        dom: parsed.dom,
+        document: parsed.document,
+        stylesheets: Vec::new(),
+        scripts,
+        url: url::Url::parse(url).expect("test URL should parse"),
+        response_headers: std::collections::HashMap::new(),
+        manifest_url: None,
+    }
+}
+
+/// Pump the OOP entry's channel until two `DisplayListReady` frames arrive,
+/// then shut the thread down and return the collected `PostMessage`s.
+///
+/// Two frames, not one: the iframe thread's loop sends the frame's display
+/// list BEFORE draining the bridge's pending `postMessage` queue in the same
+/// iteration, so posts queued by the *initial* scripts (during the build,
+/// before the loop) are on the channel only once the SECOND frame is —
+/// channel delivery is FIFO. The two-frame requirement also proves the
+/// pipeline built and the thread is alive (non-vacuity for the
+/// no-message-expected case).
+pub(super) fn run_oop_and_collect_posts(entry: IframeEntry) -> Vec<(String, String)> {
+    let IframeHandle::OutOfProcess(mut oop) = entry.handle else {
+        panic!("expected an out-of-process iframe entry");
+    };
+    let mut posts = Vec::new();
+    let mut frames = 0_usize;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while frames < 2 && std::time::Instant::now() < deadline {
+        match oop
+            .channel
+            .recv_timeout(std::time::Duration::from_millis(100))
+        {
+            Ok(IframeToBrowser::DisplayListReady(_)) => frames += 1,
+            Ok(IframeToBrowser::PostMessage { data, origin, .. }) => posts.push((data, origin)),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    assert!(
+        frames >= 2,
+        "the OOP iframe thread never produced two frames — pipeline build \
+         failed or thread died"
+    );
+    let _ = oop.channel.send(BrowserToIframe::Shutdown);
+    if let Some(thread) = oop.thread.take() {
+        thread
+            .join()
+            .expect("OOP iframe thread should join cleanly");
+    }
+    posts
+}
+
+/// Build a top-level (main-document) pipeline for `html` at
+/// `https://example.com/` through `crate::build_pipeline_from_loaded`, the
+/// builder every URL-loaded document goes through, over [`test_network`].
+/// Returns the broker handle with the pipeline so the broker outlives it.
+/// Test support: no spec step.
+pub(super) fn build_main_document(
+    html: &str,
+) -> (
+    crate::PipelineResult,
+    elidex_net::broker::NetworkProcessHandle,
+) {
+    let (nh, jar, np) = test_network();
+    let pipeline = crate::build_pipeline_from_loaded(
+        synth_loaded(html, "https://example.com/"),
+        std::rc::Rc::new(nh),
+        std::sync::Arc::new(elidex_text::FontDatabase::new()),
+        Some(jar),
+        None,
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
+        crate::ipc::DeviceFacts::default(),
+        // Top-level document: no frame security (origin derives from the URL).
+        None,
+        None,
+    );
+    (pipeline, np)
+}
+
+/// Read attribute `attr` of the document's `<body>` element — a Rust-side
+/// read of `pipeline.dom`, opening no script bracket. Test support: no spec
+/// step.
+pub(super) fn probe_body_attr(pipeline: &crate::PipelineResult, attr: &str) -> Option<String> {
+    let body = pipeline.dom.query_by_tag("body").into_iter().next()?;
+    read_attr(pipeline, body, attr)
 }

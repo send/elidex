@@ -69,28 +69,12 @@
 //! reads the loaded (final) URL, not the requested one, and a credentialless
 //! frame stays opaque across the navigation.
 
-use super::iframe::{
-    make_out_of_process_entry, BrowserToIframe, IframeEntry, IframeHandle, IframeToBrowser,
-    InProcessIframe,
-};
+use super::iframe::make_out_of_process_entry;
 use super::test_support::{
-    build_test_content_state, build_test_content_state_with_url, iframe_entity, probe_attr,
+    build_test_content_state, build_test_content_state_with_url, in_process_entry, probe_attr,
+    run_oop_and_collect_posts, synth_loaded,
 };
-use super::ContentState;
 use elidex_script_session::HostDriver;
-
-/// The loaded entry for the single iframe, which must be in-process.
-fn in_process_entry(state: &ContentState) -> &InProcessIframe {
-    let entity = iframe_entity(state);
-    let entry: &IframeEntry = state
-        .iframes
-        .get(entity)
-        .expect("the iframe should have loaded an entry");
-    match &entry.handle {
-        IframeHandle::InProcess(ip) => ip,
-        IframeHandle::OutOfProcess(_) => panic!("expected an in-process iframe entry"),
-    }
-}
 
 /// Sandbox WITHOUT `allow-scripts`: the initial script must NOT run — the
 /// flags reach the bridge before the first eval, so the `allow-scripts` eval
@@ -394,64 +378,6 @@ fn credentialless_iframe_persists_flag_and_opaque_origin() {
 // OOP path (see the module doc for reachability + oracle notes)
 // ---------------------------------------------------------------------------
 
-/// Synthesize the `LoadedDocument` a successful cross-origin fetch would
-/// produce (the disconnected test network cannot produce a real one).
-fn synth_cross_origin_loaded(html: &str, url: &str) -> elidex_navigation::LoadedDocument {
-    let parsed = elidex_html_parser::parse_progressive_str(html);
-    let scripts = elidex_navigation::extract_inline_scripts(&parsed.dom, parsed.document);
-    elidex_navigation::LoadedDocument {
-        dom: parsed.dom,
-        document: parsed.document,
-        stylesheets: Vec::new(),
-        scripts,
-        url: url::Url::parse(url).expect("test URL should parse"),
-        response_headers: std::collections::HashMap::new(),
-        manifest_url: None,
-    }
-}
-
-/// Pump the OOP entry's channel until two `DisplayListReady` frames arrive,
-/// then shut the thread down and return the collected `PostMessage`s.
-///
-/// Two frames, not one: the iframe thread's loop sends the frame's display
-/// list BEFORE draining the bridge's pending `postMessage` queue in the same
-/// iteration, so posts queued by the *initial* scripts (during the build,
-/// before the loop) are on the channel only once the SECOND frame is —
-/// channel delivery is FIFO. The two-frame requirement also proves the
-/// pipeline built and the thread is alive (non-vacuity for the
-/// no-message-expected case).
-fn run_oop_and_collect_posts(entry: IframeEntry) -> Vec<(String, String)> {
-    let IframeHandle::OutOfProcess(mut oop) = entry.handle else {
-        panic!("expected an out-of-process iframe entry");
-    };
-    let mut posts = Vec::new();
-    let mut frames = 0_usize;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while frames < 2 && std::time::Instant::now() < deadline {
-        match oop
-            .channel
-            .recv_timeout(std::time::Duration::from_millis(100))
-        {
-            Ok(IframeToBrowser::DisplayListReady(_)) => frames += 1,
-            Ok(IframeToBrowser::PostMessage { data, origin, .. }) => posts.push((data, origin)),
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-    assert!(
-        frames >= 2,
-        "the OOP iframe thread never produced two frames — pipeline build \
-         failed or thread died"
-    );
-    let _ = oop.channel.send(BrowserToIframe::Shutdown);
-    if let Some(thread) = oop.thread.take() {
-        thread
-            .join()
-            .expect("OOP iframe thread should join cleanly");
-    }
-    posts
-}
-
 /// OOP eval-gate order-proof: sandbox WITHOUT `allow-scripts` → the initial
 /// script must NOT run on the iframe thread (WHATWG HTML §7.1.5 sandboxed
 /// scripts flag). Pre-fix, `make_out_of_process_entry` passed `None` to the
@@ -460,7 +386,7 @@ fn run_oop_and_collect_posts(entry: IframeEntry) -> Vec<(String, String)> {
 /// fails under that ordering (verified by temporary inversion).
 #[test]
 fn oop_iframe_flags_installed_before_initial_scripts() {
-    let loaded = synth_cross_origin_loaded(
+    let loaded = synth_loaded(
         r#"<script>postMessage("s5-4b-gate-probe","*");</script>"#,
         "https://other.example/",
     );
@@ -494,7 +420,7 @@ fn oop_iframe_flags_installed_before_initial_scripts() {
 /// (verified by temporary inversion).
 #[test]
 fn oop_sandboxed_iframe_initial_script_observes_opaque_origin() {
-    let loaded = synth_cross_origin_loaded(
+    let loaded = synth_loaded(
         r#"<script>postMessage("s5-4b-origin-probe","*");</script>"#,
         "https://other.example/",
     );
@@ -530,7 +456,7 @@ fn oop_sandboxed_iframe_initial_script_observes_opaque_origin() {
 #[test]
 fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
     let url = "https://other.example/";
-    let loaded = synth_cross_origin_loaded(
+    let loaded = synth_loaded(
         r#"<script>postMessage("s5-4b-tuple-probe","*");</script>"#,
         url,
     );
@@ -570,7 +496,7 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
 /// Falsify by forwarding a full-URL referrer here.
 #[test]
 fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
-    let loaded = synth_cross_origin_loaded(
+    let loaded = synth_loaded(
         r#"<script>postMessage(document.referrer,"*");</script>"#,
         "https://other.example/",
     );

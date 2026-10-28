@@ -7,12 +7,12 @@
 //! - `adopt_subtree` — WHATWG DOM §4.5 node-document update over a subtree.
 //!
 //! These live together because they share the `detach` / `fire_after_remove`
-//! plumbing and the uncapped shadow-inclusive walk, and belong with the
+//! plumbing and the uncapped shadow-inclusive walk
+//! ([`EcsDom::for_each_uncapped_shadow_inclusive`], `walkers.rs`), and belong with the
 //! tree-mutation family.
 
-use std::collections::HashSet;
-
 use super::super::EcsDom;
+use super::walkers::TemplateContentsWalk;
 use crate::components::{Attributes, ShadowRoot};
 use crate::dom::MutationDispatcher;
 use hecs::Entity;
@@ -194,7 +194,9 @@ impl EcsDom {
         // Snapshot the full shadow-inclusive descendant set (uncapped in depth
         // and breadth — teardown must reach every node or it leaks).
         let mut nodes: Vec<Entity> = Vec::new();
-        self.for_each_uncapped_shadow_inclusive(root, &mut |e| nodes.push(e));
+        self.for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, &mut |e| {
+            nodes.push(e);
+        });
         // The only live-tree effect of tearing the subtree out is on the root's
         // *external* parent (if any) — its child list loses `root`, so live
         // collections rooted at/above it must invalidate. Capture it now (its
@@ -240,42 +242,6 @@ impl EcsDom {
         true
     }
 
-    /// Visit `root` and every shadow-inclusive descendant exactly once, with no
-    /// `MAX_ANCESTOR_DEPTH` cap in either dimension — the complete-subtree walk
-    /// shared by [`Self::despawn_subtree`] (teardown) and [`Self::adopt_subtree`]
-    /// (re-home). Uses the uncapped [`Self::child_list_uncapped`] for breadth
-    /// and an explicit work-list for depth; a `visited` set replaces the caps as
-    /// the corruption/cycle termination guard (each entity enumerated once,
-    /// including a host's shadow-root entity, which the light-child walk does not
-    /// otherwise reach).
-    fn for_each_uncapped_shadow_inclusive<F: FnMut(Entity)>(&self, root: Entity, visit: &mut F) {
-        let mut visited = HashSet::new();
-        let mut stack = vec![root];
-        while let Some(node) = stack.pop() {
-            if !visited.insert(node) {
-                continue;
-            }
-            visit(node);
-            // The shadow-root entity is attached out-of-band (not a light
-            // sibling); push it so it is visited and its own light children are
-            // walked when popped (nested shadow hosts recurse the same way).
-            if let Some(sr) = self.get_shadow_root(node) {
-                stack.push(sr);
-            }
-            // A `<template>`'s content fragment (HTML §4.12.3) is likewise
-            // out-of-band (held only by the `TemplateContents` component, never
-            // a light child). Push it so teardown reaches it (else it orphans —
-            // "a complete teardown must reach every node or it leaks") and so
-            // §13.4 fragment adopt re-homes the contents with the template.
-            if let Some(fragment) = self.template_contents_fragment(node) {
-                stack.push(fragment);
-            }
-            for child in self.child_list_uncapped(node) {
-                stack.push(child);
-            }
-        }
-    }
-
     /// WHATWG DOM §4.5 "adopt" node-document update: set the `AssociatedDocument`
     /// of `root` and every shadow-inclusive descendant to `document`. Uncapped in
     /// depth and breadth, so it re-homes a whole subtree however deep/wide. Used
@@ -284,7 +250,9 @@ impl EcsDom {
     /// their `ownerDocument` would dangle / resolve to `None`.
     pub fn adopt_subtree(&mut self, root: Entity, document: Entity) {
         let mut nodes: Vec<Entity> = Vec::new();
-        self.for_each_uncapped_shadow_inclusive(root, &mut |e| nodes.push(e));
+        self.for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, &mut |e| {
+            nodes.push(e);
+        });
         for node in nodes {
             let _ = self.set_associated_document(node, document);
         }

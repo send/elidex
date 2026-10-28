@@ -347,9 +347,11 @@ fn native_event_handler_set(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    let Some(entity) = require_handler_receiver(ctx, this, &format!("on{event_type}"))? else {
+    let name = format!("on{event_type}");
+    let Some(entity) = require_handler_receiver(ctx, this, &name)? else {
         return Ok(JsValue::Undefined);
     };
+    marshal_before_handler_write(ctx, entity, &name);
     let callable = callable_arg(ctx, args);
     activate_event_handler(ctx, DispatchTarget::Node(entity), &event_type, callable);
     Ok(JsValue::Undefined)
@@ -462,12 +464,14 @@ fn native_body_weh_set(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    if require_body_receiver(ctx, this, &format!("on{event_type}"))?.is_none() {
+    let name = format!("on{event_type}");
+    let Some(body) = require_body_receiver(ctx, this, &name)? else {
         return Ok(JsValue::Undefined);
-    }
+    };
     let Some(window_entity) = ctx.host().window_entity() else {
         return Ok(JsValue::Undefined);
     };
+    marshal_before_handler_write(ctx, body, &name);
     let callable = callable_arg(ctx, args);
     activate_event_handler(
         ctx,
@@ -654,6 +658,21 @@ fn read_event_handler(
         .map_or(JsValue::Null, JsValue::Object)
 }
 
+/// Marshal a handler IDL write on `element` into
+/// [`elidex_script_session::process_before_handler_write`] (umbrella D-6),
+/// with the policy the session's consumer is built with. Called after
+/// receiver resolution and before activation.
+fn marshal_before_handler_write(
+    ctx: &mut NativeContext<'_>,
+    element: elidex_ecs::Entity,
+    name: &str,
+) {
+    let policy = ctx.vm.spec_level_policy;
+    if let Some(host) = ctx.host_if_bound() {
+        elidex_script_session::process_before_handler_write(host.dom(), element, name, policy);
+    }
+}
+
 /// Activate (`Some`) or clear (`None`) the `(target, event_type)` event
 /// handler (WHATWG HTML §8.1.8.1 "activate an event handler" / setter) in
 /// the target's listener home (via the [`DispatchTarget`] adapter). The
@@ -712,9 +731,9 @@ impl VmInner {
     ///
     /// The special inline-handler scope chain (`with(document)
     /// with(form-owner) with(element)`) is deferred
-    /// (`#11-inline-handler-scope-chain`); `event` + `this` = currentTarget
+    /// (`#11-event-handler-attribute-edge-cases`, facet 1); `event` + `this` = currentTarget
     /// cover the common case. The 5-argument `onerror` signature is deferred
-    /// (`#11-onerror-error-event-args`).
+    /// (`#11-event-handler-attribute-edge-cases`, facet 2).
     pub(in crate::vm) fn lazy_compile_handler(&mut self, source: &str) -> Option<ObjectId> {
         let wrapped = format!("(function (event) {{\n{source}\n}})");
         let script = crate::compiler::compile_script(&wrapped).ok()?;

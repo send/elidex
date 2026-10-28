@@ -15,6 +15,7 @@ mod dom_api;
 mod engine;
 pub mod event_dispatch;
 pub mod event_handler_consumer;
+mod event_handler_processing;
 pub mod event_listener;
 pub mod event_queue;
 mod host_effects;
@@ -38,6 +39,9 @@ pub use event_handler_consumer::{
     live_collection_spec_level, web_storage_spec_level, EventHandlerAttributeConsumer,
     HandlerScope, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS,
     WORKER_OBJECT_EVENT_HANDLER_ATTRS,
+};
+pub use event_handler_processing::{
+    process_before_handler_write, HandlerAttrsProcessed, PreBindHandlerAttrsProcessed,
 };
 pub use event_listener::{
     EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,
