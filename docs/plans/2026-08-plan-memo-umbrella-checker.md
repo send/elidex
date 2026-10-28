@@ -275,9 +275,9 @@ share. Re-eval: 2026-12-31.
   MEASURED on fourteen variants listed in its docstring: after a blank quote line, a fence, a heading, indented
   code, an HTML block, a thematic break or a table the quote ENDS before the header; ⚠ until R17 the consumed
   definition left `cur` empty and the quote ended, so a linked memo's schema table there was dropped, its
-  ids never declared, rc 0 — schema presence is required of the main memo only (superseded 2026-10-28: see the Correction after
-  this paragraph). ⚠ One divergence stays,
-  stated: cmark-gfm also PRINTS that definition as a paragraph and registers nothing — `[a]: /u\n| h
+  ids never declared, rc 0 — schema presence is required of the main memo only (superseded 2026-10-28:
+  see the Correction after this paragraph). ⚠ One divergence stays, stated: cmark-gfm also PRINTS that
+  definition as a paragraph and registers nothing — `[a]: /u\n| h
   |\n|---|\n\n[a]` renders `[a]` literally, at the top level and in the quote alike; its table extension
   re-creates the residual paragraph without the §4.7 parse — which is not followed: the definition registers,
   the polarity that loses no memo; the rule models WHERE the header lands). Each expectation above was

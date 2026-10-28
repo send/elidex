@@ -328,7 +328,9 @@ MUTANTS = [
      ["(rc) a linked memo that is not on disk is rc 2, never clean"]),
     ("gate: an unmatched schema is a schema miss", POPULATION,
      '                if s.name not in matched:', '                if False:',
-     ["(rc) a schema with no matching table is rc 2"]),
+     ["(rc) a schema with no matching table is rc 2",
+      "(presence) a schema whose table is in NO memo of the population is rc 2, even "
+      "when a linked memo carries the other schemas' tables"]),
     ("id: a citation id is keyed by its canonical §6.3 LABEL (key the raw spelling -- two rows "
      "differing only in case declare one id twice and nothing says so)", TABLES,
      '    return "[%s]" % normalize_label(rid[1:-1]) if rid.startswith("[") and rid.endswith("]") else rid',
