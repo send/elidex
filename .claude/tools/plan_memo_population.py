@@ -100,8 +100,12 @@ class Population:
                                     "unresolved reference %r -- no definition answers it, so a memo "
                                     "it meant to link is NOT in the population" % label))
         self.main = self.memos[0] if self.memos else None
+        # a schema's presence is a property of the POPULATION, not of the entry
+        # memo: a carved memo may hold a schema's table.  >= 1 memo suffices
+        # (zero is the miss); a second memo carrying it is allowed -- multi-memo
+        # census is a supported feature
         if self.main is not None:
-            matched = {t.schema.name for t in self.main.tables if t.schema is not None}
+            matched = {t.schema.name for m in self.memos for t in m.tables if t.schema is not None}
             for s in SCHEMAS:
                 if s.name not in matched:
                     self.misses.append((self.display(self.main.path), 0,

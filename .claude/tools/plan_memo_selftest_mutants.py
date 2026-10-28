@@ -303,6 +303,12 @@ MUTANTS = [
      '        for memo in self.memos:\n            self._declare(memo)',
      '        for memo in self.memos[:1]:\n            self._declare(memo)',
      ["(population) an umbrella declared in a linked memo is in the census"]),
+    ("population: a schema's presence is read over the POPULATION (revert to the entry memo only)",
+     POPULATION,
+     'matched = {t.schema.name for m in self.memos for t in m.tables if t.schema is not None}',
+     'matched = {t.schema.name for m in [self.main] for t in m.tables if t.schema is not None}',
+     ["(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) is "
+      "present: no `no table matched` miss, rc 0"]),
     ("population: every memo's ids are in the keep-set", POPULATION,
      '        return set(self.ids) | {r.self_id for r in self.ids.values()}',
      '        return {rid for rid, r in self.ids.items() if r.memo is self.main}',

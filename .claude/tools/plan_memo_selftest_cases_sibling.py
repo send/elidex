@@ -33,7 +33,7 @@ step -- gathers them, and every case is a line of the golden manifest.  A contro
 NAME, so a control moving between modules moves nothing else.
 """
 
-from plan_memo_selftest_cases import VIOLATION, build, spellings
+from plan_memo_selftest_cases import LINK, SIB_TABLE, STUB, VIOLATION, build, spellings
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
 # every cases module's list in one step; every case is a line of the golden manifest.
@@ -229,3 +229,17 @@ R25_PER_PART = ("(R25 sibling) the character rule is read per PART, as the devic
                 "refuses it too and R22's per-part mutant SURVIVES (measured)")
 case("NEGATIVE", R25_PER_PART,
      build(), "See [x](ax%3Ab%2Fchild.md).", 0, files={"ax:b/child.md": VIOLATION + "\n"})
+
+
+# -- schema PRESENCE is read over the POPULATION (PM judgment 52, rule C): >= 1 memo
+# carries a schema's table; zero is the miss, two is allowed (multi-memo census is a
+# supported feature).  The entry-only reading made every carved memo a false miss.
+rcase("POSITIVE", "(presence) a schema whose table is in NO memo of the population is rc 2, even "
+                  "when a linked memo carries the other schemas' tables",
+      build(stub=""), LINK, 2, sibling=SIB_TABLE % "—")
+rcase("NEGATIVE", "(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) "
+                  "is present: no `no table matched` miss, rc 0",
+      build(stub=""), LINK, 0, sibling=STUB)
+rcase("NEGATIVE", "(presence) a schema whose table is in TWO memos (entry and sibling) is present: "
+                  "multi-memo census is supported, no presence miss, rc 0",
+      build(), LINK, 0, sibling=STUB)

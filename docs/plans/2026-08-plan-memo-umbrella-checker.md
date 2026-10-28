@@ -376,6 +376,8 @@ share. Re-eval: 2026-12-31.
   a schema miss (exit 2 — "could not scan" is never clean); link cycles (A→B→A) are walked with a
   visited set and are not an error. Controls for both.
 
+⚠ **Correction (2026-10-28, PM judgment 52 rule C) to the R17 note above ("schema presence is required of the main memo only"):** schema presence is now read over the whole POPULATION, not the entry memo. At least one memo carrying a schema's table suffices (zero is still the `no table matched schema` FATAL, located at the entry memo); a second memo carrying it is allowed (multi-memo census is supported).
+
 **Lexing order (settles A×B, A×C, A×D, A×E)**: document → fenced blocks masked (CommonMark §4.5) →
 blocks: a GFM row is split on *raw* unescaped `|` (GFM §4.10 prose: escaping works "including
 inside other inline spans"; that an *unescaped* `|` inside backticks splits is inferred from
