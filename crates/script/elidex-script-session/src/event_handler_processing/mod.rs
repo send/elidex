@@ -61,6 +61,12 @@ pub(crate) enum ProcessingTiming {
 /// handlers, *attribute change steps* 1–5.6, per attribute; WHATWG DOM §4.9
 /// Interface Element, *append an attribute* step 4.
 ///
+/// Not realised: step 3 (a null target, which `determine the target of an
+/// event handler` step 3 yields when the node document is not an active
+/// document, is not modelled; target determination is slot
+/// `#11-event-handler-target-determination`, T3) and step 5.1 (CSP — not
+/// modelled).
+///
 /// Ordinary pairs are processed once (K-1): skipped when `element` is
 /// already marked. Window-delegating pairs (X-W) bypass the once rule: they
 /// are delivered at [`ProcessingTiming::Bind`] and

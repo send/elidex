@@ -731,9 +731,9 @@ impl VmInner {
     ///
     /// The special inline-handler scope chain (`with(document)
     /// with(form-owner) with(element)`) is deferred
-    /// (`#11-inline-handler-scope-chain`); `event` + `this` = currentTarget
+    /// (`#11-event-handler-attribute-edge-cases`, facet 1); `event` + `this` = currentTarget
     /// cover the common case. The 5-argument `onerror` signature is deferred
-    /// (`#11-onerror-error-event-args`).
+    /// (`#11-event-handler-attribute-edge-cases`, facet 2).
     pub(in crate::vm) fn lazy_compile_handler(&mut self, source: &str) -> Option<ObjectId> {
         let wrapped = format!("(function (event) {{\n{source}\n}})");
         let script = crate::compiler::compile_script(&wrapped).ok()?;

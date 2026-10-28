@@ -50,8 +50,8 @@ fn c17_domparser_body_weh_idl_write_then_append() {
              window.dispatchEvent(new Event('hashchange')); \
              r.push(window.hit === 1, fnRan === 0);",
         );
-        // HEAD's at every step. Spec: null target at step 1, null at step 2,
-        // nothing runs at step 3; reached after T3 and slice b.
+        // HEAD's at every stage. Spec: null target at the first push, null at the
+        // second, nothing runs at the third; reached after T3 and slice b.
         assert_eq!(
             got, "true,true,true,true,true,true",
             "C17: HEAD's outcome at each step"
@@ -77,7 +77,7 @@ fn c18_template_contents_body_weh_then_append() {
              r.push(window.hit === 1, fnRan === 0);",
         );
         // HEAD's. Spec: `window.onhashchange === null` (inert node document,
-        // step 3); reached after T3 and slice b.
+        // HTML §8.1.8.1 *determine the target of an event handler* step 3); reached after T3 and slice b.
         assert_eq!(got, "true,true,true,true,true", "C18: HEAD's outcome");
     });
 }

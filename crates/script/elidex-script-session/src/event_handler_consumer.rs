@@ -14,8 +14,9 @@
 //! - **Insert (Arm 2 — [`MutationEvent::Insert`])**: parser / `innerHTML` /
 //!   `outerHTML` / `setHTMLUnsafe` bake attributes into the `Attributes`
 //!   component at `create_element` time and do **not** fire
-//!   `AttributeChange`. WHATWG DOM §4.2.3 Mutation algorithms (*insert*)
-//!   defines no event-handler insertion steps; the Insert arm is an
+//!   `AttributeChange`. WHATWG HTML defines no event-handler
+//!   *insertion steps* (the hook that WHATWG DOM §4.2.3 Mutation algorithms'
+//!   *insert* runs); the Insert arm is an
 //!   interim mechanism recorded by slot
 //!   `#11-eh-attrs-creation-time-call-sites`, which realises the creation-time
 //!   attribute processing at insertion. It walks the inserted subtree
@@ -430,8 +431,9 @@ fn handle_attribute_change(
     }
 }
 
-/// Arm 2 — parser / innerHTML baked-attr spawn. WHATWG DOM §4.2.3 Mutation
-/// algorithms (*insert*) has no event-handler insertion steps: this arm is an
+/// Arm 2 — parser / innerHTML baked-attr spawn. WHATWG HTML defines no
+/// event-handler *insertion steps* (the hook that WHATWG DOM §4.2.3 Mutation
+/// algorithms' *insert* runs): this arm is an
 /// elidex mechanism, recorded by slot `#11-eh-attrs-creation-time-call-sites`.
 /// `Insert` fires per inserted root only (no descendants slice), and
 /// [`EcsDom::traverse_descendants`] excludes the root, so process the

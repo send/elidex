@@ -63,7 +63,7 @@ fn c2_compiled_handler_survives_move_into_domparser_document() {
         );
         assert_eq!(got, "true", "control: S compiled and ran");
         let t = {
-            let v = vm.eval("t").unwrap();
+            let v = vm.eval("t").expect("target element `t`");
             entity_of(vm, v)
         };
         assert_eq!(click_source(vm, t), None, "C2: no re-raw at the move");
@@ -111,7 +111,7 @@ fn c4_first_insertion_keeps_compiled_handler() {
         );
         assert_eq!(got, "true", "control: A compiled and ran");
         let c = {
-            let v = vm.eval("c").unwrap();
+            let v = vm.eval("c").expect("clone `c`");
             entity_of(vm, v)
         };
         assert_eq!(
@@ -235,7 +235,7 @@ fn c9_clone_is_unprocessed_origin() {
         )
         .expect("setup");
         let c = {
-            let v = vm.eval("c").unwrap();
+            let v = vm.eval("c").expect("clone `c`");
             entity_of(vm, v)
         };
         let marked = vm

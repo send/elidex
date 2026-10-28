@@ -202,7 +202,9 @@ fn e5_oop_iframe_initial_html_handler_runs() {
     let entry = make_out_of_process_entry(
         loaded,
         crate::PreEvalFrameState {
-            origin: elidex_plugin::SecurityOrigin::from_url(&url::Url::parse(url).unwrap()),
+            origin: elidex_plugin::SecurityOrigin::from_url(
+                &url::Url::parse(url).expect("fixture url"),
+            ),
             sandbox_flags: elidex_plugin::SandboxingFlagSet::unsandboxed(),
             iframe_depth: 1,
             credentialless: false,

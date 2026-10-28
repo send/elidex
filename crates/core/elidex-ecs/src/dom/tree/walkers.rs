@@ -28,8 +28,8 @@ pub enum TemplateContentsWalk {
 }
 
 impl EcsDom {
-    /// Pre-order shadow-including descendant walk (WHATWG DOM §4.2.2
-    /// "shadow-including descendant"). Visits `root`, then every
+    /// Pre-order shadow-including descendant walk (WHATWG DOM §4.8
+    /// Interface ShadowRoot, "shadow-including descendant"). Visits `root`, then every
     /// light-tree child via [`Self::children_iter`] (skips internal
     /// `ShadowRoot` entities), then — for elements that host a
     /// shadow root — recurses into the shadow root's own light-tree

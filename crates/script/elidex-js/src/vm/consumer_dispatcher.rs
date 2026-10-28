@@ -58,12 +58,13 @@ pub struct ConsumerDispatcher {
     /// Inline event-handler content attribute detection (`<button
     /// onclick="...">`). Consumer recording uncompiled handler source into the
     /// [`EventListeners`] component; lazy compile happens VM-side at first
-    /// read / dispatch. Two delegates, both keyed on the bound document: its
-    /// `handle` arms (AttributeChange + Insert) and
-    /// [`Self::initialize_consumers`]'s bind pass over the pre-bind tree.
-    /// WHATWG HTML §8.1.8.1. Added last — it only writes
-    /// [`EventListeners`], which no earlier consumer reads, so order is
-    /// independent.
+    /// read / dispatch. Two delegates: its `handle` arms (AttributeChange +
+    /// Insert, keyed on the event's node) and
+    /// [`Self::initialize_consumers`]'s bind pass over the pre-bind tree
+    /// (keyed on the bound document). WHATWG HTML §8.1.8.1. Order-independent
+    /// — it only writes [`EventListeners`] and the `HandlerAttrsProcessed`
+    /// (element) / `PreBindHandlerAttrsProcessed` (Document) markers, none of
+    /// which another consumer reads.
     ///
     /// [`EventListeners`]: elidex_script_session::EventListeners
     event_handler_attrs: EventHandlerAttributeConsumer,

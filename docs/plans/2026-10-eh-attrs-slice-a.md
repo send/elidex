@@ -938,6 +938,17 @@ sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler
 - **`#11-storage-event-mode-aware-delivery`**: the stale docstring it is cited from (`event_handler_consumer.rs:235-242`)
   is fixed in this PR (§1.7), to the wording of the slot's kept ledger row (KEEP-LEGITIMATE, with its 2026-10-26 update;
   the duplicate row was merged into it by the PM). No ledger edit.
+- **Ledger code positions this PR moves** (re-point after landing; measured at the working tree of this PR's head):
+  - `#11-event-handler-target-determination` cites `event_handler_consumer.rs:328` for `resolve_handler_target` (now
+    `event_handler_processing/mod.rs:249`, `pub(crate) fn resolve_handler_target`) and the arm lines :409/:461 (now
+    `handle_attribute_change`'s `resolve_handler_target` call at `event_handler_consumer.rs:420`, and
+    `handle_insert`'s `process_handler_content_attributes(.., ProcessingTiming::Insertion)` call at :451; the arm
+    dispatch is at :388/:389, and the processing entry point `process_handler_content_attributes` is
+    `event_handler_processing/mod.rs:76`).
+  - `#11-unbound-attribute-writes-bypass-consumers` cites `vm_api.rs:314` (now the
+    `dispatcher.initialize_consumers(hd.dom(), document)` call at `vm_api.rs:315`).
+  - `#11-storage-event-mode-aware-delivery` cites the docstring at `event_handler_consumer.rs:240` (now rewritten: the
+    "One non-install surface is **out of A2's scope**" paragraph on `web_storage_spec_level` is at :253-262).
 - **Slice b input, N-5**: `collect_template_inclusive_descendants` (`elidex-form`, `init` module)
   (`crates/dom/elidex-form/src/init.rs:111`) is not unified onto the new walker here (§1.6). Its reconciliation with
   `TemplateContentsWalk::Include` goes to slice b's input (umbrella §9 N-5).
@@ -963,6 +974,7 @@ sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler
   - §4.6: the mutation run's measured kill cells replace three rows' predictions (marker check, Window-delegating
     write, classifier keying), and notes 1–6 record why each survivor or alternative form behaves as it does. U10's
     bind runs on a fixed 256 KiB stack (decision 60).
+  - §9 gains a hand-off: the ledger rows that cite code positions this PR moves (from the pre-push /elidex-review).
 
 - **rev 4.3** (user decision (ii) via PM):
   - §5 "Canonical" paragraph narrowed to the umbrella's reference for slice a's file placement plus an agreement
