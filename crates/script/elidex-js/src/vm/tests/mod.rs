@@ -179,6 +179,7 @@ mod tests_validity_state;
 mod tests_value_types;
 mod tests_visual_viewport;
 mod tests_wasm;
+mod tests_wasm_compile;
 mod tests_websocket;
 mod tests_window_global;
 mod tests_window_iframe_props;
