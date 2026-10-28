@@ -663,3 +663,42 @@ Next (not part of this commit): step 3, one fresh Codex round on the new head; s
 **What it does not show.** The image's `awk` is not identified in the log, so "mawk" stays the plan's premise, not a measured fact; the CR-S1 fact (whether the image's `sleep` takes a fractional argument) is not shown: the wire's waits are written `sleep 0.05 || sleep 1`, which succeed either way, so a green run cannot tell, and no probe printed it.
 
 **Next**: this commit moves #501's head and no T; one fresh Codex round on #501 follows (landing §9 step 7.4). A change to the tool code or the job on #501's branch, a merge of `main` included (the T command counts any change under `.claude/tools` or `scripts`), moves T and stops the sequence for the user (7.4).
+
+### T.N CR#1: step 1 at the new T, and X9 (the CR#1 plan §6, steps 3 and 4)
+
+**The frame.** T = `03560f32` (`03560f3210a55454f75e794b3e1308f27d420851`, `$K/T`): the CR#1 fix is two commits, `eaa73f5e` then `03560f32`, on `67488c8d`, and the delta runbook's guard pins that (PM decision 67). `git diff --name-only 03560f32 a0bd2de7 -- .claude/tools scripts .github/workflows` is empty, so the docs commits after it moved no T. Step 1 ran 2026-10-28 18:47 → 2026-10-29 02:19 JST by the delta runbook (`…-k2-wire-cr1-scratch-plan-runbook.md`), K = `fh2`, on bash 5.3.20 and 3.2.57. It ran two runs at a time at most, and each batch started at a 1-minute load below 10. The frame guard printed `frame guard: passed, T=03560f32…` in the dry pass and in setup. No batch stopped, so there is no `$K.stop<n>`. Verdicts are by log grep.
+
+**The verdict: 194 of 194 runs as plan §6(a) expects; no alarm, no `HARNESS-ERROR`, no re-run.**
+
+| cell | runs | observed |
+|---|---|---|
+| N1 | 4 | rc 0, PASSED, the clone clean after; from an empty cwd outside, still empty |
+| N2 = X10 | — | `-n` clean; `wc -l` controls 993, correspondence 450, ctlrun 440, fixtures 705, harness 887, records 607, mutations 623, mutgen 348, the wire 1411 |
+| N5 | 24 | c0: rc 2 on every row, the three directories `sentinel`, each row's reason. nbase (`67488c8d`): the runbook's measured rows |
+| N6 | 36 | c0: rc 2 (verify, ctl) and rc 1 (pgref), `site` and `why` present, `sentinel` kept. nbase: as plan §1's table |
+| X6 | 4 | x6tpl rc 1 with P-c's and P-g's labels (CF=2, as at the previous T); x6inc rc 1 with P-g's (CF=1). The logs print labels, not letters: `_pc_lbl` and `_pg_lbl` (controls :89, :93) |
+| X15 | 2 | rc 1, P-g, the message names `zzx` by the shape rule |
+| X11 | 2 | rc 1, `19 labels have no mutation record, against a ratchet of 18`, `an unrecorded probe` |
+| X16 | 38 | every red cell rc 1 in 3–12 s; `clean` PASSED; `xbare` rc 1 (ratchet of 0); `xanchor` rc 1 (stale); `xexecarith` rc 2; `gitfn` rc 1 with `command line:` |
+| X16 `staleshim` | 2 | rc 2, `!! could not create the verifier's directory (mktemp answered [<S>/prep], not a new name inside <SCRATCH>); decided nothing.` |
+| X5 `xrace` | 2 | recorded: rc 0, PASSED on both shells (39 s, 44 s) |
+| X5 draft-10 | 32 | 32 `PASS`, 0 `HARNESS-ERROR` |
+| X13 | 36 | every shell × cell pair's nounset-off and `.nou` blocks equal; the outside-scratch sentinel's mode unchanged (×4) |
+| X3 main | 2 | per shell: `mutation set: 316 entr(ies), 0 not killed as named`, `50 mutant(s) …, 0 neither killed nor argued equivalent`, PASSED (8793 s on bash 3.2, 9114 s on bash 5.3) |
+| X3 plant | 2 | `generated boundary set: 50 mutant(s)`, PASSED |
+| X3 floor | 2 | rc 1, `!! the generated boundary set ran 0 mutant(s), but the generator derives` / `50 from the wire's regexes …`, `1 neither killed nor argued equivalent` |
+| X8 | 6 | `real` (s): x8base (`e8f78896`) 16.42, 13.68, 13.90; x8t (T) 35.75, 36.11, 35.97. Recorded; nothing decided and nothing written to `ci.yml` |
+
+**What it does not show.**
+- `staleshim`: the runbook script removes the prepared directory between runs, so "`prep` holding only `.anchor`" was not observed.
+- X15: no separate check of "no entry for `k2link`" was made. The string occurs once in each log, inside the shape entry.
+- X16: "the untrusted-build stop runs no control" was read from each `CELL` line's `stopped-before-controls=0`, not from the run's own output.
+- Recorded, not judged (X13): `env0` is rc 1 (`8413a4db` measured 0), and `w2rec`'s CF is 12 on bash 5.3 and 16 on bash 3.2.
+- Not run: the anchor row "`_mutants | wc -l` = 316", which has no invocation in the runbook. X3 main's `316 entr(ies)` is the same count as the wire reports it.
+- The `bash -n` check covered `cell9.sh`, `cellT.sh` and `eval11.sh`; the job copies are inside `cellT.sh`.
+
+**Departures from the runbook (the wrapper only).** The runner added `uptime` to `logenv`. A chain script (`fh2-scripts/chain.sh`) waits for load < 10 and checks free disk before each batch (131 → 126 GB; the 30 GB stop was never near). The first setup stopped at the gate's negative control (`GATE NOT CLEAN BEFORE B1`), because another session's `mise run trip-wires` was running a wire at the time. No clone had been made yet; the runner re-ran setup once the gate was clear.
+
+**X9: SUCCESS, 25 s.** #501's CI on the push of `a0bd2de7` (T unchanged): run `40662585702` (`pull_request`), job `Layering trip-wires` `122729585631`, 09:14:59Z → 09:15:24Z, against half the budget, 150 s (`timeout-minutes: 5`, ci.yml :185). The job log's verdict lines are `elidex-wasm-runtime layering trip-wires PASSED`, `elidex-js VM-side wasm layering trip-wires PASSED` and `webref generic-core layering trip-wire PASSED`. Every other job in the run passed, `Licenses & Vulnerabilities` included: the merge ref carries main's `3b78d9a4`. The run on `ee7f5f96` was cancelled by the push after it.
+
+**Next**: the R6 erratum (the CR#1 plan §6 step 5), then one fresh Codex round on the head after it (landing 7.4's terminator).
