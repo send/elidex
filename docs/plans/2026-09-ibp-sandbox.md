@@ -23,9 +23,9 @@ the S5-4 plan, neither of which keeps an A-row ledger; their records live in thi
 not edited").
 
 **Erratum** (2026-10-25; PM decision 16 — the PM's ruling that N1's PR corrects this memo's §8.1.8.1 citation in place,
-that N1's D-N3 reconcile order is the means of D2 × D8's closure, and that O5's home is `#11-event-handler-target-determination`;
+that N1's D-N3 reconcile order is the means of D2 × D8's closure, and that N1 memo O5's home is `#11-event-handler-target-determination`;
 wording revised under PM decision 17, below; ships with N1's per-PR memo, `docs/plans/2026-10-ibp-sandbox-handler-gates.md`) — a premise error, recorded, and its statements corrected **in place** (each marked "erratum 2026-10-25").
-The in-place edit is an **exception**, by PM decision 16, to the approval scope's rule that a finding against this memo changes it only through a decision (`:12-14`) and to §0.3's A114 idiom ("recorded, not edited"); it edits no other surface.
+The in-place edit is an **exception**, by PM decision 16, to the approval scope's rule that a finding against this memo changes it only through a decision (`:12-14`) and to §0.3's A114 idiom ("recorded, not edited"); it edits no other surface (the prerequisite paragraph below records its own exception).
 Rev ≤ 12 quoted *get the current value of the event handler* step 3.2 as "If scripting is disabled for document, then return null" and numbered *the event handler processing algorithm*'s gating steps 1–3 with "not fully active" at step 3.
 Current webref reads (`.claude/tools/webref body html getting-the-current-value-of-the-event-handler`; `.claude/tools/webref body html the-event-handler-processing-algorithm`; 2026-10-25):
 step 3.2 "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null";
@@ -35,7 +35,7 @@ No decision changes: no §8.1.3.4 check runs at invocation under either text, an
 the current step 3.2 text and D8's "scripting is disabled for *el's node document*" give the same outcome at N1, and which one is implemented is N4's, recorded on edge n3.
 Clerical: §5.1's *Closed* D2 × D8 entry names its means (N1's D-N3). The sweep (stating sections, DoD, downstream) and each hit's disposition: N1 memo §0.3 P-N1.
 
-**Prerequisite outside the DAG** (clerical; PM decision 17 — the PM's ruling of 2026-10-25 that the event-handler consumer's Insert arm, which turns every `on*` attribute raw again on every insertion including a move, is fixed by a standalone prerequisite PR, not in N1; that D2's wording is neutral between the two step-3.2 readings; that `#11-unhandledrejection-dispatch-target` is registered; and that the §13.4 step number is N9's): N1 depends on `EH-insert-once` (`docs/plans/2026-10-event-handler-insert-once.md`: a baked attribute becomes a raw value once per element, never on a later move) landing first. It is not a node of this program and adds no edge to §5.2.
+**Prerequisite outside the DAG** (clerical; PM decision 17 (i) — the PM's ruling of 2026-10-25 that the event-handler consumer's Insert arm, which turned every `on*` attribute raw again on every insertion including a move, is fixed by a standalone prerequisite, not in N1 — restated by PM decisions 21 and 23 as the program `EH-attrs-at-creation`, whose slice a is an approved interim required by dependency; PM decision 17 also ruled that D2's wording is neutral between the two step-3.2 readings, that `#11-unhandledrejection-dispatch-target` is registered, and that the §13.4 step number is N9's): N1 depends on `EH-attrs-at-creation` slice a (`docs/plans/2026-10-event-handler-attrs-at-creation.md`; contract K-1: creation-time handler content attributes are processed at most once, and no insertion, move or rebind writes handler state from them) landing first — that umbrella's §L shows that no landing order puts N1 first; slice a landed by #563 (`3cd84a04`). It is not a node of this program and adds no edge to §5.2. Like the erratum, this in-place paragraph is an **exception**, by PM decision 17 (i), to the approval scope's rule that a finding changes this memo only through a decision (`:12-14`) and to §0.3's A114 idiom; it edits nothing else (N1 memo §10.2).
 
 **Revision 12** (2026-10-01) folds Codex round 3 on #532 (`bb4b92cf`: 3 real) and a self-root-check. Rounds 1–3 kept
 finding gaps in one mechanism — D-e's target selection (current-navigable name, `<base target>`, call-time resolution,
@@ -139,7 +139,7 @@ Every `file:line` is a **`f1cf5d67`** coordinate (`git diff --stat e2d62b9e f1cf
 ### §0.3 Premise errors (reported, not edited — the A114 idiom)
 
 - **P1** (rev 1's own, withdrawn at rev 2): `Tab` is the browser-side navigable record (`app/tab.rs:31-43`).
-- **P2** parent F11 row: A14. **P3** Appendix A: strict `result.rs:150`. **P4** parent F10r gate list: A16 (erratum 2026-10-25: P4's ground was A16's rev ≤ 12 quote; the current step 3.2 reads document's active sandboxing flag set — an F10r-shaped read — **and** its browsing context, so whether the compile gate is an F10 or an F10r-plus-browsing-context reader is re-opened for N4, edge n3, not decided here). **P6**
+- **P2** parent F11 row: A14. **P3** Appendix A: strict `result.rs:150`. **P4** parent F10r gate list: A16 (erratum 2026-10-25: P4's ground was A16's rev ≤ 12 quote; the current step 3.2 reads document's active sandboxing flag set — an F10r-shaped read — **and** its browsing context, so which of the two step-3.2 readings the compile gate implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader, is N4's, edge n3, not decided here — the step-3.2 reading question, N1 memo §0.3 P-N1). **P6**
   Appendix A A1: A1.
 - **P5** parent F18 writer set: the quote is §7.1.5; the second writer is §7.1.3.2 steps 13–14 after a group swap (none in
   elidex).
@@ -494,7 +494,7 @@ clause false; the settings clause is always evaluated (D8).
   come from F9 via F10r; the node clause stays the interim until `#11-domparser-full-document-parse-fidelity`'s marker
   lands. Call direction: the host route `crates/script/elidex-js/src/vm/host/settings_route.rs` (NEW) of J12 marshals and
   calls the session boundary `elidex_script_session::scripting_disabled_for_platform_object` (Script↔ECS), which forwards
-  to `EcsDom::scripting_disabled_for`. Readers: eval (`Settings`), compile (`NodeDocumentOf` / `Window`; the current step 3.2 text is D8's erratum note, edge n3), D5 script-fetch
+  to `EcsDom::scripting_disabled_for`. Readers: eval (`Settings`), compile (`NodeDocumentOf` / `Window`; which of the two step-3.2 readings it implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader, is N4's, edge n3 — D8's erratum note), D5 script-fetch
   (`Node`, N6), fragment derivation (`NodeDocumentOf`, N9); later F4/F16/F17 (`Node`). Invoke-time gate deleted (N1).
   *Timers*: no reader wired (§8 slot).
 - **Node document** (N4; N1 through HEAD's composition) — *Home/kind*: `EcsDom::effective_node_document(node)` (NEW) in
@@ -585,7 +585,7 @@ runs from N1 (C8b) — the spec's outcome (A17), not a window.
 |---|---|---|
 | n1 | IBP-split-ecs → N4 | code predecessor (E1: N4 is the first to edit `dom/mod.rs`, adding `dom/document_policy.rs`) |
 | n2 | IBP-split-parser → N5 | code predecessor (E2: N5 is the first to edit `elidex-html-parser/src/lib.rs` — its parse entries take the input; measured: no N1–N4 scope touches that file) |
-| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`; N4 decides which of the two step-3.2 readings — the current webref text or D8's "scripting is disabled for *el's node document*" — the compile gate implements; they give the same outcome at N1 (D8's erratum note; N1 memo §0.3 P-N1, O1)) |
+| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`; N4 decides which of the two step-3.2 readings — the current webref text or D8's "scripting is disabled for *el's node document*" — the compile gate implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader (P4); they give the same outcome at N1 (D8's erratum note; N1 memo §0.3 P-N1, O1)) |
 | n4 | N4 → N5 | data flow (N5 re-sources N4's route and F10) |
 | n5 | N3 → N6 | data flow (`CspList`) |
 | n6a | N2a → N2b, N6, N7, N8 | data flow (the restriction-form set D-a reads; union-safe set; propagate flag) |
