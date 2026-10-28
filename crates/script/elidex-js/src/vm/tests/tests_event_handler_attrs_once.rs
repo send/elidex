@@ -13,36 +13,8 @@
 use elidex_ecs::Entity;
 use elidex_script_session::HandlerAttrsProcessed;
 
-use super::super::test_helpers::{eval_str, listeners_on, with_page};
-use super::super::value::{JsValue, ObjectKind};
+use super::super::test_helpers::{entity_of, eval_str, listeners_on, run, with_page, PRELUDE};
 use super::super::Vm;
-
-/// `fn` (a counted IDL callable) and two DOMParser documents with an empty
-/// body (`dp`, `dp2`), shared by every cell.
-const PRELUDE: &str = "\
-    globalThis.fnRan = 0; \
-    globalThis.fn = function () { globalThis.fnRan++; }; \
-    globalThis.dp = new DOMParser().parseFromString('<body></body>', 'text/html'); \
-    globalThis.dp2 = new DOMParser().parseFromString('<body></body>', 'text/html'); \
-    globalThis.r = [];";
-
-/// Run the prelude and `script` (which pushes into `r`), return `r.join()`.
-fn run(vm: &mut Vm, script: &str) -> String {
-    vm.eval(PRELUDE).expect("prelude");
-    vm.eval(script).expect("cell script");
-    eval_str(vm, "r.join()")
-}
-
-/// Resolve the `Entity` behind the JS global `name`.
-fn entity_of(vm: &mut Vm, name: &str) -> Entity {
-    let JsValue::Object(id) = vm.eval(name).unwrap() else {
-        panic!("{name} is not an object")
-    };
-    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
-        panic!("{name} is not a HostObject")
-    };
-    Entity::from_bits(entity_bits).expect("valid entity bits")
-}
 
 /// The `click` handler entry's uncompiled source on `entity` (white-box store
 /// read; `None` = no source). Panics if there is no `click` entry.
@@ -90,7 +62,10 @@ fn c2_compiled_handler_survives_move_into_domparser_document() {
              dp.body.appendChild(t);",
         );
         assert_eq!(got, "true", "control: S compiled and ran");
-        let t = entity_of(vm, "t");
+        let t = {
+            let v = vm.eval("t").unwrap();
+            entity_of(vm, v)
+        };
         assert_eq!(click_source(vm, t), None, "C2: no re-raw at the move");
         assert_eq!(
             eval_str(vm, "String(t.onclick === f)"),
@@ -135,7 +110,10 @@ fn c4_first_insertion_keeps_compiled_handler() {
              dp.body.append(c);",
         );
         assert_eq!(got, "true", "control: A compiled and ran");
-        let c = entity_of(vm, "c");
+        let c = {
+            let v = vm.eval("c").unwrap();
+            entity_of(vm, v)
+        };
         assert_eq!(
             click_source(vm, c),
             None,
@@ -256,7 +234,10 @@ fn c9_clone_is_unprocessed_origin() {
              globalThis.c = t.cloneNode();",
         )
         .expect("setup");
-        let c = entity_of(vm, "c");
+        let c = {
+            let v = vm.eval("c").unwrap();
+            entity_of(vm, v)
+        };
         let marked = vm
             .host_data()
             .expect("bound")

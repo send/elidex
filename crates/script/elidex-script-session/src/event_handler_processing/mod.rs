@@ -73,6 +73,12 @@ pub(crate) fn process_handler_content_attributes(
     policy: SpecLevelPolicy,
     timing: ProcessingTiming,
 ) {
+    let marked = is_processed(dom, element);
+    // Marked: ordinary pairs are skipped, and only `body` / `frameset` have
+    // Window-delegating pairs, so nothing would be delivered.
+    if marked && !is_body_or_frameset(dom, element) {
+        return;
+    }
     // Snapshot (name, event_type, scope, value); no `Attributes` → nothing to do
     // (Document, Window, text nodes, shadow-root entities).
     let snapshot: Vec<(String, String, HandlerScope, String)> = {
@@ -93,7 +99,6 @@ pub(crate) fn process_handler_content_attributes(
             })
             .collect()
     };
-    let marked = is_processed(dom, element);
     let mut carries_ordinary = false;
     let mut writes: Vec<(HandlerScope, String, String)> = Vec::new();
     for (name, event_type, scope, value) in snapshot {
@@ -145,7 +150,7 @@ pub fn process_before_handler_write(
     if is_window_delegating_pair(dom, element, name) {
         return;
     }
-    if deliverable_ordinary_names(dom, element, policy) != [name] {
+    if !is_only_deliverable_ordinary_name(dom, element, name, policy) {
         return;
     }
     process_handler_content_attributes(dom, element, policy, ProcessingTiming::HandlerWrite);
@@ -179,26 +184,24 @@ fn is_processed(dom: &EcsDom, element: Entity) -> bool {
     dom.world().get::<&HandlerAttrsProcessed>(element).is_ok()
 }
 
-/// `element`'s handler content attribute names that are ordinary (not
-/// Window-delegating) and installed by `policy`, in `Attributes` order.
-fn deliverable_ordinary_names(
+/// `true` iff `name` is the one and only handler content attribute of
+/// `element` that is ordinary (not Window-delegating) and installed by
+/// `policy`. Stops at the first mismatch or second hit.
+fn is_only_deliverable_ordinary_name(
     dom: &EcsDom,
     element: Entity,
+    name: &str,
     policy: SpecLevelPolicy,
-) -> Vec<String> {
+) -> bool {
     let Ok(attrs) = dom.world().get::<&Attributes>(element) else {
-        return Vec::new();
+        return false;
     };
-    attrs
-        .iter()
-        .map(|(name, _)| name)
-        .filter(|name| {
-            event_handler_attr_lookup(name).is_some()
-                && policy.installs(event_handler_attr_spec_level(name))
-                && !is_window_delegating_pair(dom, element, name)
-        })
-        .map(str::to_owned)
-        .collect()
+    let mut deliverable = attrs.iter().map(|(n, _)| n).filter(|n| {
+        event_handler_attr_lookup(n).is_some()
+            && policy.installs(event_handler_attr_spec_level(n))
+            && !is_window_delegating_pair(dom, element, n)
+    });
+    deliverable.next() == Some(name) && deliverable.next().is_none()
 }
 
 /// Steps 1–2 of *determining the target of an event handler* (WHATWG HTML
@@ -216,7 +219,7 @@ pub(crate) fn is_window_delegating_pair(dom: &EcsDom, element: Entity, name: &st
 /// ASCII-case-insensitively as [`is_body_element`] compares it. The class test
 /// of steps 1–2 of *determining the target of an event handler* (WHATWG HTML
 /// §8.1.8.1 Event handlers).
-pub(crate) fn is_body_or_frameset(dom: &EcsDom, element: Entity) -> bool {
+fn is_body_or_frameset(dom: &EcsDom, element: Entity) -> bool {
     dom.world()
         .get::<&TagType>(element)
         .is_ok_and(|t| t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset"))
@@ -292,7 +295,6 @@ mod test_support {
     use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent};
     use elidex_plugin::SpecLevelPolicy;
 
-    use super::HandlerAttrsProcessed;
     use crate::{EventHandlerAttributeConsumer, EventListeners};
 
     /// Test-local [`MutationDispatcher`] wrapping only the consumer under test.
@@ -388,7 +390,7 @@ mod test_support {
     }
 
     pub(super) fn is_marked(dom: &EcsDom, e: Entity) -> bool {
-        dom.world().get::<&HandlerAttrsProcessed>(e).is_ok()
+        super::is_processed(dom, e)
     }
 
     pub(super) fn compat() -> SpecLevelPolicy {

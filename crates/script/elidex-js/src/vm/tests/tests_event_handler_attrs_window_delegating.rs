@@ -9,23 +9,7 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::test_helpers::{eval_str, with_page};
-use super::super::Vm;
-
-/// `fn` (a counted IDL callable), a DOMParser document `dp`, and the result
-/// array `r`.
-const PRELUDE: &str = "\
-    globalThis.fnRan = 0; \
-    globalThis.fn = function () { globalThis.fnRan++; }; \
-    globalThis.dp = new DOMParser().parseFromString('<body></body>', 'text/html'); \
-    globalThis.r = [];";
-
-/// Run the prelude and `script` (which pushes into `r`), return `r.join()`.
-fn run(vm: &mut Vm, script: &str) -> String {
-    vm.eval(PRELUDE).expect("prelude");
-    vm.eval(script).expect("cell script");
-    eval_str(vm, "r.join()")
-}
+use super::super::test_helpers::{run, with_page};
 
 // ---- C8 (window pin, X-W): a moved <body> re-raws its WEH attribute onto the Window ----
 #[test]

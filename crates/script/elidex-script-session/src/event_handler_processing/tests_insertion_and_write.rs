@@ -7,7 +7,7 @@
 //! parts are separate tests: the HEAD part is a guard, the new-state part is
 //! red-first.
 
-use elidex_ecs::{EcsDom, ShadowRootMode};
+use elidex_ecs::{EcsDom, Entity, ShadowRootMode};
 use elidex_plugin::EngineMode;
 
 use super::test_support::{
@@ -19,16 +19,9 @@ use super::{
 };
 use crate::{EventListeners, HandlerScope, EVENT_HANDLER_ATTRS};
 
-/// Live page with the consumer installed: `(dom, body, p1, p2)`, where `p1`,
+/// Live page with the consumer installed: `(dom, p1, p2)`, where `p1`,
 /// `p2` are two connected `<div>` containers under `body`.
-fn live_page(
-    policy: elidex_plugin::SpecLevelPolicy,
-) -> (
-    EcsDom,
-    elidex_ecs::Entity,
-    elidex_ecs::Entity,
-    elidex_ecs::Entity,
-) {
+fn live_page(policy: elidex_plugin::SpecLevelPolicy) -> (EcsDom, Entity, Entity) {
     let mut dom = EcsDom::new();
     let (_doc, body) = page(&mut dom);
     dom.create_window_root();
@@ -37,13 +30,13 @@ fn live_page(
     let p2 = elem(&mut dom, "div", &[]);
     append(&mut dom, body, p1);
     append(&mut dom, body, p2);
-    (dom, body, p1, p2)
+    (dom, p1, p2)
 }
 
 // ---- U1 (red, K-1): a marked element is skipped at a later insertion ----
 #[test]
 fn u1_second_insertion_does_not_reraw() {
-    let (mut dom, _body, p1, p2) = live_page(compat());
+    let (mut dom, p1, p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A")]);
     append(&mut dom, p1, e);
     assert_eq!(
@@ -63,7 +56,7 @@ fn u1_second_insertion_does_not_reraw() {
 // ---- U2 (window pin, X-W): a Window-delegating pair is re-raw'd at every insertion ----
 #[test]
 fn u2_window_delegating_pair_reraw_at_move() {
-    let (mut dom, _body, p1, p2) = live_page(compat());
+    let (mut dom, p1, p2) = live_page(compat());
     let window = dom.window_entity().expect("window");
     let b = elem(&mut dom, "body", &[("onhashchange", "X")]);
     append(&mut dom, p1, b);
@@ -81,7 +74,7 @@ fn core_policy() -> elidex_plugin::SpecLevelPolicy {
 // ---- U3 (i) guard part: a policy-excluded ordinary pair is never wired ----
 #[test]
 fn u3_i_excluded_ordinary_pair_not_wired() {
-    let (mut dom, _body, p1, p2) = live_page(core_policy());
+    let (mut dom, p1, p2) = live_page(core_policy());
     let d = elem(&mut dom, "div", &[("onstorage", "globalThis.hit = 1")]);
     append(&mut dom, p1, d);
     assert_eq!(entry(&dom, d, "storage"), Entry::Absent);
@@ -92,7 +85,7 @@ fn u3_i_excluded_ordinary_pair_not_wired() {
 // ---- U3 (i) new-state part (C-1, red-first): an excluded-only element is still marked ----
 #[test]
 fn u3_i_excluded_ordinary_pair_marks_element() {
-    let (mut dom, _body, p1, _p2) = live_page(core_policy());
+    let (mut dom, p1, _p2) = live_page(core_policy());
     let d = elem(&mut dom, "div", &[("onstorage", "globalThis.hit = 1")]);
     append(&mut dom, p1, d);
     assert!(
@@ -104,7 +97,7 @@ fn u3_i_excluded_ordinary_pair_marks_element() {
 // ---- U3 (ii) guard: an excluded Window-delegating pair is never wired on the Window ----
 #[test]
 fn u3_ii_excluded_window_delegating_pair_not_wired() {
-    let (mut dom, _body, p1, p2) = live_page(core_policy());
+    let (mut dom, p1, p2) = live_page(core_policy());
     let window = dom.window_entity().expect("window");
     let b = elem(&mut dom, "body", &[("onstorage", "globalThis.hit = 1")]);
     append(&mut dom, p1, b);
@@ -116,7 +109,7 @@ fn u3_ii_excluded_window_delegating_pair_not_wired() {
 // ---- U4 (guard): an element with no handler attribute is never marked ----
 #[test]
 fn u4_no_handler_attribute_unmarked() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let d = elem(&mut dom, "div", &[("id", "x")]);
     append(&mut dom, p1, d);
     assert!(!is_marked(&dom, d));
@@ -125,7 +118,7 @@ fn u4_no_handler_attribute_unmarked() {
 // ---- U5 (i) (red, K-2): the first write to the only ordinary attribute processes E ----
 #[test]
 fn u5_i_first_write_processes_single_attribute_element() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A")]);
     let _ = dom.set_attribute(e, "onclick", "B");
     assert!(
@@ -149,7 +142,7 @@ fn u5_i_first_write_processes_single_attribute_element() {
 // ---- U5 (ii) (guard): two ordinary attributes, the restriction returns ----
 #[test]
 fn u5_ii_two_ordinary_attributes_take_heads_path() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A"), ("onmouseover", "C")]);
     let _ = dom.set_attribute(e, "onclick", "B");
     append(&mut dom, p1, e);
@@ -160,7 +153,7 @@ fn u5_ii_two_ordinary_attributes_take_heads_path() {
 // ---- U5 (iii) guard part: the write-side entry after an insertion changes nothing ----
 #[test]
 fn u5_iii_entry_on_processed_element_changes_nothing() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A")]);
     append(&mut dom, p1, e);
     take_uncompiled(&mut dom, e, "click");
@@ -171,7 +164,7 @@ fn u5_iii_entry_on_processed_element_changes_nothing() {
 // ---- U5 (iii) new-state part (C-1, red-first): the element the entry sees is marked ----
 #[test]
 fn u5_iii_entry_on_marked_element_keeps_marker() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A")]);
     append(&mut dom, p1, e);
     assert!(
@@ -185,7 +178,7 @@ fn u5_iii_entry_on_marked_element_keeps_marker() {
 // ---- U6 (guard, I1×I4): a clone copies no marker ----
 #[test]
 fn u6_clone_is_unmarked() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A")]);
     append(&mut dom, p1, e);
     let c = dom.clone_node_shallow(e).expect("clone");
@@ -206,8 +199,9 @@ fn u9_shadow_direct_element_untouched_by_later_bind_and_host_move() {
         .attach_shadow(h, ShadowRootMode::Open)
         .expect("attach_shadow");
     let x = elem(&mut dom, "div", &[("onclick", "A"), ("onmouseover", "C")]);
-    append(&mut dom, sr, x); // no Insert under a shadow root (H2)
-                             // The write-side entry for `click` (two deliverable ordinary attributes: returns).
+    // No Insert under a shadow root (H2).
+    append(&mut dom, sr, x);
+    // The write-side entry for `click` (two deliverable ordinary attributes: returns).
     process_before_handler_write(&mut dom, x, "onclick", compat());
     // An IDL write's store state: a `click` entry with no source.
     if dom.world().get::<&EventListeners>(x).is_err() {
@@ -237,7 +231,7 @@ fn u9_shadow_direct_element_untouched_by_later_bind_and_host_move() {
 // ---- P1 (i) (white-box guard, A2-MIN-1): Window-delegating-only element is not marked ----
 #[test]
 fn p1_i_window_delegating_only_element_unmarked() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let window = dom.window_entity().expect("window");
     let b = elem(&mut dom, "body", &[("onhashchange", "X")]);
     append(&mut dom, p1, b);
@@ -248,7 +242,7 @@ fn p1_i_window_delegating_only_element_unmarked() {
 // ---- P1 (ii) (new state, C-1, red-first): a mixed element is marked ----
 #[test]
 fn p1_ii_mixed_element_marked() {
-    let (mut dom, _body, p1, _p2) = live_page(compat());
+    let (mut dom, p1, _p2) = live_page(compat());
     let b = elem(&mut dom, "body", &[("onclick", "A"), ("onhashchange", "X")]);
     append(&mut dom, p1, b);
     assert!(is_marked(&dom, b), "P1 (ii): marked");
@@ -294,21 +288,12 @@ fn p2_classifier_derivation_and_fixed_ratchet() {
         if *scope == HandlerScope::Window {
             assert!(
                 is_window_delegating_pair(&dom, body, name),
-                "{name} on body"
+                "{name} on body (HEAD's predicate `scope == Window && is_body_element` ⊆ X-W)"
             );
             assert!(
                 is_window_delegating_pair(&dom, frameset, name),
                 "{name} on frameset"
             );
-        }
-        // HEAD's predicate (`scope == Window && is_body_element`) implies X-W.
-        for (el, is_body) in [(body, true), (frameset, false), (div, false)] {
-            if *scope == HandlerScope::Window && is_body {
-                assert!(
-                    is_window_delegating_pair(&dom, el, name),
-                    "HEAD ⊆ X-W: {name}"
-                );
-            }
         }
         assert!(!is_window_delegating_pair(&dom, div, name), "{name} on div");
     }

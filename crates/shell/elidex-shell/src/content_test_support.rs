@@ -280,6 +280,15 @@ pub(super) fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str)
             .ok()
             .is_some_and(|a| a.get("id") == Some(id))
     })?;
+    read_attr(pipeline, entity, attr)
+}
+
+/// Read attribute `attr` of `entity` from `pipeline.dom`.
+fn read_attr(
+    pipeline: &crate::PipelineResult,
+    entity: elidex_ecs::Entity,
+    attr: &str,
+) -> Option<String> {
     pipeline
         .dom
         .world()
@@ -396,10 +405,5 @@ pub(super) fn build_main_document(
 /// step.
 pub(super) fn probe_body_attr(pipeline: &crate::PipelineResult, attr: &str) -> Option<String> {
     let body = pipeline.dom.query_by_tag("body").into_iter().next()?;
-    pipeline
-        .dom
-        .world()
-        .get::<&elidex_ecs::Attributes>(body)
-        .ok()
-        .and_then(|a| a.get(attr).map(str::to_owned))
+    read_attr(pipeline, body, attr)
 }

@@ -276,7 +276,7 @@ fn e7_control_markup_attaches_declarative_shadow_root_pre_bind() {
         .get_shadow_root(h)
         .expect("declarative shadow root attached by the parse");
     assert!(
-        parsed.dom.find_by_id(sr, "b").is_some() || parsed.dom.get_first_child(sr).is_some(),
+        parsed.dom.find_by_id(sr, "b").is_some(),
         "the button is parsed into the shadow root"
     );
 }
