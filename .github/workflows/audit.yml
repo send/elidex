@@ -2,8 +2,9 @@ name: Security Audit
 
 # Weekly advisory check with no code change behind it: a RUSTSEC advisory
 # published against a locked dependency turns this red even when no PR touches
-# the dependency config (ci.yml's `deny` job runs only on such PRs and on pushes
-# to main).
+# the dependency config (ci.yml's `deny` job runs only on PRs that touch
+# deny.toml, the root Cargo.toml, Cargo.lock or the CI config, and on pushes to
+# main).
 #
 # `cargo deny check advisories`, not `cargo audit`. cargo-audit scans every
 # package in Cargo.lock and does not read deny.toml, so it reported the
