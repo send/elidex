@@ -1,0 +1,30 @@
+name: Pinned Rust toolchain
+description: >-
+  Install the toolchain rust-toolchain.toml pins (channel and components), and
+  leave it the only toolchain on the runner.
+
+# One place for every job that needs Rust (ci.yml check / doc / deny,
+# audit.yml).
+#
+# `rustup toolchain install` with no toolchain argument installs the active
+# toolchain, which is the one the toolchain file names (rustup 1.28.0 and later;
+# the hosted ubuntu, macOS and Windows images ship 1.29). Not
+# `dtolnay/rust-toolchain@stable`: it downloads the newest stable as well, which
+# the pin then overrides, so a job paid for two toolchains and used one.
+#
+# The image's own toolchains are then removed. Swatinem/rust-cache hashes the
+# version of every installed toolchain into its cache key, so a stable that no
+# job builds with would still split the cache whenever images roll out with
+# different stables. The loop keeps the active toolchain and removes the rest,
+# so it stays right whatever the pin's channel is.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        rustup toolchain install --profile minimal --no-self-update
+        active=$(rustup show active-toolchain | cut -d' ' -f1)
+        for t in $(rustup toolchain list | cut -d' ' -f1); do
+          [ "$t" = "$active" ] || rustup toolchain uninstall "$t"
+        done
+        rustup toolchain list

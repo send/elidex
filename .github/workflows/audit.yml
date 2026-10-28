@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   audit:
     name: Cargo Audit
@@ -15,10 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The pinned toolchain (rust-toolchain.toml), the one `cargo audit` runs
-      # under; see the `check` job in ci.yml.
-      - name: Install the pinned toolchain
-        run: rustup toolchain install --profile minimal --no-self-update
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2

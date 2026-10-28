@@ -44,11 +44,13 @@ jobs:
               - '.clippy.toml'
               - 'mise.toml'
               - '.github/workflows/**'
+              - '.github/actions/**'
             config:
               - 'deny.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/**'
+              - '.github/actions/**'
 
   check:
     name: Check, Test, Lint
@@ -63,13 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The pinned toolchain: `rustup toolchain install` with no toolchain argument
-      # installs what rust-toolchain.toml names (channel and components), and only
-      # that. Not `dtolnay/rust-toolchain@stable`: it downloads the newest stable as
-      # well, which the pin then overrides, so a job would pay for two toolchains and
-      # use one.
-      - name: Install the pinned toolchain
-        run: rustup toolchain install --profile minimal --no-self-update
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - name: Install fonts (Ubuntu)
         if: runner.os == 'Linux'
@@ -104,9 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The pinned toolchain (rust-toolchain.toml); see the `check` job.
-      - name: Install the pinned toolchain
-        run: rustup toolchain install --profile minimal --no-self-update
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - uses: Swatinem/rust-cache@v2
 
@@ -124,9 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The pinned toolchain (rust-toolchain.toml); see the `check` job.
-      - name: Install the pinned toolchain
-        run: rustup toolchain install --profile minimal --no-self-update
+      - uses: ./.github/actions/pinned-rust-toolchain
 
       - uses: Swatinem/rust-cache@v2
 
