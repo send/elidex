@@ -916,7 +916,7 @@ CONTROL	CONTROL	Phase-1 orphan detection is linear: <= 4 link_label calls per li
 CONTROL	CONTROL	a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss	plan_memo_selftest_controls.parse_runtime_error_control#5b524dae9a6b12e8
 CONTROL	CONTROL	a decoded destination with a C0 control character is rejected, never resolved	plan_memo_selftest_controls.control_char_destination_control#c3a26128b41497b0
 CONTROL	CONTROL	a destination the sibling resolver REFUSES leaves no finding, seed or note naming it -- the stated policy, pinned rather than merely current	plan_memo_selftest_controls.refused_destination_silence_control#14e8a093f22b1e21
-CONTROL	CONTROL	a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1	plan_memo_selftest_controls.lazy_header_after_definition_control#bf3299f7bc551025
+CONTROL	CONTROL	a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1	plan_memo_selftest_controls.lazy_header_after_definition_control#b07f862c47cc70cd
 CONTROL	CONTROL	a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss at rc 2, refused before it is read	plan_memo_selftest_controls.non_regular_memo_control#019528d29e5bfe15
 CONTROL	CONTROL	a marker naming another row does not enter the count	plan_memo_selftest_controls.attribution_control#0d80adcebf8683d3
 CONTROL	CONTROL	a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, never a UnicodeEncodeError from the strict UTF-8 channel	plan_memo_selftest_controls.surrogate_report_control#b546a61fc3e98a88

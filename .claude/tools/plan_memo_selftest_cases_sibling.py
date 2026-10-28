@@ -33,8 +33,7 @@ step -- gathers them, and every case is a line of the golden manifest.  A contro
 NAME, so a control moving between modules moves nothing else.
 """
 
-from plan_memo_selftest_cases import LINK, SIB_TABLE, STUB, VIOLATION, build, spellings
-from plan_memo_selftest_cases_inline import CITE_TABLE
+from plan_memo_selftest_cases import CITE_TABLE, LINK, SIB_TABLE, STUB, VIOLATION, build, spellings
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
 # every cases module's list in one step; every case is a line of the golden manifest.

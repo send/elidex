@@ -104,7 +104,7 @@ class Population:
         # memo: a carved memo may hold a schema's table.  >= 1 memo suffices
         # (zero is the miss); a second memo carrying it is allowed -- multi-memo
         # census is a supported feature
-        if self.main is not None:
+        if self.memos:
             matched = {t.schema.name for m in self.memos for t in m.tables if t.schema is not None}
             for s in SCHEMAS:
                 if s.name not in matched:

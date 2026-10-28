@@ -564,7 +564,7 @@ def lazy_header_after_definition_control(M):
     census is one larger than without the sibling's table, and rc is not 2.
     Until R17 the consumed definition left `cur` empty and the quote ended
     before `table_header_at` was asked: the table was dropped, the id never
-    declared and -- schema presence being required of the MAIN memo only --
+    declared and -- schema presence being met by the main memo's own tables --
     rc 0, the silent class."""
     link = "See [the walk](slice-9z-sib.md)."
     quoted = "> [a]: /u\n" + "\n".join(("> " if k else "") + l for k, l in enumerate(UMBRELLA_SLOT.split("\n")))
