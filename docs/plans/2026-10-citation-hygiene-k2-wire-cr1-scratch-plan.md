@@ -218,6 +218,10 @@ target (the M6 guard) and U's `nodir` row are deleted. What changes, measured on
   empty cwd outside the checkout): a full run with `TMPDIR` unset PASSED on both shells and
   left no `k2scratch…` in `/private/tmp` (none before, none after) and nothing in its cwd (`cr1r4/log/unset.{b32,b53}.log`); a run
   with BSD `mktemp` first on `PATH` PASSED on both shells (`cr1r4/log/bsd.{b32,b53}.log`).
+- **An absolute `TMPDIR`** was ignored too by BSD `mktemp -d` called without a template (it chose the per-user
+  `/var/folders/…/T`), as it ignored a relative one. Since CR#1 the root's directory is `${TMPDIR:-/tmp}` itself: a
+  `TMPDIR` inside the checkout gives exit 2 (the in-tree check), and so does a missing or unwritable `TMPDIR`
+  (added at the CR#1 code review, PM decision 59, 2026-10-28).
 - **A relative `TMPDIR`** is read against the cwd and resolved before `mktemp` runs, on every `mktemp` (BSD's
   template-less call ignored it; GNU's answered a relative path, PR519). The PR519 rule (wire :393–:399) stands in its
   stronger form: the template is absolute and physical before the trap is installed. The relcwd control poses it
@@ -424,7 +428,11 @@ directory and `cdp/rel` keep `sentinel` only. The symbolic-link answer: §3.1. I
 ## §5 Not in this slice, and the boundaries it moves
 
 - **Touch-time split, a decided exception.** The wire is 1388 lines (1411 (r4) after this slice); CLAUDE.md's
-  touch-time rule would split it first. The PM decision gives the split to the program as its first slice: this is
+  touch-time rule would split it first. The user's 2026-10-25 decision, relayed by the PM, gives the split to the
+  program: #501 fixes CR#1 only, and every other base defect, starting with the touch-time split, is
+  `#11-k2-wire-base-defect-program`, whose first slice is the split as a standalone PR per CLAUDE.md's split rule.
+  X10 re-judged for CR#1: the wire goes 1388 → 1411 lines, the split is deferred to the program's first slice by
+  that decision, and it is not split inside #501. This is
   a merge-blocking safety fix inside one cohesive block (scratch setup + exit path) plus three call sites, and the
   split is a structural change whose seams the program's umbrella plan has to choose and review. Every edited *part*
   stays under 1000 lines (§6 N2); controls reaches 993 (r4), so the program's split names it (M14). The split

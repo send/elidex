@@ -172,7 +172,7 @@ with its own `mkdir` (no `-p`) inside a `mktemp -d` answer (`_k2_own_dir`, the C
 (`_pq`, `…-census.md` §4) and the parent's (`…-census.md` §4, "The parent's directory"). Class (c) is then **declared** only for
 what construction cannot close, each with its measured cell. The last item below qualifies the rule
 itself: a changed resolution of `mktemp` or `mkdir` can still hand either directory to the fixtures (`mkfn`,
-`staleshim`): since CR#1 not by naming a place outside the directory it was asked for (refused; `staleshim` at the CR#1 T, rc 2), but by naming one inside it that they prepared, or by a `mkdir` that does not make `run` (restated 2026-10-26, the CR#1 plan), so "out of reach" holds except for that declared class (c):
+`staleshim`): since CR#1 not by naming a place outside the directory it was asked for (refused against a substituted `mktemp` or `mkdir`; `staleshim` at the CR#1 T, rc 2), but by naming one inside it that they prepared, or by a `mkdir` that does not make `run`; and a fixtures file that redefines `pwd` or `_phys` is a declared class (c) channel too (restated 2026-10-26, the CR#1 plan; made exact 2026-10-28), so "out of reach" holds except for that declared class (c):
 - the window's return channel, which both sides must name (`xdone`);
 - the names the prelude defines, in the shell the fixtures file shares (`xredef`);
 - the pin `$_FGIT_BIN`;
@@ -381,7 +381,7 @@ _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_
   `_fgit_postconditions`' body uses, each of which the controls file (where the ratchet counts them) must
   define non-empty, or the window refuses. The fixtures' part of the list is **derived** by the census
   command below;
-- `declare -f` bodies of `_fixture_failed`, `_fixture_did_fail`, `_shq`, `_fgit_shim`, `_fgit_canon`, `_fw_opts_on`, `_seal_refuse`,
+- `declare -f` bodies of `_phys`, `_k2_own_dir`, `_fixture_failed`, `_fixture_did_fail`, `_shq`, `_fgit_shim`, `_fgit_canon`, `_fw_opts_on`, `_seal_refuse`,
   `_seal`, `_seal_apply` and `_fgit_postconditions`. The child first enters `$_FW_DIR`, a directory it owns.
 
 **The census, and why it is complete.** The read-set comes from:
