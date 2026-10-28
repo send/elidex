@@ -742,7 +742,7 @@ else _control "$CTL/clean" 0 "holds more than this run made" "the exit path remo
   mkdir -p "$_VFY/.odu"; for _odu in no:"printed no path" dot:"not a new name inside" old:"not a new name inside" unres:"could not resolve the directory" real:; do
   _odu_k="${_odu%%:*}"; _odu_p="$CTL/odpar"; [ "$_odu_k" != unres ] || { _odu_k=real; _odu_p=""; }
   _odu_r="$(cd "$CTL/odcwd" && export K2_CTL_REACHED="$_VFY/.odu" && { [ "$_odu_k" = real ] || PATH="$CTL/fake${_odu_k}mktemp:$PATH"; } \
-    && { _k2_own_dir _odu_d "$_odu_p" p; printf '%s|%s' "$_odu_d" "$_K2_OD_WHY"; })"
+    && { _k2_own_dir _odu_d "$_odu_p" p || :; printf '%s|%s' "$_odu_d" "$_K2_OD_WHY"; })"
   case "${_odu%%:*}|$_odu_r" in
     "real|$CTL/odpar/p"?*"/run|") [ ! -d "${_odu_r%|}" ] || continue ;;
     real\|*) ;;

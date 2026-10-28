@@ -401,13 +401,13 @@ fi
 _phys() { ( cd "$1" 2>/dev/null && pwd -P ); }
 # THE ONE WAY THIS RUN MAKES A DIRECTORY TO WORK IN (CR#1): `_k2_own_dir <var> <dir> <prefix>`, called
 # here for the scratch root (<dir> = `${TMPDIR:-/tmp}`) and by the three inner sites (controls, harness ×2;
-# the window gets it in its prelude). <dir> is resolved physically, once; `mktemp` then only NAMES a
-# place: its answer must be, as text, `<that dir>/<prefix>` and a name with no `/`, and not a symbolic link
+# the window gets it in its prelude). <dir> is resolved physically, once; `mktemp -d` makes the parent
+# (only `<top>/run` is made by the run's own `mkdir`): its answer must be, as text, `<that dir>/<prefix>` and a name with no `/`, and not a symbolic link
 # (so, <dir> being physical, the answer is too), read before anything is touched. `$<var>` is `<answer>/run`, made by this run's own `mkdir` (no `-p`, so an existing name
 # fails), the only kind of directory any recursive removal reaches. A refusal leaves `$<var>` empty, says
 # why in `_K2_OD_WHY` and removes nothing; `_K2_OD_TOP` is the answer, set only once it passed the text
-# test. Its first `printf -v` is the one writer of an empty `$<var>`. Call it only as an `||`/`if`
-# operand or inside `$( … )`: errexit is off in both.
+# test. Its first `printf -v` is the one writer of an empty `$<var>`. Call it only as an operand of
+# `||`/`if` (not alone in `$( … )`: POSIXLY_CORRECT makes that inherit errexit): errexit is off there.
 _k2_own_dir() {
   local _od_d _od_a; printf -v "$1" %s ""; _K2_OD_TOP=""; _K2_OD_WHY=""
   [ -n "$2" ] && _od_d="$(_phys "$2")" && [ -n "$_od_d" ] || { _K2_OD_WHY="could not resolve the directory to make it in ([$2]) to a physical path"; return 1; }
@@ -560,7 +560,7 @@ if [ -z "$SCRATCH" ]; then
   exit 2
 fi
 _scratch_p="$SCRATCH"
-# …and the same for the root, for the same reason.
+# A root that will not resolve is left empty here (not a failure): the test below refuses on it.
 _root_p="$(_phys "$ROOT")" || _root_p=""
 if [ -z "$_scratch_p" ] || [ -z "$_root_p" ]; then
   echo "!! could not resolve the scratch dir or the root to a physical path," >&2
