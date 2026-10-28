@@ -34,6 +34,7 @@ NAME, so a control moving between modules moves nothing else.
 """
 
 from plan_memo_selftest_cases import LINK, SIB_TABLE, STUB, VIOLATION, build, spellings
+from plan_memo_selftest_cases_inline import CITE_TABLE
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
 # every cases module's list in one step; every case is a line of the golden manifest.
@@ -243,3 +244,14 @@ rcase("NEGATIVE", "(presence) a schema whose ONLY table is in a carved sibling (
 rcase("NEGATIVE", "(presence) a schema whose table is in TWO memos (entry and sibling) is present: "
                   "multi-memo census is supported, no presence miss, rc 0",
       build(), LINK, 0, sibling=STUB)
+
+# A duplicate is an ID COLLISION (PM judgment 52/61): a citation table in a second memo
+# with its OWN ids is the multi-memo census rule C supports, not a duplicate -- pinned
+# rc 0, bracketed by the same table re-declaring the entry memo's `[C1]` (rc 2), so the
+# negative cannot pass because the sibling's table went unread.
+rcase("NEGATIVE", "(presence) a citation table in a second memo with ids of its own is census, "
+                  "not a duplicate: rc 0",
+      build(), LINK, 0, sibling=CITE_TABLE % "[C2]")
+rcase("POSITIVE", "(presence) the same citation table re-declaring the entry memo's id is the "
+                  "declared-twice collision: rc 2",
+      build(), LINK, 2, sibling=CITE_TABLE % "[C1]")

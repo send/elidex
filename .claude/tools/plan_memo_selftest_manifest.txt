@@ -302,6 +302,7 @@ CASE	NEGATIVE	(link) an ASCII control character (0x7F) ends a bare destination	0
 CASE	NEGATIVE	(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0	cae6d8ccf610a155
 CASE	NEGATIVE	(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` is no collapsed reference: rc 0	6d1a04e0474b8169
 CASE	NEGATIVE	(link) label matching collapses spaces, tabs and line endings only: a non-breaking space is not a space, so the reference is unanswered	6814c214385e9f4f
+CASE	NEGATIVE	(presence) a citation table in a second memo with ids of its own is census, not a duplicate: rc 0	21f478f9ae821298
 CASE	NEGATIVE	(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) is present: no `no table matched` miss, rc 0	2b49fa38adb83f28
 CASE	NEGATIVE	(presence) a schema whose table is in TWO memos (entry and sibling) is present: multi-memo census is supported, no presence miss, rc 0	b9b7462e53f93fa2
 CASE	NEGATIVE	(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote paragraph's text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site	ffde4ec7aad7fb8d
@@ -711,6 +712,7 @@ CASE	POSITIVE	(link) a full reference no definition answers is a schema miss	df8
 CASE	POSITIVE	(link) a shortcut whose only definition sits mid-paragraph is a schema miss	64385b11c55615d1
 CASE	POSITIVE	(link) …and its discriminating half: the UNESCAPED `[x](absent-file.md)` IS a link, so the memo it names is an unavailable sibling -- 1 schema miss, rc 2.  Without this the control above cannot tell a working escape from a needle that never matches	edfdc1ec638aef62
 CASE	POSITIVE	(presence) a schema whose table is in NO memo of the population is rc 2, even when a linked memo carries the other schemas' tables	767d9ba8420d07fa
+CASE	POSITIVE	(presence) the same citation table re-declaring the entry memo's id is the declared-twice collision: rc 2	030374f0d0016bf7
 CASE	POSITIVE	(quote) `> Slice 9z owns it`: the quote's paragraph is scanned at its real line and the marker is not content -- the site is reported	5ffb489fa01ac102
 CASE	POSITIVE	(quote) `> open `x\\n# Slice 9z owns it` there`: an ATX heading is never lazy -- the quote ends, the heading is a block of its own and its site is reported	0c7e9a1caeb4156e
 CASE	POSITIVE	(rc) a full reference no definition answers is rc 2, never clean	e9fd0d88fca55098
@@ -1254,6 +1256,7 @@ CONTROL	NEGATIVE	(link) an ASCII control character (0x7F) ends a bare destinatio
 CONTROL	NEGATIVE	(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` is no collapsed reference: rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(link) label matching collapses spaces, tabs and line endings only: a non-breaking space is not a space, so the reference is unanswered	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	NEGATIVE	(presence) a citation table in a second memo with ids of its own is census, not a duplicate: rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) is present: no `no table matched` miss, rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(presence) a schema whose table is in TWO memos (entry and sibling) is present: multi-memo census is supported, no presence miss, rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote paragraph's text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
@@ -1663,6 +1666,7 @@ CONTROL	POSITIVE	(link) a full reference no definition answers is a schema miss	
 CONTROL	POSITIVE	(link) a shortcut whose only definition sits mid-paragraph is a schema miss	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(link) …and its discriminating half: the UNESCAPED `[x](absent-file.md)` IS a link, so the memo it names is an unavailable sibling -- 1 schema miss, rc 2.  Without this the control above cannot tell a working escape from a needle that never matches	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(presence) a schema whose table is in NO memo of the population is rc 2, even when a linked memo carries the other schemas' tables	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	POSITIVE	(presence) the same citation table re-declaring the entry memo's id is the declared-twice collision: rc 2	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(quote) `> Slice 9z owns it`: the quote's paragraph is scanned at its real line and the marker is not content -- the site is reported	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(quote) `> open `x\\n# Slice 9z owns it` there`: an ATX heading is never lazy -- the quote ends, the heading is a block of its own and its site is reported	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(rc) a full reference no definition answers is rc 2, never clean	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
