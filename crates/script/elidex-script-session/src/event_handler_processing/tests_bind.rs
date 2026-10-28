@@ -103,6 +103,11 @@ fn u8_iii_bind_delivers_inside_shadow_tree() {
 }
 
 // ---- U10 (red, K-6 depth): a chain deeper than MAX_ANCESTOR_DEPTH ----
+/// Stack for U10's bind thread (plan §4.6, "bind walk recursive" row). The
+/// iterative walk passes with 32 KiB in a debug build (measured 2026-10-28),
+/// so this leaves 8x headroom; a recursive walk overflows it at this depth.
+const U10_BIND_STACK_BYTES: usize = 256 * 1024;
+
 #[test]
 fn u10_bind_reaches_past_the_depth_cap() {
     let mut dom = EcsDom::new();
@@ -117,7 +122,18 @@ fn u10_bind_reaches_past_the_depth_cap() {
         top = parent;
     }
     append(&mut dom, body, top);
-    init_fresh(&mut dom, doc, compat());
+    // The bind runs on a thread with a fixed, small stack, so the cell does
+    // not depend on the test harness's default stack size: an iterative walk
+    // keeps its work list on the heap and fits, while a recursive one needs a
+    // frame per level and overflows (which aborts the test binary).
+    std::thread::scope(|s| {
+        std::thread::Builder::new()
+            .stack_size(U10_BIND_STACK_BYTES)
+            .spawn_scoped(s, || init_fresh(&mut dom, doc, compat()))
+            .expect("U10: spawn the bind thread")
+            .join()
+            .expect("U10: the bind thread completes");
+    });
     assert!(
         is_marked(&dom, deepest),
         "U10: the deepest element is marked"
