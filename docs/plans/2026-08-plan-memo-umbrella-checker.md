@@ -276,7 +276,7 @@ share. Re-eval: 2026-12-31.
   code, an HTML block, a thematic break or a table the quote ENDS before the header; ⚠ until R17 the consumed
   definition left `cur` empty and the quote ended, so a linked memo's schema table there was dropped, its
   ids never declared, rc 0 — schema presence is required of the main memo only (superseded 2026-10-28:
-  see the Correction after this paragraph). ⚠ One divergence stays, stated: cmark-gfm also PRINTS that
+  see the Correction after the §2 I-A…I-F list). ⚠ One divergence stays, stated: cmark-gfm also PRINTS that
   definition as a paragraph and registers nothing — `[a]: /u\n| h
   |\n|---|\n\n[a]` renders `[a]` literally, at the top level and in the quote alike; its table extension
   re-creates the residual paragraph without the §4.7 parse — which is not followed: the definition registers,
@@ -597,6 +597,10 @@ row NAMES what it replaced: a cost is a measurement or it is a guess.
 terminal unit under this umbrella. The memo split `#11-vm-p4-memo-section-seam-split` is a separate
 follow-up, not needed here; its ledger note (paraphrase: the checker must first include sibling
 tables in the census) is **satisfied by Slice 1 (B×C)** — premise-correct the ledger at landing.
+⚠ **Correction (2026-10-28):** Slice 1 satisfies only half of that premise. Sibling tables are in the
+census, but schema presence was still read from the entry memo alone, so a carved memo exited 2. The
+other half is the population-wide presence check (PM judgment 52 rule C; the Correction after §2's
+I-A…I-F list), which landed separately before the split.
 
 ### §3.1 User-input touch audit
 
