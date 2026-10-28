@@ -107,7 +107,7 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。
+`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` と、3 job が使う composite action の `.github/actions/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。
 
 4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は toolchain 不要 (~1s) なので filter は何も買わない。理由の正典 = 同 job のコメント。
 

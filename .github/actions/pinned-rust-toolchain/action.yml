@@ -1,7 +1,7 @@
 name: Pinned Rust toolchain
 description: >-
-  Install the toolchain rust-toolchain.toml pins (channel and components), and
-  leave it the only toolchain on the runner.
+  Install the toolchain rust-toolchain.toml pins (channel and components) into a
+  rustup home of its own, so it is the only toolchain the job sees.
 
 # One place for every job that needs Rust (ci.yml check / doc / deny,
 # audit.yml).
@@ -12,19 +12,36 @@ description: >-
 # `dtolnay/rust-toolchain@stable`: it downloads the newest stable as well, which
 # the pin then overrides, so a job paid for two toolchains and used one.
 #
-# The image's own toolchains are then removed. Swatinem/rust-cache hashes the
-# version of every installed toolchain into its cache key, so a stable that no
-# job builds with would still split the cache whenever images roll out with
-# different stables. The loop keeps the active toolchain and removes the rest,
-# so it stays right whatever the pin's channel is.
+# The install goes into a fresh RUSTUP_HOME under RUNNER_TEMP, exported through
+# GITHUB_ENV, so every later step's cargo / rustc proxy resolves toolchains there.
+# The image's own toolchains stay where they are, unseen. Swatinem/rust-cache
+# hashes the version of every toolchain rustup lists into its cache key, so a key
+# that listed the image's stable would split whenever images roll out with
+# different stables; here it lists the pin alone. The step fails if rustup lists
+# anything but that one toolchain, rather than leaving a later proxy call to
+# install a second one silently.
 runs:
   using: composite
   steps:
-    - shell: bash
+    - name: Install the pinned Rust toolchain
+      shell: bash
       run: |
-        rustup toolchain install --profile minimal --no-self-update
-        active=$(rustup show active-toolchain | cut -d' ' -f1)
-        for t in $(rustup toolchain list | cut -d' ' -f1); do
-          [ "$t" = "$active" ] || rustup toolchain uninstall "$t"
+        home="$RUNNER_TEMP/rustup"
+        if command -v cygpath >/dev/null; then home=$(cygpath -w "$home"); fi
+        export RUSTUP_HOME="$home"
+        echo "RUSTUP_HOME=$home" >> "$GITHUB_ENV"
+        for attempt in 1 2 3; do
+          rustup toolchain install --profile minimal --no-self-update && break
+          if [ "$attempt" = 3 ]; then exit 1; fi
+          echo "rustup toolchain install failed; retrying in 30 s (attempt $attempt of 3)" >&2
+          sleep 30
         done
-        rustup toolchain list
+        installed=$(rustup toolchain list --quiet | tr -d '\r')
+        active=$(rustup show active-toolchain | tr -d '\r' | cut -d' ' -f1)
+        if [ "$installed" != "$active" ]; then
+          echo "expected only the pinned toolchain '$active' in $home, found:" >&2
+          echo "$installed" >&2
+          exit 1
+        fi
+        rustup default "$active"
+        rustc --version
