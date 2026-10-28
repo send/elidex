@@ -63,9 +63,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # The pinned toolchain: `rustup toolchain install` with no toolchain argument
+      # installs what rust-toolchain.toml names (channel and components), and only
+      # that. Not `dtolnay/rust-toolchain@stable`: it downloads the newest stable as
+      # well, which the pin then overrides, so a job would pay for two toolchains and
+      # use one.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --no-self-update
 
       - name: Install fonts (Ubuntu)
         if: runner.os == 'Linux'
@@ -100,7 +104,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The pinned toolchain (rust-toolchain.toml); see the `check` job.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --no-self-update
 
       - uses: Swatinem/rust-cache@v2
 
@@ -118,7 +124,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The pinned toolchain (rust-toolchain.toml); see the `check` job.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install --profile minimal --no-self-update
 
       - uses: Swatinem/rust-cache@v2
 
