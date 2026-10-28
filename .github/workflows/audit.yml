@@ -1,5 +1,22 @@
 name: Security Audit
 
+# Weekly advisory check with no code change behind it: a vulnerability advisory
+# published against a crate in the dependency graph turns this red even when no
+# PR touches the dependency config (ci.yml's `deny` job runs only on PRs that
+# touch deny.toml, the root Cargo.toml, Cargo.lock or the CI config, and on
+# pushes to main). What fails and what only warns (unmaintained, yanked) is
+# deny.toml's `[advisories]`.
+#
+# `cargo deny check advisories`, not `cargo audit`. cargo-audit scans every
+# package in Cargo.lock and does not read deny.toml, so besides real findings it
+# also reported the advisories deny.toml ignores with a reason, and lock-only
+# packages that are never compiled; those kept it red even when nothing else was
+# open. cargo-deny checks the dependency graph against deny.toml, the same check
+# ci.yml's `deny` job runs as part of `cargo deny check`.
+#
+# Known defect: a red scheduled run notifies no one who acts on it
+# (`#11-ci-scheduled-failure-unrouted`).
+
 on:
   schedule:
     - cron: '0 0 * * 1'  # Weekly on Monday
@@ -13,17 +30,18 @@ env:
 
 jobs:
   audit:
-    name: Cargo Audit
+    name: Advisories
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - uses: ./.github/actions/pinned-rust-toolchain
 
-      - name: Install cargo-audit
+      - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-audit
+          tool: cargo-deny
 
-      - name: Run audit
-        run: cargo audit
+      - name: Check advisories
+        run: cargo deny check advisories
