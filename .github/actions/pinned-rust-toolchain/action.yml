@@ -17,9 +17,9 @@ description: >-
 # The image's own toolchains stay where they are, unseen. Swatinem/rust-cache
 # hashes the version of every toolchain rustup lists into its cache key, so a key
 # that listed the image's stable would split whenever images roll out with
-# different stables; here it lists the pin alone. The step fails if rustup lists
-# anything but that one toolchain, rather than leaving a later proxy call to
-# install a second one silently.
+# different stables; here it lists the pin alone. The step fails if, after the
+# install, rustup lists anything but the active toolchain. It checks once, here: a
+# later step that names another toolchain is still auto-installed into this home.
 runs:
   using: composite
   steps:
