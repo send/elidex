@@ -9,6 +9,7 @@ repository (never this file) and runs the copied driver there.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -256,9 +257,6 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         self.assertGreen(s.run())
 
     def test_P6_pins_file_never_credits_a_live_entry_point(self):
-        constants = set()
-        for rel in PIN_FILES:
-            constants |= DRV.string_constants(DRV.parse((REPO / rel).read_bytes(), rel))
         code, out = _launch(
             ["git", "-C", REPO, "ls-files", "-z", "--", "*.py"], env=base_env(), purpose="git"
         )
@@ -266,12 +264,51 @@ class TestComplementPins(DriverCase, unittest.TestCase):
         tracked = sorted(p for p in out.split("\0") if p)
         for rel in PIN_FILES:
             self.assertIn(rel, tracked)
+        trees = {p: DRV.parse((REPO / p).read_bytes(), p) for p in tracked}
+        constants = set()
+        for rel in PIN_FILES:
+            constants |= DRV.string_constants(trees[rel])
+        # Completeness, by property: a tracked file a pin file imports, and a file that imports a
+        # helper module of the pins, are pin files too. An import statement's dotted names (and
+        # `from M import n` as M.n) resolve against the importer's directory, scripts/ and the
+        # root, as a module or a package. Outside the check: a relative import (scripts/ is not a
+        # package) and a module loaded by a computed name (importlib, __import__).
+        def imports(rel, tree=None, known=frozenset(tracked)):
+            names = set()
+            for n in ast.walk(trees[rel] if tree is None else tree):
+                if isinstance(n, ast.Import):
+                    names |= {a.name for a in n.names}
+                elif isinstance(n, ast.ImportFrom) and not n.level and n.module:
+                    names |= {n.module} | {n.module + "." + a.name for a in n.names}
+            bases = {os.path.dirname(rel) + "/", "scripts/", ""} - {"/"}
+            dotted = {".".join(d.split(".")[:i]) for d in names for i in range(1, d.count(".") + 2)}
+            found = set()
+            for b in bases:
+                for d in dotted:
+                    stem = b + d.replace(".", "/")
+                    found |= {stem + ".py", stem + "/__init__.py"} & known
+            return found - {rel}
+
+        # Control: a helper in a subdirectory and a scripts.-qualified import both resolve.
+        planted = ast.parse("from pins.launch import go\nfrom scripts import python_suites_fixtures\n")
+        self.assertEqual(
+            imports("scripts/p.py", planted, set(tracked) | {"scripts/pins/launch.py"}),
+            {"scripts/pins/launch.py", "scripts/python_suites_fixtures.py"},
+        )
+
+        helpers = set()
+        for rel in PIN_FILES:
+            for dep in imports(rel):
+                self.assertIn(dep, PIN_FILES, "%s imports %s, which is not a pin file" % (rel, dep))
+                helpers.add(dep)
+        self.assertLessEqual({"scripts/python_suites_fixtures.py", "scripts/python_suites_readers.py"}, helpers)
+        for path in tracked:
+            self.assertTrue(path in PIN_FILES or not imports(path) & helpers, "%s imports a pin helper but is not a pin file" % path)
         entry_points = []
         for path in tracked:
             if re.search(DRV.MEMBER_RE, path):
                 continue  # members are not entry points for 3(b)
-            ptree = DRV.parse((REPO / path).read_bytes(), path)
-            if DRV.is_self_test_entry_point(ptree):
+            if DRV.is_self_test_entry_point(trees[path]):
                 entry_points.append(path)
         for e in entry_points:
             for rel in PIN_FILES:

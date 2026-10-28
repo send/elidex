@@ -242,17 +242,39 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# Patch-level floor is load-bearing, not a style slip: the wasmtime RUSTSECs are
-# fixed per release line. RUSTSEC-2026-0315 / 0316 (fuel accounting): 49.x from
-# 49.0.1, 48.x from 48.0.3. RUSTSEC-2026-0325 / 0326 (GC heap corruption) and
-# 0327 (component async callback stack buffer overflow): 49.x from 49.0.2, 48.x
-# from 48.0.4. RUSTSEC-2026-0353 … 0364 (component-model panics and limits,
-# exception-tag alignment, recursive-type drop): 49.x from 49.0.3, 48.x from
-# 48.0.6 except 0360, which has no 48.x fix. RUSTSEC-2026-0378 (component-model
-# stream payload-type panic) and 0379 (aarch64 Cranelift `br_table` jump target):
-# 49.x from 49.0.4, 48.x from 48.0.7. A bare `"49"` (= `>=49.0.0`) would admit
-# the vulnerable 49.0.x releases. Keep the `.0.4`.
-wasmtime = "49.0.4"
+# `"50.0.0"` is the same range as a bare `"50"`; it is written at patch level
+# so that the floor has somewhere to move. The wasmtime RUSTSECs are fixed per
+# release line (on 49.x, RUSTSEC-2026-0315 … 0379 needed 49.0.1 through
+# 49.0.4): when `cargo deny` reports one on 50.x, raise this floor to the
+# line's patched release. wasmtime 50 needs rustc 1.97 (`rust-toolchain.toml`).
+#
+# Default features are off: each feature below is one elidex-wasm-runtime uses,
+# and anything wasmtime adds to its defaults stays out until something here
+# needs it. (The default `cache` feature pulled in zstd for an on-disk compile
+# cache elidex never configures.)
+# - `runtime`, `std`: `Engine` / `Store` / `Module` / `Instance` / `Linker`.
+# - `cranelift`: `Module::new` compiles at run time; without a compiler it fails.
+# - `parallel-compilation`: that compile runs its functions on rayon's global
+#   pool rather than on one thread.
+# - `gc`: the `ExternRef` host API (`engine_conv.rs`, `handle.rs`); it also
+#   keeps the Wasm GC and exception-handling proposals on.
+# - `gc-copying`: a GC engine needs a collector; this is the one
+#   `Collector::Auto` picked under the old defaults.
+# - `threads`: keeps the threads proposal (atomics, shared memory) on, so
+#   modules built with atomics still compile.
+# - `backtrace`, `demangle`: a trap's `RuntimeError` message carries the
+#   wasm backtrace with demangled names, as before.
+wasmtime = { version = "50.0.0", default-features = false, features = [
+    "runtime",
+    "std",
+    "cranelift",
+    "parallel-compilation",
+    "gc",
+    "gc-copying",
+    "threads",
+    "backtrace",
+    "demangle",
+] }
 wat = "1"
 static_assertions = "1"
 rayon = "1"

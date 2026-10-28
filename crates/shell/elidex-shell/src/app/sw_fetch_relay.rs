@@ -163,7 +163,7 @@ mod tests {
             PendingFetch {
                 tab_id: TabId(1),
                 initiated_at: Instant::now()
-                    .checked_sub(std::time::Duration::from_secs(60))
+                    .checked_sub(std::time::Duration::from_mins(1))
                     .unwrap(),
                 scope: url::Url::parse("https://example.com/").unwrap(),
             },
