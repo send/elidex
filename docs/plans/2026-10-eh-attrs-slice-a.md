@@ -1,4 +1,4 @@
-# EH-attrs-at-creation slice a: per-PR plan (rev 4.3)
+# EH-attrs-at-creation slice a: per-PR plan (rev 4.4)
 
 Label **`EH-attrs-at-creation-a`**. Program and contract: the approved umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md` (rev 8, landed by PR #551 at `b9122157`). Branch
@@ -9,7 +9,8 @@ This plan **derives the implementation** of the decided contract. It re-decides 
 §1.7). File placement is stated in one place, this plan's §5 (PM decision 39, which supersedes
 PM decision 35's file-name edit and PM decision 37's sentence edit). The two umbrella edits this PR makes, §4 Home/kind
 (file name removed, pointer to §5) and §6.4's placement paragraph (replaced by one pointer sentence to §5), are shown
-before / after in §1.7 (decision: §0.5 "marker home").
+before / after in §1.7 (decision: §0.5 "marker home"). Two further umbrella edits correct the E4 and E7 fixture cells
+of umbrella §6 to the markup the pins use (PM decisions 43 and 48, §1.7 (c), (d)).
 Where the umbrella left something to "slice a's plan" or "slice a's plan-review", this
 plan decides it and says so (§0.5). Where the contract text and the code disagree, §0.6 records it. Changes since rev 1:
 §10.
@@ -368,8 +369,8 @@ to slice b's input by name (§9). I10 (§2) covers only the three callers it nam
 
 ### §1.7 Docs, comments, clone policy (umbrella §4's rewrite-site list)
 
-- Umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`: exactly two edits (ratified surface, shown to
-  this plan-review), under PM decision 39, which supersedes PM decision 35's file-name edit and PM decision 37's
+- Umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`: edits (a) and (b) (ratified surface, shown to
+  this plan-review), under PM decision 39, and the fixture edits (c) and (d) below (PM decisions 43 and 48), which supersedes PM decision 35's file-name edit and PM decision 37's
   sentence edit. File placement is stated in one place, this plan's §5; the umbrella keeps only the decided facts
   and a pointer. They land with the implementation; no other umbrella text changes. Line numbers are the umbrella at
   `b9122157`; the before text is verbatim (line breaks as in the file).
@@ -417,6 +418,18 @@ to slice b's input by name (§9). I10 (§2) covers only the three callers it nam
   a standalone prerequisite split is needed are canonical in slice a's per-PR plan §5
   (`docs/plans/2026-10-eh-attrs-slice-a.md`; PM decision 39).
   ```
+
+  (c) §6 shell-pin table, E7 row (PM decision 43): the markup cell starts with `<!DOCTYPE html>`. Without it the
+  strict tier rejects the document, the tolerant fallback attaches no declarative shadow root
+  (`#11-tolerant-document-declarative-shadow-roots`), and E7 was red for a reason other than the bind pass.
+
+  (d) §6 shell-pin table, E4 and E7 rows (PM decision 48): E4 dispatches with `window.dispatchEvent(new
+  Event('hashchange'))` (a bare `dispatchEvent` call has an undefined `this` in elidex,
+  `#11-global-operation-undefined-this`), and E7 reaches the button with
+  `document.getElementById('h').shadowRoot.querySelector('#b')` (`ShadowRoot` has no `getElementById` in elidex,
+  `#11-nonelementparentnode-on-fragments`; the host is looked up as the scaffold's pin already did). Every pin also gained a
+  HEAD control that runs before its oracle (`assert_head_control`), so a pin that is red is red for the intended
+  reason.
 
   Umbrella text that refers to §6.4 stays accurate after (b): `:23` lists "§6's file placement … (§6.3–§6.4)" as
   input, and `:1078` is the R3 review ledger's historical row ("§6.4 decided obligation"), which records the fix at
@@ -703,24 +716,49 @@ description. At most two mutants run in parallel.
 
 | mutant | must fail |
 |---|---|
-| drop the marker check in the D-2 function | C1, C2, C3, U1, E3, U7 |
+| drop the marker check in the D-2 function | C1, C2, C3, U1 (rev 4.4: E3, U7 removed, note 1) |
 | make `initialize_from_tree` a no-op (delete the bind delegate) | E1, E2, E4, E5, E6, E7, U7 |
 | drop the document-marker check, or hold the once-state on the consumer struct | U9, E8 |
 | bind walk over the light tree only | E7, U8 (iii) |
 | bind walk capped (`children_iter` / `for_each_shadow_inclusive_descendant`) | U10 or U11 |
-| bind walk recursive | U10 |
+| bind walk recursive | U10 (aborts on stack overflow; note 2) |
 | Insert walk shadow-including | U9, E8 |
 | write-side entry that never processes | C2, C4, C5, C11, U5 (i) |
 | write-side entry without the D-8 (a) count | C16 |
-| entry that processes a Window-delegating written pair | C17, C18 |
+| entry that processes a Window-delegating written pair | none: observably equivalent in slice a (note 3) |
 | `HandlerWrite` timing that processes Window-delegating pairs | C20 (i), C20 (ii) |
 | skip at insertion covering Window-delegating pairs | C19 |
 | classifier = HEAD's predicate (`scope == Window && is_body_element`) | C19b, C19c |
 | classifier missing `frameset` for WEH rows | P3 |
-| classifier keyed on the node document or the bound document | C8 or C18 |
+| classifier keyed on the node document or the bound document | node document: C17, P3; bound document (tree root): P3, P2 (rev 4.4: was C8 or C18, note 4) |
 | bind pass walks another document, or `TemplateContentsWalk::Include` (NEW) | U8 (i) / (ii) |
 | bind pass keyed on `document_root()` | U12 |
 | marker inserted on a Window-delegating-only element | P1 (i) |
+
+Measured (rev 4.4, 2026-10-28): head `65c7eed0`, row "bind walk recursive" re-measured at `17c35144`. Every row
+not named in a note had every listed cell fail. The table's own corrections follow the measurement (PM decision 60).
+The umbrella's §6.3 prose lists the pre-measurement cells; this table is the measured record.
+
+1. The marker check in the D-2 function: E3 and U7 pass under it. A second bind stops at the document marker before
+   it reaches any element, so those two cells test the document marker, not the element marker.
+2. At HEAD's depth (`MAX_ANCESTOR_DEPTH + 5`) a recursive walk fit the test harness's default stack and U10 passed.
+   U10 now runs the bind on a thread with a 256 KiB stack (PM decision 60). The iterative walk passes with 32 KiB in
+   a debug build. The recursive mutant overflows it and aborts the test binary (SIGABRT), which is a fail but not a
+   panic.
+3. Two forms were run, and C17 and C18 pass under both. (A) Deleting the entry's Window-delegating early return
+   changes nothing, because the D-8 (a) count counts ordinary pairs only, so a written Window-delegating name is
+   never the one deliverable name, and the count returns. (B) Deleting the count as well lets the entry process the
+   pair, but the next insertion re-raws every Window-delegating pair (X-W), so nothing observable differs. The
+   early return is kept as the direct statement of X-W at T-a3.
+4. The cells first listed for this row move a `<body>` inside the bound document (C8) or rely on template contents
+   having their own document (C18), which elidex lacks (`#11-template-contents-owner-document`). In neither cell
+   do the node document, the bound document and the tree root differ, so neither cell sees the mutant.
+5. "Bind pass walks another document" was run in two forms. Walking `document_root()` is the same as the next row
+   ("keyed on `document_root()`"), because in U8 the bound document is `document_root()`, and U12 kills it. Walking
+   every Document fails U8 (i). `TemplateContentsWalk::Include` fails U8 (ii).
+6. "Hold the once-state on the consumer struct" was not run as an edit. The dispatcher, and with it the consumer, is
+   rebuilt at every bind (`Vm::bind`), so state on the struct is empty at each bind. It behaves as the first form,
+   dropping the document-marker check, which U9 and E8 kill.
 
 WPT: no subset is claimed (umbrella §6.3).
 
@@ -911,6 +949,13 @@ sed -n '313,341p;466,498p' crates/script/elidex-script-session/src/event_handler
     C1's handling, then slice b).
 
 ## §10. Changelog
+
+- **rev 4.4** (implementation records; PM decisions 43, 48, 60):
+  - §1.7 gains umbrella edits (c) and (d), the E4 and E7 fixture cells of umbrella §6 (decisions 43 and 48); the
+    header names them.
+  - §4.6: the mutation run's measured kill cells replace three rows' predictions (marker check, Window-delegating
+    write, classifier keying), and notes 1–6 record why each survivor or alternative form behaves as it does. U10's
+    bind runs on a fixed 256 KiB stack (decision 60).
 
 - **rev 4.3** (user decision (ii) via PM):
   - §5 "Canonical" paragraph narrowed to the umbrella's reference for slice a's file placement plus an agreement

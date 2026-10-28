@@ -560,8 +560,8 @@ E-G1 (ii)). No row adds a parse of user input.
 ## §4. Home/kind (decided) and slice a's mechanism (input)
 
 **Home/kind (decided).** The once-key is a unit marker **component** on the origin element. The bind-pass key is a unit
-marker **component** on the bound Document entity. Both are homed in
-`crates/script/elidex-script-session/src/event_handler_consumer.rs`, beside the consumer. Each is `Send + Sync`,
+marker **component** on the bound Document entity. Both are homed in the crate `elidex-script-session`. Their file placement is not decided here: slice a's per-PR
+plan §5 (`docs/plans/2026-10-eh-attrs-slice-a.md`) is canonical (PM decision 39). Each is `Send + Sync`,
 per-entity, and not a per-VM identity handle, so by CLAUDE.md's side-store→component rule each is a component, not
 consumer state (the consumer is rebuilt at every bind, H13). Despawn removes them, adopt keeps the element marker, and
 clone does not copy it.
@@ -746,8 +746,8 @@ Control: `data-ran == "1"`.
 | main document | E1 | red | `build_pipeline_from_loaded` (`pipeline.rs:839`) | `M` | `data-ran == "1"`, no `data-hit` | `data-hit == "1"` after the build |
 | main document | E2 | red | same | then `PipelineResult::dispatch_event` (`lib.rs:293`) with a click at `b` | `data-hit` absent | `data-hit == "2"` |
 | main document | E3 | red | same | `eval_script("window.f=document.getElementById('b').onclick; typeof window.f")`; `dispatch_event`; `eval_script("document.getElementById('b').onclick===window.f")` | first read `"object"` | `"function"`, then `true` (K-1 across rebinds) |
-| main document | E4 | red | same | `<body onhashchange="document.body.dataset.h=1"><script>document.body.dataset.ran=1;dispatchEvent(new Event('hashchange'))</script>` | no `data-h` | `data-h == "1"` (delivered to the Window at bind) |
-| main document | E7 | red | same | `<div id=h><template shadowrootmode=open><button id=b onclick="…as M…"></button></template></div><script>document.body.dataset.ran=1;h.shadowRoot.getElementById('b').dispatchEvent(new MouseEvent('click'))</script>` | no `data-hit` | `data-hit == "1"` (the bind pass walks shadow trees) |
+| main document | E4 | red | same | `<body onhashchange="document.body.dataset.h=1"><script>document.body.dataset.ran=1;window.dispatchEvent(new Event('hashchange'))</script>` | no `data-h` | `data-h == "1"` (delivered to the Window at bind) |
+| main document | E7 | red | same | `<!DOCTYPE html><div id=h><template shadowrootmode=open><button id=b onclick="…as M…"></button></template></div><script>document.body.dataset.ran=1;document.getElementById('h').shadowRoot.querySelector('#b').dispatchEvent(new MouseEvent('click'))</script>` | no `data-hit` | `data-hit == "1"` (the bind pass walks shadow trees) |
 | main document | **E8** (rev 5; R2 A2 MIN, A3 MIN) | guard (K-0 T-a1 later binds, T-a2 shadow) | same | bracket 1 (initial script): `<div id=src onclick="document.body.dataset.attr=1" onmouseover="0"></div><div id=h></div><script>document.body.dataset.ran=1;const sr=h.attachShadow({mode:'open'});window.x=src.cloneNode();sr.appendChild(x);x.onclick=()=>{document.body.dataset.fn=1}</script>`. Bracket 2: `eval_script("document.body.append(h); h.parentNode===document.body")` (a host move, and a new bind). Bracket 3: `eval_script("x.dispatchEvent(new MouseEvent('click')); [document.body.dataset.fn, document.body.dataset.attr].join()")` | bracket 2 `true`; bracket 3 `"1,"` | bracket 2 `true`; bracket 3 `"1,"`, so `fn` ran and the attribute did not. A bind pass at every bind, or a shadow-including Insert walk, reaches the unmarked `x` (two deliverable attributes, so the restriction returned), re-raws `onclick` over `fn`, and gives `",1"` |
 | URL-loaded iframe | E5 | red | `build_pipeline_from_loaded` via the out-of-process entry (`load.rs:327`) | `<button id=b onclick="postMessage('eh-hit','*')"></button><script>postMessage('ran','*');document.getElementById('b').dispatchEvent(new MouseEvent('click'))</script>`, cross-origin, unsandboxed | posts `["ran"]` | posts contain `"ran"` and `"eh-hit"` |
 | URL-loaded iframe | E5b | conditional (Q5) | the same-origin URL entry (`load.rs:221`) | E5's markup through a hermetic same-origin loader, if one exists | as E5 | as E5. Slice a's plan decides whether E5b is written; if not, it states that `:221` and `:327` call the same builder, which E5 pins |
@@ -764,16 +764,11 @@ pass that walks a document other than the bound one, or walks template contents,
 `document_root()` instead of the bound document fails U12. WPT: no subset
 is claimed.
 
-### §6.4 Touch-time 1000-line check (input; `wc -l` at `fd6955e8`)
+### §6.4 Touch-time 1000-line check (input)
 
-No file slice a touches exceeds 1000 lines before the change: `event_handler_consumer.rs` 590, `event_handler_attrs.rs`
-726, `consumer_dispatcher.rs` 153, `tree_clone.rs` 425, `content/mod.rs` 858, `content_test_support.rs` 288,
-`content_iframe_security_tests.rs` 667, and `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs.rs` 735.
-`crates/shell/elidex-shell/src/tests.rs` (1082) is not touched. If D-11 generalises the private walker, `teardown.rs`
-joins the list. **Decided obligation (R3 A5 MIN):** the figures are pre-touch. `event_handler_consumer.rs` takes the new
-mechanism and the inline cells U1–U12, and `tests_event_handler_attrs.rs` takes C1–C17, so either may cross 1000.
-Slice a's plan measures the **projection at placement** for these two files (and `teardown.rs`) and splits first, as a
-standalone prerequisite, where a real seam exists (CLAUDE.md, 1000-line debt).
+Slice a's file placement, the 1000-line projection at placement of every file it touches or creates, and whether
+a standalone prerequisite split is needed are canonical in slice a's per-PR plan §5
+(`docs/plans/2026-10-eh-attrs-slice-a.md`; PM decision 39).
 
 ## §7. Gaps: dispositions (decided)
 

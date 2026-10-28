@@ -365,6 +365,7 @@ pub(super) fn run_oop_and_collect_posts(entry: IframeEntry) -> Vec<(String, Stri
 /// `https://example.com/` through `crate::build_pipeline_from_loaded`, the
 /// builder every URL-loaded document goes through, over [`test_network`].
 /// Returns the broker handle with the pipeline so the broker outlives it.
+/// Test support: no spec step.
 pub(super) fn build_main_document(
     html: &str,
 ) -> (
@@ -391,7 +392,8 @@ pub(super) fn build_main_document(
 }
 
 /// Read attribute `attr` of the document's `<body>` element — a Rust-side
-/// read of `pipeline.dom`, opening no script bracket.
+/// read of `pipeline.dom`, opening no script bracket. Test support: no spec
+/// step.
 pub(super) fn probe_body_attr(pipeline: &crate::PipelineResult, attr: &str) -> Option<String> {
     let body = pipeline.dom.query_by_tag("body").into_iter().next()?;
     pipeline

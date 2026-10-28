@@ -20,11 +20,20 @@ use crate::EventListeners;
 /// been processed (umbrella D-1). Unit, `Send + Sync`, sparse: inserted only
 /// on an element that carries at least one handler content attribute of an
 /// ordinary pair.
+///
+/// WHATWG DOM §4.9 Interface Element, *append an attribute* step 4 (each
+/// creation-time attribute runs the attribute change steps once); WHATWG HTML
+/// §8.1.8.1 Event handlers, *attribute change steps*.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HandlerAttrsProcessed;
 
 /// The bound Document's pre-bind tree has had its handler content attributes
 /// processed by the bind pass (umbrella D-5). Unit, on the Document entity.
+///
+/// WHATWG HTML §13.2.6.1 Creating and inserting nodes, *create an element for
+/// a token* step 17.2 (the parser appended the attributes before any bind).
+/// The once-per-document bind point itself has no spec step: it is an elidex
+/// mechanism (D-5).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PreBindHandlerAttrsProcessed;
 
@@ -35,7 +44,8 @@ pub const WINDOW_REFLECTING_BODY_ELEMENT_EVENT_HANDLER_SET: [&str; 6] = [
 ];
 
 /// The timing at which [`process_handler_content_attributes`] runs (umbrella
-/// K-0's T-a1 / T-a2 / T-a3).
+/// K-0's T-a1 / T-a2 / T-a3). No spec step defines it: an elidex mechanism,
+/// recorded by slot `#11-eh-attrs-creation-time-call-sites`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessingTiming {
     /// T-a1: the bound document's first bind.
@@ -47,7 +57,9 @@ pub(crate) enum ProcessingTiming {
 }
 
 /// Run the attribute change steps for `element`'s event-handler content
-/// attributes (umbrella D-2), in `Attributes` order.
+/// attributes (umbrella D-2), in `Attributes` order. WHATWG HTML §8.1.8.1 Event
+/// handlers, *attribute change steps* 1–5.6, per attribute; WHATWG DOM §4.9
+/// Interface Element, *append an attribute* step 4.
 ///
 /// Ordinary pairs are processed once (K-1): skipped when `element` is
 /// already marked. Window-delegating pairs (X-W) bypass the once rule: they
@@ -119,7 +131,8 @@ pub(crate) fn process_handler_content_attributes(
 /// Processes `element` only if it is unmarked, the written pair is not
 /// Window-delegating, and `name` is `element`'s only deliverable ordinary
 /// handler content attribute (D-8 (a)). The restriction is recorded by slot
-/// `#11-eh-attrs-creation-time-call-sites`.
+/// `#11-eh-attrs-creation-time-call-sites`. No spec step defines this entry: an
+/// elidex mechanism (D-8), recorded by the same slot.
 pub fn process_before_handler_write(
     dom: &mut EcsDom,
     element: Entity,
@@ -200,7 +213,9 @@ pub(crate) fn is_window_delegating_pair(dom: &EcsDom, element: Entity, name: &st
 }
 
 /// `true` if `element` is a `body` or a `frameset` element, its tag compared
-/// ASCII-case-insensitively as [`is_body_element`] compares it.
+/// ASCII-case-insensitively as [`is_body_element`] compares it. The class test
+/// of steps 1–2 of *determining the target of an event handler* (WHATWG HTML
+/// §8.1.8.1 Event handlers).
 pub(crate) fn is_body_or_frameset(dom: &EcsDom, element: Entity) -> bool {
     dom.world()
         .get::<&TagType>(element)

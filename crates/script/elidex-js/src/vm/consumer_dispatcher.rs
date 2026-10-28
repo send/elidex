@@ -56,9 +56,11 @@ pub struct ConsumerDispatcher {
     /// before form-derived state is updated.
     form_control: FormControlReconciler,
     /// Inline event-handler content attribute detection (`<button
-    /// onclick="...">`). Dual-arm (AttributeChange + Insert) consumer
-    /// recording uncompiled handler source into the [`EventListeners`]
-    /// component; lazy compile happens VM-side at first read / dispatch.
+    /// onclick="...">`). Consumer recording uncompiled handler source into the
+    /// [`EventListeners`] component; lazy compile happens VM-side at first
+    /// read / dispatch. Two delegates, both keyed on the bound document: its
+    /// `handle` arms (AttributeChange + Insert) and
+    /// [`Self::initialize_consumers`]'s bind pass over the pre-bind tree.
     /// WHATWG HTML §8.1.8.1. Added last — it only writes
     /// [`EventListeners`], which no earlier consumer reads, so order is
     /// independent.
@@ -117,8 +119,11 @@ impl ConsumerDispatcher {
     /// pre-bind nodes never produced [`MutationEvent`]s, so consumers
     /// that maintain ECS state derived from existing structure (today:
     /// [`BaseUrlMaintainer`]'s `BaseFrozenUrl` + `DocumentBaseUrl`
-    /// components, both defined in `elidex_ecs`) would otherwise see
-    /// an empty event stream and never observe the pre-bind subtree.
+    /// components, both defined in `elidex_ecs`, and
+    /// [`EventHandlerAttributeConsumer`]'s handler content attributes) would
+    /// otherwise see an empty event stream and never observe the pre-bind
+    /// subtree.  Both delegates are keyed on the bound `document`, not on
+    /// `document_root()`.
     ///
     /// Idempotent — each delegate is documented as a no-op on an
     /// already-initialized tree.  [`LiveRangeBridge`] and
@@ -130,7 +135,7 @@ impl ConsumerDispatcher {
     /// time (`Document::createElement` / parser path) for the pre-
     /// bind tree, so FCS attach is already complete by the time the
     /// dispatcher is installed; post-install Insert events handle
-    /// dynamic additions.  Add a delegate call only when a future
+    /// dynamic additions.  There are two delegates; add a further call only when a future
     /// consumer derives state from pre-bind tree structure.
     pub fn initialize_consumers(&mut self, dom: &mut EcsDom, document: Entity) {
         self.base_url.initialize_from_tree(dom, document);

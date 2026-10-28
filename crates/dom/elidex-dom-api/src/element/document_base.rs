@@ -181,7 +181,7 @@ fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
 /// Initialize the 2-layer base URL state for an ARBITRARY document
 /// entity `doc` from its current subtree — the document-scoped
 /// primitive shared by the bind path ([`BaseUrlMaintainer::
-/// initialize_from_tree`], which calls this with `dom.document_root()`)
+/// initialize_from_tree`], which calls this with the bound `document`)
 /// and any out-of-band tree population that bypasses the live
 /// [`MutationEvent`] dispatcher (e.g. an inert `DOMParser` document
 /// built with the dispatcher suppressed — HTML §8.5.1).
@@ -270,8 +270,9 @@ impl BaseUrlMaintainer {
     /// Idempotent: re-running on an already-initialized tree is a
     /// no-op (each `<base href>` already has [`BaseFrozenUrl`];
     /// recompute's `unchanged` short-circuit absorbs the
-    /// [`DocumentBaseUrl`] re-write).  Invoked by
-    /// `ConsumerDispatcher::initialize_consumers` from the
+    /// [`DocumentBaseUrl`] re-write).  Keyed on the bound `document` (not
+    /// `document_root()`), matching the Insert / AttributeChange / Remove
+    /// arms.  Invoked by `ConsumerDispatcher::initialize_consumers` from the
     /// bind path.
     pub fn initialize_from_tree(&mut self, dom: &mut EcsDom, document: Entity) {
         if !dom.contains(document) {

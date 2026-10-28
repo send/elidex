@@ -3,31 +3,44 @@
 //!
 //! Dual-arm [`MutationDispatcher`](elidex_ecs::MutationDispatcher)
 //! consumer (mirrors the `FormControlReconciler` AttributeChange +
-//! Insert shape):
+//! Insert shape). It realises the *attribute change steps* for
+//! event-handler content attributes at three timings
+//! (`ProcessingTiming`), each element processed once (umbrella
+//! `docs/plans/2026-10-event-handler-attrs-at-creation.md`):
 //!
-//! - **Arm 1 — [`MutationEvent::AttributeChange`]**: dynamic
-//!   `setAttribute` / `removeAttribute` on a live element. Fires at the
-//!   `EcsDom::set_attribute` chokepoint.
-//! - **Arm 2 — [`MutationEvent::Insert`]**: parser / `innerHTML` /
+//! - **Bind** — [`EventHandlerAttributeConsumer::initialize_from_tree`]
+//!   walks the bound document's pre-bind tree once, before the dispatcher
+//!   is installed (pre-bind nodes never produced a [`MutationEvent`]).
+//! - **Insert (Arm 2 — [`MutationEvent::Insert`])**: parser / `innerHTML` /
 //!   `outerHTML` / `setHTMLUnsafe` bake attributes into the `Attributes`
 //!   component at `create_element` time and do **not** fire
-//!   `AttributeChange` (WHATWG DOM §4.2.3 insert + §4.9 create-an-element
-//!   / HTML §8.5 DOM-parsing APIs + §13.2.6 tree construction). Arm 2
-//!   walks the inserted subtree's baked `on*` attributes. `Insert` fires
-//!   per inserted node (no descendants slice — unlike `Remove`), so the
-//!   arm must walk descendants itself.
+//!   `AttributeChange`. WHATWG DOM §4.2.3 Mutation algorithms (*insert*)
+//!   defines no event-handler insertion steps; the Insert arm is an
+//!   interim mechanism recorded by slot
+//!   `#11-eh-attrs-creation-time-call-sites`, which realises the creation-time
+//!   attribute processing at insertion. It walks the inserted subtree
+//!   itself: `Insert` fires per inserted node (no descendants slice —
+//!   unlike `Remove`).
+//! - **First handler write** — the **Arm 1 — [`MutationEvent::AttributeChange`]**
+//!   arm (dynamic `setAttribute` / `removeAttribute`, fired at the
+//!   `EcsDom::set_attribute` chokepoint) and the VM's IDL setters first
+//!   process the element's creation-time attributes
+//!   (`process_before_handler_write`).
+//!
+//! Window-delegating `<body>` / `<frameset>` pairs (X-W) are delivered at
+//! bind and insertion and never at the first write.
 //!
 //! # Layering
 //!
 //! Engine-independent: records the *uncompiled* source string into the
-//! [`EventListeners`] component's
+//! [`EventListeners`](crate::EventListeners) component's
 //! [`ListenerKind::EventHandler`](crate::ListenerKind::EventHandler)
 //! entry (`set_uncompiled`); it never compiles (no VM / `NativeContext`
 //! access — `MutationDispatcher::dispatch` receives only `EcsDom`).
 //! Compilation is lazy, performed VM-side at first read / dispatch
 //! (WHATWG HTML §8.1.8.1 "get the current value"). This consumer is
 //! placed in `elidex-script-session` (not `elidex-dom-api`/`elidex-form`
-//! like the other consumers) by **write-locality**: [`EventListeners`]
+//! like the other consumers) by **write-locality**: [`EventListeners`](crate::EventListeners)
 //! is defined here, and hosting the consumer in `elidex-form` would
 //! introduce a new `elidex-form → elidex-script-session` dependency
 //! edge. It is the first `MutationDispatcher` impl in this crate.
@@ -239,9 +252,13 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
 /// One non-install surface is **out of A2's scope**: incoming `StorageEvent`
 /// *delivery* (the shell broadcasts `BrowserToContent::StorageEvent` with no
 /// `EngineMode` metadata). Suppressing delivery for a Web-Storage-excluded session
-/// needs per-session mode plumbing the shell does not have yet (it still runs the
-/// boa engine, not this VM), and no production session selects an excluded mode —
-/// so it is deferred to slot `#11-storage-event-mode-aware-delivery`. The
+/// needs per-session mode plumbing the shell does not have yet: the content-side
+/// dispatch has no mode awareness, so delivery to a Web-Storage-excluded session is
+/// not suppressed. It is unreachable today, because no production session selects an
+/// excluded mode (`BrowserCompat` is the only one). The fix is per-session mode
+/// plumbing, owned by the S5 umbrella §6 mode-plumbing cohort together with
+/// `#11-enginemode-full-session-threading`; the defect is deferred to slot
+/// `#11-storage-event-mode-aware-delivery`. The
 /// `window.onstorage` *handler-attr install* (via [`event_handler_attr_spec_level`])
 /// IS gated here — the page cannot observe the event in an excluded mode regardless.
 #[must_use]
@@ -315,7 +332,7 @@ pub fn event_handler_attr_spec_level(name: &str) -> elidex_plugin::WebApiSpecLev
 }
 
 /// Inline event-handler content-attribute consumer. Per-entity handler state lives
-/// in the [`EventListeners`] ECS component; the struct itself carries only the
+/// in the [`EventListeners`](crate::EventListeners) ECS component; the struct itself carries only the
 /// session's [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) (immutable, set at
 /// construction).
 ///
@@ -344,8 +361,13 @@ impl EventHandlerAttributeConsumer {
     }
 
     /// Bind pass over the bound `document`'s shadow-including tree (umbrella
-    /// D-5 / D-11), called by `ConsumerDispatcher::initialize_consumers`
-    /// before the dispatcher is installed.
+    /// D-5 / D-11). Realises WHATWG HTML §13.2.6.1 Creating and inserting
+    /// nodes, *create an element for a token* step 17.2 (the parser appended
+    /// the attributes before any bind) and §8.1.8.1 Event handlers, *attribute
+    /// change steps*; running them at the first bind instead of at creation has
+    /// no spec step — it is an elidex mechanism (D-5). Called by
+    /// `ConsumerDispatcher::initialize_consumers` before the dispatcher is
+    /// installed.
     ///
     /// Keyed on, and marked on, the bound `document` (not `document_root()`);
     /// a document already marked [`PreBindHandlerAttrsProcessed`](crate::PreBindHandlerAttrsProcessed)
@@ -408,7 +430,9 @@ fn handle_attribute_change(
     }
 }
 
-/// Arm 2 — parser / innerHTML baked-attr spawn (WHATWG DOM §4.2.3 insert).
+/// Arm 2 — parser / innerHTML baked-attr spawn. WHATWG DOM §4.2.3 Mutation
+/// algorithms (*insert*) has no event-handler insertion steps: this arm is an
+/// elidex mechanism, recorded by slot `#11-eh-attrs-creation-time-call-sites`.
 /// `Insert` fires per inserted root only (no descendants slice), and
 /// [`EcsDom::traverse_descendants`] excludes the root, so process the
 /// inserted `node` itself plus every descendant.

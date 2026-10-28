@@ -102,6 +102,7 @@ pub unsafe fn setup_with_element(
 ///
 /// Unlike [`setup_with_element`], whose `el` is detached, `el` here is
 /// connected, so insertions into it reach the live, bound document.
+/// Test support: no spec step.
 ///
 /// # Safety
 ///

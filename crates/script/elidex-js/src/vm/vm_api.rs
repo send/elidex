@@ -306,9 +306,11 @@ impl Vm {
             // resolution see the real `<base href>` immediately
             // (rather than waiting for the next mutation), and so
             // removing a pre-bind `<base>` triggers recompute as
-            // intended.  Other consumers (`live_range`, `node_iter`)
-            // do not derive ECS state from pre-bind tree structure
-            // and are no-ops here; see
+            // intended.  The event-handler consumer likewise processes
+            // the pre-bind tree's handler content attributes here
+            // (keyed on `document`).  Other consumers (`live_range`,
+            // `node_iter`) do not derive ECS state from pre-bind tree
+            // structure and are no-ops here; see
             // `ConsumerDispatcher::initialize_consumers`.
             dispatcher.initialize_consumers(hd.dom(), document);
             let displaced = hd.dom().set_mutation_dispatcher(Box::new(dispatcher));
