@@ -298,8 +298,9 @@ unsafe_code = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-# Nursery lint, enabled on its own: a call that mutates inside `debug_assert!`
-# does not run in release builds. On main before #568 it flagged 3 sites: one
+# Nursery lint, enabled on its own: a call that takes `&mut` inside
+# `debug_assert!` does not run in release builds (side effects through `&self`
+# or interior mutability are not caught). On main before #568 it flagged 3 sites: one
 # real defect (`begin_detached_fragment` appended the root inside the assert,
 # so release builds never appended it) and two read-only checks that went
 # through a `&mut` accessor (rewritten to read through `&self`).

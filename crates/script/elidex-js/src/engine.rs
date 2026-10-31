@@ -111,7 +111,7 @@ impl ElidexJsEngine {
     }
 
     /// Whether a shared [`WebStorageManager`](elidex_storage_core::WebStorageManager)
-    /// backend is installed on the bound host context.
+    /// backend is installed on the host context (`HostData`), bound or not.
     ///
     /// `true` only after
     /// [`install_web_storage`](HostDriver::install_web_storage)
