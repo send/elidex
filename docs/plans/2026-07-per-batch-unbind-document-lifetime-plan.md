@@ -18,7 +18,7 @@ page's `navigator.serviceWorker` client state — which 2f did not scope.
 
 All cites grep-verified against worktree `per-batch-unbind-doc-lifetime` base `origin/main` = **`315ba316`**
 (post-boa-deletion #458; the VM is the sole engine). Spec anchors webref-verified 2026-07-12
-(`html`, `service-workers`).
+(`html`, `service-workers`). `HostData` cites are by symbol: they were re-pointed after the later pure-move split of `vm/host_data/mod.rs` and name the post-split file; each re-pointed one was a `vm/host_data/mod.rs:<line>` cite at the pinned commit.
 
 ---
 
@@ -116,7 +116,7 @@ engine-independent DOM/form/selector/CSSOM algorithm is moved or added, so the c
 (same as 2f, which was VM-lifecycle + marshalling).
 
 **Touch-time-split note (CLAUDE.md 1000-line debt).** `vm_api.rs` (1418 L) and `host_data/mod.rs`
-(2023 L) are both >1000 (later split into `host_data/engine_feature/` by a pure-move PR; see slot `#11-host-data-full-decomposition`). ⚠ **AS-BUILT CORRECTION (Codex #459 R3 re-gate Axis 5 + R6-#3 P3):** the plan's
+(2023 L) are both >1000 (later split into `host_data/engine_feature/` by a pure-move PR; the remaining sub-struct decomposition is slot `#11-host-data-full-decomposition`). ⚠ **AS-BUILT CORRECTION (Codex #459 R3 re-gate Axis 5 + R6-#3 P3):** the plan's
 first-draft claim that this touch is "net-negative / no substantive >50 LoC growth" is **wrong** — as-built,
 `vm_api.rs` is **net +145** (+197/−52; the survivor-set was NOT a verbatim MOVE — R1/R2/R3 added the
 `wrapper_store.retain` extension + the `teardown_document` wrapper-removal loop, and R3/R4 added the

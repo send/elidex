@@ -12,7 +12,7 @@ Stage 3 merge and the 2f-4 security gate's `/external-converge` (both CI-green-g
 **5 distinct subsystems** — none is a test-migration concern; each belongs to a flip stage.
 
 Verified against HEAD `71968b70` (2026-07-12). Migration-causation ruled out per-category by
-git-diff audit of the touched hunks (`git diff 71968b70~1 71968b70`).
+git-diff audit of the touched hunks (`git diff 71968b70~1 71968b70`). `HostData` cites are by symbol: they were re-pointed after the later pure-move split of `vm/host_data/mod.rs` and name the post-split file; each re-pointed one was a `vm/host_data/mod.rs:<line>` cite at the pinned commit.
 
 ---
 

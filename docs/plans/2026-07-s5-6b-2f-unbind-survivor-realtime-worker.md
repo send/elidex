@@ -16,7 +16,7 @@ bracket model (§4.1) or the E4 strangler rule (§8) — it references them and 
 > §6 carries the open design questions reviewers must scrutinise (§6.1 is CRITICAL: self-contained vs
 > agent-scoped-EcsDom-gated); §7 is the sub-commit split; §8 is the carve list.
 
-All cites grep-verified against worktree `s5-6b-flip` HEAD **`7dc865ac`** (2026-07-12). NOTE: the
+All cites grep-verified against worktree `s5-6b-flip` HEAD **`7dc865ac`** (2026-07-12); `HostData` cites are by symbol: they were re-pointed after the later pure-move split of `vm/host_data/mod.rs` and name the post-split file; each re-pointed one was a `vm/host_data/mod.rs:<line>` cite at the pinned commit. NOTE: the
 S5-6 flip memo's own B15 row cites (`event_loop.rs:276-277`, `vm_api.rs:422-450`) are **stale** —
 the branch has advanced through stages 2a–2f and those lines are now `event_loop.rs:324-325` and
 `vm_api.rs:472-495` (+ `HostData::drain_realtime_for_unbind` (`vm/host_data/engine_feature/realtime.rs`)); §4 below carries the refreshed cites. Spec anchors
@@ -88,7 +88,7 @@ intentionally **N/A** for this keystone (nothing to route to `elidex-dom-api` / 
 `elidex-css`).
 
 **Touch-time-split note (CLAUDE.md 1000-line debt).** Both touched files are >1000 LoC — `vm_api.rs`
-(≈1255) and `host_data/mod.rs` (≈1997) (later split into `host_data/engine_feature/` by a pure-move PR; see slot `#11-host-data-full-decomposition`). The discipline is *considered* and does **not fire**: this
+(≈1255) and `host_data/mod.rs` (≈1997) (later split into `host_data/engine_feature/` by a pure-move PR; the remaining sub-struct decomposition is slot `#11-host-data-full-decomposition`). The discipline is *considered* and does **not fire**: this
 touch is net-neutral — Part A is a **verbatim MOVE** of two blocks within `vm_api.rs` (no new
 algorithm), and Part B is **removal-of-clears** — so there is no substantive >50 LoC growth (the Axis-5
 review backstop trigger). The standing `host_data/mod.rs` decomposition debt is already tracked by the
