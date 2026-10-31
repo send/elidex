@@ -144,6 +144,29 @@ fn style_context_is_rawtext() {
     assert_eq!(serialize_roots(&dom, &roots), "| \"a<b>c\"\n");
 }
 
+#[test]
+fn noscript_context_scripting_enabled_is_rawtext() {
+    // §13.4 "set the state of the tokenization stage": noscript + scripting
+    // mode not Disabled → RAWTEXT, so the markup stays literal text.
+    let (dom, roots) = frag("noscript", "<p>x</p>");
+    assert_eq!(serialize_roots(&dom, &roots), "| \"<p>x</p>\"\n");
+}
+
+#[test]
+fn noscript_context_scripting_disabled_leaves_data_state() {
+    // Same step: scripting mode Disabled → the tokenizer stays in the data
+    // state, so `<p>` is parsed as an element.
+    let mut dom = EcsDom::new();
+    let ctx = dom.create_element("noscript", Attributes::default());
+    let opts = ParseFragmentOptions {
+        allow_declarative_shadow: false,
+        scripting_disabled: true,
+    };
+    let roots = parse_fragment_strict("<p>x</p>", ctx, &mut dom, opts).unwrap();
+    assert_eq!(roots.len(), 1);
+    assert!(dom.has_tag(roots[0], "p"));
+}
+
 // ----- detached-return contract (§13.4: return fragment) -----
 
 #[test]

@@ -115,18 +115,13 @@ impl TreeBuilder {
     /// appropriate-place redirect (HTML §4.12.3). Shared by the ordinary-template
     /// arm and the declarative-shadow graceful fallback (a failed DSD template
     /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
-    /// identical at both sites (One-issue-one-way). Owner doc is explicit —
-    /// correct for a nested template whose in-tree parent is an outer template's
-    /// detached content fragment (where the tree-root walk would dead-end): the
-    /// parse document for document parsing; in a §13.4 fragment parse the
-    /// **context's** node document, as the throwaway document is destroyed and
-    /// (for a documentless context, where the adopt is skipped) the stamp would
-    /// dangle. `None` leaves the fragment unstamped, matching the tolerant backend.
+    /// identical at both sites (One-issue-one-way). The owner doc is explicit
+    /// (see `node_document_for_new_nodes`), correct for a nested template whose
+    /// in-tree parent is an outer template's detached content fragment (where the
+    /// tree-root walk would dead-end). `None` leaves the fragment unstamped,
+    /// matching the tolerant backend.
     fn attach_ordinary_template_contents(&mut self, template: Entity) {
-        let owner = match self.state.fragment_context {
-            Some(context) => self.dom.owner_document(context),
-            None => Some(self.document),
-        };
+        let owner = self.node_document_for_new_nodes();
         let fragment = self.dom.attach_template_contents(template, owner);
         self.state
             .template_content_targets
@@ -190,17 +185,18 @@ impl TreeBuilder {
         if !self.has_template_on_stack() {
             return Err(parse_error("unexpected-end-tag-template-no-open-template"));
         }
-        // Step 1.
+        // "Generate all implied end tags thoroughly."
         self.generate_all_implied_end_tags_thoroughly();
-        // Step 2: a non-template current node here is a misnested close.
+        // "If the current node is not a template element": a misnested close.
         if !self.current_node_has_tag("template") {
             return Err(parse_error("unexpected-end-tag-template-misnested"));
         }
-        // Step 3. The current node is the template being closed. If it is a
-        // consumed declarative-shadow template (stack-only, never in the tree —
-        // identified by a `ShadowRoot`-kind content-target), despawn it after the
-        // pop so it does not dangle; capture it before pop clears the entry. An
-        // ordinary `ContentFragment`-kind template is in the tree and must NOT be
+        // "Pop elements … until a template element has been popped". The current
+        // node is the template being closed. If it is a consumed
+        // declarative-shadow template (stack-only, never in the tree — identified
+        // by a `ShadowRoot`-kind content-target), despawn it after the pop so it
+        // does not dangle; capture it before pop clears the entry. An ordinary
+        // `ContentFragment`-kind template is in the tree and must NOT be
         // despawned here (a missed kind branch = data loss).
         let consumed_shadow_template = self
             .state
@@ -210,11 +206,12 @@ impl TreeBuilder {
         if let Some(template) = consumed_shadow_template {
             let _ = self.dom.destroy_entity(template);
         }
-        // Step 4, "clear the list of active formatting elements up to the last
-        // marker", is a no-op (no active formatting list in strict mode).
-        // Step 5.
+        // "Clear the list of active formatting elements up to the last marker"
+        // is a no-op (no active formatting list in strict mode).
+        // "Pop the current template insertion mode off the stack of template
+        // insertion modes."
         self.state.template_modes.pop();
-        // Step 6.
+        // "Reset the insertion mode appropriately."
         self.reset_insertion_mode_appropriately();
         Ok(())
     }

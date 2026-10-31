@@ -264,12 +264,23 @@ impl TreeBuilder {
             .finish_detached_fragment(root, self.document, context)
     }
 
+    /// The node document that newly created nodes are stamped with: in a §13.4
+    /// fragment parse, the context's node document (`None` if the context has
+    /// none), because the throwaway document is destroyed before the nodes are
+    /// returned; in document parsing, the parse document.
+    pub(super) fn node_document_for_new_nodes(&self) -> Option<Entity> {
+        match self.state.fragment_context {
+            Some(context) => self.dom.owner_document(context),
+            None => Some(self.document),
+        }
+    }
+
     /// §13.4 "set the state of the tokenization stage": switch the tokenizer's
     /// initial state from the context element's tag — `title`/`textarea` →
-    /// RCDATA, `style`/`xmp`/`iframe`/`noembed`/`noframes`/`noscript` → RAWTEXT
-    /// (`noscript` because v1 scripting is enabled, i.e. scriptingMode ≠
-    /// Disabled), `script` → script data, `plaintext` → PLAINTEXT, anything else
-    /// → Data (left as-is).
+    /// RCDATA, `style`/`xmp`/`iframe`/`noembed`/`noframes` → RAWTEXT, `noscript`
+    /// → RAWTEXT only when scripting is enabled (scriptingMode ≠ Disabled;
+    /// otherwise the data state is kept), `script` → script data, `plaintext` →
+    /// PLAINTEXT, anything else → Data (left as-is).
     ///
     /// No "last start tag" is recorded, so per the §13.4 note there is no
     /// appropriate end tag in the fragment case: raw-text content runs to EOF
@@ -284,11 +295,11 @@ impl TreeBuilder {
         if self.dom.namespace_of(context) != Namespace::Html {
             return;
         }
+        let scripting = self.state.scripting;
         let state = self.dom.with_tag_name(context, |tag| match tag {
             Some("title" | "textarea") => State::Rcdata,
-            Some("style" | "xmp" | "iframe" | "noembed" | "noframes" | "noscript") => {
-                State::Rawtext
-            }
+            Some("style" | "xmp" | "iframe" | "noembed" | "noframes") => State::Rawtext,
+            Some("noscript") if scripting => State::Rawtext,
             Some("script") => State::ScriptData,
             Some("plaintext") => State::Plaintext,
             _ => State::Data,

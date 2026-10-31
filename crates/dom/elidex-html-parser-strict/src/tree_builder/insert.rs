@@ -104,16 +104,8 @@ impl TreeBuilder {
         for (name, value) in attrs {
             attributes.set(name.as_str(), value.as_str());
         }
-        // Owner document for the foreign node's `AssociatedDocument`. In a
-        // §13.4 fragment parse `self.document` is the throwaway document that is
-        // despawned before the nodes are returned (and `take_fragment_children`
-        // re-homes the whole returned subtree to the context's node document
-        // anyway), so use that node document here too — a live owner. Document
-        // parsing keeps `self.document` (the real result Document).
-        let owner = match self.state.fragment_context {
-            Some(context) => self.dom.owner_document(context),
-            None => Some(self.document),
-        };
+        // Owner document: see `node_document_for_new_nodes`.
+        let owner = self.node_document_for_new_nodes();
         let element = self
             .dom
             .create_element_ns(tag, namespace, attributes, owner);

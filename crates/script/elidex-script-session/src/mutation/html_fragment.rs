@@ -26,8 +26,8 @@ use super::{empty_record, MutationKind, MutationRecord};
 #[derive(Default, Clone, Copy, Debug)]
 pub struct SetInnerHtmlOptions {
     /// When true, `<template shadowrootmode="open|closed">` children attach
-    /// as a shadow root on their parent element (per HTML §4.12.3
-    /// `<template shadowrootmode>` declarative shadow DOM algorithm), when
+    /// as a shadow root on their parent element (per HTML §4.12.3 (the
+    /// `shadowrootmode` attribute) and the §13.2.6.4.4 template start tag), when
     /// nested. A top-level one (directly under the fragment root) stays a
     /// plain template (hostIsRoot), so the host never gets a shadow root.
     /// When false (the default, matching plain `innerHTML` semantics), the
@@ -46,9 +46,10 @@ pub struct SetInnerHtmlOptions {
 /// `html` as a fragment in the context element, then replace all of the
 /// target's children with the parsed nodes.
 ///
-/// Per §8.5.4 the fragment-parse **context** is `entity` for an Element, but
-/// the shadow root's **host** for `ShadowRoot.innerHTML` (step 2 "Let context
-/// be this's host") — the parsing rules follow the host's tag/namespace while
+/// Per the HTML fragment parsing algorithm the fragment-parse **context** is the
+/// target if it is an Element, otherwise the target's host ("Let context be target
+/// if target is an Element; otherwise target's host"), i.e. the shadow root's
+/// **host** for `ShadowRoot.innerHTML` — the parsing rules follow the host's tag/namespace while
 /// the parsed nodes still replace the shadow root's own children. The
 /// placement **target** is `entity`, except for a `<template>`: "set the inner
 /// HTML" redirects the replacement to the template's **content fragment**
@@ -72,8 +73,10 @@ pub fn apply_set_inner_html(
     html: &str,
     opts: SetInnerHtmlOptions,
 ) -> Option<MutationRecord> {
-    // §8.5.4: ShadowRoot.innerHTML parses in the host's context; Element
-    // parses in its own. Placement target stays `entity` either way.
+    // HTML fragment parsing algorithm ("Let context be target if target is an
+    // Element; otherwise target's host"): ShadowRoot.innerHTML parses in the host's
+    // context; Element parses in its own. Placement target stays `entity` either
+    // way.
     let context = if dom.is_shadow_root(entity) {
         dom.shadow_host(entity).unwrap_or(entity)
     } else {
@@ -630,7 +633,8 @@ mod tests {
 
     #[test]
     fn set_inner_html_on_shadow_root_parses_in_host_context_and_fills_shadow() {
-        // §8.5.4 ShadowRoot.innerHTML step 2: the fragment-parse context is the
+        // HTML fragment parsing algorithm ("Let context be target if target is an
+        // Element; otherwise target's host"): the fragment-parse context is the
         // shadow root's *host*, and the parsed nodes replace the SHADOW ROOT's
         // children (not the host's light tree). Passing the shadow-root entity
         // resolves the context to its host via `EcsDom::shadow_host`.
