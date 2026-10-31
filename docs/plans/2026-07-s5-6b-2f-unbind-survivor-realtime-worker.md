@@ -88,7 +88,7 @@ intentionally **N/A** for this keystone (nothing to route to `elidex-dom-api` / 
 `elidex-css`).
 
 **Touch-time-split note (CLAUDE.md 1000-line debt).** Both touched files are >1000 LoC — `vm_api.rs`
-(≈1255) and `host_data/mod.rs` (≈1997) (split into `host_data/engine_feature/` since this PR; see slot `#11-host-data-full-decomposition`). The discipline is *considered* and does **not fire**: this
+(≈1255) and `host_data/mod.rs` (≈1997) (later split into `host_data/engine_feature/` by a pure-move PR; see slot `#11-host-data-full-decomposition`). The discipline is *considered* and does **not fire**: this
 touch is net-neutral — Part A is a **verbatim MOVE** of two blocks within `vm_api.rs` (no new
 algorithm), and Part B is **removal-of-clears** — so there is no substantive >50 LoC growth (the Axis-5
 review backstop trigger). The standing `host_data/mod.rs` decomposition debt is already tracked by the
