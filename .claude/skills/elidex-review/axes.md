@@ -52,8 +52,8 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "VM host/
 Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs compat split" 段落 (elidex-js core = ES2020+ strict-only baseline、LegacySemantics は compat plugin 領域 = core VM 実装 NG)。
 
 - `[both]` core VM (`crates/script/elidex-js/src/vm/` 内、`host/` 除く) で LegacySemantics 機能 (sloppy mode coercion / Annex B / sloppy direct-eval scope injection / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor / RegExp legacy / 文字列HTMLメソッド) を実装 → **CRIT/IMP** (compat plugin 領域に移管 OR drop)
-- `[plan]` plan-memo で **direct/indirect eval 区別 / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の motivation で defer slot 立てる案 → **IMP** (core では不要、compat plugin 着手まで slot 不要)
-- `[plan]` plan-memo の `FrameKind` / opcode / dispatch path 拡張案が "direct/indirect eval semantic 区別" "sloppy this auto-boxing" 等 LegacySemantics 機能を motivation にしている → **IMP** (core scope 外、`memory/reference_elidex-js-core-strict-only.md` 参照)
+- `[plan]` plan-memo で **sloppy direct-eval の caller-env scope injection / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の legacy motivation で defer slot 立てる案 → **IMP** (core では不要、compat plugin 着手まで slot 不要)。direct/indirect eval 区別そのものは対象外: spec が strictness を経路ごとに別導出する (ECMA-262 PerformEval: 直接のみ `strictCaller` を継ぐ) ことを motivation とする区別は core が持つ (CLAUDE.md「Core vs compat split」の motivation test) → finding にしない
+- `[plan]` plan-memo の `FrameKind` / opcode / dispatch path 拡張案が "sloppy direct-eval の caller-env scope injection" "sloppy this auto-boxing" "var hoisting" 等 LegacySemantics 機能を motivation にしている → **IMP** (core scope 外、`memory/reference_elidex-js-core-strict-only.md` 参照)。同じ拡張でも motivation が PerformEval の strictness 導出 (direct は `strictCaller` を継ぎ indirect は source directive のみ) に従う direct/indirect eval 区別なら core の責務 → finding にしない (CLAUDE.md「Core vs compat split」)
 
 **Acceptable exceptions (1b)**: motivation が "compat plugin 設計時の hand-off note" として明示されている (= "本 slot は LegacySemantics plugin 着手時に再評価" と書かれている) → FP-allowed
 
