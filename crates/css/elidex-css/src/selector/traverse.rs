@@ -24,8 +24,7 @@ pub(super) fn prev_element_sibling(dom: &EcsDom, entity: Entity) -> Option<Entit
 pub(super) fn is_root_element(entity: Entity, dom: &EcsDom) -> bool {
     dom.world()
         .get::<&TagType>(entity)
-        .ok()
-        .is_some_and(|t| t.0 == "html")
+        .is_ok_and(|t| t.0 == "html")
         && dom
             .get_parent(entity)
             .is_some_and(|p| dom.world().get::<&TagType>(p).is_err())

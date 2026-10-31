@@ -443,8 +443,7 @@ fn native_get_will_validate(
     let candidate = dom
         .world()
         .get::<&FormControlState>(entity)
-        .ok()
-        .is_some_and(|state| elidex_form::is_constraint_validation_candidate(&state, entity, dom));
+        .is_ok_and(|state| elidex_form::is_constraint_validation_candidate(&state, entity, dom));
     Ok(JsValue::Boolean(candidate))
 }
 

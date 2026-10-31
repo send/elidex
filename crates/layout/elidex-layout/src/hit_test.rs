@@ -261,13 +261,10 @@ fn hit_test_non_sc(
 }
 
 fn is_block_or_float(dom: &EcsDom, entity: Entity) -> bool {
-    dom.world()
-        .get::<&ComputedStyle>(entity)
-        .ok()
-        .is_some_and(|s| {
-            elidex_layout_block::block::is_block_level(s.display)
-                || s.float != elidex_plugin::Float::None
-        })
+    dom.world().get::<&ComputedStyle>(entity).is_ok_and(|s| {
+        elidex_layout_block::block::is_block_level(s.display)
+            || s.float != elidex_plugin::Float::None
+    })
 }
 
 #[cfg(test)]

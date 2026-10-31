@@ -92,23 +92,18 @@ fn match_simple(component: &SelectorComponent, entity: Entity, dom: &EcsDom) -> 
         SelectorComponent::Tag(tag) => dom
             .world()
             .get::<&TagType>(entity)
-            .ok()
-            .is_some_and(|t| t.0 == *tag),
+            .is_ok_and(|t| t.0 == *tag),
         SelectorComponent::Class(class) => {
-            dom.world()
-                .get::<&Attributes>(entity)
-                .ok()
-                .is_some_and(|attrs| {
-                    attrs
-                        .get("class")
-                        .is_some_and(|c| c.split_whitespace().any(|w| w == class.as_str()))
-                })
+            dom.world().get::<&Attributes>(entity).is_ok_and(|attrs| {
+                attrs
+                    .get("class")
+                    .is_some_and(|c| c.split_whitespace().any(|w| w == class.as_str()))
+            })
         }
         SelectorComponent::Id(id) => dom
             .world()
             .get::<&Attributes>(entity)
-            .ok()
-            .is_some_and(|attrs| attrs.get("id") == Some(id.as_str())),
+            .is_ok_and(|attrs| attrs.get("id") == Some(id.as_str())),
         SelectorComponent::PseudoClass(ref name) => match_pseudo_class(name, entity, dom),
         SelectorComponent::Attribute { name, matcher } => {
             match_attr(name, matcher.as_ref(), entity, dom)
@@ -277,11 +272,10 @@ fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                     && dom
                         .world()
                         .get::<&Attributes>(entity)
-                        .ok()
-                        .is_some_and(|a| a.contains("selected"))
+                        .is_ok_and(|a| a.contains("selected"))
             }
         }
-        // :required only matches input/select/textarea (HTML §4.10.15.2.4).
+        // :required only matches input/select/textarea (HTML §4.16.3 Pseudo-classes).
         "required" => {
             is_requirable_element(entity, dom)
                 && form_element_state(entity, dom)
@@ -334,8 +328,7 @@ fn match_attr(
 ) -> bool {
     dom.world()
         .get::<&Attributes>(entity)
-        .ok()
-        .is_some_and(|attrs| match matcher {
+        .is_ok_and(|attrs| match matcher {
             None => attrs.get(name).is_some(),
             Some(m) => attrs.get(name).is_some_and(|v| match_attribute(m, v)),
         })

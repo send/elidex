@@ -171,8 +171,7 @@ pub fn composed_path_for_js(event: &DispatchEvent, dom: &EcsDom) -> Vec<Entity> 
             let self_closed = dom
                 .world()
                 .get::<&ShadowRoot>(entry)
-                .ok()
-                .is_some_and(|sr| sr.mode == ShadowRootMode::Closed);
+                .is_ok_and(|sr| sr.mode == ShadowRootMode::Closed);
             if self_closed {
                 return is_in_subtree_of(dom, current_target, entry);
             }
@@ -182,8 +181,7 @@ pub fn composed_path_for_js(event: &DispatchEvent, dom: &EcsDom) -> Vec<Entity> 
             let is_closed_shadow = dom
                 .world()
                 .get::<&ShadowRoot>(root)
-                .ok()
-                .is_some_and(|sr| sr.mode == ShadowRootMode::Closed);
+                .is_ok_and(|sr| sr.mode == ShadowRootMode::Closed);
             if is_closed_shadow {
                 is_in_subtree_of(dom, current_target, root)
             } else {
