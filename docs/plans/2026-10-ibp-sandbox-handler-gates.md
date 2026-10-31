@@ -22,8 +22,10 @@ umbrella"), landed by #563 (`3cd84a04`), whose per-PR plan is `docs/plans/2026-1
 x1 (slice a → N1) is a semantic precondition (its §1.3, §L). This memo cites its clauses by ID (X-W, K-0 to K-6, D-1 to
 D-11, S-1 to S-7, §L). **This PR carries in-place edits of it** (PM decision 93): its rev 8.1 (PM decision 90: §L's
 closing sentence, x1, §1.4's interim line, §1.5's K-2 / K-3 residual, §8.2, §8.4 items 3 and 7, O5) and its rev 8.2
-(this memo's R2 on rev 4.3, §10.4: the header's N1 pointer, §L / x1's marking, §1.1's I7 row, §1.4, §1.5 and §8.2),
-each recorded in its changelog; it also carries the node memo's in-place edits (the paragraph above). The umbrella's
+(this memo's R2 on rev 4.3, §10.4: the header's N1 pointer, §L / x1's marking, §1.1's I7 row, §1.4, §1.5 and §8.2)
+and its rev 8.3 (Step 4.5, §10.5: NR8 (a)'s population, §8.4 item 4), each recorded in its changelog; it also carries
+the node memo's in-place edits (the paragraph above) and, since rev 4.5, the parent memo's own-deferral count (PM
+decision 105, §8 records item 10). The umbrella's
 §8.4 is the hand-off rev 4 applied (§10.2).
 
 **PM decisions cited here** (both 2026-10-25). **Decision 16**: N1's PR corrects the node memo's §8.1.8.1 citation in
@@ -38,6 +40,23 @@ erratum's D2 wording is neutral — the two candidate step-3.2 readings give the
 implemented is N4's (edge n3; O1); (iii) the slot `#11-unhandledrejection-dispatch-target` is registered
 (owner core VM, reachability unconfirmed, re-eval 2026-11-30); (iv) the node memo's "§13.4 step 10" is N9's to correct
 (§0.3).
+
+**Rev 4.5** (2026-10-31, draft) — Step 4.5 on rev 4.4 (`dc2e6faf`; CRIT 0 / IMP 1 / MIN 5; disposition §10.5) and PM
+decisions 105, 108 and 109 (108: no further plan-review; the next gate is the external reviewer on the PR). IMP-1 (PM
+decision 109): the node memo's counting rule (§5.2, in place) separates the effective-node-document proxy's windows
+(the gate reads the wrong document because insertion does not adopt: approved class, not an own deferral) from NR8
+(a) (the gate reads a raw value the spec never has: a defect, counted); NR3 and §8 item 2 (b) describe the proxy's
+getter facet in general (any DOMParser node moved into a detached subtree owned by the bound document, raw from its
+creation-time processing or re-raw), NR3 no longer calls it the spec's outcome there (DOM *insert* step 7.1 adopts),
+and NR8 (a)'s detached-owner variant says why it is NR8 (a)'s; §7's rows and own-deferral paragraph follow. MIN-1:
+NR8 (a)'s population is "the value is a callback before the first processing" (an IDL write, or a `setAttribute`
+value compiled by a read or a dispatch), in NR8 (a), §7's row, §8 item 9 (i) and (ii) and the umbrella's rev 8.3 (§1.4
+(i), §1.5, x1, §8.2), item 9 staying an exact copy of §8.2 (its range re-measured, 865–902). MIN-2: the umbrella's
+§8.4 item 4 excepts the DOMParser element-targeted pairs. MIN-3 and PM decision 105: the parent memo's count is
+rewritten in place (`IBP-sandbox` 2, with its history), §8 item 10 becomes the record of that edit and drops the
+claim that `:375` repeats the stale 1; the header and §5.3 name the parent memo. MIN-4: "leaves open" is defined in
+the node memo's rule. MIN-5: §10.4's two sweep commands are written with `-e` patterns and no pipe, so they reproduce
+from the source text.
 
 **Rev 4.4** (2026-10-31, draft) — plan-review R2 on rev 4.3 and the umbrella's rev 8.1 (`4a763231`; CRIT 0 / IMP 3 /
 MIN 13, as F1–F11 / FP 5; disposition §10.4) and PM decision 101 (the node memo's §5.2 count corrected in this PR).
@@ -731,8 +750,10 @@ Line counts verified 2026-10-28 (`wc -l` at `3cd84a04`): `crates/script/elidex-j
 (346, `wc -l` at `3cd84a04` 2026-10-31; C8e (iv), rev 4.2, ≈ 375 after). Under O3's other option, `event_dispatch/mod.rs` (656) and the eight
 `tests_call_listener.rs` call sites would join. This plan PR also edits `docs/plans/2026-09-ibp-sandbox.md` (the
 erratum, P-N1; the prerequisite paragraph, PM decision 17 (i), naming `EH-attrs-at-creation` slice a since rev 4; §5.2's
-own-deferral line `:599-601`, PM decision 101, since rev 4.4) and `docs/plans/2026-10-event-handler-attrs-at-creation.md`
-(its rev 8.1, PM decisions 90 and 93, and rev 8.2, §10.4; header paragraph).
+own-deferral line `:599-601`, PM decision 101, since rev 4.4, and PM decision 109, rev 4.5),
+`docs/plans/2026-10-event-handler-attrs-at-creation.md` (its rev 8.1, PM decisions 90 and 93, rev 8.2, §10.4, and rev
+8.3, §10.5; header paragraph) and, since rev 4.5, `docs/plans/2026-09-inline-box-predicate.md` (`:1703-1707`, PM
+decision 105).
 
 **`tests_event_handler_attrs.rs` — split at `:509`, decided** (touch-time rule: a file in the ~700–800-line band with a
 real seam is split before the feature, as a standalone prerequisite commit). Projection without a split: 706 + N1's
@@ -760,8 +781,21 @@ are written there. G4 checks both files.
   suppression through a helper or a shell fixture (e.g. a sandboxed-iframe dispatch in `elidex-shell`) is outside it.
   Mitigation: D-N6's two-stage run over three crates.
 - **NR3 the getter on a DOMParser node changes** — HEAD compiles a raw handler set on a DOMParser node and its IDL getter
-  returns a function (the invoke gate only stopped the call); from N1 the getter is null (C8). This is the spec's
-  outcome (step 3.2), more restrictive than HEAD, and within §5.1's interim claim.
+  returns a function (the invoke gate only stopped the call); from N1 the getter is null (C8). For a node in its
+  DOMParser document's tree this is the spec's outcome (step 3.2), more restrictive than HEAD, and within §5.1's
+  interim claim. **Not** for the effective-node-document proxy's facet (`#11-cross-document-adopt-on-insert`): any
+  DOMParser document's node moved into a detached subtree owned by the bound document keeps the DOMParser document as
+  its `owner_document`, because insertion does not adopt (NR8 (a)'s trace), so N1's node clause fires on whatever raw
+  value it carries there — raw from its creation-time processing at that insertion (T-a2: a DOMParser
+  `<div id=d onclick="A">`, then `x = document.createElement('div'); x.append(d)`) or re-raw over a callback (NR8 (a)'s
+  detached-owner variant). N1's getter reads null where the spec and HEAD return a function: the spec adopts the node
+  into the bound document at the insertion (DOM *insert* step 7.1, "Adopt node into parent's node document"; `webref
+  body dom concept-node-insert`, 2026-10-31) and compiles a raw value there (keeping the callback in the re-raw case),
+  and HEAD compiles it. Dispatch runs nothing at N1 and at HEAD (whose invoke gate read the same proxy), where the spec
+  runs the handler. That is the proxy's pre-existing class, which the node memo's D8 (never `owner_document` alone,
+  the adopt slot a record) and §5.1 (equals HEAD or is more restrictive, `:540-541`) accept, so it is not N1's own
+  deferral (node memo §5.2's counting rule, PM decision 109); N1's compile gate becomes a consumer of the proxy (§8
+  records item 2).
 - **NR4 `natives_promise.rs` (965)** — N1 deletes lines; no split is triggered (G4).
 - **NR5 the unhandledrejection target** — HEAD dispatches `unhandledrejection` at the Document entity
   (`natives_promise.rs:516-523`), not the Window; the compile gate then sees a Document target, which carries no raw
@@ -787,18 +821,22 @@ are written there. G4 checks both files.
   P-N5 states. Outside it an insertion can still set the pending-source bit over a callback, and N1's arm 3 then reads
   the value as raw. Two classes (umbrella §1.5's K-2 / K-3 residual and X-W windows):
   - **(a) multi-attribute.** An element given two or more deliverable ordinary handler content attributes by a silent
-    writer (a parser bake, the DOMParser build, `cloneNode`), written through IDL before its first processing (D-8 (a)
-    leaves it unprocessed, slice a's C16 shape), then first inserted into a document that is not the bound one's tree
-    (a DOMParser document). That insertion processes it (T-a2), so the attribute's raw value replaces the callback.
+    writer (a parser bake, the DOMParser build, `cloneNode`), whose value is a callback before its first processing —
+    written through IDL, or a `setAttribute` value compiled by a read or a dispatch (D-8 (a) leaves the element
+    unprocessed at either write, slice a's C16 shape) — then first inserted into a document that is not the bound
+    one's tree (a DOMParser document). The compiled form: `c = t.cloneNode()` of a live `t` carrying `onclick` and
+    `onmouseover`, `c.setAttribute('onclick', 'B')`, `c.onclick` read (compiled from `B` in the bound document), then
+    `dd.body.append(c)`. That insertion processes it (T-a2), so the attribute's raw value replaces the callback.
     **Defect**: on dispatch N1 runs nothing (arm 3 drops the callback) and HEAD runs nothing (the invoke gate), while
-    the spec returns the written callback and runs it (H4). The getter reads null at N1, a function compiled from the
+    the spec returns the callback and runs it (H4). The getter reads null at N1, a function compiled from the
     attribute (not the callback) at HEAD, and the callback in the spec. Its inputs to §10 O8 (decided, PM decision 90)
-    are O8 (3)'s. Three variants. With a `setAttribute` in place of the IDL write — that variant only — there is no
-    residual (the value is raw either way, and the spec's getter in a DOMParser document is null too). Inserted into the
+    are O8 (3)'s. Three variants. With a `setAttribute` in place of the IDL write and no compile before the insertion —
+    that variant only — there is no residual (the value is raw either way, and the spec's getter in a DOMParser
+    document is null too). Inserted into the
     live document instead (rev 4.1 A4 MIN), arm 4 compiles the attribute and dispatch runs `A`, as HEAD does (§L L6.3),
-    so N1 = HEAD; the spec returns the written callback `fn` and runs it, so this variant is the same defect with N1
+    so N1 = HEAD; the spec returns the callback `fn` and runs it, so this variant is the same defect with N1
     equal to HEAD on both the getter and dispatch. **Detached-owner variant** (R2 A2 MIN): a DOMParser document's element
-    so written is first inserted into a detached subtree owned by the bound document (`x = document.createElement('div');
+    so written (through IDL: N1's node clause keeps its `setAttribute` value uncompiled) is first inserted into a detached subtree owned by the bound document (`x = document.createElement('div');
     x.append(d)`). The insertion processes it (T-a2: `fire_after_insert`, `mutation.rs:282-299`, emits `Insert` for
     every insertion, connected or not, and `handle_insert` walks it), so `A` is set raw over `fn`. The node clause then
     reads `owner_document`, the composed tree root being `x`, not a Document (`scripting.rs:104-109`), and that is still
@@ -806,7 +844,10 @@ are written there. G4 checks both files.
     teardown, `teardown.rs:328`; `#11-cross-document-adopt-on-insert`). So the gate fires: N1's getter reads null, HEAD's
     a function compiled from `A`, and both dispatch nothing; the spec adopts `d` into the bound document at the
     insertion and returns the written callback `fn`, which runs. It is not a new cell: it takes C8g's arm-3 path and
-    differs from C8g only in how the node document is derived, which the adopt slot owns (§8 records item 2).
+    differs from C8g only in how the node document is derived, which the adopt slot owns (§8 records item 2). It is
+    NR8 (a)'s, not only the proxy facet's (NR3): the gate reads a raw value the spec never has (the spec keeps the
+    callback whatever the node document), so it is the defect even under adoption; the proxy only makes N1 read null
+    rather than compile `A`.
   - **(b) Window-delegating pairs** (X-W), re-written at every insertion. A `WindowEventHandlers` name on `<body>`
     targets the page Window, whose gate is the settings clause alone (H-P6, D-N2): N1 changes nothing. A
     Window-reflecting name on `<body>` / `<frameset>`, or a `WindowEventHandlers` name on `<frameset>`, targets the
@@ -884,17 +925,18 @@ elidex-shell --all-features`; `mise run ci` before push.
 | the Insert arm turns handlers raw on every move (P-N5) | the content-attribute consumer, not N1's gates; pre-existing | **fixed** by `EH-attrs-at-creation` slice a's K-1 (#563, `3cd84a04`; PM decisions 17 (i), 21, 23; EH-attrs umbrella §8.4 item 7). Its slice-a residual (D-8 multi-attribute, X-W; NR8) is slice b's S-5, recorded by `#11-eh-attrs-creation-time-call-sites` | slice b's |
 | the composition's move into `EcsDom` over `ScriptingSubject`; `NodeDocumentOf` / `Window` subjects; the step-3.2 reading question (§0.3 P-N1) | N4 (edge n3) | N4 | N4's plan |
 | the node clause's final representation | `#11-domparser-full-document-parse-fidelity` (the parent's) | that slot | its |
-| insertion adoption (the effective-node-document proxy) | `#11-cross-document-adopt-on-insert`; N1's compile gate becomes a consumer of the proxy (D-N2), and NR8 (a)'s detached-owner variant (§5.4) is one of its facets (§8 records item 2) | that slot | 2027-01-31 (ledger; re-evaluated 2026-10-31 by the Layout lane, recorded by the PM: still open, and "re-list the consumers when N1 lands") |
-| NR8 (a)'s getter outcome (§5.4): an element given two or more deliverable ordinary handler attributes by a silent writer, IDL-written before its first processing (D-8 (a)), then first inserted into a DOMParser document (or, its detached-owner variant, a DOMParser document's element first inserted into a detached subtree of the bound document) — HEAD's getter compiles the attribute, N1's reads null (arm 3); dispatch runs nothing at both; the spec returns the written callback and runs it (pin C8g) | the re-raw that causes it is the content-attribute consumer's (slice a's D-8 restriction, removed by slice b's S-5), not N1's gates; arm 3 only reads it. **Why deferred**: removing it is S-5's mechanism, and slice b needs N1 first (the EH-attrs umbrella's x4), so N1 cannot wait for it. The node memo's §5.1 claim (`:540-541`) governs N1's landing (PM decision 90); that the window is inside it (dispatch equal, a null getter more restrictive than HEAD's function, no restriction escape) is this memo's derivation under that criterion, not part of the decision's text | slot `#11-eh-attrs-creation-time-call-sites` (Layout lane), defect (1)'s N1 qualifier (§8 records item 9); **closes** with slice b's S-5; **trigger**: the slot's ("T3 and N1 landed, and C1's handling decided"; N1's side met at its landing) | the slot's (2026-12-31) |
+| insertion adoption (the effective-node-document proxy) | `#11-cross-document-adopt-on-insert`; N1's compile gate becomes a consumer of the proxy (D-N2), and its getter facet (NR3: a DOMParser node moved into a detached subtree owned by the bound document reads null where the spec adopts and compiles; NR8 (a)'s detached-owner variant is its re-raw case) is one of its facets (§8 records item 2) | that slot | 2027-01-31 (ledger; re-evaluated 2026-10-31 by the Layout lane, recorded by the PM: still open, and "re-list the consumers when N1 lands") |
+| NR8 (a)'s getter outcome (§5.4): an element given two or more deliverable ordinary handler attributes by a silent writer, whose value is a callback before its first processing (an IDL write, or a `setAttribute` value compiled by a read or a dispatch; D-8 (a)), then first inserted into a DOMParser document (or, its detached-owner variant, a DOMParser document's element first inserted into a detached subtree of the bound document) — HEAD's getter compiles the attribute, N1's reads null (arm 3); dispatch runs nothing at both; the spec returns the callback and runs it (pin C8g) | the re-raw that causes it is the content-attribute consumer's (slice a's D-8 restriction, removed by slice b's S-5), not N1's gates; arm 3 only reads it. **Why deferred**: removing it is S-5's mechanism, and slice b needs N1 first (the EH-attrs umbrella's x4), so N1 cannot wait for it. The node memo's §5.1 claim (`:540-541`) governs N1's landing (PM decision 90); that the window is inside it (dispatch equal, a null getter more restrictive than HEAD's function, no restriction escape) is this memo's derivation under that criterion, not part of the decision's text | slot `#11-eh-attrs-creation-time-call-sites` (Layout lane), defect (1)'s N1 qualifier (§8 records item 9); **closes** with slice b's S-5; **trigger**: the slot's ("T3 and N1 landed, and C1's handling decided"; N1's side met at its landing) | the slot's (2026-12-31) |
 
 Own deferrals: **1** — NR8 (a)'s getter outcome (the row above): an outcome N1 changes (HEAD's compiled function →
 null) and leaves to slice b's S-5. Its underlying defect (the written callback lost at the first insertion) is
 pre-existing and already in `#11-eh-attrs-creation-time-call-sites` defect (1); N1 opens no slot and adds a qualifier
 to that defect (§8 records item 9). The node memo's §5.2 count for N1 (`:599-601`) read 0, written before NR8, which
 rev 4 found after slice a's D-8 had landed; this PR corrects it in place (PM decision 101): N1 — 1, node total 2, and
-the counting rule says that an append recording an outcome the PR itself changes and leaves open is that PR's own
-deferral. The per-PR cap (3) holds. The parent memo's per-PR count for `IBP-sandbox` is not edited (§8 records item
-10). The PM registered `#11-event-handler-target-determination` and `#11-unhandledrejection-dispatch-target`
+the counting rule says that an append recording an outcome the PR itself changes and leaves open (not the spec's) is
+that PR's own deferral, except where the gate reads the wrong document because insertion does not adopt (NR3's proxy
+facet; PM decision 109). The per-PR cap (3) holds. The parent memo's per-PR count for `IBP-sandbox` is corrected in
+this PR to 2 (PM decision 105; §8 records item 10). The PM registered `#11-event-handler-target-determination` and `#11-unhandledrejection-dispatch-target`
 for pre-existing gaps (A96).
 
 ## §8. Edges, hand-offs and records
@@ -936,11 +978,13 @@ for pre-existing gaps (A96).
      PM: "re-list the consumers when N1 lands"; next re-eval 2027-01-31) adds two entries: (a) N1's compile gate, a new
      consumer of the proxy — the composition's node clause, reached through the gate closure (D-N2), derives the
      effective node document from it, and after N1 that gate is the composition's only reader on a handler path (H5; at
-     HEAD the invoke gates, which N1 deletes, D-N1, read it there); (b) NR8 (a)'s detached-owner variant (§5.4) — a DOMParser document's
-     element inserted into a detached subtree owned by the bound document keeps the DOMParser document as its
-     `owner_document`, so N1's node clause fires and a raw value there reads null where an adopted node would compile;
-     it is an instance of the slot's listed reverse of "live-node-into-detached-foreign-subtree" (over-suppress), and
-     its raw value comes from slice a's re-raw (NR8 (a)), not from N1.
+     HEAD the invoke gates, which N1 deletes, D-N1, read it there); (b) the getter facet N1's gate shows (NR3) — any DOMParser
+     document's node inserted into a detached subtree owned by the bound document keeps the DOMParser document as its
+     `owner_document`, so N1's node clause fires and a raw value there reads null where HEAD compiles it and the spec,
+     which adopts the node at the insertion (DOM *insert* step 7.1), returns a function; it is an instance of the
+     slot's listed reverse of "live-node-into-detached-foreign-subtree" (over-suppress). The raw value comes from the
+     node's creation-time processing at that insertion (T-a2) or from slice a's re-raw over a callback (NR8 (a)'s
+     detached-owner variant, §5.4, whose defect is NR8 (a)'s and is recorded under item 9), not from N1.
   3. `project_s5-4-sandbox-kickoff.md:35` (S5-4a's "CLOSES `#11-scripting-disabled-eventhandler-processing-step1`"):
      append that the invoke-time gate S5-4a shipped is removed by N1 under D2 (node memo `:172`).
   4. *(withdrawn at rev 2)* — rev 1 left the node memo's wording to a later PM amendment; this PR carries the
@@ -970,17 +1014,18 @@ for pre-existing gaps (A96).
      This memo corrected the same example in its own §3.1 at rev 4 (§10.2, item 3–4 row).
   9. **At N1's landing** (rev 4.3; exact texts since rev 4.4; PM decisions 90, 93) `project_open-defer-slots.md`,
      `#11-eh-attrs-creation-time-call-sites` (`:823`). That ledger section is a verbatim copy of the EH-attrs
-     umbrella's §8.2, which carries the texts below in this PR (its rev 8.1 and 8.2), so applying them keeps the copy
+     umbrella's §8.2, which carries the texts below in this PR (its rev 8.1 to 8.3), so applying them keeps the copy
      verbatim. Each change, before → after:
      (i) **Defect (1)**: "(at HEAD: for every element, at every insertion);" → "(at HEAD: for every element, at every
-     insertion; once N1 lands, an IDL write so overwritten at a first insertion into a DOMParser document, or of a
-     DOMParser document's element into a detached subtree of the bound document, reads `null`, where HEAD's getter
-     compiles the attribute; dispatch runs nothing at both; spec: the written callback runs; N1 memo NR8 (a), pin C8g,
+     insertion; once N1 lands, such a write whose value is a callback at that insertion (an IDL write, or a
+     `setAttribute` value compiled by a read or a dispatch before it), when the insertion is into a DOMParser document
+     or puts a DOMParser document's element into a detached subtree of the bound document, reads `null`, where HEAD's
+     getter compiles the attribute; dispatch runs nothing at both; spec: the callback runs; N1 memo NR8 (a), pin C8g,
      closed by S-5);".
      (ii) **Classification**: "Each exists at HEAD with the same outcome or a wider population; slice a narrows (1)" →
      "Each exists at HEAD with the same outcome or a wider population, except that once N1 lands its compile gate
-     changes the getter outcome, with dispatch equal, of three DOMParser subsets: (1)'s IDL-written subset (away from
-     the spec, PM decision 90), the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at
+     changes the getter outcome, with dispatch equal, of three DOMParser subsets: (1)'s subset whose value is a
+     callback at the insertion (away from the spec, PM decision 90), the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at
      the element (both to the spec's `null`); slice a narrows (1)".
      (iii) **Defect (5)**, its second clause only (the first, "DOMParser and template-content elements are processed at
      their first insertion, not at creation", stays true until slice b): "(the DOMParser-document half holds only until
@@ -992,19 +1037,20 @@ for pre-existing gaps (A96).
      side of it is met at N1's landing.
      **Source line** (`:822`: "memo `docs/plans/2026-10-event-handler-attrs-at-creation.md` §8.2 at `b9122157` (lines
      832–860, copied verbatim …)"): re-point it to the umbrella's §8.2 at N1's merge commit, with the line range there
-     (lines 858–894 at this PR's head; re-measure at the merge commit with `/usr/bin/grep -n -E '^> \*\*.#11-eh-attrs-creation-time-call-sites|^> only after slice a lands' docs/plans/2026-10-event-handler-attrs-at-creation.md`),
+     (lines 865–902 at this PR's head; re-measure at the merge commit with `/usr/bin/grep -n -E '^> \*\*.#11-eh-attrs-creation-time-call-sites|^> only after slice a lands' docs/plans/2026-10-event-handler-attrs-at-creation.md`),
      and record N1's merge commit there as the trigger's N1 landing. The ledger's "What it records" and defect (1)
      already say "ordinary" ("only deliverable ordinary handler content attribute", "two or more deliverable ordinary
      handler content attributes"); the umbrella's §8.2 is aligned to them (rev 8.2), so they need no change. Without
      (i) and (ii) the slot says that defect (1) has HEAD's outcome after N1's landing, which it does not.
-  10. *(for the PM; rev 4.4, F4's downstream sweep)* The parent memo `docs/plans/2026-09-inline-box-predicate.md`
-     counts own deferrals per PR as `IBP-sandbox` 1 and says "No sub-PR opens any other own deferral" (`:1703-1707`;
-     its revision history `:375` gives the same 1). Both predate NR8 (a): with PM decision 101 the node total is 2
-     (N9's `content-visibility` pin, which is the parent's 1, and N1's NR8 (a) getter outcome, a different class). The
-     parent is a ratified surface that no decision of this PR covers, so it is not edited here; whether and how its
-     count records N1's deferral is the PM's. The ledger records no node-level own-deferral count for IBP-sandbox
-     (`/usr/bin/grep -n -c 'N9'` on it → 0; its IBP-sandbox blocks count registrations, `:621`), so nothing there
-     changes.
+  10. *(rev 4.4, F4's downstream sweep; applied in rev 4.5, PM decision 105)* The parent memo
+     `docs/plans/2026-09-inline-box-predicate.md` counted own deferrals per PR as `IBP-sandbox` 1 and said "No sub-PR
+     opens any other own deferral" (`:1703-1705`, `:1707`), both written before NR8 (a). This PR rewrites those lines
+     in place, with no line added: `IBP-sandbox` 2 — its `content-visibility` pin (the 1 it had) and, by PM decision
+     90 (user, 2026-10-31), N1's one own deferral, NR8 (a)'s getter outcome, left to slice b's S-5 and recorded under
+     `#11-eh-attrs-creation-time-call-sites` — with a correction note in the node memo's idiom; the promise keeps its
+     shape otherwise. Its revision 30 entry (`:375-376`) counts `content-visibility` pins per PR, still true, and is
+     not edited. The ledger records no node-level own-deferral count for IBP-sandbox (`/usr/bin/grep -n -c 'N9'` on it
+     → 0; its IBP-sandbox blocks count registrations, `:621`), so nothing there changes.
 
 ## §9. Definition of done
 
@@ -1222,9 +1268,9 @@ deduplicated to F1–F11 / FP 5). F4 was decided by PM decision 101; the rest ne
 | Finding | Disposition |
 |---|---|
 | F1 (A5 IMP, A3 MIN) header's "edits nothing in it" and "rev 8" contradict PM decision 93; §5.3 omits the umbrella | **fixed** — the header's prerequisite paragraph says this PR carries the umbrella's rev 8.1 and 8.2 in-place edits and the node memo's; §5.3 names the umbrella and the node memo |
-| F2 (A5 IMP, A3 MIN, A2 MIN) the umbrella's N1 qualifiers name only the K-2 / K-3 residual's DOMParser subset | **fixed** (umbrella rev 8.2) — §1.4's interim line names the three windows whose getter N1 changes, with dispatch equal: (i) the K-2 / K-3 residual's IDL-written subset, away from the spec (NR8 (a)); (ii) W-K5's DOMParser half, to the spec (K-5); (iii) X-W's element-targeted pairs in a DOMParser document, to the spec (NR8 (b), C8h). §8.2's defect (7) is the slot text of §1.5's X-W window, so its DOMParser element-targeted subset is (iii), not a fourth window. §1.5's heading, its K-2 / K-3, X-W and W-K5 bullets, §1.1's I7 row and §8.2's classification are qualified to match. Sweep: `/usr/bin/grep -n -E 'HEAD-equal\|all HEAD\|each HEAD'` over the umbrella at this head, 16 hits; 5 state an interim window's equality (§1.1 I7, K-5, §1.4, §1.5 heading, §1.5's width-cap bullet), the 4 that N1 changes are qualified (K-5's "From N1" predates this revision), the width-cap one is unaffected (no DOMParser read); the other 11 are a premise record (P17), X-W's and K-0's wording, a slice-a timing row, §3, the cell legend, slice b's branch-B residue and disposition rows |
+| F2 (A5 IMP, A3 MIN, A2 MIN) the umbrella's N1 qualifiers name only the K-2 / K-3 residual's DOMParser subset | **fixed** (umbrella rev 8.2) — §1.4's interim line names the three windows whose getter N1 changes, with dispatch equal: (i) the K-2 / K-3 residual's IDL-written subset, away from the spec (NR8 (a)); (ii) W-K5's DOMParser half, to the spec (K-5); (iii) X-W's element-targeted pairs in a DOMParser document, to the spec (NR8 (b), C8h). §8.2's defect (7) is the slot text of §1.5's X-W window, so its DOMParser element-targeted subset is (iii), not a fourth window. §1.5's heading, its K-2 / K-3, X-W and W-K5 bullets, §1.1's I7 row and §8.2's classification are qualified to match. Sweep: `git grep -n -e 'HEAD-equal' -e 'all HEAD' -e 'each HEAD' dc2e6faf -- docs/plans/2026-10-event-handler-attrs-at-creation.md` (rev 4.4's head), 16 hits; 5 state an interim window's equality (§1.1 I7, K-5, §1.4, §1.5 heading, §1.5's width-cap bullet), the 4 that N1 changes are qualified (K-5's "From N1" predates this revision), the width-cap one is unaffected (no DOMParser read); the other 11 are a premise record (P17), X-W's and K-0's wording, a slice-a timing row, §3, the cell legend, slice b's branch-B residue and disposition rows |
 | F3 (A5 IMP, 2 MIN) records item 9 (iii)–(v) not exact, (iii) over-broad, (v) homeless, Source line, "ordinary" | **fixed** — item 9 gives each change as before → after; (iii) is scoped to defect (5)'s second clause (its first clause stays true until slice b); (v) is removed (its subject is fixed in the node memo, F4); the Source line instruction names the new range (858–894 here, re-measured at N1's merge commit); the umbrella's §8.2 carries (iii) and (iv) verbatim and says "ordinary" where the ledger does |
-| F4 (PM decision 101; A5 / A3 / A2 known) node memo count: rule conflict, total 1 → 2 | **fixed** — node memo §5.2 (`:599-601`, in place, no line added): N1 — 1, node total 2, and the counting rule counts an append that records an outcome the PR itself changes and leaves open as that PR's own deferral; the erratum paragraph lists it among the in-place exceptions. Sweep (3 faces): statements — node memo `:599-601` (the only count or rule line: `/usr/bin/grep -n -i -E 'deferral\|node total\|pre-existing class'` hits it and `:28`, the erratum's pointer to it), this memo's header, §7, §8 x-bullet and item 5; DoD — neither this memo's §9 nor the node memo's §11 states a count (no change); downstream — §8 item 9 (v) removed, the EH-attrs umbrella repeats no count, the ledger records no node-level count (§8 item 10), and the parent memo's `IBP-sandbox` 1 (`:1703-1707`) is now stale, recorded for the PM as §8 item 10 |
+| F4 (PM decision 101; A5 / A3 / A2 known) node memo count: rule conflict, total 1 → 2 | **fixed** — node memo §5.2 (`:599-601`, in place, no line added): N1 — 1, node total 2, and the counting rule counts an append that records an outcome the PR itself changes and leaves open as that PR's own deferral; the erratum paragraph lists it among the in-place exceptions. Sweep (3 faces): statements — node memo `:599-601` (the only count or rule line: `/usr/bin/grep -n -i -e 'deferral' -e 'node total' -e 'pre-existing class' docs/plans/2026-09-ibp-sandbox.md` hits it and `:28`, the erratum's pointer to it), this memo's header, §7, §8 x-bullet and item 5; DoD — neither this memo's §9 nor the node memo's §11 states a count (no change); downstream — §8 item 9 (v) removed, the EH-attrs umbrella repeats no count, the ledger records no node-level count (§8 item 10), and the parent memo's `IBP-sandbox` 1 (`:1703-1707`) is now stale, recorded for the PM as §8 item 10 |
 | F5 (A5 MIN) `#11-cross-document-adopt-on-insert` re-eval stale; consumer re-list | **fixed** — §7's row reads 2027-01-31 with the PM-recorded re-evaluation; §8 item 2 adds the re-listing at N1's landing (N1's compile gate as a consumer; NR8 (a)'s detached-owner variant); §10.3's info row annotated |
 | F6 (A5 MIN) umbrella header's N1 pointer (rev 3 `0f99538d`) | **fixed** (umbrella rev 8.2) — rev 4.4, carried by N1's PR |
 | F7 (A3 MIN) NR8 (a)'s "Inputs to §10 O8" not balanced | **fixed** — points to O8 (3) |
@@ -1238,3 +1284,19 @@ deduplicated to F1–F11 / FP 5). F4 was decided by PM decision 101; the rest ne
 | A1 note (uncounted, for the implementation) | **noted** — `reconcile_event_handler` releases its `EventListeners` borrow before calling the gate closure with `&dom` and re-borrows for arm 4's take; a borrow-shape detail of D-N3's signature, no plan change |
 | A5 FP memo length | **FP** — PM decision 97 (no trimming) |
 | A5 FP stale branches | **FP** — Axis 5's own classification; no memo change |
+
+### §10.5 Rev 4.5: Step 4.5 on rev 4.4 disposition
+
+Step 4.5 on rev 4.4 (`dc2e6faf`; CRIT 0 / IMP 1 / MIN 5; F1–F11 closed). IMP-1 was decided by PM decision 109, the
+parent memo's count by PM decision 105; PM decision 108 ends plan-review here (the next gate is the external reviewer
+on the PR).
+
+| Finding | Disposition |
+|---|---|
+| IMP-1 (F4 rule + F11) the detached-owner over-suppress is not NR8 (a)-only; item 2 (b) and NR3 wrong for it | **fixed** (PM decision 109, reading (a)) — node memo §5.2's counting rule (`:601`, in place, no line added): a window where the gate reads the wrong document because insertion does not adopt (the effective-node-document proxy) is the class D8 (`:228-230`) and §5.1 (`:540-541`) accept and `#11-cross-document-adopt-on-insert` records, not an own deferral; NR8 (a) is counted because the gate reads a raw value the spec never has (PM decision 90). NR3 and §8 item 2 (b) describe the proxy's getter facet in general (raw from creation-time processing at the insertion, or re-raw); NR3's "the spec's outcome" is scoped to a node in its DOMParser document's tree (the spec adopts at insertion, DOM *insert* step 7.1, `webref body dom concept-node-insert`, 2026-10-31); NR8 (a)'s detached-owner variant, kept for the callback case, says why it is NR8 (a)'s; §7's adopt row and own-deferral paragraph follow. N1's own deferrals stay 1 |
+| MIN-1 NR8 (a) population "IDL-written" too narrow | **fixed** — "a callback before the first processing (an IDL write, or a `setAttribute` value compiled by a read or a dispatch)", with the clone + `setAttribute` + read example; the `setAttribute` no-residual variant needs no compile before the insertion. Applied in NR8 (a), §7's row, item 9 (i) and (ii), and the umbrella's §1.4 (i), §1.5's K-2 / K-3 bullet, x1 and §8.2 defect (1) and classification (rev 8.3); item 9's after-texts equal §8.2's (checked by joining §8.2's quoted lines), and its range is re-measured (865–902) |
+| MIN-2 umbrella §8.4 item 4 (X-W cells = HEAD outcome) contradicts §1.4 (iii) / C8h | **fixed** (umbrella rev 8.3) — excepts an element-targeted pair in a DOMParser document, where the expectation is the spec's `null` (§1.4 (iii), C8h) |
+| MIN-3 item 10's ":375 gives the same 1" | **fixed** — dropped; the stale lines were `:1703-1705` and `:1707` only (rev 30's `:375-376` counts `content-visibility` pins, still true); item 10 now records the edit (PM decision 105) |
+| MIN-4 node memo rule's "leaves open" undefined | **fixed** — "the PR's changed outcome is not the spec's" (`:601`) |
+| MIN-5 §10.4 sweep commands carry markdown pipe escapes | **fixed** — F2's and F4's commands use `-e` patterns (F2's as `git grep` at `dc2e6faf`, rev 4.4's head, so the command holds no pipe; both re-run 2026-10-31: 16 hits; `:28`, `:599-601`) |
+| PM decision 105 parent memo `IBP-sandbox` count | **applied** — `docs/plans/2026-09-inline-box-predicate.md` `:1705` (`IBP-sandbox` 2) and `:1707` (the exception for N1, with PM decision 90's history and a post-approval correction note), in place, line count unchanged (1995) |

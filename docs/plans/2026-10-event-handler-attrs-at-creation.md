@@ -3,8 +3,8 @@
 Standalone program, label **`EH-attrs-at-creation`**. Owner: Layout lane. It sits **outside** the IBP-sandbox program and
 is not part of that umbrella's DAG (PM decision 17 (i), restated by PM decision 21). It has two nested PRs, **slice a**
 and **slice b** (§1), and it also owns **T3**, slice b's independent prerequisite PR: slot
-`#11-event-handler-target-determination` was reassigned to this program by PM decision 25 (§1.2, §8.1). IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.4, carried by N1's PR on branch
-`layout-ibp-sandbox-handler-gates` together with this file's rev 8.1 and 8.2) depends on slice a (§1.3 edge x1). §L shows that no landing order can put N1 first.
+`#11-event-handler-target-determination` was reassigned to this program by PM decision 25 (§1.2, §8.1). IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.5, carried by N1's PR on branch
+`layout-ibp-sandbox-handler-gates` together with this file's rev 8.1 to 8.3) depends on slice a (§1.3 edge x1). §L shows that no landing order can put N1 first.
 
 **Approval scope (rev 5, PM decision 24: decision altitude).** Approving this umbrella **decides**:
 - the landing-order verdict (§L);
@@ -31,7 +31,12 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Rev 8.2* (2026-10-31; carried by N1's PR with N1 memo rev 4.4, PM decision 93; plan-review R2 on N1
+**Changelog.** *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
+MIN-2): the header's N1 pointer is rev 4.5; §1.4 (i), §1.5's K-2 / K-3 bullet, x1 and §8.2's defect (1) and
+classification name NR8 (a)'s population by its value, a callback at the first insertion (an IDL write, or a
+`setAttribute` value compiled by a read or a dispatch before it), not by the IDL write alone; §8.4 item 4 excepts the
+DOMParser-document element-targeted pairs (§1.4 (iii)).
+*Rev 8.2* (2026-10-31; carried by N1's PR with N1 memo rev 4.4, PM decision 93; plan-review R2 on N1
 rev 4.3, N1 memo §10.4): the header's N1 pointer is rev 4.4; §L's closing sentence and x1 mark a §L row's element at
 its first processing (T-a1, T-a2 or T-a3); §1.4's interim line names the three windows whose getter N1 changes (the
 K-2 / K-3 residual's IDL-written subset, away from the spec; W-K5's DOMParser half and X-W's element-targeted pairs,
@@ -426,7 +431,7 @@ slice b. N1 and T3 are independent of each other. The PM decides C1's handling o
 
 | # | edge | kind | reason |
 |---|---|---|---|
-| x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at its first processing: T-a1, T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, IDL-written before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
+| x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at its first processing: T-a1, T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, a callback before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
 | x2 | slice a → slice b | code predecessor + data flow | S-6 |
 | x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a DOMParser or fragment-throwaway `<body>` would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b)). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)) |
@@ -449,9 +454,10 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
   remains in branch B is slice b's plan's decision, under S-2 to S-4.
 - **Interim behaviour:** §1.5, all HEAD-equal (K-0) until N1 lands. From N1, N1's compile-gate node clause changes
   the getter in three of its windows, each where the node document N1 reads is a DOMParser document's, with dispatch
-  equal to HEAD's (nothing runs) in each: (i) the K-2 / K-3 residual's IDL-written subset, at a first insertion into a
+  equal to HEAD's (nothing runs) in each: (i) the K-2 / K-3 residual's subset whose value is a callback at that insertion (an IDL
+  write, or a `setAttribute` value compiled by a read or a dispatch before it), at a first insertion into a
   DOMParser document (or of a DOMParser document's element into a detached subtree of the bound document, which
-  insertion does not adopt), reads null where HEAD compiled the attribute and the spec returns the written callback,
+  insertion does not adopt), reads null where HEAD compiled the attribute and the spec returns the callback,
   away from the spec (N1 memo §5.4 NR8 (a); O5, PM decision 90); (ii) W-K5's DOMParser half reads null where HEAD
   compiled the attribute, the spec's outcome (K-5); (iii) X-W's element-targeted pairs (a Window-reflecting name on a
   `<body>` / `<frameset>`, or a WindowEventHandlers name on a `<frameset>`, which HEAD targets at the element) in a
@@ -465,8 +471,9 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
 
 - **K-2 / K-3 residual.** A handler write on a post-bind element with **two or more** deliverable handler attributes,
   made before the element's first insertion, is overwritten at that insertion (D-8). HEAD overwrites it at every
-  insertion. From N1, an IDL write so overwritten at a first insertion into a DOMParser document (or of a DOMParser
-  document's element into a detached subtree of the bound document) reads null, where HEAD's getter compiles the
+  insertion. From N1, such a write whose value is a callback at that insertion (§1.4 (i)), so overwritten at a first
+  insertion into a DOMParser document (or of a DOMParser document's element into a detached subtree of the bound
+  document), reads null, where HEAD's getter compiles the
   attribute (N1 memo §5.4 NR8 (a); O5; §1.4 (i)).
 - **G5 / K3.** A never-inserted clone reads null.
 - **K2.** The body-clone cross-origin write is overwritten at the clone's first insertion.
@@ -863,9 +870,10 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > **Defects** (observable both at HEAD and after slice a): (1) a handler write (`setAttribute` / `removeAttribute` of
 > `on<T>`, or `E.on<T> = …`) on a never-inserted element with two or more deliverable ordinary handler content
 > attributes is overwritten at the element's first insertion (at HEAD: for every element, at every insertion; once N1
-> lands, an IDL write so overwritten at a first insertion into a DOMParser document, or of a DOMParser document's
+> lands, such a write whose value is a callback at that insertion (an IDL write, or a `setAttribute` value compiled
+> by a read or a dispatch before it), when the insertion is into a DOMParser document or puts a DOMParser document's
 > element into a detached subtree of the bound document, reads `null`, where HEAD's getter compiles the attribute;
-> dispatch runs nothing at both; spec: the written callback runs; N1 memo NR8 (a), pin C8g, closed by S-5); (2) a
+> dispatch runs nothing at both; spec: the callback runs; N1 memo NR8 (a), pin C8g, closed by S-5); (2) a
 > never-inserted clone of an element with a handler content attribute reads `null` from `on<T>`; (3) after
 > `c = document.body.cloneNode()`, a `window.on<T>` assignment is overwritten by `c`'s attribute at `c`'s first
 > insertion; (4) an element with a handler content attribute placed directly under a shadow root after bind, or in the
@@ -879,9 +887,9 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
 > delivers it to the page Window. **Classification:** all seven are **pre-existing**. Each exists at HEAD
 > with the same outcome or a wider population, except that once N1 lands its compile gate changes the getter outcome,
-> with dispatch equal, of three DOMParser subsets: (1)'s IDL-written subset (away from the spec, PM decision 90),
-> the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at the element (both to the
-> spec's `null`); slice a
+> with dispatch equal, of three DOMParser subsets: (1)'s subset whose value is a callback at the insertion (away from
+> the spec, PM decision 90), the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at
+> the element (both to the spec's `null`); slice a
 > narrows (1) and makes nothing worse (K-0). **Registered** when
 > the umbrella-approval PR lands. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's
@@ -916,7 +924,8 @@ slice a's plan re-derives the cells.
    whether this form suffices for its cells (O5; for N1's landing, O5 is decided by PM decision 90, §11).
 4. **R2 G3 (R-b):** cite K-3 with the same qualifier. The multi-attribute case and Window-delegating pairs are S-5.
    For any N1 cell on a `<body>` / `<frameset>` Window-delegating pair, N1's expectation after slice a is HEAD's
-   outcome (X-W), not K-1 to K-3's. At N1 rev 3 (`0f99538d`) no R-a / R-b or C8-family cell uses such a pair: they
+   outcome (X-W), not K-1 to K-3's, except for an element-targeted pair in a DOMParser document, where it is the
+   spec's `null` (§1.4 (iii), N1 cell C8h). At N1 rev 3 (`0f99538d`) no R-a / R-b or C8-family cell uses such a pair: they
    use `onclick` on a `div` or `button`. The only such shape is the Window `<body onpopstate>` arm of the `:635`
    raw-form rewrite (O6; N1 `:502`, `:604`). It is a pair on the live document's `<body>`, where X-W gives HEAD's
    outcome, so N1's expectation there must be HEAD's (the raw handler compiles and runs). Measured with
