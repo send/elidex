@@ -450,9 +450,10 @@ fn relayout_item_at_position(
         let _ = dom.world_mut().insert_one(item.entity, style);
     }
 
-    // Flex §9.9: stretched items have a definite cross size for their children's
-    // percentage-height resolution. Pass the resolved cross size as the
-    // containing height (for row flex) or containing width (for column flex).
+    // CSS Flexbox 1 §9.8 (item 3): stretched items have a definite cross size
+    // for their children's percentage-height resolution. Pass the resolved cross
+    // size as the containing height (for row flex) or containing width (for
+    // column flex).
     let stretched = item.align == AlignItems::Stretch && item.cross_size_auto;
     let child_containing_width = if !ctx.horizontal && stretched {
         item_content_width

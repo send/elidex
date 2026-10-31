@@ -275,7 +275,7 @@ fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                         .is_ok_and(|a| a.contains("selected"))
             }
         }
-        // :required only matches input/select/textarea (HTML §4.10.15.2.4).
+        // :required only matches input/select/textarea (HTML §4.16.3 Pseudo-classes).
         "required" => {
             is_requirable_element(entity, dom)
                 && form_element_state(entity, dom)
