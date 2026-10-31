@@ -359,9 +359,10 @@ impl ScriptEngine for ElidexJsEngine {
     fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
         // The single-derivation-chain source for bound-path dispatch: when a
         // batch bracket has the VM bound (HostData `dom_ptr` non-null), hand
-        // out the bound `EcsDom` reconstructed from `dom_ptr` so the shared dispatch loop routes dom access through the same raw
-        // pointer the VM's natives hold — never a fresh `ctx.dom` reborrow that
-        // would invalidate `dom_ptr` under Stacked Borrows
+        // out the bound `EcsDom` reconstructed from `dom_ptr` so the shared
+        // dispatch loop routes dom access through the same raw pointer the
+        // VM's natives hold — never a fresh `ctx.dom` reborrow that would
+        // invalidate `dom_ptr` under Stacked Borrows
         // (`#11-bound-safe-dispatch-dom-aliasing`). `None` when unbound (no
         // bracket) → the caller falls back to `ctx.dom`.
         self.vm.bound_dom_mut()
@@ -808,11 +809,9 @@ impl Drop for ElidexJsEngine {
         // (the registry teardown needs no binding). Idempotent: a no-op when an
         // explicit `teardown_document` already drained the tables.
         //
-        // GATED on the VM being UNBOUND (`!self.vm.is_bound()`, `HostData`'s own
-        // `session_ptr`/`dom_ptr` state — not an engine-side flag, so a bind made
-        // directly through `vm()` is covered too). An unbound VM has NULL
-        // pointers, so `Vm::teardown_document`'s internal `unbind` cannot
-        // dereference them. The real forget-paths reach `Drop` unbound:
+        // GATED on the VM being UNBOUND (`!self.vm.is_bound()`). An unbound VM
+        // has NULL pointers, so `Vm::teardown_document`'s internal `unbind`
+        // cannot dereference them. The real forget-paths reach `Drop` unbound:
         // `with_bound`'s RAII guard unbinds even on panic-unwind, and the shell's
         // document boundaries are all outside any bracket. A STILL-bound VM at
         // `Drop` means the pointers may be non-null but dangling (e.g. a fixture

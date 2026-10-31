@@ -15,7 +15,6 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::super::host_data::HostData;
 use super::super::super::shape::PropertyAttrs;
 use super::super::super::value::{
     CallMode, JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, StringId,
@@ -98,7 +97,7 @@ impl VmInner {
         old_version: u64,
         new_version: Option<u64>,
     ) {
-        if !self.host_data.as_deref().is_some_and(HostData::is_bound) {
+        if !self.is_bound() {
             return;
         }
         let targets: Vec<ObjectId> = self

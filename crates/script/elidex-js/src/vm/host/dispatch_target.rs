@@ -68,12 +68,7 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
     };
     match ctx.vm.get_object(id).kind {
         ObjectKind::HostObject { entity_bits } => {
-            if !ctx
-                .vm
-                .host_data
-                .as_deref()
-                .is_some_and(super::super::host_data::HostData::is_bound)
-            {
+            if !ctx.vm.is_bound() {
                 return None;
             }
             elidex_ecs::Entity::from_bits(entity_bits).map(DispatchTarget::Node)

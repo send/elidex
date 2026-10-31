@@ -50,11 +50,7 @@ impl VmInner {
     ) {
         use elidex_script_session::MutationKind;
 
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
         let host = self

@@ -375,11 +375,7 @@ impl VmInner {
         // observer_ids slice is empty (HTML §8.1.7.3 — each broadcast
         // is its own microtask checkpoint).  Matches
         // `deliver_mutation_records`.
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
 

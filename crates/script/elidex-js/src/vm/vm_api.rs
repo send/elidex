@@ -163,16 +163,12 @@ impl Vm {
             .and_then(host_data::HostData::bound_dom_mut)
     }
 
-    /// Whether the VM currently has a session + dom bound (`HostData`'s
-    /// `session_ptr`/`dom_ptr`; `false` without installed `HostData`). The single
-    /// source of bind state for [`ElidexJsEngine`](crate::engine::ElidexJsEngine).
+    /// Whether the VM currently has a session + dom bound (`false`
+    /// without installed `HostData`).
     #[cfg(feature = "engine")]
     #[must_use]
     pub fn is_bound(&self) -> bool {
-        self.inner
-            .host_data
-            .as_deref()
-            .is_some_and(host_data::HostData::is_bound)
+        self.inner.is_bound()
     }
 
     /// Set the URL surfaced by `document.referrer` (WHATWG HTML §3.1.4).

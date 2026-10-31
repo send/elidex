@@ -89,7 +89,7 @@ fn entity_from_id(vm: &VmInner, id: ObjectId) -> Option<Entity> {
     Entity::from_bits(entity_bits)
 }
 
-use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototype_chain};
+use super::named_property_exotic::{coerce_key_or_none, key_on_prototype_chain};
 
 /// `[[HasProperty]]` trap (WebIDL §3.10 named-property exotic).
 /// Returns `Some(true)` when the key names a present `data-*`
@@ -115,7 +115,7 @@ pub(crate) fn try_has(
     if key_on_prototype_chain(vm, id, sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return None;
     }
     let mut ctx = NativeContext::new_call(vm);
@@ -152,7 +152,7 @@ pub(crate) fn try_get(
     if key_on_prototype_chain(vm, id, sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return None;
     }
     let mut ctx = NativeContext::new_call(vm);
@@ -185,7 +185,7 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(()));
     }
     let mut ctx = NativeContext::new_call(vm);
@@ -216,7 +216,7 @@ pub(crate) fn try_delete(
     if key_on_prototype_chain(vm, id, key_sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(true));
     }
     let mut ctx = NativeContext::new_call(vm);
@@ -240,7 +240,7 @@ pub(crate) fn collect_keys(
     id: ObjectId,
 ) -> Option<Result<Vec<super::super::value::StringId>, VmError>> {
     let entity = entity_from_id(vm, id)?;
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(Vec::new()));
     }
     let mut ctx = NativeContext::new_call(vm);

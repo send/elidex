@@ -326,12 +326,8 @@ fn direct_vm_bind(
     doc: Entity,
 ) {
     // SAFETY: callers keep `session`/`dom` alive and unaliased until unbind
-    // (or, in the Drop regression, deliberately do not — see that test).
-    unsafe {
-        engine
-            .vm()
-            .bind(std::ptr::from_mut(session), std::ptr::from_mut(dom), doc);
-    }
+    // (the Drop regression deliberately does not).
+    unsafe { crate::vm::test_helpers::bind_vm(engine.vm(), session, dom, doc) }
 }
 
 #[test]
