@@ -300,10 +300,9 @@ impl EcsDom {
         let saved_dispatcher = self.take_mutation_dispatcher();
         let document = self.create_document_node();
         let root = self.create_element("html", Attributes::default());
-        // Keep the side effect outside the assertion, and assert in every
-        // profile: the link is load-bearing (see above) and this is a cold path.
+        // Keep the side effect outside `debug_assert!` (compiled out in release).
         let ok = self.append_child(document, root);
-        assert!(ok, "appending a fresh root to a fresh document cannot fail");
+        debug_assert!(ok, "appending a fresh root to a fresh document cannot fail");
         (document, root, saved_dispatcher)
     }
 

@@ -167,9 +167,9 @@ impl TreeBuilder {
         context: Entity,
         opts: ParseFragmentOptions,
     ) -> (Result<Vec<Entity>, StrictParseError>, EcsDom) {
-        // §13.4 steps 2 + 11-13: suppress mutation dispatch and set up a
-        // throwaway Document holding the single synthetic `<html>` root (the
-        // sole initial entry on the stack of open elements). The shared
+        // HTML §13.4: create the throwaway Document, create root, "Append root
+        // to document", and seed the stack of open elements with just root
+        // (plus elidex's mutation-dispatch suppression, not a spec step). The shared
         // `begin_detached_fragment` prologue owns the rationale (dispatch
         // suppression, the cache-free throwaway Document, and why root must
         // be linked under it); the
