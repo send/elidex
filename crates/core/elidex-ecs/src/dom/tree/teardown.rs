@@ -297,8 +297,7 @@ impl EcsDom {
         let saved_dispatcher = self.take_mutation_dispatcher();
         let document = self.create_document_node();
         let root = self.create_element("html", Attributes::default());
-        // Run the append unconditionally: a call inside `debug_assert!` is
-        // compiled out in release builds, leaving `root` parentless.
+        // Keep the side effect outside `debug_assert!` (compiled out in release).
         let ok = self.append_child(document, root);
         debug_assert!(ok, "appending a fresh root to a fresh document cannot fail");
         (document, root, saved_dispatcher)

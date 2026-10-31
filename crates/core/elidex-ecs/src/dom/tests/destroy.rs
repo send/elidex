@@ -329,16 +329,12 @@ fn adopt_subtree_rehomes_template_content_fragment() {
 
 #[test]
 fn begin_detached_fragment_root_is_child_of_document() {
-    // The fragment parsing algorithm's "Append root to document" step must
-    // run in every build profile (it once sat inside `debug_assert!`, so
-    // release builds left `root` parentless). The strict rollback
-    // `despawn_subtree(document)` reaches `root` only through this link.
+    // Regression guard for the append once sitting inside `debug_assert!`.
+    // That defect only shows with debug assertions off, so this test catches
+    // it under `cargo test --release`, not in the dev profile CI runs.
     let mut dom = EcsDom::new();
-    let (document, root, saved) = dom.begin_detached_fragment();
+    let (document, root, _) = dom.begin_detached_fragment();
     assert_eq!(dom.get_parent(root), Some(document));
-    if let Some(d) = saved {
-        dom.set_mutation_dispatcher(d);
-    }
 }
 
 #[test]
