@@ -291,6 +291,9 @@ acase("NEGATIVE", "(b) an umbrella row with an empty Deps cell",
 # `plan_memo_selftest_mutants*.py` modules; not every control here is named by
 # one (grep a control's label there to see its rows).
 
+# a second citation table, for a control's `extra` slot or a sibling memo
+CITE_TABLE = ("## §0.6 more citations\n\n| ID | Citation | Anchor | Used by |\n|---|---|---|---|\n"
+              "| %s | ECMA-262 §2 Y | `#b` | — |\n")
 LINK = "See [the walk](slice-9z-sib.md)."
 VIOLATION = "Slice 9z lands before Slice 7z."
 
