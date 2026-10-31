@@ -361,10 +361,10 @@ fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
 /// Same sound driving order as
 /// [`bound_dispatch_listener_dom_mutation_is_sound_and_visible`] (build `ctx`
 /// once, `bind` through it, never reborrow `*ctx.dom`), but the listener only
-/// READS the event and sets a JS global — it does not mutate the DOM, so it
-/// does NOT reach the pre-existing (orthogonal) Stacked-Borrows issue in
-/// `EcsDom::dispatch_event`'s mutation-dispatcher take-and-restore pattern.
-/// This isolates the fix under test: the full bound 3-phase walk
+/// READS the event and sets a JS global — it does not mutate the DOM. That
+/// kept it clear of a Stacked-Borrows bug in `EcsDom::dispatch_event`'s
+/// take-and-restore guard, since fixed
+/// (`#11-ecs-dispatch-depth-raw-ptr-soundness`). This isolates the fix under test: the full bound 3-phase walk
 /// (`build_dispatch_plan` / `apply_retarget` / `call_listener` →
 /// `ensure_event_handler_current` → `HostData::dom`) runs entirely through the
 /// engine's bound `dom_ptr`, never a fresh `ctx.dom` reborrow. **Verified

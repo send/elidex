@@ -107,9 +107,11 @@ pub struct EcsDom {
 /// stays in `pending`, and `Drop` writes back through the same borrow
 /// afterwards.  Unwinding drops the guard, so the slot and the counter
 /// are restored on the panic path as well.  The callback can reach
-/// `dispatcher` / `dispatch_depth` itself; installing or clearing a
-/// dispatcher from inside a dispatch would be overwritten by the
-/// restore, which the debug assertion in `Drop` reports.
+/// `dispatcher` / `dispatch_depth` itself.  A dispatcher *installed*
+/// from inside a dispatch would be overwritten by the restore; the debug
+/// assertion in `Drop` reports that.  A dispatcher *cleared* or taken
+/// from inside a dispatch cannot be told apart (the slot is already
+/// empty), so the restore silently puts the old one back.
 struct RestoreDispatcher<'a> {
     dom: &'a mut EcsDom,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,

@@ -1,9 +1,9 @@
 //! `EcsDom::dispatch_event`'s take-and-restore guard.
 //!
 //! The old raw-pointer guard was undefined behaviour under Stacked Borrows.
-//! These tests check that half only when run under
-//! `cargo +nightly miri test`, by hand; CI does not run miri (the crate-level
-//! `#![forbid(unsafe_code)]` is what keeps the raw pointers out).
+//! The normal runner checks only the restore behaviour; the borrow-validity
+//! half shows only under `cargo +nightly miri test` (red on the raw-pointer
+//! guard, green on this one).
 
 use std::sync::{Arc, Mutex};
 
