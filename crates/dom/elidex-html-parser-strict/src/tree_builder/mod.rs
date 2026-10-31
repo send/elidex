@@ -171,7 +171,8 @@ impl TreeBuilder {
         // throwaway Document holding the single synthetic `<html>` root (the
         // sole initial entry on the stack of open elements). The shared
         // `begin_detached_fragment` prologue owns the rationale (dispatch
-        // suppression + cache-free Document owner for foreign elements); the
+        // suppression, the cache-free throwaway Document, and why root must
+        // be linked under it); the
         // tolerant backend uses the same one. Teardown is run below (Ok =
         // `take_fragment_children` → `finish_detached_fragment`; Err = the
         // partial-subtree despawn), then the dispatcher is restored.

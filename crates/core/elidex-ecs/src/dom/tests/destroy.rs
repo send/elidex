@@ -335,6 +335,14 @@ fn begin_detached_fragment_root_is_child_of_document() {
     let mut dom = EcsDom::new();
     let (document, root, _) = dom.begin_detached_fragment();
     assert_eq!(dom.get_parent(root), Some(document));
+    // The property the link exists for: the strict rollback reclaims root and
+    // everything built under it.
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(root, child));
+    dom.despawn_subtree(document);
+    assert!(!dom.contains(document));
+    assert!(!dom.contains(root));
+    assert!(!dom.contains(child));
 }
 
 #[test]
