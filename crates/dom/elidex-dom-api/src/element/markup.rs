@@ -1,9 +1,11 @@
 //! DOM parsing and serialization handlers: innerHTML (getter and setter),
-//! insertAdjacentHTML, and the HTML fragment serializer.
+//! insertAdjacentHTML, and the HTML fragment serializer behind innerHTML,
+//! outerHTML, getHTML and XMLSerializer.
 //!
-//! WHATWG HTML §8.5.2 HTML parsing and insertion methods, §8.5.3 HTML
-//! serialization methods, §8.5.4 The innerHTML property, §8.5.6 The
-//! insertAdjacentHTML() method, §13.3 Serializing HTML fragments.
+//! WHATWG HTML §8.5.3 HTML serialization methods, §8.5.4 The innerHTML
+//! property, §8.5.5 The outerHTML property, §8.5.6 The insertAdjacentHTML()
+//! method, §8.5.8 The XMLSerializer interface, §13.3 Serializing HTML
+//! fragments.
 
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType, TextContent};
 use elidex_plugin::JsValue;

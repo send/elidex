@@ -3,7 +3,7 @@ use elidex_ecs::Attributes;
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, DomApiErrorKind, DomApiHandler};
 
-use super::test_support::setup;
+use crate::test_util::setup;
 
 #[test]
 fn append_child_success() {

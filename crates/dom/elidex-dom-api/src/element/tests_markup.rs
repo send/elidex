@@ -7,7 +7,7 @@ use elidex_ecs::{Attributes, EcsDom, ShadowRootMode};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiHandler, SessionCore};
 
-use super::test_support::setup;
+use crate::test_util::setup;
 
 #[test]
 fn inner_html_serialization() {

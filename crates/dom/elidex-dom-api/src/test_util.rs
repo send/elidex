@@ -2,9 +2,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{EcsDom, Entity, MutationDispatcher, MutationEvent};
+use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{JsObjectRef, SessionCore};
+use elidex_script_session::{ComponentKind, JsObjectRef, SessionCore};
 
 /// Unwrap a handler's `ObjectRef` result back to its [`Entity`].
 pub(crate) fn entity_of(r: &JsValue, session: &SessionCore) -> Entity {
@@ -33,4 +33,17 @@ impl MutationDispatcher for AttrChangeCounter {
             *self.count.lock().unwrap() += 1;
         }
     }
+}
+
+/// A `div` parent and a detached `span` child, both registered with the
+/// session so tests can pass them as `ObjectRef` arguments.
+pub(crate) fn setup() -> (EcsDom, Entity, Entity, SessionCore) {
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("div", Attributes::default());
+    let child = dom.create_element("span", Attributes::default());
+    let mut session = SessionCore::new();
+    // Pre-register entities so we can pass ObjectRef args.
+    session.get_or_create_wrapper(parent, ComponentKind::Element);
+    session.get_or_create_wrapper(child, ComponentKind::Element);
+    (dom, parent, child, session)
 }

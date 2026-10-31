@@ -46,8 +46,6 @@ pub use tree::{
 // the assertion target is always observed dom state, not the handler
 // return value.
 #[cfg(test)]
-mod test_support;
-#[cfg(test)]
 #[allow(unused_must_use)]
 mod tests_attrs;
 #[cfg(test)]

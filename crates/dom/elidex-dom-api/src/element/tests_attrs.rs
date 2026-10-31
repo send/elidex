@@ -3,7 +3,7 @@ use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiErrorKind, DomApiHandler, SessionCore};
 
-use super::test_support::setup;
+use crate::test_util::setup;
 
 // -----------------------------------------------------------------------
 // hasAttribute tests

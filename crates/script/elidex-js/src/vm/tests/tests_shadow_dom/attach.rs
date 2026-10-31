@@ -217,7 +217,7 @@ fn shadow_root_append_routes_through_parent_node_mixin() {
 }
 
 // `serialize_inner_html` shadow-exclusion regression lives at
-// `crates/dom/elidex-dom-api/src/element/tests_tree.rs` (engine-indep
+// `crates/dom/elidex-dom-api/src/element/tests_markup.rs` (engine-indep
 // layer).  The JS-facing innerHTML round-trip lands in PR-B
 // (`#11-shadow-innerhtml-mixin`); a placeholder test here adds no
 // signal until that wiring exists.
