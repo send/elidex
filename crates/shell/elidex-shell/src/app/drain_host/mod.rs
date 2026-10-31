@@ -1,4 +1,4 @@
-//! App-mode (legacy inline) realization of the shared [`DrainHost`] drain adapter
+//! App-mode (legacy inline) realization of the shared [`DrainHost`](elidex_navigation::DrainHost) drain adapter
 //! (`docs/plans/2026-07-session-history-slice-B-app-phase-separation.md` §4).
 //!
 //! The app-mode counterpart of `content/drain_host.rs`, split in two at its own
@@ -139,7 +139,7 @@
 //! if M4-10 ever wires an SW-fetch relay into the inline navigation path, premises
 //! 2/3 break and app-mode inherits Slice 4's canonical DIRECT-nav serialization.)
 
-use elidex_navigation::{DrainCoordinator, DrainHost, DrainOutcome};
+use elidex_navigation::{DrainCoordinator, DrainOutcome};
 use elidex_script_session::HostDriver;
 
 use super::App;
@@ -148,7 +148,7 @@ mod host;
 
 /// Re-exported under the short `drain_host::` path the drain suite has always
 /// used. Test-only: the seam body's sole production caller is
-/// [`DrainHost::apply_traversal`], in `host` itself.
+/// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal), in `host` itself.
 #[cfg(test)]
 pub(super) use host::apply_traversal_delta;
 
@@ -446,7 +446,7 @@ impl App {
         // why the plan's rejection of an end-of-handler *re-drain* as dead code does
         // not cover them (a `debug_assert` re-drains nothing).
         debug_assert!(
-            self.traversal_queue().is_empty(),
+            self.inline_state().traversal_queue.is_empty(),
             "app-mode drain left a residual traversal step — something enqueued onto \
              the queue that this drain did not drain (an apply-body `enqueue_traversal`, \
              or a Phase-1 pass with no Phase 2 behind it). It does not strand \
@@ -517,7 +517,7 @@ impl App {
         // task-queued apply, `#11-session-history-task-queue-model`, breaks it.)
         //
         // App-mode narrows the superset back down within the turn.
-        // [`apply_traversal`](DrainHost::apply_traversal) cancels the held request the
+        // [`apply_traversal`](elidex_navigation::DrainHost::apply_traversal) cancels the held request the
         // moment a traversal MOVES THE CURSOR — the same "cursor-moved" condition the
         // coordinator's `traversal_applied` latch uses to cancel a deferred
         // `SyncUpdate`, applied to the §7.4.2 leg instead of the §7.4.4 one. What

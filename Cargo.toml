@@ -298,6 +298,13 @@ unsafe_code = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# Nursery lint, enabled on its own: a call that takes `&mut` inside
+# `debug_assert!` does not run in release builds (side effects through `&self`
+# or interior mutability are not caught). On main before #568 it flagged 3 sites: one
+# real defect (`begin_detached_fragment` appended the root inside the assert,
+# so release builds never appended it) and two read-only checks that went
+# through a `&mut` accessor (rewritten to read through `&self`).
+debug_assert_with_mut_call = "warn"
 # Allow assert_eq! on f32 in tests (exact values from deterministic computations)
 float_cmp = "allow"
 # assert!(x.is_empty()) is the idiomatic form; the lint's suggestion (`[] as [T; 0]`) reads worse and does not type-check under --fix

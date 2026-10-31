@@ -111,7 +111,7 @@ impl ElidexJsEngine {
     }
 
     /// Whether a shared [`WebStorageManager`](elidex_storage_core::WebStorageManager)
-    /// backend is installed on the bound host context.
+    /// backend is installed on the host context (`HostData`), bound or not.
     ///
     /// `true` only after
     /// [`install_web_storage`](HostDriver::install_web_storage)
@@ -121,9 +121,11 @@ impl ElidexJsEngine {
     /// `fallback_local_storage` (the F14 no-silent-regression invariant).
     #[cfg(feature = "compat-webapi")]
     #[must_use]
-    pub fn web_storage_installed(&mut self) -> bool {
+    pub fn web_storage_installed(&self) -> bool {
         self.vm
-            .host_data()
+            .inner
+            .host_data
+            .as_deref()
             .is_some_and(|hd| hd.web_storage().is_some())
     }
 
@@ -134,8 +136,12 @@ impl ElidexJsEngine {
     /// unsandboxed / grants `allow-scripts`. Reads `HostData::sandbox_flags`,
     /// which requires `HostData` installed but **not** bound — so the gate is
     /// valid before/outside a batch bracket.
-    fn scripts_allowed(&mut self) -> bool {
-        self.vm.host_data().is_none_or(|hd| hd.scripts_allowed())
+    fn scripts_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::scripts_allowed)
     }
 
     /// Settle the same-window task queue, then custom-element reactions — the
