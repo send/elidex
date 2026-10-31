@@ -1,12 +1,18 @@
 # VM P4 umbrella memo — seam split plan (`#11-vm-p4-memo-section-seam-split`)
 
-**Status**: plan, revised after `/elidex-plan-review` R1 and R2. **Subject**:
+**Status**: plan, revised after `/elidex-plan-review` R1, R2 and R3 (R3's MINs). **Subject**:
 `docs/plans/2026-07-vm-p4-es-language-completeness.md` at `39cc365a` (3093 lines). **Rule**: CLAUDE.md
 *1000-line debt = touch-time split* — a cohesion judgment, executed inside #506 as a content-free
-commit (1) plus a pointer commit (2) before #506 next edits the memo's content. Every line number
-below is a line of that blob (`git show 39cc365a:<memo>`), never of a working tree (the umbrella memo
-is unchanged over `39cc365a..a45a42d1`); a line number into any **other** file names its revision.
+commit (1) plus a pointer commit (2) before #506 next edits the memo's content.
 **Prerequisite S0 (§1.3) has landed**: PR #562, squash `e44ffce6` (2026-10-31).
+
+**Revisions (defined once; the body names them only where it must).** `39cc365a` — the umbrella blob:
+every umbrella line number, range and count below is a line of `git show 39cc365a:<memo>` (C10).
+`e44ffce6` — S0's squash: line numbers into `.claude/tools/`, the checker plan and
+`.github/workflows/ci.yml` are at it (all three unchanged on this branch). `08a2a68c` — CLAUDE.md
+:54/:55 (:55 exists only on this branch) and the base of the production-form clone
+(`vm-p4-artifacts/split-sim/r2-repo`; the commits measured in it are listed in
+`vm-p4-artifacts/split-sim/r3/r3-commits.txt`).
 
 This memo is deliberately **not linked** from the umbrella: a link would put it in the checker's
 population, and every id it spells would become a naming site of the umbrella's census. The carve
@@ -88,8 +94,13 @@ numbers in their new files, as §6 and §§10-18 did.
   — the backticked path a reader copies, followed by one inline link to the same file, label = the
   section label the heading carries (`§4`, `§5`, `§8`, `§9`, `§6`, `§§10-15`, `§§16-18`). §5's stub
   names two files (`slice-plan.md`, and the touch-time check to `touch-time-split-record.md`), each in
-  this form, so five links in four new stubs. The three **existing** stubs (2317, 3079, 3089) get the
-  same parenthesised link inserted after their backticked path, on the same line, without reflow
+  this form, so five links in four new stubs. **Each new stub is exactly six lines**, which §2.1
+  compares byte for byte: the moved section's own heading line at `39cc365a` with ` → **carved out**`
+  appended; a blank line; the one body line
+  ``Moved **verbatim** to `docs/plans/2026-07-vm-p4-<f>.md` ([§N](2026-07-vm-p4-<f>.md)); sub-headings keep their numbers there.``
+  (for §5: the `slice-plan` reference, then `, and its 1000-line touch-time check to ` and the
+  `touch-time-split-record` reference, before the `;`); a blank line; `---`; a blank line. The three
+  **existing** stubs (2317, 3079, 3089) get the same parenthesised link inserted after their backticked path, on the same line, without reflow
   (pointer commit (2), §3). Before this revision they had none: their files' edges came only from
   incidental links in kept text (`slice-0a-landing-record.md` 4, `slice-1a-1b-call-spread-detail.md`
   5, `umbrella-review-rounds.md` 2; the §6 stub's own one link is to `umbrella-review-rounds.md`), so
@@ -97,17 +108,18 @@ numbers in their new files, as §6 and §§10-18 did.
   to write. Stub and carve-head text **name no declared id** (no row id, no `#11-` slug, no `I-n`), so
   they add no naming site (§2: zero inserted lines in the checker output).
 - **Why the stub carries a link at all.** The relinked `§N` references alone give
-  `design-invariants.md` one edge and `touch-time-split-record.md` one (2318, itself inside the §6
-  stub), and those two files hold no schema table: losing that edge would drop them from the
-  population **at rc 0** — the exit status does not see it. The stub link gives every child an edge
-  that does not depend on incidental prose. What makes a child **leaving** the population red is the
+  `design-invariants.md` **no** edge (the entry's one bare `§4`, at 7, is not the umbrella's — §3) and
+  `touch-time-split-record.md` one (2318, itself inside the §6 stub), and those two files hold no
+  schema table: without the stub link they would be outside the population **at rc 0** — the exit
+  status does not see it. The stub link gives every child an edge that does not depend on incidental
+  prose. What makes a child **leaving** the population red is the
   family guard (§1.5 (i)); without the guard a child could still leave it silently. The guard pins
   membership, not the stub edge itself (§2.0 C4).
 
 ### §1.3 Prerequisite S0 — schema presence over the population (**landed**: #562, `e44ffce6`, 2026-10-31)
 
 **The landed contract** (PM judgment 52, rule C; 61; the cost accepted in 70). `matched` is built from
-every memo of the population (`plan_memo_population.py:108` at `e44ffce6`, under a comment stating the
+every memo of the population (`plan_memo_population.py:108`, under a comment stating the
 rule). A schema is present iff **≥ 1** memo of the population holds a table matching it. Zero memos is
 `FATAL [SCHEMA] … no table matched schema`, rc 2, reported at the entry memo. **≥ 2** memos holding
 the same schema is allowed: multi-memo census is supported. Duplicate rows across memos are guarded
@@ -128,7 +140,7 @@ schema (exactly one memo).
 **What rule C costs this split.** #562's Known remainder (ii): a table whose header drifts from its
 schema becomes a non-schema table. Under rule C, if another memo carries the same schema, presence is
 still met, and the drifted table is then caught only by `Population._unbound_claims`
-(`plan_memo_population.py:174` at `e44ffce6`): a table bound to **no** schema that has a cell carrying
+(`plan_memo_population.py:174`): a table bound to **no** schema that has a cell carrying
 a `KIND_PHRASES` phrase (marker / undetermined / pointer) is a miss, rc 2. A drifted table with **no**
 such cell leaves the census at rc 0 — that is the silent case, and its reach depends on the table's
 rows. So "a drifted header is rc 2" is **not** a property of the checker. In full it is a property of
@@ -143,9 +155,10 @@ for a table whose rows carry a kind phrase. After the split this family has the 
 | `slot` | `slot-ledger.md` (§8) | 1 (52) | 16 | rc 2 (presence) | rc 2 (unbound claim, `marker`) |
 
 No other memo of the population holds one (the three existing carve-outs and the three children
-without a schema table). **Measured** on the commit-(2) scratch split with the checker at `a45a42d1`
+without a schema table). **Measured** on the commit-(2) scratch split with the checker as landed
 (`python3 vm-p4-artifacts/split-sim/r2-drift.py vm-p4-artifacts/split-sim/r2-drift/base`, the split
-made by `sim2.py … 2`): "rows with a kind phrase" asks `Population._claims` of every cell, header
+made by R2's `sim2.py … 2`, which differs from the production form only by 7's `§4` link — no table
+cell): "rows with a kind phrase" asks `Population._claims` of every cell, header
 included — the predicate `_unbound_claims` applies; "drift" prefixes the first header cell with `Q`;
 "second home added" also appends the same header and delimiter row (no body) to
 `slice-0a-landing-record.md`, so presence is met elsewhere. So under rule C the silent case is today
@@ -153,17 +166,24 @@ exactly `citation`, and `stub` is one edited row away from it (its one kind-phra
 one-table layout is what keeps all four at rc 2, and only while it holds: a later edit that puts a
 second table of one schema in another memo opens the silent case for `citation` (and for any table
 whose kind-phrase rows are later edited away), and nothing in the checker would say so. The family
-guard (§1.5, assertion (ii)) is what turns that edit red. **A pin list of length one is that
-guarantee**: updating a schema's pin to two memos is the edit that gives the guarantee up for that
-schema, and the guard's docstring says so (§1.5).
+guard (§1.5, assertion (ii)) is what turns that edit red. The guarantee has two layers, and the pin
+length decides only the first. **Checker layer**: while a schema's pin has length one, a drifted
+header leaves the schema in no memo, so the checker itself exits 2 — a manual run shows it. **CI
+layer**: the `tools` job is red on that drift at **any** pin length — at length one through the
+guard's `setUp` precondition (the presence miss), at length ≥ 2 through (ii), because the drifted
+table drops out of the observed homes, which then no longer equal the pin (compared as sorted lists,
+§1.5). Updating a pin to length ≥ 2 therefore gives up the checker-layer signal for that schema (the
+checker can then exit 0, as the table above shows), not the red `tools` job; the guard's docstring
+says so (§1.5).
 
 **A child the entry forgets to link.** `slice-plan.md` and `slot-ledger.md` hold the only `slice` and
 `slot` tables, so losing their edge is rc 2. Losing the edge to one of the five children without a
 schema table drops it from the population at rc 0, and only naming-site counts move. The guard's
-assertion (i) catches it — when the child actually leaves. Measured on the simulated commit-(2) head
-(§1.5): deleting only the §4 stub's link keeps `design-invariants.md` reached through the one relinked
-`§4`, and the guard stays green; deleting that relink too leaves the checker at rc 0 and turns (i) red
-with exactly that file. (i) pins membership, not which edge provides it.
+assertion (i) catches it — when the child actually leaves. Measured at the production-form `<c2>`
+(§1.5): deleting only the §4 stub's link — `design-invariants.md`'s one edge — leaves the checker at
+rc 0 and turns (i) red with exactly that file; deleting only the touch-time link in the §5 stub keeps
+`touch-time-split-record.md` reached through the relinked 2318, and the guard stays green. (i) pins
+membership, not which edge provides it.
 
 ### §1.4 Carve heads (commit (1))
 
@@ -179,7 +199,10 @@ the body ends with its range, so the head is free text, constrained as follows:
   without the pointer a reader of a child has no route to it;
 - it states the reading rules the precedent heads state: an unqualified section number names that
   section of the family, located through the entry's stubs; `<this file>` in a command means
-  `git show 39cc365a:<entry path>`; `above` / `below` read in family section order;
+  `git show 39cc365a:<entry path>`; `above` / `below` read in family section order. The three
+  existing heads say instead that any other unqualified `§N` "refers to the **umbrella**", except two
+  named carve-outs — false once §4/§5/§8/§9 leave the entry — so commit (2) rewrites that sentence in
+  each to this rule (one reading rule for the family; §3, existing heads row);
 - `touch-time-split-record.md` adds a **tense** note: the passage "It is discharged here" (in the
   "Owner and discharge" paragraph, 2296-2302) is the first carve's statement, written in the umbrella
   about that carve; it moved verbatim, and this second carve is discharged by the split PR this plan
@@ -191,8 +214,7 @@ the body ends with its range, so the head is free text, constrained as follows:
 
 PM judgment 99 (1). Rule C (≥ 1, ≥ 2 allowed) is unchanged; the guard pins the facts **this family**
 asserts about its own layout, which §1.2 and §1.3 depend on and the checker deliberately does not
-enforce. Line numbers into `.claude/tools/` files in this section are at `e44ffce6` (unchanged at
-`08a2a68c`).
+enforce.
 
 - **File**: `docs/plans/test_vm_p4_family_layout.py` (NEW) — beside the family it pins, **not** beside
   the checker. R1 placed it at `.claude/tools/test_plan_memo_vm_p4_family_layout.py`; there the
@@ -228,13 +250,21 @@ enforce. Line numbers into `.claude/tools/` files in this section are at `e44ffc
   also cannot be a `tools` set member under that name (`test_*.py` only), so it would need a wrapper;
   and CLAUDE.md's "lexer / population / assertion を触ったら control + mutant を同 commit で足す" would
   then ask for a mutant against a module that asserts nothing about checker behaviour — a mutant
-  with no subject. (c) *A subdirectory of `.claude/tools/`*: the non-recursive glob would not see it,
-  but it would sit inside the checker's tree and read as checker code; that is the confusion the
-  control exists to prevent, so it is rejected even though the control would not fire.
-- **Precedents for the form.** `.claude/tools/_webref/test_*.py` import their tool's modules from
-  outside the tool's directory by `sys.path.insert(0, str(Path(__file__).resolve().parents[1]))`; and
-  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead-check.sh` is a tracked,
-  non-Markdown check living beside the plan family it checks.
+  with no subject. (c) *A subdirectory of `.claude/tools/`*: the control's reach is the checker's
+  directory, non-recursive (`:487`). A subdirectory is outside that reach by glob depth only, so the
+  guard would be outside the control for a reason unrelated to what it is: it would still sit in the
+  checker's tree, importing the population, and the natural tightening of a membership control — a
+  recursive glob — would turn it red for R2's reason. `docs/plans/` is outside the control's subject
+  (checker code), not merely outside its glob, so no tightening of the control reaches it.
+- **Precedents, and what is new.** For the import form: `.claude/tools/_webref/test_*.py` put a
+  parent directory on `sys.path` (`sys.path.insert(0, str(Path(__file__).resolve().parents[1]))`) — but
+  they are tests inside their tool's own package, in shape closer to (c) than to this placement. For
+  a tracked non-Markdown file beside a plan family:
+  `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan-finalhead-check.sh` — but it is a
+  one-off evidence script that no CI job runs. Every current `tools` set member sits in the tree of
+  the code it tests (`.claude/tools/`, `.claude/skills/elidex-plan-review/`, `scripts/`), so **as a CI
+  suite member under `docs/`, and as one whose subject is documents rather than code beside it, the
+  guard is the repository's first.** The split PR's description says so.
 - **Import form.** `TOOLS = normpath(join(HERE, "..", "..", ".claude", "tools"))`, inserted at
   `sys.path[0]` if absent, then `from plan_memo_population import Population` and
   `from plan_memo_tables import SCHEMAS` — the checker's own modules as a library, no parser of its
@@ -247,7 +277,7 @@ enforce. Line numbers into `.claude/tools/` files in this section are at `e44ffc
   `.name`) turns the guard red in the `tools` job: the library dependency surfaces loudly, and that
   refactor's PR updates the guard.
 - **Shape** (the production text is the scratch file
-  `vm-p4-artifacts/split-sim/r2-guard/test_vm_p4_family_layout.py`, which commit (2) adds as is):
+  `vm-p4-artifacts/split-sim/r3/test_vm_p4_family_layout.py`, which commit (2) adds as is):
   one `unittest.TestCase`, `VmP4FamilyLayout`.
   - `setUpClass` builds one `Population` on the entry;
   - `setUp` asserts `self.p.misses == []` — a precondition of **every** test, not a test of its own
@@ -259,8 +289,10 @@ enforce. Line numbers into `.claude/tools/` files in this section are at `e44ffc
     (`plan_memo_tables.SCHEMAS`), so a fifth schema forces the pin to be revisited; and the map schema
     name → list of `p.display(m.path)`, one entry per table whose `t.schema` is that schema, equals
     `{"citation": [ENTRY], "stub": [ENTRY], "slice": ["2026-07-vm-p4-slice-plan.md"], "slot":
-    ["2026-07-vm-p4-slot-ledger.md"]}`. One list of length one per schema pins both "exactly one
-    table" and "in which memo". Row counts are **not** pinned.
+    ["2026-07-vm-p4-slot-ledger.md"]}`, **each list compared sorted** — the observed lists come in BFS
+    order, which a reordering of first links would move, so an unsorted compare of a list of length ≥ 2
+    would go red on a prose edit. One list of length one per schema pins both "exactly one table" and
+    "in which memo". Row counts are **not** pinned.
 - **When it goes red.** (i) moves when a memo enters or leaves the population. That includes an edit
   that looks like content: a relative link from any member to a `.md` outside the family brings that
   memo, and whatever it links, into the population — a structural change, and treated as one
@@ -273,50 +305,57 @@ enforce. Line numbers into `.claude/tools/` files in this section are at `e44ffc
   reports at rc 2 is also a red `tools` job (stated in CLAUDE.md:54 by commit (2), §3).
 - **Docstring** (required content; the scratch file carries it): (a) this test does **not** restate
   or tighten the checker's presence rule (rule C: ≥ 1 memo, ≥ 2 allowed); it pins this family's
-  layout. (b) *A pin list of length one is this family's guarantee that a header drifting off its
-  schema is rc 2 (the schema is then in no memo); updating a pin to a list of length ≥ 2 gives that
-  guarantee up for that schema* — under rule C the drifted table's rows would leave the census at
-  rc 0 unless one of them carries a kind phrase (§1.3). (c) *When a structural change moves a schema
-  table to another memo, adds a carve-out, or otherwise changes the layout, update this test in the
-  same commit — that update is the intended change, not a workaround.* (d) It lives beside the family
+  layout. (b) *The guarantee by layer* (§1.3): while a pin has length one, a header drifting off its
+  schema makes the checker itself exit 2 and the test red through `setUp`; a pin of length ≥ 2 keeps
+  the test — and the `tools` job — red on that drift through (ii), and gives up only the checker's own
+  signal (a manual run can exit 0 under rule C unless a drifted row carries a kind phrase). (c) *When a
+  structural change moves a schema table to another memo, adds a carve-out, or otherwise changes the
+  layout, update this test in the same commit — that update is the intended change, not a
+  workaround*; and when (i) is red because a member links a `.md` outside the family, the default
+  remedy is to drop the link (a backticked path adds no edge), while widening the family means
+  updating `FAMILY` and CLAUDE.md's `docs/plans/2026-07-vm-p4-*.md` glob in the same commit. (d) It lives beside the family
   as a consumer of the checker's library, outside the checker self-test's membership rule, and runs
   as its own suite root. Without (a) and (c) the test would read as one-home re-introduced outside
   the checker; without (b) a reader updating a pin would not see what the update costs.
 - **Measured, in production form.** A `git clone --local` of `vm-p4-plan-doc` at `08a2a68c`
-  (`vm-p4-artifacts/split-sim/r2-repo`); commit (1) simulated as a real commit (`sim2.py <repo> 1`),
-  commit (2) as a real commit on top (`r2-apply-c2.py <repo> r2-guard/test_vm_p4_family_layout.py`:
-  every commit-(2) edit of §3, the CLAUDE.md drafts included, and the guard at its path). Hashes in
-  `vm-p4-artifacts/split-sim/r2-commits.txt`.
-  1. checker `--self-test` at c2 (`python3 .claude/tools/plan-memo-umbrella-check.py --self-test`):
-     rc 0, `954 control(s)`, `all controls behaved as declared.`
-  2. `bash scripts/python-suites.sh` at c2: rc 0, `GREEN -- 10 member(s), 120 test(s) passed,
+  (`vm-p4-artifacts/split-sim/r2-repo`); commit (1) as a real commit (`r3/sim3.py <repo> 1`), commit
+  (2) as a real commit on top (`r3/apply_c2.py <repo> <this plan> r3/test_vm_p4_family_layout.py`: §3's
+  edit spec and the guard at its path). Hashes in `r3/r3-commits.txt`.
+  1. checker `--self-test` at `<c2>` (`python3 .claude/tools/plan-memo-umbrella-check.py --self-test`):
+     rc 0, `954 control(s)`, `all controls behaved as declared.` (`r3/r3-c2-selftest.txt`).
+  2. `bash scripts/python-suites.sh` at `<c2>`: rc 0, `GREEN -- 10 member(s), 120 test(s) passed,
      offline`; `root docs/plans (1 member(s))`, `docs/plans/test_vm_p4_family_layout.py: 2 test(s)
-     passed`.
-  3. The guard (`python3 -m unittest docs/plans/test_vm_p4_family_layout.py`): green at c2; red on the
-     pre-split tree, both tests (population 4 memos; `slice` and `slot` at the entry) — which is why
-     it lands in commit (2), after the move; the §4 stub's link alone deleted → green (the relinked
-     `§4` still reaches the child, §1.3); that relink deleted too → checker rc 0, (i) red with exactly
-     `design-invariants.md`; one link from `open-decisions.md` to the checker plan → checker rc 0, (i)
-     red with `2026-08-plan-memo-umbrella-checker.md` and `…-rounds.md`; a stub-table row given a
-     seventh cell → checker rc 2, both tests red through `setUp`.
+     passed` (`r3/r3-c2-python-suites.txt`).
+  3. The guard (`python3 -m unittest docs/plans/test_vm_p4_family_layout.py`) under one-edit mutations
+     of the `<c2>` tree (`r3/guard-controls.sh`, output `r3/guard-controls.txt`): green as built; the §4
+     stub's link deleted → checker rc 0, (i) red with exactly `design-invariants.md`; the §5 stub's
+     touch-time link deleted → green (2318 still reaches it); one link from `open-decisions.md` to the
+     checker plan → checker rc 0, (i) red with `2026-08-plan-memo-umbrella-checker.md` and `…-rounds.md`;
+     a stub-table row given a seventh cell → checker rc 2, both tests red through `setUp`; the
+     entry's `citation` header drifted (pin length 1) → checker rc 2, both red through `setUp`; the
+     `citation` pin lengthened to the entry plus `slice-0a…`, which gets a header-only `citation`
+     table, then the entry's header drifted → **checker rc 0, (ii) red** (the CI layer of §1.3); the
+     `slot` pin lengthened to `[slot-ledger, slice-0a…]` against BFS order `[slice-0a…, slot-ledger]`
+     → green with the sorted compare, (ii) red with an unsorted one. Red on the pre-split tree, both
+     tests (population 4 memos; `slice` and `slot` at the entry) — which is why it lands in commit
+     (2), after the move.
   4. Negative control for the placement: the same file at `.claude/tools/test_vm_p4_family_layout.py`
      → `--self-test` rc 1, `FAIL [CONTROL] PROPERTY: no module can leave a run unnoticed … 1
      violation(s); test_vm_p4_family_layout.py imports the population but is not in it` — R2's CRIT,
      reproduced.
-  Re-run: `vm-p4-artifacts/split-sim/r2-measure.sh <fresh clone> pre|crit|split` for 3 (pre) and 4,
-  and for the c1/c2 heads the commands of §3.
+  Re-run: `vm-p4-artifacts/split-sim/r3/measure.sh <clone at 08a2a68c> pre|crit` for the pre-split
+  red and 4 (output `r3/measure-run.txt`), and §3's commands for the `<c1>`/`<c2>` heads.
 - **Scope note for the split PR**: this puts tools code (a Python test) into #506, a plan PR. The
   split PR's description says so, and the `/pre-push` run for the split covers it: `mise run
   tools-test` / `mise run ci` run `scripts/python-suites.sh` once, under the first `python3` on `PATH`
   (its header, step 1). The `"3.9"` / `"3.x"` matrix exists only in GitHub's `tools` job, so the
-  3.9 floor is measured by CI, not by `/pre-push`; the guard uses no syntax newer than 3.9.
+  3.9 floor is measured by CI, not by `/pre-push`; the guard uses no syntax newer than 3.9. The guard
+  adds suite cost, so the split PR also applies the `tools` job's timeout rule (§3 step 2, last check).
 
-### §1.6 Rejected: keep all four tables in the entry memo (no S0)
+### §1.6 Rejected (record only): all four tables kept in the entry, no S0
 
-Entry = §0.5-§3 + §5's table block + §7 + §8's table block (~940 lines); conventions/evidence in
-children. It needs no tools change, but it **reverses** the 2291 verdict by separating the table from
-the specification its cells defer to, and splits §8 from its own rules. Cost-driven, so rejected.
-(Moot since S0 landed; kept as the record of why the split waited on a tools change.)
+It reversed the 2291 verdict (table separated from the specification its cells defer to) and split
+§8 from its own rules, to avoid a tools change; moot since S0 landed.
 
 ## §2. Coupled invariants, and the measured checker diff
 
@@ -324,19 +363,22 @@ the specification its cells defer to, and splits §8 from its own rules. Cost-dr
 
 The split satisfies ten invariants at once:
 
-- **C1 byte-exact move** — each child's body = its range; entry = kept lines + stub insertions (§2.1).
-- **C2 entry relink** — 59 bare `§4/§5/§8/§9` in the entry become links (§3); 2318's `§5` →
-  `touch-time-split-record.md`.
+- **C1 byte-exact move** — each child's body = its range; entry = kept lines + exactly the four
+  six-line stubs of §1.2, in section order (§2.1).
+- **C2 entry relink** — 58 bare `§4/§5/§8/§9` in the entry become links (§3; one named exclusion,
+  7's `§4`); 2318's `§5` → `touch-time-split-record.md`.
 - **C3 no new naming site** — stub and head text name no declared id (§1.2, §1.4).
 - **C4 population membership** — every child is a population member, and commit (1) gives each new
   child an edge that does not depend on incidental prose (its stub link). The guard keeps the first
   half afterwards (§1.5 (i)); the second half is a commit-time property of the stub form (§1.2,
-  checked in §3 step 1), which the guard does not keep — it pins membership, not which edge provides it.
+  proved by §2.1's byte compare of the stubs), which the guard does not keep — it pins membership, not
+  which edge provides it.
 - **C5 schema home** — each of the four schemas has one table in one memo (§1.3).
 - **C6 predicted checker diff** — §2.2's classes and nothing else, at both commit heads.
 - **C7 family order** — `above`/`below` and section order read across files as before.
-- **C8 pointer commit (2)** — three existing stub links, three existing head re-points, the
-  checker-plan anchor, CLAUDE.md:54 and :55 (at `08a2a68c`), the guard (§3).
+- **C8 pointer commit (2)** — three existing stub links, the three existing heads (re-point and
+  reading rule), the checker-plan anchor, CLAUDE.md:54 and :55, the guard (§3) — each line edit
+  byte-fixed by §3's edit spec.
 - **C9 family guard** — the `setUp` precondition, (i) and (ii) of §1.5.
 - **C10 base revision** — the umbrella in commit (1)'s parent is the `39cc365a` blob
   (`git rev-parse <c1>^:<entry>` = `git rev-parse 39cc365a:<entry>`). Every line number, range and
@@ -346,8 +388,8 @@ The split satisfies ten invariants at once:
 | Pair | Intersection |
 |---|---|
 | C1 × C2 | the relink edits kept lines; §2.1 undoes exactly the relink form (`[§N](<new file>)`) before diffing, so a relink is the one edit to a kept line commit (1) allows |
-| C1 × C3 | heads and stubs are outside the byte proof (head = text before the range; stubs = inserted chunks containing `→ **carved out**`), so C3 is checked by the checker output, not by §2.1 |
-| C1 × C4 | stub links are in inserted chunks, so they pass §2.1 as stub-only insertions |
+| C1 × C3 | heads are outside the byte proof (head = text before the range), so C3 for heads is checked by the checker output; the stubs are inside it — §2.1 compares them byte-exact with the §1.2 form, which names no id |
+| C1 × C4 | the stub links are part of the stub text §2.1 compares byte-exact, so §2.1 proves each new child's stub edge (five links, section order) |
 | C1 × C5 | the four schema tables are in moved or kept ranges, so §2.1 proves each moved byte-for-byte; header drift by the move is impossible |
 | C1 × C6 | class 2 of §2.2 exists because a child's line numbers are its range shifted by the head length; §2.2 maps them back (`a + N − h − 1`) |
 | C1 × C7 | the bodies are verbatim, so deixes keep their text; order is restored by stub order, not by editing them |
@@ -355,18 +397,18 @@ The split satisfies ten invariants at once:
 | C1 × C9 | none: the guard reads structure, not bytes |
 | C1 × C10 | §2.1 reads `old` from `<c1>^` and asserts first that it is the `39cc365a` blob; C1 is defined against that blob |
 | C2 × C3 | a relink rewrites existing text into a link whose label is `§N`, never an id; class 1 of §2.2 is excerpt text only |
-| C2 × C4 | each relink is an edge; it is not relied on for C4's second half because an incidental reference can be edited away — but it does count for membership, which is why (i) stays green when only a stub link goes (§1.5) |
+| C2 × C4 | each relink is an edge; it is not relied on for C4's second half because an incidental reference can be edited away — but it does count for membership, which is why (i) stays green when only the §5 stub's touch-time link goes (2318 still reaches it) and goes red when the §4 stub's link goes (no relink reaches `design-invariants.md`) (§1.3) |
 | C2 × C5 | relinks edit cells of the entry's `stub` table (e.g. 439-475), never a header or delimiter row, so the table still matches its schema (measured: every count identical) |
 | C2 × C6 | class 1 of §2.2: 11 entry lines whose excerpt now shows a link |
 | C2 × C7 | none: deixes are untouched, links do not reorder text |
 | C2 × C8 | commit (2) adds no relink; its entry edits are the three stub links only |
 | C2 × C9 | relinks add edges among members only, so (i) is unchanged |
-| C2 × C10 | the relink census (§3 step 1) compares `<c1>` with `<c1>^`: 59 links on 52 kept lines, per target as in §3 |
+| C2 × C10 | the relink census (§3 step 1) compares `<c1>` with `<c1>^`: 58 links on 51 kept lines, per target as in §3 |
 | C3 × C4 | the stub link's label is a section label, so the edge it adds names nothing (zero inserted lines in the output) |
 | C3 × C5 | heads and stubs contain no table, so no schema table is added |
 | C3 × C6 | zero head/stub lines in the output (measured: no checker line maps to an inserted line) |
 | C3 × C7 | the heads state the family-order reading rule; the rule is text, not an id |
-| C3 × C8 | the head re-points and stub links in commit (2) name only file paths, section labels and a revision |
+| C3 × C8 | commit (2)'s head edits and stub links name only file paths, section labels and a revision |
 | C3 × C9 | none |
 | C3 × C10 | each head says its body moved verbatim at `39cc365a`; C10 is what makes that sentence true |
 | C4 × C5 | `slice-plan.md` / `slot-ledger.md` leaving the population is rc 2 by presence; the other five leaving is rc 0 — the asymmetry (ii) and (i) are split along |
@@ -378,13 +420,13 @@ The split satisfies ten invariants at once:
 | C5 × C6 | rows keep their file attribution: the 64 §5 rows read from `slice-plan.md`, the 52 §8 rows from `slot-ledger.md`; every count identical |
 | C5 × C7 | none |
 | C5 × C8 | commit (2) adds no table |
-| C5 × C9 | (ii) pins the one-home layout that keeps drift at rc 2 under rule C; for `citation` (no kind-phrase row) and, one row-edit away, `stub`, nothing else does (§1.3) |
+| C5 × C9 | (ii) pins the one-home layout; at pin length one that layout is what makes drift a checker rc 2, and at any pin length (ii) keeps the `tools` job red on drift — for `citation` (no kind-phrase row) and, one row-edit away, `stub`, nothing else does (§1.3) |
 | C5 × C10 | the row counts (29 / 55 / 64 / 52) and the tables' ranges are those of the `39cc365a` blob |
 | C6 × C7 | none: the checker reads no deixis |
 | C6 × C8 | commit (2) must not move any output: measured, the commit-(2) output is **byte-identical** to the commit-(1) output |
 | C6 × C9 | the guard is a separate test outside the checker's directory; it adds nothing to the checker output and nothing to its self-test (§1.5) |
-| C6 × C10 | the baseline is the output on the `39cc365a` blob; if a checker file changed between `a45a42d1` and `<c1>^`, the baseline is re-taken at `<c1>^` before comparing (§2.2) |
-| C7 × C8 | the head re-point names a file; it moves no text |
+| C6 × C10 | the baseline is the output on the `39cc365a` blob; if a checker file changed between `e44ffce6` and `<c1>^`, the baseline is re-taken at `<c1>^` before comparing (§2.2) |
+| C7 × C8 | the reading-rule rewrite gives the three existing heads the new heads' rule (section numbers read through the entry's stubs), so C7 has one statement across the family; every head edit is a same-line replacement, so no text moves |
 | C7 × C9 | none |
 | C7 × C10 | none |
 | C8 × C9 | the guard lands in commit (2), after the move, because at commit (1)'s parent it is red by design |
@@ -393,13 +435,17 @@ The split satisfies ten invariants at once:
 
 ### §2.1 Content-free proof (commit (1))
 
-Byte-exact: each child's body is its range; the entry, with the new links undone, is the kept lines
-plus stub-only insertions. Everything is read from revisions, not from the working tree: `old` from
-`<c1>^`, after asserting C10; the bodies and the entry from `<c1>`. Run from the repository root as
-`python3 proof.py <c1>`.
+Byte-exact, with **no free insertion**: each child's body is its range; the entry, with the relinks
+undone, is the kept lines with exactly the four six-line stubs of §1.2 inserted where the moved
+sections stood (§4 and §5 after 697, §8 and §9 after 2397); and those stub lines, links kept, equal the
+§1.2 text byte for byte — which fixes the chunk count, each chunk's length and text, the five stub
+links and the section order in one comparison (C1, and C4's second half). Everything is read from
+revisions, not from the working tree: `old` from `<c1>^`, after asserting C10; the bodies and the entry
+from `<c1>`. Run from the repository root as `python3 proof.py <c1>`
+(`vm-p4-artifacts/split-sim/r3/proof.py`, the text below).
 
 ```python
-import difflib, re, subprocess, sys
+import re, subprocess, sys
 C1 = sys.argv[1]
 D, X = 'docs/plans', '2026-07-vm-p4-'; U = X + 'es-language-completeness.md'
 M = [('design-invariants', 698, 1006), ('slice-plan', 1007, 2123), ('touch-time-split-record', 2124, 2314),
@@ -407,52 +453,67 @@ M = [('design-invariants', 698, 1006), ('slice-plan', 1007, 2123), ('touch-time-
 git = lambda *a: subprocess.run(['git', *a], capture_output=True, text=True, check=True).stdout
 assert git('rev-parse', f'{C1}^:{D}/{U}') == git('rev-parse', f'39cc365a:{D}/{U}'), 'C10: <c1>^ umbrella != 39cc365a'
 show = lambda r, f: git('show', f'{r}:{D}/{f}').split('\n')[:-1]
-old = show(C1 + '^', U)
-moved = set()
-for name, a, b in M:
-    body = show(C1, f'{X}{name}.md')
-    assert body[-(b - a + 1):] == old[a - 1:b], name
-    moved |= set(range(a, b + 1))
-kept = [l for i, l in enumerate(old, 1) if i not in moved]
+old, new = show(C1 + '^', U), show(C1, U)
+for name, a, b in M:  # C1: each child's body is its range
+    assert show(C1, f'{X}{name}.md')[-(b - a + 1):] == old[a - 1:b], name
+ref = lambda f, lab: f'`{D}/{X}{f}.md` ([{lab}]({X}{f}.md))'
+def stub(a, *files):  # §1.2 stub form: original heading + marker, one body line, separator
+    body = 'Moved **verbatim** to ' + ', and its 1000-line touch-time check to '.join(ref(f, lab) for f, lab in files)
+    return [old[a - 1] + ' → **carved out**', '', body + '; sub-headings keep their numbers there.', '', '---', '']
+S45 = stub(698, ('design-invariants', '§4')) + stub(1007, ('slice-plan', '§5'), ('touch-time-split-record', '§5'))
+S89 = stub(2398, ('slot-ledger', '§8')) + stub(2787, ('open-decisions', '§9'))
+P1, P2, P3 = old[:697], old[2314:2397], old[3076:]  # kept ranges 1-697, 2315-2397, 3077-3093
 link = re.compile(r'\[(§[4589])\]\(' + X + '(?:' + '|'.join(n for n, _, _ in M) + r')\.md\)')
-par = [link.sub(r'\1', l) for l in show(C1, U)]
-bad = [o for o in difflib.SequenceMatcher(None, kept, par, autojunk=False).get_opcodes() if o[0] != 'equal'
-       and (o[0] != 'insert' or not any('→ **carved out**' in l for l in par[o[3]:o[4]]))]
-print('base 39cc365a ok; moved', len(moved), 'kept', len(kept), 'non-stub diffs', len(bad)); sys.exit(1 if bad else 0)
+undo = lambda ls: [link.sub(r'\1', l) for l in ls]
+want = P1 + undo(S45) + P2 + undo(S89) + P3            # the entry, links undone: kept + exactly the 4 stubs
+assert len(new) == len(want), ('entry length', len(new), len(want))
+bad = [i + 1 for i, (g, w) in enumerate(zip(undo(new), want)) if g != w]
+assert not bad, ('entry lines off kept+stubs', bad[:5], len(bad))
+i45, i89 = len(P1), len(P1) + len(S45) + len(P2)       # the stubs, links kept: byte-exact, in section order
+assert new[i45:i45 + len(S45)] == S45 and new[i89:i89 + len(S89)] == S89, 'stub text/links/order'
+nlinks = sum(len(link.findall(l)) for l in S45 + S89)
+print('base 39cc365a ok; moved', sum(b - a + 1 for _, a, b in M), 'kept', len(P1 + P2 + P3),
+      'stubs 4 links', nlinks, 'entry = kept + stubs')
 ```
 
-Expected at commit (1): `base 39cc365a ok; moved 2296 kept 797 non-stub diffs 0`. **Measured** in the
-production-form clone of §1.5 (`vm-p4-artifacts/split-sim/r2-proof-c1.py`, the text above): that line,
-rc 0, at the simulated `<c1>`. Negative controls, each a commit on `08a2a68c` with the commit-(1)
-split plus one appended character: in the entry (line 100) → `non-stub diffs 1`, rc 1; in a child
-(`slot-ledger.md` line 200) → `AssertionError: slot-ledger`, rc 1; and the C10 control — the script
-given the simulated `<c2>` → `AssertionError: C10: <c1>^ umbrella != 39cc365a`.
+Expected at commit (1): `base 39cc365a ok; moved 2296 kept 797 stubs 4 links 5 entry = kept + stubs`.
+**Measured** at the production-form `<c1>` (`r3-commits.txt`): that line, rc 0; also at R2's `<c1>`
+(`17bbcc13`, `r2-commits.txt`), whose stubs are the same text. Negative controls
+(`vm-p4-artifacts/split-sim/r3/proof-controls.sh`; each a commit whose parent is `<c1>^` and whose tree
+is `<c1>` plus one edit; output `r3/proof-controls.txt`), with R2's proof (`r2-proof-c1.py`, which
+allowed any inserted chunk containing a `→ **carved out**` line) for contrast:
+
+| Edit to `<c1>` | R2 proof | this proof |
+|---|---|---|
+| the I-1 paragraph (39cc365a:700-704) left behind inside the §4/§5 stub chunk | rc 0 — **passes** | rc 1, `entry length 827, 821` |
+| the §4 stub's link deleted | rc 0 — **passes** | rc 1, entry line 700 |
+| the §4/§5 stubs swapped | rc 0 — **passes** | rc 1, entry lines 698, 700, 704, 706 |
+| one character appended to entry line 100 | rc 1 | rc 1, entry line 100 |
+| one character appended to `slot-ledger.md` line 200 | rc 1 | rc 1, `slot-ledger` |
+| the script given `<c2>` (C10) | — | rc 1, `C10: <c1>^ umbrella != 39cc365a` |
 
 ### §2.2 Checker output: baseline, commit (1), commit (2)
 
-**Baseline** (`39cc365a`, saved: `vm-p4-artifacts/p506_check_pre.txt`, 868 lines; `a45a42d1` gives a
-byte-identical output): rc **0**; `[UMBRELLA-MARK] 48` (`slice=33, slot=15`); `[CENSUS] 53`;
+**Baseline** (`39cc365a`, saved: `vm-p4-artifacts/p506_check_pre.txt`, 868 lines, checker at
+`e44ffce6`): rc **0**; `[UMBRELLA-MARK] 48` (`slice=33, slot=15`); `[CENSUS] 53`;
 `[KIND-UNDETERMINED] 5`; `[UMBRELLA-CELL] 37`; footer `51 seed(s) and 715 reported naming site(s)`;
 population = the three existing carve-outs.
 
 **If the checker moved before the split.** The saved baseline is valid only for the checker at
-`a45a42d1` (= `e44ffce6` for `.claude/tools/`). Before comparing, check
-`git diff --quiet a45a42d1 <c1>^ -- .claude/tools/`; if it reports a difference, re-take the baseline
+`e44ffce6`. Before comparing, check `git diff --quiet e44ffce6 <c1>^ -- .claude/tools/`; if it reports a difference, re-take the baseline
 on `<c1>^` with the checker at `<c1>^`
 (`git checkout <c1>^ && python3 .claude/tools/plan-memo-umbrella-check.py $M > base.txt`), re-run the
 §2.2 prediction against `base.txt`, and report any class the new checker adds; do not compare against
 `p506_check_pre.txt`.
 
-**Prediction, measured on a scratch split of both heads** (`vm-p4-artifacts/split-sim/sim2.py
-<dir> 1|2`, checker at `a45a42d1` = S0 landed; outputs `sim2_after_c1.txt` / `sim2_after_c2.txt`;
-`norm2.py` maps each `file:N` back to its `39cc365a` line). The scratch split is this plan's layout:
-§1.1 ranges, §1.4-shaped heads (12 lines, 14 for the touch-time file), the stub form of §1.2 in
-original section order, 2318's `§5` linked to `touch-time-split-record.md`, and at stage 2 the three
-existing stub links and head re-points. (The earlier `simulate.py` linked 2318 to `slice-plan.md`,
-used 4-line heads, and put all five stubs before §6; `sim2.py` corrects all three.) Re-measured at
-R2 on the production-form clone (§1.5), where the two heads are real commits and commit (2) carries
-every edit of §3 step 2 including the CLAUDE.md drafts: the `<c1>` output is byte-identical to
-`sim2_after_c1.txt`, and the `<c2>` output byte-identical to the `<c1>` output.
+**Prediction, measured at the production-form heads** (§1.5; `<c1>` built by
+`vm-p4-artifacts/split-sim/r3/sim3.py <repo> 1`, `<c2>` by `r3/apply_c2.py` from §3's edit spec;
+outputs `r3/r3-after1.txt` / `r3-after2.txt`; `norm2.py r3/origin-c1.json` maps each `file:N` back to
+its `39cc365a` line). The layout is this plan's: §1.1 ranges, §1.4-shaped heads (12 lines, 14 for the
+touch-time file), the §1.2 stubs, the 58 relinks (2318's `§5` → `touch-time-split-record.md`, 7's
+`§4` excluded), and in `<c2>` every edit of §3's edit spec. R2's `<c1>` (`17bbcc13`, which also
+linked 7's `§4`) gave the same output up to BFS order: sorted, the two differ only in the population
+header line, where `design-invariants.md` is now scheduled after `…-rounds.md`.
 
 - **commit (1) head vs baseline**: rc 0, 868 lines, every count above **identical**; **no table row
   changes file attribution**. Sorted, after mapping locators back, the diff is **15 output lines on
@@ -464,17 +525,17 @@ every edit of §3 step 2 including the CLAUDE.md drafts: the `<c1>` output is by
      which is child-relative (`:991` at a 12-line head).
   No checker line maps to a head or stub line. Unsorted, the naming-site listing also reorders
   (population is BFS order).
-- **commit (2) head vs commit (1) head**: **byte-identical** output. The three entry stub-link
-  insertions and the three carve-out head re-points are single-line edits without reflow, so no
-  file's line count changes (no locator moves), none of those lines is a naming site, and the edges
-  they add point at memos BFS has already scheduled (population order unchanged).
+- **commit (2) head vs commit (1) head**: **byte-identical** output (measured). Every commit-(2)
+  edit is a same-line substitution (§3's edit spec), so no file's line count changes (no locator
+  moves), none of the edited lines is a naming site, and the edges the three stub links add point at
+  memos BFS has already scheduled (population order unchanged).
 
 Anything else — a count, an `[UMBRELLA-MARK?]` row, a seed, any difference between the two heads — is
 a defect of the split. At the real heads:
 
 ```sh
 M=docs/plans/2026-07-vm-p4-es-language-completeness.md
-git diff --quiet a45a42d1 <c1>^ -- .claude/tools/ || echo 'checker moved: re-take the baseline at <c1>^'
+git diff --quiet e44ffce6 <c1>^ -- .claude/tools/ || echo 'checker moved: re-take the baseline at <c1>^'
 git checkout <c1> && PYTHONDONTWRITEBYTECODE=1 python3 .claude/tools/plan-memo-umbrella-check.py $M > after1.txt; echo rc=$?
 git checkout <c2> && PYTHONDONTWRITEBYTECODE=1 python3 .claude/tools/plan-memo-umbrella-check.py $M > after2.txt; echo rc=$?
 cmp after1.txt after2.txt
@@ -490,23 +551,23 @@ A heading is not relinked (local policy of this count, not a Markdown rule; §7)
 
 | Class | Count | Rule |
 |---|---|---|
-| bare `§4/§5/§8/§9` in the **entry** (prose + table cells) | 59 (§4 1, §5 26, §8 18, §9 14) | commit (1): → `[§N](<file>)`; §5 refs whose referent is the touch-time passage (one: 2318, "§5's *And the verdict…*") link `touch-time-split-record.md`, the rest `slice-plan.md`. Spec-clause collisions excluded by a **named** list derived at split time (heuristic finds 0). |
+| bare `§4/§5/§8/§9` in the **entry** (prose + table cells) | 59 raw; **58 relinked** (§4 0, §5 26, §8 18, §9 14) | commit (1): → `[§N](<file>)`; §5 refs whose referent is the touch-time passage (one: 2318, "§5's *And the verdict…*") link `touch-time-split-record.md`, the rest `slice-plan.md`. **Exclusion list, fixed: one entry** — 7's `§4` in "`project_vm-p4-es-language-gaps.md` §2/§4" is that memory file's §4, not the umbrella's, and stays bare. Spec-clause collisions: **none** (`python3 vm-p4-artifacts/split-sim/r3/collisions.py <git show 39cc365a:<entry>>` → `bare tokens 59 spec-preceded 0`; each of the 59 read by hand, which found the line-7 foreign-document reference the spec heuristic cannot see). |
 | same, in **moved** text | INV 33, PLAN 267, TT 11, LED 163, DEC 26 | verbatim; `§N` names the family section, resolved through the entry's stubs (numbers are stable) |
-| same, in the 3 **existing** carve-outs | 76 raw (10 / 31 / 35) | verbatim — their heads already declare them statements about the pre-split umbrella |
+| same, in the 3 **existing** carve-outs | 76 raw (10 / 31 / 35) | verbatim — resolved through the entry's stubs under the reading rule commit (2) gives their heads (row below) |
 | `§N` inside code spans | 4 (PLAN) | verbatim (commands/quotations) |
 | links to existing carve-outs `](2026-07-vm-p4-….md)` | 84 (P 11, moved 73) | unchanged; same directory, so they resolve from the new files |
-| existing stubs (2317, 3079, 3089) | 3 | commit (2): insert `([§6](…slice-1a-1b-call-spread-detail.md))`, `([§§10-15](…umbrella-review-rounds.md))`, `([§§16-18](…slice-0a-landing-record.md))` after the backticked path, same line, no reflow — the one stub form (§1.2) |
+| existing stubs (2317, 3079, 3089) | 3 | commit (2): the parenthesised link after the backticked path, same line, no reflow — the one stub form (§1.2); exact text in the edit spec below |
 | intra-file anchors `](#…)` | 0 | — |
 | self line cites (`line N`, `L N`, `<this file>:N` forms) | 0 | revision-anchored ranges (`N-M at <rev>`) stay verbatim as statements about that revision |
 | `<this file>` in commands | 31 (P 1 = 26, citation table, stays valid; moved 30) | verbatim; each carve head says `<this file>` there means `git show 39cc365a:<entry path>` (§1.4), as the precedent heads do for figures |
-| `I-n` names | 168 | verbatim; the §4 stub says the named invariants keep their names in `design-invariants.md`, **without spelling any** (C3) |
+| `I-n` names | 168 | verbatim; they stay in `design-invariants.md`, and no stub or head spells one (C3) |
 | `above` / `below` | 416 (PLAN 204, LED 140, P 41) | verbatim; the carve heads state they read in family order, which the stubs preserve (known crossing: 1988 "see the 1000-line check below" → TT) |
-| carve heads of the 3 existing siblings ("the umbrella's §5", line 5 of each) | 3 | commit (2): insert, right after `in the umbrella's §5` and before the closing parenthesis, same line, no reflow: `` ; the umbrella's second split (at `39cc365a`) moved that passage to `docs/plans/2026-07-vm-p4-touch-time-split-record.md`, and "pre-split" below still means before the first split ``. Each head says its body is "stated about the pre-split umbrella" (line 7 of each), meaning before **its** split; the insertion names the second split and its revision so the two cannot be read as one. **Backticked**, not linked — membership does not need it, and a link would add an edge for navigation only |
-| other docs: line cites into the umbrella | 3, all in `docs/plans/2026-08-plan-memo-umbrella-checker.md` at `a45a42d1` (file identical to `e44ffce6`): `:663` "main memo line 2716"; `:1098` `` `190d2adb:…:1218` `` / `` `:2711` ``; `:1103` `` `190d2adb:…:2710` `` | commit (2): anchor `:663` as "line 2716 at `39cc365a`"; `:1098` / `:1103` are already anchored to `190d2adb` and stay. Complement measured (below). |
-| CLAUDE.md:54 and :55 at `08a2a68c` (same text at `a45a42d1`; branch `vm-p4-plan-doc` — on main `e44ffce6` line 55 is the **Git** rule, the checker-run rule is added on this branch) | 2 | commit (2): :54 states the one exception to "memo 実行は手動 … CI job に入れない" — this family's guard runs in the `tools` job, and through its `setUp` precondition any rc-2 defect of a family memo makes that job red; :55 extends the trigger to every family memo and adds the guard-update rule. Insertions only, no reflow; drafts below |
+| heads of the 3 existing carve-outs | 13 lines (5 / 5 / 4 at `<c1>`; head = lines 1-18 of each) | commit (2), same-line replacements, no line added or removed (a moved line would move every naming site below it — 95 of `<c1>`'s output lines are in these files). What becomes false once §4/§5/§8/§9 leave the entry, read from the three heads: (a) line 5 of each, "the seam derivation and its measurements are in the umbrella's §5" — that passage is now in `touch-time-split-record.md`, and "pre-split" (line 7) becomes ambiguous between two splits: an insertion names the second split and its revision; (b) the reading rule — "Any other unqualified `§N` refers to the **umbrella**, except" two named carve-outs, "the umbrella's two other carve-outs" (`slice-0a…` 14-17, `slice-1a-1b…` 14-16, `…-rounds` 16-18) — now names a set that misses five files: rewritten to the new heads' rule (§1.4: through the entry's stubs); (c) `slice-1a-1b…` 9, "**Scheduling stays in the umbrella.**" — §5/§8/§9 left the entry: "…in the umbrella family." Nothing else in the heads is false: `slice-0a…` 9-10 and the rest of `slice-1a-1b…` 9-10 name §5/§8/§9, which the new rule resolves; the archive and record descriptions are about the files themselves. **Backticked**, not linked — membership does not need it |
+| other docs: line cites into the umbrella | 3, all in `docs/plans/2026-08-plan-memo-umbrella-checker.md`: `:663` "main memo line 2716"; `:1098` `` `190d2adb:…:1218` `` / `` `:2711` ``; `:1103` `` `190d2adb:…:2710` `` | commit (2): anchor `:663` as "line 2716 at `39cc365a`"; `:1098` / `:1103` are already anchored to `190d2adb` and stay. Complement measured (below). |
+| CLAUDE.md:54 and :55 (on main `e44ffce6` line 55 is the **Git** rule; the checker-run rule is this branch's) | 2 | commit (2): :54 states the one exception to "memo 実行は手動 … CI job に入れない" — this family's guard runs in the `tools` job, and through its `setUp` precondition any rc-2 defect of a family memo makes that job red; :55 extends the trigger to every family memo, replaces its rc-2 clause ("2 は memo の table header が checker の SCHEMAS とずれた" contradicts :54's "header drift に限らず"), and adds the guard-update rule with the remedy for a red (i) and the pin-length layers (§1.3). Exact text in the edit spec below |
 
 Complement for the "other docs" row — every tracked file outside the family and this plan that
-mentions the umbrella, then every line-cite form in those files:
+mentions the umbrella, then every line-cite form in those files (on this branch; `a45a42d1`):
 
 ```sh
 for f in $(git grep -lE 'es-language-completeness|#506.s memo|main memo' a45a42d1 -- . \
@@ -518,18 +579,95 @@ done
 → the three lines above, nothing else (the selector matches 9 files: six under `.claude/tools/`,
 CLAUDE.md, the checker plan and its rounds record).
 
-**CLAUDE.md drafts for commit (2)** (insertions into the two lines; nothing on either line is deleted —
-§3 step 2 checks that). On :54, after `` (`scripts/trip-wires.sh` の `REQUIRED_WIRES` には登録しない)。 ``:
+**Commit (2)'s edit spec** — the single home of every line commit (2) edits; §3 step 2's check reads
+this block and compares byte for byte, so there is no free text and no review-by-eye step. Each hunk is
+`@ <path>:<line at <c1>>`, then `-` / `+` pairs: the `-` text occurs exactly once in that `<c1>` line
+and is replaced by the `+` text, pairs applied in order. No line is added or removed. Wording changes
+after this plan is approved are made here, and the check follows.
 
-> 例外は VM-P4 family (`docs/plans/2026-07-vm-p4-*.md`) で、その layout guard `docs/plans/test_vm_p4_family_layout.py` が checker を library として import し、population と schema table の置き場所を pin する test として同じ `tools` job で走る (memo 実行そのものではなく、checker の presence rule を締めるものでもない)。guard の前提 `misses == []` により、family の memo に checker が rc 2 を出す欠陥があれば (header drift に限らず、行幅・未解決 reference 等の内容欠陥も) `tools` job が赤になる。memo 編集で `tools` job が赤になる経路は、上記 `symbol_attribution_control` (全 `docs/plans/*.md`) とこの guard (VM-P4 family のみ) の 2 つ。
+```c2-edits
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:712
+- `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md`
++ `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` ([§6](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md))
 
-On :55, after `` `docs/plans/2026-07-vm-p4-es-language-completeness.md` を編集したら ``:
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:807
+- `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md`
++ `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md` ([§§10-15](2026-07-vm-p4-umbrella-review-rounds.md))
 
-> (carve-out された family memo `docs/plans/2026-07-vm-p4-*.md` のどれを編集した場合も、entry であるこの memo に対して)
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:817
+- `docs/plans/2026-07-vm-p4-slice-0a-landing-record.md`
++ `docs/plans/2026-07-vm-p4-slice-0a-landing-record.md` ([§§16-18](2026-07-vm-p4-slice-0a-landing-record.md))
 
-and at the end of :55, after `未走査 (clean ではない)。`:
+@ docs/plans/2026-07-vm-p4-slice-0a-landing-record.md:5
+- in the umbrella's §5
++ in the umbrella's §5; the umbrella's second split (at `39cc365a`) moved that passage to `docs/plans/2026-07-vm-p4-touch-time-split-record.md`, and "pre-split" below still means before the first split
 
-> family の構造を変える編集 (memo の追加・削除、schema table の別 memo への移動・追加、family 外 `.md` への相対リンク追加) は `docs/plans/test_vm_p4_family_layout.py` の pin を同 commit で更新する。各 schema の pin が長さ 1 の list であることが、その schema の header drift を rc 2 にする保証そのもので、長さ 2 以上に更新するとその schema についてこの保証を手放す。
+@ docs/plans/2026-07-vm-p4-slice-0a-landing-record.md:14
+- Any other unqualified `§N` refers to the
++ Any other unqualified `§N` names that section
+
+@ docs/plans/2026-07-vm-p4-slice-0a-landing-record.md:15
+- **umbrella**, except: `§6` is in `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` and
++ of the umbrella family, located through the carved-out stubs of the entry
+
+@ docs/plans/2026-07-vm-p4-slice-0a-landing-record.md:16
+- `§§10-15` are in `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md`, the
++ (`docs/plans/2026-07-vm-p4-es-language-completeness.md`), which name the file each carved section is
+
+@ docs/plans/2026-07-vm-p4-slice-0a-landing-record.md:17
+- umbrella's two other carve-outs.
++ in; the rest of the umbrella's sections are in the entry.
+
+@ docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:5
+- in the umbrella's §5
++ in the umbrella's §5; the umbrella's second split (at `39cc365a`) moved that passage to `docs/plans/2026-07-vm-p4-touch-time-split-record.md`, and "pre-split" below still means before the first split
+
+@ docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:9
+- **Scheduling stays in the umbrella.**
++ **Scheduling stays in the umbrella family.**
+
+@ docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:14
+- in this file refers to the **umbrella**, except: `§§10-15`
++ in this file names that section of the umbrella family,
+
+@ docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:15
+- are in `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md` and `§§16-18` are in
++ located through the carved-out stubs of the entry (`docs/plans/2026-07-vm-p4-es-language-completeness.md`),
+
+@ docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:16
+- `docs/plans/2026-07-vm-p4-slice-0a-landing-record.md`, the umbrella's two other carve-outs.
++ which name the file each carved section is in; the rest of the umbrella's sections are in the entry.
+
+@ docs/plans/2026-07-vm-p4-umbrella-review-rounds.md:5
+- in the umbrella's §5
++ in the umbrella's §5; the umbrella's second split (at `39cc365a`) moved that passage to `docs/plans/2026-07-vm-p4-touch-time-split-record.md`, and "pre-split" below still means before the first split
+
+@ docs/plans/2026-07-vm-p4-umbrella-review-rounds.md:16
+- refers to the **umbrella**, except: `§6` is in
++ names that section of the umbrella family, located through the
+
+@ docs/plans/2026-07-vm-p4-umbrella-review-rounds.md:17
+- `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` and `§§16-18` are in
++ carved-out stubs of the entry (`docs/plans/2026-07-vm-p4-es-language-completeness.md`), which name
+
+@ docs/plans/2026-07-vm-p4-umbrella-review-rounds.md:18
+- `docs/plans/2026-07-vm-p4-slice-0a-landing-record.md`, the umbrella's two other carve-outs.
++ the file each carved section is in; the rest of the umbrella's sections are in the entry.
+
+@ docs/plans/2026-08-plan-memo-umbrella-checker.md:663
+- main memo line 2716
++ main memo line 2716 at `39cc365a`
+
+@ CLAUDE.md:54
+- (`scripts/trip-wires.sh` の `REQUIRED_WIRES` には登録しない)。
++ (`scripts/trip-wires.sh` の `REQUIRED_WIRES` には登録しない)。例外は VM-P4 family (`docs/plans/2026-07-vm-p4-*.md`) で、その layout guard `docs/plans/test_vm_p4_family_layout.py` が checker を library として import し、population と schema table の置き場所を pin する test として同じ `tools` job で走る (memo 実行そのものではなく、checker の presence rule を締めるものでもない)。guard の前提 `misses == []` により、family の memo に checker が rc 2 を出す欠陥があれば (header drift に限らず、行幅・未解決 reference 等の内容欠陥も) `tools` job が赤になる。memo 編集で `tools` job が赤になる経路は、上記 `symbol_attribution_control` (全 `docs/plans/*.md`) とこの guard (VM-P4 family のみ) の 2 つ。
+
+@ CLAUDE.md:55
+- を編集したら
++ を編集したら (carve-out された family memo `docs/plans/2026-07-vm-p4-*.md` のどれを編集した場合も、entry であるこの memo に対して)
+- 2 は memo の table header が checker の SCHEMAS とずれた = 未走査 (clean ではない)。
++ 2 は未走査 (clean ではない。原因は table header と checker の SCHEMAS のずれに限らず、checker が miss として報告する欠陥すべて)。family の構造を変える編集 (memo の追加・削除、schema table の別 memo への移動・追加) は `docs/plans/test_vm_p4_family_layout.py` の pin を同 commit で更新する。family 外の `.md` への相対リンクで guard が赤になったら、原則はそのリンクを外す (path を backtick で書けば辺にならない)。family を広げるなら guard の `FAMILY` と、この行と上の行の glob `docs/plans/2026-07-vm-p4-*.md` を同 commit で更新する。schema の pin が長さ 1 の間は、その schema の header drift で checker 自身が rc 2 を出す。pin を長さ 2 以上にしても drift は guard (ii) が `tools` job で赤にするが、checker の手動実行は rc 0 を返し得る (drift した table の行に kind phrase が無い場合) — 長さ 2 以上で手放すのは checker 単体での検出であって、`tools` job の赤ではない。
+```
 
 "The 2 routes" on :54 is measured, not asserted: the tracked `.py` files that read `docs/plans` at run
 time are found by `git grep -nE "docs/plans|['\"]plans['\"]" -- '*.py'` at `08a2a68c` — every hit is a
@@ -540,9 +678,11 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
 
 **Commit order in the split PR.**
 
-1. **Content-free commit**: the five children (heads per §1.4), the entry's 59 relinks, the four new
+1. **Content-free commit**: the five children (heads per §1.4), the entry's 58 relinks, the four new
    stubs. Checks, all from the repository root:
-   - C10 and C1: §2.1's script with `<c1>` → `base 39cc365a ok; moved 2296 kept 797 non-stub diffs 0`;
+   - C10, C1 and C4's second half: §2.1's script with `<c1>` →
+     `base 39cc365a ok; moved 2296 kept 797 stubs 4 links 5 entry = kept + stubs` (stub text, the five
+     links and stub order = original section order are part of its byte compare);
    - C2, the relink census at the real head — every `[§N](<child>.md)` on a **kept** line, as
      (`<c1>^` line, label, target), counted against §3's row:
 
@@ -554,30 +694,36 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
 
      where `relink_census.py` is `vm-p4-artifacts/split-sim/r2-relink-census.py` (§2.1's link regex
      and kept/moved partition; it maps each `equal` block of the kept-vs-undone diff back to its
-     `<c1>^` line and lists the link tokens there). Expected — measured on the production-form clone:
-     `relinks 59 lines 52`; `§4 -> design-invariants 1`, `§5 -> slice-plan 25`,
-     `§5 -> touch-time-split-record 1` (line `[2318]`), `§8 -> slot-ledger 18`, `§9 -> open-decisions 14`;
-   - C4's second half: each of the four new stubs carries its link(s) in the §1.2 form (five links);
+     `<c1>^` line and lists the link tokens there). Expected — measured at the production-form `<c1>`:
+     `relinks 58 lines 51`; `§5 -> slice-plan 25`, `§5 -> touch-time-split-record 1` (line `[2318]`),
+     `§8 -> slot-ledger 18`, `§9 -> open-decisions 14`; no `§4` line (the exclusion);
    - C6: §2.2's commit-(1) prediction holds (after the baseline check of §2.2).
-2. **Pointer commit**: the three existing stub links (§1.2), the three existing head re-points, the
-   checker-plan `:663` anchor, CLAUDE.md:54 and :55 (drafts above), and the guard
+2. **Pointer commit**: every line edit of §3's edit spec (the three existing stub links, the three
+   existing heads, the checker-plan `:663` anchor, CLAUDE.md:54 and :55) and the guard
    `docs/plans/test_vm_p4_family_layout.py` (§1.5). Checks:
-   - `git diff --numstat <c1> <c2>` shows exactly: the entry `3 3`, each of the three carve-outs
-     `1 1`, the checker plan `1 1`, CLAUDE.md `2 2`, `docs/plans/test_vm_p4_family_layout.py` `N 0`
-     (80 for the scratch text), nothing else (measured on the production-form clone);
-   - every changed line is its `<c1>` line plus the specified insertion and nothing else:
-     `python3 c2_edits.py <c1> <c2>` (`vm-p4-artifacts/split-sim/r2-c2-edits.py`) asserts the set of
-     changed files, an unchanged line count per file, and for each changed line of the entry, the
-     carve-outs and the checker plan that it equals `old.replace(anchor, anchor + insertion, 1)` for
-     exactly one of the specified (anchor, insertion) pairs, each pair used once — the real-head form
-     of `sim2.py`'s `assert p in E[j]`; for CLAUDE.md (free text) it asserts two changed lines whose
-     character diff is insertions only, and prints the insertions for review against the drafts.
-     Measured on the production-form clone, verified 2026-10-31: `c2 edits ok: 6 files edited + 1 new`;
+   - every changed line is a line the edit spec names and equals its `<c1>` line with the spec's
+     substitutions applied, byte for byte — CLAUDE.md included, with :54 and :55 asserted as the
+     lines; no other line or file changes; line counts are unchanged; the guard is new and equals its
+     production text: `python3 c2_edits.py <c1> <c2> docs/plans/2026-10-vm-p4-memo-seam-split.md
+     docs/plans/test_vm_p4_family_layout.py` (`vm-p4-artifacts/split-sim/r3/c2_edits.py`; in the
+     split PR the last argument is the file as committed, so the guard clause reduces to "new").
+     Measured at the production-form heads, verified 2026-10-31: `c2 edits ok: 6 files, 20 lines, 21 substitutions; guard
+     new, byte-equal`, and `git diff --numstat <c1> <c2>`: CLAUDE.md `2 2`, entry `3 3`,
+     `slice-0a…` `5 5`, `slice-1a-1b…` `5 5`, `…-rounds` `4 4`, checker plan `1 1`, guard `92 0`.
+     Negative controls (`r3/c2-controls.sh`, output `r3/c2-controls.txt`): one character changed in
+     the :55 replacement, one extra edited line in a carve-out head, a head edit moved to the next
+     line — each rc 1;
    - the checker output at `<c2>` byte-identical to `<c1>`'s (§2.2);
    - the guard green (`python3 -m unittest docs/plans/test_vm_p4_family_layout.py`);
    - checker `--self-test`: `all controls behaved as declared.` (the guard is outside the checker's
      directory, so `registry_membership_control` stays green — §1.5);
-   - `mise run tools-test` green, with `root docs/plans (1 member(s))` in its output.
+   - `mise run tools-test` green, with `root docs/plans (1 member(s))` in its output;
+   - the `tools` job timeout (`ci.yml`, the job's "Timeout" comment: a PR that adds suite cost
+     re-derives `timeout-minutes` in the same PR from its own run, the slower leg bounding the job):
+     the split PR reads its own run's slower leg with the comment's `gh run view` command and writes
+     one line in its description — the guard's cost (measured locally: `Ran 2 tests in` 1.6-1.9 s, 1.8-2.1 s wall, at load average ≈ 60 — the split PR states its own figure), the leg's duration,
+     and whether the 22-minute value keeps the comment's margin (re-derive when a run measures under
+     2x). `ci.yml` changes only if that margin is lost.
 
 ## §4. §5 ↔ §8 row naming after the split
 
@@ -594,32 +740,21 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
 
 ## §5. What plan-review should focus on
 
-1. **The guard's placement against the checker's membership control (top focus, R2 CRIT).** §1.5
-   moves the guard from `.claude/tools/` to `docs/plans/test_vm_p4_family_layout.py` and argues that
-   this is not a way around `registry_membership_control`: the control's subject is checker code the
-   self-test would not run, recognised by sitting in the checker's directory; the guard is a consumer
-   that the population does not import, that changes no checker output and no self-test row, and
-   whose own run the suite driver guarantees (steps 2, 4, 5). Review that argument against the
-   control's docstring and the registry's threat model, the two rejected placements ((b) a population
-   member, (c) a subdirectory of `.claude/tools/`), and the production-form measurements (self-test
-   all as declared, `python-suites` GREEN with the `docs/plans` root, the R1 placement reproduced
-   red).
-2. The S0 checker contract is **settled** by PM judgments 52, 61 and 70 and by #562; not in scope.
-   In scope: the rest of the guard (§1.5) as the thing that keeps §1.3's "drift is rc 2" and §1.2's
-   "every child is a member" true after the split — the `setUp` precondition and the two assertions,
-   which edits move them (a link out of the family is structural; any checker miss is red), the
-   length-one pin as the drift guarantee and the docstring's statement of what a longer pin gives up,
-   and §1.3's per-schema scope of the silent case (`citation` silent, `stub` one row away).
-3. §2.0 — whether the ten invariants are the right set (C10 base revision is new at R2) and each
-   intersection line is right; in particular C1 × C8 and C6 × C8 (commit (2) edits kept lines and
-   must not move the output), C4 × C9 (the guard keeps membership, not the stub edge), and the
-   CLAUDE.md:54 exception drafted in §3.
-4. §1.2 — the one stub form, applied to the three existing stubs in commit (2).
-5. §1.2 — the cohesive-unit exemption for `slice-plan.md` (1117), against the three candidate cuts.
-6. §1.2 — is the 2124-2314 tail a real seam, given it closes with the `Intl`/`Atomics` paragraph
-   (2306-2311) that is about §8 rather than file size?
-7. §3 — the "entry links, carve-outs stay verbatim" rule; whether 30 moved `<this file>` commands are
-   adequately disarmed by a head declaration (§1.4).
+R3 passed the gate (CRIT 0 / IMP 0); this revision applies its MINs, and a re-review covers the changed
+parts only:
+
+1. **§2.1** — the proof now admits no free insertion (entry = kept + the four §1.2 stubs, byte-exact,
+   links and order included); its controls table, three of which R2's proof passed.
+2. **§3** — the edit spec as the single home of commit (2)'s text, and `c2_edits.py` comparing
+   against it byte for byte; the existing heads' reading-rule rewrite (the list of what becomes false,
+   and the claim that nothing else in the heads does); CLAUDE.md :55's rc-2 clause replaced; the
+   relink count corrected to 58 with one named exclusion (7's `§4`, a memory file's section), which
+   also changes §1.2/§1.3's edge accounting for `design-invariants.md`.
+3. **§1.3 / §1.5 / CLAUDE.md :55** — the drift guarantee stated by layer (checker rc 2 at pin length
+   one; `tools` red at any length through (ii)); the sorted compare; the remedy for a red (i).
+4. **§1.5** — the rewritten (c) rejection (from the control's reach) and the precedents paragraph
+   ("first CI suite member under `docs/`"); the `tools` timeout rule as a split-PR check.
+5. §7 — the container-aware definition count.
 
 ## §6. Discharge, ledger, and hand-off
 
@@ -633,48 +768,44 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
 ## §7. Spec coverage map
 
 **No web spec is implemented.** The split moves Markdown text and changes no behaviour. It depends
-on outside rules in three places, each a row below. Which destination is a sibling decides the
-checker's population — the WHATWG URL Standard's parser decides that a destination has no scheme, and
-the rest is the checker's local policy (the checker plan's §3 row on `plan_memo_sibling.sibling_path`,
-`docs/plans/2026-08-plan-memo-umbrella-checker.md:434` at `a45a42d1`, says CommonMark and GFM say
-nothing about siblings on disk). Which text is a link, and which is masked as code, is CommonMark.
-Whether a schema table still is a table is GFM. URL Standard numbers and names are webref lookups
-(`.claude/tools/webref heading url 4.4 --exact` → §4.4 URL parsing `#url-parsing`; `heading url 1.3
---exact` → §1.3 Percent-encoded bytes; `dfn url 'scheme start state'` → §4.4 `#scheme-start-state`;
-`dfn url percent-decode` → §1.3 `#string-percent-decode`). CommonMark 0.31.2 / GFM 0.29 numbers are
-the ones the checker plan cites, per row, at `a45a42d1` (file identical at `08a2a68c`): §6.3 Links
-`:409`, `:411`, `:573`; §4.7 Link reference definitions `:412`, `:505`; §6.1 Code spans `:413`, `:571`;
-§4.2 ATX headings `:500`; §6.5 Autolinks `:575`; GFM §4.10 Tables `:415-417`, `:510`; the WHATWG URL
-row `:434`. Webref has no CommonMark or GFM
-extract, and the vendored `.claude/tools/commonmark-0.31.2-{block,inline}-examples.json` carry
-section **names** only — Link reference definitions, Code spans, Links, Autolinks all appear there
-under those names.
+on outside rules in three places. Which destination is a sibling decides the checker's population —
+the WHATWG URL Standard's parser decides that a destination has no scheme, and the rest is the
+checker's local policy (the checker plan's §3 row on `plan_memo_sibling.sibling_path`, `:434`, says
+CommonMark and GFM say nothing about siblings on disk). Which text is a link, and which is masked as
+code, is CommonMark 0.31.2; whether a schema table still is a table is GFM 0.29. URL Standard numbers
+and names are webref lookups (`.claude/tools/webref heading url 4.4 --exact` → §4.4 URL parsing
+`#url-parsing`; `heading url 1.3 --exact` → §1.3 Percent-encoded bytes; `dfn url 'scheme start
+state'` → §4.4 `#scheme-start-state`; `dfn url percent-decode` → §1.3 `#string-percent-decode`).
+Webref has no CommonMark or GFM extract: their section numbers are the ones the checker plan's §3
+cites for the same rule (the provenance column of the table below); the vendored
+`.claude/tools/commonmark-0.31.2-{block,inline}-examples.json` carry section **names** only, and Link
+reference definitions, Code spans, Links and Autolinks all appear there under those names.
 
 | Spec section | Step | Branch | Touch | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG URL §4.4 URL parsing | scheme start state (`#scheme-start-state`), then **local policy** | every new destination begins `2026-…`: step 1 needs an ASCII alpha, so step 2 → *no scheme state* and the destination is relative; the rest is the checker's local policy (checker plan `:434`): relative on every platform, `.md`, joined beside the memo — all new destinations are bare file names in the same directory | `plan_memo_sibling.sibling_path` stages (a), (c)-(e) → `Population.__init__` | ✓ one destination shape (§3) | no |
+| WHATWG URL §4.4 URL parsing | scheme start state (`#scheme-start-state`), then **local policy** | every new destination begins `2026-…`: step 1 needs an ASCII alpha, so step 2 → *no scheme state* and the destination is relative; the rest is the checker's local policy (checker plan `:434`): relative on every platform, `.md`, joined beside the memo — all new destinations are bare file names in the same directory | `plan_memo_sibling.sibling_path` stages (a), (c)-(e) → `Population.__init__` (checker plan `:434`) | ✓ one destination shape (§3) | no |
 | WHATWG URL §1.3 Percent-encoded bytes | percent-decode on a string (`#string-percent-decode`) | no new destination contains `%`; decoding is the identity | `plan_memo_sibling.sibling_path` stage (b) | ✓ | no |
-| CommonMark §6.3 Links | inline link, relative `.md` destination | new: the 59 relinks (commit (1)), the five new stub links (commit (1)), the three existing stub links (commit (2)) — each an edge | `Memo.linked_files()` → `Population.__init__` (BFS) | ✓ one form: same directory, no fragment, no title | no |
+| CommonMark §6.3 Links | inline link, relative `.md` destination | new: the 58 relinks (commit (1)), the five new stub links (commit (1)), the three existing stub links (commit (2)) — each an edge | `Memo.linked_files()` → `Population.__init__` (BFS) (checker plan `:409`, `:411`, `:573`) | ✓ one form: same directory, no fragment, no title | no |
 | CommonMark §6.3 Links | inline link, relative `.md` destination | existing: the 84 links to the three carve-outs (P 11, moved 73), text unchanged | resolve from the new files (same directory) | ✓ counted in §3 | no |
 | CommonMark §6.3 Links | not a link | a bare `§N` and a bare file name have no destination and add no edge (§0) — so a stub's backticked path alone would not keep its file in the population, and the heads' backticked plan path adds none | §1.2 stub link; §1.4 | ✓ | no |
-| CommonMark §4.7 Link reference definitions | definition | the umbrella at `39cc365a` has **0** definitions, so no reference link resolves in it and none can cross a file boundary (a definition is matched within its own document): `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md \| /usr/bin/grep -cE '^ {0,3}\[[^]]+\]:'` → 0 (the `][` sequences — 11 lines, 14 occurrences: `/usr/bin/grep -c '\]\['` → 11, `/usr/bin/grep -o '\]\[' \| wc -l` → 14 — are all inside code spans or fences) | — | ✓ | no |
+| CommonMark §4.7 Link reference definitions | definition | the umbrella at `39cc365a` has **0** definitions, so no reference link resolves in it and none can cross a file boundary (a definition is matched within its own document): `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md \| /usr/bin/grep -cE '^ {0,3}\[[^]]+\]:'` → 0, and with block-quote and list-item containers admitted (a definition inside a block quote registers — checker plan `:505`): `/usr/bin/grep -cE '^[ >*+-]*([0-9]+[.)] *)?\[[^]]+\]:'` → 0 on the same blob and on each of the nine family files at the production-form `<c2>` (the `][` sequences — 11 lines, 14 occurrences: `/usr/bin/grep -c '\]\['` → 11, `/usr/bin/grep -o '\]\[' \| wc -l` → 14 — are all inside code spans or fences) | checker plan `:412`, `:505` | ✓ | no |
 | CommonMark §6.5 Autolinks | `<…>` URI autolink | an autolink's URI is absolute — a scheme of 2-32 characters, then `:` — so a relative `.md` destination can never be one. Measured in that form: same blob `\| /usr/bin/grep -cE '<[A-Za-z][A-Za-z0-9.+-]{1,31}:[^<> ]*>'` → 0, and the simulated heads and stubs (§2.2) and the relinks add no `<`. Independently, the checker lexes an autolink and masks it whole (checker plan `:575`, row §6.5), so even one would add no edge | — | ✓ | no |
-| CommonMark §6.1 Code spans | relink exclusion | a `§N` inside a code span stays verbatim (4, all in PLAN); a backticked path is a code span, not a link | §3 relink rule; §2.1's link-undo regex reverses exactly the relink form | ✓ | no |
-| CommonMark §4.2 ATX headings | heading line, then **local policy** | a heading's text is inline content to CommonMark; that a `§N` in a heading line is **not relinked** is §3's own count rule (local policy), not a consequence of §6.1 | §3 | ✓ | no |
-| GFM §4.10 Tables | recognition (header row + delimiter row) | the four schema tables move verbatim, so each header still matches its `SCHEMAS` entry; a drifted header makes a non-schema table (#562 Known remainder (ii)), which is rc 2 only through presence or an unbound kind claim (§1.3) | `plan_memo_tables.SCHEMAS`, `Memo.tables`; guard (ii) | ✓ four tables, one memo each (§1.3) | no |
+| CommonMark §6.1 Code spans | relink exclusion | a `§N` inside a code span stays verbatim (4, all in PLAN); a backticked path is a code span, not a link | §3 relink rule; §2.1's link-undo regex reverses exactly the relink form (checker plan `:413`, `:571`) | ✓ | no |
+| CommonMark §4.2 ATX headings | heading line, then **local policy** | a heading's text is inline content to CommonMark; that a `§N` in a heading line is **not relinked** is §3's own count rule (local policy), not a consequence of §6.1 | §3 (checker plan `:500`) | ✓ | no |
+| GFM §4.10 Tables | recognition (header row + delimiter row) | the four schema tables move verbatim, so each header still matches its `SCHEMAS` entry; a drifted header makes a non-schema table (#562 Known remainder (ii)), which is rc 2 only through presence or an unbound kind claim (§1.3) | `plan_memo_tables.SCHEMAS`, `Memo.tables`; guard (ii) (checker plan `:415-417`, `:510`) | ✓ four tables, one memo each (§1.3) | no |
 | GFM §4.10 Tables | cell content | the cells that name rows of the other table (§4: 43 §5 `Slot` cells, 24 §8 `Trigger` cells) are not edited; no per-cell link | §4 | ✓ | no |
 
 
 This memo's own checks are not spec rows and are not counted in K or M:
 
 - **§2.1 byte proof** (commit (1)): each child = its range; the entry, relinks undone = kept lines +
-  stub-only insertions; negative controls on both sides.
+  exactly the four §1.2 stubs, byte-exact with links, in section order; six negative controls.
 - **§2.2 checker output** (both heads): rc, the four counts and the footer compared; commit (2)
   byte-identical to commit (1).
 - **§1.5 family guard**: precondition `misses == []` in `setUp`; (i) population = the nine memos;
   (ii) one table per schema, in the pinned memo, with the `SCHEMAS` keys pinned.
-- **§3 step 1 / step 2 checks**: the relink census (59 on 52 lines, per target) and the commit-(2)
-  kept-line insertion check.
+- **§3 step 1 / step 2 checks**: the relink census (58 on 51 lines, per target) and the commit-(2)
+  check against the edit spec (byte-exact, CLAUDE.md included).
 
 **Breadth**: K=3 (WHATWG URL, CommonMark 0.31.2, GFM 0.29), M=11.
 **Split decision**: one PR, two commits (§3). The edge-dense trigger (PM judgment 47) is met by this
