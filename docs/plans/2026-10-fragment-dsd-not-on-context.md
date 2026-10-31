@@ -22,6 +22,15 @@ cite in the files it edits instead of handing them off (§5.2); DoD greps cover 
 `elidex-ecs` release control restored and the `begin_detached_fragment` doc corrected (§1.2); the reuse slot text
 gains the shadow-host ordering constraint (§7).
 
+**Rev 5** (2026-11-01) — post-implementation correction (PR 1): `unsupported_fragment_construct` had no caller other
+than the declarative-shadow decline (foreign contexts already parse natively), so PR 1 deletes it.
+PR 1 (code-review) also makes strict stamp fragment-parse template content fragments with the context's node document
+(`None` for a documentless context) instead of the throwaway document; that stamp dangled when the adopt is skipped,
+and tolerant already did this (§4.2). The change is outside the plan's original scope (PM ratification requested).
+It also makes strict's `noscript` fragment context switch to RAWTEXT only when scripting is enabled (HTML §13.4 "set
+the state of the tokenization stage": otherwise the data state is kept); this was unconditional before (PM
+ratification requested).
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 The decision: this reverses a ratified reading
@@ -137,8 +146,8 @@ document explicitly.)
   doc (`lib.rs:39-40`) and `parse_fragment_progressive`'s doc already claim it; they become true.
 - **I2 (hostIsRoot)**: a `<template shadowrootmode>` whose current node is the topmost stack element becomes a plain
   template with its content fragment, in both backends.
-- **I3 (strict-native)**: strict never declines because of a declarative template; the fragment decline remains for a
-  non-HTML-namespace context only.
+- **I3 (strict-native)**: strict never declines because of a declarative template; strict has no fragment decline left for
+  this construct (Rev 5).
 - **I4 (nested unchanged)**: a template whose current node is not topmost attaches to it, or is plain when the attach
   fails, as today (tolerant caveat in §7).
 
@@ -171,8 +180,8 @@ concept-attach-a-shadow-root`, `valid-shadow-host-name`, `dom-element-attachshad
 In `template_start_tag` (`shadow.rs`), delete the `is_fragment() && len == 1` decline. The gate becomes "allow, valid
 `shadowrootmode`, and `open_elements.len() > 1`" (hostIsRoot ⇔ one stack element, since the current node is the
 bottom and the topmost is the first). Everything else takes the ordinary-template arm, which attaches the content
-fragment. `parse_fragment_strict` returns `Ok`; no fallback. `unsupported_fragment_construct` stays (foreign context);
-its doc (`tree_builder/mod.rs:480-487`) drops the DSD-on-context clause.
+fragment. `parse_fragment_strict` returns `Ok`; no fallback. `unsupported_fragment_construct` is deleted (Rev 5: no
+other caller).
 
 ### §4.2 Tolerant
 
@@ -238,8 +247,9 @@ Unchanged, checked: strict `tests_fragment.rs:282`, `:449`, strict `tree_builder
 Audit method (2026-10-31, `e44ffce6`): P1 `git grep -n -E "13\.2\.6\.4\.4 steps? [0-9]" -- crates` = 12 hits, all
 in scope; P2 `git grep -n -E "13\.4 step 6|carries step 6" -- crates` = 3, all in scope; P3 `git grep -n -P
 "[Ss]teps? \d+"` over strict `lib.rs`, `tree_builder/mod.rs`, `tree_builder/tests_fragment.rs` = 36 (4 / 16 / 16), of
-which 34 are in scope (every template-start-tag and §13.4 step cite) and 2 cite other algorithms (`lib.rs:22`,
-`tests_fragment.rs:79` §13.2.4.1); P4 `git grep -n -P "[Ss]teps? (4-5|6-7|6-9|9|10)(\.\d+)*(/\d+(\.\d+)*)?(?!\d)"`
+which 34 are in scope (every template-start-tag and §13.4 step cite) and 2 cite other algorithms (the
+`lib.rs` "timing steps 5 / 7" line under §13.2.7 "The end", and the `tests_fragment.rs` line citing §13.2.4.1 step 4
+"td/th && last is false"); P4 `git grep -n -P "[Ss]teps? (4-5|6-7|6-9|9|10)(\.\d+)*(/\d+(\.\d+)*)?(?!\d)"`
 over strict `shadow.rs` = 11, all in scope (the `</template>` end tag's "Step 1"–"Step 6" do not match and are a
 different algorithm); P5 `git grep -n -P "§13\.4 steps? \d" -- crates/core/elidex-ecs/src/dom/tree/teardown.rs` = 2
 (PR 0b, §1.2). Plus line-wrapped cites found by reading (`mod.rs:87-88`, `shadow.rs:69-70`; `tests_fragment.rs:602`
@@ -323,9 +333,9 @@ rewriting as a recorded spec deviation with a re-check date.
 - These return nothing: `git grep -n -E "DSD-on-context|attaches_to_context|fragment-context-declarative-shadow|strict-fragment-declarative-shadow-on-context" -- crates`;
   `git grep -n -E "13\.2\.6\.4\.4 steps? [0-9]|13\.4 step 6|carries step 6" -- crates`; P4 over `shadow.rs`;
   `git grep -n -P "§13\.4 steps? \d" -- crates/core/elidex-ecs/src/dom/tree/teardown.rs`. P3 over strict `lib.rs`,
-  `tree_builder/mod.rs`, `tests_fragment.rs` returns exactly the 2 other-algorithm lines (`lib.rs:22`,
-  `tests_fragment.rs:79`). The line-wrapped sites are checked by reading: `mod.rs:87-88`, `shadow.rs:69-70`,
-  `tests_fragment.rs:602`.
+  `tree_builder/mod.rs`, `tests_fragment.rs` returns exactly the 2 other-algorithm lines (the `lib.rs`
+  "timing steps 5 / 7" line under §13.2.7 and the `tests_fragment.rs` §13.2.4.1 line). The line-wrapped sites are
+  checked by reading: `mod.rs:87-88`, `shadow.rs:69-70`, `tests_fragment.rs:602`.
 - Ledger closure text: "~~`#11-strict-fragment-declarative-shadow-on-context`~~ ✅ CLOSED #NNN `<sha>` — fragment
   top-level `<template shadowrootmode>` is a plain template in both backends (WHATWG HTML §13.2.6.4.4 template start
   tag: host = current node; hostIsRoot → regular template); strict handles it natively; #337's DSD-on-context

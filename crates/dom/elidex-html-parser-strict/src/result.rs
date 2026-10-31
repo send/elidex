@@ -92,18 +92,21 @@ impl fmt::Debug for ParseResult {
 ///
 /// The `allow_declarative_shadow` flag selects between plain `innerHTML`
 /// (no shadow attach) and HTML §4.12.3 `<template shadowrootmode>` /
-/// DOM §4.9 attach-a-shadow-root semantics (where the template becomes
-/// a shadow root attached to the parent host).
+/// DOM §4.9 attach-a-shadow-root semantics (where a nested template becomes
+/// a shadow root attached to its parent element; a top-level one, directly
+/// under the fragment root, stays a plain template: hostIsRoot).
 ///
 /// The compat crate (`elidex-html-parser`) re-exports this type via the
 /// facade, so caller import paths stay compatible.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct ParseFragmentOptions {
     /// When true, `<template shadowrootmode="open|closed">` children
-    /// are interpreted as declarative shadow root markup. The parent
-    /// receives a freshly-attached shadow root whose children come
-    /// from the template's content, and the `<template>` element
-    /// itself is discarded.
+    /// are interpreted as declarative shadow root markup. A nested
+    /// template's parent element receives a freshly-attached shadow root
+    /// whose children come from the template's content, and the
+    /// `<template>` element itself is discarded. A top-level template
+    /// (directly under the fragment root) stays a plain `<template>`
+    /// (hostIsRoot), so the context never gets a shadow root.
     ///
     /// Spec references: HTML `§4.12.3` (`shadowrootmode` attribute
     /// trigger) and DOM `§4.9` "attach a shadow root" algorithm.

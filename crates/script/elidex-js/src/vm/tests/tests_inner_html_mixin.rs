@@ -147,43 +147,70 @@ fn shadow_root_inner_html_set_replaces_shadow_children() {
 }
 
 #[test]
-fn element_set_html_unsafe_parses_template_shadowrootmode_as_shadow_root() {
-    // Declarative shadow root attaches via setHTMLUnsafe (HTML §8.5.2).
-    // `firstElementChild` reaches ShadowRoot via the ParentNode mixin
-    // installed on `DocumentFragment.prototype`.
+fn element_set_html_unsafe_top_level_template_stays_plain() {
+    // The template start tag (HTML §13.2.6.4.4): declarativeShadowHostElement
+    // is the current node, and hostIsRoot (the fragment root also has a
+    // redirection-map entry) makes a top-level `<template shadowrootmode>` a
+    // regular template: setHTMLUnsafe (HTML §8.5.2) never attaches a shadow
+    // root to the context element.
     let out = run(
         "var host = document.createElement('div'); \
          document.body.appendChild(host); \
          host.setHTMLUnsafe('<template shadowrootmode=\"open\"><p>x</p></template>'); \
-         (host.shadowRoot !== null && host.shadowRoot.firstElementChild && host.shadowRoot.firstElementChild.tagName === 'P') \
-             ? 'ok' : ('fail:' + (host.shadowRoot === null ? 'no-shadow' : host.shadowRoot.innerHTML));",
+         (host.shadowRoot === null && host.firstChild && host.firstChild.tagName === 'TEMPLATE' \
+            && host.firstChild.content.firstElementChild \
+            && host.firstChild.content.firstElementChild.tagName === 'P') \
+             ? 'ok' : ('fail:' + (host.shadowRoot === null ? 'no-shadow' : 'shadow') + ':' + host.innerHTML);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_set_html_unsafe_parses_nested_template_shadowrootmode_as_shadow_root() {
+    // Declarative shadow root attaches to a *nested* host via setHTMLUnsafe
+    // (HTML §8.5.2): the `<div>` is the current node at the template start
+    // tag, so hostIsRoot is false. `firstElementChild` reaches ShadowRoot via
+    // the ParentNode mixin installed on `DocumentFragment.prototype`.
+    let out = run(
+        "var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         host.setHTMLUnsafe('<div><template shadowrootmode=\"open\"><p>x</p></template></div>'); \
+         var inner = host.firstChild; \
+         (host.shadowRoot === null && inner && inner.shadowRoot !== null \
+            && inner.shadowRoot.firstElementChild && inner.shadowRoot.firstElementChild.tagName === 'P') \
+             ? 'ok' : ('fail:' + (inner && inner.shadowRoot === null ? 'no-shadow' : inner && inner.shadowRoot.innerHTML));",
     );
     assert_eq!(out, "ok");
 }
 
 #[test]
 fn element_set_html_unsafe_closed_mode_hides_shadow_root_from_getter() {
-    // Closed declarative shadow root attaches but is opaque to
-    // `element.shadowRoot` per §4.8 encapsulation.
+    // Closed declarative shadow root (on a nested host) attaches but is
+    // opaque to `element.shadowRoot` per §4.8 encapsulation. The template is
+    // consumed (not left as a light child), which distinguishes this from a
+    // plain template.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
-         host.setHTMLUnsafe('<template shadowrootmode=\"closed\"></template>'); \
-         host.shadowRoot === null ? 'ok' : 'fail';");
+         host.setHTMLUnsafe('<div><template shadowrootmode=\"closed\"></template></div>'); \
+         var inner = host.firstChild; \
+         (inner.shadowRoot === null && inner.firstChild === null) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
 #[test]
 fn element_set_html_unsafe_on_host_with_existing_shadow_does_not_reattach() {
-    // B1 silent fallback: a second declarative shadow attach on the same
-    // host is rejected by `attach_shadow` and the existing shadow is
-    // preserved; the template lands as a normal child.
+    // hostIsRoot: no attach is attempted for a top-level template, so
+    // setHTMLUnsafe on a host with an existing shadow root leaves that shadow
+    // alone (the context is never mutated) and the template is a plain light
+    // child of the host.
     let out = run(
         "var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var first = host.attachShadow({mode: 'open'}); \
          first.appendChild(document.createElement('span')); \
          host.setHTMLUnsafe('<template shadowrootmode=\"open\"><p>x</p></template>'); \
-         (host.shadowRoot === first && host.shadowRoot.firstChild && host.shadowRoot.firstChild.tagName === 'SPAN') \
+         (host.shadowRoot === first && host.shadowRoot.firstChild && host.shadowRoot.firstChild.tagName === 'SPAN' \
+             && host.firstChild && host.firstChild.tagName === 'TEMPLATE') \
              ? 'ok' : 'fail';",
     );
     assert_eq!(out, "ok");
@@ -193,15 +220,15 @@ fn element_set_html_unsafe_on_host_with_existing_shadow_does_not_reattach() {
 fn element_set_html_unsafe_template_shadowroot_attrs_parse_as_booleans() {
     // Boolean attribute convention — value is irrelevant once the
     // attribute is present.  Verify all three optional boolean attrs
-    // round-trip into the ShadowRoot init fields.
+    // round-trip into the ShadowRoot init fields (nested host).
     let out = run(
         "var host = document.createElement('div'); \
          document.body.appendChild(host); \
-         host.setHTMLUnsafe('<template shadowrootmode=\"open\" \
+         host.setHTMLUnsafe('<div><template shadowrootmode=\"open\" \
                                        shadowrootdelegatesfocus \
                                        shadowrootclonable \
-                                       shadowrootserializable></template>'); \
-         var sr = host.shadowRoot; \
+                                       shadowrootserializable></template></div>'); \
+         var sr = host.firstChild.shadowRoot; \
          (sr.delegatesFocus === true && sr.clonable === true && sr.serializable === true) \
              ? 'ok' : ('fail:df=' + sr.delegatesFocus + ':cl=' + sr.clonable + ':sr=' + sr.serializable);",
     );
@@ -641,18 +668,25 @@ fn element_get_html_no_args_uses_default_dict_excludes_shadows() {
 fn element_get_html_round_trip_with_set_html_unsafe() {
     // Round-trip discriminator: getHTML output passed back to
     // setHTMLUnsafe must reattach an equivalent declarative shadow
-    // root (HTML §13.5 serialization → §4.12.3 `<template shadowrootmode>` parser hook).
+    // root (HTML §13.3 serialization → §4.12.3 `<template shadowrootmode>`
+    // parser hook) when placed under a parent: a top-level template is plain
+    // (hostIsRoot), so the round trip needs a wrapper element as the host.
     let out = run(
         "var src = document.createElement('div'); \
          document.body.appendChild(src); \
          var srA = src.attachShadow({mode: 'open', serializable: true}); \
          srA.appendChild(document.createElement('p')); \
          var html = src.getHTML({serializableShadowRoots: true}); \
+         var wrap = document.createElement('div'); \
+         document.body.appendChild(wrap); \
+         wrap.setHTMLUnsafe('<div>' + html + '</div>'); \
+         var host = wrap.firstChild; \
          var dst = document.createElement('div'); \
          document.body.appendChild(dst); \
          dst.setHTMLUnsafe(html); \
-         (dst.shadowRoot !== null && dst.shadowRoot.firstChild && dst.shadowRoot.firstChild.tagName === 'P') \
-             ? 'ok' : ('fail:html=' + html + ':shadow=' + (dst.shadowRoot === null ? 'no' : 'yes'));",
+         (host.shadowRoot !== null && host.shadowRoot.firstChild && host.shadowRoot.firstChild.tagName === 'P' \
+            && dst.shadowRoot === null) \
+             ? 'ok' : ('fail:html=' + html + ':shadow=' + (host.shadowRoot === null ? 'no' : 'yes') + ':dst=' + (dst.shadowRoot === null ? 'null' : 'shadow'));",
     );
     assert_eq!(out, "ok");
 }
@@ -661,8 +695,8 @@ fn element_get_html_round_trip_with_set_html_unsafe() {
 fn element_get_html_emits_shadowrootslotassignment_for_manual_mode() {
     // Round-trip lock for `slotAssignment: 'manual'` — the serializer
     // must emit `shadowrootslotassignment="manual"` so a subsequent
-    // `setHTMLUnsafe(getHTML(...))` preserves the manual mode (HTML
-    // §4.12.3 / §13.5). Named mode is the default and is intentionally
+    // `setHTMLUnsafe(getHTML(...))` (under a parent) preserves the manual
+    // mode (HTML §4.12.3 / §13.3). Named mode is the default and is intentionally
     // omitted from the serialised attribute set to keep the round-trip
     // terse for the common case.
     let out = run("var named = document.createElement('div'); \
@@ -682,8 +716,9 @@ fn element_get_html_emits_shadowrootslotassignment_for_manual_mode() {
 #[test]
 fn element_get_html_manual_slot_assignment_round_trip() {
     // Round-trip discriminator: getHTML output of a manual-mode shadow
-    // host fed back through setHTMLUnsafe must produce a shadow root
-    // whose `slotAssignment` is again `'manual'`.
+    // host fed back through setHTMLUnsafe (wrapped in a `<div>` so the
+    // template is not top-level) must produce a shadow root whose
+    // `slotAssignment` is again `'manual'`.
     let out = run(
         "var src = document.createElement('div'); \
          document.body.appendChild(src); \
@@ -691,20 +726,24 @@ fn element_get_html_manual_slot_assignment_round_trip() {
          var html = src.getHTML({serializableShadowRoots: true}); \
          var dst = document.createElement('div'); \
          document.body.appendChild(dst); \
-         dst.setHTMLUnsafe(html); \
-         (dst.shadowRoot !== null && dst.shadowRoot.slotAssignment === 'manual') \
-             ? 'ok' : ('fail:html=' + html + ':mode=' + (dst.shadowRoot && dst.shadowRoot.slotAssignment));",
+         dst.setHTMLUnsafe('<div>' + html + '</div>'); \
+         var host = dst.firstChild; \
+         (host.shadowRoot !== null && host.shadowRoot.slotAssignment === 'manual') \
+             ? 'ok' : ('fail:html=' + html + ':mode=' + (host.shadowRoot && host.shadowRoot.slotAssignment));",
     );
     assert_eq!(out, "ok");
 }
 
 #[test]
 fn element_inner_html_setter_does_not_attach_declarative_shadow() {
-    // innerHTML default opts → `<template shadowrootmode>` stays as a
-    // plain `<template>` element (no declarative attach).
+    // innerHTML default opts → a nested `<template shadowrootmode>` stays as
+    // a plain `<template>` element (no declarative attach); nested so the
+    // flag, not the top-level rule, is what is tested.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
-         host.innerHTML = '<template shadowrootmode=\"open\"></template>'; \
-         host.shadowRoot === null ? 'ok' : 'fail';");
+         host.innerHTML = '<div><template shadowrootmode=\"open\"></template></div>'; \
+         var inner = host.firstChild; \
+         (host.shadowRoot === null && inner.shadowRoot === null \
+            && inner.firstChild && inner.firstChild.tagName === 'TEMPLATE') ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }

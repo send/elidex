@@ -17,18 +17,21 @@ use super::{empty_record, MutationKind, MutationRecord};
 ///
 /// Per HTML §8.5.4 (innerHTML setter) vs §8.5.2 (setHTMLUnsafe), the only
 /// behavioural difference is whether `<template shadowrootmode>` children
-/// are converted into declarative shadow roots on their parent host or
-/// left as plain `<template>` elements. The `_unsafe` JS API name refers
+/// are converted into declarative shadow roots on their parent element (nested
+/// templates only; a top-level one is hostIsRoot and stays plain) or left as
+/// plain `<template>` elements. The `_unsafe` JS API name refers
 /// to Trusted Types sanitization which is unrelated to engine semantics;
 /// from the algorithm's perspective the distinction is purely
 /// "honour declarative shadow root markup yes/no".
 #[derive(Default, Clone, Copy, Debug)]
 pub struct SetInnerHtmlOptions {
-    /// When true, `<template shadowrootmode="open|closed">` children
-    /// attach as a shadow root on the parent host (per HTML §4.12.3
-    /// `<template shadowrootmode>` declarative shadow DOM algorithm). When false (the default,
-    /// matching plain `innerHTML` semantics), the templates are left
-    /// as ordinary `<template>` elements.
+    /// When true, `<template shadowrootmode="open|closed">` children attach
+    /// as a shadow root on their parent element (per HTML §4.12.3 (the
+    /// `shadowrootmode` attribute) and the §13.2.6.4.4 template start tag), when
+    /// nested. A top-level one (directly under the fragment root) stays a
+    /// plain template (hostIsRoot), so the host never gets a shadow root.
+    /// When false (the default, matching plain `innerHTML` semantics), the
+    /// templates are left as ordinary `<template>` elements.
     pub allow_declarative_shadow: bool,
     /// When true, parse with the §13.2.4.5 scripting flag DISABLED, so
     /// `<noscript>` content is parsed as ordinary elements rather than raw
@@ -43,9 +46,10 @@ pub struct SetInnerHtmlOptions {
 /// `html` as a fragment in the context element, then replace all of the
 /// target's children with the parsed nodes.
 ///
-/// Per §8.5.4 the fragment-parse **context** is `entity` for an Element, but
-/// the shadow root's **host** for `ShadowRoot.innerHTML` (step 2 "Let context
-/// be this's host") — the parsing rules follow the host's tag/namespace while
+/// Per the HTML fragment parsing algorithm the fragment-parse **context** is the
+/// target if it is an Element, otherwise the target's host ("Let context be target
+/// if target is an Element; otherwise target's host"), i.e. the shadow root's
+/// **host** for `ShadowRoot.innerHTML` — the parsing rules follow the host's tag/namespace while
 /// the parsed nodes still replace the shadow root's own children. The
 /// placement **target** is `entity`, except for a `<template>`: "set the inner
 /// HTML" redirects the replacement to the template's **content fragment**
@@ -69,8 +73,10 @@ pub fn apply_set_inner_html(
     html: &str,
     opts: SetInnerHtmlOptions,
 ) -> Option<MutationRecord> {
-    // §8.5.4: ShadowRoot.innerHTML parses in the host's context; Element
-    // parses in its own. Placement target stays `entity` either way.
+    // HTML fragment parsing algorithm ("Let context be target if target is an
+    // Element; otherwise target's host"): ShadowRoot.innerHTML parses in the host's
+    // context; Element parses in its own. Placement target stays `entity` either
+    // way.
     let context = if dom.is_shadow_root(entity) {
         dom.shadow_host(entity).unwrap_or(entity)
     } else {
@@ -311,20 +317,28 @@ mod tests {
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
         let _ = dom.append_child(root, host);
+        // Nested (`<div><template …>`), so hostIsRoot is false and the flag
+        // is what is under test.
         let _ = apply_set_inner_html(
             &mut dom,
             host,
-            r#"<template shadowrootmode="open"><p>x</p></template>"#,
+            r#"<div><template shadowrootmode="open"><p>x</p></template></div>"#,
             SetInnerHtmlOptions::default(),
         );
         // Default opts → no shadow attached, template remains as a
-        // child element of the host.
+        // child element of the inner <div>.
         assert!(dom.get_shadow_root(host).is_none());
         let kids = dom.children(host);
         assert_eq!(kids.len(), 1);
+        assert!(
+            dom.get_shadow_root(kids[0]).is_none(),
+            "no shadow on the <div> when the flag is off"
+        );
+        let inner = dom.children(kids[0]);
+        assert_eq!(inner.len(), 1);
         let tag = dom
             .world()
-            .get::<&elidex_ecs::TagType>(kids[0])
+            .get::<&elidex_ecs::TagType>(inner[0])
             .expect("template entity should exist")
             .0
             .clone();
@@ -332,19 +346,21 @@ mod tests {
     }
 
     #[test]
-    fn set_html_unsafe_dsd_on_context_preserves_shadow_and_excludes_it_from_removed() {
-        // PR337 Codex R2 (P2) FP guard: setHTMLUnsafe with a top-level
-        // declarative-shadow template attaches a shadow to the context during
-        // parse (DSD-on-context). `apply_set_inner_html` parses BEFORE snapshotting
-        // the children to remove, so the snapshot runs after the shadow is
-        // attached — but `EcsDom::children` excludes `ShadowRoot` entities, so the
-        // removal loop never detaches the shadow root and it never appears in
-        // `removed_nodes`. The host↔shadow-root invariant holds; only the
-        // pre-existing light children are removed.
+    fn set_html_unsafe_pre_existing_shadow_excluded_from_removed() {
+        // PR337 Codex R2 (P2) guard, kept after the top-level template became plain:
+        // a top-level declarative-shadow template is a plain template
+        // (hostIsRoot), so `setHTMLUnsafe` never touches the context's
+        // existing shadow root. `EcsDom::children` excludes `ShadowRoot`
+        // entities, so the removal loop never detaches the shadow root and it
+        // never appears in `removed_nodes`; only the pre-existing light
+        // children are removed, and the added node is the plain template.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
         let _ = dom.append_child(root, host);
+        let sr = dom
+            .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
+            .expect("pre-attach shadow");
         // Pre-existing light children so the removal loop runs over a non-empty set.
         let old1 = elem(&mut dom, "span");
         let old2 = elem(&mut dom, "b");
@@ -362,16 +378,11 @@ mod tests {
         )
         .expect("record");
 
-        // Shadow attached to the context and survives intact.
-        let sr = dom
-            .get_shadow_root(host)
-            .expect("shadow root attached to host");
+        // The existing shadow root is unchanged and empty of the new content.
+        assert_eq!(dom.get_shadow_root(host), Some(sr));
         assert!(
-            dom.children(sr).iter().any(|c| dom
-                .world()
-                .get::<&elidex_ecs::TagType>(*c)
-                .is_ok_and(|t| t.0 == "p")),
-            "shadow tree holds the parsed <p>"
+            dom.children(sr).is_empty(),
+            "the top-level template did not route content into the shadow"
         );
         // The shadow root is NOT reported as removed (children() excludes it);
         // exactly the pre-existing light children were removed.
@@ -384,17 +395,20 @@ mod tests {
             vec![old1, old2],
             "only the pre-existing light children are removed"
         );
-        // Host↔shadow-root invariant intact (round-trips).
-        assert_eq!(dom.get_shadow_root(host), Some(sr));
+        // The added node is the plain template (a light child of the host).
+        assert_eq!(record.added_nodes.len(), 1);
+        let template = record.added_nodes[0];
+        assert!(dom.has_tag(template, "template"));
+        assert_eq!(dom.children(host), vec![template]);
     }
 
     #[test]
-    fn set_inner_html_allow_declarative_shadow_attaches_open_shadow_root() {
-        // §13.4 fragment case + §13.2.6.4.4 step 9–10: a *top-level*
-        // `<template shadowrootmode>` via setHTMLUnsafe attaches its declarative
-        // shadow to the context (here the host element) — the fragment adjusted
-        // current node is the context while the stack holds only the synthetic
-        // root (DSD-on-context).
+    fn set_inner_html_allow_declarative_shadow_top_level_is_plain_template() {
+        // The template start tag (§13.2.6.4.4): declarativeShadowHostElement
+        // is the current node, and hostIsRoot (the fragment root also has a
+        // redirection-map entry) makes a *top-level* `<template
+        // shadowrootmode>` a regular template. The context host gets no
+        // shadow root; the template is a light child whose content holds <p>.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
@@ -408,14 +422,50 @@ mod tests {
                 scripting_disabled: false,
             },
         );
+        assert!(
+            dom.get_shadow_root(host).is_none(),
+            "a top-level declarative template never attaches to the context host"
+        );
+        let kids = dom.children(host);
+        assert_eq!(kids.len(), 1);
+        assert!(dom.has_tag(kids[0], "template"));
+        let content = dom
+            .template_contents_fragment(kids[0])
+            .expect("a plain template has a content fragment");
+        assert!(
+            dom.children(content).iter().any(|c| dom.has_tag(*c, "p")),
+            "template content should hold the parsed <p>"
+        );
+    }
+
+    #[test]
+    fn set_inner_html_allow_declarative_shadow_attaches_open_shadow_root() {
+        // A *nested* `<template shadowrootmode>` via setHTMLUnsafe has the
+        // `<div>` as its declarativeShadowHostElement (hostIsRoot is false),
+        // so the `<div>` gets the open shadow root and the template is consumed.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let _ = apply_set_inner_html(
+            &mut dom,
+            host,
+            r#"<div><template shadowrootmode="open"><p>shadow content</p></template></div>"#,
+            SetInnerHtmlOptions {
+                allow_declarative_shadow: true,
+                scripting_disabled: false,
+            },
+        );
+        assert!(dom.get_shadow_root(host).is_none());
+        let inner_div = dom.children(host)[0];
         let sr = dom
-            .get_shadow_root(host)
-            .expect("declarative shadow should attach to the context host");
+            .get_shadow_root(inner_div)
+            .expect("declarative shadow should attach to the inner <div>");
         let sr_component = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap();
         assert_eq!(sr_component.mode, elidex_ecs::ShadowRootMode::Open);
-        // The <template> element itself is consumed; the host's light tree has
+        // The <template> element itself is consumed; the <div>'s light tree has
         // no surviving template child.
-        for kid in dom.children(host) {
+        for kid in dom.children(inner_div) {
             if let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(kid) {
                 assert_ne!(tag.0, "template", "template should be consumed");
             }
@@ -433,7 +483,7 @@ mod tests {
 
     #[test]
     fn set_inner_html_allow_declarative_shadow_attaches_closed_shadow_root() {
-        // Top-level DSD-on-context — mode "closed".
+        // Nested — mode "closed" on the inner <div>.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
@@ -441,15 +491,16 @@ mod tests {
         let _ = apply_set_inner_html(
             &mut dom,
             host,
-            r#"<template shadowrootmode="closed"></template>"#,
+            r#"<div><template shadowrootmode="closed"></template></div>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
                 scripting_disabled: false,
             },
         );
+        let inner_div = dom.children(host)[0];
         let sr = dom
-            .get_shadow_root(host)
-            .expect("should attach to context host");
+            .get_shadow_root(inner_div)
+            .expect("should attach to the inner <div>");
         let mode = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap().mode;
         assert_eq!(mode, elidex_ecs::ShadowRootMode::Closed);
     }
@@ -463,27 +514,33 @@ mod tests {
         let _ = apply_set_inner_html(
             &mut dom,
             host,
-            r#"<template shadowrootmode="weird"></template>"#,
+            r#"<div><template shadowrootmode="weird"></template></div>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
                 scripting_disabled: false,
             },
         );
-        // Invalid mode → silently no shadow + template remains.
+        // Invalid mode → silently no shadow + template remains (nested, so
+        // the invalid mode is what is tested, not hostIsRoot).
         assert!(dom.get_shadow_root(host).is_none());
         let kids = dom.children(host);
         assert_eq!(kids.len(), 1);
-        let tag = dom.world().get::<&elidex_ecs::TagType>(kids[0]).unwrap();
+        assert!(dom.get_shadow_root(kids[0]).is_none());
+        let inner = dom.children(kids[0]);
+        assert_eq!(inner.len(), 1);
+        let tag = dom.world().get::<&elidex_ecs::TagType>(inner[0]).unwrap();
         assert_eq!(tag.0, "template");
     }
 
     #[test]
     fn set_inner_html_declarative_shadow_already_attached_falls_back_silently() {
+        // Top-level: hostIsRoot makes the template plain regardless of the
+        // context's existing shadow root.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
         let _ = dom.append_child(root, host);
-        // Pre-attach a shadow root so the declarative attach is rejected.
+        // Pre-attach a shadow root: were an attach attempted it would be rejected.
         let existing = dom
             .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
             .expect("first attach");
@@ -496,19 +553,30 @@ mod tests {
                 scripting_disabled: false,
             },
         );
-        // The existing shadow root is unchanged; the template becomes a
-        // plain child of the host.
+        // No attach is attempted (hostIsRoot): the existing shadow root is
+        // unchanged and the template is a plain light child of the host.
         assert_eq!(
             dom.get_shadow_root(host),
             Some(existing),
             "pre-existing shadow root must be preserved"
         );
+        let kids = dom.children(host);
+        assert_eq!(kids.len(), 1, "the template is the host's only light child");
+        assert!(dom.has_tag(kids[0], "template"));
+        let content = dom
+            .template_contents_fragment(kids[0])
+            .expect("template content fragment");
+        let content_kids = dom.children(content);
+        assert_eq!(content_kids.len(), 1);
+        assert!(dom.has_tag(content_kids[0], "p"));
     }
 
     #[test]
-    fn set_inner_html_case_insensitive_shadowrootmode() {
-        // Top-level DSD-on-context — `shadowrootmode` is an
-        // ASCII-case-insensitive enumerated attribute (HTML §2.3.3).
+    fn set_inner_html_declarative_shadow_second_template_on_same_host_is_plain() {
+        // The "Keep" branch's shadow-host condition (declarativeShadowHostElement
+        // is already a shadow host): the first nested template attaches to the
+        // `<div>`, the second finds the `<div>` already a shadow host and is
+        // inserted as a plain light child.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
@@ -516,22 +584,57 @@ mod tests {
         let _ = apply_set_inner_html(
             &mut dom,
             host,
-            r#"<template shadowrootmode="OPEN"></template>"#,
+            r#"<div><template shadowrootmode="open"><i>a</i></template><template shadowrootmode="open"><i>b</i></template></div>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
                 scripting_disabled: false,
             },
         );
+        let inner_div = dom.children(host)[0];
         let sr = dom
-            .get_shadow_root(host)
-            .expect("case-insensitive 'OPEN' should attach to context host");
+            .get_shadow_root(inner_div)
+            .expect("first template attaches to the <div>");
+        let shadow_kids = dom.children(sr);
+        assert_eq!(shadow_kids.len(), 1);
+        let text = dom.children(shadow_kids[0])[0];
+        assert!(dom
+            .world()
+            .get::<&elidex_ecs::TextContent>(text)
+            .is_ok_and(|t| t.0 == "a"));
+        let light = dom.children(inner_div);
+        assert_eq!(light.len(), 1, "the second template is a light child");
+        assert!(dom.has_tag(light[0], "template"));
+    }
+
+    #[test]
+    fn set_inner_html_case_insensitive_shadowrootmode() {
+        // Nested — `shadowrootmode` is an ASCII-case-insensitive enumerated
+        // attribute (HTML §2.3.3).
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let _ = apply_set_inner_html(
+            &mut dom,
+            host,
+            r#"<div><template shadowrootmode="OPEN"></template></div>"#,
+            SetInnerHtmlOptions {
+                allow_declarative_shadow: true,
+                scripting_disabled: false,
+            },
+        );
+        let inner_div = dom.children(host)[0];
+        let sr = dom
+            .get_shadow_root(inner_div)
+            .expect("case-insensitive 'OPEN' should attach to the inner <div>");
         let mode = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap().mode;
         assert_eq!(mode, elidex_ecs::ShadowRootMode::Open);
     }
 
     #[test]
     fn set_inner_html_on_shadow_root_parses_in_host_context_and_fills_shadow() {
-        // §8.5.4 ShadowRoot.innerHTML step 2: the fragment-parse context is the
+        // HTML fragment parsing algorithm ("Let context be target if target is an
+        // Element; otherwise target's host"): the fragment-parse context is the
         // shadow root's *host*, and the parsed nodes replace the SHADOW ROOT's
         // children (not the host's light tree). Passing the shadow-root entity
         // resolves the context to its host via `EcsDom::shadow_host`.

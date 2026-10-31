@@ -280,15 +280,84 @@ fn parse_html_encoding_is_none() {
     assert!(result.encoding.is_none());
 }
 
+const DSD_OPEN: ParseFragmentOptions = ParseFragmentOptions {
+    allow_declarative_shadow: true,
+    scripting_disabled: false,
+};
+
+/// Canonical text dump of a node for backend-parity comparison: `node_sig`
+/// (tag / text / comment / doctype + attributes), the element namespace, the
+/// shadow root (mode + children) and the template contents (children) are
+/// included, which `node_sig` does not see.
+fn dump_with_shadow_and_content(dom: &EcsDom, e: Entity) -> String {
+    let w = dom.world();
+    let mut out = format!("<{:?} ns={:?}", node_sig(dom, e), dom.namespace_of(e));
+    if let Some(sr) = dom.get_shadow_root(e) {
+        let mode = w
+            .get::<&elidex_ecs::ShadowRoot>(sr)
+            .map_or("?", |s| match s.mode {
+                elidex_ecs::ShadowRootMode::Open => "open",
+                elidex_ecs::ShadowRootMode::Closed => "closed",
+            });
+        out.push_str(" #shadow(");
+        out.push_str(mode);
+        out.push_str(")[");
+        for c in dom.children(sr) {
+            out += &dump_with_shadow_and_content(dom, c);
+        }
+        out += "]";
+    }
+    if let Some(content) = dom.template_contents_fragment(e) {
+        out += " #content[";
+        for c in dom.children(content) {
+            out += &dump_with_shadow_and_content(dom, c);
+        }
+        out += "]";
+    }
+    out += ">(";
+    for c in dom.children(e) {
+        out += &dump_with_shadow_and_content(dom, c);
+    }
+    out += ")";
+    out
+}
+
+/// Parse `html` into a fresh `<div>` context with both backends and return
+/// `(strict_dump, tolerant_dump)` of the returned roots. Panics if strict
+/// rejects (the inputs are conforming) or the context gains a shadow root.
+fn dsd_both_backends(html: &str) -> (String, String) {
+    let run = |strict: bool| {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let context = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, context);
+        let roots = if strict {
+            parse_fragment_strict(html, context, &mut dom, DSD_OPEN).expect("strict parses")
+        } else {
+            parse_html_fragment(html, context, &mut dom, DSD_OPEN)
+        };
+        assert!(
+            dom.get_shadow_root(context).is_none(),
+            "the context never gains a shadow root (strict={strict})"
+        );
+        roots
+            .iter()
+            .map(|&r| dump_with_shadow_and_content(&dom, r))
+            .collect::<String>()
+    };
+    (run(true), run(false))
+}
+
 #[test]
-fn fragment_top_level_declarative_shadow_attaches_to_context() {
-    // §13.4 fragment case + §13.2.6.4.4 step 9–10: while the stack holds
-    // only the synthetic root, the adjusted current node is the CONTEXT
-    // element — so a *top-level* `<template shadowrootmode>` attaches its
-    // declarative shadow to the context (DSD-on-context). The template is
-    // consumed (no light-tree node returned); the context gains a shadow
-    // root holding the parsed <p>. (`el.setHTMLUnsafe('<template
-    // shadowrootmode=open>…')` shadows `el`.)
+fn fragment_top_level_declarative_shadow_is_plain_template() {
+    // The template start tag (§13.2.6.4.4): declarativeShadowHostElement is
+    // the current node, not the adjusted current node ("so that in the
+    // fragment case a top-level template element never attaches a shadow root
+    // to the parser's fragment context element"), and hostIsRoot (the
+    // fragment root also has a redirection-map entry) makes it a regular
+    // template. So a *top-level* `<template shadowrootmode>` is returned as a
+    // plain template whose content holds the <p>, and the context is never
+    // mutated.
     let mut dom = EcsDom::new();
     let context = dom.create_element("div", Attributes::default());
     let _ = dom.create_document_root();
@@ -296,34 +365,35 @@ fn fragment_top_level_declarative_shadow_attaches_to_context() {
         r#"<template shadowrootmode="open"><p>x</p></template>"#,
         context,
         &mut dom,
-        ParseFragmentOptions {
-            allow_declarative_shadow: true,
-            scripting_disabled: false,
-        },
+        DSD_OPEN,
     );
+    // Discriminator: the context has no shadow root.
     assert!(
-        added.is_empty(),
-        "the declarative-shadow template is consumed; no light-tree node returned, got tags {:?}",
-        added
-            .iter()
-            .map(|&e| dom.world().get::<&TagType>(e).map(|t| t.0.clone()).ok())
-            .collect::<Vec<_>>()
+        dom.get_shadow_root(context).is_none(),
+        "a top-level declarative template never attaches a shadow to the context"
     );
-    let sr = dom
-        .get_shadow_root(context)
-        .expect("a top-level declarative-shadow template attaches a shadow to the context");
+    // Non-discriminating (true before and after): the context's light
+    // children are untouched.
+    assert!(dom.children(context).is_empty());
+    assert_eq!(added.len(), 1, "one plain template is returned");
+    let template = added[0];
+    assert!(dom.has_tag(template, "template"));
+    let tpl_content = dom
+        .template_contents_fragment(template)
+        .expect("a plain template has a content fragment");
     assert!(
-        dom.children(sr)
+        dom.children(tpl_content)
             .iter()
             .any(|c| dom.world().get::<&TagType>(*c).is_ok_and(|t| t.0 == "p")),
-        "the context's shadow tree holds the parsed <p>"
+        "the template content holds the parsed <p>"
     );
 }
 
 #[test]
 fn fragment_nested_declarative_shadow_attaches_to_inner_host() {
-    // §13.2.6.4.4 step 10: a *nested* `<template shadowrootmode>` has a
-    // real (non-topmost) host as its adjusted current node, so the shadow
+    // The template start tag (§13.2.6.4.4): a *nested* `<template
+    // shadowrootmode>` has a real (non-topmost) current node as its
+    // declarativeShadowHostElement, so hostIsRoot is false and the shadow
     // attaches there. Here the inner `<div>` hosts the shadow holding <p>.
     let mut dom = EcsDom::new();
     let context = dom.create_element("body", Attributes::default());
@@ -332,10 +402,7 @@ fn fragment_nested_declarative_shadow_attaches_to_inner_host() {
         r#"<div><template shadowrootmode="open"><p>x</p></template></div>"#,
         context,
         &mut dom,
-        ParseFragmentOptions {
-            allow_declarative_shadow: true,
-            scripting_disabled: false,
-        },
+        DSD_OPEN,
     );
     let outer_div = *added
         .iter()
@@ -350,6 +417,57 @@ fn fragment_nested_declarative_shadow_attaches_to_inner_host() {
             .is_ok_and(|t| t.0 == "p")
     });
     assert!(p_present, "the inner div's shadow tree holds the <p>");
+}
+
+#[test]
+fn fragment_progressive_top_level_declarative_shadow_strict_native() {
+    // Strict handles a top-level declarative template natively (no decline):
+    // `parse_fragment_strict` returns `Ok` and the same tree as the tolerant
+    // backend (a plain template, context unmutated).
+    let html = r#"<template shadowrootmode="open"><p>x</p></template>"#;
+    let (strict, tolerant) = dsd_both_backends(html);
+    assert_eq!(strict, tolerant);
+    assert!(strict.starts_with("<(Some(\"template\")"), "got {strict}");
+    assert!(strict.contains("#content[<(Some(\"p\")"), "got {strict}");
+    assert!(!strict.contains("#shadow"), "got {strict}");
+    // The progressive entry (strict first) takes the strict-native path too.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let context = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, context);
+    let roots = parse_fragment_progressive(html, context, &mut dom, DSD_OPEN);
+    assert!(dom.get_shadow_root(context).is_none());
+    let progressive: String = roots
+        .iter()
+        .map(|&r| dump_with_shadow_and_content(&dom, r))
+        .collect();
+    assert_eq!(progressive, strict);
+}
+
+#[test]
+fn fragment_dsd_parity_template_in_template() {
+    // Outer template is plain (hostIsRoot); the inner template's current node
+    // is the outer `template` (not a valid shadow host name), so the attach
+    // fails and the inner one is a plain template inside the outer content.
+    let html = r#"<template><template shadowrootmode="open"><p>x</p></template></template>"#;
+    let (strict, tolerant) = dsd_both_backends(html);
+    assert_eq!(strict, tolerant);
+    assert!(!strict.contains("#shadow"), "got {strict}");
+    assert_eq!(strict.matches("#content[").count(), 2, "got {strict}");
+}
+
+#[test]
+fn fragment_dsd_parity_nested_host_in_top_level_template() {
+    // The outer top-level template is plain; inside its content the `<div>`
+    // is a real host, so both backends give it an open shadow holding <p>.
+    let html =
+        r#"<template><div><template shadowrootmode="open"><p>x</p></template></div></template>"#;
+    let (strict, tolerant) = dsd_both_backends(html);
+    assert_eq!(strict, tolerant);
+    assert!(
+        strict.contains("#shadow(open)[<(Some(\"p\")"),
+        "got {strict}"
+    );
 }
 
 #[test]
@@ -494,6 +612,38 @@ fn fragment_parsed_template_content_owner_is_context_document() {
 }
 
 #[test]
+fn fragment_template_content_documentless_context_is_unstamped_in_both_backends() {
+    // A documentless context skips the `finish_detached_fragment` adopt, so a
+    // content fragment stamped with the throwaway fragment document would keep a
+    // dangling `AssociatedDocument`. Both backends must leave it unstamped.
+    // (`get_associated_document` is the raw component: `owner_document` hides a
+    // destroyed document and would pass even with the dangling stamp.)
+    for strict in [true, false] {
+        let mut dom = EcsDom::new();
+        let context = dom.create_element("div", Attributes::default());
+        let html = "<template><p>x</p></template>";
+        let roots = if strict {
+            parse_fragment_strict(html, context, &mut dom, ParseFragmentOptions::default())
+                .expect("strict parses")
+        } else {
+            parse_html_fragment(html, context, &mut dom, ParseFragmentOptions::default())
+        };
+        let template = *roots
+            .iter()
+            .find(|&&e| dom.has_tag(e, "template"))
+            .expect("the <template> is returned");
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("content fragment");
+        assert_eq!(
+            dom.get_associated_document(fragment),
+            None,
+            "content fragment stamp (strict={strict})"
+        );
+    }
+}
+
+#[test]
 fn fragment_returned_custom_element_carries_ce_state() {
     // Codex #329 R1 (P1), re-homed for §11.3 slice 2b: the fragment parser
     // now builds in isolation (mutation dispatch suppressed) and returns
@@ -552,10 +702,7 @@ fn fragment_declarative_shadow_content_gets_derived_components() {
         r#"<div><template shadowrootmode="open"><my-el style="color: red"></my-el></template></div>"#,
         context,
         &mut dom,
-        ParseFragmentOptions {
-            allow_declarative_shadow: true,
-            scripting_disabled: false,
-        },
+        DSD_OPEN,
     );
     let outer_div = *added
         .iter()
