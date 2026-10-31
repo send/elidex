@@ -648,7 +648,7 @@ fn serialize_inner_html_excludes_shadow_root_subtree() {
     let shadow_child = dom.create_element("b", Attributes::default());
     assert!(dom.append_child(shadow, shadow_child));
 
-    let html = super::tree::serialize_inner_html(host, &dom);
+    let html = super::markup::serialize_inner_html(host, &dom);
     assert!(
         html.contains("<span>"),
         "light DOM child must serialize: {html}"

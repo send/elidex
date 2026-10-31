@@ -8,6 +8,7 @@ pub mod enumerated_reflect;
 pub mod href_accessor;
 mod inheritance;
 pub(crate) mod layout_query;
+mod markup;
 pub mod numeric_reflect;
 mod option_disabled;
 mod props;
@@ -26,14 +27,16 @@ pub use layout_query::{
     GetClientWidth, GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth,
     GetScrollHeight, GetScrollLeft, GetScrollTop, GetScrollWidth, ScrollIntoView,
 };
+pub use markup::{
+    serialize_inner_html, serialize_inner_html_with_options, serialize_node_to_string,
+    serialize_outer_html, GetInnerHtml, InsertAdjacentHtml, SerializeOptions, SetInnerHtml,
+};
 pub use option_disabled::is_option_disabled;
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use select::{OptionsAdd, OptionsRemove, OptionsSetLength};
 pub use tree::{
-    collect_text_content, serialize_inner_html, serialize_inner_html_with_options,
-    serialize_node_to_string, serialize_outer_html, validate_attribute_name, AppendChild,
-    GetInnerHtml, InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore,
-    RemoveChild, ReplaceChild, SerializeOptions, SetInnerHtml,
+    collect_text_content, validate_attribute_name, AppendChild, InsertAdjacentElement,
+    InsertAdjacentText, InsertBefore, RemoveChild, ReplaceChild,
 };
 
 // Tests are split by category to keep each file under the 1000-line
