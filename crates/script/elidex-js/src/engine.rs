@@ -136,8 +136,12 @@ impl ElidexJsEngine {
     /// unsandboxed / grants `allow-scripts`. Reads `HostData::sandbox_flags`,
     /// which requires `HostData` installed but **not** bound — so the gate is
     /// valid before/outside a batch bracket.
-    fn scripts_allowed(&mut self) -> bool {
-        self.vm.host_data().is_none_or(|hd| hd.scripts_allowed())
+    fn scripts_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::scripts_allowed)
     }
 
     /// Settle the same-window task queue, then custom-element reactions — the
