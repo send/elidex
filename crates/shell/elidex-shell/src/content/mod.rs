@@ -476,8 +476,7 @@ impl ContentState {
                         .dom
                         .world()
                         .get::<&elidex_form::FormControlState>(target)
-                        .ok()
-                        .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
+                        .is_ok_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
                 });
         if !is_text_focused {
             return false;

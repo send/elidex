@@ -19,8 +19,7 @@ pub(super) fn toggle_checkbox_if_needed(dom: &mut elidex_ecs::EcsDom, entity: En
     let is_enabled_checkbox = dom
         .world()
         .get::<&FormControlState>(entity)
-        .ok()
-        .is_some_and(|fcs| fcs.kind == FormControlKind::Checkbox && !fcs.disabled);
+        .is_ok_and(|fcs| fcs.kind == FormControlKind::Checkbox && !fcs.disabled);
 
     if !is_enabled_checkbox {
         return false;

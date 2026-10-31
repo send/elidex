@@ -782,8 +782,7 @@ pub fn serialize_inner_html_with_options(
     let raw_text = dom
         .world()
         .get::<&TagType>(entity)
-        .ok()
-        .is_some_and(|tag| RAW_TEXT_ELEMENTS.contains(&tag.0.as_str()));
+        .is_ok_and(|tag| RAW_TEXT_ELEMENTS.contains(&tag.0.as_str()));
     // HTML §13.3: a `<template>`'s serialized children are its *template
     // contents* (the detached fragment), not its (empty) light children.
     for child in dom.children_iter(serialization_children_root(entity, dom)) {

@@ -408,14 +408,9 @@ fn find_tallest_monolithic(dom: &EcsDom, children: &[Entity], wm: WritingModeCon
     let is_horizontal = wm.is_horizontal();
     let mut tallest: f32 = 0.0;
     for &child in children {
-        let is_monolithic = dom
-            .world()
-            .get::<&ComputedStyle>(child)
-            .ok()
-            .is_some_and(|style| {
-                style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible
-            })
-            || dom.world().get::<&ImageData>(child).is_ok();
+        let is_monolithic = dom.world().get::<&ComputedStyle>(child).is_ok_and(|style| {
+            style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible
+        }) || dom.world().get::<&ImageData>(child).is_ok();
 
         if is_monolithic {
             if let Ok(lb) = dom.world().get::<&LayoutBox>(child) {

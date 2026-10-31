@@ -147,8 +147,7 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity, fallback: &Url) {
     let unchanged = dom
         .world()
         .get::<&DocumentBaseUrl>(doc)
-        .ok()
-        .is_some_and(|c| c.0 == new_url);
+        .is_ok_and(|c| c.0 == new_url);
     if unchanged {
         return;
     }

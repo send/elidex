@@ -10,8 +10,7 @@ fn find_by_id(result: &PipelineResult, tag: &str, id: &str) -> Option<Entity> {
             .dom
             .world()
             .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some(id))
+            .is_ok_and(|a| a.get("id") == Some(id))
     })
 }
 

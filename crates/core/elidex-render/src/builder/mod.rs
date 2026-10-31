@@ -852,7 +852,7 @@ fn emit_margin_box_text(
         elidex_plugin::TextAlign::Right | elidex_plugin::TextAlign::End => content_w - text_width,
     };
     let mut text_x = content_x + text_offset_x.max(0.0);
-    let baseline_y = content_y + (content_h + s.font_size) * 0.5;
+    let baseline_y = content_y + f32::midpoint(content_h, s.font_size);
 
     let glyphs = place_glyphs(&shaped.glyphs, &mut text_x, baseline_y, 0.0, 0.0, text);
     dl.push(DisplayItem::Text {

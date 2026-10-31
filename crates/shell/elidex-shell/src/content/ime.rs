@@ -16,8 +16,7 @@ fn is_editable_text(state: &ContentState, target: elidex_ecs::Entity) -> bool {
         .dom
         .world()
         .get::<&FormControlState>(target)
-        .ok()
-        .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled && !fcs.readonly)
+        .is_ok_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled && !fcs.readonly)
 }
 
 /// Handle an IME event from the browser thread.
