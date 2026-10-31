@@ -663,10 +663,7 @@ fn fragment_declarative_shadow_content_gets_derived_components() {
         r#"<div><template shadowrootmode="open"><my-el style="color: red"></my-el></template></div>"#,
         context,
         &mut dom,
-        ParseFragmentOptions {
-            allow_declarative_shadow: true,
-            scripting_disabled: false,
-        },
+        DSD_OPEN,
     );
     let outer_div = *added
         .iter()
