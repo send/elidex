@@ -175,13 +175,15 @@ class Population:
         """Every table in the POPULATION that binds to no schema and yet makes
         a CENSUS CLAIM -- a cell carrying a `KIND_PHRASES` phrase -- is a miss.
 
-        The schema-miss gate above asks only of `main`, deliberately: a linked
-        detail memo may hold no slot ledger, and requiring one of every memo
-        would red half the family.  The hole that left (PR #510 R42-10, real
-        and reproduced): a LINKED memo whose slice table's header reads `No.`
-        instead of `#` binds to nothing, so its umbrella row and that row's
-        `Deps` edge leave the census with no diagnostic at all and the run
-        exits 0 -- the I-C class this checker exists for.
+        The schema-miss gate above asks only that SOME memo of the population
+        carry each schema (>= 1, PR #562 / PM judgment 52 rule C), never that
+        every memo does: a linked detail memo may hold no slot ledger, and
+        requiring one of every memo would red half the family.  The hole that
+        leaves (PR #510 R42-10, real and reproduced): a memo whose slice
+        table's header reads `No.` instead of `#` binds to nothing while
+        another memo still carries the schema, so its umbrella row and that
+        row's `Deps` edge leave the census with no diagnostic at all and the
+        run exits 0 -- the I-C class this checker exists for.
 
         ⚠ THE PREDICATE IS THE CLAIM, NOT THE SHAPE, and that distinction was
         MEASURED rather than reasoned.  The first predicate tried was "EVERY
