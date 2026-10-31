@@ -316,3 +316,58 @@ fn nested_bind_trips_non_reentrancy_assert() {
     // Second bind without an intervening unbind → non-re-entrancy violation.
     bind_engine(&mut engine, &mut ctx);
 }
+
+/// Bind through `engine.vm()` directly (bypassing `HostDriver::bind`).
+#[allow(unsafe_code)]
+fn direct_vm_bind(
+    engine: &mut ElidexJsEngine,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    doc: Entity,
+) {
+    // SAFETY: callers keep `session`/`dom` alive and unaliased until unbind
+    // (or, in the Drop regression, deliberately do not — see that test).
+    unsafe {
+        engine
+            .vm()
+            .bind(std::ptr::from_mut(session), std::ptr::from_mut(dom), doc);
+    }
+}
+
+#[test]
+fn direct_vm_bind_counts_as_bound() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    assert!(!engine.vm().is_bound());
+    assert!(ScriptEngine::bound_dom_mut(&mut engine).is_none());
+    direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
+    assert!(engine.vm().is_bound());
+    assert!(ScriptEngine::bound_dom_mut(&mut engine).is_some());
+    engine.unbind();
+    assert!(!engine.vm().is_bound());
+    assert!(ScriptEngine::bound_dom_mut(&mut engine).is_none());
+}
+
+/// Regression: a fixture that binds via `engine.vm().bind(..)` and drops
+/// `dom`/`session` before `engine` while still bound must not have
+/// `ElidexJsEngine::Drop` run `teardown_document` through the dangling
+/// pointers. NB: on the old code a plain `cargo test` may not crash (UAF is UB,
+/// not a guaranteed fault); miri does report it.
+#[test]
+fn drop_with_direct_vm_bind_skips_teardown() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
+    drop(dom);
+    drop(session);
+    drop(engine);
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "batch brackets must not nest")]
+fn direct_vm_bind_then_host_bind_trips_nesting_assert() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    // Panics while still bound; its unwind Drop is sound (skips teardown).
+    bind_engine(&mut engine, &mut ctx);
+}

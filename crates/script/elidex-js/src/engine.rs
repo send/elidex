@@ -22,16 +22,16 @@ use crate::vm::value::{JsValue, ObjectKind};
 use crate::vm::Vm;
 
 /// elidex-js VM backed [`ScriptEngine`] + [`HostDriver`] implementation.
+///
+/// BATCH-BIND model: `Vm::bind`/`unbind` are heavy browsing-context-cycle
+/// operations, so the shell brackets each engine-driving *batch* with one
+/// [`bind`](HostDriver::bind)/[`unbind`](HostDriver::unbind); the per-turn
+/// methods (`eval` / `drain_*`) run **assuming bound**. The engine keeps no
+/// bind flag of its own: its bind state is the VM's ([`Vm::is_bound`], i.e.
+/// `HostData`'s `session_ptr`/`dom_ptr`), so a bind made directly through
+/// [`vm`](Self::vm) is observed too.
 pub struct ElidexJsEngine {
     vm: Vm,
-    /// Whether a batch bracket currently has the VM bound (BATCH-BIND model).
-    ///
-    /// `Vm::bind`/`unbind` are heavy browsing-context-cycle operations, so
-    /// the shell brackets each engine-driving *batch* with one
-    /// [`bind`](HostDriver::bind)/[`unbind`](HostDriver::unbind); the per-turn
-    /// methods (`eval` / `drain_*`) run **assuming bound**. Tracked only to
-    /// `debug_assert` the non-re-entrancy invariant (brackets must not nest).
-    bound: bool,
 }
 
 impl ElidexJsEngine {
@@ -42,7 +42,7 @@ impl ElidexJsEngine {
     pub fn new() -> Self {
         let mut vm = Vm::new();
         vm.install_host_data(HostData::new());
-        Self { vm, bound: false }
+        Self { vm }
     }
 
     /// Evaluate `src` in the VM's global scope and marshal the completion value
@@ -98,7 +98,7 @@ impl ElidexJsEngine {
     pub fn new_with_mode(engine_mode: elidex_plugin::EngineMode) -> Self {
         let mut vm = Vm::new_with_mode(engine_mode);
         vm.install_host_data(HostData::new());
-        Self { vm, bound: false }
+        Self { vm }
     }
 
     /// Access the underlying VM (e.g., for setting globals from host).
@@ -358,18 +358,13 @@ impl ScriptEngine for ElidexJsEngine {
 
     fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
         // The single-derivation-chain source for bound-path dispatch: when a
-        // batch bracket has the VM bound (`self.bound` && HostData `dom_ptr`
-        // non-null), hand out the bound `EcsDom` reconstructed from `dom_ptr`
-        // so the shared dispatch loop routes dom access through the same raw
+        // batch bracket has the VM bound (HostData `dom_ptr` non-null), hand
+        // out the bound `EcsDom` reconstructed from `dom_ptr` so the shared dispatch loop routes dom access through the same raw
         // pointer the VM's natives hold — never a fresh `ctx.dom` reborrow that
         // would invalidate `dom_ptr` under Stacked Borrows
         // (`#11-bound-safe-dispatch-dom-aliasing`). `None` when unbound (no
         // bracket) → the caller falls back to `ctx.dom`.
-        if self.bound {
-            self.vm.bound_dom_mut()
-        } else {
-            None
-        }
+        self.vm.bound_dom_mut()
     }
 }
 
@@ -379,7 +374,7 @@ impl HostDriver for ElidexJsEngine {
     #[allow(unsafe_code)]
     unsafe fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
         debug_assert!(
-            !self.bound,
+            !self.vm.is_bound(),
             "ElidexJsEngine::bind: already bound — batch brackets must not nest"
         );
         // SAFETY: the caller's contract (see `HostDriver::bind`) keeps
@@ -402,12 +397,10 @@ impl HostDriver for ElidexJsEngine {
                 ctx.document,
             );
         }
-        self.bound = true;
     }
 
     fn unbind(&mut self) {
         self.vm.unbind();
-        self.bound = false;
     }
 
     #[allow(unsafe_code)]
@@ -415,12 +408,11 @@ impl HostDriver for ElidexJsEngine {
         // Bind so the realtime force-close (needs the live `NetworkHandle` + the
         // `is_bound()` gate) and the worker wrapper-uncache (needs wrapper access)
         // run WHILE BOUND; `Vm::teardown_document` calls `unbind()` itself as its
-        // final step, so reconcile the batch-bound flag to `false` afterward.
+        // final step, leaving the VM unbound.
         // SAFETY: forwarded from `HostDriver::teardown_document`'s `# Safety`
         // contract — `ctx` stays valid + unaliased for this call.
         unsafe { self.bind(ctx) };
         self.vm.teardown_document();
-        self.bound = false;
     }
 
     #[allow(unsafe_code)]
@@ -816,17 +808,20 @@ impl Drop for ElidexJsEngine {
         // (the registry teardown needs no binding). Idempotent: a no-op when an
         // explicit `teardown_document` already drained the tables.
         //
-        // GATED on the batch-bound flag being CLEAR. `!self.bound` is the
-        // engine's proof that `unbind` has run, so `HostData`'s `dom` pointer is
-        // NULL and `Vm::teardown_document`'s internal `unbind` cannot dereference
-        // it. The real forget-paths reach `Drop` unbound: `with_bound`'s RAII
-        // guard unbinds even on panic-unwind, and the shell's document boundaries
-        // are all outside any bracket. A STILL-bound engine at `Drop` is only a
-        // lifetime misuse (e.g. the `nested_bind_trips_non_reentrancy_assert`
+        // GATED on the VM being UNBOUND (`!self.vm.is_bound()`, `HostData`'s own
+        // `session_ptr`/`dom_ptr` state — not an engine-side flag, so a bind made
+        // directly through `vm()` is covered too). An unbound VM has NULL
+        // pointers, so `Vm::teardown_document`'s internal `unbind` cannot
+        // dereference them. The real forget-paths reach `Drop` unbound:
+        // `with_bound`'s RAII guard unbinds even on panic-unwind, and the shell's
+        // document boundaries are all outside any bracket. A STILL-bound VM at
+        // `Drop` means the pointers may be non-null but dangling (e.g. a fixture
+        // that binds via `engine.vm().bind(..)` and panics before `unbind()`, so
+        // `dom`/`session` drop first; or the `nested_bind_trips_non_reentrancy_assert`
         // `should_panic` test that dies mid-second-bind) — running the teardown
-        // there would deref a possibly-dangling `dom` pointer (SIGBUS), so skip it.
+        // there would deref freed memory (SIGBUS), so skip it.
         #[cfg(feature = "engine")]
-        if !self.bound {
+        if !self.vm.is_bound() {
             self.vm.teardown_document();
         }
     }
