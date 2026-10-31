@@ -24,7 +24,7 @@ same round label -- the mutant registry is split at THIS module's seam, so
 the R17-on mutants were split out of that file at `18c65884`.)
 """
 
-from plan_memo_selftest_cases import SIB, VIOLATION, build, spellings
+from plan_memo_selftest_cases import CITE_TABLE, SIB, VIOLATION, build, spellings
 from plan_memo_selftest_cases_pr510 import CHILD, SLOT4
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
@@ -347,8 +347,6 @@ acase("NEGATIVE", "(rc) two MARKED rows spelling it the SAME way: KIND-SPELLING 
 # passes ignored it (a citation id is masked in prose and exempt from the
 # reference walk), so its ownership text could never be checked and the run
 # exited 0; a short id in the citation table polluted the keep-set.
-CITE_TABLE = ("## §0.6 more citations\n\n| ID | Citation | Anchor | Used by |\n|---|---|---|---|\n"
-              "| %s | ECMA-262 §2 Y | `#b` | — |\n")
 rcase("POSITIVE", "(schema) a citation-shaped id in the §5 SLICE table keys no slice row (the schema keys "
                   "short + slug): the row is unkeyed, so its cells would go unasserted -- rc 2",
       build(i7z="**[C99]**"), "", 2)

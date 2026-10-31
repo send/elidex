@@ -909,7 +909,7 @@ mod tests {
             allowed_methods: Some(vec!["PUT".into()]),
             allowed_headers: Some(Vec::new()),
             allow_credentials: false,
-            max_age: Duration::from_secs(60),
+            max_age: Duration::from_mins(1),
         };
         assert!(validate_actual_against_allowance(&r, &allowance).is_err());
     }
@@ -926,7 +926,7 @@ mod tests {
             allowed_methods: Some(vec!["DELETE".into()]),
             allowed_headers: Some(Vec::new()),
             allow_credentials: false,
-            max_age: Duration::from_secs(60),
+            max_age: Duration::from_mins(1),
         };
         assert!(validate_actual_against_allowance(&r, &allowance).is_err());
     }
@@ -943,7 +943,7 @@ mod tests {
             allowed_methods: Some(Vec::new()),
             allowed_headers: Some(vec!["x-custom".into()]),
             allow_credentials: false,
-            max_age: Duration::from_secs(60),
+            max_age: Duration::from_mins(1),
         };
         assert!(validate_actual_against_allowance(&r, &allowance).is_ok());
     }

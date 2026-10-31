@@ -30,7 +30,7 @@
 use elidex_api_canvas::CanvasReconciler;
 use elidex_custom_elements::CustomElementReactionConsumer;
 use elidex_dom_api::{BaseUrlMaintainer, LiveRangeBridge, NodeIteratorAdjuster};
-use elidex_ecs::{EcsDom, MutationDispatcher, MutationEvent};
+use elidex_ecs::{EcsDom, Entity, MutationDispatcher, MutationEvent};
 use elidex_form::FormControlReconciler;
 use elidex_script_session::EventHandlerAttributeConsumer;
 
@@ -56,12 +56,15 @@ pub struct ConsumerDispatcher {
     /// before form-derived state is updated.
     form_control: FormControlReconciler,
     /// Inline event-handler content attribute detection (`<button
-    /// onclick="...">`). Dual-arm (AttributeChange + Insert) consumer
-    /// recording uncompiled handler source into the [`EventListeners`]
-    /// component; lazy compile happens VM-side at first read / dispatch.
-    /// WHATWG HTML §8.1.8.1. Added last — it only writes
-    /// [`EventListeners`], which no earlier consumer reads, so order is
-    /// independent.
+    /// onclick="...">`). Consumer recording uncompiled handler source into the
+    /// [`EventListeners`] component; lazy compile happens VM-side at first
+    /// read / dispatch. Two delegates: its `handle` arms (AttributeChange +
+    /// Insert, keyed on the event's node) and
+    /// [`Self::initialize_consumers`]'s bind pass over the pre-bind tree
+    /// (keyed on the bound document). WHATWG HTML §8.1.8.1. Order-independent
+    /// — it only writes [`EventListeners`] and the `HandlerAttrsProcessed`
+    /// (element) / `PreBindHandlerAttrsProcessed` (Document) markers, none of
+    /// which another consumer reads.
     ///
     /// [`EventListeners`]: elidex_script_session::EventListeners
     event_handler_attrs: EventHandlerAttributeConsumer,
@@ -117,8 +120,11 @@ impl ConsumerDispatcher {
     /// pre-bind nodes never produced [`MutationEvent`]s, so consumers
     /// that maintain ECS state derived from existing structure (today:
     /// [`BaseUrlMaintainer`]'s `BaseFrozenUrl` + `DocumentBaseUrl`
-    /// components, both defined in `elidex_ecs`) would otherwise see
-    /// an empty event stream and never observe the pre-bind subtree.
+    /// components, both defined in `elidex_ecs`, and
+    /// [`EventHandlerAttributeConsumer`]'s handler content attributes) would
+    /// otherwise see an empty event stream and never observe the pre-bind
+    /// subtree.  Both delegates are keyed on the bound `document`, not on
+    /// `document_root()`.
     ///
     /// Idempotent — each delegate is documented as a no-op on an
     /// already-initialized tree.  [`LiveRangeBridge`] and
@@ -130,10 +136,11 @@ impl ConsumerDispatcher {
     /// time (`Document::createElement` / parser path) for the pre-
     /// bind tree, so FCS attach is already complete by the time the
     /// dispatcher is installed; post-install Insert events handle
-    /// dynamic additions.  Add a delegate call only when a future
+    /// dynamic additions.  There are two delegates; add a further call only when a future
     /// consumer derives state from pre-bind tree structure.
-    pub fn initialize_consumers(&mut self, dom: &mut EcsDom) {
-        self.base_url.initialize_from_tree(dom);
+    pub fn initialize_consumers(&mut self, dom: &mut EcsDom, document: Entity) {
+        self.base_url.initialize_from_tree(dom, document);
+        self.event_handler_attrs.initialize_from_tree(dom, document);
     }
 }
 

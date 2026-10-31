@@ -19,6 +19,8 @@ mod navigation;
 mod teardown;
 mod walkers;
 
+pub use walkers::TemplateContentsWalk;
+
 use super::{EcsDom, MAX_ANCESTOR_DEPTH};
 use crate::components::TreeRelation;
 use hecs::Entity;

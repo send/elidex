@@ -302,6 +302,9 @@ CASE	NEGATIVE	(link) an ASCII control character (0x7F) ends a bare destination	0
 CASE	NEGATIVE	(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0	cae6d8ccf610a155
 CASE	NEGATIVE	(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` is no collapsed reference: rc 0	6d1a04e0474b8169
 CASE	NEGATIVE	(link) label matching collapses spaces, tabs and line endings only: a non-breaking space is not a space, so the reference is unanswered	6814c214385e9f4f
+CASE	NEGATIVE	(presence) a citation table in a second memo with ids of its own is census, not a duplicate: rc 0	21f478f9ae821298
+CASE	NEGATIVE	(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) is present: no `no table matched` miss, rc 0	2b49fa38adb83f28
+CASE	NEGATIVE	(presence) a schema whose table is in TWO memos (entry and sibling) is present: multi-memo census is supported, no presence miss, rc 0	b9b7462e53f93fa2
 CASE	NEGATIVE	(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote paragraph's text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site	ffde4ec7aad7fb8d
 CASE	NEGATIVE	(quote) `> [a]: /u\\n>` then the lazy schema header: the blank quote line closes the run, so the quote ENDS and the header is a paragraph outside it (cmark-gfm) -- no id declared	1b221872e0dce3e7
 CASE	NEGATIVE	(quote) `> open `here\\nSlice 9z owns it` there`: the marker-less line is lazy continuation text of the quote's paragraph (§5.1), so the span crosses it: no site	1946b0e65ba53e49
@@ -708,6 +711,8 @@ CASE	POSITIVE	(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped
 CASE	POSITIVE	(link) a full reference no definition answers is a schema miss	df862c9901aeecad
 CASE	POSITIVE	(link) a shortcut whose only definition sits mid-paragraph is a schema miss	64385b11c55615d1
 CASE	POSITIVE	(link) …and its discriminating half: the UNESCAPED `[x](absent-file.md)` IS a link, so the memo it names is an unavailable sibling -- 1 schema miss, rc 2.  Without this the control above cannot tell a working escape from a needle that never matches	edfdc1ec638aef62
+CASE	POSITIVE	(presence) a schema whose table is in NO memo of the population is rc 2, even when a linked memo carries the other schemas' tables	767d9ba8420d07fa
+CASE	POSITIVE	(presence) the same citation table re-declaring the entry memo's id is the declared-twice collision: rc 2	030374f0d0016bf7
 CASE	POSITIVE	(quote) `> Slice 9z owns it`: the quote's paragraph is scanned at its real line and the marker is not content -- the site is reported	5ffb489fa01ac102
 CASE	POSITIVE	(quote) `> open `x\\n# Slice 9z owns it` there`: an ATX heading is never lazy -- the quote ends, the heading is a block of its own and its site is reported	0c7e9a1caeb4156e
 CASE	POSITIVE	(rc) a full reference no definition answers is rc 2, never clean	e9fd0d88fca55098
@@ -911,7 +916,7 @@ CONTROL	CONTROL	Phase-1 orphan detection is linear: <= 4 link_label calls per li
 CONTROL	CONTROL	a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss	plan_memo_selftest_controls.parse_runtime_error_control#5b524dae9a6b12e8
 CONTROL	CONTROL	a decoded destination with a C0 control character is rejected, never resolved	plan_memo_selftest_controls.control_char_destination_control#c3a26128b41497b0
 CONTROL	CONTROL	a destination the sibling resolver REFUSES leaves no finding, seed or note naming it -- the stated policy, pinned rather than merely current	plan_memo_selftest_controls.refused_destination_silence_control#14e8a093f22b1e21
-CONTROL	CONTROL	a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1	plan_memo_selftest_controls.lazy_header_after_definition_control#bf3299f7bc551025
+CONTROL	CONTROL	a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1	plan_memo_selftest_controls.lazy_header_after_definition_control#b07f862c47cc70cd
 CONTROL	CONTROL	a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss at rc 2, refused before it is read	plan_memo_selftest_controls.non_regular_memo_control#019528d29e5bfe15
 CONTROL	CONTROL	a marker naming another row does not enter the count	plan_memo_selftest_controls.attribution_control#0d80adcebf8683d3
 CONTROL	CONTROL	a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, never a UnicodeEncodeError from the strict UTF-8 channel	plan_memo_selftest_controls.surrogate_report_control#b546a61fc3e98a88
@@ -1251,6 +1256,9 @@ CONTROL	NEGATIVE	(link) an ASCII control character (0x7F) ends a bare destinatio
 CONTROL	NEGATIVE	(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` is no collapsed reference: rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(link) label matching collapses spaces, tabs and line endings only: a non-breaking space is not a space, so the reference is unanswered	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	NEGATIVE	(presence) a citation table in a second memo with ids of its own is census, not a duplicate: rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	NEGATIVE	(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) is present: no `no table matched` miss, rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	NEGATIVE	(presence) a schema whose table is in TWO memos (entry and sibling) is present: multi-memo census is supported, no presence miss, rc 0	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote paragraph's text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(quote) `> [a]: /u\\n>` then the lazy schema header: the blank quote line closes the run, so the quote ENDS and the header is a paragraph outside it (cmark-gfm) -- no id declared	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	NEGATIVE	(quote) `> open `here\\nSlice 9z owns it` there`: the marker-less line is lazy continuation text of the quote's paragraph (§5.1), so the span crosses it: no site	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
@@ -1657,6 +1665,8 @@ CONTROL	POSITIVE	(link) `[foo\\]][missing]` is a FULL reference (the `]` is esca
 CONTROL	POSITIVE	(link) a full reference no definition answers is a schema miss	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(link) a shortcut whose only definition sits mid-paragraph is a schema miss	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(link) …and its discriminating half: the UNESCAPED `[x](absent-file.md)` IS a link, so the memo it names is an unavailable sibling -- 1 schema miss, rc 2.  Without this the control above cannot tell a working escape from a needle that never matches	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	POSITIVE	(presence) a schema whose table is in NO memo of the population is rc 2, even when a linked memo carries the other schemas' tables	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
+CONTROL	POSITIVE	(presence) the same citation table re-declaring the entry memo's id is the declared-twice collision: rc 2	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(quote) `> Slice 9z owns it`: the quote's paragraph is scanned at its real line and the marker is not content -- the site is reported	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(quote) `> open `x\\n# Slice 9z owns it` there`: an ATX heading is never lazy -- the quote ends, the heading is a block of its own and its site is reported	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
 CONTROL	POSITIVE	(rc) a full reference no definition answers is rc 2, never clean	plan_memo_selftest_harness.control.<locals>.run#607315692c631059
@@ -2260,7 +2270,7 @@ MUTANT	gate: KIND-SPELLING is a mechanical finding	plan-memo-umbrella-check.py	c
 MUTANT	gate: a duplicate declaration is a schema miss	plan_memo_population.py	44772071ab290148	(rc) the same id declared in two memos is rc 2
 MUTANT	gate: a mechanical finding is exit 1	plan-memo-umbrella-check.py	363851e7927f2917	(rc) the undetermined kind written two ways is KIND-SPELLING, rc 1
 MUTANT	gate: an absent linked memo is a schema miss	plan_memo_population.py	ba7411c2f5db61a7	(rc) a linked memo that is not on disk is rc 2, never clean
-MUTANT	gate: an unmatched schema is a schema miss	plan_memo_population.py	eaead5c30661ff4b	(rc) a schema with no matching table is rc 2
+MUTANT	gate: an unmatched schema is a schema miss	plan_memo_population.py	eaead5c30661ff4b	(presence) a schema whose table is in NO memo of the population is rc 2, even when a linked memo carries the other schemas' tables|(rc) a schema with no matching table is rc 2
 MUTANT	id: a citation id is keyed by its canonical §6.3 LABEL (key the raw spelling -- two rows differing only in case declare one id twice and nothing says so)	plan_memo_tables.py	7e3c51e9833a5531	(id) a citation id declared twice differing only in CASE is the same miss -- `[C1]` and `[c1]` are one §6.3 label, which is how the link resolver already reads them: rc 2
 MUTANT	kind phrase: a SEPARATOR is required between KIND and UNDETERMINED (make both gaps and the dash optional again -- `KINDUNDETERMINED` declares the kind)	plan_memo_stream.py	4cba2ddf12d5b892	(kind) nor does `The KINDUNDETERMINED metric must be recorded` -- a separator between the two words is required: with a nonempty `Deps` cell the separator-free reading made the row no-owner and forced `UMBRELLA-CELL`, rc 1
 MUTANT	link: 0x7F is an ASCII control character	plan_memo_links.py	873a62c5c7093730	(link) an ASCII control character (0x7F) ends a bare destination
@@ -2332,6 +2342,7 @@ MUTANT	population: a `from X import` is an order edge (drop it)	plan_memo_selfte
 MUTANT	population: a registry module binds its list at TOP LEVEL (read every assignment -- a list bound inside a function makes a module a registry)	plan_memo_selftest_harness.py	2f6416c1c1a4fbd4	PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory
 MUTANT	population: a registry module is a SELF-TEST module (drop it -- a checker module holding a `MUTANTS` becomes one)	plan_memo_selftest_harness.py	d5184b583c994228	PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory
 MUTANT	population: a registry module is one that HOLDS the list (re-inject the name rule -- a renamed module's rows leave in silence)	plan_memo_selftest_harness.py	71f63db51dafbfb3	PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory
+MUTANT	population: a schema's presence is read over the POPULATION (revert to the entry memo only)	plan_memo_population.py	b7a17e02a17633fc	(presence) a schema whose ONLY table is in a carved sibling (not the entry memo) is present: no `no table matched` miss, rc 0
 MUTANT	population: an ANNOTATED assignment binds the list (read `Assign` alone)	plan_memo_selftest_harness.py	647e44c700ec18a0	PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory
 MUTANT	population: an `import X` is an order edge (read `from X import` alone)	plan_memo_selftest_harness.py	bd3db7c0ecf8d607	PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory
 MUTANT	population: an import cycle is an error (break out of it -- a misordered load in silence)	plan_memo_selftest_harness.py	203b44ebdcb46cc7	PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory

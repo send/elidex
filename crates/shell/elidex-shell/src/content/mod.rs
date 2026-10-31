@@ -797,6 +797,10 @@ mod content_tests;
 mod iframe_security_tests;
 
 #[cfg(test)]
+#[path = "../content_eh_attrs_bind_tests.rs"]
+mod eh_attrs_bind_tests;
+
+#[cfg(test)]
 #[path = "../content_window_open_tests.rs"]
 mod window_open_tests;
 
