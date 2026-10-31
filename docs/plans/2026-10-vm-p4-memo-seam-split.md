@@ -1,6 +1,7 @@
 # VM P4 umbrella memo — seam split plan (`#11-vm-p4-memo-section-seam-split`)
 
-**Status**: plan, revised after `/elidex-plan-review` R1, R2 and R3 (R3's MINs). **Subject**:
+**Status**: plan, revised after `/elidex-plan-review` R1, R2 and R3 (R3's MINs, then the kept-text
+statements the split falsifies, §3). **Subject**:
 `docs/plans/2026-07-vm-p4-es-language-completeness.md` at `39cc365a` (3093 lines). **Rule**: CLAUDE.md
 *1000-line debt = touch-time split* — a cohesion judgment, executed inside #506 as a content-free
 commit (1) plus a pointer commit (2) before #506 next edits the memo's content.
@@ -12,7 +13,8 @@ every umbrella line number, range and count below is a line of `git show 39cc365
 `.github/workflows/ci.yml` are at it (all three unchanged on this branch). `08a2a68c` — CLAUDE.md
 :54/:55 (:55 exists only on this branch) and the base of the production-form clone
 (`vm-p4-artifacts/split-sim/r2-repo`; the commits measured in it are listed in
-`vm-p4-artifacts/split-sim/r3/r3-commits.txt`).
+`vm-p4-artifacts/split-sim/r3/r4-commits.txt` — R3's `<c1>`, and a `<c2>` rebuilt from the current
+edit spec; R3's own `<c2>` is in `r3/r3-commits.txt`).
 
 This memo is deliberately **not linked** from the umbrella: a link would put it in the checker's
 population, and every id it spells would become a naming site of the umbrella's census. The carve
@@ -320,14 +322,15 @@ enforce.
 - **Measured, in production form.** A `git clone --local` of `vm-p4-plan-doc` at `08a2a68c`
   (`vm-p4-artifacts/split-sim/r2-repo`); commit (1) as a real commit (`r3/sim3.py <repo> 1`), commit
   (2) as a real commit on top (`r3/apply_c2.py <repo> <this plan> r3/test_vm_p4_family_layout.py`: §3's
-  edit spec and the guard at its path). Hashes in `r3/r3-commits.txt`.
+  edit spec and the guard at its path). Hashes in `r3/r4-commits.txt`.
   1. checker `--self-test` at `<c2>` (`python3 .claude/tools/plan-memo-umbrella-check.py --self-test`):
-     rc 0, `954 control(s)`, `all controls behaved as declared.` (`r3/r3-c2-selftest.txt`).
+     rc 0, `954 control(s)`, `all controls behaved as declared.` (`r3/r4-c2-selftest.txt`).
   2. `bash scripts/python-suites.sh` at `<c2>`: rc 0, `GREEN -- 10 member(s), 120 test(s) passed,
      offline`; `root docs/plans (1 member(s))`, `docs/plans/test_vm_p4_family_layout.py: 2 test(s)
-     passed` (`r3/r3-c2-python-suites.txt`).
+     passed` (`r3/r4-c2-python-suites.txt`).
   3. The guard (`python3 -m unittest docs/plans/test_vm_p4_family_layout.py`) under one-edit mutations
-     of the `<c2>` tree (`r3/guard-controls.sh`, output `r3/guard-controls.txt`): green as built; the §4
+     of the `<c2>` tree (`r3/guard-controls.sh`, output `r3/r4-guard-controls.txt`, equal to R3's
+     `r3/guard-controls.txt` but for timings): green as built; the §4
      stub's link deleted → checker rc 0, (i) red with exactly `design-invariants.md`; the §5 stub's
      touch-time link deleted → green (2318 still reaches it); one link from `open-decisions.md` to the
      checker plan → checker rc 0, (i) red with `2026-08-plan-memo-umbrella-checker.md` and `…-rounds.md`;
@@ -376,9 +379,9 @@ The split satisfies ten invariants at once:
 - **C5 schema home** — each of the four schemas has one table in one memo (§1.3).
 - **C6 predicted checker diff** — §2.2's classes and nothing else, at both commit heads.
 - **C7 family order** — `above`/`below` and section order read across files as before.
-- **C8 pointer commit (2)** — three existing stub links, the three existing heads (re-point and
-  reading rule), the checker-plan anchor, CLAUDE.md:54 and :55, the guard (§3) — each line edit
-  byte-fixed by §3's edit spec.
+- **C8 pointer commit (2)** — three existing stub links, six kept entry statements the split
+  falsifies, the three existing heads (re-point and reading rule), the checker-plan anchor,
+  CLAUDE.md:54 and :55, the guard (§3) — each line edit byte-fixed by §3's edit spec.
 - **C9 family guard** — the `setUp` precondition, (i) and (ii) of §1.5.
 - **C10 base revision** — the umbrella in commit (1)'s parent is the `39cc365a` blob
   (`git rev-parse <c1>^:<entry>` = `git rev-parse 39cc365a:<entry>`). Every line number, range and
@@ -393,7 +396,7 @@ The split satisfies ten invariants at once:
 | C1 × C5 | the four schema tables are in moved or kept ranges, so §2.1 proves each moved byte-for-byte; header drift by the move is impossible |
 | C1 × C6 | class 2 of §2.2 exists because a child's line numbers are its range shifted by the head length; §2.2 maps them back (`a + N − h − 1`) |
 | C1 × C7 | the bodies are verbatim, so deixes keep their text; order is restored by stub order, not by editing them |
-| C1 × C8 | commit (2) edits three **kept** entry lines (2317, 3079, 3089), so §2.1 is run with `<c1>` only (given `<c2>`, it stops at the C10 assertion, since `<c2>^` is `<c1>` — measured), and commit (2) has its own kept-line check (§3 step 2) |
+| C1 × C8 | commit (2) edits nine **kept** entry lines (the stubs 2317, 3079, 3089 and the statements 20, 2325, 2334, 2339, 2340, 2362), so §2.1 is run with `<c1>` only (given `<c2>`, it stops at the C10 assertion, since `<c2>^` is `<c1>` — measured), and commit (2) has its own kept-line check (§3 step 2) |
 | C1 × C9 | none: the guard reads structure, not bytes |
 | C1 × C10 | §2.1 reads `old` from `<c1>^` and asserts first that it is the `39cc365a` blob; C1 is defined against that blob |
 | C2 × C3 | a relink rewrites existing text into a link whose label is `§N`, never an id; class 1 of §2.2 is excerpt text only |
@@ -401,14 +404,14 @@ The split satisfies ten invariants at once:
 | C2 × C5 | relinks edit cells of the entry's `stub` table (e.g. 439-475), never a header or delimiter row, so the table still matches its schema (measured: every count identical) |
 | C2 × C6 | class 1 of §2.2: 11 entry lines whose excerpt now shows a link |
 | C2 × C7 | none: deixes are untouched, links do not reorder text |
-| C2 × C8 | commit (2) adds no relink; its entry edits are the three stub links only |
+| C2 × C8 | commit (2) adds no relink and no bare `§N` to the entry: its entry edits are the three stub links and six kept-text replacements whose new text holds no `§`, so C2's entry-links rule holds at `<c2>` as at `<c1>` |
 | C2 × C9 | relinks add edges among members only, so (i) is unchanged |
 | C2 × C10 | the relink census (§3 step 1) compares `<c1>` with `<c1>^`: 58 links on 51 kept lines, per target as in §3 |
 | C3 × C4 | the stub link's label is a section label, so the edge it adds names nothing (zero inserted lines in the output) |
 | C3 × C5 | heads and stubs contain no table, so no schema table is added |
 | C3 × C6 | zero head/stub lines in the output (measured: no checker line maps to an inserted line) |
 | C3 × C7 | the heads state the family-order reading rule; the rule is text, not an id |
-| C3 × C8 | commit (2)'s head edits and stub links name only file paths, section labels and a revision |
+| C3 × C8 | commit (2)'s head edits, kept-text replacements and stub links name only file paths, section labels, counts and a revision — no declared id (2362's replacement leaves the row id the line already spells and adds none); measured: output byte-identical (§2.2) |
 | C3 × C9 | none |
 | C3 × C10 | each head says its body moved verbatim at `39cc365a`; C10 is what makes that sentence true |
 | C4 × C5 | `slice-plan.md` / `slot-ledger.md` leaving the population is rc 2 by presence; the other five leaving is rc 0 — the asymmetry (ii) and (i) are split along |
@@ -426,11 +429,11 @@ The split satisfies ten invariants at once:
 | C6 × C8 | commit (2) must not move any output: measured, the commit-(2) output is **byte-identical** to the commit-(1) output |
 | C6 × C9 | the guard is a separate test outside the checker's directory; it adds nothing to the checker output and nothing to its self-test (§1.5) |
 | C6 × C10 | the baseline is the output on the `39cc365a` blob; if a checker file changed between `e44ffce6` and `<c1>^`, the baseline is re-taken at `<c1>^` before comparing (§2.2) |
-| C7 × C8 | the reading-rule rewrite gives the three existing heads the new heads' rule (section numbers read through the entry's stubs), so C7 has one statement across the family; every head edit is a same-line replacement, so no text moves |
+| C7 × C8 | the reading-rule rewrite gives the three existing heads the new heads' rule (section numbers read through the entry's stubs), so C7 has one statement across the family; every head edit is a same-line replacement, so no text moves; and 2334's "in the order they are listed above" — out of step with its own counts already at `39cc365a` (umbrella 29, detail file 21, rounds record 2, `slice-0a…` 0, against a list on 2325-2326 that names the rounds record first and omits `slice-0a…`) — gives way to an explicit file order, so commit (2)'s text adds no cross-file deixis |
 | C7 × C9 | none |
 | C7 × C10 | none |
 | C8 × C9 | the guard lands in commit (2), after the move, because at commit (1)'s parent it is red by design |
-| C8 × C10 | commit (2)'s checks compare `<c2>` with `<c1>`, not with `<c1>^`; the checker-plan anchor it writes ("line 2716 at `39cc365a`") is true only under C10 |
+| C8 × C10 | commit (2)'s checks compare `<c2>` with `<c1>`, not with `<c1>^`; the checker-plan anchor it writes ("line 2716 at `39cc365a`") is true only under C10, as is 2325's "the five files carved from it at `39cc365a`"; the counts it writes at 2334 and 2339-2340 are measured at `<c2>` (§3), not at `39cc365a` |
 | C9 × C10 | none: the guard reads the head |
 
 ### §2.1 Content-free proof (commit (1))
@@ -508,7 +511,7 @@ on `<c1>^` with the checker at `<c1>^`
 
 **Prediction, measured at the production-form heads** (§1.5; `<c1>` built by
 `vm-p4-artifacts/split-sim/r3/sim3.py <repo> 1`, `<c2>` by `r3/apply_c2.py` from §3's edit spec;
-outputs `r3/r3-after1.txt` / `r3-after2.txt`; `norm2.py r3/origin-c1.json` maps each `file:N` back to
+outputs `r3/r3-after1.txt` / `r4-after2.txt` — `r4-after1.txt`, the `<c1>` output re-run beside it, is byte-identical to `r3-after1.txt`; `norm2.py r3/origin-c1.json` maps each `file:N` back to
 its `39cc365a` line). The layout is this plan's: §1.1 ranges, §1.4-shaped heads (12 lines, 14 for the
 touch-time file), the §1.2 stubs, the 58 relinks (2318's `§5` → `touch-time-split-record.md`, 7's
 `§4` excluded), and in `<c2>` every edit of §3's edit spec. R2's `<c1>` (`17bbcc13`, which also
@@ -527,7 +530,8 @@ header line, where `design-invariants.md` is now scheduled after `…-rounds.md`
   (population is BFS order).
 - **commit (2) head vs commit (1) head**: **byte-identical** output (measured). Every commit-(2)
   edit is a same-line substitution (§3's edit spec), so no file's line count changes (no locator
-  moves), none of the edited lines is a naming site, and the edges the three stub links add point at
+  moves), none of the edited lines is a reported naming site (2362 spells a row the census does not
+  seed; its replacement keeps that spelling and adds no id), and the edges the three stub links add point at
   memos BFS has already scheduled (population order unchanged).
 
 Anything else — a count, an `[UMBRELLA-MARK?]` row, a seed, any difference between the two heads — is
@@ -563,8 +567,54 @@ A heading is not relinked (local policy of this count, not a Markdown rule; §7)
 | `I-n` names | 168 | verbatim; they stay in `design-invariants.md`, and no stub or head spells one (C3) |
 | `above` / `below` | 416 (PLAN 204, LED 140, P 41) | verbatim; the carve heads state they read in family order, which the stubs preserve (known crossing: 1988 "see the 1000-line check below" → TT) |
 | heads of the 3 existing carve-outs | 13 lines (5 / 5 / 4 at `<c1>`; head = lines 1-18 of each) | commit (2), same-line replacements, no line added or removed (a moved line would move every naming site below it — 95 of `<c1>`'s output lines are in these files). What becomes false once §4/§5/§8/§9 leave the entry, read from the three heads: (a) line 5 of each, "the seam derivation and its measurements are in the umbrella's §5" — that passage is now in `touch-time-split-record.md`, and "pre-split" (line 7) becomes ambiguous between two splits: an insertion names the second split and its revision; (b) the reading rule — "Any other unqualified `§N` refers to the **umbrella**, except" two named carve-outs, "the umbrella's two other carve-outs" (`slice-0a…` 14-17, `slice-1a-1b…` 14-16, `…-rounds` 16-18) — now names a set that misses five files: rewritten to the new heads' rule (§1.4: through the entry's stubs); (c) `slice-1a-1b…` 9, "**Scheduling stays in the umbrella.**" — §5/§8/§9 left the entry: "…in the umbrella family." Nothing else in the heads is false: `slice-0a…` 9-10 and the rest of `slice-1a-1b…` 9-10 name §5/§8/§9, which the new rule resolves; the archive and record descriptions are about the files themselves. **Backticked**, not linked — membership does not need it |
+| statements in the entry's **kept** text (and the existing carve-outs' bodies) whose truth the split changes | 6 false after the split, all in kept text (20, 2325, 2334, 2339, 2340, 2362); carve-out bodies 0 | commit (2), same-line replacements (a moved line would move the locators below it), exact text in the edit spec below; the census, the criterion and the statements found true are listed after this table |
 | other docs: line cites into the umbrella | 3, all in `docs/plans/2026-08-plan-memo-umbrella-checker.md`: `:663` "main memo line 2716"; `:1098` `` `190d2adb:…:1218` `` / `` `:2711` ``; `:1103` `` `190d2adb:…:2710` `` | commit (2): anchor `:663` as "line 2716 at `39cc365a`"; `:1098` / `:1103` are already anchored to `190d2adb` and stay. Complement measured (below). |
 | CLAUDE.md:54 and :55 (on main `e44ffce6` line 55 is the **Git** rule; the checker-run rule is this branch's) | 2 | commit (2): :54 states the one exception to "memo 実行は手動 … CI job に入れない" — this family's guard runs in the `tools` job, and through its `setUp` precondition any rc-2 defect of a family memo makes that job red; :55 extends the trigger to every family memo, replaces its rc-2 clause ("2 は memo の table header が checker の SCHEMAS とずれた" contradicts :54's "header drift に限らず"), and adds the guard-update rule with the remedy for a red (i) and the pin-length layers (§1.3). Exact text in the edit spec below |
+
+**Kept-text census** (the row above; lines at `39cc365a`, `<c1>` = line − 1605 for 2315-2397).
+Enumerated by concept over the kept ranges and the three carve-out bodies: what "this document" /
+"this file" / "here" / "above" / "below" points at, where a "single home" lies, and any figure fixed
+by the family's file set. **Criterion: a statement is in scope when it is unqualified present tense
+and its referent is fixed by the current file layout; one bound to a revision, a round or a past
+event (past tense, `at <rev>`, a round or landing record, a carve-out body its head binds to the
+pre-split umbrella) is not, since the split does not change what was true then.**
+
+- **False after the split — replaced in commit (2).** 20: "the document also cites … **WebIDL** and
+  **WHATWG HTML**" — once §4/§5/§8 leave, the entry's only WebIDL / WHATWG HTML mentions are this
+  paragraph's own (20-22); → "the document and its carve-outs also cite …". 2325: the `edge NN`
+  namespace covers "this document", the rounds record and the detail file — 27 of the entry's 29
+  references move (`slice-plan.md` 16, `open-decisions.md` 11), outside that list; → adds "the five
+  files carved from it at `39cc365a`". 2334: "the four files of this program … **29 / 21 / 2 / 0**";
+  2339-2340: the line counts "15 / 17 / 2 / 0", disagreeing on "two of the four files" — measured at
+  `<c2>` over the nine memos (`grep -o … | wc -l` / `grep -c`): this document 2 / 2,
+  `slice-plan.md` 16 / 5, `open-decisions.md` 11 / 8, the detail file 21 / 17, the rounds record
+  2 / 2, the other four 0 / 0; → the nine files in that explicit order, "2 / 5 / 8 / 17 / 2 / 0",
+  "three of the nine files". 2362: §5's owner row "is this document's single home for that
+  assignment" — the row is in `slice-plan.md`; → "the single home, in this document and its
+  carve-outs, for that assignment".
+- **True after the split — no edit.** 18 ("not the document's citation chokepoint": true of the entry
+  and of the family); 26-27 (`<this file>` command → `29 0 0 0 0 0 1`, measured at `<c1>`: the table
+  stays in the entry); 105, 390, 439 ("below" into §5 rows and a §8 slot: the stubs stand where §5 and
+  §8 stood, C1/C7); 186 ("match this plan file itself": 185-186 are kept and still match); 588, 2330,
+  2368, 2371 (homes named by section — §5's rows, §5's one structured home, §9 dec. 16 — resolved
+  through the stubs); 2324 ("this sentence is its single home": it stays); 2327 ("nothing else in
+  this program numbers edges"); 2329 ("a section number this document no longer contains"); 3080-3083
+  and 3090-3093 ("every reference to them in this document links to that file": **false at
+  `39cc365a`**, through the bare `§§16-18`, `§§10-15` and `§§10-18` at 2246, 2250 and 2305, all in the
+  touch-time passage, and **true after**, since those lines leave the entry and the kept text has none
+  bare). The carve-out bodies: the rounds record and the landing record are records (criterion); the
+  detail file's present-tense references are an unqualified `§N`, resolved by the reading rule commit
+  (2) gives its head, or "this file", which is still that file.
+- **Out of scope by the criterion.** 23-24 ("nothing in this document owned", past tense); 2317,
+  3079, 3089 ("by this document's touch-time prereq split", the first split's past event — 2318 names
+  its passage); 475 ("at this document's HEAD") and 505 ("this document's own baseline"), both
+  revision-bound.
+- **Outside this class (pre-existing, not edited).** 2320-2321, "every `§6…` reference in this
+  document links to that file", is false at `39cc365a` and after (bare `§6.4` at 2324, 2327, 2328,
+  2340, all kept); the split does not change it. Its consequence, "scheduling from §5, §8 and §9
+  reads exactly as it did", stays true: every umbrella-`§6` reference in those sections is a link
+  to the detail file (19 / 3 / 13 outside code spans; the bare `§6…` there are URL and IndexedDB
+  sections), moved verbatim.
 
 Complement for the "other docs" row — every tracked file outside the family and this plan that
 mentions the umbrella, then every line-cite form in those files (on this branch; `a45a42d1`):
@@ -586,9 +636,33 @@ and is replaced by the `+` text, pairs applied in order. No line is added or rem
 after this plan is approved are made here, and the check follows.
 
 ```c2-edits
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:20
+- the document also cites ECMA-262 sections inline without IDs, and cites
++ the document and its carve-outs also cite ECMA-262 sections inline without IDs, and cite
+
 @ docs/plans/2026-07-vm-p4-es-language-completeness.md:712
 - `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md`
 + `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` ([§6](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md))
+
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:720
+- in this document, in
++ in this document, in the five files carved from it at `39cc365a`, in
+
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:729
+- the four files of this program in the order they are listed above — **29 / 21 / 2 / 0**:
++ the nine memo files of this program — this document, `2026-07-vm-p4-slice-plan.md`, `2026-07-vm-p4-open-decisions.md`, the detail file, the review-rounds record, then each of the other four — **2 / 16 / 11 / 21 / 2 / 0**:
+
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:734
+- 15 / 17 / 2 / 0
++ 2 / 5 / 8 / 17 / 2 / 0
+
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:735
+- two of the four files.
++ three of the nine files.
+
+@ docs/plans/2026-07-vm-p4-es-language-completeness.md:757
+- which is this document's single home for that assignment
++ which is the single home, in this document and its carve-outs, for that assignment
 
 @ docs/plans/2026-07-vm-p4-es-language-completeness.md:807
 - `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md`
@@ -698,8 +772,9 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
      `relinks 58 lines 51`; `§5 -> slice-plan 25`, `§5 -> touch-time-split-record 1` (line `[2318]`),
      `§8 -> slot-ledger 18`, `§9 -> open-decisions 14`; no `§4` line (the exclusion);
    - C6: §2.2's commit-(1) prediction holds (after the baseline check of §2.2).
-2. **Pointer commit**: every line edit of §3's edit spec (the three existing stub links, the three
-   existing heads, the checker-plan `:663` anchor, CLAUDE.md:54 and :55) and the guard
+2. **Pointer commit**: every line edit of §3's edit spec (the three existing stub links, the entry's
+   six kept-text replacements, the three existing heads, the checker-plan `:663` anchor, CLAUDE.md:54
+   and :55) and the guard
    `docs/plans/test_vm_p4_family_layout.py` (§1.5). Checks:
    - every changed line is a line the edit spec names and equals its `<c1>` line with the spec's
      substitutions applied, byte for byte — CLAUDE.md included, with :54 and :55 asserted as the
@@ -707,10 +782,10 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
      production text: `python3 c2_edits.py <c1> <c2> docs/plans/2026-10-vm-p4-memo-seam-split.md
      docs/plans/test_vm_p4_family_layout.py` (`vm-p4-artifacts/split-sim/r3/c2_edits.py`; in the
      split PR the last argument is the file as committed, so the guard clause reduces to "new").
-     Measured at the production-form heads, verified 2026-10-31: `c2 edits ok: 6 files, 20 lines, 21 substitutions; guard
-     new, byte-equal`, and `git diff --numstat <c1> <c2>`: CLAUDE.md `2 2`, entry `3 3`,
+     Measured at the production-form heads, verified 2026-10-31: `c2 edits ok: 6 files, 26 lines, 27 substitutions; guard
+     new, byte-equal`, and `git diff --numstat <c1> <c2>`: CLAUDE.md `2 2`, entry `9 9`,
      `slice-0a…` `5 5`, `slice-1a-1b…` `5 5`, `…-rounds` `4 4`, checker plan `1 1`, guard `92 0`.
-     Negative controls (`r3/c2-controls.sh`, output `r3/c2-controls.txt`): one character changed in
+     Negative controls (`r3/c2-controls.sh`, output `r3/r4-c2-controls.txt`): one character changed in
      the :55 replacement, one extra edited line in a carve-out head, a head edit moved to the next
      line — each rc 1;
    - the checker output at `<c2>` byte-identical to `<c1>`'s (§2.2);
@@ -755,6 +830,9 @@ parts only:
 4. **§1.5** — the rewritten (c) rejection (from the control's reach) and the precedents paragraph
    ("first CI suite member under `docs/`"); the `tools` timeout rule as a split-PR check.
 5. §7 — the container-aware definition count.
+6. **§3 kept-text census** — the six kept entry statements the split falsifies, joined to commit (2)
+   as same-line replacements (edit spec); the criterion separating them from revision-bound text; the
+   statements found true; §2.0's C8 rows; `<c2>` re-measured (`r3/r4-commits.txt`).
 
 ## §6. Discharge, ledger, and hand-off
 
