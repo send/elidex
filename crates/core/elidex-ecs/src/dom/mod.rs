@@ -97,36 +97,24 @@ pub struct EcsDom {
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
-/// taken-out dispatcher back into `self.dispatcher` AND decrements the
+/// taken-out dispatcher back into `dom.dispatcher` AND decrements the
 /// re-entry depth counter on scope exit, even if the dispatch callback
 /// panics.
 ///
-/// # Safety
-///
-/// `target_ptr` and `depth_ptr` alias `EcsDom::dispatcher` /
-/// `EcsDom::dispatch_depth` respectively.  Both pointers are derived
-/// from a `&mut EcsDom` at the call site; the `RestoreDispatcher`
-/// value is held in the SAME stack frame as the `&mut self` borrow,
-/// so no other live borrow of either field can exist for the
-/// duration of `guard`.  The raw pointers are dormant during the
-/// re-borrowed `&mut *self` callback call (Rust's borrow stack
-/// model allows raw pointers to alias actively-borrowed data so long
-/// as they are not dereferenced).  Dereference happens only in
-/// `Drop`, after the callback returns / unwinds and the `&mut self`
-/// borrow has expired.
-struct RestoreDispatcher {
-    target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>>,
-    depth_ptr: *mut u8,
+/// The guard owns the `&mut EcsDom` borrow (no raw pointers): the call
+/// site splits it field-wise into `dom` and `pending`, so the callback
+/// gets `&mut EcsDom` through the guard while `Drop` still reaches the
+/// same borrow afterwards.  Unwinding drops the guard, so the slot and
+/// the counter are restored on the panic path as well.
+struct RestoreDispatcher<'a> {
+    dom: &'a mut EcsDom,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
 }
 
-impl Drop for RestoreDispatcher {
+impl Drop for RestoreDispatcher<'_> {
     fn drop(&mut self) {
-        #[allow(unsafe_code)]
-        unsafe {
-            *self.target_ptr = self.pending.take();
-            *self.depth_ptr = (*self.depth_ptr).saturating_sub(1);
-        }
+        self.dom.dispatcher = self.pending.take();
+        self.dom.dispatch_depth = self.dom.dispatch_depth.saturating_sub(1);
     }
 }
 
@@ -208,19 +196,15 @@ impl EcsDom {
         if self.dispatcher.is_none() {
             return;
         }
-        let target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>> =
-            &raw mut self.dispatcher;
-        let depth_ptr: *mut u8 = &raw mut self.dispatch_depth;
         self.dispatch_depth = self.dispatch_depth.saturating_add(1);
-        let mut guard = RestoreDispatcher {
-            target_ptr,
-            depth_ptr,
-            pending: self.dispatcher.take(),
-        };
-        if let Some(d) = guard.pending.as_mut() {
-            d.dispatch(event, self);
+        let pending = self.dispatcher.take();
+        let mut guard = RestoreDispatcher { dom: self, pending };
+        // Disjoint field borrows of the guard: the callback gets the dom,
+        // the guard keeps ownership of the restore state.
+        let RestoreDispatcher { dom, pending } = &mut guard;
+        if let Some(d) = pending.as_mut() {
+            d.dispatch(event, dom);
         }
-        drop(guard);
     }
 
     /// Fire [`MutationEvent::SplitText`] from a caller in another crate.
