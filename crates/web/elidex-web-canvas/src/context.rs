@@ -20,7 +20,7 @@ use crate::style::parse_color_string;
 /// unpremultiply+remultiply round-trip and its sub-pixel rounding drift.
 fn rgb_from_premul_rgba(src: &[u8]) -> Vec<u8> {
     // Pixmap data is always RGBA8 (4 bytes per pixel) by `tiny_skia::Pixmap`
-    // construction invariant, so `chunks_exact(4)` never drops a partial tail.
+    // construction invariant, so `as_chunks::<4>()` never drops a partial tail.
     // Assert it explicitly so a future caller (or a `Pixmap` API change) that
     // violates the invariant fails loudly in dev rather than silently
     // truncating the encoded output.
