@@ -3,7 +3,9 @@
 Slot: `#11-strict-fragment-declarative-shadow-on-context` (ledger row "SCOPE INVERTED 2026-10-24"). Base: `origin/main`
 `e44ffce6`. Owner lane: L3 DOM/form.
 
-**Rev 1** (2026-10-31) — first draft. **Status: PR 1 blocked on Q1 (§0.1); PR 0b is not.** This memo plans the
+**Decision (2026-10-31, user via PM decision 102)**: Q1 = **reverse #337's DSD-on-context; follow the current spec** (this plan). §8 is the rejected alternative. PR 0b is approved to start now (PM decision 103). Order: 0b is independent; 0a → 1.
+
+**Rev 1** (2026-10-31) — first draft. **Status at Rev 1–4: PR 1 blocked on Q1 (§0.1); PR 0b is not.** This memo plans the
 spec-current option; the alternative is in §8.
 
 **Rev 2** (2026-10-31) — driver decisions: `tree.rs` split as a prereq (now PR 0a, §1.1); the `begin_detached_fragment`
@@ -328,7 +330,7 @@ rewriting as a recorded spec deviation with a re-check date.
   top-level `<template shadowrootmode>` is a plain template in both backends (WHATWG HTML §13.2.6.4.4 template start
   tag: host = current node; hostIsRoot → regular template); strict handles it natively; #337's DSD-on-context
   reversed by user decision <date>."
-- PM memory sweep: mark superseded `html-fragment-unify-slice2b-plan.md` §2.4 and `:12`, `:36`, `:155`;
+- Memory sweep (done by the L3 driver on 2026-10-31, PM decision 102; the shared ledger is the PM's): mark superseded `html-fragment-unify-slice2b-plan.md` §2.4 and `:12`, `:36`, `:155`;
   `project_parser-strict-tolerant-deployment.md:18`, `:20`, `:21` (its LESSON); `m4-12-landings-ledger.md:109` (its
   LESSON); `html-side-defer-sweep-2026-06-14.md:35`; re-scope `#11-shadow-declarative-reuse` and add the notes to
   `#11-tolerant-document-declarative-shadow-roots` (§7); decide registration of `#11-tolerant-dsd-host-from-tree-builder`;
@@ -337,5 +339,5 @@ rewriting as a recorded spec deviation with a re-check date.
 
 ## Open questions
 
-- **Q1 (user, via PM)**: reverse #337's DSD-on-context (this plan) or keep it (§8)? PR 0b does not wait for it.
+- ~~**Q1 (user, via PM)**: reverse #337's DSD-on-context (this plan) or keep it (§8)?~~ **Resolved 2026-10-31 (PM decision 102): reverse, follow the spec.**
 - Resolved: Rev 2's Q2 (PR 0b is independent); Rev 2's Q3 (handed off, §1.2); `begin_detached_fragment`'s root is `html`.
