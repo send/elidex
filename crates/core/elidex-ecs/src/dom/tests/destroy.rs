@@ -328,6 +328,24 @@ fn adopt_subtree_rehomes_template_content_fragment() {
 }
 
 #[test]
+fn begin_detached_fragment_root_is_child_of_document() {
+    // Regression guard for the append once sitting inside `debug_assert!`.
+    // That defect only shows with debug assertions off, so this test catches
+    // it under `cargo test --release`, not in the dev profile CI runs.
+    let mut dom = EcsDom::new();
+    let (document, root, _) = dom.begin_detached_fragment();
+    assert_eq!(dom.get_parent(root), Some(document));
+    // The property the link exists for: the strict rollback reclaims root and
+    // everything built under it.
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(root, child));
+    dom.despawn_subtree(document);
+    assert!(!dom.contains(document));
+    assert!(!dom.contains(root));
+    assert!(!dom.contains(child));
+}
+
+#[test]
 fn despawn_subtree_is_event_free_even_on_a_connected_shadow_host() {
     // `despawn_subtree` is a raw structural teardown, not a DOM removal: it
     // suppresses dispatch for the whole walk. So tearing a *connected* subtree
