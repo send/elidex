@@ -1,4 +1,5 @@
-//! Tree mutation handlers: appendChild, insertBefore, removeChild, insertAdjacent*.
+//! Tree mutation handlers: appendChild, insertBefore, removeChild, replaceChild,
+//! insertAdjacentElement, insertAdjacentText.
 
 use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
