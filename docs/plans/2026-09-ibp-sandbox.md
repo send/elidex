@@ -22,6 +22,21 @@ ledger row (the A-row idiom) is drafted: no amendment here touches a surface the
 the S5-4 plan, neither of which keeps an A-row ledger; their records live in this memo under the A114 idiom ("recorded,
 not edited").
 
+**Erratum** (2026-10-25; PM decision 16 — the PM's ruling that N1's PR corrects this memo's §8.1.8.1 citation in place,
+that N1's D-N3 reconcile order is the means of D2 × D8's closure, and that N1 memo O5's home is `#11-event-handler-target-determination`;
+wording revised under PM decision 17, below; ships with N1's per-PR memo, `docs/plans/2026-10-ibp-sandbox-handler-gates.md`) — a premise error, recorded, and its statements corrected **in place** (each marked "erratum 2026-10-25").
+The in-place edit is an **exception**, by PM decision 16, to the approval scope's rule that a finding against this memo changes it only through a decision (`:12-14`) and to §0.3's A114 idiom ("recorded, not edited"); it edits no other surface (the prerequisite paragraph below and §5.2's own-deferral line, PM decision 101, record their own exceptions).
+Rev ≤ 12 quoted *get the current value of the event handler* step 3.2 as "If scripting is disabled for document, then return null" and numbered *the event handler processing algorithm*'s gating steps 1–3 with "not fully active" at step 3.
+Current webref reads (`.claude/tools/webref body html getting-the-current-value-of-the-event-handler`; `.claude/tools/webref body html the-event-handler-processing-algorithm`; 2026-10-25):
+step 3.2 "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null";
+processing steps 1 "If the result of WebDriver BiDi scripting is enabled with eventTarget's relevant settings object is false, then return", 2 get the current value, 3 callback null → return, 4 not fully active → return.
+Whether the spec changed or the earlier output was misread is not decided (webref keeps no spec history). Corrected: A16, A17, P4, D2, D8's `NodeDocumentOf` line, §3's §8.1.8.1 row, §4 F10's readers, §5.2 n3, §8 B1 append (2).
+No decision changes: no §8.1.3.4 check runs at invocation under either text, and the compile gate carries the scripting check. D2's compile-gate wording is neutral (PM decision 17):
+the current step 3.2 text and D8's "scripting is disabled for *el's node document*" give the same outcome at N1, and which one is implemented is N4's, recorded on edge n3.
+Clerical: §5.1's *Closed* D2 × D8 entry names its means (N1's D-N3). The sweep (stating sections, DoD, downstream) and each hit's disposition: N1 memo §0.3 P-N1.
+
+**Prerequisite outside the DAG** (clerical; PM decision 17 (i) — the PM's ruling of 2026-10-25 that the event-handler consumer's Insert arm, which turned every `on*` attribute raw again on every insertion including a move, is fixed by a standalone prerequisite, not in N1 — restated by PM decisions 21 and 23 as the program `EH-attrs-at-creation`, whose slice a is an approved interim required by dependency; PM decision 17 also ruled that D2's wording is neutral between the two step-3.2 readings, that `#11-unhandledrejection-dispatch-target` is registered, and that the §13.4 step number is N9's): N1 depends on `EH-attrs-at-creation` slice a (`docs/plans/2026-10-event-handler-attrs-at-creation.md`; contract K-1: creation-time handler content attributes are processed at most once, and no insertion, move or rebind writes handler state from them) landing first — that umbrella's §L shows that no landing order puts N1 first; slice a landed by #563 (`3cd84a04`). It is not a node of this program and adds no edge to §5.2. Like the erratum, this in-place paragraph is an **exception**, by PM decision 17 (i), to the approval scope's rule that a finding changes this memo only through a decision (`:12-14`) and to §0.3's A114 idiom; it edits nothing else (N1 memo §10.2).
+
 **Revision 12** (2026-10-01) folds Codex round 3 on #532 (`bb4b92cf`: 3 real) and a self-root-check. Rounds 1–3 kept
 finding gaps in one mechanism — D-e's target selection (current-navigable name, `<base target>`, call-time resolution,
 app mode, descendants' live names, noopener). Root: D-e's behaviour change — a link's named miss promoted to a new tab, decided at **rev 5** and part
@@ -108,8 +123,8 @@ Every `file:line` is a **`f1cf5d67`** coordinate (`git diff --stat e2d62b9e f1cf
 | A2 | 15-line deletion list | `git grep -n 'fn set_sandbox_flags\|fn sandbox_flags\|fn forms_allowed\|fn popups_allowed\|fn modals_allowed\|fn scripts_allowed' -- crates/script crates/shell` | holds |
 | A3–A13 | parse entries; creation paths; F11 callers; G2/G3; wrapper callers; `host_data/mod.rs`; 1000-line watch; parent §7's arm | per rev 3 | hold, except `parse_progressive_str` at `lib.rs:194` and strict `result.rs:150` (a `#[test]`) |
 | A14 | F11: the tolerant backend "ignores" scripting | `sed -n 108,117p crates/dom/elidex-html-parser/src/lib.rs`; html5ever 0.39 `src/tree_builder/rules.rs:225`, `:990` | the cause is elidex's `ParseOpts::default()` (`lib.rs:49`, `:110`); open PR #531 bumps html5ever to 0.40.1 |
-| A16 | get-the-current-value step 3.2 tests the flag only (S5-4 §2.7-C1) | `webref body html event-handler-attributes` | **false**: "If scripting is disabled for document, then return null" |
-| A17 | processing-algorithm step 1 "If scripting is disabled for eventTarget" | as rev 3 (processing algorithm; WebIDL invoke / call-operation; *prepare to run script*; HostEnqueuePromiseJob) | **false**: no invoke-time scripting check exists **for event handlers** |
+| A16 | get-the-current-value step 3.2 tests the flag only (S5-4 §2.7-C1) | `.claude/tools/webref body html getting-the-current-value-of-the-event-handler` (2026-10-25) | **false** — current webref reads: "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null" (a flag test **and** a browsing-context test). Rev ≤ 12 recorded "If scripting is disabled for document, then return null": a premise error (erratum 2026-10-25; spec change or misreading not decided) |
+| A17 | processing-algorithm step 1 "If scripting is disabled for eventTarget" | `.claude/tools/webref body html the-event-handler-processing-algorithm` (2026-10-25); as rev 3 (WebIDL invoke / call-operation; *prepare to run script*; HostEnqueuePromiseJob) | **false** — current webref reads steps 1–4: 1 "If the result of WebDriver BiDi scripting is enabled with eventTarget's relevant settings object is false, then return"; 2 get the current value; 3 callback null → return; 4 "If callback's associated realm's global object is a Window object whose associated Document is not fully active, then return". No §8.1.3.4 check exists at invocation **for event handlers**; step 1 is the WebDriver BiDi check alone (no BiDi in elidex). Rev ≤ 12 numbered these steps 1–3 with "not fully active" at step 3 (erratum 2026-10-25) |
 | A18 | timers | `webref body html timer-initialisation-steps`; `sed -n 330,355p crates/script/elidex-js/src/engine.rs` | §8.7 step 9.5 checks scripting; HEAD relies on transitivity |
 | A19 | `document_root()` as the settings document | `sed -n 440,454p crates/core/elidex-ecs/src/dom/mod.rs` | a World-singleton cache; breaks under multi-root fixtures and B1 |
 | A20 | `vm::test_helpers` is test-only | `sed -n 82,84p crates/script/elidex-js/src/vm/mod.rs` | false: `pub` under `engine` |
@@ -124,7 +139,7 @@ Every `file:line` is a **`f1cf5d67`** coordinate (`git diff --stat e2d62b9e f1cf
 ### §0.3 Premise errors (reported, not edited — the A114 idiom)
 
 - **P1** (rev 1's own, withdrawn at rev 2): `Tab` is the browser-side navigable record (`app/tab.rs:31-43`).
-- **P2** parent F11 row: A14. **P3** Appendix A: strict `result.rs:150`. **P4** parent F10r gate list: A16. **P6**
+- **P2** parent F11 row: A14. **P3** Appendix A: strict `result.rs:150`. **P4** parent F10r gate list: A16 (erratum 2026-10-25: P4's ground was A16's rev ≤ 12 quote; the current step 3.2 reads document's active sandboxing flag set — an F10r-shaped read — **and** its browsing context, so which of the two step-3.2 readings the compile gate implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader, is N4's, edge n3, not decided here — the step-3.2 reading question, N1 memo §0.3 P-N1). **P6**
   Appendix A A1: A1.
 - **P5** parent F18 writer set: the quote is §7.1.5; the second writer is §7.1.3.2 steps 13–14 after a group swap (none in
   elidex).
@@ -154,8 +169,8 @@ navigation browsing context flag*, because D-a's steps 4.2 and 5 read it (the pa
 sets that a program cell reads). Amendments (recorded, not edited) of the parent's F9 cell inner type, the parent's F10r cell text "`Some(IframeSandboxFlags::empty())`" and S5-4 §4.1's rejection
 (`2026-07-s5-4-sandbox-enforcement.md:538-542`); support: the parent's rev 42.
 
-**D2 — handler gates follow the current spec** (N1): compile gate = "scripting is disabled for document" (A16); the
-invoke-time gate for event handlers is removed (A17). History: S5-4a #444 `24c9b0d4`; the slot's S1a origin and the user's
+**D2 — handler gates follow the current spec** (N1): compile gate = *get the current value of the event handler* step 3.2 (A16) — erratum 2026-10-25: two readings of step 3.2 are candidates, the current webref text (document's browsing context null, or its active sandboxing flag set has the sandboxed scripts browsing context flag) and D8's "scripting is disabled for *el's node document*" (rev ≤ 12 quoted step 3.2 as "scripting is disabled for document"); they give the same outcome at N1 (N1 memo §0.3 P-N1), and which one is implemented is N4's, edge n3; the
+invoke-time §8.1.3.4 gate for event handlers is removed (A17). History: S5-4a #444 `24c9b0d4`; the slot's S1a origin and the user's
 design-review request (`boa-vm-cutover-s1-plan.md:379`, `:489-497`). Lens attestation as rev 3. Whether S5-4's 2026-07-02
 cite was stale or the spec changed is undetermined (webref has no spec history). S5-4 surfaces amended (recorded, not
 edited): `:69`, `:129-134`, `:321`, `:461` (§3.5, `:452-466`), `:553`, `:697-699`, `:726-729`, `:1047-1050`, `:1123`,
@@ -189,7 +204,7 @@ created) and a **subject** — the spec's object form at the reading step, `Scri
   settings clause over **el's relevant realm's** associated Document (HTML §8.1.3.3.4; §7.2.2); node clause over
   `effective_node_document(el)`.
 - `NodeDocumentOf(el)` — "scripting is disabled for *el's node document*" (the compile gate, §8.1.8.1 *get the current
-  value of the event handler* 3.1–3.2, for an element target; the fragment derivation, §13.4 step 10, contextDocument =
+  value of the event handler* 3.1–3.2, for an element target — erratum 2026-10-25: current step 3.2 reads document's browsing context and active sandboxing flag set directly (A16), equal to this reading in HEAD's single realm; which text the compile gate implements under this variant is N4's, edge n3; the fragment derivation, §13.4 step 10, contextDocument =
   context's node document, step 5): document = `effective_node_document(el)`; settings clause over **that document's**
   relevant realm's associated Document; node clause over that document.
 - `Window(w)` (the compile gate for a Window target, whose *document* is the Window's associated Document; the Window
@@ -427,7 +442,7 @@ settings document; unresolvable → the node clause alone is false).
 | WHATWG HTML §7.1.7 Policy containers | *create a policy container from a fetch response* 1–7; *determine navigation params policy container* 1–5 | step 1 of the former (blob) → `#11-worker-blob-script`; non-CSP members → slot | N6 | ✗ | yes |
 | WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings / node / Window clauses; the object forms (settings, *el*, *el's node document*, Window) | one composition owns derivation and clause order; node clause = the parent's interim (unresolvable → node clause false), one `effective_node_document` (D8) | N4, N5 | ✗ | yes |
 | WHATWG HTML §8.1.4.4 Calling scripts | *check if we can run script* step 2 | eval gate (`Settings`, D8) | N4 | ✓ | yes |
-| WHATWG HTML §8.1.8.1 Event handlers | getting the current value 3.1–3.2; processing algorithm 1–3 | no invoke-time scripting check; step 3 → slot (§8) | N1 | ✗ | yes |
+| WHATWG HTML §8.1.8.1 Event handlers | getting the current value 3.1–3.2; processing algorithm 1–4 (`.claude/tools/webref body html the-event-handler-processing-algorithm`, 2026-10-25) | no §8.1.3.4 check at invocation; step 1 (WebDriver BiDi) vacuous; step 4 (not fully active) → slot (§8 B1 append (2)) — rev ≤ 12 read "1–3; step 3 → slot" (erratum 2026-10-25) | N1 | ✗ | yes |
 | WHATWG HTML §8.7 Timers | *timer initialization steps* step 9.5 | satisfied transitively; breaking conditions → slot (§8) | none | ✗ | no |
 | WHATWG HTML §8.9.1 Simple dialogs | *cannot show simple dialogs* step 1 | modals flag | N4, N5 | ✓ | yes |
 | WHATWG HTML §4.10.22.3 Form submission algorithm | steps 3–4; steps 1, 5.9, 9 (*cannot navigate*, §4.6.5) | forms flag over the form document, unresolvable → `all_represented()` (fail closed, D8); steps 1, 5.9, 9 → `#11-form-navigation` (§8, A96) | N4, N5 | ✗ | yes |
@@ -479,7 +494,7 @@ clause false; the settings clause is always evaluated (D8).
   come from F9 via F10r; the node clause stays the interim until `#11-domparser-full-document-parse-fidelity`'s marker
   lands. Call direction: the host route `crates/script/elidex-js/src/vm/host/settings_route.rs` (NEW) of J12 marshals and
   calls the session boundary `elidex_script_session::scripting_disabled_for_platform_object` (Script↔ECS), which forwards
-  to `EcsDom::scripting_disabled_for`. Readers: eval (`Settings`), compile (`NodeDocumentOf` / `Window`), D5 script-fetch
+  to `EcsDom::scripting_disabled_for`. Readers: eval (`Settings`), compile (`NodeDocumentOf` / `Window`; which of the two step-3.2 readings it implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader, is N4's, edge n3 — D8's erratum note), D5 script-fetch
   (`Node`, N6), fragment derivation (`NodeDocumentOf`, N9); later F4/F16/F17 (`Node`). Invoke-time gate deleted (N1).
   *Timers*: no reader wired (§8 slot).
 - **Node document** (N4; N1 through HEAD's composition) — *Home/kind*: `EcsDom::effective_node_document(node)` (NEW) in
@@ -555,7 +570,7 @@ Listed (open):
 
 Closed (no window): J5, J12, J13 (land with their first reader, N4; `WorkerGlobalRoot` is not load-bearing before N5);
 J7 (N2a), J17 (N2b) with their readers; **D2 × D8** — the compile gate's node document — closed at N1 itself (HEAD's
-composition given the element, D8), so the reverse case (a `createElement` node with a raw handler moved into a DOMParser
+composition given the element, D8; the means is the N1 memo's D-N3 reconcile order, pinned by its C8c/C8d — `docs/plans/2026-10-ibp-sandbox-handler-gates.md`), so the reverse case (a `createElement` node with a raw handler moved into a DOMParser
 document) stays suppressed and the mirror case (a DOMParser node appended into the live document) runs at every landing;
 and a detached owner-`None` element in a sandboxed realm stays suppressed at every landing (settings clause first, C28b);
 D1 (re-keyed in place); U1, D3, D4, D6, D7, D-d (no runtime change); D8's subject variants and per-reader settings
@@ -570,7 +585,7 @@ runs from N1 (C8b) — the spec's outcome (A17), not a window.
 |---|---|---|
 | n1 | IBP-split-ecs → N4 | code predecessor (E1: N4 is the first to edit `dom/mod.rs`, adding `dom/document_policy.rs`) |
 | n2 | IBP-split-parser → N5 | code predecessor (E2: N5 is the first to edit `elidex-html-parser/src/lib.rs` — its parse entries take the input; measured: no N1–N4 scope touches that file) |
-| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`) |
+| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`; N4 decides which of the two step-3.2 readings — the current webref text or D8's "scripting is disabled for *el's node document*" — the compile gate implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader (P4); they give the same outcome at N1 (D8's erratum note; N1 memo §0.3 P-N1, O1)) |
 | n4 | N4 → N5 | data flow (N5 re-sources N4's route and F10) |
 | n5 | N3 → N6 | data flow (`CspList`) |
 | n6a | N2a → N2b, N6, N7, N8 | data flow (the restriction-form set D-a reads; union-safe set; propagate flag) |
@@ -582,8 +597,8 @@ Acyclic. **Parent edges**: E1 → N4; E2 → N5; **E3/E17** follow **N8**; **E29
 nested landing (D7).
 
 **Own deferrals per nested PR** (cap 3): N9 — 1, the `content-visibility` pin, conditional on the cell firing at its base
-(N6 or N8 instead, if one lands after N9 and fires the witness family first; no double pin, so the node total stays the
-parent's **1**). Every other nested PR — 0: the slots it registers or appends to (§8) are pre-existing class (A96).
+(N6 or N8 instead, if one lands after N9 and fires the witness family first; no double pin, so that pin stays the parent's **1**). N1 — 1: N1 memo §5.4 NR8 (a)'s getter outcome, which N1 changes (HEAD's compiled function → null) and leaves to `EH-attrs-at-creation` slice b's S-5, recorded under `#11-eh-attrs-creation-time-call-sites` (N1 memo §7). Node total **2**.
+Every other nested PR — 0. Counting rule: a slot a nested PR registers or appends to (§8) is pre-existing class (A96), not its own deferral, unless the entry records an outcome that PR itself changes and leaves open — the PR's changed outcome is not the spec's — that is the PR's own deferral (N1's case). A window where the gate reads the wrong document because insertion does not adopt (the effective-node-document proxy, e.g. a DOMParser node moved into a detached subtree of the bound document) is the class D8 (`:228-230`) and §5.1 (`:540-541`, "equals HEAD or is more restrictive") already accept and `#11-cross-document-adopt-on-insert` records as pre-existing, so it is not a PR's own deferral; N1's NR8 (a) is counted because there the gate reads a raw value the spec never has (slice a's residual), a defect by PM decision 90 (user, 2026-10-31). Count correction 2026-10-31 (PM decision 101; in place, no line added; the definition of "leaves open" and the proxy sentence added in place by PM decision 109): this line read "Every other nested PR — 0: the slots it registers or appends to (§8) are pre-existing class (A96)", which counted N1 at 0, written before NR8 (a) was found; like the erratum, the edit is an exception, by that decision, to the approval scope's `:12-14` and to §0.3's A114 idiom.
 
 ### §5.3 Migration populations (input)
 
@@ -705,7 +720,7 @@ registration and re-eval date (2026-11-01) the parent ratified (§6 row); this n
 - `#11-browsing-context-state-ecs-components` (B1) — appends: (1) under B1 the node clause becomes reachable for a document
   that loses its browsing context (HTML §7.5.10 *destroy a document* step 8, from both *destroy a document and its
   descendants* and *unload a document* step 20, §7.5.9); the marker's writer obligation is
-  `#11-domparser-full-document-parse-fidelity`'s (above); (2) processing-algorithm step 3 (not fully active) is
+  `#11-domparser-full-document-parse-fidelity`'s (above); (2) processing-algorithm step 4 (not fully active; `.claude/tools/webref body html the-event-handler-processing-algorithm`, 2026-10-25 — rev ≤ 12 numbered it step 3, erratum 2026-10-25) is
   unreachable only until then; (3) the timers' step 9.5 transitivity breaks if scripting becomes runtime-mutable
   (user-disabled scripting, S5-4's `scripting_enabled` note) or cross-realm (`contentWindow.setTimeout`,
   `#11-windowproxy-browsing-context`); (4) the interim home of the source's depth (`iframe_depth`, D-a); (5) D8's
