@@ -14,6 +14,12 @@ leak, not the owner document (§1.2); F3 `#11-shadow-declarative-reuse` measured
 `#11-tolerant-document-declarative-shadow-roots` disposition (§7); F5 the tolerant host divergence measured as reachable
 (§7). M1–M14 applied in place; citations are by algorithm name, not step number.
 
+**Rev 4** (2026-10-31) — Step 4.5 re-check (0 CRIT / 3 IMP / 4 MIN): the new tolerant-host slot's trigger narrowed and
+PR 1's own disposition recorded (§7); the PM sweep adds five memory sites (§9); PR 1 fixes every §13.4 step-number
+cite in the files it edits instead of handing them off (§5.2); DoD greps cover all audited files (§9); the
+`elidex-ecs` release control restored and the `begin_detached_fragment` doc corrected (§1.2); the reuse slot text
+gains the shadow-host ordering constraint (§7).
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 The decision: this reverses a ratified reading
@@ -105,13 +111,18 @@ subtree leak** in release builds. (The success path is unaffected: `finish_detac
 document explicitly.)
 
 - Fix: `let ok = self.append_child(document, root); debug_assert!(ok, …);` (the `convert.rs:76` idiom).
+- Doc: `begin_detached_fragment`'s own rationale (`teardown.rs:273-277`, "a Document owns the root so foreign elements
+  get a valid owner document") is not what the append buys; rewrite it to the HTML §13.4 "Append root to document"
+  reason and the rollback reach (`despawn_subtree(document)` must reach root). Its two §13.4 step-number cites
+  (`teardown.rs:278`, `:305`) are rewritten by name in the same edit.
 - Sweep: every `debug_assert*!` in `crates/` whose argument calls a mutating method
   (`git grep -n -A2 "debug_assert" -- crates`, filtered for `append_child|insert_|remove_|attach_|set_*(|push(|despawn|destroy_`)
   — this is the only one.
 - Tests: `begin_detached_fragment_root_is_child_of_document` (NEW, `elidex-ecs`) asserts `get_parent(root) ==
   Some(document)`. The dev profile cannot observe the defect (the append runs inside the assertion), and CI runs only
-  the dev profile. Release-profile control, manual and one-off, recorded in the PR body: on the unfixed code,
-  `cargo test --release -p elidex-html-parser-strict no_leak` and the parent test fail (the existing
+  the dev profile. Release-profile controls, manual and one-off, recorded in the PR body: on the unfixed code,
+  `cargo test --release -p elidex-ecs begin_detached_fragment_root_is_child_of_document` and
+  `cargo test --release -p elidex-html-parser-strict no_leak` fail (the existing
   `world().len()` pristine-after-rollback assertions in `parse_error_rolls_back_with_no_leak_and_pristine_context`
   and `rollback_despawns_shadow_root_with_no_leak`, `tests_fragment.rs:188`, `:449`, observe the leak); after
   the fix both pass. The fix stands on the language rule, not on the tests.
@@ -224,22 +235,30 @@ Unchanged, checked: strict `tests_fragment.rs:282`, `:449`, strict `tree_builder
 
 Audit method (2026-10-31, `e44ffce6`): P1 `git grep -n -E "13\.2\.6\.4\.4 steps? [0-9]" -- crates` = 12 hits, all
 in scope; P2 `git grep -n -E "13\.4 step 6|carries step 6" -- crates` = 3, all in scope; P3 `git grep -n -P
-"[Ss]teps? (4-5|6-7|6-9|9|10)(\.\d+)*(/\d+(\.\d+)*)?(?!\d)"` over strict `shadow.rs`, `tests_fragment.rs`,
-`tree_builder/mod.rs` = 20, of which 14 are in scope and 6 are §13.4 tokenizer-state cites (still correct, or the
-sweep's); plus two line-wrapped cites found by reading (`mod.rs:87-88`, `shadow.rs:69-70`) and the DSD-on-context
-concept grep of §9.
+"[Ss]teps? \d+"` over strict `lib.rs`, `tree_builder/mod.rs`, `tree_builder/tests_fragment.rs` = 36 (4 / 16 / 16), of
+which 34 are in scope (every template-start-tag and §13.4 step cite) and 2 cite other algorithms (`lib.rs:22`,
+`tests_fragment.rs:79` §13.2.4.1); P4 `git grep -n -P "[Ss]teps? (4-5|6-7|6-9|9|10)(\.\d+)*(/\d+(\.\d+)*)?(?!\d)"`
+over strict `shadow.rs` = 11, all in scope (the `</template>` end tag's "Step 1"–"Step 6" do not match and are a
+different algorithm); P5 `git grep -n -P "§13\.4 steps? \d" -- crates/core/elidex-ecs/src/dom/tree/teardown.rs` = 2
+(PR 0b, §1.2). Plus line-wrapped cites found by reading (`mod.rs:87-88`, `shadow.rs:69-70`; `tests_fragment.rs:602`
+is matched by P3) and the DSD-on-context concept grep of §9. Current §13.4 numbering (`webref body html
+html-fragment-parsing-algorithm`) differs from the cites (insertion-mode reset, template-mode seed, form pointer and
+the return moved), which is why PR 1 rewrites them by name.
 
 Sites: `convert.rs:46-58`, `:81-93`, `:103-104`; `lib.rs:143-159`; strict `shadow.rs:1-2`, `:43`, `:69-70`, `:83-112`,
 `:116`, `:143-165`; `tree_builder/mod.rs:87-91` (the flag is HTML §13.2.4.5 Other parsing state flags), `:99`,
-`:480-487`; strict `lib.rs:76`; `tree_builder/parse_state.rs:37`, `:273`, `:325`; `tests_fragment.rs:264`, `:596-607`;
+`:480-487`; every §13.4 step cite in strict `lib.rs` (`:75-76`, `:79`), `tree_builder/mod.rs` (`:135`, `:170`,
+`:188`, `:191`, `:207-209`, `:244`, `:265`, `:275`, `:298`, `:305`, `:312`) and `tests_fragment.rs` (`:4`, `:6`, `:31`,
+`:49`, `:114`, `:145`, `:155`, `:217`, `:221`, `:393`, `:530`, `:555`, `:575`), rewritten by name (e.g. "§13.4: reset
+the insertion mode appropriately", "§13.4: the form element pointer"); `tree_builder/parse_state.rs:37`, `:273`, `:325`; `tests_fragment.rs:264`, `:596-607`;
 `html_fragment.rs` test comments (`:338`, `:393-397`, `:436`, `:510`); `tests_inner_html_mixin.rs:644`, `:664-665`;
 `crates/dom/elidex-dom-api/src/element/markup.rs` (NEW) (PR 0a; today `tree.rs:768-774`): the
 "`setHTMLUnsafe(host.getHTML(opts))` round-trip" claim becomes "round-trips when placed under a parent", and the stale
 "§13.5" at today's `tree.rs:755` and `:768` becomes §13.3 Serializing HTML fragments. Prescribed wording names the
 condition "hostIsRoot (the fragment root also has a redirection-map entry)". Cites are by name
 (declarativeShadowHostElement, hostIsRoot, the "Keep" branch). Left to the HTML-renumber sweep: `§4.4.6` getHTML cites
-(today `tree.rs:743`, `:758`, `:818` → `markup.rs` after PR 0a; `dom_inner_html.rs:2`, `:156`; `element_proto.rs:139`)
-and §13.4 step numbers outside the flag (`tests_fragment.rs:6`, strict `lib.rs:76`'s other numbers).
+(today `tree.rs:743`, `:758`, `:818` → `markup.rs` after PR 0a; `dom_inner_html.rs:2`, `:156`; `element_proto.rs:139`).
+§13.4 step cites in files PR 1 does not edit stay with that sweep.
 
 ## §6. Test and coverage plan
 
@@ -259,7 +278,10 @@ subset is claimed.
   `declarative` field and the template start tag never sets it; `attach_shadow_with_init` returns `AlreadyAttached`
   unconditionally (`crates/core/elidex-ecs/src/dom/shadow.rs:184-186`), which the VM maps to an exception. Proposed
   re-scope for the PM: "**Defect**: `host.attachShadow({mode})` on a host whose shadow root came from a declarative
-  template throws, where DOM §4.9 empties and returns that shadow root. Missing: a `declarative` flag on `ShadowRoot`, set by both parser tiers and cleared on reuse. **Trigger**: a PR
+  template throws, where DOM §4.9 empties and returns that shadow root. Missing: a `declarative` flag on `ShadowRoot`,
+  set by both parser tiers and cleared on reuse. Constraint: the parser must check 'is a shadow host' before
+  attaching, or the reuse must live on the `attachShadow` path only; a shared-function reuse would make a second
+  same-mode declarative template empty and reuse the first shadow root, where the spec gives a plain template. **Trigger**: a PR
   touching `attach_shadow_with_init` or `attachShadow`. **Re-eval** 2026-12-31." Not fixed in PR 1: a different
   algorithm (DOM attach), a new component field, a VM surface.
 - **`#11-tolerant-document-declarative-shadow-roots`** (triggered). Disposition: extend with cause — PR 1 does not touch
@@ -279,8 +301,10 @@ subset is claimed.
   the finished `RcDom` parent instead of the current node at the template start tag, so markup that the adoption
   agency algorithm reparents loses its shadow root (repro above). Fix direction: drive declarative attach from the tree
   builder (a `TreeSink` that implements `attach_declarative_shadow`) instead of rebuilding after the parse. **Owner**:
-  parser. **Trigger**: enabling tolerant document DSD, or a PR that changes `convert.rs`'s declarative path. **Re-eval**
-  2026-12-31." Not fixed in PR 1: it replaces the tolerant conversion design, not one branch.
+  parser. **Trigger**: a change to how the tolerant backend chooses the declarative-shadow host (e.g. driving DSD from
+  `TreeSink::attach_declarative_shadow`). **Re-eval** 2026-12-31." PR 1's own disposition: it touches `convert.rs`'s
+  declarative path but does not change host selection (it only removes the top-level context routing); the fix is a
+  different mechanism (tree-builder-driven host selection), so it is not fixed here.
 
 ## §8. Alternative: keep DSD-on-context
 
@@ -295,14 +319,18 @@ rewriting as a recorded spec deviation with a re-check date.
 - PR 0b merged (independent). PR 0a merged before PR 1. §4.1 / §4.2 landed; every §5.1 row asserted; every §5.2 site
   rewritten.
 - These return nothing: `git grep -n -E "DSD-on-context|attaches_to_context|fragment-context-declarative-shadow|strict-fragment-declarative-shadow-on-context" -- crates`;
-  `git grep -n -E "13\.2\.6\.4\.4 steps? [0-9]|13\.4 step 6|carries step 6" -- crates`; `git grep -n -P
-  "[Ss]teps? (4-5|6-7|6-9|9|10\.\d+)" -- crates/dom/elidex-html-parser-strict/src/tree_builder/shadow.rs`.
+  `git grep -n -E "13\.2\.6\.4\.4 steps? [0-9]|13\.4 step 6|carries step 6" -- crates`; P4 over `shadow.rs`;
+  `git grep -n -P "§13\.4 steps? \d" -- crates/core/elidex-ecs/src/dom/tree/teardown.rs`. P3 over strict `lib.rs`,
+  `tree_builder/mod.rs`, `tests_fragment.rs` returns exactly the 2 other-algorithm lines (`lib.rs:22`,
+  `tests_fragment.rs:79`). The line-wrapped sites are checked by reading: `mod.rs:87-88`, `shadow.rs:69-70`,
+  `tests_fragment.rs:602`.
 - Ledger closure text: "~~`#11-strict-fragment-declarative-shadow-on-context`~~ ✅ CLOSED #NNN `<sha>` — fragment
   top-level `<template shadowrootmode>` is a plain template in both backends (WHATWG HTML §13.2.6.4.4 template start
   tag: host = current node; hostIsRoot → regular template); strict handles it natively; #337's DSD-on-context
   reversed by user decision <date>."
-- PM memory sweep: mark superseded `html-fragment-unify-slice2b-plan.md` §2.4, `project_parser-strict-tolerant-deployment.md:18`,
-  `:20`, `html-side-defer-sweep-2026-06-14.md:35`; re-scope `#11-shadow-declarative-reuse` and add the notes to
+- PM memory sweep: mark superseded `html-fragment-unify-slice2b-plan.md` §2.4 and `:12`, `:36`, `:155`;
+  `project_parser-strict-tolerant-deployment.md:18`, `:20`, `:21` (its LESSON); `m4-12-landings-ledger.md:109` (its
+  LESSON); `html-side-defer-sweep-2026-06-14.md:35`; re-scope `#11-shadow-declarative-reuse` and add the notes to
   `#11-tolerant-document-declarative-shadow-roots` (§7); decide registration of `#11-tolerant-dsd-host-from-tree-builder`;
   tell the HTML-renumber sweep its `tree.rs` paths move to `markup.rs` after PR 0a; the clippy lint suggestion (§1.2)
   goes to the CI/tools lane.
