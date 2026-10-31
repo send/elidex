@@ -277,8 +277,7 @@ pub(super) fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str)
             .dom
             .world()
             .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some(id))
+            .is_ok_and(|a| a.get("id") == Some(id))
     })?;
     read_attr(pipeline, entity, attr)
 }

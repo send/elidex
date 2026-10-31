@@ -28,8 +28,7 @@ fn layout_child_nested(
     let is_mc = dom
         .world()
         .get::<&ComputedStyle>(entity)
-        .ok()
-        .is_some_and(|s| is_multicol(&s));
+        .is_ok_and(|s| is_multicol(&s));
     if is_mc {
         crate::layout_multicol(dom, entity, input, layout_child_nested)
     } else {

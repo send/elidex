@@ -419,8 +419,7 @@ pub(crate) fn walk(
                             ctx.dom
                                 .world()
                                 .get::<&elidex_ecs::ElementState>(entity)
-                                .ok()
-                                .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
+                                .is_ok_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
                             ctx.caret_visible,
                         );
                     }
@@ -704,8 +703,7 @@ pub(crate) fn is_block_child(dom: &EcsDom, entity: Entity) -> bool {
     // Check display type — inline elements with LayoutBox are NOT block children.
     dom.world()
         .get::<&ComputedStyle>(entity)
-        .ok()
-        .is_some_and(|style| elidex_layout_block::block::is_block_level(style.display))
+        .is_ok_and(|style| elidex_layout_block::block::is_block_level(style.display))
 }
 
 /// Walk a child entity, wrapping `position: fixed` (viewport-attached) elements
@@ -744,8 +742,7 @@ fn is_viewport_fixed(dom: &EcsDom, entity: Entity, in_transform: bool) -> bool {
     }
     dom.world()
         .get::<&ComputedStyle>(entity)
-        .ok()
-        .is_some_and(|s| s.position == elidex_plugin::Position::Fixed)
+        .is_ok_and(|s| s.position == elidex_plugin::Position::Fixed)
 }
 
 /// Emit a list marker for a block child if it is a `list-item` with a visible marker.

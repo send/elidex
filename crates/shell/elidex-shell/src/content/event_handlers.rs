@@ -623,8 +623,7 @@ fn handle_key_widget(
                     .dom
                     .world_mut()
                     .get::<&mut FormControlState>(target)
-                    .ok()
-                    .is_some_and(|mut fcs| {
+                    .is_ok_and(|mut fcs| {
                         elidex_form::navigate_select(&mut fcs, key == "ArrowDown")
                     });
                 if changed {

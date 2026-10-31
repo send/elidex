@@ -30,7 +30,7 @@ fn rgb_from_premul_rgba(src: &[u8]) -> Vec<u8> {
         "rgb_from_premul_rgba requires RGBA8 input (multiple of 4 bytes)"
     );
     let mut dst = Vec::with_capacity(src.len() / 4 * 3);
-    for chunk in src.chunks_exact(4) {
+    for chunk in src.as_chunks::<4>().0 {
         dst.push(chunk[0]);
         dst.push(chunk[1]);
         dst.push(chunk[2]);

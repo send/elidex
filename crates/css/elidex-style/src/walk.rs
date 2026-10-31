@@ -725,15 +725,13 @@ fn is_link_element(dom: &EcsDom, entity: Entity) -> bool {
     let is_link_tag = dom
         .world()
         .get::<&TagType>(entity)
-        .ok()
-        .is_some_and(|t| matches!(t.0.as_str(), "a" | "area" | "link"));
+        .is_ok_and(|t| matches!(t.0.as_str(), "a" | "area" | "link"));
     if !is_link_tag {
         return false;
     }
     dom.world()
         .get::<&Attributes>(entity)
-        .ok()
-        .is_some_and(|attrs| attrs.get("href").is_some())
+        .is_ok_and(|attrs| attrs.get("href").is_some())
 }
 
 // ---------------------------------------------------------------------------

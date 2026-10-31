@@ -182,8 +182,7 @@ fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
         .dom
         .world()
         .get::<&FormControlState>(entity)
-        .ok()
-        .is_some_and(|fcs| fcs.value() != initial);
+        .is_ok_and(|fcs| fcs.value() != initial);
     if changed {
         // "change" does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);
