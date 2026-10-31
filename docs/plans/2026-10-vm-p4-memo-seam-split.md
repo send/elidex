@@ -159,8 +159,10 @@ for a table whose rows carry a kind phrase. After the split this family has the 
 No other memo of the population holds one (the three existing carve-outs and the three children
 without a schema table). **Measured** on the commit-(2) scratch split with the checker as landed
 (`python3 vm-p4-artifacts/split-sim/r2-drift.py vm-p4-artifacts/split-sim/r2-drift/base`, the split
-made by R2's `sim2.py … 2`, which differs from the production form only by 7's `§4` link — no table
-cell): "rows with a kind phrase" asks `Population._claims` of every cell, header
+made by R2's `sim2.py … 2`, whose stage 2 differs from the production `<c2>` in prose lines only —
+7's `§4` link, the wording of the carve heads' edits, the reading-rule rewrite, six kept-text
+replacements, and CLAUDE.md's edit — and in no table cell, so the drift measurement's
+conclusion holds): "rows with a kind phrase" asks `Population._claims` of every cell, header
 included — the predicate `_unbound_claims` applies; "drift" prefixes the first header cell with `Q`;
 "second home added" also appends the same header and delimiter row (no body) to
 `slice-0a-landing-record.md`, so presence is met elsewhere. So under rule C the silent case is today
@@ -433,7 +435,7 @@ The split satisfies ten invariants at once:
 | C7 × C9 | none |
 | C7 × C10 | none |
 | C8 × C9 | the guard lands in commit (2), after the move, because at commit (1)'s parent it is red by design |
-| C8 × C10 | commit (2)'s checks compare `<c2>` with `<c1>`, not with `<c1>^`; the checker-plan anchor it writes ("line 2716 at `39cc365a`") is true only under C10, as is 2325's "the five files carved from it at `39cc365a`"; the counts it writes at 2334 and 2339-2340 are measured at `<c2>` (§3), not at `39cc365a` |
+| C8 × C10 | commit (2)'s checks compare `<c2>` with `<c1>`, not with `<c1>^`; the checker-plan anchor it writes ("line 2716 at `39cc365a`") is true only under C10, as is 2325's "the five files carved from it at `39cc365a`"; the counts it writes at 2334 and 2339-2340 are measured at `<c2>` (§3), not at `39cc365a`, and §3's step 2 re-runs both count commands on the real `<c2>` against 2 / 16 / 11 / 21 / 2 / 0 and 2 / 5 / 8 / 17 / 2 / 0 |
 | C9 × C10 | none: the guard reads the head |
 
 ### §2.1 Content-free proof (commit (1))
@@ -588,7 +590,7 @@ pre-split umbrella) is not, since the split does not change what was true then.*
   2339-2340: the line counts "15 / 17 / 2 / 0", disagreeing on "two of the four files" — measured at
   `<c2>` over the nine memos (`grep -o … | wc -l` / `grep -c`): this document 2 / 2,
   `slice-plan.md` 16 / 5, `open-decisions.md` 11 / 8, the detail file 21 / 17, the rounds record
-  2 / 2, the other four 0 / 0; → the nine files in that explicit order, "2 / 5 / 8 / 17 / 2 / 0",
+  2 / 2, the other four 0 / 0; → the nine family memos in that explicit order, "2 / 5 / 8 / 17 / 2 / 0",
   "three of the nine files". 2362: §5's owner row "is this document's single home for that
   assignment" — the row is in `slice-plan.md`; → "the single home, in this document and its
   carve-outs, for that assignment".
@@ -650,7 +652,7 @@ after this plan is approved are made here, and the check follows.
 
 @ docs/plans/2026-07-vm-p4-es-language-completeness.md:729
 - the four files of this program in the order they are listed above — **29 / 21 / 2 / 0**:
-+ the nine memo files of this program — this document, `2026-07-vm-p4-slice-plan.md`, `2026-07-vm-p4-open-decisions.md`, the detail file, the review-rounds record, then each of the other four — **2 / 16 / 11 / 21 / 2 / 0**:
++ the nine family memos of this program — this document, `2026-07-vm-p4-slice-plan.md`, `2026-07-vm-p4-open-decisions.md`, the detail file, the review-rounds record, then each of the other four — **2 / 16 / 11 / 21 / 2 / 0**:
 
 @ docs/plans/2026-07-vm-p4-es-language-completeness.md:734
 - 15 / 17 / 2 / 0
@@ -789,6 +791,11 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
      the :55 replacement, one extra edited line in a carve-out head, a head edit moved to the next
      line — each rc 1;
    - the checker output at `<c2>` byte-identical to `<c1>`'s (§2.2);
+   - the counts 2334 and 2339-2340 now state, run on the real `<c2>` (commit (1)'s head is free text,
+     so the edit spec's numbers are not otherwise tested against the files): for each of the nine
+     family memos in the order 2334 lists, `grep -o -E '\b[Ee]dges? \*{0,2}[0-9]' <file> | wc -l` must
+     give 2 / 16 / 11 / 21 / 2 / 0 (the last 0 stands for each of the other four)
+     and `grep -c -E '\b[Ee]dges? \*{0,2}[0-9]' <file>` must give 2 / 5 / 8 / 17 / 2 / 0;
    - the guard green (`python3 -m unittest docs/plans/test_vm_p4_family_layout.py`);
    - checker `--self-test`: `all controls behaved as declared.` (the guard is outside the checker's
      directory, so `registry_membership_control` stays green — §1.5);
