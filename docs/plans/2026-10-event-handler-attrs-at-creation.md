@@ -31,8 +31,12 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Rev 8* (2026-10-26): the rev-7 focused re-check (CRIT 0 / IMP 3; §13.3), scope limited by the user
-via the PM to its three IMPs and A3-MIN-4. D-2 is aligned to X-W (Window-delegating pairs are not processed at T-a3;
+**Changelog.** *Rev 8.1* (2026-10-31; carried by IBP-sandbox N1's PR, branch `layout-ibp-sandbox-handler-gates`,
+PM decision 93): PM decision 90 (the user's choice B1). §L's closing sentence and x1 hold per row and name N1 memo §5.4
+NR8 (a) as the mechanism-level counterexample; O5 is decided (§11); §1.4's interim line, §1.5's K-2 / K-3 residual,
+§8.2's defect (1) and classification, and §8.4 items 3 and 7 carry the N1 qualifier.
+*Rev 8* (2026-10-26): the rev-7 focused re-check (CRIT 0 / IMP 3; §13.3), scope limited by the user via the PM
+to its three IMPs and A3-MIN-4. D-2 is aligned to X-W (Window-delegating pairs are not processed at T-a3;
 cell C20). T3 must carry facets 1, 3 and 4 (X-W Status, §1.2, x3, §8.1, §10.3). New cells C19b (reflecting set on
 `<body>`) and C19c (`<frameset>`). The option text of 案 X is quoted at X-W. *Rev 7* (2026-10-26): the user's decision 案 X and the rev-6 focused re-check (CRIT 0 / IMP 2 / MIN 13,
 11 after dedup; §13.2). Both IMPs had one root: slice a's once rule on a `<body>` depends on step 3 of target
@@ -106,8 +110,12 @@ HEAD returns a function there: the right source with a new identity (L1.1, L5), 
 row dispatch is equal, so the regression is on the getter. It sits squarely on the population N1 exists to fix (its
 D2 / H4: a callback value persists). Every order that lands N1 before slice a passes through the N1-alone state on
 main. Rev 2's landing is one of those orders, so its "viable" is withdrawn. Claim (i) holds; claim (ii) is withdrawn.
-Slice a's K-1 removes the re-raw, so after slice a these four rows give the spec's callback under N1. R2 re-derived
-the verdict from code and confirmed it.
+After slice a these four rows give the spec's callback under N1: each row's element carries one deliverable ordinary
+handler attribute, so slice a marks it before the move (at its first insertion, T-a2, or at its first handler write,
+T-a3) and K-1 then removes the re-raw. Slice a does not remove the mechanism for every element. Counterexample (N1 memo §5.4 NR8 (a)): an element given two or more deliverable
+ordinary handler attributes by a silent writer, IDL-written before its first processing (D-8 (a)), then first inserted
+into a DOMParser document. Its re-raw stays until slice b's S-5, so N1's getter reads null there where HEAD's returns a
+function. O5 records the decision on it (PM decision 90). R2 re-derived the verdict from code and confirmed it.
 
 PM decision 23: with the verdict "no order", slice a goes first as an approved interim, required by dependency (§1.4).
 
@@ -410,7 +418,7 @@ slice b. N1 and T3 are independent of each other. The PM decides C1's handling o
 
 | # | edge | kind | reason |
 |---|---|---|---|
-| x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that |
+| x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, IDL-written before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
 | x2 | slice a → slice b | code predecessor + data flow | S-6 |
 | x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a DOMParser or fragment-throwaway `<body>` would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b)). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)) |
@@ -431,8 +439,9 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
 - **Removed by slice b (the interim's whole surface):** (1) the D-8 restriction and X-W (S-5); (2) processing at
   insertion, for every element that S-1 covers. In branch A, nothing is processed at insertion. Whether any processing at insertion
   remains in branch B is slice b's plan's decision, under S-2 to S-4.
-- **Interim behaviour:** §1.5, all HEAD-equal (K-0). **Closure record:** slot `#11-eh-attrs-creation-time-call-sites`
-  (§8.2).
+- **Interim behaviour:** §1.5, all HEAD-equal (K-0) until N1 lands; from N1, the K-2 / K-3 residual's IDL-written
+  DOMParser subset reads null where HEAD compiled the attribute (dispatch equal; O5, PM decision 90). **Closure
+  record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2).
 - **Closing path (visible):** slice a lands → T3 (this program's PR, slot `#11-event-handler-target-determination`;
   N1 lands independently) → C1's handling decided (PM) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2).
 
@@ -440,7 +449,8 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
 
 - **K-2 / K-3 residual.** A handler write on a post-bind element with **two or more** deliverable handler attributes,
   made before the element's first insertion, is overwritten at that insertion (D-8). HEAD overwrites it at every
-  insertion.
+  insertion. From N1, an IDL write so overwritten at a first insertion into a DOMParser document reads null, where
+  HEAD's getter compiles the attribute (N1 memo §5.4 NR8 (a); O5).
 - **G5 / K3.** A never-inserted clone reads null.
 - **K2.** The body-clone cross-origin write is overwritten at the clone's first insertion.
 - **G2 rest.** An element placed directly under a shadow root after bind, or inside a subtree placed there, is not
@@ -834,8 +844,10 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > a `<body>` / `<frameset>` handler that delegates to the Window.
 > **Defects** (observable both at HEAD and after slice a): (1) a handler write (`setAttribute` / `removeAttribute` of
 > `on<T>`, or `E.on<T> = …`) on a never-inserted element with two or more deliverable handler content attributes is
-> overwritten at the element's first insertion (at HEAD: for every element, at every insertion); (2) a never-inserted
-> clone of an element with a handler content attribute reads `null` from `on<T>`; (3) after
+> overwritten at the element's first insertion (at HEAD: for every element, at every insertion; once N1 lands, an IDL
+> write so overwritten at a first insertion into a DOMParser document reads `null`, where HEAD's getter compiles the
+> attribute; dispatch runs nothing at both; spec: the written callback runs; N1 memo NR8 (a), pin C8g, closed by
+> S-5); (2) a never-inserted clone of an element with a handler content attribute reads `null` from `on<T>`; (3) after
 > `c = document.body.cloneNode()`, a `window.on<T>` assignment is overwritten by `c`'s attribute at `c`'s first
 > insertion; (4) an element with a handler content attribute placed directly under a shadow root after bind, or in the
 > shadow tree of a host inserted after bind, is never processed; (5) DOMParser and template-content elements are
@@ -846,7 +858,8 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > starts at the last child, D-10), so they are never processed; (7) a `<body>` / `<frameset>` handler that delegates
 > to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
 > delivers it to the page Window. **Classification:** all seven are **pre-existing**. Each exists at HEAD
-> with the same outcome or a wider population; slice a narrows (1) and makes nothing worse (K-0). **Registered** when
+> with the same outcome or a wider population (for (1)'s IDL-written DOMParser subset this holds only until N1 lands:
+> N1 changes its getter outcome, PM decision 90); slice a narrows (1) and makes nothing worse (K-0). **Registered** when
 > the umbrella-approval PR lands. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's
 > handling). N1 itself needs slice a first (§L). **Closes:** at slice b's landing, which removes the restriction, X-W and
@@ -876,7 +889,7 @@ slice a's plan re-derives the cells.
    insertion, move or rebind writes handler state from them", not "delivered at first insertion".
 3. **R2 G2 (R-a):** cite K-1 and K-2 with their slice-a qualifiers (ordinary pairs only, X-W; at most one
    deliverable ordinary attribute, D-8). The multi-attribute case and Window-delegating pairs are S-5. N1 decides
-   whether this form suffices for its cells (O5).
+   whether this form suffices for its cells (O5; for N1's landing, O5 is decided by PM decision 90, §11).
 4. **R2 G3 (R-b):** cite K-3 with the same qualifier. The multi-attribute case and Window-delegating pairs are S-5.
    For any N1 cell on a `<body>` / `<frameset>` Window-delegating pair, N1's expectation after slice a is HEAD's
    outcome (X-W), not K-1 to K-3's. At N1 rev 3 (`0f99538d`) no R-a / R-b or C8-family cell uses such a pair: they
@@ -890,7 +903,8 @@ slice a's plan re-derives the cells.
    DOMParser document) as the evidence.
 6. **NR7 (`:575`):** "on a base without slice a". Cite §L's verdict as the measurement behind it: without slice a, N1
    is worse than HEAD on the getter.
-7. **The `:623` row** ("the Insert arm turns handlers raw on every move") is fixed by slice a (K-1).
+7. **The `:623` row** ("the Insert arm turns handlers raw on every move") is fixed by slice a (K-1), in its slice-a
+   form; the residual (X-W, and the multi-attribute case: N1 memo §5.4 NR8 (a)) is S-5's.
 8. **§9 prerequisites (`:671`):** the re-measure obligation on the post-slice-a base names slice a's landing commit.
 9. **Check, not edit:** whether any N1 cell builds initial HTML through a shell pipeline. From slice a the bind pass
    delivers its inline handlers (K-6), which may change that cell's HEAD prediction.
@@ -987,7 +1001,17 @@ These are evidence that slice b's plan must account for. None of them is decided
 
 Decided (no longer open): O1 split (PM decision 21); order (PM decision 21, §L); O2 interim (PM decision 23, §1.4); O3
 walk cost (D-5); O6 (PM decision 23: no processing at insertion in the end state; branch B is slice b's, §1.6); O7 G7
-(§8.1); O8 N1 edits (§8.4); **O10 approval vehicle (PM decision 24, D-12)**.
+(§8.1); O8 N1 edits (§8.4); **O10 approval vehicle (PM decision 24, D-12)**; **O5 N1's landing (PM decision 90,
+below)**.
+
+**O5, N1's R-a / R-b (decided, PM decision 90).** In slice a they hold only for ordinary pairs of elements with one
+deliverable ordinary handler attribute (K-2, K-3 qualifiers); a Window-delegating pair gets HEAD's outcome (X-W; §8.4
+item 4). Is that sufficient for N1's landing? *Decided by the user (choice B1, 2026-10-31; PM decision 90; this text
+carried by N1's PR, PM decision 93).* §L's lens (L2.1 / L6.1, "worse") reaches N1 memo §5.4 NR8 (a) as a
+classification; §L's verdict, which is order-only (no order puts N1 before slice a), stands. N1 lands after slice a.
+NR8 (a) is a defect, recorded under `#11-eh-attrs-creation-time-call-sites` defect (1) and closed by slice b's S-5.
+The criterion for N1's landing is the IBP-sandbox node memo's §5.1 claim (each interim window "equals HEAD or is more
+restrictive than it; none is a restriction escape"); §L classifies NR8 (a) as worse but does not gate the landing.
 
 Moved to slice b's plan (not open here): **O9** call-site shape (§9 N-1); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
 
@@ -996,9 +1020,6 @@ Open:
   `EventListeners` handler state outside the IDL activation path? **Owner: slice a's plan-review. Close point: that
   plan-review**, which runs the §5.0 census and a search of VM writers of `EventListeners` at its base and records the
   result. A path it finds is a K-0 case or a slot. Slice b re-runs it (S-7).
-- **O5, N1's R-a / R-b.** In slice a they hold only for ordinary pairs of elements with one deliverable ordinary
-  handler attribute (K-2, K-3 qualifiers); a Window-delegating pair gets HEAD's outcome (X-W; §8.4 item 4). Is that
-  sufficient for N1's landing?
 
 Questions for a scout:
 - **Q3:** does elidex fetch or fire `load` / `error` for an `<img>` in template contents, or in a clone of them? (The

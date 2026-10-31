@@ -35,6 +35,18 @@ implemented is N4's (edge n3; O1); (iii) the slot `#11-unhandledrejection-dispat
 (owner core VM, reachability unconfirmed, re-eval 2026-11-30); (iv) the node memo's "§13.4 step 10" is N9's to correct
 (§0.3).
 
+**Rev 4.3** (2026-10-31, draft) — PM decision 90 (the user's choice B1) decides O8, and PM decision 93 puts the
+EH-attrs umbrella's resulting edits in N1's PR (that umbrella's rev 8.1). (A) The umbrella's §L lens (L2.1 / L6.1,
+"worse") reaches NR8 (a) as a classification; §L's verdict, which is order-only (no order puts N1 before slice a),
+stands. (B1) N1 lands after slice a; NR8 (a) is a defect, closed by slice b's S-5. N1's landing is governed by the node
+memo's §5.1 interim-window claim (`:540-541`), not by §L's lens (§1, §8, §9, §10 O8). Applied: the PM-gated rows of
+§10.3 — O8 decided, with Axis 3's reading as its input and O8 (3)'s inputs balanced (the umbrella's §1.4 interim line
+and x1 added); §9 and §1 state the landing criterion; §7 counts NR8 (a)'s getter outcome as N1's one own deferral,
+recorded under `#11-eh-attrs-creation-time-call-sites`; §8 x4 and records item 9 (the ledger text for the PM at N1's
+landing); "open" / "awaiting" removed from the header, P-N5, §3.1, NR8, §8 x4, §10's heading and O8, and §10.2
+(the changelog entries of rev 4, 4.1 and 4.2 keep their text, with a supersession note). Umbrella edits in this PR:
+§L's closing sentence, x1, §1.4's interim line, §1.5's K-2 / K-3 residual, §8.2 defect (1) and classification, §8.4 items 3 and 7, O5 (decided), and its changelog.
+
 **Rev 4.2** (2026-10-31, draft) — plan-review on rev 4.1 (`fa85851b`; CRIT 0 / IMP 6, 4 unique / MIN 15, 14 unique /
 FP 4; disposition §10.3). Fixed, by axis: *A1* — D-N3 states why the decision is a new module (the read side), not
 `event_handler_processing/` (the write side). *A2* — H-P19 enumerates the `get_listener` readers and §9 G8 re-runs it;
@@ -49,7 +61,8 @@ who raises it to the user (PM decision 74), not to "the umbrella's owner" (the s
 reading is recorded (header, O8 (4)); §8 records item 8 (the ledger's `onload` reachability example); §5.2 adds
 `natives_promise.rs:543-547`. **Deferred to the next revision (PM-gated, awaiting the user)**: whether §L reaches NR8
 (a) and whether N1 may land after slice a (O8, open), §9's prerequisites / O8 close point, the record question for
-`#11-eh-attrs-creation-time-call-sites` (§7 / §8), and the balance of O8 (3)'s inputs.
+`#11-eh-attrs-creation-time-call-sites` (§7 / §8), and the balance of O8 (3)'s inputs. (Superseded by rev 4.3: PM
+decision 90 decided each of these.)
 
 **Rev 4.1** (2026-10-31, draft; not yet plan-reviewed) — PM decision 74: rev 4's answer to O8 ("yes", NR8 (a)
 "more restrictive than HEAD", hence inside the node memo's §5.1 interim-window claim and sufficient) is withdrawn and
@@ -60,7 +73,7 @@ getter shape) reaches that residual is **open** — not this memo's call (§10 O
 rev 4.1 sent a reading that reaches it "to the umbrella's owner through the PM", which rev 4.2 corrects: to the PM, who
 raises it to the user, PM decision 74). C8g is unchanged (a
 window pin); NR8 (b) is unchanged. Touched: the header's open-items paragraph, P-N5, §3.1, NR8, §8 x4, §10's heading
-and O8, §10.2's R2 G2 row, and the rev-4 entry (a gloss).
+and O8, §10.2's R2 G2 row, and the rev-4 entry (a gloss). (Superseded by rev 4.3: (2) is decided by PM decision 90.)
 
 **Rev 4** (2026-10-28, draft; not yet plan-reviewed) — EH-attrs slice a has landed (#563, `3cd84a04`); applies the
 EH-attrs umbrella's §8.4 hand-off and plan-review R2 (CRIT 0 / IMP 4 / MIN 6). By source:
@@ -72,7 +85,7 @@ EH-attrs umbrella's §8.4 hand-off and plan-review R2 (CRIT 0 / IMP 4 / MIN 6). 
   attribute, D-8); the multi-attribute and Window-delegating cases are S-5's; the `:606` (rev 3 `:635`) Window
   `<body onpopstate>` arm expects HEAD's outcome under X-W (§5.1, §6). The umbrella's O5 (does that form suffice for
   N1) was answered in §10 O8: yes for every N1 cell; one residual remains, NR8, pinned by the new window pin C8g.
-  (Rev 4.1 withdraws the answer: O8 is open, PM decision 74.)
+  (Rev 4.1 withdraws the answer: O8 is open, PM decision 74. Rev 4.3: decided by PM decision 90.)
 - *Item 5*: H-P13 kept, citing K-5. *Item 6*: NR7 says "on a base without slice a" and cites §L. *Item 7*: §7's
   re-raw row is fixed by slice a (K-1). *Item 8*: §9's prerequisite names #563 `3cd84a04` and carries the re-measure
   obligation. *Item 9*: checked, no N1 cell builds initial HTML through a shell pipeline (§6). *Item 10*: the node
@@ -110,13 +123,11 @@ its exception to the node memo's `:12-14` / A114 idiom; §8 records the post-app
 "closed at N1" by D-N3; O5's home; Q-N1–Q-N3 → H-P13–H-P15; C31 via `dispatchEvent(new MouseEvent('click'))`). *Rev 1*
 (2026-10-25) — first draft.
 
-One item is open for plan-review (§10): O1, O2 and O5 are decided by the PM, O3, O4, O6, O7 by the arguments in §10;
-**O8** (the EH-attrs umbrella's O5, which that umbrella leaves to N1) is **open** (PM decision 74). Its residual, NR8 (a),
-is a defect this memo states (§5.4); whether the EH-attrs umbrella's §L "worse" verdict reaches it is a reading of a
-ratified umbrella (#551), which this memo does not make: plan-review's reading of it is reported to the PM, who raises
-it to the user (PM decision 74). The plan-review on rev 4.1 (Axis 3) read §L's lens — its classification of the getter
-shape as "worse" — as reaching NR8 (a), and the consequence for N1's landing as not determined by §L's text; reported
-to the PM 2026-10-31; awaiting the decision (§10 O8 (4)).
+No item is open for plan-review (§10): O1, O2, O5 and O8 are decided by the PM, O3, O4, O6, O7 by the arguments in
+§10. **O8** (the EH-attrs umbrella's O5) is decided by PM decision 90 (the user's choice B1, 2026-10-31): the umbrella's
+§L lens classifies NR8 (a) (§5.4) as worse, §L's order-only verdict stands, and N1 lands after slice a with NR8 (a) as
+a defect that slice b's S-5 closes. Whether N1 may land is governed by the node memo's §5.1 interim-window claim
+(`:540-541`), not by §L's lens (§9).
 
 ## §0. Frame, premises, decisions
 
@@ -285,8 +296,8 @@ Paths are abbreviated after first use: `elidex-js/src/…` = `crates/script/elid
   element given two or more deliverable ordinary attributes by a silent writer and written before its first
   processing. §5.4 NR8 derives N1's outcome in both: in the first it is HEAD's or the spec's; the second is a defect —
 dispatch runs nothing, as at HEAD, where the spec runs the written callback, and the getter reads null where HEAD reads
-a function compiled from the attribute and the spec the callback (whether the EH-attrs umbrella's §L reaches it: §10 O8,
-open). Everything in
+a function compiled from the attribute and the spec the callback (the EH-attrs umbrella's §L lens classifies it as
+worse; N1 lands with it as a defect that slice b's S-5 closes: §10 O8, PM decision 90). Everything in
   this memo that depends on "a move does not re-raw" cites K-1 to K-3 with these qualifiers (§2 H3 × H4, §4.2, §6
   C8b(iv), C8c, C8d).
 
@@ -433,7 +444,10 @@ intersecting ones all meet inside one decision, `reconcile_event_handler`, and i
 narrowly-scoped slice under an approved node, the rule's base case (c); the plan-review is still mandatory (rule (b):
 the node is edge-dense). The node-memo erratum this PR carries is a citation correction with no decision change (P-N1).
 N1's implementation PR has one prerequisite outside the program, `EH-attrs-at-creation` slice a, landed (#563; P-N5,
-§9). Breadth: K = 1 spec, M = 7
+§9). Its landing criterion is the node memo's §5.1 interim-window claim (`:540-541`: each window "equals HEAD or is
+more restrictive than it; none is a restriction escape"); NR8 (a) is inside it (§7). The EH-attrs umbrella's §L lens
+classifies NR8 (a) as worse but does not gate the landing, §L's question being order-only (PM decision 90, §10 O8).
+Breadth: K = 1 spec, M = 7
 rows (§3); `webref coverage-map html 8.1.8.1 html 8.1.3.4` → "ok → single PR scope".
 
 ## §2. Coupled invariants
@@ -532,7 +546,8 @@ again (P-N5; the slice-a residual is NR8);
 `DOMParser` documents (the node clause). Every mismatch leaves the gate on the restrictive side except H4's callback
 case, which is the spec's outcome, and NR8 (a), a defect: dispatch runs nothing, as at HEAD, where the spec runs the
 written callback, and the getter reads null (HEAD: a function compiled from the attribute; the spec: the callback);
-whether the EH-attrs umbrella's §L reaches it is open (§10 O8). Adjacent
+the EH-attrs umbrella's §L lens classifies it as worse without gating N1's landing, which the node memo's §5.1 claim
+governs (§10 O8, PM decision 90). Adjacent
 pre-existing surface (slot `#11-event-handler-target-determination`, §7): a `WindowEventHandlers` content attribute
 (`onhashchange`, …; rev 3's example `onload` is a Window-reflecting body attribute, which HEAD scopes to the element) on
 a `<body>` whose node document is not active is installed on the live Window entity at HEAD — not reached while a
@@ -753,7 +768,7 @@ are written there. G4 checks both files.
     (a DOMParser document). That insertion processes it (T-a2), so the attribute's raw value replaces the callback.
     **Defect**: on dispatch N1 runs nothing (arm 3 drops the callback) and HEAD runs nothing (the invoke gate), while
     the spec returns the written callback and runs it (H4). The getter reads null at N1, a function compiled from the
-    attribute (not the callback) at HEAD, and the callback in the spec. Inputs to §10 O8, not its resolution: N1's
+    attribute (not the callback) at HEAD, and the callback in the spec. Inputs to §10 O8 (decided, PM decision 90): N1's
     dispatch equals HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive"; the
     EH-attrs umbrella's §L counted the same getter shape, the lost `typeof … === 'function'`, as worse (its L6.1, on the
     wider population of a base without slice a). Two variants. With a `setAttribute` in place of the IDL write — that
@@ -769,8 +784,9 @@ are written there. G4 checks both files.
     an event handler* step 3 returns null for an element whose node document is not an active document; `webref body
     html event-handler-idl-attributes`, 2026-10-28). N1 moves to the spec there.
   Pins: **C8g** (window pin for (a), §6); **C8h** (spec pin for (b)'s element-targeted half, §6; rev 4.1 A3 MIN). Slice b's S-5 is the closer the EH-attrs umbrella declares for both classes
-  (its §1.5); C8g is the window pin that flips to C8b's expectation then. Whether the umbrella's §L verdict reaches (a):
-  open, §10 O8.
+  (its §1.5); C8g is the window pin that flips to C8b's expectation then. The umbrella's §L lens reaches (a) as a
+  classification (worse); N1 lands with (a) as a defect, recorded under `#11-eh-attrs-creation-time-call-sites` defect
+  (1) and closed by S-5 (§10 O8, PM decision 90; §7; §8 records item 9).
 
 ## §6. Test and coverage plan
 
@@ -838,9 +854,15 @@ elidex-shell --all-features`; `mise run ci` before push.
 | the composition's move into `EcsDom` over `ScriptingSubject`; `NodeDocumentOf` / `Window` subjects; the step-3.2 reading question (§0.3 P-N1) | N4 (edge n3) | N4 | N4's plan |
 | the node clause's final representation | `#11-domparser-full-document-parse-fidelity` (the parent's) | that slot | its |
 | insertion adoption (the effective-node-document proxy) | `#11-cross-document-adopt-on-insert` | that slot | 2026-10-31 (ledger) |
+| NR8 (a)'s getter outcome (§5.4): an element given two or more deliverable ordinary handler attributes by a silent writer, IDL-written before its first processing (D-8 (a)), then first inserted into a DOMParser document — HEAD's getter compiles the attribute, N1's reads null (arm 3); dispatch runs nothing at both; the spec returns the written callback and runs it (pin C8g) | the re-raw that causes it is the content-attribute consumer's (slice a's D-8 restriction, removed by slice b's S-5), not N1's gates; arm 3 only reads it. **Why deferred**: removing it is S-5's mechanism, and slice b needs N1 first (the EH-attrs umbrella's x4), so N1 cannot wait for it. The window is inside the node memo's §5.1 claim (`:540-541`; dispatch equal, a null getter more restrictive than HEAD's function, no restriction escape), which governs N1's landing (PM decision 90) | slot `#11-eh-attrs-creation-time-call-sites` (Layout lane), defect (1)'s N1 qualifier (§8 records item 9); **closes** with slice b's S-5; **trigger**: the slot's ("T3 and N1 landed, and C1's handling decided"; N1's side met at its landing) | the slot's (2026-12-31) |
 
-Own deferrals: **0** (node memo §5.2). N1 registers no slot; the PM registered `#11-event-handler-target-determination`
-and `#11-unhandledrejection-dispatch-target` for pre-existing gaps (A96).
+Own deferrals: **1** — NR8 (a)'s getter outcome (the row above): an outcome N1 changes (HEAD's compiled function →
+null) and leaves to slice b's S-5. Its underlying defect (the written callback lost at the first insertion) is
+pre-existing and already in `#11-eh-attrs-creation-time-call-sites` defect (1); N1 opens no slot and adds a qualifier
+to that defect (§8 records item 9). The node memo's §5.2 count for N1 (`:599-601`, "0") predates NR8, which rev 4 found
+after slice a's D-8 had landed; the per-PR cap (3) holds; the node memo is not edited (the A114 idiom; §8 records
+item 9 (v)). The PM registered `#11-event-handler-target-determination` and `#11-unhandledrejection-dispatch-target`
+for pre-existing gaps (A96).
 
 ## §8. Edges, hand-offs and records
 
@@ -849,11 +871,14 @@ and `#11-unhandledrejection-dispatch-target` for pre-existing gaps (A96).
   17 (i), restated by PM decisions 21 and 23; the EH-attrs umbrella's §L shows that no landing order puts N1 first
   (its edge x1). **Landed**: #563, `3cd84a04`. H3 × H4's exact pending-source bit, C8b(iv) and C8c's second half hold
   under it, in its slice-a form (P-N5, NR7, NR8). It is no node or edge of the node memo's DAG (the node memo carries
-  one clerical reference line, no §5.2 change).
+  one clerical reference line, no §5.2 change). **Landing criterion** (PM decision 90): the node memo's §5.1
+  interim-window claim (`:540-541`) governs whether N1 may land; the EH-attrs umbrella's §L lens classifies NR8 (a) as
+  worse but does not gate the landing (§L's question is order-only; §9).
 - **x4** (N1 → EH-attrs slice b, the EH-attrs umbrella's edge): raw values that slice b writes at a DOMParser node's
   creation read null only under N1's compile-gate node clause (that umbrella's §9 N-4 (a)). N1 hands slice b D-N2 and
   D-N3 as they are; NR8's window pin C8g is the cell slice b's S-5 inverts, and NR8 (a) is the defect it leaves open
-  until then (§5.4). Whether anything else is owed depends on §10 O8 (open).
+  until then (§5.4), recorded under `#11-eh-attrs-creation-time-call-sites` defect (1) (§7; records item 9). Nothing
+  else is owed: O8 is decided (PM decision 90).
 - **n3** (N1 → N4): N4 routes the compile gate, now the only handler reader, through `settings_route.rs` with
   `NodeDocumentOf(element)` / `Window(w)`, and promotes the effective-node-document rule into
   `EcsDom::effective_node_document` (N4 surface). N4 receives: D-N3's decision unchanged (the gate is the closure called
@@ -899,12 +924,28 @@ and `#11-unhandledrejection-dispatch-target` for pre-existing gaps (A96).
      to apply: "expected but **unproven** after construction via `setAttribute('onhashchange', …)` on the parsed body (a
      `WindowEventHandlers` name, `HandlerScope::Window`; AttributeChange arm …" — the rest of the sentence unchanged.
      This memo corrected the same example in its own §3.1 at rev 4 (§10.2, item 3–4 row).
+  9. **At N1's landing** (rev 4.3; PM decisions 90, 93) `project_open-defer-slots.md`,
+     `#11-eh-attrs-creation-time-call-sites` (`:823`). The EH-attrs umbrella's §8.2 carries the same text in this PR
+     (its rev 8.1). (i) **Defect (1)**: after "(at HEAD: for every element, at every insertion" the text reads on
+     "; once N1 lands, an IDL write so overwritten at a first insertion into a DOMParser document reads `null`, where
+     HEAD's getter compiles the attribute; dispatch runs nothing at both; spec: the written callback runs; N1 memo NR8
+     (a), pin C8g, closed by S-5)". (ii) **Classification**: after "Each exists at HEAD with the same outcome or a wider
+     population" the text reads on " (for (1)'s IDL-written DOMParser subset this holds only until N1 lands: N1 changes
+     its getter outcome, PM decision 90)". Without (i) and (ii) the slot says that defect (1) has HEAD's outcome after
+     N1's landing, which it does not. (iii) **Defect (5)**: its DOMParser-document half ("holds only until N1 lands")
+     lapses at N1's landing; from then the half that remains is template contents. (iv) **Trigger** ("T3 and N1
+     landed, and C1's handling decided"): N1's side is met at N1's landing. (v) The node memo's §5.2 own-deferral count
+     for N1 (`:599-601`, "0") is one lower than N1's (§7: 1, NR8 (a)'s getter outcome); the node memo is not edited.
 
 ## §9. Definition of done
 
 **Prerequisites**: **`EH-attrs-at-creation` slice a landed** (PM decisions 17 (i), 21, 23; P-N5) — **met**: #563,
 squash `3cd84a04` (EH-attrs umbrella §8.4 item 8). N1's implementation PR is based on a `main` that contains it, and its
-description names that merge commit. **Re-measure obligation** (R2 G4): this memo's code coordinates, line pointers and
+description names that merge commit. **Landing criterion** (PM decision 90, the user's choice B1): the node memo's
+§5.1 interim-window claim (`:540-541`: each window "equals HEAD or is more restrictive than it; none is a restriction
+escape") governs whether N1 may land. NR8 (a) is inside it (§7). The EH-attrs umbrella's §L lens classifies NR8 (a) as
+worse but does not gate the landing: §L's question is order-only, and its verdict (slice a first) is met. NR8 (a) stays
+a defect until slice b's S-5 (§8 records item 9). **Re-measure obligation** (R2 G4): this memo's code coordinates, line pointers and
 population claims are measured at `3cd84a04` (rev 4, §0.1, each with its command). Before the first commit, the
 implementation PR runs `git diff --stat 3cd84a04 <its base> -- crates/script crates/core/elidex-ecs/src/dom/tree/mutation.rs crates/dom/elidex-form/src/inert_document.rs crates/shell/elidex-shell/src/pipeline.rs`
 and, for every cited file that changed, re-runs the rows that cite it — at least the split coordinates (§5.3: the seam
@@ -947,7 +988,7 @@ Behavioural: the (a′) record (§5.1) is in the PR description; C8, C8b (i)–(
 present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p` commands and `mise run ci` pass. Preflight: `python3
 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-10-ibp-sandbox-handler-gates.md` exits 0.
 
-## §10. Items decided and open
+## §10. Items decided
 
 - *O1 — decided (PM decision 17 (ii)).* N1 cites the current step 3.2 verbatim and states its equivalence to D8's
   "scripting is disabled for *el's node document*" for every document N1 can see (single realm, no BiDi, no user switch);
@@ -985,29 +1026,36 @@ present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p
 - *O7 — decided: (a) no slot for processing step 1 (WebDriver BiDi).* A slot records a gap in a surface elidex
   supports or plans; WebDriver BiDi is neither, and without it the step's result is always true (§7), so there is no
   gap to track; the step and §8.1.3.4's fourth condition belong to whoever adds a BiDi surface.
-- *O8 — open (rev 4.1, PM decision 74): the EH-attrs umbrella's O5 ("N1's R-a / R-b. In slice a they hold only for
-  ordinary pairs of elements with one deliverable ordinary handler attribute (K-2, K-3 qualifiers); a
-  Window-delegating pair gets HEAD's outcome (X-W; §8.4 item 4). Is that sufficient for N1's landing?"), as it bears on
-  NR8 (a).* (1) *For N1's cells*: every C8-family cell is inside K-1 to K-3's slice-a form (§6 preamble), so their
-  expectations follow from main's behaviour (H-P16), and slice a's own C2, C4 and C5 (i) pin the premise. (2) *Outside
-  that form* N1 changes outcomes in two classes (NR8). The Window-delegating class moves to the spec or stays HEAD's.
-  The multi-attribute class (an IDL write before the first processing of an element with two or more silent
-  deliverable ordinary attributes, then a first insertion into a DOMParser document) is a **defect**: N1 and HEAD both
-  run nothing on dispatch, while the spec returns the written callback and runs it; the getter reads null at N1, a
-  function compiled from the attribute at HEAD, the callback in the spec. C8g pins it as a window pin; slice b's S-5 is
-  the closer the EH-attrs umbrella declares. (3) *The open question*: whether the EH-attrs umbrella's §L "worse"
-  verdict — its L6.1 getter shape, judged when it decided that no order may put N1 before slice a — reaches this
-  residual. It is a reading of the ratified EH-attrs umbrella (#551); this memo does not decide it either way. Inputs, not a resolution:
-  N1's dispatch equals HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive";
+- *O8 — decided (PM decision 90, the user's choice B1, 2026-10-31; rev 4.3): the EH-attrs umbrella's O5 ("N1's R-a /
+  R-b. In slice a they hold only for ordinary pairs of elements with one deliverable ordinary handler attribute (K-2,
+  K-3 qualifiers); a Window-delegating pair gets HEAD's outcome (X-W; §8.4 item 4). Is that sufficient for N1's
+  landing?"), as it bears on NR8 (a).* (1) *For N1's cells*: every C8-family cell is inside K-1 to K-3's slice-a form (§6
+  preamble), so their expectations follow from main's behaviour (H-P16), and slice a's own C2, C4 and C5 (i) pin the
+  premise. (2) *Outside that form* N1 changes outcomes in two classes (NR8). The Window-delegating class moves to the
+  spec or stays HEAD's. The multi-attribute class (an IDL write before the first processing of an element with two or
+  more silent deliverable ordinary attributes, then a first insertion into a DOMParser document) is a **defect**: N1
+  and HEAD both run nothing on dispatch, while the spec returns the written callback and runs it; the getter reads null
+  at N1, a function compiled from the attribute at HEAD, the callback in the spec. C8g pins it as a window pin; slice
+  b's S-5 is the closer the EH-attrs umbrella declares. (3) *The question* (open in rev 4.1–4.2, PM decision 74):
+  whether the EH-attrs umbrella's §L "worse" verdict — its L6.1 getter shape, judged when it decided that no order may
+  put N1 before slice a — reaches this residual, and with what consequence for N1's landing. It is a reading of the
+  ratified EH-attrs umbrella (#551), so it was not this memo's to decide. Inputs: for landing — N1's dispatch equals
+  HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive"; the EH-attrs umbrella
+  orders slice b after N1 (x4: slice b needs N1), so holding N1 until slice b would invert that edge; against it —
   NR8 (a) is §L's getter shape on a narrower population that slice a leaves open (its §1.5 K-2 / K-3 residual); the
-  EH-attrs umbrella orders slice b after N1 (x4: slice b needs N1), so holding N1 until slice b would invert that edge.
-  (4) *Route* (corrected in rev 4.2; rev 4.1 A5 IMP): because the question is a reading of a ratified umbrella, it is
-  reported to the PM, who raises it to the user (PM decision 74). The EH-attrs umbrella's owner is not the decider: it
-  is the same Layout lane that authors this memo. *This run*: the plan-review on rev 4.1 (`fa85851b`), Axis 3, read §L's
-  lens — the classification of the getter shape (L6.1 / L2.1, "worse": the lost `typeof … === 'function'`) — as
-  reaching NR8 (a), and the consequence (whether N1 may land after slice a, the umbrella's O5) as not determined by
-  §L's text; reported to the PM 2026-10-31; **awaiting the decision**. O8 stays open. Rev 4 answered "yes" by argument;
-  rev 4.1 withdraws that answer.
+  umbrella's §1.4 interim line ("§1.5, all HEAD-equal (K-0)") does not hold for NR8 (a)'s getter once N1 lands; and its
+  x1 ("Slice a's K-1 removes that"), with §L's closing sentence, holds per §L row (one deliverable ordinary attribute,
+  marked before the move, at T-a2 or T-a3) but not for NR8 (a) (the three as approved by #551; corrected in this PR,
+  PM decision 93). (4) *Axis 3's reading* (the plan-review on rev 4.1, `fa85851b`; reported to the PM 2026-10-31, who
+  raised it to the user, PM decision 74): §L's lens — the classification of the getter shape (L6.1
+  / L2.1, "worse": the lost `typeof … === 'function'`) — reaches NR8 (a); the consequence (whether N1 may land after
+  slice a, the umbrella's O5) is not determined by §L's text. (5) *Decision* (PM decision 90): (A) §L's lens reaches
+  NR8 (a) as a classification; §L's verdict (order-only: no order puts N1 before slice a) stands. (B1) N1 lands after
+  slice a. NR8 (a) is a defect, recorded under `#11-eh-attrs-creation-time-call-sites` defect (1) (§7; §8 records item
+  9) and closed by slice b's S-5. The criterion for N1's landing is the node memo's §5.1 claim (`:540-541`), which NR8
+  (a) meets (§7); §L's fidelity lens classifies NR8 (a) as worse but does not gate the landing (§9). PM decision 93:
+  the umbrella's edits that follow (its rev 8.1: §L's closing sentence, x1, §1.4, §1.5, §8.2, §8.4 items 3 and 7, O5)
+  are carried by N1's PR. Rev 4 answered "yes" by argument; rev 4.1 withdrew that answer; the decision is the user's.
 
 ### §10.1 R1 review disposition
 
@@ -1044,7 +1092,7 @@ came from text rev 3 added. The EH-attrs umbrella's §8.4 cites rev-3 lines; the
 | Finding / item | Disposition |
 |---|---|
 | R2 G1 (A3) D-N2's "fail-closed" release no-op lets `call_listener` run a removed or stale callable | **fixed** (driver decision) — HEAD's `HostData::dom()` / `HostData::document()` assert shape kept; "fail-closed" withdrawn (D-N2, H-P18 (2)) |
-| R2 G2 (A2) "once per element" leaves the first insertion undefined (R-a) | **fixed by citation** — K-1 / K-2 with slice-a qualifiers (P-N5, H-P16, H3 × H4, §6 preamble, C8b(iv), C8c); the residual is NR8; the umbrella's O5 is O8, open since rev 4.1 (PM decision 74) |
+| R2 G2 (A2) "once per element" leaves the first insertion undefined (R-a) | **fixed by citation** — K-1 / K-2 with slice-a qualifiers (P-N5, H-P16, H3 × H4, §6 preamble, C8b(iv), C8c); the residual is NR8; the umbrella's O5 is O8, open in rev 4.1–4.2 (PM decision 74), decided by PM decision 90 (rev 4.3) |
 | R2 G3 (A2) silent writers + IDL write before the first insertion (R-b) | **fixed by citation** — K-3 with the same qualifier; multi-attribute and Window-delegating cases are S-5's; NR8 (a) pinned by C8g; H-P13 restated under K-5 |
 | R2 G4 (A5) no re-measure obligation on the new base | **fixed** — frame moved to `3cd84a04` and every coordinate re-measured (§0.1, §0.2, §5); §9's re-measure obligation for the implementation PR's own base |
 | R2 A1 MIN G7 is name-based | **fixed** — G7b (behavioural) |
@@ -1066,8 +1114,8 @@ came from text rev 3 added. The EH-attrs umbrella's §8.4 cites rev-3 lines; the
 ### §10.3 Rev 4.2: plan-review on rev 4.1 disposition
 
 The plan-review on rev 4.1 (`fa85851b`; CRIT 0 / IMP 6, 4 unique / MIN 15, 14 unique / FP 4). Dedup: A5 IMP2 = A3 IMP2,
-A5 IMP3 = A3 IMP3, A5's §10.1 MIN = A3's. **PM-gated** rows await the user's answer (PM decision 74) and are left for
-the next revision.
+A5 IMP3 = A3 IMP3, A5's §10.1 MIN = A3's. The **PM-gated** rows awaited the user's answer (PM decision 74); rev 4.3
+applies it (PM decisions 90, 93).
 
 | Finding | Disposition |
 |---|---|
@@ -1076,14 +1124,14 @@ the next revision.
 | A1 FP §3 row 3 / arm 4 compile path | **FP** — HEAD's compile path unchanged; not a LegacySemantics extension |
 | A2 MIN C8e covers 3 of 4 readers; "any path" overclaim; no reader premise | **fixed** — H-P19 (the `get_listener` readers, classified, with its command); C8e restated (three of four, the rejection loop not pinned: NR5, `HandlerScope::Window`); §6's D-N1 guard scoped to (i) / (ii); §9 G8 re-runs H-P19. §2 H1 and H-P18 state no pinning claim and are unchanged |
 | A2 MIN (uncertain) D-N4 / O3 fail direction of `is_handler` | **fixed (decision kept)** — O3 states the fail direction (a wrong `false` fails open, D-N4's exposure; production caller `event_dispatch/mod.rs:505`, value `:510`, set `:325`); no existing pin, so C8e (iv) (ADDED) |
-| A3 IMP §L reading (O8) and O8 (3)'s input balance | **PM-gated** — reported to the PM 2026-10-31; this run's reading recorded (header, O8 (4)); O8 open |
-| A3 IMP (= A5 IMP2) O8 close point / owner; §9 "one prerequisite, met" | **PM-gated** |
-| A3 IMP (= A5 IMP3) `#11-eh-attrs-creation-time-call-sites` defect (1) record | **PM-gated** |
+| A3 IMP §L reading (O8) and O8 (3)'s input balance | **fixed (rev 4.3; PM decision 90)** — O8 decided, Axis 3's reading recorded as its input (O8 (4)); O8 (3) adds the umbrella's §1.4 interim line and x1; the umbrella's §L closing sentence, x1, §1.4, §1.5, §8.2 and O5 corrected in this PR (PM decision 93) |
+| A3 IMP (= A5 IMP2) O8 close point / owner; §9 "one prerequisite, met" | **fixed (rev 4.3; PM decision 90)** — O8 closed by the user's decision; §1, §8 and §9 state the landing criterion (node memo §5.1); the prerequisite stays slice a (met) |
+| A3 IMP (= A5 IMP3) `#11-eh-attrs-creation-time-call-sites` defect (1) record | **fixed (rev 4.3; PM decisions 90, 93)** — §7 counts NR8 (a)'s getter outcome (own deferrals 1); §8 records item 9 gives the ledger text (defect (1), classification, defect (5)'s lapse, the trigger's N1 side); the umbrella's §8.2 carries the same text |
 | A3 MIN §2 H3 × H4 "every N1 cell" | **fixed** — scoped to the C8 family, C8g and C8h named as outside by design |
 | A3 MIN §0.4 D-N3 / §2 H4 unqualified universals | **fixed** — both qualified by slice a's K-1 to K-3 form, pointing to NR8 (a) |
 | A3 MIN §6 preamble: NR8 (b) also changes an outcome | **fixed** — preamble counts both; C8h (NEW, spec pin) in §6, NR8's pins and §9 |
 | A3 MIN §6 C8g closer without slot | **fixed** — cites `#11-eh-attrs-creation-time-call-sites` |
-| A3 MIN header / O8 (4) route to a review axis; no closer for other branches | **fixed (route)** with A5 IMP1; the close point is PM-gated (A3 IMP2) |
+| A3 MIN header / O8 (4) route to a review axis; no closer for other branches | **fixed (route)** with A5 IMP1; the close point is PM decision 90 (rev 4.3, A3 IMP2's row) |
 | A3 MIN (= A5 MIN) §10.1 D-N2 row cites the withdrawn fail-closed fix | **fixed** — supersession note appended; history otherwise kept |
 | A4 MIN (uncertain) NR8 (a) live-document variant omits the spec outcome | **fixed** — NR8 (a) states spec (`fn` runs) vs N1 = HEAD (`A` compiled and run); "no residual" scoped to the `setAttribute` variant. O8 (2) does not repeat the variant |
 | A5 IMP routing "umbrella's owner through the PM" ≠ PM decision 74 | **fixed** — header, rev 4.1 entry (gloss), O8 (3)'s decider sentence, O8 (4): to the PM, who raises it to the user |
