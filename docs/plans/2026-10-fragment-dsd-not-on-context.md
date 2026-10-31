@@ -22,6 +22,9 @@ cite in the files it edits instead of handing them off (§5.2); DoD greps cover 
 `elidex-ecs` release control restored and the `begin_detached_fragment` doc corrected (§1.2); the reuse slot text
 gains the shadow-host ordering constraint (§7).
 
+**Rev 5** (2026-11-01) — post-implementation correction (PR 1): `unsupported_fragment_construct` had no caller other
+than the declarative-shadow decline (foreign contexts already parse natively), so PR 1 deletes it.
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 The decision: this reverses a ratified reading
@@ -137,8 +140,8 @@ document explicitly.)
   doc (`lib.rs:39-40`) and `parse_fragment_progressive`'s doc already claim it; they become true.
 - **I2 (hostIsRoot)**: a `<template shadowrootmode>` whose current node is the topmost stack element becomes a plain
   template with its content fragment, in both backends.
-- **I3 (strict-native)**: strict never declines because of a declarative template; the fragment decline remains for a
-  non-HTML-namespace context only.
+- **I3 (strict-native)**: strict never declines because of a declarative template; strict has no fragment decline left for
+  this construct (Rev 5).
 - **I4 (nested unchanged)**: a template whose current node is not topmost attaches to it, or is plain when the attach
   fails, as today (tolerant caveat in §7).
 
@@ -171,8 +174,8 @@ concept-attach-a-shadow-root`, `valid-shadow-host-name`, `dom-element-attachshad
 In `template_start_tag` (`shadow.rs`), delete the `is_fragment() && len == 1` decline. The gate becomes "allow, valid
 `shadowrootmode`, and `open_elements.len() > 1`" (hostIsRoot ⇔ one stack element, since the current node is the
 bottom and the topmost is the first). Everything else takes the ordinary-template arm, which attaches the content
-fragment. `parse_fragment_strict` returns `Ok`; no fallback. `unsupported_fragment_construct` stays (foreign context);
-its doc (`tree_builder/mod.rs:480-487`) drops the DSD-on-context clause.
+fragment. `parse_fragment_strict` returns `Ok`; no fallback. `unsupported_fragment_construct` is deleted (Rev 5: no
+other caller).
 
 ### §4.2 Tolerant
 

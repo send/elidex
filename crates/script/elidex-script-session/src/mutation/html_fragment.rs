@@ -17,18 +17,21 @@ use super::{empty_record, MutationKind, MutationRecord};
 ///
 /// Per HTML §8.5.4 (innerHTML setter) vs §8.5.2 (setHTMLUnsafe), the only
 /// behavioural difference is whether `<template shadowrootmode>` children
-/// are converted into declarative shadow roots on their parent host or
-/// left as plain `<template>` elements. The `_unsafe` JS API name refers
+/// are converted into declarative shadow roots on their parent element (nested
+/// templates only; a top-level one is hostIsRoot and stays plain) or left as
+/// plain `<template>` elements. The `_unsafe` JS API name refers
 /// to Trusted Types sanitization which is unrelated to engine semantics;
 /// from the algorithm's perspective the distinction is purely
 /// "honour declarative shadow root markup yes/no".
 #[derive(Default, Clone, Copy, Debug)]
 pub struct SetInnerHtmlOptions {
-    /// When true, `<template shadowrootmode="open|closed">` children
-    /// attach as a shadow root on the parent host (per HTML §4.12.3
-    /// `<template shadowrootmode>` declarative shadow DOM algorithm). When false (the default,
-    /// matching plain `innerHTML` semantics), the templates are left
-    /// as ordinary `<template>` elements.
+    /// When true, `<template shadowrootmode="open|closed">` children attach
+    /// as a shadow root on their parent element (per HTML §4.12.3
+    /// `<template shadowrootmode>` declarative shadow DOM algorithm), when
+    /// nested. A top-level one (directly under the fragment root) stays a
+    /// plain template (hostIsRoot), so the host never gets a shadow root.
+    /// When false (the default, matching plain `innerHTML` semantics), the
+    /// templates are left as ordinary `<template>` elements.
     pub allow_declarative_shadow: bool,
     /// When true, parse with the §13.2.4.5 scripting flag DISABLED, so
     /// `<noscript>` content is parsed as ordinary elements rather than raw
@@ -392,10 +395,7 @@ mod tests {
         // The added node is the plain template (a light child of the host).
         assert_eq!(record.added_nodes.len(), 1);
         let template = record.added_nodes[0];
-        assert!(dom
-            .world()
-            .get::<&elidex_ecs::TagType>(template)
-            .is_ok_and(|t| t.0 == "template"));
+        assert!(dom.has_tag(template, "template"));
         assert_eq!(dom.children(host), vec![template]);
     }
 
@@ -425,18 +425,12 @@ mod tests {
         );
         let kids = dom.children(host);
         assert_eq!(kids.len(), 1);
-        assert!(dom
-            .world()
-            .get::<&elidex_ecs::TagType>(kids[0])
-            .is_ok_and(|t| t.0 == "template"));
+        assert!(dom.has_tag(kids[0], "template"));
         let content = dom
             .template_contents_fragment(kids[0])
             .expect("a plain template has a content fragment");
         assert!(
-            dom.children(content).iter().any(|c| dom
-                .world()
-                .get::<&elidex_ecs::TagType>(*c)
-                .is_ok_and(|t| t.0 == "p")),
+            dom.children(content).iter().any(|c| dom.has_tag(*c, "p")),
             "template content should hold the parsed <p>"
         );
     }
@@ -543,7 +537,7 @@ mod tests {
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
         let _ = dom.append_child(root, host);
-        // Pre-attach a shadow root so the declarative attach is rejected.
+        // Pre-attach a shadow root: were an attach attempted it would be rejected.
         let existing = dom
             .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
             .expect("first attach");
@@ -556,13 +550,22 @@ mod tests {
                 scripting_disabled: false,
             },
         );
-        // The existing shadow root is unchanged; the template becomes a
-        // plain child of the host.
+        // No attach is attempted (hostIsRoot): the existing shadow root is
+        // unchanged and the template is a plain light child of the host.
         assert_eq!(
             dom.get_shadow_root(host),
             Some(existing),
             "pre-existing shadow root must be preserved"
         );
+        let kids = dom.children(host);
+        assert_eq!(kids.len(), 1, "the template is the host's only light child");
+        assert!(dom.has_tag(kids[0], "template"));
+        let content = dom
+            .template_contents_fragment(kids[0])
+            .expect("template content fragment");
+        let content_kids = dom.children(content);
+        assert_eq!(content_kids.len(), 1);
+        assert!(dom.has_tag(content_kids[0], "p"));
     }
 
     #[test]
@@ -597,10 +600,7 @@ mod tests {
             .is_ok_and(|t| t.0 == "a"));
         let light = dom.children(inner_div);
         assert_eq!(light.len(), 1, "the second template is a light child");
-        assert!(dom
-            .world()
-            .get::<&elidex_ecs::TagType>(light[0])
-            .is_ok_and(|t| t.0 == "template"));
+        assert!(dom.has_tag(light[0], "template"));
     }
 
     #[test]

@@ -144,7 +144,7 @@ fn try_attach_declarative_shadow(
     let Some(mode_str) = mode_attr else {
         return false;
     };
-    // HTML §2.3.9: enumerated attribute values are ASCII-case-insensitive.
+    // HTML §2.3.3 Keywords and enumerated attributes: values are ASCII-case-insensitive.
     let mode = if mode_str.eq_ignore_ascii_case("open") {
         ShadowRootMode::Open
     } else if mode_str.eq_ignore_ascii_case("closed") {
@@ -276,7 +276,10 @@ fn convert_node(
             // `try_attach_declarative_shadow` in the caller, so reaching here
             // means an ordinary template — including a declarative one whose
             // attach was rejected, which becomes ordinary per §4.12.3 and whose
-            // stored `template_contents` is its template content.
+            // stored `template_contents` is its template content, and every
+            // top-level `<template shadowrootmode>` from
+            // `convert_fragment_top_level`, which arrives with no attach attempt
+            // at all (hostIsRoot, §13.2.6.4.4).
             if namespace == Namespace::Html && tag == "template" {
                 let fragment = dom.attach_template_contents(entity, owner_document);
                 if let Some(contents) = template_contents.borrow().clone() {

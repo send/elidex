@@ -115,14 +115,19 @@ impl TreeBuilder {
     /// appropriate-place redirect (HTML §4.12.3). Shared by the ordinary-template
     /// arm and the declarative-shadow graceful fallback (a failed DSD template
     /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
-    /// identical at both sites (One-issue-one-way). Owner doc is the parse
-    /// document directly — correct for a nested template whose in-tree parent is
-    /// an outer template's detached content fragment (where the tree-root walk
-    /// would dead-end).
+    /// identical at both sites (One-issue-one-way). Owner doc is explicit —
+    /// correct for a nested template whose in-tree parent is an outer template's
+    /// detached content fragment (where the tree-root walk would dead-end): the
+    /// parse document for document parsing; in a §13.4 fragment parse the
+    /// **context's** node document, as the throwaway document is destroyed and
+    /// (for a documentless context, where the adopt is skipped) the stamp would
+    /// dangle. `None` leaves the fragment unstamped, matching the tolerant backend.
     fn attach_ordinary_template_contents(&mut self, template: Entity) {
-        let fragment = self
-            .dom
-            .attach_template_contents(template, Some(self.document));
+        let owner = match self.state.fragment_context {
+            Some(context) => self.dom.owner_document(context),
+            None => Some(self.document),
+        };
+        let fragment = self.dom.attach_template_contents(template, owner);
         self.state
             .template_content_targets
             .insert(template, ContentTarget::ContentFragment(fragment));
@@ -140,8 +145,12 @@ impl TreeBuilder {
         let host = self.state.current_node().unwrap_or(self.document);
         let fallback_parent = self.appropriate_place();
 
-        // Insert an element with onlyAddToElementStack=true — create the template
-        // and push it onto the stack, but do not append it to the light DOM.
+        // The declarative branch of the template start tag (§13.2.6.4.4): the
+        // template element is created and pushed onto the stack of open elements
+        // but never inserted, and its template contents are set to the shadow
+        // root (below). The regular-template "insert an element at the adjusted
+        // insertion location with template, insertionLocation, and true" calls
+        // are the other branches; their `true` is not "stack only".
         let mut attributes = Attributes::default();
         for (name, value) in &token.attrs {
             attributes.set(name.as_str(), value.as_str());

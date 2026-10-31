@@ -199,16 +199,18 @@ fn element_set_html_unsafe_closed_mode_hides_shadow_root_from_getter() {
 
 #[test]
 fn element_set_html_unsafe_on_host_with_existing_shadow_does_not_reattach() {
-    // hostIsRoot: a top-level template is plain, so setHTMLUnsafe on a host
-    // with an existing shadow root leaves that shadow alone (the context is
-    // never mutated) and the template lands as a normal child.
+    // hostIsRoot: no attach is attempted for a top-level template, so
+    // setHTMLUnsafe on a host with an existing shadow root leaves that shadow
+    // alone (the context is never mutated) and the template is a plain light
+    // child of the host.
     let out = run(
         "var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var first = host.attachShadow({mode: 'open'}); \
          first.appendChild(document.createElement('span')); \
          host.setHTMLUnsafe('<template shadowrootmode=\"open\"><p>x</p></template>'); \
-         (host.shadowRoot === first && host.shadowRoot.firstChild && host.shadowRoot.firstChild.tagName === 'SPAN') \
+         (host.shadowRoot === first && host.shadowRoot.firstChild && host.shadowRoot.firstChild.tagName === 'SPAN' \
+             && host.firstChild && host.firstChild.tagName === 'TEMPLATE') \
              ? 'ok' : 'fail';",
     );
     assert_eq!(out, "ok");

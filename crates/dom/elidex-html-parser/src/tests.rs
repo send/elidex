@@ -285,18 +285,13 @@ const DSD_OPEN: ParseFragmentOptions = ParseFragmentOptions {
     scripting_disabled: false,
 };
 
-/// Canonical text dump of a node for backend-parity comparison: tag, the
+/// Canonical text dump of a node for backend-parity comparison: `node_sig`
+/// (tag / text / comment / doctype + attributes), the element namespace, the
 /// shadow root (mode + children) and the template contents (children) are
 /// included, which `node_sig` does not see.
 fn dump_with_shadow_and_content(dom: &EcsDom, e: Entity) -> String {
     let w = dom.world();
-    if let Ok(t) = w.get::<&TextContent>(e) {
-        return format!("{:?}", t.0);
-    }
-    let tag = w
-        .get::<&TagType>(e)
-        .map_or_else(|_| "?".to_string(), |t| t.0.clone());
-    let mut out = format!("<{tag} {:?}", attr_map(dom, e));
+    let mut out = format!("<{:?} ns={:?}", node_sig(dom, e), dom.namespace_of(e));
     if let Some(sr) = dom.get_shadow_root(e) {
         let mode = w
             .get::<&elidex_ecs::ShadowRoot>(sr)
@@ -382,10 +377,7 @@ fn fragment_top_level_declarative_shadow_is_plain_template() {
     assert!(dom.children(context).is_empty());
     assert_eq!(added.len(), 1, "one plain template is returned");
     let template = added[0];
-    assert!(dom
-        .world()
-        .get::<&TagType>(template)
-        .is_ok_and(|t| t.0 == "template"));
+    assert!(dom.has_tag(template, "template"));
     let tpl_content = dom
         .template_contents_fragment(template)
         .expect("a plain template has a content fragment");
@@ -435,9 +427,21 @@ fn fragment_progressive_top_level_declarative_shadow_strict_native() {
     let html = r#"<template shadowrootmode="open"><p>x</p></template>"#;
     let (strict, tolerant) = dsd_both_backends(html);
     assert_eq!(strict, tolerant);
-    assert!(strict.starts_with("<template"), "got {strict}");
-    assert!(strict.contains("#content[<p"), "got {strict}");
+    assert!(strict.starts_with("<(Some(\"template\")"), "got {strict}");
+    assert!(strict.contains("#content[<(Some(\"p\")"), "got {strict}");
     assert!(!strict.contains("#shadow"), "got {strict}");
+    // The progressive entry (strict first) takes the strict-native path too.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let context = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, context);
+    let roots = parse_fragment_progressive(html, context, &mut dom, DSD_OPEN);
+    assert!(dom.get_shadow_root(context).is_none());
+    let progressive: String = roots
+        .iter()
+        .map(|&r| dump_with_shadow_and_content(&dom, r))
+        .collect();
+    assert_eq!(progressive, strict);
 }
 
 #[test]
@@ -460,7 +464,10 @@ fn fragment_dsd_parity_nested_host_in_top_level_template() {
         r#"<template><div><template shadowrootmode="open"><p>x</p></template></div></template>"#;
     let (strict, tolerant) = dsd_both_backends(html);
     assert_eq!(strict, tolerant);
-    assert!(strict.contains("#shadow(open)[<p"), "got {strict}");
+    assert!(
+        strict.contains("#shadow(open)[<(Some(\"p\")"),
+        "got {strict}"
+    );
 }
 
 #[test]
@@ -602,6 +609,38 @@ fn fragment_parsed_template_content_owner_is_context_document() {
         Some(doc),
         "content descendant inherits the context document, not a dangling throwaway doc"
     );
+}
+
+#[test]
+fn fragment_template_content_documentless_context_is_unstamped_in_both_backends() {
+    // A documentless context skips the `finish_detached_fragment` adopt, so a
+    // content fragment stamped with the throwaway fragment document would keep a
+    // dangling `AssociatedDocument`. Both backends must leave it unstamped.
+    // (`get_associated_document` is the raw component: `owner_document` hides a
+    // destroyed document and would pass even with the dangling stamp.)
+    for strict in [true, false] {
+        let mut dom = EcsDom::new();
+        let context = dom.create_element("div", Attributes::default());
+        let html = "<template><p>x</p></template>";
+        let roots = if strict {
+            parse_fragment_strict(html, context, &mut dom, ParseFragmentOptions::default())
+                .expect("strict parses")
+        } else {
+            parse_html_fragment(html, context, &mut dom, ParseFragmentOptions::default())
+        };
+        let template = *roots
+            .iter()
+            .find(|&&e| dom.has_tag(e, "template"))
+            .expect("the <template> is returned");
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("content fragment");
+        assert_eq!(
+            dom.get_associated_document(fragment),
+            None,
+            "content fragment stamp (strict={strict})"
+        );
+    }
 }
 
 #[test]

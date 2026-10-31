@@ -148,11 +148,13 @@ pub fn parse_html_fragment(
     // `convert_fragment_top_level` therefore never attaches; nested templates
     // attach to their real parent. Stamp every parsed `<template>` content
     // fragment with the **context's** node document, not the throwaway
-    // fragment `document`: a content fragment is parentless, so
-    // `finish_detached_fragment` does not adopt it — stamping the throwaway doc would leave that content's owner dangling once
-    // the throwaway document is destroyed (Codex PR380 R2). `None` (documentless
-    // context) leaves the fragments owner-less, matching the orphan-detached
-    // light nodes `finish_detached_fragment` returns then.
+    // fragment `document`. With a document-bearing context
+    // `finish_detached_fragment` re-homes the content fragments anyway
+    // (`adopt_subtree` walks template contents), so the stamp only matters for a
+    // documentless context: there the adopt is skipped, and a throwaway-document
+    // stamp would dangle once that document is destroyed (Codex PR380 R2). `None`
+    // leaves the fragments owner-less, matching the orphan-detached light nodes
+    // `finish_detached_fragment` returns then.
     let owner_doc = dom.owner_document(context);
     convert::convert_fragment_top_level(&children_owner, root, dom, owner_doc, opts);
     let detached = dom.finish_detached_fragment(root, document, context);

@@ -225,10 +225,11 @@ pub struct SerializeOptions {
 /// `<template shadowrootmode>` is written *first*, ahead of the
 /// light-tree children. This ordering matches the spec's "shadow
 /// roots are serialized as the first child of their host" rule and
-/// makes `setHTMLUnsafe(host.getHTML(opts))` round-trip correctly when the
-/// output is placed under a parent: a top-level `<template shadowrootmode>`
-/// parses as a plain template (hostIsRoot), so the declarative template
-/// re-attaches only where it has a host element above it.
+/// lets the output round-trip when it is parsed under a parent, e.g.
+/// `wrap.setHTMLUnsafe('<div>' + html + '</div>')`. `host.setHTMLUnsafe(
+/// host.getHTML(opts))` itself yields a plain `<template>` child and no shadow
+/// root: the output's top-level template is hostIsRoot (§13.2.6.4.4), so a
+/// declarative template re-attaches only where a host element sits above it.
 pub fn serialize_inner_html_with_options(
     entity: Entity,
     dom: &EcsDom,
