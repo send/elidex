@@ -6,6 +6,9 @@ Slot: `#11-strict-fragment-declarative-shadow-on-context` (ledger row "SCOPE INV
 **Rev 1** (2026-10-31) — first draft, before `/elidex-plan-review`. **Status: blocked on a user decision (§0.1).** This
 memo plans the spec-current option; the alternative is recorded in §8 with what it keeps and what it overturns.
 
+**Rev 2** (2026-10-31) — driver decisions on Rev 1's open items: (1) `tree.rs` has a real seam → standalone prereq
+**PR 0** (§1.1); (2) the `begin_detached_fragment` release-build defect is fixed in this PR as its own commit (§4.4).
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 The decision: this reverses a ratified reading
@@ -49,10 +52,32 @@ it.
 
 ## §1. Shape and verdict
 
-Single PR, about 4 crates touched (`elidex-html-parser`, `elidex-html-parser-strict`, `elidex-script-session`,
-`elidex-js` tests; `elidex-dom-api` doc only). **Not edge-dense**: one spec step (step 6 / 7 / 13.1.1 of one algorithm),
+PR 0 (pure move, §1.1), then this PR: about 5 crates touched (`elidex-html-parser`, `elidex-html-parser-strict`,
+`elidex-script-session`, `elidex-js` tests, `elidex-ecs` for §4.4; `elidex-dom-api` doc only). **Not edge-dense**: one spec step (step 6 / 7 / 13.1.1 of one algorithm),
 a canonical algorithm exists, and the change removes a branch instead of adding one. It still goes through
 `/elidex-plan-review` because it changes a ratified surface (memory `feedback_plan-ratified-surface-is-a-design-change`).
+
+### §1.1 PR 0 — split `elidex-dom-api/src/element/tree.rs` (prereq, standalone, pure move)
+
+`crates/dom/elidex-dom-api/src/element/tree.rs` has 1076 lines and this PR edits its doc (§5.2), so CLAUDE.md's
+touch-time rule applies. Seam: `:560-1003` (the `innerHTML` section through `serialize_node`) versus the tree-mutation
+handlers (`:1-558`) and attribute-name validation (`:1004-1033`).
+
+- **Boundary**: move `SetInnerHtml`, `InsertAdjacentHtml`, `GetInnerHtml`, `RAW_TEXT_ELEMENTS`, `VOID_ELEMENTS`,
+  `SerializeOptions` and every `serialize_*` / `emit_*shadow_root*` / `shadow_root_should_emit` /
+  `serialization_children_root` / `is_safe_attr_name` item into a new sibling module
+  `crates/dom/elidex-dom-api/src/element/markup.rs` (NEW) (about 445 lines; `tree.rs` keeps about 630).
+- **Why the setters go with the getters, not with tree mutation**: the three handlers are the HTML §8.5 "DOM parsing
+  and serialization APIs" surface (innerHTML get/set §8.5.4, insertAdjacentHTML §8.5.6, getHTML §8.5.3). The setters
+  share no helper with `tree.rs`: they only record `Mutation::SetInnerHtml` / `Mutation::InsertAdjacentHtml` (the
+  parse runs in `elidex-script-session`'s `mutation/html_fragment.rs`, whose module doc names the same §8.5 family) and
+  do not call `resolve_adjacent_site` / `hierarchy_error`. Splitting by spec surface keeps "where is innerHTML?" one
+  answer; splitting serialization alone would leave the innerHTML getter and setter in different files.
+- **Mechanics**: `element/mod.rs` adds `mod markup;` and re-exports the moved items from it (the public paths through
+  `element::*` do not change); `tests_tree.rs:651` `super::tree::serialize_inner_html` becomes
+  `super::markup::serialize_inner_html` (NEW); `tree.rs`'s `//!` header already describes only tree mutation. No behaviour or
+  text change; review = move-only diff (`git diff --color-moved`).
+- PR 0 is needed only if Q1 chooses this plan (under §8 `tree.rs` is not touched).
 
 ## §2. Invariants
 
@@ -80,7 +105,7 @@ I1–I4 do not intersect beyond "I2 implies I1", so no pair matrix is needed.
 | WHATWG HTML §13.4 Parsing HTML fragments | root `html` element; stack starts as `[root]` | — | `EcsDom::begin_detached_fragment` (unchanged) | ✓ | no |
 | WHATWG DOM §4.9 Interface Element | attach a shadow root, steps 1–2 (valid shadow host name) | `html` not a valid shadow host name | §4.3 document case only (unchanged) | ✓ | no |
 | WHATWG HTML §8.5.2 HTML parsing and insertion methods | `setHTMLUnsafe` | Element / ShadowRoot | `crates/script/elidex-js/src/vm/host/dom_inner_html.rs:408`, `:463` (unchanged; tests only) | ✓ | yes |
-| WHATWG HTML §8.5.3 HTML serialization methods | `getHTML` round-trip claim | — | `crates/dom/elidex-dom-api/src/element/tree.rs:768-774` doc | ✓ | no |
+| WHATWG HTML §8.5.3 HTML serialization methods | `getHTML` round-trip claim | — | `crates/dom/elidex-dom-api/src/element/markup.rs` (NEW) (PR 0; today `tree.rs:768-774`) doc | ✓ | no |
 
 Numbers and titles: `webref heading html 13.2.6.4.4`; `webref coverage-map html 13.2.6.4.4 html 13.4 html 13.2.4.2 dom
 4.9 html 8.5.2`; `webref dfn html getHTML` → §8.5.3; `webref dfn html 'HTML fragment serialization algorithm'` → §13.3;
@@ -114,6 +139,23 @@ be encoded by a host-name list that may grow; the spec checks hostIsRoot before 
 `owner_doc = dom.owner_document(context)` stays: light top-level templates' content fragments are parentless and still
 need the context document (Codex PR380 R2). The comment (`lib.rs:152-159`) drops the DSD-on-context clause and keeps
 the light-node reason.
+
+### §4.4 `begin_detached_fragment` release-build defect (own commit)
+
+`crates/core/elidex-ecs/src/dom/tree/teardown.rs:296-299` appends the synthetic root inside
+`debug_assert!(self.append_child(document, root), …)`. `debug_assert!` does not evaluate its arguments when
+`debug_assertions` is off, so in release builds the root is never appended to the throwaway document (the function's
+own doc says a Document owns the root so foreign elements get a valid owner document). Fix: `let ok =
+self.append_child(document, root); debug_assert!(ok, …);`, the idiom used elsewhere (`convert.rs:76`). Sweep: every
+`debug_assert*!` in `crates/` whose argument calls a mutating method (`git grep -n -A2 "debug_assert" -- crates`,
+filtered for `append_child|insert_|remove_|attach_|set_*(|push(|despawn|destroy_`) — this is the only one; the other
+hits assert a bound `ok` or are read-only. No defer slot.
+
+Test: `begin_detached_fragment_root_is_child_of_document` (NEW, `elidex-ecs` dom tests) asserts
+`dom.get_parent(root) == Some(document)`. Its negative control is `cargo test --release -p elidex-ecs` on the unfixed
+code (red); the normal dev-profile test run cannot observe the defect, because there the append runs inside the
+assertion. CI runs the dev profile only, so in CI the test guards against a regression to a side effect inside an
+assertion only when someone runs it with `--release`; the fix stands on the language rule above, not on the test.
 
 ### §4.3 Document case (hostIsRoot outside fragments)
 
@@ -158,16 +200,17 @@ Unchanged, checked: strict `tests_fragment.rs:282`, `:449` and strict `tree_buil
 `convert.rs:46-58`, `:81-93`, `:103-104`; `lib.rs:143-159`; strict `shadow.rs:1-2`, `:83-112`, `:116`, `:143-165`;
 `tree_builder/mod.rs:99`, `:480-487`; `tree_builder/parse_state.rs:37`, `:273`, `:325`; `tests_fragment.rs:596-597`;
 `html_fragment.rs` test comments (:338, :393-397, :436, :510); `tests_inner_html_mixin.rs:644`, `:664-665`;
-`crates/dom/elidex-dom-api/src/element/tree.rs:768-774` (the "`setHTMLUnsafe(host.getHTML(opts))` round-trip" claim
+`crates/dom/elidex-dom-api/src/element/markup.rs` (NEW) (after PR 0; today `tree.rs:768-774`) (the "`setHTMLUnsafe(host.getHTML(opts))` round-trip" claim
 becomes false: the serialization round-trips when placed under a parent; the stale "§13.5" in this block becomes §13.3).
 Step citations for this algorithm are written by name (declarativeShadowHostElement, hostIsRoot, the "Keep" branch),
 not by number: the sanitizer steps renumbered them once already. Other stale `§4.4.6` / `§13.5` getHTML cites
-(`tree.rs:743`, `:758`, `:818`, `dom_inner_html.rs:2`, `:156`, `element_proto.rs:139`) belong to the existing
+(`tree.rs:743`, `:758`, `:818` → `markup.rs` after PR 0, `dom_inner_html.rs:2`, `:156`, `element_proto.rs:139`) belong to the existing
 HTML-renumber sweep and are not edited here.
 
 ## §6. Test and coverage plan
 
-`cargo test -p elidex-html-parser -p elidex-html-parser-strict -p elidex-script-session -p elidex-js --all-features`,
+`cargo test -p elidex-html-parser -p elidex-html-parser-strict -p elidex-script-session -p elidex-js -p elidex-ecs --all-features`
+(plus `cargo test --release -p elidex-ecs` once for §4.4's control),
 then `mise run ci`. Negative control: before the source change, the renamed parser tests fail (red), and after it they
 pass. Supported-surface coverage: the §5.1 unit/integration tests; no WPT subset is claimed.
 
@@ -177,9 +220,6 @@ pass. Supported-surface coverage: the §5.1 unit/integration tests; no WPT subse
   as a note, not a slot.
 - Tolerant "host = `RcDom` parent" versus the spec's "host = current node" (adoption agency / foster parenting can
   differ) is a property of the post-parse rebuild in general, not of this step; not addressed.
-- `crates/dom/elidex-dom-api/src/element/tree.rs` has 1076 lines. CLAUDE.md's touch-time rule applies to any touch,
-  including this doc-only edit: decide before implementation whether it has a real seam (if yes, a standalone prereq
-  split PR first; if no, record why). Open question Q2.
 
 ## §8. Alternative: keep DSD-on-context
 
@@ -190,7 +230,7 @@ backstop text rewritten as a recorded spec deviation with a re-check date.
 
 ## §9. Definition of done and slot closure
 
-- §4.1 / §4.2 landed; every §5.1 row has its new assertion; every §5.2 site rewritten.
+- PR 0 merged first; §4.4 as its own commit; §4.1 / §4.2 landed; every §5.1 row has its new assertion; every §5.2 site rewritten.
 - `git grep -n -E "DSD-on-context|attaches_to_context|fragment-context-declarative-shadow|strict-fragment-declarative-shadow-on-context" -- crates`
   returns nothing.
 - Ledger closure text: "~~`#11-strict-fragment-declarative-shadow-on-context`~~ ✅ CLOSED #NNN `<sha>` — fragment
@@ -203,8 +243,8 @@ backstop text rewritten as a recorded spec deviation with a re-check date.
 ## Open questions
 
 - **Q1 (user)**: reverse #337's DSD-on-context (this plan) or keep it (§8)?
-- **Q2 (driver)**: does `elidex-dom-api/src/element/tree.rs` (1076 lines) have a real seam for a prereq split?
-- Resolved while drafting: `EcsDom::begin_detached_fragment` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:286`)
-  creates the root as `html`, as §4.2's "not chosen" note assumes. Incidental, not in this PR's scope: the same function
-  appends the root inside `debug_assert!(self.append_child(document, root), …)` (`teardown.rs:296-299`), so in release
-  builds the root is never appended to the throwaway document. Reported to the driver for routing.
+- **Q2 (driver)**: if Q1 chooses §8, §4.4 still has to land; it then needs its own carrier (a standalone PR).
+- **Q3 (driver)**: should `clippy::debug_assert_with_mut_call` (NEW) (nursery) be enabled workspace-wide so §4.4's class is
+  caught by the compiler instead of a sweep? Not done here: it touches every crate's lint surface.
+- Resolved: Rev 1's Q2 (tree.rs seam → PR 0, §1.1). `EcsDom::begin_detached_fragment`
+  (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:286`) creates the root as `html`, as §4.2 assumes.
