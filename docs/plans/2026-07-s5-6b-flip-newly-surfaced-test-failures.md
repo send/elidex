@@ -36,7 +36,7 @@ The original analysis is retained for the record:
 `lifecycle_events_not_cancelable`, `load_event_fires`,
 `content::fragment_nav_tests::addressbar_cross_document_nav_fires_unload`.
 
-**Symptom**: panic `HostData accessed while unbound` (`host_data/mod.rs:1299`).
+**Symptom**: panic `HostData accessed while unbound` (the `is_bound` assert in `HostData::dom`, `vm/host_data/engine_feature/bind.rs`).
 
 **Root cause (backtrace-confirmed)**:
 `build_pipeline_interactive → run_scripts_and_finalize → dispatch_lifecycle_events →

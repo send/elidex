@@ -19,7 +19,7 @@ bracket model (§4.1) or the E4 strangler rule (§8) — it references them and 
 All cites grep-verified against worktree `s5-6b-flip` HEAD **`7dc865ac`** (2026-07-12). NOTE: the
 S5-6 flip memo's own B15 row cites (`event_loop.rs:276-277`, `vm_api.rs:422-450`) are **stale** —
 the branch has advanced through stages 2a–2f and those lines are now `event_loop.rs:324-325` and
-`vm_api.rs:472-495` (+ `host_data/mod.rs:1869`); §4 below carries the refreshed cites. Spec anchors
+`vm_api.rs:472-495` (+ `HostData::drain_realtime_for_unbind` (`vm/host_data/engine_feature/realtime.rs`)); §4 below carries the refreshed cites. Spec anchors
 webref-verified 2026-07-12 (`.claude/tools/webref`).
 
 ---
@@ -34,7 +34,7 @@ Each bracket's RAII `UnbindGuard` calls `unbind()` at bracket-end
 (`crates/script/elidex-js/src/engine.rs:357` `with_bound`; guard `:363-368`, `drop → self.0.unbind()`
 at `:366`). Today `Vm::unbind` (`crates/script/elidex-js/src/vm/vm_api.rs:454`) **force-closes every
 WebSocket/EventSource connection** (`:472-495`, driving `HostData::drain_realtime_for_unbind`
-`crates/script/elidex-js/src/vm/host_data/mod.rs:1869`) **and terminates every dedicated worker**
+(`crates/script/elidex-js/src/vm/host_data/engine_feature/realtime.rs`)) **and terminates every dedicated worker**
 (`:501` → `teardown_workers` `crates/script/elidex-js/src/vm/host/worker.rs:206`). Under the flip
 that is **destruction of live connections and workers on every turn** — a **loss-of-function**
 regression on a supported surface, strictly worse than the E2 identity delta (§4.1).
@@ -53,7 +53,7 @@ session resources** that outlive the turn. The clean model names two distinct op
   unloading), not a per-turn event.
 
 Realtime side-tables + the worker registry are **promoted into the unbind-survivor set** — the same
-class as `window_entity` (`host_data/mod.rs:132`, retained across unbind: `vm_api.rs:575`) and the
+class as `window_entity` (`HostData::window_entity` field, `vm/host_data/mod.rs`; retained across unbind: `vm_api.rs:575`) and the
 primary Node wrapper (`vm_api.rs:622-623` `wrapper_store.retain(kind == Node)`, invalidated-not-
 dropped via `bind_epoch`). Per-turn unbind leaves them intact; next turn's `tick_network` re-delivers
 against the **same** `conn_id`s / worker entities; the broker I/O thread (which outlives a bind cycle
@@ -88,7 +88,7 @@ intentionally **N/A** for this keystone (nothing to route to `elidex-dom-api` / 
 `elidex-css`).
 
 **Touch-time-split note (CLAUDE.md 1000-line debt).** Both touched files are >1000 LoC — `vm_api.rs`
-(≈1255) and `host_data/mod.rs` (≈1997). The discipline is *considered* and does **not fire**: this
+(≈1255) and `host_data/mod.rs` (≈1997) (split into `host_data/engine_feature/` since this PR; see slot `#11-host-data-full-decomposition`). The discipline is *considered* and does **not fire**: this
 touch is net-neutral — Part A is a **verbatim MOVE** of two blocks within `vm_api.rs` (no new
 algorithm), and Part B is **removal-of-clears** — so there is no substantive >50 LoC growth (the Axis-5
 review backstop trigger). The standing `host_data/mod.rs` decomposition debt is already tracked by the
@@ -140,7 +140,7 @@ plan-review can check them independently.
 **ECS-native side-store check (CLAUDE.md "Side-store→component 判定ルール").** Do the promoted
 side-tables belong on ECS components instead? No — they hit both documented exceptions:
 - `websocket_states` / `ws_conn_to_object` / `event_source_states` / `sse_conn_to_object` value/key on
-  **`ObjectId`** (`host_data/mod.rs:502,508,524,528`) — a **per-VM identity handle** (exception (a));
+  **`ObjectId`** (the `HostData` fields of those names, `vm/host_data/mod.rs`) — a **per-VM identity handle** (exception (a));
   and `WebSocketState` / `EventSourceState` carry the per-VM wrapper identity + broker routing, not a
   per-entity fact. `worker_entities: HashMap<WorkerId, Entity>` (`vm/mod.rs:2707`) is a routing index
   keyed by the broker-side `WorkerId`, and `worker_registry` (`vm/mod.rs:2697`) owns the
@@ -148,7 +148,7 @@ side-tables belong on ECS components instead? No — they hit both documented ex
   exception (b)), not a `Send+Sync` per-entity value.
 - The **unbind-survivor set** is the *correct* ECS-native mechanism here, and it already exists:
   `window_entity` + its `EventListeners` component survive (`vm_api.rs:216-227`), the primary Node
-  wrapper survives via `bind_epoch` invalidation (`host_data/mod.rs:153,1266`; retain at
+  wrapper survives via `bind_epoch` invalidation (`HostData::bind_epoch` field, `vm/host_data/mod.rs`, bumped by `HostData::unbind`, `vm/host_data/engine_feature/bind.rs`; retain at
   `vm_api.rs:622-623`). Promoting realtime+worker state is *joining an existing survivor category*,
   not inventing a new side-store — it is the ECS-native "this state's lifetime is the document, not
   the turn" statement.
@@ -160,8 +160,8 @@ side-tables belong on ECS components instead? No — they hit both documented ex
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | WHATWG HTML §10.2.4 "Processing model" — "terminate a worker" algorithm (#terminate-a-worker) | Run at document unload ("when a worker stops being actively needed"), NOT per event-loop turn | per-document `teardown_document` (NOT per-turn `unbind`) | `Vm::teardown_document` (NEW) / `teardown_workers` `worker.rs:206` (MOVED off `Vm::unbind` `vm_api.rs:501`) | ✓ (2 branches: still-needed worker → keep alive across turn; document unload → terminate) | no |
-| WHATWG WebSockets Standard §4 "Feedback from the protocol" (#eventdef-websocket-close) — closest normative anchor; connection-teardown-on-Document-destruction is not separately §-numbered, so cite the close-event anchor + note | Force-close on Document destruction / `.close()` / peer close — never on a turn boundary | per-document `teardown_document` force-close (per-turn `unbind` sends NO Close) | `drain_realtime_for_unbind` `host_data/mod.rs:1869` (MOVED off `Vm::unbind` `vm_api.rs:472-495`) | ✓ (2 branches: live conn → survive turn; document unload → `WebSocketClose`) | no |
-| WHATWG HTML §9.2.2 "The EventSource interface" (#eventsource) — closest verified anchor; the remote-event-task-source close-on-destroy is not separately §-numbered, so cite the interface anchor + note | Connection persists until `.close()` / GC / document unload — never on a turn boundary | per-document `teardown_document` force-close (same shape as WebSocket) | `drain_realtime_for_unbind` `host_data/mod.rs:1869` (SSE half, MOVED off `Vm::unbind` `vm_api.rs:472-495`) | ✓ (2 branches: live conn → survive turn; document unload → `EventSourceClose`) | no |
+| WHATWG WebSockets Standard §4 "Feedback from the protocol" (#eventdef-websocket-close) — closest normative anchor; connection-teardown-on-Document-destruction is not separately §-numbered, so cite the close-event anchor + note | Force-close on Document destruction / `.close()` / peer close — never on a turn boundary | per-document `teardown_document` force-close (per-turn `unbind` sends NO Close) | `drain_realtime_for_unbind` (`vm/host_data/engine_feature/realtime.rs`) (MOVED off `Vm::unbind` `vm_api.rs:472-495`) | ✓ (2 branches: live conn → survive turn; document unload → `WebSocketClose`) | no |
+| WHATWG HTML §9.2.2 "The EventSource interface" (#eventsource) — closest verified anchor; the remote-event-task-source close-on-destroy is not separately §-numbered, so cite the interface anchor + note | Connection persists until `.close()` / GC / document unload — never on a turn boundary | per-document `teardown_document` force-close (same shape as WebSocket) | `drain_realtime_for_unbind` (`vm/host_data/engine_feature/realtime.rs`) (SSE half, MOVED off `Vm::unbind` `vm_api.rs:472-495`) | ✓ (2 branches: live conn → survive turn; document unload → `EventSourceClose`) | no |
 | WHATWG HTML §8.1.4.4 "Calling scripts" — "clean up after running script" (#clean-up-after-running-script) | The bracket is a script-task checkpoint boundary, NOT a document boundary — resource teardown does not belong at bracket-end | per-turn `unbind` boundary (every `with_bound` bracket-end) | `with_bound` `engine.rs:357` (RAII `UnbindGuard::drop → unbind()` `:366`) | ✓ (per-turn boundary fires the checkpoint + pointer-unbind, never document teardown) | no |
 
 **Spec takeaway**: all three realtime/worker lifetimes are **document-scoped**; none is turn-scoped.
@@ -187,7 +187,7 @@ full body `vm_api.rs:454-708`:
 
 | Action | Site | Disposition | Why |
 |---|---|---|---|
-| Realtime close (WS/SSE `Close` sends + side-table clear + counter reset) | `:472-495` + `drain_realtime_for_unbind` `host_data/mod.rs:1869-1878` | **MOVE** → `teardown_document` | loss-of-function if per-turn; document-scoped lifetime |
+| Realtime close (WS/SSE `Close` sends + side-table clear + counter reset) | `:472-495` + `drain_realtime_for_unbind` (`vm/host_data/engine_feature/realtime.rs`) | **MOVE** → `teardown_document` | loss-of-function if per-turn; document-scoped lifetime |
 | `teardown_workers()` (terminate_all + wrapper uncache) | `:501` → `worker.rs:206-217` | **MOVE** → `teardown_document` | §10.2.4; document-scoped |
 | Dispatcher teardown (`clear_mutation_dispatcher`, transient-observer scrub, live-range/node-iterator/tree-walker/selection clears) | `:517-554` | **STAY** (per-turn) | paired with per-bracket `bind`'s dispatcher install (`vm_api.rs:314`); bind/unbind dispatcher install is a **strict per-bracket pair** — must fire every bracket or the next `bind`'s `debug_assert!(displaced.is_none())` (`vm_api.rs:315-319`) trips |
 | `entity_bits = 0` reset on globalThis HostObject | `:580-585` | **STAY** | post-unbind null-safety for `entity_from_this` consumers |
@@ -202,13 +202,13 @@ pairing) or cross-DOM-aliasing (same-DOM-safe-to-keep-clearing, but out of scope
 load-bearing claim plan-review must verify against the full body.
 
 > **Note — the `is_bound()` gate is not the fix.** The current `if hd.is_bound()` gate on the
-> realtime drain (`vm_api.rs:475`, `is_bound` at `host_data/mod.rs:1287`) only skips a **never-bound**
+> realtime drain (`vm_api.rs:475`, `HostData::is_bound` in `vm/host_data/engine_feature/bind.rs`) only skips a **never-bound**
 > VM (pure-test path). On any real bracket `is_bound()` is true (pointer-based), so teardown runs. The
 > gate cannot distinguish per-turn from per-document — only the method split can.
 
 ### Part B — promote realtime + worker state into the survivor set (B15/B14)
 
-**Ruling.** After Part A, the six realtime fields (`host_data/mod.rs:502,508,516,524,528,531`) and the
+**Ruling.** After Part A, the six realtime fields (`websocket_states` / `ws_conn_to_object` / `ws_next_conn_id` / `event_source_states` / `sse_conn_to_object` / `sse_next_conn_id` in the `HostData` field block, `vm/host_data/mod.rs`) and the
 two worker fields (`vm/mod.rs:2697,2707`) are **no longer cleared by per-turn `unbind`** — they simply
 persist (nothing clears them). No new field or counter is introduced: promotion = *removal of the
 clear*, plus a regression test pinning survival (§7). The conn-id counters (`ws_next_conn_id` /
@@ -220,7 +220,7 @@ recycled id — the same failure class the `bind_epoch` `next_id` comment guards
 **`VmInner`** — different structs, same survivor principle. The `HostData` realtime fields survive
 because `Vm::unbind` (`vm_api.rs:476`, inside the `#[cfg(feature = "engine")]` block) will no longer
 call `HostData::drain_realtime_for_unbind` — the drain is a `Vm::unbind` action, NOT a
-`HostData::unbind` action (`HostData::unbind` `host_data/mod.rs:1258-1267` only nulls the
+`HostData::unbind` action (`HostData::unbind` in `vm/host_data/engine_feature/bind.rs` only nulls the
 session/dom/document pointers + bumps `bind_epoch`). The `VmInner` worker fields survive because
 `Vm::unbind` will no longer call `teardown_workers` (`vm_api.rs:501`). Two edits, one concept.
 
@@ -231,8 +231,8 @@ source.** Worker message delivery resolves the worker `Entity → Worker` wrappe
 load-bearing for *delivery*, not only identity. **Crucially, that wrapper is cached under
 `WrapperKind::Node`**: `cache_wrapper(entity, obj)` (worker construction site `worker.rs:398`) and
 `get_cached_wrapper(entity)` both key on `WrapperKey::entity(entity, WrapperKind::Node)`
-(`host_data/mod.rs:1717-1734`), and `teardown_workers` removes it via the same Node key
-(`remove_wrapper` `worker.rs:210-213` → `host_data/mod.rs:1752-1755`). Therefore the general per-turn
+(`HostData::cache_wrapper` / `HostData::get_cached_wrapper`, `vm/host_data/engine_feature/object_roots.rs`), and `teardown_workers` removes it via the same Node key
+(`remove_wrapper` `worker.rs:210-213` → `HostData::remove_wrapper`, `vm/host_data/engine_feature/object_roots.rs`). Therefore the general per-turn
 retain `wrapper_store.retain(|k, _| k.kind == WrapperKind::Node)` (`vm_api.rs:622-623`) **RETAINS the
 Worker wrapper** — it does NOT evict it (the review's F1 premise that `:622` "evicts the non-Node
 `Worker` wrapper" is factually incorrect: the Worker wrapper *is* Node-kind). So once Part A moves
@@ -325,9 +325,9 @@ flip-memo E2 `:461-465`).** Evidence:
    clearing.
 
 2. **Connection STATE is keyed by that same `ObjectId`.** `websocket_states: HashMap<ObjectId,
-   WebSocketState>` (`host_data/mod.rs:502`), `event_source_states: HashMap<ObjectId,
-   EventSourceState>` (`:524`); the reverse routing map `ws_conn_to_object: HashMap<u64, ObjectId>`
-   (`:508`) / `sse_conn_to_object` (`:528`) maps broker `conn_id → ObjectId`. Because the `ObjectId`
+   WebSocketState>`, `event_source_states: HashMap<ObjectId,
+   EventSourceState>` (both `HostData` fields, `vm/host_data/mod.rs`); the reverse routing map `ws_conn_to_object: HashMap<u64, ObjectId>`
+   / `sse_conn_to_object` (same field block) maps broker `conn_id → ObjectId`. Because the `ObjectId`
    remains valid on the heap across unbind (GC-kept while the connection is live — the S5-3 keepalive
    root), simply **not clearing** these tables keeps state reachable and correctly keyed. Delivery
    (`tick_network`) resolves target via `ws_conn_to_object[conn_id] → ObjectId` **directly** — no
@@ -343,7 +343,7 @@ flip-memo E2 `:461-465`).** Evidence:
 **Worker `event.target` identity — resolved by source, no wrinkle (see §4 Part B for the full
 derivation):** worker message delivery resolves the worker `Entity → Worker` wrapper via
 `get_cached_wrapper(entity)` to seed `event.target` (`worker.rs:133-147`). That wrapper is cached
-under `WrapperKind::Node` (`host_data/mod.rs:1717-1734`), so the per-turn retain
+under `WrapperKind::Node` (`HostData::cache_wrapper` / `HostData::get_cached_wrapper`, `vm/host_data/engine_feature/object_roots.rs`), so the per-turn retain
 `wrapper_store.retain(kind == Node)` (`vm_api.rs:622-623`) **retains** it. Once Part A moves
 `teardown_workers` off per-turn `unbind`, nothing per-turn removes it and `event.target === myWorker`
 holds by construction (same-DOM-stable under 1-Vm-per-World; the Worker HostObject does not snapshot
