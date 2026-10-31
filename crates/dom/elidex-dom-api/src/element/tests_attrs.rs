@@ -1,18 +1,9 @@
 use super::*;
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
-use elidex_script_session::{ComponentKind, DomApiErrorKind, DomApiHandler, SessionCore};
+use elidex_script_session::{DomApiErrorKind, DomApiHandler, SessionCore};
 
-fn setup() -> (EcsDom, Entity, Entity, SessionCore) {
-    let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
-    let mut session = SessionCore::new();
-    // Pre-register entities so we can pass ObjectRef args.
-    session.get_or_create_wrapper(parent, ComponentKind::Element);
-    session.get_or_create_wrapper(child, ComponentKind::Element);
-    (dom, parent, child, session)
-}
+use crate::test_util::setup;
 
 // -----------------------------------------------------------------------
 // hasAttribute tests
