@@ -199,11 +199,10 @@ impl EcsDom {
         self.dispatch_depth = self.dispatch_depth.saturating_add(1);
         let pending = self.dispatcher.take();
         let mut guard = RestoreDispatcher { dom: self, pending };
-        // Disjoint field borrows of the guard: the callback gets the dom,
-        // the guard keeps ownership of the restore state.
-        let RestoreDispatcher { dom, pending } = &mut guard;
-        if let Some(d) = pending.as_mut() {
-            d.dispatch(event, dom);
+        // Disjoint field borrows: the callback gets the dom, the guard keeps
+        // the restore state.
+        if let Some(d) = guard.pending.as_mut() {
+            d.dispatch(event, guard.dom);
         }
     }
 

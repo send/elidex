@@ -1142,32 +1142,28 @@ fn remove_absent_attribute_fires_no_mutation_record() {
     );
 }
 
-/// Counts every dispatch; optionally panics after counting.
-struct CountingHook {
-    count: Arc<Mutex<usize>>,
-    panic_on_dispatch: bool,
-}
+/// Panics on every dispatch.
+struct PanicHook;
 
-impl MutationDispatcher for CountingHook {
+impl MutationDispatcher for PanicHook {
     fn dispatch(&mut self, _event: &MutationEvent<'_>, _dom: &mut crate::EcsDom) {
-        *self.count.lock().unwrap() += 1;
-        assert!(!self.panic_on_dispatch, "intentional dispatcher panic");
+        panic!("intentional dispatcher panic");
     }
 }
 
 /// `EcsDom::dispatch_event` takes the dispatcher out of its slot for the
 /// duration of the callback and restores it (plus the re-entry depth
-/// counter) via the `RestoreDispatcher` guard.  Miri reproducer: the guard
-/// must restore through valid (non-invalidated) borrows.
+/// counter) via the `RestoreDispatcher` guard.  The borrow-validity half of
+/// this (the old raw-pointer guard was undefined behaviour under Stacked
+/// Borrows) is only checked by running these two tests under
+/// `cargo +nightly miri test`, by hand; CI does not run miri.
 #[test]
 fn dispatch_event_restores_dispatcher_and_depth() {
     let mut dom = EcsDom::new();
     let el = dom.create_element("div", crate::Attributes::default());
-    let count = Arc::new(Mutex::new(0));
-    dom.set_mutation_dispatcher(Box::new(CountingHook {
-        count: count.clone(),
-        panic_on_dispatch: false,
-    }));
+    let hook = AttrChangeCountHook::default();
+    let count = hook.count.clone();
+    dom.set_mutation_dispatcher(Box::new(hook));
 
     assert!(dom.set_attribute(el, "id", "a").did_set);
     assert_eq!(*count.lock().unwrap(), 1);
@@ -1186,17 +1182,12 @@ fn dispatch_event_restores_dispatcher_and_depth() {
 fn dispatch_event_restores_dispatcher_and_depth_after_panic() {
     let mut dom = EcsDom::new();
     let el = dom.create_element("div", crate::Attributes::default());
-    let count = Arc::new(Mutex::new(0));
-    dom.set_mutation_dispatcher(Box::new(CountingHook {
-        count: count.clone(),
-        panic_on_dispatch: true,
-    }));
+    dom.set_mutation_dispatcher(Box::new(PanicHook));
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         dom.set_attribute(el, "id", "a");
     }));
     assert!(result.is_err(), "dispatcher panic should propagate");
-    assert_eq!(*count.lock().unwrap(), 1);
     assert_eq!(dom.dispatch_depth, 0, "depth not restored after unwind");
     assert!(
         dom.dispatcher.is_some(),
