@@ -6,6 +6,10 @@ Loaded by `~/.claude/skills/external-review/SKILL.md` (single-pass triage) when 
 
 `send/elidex`
 
+## pre-push gate
+
+SKILL.md "Why single-pass" names the repo's local Claude pre-push gate generically; in elidex it is the `/pre-push` skill (its stage list is the SSoT — don't restate it).
+
 ## build_verify
 
 `cargo fmt --all && mise run ci`
@@ -38,11 +42,13 @@ Acceptable marshalling use: prototype install / brand check / `JsValue` ↔ `Ent
 
 Applied at SKILL.md Step 5.1 (fix planning) — per-fix lens. SSoT: `<repo>/.claude/skills/elidex-review/workflow.md` (Step 3.5 + Step 4.5).
 
+**Disposition SSoT (SKILL.md Step 5.1 "Disposition discipline")**: `<repo>/.claude/skills/elidex-review/workflow.md` Step 3.5 owns the rules and the canonical smell-word trigger-list.
+
 **Step 5.1 (per-fix)**: apply Step 3.5 "Philosophy alignment" — symptom vs root through CLAUDE.md "ideal over pragmatic" + "設計優先" + "ECS-native first". The reviewer's obvious patch is usually the smallest symptom-fix (sort / guard / cast); prefer a structural fix where the invariant holds by construction. Polish-domination smell → re-derive.
 
 Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; reactive patch was per-site `sort_by_key`. Philosophy-ideal was `BTreeMap` keyed by monotonic observer id — registration-order delivery as a *structural* invariant.
 
-**Step 5.5 fix-delta re-verify**: external-review findings are frequently *symptom-shaped* ("add a guard", "handle this case"), and the fix delta never re-enters the pre-push `/elidex-review` philosophy gate. So when any fix this pass is symptom-shaped OR touches `layering.paths`, run one `/elidex-review` over the fix delta before the merge proposal — **Trigger B is the acute external-review-specific risk** (see workflow.md Step 4.5). New findings → resolve before merge.
+**Step 5.5 fix-delta re-verify — the gate is `/elidex-review`**: external-review findings are frequently *symptom-shaped* ("add a guard", "handle this case"), and the fix delta never re-enters the pre-push `/elidex-review` philosophy gate. So when any fix this pass is symptom-shaped OR touches `layering.paths`, run one `/elidex-review` over the fix delta before the merge proposal — **Trigger B is the acute external-review-specific risk** (see workflow.md Step 4.5). New findings → resolve before merge.
 
 ## classification_calibration
 
@@ -50,15 +56,19 @@ Past elidex incidents that calibrate Step 2 severity (these survive single-pass;
 
 - PR #154 (2026-05-05) — ~50% of IMP were miscalibrated polish → apply the one-sentence "what concretely breaks?" test strictly; doc imprecision that doesn't misdirect is MINOR.
 - Layer-confusion FPs (broker-register-ack, lessons #135-141; PR #151, lesson #145) → Step 4 upward/downward drift screen, both directions.
+- Codex badges: **P1 ≈ CRITICAL/IMPORTANT, P2 ≈ IMPORTANT/MINOR** — re-derive via the breaks-test anyway; don't trust the badge. A finding-free Codex formal-review body is ≈621 chars of boilerplate.
+- elidex-flavoured IMPORTANT example beyond the generic list: **side-store/unbind panic** (alongside GC-rooting / use-after-free).
+- Step 1 fetch incidents (`#316`/`#337`, `#322`/`#337`, `#339`, `#492` R1, `#494` R2, `#506` R88/R91, `#510` R12/R31) are recorded once, in `external-converge/project.md` § failure_modes — the same Step 1 block runs in both skills.
 
 ## reviewer
 
-elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / re-trigger):
+elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / re-trigger): **OpenAI Codex**. It posts a "💡 Codex Review" summary review + inline comments with **P1 / P2** severity badges, and reacts 👍 when it finds nothing — a 👍 is not a verdict (see `non_verdict_signals`).
 
 - `bot_login`: `chatgpt-codex-connector[bot]` (REST form). **GraphQL `reviewThreads` author.login is the BARE `chatgpt-codex-connector`** (no `[bot]`) — Step 1 must normalize (strip `[bot]`) for GraphQL or it false-negatives every inline finding (`#316`/`#337`).
 - `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Pro** — loop-affordable, no per-credit cost; *not* GitHub Copilot credits)
 - `trigger`: `@codex review`, posted as a PR comment. **Never wait on Codex's auto-review.** The trigger condition, the clock origin and the rationale live in ONE place — `external-converge/project.md` § "Never wait on auto-review" (the canonical site) — and apply here unchanged. Do not restate them here: an independently-worded copy is what let this file drift into an *unconditional* trigger while the canonical rule was per-head, so a single-pass re-run on an already-triggered head requested a redundant review. Single-pass differs in exactly one respect: it fires the trigger and **stops** — no window loop, no self-scheduling; the caller re-runs the skill once the review lands.
 - `assessed_commit_marker`: `Reviewed commit:` — in BOTH formal-review bodies AND the dry-verdict issue-comment, followed by `` `<sha>` ``; Step 1 reads the latest assessed commit from this marker across reviews + issue-comments.
 - `dry_verdict_match`: `Didn't find any major issues` — Codex's no-findings verdict, posted as a **plain PR issue-comment**, not a formal review. Keying the head check on `pulls/{n}/reviews` alone false-reports "stale review" (`#322`/`#337`). **How to read the verdict is defined once**, in `external-converge/project.md` § `dry_verdict_match` (canonical site) — it is never decisive alone, it must be scoped to the review invocation rather than the commit, and it covers only two of the three channels. Do not restate those rules here: this file already defers to that overlay for `trigger`, and a second authoritative copy is precisely the drift the SSoT discipline exists to prevent.
+- `error_verdict_match`, `status_comment_match`, `body_finding_match`, `non_verdict_signals`, `auto_review_trusted`: **same values as `external-converge/project.md` § reviewer** (the canonical site — not restated here, for the reason given under `trigger` above). Read them from there when substituting the Step 1 placeholders.
 
 **Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Pro Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.
