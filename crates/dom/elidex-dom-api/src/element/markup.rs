@@ -61,9 +61,10 @@ impl DomApiHandler for SetInnerHtml {
 /// `element.insertAdjacentHTML(position, text)` — parses HTML and inserts at position.
 ///
 /// Position values: "beforebegin", "afterbegin", "beforeend", "afterend".
-/// Uses the same fragment parser as innerHTML setter. Parsed nodes are inserted
-/// directly via DOM operations (not via mutation recording, since the parser
-/// needs mutable DOM access).
+/// Uses the same fragment parser as innerHTML setter. `invoke` validates the
+/// position and records a [`Mutation::InsertAdjacentHtml`]; the fragment parse
+/// and the insertion happen when the session flushes (`session.flush()`), which
+/// generates the `MutationRecord` for `MutationObserver`.
 pub struct InsertAdjacentHtml;
 
 impl DomApiHandler for InsertAdjacentHtml {
@@ -205,7 +206,7 @@ pub fn serialize_node_to_string(entity: Entity, dom: &EcsDom) -> String {
 pub struct SerializeOptions {
     /// When true, serialize each visited shadow root whose `serializable`
     /// flag is set as a declarative `<template shadowrootmode>` child of
-    /// its host (HTML §13.5 fragment-serialization with shadow roots).
+    /// its host (HTML §13.3 Serializing HTML fragments, with shadow roots).
     pub serializable_shadow_roots: bool,
     /// Force-emit declarative templates for these shadow root entities
     /// regardless of their `serializable` flag. (HTML §4.4.6 places no
@@ -218,13 +219,16 @@ pub struct SerializeOptions {
 /// root visibility. Equivalent to [`serialize_inner_html`] when `opts`
 /// is the default.
 ///
-/// Per HTML §13.5 fragment serialization with shadow roots, when
+/// Per HTML §13.3 Serializing HTML fragments, with shadow roots, when
 /// `entity` is itself a shadow host whose shadow root should be
 /// emitted (see [`SerializeOptions`]), the declarative
 /// `<template shadowrootmode>` is written *first*, ahead of the
 /// light-tree children. This ordering matches the spec's "shadow
 /// roots are serialized as the first child of their host" rule and
-/// makes `setHTMLUnsafe(host.getHTML(opts))` round-trip correctly.
+/// makes `setHTMLUnsafe(host.getHTML(opts))` round-trip correctly when the
+/// output is placed under a parent: a top-level `<template shadowrootmode>`
+/// parses as a plain template (hostIsRoot), so the declarative template
+/// re-attaches only where it has a host element above it.
 pub fn serialize_inner_html_with_options(
     entity: Entity,
     dom: &EcsDom,

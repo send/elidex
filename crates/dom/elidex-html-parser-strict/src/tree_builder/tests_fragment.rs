@@ -1,9 +1,11 @@
 //! WHATWG HTML §13.4 strict fragment-parsing tests.
 //!
 //! These pin the fragment-specific invariants the corpus harness cannot
-//! express directly: the detached-return contract (step 20), parse-error
-//! rollback isolation, coalescing isolation, the context-driven insertion
-//! mode (step 16) / tokenizer state (step 10) / form pointer (step 17), and
+//! express directly: the detached-return contract (§13.4: return fragment),
+//! parse-error rollback isolation, coalescing isolation, the context-driven
+//! insertion mode (§13.4: reset the insertion mode appropriately) / tokenizer
+//! state (§13.4: the tokenization stage state) / form pointer (§13.4: the
+//! form element pointer), and
 //! the non-element-context guard. Conformant tree shapes are also
 //! cross-checked against the html5lib `#document` serialization (the
 //! corpus-driven cases live in `tests_html5lib_tree`).
@@ -28,7 +30,7 @@ fn frag(context_tag: &str, html: &str) -> (EcsDom, Vec<Entity>) {
     (dom, roots)
 }
 
-// ----- context-driven insertion mode (§13.4 step 16) -----
+// ----- context-driven insertion mode (§13.4: reset the insertion mode appropriately) -----
 
 #[test]
 fn div_context_parses_in_body() {
@@ -46,8 +48,8 @@ fn div_context_parses_in_body() {
 
 #[test]
 fn table_context_implies_tbody() {
-    // §13.4 step 16: a `table` context resets to "in table", so `<tr>` implies
-    // a `<tbody>` exactly as in a real table.
+    // §13.4: reset the insertion mode appropriately: a `table` context resets to
+    // "in table", so `<tr>` implies a `<tbody>` exactly as in a real table.
     let (dom, roots) = frag("table", "<tr><td>x</td></tr>");
     assert_eq!(
         serialize_roots(&dom, &roots),
@@ -111,7 +113,7 @@ fn select_context_rejects_input() {
     );
 }
 
-// ----- tokenizer initial state from context (§13.4 step 10) -----
+// ----- tokenizer initial state from context (§13.4: tokenization stage state) -----
 
 #[test]
 fn title_context_is_rcdata() {
@@ -142,7 +144,7 @@ fn style_context_is_rawtext() {
     assert_eq!(serialize_roots(&dom, &roots), "| \"a<b>c\"\n");
 }
 
-// ----- detached-return contract (§13.4 step 20) -----
+// ----- detached-return contract (§13.4: return fragment) -----
 
 #[test]
 fn fragment_roots_are_detached() {
@@ -152,7 +154,7 @@ fn fragment_roots_are_detached() {
         assert_eq!(
             dom.get_parent(root),
             None,
-            "step 20 returns root's children detached; the caller places them"
+            "the fragment's children are returned detached; the caller places them"
         );
     }
     // No synthetic `<html>` root survives in the dom.
@@ -214,11 +216,11 @@ fn parse_error_rolls_back_with_no_leak_and_pristine_context() {
     );
 }
 
-// ----- form element pointer from context ancestors (§13.4 step 17) -----
+// ----- form element pointer from context ancestors (§13.4: the form element pointer) -----
 
 #[test]
 fn form_pointer_from_ancestor_rejects_nested_form() {
-    // A `<div>` context nested inside a `<form>`: step 17 sets the form
+    // A `<div>` context nested inside a `<form>`: §13.4 sets the form
     // element pointer to the ancestor form, so a `<form>` start tag in the
     // fragment is the "misnested-form" parse error.
     let mut dom = EcsDom::new();
@@ -261,19 +263,27 @@ fn non_element_context_falls_back_to_in_body() {
     assert!(dom.has_tag(roots[0], "p"));
 }
 
-// ----- declarative shadow opt threading (§13.4 step 6) -----
+// ----- declarative shadow opt threading (§13.4: allowDeclarativeShadowRoots) -----
 
 #[test]
 fn declarative_shadow_opt_off_keeps_template_element() {
     // With the flag off, a `<template shadowrootmode>` stays an ordinary
     // template element in the light tree (no shadow attach).
+    // Wrapped in `<section>` so the template is nested (hostIsRoot is false):
+    // the flag is what is under test, not the top-level rule.
     let (dom, roots) = frag(
         "div",
-        "<template shadowrootmode=\"open\"><p>s</p></template>",
+        "<section><template shadowrootmode=\"open\"><p>s</p></template></section>",
     );
     assert_eq!(roots.len(), 1);
     assert!(
-        dom.has_tag(roots[0], "template"),
+        dom.get_shadow_root(roots[0]).is_none(),
+        "flag off ⇒ the host gets no shadow root"
+    );
+    let kids = dom.children(roots[0]);
+    assert_eq!(kids.len(), 1);
+    assert!(
+        dom.has_tag(kids[0], "template"),
         "flag off ⇒ template is a plain element"
     );
 }
@@ -390,7 +400,7 @@ fn all_fragment_node_types_adopt_the_context_document() {
 
 #[test]
 fn form_pointer_walk_stops_at_shadow_boundary() {
-    // §13.4 step 17's form-pointer walk is tree-scoped: when the context is
+    // §13.4's form-pointer walk is tree-scoped: when the context is
     // inside a shadow tree, an outer light-DOM `<form>` must not seed the
     // pointer. `EcsDom::get_parent` is shadow-inclusive (`ShadowRoot → host`),
     // so the walk stops at the shadow root — otherwise the outer form would
@@ -527,7 +537,7 @@ fn mathml_context_parses_children_as_mathml() {
 
 #[test]
 fn foreign_context_with_raw_text_local_name_does_not_switch_to_raw_text() {
-    // §13.4 step 10's raw-text element-name cases (title / style / script / …)
+    // §13.4's tokenization-stage raw-text element-name cases (title / style / script / …)
     // are HTML-namespace only. An SVG `<style>` context (local name "style",
     // and NOT an HTML integration point) must NOT switch the tokenizer to
     // RAWTEXT — its child parses as SVG foreign content, not a single text
@@ -552,7 +562,7 @@ fn foreign_context_with_raw_text_local_name_does_not_switch_to_raw_text() {
 
 #[test]
 fn foreign_template_context_does_not_seed_template_mode() {
-    // §13.4 step 14's `template` is HTML-namespace; an SVG element named
+    // §13.4's "context is a template element" is HTML-namespace; an SVG element named
     // `template` is a foreign context, so its child parses as SVG foreign
     // content rather than seeding the in-template insertion mode.
     let mut dom = EcsDom::new();
@@ -572,7 +582,7 @@ fn foreign_template_context_does_not_seed_template_mode() {
 
 #[test]
 fn foreign_form_ancestor_does_not_seed_form_pointer() {
-    // §13.4 step 17's `form` is HTML-namespace; a foreign element named `form`
+    // §13.4's form-pointer `form` is HTML-namespace; a foreign element named `form`
     // in the context's ancestry must not seed the form pointer, so a valid
     // `<form>` in the fragment is accepted (contrast
     // `form_pointer_from_ancestor_rejects_nested_form`, where an *HTML* form
@@ -593,43 +603,43 @@ fn foreign_form_ancestor_does_not_seed_form_pointer() {
     );
 }
 
-// ----- a top-level declarative-shadow template (host = external context) is
-// declined; a nested one (host = in-fragment element) still attaches -----
+// ----- a top-level declarative-shadow template (current node = root, so
+// hostIsRoot) is a plain template; a nested one still attaches -----
 
 #[test]
-fn top_level_declarative_shadow_on_context_is_rejected() {
-    // §13.2.4.2: with only the synthetic root on the stack the adjusted
-    // current node is the *external* context. Step 10.1 would attach a shadow
-    // root to it, mutating the caller's context — forbidden by 2a's
-    // read-only-context isolation (rollback could not undo it). Strict aborts
-    // so the caller falls back; faithful DSD-on-context is
-    // `#11-strict-fragment-declarative-shadow-on-context` (slice 2b
-    // `setHTMLUnsafe`, which owns context mutation).
+fn top_level_declarative_shadow_is_plain_template() {
+    // The template start tag: declarativeShadowHostElement is the *current
+    // node* (not the adjusted current node), and hostIsRoot (the fragment
+    // root also has a redirection-map entry) makes the template a regular
+    // element in the "Keep" branch. So a top-level template never touches the
+    // external context and strict parses it natively (no decline/fallback).
     let mut dom = EcsDom::new();
     let ctx = dom.create_element("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
         scripting_disabled: false,
     };
-    let live_before = dom.world().len();
 
-    let result = parse_fragment_strict(
+    let roots = parse_fragment_strict(
         "<template shadowrootmode=\"open\"><p>s</p></template>",
         ctx,
         &mut dom,
         opts,
-    );
+    )
+    .expect("a top-level declarative template is handled natively");
 
-    assert!(result.is_err(), "a context-hosted DSD template is declined");
     assert!(
         dom.get_shadow_root(ctx).is_none(),
         "the context element is never given a shadow root"
     );
-    assert_eq!(
-        dom.world().len(),
-        live_before,
-        "decline rolls the synthetic subtree back — dom is pristine for fallback"
-    );
+    assert_eq!(roots.len(), 1);
+    assert!(dom.has_tag(roots[0], "template"), "plain template element");
+    let content = dom
+        .template_contents_fragment(roots[0])
+        .expect("a plain template carries a content fragment");
+    let inner = dom.children(content);
+    assert_eq!(inner.len(), 1);
+    assert!(dom.has_tag(inner[0], "p"), "content holds the <p>");
 }
 
 // ----- the synthetic build fires no mutation events (isolation) -----

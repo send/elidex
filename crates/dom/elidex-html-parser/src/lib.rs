@@ -73,8 +73,9 @@ pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
 /// (§11.3 Tier-2) backend for the WHATWG HTML §13.4 fragment-parsing algorithm.
 ///
 /// `context` is the fragment-context element; its tag and namespace select
-/// html5ever's parsing rules (§13.4 step 10/15). Returns the fragment's
-/// top-level nodes **detached** (parentless) in tree order (§13.4 step 20),
+/// html5ever's parsing rules (§13.4: the new HTML parser's fragment context
+/// element, and the tokenization stage state switched on it). Returns the fragment's
+/// top-level nodes **detached** (parentless) in tree order (§13.4: return fragment),
 /// with their node document set to `context`'s owner document. `context` is
 /// **not** mutated; the caller places the returned nodes.
 ///
@@ -92,7 +93,7 @@ pub fn parse_html_fragment(
 ) -> Vec<elidex_ecs::Entity> {
     use html5ever::{ns, LocalName, QualName};
 
-    // §13.4 step 10/15: derive the context QualName (local name + namespace)
+    // §13.4 (fragment context element): derive the context QualName (local name + namespace)
     // from the context entity. The unified detached-return signature carries
     // the entity, so the namespace is *derived*, not hardcoded to HTML — this
     // eliminates the old HTML-ns fork (One-issue-one-way). A context with no
@@ -140,26 +141,20 @@ pub fn parse_html_fragment(
     // suppressed for the throwaway build, restored after teardown), then return
     // root's children detached via the shared teardown.
     let (document, root, saved) = dom.begin_detached_fragment();
-    // §13.4 fragment case (adjusted current node): while the stack holds only
-    // the synthetic root — true for every *top-level* node — the adjusted
-    // current node is the CONTEXT element, so a top-level
-    // `<template shadowrootmode>` attaches its declarative shadow to `context`
-    // (DSD-on-context, §13.2.6.4.4 step 9–10), mutating it as a side effect.
-    // `convert_fragment_top_level` routes that host correctly; nested templates
-    // attach to their real parent. (Strict rejects DSD-on-context and falls
-    // back here — the slot `#11-strict-fragment-declarative-shadow-on-context`
-    // is the strict-native handling, deferred; correctness is via this path.)
-    // Stamp parsed `<template>` content fragments (light top-level + any
-    // DSD-on-context shadow content) with the **context's** node document, not
-    // the throwaway fragment `document`: the light nodes are adopted into the
-    // context document by `finish_detached_fragment`, and the DSD-on-context
-    // content is attached to `context`'s shadow tree (never under `root`, so it
-    // is NOT adopted) — stamping the throwaway doc would leave that content's
-    // owner dangling once the throwaway document is destroyed (Codex PR380 R2).
-    // `None` (documentless context) leaves the fragments owner-less, matching
-    // the orphan-detached light nodes `finish_detached_fragment` returns then.
+    // The template start tag (§13.2.6.4.4) takes declarativeShadowHostElement to
+    // be the current node, not the adjusted current node, and hostIsRoot (the
+    // fragment root also has a redirection-map entry) makes a top-level
+    // `<template shadowrootmode>` a regular template: `context` is never mutated.
+    // `convert_fragment_top_level` therefore never attaches; nested templates
+    // attach to their real parent. Stamp every parsed `<template>` content
+    // fragment with the **context's** node document, not the throwaway
+    // fragment `document`: a content fragment is parentless, so
+    // `finish_detached_fragment` does not adopt it — stamping the throwaway doc would leave that content's owner dangling once
+    // the throwaway document is destroyed (Codex PR380 R2). `None` (documentless
+    // context) leaves the fragments owner-less, matching the orphan-detached
+    // light nodes `finish_detached_fragment` returns then.
     let owner_doc = dom.owner_document(context);
-    convert::convert_fragment_top_level(&children_owner, root, context, dom, owner_doc, opts);
+    convert::convert_fragment_top_level(&children_owner, root, dom, owner_doc, opts);
     let detached = dom.finish_detached_fragment(root, document, context);
     if let Some(dispatcher) = saved {
         dom.set_mutation_dispatcher(dispatcher);

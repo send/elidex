@@ -1,5 +1,5 @@
-//! `<template>` handling, including the WHATWG HTML §13.2.6.4.4 step 10
-//! declarative shadow root branch (HTML §4.12.3 `shadowrootmode` + DOM §4.9
+//! `<template>` handling, including the WHATWG HTML §13.2.6.4.4 template start
+//! tag's declarative shadow root branch (HTML §4.12.3 `shadowrootmode` + DOM §4.9
 //! "attach a shadow root").
 //!
 //! Strict mode builds the tree in a single pass straight into `EcsDom`, so the
@@ -17,7 +17,7 @@
 use elidex_ecs::{Attributes, Entity, ShadowInit, ShadowRootMode, SlotAssignmentMode};
 
 use super::parse_state::{ContentTarget, InsertionMode};
-use super::{parse_error, unsupported_fragment_construct, TreeBuilder};
+use super::{parse_error, TreeBuilder};
 use crate::tokenizer::token::TagToken;
 use crate::StrictParseError;
 
@@ -40,7 +40,7 @@ fn shadow_init_from_attrs(attrs: &[(String, String)]) -> Option<ShadowInit> {
         return None;
     };
     let has = |name: &str| attrs.iter().any(|(n, _)| n == name);
-    // §4.12.3 / step 4-5: slot assignment defaults to "named", "manual" only
+    // §4.12.3 / the template start tag: slot assignment defaults to "named", "manual" only
     // when the enumerated attribute is in the Manual state.
     let slot_assignment = attrs
         .iter()
@@ -66,9 +66,9 @@ fn shadow_init_from_attrs(attrs: &[(String, String)]) -> Option<ShadowInit> {
 }
 
 impl TreeBuilder {
-    /// WHATWG HTML §13.2.6.4.4 — the `<template>` start tag algorithm (steps
-    /// 1-10), shared by every mode that processes `<template>` "using the
-    /// rules for the in head insertion mode".
+    /// WHATWG HTML §13.2.6.4.4 — the `<template>` start tag algorithm, shared by
+    /// every mode that processes `<template>` "using the rules for the in head
+    /// insertion mode".
     pub(super) fn template_start_tag(&mut self, token: &TagToken) -> Result<(), StrictParseError> {
         // `<template/>` is a non-void self-closing start tag — a parse error.
         if token.self_closing {
@@ -76,44 +76,32 @@ impl TreeBuilder {
                 "non-void-html-element-start-tag-with-trailing-solidus",
             ));
         }
-        // Steps 2-5 (run for both ordinary and declarative templates). Step 2,
-        // "insert a marker at the end of the list of active formatting
-        // elements", is a no-op: strict mode does not maintain that list.
+        // The marker / frameset-ok / insertion-mode / template-mode steps (run
+        // for both ordinary and declarative templates). "Insert a marker at the
+        // end of the list of active formatting elements" is a no-op: strict mode
+        // does not maintain that list.
         self.state.frameset_ok = false;
         self.state.mode = InsertionMode::InTemplate;
         self.state.template_modes.push(InsertionMode::InTemplate);
 
-        // Steps 6-9: declarative only if shadowrootmode is present and valid,
-        // the document allows declarative shadow roots, and the adjusted
-        // current node is not the topmost element (step 10.1: the host *is*
-        // the adjusted current node).
-        if self.allow_declarative_shadow {
+        // The template start tag: declarative only if shadowrootmode is
+        // present and valid, the parser allows declarative shadow roots, and
+        // hostIsRoot is false. declarativeShadowHostElement is the *current
+        // node* (not the adjusted current node), so a top-level template in
+        // the fragment case never reaches the external context element;
+        // hostIsRoot (the fragment root also has a redirection-map entry) is
+        // "the stack holds one element", and then the template is a regular
+        // element (the "Keep" branch). Document parsing and a nested
+        // in-fragment host have a stack deeper than one.
+        if self.allow_declarative_shadow && self.state.open_elements.len() > 1 {
             if let Some(init) = shadow_init_from_attrs(&token.attrs) {
-                // §13.4 fragment case, single-element stack: the adjusted
-                // current node (§13.2.4.2) is the *external* context element,
-                // not the synthetic root. Step 10.1 would attach a shadow root
-                // to it — mutating the caller's context, which slice 2a's
-                // read-only-context isolation contract forbids (and rollback
-                // could not cleanly undo). Abort so a strict-first dispatcher
-                // falls back to the tolerant backend; faithful DSD-on-context
-                // lands with the 2b `setHTMLUnsafe` wiring that owns context
-                // mutation (`#11-strict-fragment-declarative-shadow-on-context`).
-                if self.is_fragment() && self.state.open_elements.len() == 1 {
-                    return Err(unsupported_fragment_construct(
-                        "fragment-context-declarative-shadow-unsupported",
-                    ));
-                }
-                // Otherwise the adjusted current node is the current node
-                // (document parsing, or a nested in-fragment host), so "not
-                // topmost" reduces to a stack depth greater than one.
-                if self.state.open_elements.len() > 1 {
-                    self.attach_declarative_shadow(token, init);
-                    return Ok(());
-                }
+                self.attach_declarative_shadow(token, init);
+                return Ok(());
             }
         }
 
-        // Step 9: ordinary template. Per HTML §4.12.3 the element gets its
+        // The "Keep" branch's regular template (also hostIsRoot, no/invalid
+        // shadowrootmode, parser flag off). Per HTML §4.12.3 the element gets its
         // associated content `DocumentFragment` "when the template element is
         // created"; the §13.2.6.1 appropriate-place redirect then routes the
         // template's children into that fragment rather than the (in-tree)
@@ -124,7 +112,7 @@ impl TreeBuilder {
     }
 
     /// Give an **ordinary** `<template>` its content fragment + §13.2.6.1
-    /// appropriate-place redirect (HTML §4.12.3). Shared by the Step-9 ordinary
+    /// appropriate-place redirect (HTML §4.12.3). Shared by the ordinary-template
     /// arm and the declarative-shadow graceful fallback (a failed DSD template
     /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
     /// identical at both sites (One-issue-one-way). Owner doc is the parse
@@ -140,21 +128,20 @@ impl TreeBuilder {
             .insert(template, ContentTarget::ContentFragment(fragment));
     }
 
-    /// WHATWG HTML §13.2.6.4.4 step 10 — the declarative shadow root branch.
+    /// WHATWG HTML §13.2.6.4.4 template start tag — the "Keep" branch's
+    /// declarative shadow root attach (hostIsRoot already ruled out).
     ///
     /// Infallible: a failed shadow attach falls back to an ordinary template,
     /// it is not a parse error.
     fn attach_declarative_shadow(&mut self, token: &TagToken, init: ShadowInit) {
-        // Step 10.1: the host is the adjusted current node (= current node in
-        // document parsing). Step 6-7: the fallback insertion parent is the
-        // appropriate place's element. Both are captured before the template
-        // is pushed.
+        // declarativeShadowHostElement is the current node. The fallback
+        // insertion location is the appropriate place's element. Both are
+        // captured before the template is pushed.
         let host = self.state.current_node().unwrap_or(self.document);
         let fallback_parent = self.appropriate_place();
 
-        // Step 10.2: insert a foreign element with onlyAddToElementStack=true
-        // — create the template and push it onto the stack, but do not append
-        // it to the light DOM.
+        // Insert an element with onlyAddToElementStack=true — create the template
+        // and push it onto the stack, but do not append it to the light DOM.
         let mut attributes = Attributes::default();
         for (name, value) in &token.attrs {
             attributes.set(name.as_str(), value.as_str());
@@ -162,7 +149,7 @@ impl TreeBuilder {
         let template = self.dom.create_element("template", attributes);
         self.state.open_elements.push(template);
 
-        // Steps 10.9/10.10: attach a shadow root to the host. Any failure
+        // "Attach a shadow root" to the host. Any failure
         // (host tag not allowed, or host already a shadow host) is the spec's
         // graceful fallback — append the template to the light DOM as an
         // ordinary element. On success the template's "template contents" is

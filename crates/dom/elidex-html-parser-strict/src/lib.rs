@@ -72,11 +72,15 @@ pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
 ///
 /// `context` is the context element (e.g. the `innerHTML` target) in `dom`;
 /// its tag, namespace, and ancestor chain select the tokenizer's initial
-/// state (step 10), the insertion mode (step 16), and the form element
-/// pointer (step 17). `opts.allow_declarative_shadow` carries step 6.
+/// state (§13.4: set the state of the tokenization stage), the insertion mode
+/// (§13.4: reset the insertion mode appropriately), and the form element
+/// pointer (§13.4: the form element pointer).
+/// `opts.allow_declarative_shadow` is the algorithm's allowDeclarativeShadowRoots
+/// argument.
 ///
 /// Returns the fragment's top-level nodes **detached** (parentless) in `dom`,
-/// in tree order — the spec's "return root's children" (step 20). The caller
+/// in tree order — the spec's "return fragment" (the root's children, §13.4:
+/// the redirection-map entry for root). The caller
 /// places them (e.g. replaces the context element's children for `innerHTML`).
 /// The synthetic `<html>` root the algorithm builds under is internal and is
 /// despawned before returning.

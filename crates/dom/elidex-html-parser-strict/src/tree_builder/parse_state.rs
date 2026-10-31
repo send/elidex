@@ -34,9 +34,10 @@ use elidex_ecs::{EcsDom, Entity, Namespace};
 ///   (the `TemplateContents` link). The template element stays **in the tree**
 ///   and must NOT be despawned as a consumed stack-only template.
 /// - [`ShadowRoot`](ContentTarget::ShadowRoot) — a **declarative shadow**
-///   `<template shadowrootmode>` (§13.2.6.4.4 step 10): children route into the
-///   attached shadow root. The template is **stack-only** (never appended to
-///   the light DOM) and is despawned once consumed.
+///   `<template shadowrootmode>` (§13.2.6.4.4: the template start tag's
+///   "Keep" branch): children route into the attached shadow root. The
+///   template is **stack-only** (never appended to the light DOM) and is
+///   despawned once consumed.
 ///
 /// The membership-as-discriminator the map previously relied on (every entry
 /// was a consumed declarative template) no longer holds now ordinary templates
@@ -267,11 +268,11 @@ pub(crate) struct ParseState {
     /// place"): children inserted while a `<template>` is the current node are
     /// routed to its [`ContentTarget`] rather than the template element itself.
     /// Populated for **every** open `<template>` — ordinary templates map to
-    /// their detached content fragment
-    /// ([`ContentTarget::ContentFragment`]); declarative shadow templates map
-    /// to the attached shadow root ([`ContentTarget::ShadowRoot`],
-    /// §13.2.6.4.4 step 10). The kind discriminates the two at the despawn
-    /// sites (see [`ContentTarget::is_shadow_root`]).
+    /// their detached content fragment ([`ContentTarget::ContentFragment`]);
+    /// declarative shadow templates map to the attached shadow root
+    /// ([`ContentTarget::ShadowRoot`], §13.2.6.4.4: the template start tag's
+    /// "Keep" branch). The kind discriminates the two at the despawn sites (see
+    /// [`ContentTarget::is_shadow_root`]).
     pub(crate) template_content_targets: HashMap<Entity, ContentTarget>,
     /// Whether the next character token, if it is a U+000A LINE FEED, should
     /// be ignored. Set after inserting `<pre>` / `<listing>` / `<textarea>`,
@@ -322,11 +323,11 @@ impl ParseState {
 
     /// Whether `entity` is a **consumed declarative-shadow `<template>`**: one
     /// whose content target is a [`ContentTarget::ShadowRoot`] — stack-only,
-    /// never appended to the light DOM (§13.2.6.4.4 step 10). The two despawn
-    /// sites (`</template>` step 3, fragment rollback) share this discriminator
-    /// to despawn exactly those; an ordinary `ContentFragment`-kind template is
-    /// in-tree and must never be despawned. Centralised so both sites stay in
-    /// lockstep if the rule changes.
+    /// never appended to the light DOM (§13.2.6.4.4: the template start tag's
+    /// "Keep" branch). The two despawn sites (`</template>` step 3, fragment
+    /// rollback) share this discriminator to despawn exactly those; an ordinary
+    /// `ContentFragment`-kind template is in-tree and must never be despawned.
+    /// Centralised so both sites stay in lockstep if the rule changes.
     pub(crate) fn is_consumed_shadow_template(&self, entity: Entity) -> bool {
         self.template_content_targets
             .get(&entity)

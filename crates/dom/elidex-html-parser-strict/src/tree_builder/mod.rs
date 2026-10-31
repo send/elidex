@@ -84,19 +84,19 @@ pub(crate) struct TreeBuilder {
     /// inspect the whole run for non-whitespace before deciding to insert it
     /// or (strict) reject.
     pending_table_text: String,
-    /// The Document's "allow declarative shadow roots" flag (§13.2.6.4.4
-    /// step 9). `true` for document parsing (always allowed); for §13.4
-    /// fragment parsing it carries
-    /// [`crate::ParseFragmentOptions::allow_declarative_shadow`]
-    /// (HTML §13.4 step 6).
+    /// The parser's "allow declarative shadow roots" flag (HTML §13.2.4.5
+    /// Other parsing state flags). `true` for document parsing (always
+    /// allowed); for §13.4 fragment parsing it carries
+    /// [`crate::ParseFragmentOptions::allow_declarative_shadow`] (the HTML
+    /// fragment parsing algorithm's allowDeclarativeShadowRoots argument).
     allow_declarative_shadow: bool,
 }
 
 impl TreeBuilder {
     /// Create a tree builder over `html` for document parsing.
     ///
-    /// `allow_declarative_shadow` initializes the Document's "allow
-    /// declarative shadow roots" flag (§13.2.6.4.4 step 9).
+    /// `allow_declarative_shadow` initializes the parser's "allow declarative
+    /// shadow roots" flag (HTML §13.2.4.5 Other parsing state flags).
     fn new(html: &str, allow_declarative_shadow: bool) -> Self {
         let mut dom = EcsDom::new();
         let document = dom.create_document_root();
@@ -132,7 +132,8 @@ impl TreeBuilder {
     /// Parse `html` as an HTML fragment in the given `context` element's
     /// context (WHATWG HTML §13.4 "Parsing HTML fragments"), returning the
     /// fragment's top-level nodes **detached** (parentless) in `dom` — the
-    /// spec's "return root's children" (step 20). The caller places them.
+    /// spec's "return fragment" (the root's children, §13.4: the
+    /// redirection-map entry for root). The caller places them.
     ///
     /// `context` is read-only (its tag, namespace, and ancestor chain select
     /// the tokenizer state, insertion mode, and form pointer); it is never
@@ -186,10 +187,10 @@ impl TreeBuilder {
         // noscript arm to "any other start tag".
         state.scripting = !opts.scripting_disabled;
         state.open_elements.push(root);
-        // §13.4 step 16 substitution source (consumed by
+        // §13.4 "reset the insertion mode appropriately" substitution source (consumed by
         // `reset_insertion_mode_appropriately`).
         state.fragment_context = Some(context);
-        // §13.4 step 14: a `template` context seeds the template insertion
+        // §13.4: a `template` context seeds the template insertion
         // mode stack so a `</template>` / table reset resolves correctly. The
         // spec's `template` reference is HTML-namespace-only, so an SVG/MathML
         // element whose local name is `template` does not seed it.
@@ -205,9 +206,9 @@ impl TreeBuilder {
             pending_table_text: String::new(),
             allow_declarative_shadow: opts.allow_declarative_shadow,
         };
-        tb.set_fragment_tokenizer_state(context); // §13.4 step 10
-        tb.reset_insertion_mode_appropriately(); // §13.4 step 16
-        tb.set_fragment_form_pointer(context); // §13.4 step 17
+        tb.set_fragment_tokenizer_state(context); // §13.4: tokenization stage state
+        tb.reset_insertion_mode_appropriately(); // §13.4: reset the insertion mode
+        tb.set_fragment_form_pointer(context); // §13.4: the form element pointer
         let result = match tb.drive() {
             Ok(()) => Ok(tb.take_fragment_children(root)),
             Err(err) => {
@@ -242,7 +243,7 @@ impl TreeBuilder {
         (result, tb.dom)
     }
 
-    /// §13.4 step 20: return the synthetic root's children — detached
+    /// §13.4 "return fragment": return the synthetic root's children — detached
     /// (parentless) live nodes — in tree order, then tear down the throwaway
     /// document + root.
     ///
@@ -263,17 +264,18 @@ impl TreeBuilder {
             .finish_detached_fragment(root, self.document, context)
     }
 
-    /// §13.4 step 10: switch the tokenizer's initial state from the context
-    /// element's tag — `title`/`textarea` → RCDATA, `style`/`xmp`/`iframe`/
-    /// `noembed`/`noframes`/`noscript` → RAWTEXT (`noscript` because v1
-    /// scripting is enabled, i.e. scriptingMode ≠ Disabled), `script` →
-    /// script data, `plaintext` → PLAINTEXT, anything else → Data (left as-is).
+    /// §13.4 "set the state of the tokenization stage": switch the tokenizer's
+    /// initial state from the context element's tag — `title`/`textarea` →
+    /// RCDATA, `style`/`xmp`/`iframe`/`noembed`/`noframes`/`noscript` → RAWTEXT
+    /// (`noscript` because v1 scripting is enabled, i.e. scriptingMode ≠
+    /// Disabled), `script` → script data, `plaintext` → PLAINTEXT, anything else
+    /// → Data (left as-is).
     ///
     /// No "last start tag" is recorded, so per the §13.4 note there is no
     /// appropriate end tag in the fragment case: raw-text content runs to EOF
     /// (e.g. a `title`-context `</title>` is literal text, not a close).
     fn set_fragment_tokenizer_state(&mut self, context: Entity) {
-        // §13.4 step 10's element-name cases are HTML elements — unqualified
+        // §13.4's tokenization-stage element-name cases are HTML elements — unqualified
         // element-type references in the spec are in the HTML namespace. A
         // foreign context whose local name happens to be `title` / `style` /
         // `script` / … (e.g. an SVG `<title>`) therefore does NOT switch to a
@@ -296,21 +298,21 @@ impl TreeBuilder {
         }
     }
 
-    /// §13.4 step 17: set the form element pointer to the nearest `form`
+    /// §13.4 "the form element pointer": set the form element pointer to the nearest `form`
     /// element on the context element's inclusive ancestor chain, if any.
     fn set_fragment_form_pointer(&mut self, context: Entity) {
         let mut node = Some(context);
         while let Some(entity) = node {
             // Form association is tree-scoped: do not cross a shadow boundary.
             // `get_parent` returns a `ShadowRoot`'s host (shadow-inclusive
-            // ancestry, §13.4 step 17's walk is the DOM ancestor chain), so
+            // ancestry, §13.4's form-pointer walk is the DOM ancestor chain), so
             // stop at the shadow root — otherwise an outer light-DOM `<form>`
             // would seed the pointer for a shadow-tree context and make an
             // otherwise-valid `<form>` in the shadow fragment strict-reject.
             if self.dom.is_shadow_root(entity) {
                 return;
             }
-            // §13.4 step 17's `form` reference is HTML-namespace-only, so a
+            // §13.4's form-pointer `form` reference is HTML-namespace-only, so a
             // foreign element whose local name is `form` is not a form ancestor.
             if self.dom.namespace_of(entity) == Namespace::Html && self.dom.has_tag(entity, "form")
             {
@@ -474,19 +476,6 @@ impl TreeBuilder {
 /// parse-error condition `name`. Returned (not stored) — the first error
 /// returned from a handler aborts the whole parse.
 pub(super) fn parse_error(name: &str) -> StrictParseError {
-    StrictParseError {
-        errors: vec![name.to_string()],
-    }
-}
-
-/// Build a terminal [`StrictParseError`] for a §13.4 fragment construct strict
-/// does not yet faithfully support — a non-HTML-namespace context element, or a
-/// declarative shadow root that would attach to the external context. Like a
-/// [`parse_error`] it aborts the parse, but it signals "strict declines, fall
-/// back to the tolerant backend", not a WHATWG HTML §13.2.2 non-conformance;
-/// `name` is diagnostic only. The full support for each lands behind its own
-/// slot (foreign context / `setHTMLUnsafe` DSD-on-context in slice 2b).
-pub(super) fn unsupported_fragment_construct(name: &str) -> StrictParseError {
     StrictParseError {
         errors: vec![name.to_string()],
     }

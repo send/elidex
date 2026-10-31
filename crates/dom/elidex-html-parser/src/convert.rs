@@ -51,11 +51,11 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
 /// [`convert_node`] (parent = the converted element). A `<template
 /// shadowrootmode>` child attaches a declarative shadow to `parent` when
 /// `opts.allow_declarative_shadow` is set and `parent` is a valid shadow host
-/// (§13.2.6.4.4 step 9–10) — for nested content `parent` is the real
-/// (non-topmost) host, so it attaches there. The fragment **top level** is
-/// handled separately by [`convert_fragment_top_level`], which routes the
-/// declarative-shadow host to the context element per the §13.4
-/// adjusted-current-node rule.
+/// (§13.2.6.4.4: the template start tag's declarativeShadowHostElement and
+/// "Keep" branch) — for nested content `parent` is the real (non-topmost)
+/// host, so it attaches there. The fragment **top level** is handled
+/// separately by [`convert_fragment_top_level`], which never attempts an
+/// attach.
 pub(crate) fn convert_children(
     rc_handle: &Handle,
     parent: Entity,
@@ -79,34 +79,27 @@ pub(crate) fn convert_children(
 }
 
 /// Convert the **top-level** fragment children under the synthetic `<html>`
-/// `root`, with the §13.4 fragment-case declarative-shadow host routing.
+/// `root`. This loop is the tolerant encoding of hostIsRoot.
 ///
-/// Per the WHATWG "adjusted current node" definition, while the stack of open
-/// elements holds only the synthetic root (the fragment case, true for every
-/// *top-level* node), the adjusted current node is the **context element**, not
-/// the root. So a top-level `<template shadowrootmode>` attaches its
-/// declarative shadow to `context` (DSD-on-context, §13.2.6.4.4 step 9–10) —
-/// e.g. `el.setHTMLUnsafe('<template shadowrootmode=open>…')` shadows `el`. The
-/// light (non-shadow) top-level nodes are still built under `root` and returned
-/// detached. Nested templates recurse through [`convert_node`] →
-/// [`convert_children`], where the host is the real (non-topmost) parent
-/// element, so they attach there as usual.
+/// The template start tag (§13.2.6.4.4) takes declarativeShadowHostElement to
+/// be the *current node*, with the note: "This is not the adjusted current
+/// node, so that in the fragment case a top-level template element never
+/// attaches a shadow root to the parser's fragment context element." A
+/// top-level node's current node is the synthetic root, so hostIsRoot (the
+/// fragment root also has a redirection-map entry) is true and the "Keep"
+/// branch inserts a regular template. So no top-level `<template
+/// shadowrootmode>` attaches anything: every child is converted and appended
+/// to `root`, and the context element is never touched. Nested templates
+/// recurse through [`convert_node`] → [`convert_children`], where the host is
+/// the real (non-topmost) parent element, so they attach there.
 pub(crate) fn convert_fragment_top_level(
     rc_handle: &Handle,
     root: Entity,
-    context: Entity,
     dom: &mut EcsDom,
     owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
-        // Top-level declarative shadow attaches to the CONTEXT (the fragment
-        // adjusted current node), not the synthetic root.
-        if opts.allow_declarative_shadow
-            && try_attach_declarative_shadow(child, context, dom, owner_document, opts)
-        {
-            continue;
-        }
         if let Some(entity) = convert_node(child, dom, owner_document, opts) {
             let ok = dom.append_child(root, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
