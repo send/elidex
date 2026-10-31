@@ -328,6 +328,20 @@ fn adopt_subtree_rehomes_template_content_fragment() {
 }
 
 #[test]
+fn begin_detached_fragment_root_is_child_of_document() {
+    // The fragment parsing algorithm's "Append root to document" step must
+    // run in every build profile (it once sat inside `debug_assert!`, so
+    // release builds left `root` parentless). The strict rollback
+    // `despawn_subtree(document)` reaches `root` only through this link.
+    let mut dom = EcsDom::new();
+    let (document, root, saved) = dom.begin_detached_fragment();
+    assert_eq!(dom.get_parent(root), Some(document));
+    if let Some(d) = saved {
+        dom.set_mutation_dispatcher(d);
+    }
+}
+
+#[test]
 fn despawn_subtree_is_event_free_even_on_a_connected_shadow_host() {
     // `despawn_subtree` is a raw structural teardown, not a DOM removal: it
     // suppresses dispatch for the whole walk. So tearing a *connected* subtree

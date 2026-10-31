@@ -272,11 +272,15 @@ impl EcsDom {
     ///   caller's placement of the returned detached nodes fires the real events.
     /// - a **throwaway `Document`** created cache-free (`create_document_node`,
     ///   NOT `create_document_root`) so it never clobbers the caller's persistent
-    ///   `document_root` cache. A Document (not a bare element) owns the root so
-    ///   foreign (SVG / MathML) elements created during the parse get a valid
-    ///   owner document (`create_element_ns` requires a Document owner).
-    /// - a synthetic `<html>` **root** appended to it — §13.4 step 11–12, the
-    ///   sole initial entry on the stack of open elements.
+    ///   `document_root` cache.
+    /// - a synthetic `<html>` **root** appended to it — the HTML fragment
+    ///   parsing algorithm's "Append root to document" step, the sole initial
+    ///   entry on the stack of open elements. The append is also load-bearing
+    ///   for teardown: the strict parse-error rollback is
+    ///   `despawn_subtree(document)`, which reaches `root` (and everything
+    ///   built under it) only through this parent link; without it the subtree
+    ///   leaks. (Owner documents of nodes created during the parse come from
+    ///   the parser's context, not from this throwaway document.)
     ///
     /// Teardown is **caller-owned** (not folded into a guard) because the two
     /// backends diverge: the success path runs [`Self::finish_detached_fragment`]
@@ -293,16 +297,17 @@ impl EcsDom {
         let saved_dispatcher = self.take_mutation_dispatcher();
         let document = self.create_document_node();
         let root = self.create_element("html", Attributes::default());
-        debug_assert!(
-            self.append_child(document, root),
-            "appending a fresh root to a fresh document cannot fail"
-        );
+        // Run the append unconditionally: a call inside `debug_assert!` is
+        // compiled out in release builds, leaving `root` parentless.
+        let ok = self.append_child(document, root);
+        debug_assert!(ok, "appending a fresh root to a fresh document cannot fail");
         (document, root, saved_dispatcher)
     }
 
     /// Finish a WHATWG HTML §13.4 fragment build on a throwaway document:
     /// return `root`'s children **detached** (parentless) in tree order
-    /// (§13.4 step 20), then tear down the throwaway `root` + `document`.
+    /// (the fragment parsing algorithm's final "return" of the parsed
+    /// children), then tear down the throwaway `root` + `document`.
     ///
     /// Before teardown, the whole subtree is re-homed into `context`'s owner
     /// document ([`Self::adopt_subtree`], DOM §4.5 "adopt") so the returned
