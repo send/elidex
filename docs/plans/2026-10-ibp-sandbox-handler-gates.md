@@ -35,6 +35,16 @@ implemented is N4's (edge n3; O1); (iii) the slot `#11-unhandledrejection-dispat
 (owner core VM, reachability unconfirmed, re-eval 2026-11-30); (iv) the node memo's "§13.4 step 10" is N9's to correct
 (§0.3).
 
+**Rev 4.1** (2026-10-31, draft; not yet plan-reviewed) — PM decision 74: rev 4's answer to O8 ("yes", NR8 (a)
+"more restrictive than HEAD", hence inside the node memo's §5.1 interim-window claim and sufficient) is withdrawn and
+split in two. (1) NR8 (a) is stated as a **defect**: N1 and HEAD both run nothing on dispatch where the spec returns the
+written callback and runs it; the getter reads null at N1, a function compiled from the attribute at HEAD, the callback
+in the spec (§0.3 P-N5, §3.1, §5.4 NR8, §10 O8). (2) Whether the EH-attrs umbrella's §L "worse" verdict (its L6.1
+getter shape) reaches that residual is **open** — the EH-attrs umbrella's call, not this memo's (§10 O8, routed through
+plan-review's Axis 3 and, if that reads §L as reaching it, to the umbrella's owner through the PM). C8g is unchanged (a
+window pin); NR8 (b) is unchanged. Touched: the header's open-items paragraph, P-N5, §3.1, NR8, §8 x4, §10's heading
+and O8, §10.2's R2 G2 row, and the rev-4 entry (a gloss).
+
 **Rev 4** (2026-10-28, draft; not yet plan-reviewed) — EH-attrs slice a has landed (#563, `3cd84a04`); applies the
 EH-attrs umbrella's §8.4 hand-off and plan-review R2 (CRIT 0 / IMP 4 / MIN 6). By source:
 - *Umbrella §8.4 item 1*: the prerequisite is "`EH-attrs-at-creation` slice a" at every former `EH-insert-once` site
@@ -44,8 +54,8 @@ EH-attrs umbrella's §8.4 hand-off and plan-review R2 (CRIT 0 / IMP 4 / MIN 6). 
   C8d cite K-1 to K-3 with their slice-a qualifiers (ordinary pairs only, X-W; at most one deliverable ordinary
   attribute, D-8); the multi-attribute and Window-delegating cases are S-5's; the `:606` (rev 3 `:635`) Window
   `<body onpopstate>` arm expects HEAD's outcome under X-W (§5.1, §6). The umbrella's O5 (does that form suffice for
-  N1) is answered in §10 O8: yes for every N1 cell; one getter-only residual remains, NR8, pinned by the new window pin
-  C8g.
+  N1) was answered in §10 O8: yes for every N1 cell; one residual remains, NR8, pinned by the new window pin C8g.
+  (Rev 4.1 withdraws the answer: O8 is open, PM decision 74.)
 - *Item 5*: H-P13 kept, citing K-5. *Item 6*: NR7 says "on a base without slice a" and cites §L. *Item 7*: §7's
   re-raw row is fixed by slice a (K-1). *Item 8*: §9's prerequisite names #563 `3cd84a04` and carries the re-measure
   obligation. *Item 9*: checked, no N1 cell builds initial HTML through a shell pipeline (§6). *Item 10*: the node
@@ -83,9 +93,11 @@ its exception to the node memo's `:12-14` / A114 idiom; §8 records the post-app
 "closed at N1" by D-N3; O5's home; Q-N1–Q-N3 → H-P13–H-P15; C31 via `dispatchEvent(new MouseEvent('click'))`). *Rev 1*
 (2026-10-25) — first draft.
 
-No item is left open for plan-review (§10): O1, O2 and O5 are decided by the PM, O3, O4, O6, O7 by the arguments in
-§10; O8 (the EH-attrs umbrella's O5, which that umbrella leaves to N1) is decided by the argument in §10 and reported to
-the PM, because its residual (NR8) is a narrower instance of the mechanism behind that umbrella's §L verdict.
+One item is open for plan-review (§10): O1, O2 and O5 are decided by the PM, O3, O4, O6, O7 by the arguments in §10;
+**O8** (the EH-attrs umbrella's O5, which that umbrella leaves to N1) is **open** (PM decision 74). Its residual, NR8 (a),
+is a defect this memo states (§5.4); whether the EH-attrs umbrella's §L "worse" verdict reaches it is that umbrella's
+call, which this memo does not make. Plan-review's Axis 3 reads §L against it, and if it reads §L as reaching it, the
+question goes to the umbrella's owner through the PM.
 
 ## §0. Frame, premises, decisions
 
@@ -251,8 +263,10 @@ Paths are abbreviated after first use: `elidex-js/src/…` = `crates/script/elid
   (each uses `onclick` on a `div` or `button` that is marked at its first handler write, or carries no content
   attribute at all; §6), and not exact in two classes slice a leaves to slice b (S-5): Window-delegating pairs, and an
   element given two or more deliverable ordinary attributes by a silent writer and written before its first
-  processing. §5.4 NR8 derives N1's outcome in both: in the first it is HEAD's or the spec's; in the second the getter
-can read null where HEAD reads a function and the spec the written callback. Everything in
+  processing. §5.4 NR8 derives N1's outcome in both: in the first it is HEAD's or the spec's; the second is a defect —
+dispatch runs nothing, as at HEAD, where the spec runs the written callback, and the getter reads null where HEAD reads
+a function compiled from the attribute and the spec the callback (whether the EH-attrs umbrella's §L reaches it: §10 O8,
+open). Everything in
   this memo that depends on "a move does not re-raw" cites K-1 to K-3 with these qualifiers (§2 H3 × H4, §4.2, §6
   C8b(iv), C8c, C8d).
 
@@ -486,7 +500,9 @@ gated (H4); tree moves (`append`, `removeChild`) that change the effective node 
 read at each reconcile (C30, C31), and, since EH-attrs slice a (K-1), no longer turning an ordinary pair's value raw
 again (P-N5; the slice-a residual is NR8);
 `DOMParser` documents (the node clause). Every mismatch leaves the gate on the restrictive side except H4's callback
-case, which is the spec's outcome, and NR8's getter residual, which is more restrictive than HEAD. Adjacent
+case, which is the spec's outcome, and NR8 (a), a defect: dispatch runs nothing, as at HEAD, where the spec runs the
+written callback, and the getter reads null (HEAD: a function compiled from the attribute; the spec: the callback);
+whether the EH-attrs umbrella's §L reaches it is open (§10 O8). Adjacent
 pre-existing surface (slot `#11-event-handler-target-determination`, §7): a `WindowEventHandlers` content attribute
 (`onhashchange`, …; rev 3's example `onload` is a Window-reflecting body attribute, which HEAD scopes to the element) on
 a `<body>` whose node document is not active is installed on the live Window entity at HEAD — not reached while a
@@ -694,12 +710,13 @@ are written there. G4 checks both files.
   - **(a) multi-attribute.** An element given two or more deliverable ordinary handler content attributes by a silent
     writer (a parser bake, the DOMParser build, `cloneNode`), written through IDL before its first processing (D-8 (a)
     leaves it unprocessed, slice a's C16 shape), then first inserted into a document that is not the bound one's tree
-    (a DOMParser document). That insertion processes it (T-a2), so the attribute's raw value replaces the callback; at
-    N1 the getter reads null and arm 3 drops the callback, and dispatch runs nothing. HEAD: the getter compiles the
-    attribute (a function, not the callback); dispatch runs nothing (the invoke gate). Spec: the callback, which runs
-    (H4). So dispatch is equal and N1's getter is more restrictive than HEAD's: inside the node memo's §5.1
-    interim-window claim ("equals HEAD or is more restrictive"), though the EH-attrs umbrella's §L lens counts the lost
-    `typeof … === 'function'` as worse (its L6.1, now on a narrower population). With a `setAttribute` in place of the
+    (a DOMParser document). That insertion processes it (T-a2), so the attribute's raw value replaces the callback.
+    **Defect**: on dispatch N1 runs nothing (arm 3 drops the callback) and HEAD runs nothing (the invoke gate), while
+    the spec returns the written callback and runs it (H4). The getter reads null at N1, a function compiled from the
+    attribute (not the callback) at HEAD, and the callback in the spec. Inputs to §10 O8, not its resolution: N1's
+    dispatch equals HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive"; the
+    EH-attrs umbrella's §L counted the same getter shape, the lost `typeof … === 'function'`, as worse (its L6.1, on the
+    wider population of a base without slice a). With a `setAttribute` in place of the
     IDL write there is no residual (the value is raw either way, and the spec's getter in a DOMParser document is null
     too); inserted into the live document instead, arm 4 compiles the attribute, as HEAD does (§L L6.3).
   - **(b) Window-delegating pairs** (X-W), re-written at every insertion. A `WindowEventHandlers` name on `<body>`
@@ -709,8 +726,9 @@ are written there. G4 checks both files.
     and the spec's getter is null as well (the event handler IDL attribute's getter steps 1–2: *determine the target of
     an event handler* step 3 returns null for an element whose node document is not an active document; `webref body
     html event-handler-idl-attributes`, 2026-10-28). N1 moves to the spec there.
-  Pin: **C8g** (window pin for (a), §6). Closed by slice b's S-5 (the D-8 restriction and X-W removed), at which C8g
-  flips to C8b's expectation. Whether this suffices for N1's landing: §10 O8.
+  Pin: **C8g** (window pin for (a), §6). Slice b's S-5 is the closer the EH-attrs umbrella declares for both classes
+  (its §1.5); C8g is the window pin that flips to C8b's expectation then. Whether the umbrella's §L verdict reaches (a):
+  open, §10 O8.
 
 ## §6. Test and coverage plan
 
@@ -787,7 +805,8 @@ and `#11-unhandledrejection-dispatch-target` for pre-existing gaps (A96).
   one clerical reference line, no §5.2 change).
 - **x4** (N1 → EH-attrs slice b, the EH-attrs umbrella's edge): raw values that slice b writes at a DOMParser node's
   creation read null only under N1's compile-gate node clause (that umbrella's §9 N-4 (a)). N1 hands slice b D-N2 and
-  D-N3 as they are; NR8's window pin C8g is the cell slice b's S-5 inverts. Nothing else is owed.
+  D-N3 as they are; NR8's window pin C8g is the cell slice b's S-5 inverts, and NR8 (a) is the defect it leaves open
+  until then (§5.4). Whether anything else is owed depends on §10 O8 (open).
 - **n3** (N1 → N4): N4 routes the compile gate, now the only handler reader, through `settings_route.rs` with
   `NodeDocumentOf(element)` / `Window(w)`, and promotes the effective-node-document rule into
   `EcsDom::effective_node_document` (N4 surface). N4 receives: D-N3's decision unchanged (the gate is the closure called
@@ -869,7 +888,7 @@ Behavioural: the (a′) record (§5.1) is in the PR description; C8, C8b (i)–(
 present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p` commands and `mise run ci` pass. Preflight: `python3
 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-10-ibp-sandbox-handler-gates.md` exits 0.
 
-## §10. Items formerly open
+## §10. Items decided and open
 
 - *O1 — decided (PM decision 17 (ii)).* N1 cites the current step 3.2 verbatim and states its equivalence to D8's
   "scripting is disabled for *el's node document*" for every document N1 can see (single realm, no BiDi, no user switch);
@@ -896,21 +915,25 @@ present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p
 - *O7 — decided: (a) no slot for processing step 1 (WebDriver BiDi).* A slot records a gap in a surface elidex
   supports or plans; WebDriver BiDi is neither, and without it the step's result is always true (§7), so there is no
   gap to track; the step and §8.1.3.4's fourth condition belong to whoever adds a BiDi surface.
-- *O8 — decided by argument, reported to the PM (rev 4): the EH-attrs umbrella's O5 ("N1's R-a / R-b. In slice a they hold only for ordinary pairs of elements with one
-  deliverable ordinary handler attribute (K-2, K-3 qualifiers); a Window-delegating pair gets HEAD's outcome (X-W; §8.4
-  item 4). Is that sufficient for N1's landing?") — **yes**.* (1) *For N1's cells*: every C8-family cell is inside
-  K-1 to K-3's slice-a form (§6 preamble), so their expectations follow from main's behaviour (H-P16), and slice a's
-  own C2, C4 and C5 (i) pin the premise. (2) *For N1's landing*: outside that form N1 changes outcomes in two classes
-  (NR8). The Window-delegating class moves to the spec or stays HEAD's. The multi-attribute class (an IDL write before
-  the first processing of an element with two or more silent deliverable ordinary attributes, then a first insertion
-  into a DOMParser document) leaves dispatch equal to HEAD's and makes the getter null where HEAD returns a function
-  compiled from the attribute and the spec returns the written callback. That is more restrictive than HEAD — inside the
-  node memo's §5.1 interim-window claim, which is N1's governing criterion — and it is pinned (C8g) and closed by slice
-  b's S-5, which the EH-attrs umbrella orders after N1 (x4). The alternative, holding N1 until slice b, would invert
-  edge x4 (slice b needs N1) and is not available. **Why reported**: the EH-attrs umbrella's §L judged the same getter
-  shape (its L6.1) "worse" when it decided that no order may put N1 before slice a; NR8 (a) is that shape on a narrower
-  population that slice a deliberately leaves open (its §1.5 K-2 / K-3 residual). Whether §L's lens also binds this
-  residual is that umbrella's call, not N1's; this memo records the answer above and does not re-decide §L.
+- *O8 — open (rev 4.1, PM decision 74): the EH-attrs umbrella's O5 ("N1's R-a / R-b. In slice a they hold only for
+  ordinary pairs of elements with one deliverable ordinary handler attribute (K-2, K-3 qualifiers); a
+  Window-delegating pair gets HEAD's outcome (X-W; §8.4 item 4). Is that sufficient for N1's landing?"), as it bears on
+  NR8 (a).* (1) *For N1's cells*: every C8-family cell is inside K-1 to K-3's slice-a form (§6 preamble), so their
+  expectations follow from main's behaviour (H-P16), and slice a's own C2, C4 and C5 (i) pin the premise. (2) *Outside
+  that form* N1 changes outcomes in two classes (NR8). The Window-delegating class moves to the spec or stays HEAD's.
+  The multi-attribute class (an IDL write before the first processing of an element with two or more silent
+  deliverable ordinary attributes, then a first insertion into a DOMParser document) is a **defect**: N1 and HEAD both
+  run nothing on dispatch, while the spec returns the written callback and runs it; the getter reads null at N1, a
+  function compiled from the attribute at HEAD, the callback in the spec. C8g pins it as a window pin; slice b's S-5 is
+  the closer the EH-attrs umbrella declares. (3) *The open question*: whether the EH-attrs umbrella's §L "worse"
+  verdict — its L6.1 getter shape, judged when it decided that no order may put N1 before slice a — reaches this
+  residual. That is the EH-attrs umbrella's call; this memo does not decide it either way. Inputs, not a resolution:
+  N1's dispatch equals HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive";
+  NR8 (a) is §L's getter shape on a narrower population that slice a leaves open (its §1.5 K-2 / K-3 residual); the
+  EH-attrs umbrella orders slice b after N1 (x4: slice b needs N1), so holding N1 until slice b would invert that edge.
+  (4) *Route*: plan-review's Axis 3 reads §L against NR8 (a) on this revision; if it reads §L as reaching it, the
+  question goes to the EH-attrs umbrella's owner through the PM. Rev 4 answered "yes" by argument; rev 4.1 withdraws
+  that answer.
 
 ### §10.1 R1 review disposition
 
@@ -947,7 +970,7 @@ came from text rev 3 added. The EH-attrs umbrella's §8.4 cites rev-3 lines; the
 | Finding / item | Disposition |
 |---|---|
 | R2 G1 (A3) D-N2's "fail-closed" release no-op lets `call_listener` run a removed or stale callable | **fixed** (driver decision) — HEAD's `HostData::dom()` / `HostData::document()` assert shape kept; "fail-closed" withdrawn (D-N2, H-P18 (2)) |
-| R2 G2 (A2) "once per element" leaves the first insertion undefined (R-a) | **fixed by citation** — K-1 / K-2 with slice-a qualifiers (P-N5, H-P16, H3 × H4, §6 preamble, C8b(iv), C8c); the residual is NR8; the umbrella's O5 answered (O8) |
+| R2 G2 (A2) "once per element" leaves the first insertion undefined (R-a) | **fixed by citation** — K-1 / K-2 with slice-a qualifiers (P-N5, H-P16, H3 × H4, §6 preamble, C8b(iv), C8c); the residual is NR8; the umbrella's O5 is O8, open since rev 4.1 (PM decision 74) |
 | R2 G3 (A2) silent writers + IDL write before the first insertion (R-b) | **fixed by citation** — K-3 with the same qualifier; multi-attribute and Window-delegating cases are S-5's; NR8 (a) pinned by C8g; H-P13 restated under K-5 |
 | R2 G4 (A5) no re-measure obligation on the new base | **fixed** — frame moved to `3cd84a04` and every coordinate re-measured (§0.1, §0.2, §5); §9's re-measure obligation for the implementation PR's own base |
 | R2 A1 MIN G7 is name-based | **fixed** — G7b (behavioural) |
