@@ -35,13 +35,30 @@ implemented is N4's (edge n3; O1); (iii) the slot `#11-unhandledrejection-dispat
 (owner core VM, reachability unconfirmed, re-eval 2026-11-30); (iv) the node memo's "§13.4 step 10" is N9's to correct
 (§0.3).
 
+**Rev 4.2** (2026-10-31, draft) — plan-review on rev 4.1 (`fa85851b`; CRIT 0 / IMP 6, 4 unique / MIN 15, 14 unique /
+FP 4; disposition §10.3). Fixed, by axis: *A1* — D-N3 states why the decision is a new module (the read side), not
+`event_handler_processing/` (the write side). *A2* — H-P19 enumerates the `get_listener` readers and §9 G8 re-runs it;
+C8e is restated as covering three of the four value readers, with the reason the rejection loop is not pinned (NR5),
+and §6's D-N1 guard sentence is scoped to the paths C8e reads; O3 states the fail direction of a wrong `is_handler =
+false` (open), and C8e (iv) (ADDED) pins the plan-side value. *A3* — the route of O8's §L reading (below); H3 × H4's
+"every N1 cell" scoped to the C8 family; D-N3's arm-3 sentence and H4 qualified by slice a's form (NR8 (a)); §6's
+preamble counts NR8 (b) as an outcome change too, pinned by the new C8h; C8g cites slot
+`#11-eh-attrs-creation-time-call-sites`; §10.1's D-N2 row notes its supersession. *A4* — NR8 (a)'s live-document
+variant states the spec outcome. *A5* — the route: a reading of the ratified EH-attrs umbrella (#551) goes to the PM,
+who raises it to the user (PM decision 74), not to "the umbrella's owner" (the same Layout lane); this run's Axis 3
+reading is recorded (header, O8 (4)); §8 records item 8 (the ledger's `onload` reachability example); §5.2 adds
+`natives_promise.rs:543-547`. **Deferred to the next revision (PM-gated, awaiting the user)**: whether §L reaches NR8
+(a) and whether N1 may land after slice a (O8, open), §9's prerequisites / O8 close point, the record question for
+`#11-eh-attrs-creation-time-call-sites` (§7 / §8), and the balance of O8 (3)'s inputs.
+
 **Rev 4.1** (2026-10-31, draft; not yet plan-reviewed) — PM decision 74: rev 4's answer to O8 ("yes", NR8 (a)
 "more restrictive than HEAD", hence inside the node memo's §5.1 interim-window claim and sufficient) is withdrawn and
 split in two. (1) NR8 (a) is stated as a **defect**: N1 and HEAD both run nothing on dispatch where the spec returns the
 written callback and runs it; the getter reads null at N1, a function compiled from the attribute at HEAD, the callback
 in the spec (§0.3 P-N5, §3.1, §5.4 NR8, §10 O8). (2) Whether the EH-attrs umbrella's §L "worse" verdict (its L6.1
-getter shape) reaches that residual is **open** — the EH-attrs umbrella's call, not this memo's (§10 O8, routed through
-plan-review's Axis 3 and, if that reads §L as reaching it, to the umbrella's owner through the PM). C8g is unchanged (a
+getter shape) reaches that residual is **open** — not this memo's call (§10 O8, routed through plan-review's Axis 3;
+rev 4.1 sent a reading that reaches it "to the umbrella's owner through the PM", which rev 4.2 corrects: to the PM, who
+raises it to the user, PM decision 74). C8g is unchanged (a
 window pin); NR8 (b) is unchanged. Touched: the header's open-items paragraph, P-N5, §3.1, NR8, §8 x4, §10's heading
 and O8, §10.2's R2 G2 row, and the rev-4 entry (a gloss).
 
@@ -95,9 +112,11 @@ its exception to the node memo's `:12-14` / A114 idiom; §8 records the post-app
 
 One item is open for plan-review (§10): O1, O2 and O5 are decided by the PM, O3, O4, O6, O7 by the arguments in §10;
 **O8** (the EH-attrs umbrella's O5, which that umbrella leaves to N1) is **open** (PM decision 74). Its residual, NR8 (a),
-is a defect this memo states (§5.4); whether the EH-attrs umbrella's §L "worse" verdict reaches it is that umbrella's
-call, which this memo does not make. Plan-review's Axis 3 reads §L against it, and if it reads §L as reaching it, the
-question goes to the umbrella's owner through the PM.
+is a defect this memo states (§5.4); whether the EH-attrs umbrella's §L "worse" verdict reaches it is a reading of a
+ratified umbrella (#551), which this memo does not make: plan-review's reading of it is reported to the PM, who raises
+it to the user (PM decision 74). The plan-review on rev 4.1 (Axis 3) read §L's lens — its classification of the getter
+shape as "worse" — as reaching NR8 (a), and the consequence for N1's landing as not determined by §L's text; reported
+to the PM 2026-10-31; awaiting the decision (§10 O8 (4)).
 
 ## §0. Frame, premises, decisions
 
@@ -124,7 +143,7 @@ over the four gate files, run 2026-10-28). Node-memo line numbers are this PR's 
 
 Symbols written `Type::method` (`VmInner::ensure_event_handler_current`, `DispatchTarget::resolve_callable`,
 `DispatchTarget::reconcile_handler`, `HostData::scripts_allowed`, `ElidexJsEngine::scripts_allowed`,
-`PendingListener::is_handler`, `EventListeners::uncompiled_source`) name existing methods or fields inside `impl` /
+`PendingListener::is_handler`, `EventListeners::uncompiled_source`, `HostData::get_listener`) name existing methods or fields inside `impl` /
 `struct` blocks, which preflight's literal symbol grep does not find (its soft warnings).
 
 Paths are abbreviated after first use: `elidex-js/src/…` = `crates/script/elidex-js/src/…`,
@@ -152,6 +171,7 @@ Paths are abbreviated after first use: `elidex-js/src/…` = `crates/script/elid
 | H-P16 | (R1 F1; restated against K-1, EH-attrs umbrella §8.4 item 2) A move does not make a handler raw again | `sed -n 282,299p crates/core/elidex-ecs/src/dom/tree/mutation.rs`; `/usr/bin/grep -n 'MutationEvent::Insert' crates/script/elidex-script-session/src/event_handler_consumer.rs`; `sed -n 436,453p` of that file; `sed -n 76,163p crates/script/elidex-script-session/src/event_handler_processing/mod.rs` | **false at `fd6955e8`**: every Insert re-ran `set_uncompiled` for every `on*` attribute of the inserted subtree (`handle_insert`, then `event_handler_consumer.rs:427-463`). **Holds at `3cd84a04` in slice a's form** (K-1, with its qualifier): `fire_after_insert` (`mutation.rs:282-299`) still emits `MutationEvent::Insert` for every insertion, a move included, and the arm (`event_handler_consumer.rs:389`) still walks `node` + `traverse_descendants` (`handle_insert`, `:441-453`), but each element goes through `process_handler_content_attributes` (`event_handler_processing/mod.rs:76`), which writes an ordinary pair only when the element is unmarked (`(false, _) => !marked`, `:123`; a marked non-`body`/`frameset` returns at `:85`) and marks it (`:134`). An element is marked at its first processing: the bound document's first bind (T-a1), its first insertion (T-a2), or its first handler write when the written name is its only deliverable ordinary handler attribute (T-a3, `process_before_handler_write`, `:147-163`; D-8). So for an ordinary pair, creation-time handler content attributes are processed at most once, and no later insertion, move or rebind writes handler state from them. **Not covered** (umbrella §1.5, closed by S-5): (i) a Window-delegating pair (`is_window_delegating_pair`, `:216`; X-W) is written at every insertion, marked or not (`:121`); (ii) an unmarked element carrying two or more deliverable ordinary handler attributes from a silent writer (parser bake, clone) is not processed by a handler write (D-8 (a), `:159`), so its first insertion still writes over that write (K-2 / K-3 residual; NR8) — P-N5 |
 | H-P17 | (R1 A1) The `EventListeners` API the four arms read | `/usr/bin/grep -n 'pub fn ' crates/script/elidex-script-session/src/event_listener.rs` | holds: `is_handler_cleared` (`:271`, `&self`), `uncompiled_source` (`:282`, `&self`, does **not** drain — "without draining", its doc), `take_uncompiled` (`:225`, `&mut self`, drains); HEAD's reconcile calls `take_uncompiled` and `is_handler_cleared` (`event_handler_attrs.rs:571-572`, the only non-test readers in `elidex-js`: `git grep -n 'take_uncompiled\|is_handler_cleared\|uncompiled_source' 3cd84a04 -- crates/script/elidex-js/src ':!*tests*'` → those two lines, re-run 2026-10-28) |
 | H-P18 | (R1 A5) Every reconcile caller runs on a bound VM (D-N2's unbound branch is unreachable) | `/usr/bin/grep -rn 'ensure_event_handler_current(' crates/script/elidex-js/src \| /usr/bin/grep -v 'fn ensure_event_handler_current\|tests'`; `sed -n 60,80p` and `sed -n 100,160p crates/script/elidex-js/src/vm/host/dispatch_target.rs`; `sed -n 455,462p crates/script/elidex-js/src/vm/natives_promise.rs`; `sed -n 24,35p crates/script/elidex-js/src/engine.rs`; `sed -n 1270,1325p crates/script/elidex-js/src/vm/host_data/mod.rs` | **holds**: three call sites. (1) `dispatch_target.rs:183` — `DispatchTarget::reconcile_handler` (`:181-185`, `Node` arm only), reached from the VM walk (`resolve_callable`, `:214`) and the IDL getter (`read_event_handler`, `event_handler_attrs.rs:653`); a `Node` target is built only while bound (`target_from_this`, `dispatch_target.rs:70-77`), and every `Node` listener-home access goes through `ctx.host_if_bound()?` (`:106`, `:125`, `:146`), so the getter returns null before the reconcile when unbound (`read_event_handler`, `event_handler_attrs.rs:647-652`). (2) `engine.rs:233` — `call_listener`, under the BATCH-BIND "assume bound" contract (`engine.rs:27-34`); HEAD's reconcile already reaches `HostData::dom()`, which `assert!`s bound (`host_data/mod.rs:1320-1321`), on every unsandboxed call, so an unbound call panics at HEAD today; were the reconcile skipped instead, `call_listener` would still resolve and invoke the stored callable (`engine.rs:241-246`; R2 G1). (3) `natives_promise.rs:548` — after `Some(host) if host.is_bound()` (`:459`). While bound the document entity is always `Some` (`bind` sets it, `host_data/mod.rs:1277`; `unbind` clears it, `:1283`) |
+| H-P19 | (rev 4.1 A2 MIN) The readers of the listener store's callable, and which reconcile first | `git grep -n 'get_listener(' 3cd84a04 -- crates ':!*tests*'` (run 2026-10-31) | **holds**: 7 lines — the definition `HostData::get_listener` (`vm/host_data/mod.rs:1731`) and six readers. **Reconciled first** (the four *value* readers, each reads a handler's value after its path's reconcile): the VM walk `resolve_callable` (reconcile `dispatch_target.rs:214`, read `:219`), the IDL getter `read_event_handler` (`event_handler_attrs.rs:653`, `:657`), the UA path `call_listener` (`engine.rs:233`, `:244`), the rejection loop (`natives_promise.rs:548`, `:552`). **`Normal` only**: `event_target.rs:530` (the `removeEventListener` candidate match; its candidates are filtered to `ListenerKind::Normal`, `:520-521`). **`VmObject` homes only**: `event_target_dispatch_vm.rs:93` (the VM-object walk's "fires" probe over `vm_event_listeners`, whose homes reconcile nothing, `reconcile_handler` being `Node`-only, `dispatch_target.rs:181-185`). So every read of a `Node`-homed handler value follows a reconcile; a `VmObject` home's handler value is an IDL-set callback (no content attribute reaches it) and has no reconcile to run. C8e pins three of the four value readers (§6) |
 
 ### §0.3 Premise errors
 
@@ -322,7 +342,12 @@ N9): P-N5, §5.4 NR5, §7, §8, §9.
   gate needs the DOM, so every unbound call panics — the same unreachable state, now with one behaviour.
 - **D-N3 — the reconcile implements step 3 whole, in step order, decided engine-independently (PM decision 16: the means
   of D2 × D8's closure; R1 F4: the decision's home).** The arm order lives in a new session-crate function (Layering
-  mandate: the HTML state machine is engine-independent and testable without a VM):
+  mandate: the HTML state machine is engine-independent and testable without a VM). Its home is a new module, not
+  `event_handler_processing/` (rev 4.1 A1 MIN): that module is the content-attribute **write** side — the attribute
+  change steps, creation-time processing and its `HandlerAttrsProcessed` marker (`set_inline_handler` `:266`,
+  `clear_inline_handler` `:282`, `process_before_handler_write` `:147`) — while the reconcile is the **read** side,
+  *get the current value of the event handler* with its gate, called from the getter and the dispatch paths, never
+  from a write:
 
   ```rust
   // crates/script/elidex-script-session/src/event_handler_reconcile.rs (NEW)
@@ -363,7 +388,9 @@ N9): P-N5, §5.4 NR5, §7, §8, §9.
   `cleared` mutually exclusive (H-P7), so the four arms are total. Arms 1, 2 and 4 are HEAD's (HEAD reaches 1 and 2 only
   when the gate does not fire; with the gate firing they were unreachable at HEAD, because a no-`allow-scripts` realm
   never compiles anything, and reachable only through the invoke gate's removal plus the node clause, P-N2). Arm 3's
-  drop is new and only drops a callable that step 3.2 says is not the value. The gate is a closure so that it is
+  drop is new and only drops a callable that step 3.2 says is not the value — under slice a's K-1 to K-3 in their
+  slice-a form; outside it (NR8 (a)) an insertion sets the source over a callback, and arm 3 then drops the value
+  itself. The gate is a closure so that it is
   evaluated only in arm 3's position (H2 × H3) and so that N4 re-points it (n3) without touching the decision. Arm 2's
   "the value is not raw" is exact under slice a's K-1 to K-3, with their slice-a qualifiers (P-N5; NR8).
 - **D-N4 — `is_handler` stays and has one meaning: "reconcile this entry" (decided; O3).** After D-N1 the trait
@@ -418,7 +445,9 @@ rows (§3); `webref coverage-map html 8.1.8.1 html 8.1.3.4` → "ok → single P
 - **H3 Step order** — cleared before the gate; a callback value is never touched by the gate; a raw value under the
   gate reads null with no stale callable left reachable and its source kept (D-N3).
 - **H4 Callback persistence** — a callback value (IDL-set, or compiled while the gate did not fire) survives any later
-  gate firing, and runs (C8b) — the spec outcome D2 accepts as a relaxation (node memo `:543-544`).
+  gate firing, and runs (C8b) — the spec outcome D2 accepts as a relaxation (node memo `:543-544`) — for as long as it
+  is the value: under slice a's K-1 to K-3 in their slice-a form no insertion turns it raw; outside that form NR8 (a)'s
+  insertion does, and arm 3 then drops it.
 - **H5 One composition** — the compile gate is the only N1 reader of §8.1.3.4 for handlers, through the one session
   function; `vm/host/` marshals (Layering mandate).
 - **H6 Engine-independent decision** (R1 F4) — the arm order is decided by `reconcile_event_handler` (NEW) in
@@ -446,7 +475,8 @@ Pairs:
   G2 / G3; EH-attrs umbrella §8.4 items 3–4): K-1 (no insertion, move or rebind writes handler state from creation-time
   attributes) and K-2 / K-3 (a `setAttribute` / IDL write wins over processing), each in slice a's form — ordinary
   pairs only (X-W), and K-2 / K-3 only on an element with at most one deliverable ordinary handler attribute (D-8).
-  Every N1 cell is inside that form (§6). Outside it — Window-delegating pairs, and the multi-attribute case — the
+  Every C8-family cell (C8, C8b–C8e, C30, C31) is inside that form (§6 preamble); C8g (NR8 (a)'s window pin) and C8h
+  (NR8 (b)'s spec pin) are outside it by design. Outside it — Window-delegating pairs, and the multi-attribute case — the
   insertion can still set the bit over a callback; those are slice b's (S-5), and N1's outcome there is NR8. At
   `fd6955e8` every insertion set the bit again (H-P16, P-N5), so N1's implementation PR is based on slice a (§9).
 - **H3 × H5** — arm 3 is the only position in which the composition is consulted, so "the compile gate is the only
@@ -629,7 +659,16 @@ the space-spelled forms pattern A misses):
 `vm/tests/tests_window_open_modals.rs:133` "§8.9.1 cannot-show step 1 fires"). The other 14 are N1's; those pattern A
 does not already list are `dispatch_target.rs:190`, `:195`; `event_handler_attrs.rs:544`; `scripting.rs:16`;
 `tests_event_handler_attrs.rs:554`, `:556`, `:558`, `:565`, `:702`. Union: 27 N1 lines (18 + 9). Outside both patterns
-but in the same family: the wrapper's doc `event_handler_attrs.rs:588-596` (deleted with it); the reconcile's own doc
+but in the same family: the rejection loop's reconcile comment `natives_promise.rs:543-547` (rev 4.1 A5 MIN), which says
+the reconcile is there because "a content-attribute `onunhandledrejection` would otherwise never compile on this
+non-`walk_phase` dispatch path" — contradicted by H-P6 / NR5: the target is the Document entity, while a content
+attribute `onunhandledrejection` is a `HandlerScope::Window` name (`event_handler_consumer.rs:184`) and lands on the
+Window entity, and the Document installs no such IDL attribute (`vm/host/document.rs:1048-1050`: `Global`,
+`DocumentElement`, `DocumentOnly`), so no handler entry reaches this reconcile — rewritten to: "HTML §8.1.8.1 *get the
+current value of the event handler*: reconcile a handler entry before resolving its callable (the same form as the
+other dispatch paths, D-N4). The target here is the Document entity, which no `onunhandledrejection` handler reaches
+today (`#11-unhandledrejection-dispatch-target`), so this is a no-op until that slot moves the target to the Window.
+No-op for `addEventListener` listeners."; the wrapper's doc `event_handler_attrs.rs:588-596` (deleted with it); the reconcile's own doc
 `event_handler_attrs.rs:515-524` (re-pointed to the session decision); the UA path's reconcile comment
 `engine.rs:220-230`, which calls the reconcile "the scripting-disabled COMPILE chokepoint (… step 3.2): when scripting
 is disabled it does NOT compile" — the old flag-only reading, rewritten to the current step 3.2 and the session
@@ -651,14 +690,15 @@ Line counts verified 2026-10-28 (`wc -l` at `3cd84a04`): `crates/script/elidex-j
 `crates/script/elidex-script-session/src/event_handler_reconcile.rs` (NEW; ≈ 60 lines of code and ≈ 90 of C8f tests),
 `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs.rs` (706), `crates/script/elidex-js/src/tests_call_listener.rs`
 (459; C8e's UA half, ≈ 485 after), and slice a's `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs`
-(376; C15's rewrite, §5.1, ≈ 380 after). Under O3's other option, `event_dispatch/mod.rs` (656) and the eight
+(376; C15's rewrite, §5.1, ≈ 380 after), and slice a's `crates/shell/elidex-shell/src/content_eh_attrs_bind_tests.rs`
+(346, `wc -l` at `3cd84a04` 2026-10-31; C8e (iv), rev 4.2, ≈ 375 after). Under O3's other option, `event_dispatch/mod.rs` (656) and the eight
 `tests_call_listener.rs` call sites would join. This plan PR also edits `docs/plans/2026-09-ibp-sandbox.md` (the
 erratum, P-N1; the prerequisite paragraph, PM decision 17 (i), naming `EH-attrs-at-creation` slice a since rev 4).
 
 **`tests_event_handler_attrs.rs` — split at `:509`, decided** (touch-time rule: a file in the ~700–800-line band with a
 real seam is split before the feature, as a standalone prerequisite commit). Projection without a split: 706 + N1's
-cells (C8's source oracle ≈ 8, C8b(iv) ≈ 28, C8c ≈ 38, C8d ≈ 28, C8g ≈ 20, C30 ≈ 20, C8e's VM half ≈ 30, the `:606` /
-`:641` raw-form rewrites ≈ 14) − the deleted invoke-gate comments ≈ 10 ⇒ **≈ 880 lines**, past the band. The seam is
+cells (C8's source oracle ≈ 8, C8b(iv) ≈ 28, C8c ≈ 38, C8d ≈ 28, C8g ≈ 20, C8h ≈ 18, C30 ≈ 20, C8e's VM half ≈ 30,
+the `:606` / `:641` raw-form rewrites ≈ 14) − the deleted invoke-gate comments ≈ 10 ⇒ **≈ 900 lines**, past the band. The seam is
 real: `:1-508` are the IDL / content-attribute handler basics (F-1 … F-24); `:509-706` is the S5-4a scripting-gates
 section (its own header block `:509-514`), exactly N1's subject. So the **first commit** of N1's implementation PR,
 before any behaviour edit, moves `:509-706` verbatim into
@@ -666,7 +706,7 @@ before any behaviour edit, moves `:509-706` verbatim into
 `tests_event_handler_attrs_window_delegating`, `vm/tests/mod.rs:69`), with the file-local helpers `with_el` and
 `eval_bool` (`:17-38`) made `pub(super)` in the source file and imported by the new one; `entity_of` and `eval_str`
 are already `pub(crate)` in `vm/test_helpers.rs` (`:199`, `:298`, moved there by #563) and are imported from it. ≈ 508
-and ≈ 205 lines after the split, the new file ≈ 380 after N1. Every `tests_event_handler_attrs.rs:<line>` pointer in
+and ≈ 205 lines after the split, the new file ≈ 400 after N1. Every `tests_event_handler_attrs.rs:<line>` pointer in
 this memo at or after `:509` is a `3cd84a04` coordinate of a function that the split moves into the new file; N1's cells
 are written there. G4 checks both files.
 
@@ -716,9 +756,11 @@ are written there. G4 checks both files.
     attribute (not the callback) at HEAD, and the callback in the spec. Inputs to §10 O8, not its resolution: N1's
     dispatch equals HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive"; the
     EH-attrs umbrella's §L counted the same getter shape, the lost `typeof … === 'function'`, as worse (its L6.1, on the
-    wider population of a base without slice a). With a `setAttribute` in place of the
-    IDL write there is no residual (the value is raw either way, and the spec's getter in a DOMParser document is null
-    too); inserted into the live document instead, arm 4 compiles the attribute, as HEAD does (§L L6.3).
+    wider population of a base without slice a). Two variants. With a `setAttribute` in place of the IDL write — that
+    variant only — there is no residual (the value is raw either way, and the spec's getter in a DOMParser document is
+    null too). Inserted into the live document instead (rev 4.1 A4 MIN), arm 4 compiles the attribute and dispatch runs
+    `A`, as HEAD does (§L L6.3), so N1 = HEAD; the spec returns the written callback `fn` and runs it, so this variant
+    is the same defect with N1 equal to HEAD on both the getter and dispatch.
   - **(b) Window-delegating pairs** (X-W), re-written at every insertion. A `WindowEventHandlers` name on `<body>`
     targets the page Window, whose gate is the settings clause alone (H-P6, D-N2): N1 changes nothing. A
     Window-reflecting name on `<body>` / `<frameset>`, or a `WindowEventHandlers` name on `<frameset>`, targets the
@@ -726,7 +768,7 @@ are written there. G4 checks both files.
     and the spec's getter is null as well (the event handler IDL attribute's getter steps 1–2: *determine the target of
     an event handler* step 3 returns null for an element whose node document is not an active document; `webref body
     html event-handler-idl-attributes`, 2026-10-28). N1 moves to the spec there.
-  Pin: **C8g** (window pin for (a), §6). Slice b's S-5 is the closer the EH-attrs umbrella declares for both classes
+  Pins: **C8g** (window pin for (a), §6); **C8h** (spec pin for (b)'s element-targeted half, §6; rev 4.1 A3 MIN). Slice b's S-5 is the closer the EH-attrs umbrella declares for both classes
   (its §1.5); C8g is the window pin that flips to C8b's expectation then. Whether the umbrella's §L verdict reaches (a):
   open, §10 O8.
 
@@ -744,11 +786,13 @@ element with at most one deliverable ordinary handler attribute (D-8). Every C8-
 uses `onclick` on a `div` or `button` — an ordinary pair — on an element that either carries no content attribute
 (IDL-set arms) or gets its one handler attribute by `setAttribute`, which marks it at that write (T-a3, H-P16); so
 each is inside that form, and a later move never re-raws it. The multi-attribute and Window-delegating cases are slice
-b's (S-5); N1 pins the one that changes an N1 outcome, NR8 (a), by the window pin C8g. **Check, not edit** (EH-attrs
+b's (S-5); both change an N1 outcome (rev 4.1 A3 MIN): NR8 (a) away from the spec, pinned by the window pin C8g, and
+NR8 (b)'s element-targeted half toward it (the getter reads null where HEAD compiled), pinned by C8h. **Check, not edit** (EH-attrs
 umbrella §8.4 item 9): no N1 cell builds initial HTML through a shell pipeline — the VM cells build every
 handler-carrying element by script after bind (`with_el`), and `tests_call_listener.rs` seeds `EventListeners`
 directly on elements without attributes — so the bind pass (K-6) delivers nothing to them and no HEAD prediction
-changes.
+changes. The one shell-pipeline cell, C8e (iv) (rev 4.2), builds its initial HTML with no handler attribute (a bare
+`<button>`) and sets the handler by `eval_script` after the build, so the same holds for it.
 
 **Source oracle** (used by C8 and C8c; R1 A2): the test reads the target's `EventListeners` component through
 `vm.host_data().dom()` and asserts `EventListeners::uncompiled_source(id)` (non-draining, H-P17) equals the attribute's
@@ -765,9 +809,10 @@ fails under an arm 3 that takes the source.
 | C8f (NEW) | the decision without a VM (H6): an `EcsDom` entity with an `EventListeners` component and a gate spy (a closure that records its calls and returns a fixed verdict): (i) `set_uncompiled` then `mark_cleared`, spy → true: `Deactivated`, spy not called; (ii) a fresh `add_event_handler` entry (no source), spy → true: `Unchanged`, spy not called; (iii) `set_uncompiled(src)`, spy → true: `Suppressed`, spy called once, `uncompiled_source(id) == Some(src)` after, and a second call returns `Suppressed` again; (iv) `set_uncompiled(src)`, spy → false: `Compile(src)`, `uncompiled_source(id) == None` after; (v) an entity without `EventListeners`: `Unchanged`, spy not called | `elidex-script-session/src/event_handler_reconcile.rs` `#[cfg(test)]` |
 | C28b | C28's sandboxed twin: a detached owner-`None` element with a raw handler in a no-`allow-scripts` realm → never compiled, never runs (the settings clause first) | `tests_call_listener.rs:188` (survives; renamed or annotated as C28b) |
 | C30 | reverse case, production form: `b = document.createElement('button'); b.setAttribute('onclick', …); dp.body.append(b); b.dispatchEvent(new Event('click'))` → getter null, handler does not run | `tests_event_handler_scripting_gates.rs` (ADDED) |
-| C8g (NEW; window pin, NR8 (a)) | the slice-a multi-attribute residual: `dd = new DOMParser().parseFromString('<div id=d onclick="A" onmouseover="M"></div>', 'text/html'); d = dd.getElementById('d'); d.onclick = fn` (two deliverable ordinary attributes: the write processes nothing, D-8 (a)), then `dd2.body.append(d)` for a second DOMParser document `dd2` (its first insertion: processed, `A` raw over `fn`, T-a2) → `d.onclick === null`, dispatch runs neither `fn` nor `A`, the source oracle reads `A`. HEAD: a function compiled from `A`, nothing runs; spec: `fn`, which runs. The comment names it a window pin that slice b (S-5) inverts to C8b's expectation | `tests_event_handler_scripting_gates.rs` |
+| C8g (NEW; window pin, NR8 (a)) | the slice-a multi-attribute residual: `dd = new DOMParser().parseFromString('<div id=d onclick="A" onmouseover="M"></div>', 'text/html'); d = dd.getElementById('d'); d.onclick = fn` (two deliverable ordinary attributes: the write processes nothing, D-8 (a)), then `dd2.body.append(d)` for a second DOMParser document `dd2` (its first insertion: processed, `A` raw over `fn`, T-a2) → `d.onclick === null`, dispatch runs neither `fn` nor `A`, the source oracle reads `A`. HEAD: a function compiled from `A`, nothing runs; spec: `fn`, which runs. The comment names it a window pin that slice b (S-5; slot `#11-eh-attrs-creation-time-call-sites`) inverts to C8b's expectation | `tests_event_handler_scripting_gates.rs` |
+| C8h (NEW, rev 4.2; spec pin, NR8 (b)) | a Window-reflecting body name in a DOMParser document, element-targeted at HEAD (X-W; the name is `HandlerScope::Global`, e.g. `onfocus`, so the AttributeChange arm targets the body element and `body.onfocus` is `HTMLElement.prototype`'s ordinary accessor): `dd = new DOMParser().parseFromString('<body></body>', 'text/html'); dd.body.setAttribute('onfocus', 'A')` → `dd.body.onfocus === null` (arm 3: the node clause fires), and `dd.body.dispatchEvent(new Event('focus'))` runs nothing. HEAD: the getter returns a function compiled from `A`, nothing runs (invoke gate); spec: null and nothing runs (the getter's steps 1–2: *determine the target of an event handler* step 3 returns null, the node document not being active). One representative of (b)'s element-targeted half; the `<frameset>` variants take the same path | `tests_event_handler_scripting_gates.rs` |
 | C31 | mirror case, production form: a DOMParser node appended into the live document, then `setAttribute('onclick', …)` and `dispatchEvent(new MouseEvent('click'))` → the handler runs (C29's oracle at N1; `:641` rewritten to it under O6). Re-derived from input §E C31, which names `click()` (H-P14) | `tests_event_handler_scripting_gates.rs` |
-| C8e (NEW) | one form on every path (H1, D-N4): the same raw handler on a DOMParser node read through (i) the VM dispatch walk, (ii) `ScriptEngine::call_listener`, (iii) the IDL getter → null on all three; and an IDL-set handler there runs on (i) and (ii) | `tests_event_handler_scripting_gates.rs`, `tests_call_listener.rs` |
+| C8e (NEW) | one form on the value readers that can hold a handler value (H1, D-N4; H-P19): the same raw handler on a DOMParser node read through (i) the VM dispatch walk (`resolve_callable`), (ii) `ScriptEngine::call_listener`, (iii) the IDL getter (`read_event_handler`) → null on all three; and an IDL-set handler there runs on (i) and (ii). (iv) (ADDED, rev 4.2; O3's fail direction) the plan side of the UA path, through `PipelineResult::dispatch_event` (session `dispatch_event` → `call_listener` with the plan's `is_handler`, `event_dispatch/mod.rs:325` → `:510`): a live `<button>` given `setAttribute('onclick', …)` by script and never read or dispatched before, then UA-dispatched → it runs (the plan's `is_handler` reached the reconcile; a wrong `false` never compiles it); then `removeAttribute('onclick')` and a second UA dispatch → nothing runs (a wrong `false` would skip arm 1 and run the removed callable), with that file's non-vacuity control. These are three of H-P19's four value readers. The fourth, the rejection loop (`natives_promise.rs:548` / `:552`), is not pinned: its target is the Document entity (NR5), and no handler entry for `unhandledrejection` reaches it — no raw value (H-P6) and no IDL attribute (`onunhandledrejection` is `HandlerScope::Window`, `event_handler_consumer.rs:184`; the Document installs `Global` / `DocumentElement` / `DocumentOnly`, `vm/host/document.rs:1048-1050`) — so that path sees only `Normal` listeners, and a gate or reconcile change there is unobservable until `#11-unhandledrejection-dispatch-target` moves the target | `tests_event_handler_scripting_gates.rs`, `tests_call_listener.rs`, `content_eh_attrs_bind_tests.rs` ((iv)) |
 | — | `:518` (settings clause, sandboxed) and `tests_call_listener.rs:120` unchanged and green; `:606` rewritten to raw form under O6: the detached-element arm (`setAttribute('onclick', …)`) compiles and runs; the Window arm (`setAttribute('onpopstate', …)` on a `<body>` the bound document creates — a Window-delegating pair, so HEAD's path under X-W) expects **HEAD's outcome**: the raw handler lands on the Window, compiles and runs (EH-attrs umbrella §8.4 item 4); the Document arm stays IDL-set, there being no raw producer for a Document (H-P6). Slice a's C15 rewritten to C8's expectation (§5.1) | per file |
 
 **Mutation guards for D-N3** (each mutant of `reconcile_event_handler` and the cells it fails): restoring HEAD's single
@@ -775,7 +820,9 @@ early return (gate before every arm) fails C8c's first half (the stale `A` runs)
 called before any arm is read, and (i) does not return `Deactivated`); moving the cleared arm after the gate fails C8d and C8f (i); an arm 3 that takes the
 source fails C8's source oracle, C8c's second half and C8f (iii); an arm 3 that does not drop the stale callable (the
 host maps `Suppressed` to nothing) fails C8c's first half and C8g (the getter would return the stale `fn`); consulting the gate for a callback value (arm 2 after the
-gate) fails C8b (i)–(iv) and C8f (ii). C8e guards D-N1: re-adding an invoke gate on any path fails its IDL-set arm.
+gate) fails C8b (i)–(iv) and C8f (ii). C8e guards D-N1 on the paths it reads (H-P19): re-adding an invoke gate on the VM walk or the UA path fails its
+IDL-set arm ((i), (ii)); the IDL getter (iii) has no invoke gate to re-add; a gate re-added on the rejection loop is not
+observable (C8e's row), and no cell pins it.
 Commands: `cargo test -p elidex-js --all-features`, `cargo test -p elidex-script-session --all-features`, `cargo test -p
 elidex-shell --all-features`; `mise run ci` before push.
 
@@ -845,6 +892,13 @@ and `#11-unhandledrejection-dispatch-target` for pre-existing gaps (A96).
      and decides C1's handling (EH-attrs umbrella §1.2 order, §1.6). N1 decides nothing about C1.
   7. `project_open-defer-slots.md`, `#11-unhandledrejection-dispatch-target`: N1's PR meets its trigger (NR5) and
      records the re-evaluation — no change; owner and re-eval date kept.
+  8. *(for the PM, any time; rev 4.1 A5 MIN — not tied to N1's landing)* `project_open-defer-slots.md`,
+     `#11-event-handler-target-determination`, **Reachability**: its example "via `setAttribute('onload', …)` on the
+     parsed body" is wrong — `onload` is a Window-reflecting body name (`HandlerScope::Global`), which HEAD targets at
+     the body element, as the slot's own facet (4) says, so it never reaches facet (1)'s Window. Replacement for the PM
+     to apply: "expected but **unproven** after construction via `setAttribute('onhashchange', …)` on the parsed body (a
+     `WindowEventHandlers` name, `HandlerScope::Window`; AttributeChange arm …" — the rest of the sentence unchanged.
+     This memo corrected the same example in its own §3.1 at rev 4 (§10.2, item 3–4 row).
 
 ## §9. Definition of done
 
@@ -884,7 +938,12 @@ Mechanical greps (each at the PR head):
   → 0: the reconcile reads no `EventListeners` component and matches no `ListenerKind` at all (at the base: 3, the
   function being `:525-585`, 61 lines); every arm read is inside `reconcile_event_handler`.
 
-Behavioural: the (a′) record (§5.1) is in the PR description; C8, C8b (i)–(iv), C8c, C8d, C8e, C8f, C8g, C28b, C30, C31
+- **G8** (H-P19; rev 4.1 A2 MIN) H-P19's command at the head, `git grep -n 'get_listener(' -- crates ':!*tests*'` →
+  every hit is the definition, a value reader preceded on its path by a reconcile call, or a reader whose candidates
+  are `Normal` / `VmObject`-homed only (reviewer check over the hit list; at the base: 7 lines, H-P19). A new value
+  reader without a reconcile stops the PR.
+
+Behavioural: the (a′) record (§5.1) is in the PR description; C8, C8b (i)–(iv), C8c, C8d, C8e (i)–(iv), C8f, C8g, C8h, C28b, C30, C31
 present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p` commands and `mise run ci` pass. Preflight: `python3
 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-10-ibp-sandbox-handler-gates.md` exits 0.
 
@@ -900,7 +959,18 @@ present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p
   trait parameter and `PendingListener::is_handler` and reconcile unconditionally on those two paths — either leaves the
   VM walk's guard as a second form or, removing that too, leaves `ListenerPlanEntry::is_handler` without a reader (dead,
   to be deleted in a widening N1 does not need). (a) is the one form (One issue, one way) and keeps the plan field's
-  documented purpose.
+  documented purpose. **Fail direction** (rev 4.1 A2 MIN; the decision is kept): under (a) the UA path reconciles only
+  when its caller says so. A wrong `false` for a handler entry skips the reconcile; with the invoke gate removed, a
+  removed (cleared) or stale callable still in the store then runs — the guard fails **open** (a raw value, for its
+  part, never compiles). At HEAD the same wrong `false` only skipped the invoke gate, the reconcile being unconditional
+  (`engine.rs:233`), so this exposure is D-N4's. The one production caller is the session plan:
+  `event_dispatch/mod.rs:505` calls `call_listener` with `entry.is_handler` (`:510`), set at `:325` as
+  `matches!(e.kind, ListenerKind::EventHandler { .. })` — derived from the entry's kind, not supplied per call. No
+  existing cell pins it: `tests_call_listener.rs` passes the bool literally, and the shell's only handler cells reached
+  through `PipelineResult::dispatch_event` (slice a's E2 and E3, `content_eh_attrs_bind_tests.rs`) dispatch a handler a
+  script already compiled (`git grep -n -E '\bon[a-z]+=|\.on[a-z]+ *=' 3cd84a04 -- 'crates/shell/elidex-shell/src/*'`
+  → hits in that file only; run 2026-10-31). So N1 adds C8e (iv), whose two halves fail under a wrong `false` in each
+  direction (§6).
 - *O4 — decided: narrow the composition's `target` and `bound_document` to `Entity` in N1, deleting both `None` arms
   (D-N2).* After D-N1 no caller passes `None` for either (H-P18); CLAUDE.md's rule is that dead code is connected or
   deleted, and there is nothing to connect it to: the VM-object homes it served reconcile nothing (`reconcile_handler`
@@ -927,13 +997,17 @@ present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p
   function compiled from the attribute at HEAD, the callback in the spec. C8g pins it as a window pin; slice b's S-5 is
   the closer the EH-attrs umbrella declares. (3) *The open question*: whether the EH-attrs umbrella's §L "worse"
   verdict — its L6.1 getter shape, judged when it decided that no order may put N1 before slice a — reaches this
-  residual. That is the EH-attrs umbrella's call; this memo does not decide it either way. Inputs, not a resolution:
+  residual. It is a reading of the ratified EH-attrs umbrella (#551); this memo does not decide it either way. Inputs, not a resolution:
   N1's dispatch equals HEAD's; the node memo's §5.1 interim-window claim reads "equals HEAD or is more restrictive";
   NR8 (a) is §L's getter shape on a narrower population that slice a leaves open (its §1.5 K-2 / K-3 residual); the
   EH-attrs umbrella orders slice b after N1 (x4: slice b needs N1), so holding N1 until slice b would invert that edge.
-  (4) *Route*: plan-review's Axis 3 reads §L against NR8 (a) on this revision; if it reads §L as reaching it, the
-  question goes to the EH-attrs umbrella's owner through the PM. Rev 4 answered "yes" by argument; rev 4.1 withdraws
-  that answer.
+  (4) *Route* (corrected in rev 4.2; rev 4.1 A5 IMP): because the question is a reading of a ratified umbrella, it is
+  reported to the PM, who raises it to the user (PM decision 74). The EH-attrs umbrella's owner is not the decider: it
+  is the same Layout lane that authors this memo. *This run*: the plan-review on rev 4.1 (`fa85851b`), Axis 3, read §L's
+  lens — the classification of the getter shape (L6.1 / L2.1, "worse": the lost `typeof … === 'function'`) — as
+  reaching NR8 (a), and the consequence (whether N1 may land after slice a, the umbrella's O5) as not determined by
+  §L's text; reported to the PM 2026-10-31; **awaiting the decision**. O8 stays open. Rev 4 answered "yes" by argument;
+  rev 4.1 withdraws that answer.
 
 ### §10.1 R1 review disposition
 
@@ -946,7 +1020,7 @@ present and green, and slice a's C15 rewritten (§5.1); the three `cargo test -p
 | A1 MIN map arms to `EventListeners` APIs | **fixed** — D-N3 arms 1–4, H-P17 |
 | A2 MIN arm-3 "source kept" has no discriminating oracle | **fixed** — C8's source oracle, C8c's second half (under slice a's K-1), C8f (iii); §5.1 `:597` (now `:568`) row corrected |
 | A3 MIN §13.4 step 10 on the touched D8 line | **recorded** — §0.3 (PM decision 17 (iv): N9 corrects) |
-| A3 MIN D-N2 unbound branch location | **fixed** — D-N2 (head of the reconcile; `debug_assert!` + fail-closed no-op), H-P18 |
+| A3 MIN D-N2 unbound branch location | **fixed** — D-N2 (head of the reconcile; `debug_assert!` + fail-closed no-op), H-P18 (superseded by R2 G1, §10.2: fail-closed withdrawn; D-N2 panics) |
 | A3 MIN O4 "churn" argument | **fixed** — O4 decided on the dead-code rule (narrow) |
 | A3 MIN §1 Plumbing as a third axis | **fixed** — §1 (the Invoke axis's completion) |
 | A3 MIN §2 pairs H2 × H4, H3 × H5 missing | **fixed** — §2, plus H6's pairs |
@@ -988,3 +1062,34 @@ came from text rev 3 added. The EH-attrs umbrella's §8.4 cites rev-3 lines; the
 | item 9 shell-pipeline cells | **checked** — none (§6 preamble) |
 | item 10 node memo `:38` | **applied** — label, path, K-1, §L |
 | slice-a plan §9 slots | **recorded** — `#11-template-contents-owner-document` trigger completed by N1's landing (§8 item 6); `#11-event-handler-target-determination` re-pointed (§3, §3.1, §7) |
+
+### §10.3 Rev 4.2: plan-review on rev 4.1 disposition
+
+The plan-review on rev 4.1 (`fa85851b`; CRIT 0 / IMP 6, 4 unique / MIN 15, 14 unique / FP 4). Dedup: A5 IMP2 = A3 IMP2,
+A5 IMP3 = A3 IMP3, A5's §10.1 MIN = A3's. **PM-gated** rows await the user's answer (PM decision 74) and are left for
+the next revision.
+
+| Finding | Disposition |
+|---|---|
+| A1 MIN §4.1 / D-N3: why a new `event_handler_reconcile.rs`, not `event_handler_processing/` | **fixed** — D-N3 states the seam (processing = the content-attribute write side; reconcile = the read side, *get the current value* and its gate) |
+| A1 FP D-N2 / §4.3 host marshalling | **FP** — within the Layering mandate's marshalling scope (and narrower than HEAD's direct `EventListeners` read, `event_handler_attrs.rs:562-574`) |
+| A1 FP §3 row 3 / arm 4 compile path | **FP** — HEAD's compile path unchanged; not a LegacySemantics extension |
+| A2 MIN C8e covers 3 of 4 readers; "any path" overclaim; no reader premise | **fixed** — H-P19 (the `get_listener` readers, classified, with its command); C8e restated (three of four, the rejection loop not pinned: NR5, `HandlerScope::Window`); §6's D-N1 guard scoped to (i) / (ii); §9 G8 re-runs H-P19. §2 H1 and H-P18 state no pinning claim and are unchanged |
+| A2 MIN (uncertain) D-N4 / O3 fail direction of `is_handler` | **fixed (decision kept)** — O3 states the fail direction (a wrong `false` fails open, D-N4's exposure; production caller `event_dispatch/mod.rs:505`, value `:510`, set `:325`); no existing pin, so C8e (iv) (ADDED) |
+| A3 IMP §L reading (O8) and O8 (3)'s input balance | **PM-gated** — reported to the PM 2026-10-31; this run's reading recorded (header, O8 (4)); O8 open |
+| A3 IMP (= A5 IMP2) O8 close point / owner; §9 "one prerequisite, met" | **PM-gated** |
+| A3 IMP (= A5 IMP3) `#11-eh-attrs-creation-time-call-sites` defect (1) record | **PM-gated** |
+| A3 MIN §2 H3 × H4 "every N1 cell" | **fixed** — scoped to the C8 family, C8g and C8h named as outside by design |
+| A3 MIN §0.4 D-N3 / §2 H4 unqualified universals | **fixed** — both qualified by slice a's K-1 to K-3 form, pointing to NR8 (a) |
+| A3 MIN §6 preamble: NR8 (b) also changes an outcome | **fixed** — preamble counts both; C8h (NEW, spec pin) in §6, NR8's pins and §9 |
+| A3 MIN §6 C8g closer without slot | **fixed** — cites `#11-eh-attrs-creation-time-call-sites` |
+| A3 MIN header / O8 (4) route to a review axis; no closer for other branches | **fixed (route)** with A5 IMP1; the close point is PM-gated (A3 IMP2) |
+| A3 MIN (= A5 MIN) §10.1 D-N2 row cites the withdrawn fail-closed fix | **fixed** — supersession note appended; history otherwise kept |
+| A4 MIN (uncertain) NR8 (a) live-document variant omits the spec outcome | **fixed** — NR8 (a) states spec (`fn` runs) vs N1 = HEAD (`A` compiled and run); "no residual" scoped to the `setAttribute` variant. O8 (2) does not repeat the variant |
+| A5 IMP routing "umbrella's owner through the PM" ≠ PM decision 74 | **fixed** — header, rev 4.1 entry (gloss), O8 (3)'s decider sentence, O8 (4): to the PM, who raises it to the user |
+| A5 MIN ledger `onload` reachability example | **fixed** — §8 records item 8 (replacement wording for the PM; the ledger is not edited here) |
+| A5 MIN (uncertain) `natives_promise.rs:543-547` comment | **fixed** — added to §5.2 with its corrected wording (the Document target receives no `onunhandledrejection` handler) |
+| A5 MIN (info) `#11-cross-document-adopt-on-insert` re-eval date is today | **info to the PM** — ledger state; no memo change (§7 row cites the ledger date) |
+| A5 MIN (info) MEMORY.md Active-state L2 line stale | **info to the PM** — no memo change |
+| A5 FP §5.3 test split | **FP** — settled in R1 (A5) |
+| A5 FP header slot name | **FP** — the ledger's name is the one cited |
