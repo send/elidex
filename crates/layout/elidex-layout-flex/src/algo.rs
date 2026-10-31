@@ -453,26 +453,16 @@ fn relayout_item_at_position(
     // Flex §9.9: stretched items have a definite cross size for their children's
     // percentage-height resolution. Pass the resolved cross size as the
     // containing height (for row flex) or containing width (for column flex).
-
-    let (child_containing_width, child_containing_height) = if ctx.horizontal {
-        (
-            ctx.containing.width,
-            if item.align == AlignItems::Stretch && item.cross_size_auto {
-                Some(item_content_height)
-            } else {
-                ctx.resolved_height
-            },
-        )
+    let stretched = item.align == AlignItems::Stretch && item.cross_size_auto;
+    let child_containing_width = if !ctx.horizontal && stretched {
+        item_content_width
     } else {
-        // Column flex: cross axis is width. Stretched items get a definite width.
-        (
-            if item.align == AlignItems::Stretch && item.cross_size_auto {
-                item_content_width
-            } else {
-                ctx.containing.width
-            },
-            ctx.resolved_height,
-        )
+        ctx.containing.width
+    };
+    let child_containing_height = if ctx.horizontal && stretched {
+        Some(item_content_height)
+    } else {
+        ctx.resolved_height
     };
 
     // Re-layout the item at its final margin-box position so
