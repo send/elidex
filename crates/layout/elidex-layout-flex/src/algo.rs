@@ -450,27 +450,21 @@ fn relayout_item_at_position(
         let _ = dom.world_mut().insert_one(item.entity, style);
     }
 
-    // Flex §9.9: stretched items have a definite cross size for their children's
-    // percentage-height resolution. Pass the resolved cross size as the
-    // containing height (for row flex) or containing width (for column flex).
-    let child_containing_width;
-    let child_containing_height;
-    if ctx.horizontal {
-        child_containing_width = ctx.containing.width;
-        child_containing_height = if item.align == AlignItems::Stretch && item.cross_size_auto {
-            Some(item_content_height)
-        } else {
-            ctx.resolved_height
-        };
+    // CSS Flexbox 1 §9.8 (item 3): stretched items have a definite cross size
+    // for their children's percentage-height resolution. Pass the resolved cross
+    // size as the containing height (for row flex) or containing width (for
+    // column flex).
+    let stretched = item.align == AlignItems::Stretch && item.cross_size_auto;
+    let child_containing_width = if !ctx.horizontal && stretched {
+        item_content_width
     } else {
-        // Column flex: cross axis is width. Stretched items get a definite width.
-        child_containing_width = if item.align == AlignItems::Stretch && item.cross_size_auto {
-            item_content_width
-        } else {
-            ctx.containing.width
-        };
-        child_containing_height = ctx.resolved_height;
-    }
+        ctx.containing.width
+    };
+    let child_containing_height = if ctx.horizontal && stretched {
+        Some(item_content_height)
+    } else {
+        ctx.resolved_height
+    };
 
     // Re-layout the item at its final margin-box position so
     // descendants get correct absolute coordinates.

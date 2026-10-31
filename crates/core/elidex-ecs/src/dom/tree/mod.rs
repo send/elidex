@@ -56,8 +56,7 @@ impl EcsDom {
     pub(super) fn is_child_of(&self, child: Entity, parent: Entity) -> bool {
         self.world
             .get::<&TreeRelation>(child)
-            .ok()
-            .is_some_and(|rel| rel.parent == Some(parent))
+            .is_ok_and(|rel| rel.parent == Some(parent))
     }
 
     /// Read a field from an entity's `TreeRelation` component.

@@ -1702,9 +1702,9 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 Every new slot is pre-existing class — `#11-content-visibility-skip-contents` included, the home of a program
 repairing a pre-existing class (§0.6 items 11, 12), not A93-ordered, and likewise `#11-svg-layout-model` (§0.6 item 17). **Own deferrals** (§0.6 item 13; cap policy
 `feedback_defer_cap_policy.md:12`/`:16`): each `content-visibility` pin, and IBP-layout's SVG layout-model pin (§0.6 item 17), counts for its exposing PR,
-conditional on the cell firing at that PR's actual base — `IBP-sandbox` 1, `IBP-css-machinery` 1, `IBP-layout` 2 (its A96 facets
+conditional on the cell firing at that PR's actual base — `IBP-sandbox` 2 (its `content-visibility` pin and its nested PR N1's one own deferral, below), `IBP-css-machinery` 1, `IBP-layout` 2 (its A96 facets
 and the seams firing are pre-existing, not own), and the umbrella's PR-1b 0 → 1, PR-1c 1 → 2, PR-1d 1 → 2; each ≤ 3.
-No sub-PR opens any other own deferral. Withdrawn before opening:
+No sub-PR opens any other own deferral, except IBP-sandbox's N1: by PM decision 90 (user, 2026-10-31) N1 opens one, `docs/plans/2026-10-ibp-sandbox-handler-gates.md` §5.4 NR8 (a) (a getter outcome N1 changes, left to `EH-attrs-at-creation` slice b's S-5, recorded under `#11-eh-attrs-creation-time-call-sites`), so IBP-sandbox's total is 2 (`docs/plans/2026-09-ibp-sandbox.md` §5.2). Post-approval correction 2026-10-31 (PM decision 105; in place, no line added; carried by IBP-sandbox N1's PR): this paragraph read "`IBP-sandbox` 1" and "No sub-PR opens any other own deferral.", written before NR8 (a) was found. Withdrawn before opening:
 `#11-resize-observer-activation-ignores-observed-box` (IBP-observer implements it),
 `#11-parser-scripting-flag-from-sandbox` (IBP-sandbox), `#11-document-base-url-parse-sites` (rev 63; merged into `#11-document-base-url` at rev 65), `#11-html-rendering-forced-display-none`
 (`IBP-ua-display`, by A93 — an instance-level placement; if `IBP-ua-display`'s plan places that defect A96 under

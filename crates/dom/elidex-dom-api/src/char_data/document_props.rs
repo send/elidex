@@ -168,9 +168,9 @@ fn find_child_element(dom: &EcsDom, parent: Entity, tag_name: &str) -> Option<En
 #[must_use]
 pub fn first_body_or_frameset_child(dom: &EcsDom, html: Entity) -> Option<Entity> {
     dom.children_iter(html).find(|child| {
-        dom.world().get::<&TagType>(*child).ok().is_some_and(|t| {
-            t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
-        })
+        dom.world()
+            .get::<&TagType>(*child)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset"))
     })
 }
 

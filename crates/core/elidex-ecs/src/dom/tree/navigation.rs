@@ -197,10 +197,7 @@ impl EcsDom {
     /// Returns `false` for text nodes and entities without a `TagType` component.
     #[must_use]
     pub fn has_tag(&self, entity: Entity, tag: &str) -> bool {
-        self.world
-            .get::<&TagType>(entity)
-            .ok()
-            .is_some_and(|t| t.0 == tag)
+        self.world.get::<&TagType>(entity).is_ok_and(|t| t.0 == tag)
     }
 
     /// Returns the tag name of an entity.

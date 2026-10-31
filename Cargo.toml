@@ -300,6 +300,8 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 # Allow assert_eq! on f32 in tests (exact values from deterministic computations)
 float_cmp = "allow"
+# assert!(x.is_empty()) is the idiomatic form; the lint's suggestion (`[] as [T; 0]`) reads worse and does not type-check under --fix
+assert_is_empty = "allow"
 # Allow common patterns
 module_name_repetitions = "allow"
 doc_markdown = "allow"

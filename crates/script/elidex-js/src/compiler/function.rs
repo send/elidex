@@ -345,7 +345,7 @@ impl FunctionCompiler {
     /// Patch all pending continue jumps to the current PC.
     pub fn patch_continue_jumps(&mut self) {
         if let Some(ctx) = self.loop_stack.last_mut() {
-            let patches: Vec<u32> = ctx.continue_patches.drain(..).collect();
+            let patches = std::mem::take(&mut ctx.continue_patches);
             for patch in patches {
                 self.patch_jump(patch);
             }
@@ -356,7 +356,7 @@ impl FunctionCompiler {
     #[allow(clippy::cast_possible_wrap)]
     pub fn patch_continue_jumps_to(&mut self, target: u32) {
         if let Some(ctx) = self.loop_stack.last_mut() {
-            let patches: Vec<u32> = ctx.continue_patches.drain(..).collect();
+            let patches = std::mem::take(&mut ctx.continue_patches);
             for patch_pos in patches {
                 let offset = (target as i32) - (patch_pos as i32) - 2;
                 assert!(

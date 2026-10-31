@@ -265,8 +265,7 @@ pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::Content
                 .dom
                 .world()
                 .get::<&elidex_plugin::LayoutBox>(entity)
-                .ok()
-                .is_some_and(|lb| {
+                .is_ok_and(|lb| {
                     let left = lb.content.origin.x;
                     let right = left + lb.content.size.width;
                     let top = lb.content.origin.y;
@@ -317,8 +316,7 @@ pub(in crate::content) fn find_iframe_by_name(
             .dom
             .world()
             .get::<&elidex_ecs::IframeData>(entity)
-            .ok()
-            .is_some_and(|d| d.name.as_deref() == Some(name));
+            .is_ok_and(|d| d.name.as_deref() == Some(name));
         if matches {
             return Some(entity);
         }

@@ -100,8 +100,7 @@ impl EcsDom {
     pub fn has_attribute(&self, entity: Entity, name: &str) -> bool {
         self.world
             .get::<&Attributes>(entity)
-            .ok()
-            .is_some_and(|attrs| attrs.contains(name))
+            .is_ok_and(|attrs| attrs.contains(name))
     }
 
     /// Set attribute `name = value` on `entity`, inserting an

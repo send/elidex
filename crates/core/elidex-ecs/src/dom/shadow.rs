@@ -244,8 +244,7 @@ impl EcsDom {
         let is_slot = self
             .world
             .get::<&TagType>(slot)
-            .ok()
-            .is_some_and(|t| t.0.eq_ignore_ascii_case("slot"));
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("slot"));
         if !is_slot {
             return Err(SlotAssignError::NotASlot);
         }

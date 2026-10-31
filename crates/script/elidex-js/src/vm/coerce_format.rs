@@ -198,7 +198,7 @@ fn extract_sig_exp(n: f64) -> (String, i32) {
         let rust_exp: i32 = exp_str.parse().unwrap_or(0);
         let sig: String = mantissa.replace('.', "");
         let sig = sig.trim_end_matches('0');
-        let dot_offset = mantissa.find('.').map_or(mantissa.len(), |p| p);
+        let dot_offset = mantissa.find('.').unwrap_or(mantissa.len());
         let exp = rust_exp + dot_offset as i32;
         (sig.to_string(), exp)
     } else if let Some(dot_pos) = s.find('.') {

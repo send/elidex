@@ -759,8 +759,7 @@ pub(super) fn native_element_toggle_attribute(
         let dom = ctx.host().dom();
         dom.world()
             .get::<&elidex_ecs::Attributes>(entity)
-            .ok()
-            .is_some_and(|attrs| attrs.contains(&name))
+            .is_ok_and(|attrs| attrs.contains(&name))
     };
 
     let qname_sid = ctx.vm.strings.intern(&name);
