@@ -655,6 +655,8 @@ unbound settings-only arm). No `EcsDom::*` call is added in `vm/host/`.
 | `ScriptEngine::call_listener` (`is_handler`) | HTML §8.1.8.1 *the event handler processing algorithm* (no scripting check at invocation; step 1 WebDriver BiDi vacuous in elidex, no BiDi surface); `is_handler` = run the *get the current value* reconcile |
 | `DispatchTarget::resolve_callable`, the rejection dispatch | same as the row above |
 
+**Erratum (implementation PR, PM decision 163):** where this table and G2 (§9) disagree, G2 wins. Only the VM's `ScriptEngine::call_listener` comment (`elidex-js/src/engine.rs`) names *the event handler processing algorithm*, with its step 1 as WebDriver BiDi; the other sites state the rule by description — `DispatchTarget::resolve_callable` ("no §8.1.3.4 check precedes the call"), the session-side `ScriptEngine::call_listener` doc and `scripting.rs` ("the processing algorithm"), and the rejection dispatch carries §5.2's prescribed text (*get the current value* only).
+
 ## §5. Populations and named risks
 
 ### §5.1 Migration population (behavioural)
