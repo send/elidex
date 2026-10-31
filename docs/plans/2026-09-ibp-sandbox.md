@@ -25,7 +25,7 @@ not edited").
 **Erratum** (2026-10-25; PM decision 16 — the PM's ruling that N1's PR corrects this memo's §8.1.8.1 citation in place,
 that N1's D-N3 reconcile order is the means of D2 × D8's closure, and that N1 memo O5's home is `#11-event-handler-target-determination`;
 wording revised under PM decision 17, below; ships with N1's per-PR memo, `docs/plans/2026-10-ibp-sandbox-handler-gates.md`) — a premise error, recorded, and its statements corrected **in place** (each marked "erratum 2026-10-25").
-The in-place edit is an **exception**, by PM decision 16, to the approval scope's rule that a finding against this memo changes it only through a decision (`:12-14`) and to §0.3's A114 idiom ("recorded, not edited"); it edits no other surface (the prerequisite paragraph below records its own exception).
+The in-place edit is an **exception**, by PM decision 16, to the approval scope's rule that a finding against this memo changes it only through a decision (`:12-14`) and to §0.3's A114 idiom ("recorded, not edited"); it edits no other surface (the prerequisite paragraph below and §5.2's own-deferral line, PM decision 101, record their own exceptions).
 Rev ≤ 12 quoted *get the current value of the event handler* step 3.2 as "If scripting is disabled for document, then return null" and numbered *the event handler processing algorithm*'s gating steps 1–3 with "not fully active" at step 3.
 Current webref reads (`.claude/tools/webref body html getting-the-current-value-of-the-event-handler`; `.claude/tools/webref body html the-event-handler-processing-algorithm`; 2026-10-25):
 step 3.2 "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null";
@@ -597,8 +597,8 @@ Acyclic. **Parent edges**: E1 → N4; E2 → N5; **E3/E17** follow **N8**; **E29
 nested landing (D7).
 
 **Own deferrals per nested PR** (cap 3): N9 — 1, the `content-visibility` pin, conditional on the cell firing at its base
-(N6 or N8 instead, if one lands after N9 and fires the witness family first; no double pin, so the node total stays the
-parent's **1**). Every other nested PR — 0: the slots it registers or appends to (§8) are pre-existing class (A96).
+(N6 or N8 instead, if one lands after N9 and fires the witness family first; no double pin, so that pin stays the parent's **1**). N1 — 1: N1 memo §5.4 NR8 (a)'s getter outcome, which N1 changes (HEAD's compiled function → null) and leaves to `EH-attrs-at-creation` slice b's S-5, recorded under `#11-eh-attrs-creation-time-call-sites` (N1 memo §7). Node total **2**.
+Every other nested PR — 0. Counting rule: a slot a nested PR registers or appends to (§8) is pre-existing class (A96), not its own deferral, unless the entry records an outcome that PR itself changes and leaves open — that is the PR's own deferral (N1's case). Count correction 2026-10-31 (PM decision 101; in place, no line added): this line read "Every other nested PR — 0: the slots it registers or appends to (§8) are pre-existing class (A96)", which counted N1 at 0, written before NR8 (a) was found; like the erratum, the edit is an exception, by that decision, to the approval scope's `:12-14` and to §0.3's A114 idiom.
 
 ### §5.3 Migration populations (input)
 

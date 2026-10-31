@@ -3,8 +3,8 @@
 Standalone program, label **`EH-attrs-at-creation`**. Owner: Layout lane. It sits **outside** the IBP-sandbox program and
 is not part of that umbrella's DAG (PM decision 17 (i), restated by PM decision 21). It has two nested PRs, **slice a**
 and **slice b** (§1), and it also owns **T3**, slice b's independent prerequisite PR: slot
-`#11-event-handler-target-determination` was reassigned to this program by PM decision 25 (§1.2, §8.1). IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 3 `0f99538d`, branch
-`layout-ibp-sandbox-handler-gates`) depends on slice a (§1.3 edge x1). §L shows that no landing order can put N1 first.
+`#11-event-handler-target-determination` was reassigned to this program by PM decision 25 (§1.2, §8.1). IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.4, carried by N1's PR on branch
+`layout-ibp-sandbox-handler-gates` together with this file's rev 8.1 and 8.2) depends on slice a (§1.3 edge x1). §L shows that no landing order can put N1 first.
 
 **Approval scope (rev 5, PM decision 24: decision altitude).** Approving this umbrella **decides**:
 - the landing-order verdict (§L);
@@ -31,7 +31,15 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Rev 8.1* (2026-10-31; carried by IBP-sandbox N1's PR, branch `layout-ibp-sandbox-handler-gates`,
+**Changelog.** *Rev 8.2* (2026-10-31; carried by N1's PR with N1 memo rev 4.4, PM decision 93; plan-review R2 on N1
+rev 4.3, N1 memo §10.4): the header's N1 pointer is rev 4.4; §L's closing sentence and x1 mark a §L row's element at
+its first processing (T-a1, T-a2 or T-a3); §1.4's interim line names the three windows whose getter N1 changes (the
+K-2 / K-3 residual's IDL-written subset, away from the spec; W-K5's DOMParser half and X-W's element-targeted pairs,
+to the spec), with §1.5's heading and its K-2 / K-3, X-W and W-K5 bullets qualified to match, and §1.1's I7 row
+noting W-K5's N1 change; §8.2 says "ordinary" where the ledger copy does, adds NR8 (a)'s detached-owner variant to
+defect (1), scopes defect (5)'s N1 qualifier to its second clause, lists the three subsets in the classification, and
+points the trigger's landings to the ledger's Source line.
+*Rev 8.1* (2026-10-31; carried by IBP-sandbox N1's PR, branch `layout-ibp-sandbox-handler-gates`,
 PM decision 93): PM decision 90 (the user's choice B1). §L's closing sentence and x1 hold per row and name N1 memo §5.4
 NR8 (a) as the mechanism-level counterexample; O5 is decided (§11); §1.4's interim line, §1.5's K-2 / K-3 residual,
 §8.2's defect (1) and classification, and §8.4 items 3 and 7 carry the N1 qualifier.
@@ -111,8 +119,8 @@ row dispatch is equal, so the regression is on the getter. It sits squarely on t
 D2 / H4: a callback value persists). Every order that lands N1 before slice a passes through the N1-alone state on
 main. Rev 2's landing is one of those orders, so its "viable" is withdrawn. Claim (i) holds; claim (ii) is withdrawn.
 After slice a these four rows give the spec's callback under N1: each row's element carries one deliverable ordinary
-handler attribute, so slice a marks it before the move (at its first insertion, T-a2, or at its first handler write,
-T-a3) and K-1 then removes the re-raw. Slice a does not remove the mechanism for every element. Counterexample (N1 memo §5.4 NR8 (a)): an element given two or more deliverable
+handler attribute, so slice a marks it before the move (at its first processing: T-a1, T-a2 or T-a3) and K-1 then
+removes the re-raw. Slice a does not remove the mechanism for every element. Counterexample (N1 memo §5.4 NR8 (a)): an element given two or more deliverable
 ordinary handler attributes by a silent writer, IDL-written before its first processing (D-8 (a)), then first inserted
 into a DOMParser document. Its re-raw stays until slice b's S-5, so N1's getter reads null there where HEAD's returns a
 function. O5 records the decision on it (PM decision 90). R2 re-derived the verdict from code and confirmed it.
@@ -395,7 +403,7 @@ how it satisfies each of the following, and its plan-review checks that:
 | I4 freshness (new elements start unprocessed; clone does not copy) | §5.0 | owns it (clone-policy row) | clone processed at creation (S-1) |
 | I5 coverage (every creation path, the pre-bind tree, shadow trees, template contents) | K-4, K-6, G1, G2 | the pre-bind tree, shadow-including, uncapped (D-11); first insertion over HEAD's light walk (D-10) | creation-time coverage (S-1, S-2) |
 | I6 policy | `event_handler_consumer.rs:405`, `:447` | owns it (one `policy.installs` filter on every path) | — |
-| I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal | owns it (S-1, S-2; needs N1 and C1's handling) |
+| I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii)) | owns it (S-1, S-2; needs N1 and C1's handling) |
 | I8 target determination (step 3) | G3 | not reached: the bind pass walks only the bound, active document, and every Window-delegating pair otherwise takes HEAD's path (X-W; C8, C17–C19) | owns it (needs T3) |
 | I9 layering / re-entry | Layering mandate | owns it for the VM setters and the bind pass | owns it for the creation-time sites |
 
@@ -418,7 +426,7 @@ slice b. N1 and T3 are independent of each other. The PM decides C1's handling o
 
 | # | edge | kind | reason |
 |---|---|---|---|
-| x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, IDL-written before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
+| x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at its first processing: T-a1, T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, IDL-written before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
 | x2 | slice a → slice b | code predecessor + data flow | S-6 |
 | x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a DOMParser or fragment-throwaway `<body>` would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b)). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)) |
@@ -439,30 +447,40 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
 - **Removed by slice b (the interim's whole surface):** (1) the D-8 restriction and X-W (S-5); (2) processing at
   insertion, for every element that S-1 covers. In branch A, nothing is processed at insertion. Whether any processing at insertion
   remains in branch B is slice b's plan's decision, under S-2 to S-4.
-- **Interim behaviour:** §1.5, all HEAD-equal (K-0) until N1 lands; from N1, the K-2 / K-3 residual's IDL-written
-  DOMParser subset reads null where HEAD compiled the attribute (dispatch equal; O5, PM decision 90). **Closure
-  record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2).
+- **Interim behaviour:** §1.5, all HEAD-equal (K-0) until N1 lands. From N1, N1's compile-gate node clause changes
+  the getter in three of its windows, each where the node document N1 reads is a DOMParser document's, with dispatch
+  equal to HEAD's (nothing runs) in each: (i) the K-2 / K-3 residual's IDL-written subset, at a first insertion into a
+  DOMParser document (or of a DOMParser document's element into a detached subtree of the bound document, which
+  insertion does not adopt), reads null where HEAD compiled the attribute and the spec returns the written callback,
+  away from the spec (N1 memo §5.4 NR8 (a); O5, PM decision 90); (ii) W-K5's DOMParser half reads null where HEAD
+  compiled the attribute, the spec's outcome (K-5); (iii) X-W's element-targeted pairs (a Window-reflecting name on a
+  `<body>` / `<frameset>`, or a WindowEventHandlers name on a `<frameset>`, which HEAD targets at the element) in a
+  DOMParser document read null where HEAD compiled the attribute, the spec's outcome (N1 memo §5.4 NR8 (b), pin C8h).
+  **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2; (i) to (iii) are its defects (1), (5) and
+  (7) respectively).
 - **Closing path (visible):** slice a lands → T3 (this program's PR, slot `#11-event-handler-target-determination`;
   N1 lands independently) → C1's handling decided (PM) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2).
 
-### §1.5 Windows slice a leaves open (each HEAD-equal; slice b closes them)
+### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, §1.4; slice b closes them)
 
 - **K-2 / K-3 residual.** A handler write on a post-bind element with **two or more** deliverable handler attributes,
   made before the element's first insertion, is overwritten at that insertion (D-8). HEAD overwrites it at every
-  insertion. From N1, an IDL write so overwritten at a first insertion into a DOMParser document reads null, where
-  HEAD's getter compiles the attribute (N1 memo §5.4 NR8 (a); O5).
+  insertion. From N1, an IDL write so overwritten at a first insertion into a DOMParser document (or of a DOMParser
+  document's element into a detached subtree of the bound document) reads null, where HEAD's getter compiles the
+  attribute (N1 memo §5.4 NR8 (a); O5; §1.4 (i)).
 - **G5 / K3.** A never-inserted clone reads null.
 - **K2.** The body-clone cross-origin write is overwritten at the clone's first insertion.
 - **G2 rest.** An element placed directly under a shadow root after bind, or inside a subtree placed there, is not
   processed. Neither is the shadow content of a host inserted after bind.
 - **X-W (G3, G4).** A Window-delegating pair keeps HEAD's behaviour after the bind pass: it is re-raw'd at every
   insertion, over any write, and a `<body>` outside an active document delivers it to the page Window (C8, C17–C19,
-  U2). T3 then slice b close it.
+  U2). From N1, an element-targeted pair in a DOMParser document reads null, where HEAD compiled the attribute: the
+  spec's outcome (§1.4 (iii)). T3 then slice b close it.
 - **Post-bind width cap.** The Insert arm keeps HEAD's `children_iter_rev` cap (D-10, H10). That iterator starts at
   the last child, so of a parent with n > 10 000 children in a subtree inserted after bind, the **first n − 10 000**
   children (and their subtrees) are never processed in slice a (HEAD-equal). The bind
   walk is uncapped (D-11). Slice b's S-1 covers "any depth and width" at creation.
-- **W-K5.** As K-5.
+- **W-K5.** As K-5 (from N1, its DOMParser half reads null: §1.4 (ii)).
 - **E-G1.** As K-0.
 
 Rev 4's "depth cap" window is deleted. The bind walk is uncapped (D-11), so no pre-bind element of the bound
@@ -840,32 +858,38 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > **`#11-eh-attrs-creation-time-call-sites`** — owner: Layout lane (program `EH-attrs-at-creation`). **What it
 > records:** the approved interim of slice a (PM decision 23). An element created after bind is processed at its first
 > insertion, over HEAD's light-tree walk, instead of at its creation. A handler write is restricted: it processes the
-> element first only when the written name is the element's only deliverable handler content attribute, and never for
+> element first only when the written name is the element's only deliverable ordinary handler content attribute, and never for
 > a `<body>` / `<frameset>` handler that delegates to the Window.
 > **Defects** (observable both at HEAD and after slice a): (1) a handler write (`setAttribute` / `removeAttribute` of
-> `on<T>`, or `E.on<T> = …`) on a never-inserted element with two or more deliverable handler content attributes is
-> overwritten at the element's first insertion (at HEAD: for every element, at every insertion; once N1 lands, an IDL
-> write so overwritten at a first insertion into a DOMParser document reads `null`, where HEAD's getter compiles the
-> attribute; dispatch runs nothing at both; spec: the written callback runs; N1 memo NR8 (a), pin C8g, closed by
-> S-5); (2) a never-inserted clone of an element with a handler content attribute reads `null` from `on<T>`; (3) after
+> `on<T>`, or `E.on<T> = …`) on a never-inserted element with two or more deliverable ordinary handler content
+> attributes is overwritten at the element's first insertion (at HEAD: for every element, at every insertion; once N1
+> lands, an IDL write so overwritten at a first insertion into a DOMParser document, or of a DOMParser document's
+> element into a detached subtree of the bound document, reads `null`, where HEAD's getter compiles the attribute;
+> dispatch runs nothing at both; spec: the written callback runs; N1 memo NR8 (a), pin C8g, closed by S-5); (2) a
+> never-inserted clone of an element with a handler content attribute reads `null` from `on<T>`; (3) after
 > `c = document.body.cloneNode()`, a `window.on<T>` assignment is overwritten by `c`'s attribute at `c`'s first
 > insertion; (4) an element with a handler content attribute placed directly under a shadow root after bind, or in the
 > shadow tree of a host inserted after bind, is never processed; (5) DOMParser and template-content elements are
 > processed at their first insertion, not at creation, and an unmarked element placed into template contents or into a
-> DOMParser document reads a non-null handler (the DOMParser-document half holds only until N1 lands, K-5; the
-> template-contents half remains until slice b); (6) of a parent with n > 10 000 children inside a subtree inserted
+> DOMParser document reads a non-null handler (the DOMParser-document half of this second clause holds only until N1
+> lands, after which such an element reads `null` there, K-5; its template-contents half, and the first clause for
+> both, remain until slice b); (6) of a parent with n > 10 000 children inside a subtree inserted
 > after bind, the first n − 10 000 children are not reached by the Insert walk (HEAD's `children_iter_rev` cap, which
 > starts at the last child, D-10), so they are never processed; (7) a `<body>` / `<frameset>` handler that delegates
 > to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
 > delivers it to the page Window. **Classification:** all seven are **pre-existing**. Each exists at HEAD
-> with the same outcome or a wider population (for (1)'s IDL-written DOMParser subset this holds only until N1 lands:
-> N1 changes its getter outcome, PM decision 90); slice a narrows (1) and makes nothing worse (K-0). **Registered** when
+> with the same outcome or a wider population, except that once N1 lands its compile gate changes the getter outcome,
+> with dispatch equal, of three DOMParser subsets: (1)'s IDL-written subset (away from the spec, PM decision 90),
+> the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at the element (both to the
+> spec's `null`); slice a
+> narrows (1) and makes nothing worse (K-0). **Registered** when
 > the umbrella-approval PR lands. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's
 > handling). N1 itself needs slice a first (§L). **Closes:** at slice b's landing, which removes the restriction, X-W and
 > processing at insertion (§1.4). If §1.6 branch B leaves a template-contents residue, slice b's plan drafts its slot
 > text and the PM registers it when that plan passes plan-review (§1.6). **Closing path:** slice a lands → T3 (this
-> program) → C1's handling decided → slice b. **Trigger:** T3 and N1 landed, and C1's handling decided. **Re-eval:**
+> program) → C1's handling decided → slice b. **Trigger:** T3 and N1 landed, and C1's handling decided (the ledger
+> records each landing's merge commit in this section's Source line). **Re-eval:**
 > 2026-12-31. **Confidence:** medium. The order is fixed (PM decisions 21, 23, 25) and T3 has an owner, but T3 starts
 > only after slice a lands, and slice b also waits on C1's handling (owner TBD).
 
