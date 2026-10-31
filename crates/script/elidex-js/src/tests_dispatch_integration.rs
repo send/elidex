@@ -287,16 +287,13 @@ fn capture_phase_listener_fires_before_target() {
 /// the `EcsDom` back after `unbind` + dropping `ctx` — proving the engine
 /// mutated the very `EcsDom` that `ctx.dom` aliases.
 ///
-/// **Miri note**: this behavioral test asserts under the normal runner. It is
-/// NOT run under miri because the listener's DOM mutation reaches a PRE-EXISTING
-/// Stacked-Borrows issue in `elidex_ecs::EcsDom::dispatch_event`'s
-/// mutation-dispatcher take-and-restore (`&raw mut self.dispatch_depth` is
-/// invalidated by the immediately-following `self.dispatch_depth = ...` write) —
-/// orthogonal to this dispatch-aliasing fix and reachable from ANY bound DOM
-/// mutation. The Stacked-Borrows validation of THIS fix (the bound dispatch
-/// routing) lives in the sibling
-/// [`bound_dispatch_routing_is_stacked_borrows_clean`], which isolates it from
-/// that elidex-ecs bug by not mutating the DOM.
+/// **Miri note**: this behavioral test asserts under the normal runner. It was
+/// kept out of miri because the listener's DOM mutation reached a Stacked-Borrows
+/// bug in `elidex_ecs::EcsDom::dispatch_event`'s take-and-restore guard. That
+/// guard no longer uses raw pointers (`#11-ecs-dispatch-depth-raw-ptr-soundness`),
+/// so the reason is gone; whether this test now runs clean under miri has not
+/// been measured. The Stacked-Borrows validation of the bound dispatch routing
+/// lives in the sibling [`bound_dispatch_routing_is_stacked_borrows_clean`].
 #[test]
 #[allow(unsafe_code)]
 fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {

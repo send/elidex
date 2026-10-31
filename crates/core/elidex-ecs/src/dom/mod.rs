@@ -101,11 +101,15 @@ pub struct EcsDom {
 /// re-entry depth counter on scope exit, even if the dispatch callback
 /// panics.
 ///
-/// The guard owns the `&mut EcsDom` borrow (no raw pointers): the call
-/// site splits it field-wise into `dom` and `pending`, so the callback
-/// gets `&mut EcsDom` through the guard while `Drop` still reaches the
-/// same borrow afterwards.  Unwinding drops the guard, so the slot and
-/// the counter are restored on the panic path as well.
+/// The guard owns the `&mut EcsDom` borrow (no raw pointers).  The call
+/// site borrows the guard's two fields separately: the callback is lent
+/// the whole `&mut EcsDom` through `dom` while the taken-out dispatcher
+/// stays in `pending`, and `Drop` writes back through the same borrow
+/// afterwards.  Unwinding drops the guard, so the slot and the counter
+/// are restored on the panic path as well.  The callback can reach
+/// `dispatcher` / `dispatch_depth` itself; installing or clearing a
+/// dispatcher from inside a dispatch would be overwritten by the
+/// restore, which the debug assertion in `Drop` reports.
 struct RestoreDispatcher<'a> {
     dom: &'a mut EcsDom,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
@@ -113,6 +117,11 @@ struct RestoreDispatcher<'a> {
 
 impl Drop for RestoreDispatcher<'_> {
     fn drop(&mut self) {
+        debug_assert!(
+            self.dom.dispatcher.is_none() || std::thread::panicking(),
+            "a dispatcher was installed inside MutationDispatcher::dispatch; \
+             the take-and-restore would overwrite it"
+        );
         self.dom.dispatcher = self.pending.take();
         self.dom.dispatch_depth = self.dom.dispatch_depth.saturating_sub(1);
     }
@@ -193,14 +202,16 @@ impl EcsDom {
              (see `MutationDispatcher::dispatch` docstring).  Queue the \
              work via per-consumer deferred state instead."
         );
-        if self.dispatcher.is_none() {
+        let Some(dispatcher) = self.dispatcher.take() else {
             return;
-        }
+        };
         self.dispatch_depth = self.dispatch_depth.saturating_add(1);
-        let pending = self.dispatcher.take();
-        let mut guard = RestoreDispatcher { dom: self, pending };
-        // Disjoint field borrows: the callback gets the dom, the guard keeps
-        // the restore state.
+        let mut guard = RestoreDispatcher {
+            dom: self,
+            pending: Some(dispatcher),
+        };
+        // Disjoint borrows of the guard's two fields: the callback gets the
+        // dom, the guard keeps the dispatcher to restore.
         if let Some(d) = guard.pending.as_mut() {
             d.dispatch(event, guard.dom);
         }
