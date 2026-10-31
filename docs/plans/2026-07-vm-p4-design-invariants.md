@@ -4,7 +4,7 @@
 **§4** this file *is*. Moved **verbatim** at `39cc365a` by the umbrella's second touch-time
 prereq split; the seam derivation, the ranges and the content-free proof are in `docs/plans/2026-10-vm-p4-memo-seam-split.md`
 (not linked, so it stays outside the checker's population). Not a rewrite: every figure, line
-anchor and revision reference below is stated about the umbrella at `39cc365a`.
+anchor and revision reference below is stated about the umbrella at `39cc365a`; an unlabelled code line anchor is relative to the entry's **Baseline** `f7d9b5ce` unless marked "at HEAD" or with its own revision — a revision label on the anchor itself, on its paragraph, on its table row, or on its section counts as its own revision.
 
 **Reading this file.** Section numbers are the umbrella's; an unqualified section number names
 that section of the family, located by the entry's carved-out stubs. `<this file>` in a command
@@ -22,7 +22,11 @@ exactly the class that produced the §1.2 retraction:
 2. **silent no-op** — emitting nothing, or only the operand's side effects
    (`expr_assign.rs:210-212`, **`expr_assign.rs:202-206`**, `expr_ops.rs:261`, `expr_ops.rs:226`,
    `expr_ops.rs:249`, `expr_class.rs:428`, `expr_class.rs:430-447`, `expr.rs:186-189`,
-   **`stmt.rs:99-103`**, `stmt.rs:877-878`, `stmt.rs:882`, the
+   **`stmt.rs:99-103`** (⚠ *at HEAD c032379d this is `compiler/stmt.rs:79-83` — the `StmtKind::ForOf` arm, the
+   `is_await: _` discard at `:83`; still silent*), `stmt.rs:877-878`, `stmt.rs:882` (⚠ *at HEAD c032379d these two moved to
+   `stmt_loop.rs:354-356` — the import-binding arm — and `stmt_loop.rs:359-404` — the non-identifier head, `Pop` then
+   `emit_unsupported` at `:403-404` — and both are now **loud**, an `emit_unsupported` after the `Pop`, so neither is a
+   silent no-op any longer; the `f7d9b5ce` anchors stay as the record of what this list named*), the
    `ImportDeclaration`/`ExportDeclaration` half of `stmt.rs:31-39`, the `FunctionDeclaration` half of that same arm (`stmt.rs:31-39` + `mod.rs:82` + `expr_function.rs:167` — a block-nested declaration reaches the no-op arm and neither hoist loop reaches it), `stmt.rs:424-439` (the destructured catch parameter — no `PatternKind` arm but `Identifier`, and an unconditional `Op::Pop` after it), and — both added at PR-B —
    **`expr_object.rs:26-39`** (the accessor-key `_ => { fc.emit(Op::Pop); }`) and
    **`stmt_destructure.rs:149-150`** (the rest-exclusion `_ => {}`, whose *observable* is a wrong
@@ -68,7 +72,7 @@ for parse-time rejections (dec. 15). Earlier drafts of this invariant said "must
 `CompileError`"; that contradicted dec. 5 and Slice 0a shipped the contradiction before the gate
 caught it. **Explicit carve-out**:
 asserts that encode **ISA/bytecode-format invariants** (jump-offset and operand-width bounds —
-`compiler/function.rs:194/222/239`, `stmt.rs:808` — all genuine i16/u16 range asserts) **stay as
+`compiler/function.rs:194/222/239`, `stmt.rs:614` (⚠ *at HEAD c032379d — the switch default-jump i16 assert, `stmt.rs:808` at `f7d9b5ce`*) — all genuine i16/u16 range asserts) **stay as
 `assert!`** per
 [[feedback_compiler_asserts_are_isa_invariants]], which directs that "assert → Result" findings on
 those sites be declined with a pointer to that memo. R2 round-2 review flagged that some of these
@@ -150,17 +154,19 @@ outside `vm/host/` yet are engine-bound):
   An annotation layered over a normative sentence is the pattern this document is removing; the
   sentence itself now says §23.2.*
   **Two-layer cases needing explicit disposition in Pa's and Pc's memos**: `vm/webidl_sequence.rs`
-  (governed by WebIDL §3.2.21) and **`vm/host/structured_clone.rs`** (WHATWG HTML **§2.7.4** StructuredSerialize **fused with §2.7.6
-  StructuredDeserialize**, per the entry point's own docstring at `:63-64` and row F's classification
-  (§2.7.7 StructuredSerializeWithTransfer for the transfer-list path where the `iter_close` at
+  (governed by WebIDL §3.2.21) and **`vm/host/structured_clone.rs`** (WHATWG HTML **§2.7.5** StructuredSerialize **fused with §2.7.7
+  StructuredDeserialize**, per the entry point's own docstring at `:63-64` and row F's classification — ⚠ *this paragraph's
+  HTML §2.7.x numbers are restated at HEAD c032379d, one clause up from what it carried (§2.7.4 / §2.7.6 / §2.7.7), because HTML
+  inserted §2.7.3 "Restricting to the same agent cluster" (`webref heading html 2.7`); the docstring's own numbers are drifted the same way*
+  (§2.7.8 StructuredSerializeWithTransfer for the transfer-list path where the `iter_close` at
   `:1062` sat — `:1064` at `658cc302`. ⚠ **Codex R1 corrected the attribution of that site**: it is
   inside `ensure_empty_transfer_list`, whose own docstring calls it a WebIDL `sequence<object>`
   conversion throwing per **WebIDL §3.2.21 step 3**, and its `iter_close` runs while consuming the
   iterable — *before* HTML StructuredSerializeWithTransfer ever receives the list. So the **site
   stays in the WebIDL half of [§6.2a-3](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md)'s 7/5 partition**, and it is the *outer native* that is separately
-  HTML §2.7.4 / §2.7.7. Calling the site HTML's own loop would select the wrong `.return()` and
+  HTML §2.7.5 / §2.7.8. Calling the site HTML's own loop would select the wrong `.return()` and
   error-precedence remedy in the P family. The in-code docstring's "§2.9" is drifted; **§5's Slice-Pc
-  row owns the retag as a named deliverable** — this clause does not) — ⚠ **the sentence that used to follow here is withdrawn (Codex R3)**: it called the `DataCloneError` an abrupt completion of *HTML's own loop*, contradicting the correction directly above and leaving [§6.2a-2](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) enumerating only four non-ECMA sites. `ensure_empty_transfer_list` is the **WebIDL** conversion; only the outer native is HTML §§2.7.4/2.7.7, and the WebIDL count must follow from that. Superseded text: its abrupt was described as a `DataCloneError` thrown by HTML's own loop body, so a
+  row owns the retag as a named deliverable** — this clause does not) — ⚠ **the sentence that used to follow here is withdrawn (Codex R3)**: it called the `DataCloneError` an abrupt completion of *HTML's own loop*, contradicting the correction directly above and leaving [§6.2a-2](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) enumerating only four non-ECMA sites. `ensure_empty_transfer_list` is the **WebIDL** conversion; only the outer native is HTML §§2.7.5/2.7.8, and the WebIDL count must follow from that. Superseded text: its abrupt was described as a `DataCloneError` thrown by HTML's own loop body, so a
   step-5 flip changes an HTML-defined error surface, not an ECMA-262 one; round 6 corrected an
   earlier mis-classification of this file as pure ECMA-262).
 
@@ -223,7 +229,7 @@ narrowing and not a hole: when the clause was written the only reason to disting
 was sloppy direct-eval's scope injection, and `#11-eval-direct-vs-indirect-flag` was dropped
 pre-implementation on exactly that ground ("core = strict-only + new scope なので direct/indirect
 区別不要", [[reference_elidex-js-core-strict-only]]). The split above establishes a second reason
-that did not exist then, and the amended clause is the one that can tell the two apart.
+that did not exist then, and the amended clause is the one that can tell the two apart. The same narrowing is applied to the review gate that enforces the clause: `.claude/skills/elidex-review/axes.md` Axis 1 Sub-check 1b (`:55-56`), whose two `[plan]` bullets restated the flat prohibition as review findings, was swept in this PR's step-3 re-gate to the same motivation test.
 
 **I-7 · A representation change is a collector change.** Where object-valued state *lives* is what
 roots it, so a slice that moves such state from a frame onto a closure — or adds it to one — owes the
@@ -284,7 +290,7 @@ into its own cell — the restatement this rule's last sentence forbids. For **S
 answered by whichever answer its plan-review gives about the environment link being object-valued;
 for **3** and for **7a**, by the child that owns the representation rather than the umbrella — 7a's `[[MapData]]` / `[[SetData]]` variant and its unconditional marking arm sit on the child its derivation mints for them. ⚠ **And a forced-collection regression asserts that the collection was *placed*, not
 merely requested** — arm `vm.inner.force_gc_before_next_alloc` and assert it was consumed, the in-tree
-pattern at `vm/tests/tests_member_compound_assign_gc.rs:56-62` whose own docstring names the mode this
+pattern at `vm/tests/tests_member_compound_assign_gc.rs:56-62` (at `658cc302` = HEAD) whose own docstring names the mode this
 guards (a case that stops allocating at all, and so passes vacuously). A test that requests a
 collection into a window holding no allocation measures nothing, however the code under it is
 written. No row restates this rule; a row states only what it owes under it.

@@ -4,7 +4,7 @@
 **§9** this file *is*. Moved **verbatim** at `39cc365a` by the umbrella's second touch-time
 prereq split; the seam derivation, the ranges and the content-free proof are in `docs/plans/2026-10-vm-p4-memo-seam-split.md`
 (not linked, so it stays outside the checker's population). Not a rewrite: every figure, line
-anchor and revision reference below is stated about the umbrella at `39cc365a`.
+anchor and revision reference below is stated about the umbrella at `39cc365a`; an unlabelled code line anchor is relative to the entry's **Baseline** `f7d9b5ce` unless marked "at HEAD" or with its own revision — a revision label on the anchor itself, on its paragraph, on its table row, or on its section counts as its own revision.
 
 **Reading this file.** Section numbers are the umbrella's; an unqualified section number names
 that section of the family, located by the entry's carved-out stubs. `<this file>` in a command
@@ -189,7 +189,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
 
 11. **IC entry point** ([§6.3](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) IC): `Option<usize>` refactor of `ic_call`/`ic_call_method`
     (recommended, one SoT) vs. duplicating the three-way body. ⚠ **Round-8 caveat**: both callers
-    (`dispatch.rs:719/730`) pass `Some`, so the `None` arm has **zero live producers until the child umbrella 1b mints for `CallSpread`** — a
+    (`dispatch.rs:705/716`, `ic_call` / `ic_call_method` — ⚠ *at HEAD c032379d; this read `:719/730`, the entry's Baseline `f7d9b5ce` values; `dispatch.rs` is unchanged since `658cc302`*) pass `Some`, so the `None` arm has **zero live producers until the child umbrella 1b mints for `CallSpread`** — a
     dead branch wherever the refactor lands inside the 1a half, which is the same I-4 "third state"
     argument dec. 6 used to reject VM-first,
     one layer down. Either move dec. 11 to the child umbrella **1b** mints for `CallSpread` (its producer), or pair it with a

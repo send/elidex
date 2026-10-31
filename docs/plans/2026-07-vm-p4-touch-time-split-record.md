@@ -4,7 +4,7 @@
 **§5 (tail)** this file *is*. Moved **verbatim** at `39cc365a` by the umbrella's second touch-time
 prereq split; the seam derivation, the ranges and the content-free proof are in `docs/plans/2026-10-vm-p4-memo-seam-split.md`
 (not linked, so it stays outside the checker's population). Not a rewrite: every figure, line
-anchor and revision reference below is stated about the umbrella at `39cc365a`.
+anchor and revision reference below is stated about the umbrella at `39cc365a`; an unlabelled code line anchor is relative to the entry's **Baseline** `f7d9b5ce` unless marked "at HEAD" or with its own revision — a revision label on the anchor itself, on its paragraph, on its table row, or on its section counts as its own revision.
 
 **Reading this file.** Section numbers are the umbrella's; an unqualified section number names
 that section of the family, located by the entry's carved-out stubs. `<this file>` in a command
