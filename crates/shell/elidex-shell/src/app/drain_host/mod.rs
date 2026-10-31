@@ -139,7 +139,7 @@
 //! if M4-10 ever wires an SW-fetch relay into the inline navigation path, premises
 //! 2/3 break and app-mode inherits Slice 4's canonical DIRECT-nav serialization.)
 
-use elidex_navigation::{DrainCoordinator, DrainHost, DrainOutcome};
+use elidex_navigation::{DrainCoordinator, DrainOutcome};
 use elidex_script_session::HostDriver;
 
 use super::App;
@@ -446,7 +446,7 @@ impl App {
         // why the plan's rejection of an end-of-handler *re-drain* as dead code does
         // not cover them (a `debug_assert` re-drains nothing).
         debug_assert!(
-            self.traversal_queue().is_empty(),
+            self.inline_state().traversal_queue.is_empty(),
             "app-mode drain left a residual traversal step — something enqueued onto \
              the queue that this drain did not drain (an apply-body `enqueue_traversal`, \
              or a Phase-1 pass with no Phase 2 behind it). It does not strand \

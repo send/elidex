@@ -121,9 +121,11 @@ impl ElidexJsEngine {
     /// `fallback_local_storage` (the F14 no-silent-regression invariant).
     #[cfg(feature = "compat-webapi")]
     #[must_use]
-    pub fn web_storage_installed(&mut self) -> bool {
+    pub fn web_storage_installed(&self) -> bool {
         self.vm
-            .host_data()
+            .inner
+            .host_data
+            .as_deref()
             .is_some_and(|hd| hd.web_storage().is_some())
     }
 
