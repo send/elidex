@@ -446,8 +446,9 @@ fn dispatch_unhandled_rejection_event(
         id: elidex_script_session::ListenerId,
         once: bool,
         passive: bool,
-        /// Event-handler-derived (`ListenerKind::EventHandler`) — the §8.1.8.1
-        /// processing step-1 gate applies to these entries only.
+        /// Event-handler-derived (`ListenerKind::EventHandler`) — only these
+        /// entries are reconciled (§8.1.8.1 *get the current value of the
+        /// event handler*, D-N4).
         is_handler: bool,
     }
 
@@ -531,21 +532,16 @@ fn dispatch_unhandled_rejection_event(
     // mutations (e.g. `e.foo = 1`) into the next listener's view, which
     // diverges from the regular dispatch path.
     for entry in pending {
-        // §8.1.8.1 processing step 1 — the canonical
-        // `VmInner::scripting_disabled_for_platform_object` predicate,
-        // gated BEFORE the step-2 "getting the current value" compile
-        // below. Clause (b) is provably false for the bound-document
-        // target today; routed through the canonical predicate anyway so
-        // future composition changes cannot diverge per-path.
-        if entry.is_handler && vm.scripting_disabled_for_platform_object(Some(document)) {
-            continue;
+        // HTML §8.1.8.1 *get the current value of the event handler*:
+        // reconcile a handler entry before resolving its callable (the same
+        // form as the other dispatch paths, D-N4). The target here is the
+        // Document entity, which no `onunhandledrejection` handler reaches
+        // today (`#11-unhandledrejection-dispatch-target`), so this is a
+        // no-op until that slot moves the target to the Window. No-op for
+        // `addEventListener` listeners.
+        if entry.is_handler {
+            vm.ensure_event_handler_current(document, entry.id);
         }
-        // HTML §8.1.8.1: lazy-compile / drop an event-handler IDL attribute
-        // backing before resolving its callable (a content-attribute
-        // `onunhandledrejection` would otherwise never compile on this
-        // non-`walk_phase` dispatch path). No-op for `addEventListener`
-        // listeners.
-        vm.ensure_event_handler_current(document, entry.id);
         let Some(func_id) = vm
             .host_data
             .as_deref()

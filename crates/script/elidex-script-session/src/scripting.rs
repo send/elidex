@@ -10,16 +10,29 @@ use elidex_ecs::{EcsDom, Entity, NodeKind};
 use elidex_plugin::SandboxingFlagSet;
 
 /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object"
-/// (`html#enabling-and-disabling-scripting`) — the canonical predicate
-/// behind *the event handler processing algorithm* step 1
-/// (`html#the-event-handler-processing-algorithm`: "If scripting is
-/// disabled for eventTarget, then return"). Step 1 gates event HANDLERS
-/// only; plain `addEventListener` listeners are never suppressed. `target`
-/// is the dispatch target's entity; `None` = a non-entity platform object
-/// (an engine-local listener home), which gets the settings-level check
-/// only. `bound_document` is the active document of the engine's (single)
-/// browsing context; `None` = unbound, which fails open (no document
-/// context to evaluate — dispatch requires a bound engine).
+/// (`html#enabling-and-disabling-scripting`) — the compile gate of an event
+/// handler's value: *get the current value of the event handler*
+/// (`html#getting-the-current-value-of-the-event-handler`) step 3.2, "If
+/// document's browsing context is null, or document's active sandboxing flag
+/// set has its sandboxed scripts browsing context flag set, then return
+/// null." (webref, current text). The step is consulted only for an *internal
+/// raw uncompiled handler* (see `reconcile_event_handler`); a callback value
+/// is never gated, and the processing algorithm has no §8.1.3.4 check at
+/// invocation (its step 1 is WebDriver BiDi, which elidex does not have).
+///
+/// Step 3.2 as written and "scripting is disabled for *el's node document*"
+/// give the same result for every document the engine can hold: it has no
+/// WebDriver BiDi and no user scripting switch, so §8.1.3.4's settings clause
+/// reduces to the sandboxed scripts flag of the (single) realm's document,
+/// which is the bound document's; a document other than the bound one has a
+/// null browsing context in the single-browsing-context model, and for the
+/// bound document the second disjunct reads the same flag set. Which reading
+/// the gate implements is N4's (the step-3.2 reading question).
+///
+/// `target` is the handler's target entity (an element, or the Window
+/// entity for a `WindowEventHandlers` attribute on `<body>`); `bound_document`
+/// is the active document of the engine's (single) browsing context; callers
+/// run on a bound engine, so both are always present.
 ///
 /// Composition (the settings-level rule lives in [`elidex_plugin::sandbox`]):
 ///
@@ -52,10 +65,10 @@ use elidex_plugin::SandboxingFlagSet;
 /// becomes reliable for connected nodes and this rule collapses to a plain
 /// `owner_document(entity) != bound_document` compare.
 ///
-/// A Node whose effective node document is unresolvable fails OPEN (not
-/// suppressed): such nodes belong to the bound document's realm by
-/// construction, and failing closed would regress handlers on
-/// parser-built nodes that scripts detach. Caveats: detached-iframe
+/// A Node whose effective node document is unresolvable: the node clause is
+/// false (the settings clause has already been evaluated). Such nodes belong
+/// to the bound document's realm by construction, and failing closed would
+/// regress handlers on parser-built nodes that scripts detach. Caveats: detached-iframe
 /// documents = unreachable in the single-BC model; the `<template>`
 /// contents false-negative rides `#11-template-contents-owner-document`.
 /// The composed-tree-root proxy is correct for the reachable cases — a
@@ -82,16 +95,14 @@ use elidex_plugin::SandboxingFlagSet;
 #[must_use]
 pub fn scripting_disabled_for_platform_object(
     dom: &EcsDom,
-    target: Option<Entity>,
-    bound_document: Option<Entity>,
+    target: Entity,
+    bound_document: Entity,
     sandbox_flags: SandboxingFlagSet,
 ) -> bool {
     if !elidex_plugin::sandbox::scripting_enabled(sandbox_flags) {
         return true;
     }
-    let (Some(entity), Some(document)) = (target, bound_document) else {
-        return false;
-    };
+    let (entity, document) = (target, bound_document);
     match dom.node_kind_inferred(entity) {
         Some(NodeKind::Document) => entity != document,
         Some(kind) if kind.is_node() => {
@@ -100,7 +111,7 @@ pub fn scripting_disabled_for_platform_object(
             // node's node document IS its tree-root Document (whatever a
             // stale `AssociatedDocument` says, in either direction); a
             // detached node falls back to `owner_document`
-            // (`AssociatedDocument`). `None` = unresolvable → fail open.
+            // (`AssociatedDocument`). `None` = unresolvable → node clause false.
             let root = dom.find_tree_root_composed(entity);
             let effective_document =
                 if matches!(dom.node_kind_inferred(root), Some(NodeKind::Document)) {
@@ -136,38 +147,9 @@ mod tests {
     fn sandboxed_flags_disable_regardless_of_target() {
         let (dom, doc, _doc2, _foreign) = two_doc_fixture();
         let flags = SandboxingFlagSet::all_represented();
-        // Settings-level clause fires even for the bound document itself
-        // and for a `None` target.
+        // Settings-level clause fires even for the bound document itself.
         assert!(scripting_disabled_for_platform_object(
-            &dom,
-            Some(doc),
-            Some(doc),
-            flags
-        ));
-        assert!(scripting_disabled_for_platform_object(
-            &dom,
-            None,
-            Some(doc),
-            flags
-        ));
-    }
-
-    #[test]
-    fn none_target_or_unbound_document_fails_open() {
-        let (dom, doc, _doc2, foreign) = two_doc_fixture();
-        assert!(!scripting_disabled_for_platform_object(
-            &dom,
-            None,
-            Some(doc),
-            UNSANDBOXED
-        ));
-        // Unbound (no document context): fail open even for a clause-(b)
-        // candidate node.
-        assert!(!scripting_disabled_for_platform_object(
-            &dom,
-            Some(foreign),
-            None,
-            UNSANDBOXED
+            &dom, doc, doc, flags
         ));
     }
 
@@ -176,14 +158,14 @@ mod tests {
         let (dom, doc, doc2, _foreign) = two_doc_fixture();
         assert!(!scripting_disabled_for_platform_object(
             &dom,
-            Some(doc),
-            Some(doc),
+            doc,
+            doc,
             UNSANDBOXED
         ));
         assert!(scripting_disabled_for_platform_object(
             &dom,
-            Some(doc2),
-            Some(doc),
+            doc2,
+            doc,
             UNSANDBOXED
         ));
     }
@@ -193,8 +175,8 @@ mod tests {
         let (dom, doc, _doc2, foreign) = two_doc_fixture();
         assert!(scripting_disabled_for_platform_object(
             &dom,
-            Some(foreign),
-            Some(doc),
+            foreign,
+            doc,
             UNSANDBOXED
         ));
     }
@@ -218,16 +200,16 @@ mod tests {
         );
         assert!(!scripting_disabled_for_platform_object(
             &dom,
-            Some(foreign),
-            Some(doc),
+            foreign,
+            doc,
             UNSANDBOXED
         ));
         // Removed again: back to the stale-owner comparison → suppressed.
         assert!(dom.remove_child(container, foreign));
         assert!(scripting_disabled_for_platform_object(
             &dom,
-            Some(foreign),
-            Some(doc),
+            foreign,
+            doc,
             UNSANDBOXED
         ));
     }
@@ -251,8 +233,8 @@ mod tests {
         );
         assert!(scripting_disabled_for_platform_object(
             &dom,
-            Some(el),
-            Some(doc),
+            el,
+            doc,
             UNSANDBOXED
         ));
     }
@@ -264,15 +246,15 @@ mod tests {
         // Detached, owner = bound document.
         assert!(!scripting_disabled_for_platform_object(
             &dom,
-            Some(el),
-            Some(doc),
+            el,
+            doc,
             UNSANDBOXED
         ));
         assert!(dom.append_child(doc, el));
         assert!(!scripting_disabled_for_platform_object(
             &dom,
-            Some(el),
-            Some(doc),
+            el,
+            doc,
             UNSANDBOXED
         ));
     }
@@ -285,8 +267,8 @@ mod tests {
         let orphan = dom.create_element("div", Attributes::default());
         assert!(!scripting_disabled_for_platform_object(
             &dom,
-            Some(orphan),
-            Some(doc),
+            orphan,
+            doc,
             UNSANDBOXED
         ));
     }

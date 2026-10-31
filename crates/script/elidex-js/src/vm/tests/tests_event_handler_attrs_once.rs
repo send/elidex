@@ -340,22 +340,26 @@ fn c14_template_contents_handler_runs() {
     });
 }
 
-// ---- C15 (window pin, W-K5 DOMParser): HEAD's raw value at the post-build insertion ----
+// ---- C15 (spec pin, W-K5 DOMParser): the raw value at the post-build insertion reads null ----
 #[test]
 fn c15_domparser_element_gets_raw_value_at_insertion() {
     with_page(|vm| {
         let got = run(
             vm,
-            "var dx = new DOMParser().parseFromString('<div id=x onclick=\"globalThis.a = 1\"></div>', 'text/html'); \
+            "globalThis.a = 0; \
+             var dx = new DOMParser().parseFromString('<div id=x onclick=\"globalThis.a = 1\"></div>', 'text/html'); \
              var x = dx.getElementById('x'); \
              r.push(x.onclick === null); \
              dp2.body.append(x); \
-             r.push(typeof x.onclick === 'function');",
+             r.push(x.onclick === null); \
+             x.dispatchEvent(new Event('click')); \
+             r.push(a === 0);",
         );
-        // HEAD's outcome. Spec: null; N1's node clause inverts this pin.
+        // The spec's outcome (and N1's, compile gate step 3.2): the raw value
+        // in a DOMParser document reads null and runs nothing.
         assert_eq!(
-            got, "true,true",
-            "C15: null before, a function after (HEAD's)"
+            got, "true,true,true",
+            "C15: null before and after the insertion; dispatch runs nothing"
         );
     });
 }

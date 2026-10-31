@@ -344,3 +344,47 @@ fn e8_shadow_direct_clone_keeps_idl_handler_across_binds() {
         "E8: bracket 3"
     );
 }
+
+// ---- C8e (iv) (IBP-sandbox N1; D-N4's fail direction): the plan side of the UA
+// path. `PipelineResult::dispatch_event` → session `dispatch_event` →
+// `call_listener` with the plan's `is_handler` (derived from the entry's kind) must
+// reach the reconcile: a handler set by `setAttribute` and never read or
+// dispatched before compiles at the UA dispatch, and after `removeAttribute` a
+// second UA dispatch runs nothing. A wrong `false` would skip the reconcile in
+// each direction (the raw value never compiles; the removed callable still runs).
+// The initial HTML carries no handler attribute, so the bind pass delivers nothing
+// here; the in-script listener is the non-vacuity control ----
+#[test]
+fn c8e_iv_ua_dispatch_reconciles_set_then_removed_attribute() {
+    let (mut pipeline, _np) = build_main_document(concat!(
+        "<body><button id=b></button>",
+        "<script>document.body.dataset.ran=1</script></body>"
+    ));
+    assert_ran(&pipeline);
+    eval_ok(
+        &mut pipeline,
+        concat!(
+            "var b=document.getElementById('b');",
+            "b.setAttribute('onclick',\"document.body.dataset.hit=(+document.body.dataset.hit||0)+1\");",
+            ctl_listen!("b", "click"),
+            "document.body.dataset.ctlend=1"
+        ),
+    );
+    click(&mut pipeline, "b");
+    assert_eq!(
+        probe_body_attr(&pipeline, "data-hit").as_deref(),
+        Some("1"),
+        "C8e (iv): the UA dispatch compiled and ran the attribute's source"
+    );
+    eval_ok(
+        &mut pipeline,
+        "document.getElementById('b').removeAttribute('onclick')",
+    );
+    click(&mut pipeline, "b");
+    assert_eq!(
+        probe_body_attr(&pipeline, "data-hit").as_deref(),
+        Some("1"),
+        "C8e (iv): the removed handler did not run on the second UA dispatch"
+    );
+    assert_head_control(&pipeline, "2");
+}
