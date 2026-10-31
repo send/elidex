@@ -17,7 +17,7 @@ All rows verified via `.claude/tools/webref` against `ecma262` — the original 
 
 ⚠ **This table is not the document's citation chokepoint, and reading it as one is how two
 fabricated anchors survived under a blanket header before ([§10](2026-07-vm-p4-umbrella-review-rounds.md)).** It covers the ECMA-262 sections
-carrying an ID; the document also cites ECMA-262 sections inline without IDs, and cites **WebIDL**
+carrying an ID; the document and its carve-outs also cite ECMA-262 sections inline without IDs, and cite **WebIDL**
 and **WHATWG HTML** — specs this header has never
 covered. Verify those at their use sites with `webref heading webidl <n>` / `webref dfn html <t>`.
 ⚠ **And a *planned* function has no use site yet, which is the half of that obligation nothing in
@@ -709,7 +709,7 @@ Moved **verbatim** to `docs/plans/2026-07-vm-p4-slice-plan.md` ([§5](2026-07-vm
 
 ## §6. Slice 1a + 1b detail — call-argument spread → **carved out**
 
-Moved **verbatim** to `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` by this document's
+Moved **verbatim** to `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` ([§6](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md)) by this document's
 touch-time prereq split ([§5](2026-07-vm-p4-touch-time-split-record.md)'s *"And the verdict this check has never stated…"* passage carries the
 seam derivation, the measured ranges and the discharge). `§6.1`, `§6.2`, `§6.2a`, `§6.2a-2`,
 `§6.2a-3`, `§6.3`, `§6.4` and `§6.5` keep their numbers there, and every `§6…` reference in this
@@ -717,7 +717,7 @@ document links to that file — so scheduling from [§5](2026-07-vm-p4-slice-pla
 carve.
 
 ⚠ **The `edge NN` namespace went with §6.4, and this sentence is its single home.** Every bare
-`edge NN` / `edges NN/NN` in this document, in
+`edge NN` / `edges NN/NN` in this document, in the five files carved from it at `39cc365a`, in
 [the review-rounds record](2026-07-vm-p4-umbrella-review-rounds.md) and in the detail file itself
 names an entry of **§6.4's numbered edge matrix** in that file, and nothing else in this program
 numbers edges. Most such references carry no pointer to §6.4, and before this sentence they resolved
@@ -726,13 +726,13 @@ annotation per site: a namespace is one of the things [§5](2026-07-vm-p4-slice-
 pointer on every reference would be a second copy of it at every reference.
 
 Two commands, and they are the claim rather than an illustration of it. References, per file, over
-the four files of this program in the order they are listed above — **29 / 21 / 2 / 0**:
+the nine family memos of this program — this document, `2026-07-vm-p4-slice-plan.md`, `2026-07-vm-p4-open-decisions.md`, the detail file, the review-rounds record, then each of the other four — **2 / 16 / 11 / 21 / 2 / 0**:
 
     grep -o -E '\b[Ee]dges? \*{0,2}[0-9]' <file> | wc -l
 
 ⚠ *Not* `grep -c`, which counts matching **lines**: [§5](2026-07-vm-p4-slice-plan.md)'s rows are one line each and carry several
-references apiece, so the line count reads 15 / 17 / 2 / 0 and disagrees with the reference count on
-two of the four files. Definitions, from §6.4 — **1-35, contiguous**:
+references apiece, so the line count reads 2 / 5 / 8 / 17 / 2 / 0 and disagrees with the reference count on
+three of the nine files. Definitions, from §6.4 — **1-35, contiguous**:
 
     grep -o -E '(^|· )\*{0,2}[0-9]{1,2}\. ' \
         docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md |
@@ -754,7 +754,7 @@ covering that slice's full edge matrix.
 truth across the language/builtin surface. This is the artifact that would have caught every gap in
 §1.1 **and** this plan's own §1.2 over-claim. Rows for not-yet-implemented slices assert their
 **known divergent** value with a `KNOWN-DIVERGENCE (#11-slug)` marker, flipping to the spec value in
-the fixing slice — the `vm/tests/tests_dataset.rs:283` pattern. **Owned by [§5](2026-07-vm-p4-slice-plan.md)'s row 0cb**, which is this document's single home for that assignment -- §7 states no owner of its own -- so
+the fixing slice — the `vm/tests/tests_dataset.rs:283` pattern. **Owned by [§5](2026-07-vm-p4-slice-plan.md)'s row 0cb**, which is the single home, in this document and its carve-outs, for that assignment -- §7 states no owner of its own -- so
 every later slice inherits the baseline.
 
 ⚠ **The row shape needs a crash-aware outcome (Codex R2) — ratified as [§9](2026-07-vm-p4-open-decisions.md) decision 16.**
@@ -804,7 +804,7 @@ Moved **verbatim** to `docs/plans/2026-07-vm-p4-open-decisions.md` ([§9](2026-0
 
 ## §§10-15. Round-2 … round-7 review dispositions + the convergence call → **carved out**
 
-Moved **verbatim** to `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md` by this document's
+Moved **verbatim** to `docs/plans/2026-07-vm-p4-umbrella-review-rounds.md` ([§§10-15](2026-07-vm-p4-umbrella-review-rounds.md)) by this document's
 touch-time prereq split. `§10` (round 2), `§11` (round 3), `§13` (round 5), `§12` (round 4 +
 convergence state), `§14` (rounds 6-7 + the convergence series) and `§15` (the convergence call) keep
 their numbers there — including the out-of-order `§13`-before-`§12` the archive was written in — and
@@ -814,7 +814,7 @@ every reference to them in this document links to that file.
 
 ## §§16-18. Slice 0a — landing record and its two review gates → **carved out**
 
-Moved **verbatim** to `docs/plans/2026-07-vm-p4-slice-0a-landing-record.md` by this document's
+Moved **verbatim** to `docs/plans/2026-07-vm-p4-slice-0a-landing-record.md` ([§§16-18](2026-07-vm-p4-slice-0a-landing-record.md)) by this document's
 touch-time prereq split. `§16` (implemented and merged as `658cc302`), `§17` (the pre-push
 `/elidex-review` findings) and `§18` (the post-push `/external-converge` and the design re-gate it
 triggered, with `§18.1` the carve and `§18.2` the converge loop on the carved head) keep their

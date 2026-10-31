@@ -660,7 +660,7 @@ ground for either option; it is not cited.
   identical) after the `/code-review high` pass, re-run 2026-08-23: **140 controls, 67 mutants / 0
   survived / 0 crashed** -- a crashing control is now a FAIL, not a kill -- census `48 = 33 + 15`,
   rc 0, 36 ORDER-PROSE? rows unchanged, memo run 0.39 s → 0.28 s. ⚠ That pass changed one
-  `Population.ids` key without moving the census: the §8 `Intl` row (main memo line 2716, id cell
+  `Population.ids` key without moving the census: the §8 `Intl` row (main memo line 2716 at `39cc365a`, id cell
   `` `Intl` → owned externally by … ``) was keyed by its WHOLE cell, because `bare_id` fell back
   to the cell text when no grammar matched; the id cell now reads the one decorated-id grammar at
   the cell's start and that row is keyed `Intl` (a 4-character id, terminal). A non-empty id cell

@@ -2,7 +2,7 @@
 
 **Carve-out of** `docs/plans/2026-07-vm-p4-es-language-completeness.md` — the VM P4 ES-language-completeness umbrella — whose **§§10-15**
 this file *is*. Moved **verbatim** by that document's touch-time prereq split (CLAUDE.md *1000-line
-debt = touch-time split*; the seam derivation and its measurements are in the umbrella's §5). Not a
+debt = touch-time split*; the seam derivation and its measurements are in the umbrella's §5; the umbrella's second split (at `39cc365a`) moved that passage to `docs/plans/2026-07-vm-p4-touch-time-split-record.md`, and "pre-split" below still means before the first split). Not a
 rewrite: no line below was reworded, renumbered or re-anchored, so **every finding, round number,
 figure and line anchor in it is stated about the pre-split umbrella** and is read that way.
 
@@ -13,9 +13,9 @@ what append-only looks like, and it is preserved rather than tidied.
 
 **Reading the §-numbers.** `§10` (round 2), `§11` (round 3), `§13` (round 5), `§12` (round 4 +
 convergence state), `§14` (rounds 6-7 + the convergence series) and `§15` (the convergence call) are
-here. Any other unqualified `§N` refers to the **umbrella**, except: `§6` is in
-`docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` and `§§16-18` are in
-`docs/plans/2026-07-vm-p4-slice-0a-landing-record.md`, the umbrella's two other carve-outs.
+here. Any other unqualified `§N` names that section of the umbrella family, located through the
+carved-out stubs of the entry (`docs/plans/2026-07-vm-p4-es-language-completeness.md`), which name
+the file each carved section is in; the rest of the umbrella's sections are in the entry.
 
 ---
 
