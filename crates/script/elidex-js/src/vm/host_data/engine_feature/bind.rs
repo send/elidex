@@ -64,14 +64,19 @@ impl HostData {
     /// `unbind()` only on the success path, so a panic before it leaves
     /// **non-null dangling** `session_ptr` / `dom_ptr`.
     ///
-    /// That gap is safe only while no `Drop` dereferences those pointers.
-    /// The rule is by property, not by type list: **any `Drop` — on `Vm` /
-    /// `VmInner` / `HostData` OR on a type that owns a `Vm` — whose body
-    /// reaches host state (`is_bound()` / `session()` / `dom()` /
-    /// `with_session_and_dom` / `dom_shared()` / `Vm::teardown_document`,
-    /// or any future gated accessor) must first check `is_bound()` and
-    /// skip when bound.** `ElidexJsEngine::Drop` is the one such `Drop`
-    /// today (it gates `Vm::teardown_document` on `!vm.is_bound()`).
+    /// The rule is by drop order, not by type list. A `Drop` whose body
+    /// reaches host state (`unbind()` / `is_bound()` / `session()` /
+    /// `dom()` / `with_session_and_dom` / `dom_shared()` /
+    /// `Vm::teardown_document`, or any future gated accessor) is sound
+    /// only if it cannot run after `session` / `dom` expire:
+    /// - an unbind guard declared AFTER the `session` / `dom` locals (the
+    ///   guards above, `ElidexJsEngine::with_bound`'s `UnbindGuard`) drops
+    ///   first, so it may unbind while bound — that is its job;
+    /// - a `Drop` with no such ordering — on `Vm` / `VmInner` / `HostData`,
+    ///   or on a type that owns a `Vm` — **must check `is_bound()` first
+    ///   and skip when bound**, because a still-bound VM's pointers may be
+    ///   dangling. `ElidexJsEngine::Drop` is the one such `Drop` today (it
+    ///   gates `Vm::teardown_document` on `!vm.is_bound()`).
     #[allow(unsafe_code)]
     pub unsafe fn bind(
         &mut self,

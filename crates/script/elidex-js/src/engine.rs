@@ -818,7 +818,10 @@ impl Drop for ElidexJsEngine {
         // that binds via `engine.vm().bind(..)` and panics before `unbind()`, so
         // `dom`/`session` drop first; or the `nested_bind_trips_non_reentrancy_assert`
         // `should_panic` test that dies mid-second-bind) — running the teardown
-        // there would deref freed memory (SIGBUS), so skip it.
+        // there would deref freed memory (SIGBUS), so skip it. Live and dangling
+        // non-null pointers cannot be told apart, so a still-bound engine whose
+        // `dom`/`session` are in fact alive is skipped too: its worker OS threads
+        // then outlive it (test-only — a bind through `vm()` without `unbind()`).
         #[cfg(feature = "engine")]
         if !self.vm.is_bound() {
             self.vm.teardown_document();

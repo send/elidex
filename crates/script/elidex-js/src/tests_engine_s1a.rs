@@ -346,10 +346,12 @@ fn direct_vm_bind_counts_as_bound() {
 /// Regression: a fixture that binds via `engine.vm().bind(..)` and drops
 /// `dom`/`session` before `engine` while still bound must not have
 /// `ElidexJsEngine::Drop` run `teardown_document` through the dangling
-/// pointers. NB: on the old code a plain `cargo test` may not crash (UAF is UB,
-/// not a guaranteed fault); miri does report it.
+/// pointers. This test asserts nothing a plain `cargo test` can see: on the old
+/// code the use-after-free is UB, not a guaranteed fault, and only miri reports
+/// it (CI does not run miri). The CI-visible guard of the single bind state is
+/// `direct_vm_bind_counts_as_bound`.
 #[test]
-fn drop_with_direct_vm_bind_skips_teardown() {
+fn drop_with_direct_vm_bind_and_freed_dom_is_sound() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
     drop(dom);
