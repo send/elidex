@@ -15,6 +15,7 @@ mod attribute_reconcile;
 mod clone;
 mod creation;
 mod destroy;
+mod dispatch_guard;
 mod equality;
 mod mutation_hook;
 mod namespace;

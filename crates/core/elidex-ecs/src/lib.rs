@@ -3,6 +3,11 @@
 //! Uses `hecs` to store DOM nodes as entities with component data,
 //! providing a cache-friendly, archetype-based representation.
 
+// No unsafe in this crate: the last use, a raw-pointer dispatch guard, was
+// Stacked Borrows UB. This keeps unsafe from coming back; it does not check
+// aliasing itself (only miri does).
+#![forbid(unsafe_code)]
+
 mod components;
 mod dom;
 mod fragment_tree;
