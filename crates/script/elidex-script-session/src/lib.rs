@@ -16,6 +16,7 @@ mod engine;
 pub mod event_dispatch;
 pub mod event_handler_consumer;
 mod event_handler_processing;
+pub mod event_handler_reconcile;
 pub mod event_listener;
 pub mod event_queue;
 mod host_effects;
@@ -43,6 +44,7 @@ pub use event_handler_consumer::{
 pub use event_handler_processing::{
     process_before_handler_write, HandlerAttrsProcessed, PreBindHandlerAttrsProcessed,
 };
+pub use event_handler_reconcile::{reconcile_event_handler, HandlerReconcile};
 pub use event_listener::{
     EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,
 };

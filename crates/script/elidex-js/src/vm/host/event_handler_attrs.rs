@@ -2,12 +2,12 @@
 //!
 //! Implements `el.onclick = fn` / `el.onclick` getter / inline
 //! `<button onclick="...">` / `<body>.onbeforeunload`→Window delegation
-//! on top of the engine-independent [`EventListeners`] component.
+//! on top of the engine-independent [`elidex_script_session::EventListeners`] component.
 //!
 //! ## Design (ECS-native)
 //!
 //! An event handler is a *special kind of event listener* (§8.1.8.1):
-//! it lives as one entry in the target's [`EventListeners`] component
+//! it lives as one entry in the target's [`elidex_script_session::EventListeners`] component
 //! (`ListenerKind::EventHandler`), so dispatch walks it in registration
 //! order alongside `addEventListener` listeners. The single source of
 //! truth is that engine-independent component — there is **no** VM-side
@@ -47,7 +47,7 @@
 
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
-    event_handler_attr_event_type, event_handler_attr_spec_level, EventListeners, HandlerScope,
+    event_handler_attr_event_type, event_handler_attr_spec_level, HandlerReconcile, HandlerScope,
     ListenerId, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 
@@ -489,7 +489,7 @@ fn native_body_weh_set(
 /// The event type this accessor serves, materialized from the bound key
 /// (`ctx.bound_key()` = event-type SID, installed by
 /// `install_bound_accessor_pair`) to an owned `String` for the
-/// engine-independent `&str`-keyed [`EventListeners`] lookups.
+/// engine-independent `&str`-keyed [`elidex_script_session::EventListeners`] lookups.
 fn bound_event_type(ctx: &NativeContext<'_>) -> String {
     let sid = ctx
         .bound_key()
@@ -514,113 +514,51 @@ impl VmInner {
 
     /// Bring listener `id` (an event-handler IDL attribute backing) up to
     /// date before its callable is resolved, on **any** dispatch path
-    /// (WHATWG HTML §8.1.8.1 "getting the current value of the event
-    /// handler"). If it has a pending inline source, compile it now and
-    /// overwrite the stored callable (a parse failure or the cleared flag
-    /// drops the stale callable so the handler reads as null). Centralizing
-    /// here means the script-dispatch walk, the session-crate UA dispatch
-    /// (`ScriptEngine::call_listener`), and the promise-rejection dispatch
-    /// all observe inline-source / cleared transitions identically. A
-    /// no-op for `Normal` (addEventListener) listeners.
+    /// (WHATWG HTML §8.1.8.1 *get the current value of the event handler*).
+    /// Marshalling only (Layering mandate): the arm order — cleared, then a
+    /// callback value untouched, then the compile gate for a raw value — is
+    /// decided by [`elidex_script_session::reconcile_event_handler`]; this
+    /// executes the returned [`HandlerReconcile`] on the VM's listener store.
+    /// The gate closure is HTML §8.1.3.4 *scripting is disabled for a
+    /// platform object* through the session composition (settings clause
+    /// first, then the effective node document), given the handler's target
+    /// `entity` and this realm's document and sandbox flags. A no-op for
+    /// `Normal` (addEventListener) listeners.
+    ///
+    /// With no `HostData` this returns; with `HostData` present but unbound
+    /// `HostData::document()` / `HostData::dom()` assert (unreachable: every
+    /// caller runs on a bound VM).
     pub(crate) fn ensure_event_handler_current(
         &mut self,
         entity: elidex_ecs::Entity,
         id: ListenerId,
     ) {
-        // WHATWG HTML §8.1.8.1 "getting the current value of the event handler"
-        // step 3.2: when the document's active sandboxing flag set has the
-        // sandboxed scripts flag set (scripting is disabled, §8.1.3.4), the
-        // algorithm returns null for a handler whose value is an *internal raw
-        // uncompiled handler* — *without* compiling it. So a `<button
-        // onclick=...>` in a sandboxed iframe lacking `allow-scripts` never
-        // compiles, `get_listener` returns None, and every dispatch path /
-        // the IDL getter resolves null. This is the listener-dispatch half of
-        // the same `scripts_allowed` gate `eval` applies to classic scripts.
-        //
-        // Crucially we early-return WITHOUT deleting any stored callable:
-        // step 3 only nulls a *raw uncompiled* handler; an already-compiled
-        // callback object's value persists (the getter returns it — step 3 is
-        // skipped for a non-raw value), and the "event handler processing
-        // algorithm" step 1 suppresses *invocation*, never the value. Deleting
-        // would lose the author's function from the IDL getter (Codex #327 R9).
-        //
-        // This COMPILE gate tests the sandbox FLAG only — per spec. The
-        // *invocation* of an already-compiled callable is a different gate
-        // with a different predicate (the full §8.1.3.4 platform-object
-        // predicate) — see [`Self::scripting_disabled_for_platform_object`].
-        // Keying both gates to one predicate would be spec-wrong in either
-        // direction. addEventListener (`Normal`) listeners hold no uncompiled
-        // source and are not event handlers, so they are untouched by both.
-        if self
-            .host_data
-            .as_deref()
-            .is_some_and(|hd| !hd.scripts_allowed())
-        {
+        let Some(host) = self.host_data.as_deref_mut() else {
             return;
-        }
-        let (uncompiled, cleared) = {
-            let Some(host) = self.host_data.as_deref_mut() else {
-                return;
-            };
-            host.dom()
-                .world_mut()
-                .get::<&mut EventListeners>(entity)
-                .ok()
-                .map_or((None, false), |mut listeners| {
-                    (
-                        listeners.take_uncompiled(id).map(|u| u.source),
-                        listeners.is_handler_cleared(id),
-                    )
-                })
         };
-        if let Some(source) = uncompiled {
-            if let Some(callable) = self.lazy_compile_handler(&source) {
-                self.set_handler_callable(id, callable);
-            } else {
+        let document = host.document();
+        let flags = host.sandbox_flags();
+        let action =
+            elidex_script_session::reconcile_event_handler(host.dom(), entity, id, |dom| {
+                elidex_script_session::scripting_disabled_for_platform_object(
+                    dom, entity, document, flags,
+                )
+            });
+        match action {
+            HandlerReconcile::Compile(source) => {
+                if let Some(callable) = self.lazy_compile_handler(&source) {
+                    self.set_handler_callable(id, callable);
+                } else {
+                    self.remove_listener_and_prune_back_ref(id);
+                }
+            }
+            // `Suppressed`: a stored callable is stale (the value is raw), so
+            // drop it; the source stays pending in the entry.
+            HandlerReconcile::Deactivated | HandlerReconcile::Suppressed => {
                 self.remove_listener_and_prune_back_ref(id);
             }
-        } else if cleared {
-            self.remove_listener_and_prune_back_ref(id);
+            HandlerReconcile::Unchanged => {}
         }
-    }
-
-    /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object" —
-    /// thin marshal wrapper (Layering mandate: `vm/host/` marshals, the
-    /// HTML algorithm lives engine-independent): read the bound `HostData`
-    /// state (`sandbox_flags` / `document_entity_opt`), borrow the DOM, and
-    /// delegate to the canonical composition in
-    /// [`elidex_script_session::scripting::scripting_disabled_for_platform_object`]
-    /// (settings-level clause ∧ platform-object clause (b), incl. the
-    /// adopt-equivalent node-document resolution and the fail-open bounds —
-    /// see its doc-comment). `target = None` = a non-entity platform object
-    /// (`VmObject` listener home) → settings-level check only.
-    pub(crate) fn scripting_disabled_for_platform_object(
-        &mut self,
-        target: Option<elidex_ecs::Entity>,
-    ) -> bool {
-        let Some(host) = self.host_data.as_deref_mut() else {
-            // Unbound: no document context to evaluate — never reached from a
-            // dispatch walk (dispatch requires a bound VM); fail open.
-            return false;
-        };
-        let flags = host.sandbox_flags();
-        if !host.is_bound() {
-            // HostData present but no DOM bound (VmObject-only dispatch —
-            // e.g. AbortSignal / FileReader handlers on a DOM-less VM):
-            // there is no `&EcsDom` to marshal, and the session fn's own
-            // document-less path is exactly the settings-level verdict, so
-            // apply that verdict directly. Not a composition fork — the
-            // single settings-level rule in `elidex_plugin::sandbox` is
-            // what both paths evaluate.
-            return !elidex_plugin::sandbox::scripting_enabled(flags);
-        }
-        let document = host.document_entity_opt();
-        elidex_script_session::scripting_disabled_for_platform_object(
-            host.dom(),
-            target,
-            document,
-            flags,
-        )
     }
 }
 

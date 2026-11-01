@@ -176,13 +176,17 @@ fn call_listener_lazy_compiles_inline_handler() {
     engine.vm().unbind();
 }
 
-/// Codex PR327 R2 (security/spec): the scripting-disabled counterpart of
-/// `call_listener_lazy_compiles_inline_handler`. In a sandboxed iframe without
-/// `allow-scripts`, scripting is disabled (HTML §8.1.3.4), so a raw uncompiled
-/// inline `<button onclick=...>` handler must NOT be compiled or run on UA
-/// dispatch — HTML "getting the current value of the event handler" step 3.2
-/// returns null when the sandboxed scripts flag is set. The S1a `scripts_allowed`
-/// gate must cover the listener-dispatch path, not only classic-script `eval`.
+/// Codex PR327 R2 (security/spec) — **C28b** through the UA path: the
+/// sandboxed twin of `call_listener_lazy_compiles_inline_handler`. In a sandboxed
+/// iframe without `allow-scripts`, scripting is disabled (HTML §8.1.3.4), so a raw
+/// uncompiled inline `<button onclick=...>` handler is neither compiled nor run on
+/// UA dispatch: *get the current value of the event handler* step 3.2 ("If
+/// document's browsing context is null, or document's active sandboxing flag set
+/// has its sandboxed scripts browsing context flag set, then return null.")
+/// returns null for a raw value. The target here is a detached owner-`None`
+/// element, so the settings clause refuses before the (unresolvable) node clause
+/// is reached. The compile gate covers the listener-dispatch path, not only
+/// classic-script `eval`.
 #[test]
 #[allow(unsafe_code)]
 fn call_listener_skips_inline_handler_when_scripting_disabled() {
@@ -453,6 +457,75 @@ fn missing_listener_id_silently_no_ops() {
     assert!(
         !event.flags.default_prevented,
         "no listener fired → flags unchanged"
+    );
+
+    engine.vm().unbind();
+}
+
+/// C8e (ii): the UA path reads the handler value through the same reconcile as
+/// the VM walk and the IDL getter. A raw handler on a `DOMParser`-document node
+/// is not compiled (the node clause of the compile gate) and does not run; a
+/// callback value there (IDL-set) runs — there is no §8.1.3.4 check at
+/// invocation (step 1 of the processing algorithm is WebDriver BiDi).
+#[test]
+fn call_listener_foreign_document_node_raw_gated_callback_runs() {
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    // A bound document, a second (`DOMParser`-like, null browsing context)
+    // document, and an element owned by and appended into the second one.
+    let doc = dom.create_document_root();
+    let doc2 = dom.create_document_node();
+    let foreign = dom.create_element_with_owner("div", Attributes::default(), Some(doc2));
+    assert!(dom.append_child(doc2, foreign));
+
+    let (raw_id, callback_id) = {
+        let mut listeners = EventListeners::new();
+        let raw_id = listeners.add_event_handler("click");
+        listeners.set_uncompiled(raw_id, "globalThis.rawRan = true");
+        let callback_id = listeners.add_event_handler("mousedown");
+        dom.world_mut()
+            .insert_one(foreign, listeners)
+            .expect("insert EventListeners");
+        (raw_id, callback_id)
+    };
+    register_listener_via_global(
+        &mut engine,
+        &mut session,
+        &mut dom,
+        doc,
+        "function () { globalThis.callbackRan = true; }",
+        callback_id,
+    );
+    engine
+        .vm()
+        .eval("globalThis.rawRan = false; globalThis.callbackRan = false;")
+        .unwrap();
+
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    let mut click = DispatchEvent::new("click", foreign);
+    engine.call_listener(raw_id, &mut click, foreign, false, true, &mut ctx);
+    let mut down = DispatchEvent::new("mousedown", foreign);
+    engine.call_listener(callback_id, &mut down, foreign, false, true, &mut ctx);
+
+    assert!(
+        engine
+            .vm()
+            .host_data()
+            .expect("HostData")
+            .get_listener(raw_id)
+            .is_none(),
+        "the node clause must keep the raw handler uncompiled"
+    );
+    assert_eq!(
+        engine.vm().eval("globalThis.rawRan").unwrap(),
+        JsValue::Boolean(false),
+        "a raw handler on a null-browsing-context document's node reads null"
+    );
+    assert_eq!(
+        engine.vm().eval("globalThis.callbackRan").unwrap(),
+        JsValue::Boolean(true),
+        "a callback value runs wherever it lives (nothing gates the call)"
     );
 
     engine.vm().unbind();

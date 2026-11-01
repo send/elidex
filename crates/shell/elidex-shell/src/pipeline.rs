@@ -103,9 +103,9 @@ pub struct PreEvalFrameInputs {
 /// free-function analog of [`PipelineResult::dispatch_event`] for the pipeline
 /// builders (`transition_ready_state` / `dispatch_lifecycle_events`), which hold
 /// `session`/`dom`/`document` as separate `&mut` params rather than as a
-/// `PipelineResult`. Under the VM, `script_dispatch_event` → `call_listener` →
-/// `ensure_event_handler_current` reads `HostData::dom`, which requires the VM
-/// BOUND; a bare (unbracketed) dispatch panics "HostData accessed while unbound".
+/// `PipelineResult`. Under the VM, `script_dispatch_event` → `call_listener`
+/// asserts the VM BOUND for every listener kind; a bare (unbracketed) dispatch
+/// panics "call_listener while unbound".
 /// So every dispatch is bracketed exactly like `dispatch_event`: build
 /// `ScriptContext` ONCE, bind, drive `script_dispatch_event` under the SAME
 /// `&mut ctx`, unbind (RAII-guarded, panic-safe). The post-dispatch

@@ -70,10 +70,11 @@ pub trait ScriptEngine {
     ///
     /// `is_handler` is the dispatch plan's
     /// [`ListenerPlanEntry::is_handler`](crate::event_dispatch::ListenerPlanEntry::is_handler)
-    /// snapshot — `true` for event-handler-derived listeners, which the
-    /// engine gates per HTML §8.1.8.1 "the event handler processing
-    /// algorithm" step 1 (plain `addEventListener` listeners are never
-    /// scripting-gated).
+    /// snapshot — `true` for event-handler-derived listeners, whose value the
+    /// engine reconciles (HTML §8.1.8.1 *get the current value of the event
+    /// handler*) before resolving the callable; plain `addEventListener`
+    /// listeners are not reconciled. There is no §8.1.3.4 check at invocation
+    /// (step 1 of the processing algorithm is WebDriver BiDi, vacuous here).
     fn call_listener(
         &mut self,
         listener_id: ListenerId,

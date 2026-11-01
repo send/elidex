@@ -173,7 +173,9 @@ impl DispatchTarget {
     /// Bring an event-handler IDL attribute backing up to date before its
     /// callable is resolved (WHATWG HTML §8.1.8.1 "getting the current
     /// value of the event handler") — the **A-hoist**.  Node-only: the
-    /// reconcile (inline-source lazy-compile / cleared-drop) is a
+    /// reconcile (inline-source lazy-compile / cleared-drop / and, when the
+    /// compile gate fires on a raw value, dropping the stale callable while
+    /// keeping the source, so the handler reads null) is a
     /// content-attribute concern that is provably a no-op for the
     /// IDL-setter-only `VmObject` handlers (their `uncompiled`/`cleared`
     /// stay at default), so the `VmObject` arm is intentionally empty and
@@ -186,31 +188,19 @@ impl DispatchTarget {
 
     /// Resolve the callable for a planned listener (the §2.9 dispatch
     /// callable-resolve + reconcile-read touchpoint).  For handler-derived
-    /// entries, applies the HTML §8.1.8.1 *event handler processing
-    /// algorithm* step 1 gate FIRST (step 1 precedes step 2's "getting the
-    /// current value" compile), then runs the handler reconcile (Node only,
-    /// via [`Self::reconcile_handler`]) and reads the engine-side
-    /// `listener_store`.  `None` = the listener was removed between
-    /// plan-freeze and now (the §2.9 step 6 removed-field check) → the
-    /// caller silently skips it — or the step 1 gate suppressed the
-    /// invocation.
+    /// entries, runs the HTML §8.1.8.1 *get the current value of the event
+    /// handler* reconcile (Node only, via [`Self::reconcile_handler`]) and
+    /// reads the engine-side `listener_store`.  No §8.1.3.4 check precedes
+    /// the call: the compile gate (step 3.2) is consulted inside the
+    /// reconcile, for a raw value only.  `None` = the listener was removed
+    /// between plan-freeze and now (the DOM §2.9 *inner invoke* step 2 removed check), or
+    /// its value is null → the caller silently skips it.
     pub(crate) fn resolve_callable(
         self,
         ctx: &mut NativeContext<'_>,
         entry: &ListenerPlanEntry,
     ) -> Option<ObjectId> {
         if entry.is_handler {
-            // §8.1.8.1 processing step 1 — see
-            // `VmInner::scripting_disabled_for_platform_object`. Precedes
-            // the step-2 reconcile/compile so a suppressed target's raw
-            // inline source is never compiled during dispatch.
-            let node = match self {
-                DispatchTarget::Node(entity) => Some(entity),
-                DispatchTarget::VmObject(_) => None,
-            };
-            if ctx.vm.scripting_disabled_for_platform_object(node) {
-                return None;
-            }
             self.reconcile_handler(ctx, entry.id);
         }
         ctx.vm
