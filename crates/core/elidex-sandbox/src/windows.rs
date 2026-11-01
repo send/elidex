@@ -3,7 +3,7 @@
 //! Assigns the process to a Job Object that limits the process count. It does
 //! not create a restricted token and does not enforce the policy's filesystem
 //! or network restrictions (`#11-os-sandbox-enforcer-correctness`; the shell
-//! stays on `PlatformSandbox::Unsandboxed` until that slot closes).
+//! stays on `PlatformSandbox::Unsandboxed` until that slot's S1–S6 close).
 //!
 //! Design reference: docs/design/en/08-security-model.md §8.1 (Windows row).
 //!

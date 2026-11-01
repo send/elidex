@@ -1,12 +1,15 @@
 //! Platform-specific process sandbox enforcement.
 //!
-//! Implements the sandbox mechanisms described in design doc §8.1:
+//! Design doc §8.1 assigns one mechanism per platform. What this crate
+//! implements is narrower:
 //!
-//! | Platform | Mechanism                    |
-//! |----------|------------------------------|
-//! | Linux    | seccomp-bpf + namespaces     |
-//! | macOS    | `sandbox_init()` profiles    |
-//! | Windows  | Restricted tokens + Job Objects |
+//! | Platform | Design §8.1                     | Implemented here              |
+//! |----------|---------------------------------|-------------------------------|
+//! | Linux    | seccomp-bpf + namespaces        | seccomp-bpf only              |
+//! | macOS    | `sandbox_init()` profiles       | `sandbox_init()` profiles     |
+//! | Windows  | Restricted tokens + Job Objects | Job Object process limit only |
+//!
+//! The known gaps are tracked in `#11-os-sandbox-enforcer-correctness`.
 //!
 //! The [`SandboxEnforcer`] trait abstracts over platform differences.
 //! [`apply_sandbox`] is the entry point called early in content thread
