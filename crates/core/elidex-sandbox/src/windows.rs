@@ -18,8 +18,7 @@ pub struct WindowsRestrictedEnforcer;
 
 impl SandboxEnforcer for WindowsRestrictedEnforcer {
     fn apply(&self, policy: &SandboxPolicy) -> Result<(), SandboxError> {
-        create_restricted_job(policy)?;
-        Ok(())
+        create_restricted_job(policy)
     }
 
     fn name(&self) -> &'static str {
@@ -29,8 +28,10 @@ impl SandboxEnforcer for WindowsRestrictedEnforcer {
 
 /// Create a Job Object with restrictions matching the sandbox policy and
 /// assign the current process to it.
+///
+/// The policy is not read yet; it will drive network/filesystem restrictions.
 #[allow(unsafe_code)]
-fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
+fn create_restricted_job(_policy: &SandboxPolicy) -> Result<(), SandboxError> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -73,7 +74,6 @@ fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
         // lifetime of the process. When the handle is closed, all
         // processes in the job are killed (due to KILL_ON_JOB_CLOSE).
         // The handle is intentionally leaked.
-        let _ = policy; // Will be used for network/filesystem restrictions.
     }
 
     Ok(())

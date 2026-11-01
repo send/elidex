@@ -162,7 +162,7 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, BackendError> {
         SeccompAction::KillProcess,
         // Match action (3rd param): applied to syscalls NOT in the rules map.
         // Errno(EPERM) = graceful denial (let the process handle the error).
-        SeccompAction::Errno(libc::EPERM.unsigned_abs()),
+        SeccompAction::Errno(libc::EPERM.cast_unsigned()),
         arch,
     )
 }
