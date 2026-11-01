@@ -452,6 +452,7 @@ fn missing_listener_id_silently_no_ops() {
 /// callback value there (IDL-set) runs — there is no §8.1.3.4 check at
 /// invocation (step 1 of the processing algorithm is WebDriver BiDi).
 #[test]
+#[allow(unsafe_code)]
 fn call_listener_foreign_document_node_raw_gated_callback_runs() {
     let mut engine = ElidexJsEngine::new();
     let mut session = SessionCore::new();
@@ -473,44 +474,45 @@ fn call_listener_foreign_document_node_raw_gated_callback_runs() {
             .expect("insert EventListeners");
         (raw_id, callback_id)
     };
-    register_listener_via_global(
-        &mut engine,
-        &mut session,
-        &mut dom,
-        doc,
-        "function () { globalThis.callbackRan = true; }",
-        callback_id,
-    );
-    engine
-        .vm()
-        .eval("globalThis.rawRan = false; globalThis.callbackRan = false;")
-        .unwrap();
-
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    let mut click = DispatchEvent::new("click", foreign);
-    engine.call_listener(raw_id, &mut click, foreign, false, true, &mut ctx);
-    let mut down = DispatchEvent::new("mousedown", foreign);
-    engine.call_listener(callback_id, &mut down, foreign, false, true, &mut ctx);
+    // SAFETY: `ctx` outlives the bracket; the closure does not touch
+    // `ctx.session` / `ctx.dom` directly.
+    unsafe {
+        engine.with_bound(&mut ctx, |engine, ctx| {
+            register_listener(
+                engine,
+                "function () { globalThis.callbackRan = true; }",
+                callback_id,
+            );
+            engine
+                .vm()
+                .eval("globalThis.rawRan = false; globalThis.callbackRan = false;")
+                .unwrap();
 
-    assert!(
-        engine
-            .vm()
-            .host_data()
-            .expect("HostData")
-            .get_listener(raw_id)
-            .is_none(),
-        "the node clause must keep the raw handler uncompiled"
-    );
-    assert_eq!(
-        engine.vm().eval("globalThis.rawRan").unwrap(),
-        JsValue::Boolean(false),
-        "a raw handler on a null-browsing-context document's node reads null"
-    );
-    assert_eq!(
-        engine.vm().eval("globalThis.callbackRan").unwrap(),
-        JsValue::Boolean(true),
-        "a callback value runs wherever it lives (nothing gates the call)"
-    );
+            let mut click = DispatchEvent::new("click", foreign);
+            engine.call_listener(raw_id, &mut click, foreign, false, true, ctx);
+            let mut down = DispatchEvent::new("mousedown", foreign);
+            engine.call_listener(callback_id, &mut down, foreign, false, true, ctx);
 
-    engine.vm().unbind();
+            assert!(
+                engine
+                    .vm()
+                    .host_data()
+                    .expect("HostData")
+                    .get_listener(raw_id)
+                    .is_none(),
+                "the node clause must keep the raw handler uncompiled"
+            );
+            assert_eq!(
+                engine.vm().eval("globalThis.rawRan").unwrap(),
+                JsValue::Boolean(false),
+                "a raw handler on a null-browsing-context document's node reads null"
+            );
+            assert_eq!(
+                engine.vm().eval("globalThis.callbackRan").unwrap(),
+                JsValue::Boolean(true),
+                "a callback value runs wherever it lives (nothing gates the call)"
+            );
+        });
+    }
 }
