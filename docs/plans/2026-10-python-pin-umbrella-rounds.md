@@ -1,10 +1,12 @@
-# Landing file 4 — `docs/plans/2026-10-python-pin-umbrella-rounds.md`
+# Python pin umbrella — rounds record (companion of `2026-10-python-pin-umbrella.md`)
 
-The python-pin umbrella's review record (body: `docs/plans/2026-10-python-pin-umbrella.md`): plan-review
+This file is `docs/plans/2026-10-python-pin-umbrella-rounds.md`, one of the umbrella's four files (body §0
+*Layout*, §6 *This umbrella's own length*); it lands with the body in #581 (PM decision 221). It is the
+python-pin umbrella's review record (body: `docs/plans/2026-10-python-pin-umbrella.md`): plan-review
 dispositions (§12), the per-PR plan consequences (§13) and provenance (§14). Append-only. **Cross-references**: a
 §n here is the body's section as it stood in the draft named; since draft 7, §4.1's rows, §4.2's measured tables,
 §7.2's method and §11's recipes are in the records file as R§4.1, R§4.2, R§7.2 and R§11, and §5.2–§5.3 in the VM
-P4 file, numbers kept.
+P4 file, numbers kept; since #581's fix round 1, §9 step 3's tamper-slot text is R§9 and the consent list §5.3 (c).
 
 ## §12 Plan-review dispositions
 
@@ -258,15 +260,57 @@ with the cause layer (body §11 T2); (4) found, not decided: the slot ledger's `
 `:327` / `:328` (§5.2 *Stage 1b's hits*); (5) the V16–V23 request is sent once the umbrella converges (decision
 211 said "after R7 converges", which R7 did not).
 
+### §12.8 Plan-review R8 (draft 8) — disposition and terminator
+
+R8 (2026-11-01, against `ee6c7a1a`; frozen snapshot of draft 8, 2244 lines, body 999, SHA-256 `7499d980…`; 5 ×
+reviewer, at most two at once; `r8-disposition.md`, raw `r8-run/axis1.md` … `axis5.md`): raw Axis 1 0/0/3, Axis 2
+0/1/3 (+1 FP), Axis 3 0/0/5, Axis 4 0/0/4, Axis 5 0/1/6 (+3 FP); after dedup **CRIT 0 / IMP 2 / MIN 18 / FP 4**
+(A4-1 merged into A2-1, A2-4 = A3-3, A1-1 + A5-3). **Terminator (PM decision 217, applied by PM decision 221)**:
+both IMPs sit in draft 8's additions (departures (1) and (5)), so the second branch applies — no R9; the memo
+becomes the memo-only docs PR **#581** and goes to `/external-converge` from R1, with I1, I2 and the 18 MINs as its
+first fix round. Draft 9 is that fix round, in place on #581's branch (the four files of §6), base `ee6c7a1a`.
+
+| Finding | What changed, where |
+|---|---|
+| **I1** (A2-1 + A4-1) action (4) assumes `sys.executable`'s directory is a PATH entry — false on real interpreters | **action (4) removed** (decision 221); body §4.2 *The refusal*: the facts gain (c) `mise config ls --json`'s paths and (d) each one's `mise config get -f <path> env._.path` (measured, R§0 *#581 fix round 1*), so T1 (b) shows which file holds the entry and the user decides; item 2 states what `sys.executable` reports (measured); R§4.2 *Each case's fix* rewritten — the middle column holds only measured output; body §11 T1 (b) restated from a real-interpreter run (R§11 *T1*); body §2 I5 × I6 no longer claims "the block holds the fix for each case" |
+| **I2** (A5-1) consent timing vs the landing path | decision 221: the memo lands as #581, not with PR-1 — body §0 (decision bullet, *Landing paths*, PM 211 bullet), §5.1 (#514 items), §6 (*Depends on*, *Ordering*, *own length*), §8, §9 steps 0 and 3, VM P4 file (intro, O8, *landing memos* paragraph), C14 / C33 (C38); the request is sent once after #581's converge and #581's merge waits for it |
+| A1-1 + A5-3 the consent subject listed three ways | one list, §5.3 (c) (V1–V23, V6's question, V22's option, P2, O4, the checker run, O8, and two items for information); §6, §8, §9 step 3 and the O4 / O7 / O8 owner cells cite it ("with consent") |
+| A1-2 O8's red ownership by file owner | O8: ownership by who wrote the line; PR-1's lines in VM P4 memos are PR-1's |
+| A1-3 the webref prelude "spells no path" | body §4.3 and §8 #501 row: no K2-pattern string; `scripts/python_pin.py` does not match K2; the prelude's home is `_webref/DESIGN.md`'s policy clause, PR-2's plan's X2 boundary |
+| A2-2 C31's fixtures verify an injected `sys.executable` | C37 (b): stated as their limit, plus one fixture with the child's real `sys.executable`; the real values are R§4.2's measured column |
+| A2-3 the printed facts enumerated in four places | body §4.2 *The refusal*'s list is the one enumeration; §2 I5, I5 × I6, §7.1 rows and C31 / C37 cite it |
+| A2-4 = A3-3 "first three stderr lines"; `mise trust` not in the block | §4.2 item 6: mise's stderr verbatim up to a cap, no line position relied on; the generic block names `mise trust`; R§4.2 *Each case's fix* row "untrusted" → action (2) |
+| A3-1 R§11's reason for rejecting the CI run | R§11: the CLAUDE.md `## CI` job boundary (`CLAUDE.md:100`), and a second setup step being CI's second spelling; draft 8's other reasons withdrawn |
+| A3-2 "no guarantee rests on mise's version" | body §11: admission does not; I6 locally and the untrusted path do, seen only by a bump's re-measurement; trigger widened |
+| A3-4 stage 1b's hand-off has no slot or time | VM P4 file §5.2: owner VM P4, at its next touch (PM decision 220, `PORTFOLIO:357`); V23 × the lane's fix = a textual overlap, named in (c) item 8 |
+| A3-5 "the property is measured" covers executed paths only | VM P4 file stage 1c comment; body §11 bullet *The deprecation census* (the driver's `-I` process, `-I` / `-E` children, unexecuted paths) |
+| A4-2 `/usr/bin/python3`'s Expected value depends on the developer dir | body §4.2 item 2, R§11 *Expected* (`<D>` = `xcode-select -p` or `DEVELOPER_DIR`), R§0 J4 (CLT path measured); C37 (c) |
+| A4-3 "seven constructs" reads as complete | R§11 J2 table +3 rows (measured on both interpreters); "ten, a sample, not a census"; body §11; C24 → C37 (d) |
+| A4-4 README / CONTRIBUTING have no *Python* section | the block names README *Prerequisites* / CONTRIBUTING *Getting Started* (`git show ee6c7a1a:README.md`, `:66`; `CONTRIBUTING.md`, `:5`), which PR-1 rewrites (§4.4, §7.1: and how to install mise) |
+| A5-2 V23's recorded grep output | V23: `:117`, `:278`, `:327`, `:328` (re-run, R§0) |
+| A5-4 R§0's PM 217 "full text" carries content not in `PORTFOLIO:354` | R§0: the record's words quoted, the rest marked as the program's reading (departure note) |
+| A5-5 V18 cites PORTFOLIO:293 | **partly a false premise**: `:293` (PM 191) does hold the note ("Still owed: the '0 hits' note …"); V18 now cites `:290`, `:293` and `:308` |
+| A5-6 no record that V1–V15 and the V6 question were sent | none found (`PORTFOLIO:244`, decision 124's record: prepared, not sent); (c) item 1 includes V1–V15 and item 2 V6's question |
+| A5-7 controls file headroom under V6 (ii) | **2 lines, not 3** (997 lines, `n >= 1000` reds, R§0); V6 (ii) states it and the prereq-split fallback |
+| FP (A2 "No ECS surface"; A5 ×3) | noted, unchanged |
+
+**Departures of this fix round, for the converge reviewer**: (1) the facts gain *questions* (c) and (d), not one
+fact — `mise config get` without `-f` printed one file's value only (R§0), so the oracle asks per file `mise
+config ls --json` lists; (2) "the config mise chose" in the brief is read as the files `mise config ls` lists, since
+the version's chosen file is already the oracle's `source`; (3) body §9 step 3's tamper-slot text moved unchanged to
+R§9 (body length); (4) (c) includes V1–V15 (A5-6), beyond the brief's V16–V23; (5) whether PR-0 may precede
+#581's merge is left to the PM (body §6 *Ordering*).
+
 ---
 
-## §13 Per-PR plan consequences (drafts 3–8)
+## §13 Per-PR plan consequences (drafts 3–8, #581 fix round 1)
 
 For the driver to schedule; the per-PR plans are not edited by this draft. C1–C8 are draft 3's, C9–C14 draft
 4's, C15–C20 draft 5's, C21–C24 draft 6's, each amended where a later draft changes it; C25–C29 are new in draft 7, C30 in its
-decision-211 fold, C31–C36 in draft 8 (which amends C4, C6, C14, C16, C20, C24, C26, C27).
-This list is complete for draft 8: every per-PR plan statement that draft 8 makes false or incomplete has an item
-here.
+decision-211 fold, C31–C36 in draft 8 (which amends C4, C6, C14, C16, C20, C24, C26, C27), C37–C38 in #581's fix
+round 1 (which amend C14, C20, C24, C31, C33).
+This list is complete for #581's fix round 1: every per-PR plan statement that it makes false or incomplete has an
+item here.
 
 - **C1 — PR-1 §4.6** gains the class **floor-motivated code branch** (edit: remove under the pin, with its coupled
   rows — mutation rows, controls, comments, coverage rows — in the same commit) and **live rule or present-tense
@@ -510,6 +554,24 @@ here.
 - **C36 — the untrusted case on `main` (R7 A4-7)**: PR-1 §12's landing step and its plan's `[settings]` text say
   that `main` is already untrusted-refusing (`[bootstrap.packages]`, #535) and that PR-1's `[settings]` adds a
   second such table — not that PR-1 introduces the case.
+- **C37 — PR-1's refusal after R8 (PM decision 221; R8 I1, A2-2–A2-4, A4-2, A4-3)**: (a) C31's text follows body
+  §4.2 *The refusal* as now written: items 1–6 (item 5's questions (a)–(d); item 6's stderr verbatim up to a cap
+  the plan sets, no line position relied on), and the generic block without draft 8's fourth action and with
+  `mise trust` and the `_.path` clause; C31's argv control asserts exactly `ls --current --json python`, `which
+  python3`, `config ls --json` and one `config get -f <path> env._.path` per listed path (a mutant adding `env
+  --json` stays red); the fake `mise` answers (c) / (d) in the measured shapes (R§0 *#581 fix round 1*: a key
+  found, rc 1 "Key not found", rc 1 for `.tool-versions`). (b) **The fixtures' limit, stated** (A2-2): a fixture
+  that injects `sys.executable` proves the text built from it, not what a real interpreter reports; one fixture
+  runs the child with its real `sys.executable` and asserts item 2 prints exactly that value; the real values of
+  R§4.2 *Each case's fix* come from measurement, not from the fixtures. (c) C20's expected `sys.executable` is
+  `<D>/usr/bin/python3` with `<D>` as `xcode-select -p` prints it (or `DEVELOPER_DIR`), recorded with the run.
+  (d) C24's gaps are R§11's ten rows, stated as a sample, not a census.
+- **C38 — the umbrella lands with #581, not with PR-1 (PM decision 221)**: PR-1's plan cites the landed umbrella
+  and lists none of its four files in its edit set; C14's "PR-1 lands four umbrella files" and C33's "this
+  umbrella's four with PR-1" become #581's (#581's CI runs `symbol_attribution_control` and C33's X1 check over
+  them); PR-1's preconditions are #581 merged and §5.3 (c)'s consent, its implementation after both (body §6, §9
+  steps 0 and 3); PR-0's plan cites the umbrella by path (whether PR-0 may precede #581: the PM's call, §6).
+  C25 / C26's "the one request of §9 step 3" is §9 step 0's request, whose list is §5.3 (c).
 
 ---
 
@@ -583,3 +645,17 @@ here.
   `sys.executable` for J4; three isolated mise 2026.10.25 probes (A4-7 and the post-check); the J2 table on both
   interpreters. The user's `~/.local/state/mise/tracked-configs` listing had 144 lines before and after; no entry
   points into `scratchpad/d8`. No cargo build; no repository write.
+  Reviewed by plan-review R8 (2026-11-01, against `ee6c7a1a`): CRIT 0, IMP 2, MIN 18, FP 4 (`r8-disposition.md`,
+  §12.8); PM decision 221: no R9, PR #581.
+- **#581 fix round 1** (draft 9, 2026-11-01): PM decision 221; base `ee6c7a1a`. Draft 8 was split at its `# Landing
+  file N` markers into the four files of body §6 (#581's first commit, `0613bd85`); this round edits
+  them in place on #581's branch `ci-python-pin-umbrella` and gives each companion a title line and a sentence
+  saying where it lives. I1 (action (4) removed; the facts gain `mise config ls --json` and per-file `env._.path`),
+  I2 (the memo lands as #581; the consent once, after #581's converge, #581's merge waiting for it), the 18 MINs
+  (§12.8), §5.3 (c) the one consent list, R§9 (moved from body §9 step 3), C37–C38. Counts (body §6's command):
+  body 998 lines, VM P4 198, records 580, rounds 661, total 2437. Measurements by the designer,
+  2026-11-01 (R§0 *#581 fix round 1's measurements*): `sys.executable` of three real interpreters and under
+  `DEVELOPER_DIR`; three isolated mise 2026.10.25 probes (T1 (b) with a real interpreter; where `_.path` is
+  reported; another `python3` ahead of the shim); three J2 rows on both interpreters; V23's grep; the controls
+  file's headroom. The user's `~/.local/state/mise/tracked-configs` / `trusted-configs` listings had 144 / 72 lines
+  before and after; no entry points into `scratchpad/c1`. No cargo build; no commit (the driver commits).

@@ -1,4 +1,4 @@
-# Umbrella — pin the Python interpreter (draft 8, 2026-11-01)
+# Umbrella — pin the Python interpreter (draft 9 = PR #581 fix round 1, 2026-11-01)
 
 ## §0 Status
 
@@ -24,14 +24,14 @@ Outside `crates/**` (`git diff --stat 6aea28da ee6c7a1a -- ':!crates'`, 18 files
 - **Unchanged since draft 4's base**: `.claude/tools/**`, `scripts/**`, `.github/**`, `mise.toml` (`git diff --stat
   74e15df1 ee6c7a1a -- .claude/tools scripts .github mise.toml` prints nothing). So every family line V1–V11 cites,
   and every driver, `ci.yml` and `mise.toml` line this memo cites, holds at `ee6c7a1a`. #510's memo changed on
-  `:663` only (1+/1−), so V12, V13 and V15 hold as well; `CLAUDE.md` did change (#571, #506), so V14 is re-read
-  at `ee6c7a1a`. Earlier bases and what moved between them: R§0.
-R§4.1's rows were measured at `b051329b`. PR-1 re-runs row 3 at its own base.
+  `:663` only (1+/1−), so V12, V13 and V15 hold as well; `CLAUDE.md` did change (#571, #506), so V14 is re-read at
+  `ee6c7a1a`. Earlier bases: R§0. R§4.1's rows were measured at `b051329b`; PR-1 re-runs row 3 at its own base.
 
-**Layout (K3, decided in §6 *This umbrella's own length*).** This memo is four landing files in one draft: the
-body (§0–§11, this part), then *Landing file 2* (§5.2–§5.3, the VM P4 coupling), *Landing file 3* (the records
-R§…, cited from the body as R§n) and *Landing file 4* (§12–§14, the rounds record). In table cells `\|` is the
-Markdown escape of `|`: copy a cell's command from the rendered text, or replace `\|` by `|` (R6 M14).
+**Layout (K3, decided in §6 *This umbrella's own length*).** This memo is four files in `docs/plans/`: this
+body (§0–§11), `2026-10-python-pin-umbrella-vm-p4.md` (§5.2–§5.3, the VM P4 coupling and the consent subject),
+`…-records.md` (the records R§…, cited from the body as R§n) and `…-rounds.md` (§12–§14, the rounds record). In
+table cells `\|` is the Markdown escape of `|`: copy a cell's command from the rendered text, or replace `\|` by
+`|` (R6 M14).
 
 **Decisions this draft is written on** (record locations: `PORTFOLIO` = `/Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-2026-10-26.md`;
 lane SSoT = `project_ci-tools-lane.md`, its top block "HANDOFF NOW (2026-10-31)"):
@@ -74,31 +74,34 @@ lane SSoT = `project_ci-tools-lane.md`, its top block "HANDOFF NOW (2026-10-31)"
   O5 / O6 — the floor and slower-leg sentences of #506's `docs/plans/2026-10-vm-p4-memo-seam-split.md` — are
   **V16 / V17**, fixed by PR-1 on V1–V15's route (one issue, one way). **Q2 (a)**: P2's two lines go into **PR-2's
   edit set**, so PR-2 is green at its own base. **Q3**: the stale "0 hits" note of #510's memo (`:1097-1104`) is
-  **V18** in PR-1; the item moves from the PM (PORTFOLIO:293, :308) to CI/tools. **One consent request** to the VM
-  P4 lane covers V16–V18 and P2, sent once draft 7 is settled, by V1–V15's route (§9 step 3). **K3**: the seam set
-  is decided now, so the landed body is ≤ 1000 lines (§6). Every decision above is unchanged.
+  **V18** in PR-1; the item moves from the PM (PORTFOLIO:290, :293, :308) to CI/tools. **One consent request** to
+  the VM P4 lane covers V16–V18 and P2, sent once draft 7 is settled (moved by decision 221: §9 step 0). **K3**: the
+  seam set is decided now, so the landed body is ≤ 1000 lines (§6). Every decision above is unchanged.
 - **PM decision 211** (2026-11-01, `PORTFOLIO:347`): **D7-1 (a)**: the three stale "0 hits" lines of #506's
   `docs/plans/2026-07-vm-p4-slot-ledger.md` are **V19–V21**, V18's class, fixed by PR-1 once both slots' homing is
   re-checked (done: §5.2). **D7-2**: `plan_memo_sibling.py:158`'s positional `maxsplit` is **V22**, fixed by PR-1
-  unless the VM P4 lane fixes it itself. Both join decision 205's one consent request (§9 step 3), sent after R7
-  converges. **D7-3**: the `ci.yml:167` item goes after PR-2 (§6).
+  unless the VM P4 lane fixes it itself. Both join decision 205's one consent request (§9 step 0), sent "after R7
+  converges" — moved by decision 221. **D7-3**: the `ci.yml:167` item goes after PR-2 (§6).
 - **PM decision 213** (2026-11-01, `PORTFOLIO:349`): the slot ledger's `:327` is **V23**, in the same consent
   request (§5.2); reviewed by the next round, no clerical skip.
 - **PM decision 217** (2026-11-01, `PORTFOLIO:354`): **the refusal lists observed facts only and infers no cause**
   (§2 I5, §4.2 *The refusal*); the cause layer is removed, inside decision 170 — **a version mismatch always
   stops**, unchanged. Reason and R8's terminator: R§0, §12.7.
+- **PM decision 221** (2026-11-01, `PORTFOLIO:358`; R8, §12.8): the memo lands as the memo-only docs PR **#581**,
+  not with PR-1; the one consent request is sent **once, after #581's `/external-converge` ends**, #581's merge
+  waits for it, PR-1's implementation follows (§9 steps 0, 3). I1: action (4) removed; the facts gain the config
+  files mise loaded and each one's `[env] _.path`, as mise reports them (§4.2; relayed by the CI/tools driver).
 
 **Edge-dense: yes** — seven coupled invariants (§2; I7 is draft 6's, decision 167), so the umbrella and every
 per-PR plan pass `/elidex-plan-review` before implementation (CLAUDE.md *Edge-dense work* (b)). **PR-1 and PR-2
 are each edge-dense** (every pair × half is listed in §2 *Ownership*; §6): each plan carries its own intra-PR §2
 pair matrix and its own plan-review (§6, §13 C9, C18). Whether PR-0 is a single intersection is **PR-0's plan's
 call** (R5 MIN: besides I1's tracked half × I6's admitted lines it meets `main`'s two legs, the offline regime and
-A-iii's `mise.toml` reader; C11). **Landing paths** (each with its PR): with PR-1, the body
+A-iii's `mise.toml` reader; C11). **Landing paths**: with **#581** (memo only, decision 221), the body
 `docs/plans/2026-10-python-pin-umbrella.md` and its three companions `…-python-pin-umbrella-vm-p4.md`,
 `…-umbrella-records.md` and `…-umbrella-rounds.md` (§6 *This umbrella's own length*); `…-pr0-tracked-mise-config.md`
-with PR-0, `…-pr1-pin-and-gate.md` with PR-1, `…-pr2-entry-point-guard.md` with PR-2. Draft 2's PR-3 is folded into
-PR-1 (§6, F5); PR-0 is draft 4's split, rebuilt by
-draft 5 around T5's new shape (§6, decision 150 (1)).
+with PR-0, `…-pr1-pin-and-gate.md` with PR-1, `…-pr2-entry-point-guard.md` with PR-2. Draft 2's PR-3 is folded
+into PR-1 (§6, F5); PR-0 is draft 4's split, rebuilt by draft 5 around T5's new shape (§6, decision 150 (1)).
 **No ECS surface**: no `crates/**` file, no component, system or query is touched; the subject is tooling.
 
 **This memo carries no measured digits as live claims.** §4.1 is a **decision record** (dated, with the command
@@ -170,12 +173,10 @@ Seven invariants, I1–I6 and draft 6's I7 (decision 167); the pair table holds 
   the vendored core, X2) is red.
 - **I5 — refusal before behaviour, and a remedy that is never a dead end.** Two halves (H4), as for I2.
   *Gate half (PR-1)*: `python_pin.py`'s admission and refusal, which the driver's Step 1 runs before any suite. A
-  refusal exits non-zero and prints **observed facts only, and infers no cause** (PM decision 217): the pin and
-  its file, the version found, **`sys.executable` as reported**, and **mise's answer** (§4.2: per element of `mise
-  ls --current --json python`, its `version`, `source`, `installed` and `install_path`; `mise which python3`'s
-  result) — or that mise gave none, with mise's own error lines. Then one fixed block of generic actions, the
-  same in every refusal, none claimed to apply (H6, never a dead end: §4.2 *The refusal*). The oracle is
-  diagnostic only; it never admits.
+  refusal exits non-zero and prints **observed facts only, and infers no cause** (PM decisions 217, 221): the
+  facts are enumerated once, §4.2 *The refusal* items 1–6 (among them `sys.executable` as reported and mise's
+  answer), then one fixed block of generic actions, the same in every refusal, none claimed to apply (H6, never
+  a dead end). The oracle is diagnostic only; it never admits.
   *Entry-point half (PR-2)*: in each entry point the guard runs the same refusal before any import that can fail
   or behave differently by version.
 - **I6 — provisioning.** The pin is installed as an attested precompiled build or not at all. Local: mise, with
@@ -246,7 +247,7 @@ Seven invariants, I1–I6 and draft 6's I7 (decision 167); the pair table holds 
 | I3 × I6 | CI provisioning is setup-python's manifest build for the pinned image; `runs-on` stays `ubuntu-24.04` with a new reason: the manifest serves builds per image, so the pinned patch must have one for that image |
 | I4 × I5 | one pin proves both: it executes **each derived entry point** (the population, not a list) under a non-pin version with elidex imports poisoned, and expects the refusal and no import |
 | I4 × I6 | untracked launchers (the user's global hooks, shell history) and untracked configuration (`mise.local.toml`, `MISE_*` in the environment, a config above the repository, an rc file) are outside the tracked population by definition; the launchers reach the pin through mise's shim when their cwd holds `.tool-versions` and auto-install it (§7.2). An untracked input that wins **on the version** makes mise launch a non-pin interpreter: admission refuses it and the oracle names it (measured for `mise.local.toml`, an rc-renamed version file and `MISE_PYTHON_VERSION`, §4.2). An untracked input that leaves the version at the pin but changes the source — an rc-renamed version file holding the pin, an `[env] _.path` entry, another same-version `python3` first on PATH — is admitted: decision 170's stated limit (§11 T1, T2). An untracked input that overrides an **install setting** is warned about while it is set in the run's environment and met by nothing once the install is done: admission compares the version only, and an installed interpreter carries no record of how its archive was verified or built — a stated limit (§11), an I6 concern, not a guard's |
-| I5 × I6 | the refusal prints what I6's provisioning answers — mise's `version`, `source`, `installed`, `install_path` and `mise which python3`, or that mise gave none with its error lines — beside `sys.executable`, and the generic actions, among them I6's `mise install`; it never chooses among them (PM decision 217, §4.2 *The refusal*). Draft 4's remedy (`mise current python`) printed only the pin when another interpreter ran ahead of mise's install — a dead end (H6); printing `sys.executable` beside `mise which python3` shows the two differ, and the generic block holds the fix for each measured case |
+| I5 × I6 | the refusal prints what I6's provisioning answers (§4.2 *The refusal* item 5: mise's answer, the config files it loaded and their `[env] _.path`) beside `sys.executable`, and the generic actions, among them I6's `mise install`; it never chooses among them (PM decisions 217, 221). Draft 4's remedy (`mise current python`) printed only the pin when another interpreter ran ahead of mise's install — a dead end (H6). Which printed facts a user reads in each measured case, and which generic action then fixes it, is R§4.2 *Each case's fix* — checked by this memo against measured output, never by the refusal |
 | I1 × I7 | the scratch repositories of I7's tests copy `python_pin.py` and write their own `.tool-versions`; the isolated mise reads only those (its global config is the empty file), so a test's verdict never depends on the developer's pin, global `python = "latest"` or installs |
 | I2 × I7 | I7 binds the **tests'** children, never the gate's own admission: the driver's Step 1 and a real `mise run tools-test` use the developer's mise as §7.1 describes; only the child processes a pin starts to exercise the refusal are isolated |
 | I3 × I7 | CI has no mise and local has one; without I7 the two callers execute different branches of the same pin (T3). With the fake `mise` first on the child's PATH (or none), both execute the fake's branch — the oracle is measured identically on both callers |
@@ -349,9 +350,8 @@ a patch without a prebuilt falls back to an unattested source build (R§4.1).
 
 S2's fact rows (mise reads `.tool-versions` over the global `python = "latest"`; setup-python v7 reads it, and a
 `python-version` input beside it wins): R§4.2. Accepted consequence, stated not hidden: the local build
-(python-build-standalone) and the CI build
-(actions/python-versions) are different builds of the same CPython release — PR-1 §9's slot
-`#11-python-pin-single-builder` covers it.
+(python-build-standalone) and the CI build (actions/python-versions) are different builds of the same CPython
+release — PR-1 §9's slot `#11-python-pin-single-builder` covers it.
 
 **T5's two jobs (decision 150 (1)).** What protects I2 is admission, not a model of mise's configuration surface
 (why the earlier shapes leaked: R§4.2). T5 keeps exactly two jobs: **(i) CI and local do not disagree silently**
@@ -412,40 +412,46 @@ setting `MISE_PYTHON_VERSION`, and `override_tool_versions_filenames` in `mise.t
 turning version-changing in a later release is caught by admission like any other version input.
 
 **The local oracle (decision 150 (1); PR-1).** On refusal only — admission never consults mise — `python_pin.py`
-asks mise at the process cwd (where the shim resolved the interpreter that is running) **two questions and no
-other** (PM decision 217 withdrew draft 7's `mise env --json` read):
-- `mise ls --current --json python` → a JSON array (R5 MIN); per element, `version`, `source` (`{"type", "path"}`
-  for a file, `{"type": "environment", "key", "value"}` for a variable), `installed` and `install_path`, printed as
-  mise gives them. `[]` is printed as "mise resolves no Python at <cwd>". Order and count are mise's (requested
-  versions in request order, R§4.2); the refusal reads no meaning into them. Fixtures: `[]`, one and two elements;
-- `mise which python3` → its output when it exits 0, else its exit status (1 while not installed, R§4.2).
+asks mise at the process cwd (where the shim resolved the interpreter that is running) **these questions and no
+other** (PM decision 217 withdrew draft 7's `mise env --json` read; decision 221 added (c) and (d)):
+- (a) `mise ls --current --json python` → a JSON array (R5 MIN); per element, `version`, `source` (`{"type",
+  "path"}` for a file, `{"type": "environment", "key", "value"}` for a variable), `installed` and `install_path`,
+  printed as mise gives them. `[]` is printed as "mise resolves no Python at <cwd>". Order and count are mise's
+  (R§4.2); the refusal reads no meaning into them. Fixtures: `[]`, one and two elements;
+- (b) `mise which python3` → its output when it exits 0, else its exit status (1 while not installed, R§4.2);
+- (c) `mise config ls --json` → the `path` of each config file mise loaded, in mise's order;
+- (d) for each path (c) printed, `mise config get -f <path> env._.path` → its output when it exits 0, else its
+  exit status (a file without the key, or a `.tool-versions`, exits 1; R§0 *#581 fix round 1*).
 
-**Measured shapes** (2026-10-31, mise 2026.10.21; R6 re-ran them on 2026.10.25): R§4.2's table — the version and
-`source` for each input class, the installed shape, `[]`, two elements, T1, T2 and the untrusted case. From it:
-`mise current python` (version only) and `mise config ls` (loaded files, no winner; it omits the variable and the
-rc file) are not the oracle, and `mise where python` / `mise which python3` exit 1 while the version is not
-installed.
+**Measured shapes** (mise 2026.10.21 / .25; (c) / (d) 2026-11-01): R§4.2, R§0. `mise current python` (version
+only) is not the oracle; `mise config ls` names no winner and omits the variable and the rc file, so it is
+printed, never read as the version's source; `mise where python` / `mise which python3` exit 1 until installed.
 
-**The refusal — facts, then one generic block (PM decision 217).** Every refusal exits non-zero and prints what it
-observed, and nothing it inferred:
+**The refusal — facts, then one generic block (PM decisions 217, 221).** Every refusal exits non-zero and
+prints what it observed, and nothing it inferred. **This list is the one enumeration** of the printed facts
+(§2 I5, I5 × I6, §7.1, C31 and C37 cite it):
 1. the pin, the pin file `<root>/.tool-versions`, and the version running;
-2. **`sys.executable` as the interpreter reports it**, not resolved (macOS `/usr/bin/python3` reports the Xcode
-   path, R§11 *The real old interpreter*);
+2. **`sys.executable` as the interpreter reports it**, not resolved and not a PATH entry (measured: a Homebrew
+   build reached through a symlink reports `/opt/homebrew/opt/python@3.X/bin/python3.X`; macOS `/usr/bin/python3`
+   reports the active developer directory's `usr/bin/python3`; R§0 *#581 fix round 1*, R§11);
 3. the cwd and the repository root, as two paths (§4.3);
-4. **mise's answer** as above — or, when mise is not on PATH, does not answer within a short timeout, exits
-   non-zero or prints what does not parse (mise is not pinned; its JSON is its own), that fact and **mise's first
-   three stderr lines** verbatim (for an untrusted worktree they include mise's own `mise trust` line, R§4.2);
-5. the install-settings warning lines (below), when one of their variables is set.
+4. the install-settings warning lines (below), when one of their variables is set;
+5. **mise's answers** (a)–(d) above, labelled by question;
+6. when mise is not on PATH, or a question does not answer within a short timeout, (a) or (c) exits non-zero,
+   or one prints what does not parse (mise is not pinned; its output is its own): that fact and mise's
+   **stderr verbatim** up to a fixed cap PR-1's plan sets, with a truncation note (an untrusted worktree's
+   includes mise's own `mise trust` line, R§4.2; no line position is relied on).
 
 Then the same block in every refusal, claiming none of its actions applies: "To run on `<pin>`: install it —
-`mise install` in `<root>` (mise itself: README / CONTRIBUTING, *Python*); or remove or change the mise input
-that decides Python here — the `source` above, a file `mise config ls` lists, or an rc file `.miserc*`, which it
-does not list; or launch through mise — `mise -C <root> exec -- <tool>`; or remove what puts `<directory of
-sys.executable>` ahead of mise's install on PATH — this shell's PATH, or an `[env] _.path` entry of a mise
-config. mise's answer again: `mise -C <root> ls --current --json python`, `mise -C <root> which python3`."
-**Never a dead end (H6)** is checked per measured case in R§4.2 *Each case's fix* — by this memo, not by the
-refusal, which never says which action applies. The fourth action is draft 8's: decision 217 named three, and
-without it T1 (b) is a dead end (`mise exec` runs `altbin/python3` too, R§11 *T1*).
+`mise install` in `<root>` (mise itself: README *Prerequisites* / CONTRIBUTING *Getting Started*, which PR-1
+rewrites, §4.4); or, if mise reports this worktree untrusted, `mise trust` in `<root>` (§9 step 4); or remove or
+change a mise input — the `source` above, an `[env] _.path` printed above, a file `mise config ls` lists, or an
+rc file `.miserc*`, which it does not list; or launch through mise — `mise -C <root> exec -- <tool>`. mise's
+answers again: `mise -C <root> ls --current --json python`, `mise -C <root> which python3`, `mise -C <root>
+config ls`." **Never a dead end (H6)** is checked per measured case in R§4.2 *Each case's fix* — by this memo,
+not by the refusal. Draft 8's fourth action (remove what puts `sys.executable`'s directory ahead on PATH) is
+**removed** (decision 221, R8 I1): it assumed that directory is a PATH entry, false on real interpreters (item
+2); T1 (b) is met by item 5 (d) and the `_.path` clause (§11 T1).
 
 **The install settings, what overrides them, and the warning (G5; decision 150 (4)).** mise knows the key
 `python.github_attestations`, and with both tracked settings in place the python-specific key wins over a global
@@ -474,8 +480,8 @@ one reader, two kinds of launcher.
 `.tool-versions`, and the root is located from **`python_pin.py`'s own path** (`scripts/python_pin.py` → the
 parent of its directory) — never from the cwd, never by walking up. The driver loads `python_pin.py` from its own
 directory (`scripts/`); PR-2's guard locates the root from its entry file's own path by that file's fixed tracked
-depth (a count of parent hops, so it spells no path — the K2 constraint, §8 #501) and loads
-`<root>/scripts/python_pin.py` by path. Draft 4's rule ("the nearest ancestor of the launched file that holds a
+depth (a count of parent hops, so the root's location spells no `.claude/(skills|tools)/<a>/<b>` string — K2,
+§8 #501; `scripts/python_pin.py` does not match K2's pattern) and loads `<root>/scripts/python_pin.py` by path. Draft 4's rule ("the nearest ancestor of the launched file that holds a
 `.tool-versions`") would read an untracked nested `.tool-versions` (R4 H3), which T5's clause 3 cannot see because
 it reads tracked files only. mise, by contrast, resolves from the cwd and walks up; when an untracked nested
 `.tool-versions` makes mise launch another interpreter, the refusal names it as the oracle's `source`.
@@ -524,12 +530,12 @@ python-pin umbrella" (PR-1 §4.6's existing wording); **PR-2 flips** it to CHECK
 
 **The CI/tools lane SSoT's hand-off ledger** (`project_ci-tools-lane.md`, "#514 rework checklist") is amended,
 via the PM who records it. Under decision 124 #514's re-derive runs **between PR-1 and PR-2**, so every item cites
-**only PR-1's artifacts** — the landed umbrella (`docs/plans/2026-10-python-pin-umbrella.md`, which lands with
-PR-1), `.tool-versions`, `scripts/python_pin.py`, the driver's Step 1 and the one-leg `tools` job — and names
+**only PR-1's artifacts** (as this memo uses the term: what is on `main` once PR-1 lands) — the umbrella
+(`docs/plans/2026-10-python-pin-umbrella.md`, landed by #581 before PR-0, decision 221), `.tool-versions`, `scripts/python_pin.py`, the driver's Step 1 and the one-leg `tools` job — and names
 PR-2 only as the owner of what is still UNCHECKED, through the umbrella (G2):
 - **Item 3** ("the UNCHECKED 'interpreter floor on SKILL.md's direct preflight.py path (A-iii's)' → '(Slice
   B's)'") becomes: "→ 'the pin on SKILL.md's direct `preflight.py` path — UNCHECKED, assigned to PR-2 of the
-  python-pin umbrella (umbrella §6, landed with PR-1)'". **Later**, PR-2 changes it to "CHECKED by PR-2's
+  python-pin umbrella (umbrella §6)'". **Later**, PR-2 changes it to "CHECKED by PR-2's
   entry-point pin" (§13 C13).
 - **Item 4** ("B's raise moves the script's assertion, the leg's `python-version`, and the direct … invocation
   paths, incl. SKILL.md Step 0 (B owns them)") becomes: "B requires ≥ 3.11, which the pin (`.tool-versions`,
@@ -539,12 +545,12 @@ PR-2 only as the owner of what is still UNCHECKED, through the umbrella (G2):
 - **Item 5** (delete the seven `A-rederive*.sh`; no harness lands) is unchanged, which also retires draft 1's
   edits to `A-rederive-Aiii.sh`'s `floor()` block.
 
-### §5.2–§5.3 The VM P4 lane's files and lines — in *Landing file 2*
+### §5.2–§5.3 The VM P4 lane's files and lines — in `docs/plans/2026-10-python-pin-umbrella-vm-p4.md`
 
-§5.2 (the VM P4 lane's files and lines PR-1 edits, V1–V23, with the manifest rule — the consent subject of
-decision 127 (a) and decisions 205, 211) and §5.3 (the lines PR-1 and PR-2 meet on `main` since #506 landed, one owner
-and one time per row) land as `docs/plans/2026-10-python-pin-umbrella-vm-p4.md`, numbers kept; their reader is the
-VM P4 lane (§6 *This umbrella's own length*).
+§5.2 (the VM P4 lane's files and lines PR-1 edits, V1–V23, with the manifest rule) and §5.3 (the lines PR-1 and
+PR-2 meet on `main` since #506 landed, one owner and one time per row, and **§5.3 (c), the consent subject** —
+the one list the request of §9 step 0 carries, cited by §6, §8 and §9) live in that companion, numbers kept;
+their reader is the VM P4 lane (§6 *This umbrella's own length*).
 
 ---
 
@@ -553,12 +559,13 @@ VM P4 lane (§6 *This umbrella's own length*).
 | PR | Scope | Depends on |
 |---|---|---|
 | **PR-0 tracked mise config** | T5's clauses 2–5 (§4.2): the member predicate over `git ls-files`, the red-outright clause (`.miserc*`, a non-root `.tool-versions`, `.python-version*`), the no-`python` content clause with its admitted occurrences, the diagnostic, their controls — by default in the readers module and its pins (`scripts/python_suites_readers.py`, `scripts/test_python_suites_ci.py`; PR-0's plan records why, or names its own module, §4.2); and the one truthful reword of `mise.toml:115` that clause 4 needs | the umbrella's and PR-0's own plan-review; nothing else (no VM P4 file, no pin) |
-| **PR-1 pin, gate and provisioning** | `.tool-versions` (the one line); `scripts/python_pin.py` (the one reader: the one-line parser, admission, the refusal with its oracle and the warning; root from its own path); the driver's Step 1 → exact; `tools` job → one leg reading the pin file; the `ci.yml` reader and its pins; T5's clause 1; the `mise.toml` reader → `tomllib` (draft 2's PR-3: rows M1–M3 retire, Q4 / M2 restated over parsed data) with `[settings] python.compile = false` + `python.github_attestations = true` and their assertion; `mise.toml`'s task text; the removal of #510's floor-motivated code and the VM P4 statements and lines V1–V23 (§5.2); I7's support module `scripts/python_pin_testing.py` (§2); docs; the amendments (§5) | PR-0; its own plan-review; the VM P4 lane's consent to V1–V23 and its answer on V6 (decision 127 (a), decisions 205, 211) |
-| **PR-2 entry-point guard** | the launch-evidence predicate, the guard prelude in every derived entry point (root by the entry file's fixed depth, §4.3), their pins (incl. the X1 bound); `SKILL.md` Step 0's comment; the `tools` timeout re-derive in `ci.yml` (PR-2 §8); the UNCHECKED lines naming it become CHECKED (§5.1, §13 C13); the two VM P4 launch lines P2 (§5.3 (b), decision 205) | PR-1; its plan reviewed before PR-1 lands; the VM P4 lane's consent to P2 (the same request as V16–V23, §9 step 3) |
+| **PR-1 pin, gate and provisioning** | `.tool-versions` (the one line); `scripts/python_pin.py` (the one reader: the one-line parser, admission, the refusal with its oracle and the warning; root from its own path); the driver's Step 1 → exact; `tools` job → one leg reading the pin file; the `ci.yml` reader and its pins; T5's clause 1; the `mise.toml` reader → `tomllib` (draft 2's PR-3: rows M1–M3 retire, Q4 / M2 restated over parsed data) with `[settings] python.compile = false` + `python.github_attestations = true` and their assertion; `mise.toml`'s task text; the removal of #510's floor-motivated code and the VM P4 statements and lines V1–V23 (§5.2); I7's support module `scripts/python_pin_testing.py` (§2); docs; the amendments (§5) | PR-0; its own plan-review; #581 merged, which waits for the VM P4 lane's consent to §5.3 (c)'s whole subject, incl. its answer on V6 (decisions 127 (a), 205, 211, 213, 221); PR-1's implementation starts after the consent |
+| **PR-2 entry-point guard** | the launch-evidence predicate, the guard prelude in every derived entry point (root by the entry file's fixed depth, §4.3), their pins (incl. the X1 bound); `SKILL.md` Step 0's comment; the `tools` timeout re-derive in `ci.yml` (PR-2 §8); the UNCHECKED lines naming it become CHECKED (§5.1, §13 C13); the two VM P4 launch lines P2 (§5.3 (b), decision 205) | PR-1; its plan reviewed before PR-1 lands; P2 is in the same consent (§5.3 (c)) |
 
-**Ordering** (decisions 124, 127, 118 and 150 (3)): PR-0 → PR-1 → **the PR-1 → PR-2 interval** (#514's re-derive
-starts, CI/tools: it edits #514's memos and launches nothing; the M4-12 exit-gate umbrella's pre-research may
-start) → PR-2 → the **cargo-deny PR** → the **M4-12 exit-gate program** → the K2 wire program (decision 118:
+**Ordering** (decisions 124, 127, 118, 150 (3), 221): #581 (this memo; merged once the consent is in; PR-0 only
+cites it, so whether PR-0 may go first if the consent is slow is the PM's call) → PR-0 → PR-1 → **the PR-1 →
+PR-2 interval** (#514's re-derive starts, CI/tools: it edits #514's memos and launches nothing; the M4-12
+exit-gate umbrella's pre-research may start) → PR-2 → the **cargo-deny PR** → the **M4-12 exit-gate program** → the K2 wire program (decision 118:
 "before the K2 program"). Placement of the three items of H5:
 - **cargo-deny PR** (CI/tools; pins cargo-deny in `ci.yml`'s `deny` job and `audit.yml`, `deny.toml [graph]
   all-features`, drops rust-cache from the `deny` job — lane SSoT, decision 76): decision 150 (3) puts it between
@@ -598,7 +605,7 @@ start) → PR-2 → the **cargo-deny PR** → the **M4-12 exit-gate program** �
   default-features code fix goes to the lane that owns the failing modules (its row) and touches no file here.
 
 **#506 landed before PR-1** (`3ec0ae5c`, §0): there is no absorption step; PR-1 and PR-2 meet #506's lines on
-`main` (§5.3), with the VM P4 lane's consent (§9 step 3). #514's landing and PR-2's landing do not wait for each
+`main` (§5.3), with the VM P4 lane's consent (§5.3 (c), §9 step 0). #514's landing and PR-2's landing do not wait for each
 other (§5.1, §13 C13). Nothing in this order waits for another lane's PR.
 
 **PR-0 rebuilt, not dropped (decision 150 (1), "decide by the interval-free rule").** The criterion for splitting
@@ -726,21 +733,21 @@ split — and sweep 4, which does edit it, applies the rule itself (§10).
 at `ee6c7a1a` and PR-1 amends it in place (§5.1, V12, V13, V15, V18). PR-1 does not split it first: it is a landed
 record owned by the VM P4 lane, PR-1's edits are four dated amendment markers that replace text rather than grow
 it, and where that memo's cohesion seams lie is the owning lane's call — #506's split is that lane's
-restructuring of its family (§5.3). The request goes to the VM P4 lane through the PM with the §5.2 consent; if
+restructuring of its family (§5.3). The request goes to the VM P4 lane through the PM with the consent (§5.3 (c)); if
 the lane wants a split first, it lands as that lane's prereq before PR-1.
 
 **This umbrella's own length — the seam set, decided now** (K3, decision 205; it replaces draft 6's "split at
-landing"). PR-1 lands this draft as four files, as written — nothing is restructured at landing:
+landing"). **#581 lands these four files** (decision 221; not PR-1), as written — nothing is restructured:
 
-| landing file | sections | its reader | lines in draft 8 |
+| file | sections | its reader | lines at #581 fix round 1 |
 |---|---|---|---|
-| `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 999 |
-| `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 | the VM P4 lane: its files and lines, the consent subject | 167 |
-| `…-python-pin-umbrella-records.md` | R§0, R§4.1, R§4.2, R§6, R§7.2, R§11 | whoever re-opens a decision: a bump, a re-measurement, a reviewer | 493 |
-| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 585 |
+| `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 998 |
+| `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 198 |
+| `…-python-pin-umbrella-records.md` | R§0, R§4.1, R§4.2, R§6, R§7.2, R§9, R§11 | whoever re-opens a decision: a bump, a re-measurement, a reviewer | 580 |
+| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 661 |
 
-Counts: `awk '/^# Landing file 2/{exit} 1' <memo> | wc -l` for the body, and `awk '/^# Landing file N/{f=1}
-/^# Landing file N+1/{f=0} f' <memo> | wc -l` for companion N (marker lines included). Why these seams: each
+Counts: `wc -l docs/plans/2026-10-python-pin-umbrella*.md` (draft 8 was one file split at its `# Landing file N`
+markers, §14). Why these seams: each
 moved block has a reader the body does not, and the body cites it by number and never restates it — the records
 are evidence (dated rows with their commands; a bump appends), the VM P4 part is another lane's consent subject,
 the rounds part is history. Draft 6's single seam (§5.2–§5.3) could not reach 1000 lines (R6 K3). Section numbers
@@ -759,14 +766,14 @@ backticked paths, which add no link edge for the plan-memo checker.
 |---|---|---|
 | `mise run tools-test`, `mise run ci` | PATH `python3` (here the global 3.14.7) | mise's install of the pin; `mise run` auto-installs it if missing (scratch dir with `.tool-versions` + a task running `python3 -VV`, empty `MISE_DATA_DIR`: the task installs, then prints the pin — measured 2026-10-26 with 3.15.1); the driver warns when an install-override variable is set (§4.2). **Unless** a mise config adds a PATH entry (`[env] _.path`) holding another `python3`: `mise run` then runs that one (measured, §11 T1) — refused if its version differs, admitted if it reports the pin (decision 170's limit) |
 | a shell whose PATH reaches mise's shim first (or `mise activate`), cwd in the repo, bare `python3` or a shebang tool | the global mise python | the pin (auto-installed on first use), unless an untracked input mise reads first wins on the version — then refused, the refusal printing that file or variable as mise's `source` (§4.2) |
-| any of the above in a worktree mise does not trust | mise errors already: `main`'s `mise.toml` holds `[bootstrap.packages]` (#535, `a9866498`), which mise does not read untrusted (rc 1; the same file without that table reads, rc 0 — R§4.2) | the same (PR-1's `[settings]` is a second such table); the refusal prints mise's error lines, mise's own naming `mise trust` (§9 step 4) |
-| a shell whose PATH puts another `python3` ahead of mise's shim (Homebrew, `/usr/bin`, an install dir a session captured at its start) | that `python3` | refused unless its version is the pin — by the driver from PR-1, by each entry point from PR-2; the refusal prints that interpreter's `sys.executable`, mise's answer and the generic actions, among them `mise -C <repo> exec -- <tool>` (§4.2). A same-version build there is admitted (decision 170, §11) |
+| any of the above in a worktree mise does not trust | mise errors already: `main`'s `mise.toml` holds `[bootstrap.packages]` (#535, `a9866498`), which mise does not read untrusted (rc 1; the same file without that table reads, rc 0 — R§4.2) | the same (PR-1's `[settings]` is a second such table); the refusal prints mise's stderr (§4.2 item 6), which names `mise trust`, and the generic block names it too (§9 step 4) |
+| a shell whose PATH puts another `python3` ahead of mise's shim (Homebrew, `/usr/bin`, an install dir a session captured at its start) | that `python3` | refused unless its version is the pin — by the driver from PR-1, by each entry point from PR-2, with §4.2's facts (its `sys.executable` as that interpreter reports it, which need not be the PATH entry) and the generic actions, among them `mise -C <repo> exec -- <tool>`. A same-version build there is admitted (decision 170, §11) |
 | repo tool by absolute path, cwd **outside** the repo | the cwd's python | refused by PR-2 unless that python equals the pin; the refusal prints the cwd and the root, and the generic actions name `mise -C <repo> exec -- <tool>` |
-| no mise; macOS `/usr/bin/python3` (3.9) or Homebrew | runs | the driver and every entry point refuse it, printing the pin, `sys.executable`, `.tool-versions`, that mise is not on PATH, and the generic actions, the first of which names installing mise (R6 M2, §4.2) |
+| no mise; macOS `/usr/bin/python3` (3.9) or Homebrew | runs | the driver and every entry point refuse it with §4.2's facts (item 6: mise not on PATH) and the generic actions, the first of which names installing mise (R6 M2) |
 
 **The supported path is what runs, not what PATH says** (H6, §2 I2): a launch is supported iff its running
 interpreter's version is the pin (which build, decision 170 leaves to §11). "mise installed, the repo's tools installed" — already true of `mise run ci` — is the
-way to get there; README / CONTRIBUTING state both (PR-1). PATH order differs per session (decision 142: in the L3
+way to get there; README *Prerequisites* and CONTRIBUTING *Getting Started* state both, and how to install mise (PR-1). PATH order differs per session (decision 142: in the L3
 session `~/.cargo/bin` preceded mise's shims, so bare `cargo` skipped mise and kept a stale `RUSTUP_TOOLCHAIN`;
 `reference_session-rustup-toolchain-env-stale.md`). For `python3` in this (CI/tools) session, 2026-10-31,
 `which -a python3` lists mise's shim first, then `/opt/homebrew/bin/python3`, `/usr/bin/python3` and
@@ -797,10 +804,10 @@ a slow network, which the landing step (§9 step 4) closes.
 
 | Lane | State at `ee6c7a1a` | Overlap | Ordering |
 |---|---|---|---|
-| **VM P4 — #510** (plan-memo checker) | **landed** `282f04d6` (2026-10-26) | PR-1: §5.2's files and lines (with the lane's consent, through the PM), the manifest regeneration, #510's memo amendments (§5.1, V15, V18), V22 (`plan_memo_sibling.py:158` and its two mutation rows); the landing memos join `symbol_attribution_control`'s corpus (§5.2 last paragraph, O8). PR-2: `plan-memo-umbrella-check.py` is an entry point on `main` (executable, `__main__` guard); the `plan_memo_*.py` modules, many with a `#!/usr/bin/env python3` line but no executable mode and no guard, are **not** entry points under I4 (shebangs are not launch evidence) and must be reachable (PR-2 §4.2), several by literal name through `importlib` / `__import__` (`git grep -nE 'importlib\|__import__' ee6c7a1a -- '.claude/tools/*.py'`) | satisfied |
+| **VM P4 — #510** (plan-memo checker) | **landed** `282f04d6` (2026-10-26) | PR-1: §5.2's files and lines (with the lane's consent, through the PM), the manifest regeneration, #510's memo amendments (§5.1, V15, V18), V22 (`plan_memo_sibling.py:158` and its two mutation rows); #581's four files join `symbol_attribution_control`'s corpus at #581 (§5.2 last paragraph, O8). PR-2: `plan-memo-umbrella-check.py` is an entry point on `main` (executable, `__main__` guard); the `plan_memo_*.py` modules, many with a `#!/usr/bin/env python3` line but no executable mode and no guard, are **not** entry points under I4 (shebangs are not launch evidence) and must be reachable (PR-2 §4.2), several by literal name through `importlib` / `__import__` (`git grep -nE 'importlib\|__import__' ee6c7a1a -- '.claude/tools/*.py'`) | satisfied |
 | **VM P4 — small checker-family PRs outside #506** | #562 (S0) landed `e44ffce6`; #569 landed `07b5dea7` (moved `plan_memo_population.py`'s docstring, not V11's lines); more may come | the same files as §5.2 and the manifest | textual: whichever lands second re-runs §5.2's derivation at its base and regenerates the manifest — after PR-1, on the pin |
-| **VM P4 — #506** (umbrella plan and its split) | **landed** `3ec0ae5c` (2026-11-01 JST; last PR head `69e2a3aa`; §0) | §5.3, the landed state: V14 on `CLAUDE.md:54` (a plain edit), V16–V21 and V23 (#506's split plan and slot ledger, #510's memo), the checker run CLAUDE.md:55 asks for after a family-memo edit (§9 step 3), the timeout re-derive that first measures #506's guard on the pin, the guard as a suite member, the manifest, the attribution control's corpus; for PR-2, P1 (green once guarded) and P2 (in PR-2's edit set). #506 touched `.claude/skills/elidex-review/axes.md` but no `.claude/tools/**` (§5.3) | PR-1 and PR-2 edit #506's lines with the VM P4 lane's consent — one request for V16–V23 and P2 (decisions 205, 211, 213, §9 step 3); no absorption step |
-| **#501** (`webref-cite-audit-tool`, Slice A-i) | **landed** `74bc8acf` | PR-1: none beyond `main`'s text. PR-2: `.claude/tools/webref` and `preflight.py` get the guard prelude; the shim's prelude must spell no `.claude/(skills\|tools)/<a>/<b>` string (K2, `docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md` §2, enforced over `_webref/` plus the `webref` entry script by `.claude/tools/webref-generic-core-trip-wire.sh`) — the prelude finds the root by its entry file's fixed tracked depth (§4.3, H3), a count of parent hops, and spells no path | satisfied |
+| **VM P4 — #506** (umbrella plan and its split) | **landed** `3ec0ae5c` (2026-11-01 JST; last PR head `69e2a3aa`; §0) | §5.3, the landed state: V14 on `CLAUDE.md:54` (a plain edit), V16–V21 and V23 (#506's split plan and slot ledger, #510's memo), the checker run CLAUDE.md:55 asks for after a family-memo edit (§9 step 3), the timeout re-derive that first measures #506's guard on the pin, the guard as a suite member, the manifest, the attribution control's corpus; for PR-2, P1 (green once guarded) and P2 (in PR-2's edit set). #506 touched `.claude/skills/elidex-review/axes.md` but no `.claude/tools/**` (§5.3) | PR-1 and PR-2 edit #506's lines with the VM P4 lane's consent — one request carrying §5.3 (c)'s list, sent after #581's converge, #581's merge waiting for it (decisions 205, 211, 213, 221; §9 step 0); no absorption step |
+| **#501** (`webref-cite-audit-tool`, Slice A-i) | **landed** `74bc8acf` | PR-1: none beyond `main`'s text. PR-2: `.claude/tools/webref` and `preflight.py` get the guard prelude; the shim's prelude must spell no `.claude/(skills\|tools)/<a>/<b>` string (K2, `docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md` §2, enforced over `_webref/` plus the `webref` entry script by `.claude/tools/webref-generic-core-trip-wire.sh`) — the prelude finds the root by its entry file's fixed tracked depth (§4.3, H3), a count of parent hops, and spells only `scripts/python_pin.py`, which K2's pattern does not match. Whether an elidex prelude belongs in that entry script is `_webref/DESIGN.md`'s "elidex policy" clause, which the trip-wire's header says nothing mechanical covers; PR-2's plan decides it (its X2 boundary: the shim is elidex's launcher, `_webref/**` the generic core), not this umbrella | satisfied |
 | **#514** (Slice B / A-ii memos, `citation-hygiene-slice-memos`) | open, **base = `main`** (`gh pr view 514 --json baseRefName`), head `cfcb4ae6` | wording only: B's floor raise and F1, A-ii's UNCHECKED floor line, A-ii's "creates `test_preflight.py`" statements where they rest on F1, the umbrella's A-iii statements. The list is **derived from #514's own diff**, not stored: `git diff origin/main...origin/citation-hygiene-slice-memos -- 'docs/plans/2026-07-citation-hygiene-*' \| grep -nE '^\+.*(F1\|test_preflight)'` and the same diff through `grep -nE '^\+.*(3\.9\|3\.11\|\(3, ?9\)\|floor\|[^A-Za-z]legs?([^A-Za-z]\|$)\|matrix\|setup-python\|"3\.x"\|python-version)'`, each hit classified by PR-1 §4.6's classes. **During the PR-1 → PR-2 interval #514 cites only PR-1's artifacts** (§5.1): B's F1 is withdrawn and its direct-launch half is "UNCHECKED, assigned to PR-2 of the python-pin umbrella" through the landed umbrella; A-ii keeps creating `test_preflight.py` for its own rows if it still has them. **After PR-2**, F1's successor is PR-2's E1 in `scripts/test_python_entry_points.py`, and PR-2 (or #514's next rework, if #514 has not landed) flips the UNCHECKED lines (§13 C13) | **decided by decision 124**: #514's re-derive starts right after PR-1 lands, before PR-2, and re-derives once against the pinned world |
 | **Dependabot** (#381 `actions/checkout` 6 → 7, #502 `taiki-e/install-action`, cargo bumps) | open | `ci.yml` `steps:` only | textual |
 | **stale-claim lane** (parked; `refs/backup/stale-claim-detector`) | parked | its `claim-gate-plan-check.py` would be an entry point under I4 | whoever revives it adds the guard; handed over via the PM ledger |
@@ -818,42 +825,31 @@ files, and for PR-2 every derived entry point); for PR-0 and PR-1 the sweep also
 
 ## §9 Landing steps (umbrella-level)
 
-1. Each PR passes `/elidex-plan-review` on its per-PR plan before implementation; the umbrella first (R5); PR-2's
-   plan before PR-1 lands (§6, the interval's bound).
+0. **#581 — this memo, memo only (PM decision 221).** After its `/external-converge` ends, the PM sends the VM P4
+   lane **one** consent request carrying §5.3 (c)'s list, with `…-umbrella-vm-p4.md` attached; #581 merges only
+   once the consent is in (landing fixes the VM P4 edits as plan). An answer that changes an item is a memo edit
+   on #581 before its merge.
+1. Each PR passes `/elidex-plan-review` on its per-PR plan before implementation; the umbrella first (R1–R8,
+   §12); PR-2's plan before PR-1 lands (§6, the interval's bound).
 2. **PR-0** lands (no cross-lane precondition). PM notice to every lane with it (§8 row *every lane*; R4 MIN — a new
    cross-lane red needs its notice): a tracked `.miserc*`, a non-root `.tool-versions`, a `.python-version*`, or
    a `python` outside the admitted occurrences in any mise-named file is red from now on.
-3. **PR-1's preconditions and landing report.** Before implementation: the VM P4 lane's consent to §5.2 V1–V23
-   and P2 and its answer on V6, obtained by the PM with `…-umbrella-vm-p4.md` (§5.2–§5.3) attached (decision 127
-   (a)). V1–V15 went with drafts 4–6; **V16–V23 and P2 go in one request, sent once the umbrella converges**
-   (decisions 205, 211, 213; V22 names the lane's option to fix it itself), together with two couplings the lane
-   consents to as well: §5.3 O4 (V6 and V22 sit in the guard's import closure) and **PR-1's checker run** — PR-1
-   edits a VM-P4 family memo (V19–V21, V23), so it runs `python3 .claude/tools/plan-memo-umbrella-check.py
-   docs/plans/2026-07-vm-p4-es-language-completeness.md` on the pin and expects exit 0 (CLAUDE.md:55; exit 0 at
-   `ee6c7a1a` on 3.15.2 and 3.9.6, R§0); a 1 or 2 is fixed in PR-1's edit before landing. The landing report to the PM: §5's amendments (A-iii D3 / §8 / §12(1) / §6's UNCHECKED line, #510's memo
-   §1 / §8 / §3 row, and the ledger); §5.2's VM P4 edits (V1–V23) and the regenerated manifest; the notice to every
-   lane (§8 row *every lane*: the root `.tool-versions` is one line); the slots in
-   PR-1 §9 to register; the interval as open (§6); and the **re-evaluation of `#11-aiii-gate-tamper-hardening`**,
-   whose trigger (b) PR-1 fires twice — it touches the `tools` job's step composition (the `strategy` block and
-   the setup step's input) and mise `[settings]` / how `mise.toml` is read. Quoted from the slot's ledger row
-   (`project_open-defer-slots.md`; R5 MIN — draft 5 quoted a question the row does not hold): item (1) "other
-   steps in the `tools` job (BASH_ENV written to GITHUB_ENV, overwriting the driver, `git rm --cached`, a second
-   setup-python, checkout `ref: main`)"; item (3) "mise `[settings]`/`[env]` (`task.skip`, `[env] BASH_ENV`,
-   `_.path`, `PYTHONOPTIMIZE`)". Relation to item (1)'s "a second setup-python": PR-1's N4 makes a second
-   `actions/setup-python` step red as part of I1 × I3 (a second spelling), whatever the intent, so that sub-item
-   leaves the slot's list. Relation to item (3): T5's clause 4 (PR-0) makes any `python` in a tracked mise file red
-   except the two admitted lines — and so, **incidentally**, a tracked `[env] PYTHONOPTIMIZE` (its name contains
-   `python`); that is a side effect of the spelling rule, not a tamper check, and the slot decides whether that
-   sub-item leaves its list. `_.path` stays the slot's — it is also decision 170's same-version limit (§11 T1) —
-   and so do `task.skip`, `BASH_ENV` and deliberate obfuscation (e.g. TOML escapes, §4.2 residual); its other
-   items stay the slot's.
+3. **PR-1's preconditions and landing report.** Before implementation: step 0's consent (§5.3 (c): V1–V23,
+   V6's answer, P2, O4, the checker run, O8). The checker run: PR-1 edits a VM-P4 family memo (V19–V21, V23), so
+   it runs CLAUDE.md:55's checker on the entry memo on the pin, exit 0 expected (§5.3 (c), C32). The landing
+   report to the PM: §5's amendments (A-iii D3 / §8 / §12(1) / §6's UNCHECKED line, #510's memo §1 / §8 / §3 row,
+   and the ledger); §5.2's VM P4 edits (V1–V23) and the regenerated manifest; the notice to every lane (§8 row
+   *every lane*: the root `.tool-versions` is one line); the slots in PR-1 §9 to register; the interval as open
+   (§6); and the **re-evaluation of `#11-aiii-gate-tamper-hardening`**, whose trigger (b) PR-1 fires twice (the
+   `tools` job's step composition; mise `[settings]` / how `mise.toml` is read) — its items and what PR-0 / PR-1
+   do to each: R§9.
 4. **PR-1's landing step — through the PM, to every lane: run `mise install` in each worktree after rebasing onto
    PR-1's `main`** — first `mise trust` in that worktree if mise reports it untrusted (`main`'s `mise.toml` already
-   holds `[bootstrap.packages]`, #535, and PR-1 adds `[settings]`; mise reads neither untrusted, R§4.2 table) — and report `which -a python3` from that lane's
-   session (H6, decision 142; §7.1, §11). With
-   both install settings already in that `main`, the install is attested and precompiled or fails; it closes the
-   first-use window of §7.2 (3) and — globally — moves the user's `python = "latest"` to the pin (§7.2 (4)); the
-   PM tells the user that before the broadcast.
+   holds `[bootstrap.packages]`, #535, and PR-1 adds `[settings]`; mise reads neither untrusted, R§4.2 table) — and
+   report `which -a python3` from that lane's session (H6, decision 142; §7.1, §11). With both install settings
+   already in that `main`, the install is attested and precompiled or fails; it closes the first-use window of
+   §7.2 (3) and — globally — moves the user's `python = "latest"` to the pin (§7.2 (4)); the PM tells the user
+   that before the broadcast.
 5. **The interval** (§6): #514's re-derive starts (decision 124), citing PR-1's artifacts only (§5.1, §8); the
    M4-12 umbrella's pre-research may start; sweep 4 may land (it may also land earlier or later).
 6. **PR-2** lands. Its landing report: the derived entry-point set (PR body), the UNCHECKED → CHECKED lines (§13
@@ -905,8 +901,8 @@ planned for A-iii sweep 4 (placed by §6's *Ordering*: anywhere), which touches 
   §2 I1 × I5): the module's recorded SHA-256, with the date and interpreter of the run, is held by a control that
   is red when the module changes without a new record; `ast.parse(…, feature_version=(3, 9))` bounds the grammar
   between runs. **Both controls have a stated limit** (R6 M1): (1) `feature_version` is best-effort — on the pin,
-  3.15.2, it accepts seven constructs a real 3.9.6 rejects (R§11's accepted rows, measured on both 2026-11-01), so
-  a module using one passes it and fails only on the real old interpreter; (2) the SHA-256 control forces a **new
+  3.15.2, it accepts constructs a real 3.9.6 rejects; R§11 lists ten found so far (a sample, not a census;
+  measured on both 2026-11-01), so a module using one passes it and fails only on the real old interpreter; (2) the SHA-256 control forces a **new
   record**, not the run: an editor can write the record without running `/usr/bin/python3`. The run itself is
   enforced by PR review and the landing checklist (C20), not mechanically (mechanising it on CI's own
   `/usr/bin/python3`: considered and not taken, R§11 *The real old interpreter*). Between edits, not re-measured.
@@ -936,13 +932,13 @@ planned for A-iii sweep 4 (placed by §6's *Ordering*: anywhere), which touches 
   `altbin/python3`, while the oracle reports the root `.tool-versions` and `mise which python3` the install — and
   bare `python3` through mise's shim still runs the install. (a) **Admitted** if `altbin/python3` reports the pin
   (a Homebrew or source build of the same patch: not attested, not compile-off — I6 does not cover it). (b)
-  **Refused** otherwise; the refusal prints `sys.executable` (`<P>/altbin/python3`) beside `mise which python3`
-  (the install) and mise's `source` (the root `.tool-versions`), and the generic block's fourth action is the fix
-  (§4.2). Which config sets the entry is not printed — the oracle does not report it, and draft 7's `mise env
-  --json` read is withdrawn (PM decision 217); `mise config ls` lists the candidates, and `mise exec` does not
-  help. The same holds for an untracked
-  `mise.local.toml` or global config. The tamper slot `#11-aiii-gate-tamper-hardening` already lists `_.path`
-  (item (3), §9 step 3). Recipe (mise 2026.10.21 and 2026.10.25, nothing downloaded): R§11 *T1*.
+  **Refused** otherwise. Measured with a real interpreter (2026-11-01, mise 2026.10.25; `altbin/python3` a
+  symlink to Homebrew's `python3.14`; R§0, R§11 *T1*): `sys.executable` is
+  `/opt/homebrew/opt/python@3.14/bin/python3.14`, not under `altbin`; `mise which python3` the install; `source`
+  the root `.tool-versions`; and §4.2 item 5 (c) / (d) print `<P>/mise.toml` with `env._.path` `["altbin"]` —
+  the file holding the entry is shown, and the user decides; `mise exec` does not help (it runs `altbin/python3` too). The same holds for an
+  untracked `mise.local.toml` or global config, each printed with its own `_.path` (measured, R§0). The tamper
+  slot `#11-aiii-gate-tamper-hardening` lists `_.path` (item (3), R§9). Recipes (nothing downloaded): R§11 *T1*.
 - **T2 — an rc file renames the version file (R5 A4).** With `.miserc.toml` `override_tool_versions_filenames =
   [".alt-versions"]`, the oracle's `source` is `{"type": ".tool-versions", "path": "…/.alt-versions"}`: the
   substitute file, never the rc file. (a) **Admitted** if `.alt-versions` holds the pin (mise reads another file
@@ -958,14 +954,18 @@ planned for A-iii sweep 4 (placed by §6's *Ordering*: anywhere), which touches 
   admitted by the same rule (§7.1 row 4). No event re-checks it
   against new mise releases: the repository does not pin mise (R4 MIN — draft 4's "re-checked at each mise bump"
   had no bump to attach to), and T5 does not depend on mise's list, so there is nothing to re-derive. **Why mise
-  is not pinned (R7 A3-4)**: no guarantee here rests on mise's version — admission compares `sys.version_info`
-  with the pin and never asks mise, CI does not run mise, and a changed mise can only change the printed facts
-  (next bullet). Trigger to revisit: any change that makes a mise answer decide an exit status.
+  is not pinned (R7 A3-4, R8 A3-2)**: **admission** does not rest on mise's version — it compares
+  `sys.version_info` with the pin and never asks mise, CI does not run mise, and a changed mise can only change
+  the printed facts (next bullet). **What does rest on it, stated**: I6 locally (that mise honours
+  `python.compile` / `python.github_attestations` and ranks the python key over the global one, measured on
+  2026.10.21 / .25, R§4.2) and the untrusted-worktree path (mise's trust rule, §9 step 4); a mise release that
+  changes either is seen only by a re-measurement (a bump re-runs R§4.1's rows), not by CI. Trigger to revisit:
+  a change that makes a mise answer decide an exit status, or one that makes I6 depend on a mise behaviour not
+  re-measured at a bump.
 - **The oracle depends on mise's output shape**, which is mise's and unpinned. A changed shape, a missing mise or
-  a hang degrades the refusal to "mise did not answer" plus mise's stderr lines and the generic block; it
-  never changes the exit status (§4.2). The pin holds fixtures of the 2026.10.21 shapes, so a change shows locally
-  as the degraded message, not
-  as a CI red.
+  a hang degrades the refusal to §4.2 item 6 (that fact, mise's stderr) and the generic block; it never changes
+  the exit status. The pin holds fixtures of the measured shapes, so a change shows locally as the degraded
+  message, not as a CI red.
 - **Per-session PATH** (H6, decision 142): measured for this session only (§7.1); the other lanes report
   `which -a python3` with PR-1's landing notice (§9 step 4). The program does not depend on the answer.
 - A direct run of a set member (`python3 scripts/test_….py`) bypasses the driver's admission (PR-2 §4.4); a
@@ -974,14 +974,16 @@ planned for A-iii sweep 4 (placed by §6's *Ordering*: anywhere), which touches 
   ee6c7a1a -- ':!crates'`): C6's `test_grep_pass.py:5` and #506's two (§5.3 P2), all in PR-2's edit set; PR-2's
   R-b scope includes landed records (PR-2 §4.2: "every tracked text file"). **This program's landing files add
   none** (R7 J5): draft 7 quoted P2's and C6's lines in that shape (two more at PR-2's base); draft 8 describes
-  them, and the pattern over the memo through Python's `re` prints 0 hits (R§0; each PR re-checks, C33).
+  them, and the pattern over the memo through Python's `re` prints 0 hits (R§0; #581 and each PR re-check, C33).
 - **Inline Python in tracked text** (`python3 -c '…'`, `python3 - <<'PY'`) runs on whatever `python3` the reader
   has; it launches no tracked file, so no guard can sit in front of it and R-b ignores it (PR-2 E4). Today's
   instances are reproduction recipes in comments and docstrings of the plan-memo family, plus the driver's Step 1
   (`scripts/python-suites.sh:163`, replaced by `python_pin.py` in PR-1); the driver's later inline Python runs on
-  the interpreter Step 1 admitted
-  (`git grep -nE "python3?( -[A-Za-z]+)* +(-c|-)( |$)" ee6c7a1a -- ':!docs/plans/**' ':!docs/audits/**'`). A stated limit:
-  such a recipe's result is not guaranteed to be the pin's.
+  the interpreter Step 1 admitted (`git grep -nE "python3?( -[A-Za-z]+)* +(-c|-)( |$)" ee6c7a1a --
+  ':!docs/plans/**' ':!docs/audits/**'`). A stated limit: such a recipe's result is not guaranteed to be the pin's.
+- **The deprecation census (C35, §5.2 stage 1c)** measures the paths the set executes on the pin, in processes that
+  see `PYTHONWARNINGS`; an unexecuted path, the driver's own process (`python3 -I`, `scripts/python-suites.sh:797`
+  at `ee6c7a1a`) and any child started with `-I` / `-E` are not measured (R§0). Stage 1c's grep stays their lower bound.
 - The mise version of draft 2's 2026-10-26 measurements (§7.1 row 1, §7.2) was not recorded; PR-1's landing step
   re-runs §7.2 (1)–(2) under the then-current mise and names it, and re-runs `usage-pace.test.py` on 3.15.2
   (§7.2 (4); C20).
@@ -994,5 +996,3 @@ planned for A-iii sweep 4 (placed by §6's *Ordering*: anywhere), which touches 
   PR-0's plan confirms (the driver itself runs `git ls-files`, `scripts/python-suites.sh:435`).
 - Whether A-iii's existing `mise.toml` reader pins the `tools-test` description's text, which PR-0 rewords
   (`mise.toml:115`) — PR-0's plan reads the reader and its pins first (C11).
-
----

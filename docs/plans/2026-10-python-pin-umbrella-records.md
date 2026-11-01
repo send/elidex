@@ -1,6 +1,8 @@
-# Landing file 3 — `docs/plans/2026-10-python-pin-umbrella-records.md`
+# Python pin umbrella — records (companion of `2026-10-python-pin-umbrella.md`)
 
-The measurements and rejected alternatives behind the python-pin umbrella's decisions (body:
+This file is `docs/plans/2026-10-python-pin-umbrella-records.md`, one of the umbrella's four files (body §0
+*Layout*, §6 *This umbrella's own length*); it lands with the body in #581 (PM decision 221). It holds the
+measurements and rejected alternatives behind the python-pin umbrella's decisions (body:
 `docs/plans/2026-10-python-pin-umbrella.md`). Section R§n supports body §n; each row carries its date, its mise
 version where mise ran, and the command that reproduces it. A bump appends here; the body is not re-measured.
 A plain §n is the body's section; §12–§14 are the rounds record's.
@@ -71,16 +73,25 @@ A plain §n is the body's section; §12–§14 are the rounds record's.
   with its owners and controls. T1 / T2 narrow a guarantee and go to the user (decision 170). J1–J4 accepted,
   J3's command substitution ratified (above).
 - **PM decision 217** (2026-11-01, `PORTFOLIO:354`), R7's root check, option (a): **remove the generator layer.**
-  The refusal lists only observed facts — `sys.executable`, mise's chosen config (the oracle's `source`), its
-  install path, `mise which python3`, and the pin — and infers no cause. Removed with it: the "which cause" read
-  through `mise env --json` (R6 M6), the cause lines per branch and the remedy chosen per cause. The remedy text
-  stays never a dead end: the facts plus generic actions (install the pin; remove or change the winning input;
-  launch through mise's `exec`), none claimed to apply. **Reason**: that layer produced findings three rounds
+  The record's words: "The refusal lists only observed facts (sys.executable, mise's chosen config, its install
+  path, `mise which`) and infers no cause." **Departure note (R8 A5-4)**: what follows in this entry is the
+  program's reading, not in `PORTFOLIO:354` — the pin as a fact (draft 8's departure (2), §12.7), and the generic
+  actions (install the pin; remove or change the winning input; launch through mise's `exec`), none claimed to
+  apply, which keep the remedy never a dead end (H6); removed with the layer: the "which cause" read through
+  `mise env --json` (R6 M6), the cause lines per branch and the remedy chosen per cause. **Reason**: that layer produced findings three rounds
   running (R5 T1 / T2, R6 M6, R7 J4 / J6), each a mechanism designed by reasoning and never measured. Decision
   170 narrowed the guarantee to "never silent when the version differs"; this narrows the diagnostic further,
   inside 170; "a version mismatch always stops" is unchanged. **R8's terminator** (as PM decision 215's): R8 IMP
   0 → converged; IMPs clustered in what draft 8 added → no R9, the memo becomes a PR and goes to
   `/external-converge` (the user's N1 precedent, "change the instrument"); any other IMP → the PM (§12.7).
+- **PM decision 221** (2026-11-01, `PORTFOLIO:358`): R8 CRIT 0 / IMP 2 / MIN 18, both IMPs in draft 8's additions →
+  no R9; a docs-only PR (#581) and `/external-converge`. The record's words: "The VM P4 consent request is sent
+  once after the converge finishes, and the docs PR's merge waits for that consent. I1: action (4) is removed
+  (what was left of the inference layer). I2: fixed by the same change." **As relayed by the CI/tools driver**
+  (the fix-round brief, not in `PORTFOLIO:358`): every "lands with PR-1" statement is fixed; PR-1's
+  implementation comes after the consent; T1 (b)'s dead end is solved by printing, as facts, the config files
+  mise loaded and the contents of `[env] _.path` as mise reports them, so the user decides; the consent subject
+  is one list, defined once (§5.3 (c)); draft 8's extra facts (2) and its retraction (3) are kept (§12.8).
 
 **Draft 7's measurements** (2026-11-01, base `ee6c7a1a`, by the designer; read-only on the repository):
 - *Suite census*: `git ls-tree -r --name-only ee6c7a1a | /usr/bin/grep -E '(^|/)test_[^/]*\.py$'` prints ten paths —
@@ -125,7 +136,10 @@ show` / `git grep` / `git archive ee6c7a1a`, extracted under the scratchpad; pro
 - *J4*: in the session's shell `type mise` → "a shell function"; `command -v mise` → `mise`; zsh `whence -p mise` →
   `/opt/homebrew/bin/mise`; in bash with `mise` defined as a function, `type -P mise` → `/opt/homebrew/bin/mise`
   while `dirname "$(command -v mise)"` → `.`. `/usr/bin/python3 -I -c 'import sys; print(sys.executable)'` →
-  `/Applications/Xcode.app/Contents/Developer/usr/bin/python3` (3.9.6).
+  `/Applications/Xcode.app/Contents/Developer/usr/bin/python3` (3.9.6) — the active developer directory
+  (`xcode-select -p` prints `/Applications/Xcode.app/Contents/Developer` on this host); with
+  `DEVELOPER_DIR=/Library/Developer/CommandLineTools` the same command prints
+  `/Library/Developer/CommandLineTools/usr/bin/python3` (re-measured 2026-11-01, #581 fix round 1; R8 A4-2).
 - *A4-7 and the post-check* (mise 2026.10.25, `env -i`, `PATH=/usr/bin:/bin:<type -P mise's dir>`): a
   byte-identical copy of `ee6c7a1a:mise.toml` (`cmp`), untrusted → rc 1, stderr "error parsing config file", "Config
   files in … are not trusted.", "Trust them with `mise trust`. …"; the same file without `[bootstrap.packages]` →
@@ -138,6 +152,37 @@ show` / `git grep` / `git archive ee6c7a1a`, extracted under the scratchpad; pro
   read*). Afterwards no entry of the user's `~/.local/state/mise/tracked-configs` or `trusted-configs` resolves
   into the scratch dir (`ls -la … | /usr/bin/grep -c 'scratchpad/d7'` → 0). No before/after listing was taken.
 - *`feature_version`*: R§11 *J2 probe*, on 3.15.2.
+
+**#581 fix round 1's measurements** (2026-11-01, by the designer; real interpreters, no echo scripts; mise
+2026.10.25 run as `/opt/homebrew/bin/mise` from a scratch project, never through the shim and never with its cwd in
+a repository copy; isolated by the program's rule — fresh `MISE_DATA_DIR` / `CACHE_DIR` / `STATE_DIR` /
+`CONFIG_DIR`, an empty (in one probe, a scratch) `MISE_GLOBAL_CONFIG_FILE`, `MISE_TRUSTED_CONFIG_PATHS` only,
+offline, auto-install off, every inherited `MISE_*` unset, a fake install of 3.15.2):
+- *`sys.executable` as reported* (`<python> -I -c 'import sys; print(sys.executable)'`): `/opt/homebrew/bin/python3`
+  → `/opt/homebrew/opt/python@3.15/bin/python3.15`; `/opt/homebrew/bin/python3.14` →
+  `/opt/homebrew/opt/python@3.14/bin/python3.14`; `/usr/bin/python3` → the developer-directory path (J4 above).
+  None is the PATH entry it was launched from (R8 A2-1 / A4-1).
+- *T1 (b) with a real interpreter* (R§11 *T1*, `altbin/python3` a symlink to `/opt/homebrew/bin/python3.14`):
+  `mise ls --current --json python` → 3.15.2, `source` the root `.tool-versions`, `installed: true`; `mise which
+  python3` → the fake install (rc 0); `mise exec -- python3 …` and `mise run` → `3.14.10
+  /opt/homebrew/opt/python@3.14/bin/python3.14`; `mise config ls --json` → `<P>/mise.toml`, `<P>/.tool-versions`,
+  the global file (in that order; the text form lists the global file first); `mise config get -f <P>/mise.toml
+  env._.path` → `["altbin"]` (rc 0).
+- *Where `_.path` is reported*: with `_.path` in `mise.local.toml` and in the global file instead, `mise config get
+  -f <file> env._.path` prints each file's own list (rc 0), exits 1 with "Key not found" for a TOML file without it
+  and with a TOML parse error for `.tool-versions`; without `-f` it printed one file's value only
+  (`mise.local.toml`'s), so §4.2 asks per file; `mise env --json`'s `PATH` begins with both entries.
+- *Another `python3` ahead of the shim* (PATH `/opt/homebrew/bin:/usr/bin:/bin`, no `_.path`): bare `python3` →
+  `3.15.2 /opt/homebrew/opt/python@3.15/bin/python3.15`; `mise exec -- python3` and `mise -C <P> exec -- python3`
+  from `/` → the install; `mise config get -f <P>/mise.toml env._.path` → rc 1.
+- *J2 additions* (R§11 *J2 probe*'s last three gap rows, R8 A4-3), on Homebrew 3.15.2 and macOS 3.9.6.
+- *Line headroom* (R8 A5-7): `git show ee6c7a1a:.claude/tools/plan_memo_selftest_controls.py | wc -l` → 997;
+  `line_bound_control` reds `n >= 1000` (`plan_memo_selftest_properties.py:719` at `ee6c7a1a`), so 2 lines.
+- *V23's grep* (R8 A5-2): `git grep -n -- '#11-plan-memo-spec-field-single-home-check' ee6c7a1a --
+  docs/plans/2026-07-vm-p4-slot-ledger.md` → `:117`, `:278`, `:327`, `:328`.
+- *User state*: `ls -la ~/.local/state/mise/tracked-configs | wc -l` → 144 and `… trusted-configs | wc -l` → 72,
+  before and after; entries resolving into `scratchpad/c1` → 0. The T1 probe is R§11 *T1*'s recipe; the other two are that
+  recipe with the changes stated in their bullets.
 
 **Probe isolation, by draft.** Drafts 3–4 isolated `MISE_DATA_DIR` / `MISE_CACHE_DIR` (and, where noted, an empty
 `MISE_GLOBAL_CONFIG_FILE`) but not the state dir, and a draft-4 probe wrote trust entries into the user's real
@@ -259,24 +304,28 @@ downloaded. R6's A4 re-ran every row on mise 2026.10.25 with identical results (
 
 Every element also carries `install_path` (draft 8: `<data dir>/installs/python/3.15.2` while `installed: false`),
 which the refusal prints. So `mise current python` (version only) and `mise config ls` (loaded files, no winner; it
-omitted the variable and the rc file) are not the oracle; `mise where python` and `mise which python3` exit 1
+omitted the variable and the rc file) are not the version oracle (since decision 221 `mise config ls --json` is
+printed as a fact, body §4.2 (c)); `mise where python` and `mise which python3` exit 1
 while the version is not installed. The probe scripts (`probe.sh`, `probe2.sh`, with the isolation lines) are
 recorded in PR-1's plan (C16).
 
-**Each case's fix** (body §4.2 *The refusal*; H6, checked by this memo, never by the refusal). Actions: (1) install
-the pin (with mise if needed); (2) remove or change the mise input that decides Python; (3) `mise -C <root> exec
--- <tool>`; (4) remove what puts `sys.executable`'s directory ahead of mise's install on PATH.
+**Each case's fix** (body §4.2 *The refusal*; H6, checked by this memo, never by the refusal). The block's
+actions, in its order (PM decision 221 removed draft 8's "remove what puts `sys.executable`'s directory ahead"):
+(1) install the pin (mise itself if needed); (2) `mise trust` if mise reports the worktree untrusted; (3) remove or
+change a mise input — the `source`, a printed `[env] _.path`, a file `mise config ls` lists, or `.miserc*`; (4)
+`mise -C <root> exec -- <tool>`. The middle column holds **only output measured in this record** (its row and
+date named), never a derived value.
 
-| case (this table's rows, §11 T1 / T2) | the facts printed show | an action that fixes it |
+| case (this table's rows, §11 T1 / T2) | the facts printed show (measured) | an action that fixes it |
 |---|---|---|
-| no mise on PATH | "mise not on PATH" | (1) |
-| untrusted worktree | mise's stderr lines, the third naming `mise trust` | mise's own line |
-| another version wins (`mise.local.toml`, `MISE_PYTHON_VERSION`, a second `.tool-versions` line, an rc-renamed file) | that `source` and its `version` | (2) |
-| `[]` (an rc file redirecting to a missing file) | "mise resolves no Python here" | (2), its `.miserc*` clause |
-| the pin, not installed | `installed: false` | (1) |
-| another `python3` ahead of mise's shim (Homebrew, `/usr/bin`) | `sys.executable` ≠ `mise which python3` | (3) — or (4) |
-| `[env] _.path` holds another version (§11 T1 (b)) | `sys.executable` under `<P>/altbin` ≠ `mise which python3` | (4) only — (3) runs `altbin/python3` too |
-| cwd outside the repository | cwd ≠ root | (3) |
+| no mise on PATH | item 6's "mise not on PATH" (the refusal's own text) | (1) |
+| untrusted worktree | mise's stderr, which includes ``Trust them with `mise trust`. …`` (table above, draft 8 row) | (2) |
+| another version wins (`mise.local.toml`, `MISE_PYTHON_VERSION`, a second `.tool-versions` line, an rc-renamed file) | that `source` and its `version` (table above) | (3) |
+| `[]` (an rc file redirecting to a missing file) | "mise resolves no Python at <cwd>" (table above) | (3), its `.miserc*` clause |
+| the pin, not installed | `installed: false`; `mise which python3` exit 1 (table above) | (1) |
+| another `python3` ahead of mise's shim (Homebrew; `/usr/bin`) | `sys.executable` as reported — `/opt/homebrew/opt/python@3.15/bin/python3.15` for Homebrew, the developer-directory path for `/usr/bin/python3` (R§0 *#581 fix round 1*, J4) — beside `mise which python3` (the install); `mise.toml`'s `env._.path` answer rc 1 | (4) (measured: `mise -C <P> exec -- python3` runs the install, R§0) |
+| `[env] _.path` holds another version (§11 T1 (b)) | `sys.executable` `/opt/homebrew/opt/python@3.14/bin/python3.14` (not under `altbin`), `mise which python3` the install, `source` the root `.tool-versions`, and `mise config get -f <P>/mise.toml env._.path` → `["altbin"]` (R§0 *#581 fix round 1*) | (3), its `_.path` clause — (4) runs `altbin/python3` too (measured) |
+| cwd outside the repository | the cwd and the root, two paths (item 3) | (4) |
 
 **The install settings and their overrides** (draft 6's text). mise 2026.10.21 knows the key
 `python.github_attestations` (`mise settings get python.github_attestations` → "is not set", where an unknown key
@@ -390,6 +439,23 @@ the event's JSON shape (`session_id`, `transcript_path`, `cwd`, `hook_event_name
 Verdict: the hooks neither hang nor fail on the supported path; the only failure window is the first invocation
 on a slow network, which the landing step (§9 step 4) closes.
 
+## R§9 The tamper slot's re-evaluation (body §9 step 3)
+
+Moved here unchanged from body §9 step 3 by #581's fix round 1 (body length, §6). `#11-aiii-gate-tamper-hardening`'s
+trigger (b) PR-1 fires twice — it touches the `tools` job's step composition (the `strategy` block and the setup
+step's input) and mise `[settings]` / how `mise.toml` is read. Quoted from the slot's ledger row
+(`project_open-defer-slots.md`; R5 MIN — draft 5 quoted a question the row does not hold): item (1) "other steps
+in the `tools` job (BASH_ENV written to GITHUB_ENV, overwriting the driver, `git rm --cached`, a second
+setup-python, checkout `ref: main`)"; item (3) "mise `[settings]`/`[env]` (`task.skip`, `[env] BASH_ENV`,
+`_.path`, `PYTHONOPTIMIZE`)". Relation to item (1)'s "a second setup-python": PR-1's N4 makes a second
+`actions/setup-python` step red as part of I1 × I3 (a second spelling), whatever the intent, so that sub-item
+leaves the slot's list. Relation to item (3): T5's clause 4 (PR-0) makes any `python` in a tracked mise file red
+except the two admitted lines — and so, **incidentally**, a tracked `[env] PYTHONOPTIMIZE` (its name contains
+`python`); that is a side effect of the spelling rule, not a tamper check, and the slot decides whether that
+sub-item leaves its list. `_.path` stays the slot's — it is also decision 170's same-version limit (§11 T1) — and
+so do `task.skip`, `BASH_ENV` and deliberate obfuscation (e.g. TOML escapes, §4.2 residual); its other items stay
+the slot's.
+
 ## R§11 Recipes
 
 Every recipe follows the program's isolation rule (body §0) and downloads nothing.
@@ -407,6 +473,17 @@ cd "$P"; printf 'python 3.15.2\n' > .tool-versions
 printf '[env]\n_.path = ["altbin"]\n[tasks.t]\nrun = "python3"\n' > mise.toml
 mise ls --current --json python; mise which python3   # .tool-versions; the install
 mise exec -- python3; mise run -q t                   # both print "altbin …"
+```
+**With a real interpreter** (#581 fix round 1, 2026-11-01, mise 2026.10.25, in bash; R8 I1 — the echo script above
+cannot show what `sys.executable` reports): first `for v in $(compgen -e | /usr/bin/grep '^MISE_'); do unset "$v";
+done; export PATH=/usr/bin:/bin`, then the recipe above with the `altbin` line replaced by `ln -s
+/opt/homebrew/bin/python3.14 "$P/altbin/python3"` and the task's `run` by `python3 -I -c 'import sys;
+print(sys.version.split()[0], sys.executable)'`; then
+```sh
+mise exec -- python3 -I -c 'import sys; print(sys.version.split()[0], sys.executable)'   # 3.14.10 /opt/homebrew/opt/python@3.14/bin/python3.14
+mise run -q t                                                                            # the same
+mise config ls --json                                # <P>/mise.toml, <P>/.tool-versions, $ISO/global.toml
+mise config get -f "$P/mise.toml" env._.path          # ["altbin"]
 ```
 
 **M6 read — withdrawn** (draft 7's `mise env --json` "which cause" read; PM decision 217). Its one measurement
@@ -448,18 +525,24 @@ on PATH" refusal. `type -P` (bash) and `whence -p` (zsh) print the binary (`/opt
 but no shim precedes `/usr/bin`. `MISE_TRUSTED_CONFIG_PATHS` lets mise read the tracked `mise.toml` without `mise
 trust` — without it mise exits 1 (untrusted: `main`'s `[bootstrap.packages]` already, R§4.2) and only "mise gave no
 answer" is recorded. **Expected**: rc ≠ 0; the refusal prints the pin, `3.9.6`, `<W>/.tool-versions`,
-`sys.executable` = `/Applications/Xcode.app/Contents/Developer/usr/bin/python3` (what the 3.9.6 launcher reports,
-not `/usr/bin/python3`; R7 A4-3, measured), mise's answer (3.15.2 from `<W>/.tool-versions`, `installed: false`,
-`install_path` under `$ISO/data`), `mise which python3`'s exit 1, and the generic block. **The post-check is
+`sys.executable` = `<D>/usr/bin/python3`, where `<D>` is the active developer directory (`xcode-select -p`, or
+`DEVELOPER_DIR` when set) — `/Applications/Xcode.app/Contents/Developer` on the measuring host,
+`/Library/Developer/CommandLineTools` on a CLT-only one (R7 A4-3, R8 A4-2, measured; R§0 J4); the record names
+`<D>` as `xcode-select -p` printed it — mise's answer (3.15.2 from `<W>/.tool-versions`, `installed: false`,
+`install_path` under `$ISO/data`), `mise which python3`'s exit 1, the config files and their `_.path` answers
+(body §4.2 (c) / (d)), and the generic block. **The post-check is
 positive evidence** (R7 J4 / A3-2): `$ISO/state/tracked-configs` holds links into `<W>` (measured: `<W>/mise.toml`,
 `<W>/.tool-versions` and `$ISO/global.toml`), so mise ran on the isolated state. "No entry of the user's state
 resolves into `$ISO`" cannot fail (the project is `<W>`, not under `$ISO`), and a before/after diff of the user's
 `tracked-configs` is blind (its names are path hashes, the same for the same path). The PR body records the output
 and the listing; C24's record takes the module's SHA-256, the date and `3.9.6`.
-**Mechanising this run in CI was considered (R7 A3-1) and not taken**: the runner's `/usr/bin/python3` is the
-image's, pinned by nothing here, so the measured subject would drift with the image; it is not the 3.9 bound the
-record states; and a test needing a host interpreter has no fail-safe outcome where the host lacks one (a skip is
-red, a pass is silent).
+**Mechanising this run in CI was considered (R7 A3-1) and not taken.** The ground (R8 A3-1 replaced draft 8's,
+which was partly unsound): CLAUDE.md `## CI`'s job boundary — "language runtime を要する check は宣言する job に
+置く" (`CLAUDE.md:100` at `ee6c7a1a`). A CI run of the refusal on a real non-pin interpreter needs a second
+interpreter; the runner image's `python3` is declared by no step, and declaring one is a second setup step, which
+PR-1's `ci.yml` reader refuses as CI's second spelling (I1 × I3; R§9 item (1)). Draft 8's other
+reasons are withdrawn: the image is pinned (`runs-on: ubuntu-24.04`, §2 I3), and which version it carries is no
+argument against a check.
 
 **J2 probe — what `feature_version=(3, 9)` rejects** (§2 I1 × I5, §11; R6 M1, R7 A4-4 / A4-5 / A4-6; 2026-11-01,
 Homebrew 3.15.2 and macOS `/usr/bin/python3` 3.9.6). For each snippet, `ast.parse(src)` must succeed on 3.15.2,
@@ -480,12 +563,17 @@ then `ast.parse(src, feature_version=(3, 9))` is tried there, and `ast.parse(src
 | PEP 810 `lazy import` (3.15) | `lazy import json` | **accepted** | rejected |
 | PEP 798 list comprehension unpacking (3.15) | `x = [*y for y in z]` | **accepted** | rejected |
 | PEP 798 dict comprehension unpacking (3.15) | `x = {**v for v in z}` | **accepted** | rejected |
+| PEP 701 backslash in a replacement field (3.12; #581 fix round 1) | `x = f"{'\n'.join(y)}"` | **accepted** | rejected |
+| PEP 701 comment in a replacement field (3.12; #581 fix round 1) | `x = f"""{y # c` / `}"""` | **accepted** | rejected |
+| PEP 646 star in a subscript assignment target (3.11; #581 fix round 1) | `a[*b] = 1` | **accepted** | rejected |
 | parenthesised context managers (3.10; not a gap) | `with (open('a') as f, open('b') as g): pass` | accepted | **accepted** |
 | walrus (3.8; control) | `if (n := 1): pass` | accepted | accepted |
 
 The table is the probe: each snippet as its own source string, `"\n"` for each `/`, run under `-I`. **The red set
-is the six rejected rows** — the one enumeration §2 I1 × I5, §11 and C24 cite. **The gaps are the seven rows
-accepted on 3.15.2 and rejected on 3.9.6.** Parenthesised context managers are no gap: 3.9.6 parses them (draft 7
+is the six rejected rows** — the one enumeration §2 I1 × I5, §11 and C24 cite. **The gaps are the ten rows
+accepted on 3.15.2 and rejected on 3.9.6 — a sample found by probing, not a census** (R8 A4-3: R8's Axis 4 found
+the last three, which #581's fix round re-measured); another construct may slip through, which is why the
+SHA-256 record (C24 (ii)) and the real run exist. Parenthesised context managers are no gap: 3.9.6 parses them (draft 7
 listed them as one). PR-1's grammar control takes the red set as its mutants and states the gaps as its limit
 (C24).
 
