@@ -39,7 +39,7 @@ pub trait SandboxEnforcer: Send {
     fn apply(&self, policy: &SandboxPolicy) -> Result<(), SandboxError>;
 
     /// Human-readable name of the sandbox mechanism.
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
 }
 
 /// Apply the appropriate platform sandbox based on the [`PlatformSandbox`]

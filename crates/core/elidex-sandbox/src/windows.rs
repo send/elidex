@@ -22,13 +22,14 @@ impl SandboxEnforcer for WindowsRestrictedEnforcer {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "windows-restricted-token"
     }
 }
 
 /// Create a Job Object with restrictions matching the sandbox policy and
 /// assign the current process to it.
+#[allow(unsafe_code)]
 fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
@@ -53,8 +54,9 @@ fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
         let ret = SetInformationJobObject(
             job,
             JobObjectExtendedLimitInformation,
-            &info as *const _ as *const _,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            (&raw const info).cast(),
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("JOBOBJECT_EXTENDED_LIMIT_INFORMATION size fits in u32"),
         );
         if ret == 0 {
             CloseHandle(job);

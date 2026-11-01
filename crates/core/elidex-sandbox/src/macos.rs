@@ -20,6 +20,7 @@ use crate::SandboxEnforcer;
 pub struct MacOSEnforcer;
 
 impl SandboxEnforcer for MacOSEnforcer {
+    #[allow(unsafe_code)]
     fn apply(&self, policy: &SandboxPolicy) -> Result<(), SandboxError> {
         let profile = build_profile(policy);
         let c_profile = CString::new(profile)
@@ -34,7 +35,7 @@ impl SandboxEnforcer for MacOSEnforcer {
         // Flags: 0 = raw SBPL profile string. The profile must start with
         // `(version 1)`. SANDBOX_NAMED (0x0001) would interpret it as a
         // profile name lookup instead.
-        let ret = unsafe { sandbox_init(c_profile.as_ptr(), 0, &mut err_buf) };
+        let ret = unsafe { sandbox_init(c_profile.as_ptr(), 0, &raw mut err_buf) };
 
         if ret != 0 {
             let msg = if err_buf.is_null() {
@@ -45,6 +46,8 @@ impl SandboxEnforcer for MacOSEnforcer {
                 let msg = unsafe { std::ffi::CStr::from_ptr(err_buf) }
                     .to_string_lossy()
                     .to_string();
+                // SAFETY: err_buf was allocated by `sandbox_init` and is freed
+                // exactly once, after its contents were copied into `msg`.
                 unsafe { sandbox_free_error(err_buf) };
                 msg
             };
@@ -54,7 +57,7 @@ impl SandboxEnforcer for MacOSEnforcer {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "macos-sandbox-init"
     }
 }
@@ -113,21 +116,17 @@ fn build_profile(policy: &SandboxPolicy) -> String {
     }
 
     // Network access.
-    match policy.network {
-        NetworkAccess::None => {
-            // No network rules — outbound blocked by deny default.
-        }
-        NetworkAccess::SameOrigin | NetworkAccess::Full => {
-            // NOTE: SBPL cannot enforce same-origin at the OS level.
-            // Same-origin restriction is enforced at the application layer
-            // (Network Process validates origins). OS sandbox allows outbound.
-            rules.push("(allow network-outbound)".to_string());
-            rules.push("(allow network-inbound)".to_string());
-            rules.push("(allow system-socket)".to_string());
-        }
-        _ => {
-            // Future variants: default to no network access.
-        }
+    // `None` and future variants add no rules: the deny default blocks the network.
+    if matches!(
+        policy.network,
+        NetworkAccess::SameOrigin | NetworkAccess::Full
+    ) {
+        // NOTE: SBPL cannot enforce same-origin at the OS level.
+        // Same-origin restriction is enforced at the application layer
+        // (Network Process validates origins). OS sandbox allows outbound.
+        rules.push("(allow network-outbound)".to_string());
+        rules.push("(allow network-inbound)".to_string());
+        rules.push("(allow system-socket)".to_string());
     }
 
     // GPU access (IOKit for Metal/OpenGL).
