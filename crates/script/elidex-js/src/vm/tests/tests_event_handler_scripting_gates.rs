@@ -16,22 +16,9 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::Entity;
-
-use super::super::test_helpers::{entity_of, eval_str, listeners_on, run, with_page};
+use super::super::test_helpers::{click_source, entity_of, eval_str, listeners_on, run, with_page};
 use super::super::Vm;
 use super::tests_event_handler_attrs::{eval_bool, with_el};
-
-/// The `click` handler entry's pending (uncompiled) source on `entity` — the
-/// **source oracle**: non-draining, so it fails under an arm 3 that takes the
-/// source. Panics if there is no `click` entry.
-fn click_source(vm: &mut Vm, entity: Entity) -> Option<String> {
-    let listeners = listeners_on(vm, entity);
-    let id = listeners
-        .find_event_handler("click")
-        .expect("a click handler entry exists");
-    listeners.uncompiled_source(id).map(str::to_owned)
-}
 
 // ---- compile gate, settings clause: a sandboxed document keeps the getter null, dispatch runs nothing ----
 #[test]

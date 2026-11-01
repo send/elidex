@@ -365,10 +365,15 @@ fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
 /// kept it clear of a Stacked-Borrows bug in `EcsDom::dispatch_event`'s
 /// take-and-restore guard, since fixed
 /// (`#11-ecs-dispatch-depth-raw-ptr-soundness`). This isolates the fix under test: the full bound 3-phase walk
-/// (`build_dispatch_plan` / `apply_retarget` / `call_listener` →
-/// `ensure_event_handler_current` → `HostData::dom`) runs entirely through the
-/// engine's bound `dom_ptr`, never a fresh `ctx.dom` reborrow. **Verified
-/// clean under `cargo +nightly miri test` (Stacked Borrows).** Before the fix,
+/// (`build_dispatch_plan` / `apply_retarget` / `call_listener`,
+/// plus the handler reconcile) runs entirely through the
+/// engine's bound `dom_ptr`, never a fresh `ctx.dom` reborrow. The raw
+/// `onclick` content attribute on `outer` is there to exercise the
+/// event-handler reconcile path (`ensure_event_handler_current` →
+/// `reconcile_event_handler` → lazy compile), which `addEventListener`
+/// listeners skip. **The original Stacked-Borrows verification under
+/// `cargo +nightly miri test` predates that handler entry; miri has NOT been
+/// re-run on the current test and should be.** Before the fix,
 /// dispatch's `&mut *ctx.dom` reborrows invalidated the bound pointer and this
 /// test tripped miri at `call_listener`.
 #[test]
@@ -403,7 +408,8 @@ fn bound_dispatch_routing_is_stacked_borrows_clean() {
             "globalThis.log = '';
              outer.addEventListener('click', function (e) { globalThis.log += 'C' + e.type; }, true);
              inner.addEventListener('click', function () { globalThis.log += 'T'; }, { once: true });
-             outer.addEventListener('click', function () { globalThis.log += 'B'; });",
+             outer.addEventListener('click', function () { globalThis.log += 'B'; });
+             outer.setAttribute('onclick', \"globalThis.log += 'H'\");",
         )
         .unwrap();
 
@@ -415,8 +421,9 @@ fn bound_dispatch_routing_is_stacked_borrows_clean() {
     };
     assert_eq!(
         engine.vm().inner.strings.get_utf8(sid),
-        "CclickTB",
-        "capture → at-target(once) → bubble must all fire through bound dispatch"
+        "CclickTBH",
+        "capture → at-target(once) → bubble → bubble-phase onclick handler (lazily \
+         compiled by the bound reconcile) must all fire through bound dispatch"
     );
 
     HostDriver::unbind(&mut engine);

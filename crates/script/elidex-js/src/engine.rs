@@ -209,6 +209,17 @@ impl ScriptEngine for ElidexJsEngine {
         is_handler: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
+        // Fail-loud BATCH-BIND contract, for every listener kind: dispatch runs
+        // assuming bound (see `bound` above). The batch-bind bracket in
+        // pipeline.rs relies on this assert, independent of whether a
+        // reconcile runs. An uninstalled `HostData` is legitimate (no
+        // listeners exist; HEAD returned silently below) and stays a no-op.
+        assert!(
+            self.vm.host_data().is_none_or(|h| h.is_bound()),
+            "call_listener while unbound: dispatch requires the BATCH-BIND bracket \
+             (HostDriver::bind ... unbind) around the whole dispatch"
+        );
+
         // HTML §8.1.8.1 *get the current value of the event handler*: bring
         // an event-handler entry up to date (decided by
         // `elidex_script_session::reconcile_event_handler`) before resolving

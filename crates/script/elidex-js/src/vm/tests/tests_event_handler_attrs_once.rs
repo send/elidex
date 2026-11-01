@@ -10,21 +10,9 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::Entity;
 use elidex_script_session::HandlerAttrsProcessed;
 
-use super::super::test_helpers::{entity_of, eval_str, listeners_on, run, with_page, PRELUDE};
-use super::super::Vm;
-
-/// The `click` handler entry's uncompiled source on `entity` (white-box store
-/// read; `None` = no source). Panics if there is no `click` entry.
-fn click_source(vm: &mut Vm, entity: Entity) -> Option<String> {
-    let listeners = listeners_on(vm, entity);
-    let id = listeners
-        .find_event_handler("click")
-        .expect("a click handler entry exists");
-    listeners.uncompiled_source(id).map(str::to_owned)
-}
+use super::super::test_helpers::{click_source, entity_of, eval_str, run, with_page, PRELUDE};
 
 // ---- C1 (red, K-1): a delivered element moved after an IDL write keeps the IDL value ----
 #[test]

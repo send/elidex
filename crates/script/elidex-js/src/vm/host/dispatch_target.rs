@@ -173,7 +173,9 @@ impl DispatchTarget {
     /// Bring an event-handler IDL attribute backing up to date before its
     /// callable is resolved (WHATWG HTML §8.1.8.1 "getting the current
     /// value of the event handler") — the **A-hoist**.  Node-only: the
-    /// reconcile (inline-source lazy-compile / cleared-drop) is a
+    /// reconcile (inline-source lazy-compile / cleared-drop / and, when the
+    /// compile gate fires on a raw value, dropping the stale callable while
+    /// keeping the source, so the handler reads null) is a
     /// content-attribute concern that is provably a no-op for the
     /// IDL-setter-only `VmObject` handlers (their `uncompiled`/`cleared`
     /// stay at default), so the `VmObject` arm is intentionally empty and
