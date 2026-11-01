@@ -142,7 +142,8 @@ fn br_hr_pre_p_distinct_prototypes() {
 fn p_does_not_match_picture_substring() {
     // Sanity pin: the `tag_matches_ascii_case("p")` arm must not
     // accidentally match `<picture>` via substring.  `eq_ignore_ascii_case`
-    // is exact match per host_data.rs:609.
+    // is exact match per `HostData::tag_matches_ascii_case`
+    // (`host_data/engine_feature/entity_kind.rs`).
     let out = run("var p = document.createElement('p'); \
          var pic = document.createElement('picture'); \
          (Object.getPrototypeOf(p) !== Object.getPrototypeOf(pic)) ? 'ok' : 'fail';");

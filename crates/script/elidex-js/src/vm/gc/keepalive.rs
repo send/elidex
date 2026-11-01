@@ -401,10 +401,11 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
             // `document`-tagged MQL across an unbound inter-batch GC) and the
             // unconditional `AbortSignal.timeout` membership mark (`:261`, no
             // `is_bound` guard). `Vm::unbind` NULLs `dom_ptr` but does NOT
-            // despawn the externally-owned World (`host_data.rs` `unbind` vs the
-            // raw-pointer `bind`), so the `*ObservedBy` observations PERSIST
-            // across a mere unbind; a genuinely-observing no-JS-ref observer
-            // must survive so the next same-document rebind's `deliver` can fire
+            // despawn the externally-owned World (`HostData::unbind` vs the
+            // raw-pointer `HostData::bind`, `host_data/engine_feature/bind.rs`),
+            // so the `*ObservedBy` observations PERSIST across a mere unbind; a
+            // genuinely-observing no-JS-ref observer must survive so the next
+            // same-document rebind's `deliver` can fire
             // it (skipping-to-collect here would prune a still-observing
             // observer's binding = a NEW under-root regression). This over-keep
             // is TRANSIENT and SELF-CORRECTING: the next BOUND GC runs the
