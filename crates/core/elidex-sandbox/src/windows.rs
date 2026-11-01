@@ -1,14 +1,15 @@
-//! Windows sandbox enforcer using restricted tokens and Job Objects.
+//! Windows sandbox enforcer using Job Objects.
 //!
-//! Creates a restricted token with maximum privilege reduction and assigns
-//! the process to a Job Object that limits resource access.
+//! Assigns the process to a Job Object that limits the process count. It does
+//! not create a restricted token and does not enforce the policy's filesystem
+//! or network restrictions (`#11-os-sandbox-enforcer-correctness`; the shell
+//! stays on `PlatformSandbox::Unsandboxed` until that slot closes).
 //!
 //! Design reference: docs/design/en/08-security-model.md §8.1 (Windows row).
 //!
-//! NOTE: Full implementation requires the renderer to be a separate process.
-//! In `SingleProcess` mode, restricting the token would affect the entire
-//! application. This module provides the infrastructure; actual enforcement
-//! is gated on multi-process mode.
+//! NOTE: Enforcement requires the renderer to be a separate process. In
+//! `SingleProcess` mode, restricting the process would affect the entire
+//! application.
 
 use elidex_plugin::{SandboxError, SandboxPolicy};
 
@@ -31,7 +32,7 @@ impl SandboxEnforcer for WindowsRestrictedEnforcer {
 ///
 /// Defect: only the job's process-count limit is applied. The policy's filesystem
 /// and network restrictions are not enforced on Windows, and `apply` still
-/// returns `Ok`.
+/// returns `Ok` (`#11-os-sandbox-enforcer-correctness`).
 #[allow(unsafe_code)]
 fn create_restricted_job(_policy: &SandboxPolicy) -> Result<(), SandboxError> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};

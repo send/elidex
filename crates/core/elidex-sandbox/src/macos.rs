@@ -125,6 +125,8 @@ fn build_profile(policy: &SandboxPolicy) -> String {
         // Same-origin restriction is enforced at the application layer
         // (Network Process validates origins). OS sandbox allows outbound.
         rules.push("(allow network-outbound)".to_string());
+        // Defect: inbound is allowed too, while the Linux filter blocks
+        // bind/listen/accept (`#11-os-sandbox-enforcer-correctness`).
         rules.push("(allow network-inbound)".to_string());
         rules.push("(allow system-socket)".to_string());
     }
