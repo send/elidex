@@ -29,7 +29,9 @@ impl SandboxEnforcer for WindowsRestrictedEnforcer {
 /// Create a Job Object with restrictions matching the sandbox policy and
 /// assign the current process to it.
 ///
-/// The policy is not read yet; it will drive network/filesystem restrictions.
+/// Defect: only the job's process-count limit is applied. The policy's filesystem
+/// and network restrictions are not enforced on Windows, and `apply` still
+/// returns `Ok`.
 #[allow(unsafe_code)]
 fn create_restricted_job(_policy: &SandboxPolicy) -> Result<(), SandboxError> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
