@@ -91,6 +91,8 @@ lane SSoT = `project_ci-tools-lane.md`, its top block "HANDOFF NOW (2026-10-31)"
   not with PR-1; the one consent request is sent **once, after #581's `/external-converge` ends**, #581's merge
   waits for it, PR-1's implementation follows (§9 steps 0, 3). I1: action (4) removed; the facts gain the config
   files mise loaded and each one's `[env] _.path`, as mise reports them (§4.2; relayed by the CI/tools driver).
+- **PM decision 233** (2026-11-01; PM message): "the config mise chose" = the files `mise config ls` lists; the
+  consent list includes V1–V15 and V6's question (no record shows them sent); PR-0 stays after #581 (§6).
 
 **Edge-dense: yes** — seven coupled invariants (§2; I7 is draft 6's, decision 167), so the umbrella and every
 per-PR plan pass `/elidex-plan-review` before implementation (CLAUDE.md *Edge-dense work* (b)). **PR-1 and PR-2
@@ -562,8 +564,8 @@ their reader is the VM P4 lane (§6 *This umbrella's own length*).
 | **PR-1 pin, gate and provisioning** | `.tool-versions` (the one line); `scripts/python_pin.py` (the one reader: the one-line parser, admission, the refusal with its oracle and the warning; root from its own path); the driver's Step 1 → exact; `tools` job → one leg reading the pin file; the `ci.yml` reader and its pins; T5's clause 1; the `mise.toml` reader → `tomllib` (draft 2's PR-3: rows M1–M3 retire, Q4 / M2 restated over parsed data) with `[settings] python.compile = false` + `python.github_attestations = true` and their assertion; `mise.toml`'s task text; the removal of #510's floor-motivated code and the VM P4 statements and lines V1–V23 (§5.2); I7's support module `scripts/python_pin_testing.py` (§2); docs; the amendments (§5) | PR-0; its own plan-review; #581 merged, which waits for the VM P4 lane's consent to §5.3 (c)'s whole subject, incl. its answer on V6 (decisions 127 (a), 205, 211, 213, 221); PR-1's implementation starts after the consent |
 | **PR-2 entry-point guard** | the launch-evidence predicate, the guard prelude in every derived entry point (root by the entry file's fixed depth, §4.3), their pins (incl. the X1 bound); `SKILL.md` Step 0's comment; the `tools` timeout re-derive in `ci.yml` (PR-2 §8); the UNCHECKED lines naming it become CHECKED (§5.1, §13 C13); the two VM P4 launch lines P2 (§5.3 (b), decision 205) | PR-1; its plan reviewed before PR-1 lands; P2 is in the same consent (§5.3 (c)) |
 
-**Ordering** (decisions 124, 127, 118, 150 (3), 221): #581 (this memo; merged once the consent is in; PR-0 only
-cites it, so whether PR-0 may go first if the consent is slow is the PM's call) → PR-0 → PR-1 → **the PR-1 →
+**Ordering** (decisions 124, 127, 118, 150 (3), 221, 233): #581 (this memo; merged once the consent is in; PR-0
+cites it, so PR-0 waits for #581 — decision 233 keeps decision 141's order) → PR-0 → PR-1 → **the PR-1 →
 PR-2 interval** (#514's re-derive starts, CI/tools: it edits #514's memos and launches nothing; the M4-12
 exit-gate umbrella's pre-research may start) → PR-2 → the **cargo-deny PR** → the **M4-12 exit-gate program** → the K2 wire program (decision 118:
 "before the K2 program"). Placement of the three items of H5:
@@ -741,10 +743,10 @@ landing"). **#581 lands these four files** (decision 221; not PR-1), as written 
 
 | file | sections | its reader | lines at #581 fix round 1 |
 |---|---|---|---|
-| `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 998 |
+| `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 1000 |
 | `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 198 |
 | `…-python-pin-umbrella-records.md` | R§0, R§4.1, R§4.2, R§6, R§7.2, R§9, R§11 | whoever re-opens a decision: a bump, a re-measurement, a reviewer | 580 |
-| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 661 |
+| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 662 |
 
 Counts: `wc -l docs/plans/2026-10-python-pin-umbrella*.md` (draft 8 was one file split at its `# Landing file N`
 markers, §14). Why these seams: each

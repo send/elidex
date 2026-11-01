@@ -296,10 +296,11 @@ first fix round. Draft 9 is that fix round, in place on #581's branch (the four 
 
 **Departures of this fix round, for the converge reviewer**: (1) the facts gain *questions* (c) and (d), not one
 fact — `mise config get` without `-f` printed one file's value only (R§0), so the oracle asks per file `mise
-config ls --json` lists; (2) "the config mise chose" in the brief is read as the files `mise config ls` lists, since
-the version's chosen file is already the oracle's `source`; (3) body §9 step 3's tamper-slot text moved unchanged to
-R§9 (body length); (4) (c) includes V1–V15 (A5-6), beyond the brief's V16–V23; (5) whether PR-0 may precede
-#581's merge is left to the PM (body §6 *Ordering*).
+config ls --json` lists; (2) "the config mise chose" is the files `mise config ls` lists (the version's chosen file
+is already the oracle's `source`) — confirmed by PM decision 233; (3) body §9 step 3's tamper-slot text moved
+unchanged to R§9 (body length); (4) (c) includes V1–V15 and V6's question (A5-6): no record shows them sent, confirmed
+by PM decision 233; (5) PR-0 stays after #581 — it cites the umbrella, which must be on `main` first (PM decision
+233, keeping decision 141's order).
 
 ---
 
@@ -570,7 +571,7 @@ item here.
   and lists none of its four files in its edit set; C14's "PR-1 lands four umbrella files" and C33's "this
   umbrella's four with PR-1" become #581's (#581's CI runs `symbol_attribution_control` and C33's X1 check over
   them); PR-1's preconditions are #581 merged and §5.3 (c)'s consent, its implementation after both (body §6, §9
-  steps 0 and 3); PR-0's plan cites the umbrella by path (whether PR-0 may precede #581: the PM's call, §6).
+  steps 0 and 3); PR-0's plan cites the umbrella by path (PR-0 lands after #581, decision 233, §6).
   C25 / C26's "the one request of §9 step 3" is §9 step 0's request, whose list is §5.3 (c).
 
 ---
