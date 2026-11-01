@@ -1078,9 +1078,11 @@ Mechanical greps (each at the PR head):
 - **G1** `git grep -n 'scripting_disabled_for_platform_object' -- crates ':!crates/script/elidex-script-session'` →
   exactly one line, the compile gate's closure in `event_handler_attrs.rs` (at the base: 10 lines, all in `elidex-js`, re-run at `3cd84a04` 2026-10-28; H-P2/H-P3).
 - **G2** §5.2's two commands at the head (`-- crates/script`) → pattern A: the two unrelated lines only
-  (`body_mixin.rs:205`, `host_data/mod.rs:1138`); pattern B: the two unrelated lines only (`host_data/mod.rs:1138`,
-  `tests_window_open_modals.rs:133`); plus, in either, any line that names processing step 1 as the WebDriver BiDi step
-  (reviewer check over the hit list). At the base: 20 and 16 lines (§5.2).
+  (`body_mixin.rs:205`, the §8.9.1 *cannot show simple dialogs* "step-1 gate" doc line, at
+  `vm/host_data/engine_feature/context_config.rs:133` since #578 split `host_data/mod.rs`, where §5.2 measured it as
+  `:1138`); pattern B: the two unrelated lines only (that same `context_config.rs` line, `tests_window_open_modals.rs:133`);
+  plus, in either, any line that names processing step 1 as the WebDriver BiDi step (reviewer check over the hit list).
+  At the base: 20 and 16 lines (§5.2).
 - **G3** `git grep -n 'scripts_allowed' -- crates/script/elidex-js/src/vm/host/event_handler_attrs.rs` → 0 (the compile
   gate reads the composition, not the flag).
 - **G4** `wc -l crates/script/elidex-js/src/vm/natives_promise.rs crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs.rs crates/script/elidex-js/src/vm/tests/tests_event_handler_scripting_gates.rs` (NEW) → each < 1000, and the split commit (§5.3) is the PR's first commit and moves lines only (`git show --stat <it>`; `git diff <it>~1 <it> --color-moved` shows the `:509-706` block moved).
