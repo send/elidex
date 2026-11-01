@@ -462,26 +462,6 @@ fn missing_listener_id_silently_no_ops() {
     engine.vm().unbind();
 }
 
-/// A bound document, a second (`DOMParser`-like, null browsing context)
-/// document, and an element owned by and appended into the second one.
-#[allow(unsafe_code)]
-fn bind_with_foreign_element(
-    engine: &mut ElidexJsEngine,
-    session: &mut SessionCore,
-    dom: &mut EcsDom,
-) -> (elidex_ecs::Entity, elidex_ecs::Entity) {
-    let doc = dom.create_document_root();
-    let doc2 = dom.create_document_node();
-    let foreign = dom.create_element_with_owner("div", Attributes::default(), Some(doc2));
-    assert!(dom.append_child(doc2, foreign));
-    unsafe {
-        engine
-            .vm()
-            .bind(std::ptr::from_mut(session), std::ptr::from_mut(dom), doc);
-    }
-    (doc, foreign)
-}
-
 /// C8e (ii): the UA path reads the handler value through the same reconcile as
 /// the VM walk and the IDL getter. A raw handler on a `DOMParser`-document node
 /// is not compiled (the node clause of the compile gate) and does not run; a
@@ -492,7 +472,12 @@ fn call_listener_foreign_document_node_raw_gated_callback_runs() {
     let mut engine = ElidexJsEngine::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let (doc, foreign) = bind_with_foreign_element(&mut engine, &mut session, &mut dom);
+    // A bound document, a second (`DOMParser`-like, null browsing context)
+    // document, and an element owned by and appended into the second one.
+    let doc = dom.create_document_root();
+    let doc2 = dom.create_document_node();
+    let foreign = dom.create_element_with_owner("div", Attributes::default(), Some(doc2));
+    assert!(dom.append_child(doc2, foreign));
 
     let (raw_id, callback_id) = {
         let mut listeners = EventListeners::new();
@@ -504,18 +489,18 @@ fn call_listener_foreign_document_node_raw_gated_callback_runs() {
             .expect("insert EventListeners");
         (raw_id, callback_id)
     };
+    register_listener_via_global(
+        &mut engine,
+        &mut session,
+        &mut dom,
+        doc,
+        "function () { globalThis.callbackRan = true; }",
+        callback_id,
+    );
     engine
         .vm()
-        .eval("globalThis.rawRan = false; globalThis.callbackRan = false; globalThis.__cb__ = function () { globalThis.callbackRan = true; };")
+        .eval("globalThis.rawRan = false; globalThis.callbackRan = false;")
         .unwrap();
-    let JsValue::Object(cb) = engine.vm().get_global("__cb__").unwrap() else {
-        panic!("__cb__ should be a function object");
-    };
-    engine
-        .vm()
-        .host_data()
-        .expect("HostData")
-        .store_listener(callback_id, cb);
 
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     let mut click = DispatchEvent::new("click", foreign);

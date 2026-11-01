@@ -58,12 +58,12 @@ use elidex_plugin::SandboxingFlagSet;
 /// — via one rule: if the composed tree root IS a Document (the node is
 /// connected, the same query `Node.isConnected` uses) that root is the
 /// effective node document; otherwise (a detached node) fall back to
-/// `owner_document(entity)` (`AssociatedDocument`). Clause (b) suppresses
+/// `owner_document(target)` (`AssociatedDocument`). Clause (b) fires
 /// iff the effective node document is not the bound document. The
 /// underlying missing insertion-adoption is carved as defer slot
 /// `#11-cross-document-adopt-on-insert`; when it lands `AssociatedDocument`
 /// becomes reliable for connected nodes and this rule collapses to a plain
-/// `owner_document(entity) != bound_document` compare.
+/// `owner_document(target) != bound_document` compare.
 ///
 /// A Node whose effective node document is unresolvable: the node clause is
 /// false (the settings clause has already been evaluated). Such nodes belong
@@ -77,13 +77,13 @@ use elidex_plugin::SandboxingFlagSet;
 /// MOVED between documents, because elidex does not implement DOM §4.2.3
 /// insertion adoption (`AssociatedDocument` is not re-homed on a
 /// cross-document insert). The known imperfect facets — adopt-then-remove
-/// (over-suppress), a live main-document node appended into a detached
-/// foreign subtree (under-suppress), and their reverses — are ALL bounded
+/// (over-gate), a live main-document node appended into a detached
+/// foreign subtree (under-gate), and their reverses — are ALL bounded
 /// by this and deferred to `#11-cross-document-adopt-on-insert`; no single
 /// tree / owner-document rule resolves every facet (each refinement trades
 /// which facet is wrong), so the proxy is not refined per-facet. It fails
-/// CLOSED on the suppress-vs-run ambiguity where it can (the safe
-/// direction for a security gate).
+/// closed where it can: an ambiguous case gates, i.e. a raw
+/// handler reads null (the safe direction for a security gate).
 ///
 /// Clause (b) applies to objects implementing `Node` only — Window /
 /// Worker / OffscreenCanvas entities (`is_node() == false`) and non-DOM
@@ -91,7 +91,7 @@ use elidex_plugin::SandboxingFlagSet;
 /// [`EcsDom::node_kind_inferred`] (the brand-check convention) also covers
 /// legacy entities carrying `TagType`/`TextContent` but no `NodeKind`
 /// component, so a NodeKind-less node of a null-BC document is still
-/// suppressed.
+/// gated.
 #[must_use]
 pub fn scripting_disabled_for_platform_object(
     dom: &EcsDom,
@@ -102,9 +102,8 @@ pub fn scripting_disabled_for_platform_object(
     if !elidex_plugin::sandbox::scripting_enabled(sandbox_flags) {
         return true;
     }
-    let (entity, document) = (target, bound_document);
-    match dom.node_kind_inferred(entity) {
-        Some(NodeKind::Document) => entity != document,
+    match dom.node_kind_inferred(target) {
+        Some(NodeKind::Document) => target != bound_document,
         Some(kind) if kind.is_node() => {
             // Effective node document via the composed tree root
             // (adopt-equivalent proxy — see the doc-comment). A connected
@@ -112,14 +111,14 @@ pub fn scripting_disabled_for_platform_object(
             // stale `AssociatedDocument` says, in either direction); a
             // detached node falls back to `owner_document`
             // (`AssociatedDocument`). `None` = unresolvable → node clause false.
-            let root = dom.find_tree_root_composed(entity);
+            let root = dom.find_tree_root_composed(target);
             let effective_document =
                 if matches!(dom.node_kind_inferred(root), Some(NodeKind::Document)) {
                     Some(root)
                 } else {
-                    dom.owner_document(entity)
+                    dom.owner_document(target)
                 };
-            effective_document.is_some_and(|node_doc| node_doc != document)
+            effective_document.is_some_and(|node_doc| node_doc != bound_document)
         }
         _ => false,
     }
@@ -145,11 +144,15 @@ mod tests {
 
     #[test]
     fn sandboxed_flags_disable_regardless_of_target() {
-        let (dom, doc, _doc2, _foreign) = two_doc_fixture();
+        let (dom, doc, _doc2, foreign) = two_doc_fixture();
         let flags = SandboxingFlagSet::all_represented();
         // Settings-level clause fires even for the bound document itself.
         assert!(scripting_disabled_for_platform_object(
             &dom, doc, doc, flags
+        ));
+        // ... and the settings clause decides for a foreign node too.
+        assert!(scripting_disabled_for_platform_object(
+            &dom, foreign, doc, flags
         ));
     }
 
