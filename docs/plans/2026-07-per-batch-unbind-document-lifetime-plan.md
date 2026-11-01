@@ -18,7 +18,7 @@ page's `navigator.serviceWorker` client state — which 2f did not scope.
 
 All cites grep-verified against worktree `per-batch-unbind-doc-lifetime` base `origin/main` = **`315ba316`**
 (post-boa-deletion #458; the VM is the sole engine). Spec anchors webref-verified 2026-07-12
-(`html`, `service-workers`).
+(`html`, `service-workers`). `HostData` cites are by symbol: they were re-pointed after the later pure-move split of `vm/host_data/mod.rs` and name the post-split file; each re-pointed one was a `vm/host_data/mod.rs:<line>` cite at the pinned commit.
 
 ---
 
@@ -100,7 +100,7 @@ now; B1 later moves the same state onto components.
 |---|---|---|
 | A | Split: MOVE the CE-registry clears (`vm_api.rs:728-739`) + the `navigator.serviceWorker` **client** clears (the document-lifetime subset of `:631-648`) from per-turn `Vm::unbind` into `Vm::teardown_document` (before its trailing `unbind()`). Per-turn `unbind` retains **everything else** (classified §4). | R4-#4 / R4-#5 |
 | B | Promote the **document-lifetime** CE fields (`ce_registry` / `ce_constructors` / `ce_constructor_to_id` / `ce_when_defined_promises` / `ce_next_constructor_id`) + the SW client fields (§4 table) into the survivor set = **removal of the per-turn clear** (they simply persist). No new field/counter. **`ce_reaction_queue` is NOT promoted** — it is a per-turn transient drained-each-checkpoint queue holding `Entity` refs, so it STAYS on the per-turn Entity-scrub set (§4, §6.3). | R4-#4 / R4-#5 |
-| C | Update the misfiled in-tree comments — BOTH the `unbind`-body comments (`vm_api.rs:702-727` CE, `:633-653` SW) AND the authoritative **field doc-comments** on `host_data/mod.rs` / `VmInner` that assert the OLD lifetime: `ce_registry` (`host_data/mod.rs:540-545` "Cleared on `Vm::unbind` … neither survives an unbind crossing"), `ce_constructors`/`ce_constructor_to_id` (`:561-563` "Cleared on unbind."), + the SW client fields' docs (`VmInner`, e.g. the `sw_*` block). Rewrite per §6.1: these are document-lifetime clears moved to `teardown_document` (self-contained); the genuine cross-DOM scrubs are the wrapper/collection/observer-Entity ones (incl. `ce_reaction_queue`) that STAY. | this memo §6.1 / §6.2 |
+| C | Update the misfiled in-tree comments — BOTH the `unbind`-body comments (`vm_api.rs:702-727` CE, `:633-653` SW) AND the authoritative **field doc-comments** on `host_data/mod.rs` / `VmInner` that assert the OLD lifetime: `ce_registry` (`HostData::ce_registry` field doc, `vm/host_data/mod.rs`: "Cleared on `Vm::unbind` … neither survives an unbind crossing"), `ce_constructors`/`ce_constructor_to_id` (`HostData::ce_constructors` field doc, `vm/host_data/mod.rs`: "Cleared on unbind."), + the SW client fields' docs (`VmInner`, e.g. the `sw_*` block). Rewrite per §6.1: these are document-lifetime clears moved to `teardown_document` (self-contained); the genuine cross-DOM scrubs are the wrapper/collection/observer-Entity ones (incl. `ce_reaction_queue`) that STAY. | this memo §6.1 / §6.2 |
 
 **Explicitly out of scope** (carved / cross-referenced, §8): the SW **worker-side** per-dispatch event
 state (`fetch_event_states` / `extendable_event_states` / `client_states` / `sw_clients` / `sw_outgoing`,
@@ -116,7 +116,7 @@ engine-independent DOM/form/selector/CSSOM algorithm is moved or added, so the c
 (same as 2f, which was VM-lifecycle + marshalling).
 
 **Touch-time-split note (CLAUDE.md 1000-line debt).** `vm_api.rs` (1418 L) and `host_data/mod.rs`
-(2023 L) are both >1000. ⚠ **AS-BUILT CORRECTION (Codex #459 R3 re-gate Axis 5 + R6-#3 P3):** the plan's
+(2023 L) are both >1000 (later split into `host_data/engine_feature/` by a pure-move PR; the remaining sub-struct decomposition is slot `#11-host-data-full-decomposition`). ⚠ **AS-BUILT CORRECTION (Codex #459 R3 re-gate Axis 5 + R6-#3 P3):** the plan's
 first-draft claim that this touch is "net-negative / no substantive >50 LoC growth" is **wrong** — as-built,
 `vm_api.rs` is **net +145** (+197/−52; the survivor-set was NOT a verbatim MOVE — R1/R2/R3 added the
 `wrapper_store.retain` extension + the `teardown_document` wrapper-removal loop, and R3/R4 added the
@@ -163,7 +163,7 @@ Four axes intersect; each pairwise intersection is named so plan-review can chec
   `ObjectId`/`String` — **all ride the VM heap / are index-internal, none holds an `Entity`**. The **one
   `Entity`-holder in the CE block — `ce_reaction_queue`** (`vm_api.rs:717` comment "every variant holds an
   `Entity`") — is deliberately **NOT promoted**: it is a **transient processing queue drained at each
-  script-execution / microtask checkpoint** by `flush_ce_reactions` (`host_data/mod.rs:550-552` doc:
+  script-execution / microtask checkpoint** by `flush_ce_reactions` (`HostData::ce_reaction_queue` field doc, `vm/host_data/mod.rs`:
   "drained at script-execution / event-dispatch / microtask checkpoints"; `interpreter.rs:54`,
   `natives_timer.rs:281`, `define.rs:204`, `engine.rs:159`), NOT document-lifetime authoritative state, so
   it **STAYS** on the per-turn Entity-scrub set (alongside `mutation_observers.clear_pending_records()` at
@@ -414,7 +414,7 @@ non-production rebind path such that a future harness/test breaks? (`ce_reaction
 ### §6.2 Comment-rewrite scope (Part C) — how much to say
 
 The misfiled comments (`vm_api.rs:702-727` CE, `:633-653` SW) **and the field doc-comments**
-(`host_data/mod.rs:540-545` "neither survives an unbind crossing", `:561-563` "Cleared on unbind.", the SW
+(`HostData::ce_registry` field doc, `vm/host_data/mod.rs`: "neither survives an unbind crossing"; `HostData::ce_constructors` field doc, `vm/host_data/mod.rs`: "Cleared on unbind."; the SW
 `VmInner` field docs) currently frame the clears as the cross-DOM-aliasing scrub "interim until B1" / assert
 the state does not survive. Part C rewrites them to: *these are document-lifetime clears, moved to
 `teardown_document`; the state now SURVIVES per-turn unbind; the genuine cross-DOM scrubs are the

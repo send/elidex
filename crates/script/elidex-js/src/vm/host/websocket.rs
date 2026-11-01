@@ -970,8 +970,9 @@ fn native_ws_close(
         );
         if !was_terminal {
             // `transition_to` accepts Connecting/Open → Closing per the
-            // state-machine matrix at `host_data.rs::WebSocketState::
-            // transition_to`.  Both source states are legal here.
+            // state-machine matrix at `WebSocketState::transition_to`
+            // (`host_data/engine_feature/realtime.rs`).  Both source states
+            // are legal here.
             let _ = state.transition_to(elidex_api_ws::WsReadyState::Closing);
         }
         (was_terminal, state.conn_id)

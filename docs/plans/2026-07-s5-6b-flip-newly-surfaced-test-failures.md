@@ -12,7 +12,7 @@ Stage 3 merge and the 2f-4 security gate's `/external-converge` (both CI-green-g
 **5 distinct subsystems** — none is a test-migration concern; each belongs to a flip stage.
 
 Verified against HEAD `71968b70` (2026-07-12). Migration-causation ruled out per-category by
-git-diff audit of the touched hunks (`git diff 71968b70~1 71968b70`).
+git-diff audit of the touched hunks (`git diff 71968b70~1 71968b70`). `HostData` cites are by symbol: they were re-pointed after the later pure-move split of `vm/host_data/mod.rs` and name the post-split file; each re-pointed one was a `vm/host_data/mod.rs:<line>` cite at the pinned commit.
 
 ---
 
@@ -36,7 +36,7 @@ The original analysis is retained for the record:
 `lifecycle_events_not_cancelable`, `load_event_fires`,
 `content::fragment_nav_tests::addressbar_cross_document_nav_fires_unload`.
 
-**Symptom**: panic `HostData accessed while unbound` (`host_data/mod.rs:1299`).
+**Symptom**: panic `HostData accessed while unbound` (the `is_bound` assert in `HostData::dom`, `vm/host_data/engine_feature/bind.rs`).
 
 **Root cause (backtrace-confirmed)**:
 `build_pipeline_interactive → run_scripts_and_finalize → dispatch_lifecycle_events →
