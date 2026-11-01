@@ -31,7 +31,7 @@ impl SandboxEnforcer for LinuxSeccompEnforcer {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "linux-seccomp-bpf"
     }
 }
@@ -162,7 +162,7 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, BackendError> {
         SeccompAction::KillProcess,
         // Match action (3rd param): applied to syscalls NOT in the rules map.
         // Errno(EPERM) = graceful denial (let the process handle the error).
-        SeccompAction::Errno(libc::EPERM as u32),
+        SeccompAction::Errno(libc::EPERM.cast_unsigned()),
         arch,
     )
 }

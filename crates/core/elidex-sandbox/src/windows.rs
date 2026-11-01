@@ -1,14 +1,15 @@
-//! Windows sandbox enforcer using restricted tokens and Job Objects.
+//! Windows sandbox enforcer using Job Objects.
 //!
-//! Creates a restricted token with maximum privilege reduction and assigns
-//! the process to a Job Object that limits resource access.
+//! Assigns the process to a Job Object that limits the process count. It does
+//! not create a restricted token and does not enforce the policy's filesystem
+//! or network restrictions (`#11-os-sandbox-enforcer-correctness`; the shell
+//! stays on `PlatformSandbox::Unsandboxed` until the slot's hard rule allows it).
 //!
 //! Design reference: docs/design/en/08-security-model.md §8.1 (Windows row).
 //!
-//! NOTE: Full implementation requires the renderer to be a separate process.
-//! In `SingleProcess` mode, restricting the token would affect the entire
-//! application. This module provides the infrastructure; actual enforcement
-//! is gated on multi-process mode.
+//! NOTE: Enforcement requires the renderer to be a separate process. In
+//! `SingleProcess` mode, restricting the process would affect the entire
+//! application.
 
 use elidex_plugin::{SandboxError, SandboxPolicy};
 
@@ -18,18 +19,22 @@ pub struct WindowsRestrictedEnforcer;
 
 impl SandboxEnforcer for WindowsRestrictedEnforcer {
     fn apply(&self, policy: &SandboxPolicy) -> Result<(), SandboxError> {
-        create_restricted_job(policy)?;
-        Ok(())
+        create_restricted_job(policy)
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "windows-restricted-token"
     }
 }
 
 /// Create a Job Object with restrictions matching the sandbox policy and
 /// assign the current process to it.
-fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
+///
+/// Defect: only the job's process-count limit is applied. The policy's filesystem
+/// and network restrictions are not enforced on Windows, and `apply` still
+/// returns `Ok` (`#11-os-sandbox-enforcer-correctness`).
+#[allow(unsafe_code)]
+fn create_restricted_job(_policy: &SandboxPolicy) -> Result<(), SandboxError> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -53,8 +58,9 @@ fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
         let ret = SetInformationJobObject(
             job,
             JobObjectExtendedLimitInformation,
-            &info as *const _ as *const _,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            (&raw const info).cast(),
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("JOBOBJECT_EXTENDED_LIMIT_INFORMATION size fits in u32"),
         );
         if ret == 0 {
             CloseHandle(job);
@@ -71,7 +77,6 @@ fn create_restricted_job(policy: &SandboxPolicy) -> Result<(), SandboxError> {
         // lifetime of the process. When the handle is closed, all
         // processes in the job are killed (due to KILL_ON_JOB_CLOSE).
         // The handle is intentionally leaked.
-        let _ = policy; // Will be used for network/filesystem restrictions.
     }
 
     Ok(())

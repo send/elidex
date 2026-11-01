@@ -15,7 +15,7 @@ impl SandboxEnforcer for NoopEnforcer {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "noop"
     }
 }
