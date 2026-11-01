@@ -23,7 +23,8 @@
 //! On the reading of step 3.2: the current text, and the node memo's
 //! "scripting is disabled for *el's node document*", give the same outcome
 //! for every document the engine can hold (single realm, no WebDriver BiDi,
-//! no user scripting switch). Which one the gate implements is N4's choice.
+//! no user scripting switch). Which one the gate implements is N4's choice
+//! (N4 of the IBP-sandbox node memo `docs/plans/2026-09-ibp-sandbox.md`).
 
 use elidex_ecs::{EcsDom, Entity};
 

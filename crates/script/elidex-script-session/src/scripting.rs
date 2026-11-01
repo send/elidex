@@ -27,7 +27,8 @@ use elidex_plugin::SandboxingFlagSet;
 /// which is the bound document's; a document other than the bound one has a
 /// null browsing context in the single-browsing-context model, and for the
 /// bound document the second disjunct reads the same flag set. Which reading
-/// the gate implements is N4's (the step-3.2 reading question).
+/// the gate implements is N4's (the step-3.2 reading question; N4 of the IBP-sandbox node
+/// memo `docs/plans/2026-09-ibp-sandbox.md`).
 ///
 /// `target` is the handler's target entity (an element, or the Window
 /// entity for a `WindowEventHandlers` attribute on `<body>`); `bound_document`

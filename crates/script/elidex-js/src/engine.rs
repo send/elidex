@@ -213,7 +213,8 @@ impl ScriptEngine for ElidexJsEngine {
         // assuming bound (see `bound` above). The batch-bind bracket in
         // pipeline.rs relies on this assert, independent of whether a
         // reconcile runs. An uninstalled `HostData` is legitimate (no
-        // listeners exist; HEAD returned silently below) and stays a no-op.
+        // listeners can exist; the lookup below returns without invoking) and
+        // stays a no-op.
         assert!(
             self.vm.host_data().is_none_or(|h| h.is_bound()),
             "call_listener while unbound: dispatch requires the BATCH-BIND bracket \

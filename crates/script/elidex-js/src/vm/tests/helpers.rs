@@ -9,6 +9,8 @@
 
 use super::super::value::{JsValue, VmError};
 use super::super::Vm;
+#[cfg(feature = "engine")]
+use elidex_ecs::Entity;
 
 /// Drive `vm.tick_network()` until `pending_fetches` is empty, with a
 /// 16-iteration ceiling to guard against unbounded reaction loops.
@@ -221,4 +223,16 @@ pub(crate) fn assert_illegal_constructor(interface: &str) {
             "illegal-ctor `{expr}` should throw canonical TypeError in both call modes",
         );
     }
+}
+
+/// The `click` handler entry's pending (uncompiled) source on `entity` — the
+/// **source oracle**: non-draining (white-box store read; `None` = no source).
+/// Panics if there is no `click` entry.
+#[cfg(feature = "engine")]
+pub(crate) fn click_source(vm: &mut Vm, entity: Entity) -> Option<String> {
+    let listeners = super::super::test_helpers::listeners_on(vm, entity);
+    let id = listeners
+        .find_event_handler("click")
+        .expect("a click handler entry exists");
+    listeners.uncompiled_source(id).map(str::to_owned)
 }

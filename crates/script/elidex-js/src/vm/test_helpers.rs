@@ -256,17 +256,6 @@ pub fn listeners_on(vm: &mut Vm, entity: Entity) -> EventListeners {
     }
 }
 
-/// The `click` handler entry's pending (uncompiled) source on `entity` — the
-/// **source oracle**: non-draining (white-box store read; `None` = no source).
-/// Panics if there is no `click` entry.
-pub fn click_source(vm: &mut Vm, entity: Entity) -> Option<String> {
-    let listeners = listeners_on(vm, entity);
-    let id = listeners
-        .find_event_handler("click")
-        .expect("a click handler entry exists");
-    listeners.uncompiled_source(id).map(str::to_owned)
-}
-
 /// Replace any existing `LayoutBox` on `entity` (via the bound DOM)
 /// with a content-only box sized to `content`.  Test helper for code
 /// paths that drive deliver methods directly without running the full

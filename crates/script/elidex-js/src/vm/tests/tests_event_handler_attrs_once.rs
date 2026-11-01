@@ -12,7 +12,8 @@
 
 use elidex_script_session::HandlerAttrsProcessed;
 
-use super::super::test_helpers::{click_source, entity_of, eval_str, run, with_page, PRELUDE};
+use super::super::test_helpers::{entity_of, eval_str, run, with_page, PRELUDE};
+use super::click_source;
 
 // ---- C1 (red, K-1): a delivered element moved after an IDL write keeps the IDL value ----
 #[test]

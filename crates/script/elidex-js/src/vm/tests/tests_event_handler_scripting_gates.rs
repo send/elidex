@@ -16,8 +16,9 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::test_helpers::{click_source, entity_of, eval_str, listeners_on, run, with_page};
+use super::super::test_helpers::{entity_of, eval_str, listeners_on, run, with_page};
 use super::super::Vm;
+use super::click_source;
 use super::tests_event_handler_attrs::{eval_bool, with_el};
 
 // ---- compile gate, settings clause: a sandboxed document keeps the getter null, dispatch runs nothing ----

@@ -193,7 +193,7 @@ impl DispatchTarget {
     /// reads the engine-side `listener_store`.  No §8.1.3.4 check precedes
     /// the call: the compile gate (step 3.2) is consulted inside the
     /// reconcile, for a raw value only.  `None` = the listener was removed
-    /// between plan-freeze and now (the §2.9 step 6 removed-field check), or
+    /// between plan-freeze and now (the DOM §2.9 *inner invoke* step 2 removed check), or
     /// its value is null → the caller silently skips it.
     pub(crate) fn resolve_callable(
         self,

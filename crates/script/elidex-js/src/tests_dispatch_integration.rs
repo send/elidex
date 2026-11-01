@@ -371,9 +371,9 @@ fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
 /// `onclick` content attribute on `outer` is there to exercise the
 /// event-handler reconcile path (`ensure_event_handler_current` →
 /// `reconcile_event_handler` → lazy compile), which `addEventListener`
-/// listeners skip. **The original Stacked-Borrows verification under
-/// `cargo +nightly miri test` predates that handler entry; miri has NOT been
-/// re-run on the current test and should be.** Before the fix,
+/// listeners skip. Re-verified clean under
+/// `cargo +nightly miri test` (Stacked Borrows) with the handler entry,
+/// 2026-11-01 (miri 0.1.0 75a75c3e0a 2026-09-26). Before the fix,
 /// dispatch's `&mut *ctx.dom` reborrows invalidated the bound pointer and this
 /// test tripped miri at `call_listener`.
 #[test]
