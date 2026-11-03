@@ -104,10 +104,9 @@ jobs:
       # does not skip clippy / tests, and on all 3 OS because default-feature
       # builds differ per target (`cfg(target_os/windows/unix)` sites exist in
       # crates/). The Layout lane's C0 program (its slice C0b, not the K2
-      # slice of that name) attaches, as the step directly after this one,
-      # the boundary assertion stated as a property: every feature that
-      # exposes test-only API is enabled only from dev-dependencies (no
-      # feature name is listed).
+      # slice of that name) adds, as the step directly after this one, the
+      # assertion that `fixtures` is enabled only from dev-dependencies. The
+      # general test-only-feature boundary is `#11-test-only-feature-boundary-guard`.
       - name: Clippy (default features, no dev-only feature)
         run: cargo clippy --workspace -- -D warnings
 
