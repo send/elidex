@@ -81,7 +81,7 @@ lane SSoT = `project_ci-tools-lane.md`, its top block "HANDOFF NOW (2026-10-31)"
   `docs/plans/2026-07-vm-p4-slot-ledger.md` are **V19–V21**, V18's class, fixed by PR-1 once both slots' homing is
   re-checked (done: §5.2). **D7-2**: `plan_memo_sibling.py:158`'s positional `maxsplit` is **V22**, fixed by PR-1
   unless the VM P4 lane fixes it itself. Both join decision 205's one consent request (§9 step 0), sent "after R7
-  converges" — moved by decision 221. **D7-3**: the `ci.yml:167` item goes after PR-2 (§6).
+  converges" — moved by decision 221. **D7-3**: the `ci.yml:186` item goes after PR-2 (§6).
 - **PM decision 213** (2026-11-01, `PORTFOLIO:349`): the slot ledger's `:327` is **V23**, in the same consent
   request (§5.2); reviewed by the next round, no clerical skip.
 - **PM decision 217** (2026-11-01, `PORTFOLIO:354`): **the refusal lists observed facts only and infers no cause**
@@ -560,7 +560,7 @@ their reader is the VM P4 lane (§6 *This umbrella's own length*).
 
 | PR | Scope | Depends on |
 |---|---|---|
-| **PR-0 tracked mise config** | T5's clauses 2–5 (§4.2): the member predicate over `git ls-files`, the red-outright clause (`.miserc*`, a non-root `.tool-versions`, `.python-version*`), the no-`python` content clause with its admitted occurrences, the diagnostic, their controls — by default in the readers module and its pins (`scripts/python_suites_readers.py`, `scripts/test_python_suites_ci.py`; PR-0's plan records why, or names its own module, §4.2); and the one truthful reword of `mise.toml:115` that clause 4 needs | #581 merged, which waits for the VM P4 lane's consent (§9 step 0); the umbrella's and PR-0's own plan-review; no VM P4 file, no pin |
+| **PR-0 tracked mise config** | T5's clauses 2–5 (§4.2): the member predicate over `git ls-files`, the red-outright clause (`.miserc*`, a non-root `.tool-versions`, `.python-version*`), the no-`python` content clause with its admitted occurrences, the diagnostic, their controls — by default in the readers module and its pins (`scripts/python_suites_readers.py`, `scripts/test_python_suites_ci.py`; PR-0's plan records why, or names its own module, §4.2); and the one truthful reword of `mise.toml:122` that clause 4 needs | #581 merged, which waits for the VM P4 lane's consent (§9 step 0); the umbrella's and PR-0's own plan-review; no VM P4 file, no pin |
 | **PR-1 pin, gate and provisioning** | `.tool-versions` (the one line); `scripts/python_pin.py` (the one reader: the one-line parser, admission, the refusal with its oracle and the warning; root from its own path); the driver's Step 1 → exact; `tools` job → one leg reading the pin file; the `ci.yml` reader and its pins; T5's clause 1; the `mise.toml` reader → `tomllib` (draft 2's PR-3: rows M1–M3 retire, Q4 / M2 restated over parsed data) with `[settings] python.compile = false` + `python.github_attestations = true` and their assertion; `mise.toml`'s task text; the removal of #510's floor-motivated code and the VM P4 statements and lines V1–V23 (§5.2); I7's support module `scripts/python_pin_testing.py` (§2); docs; the amendments (§5) | PR-0; its own plan-review; #581 merged, which waits for the VM P4 lane's consent to §5.3 (c)'s whole subject, incl. its answer on V6 (decisions 127 (a), 205, 211, 213, 221); PR-1's implementation starts after the consent |
 | **PR-2 entry-point guard** | the launch-evidence predicate, the guard prelude in every derived entry point (root by the entry file's fixed depth, §4.3), their pins (incl. the X1 bound); `SKILL.md` Step 0's comment; the `tools` timeout re-derive in `ci.yml` (PR-2 §8); the UNCHECKED lines naming it become CHECKED (§5.1, §13 C13); the two VM P4 launch lines P2 (§5.3 (b), decision 205) | PR-1; its plan reviewed before PR-1 lands; P2 is in the same consent (§5.3 (c)) |
 
@@ -594,7 +594,7 @@ exit-gate umbrella's pre-research may start) → PR-2 → the **cargo-deny PR** 
   task-level unset) edits `mise.toml` — **textual** with PR-0 (the `:115` reword) and PR-1 (`[settings]`, the
   task text): anywhere, whichever lands second re-reads. It spells no `python`, so T5's clause 4 stays green; if
   it lands after PR-0, its text is under clause 4 like any other member line.
-- **The `ci.yml:167` docs item** (lane SSoT "Next sweeps", 10-25, "after #501"; the entry names a line at an
+- **The `ci.yml:186` docs item** (lane SSoT "Next sweeps", 10-25, "after #501"; the entry names a line at an
   older base, not its subject): it edits `ci.yml`, so by decision 150 (3)'s `ci.yml` rule it goes **after PR-2**,
   as the cargo-deny PR does (PR-2 edits `ci.yml`; PM decision 211 D7-3). Its plan re-derives the line.
 - **The three CI/tools slots registered 2026-10-31 / 11-01** (R6 M12; slot ledger `project_open-defer-slots.md`),
@@ -618,7 +618,7 @@ leaves for PR-1 (R5 MIN: drafts 4–5 applied it unevenly — the two `[settings
 on `main`, and the root `.tool-versions` is unchecked until PR-1; *The PR-0 → PR-1 interval* below states both).
 Applied to the new T5, clause by clause:
 - **Clauses 2–5 (members, red outright, no `python`, diagnostic)** — interval-free: on `main` the one member is
-  `mise.toml`, whose occurrences are tracked-path substrings once `mise.toml:115` is reworded (truthfully: the
+  `mise.toml`, whose occurrences are tracked-path substrings once `mise.toml:122` is reworded (truthfully: the
   description then says "the interpreter first on PATH", which `main` still runs); stdlib plus `git ls-files`,
   so it runs on both of `main`'s legs; the two `[settings]` lines are admitted ahead, as draft 4 admitted the
   root `.tool-versions` "when present"; the root `.tool-versions` is left to clause 1. PR-1 adds clause 1 and
@@ -996,4 +996,4 @@ planned for A-iii sweep 4 (placed by §6's *Ordering*: anywhere), which touches 
 - Whether `git ls-files` under A-iii's offline regime is available to a suite member on both of `main`'s legs —
   PR-0's plan confirms (the driver itself runs `git ls-files`, `scripts/python-suites.sh:435`).
 - Whether A-iii's existing `mise.toml` reader pins the `tools-test` description's text, which PR-0 rewords
-  (`mise.toml:115`) — PR-0's plan reads the reader and its pins first (C11).
+  (`mise.toml:122`) — PR-0's plan reads the reader and its pins first (C11).

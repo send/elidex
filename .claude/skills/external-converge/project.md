@@ -10,7 +10,7 @@ Loaded by `~/.claude/skills/external-converge/SKILL.md` (the full multi-round co
 
 `cargo fmt --all && mise run ci`
 
-Per CLAUDE.md "Push 前: mise run ci". cargo task は `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (CLAUDE.md "Workflow" 参照)。
+Per CLAUDE.md "Push 前: mise run ci". cargo task は (default features の `check-default` を除き) `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (CLAUDE.md "Workflow" 参照)。
 
 ## layering
 

@@ -2,6 +2,13 @@
 description = "Run cargo check"
 run = "cargo check --workspace --all-targets --all-features"
 
+[tasks.check-default]
+description = "Run default-features clippy -D warnings (lib + bin, no dev-only feature)"
+# The one compiling cargo task of `mise run ci` without `--all-features`; same
+# step as the `check` job's default-features step in .github/workflows/ci.yml,
+# whose comment is the canonical rationale.
+run = "cargo clippy --workspace -- -D warnings"
+
 [tasks.test]
 description = "Run all tests (nextest, no doc-tests)"
 run = "cargo nextest run --workspace --all-features"
@@ -123,7 +130,7 @@ run = "bash scripts/python-suites.sh"
 
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "doc", "deny", "trip-wires", "tools-test", "ci-sweep"]
+depends = ["check", "check-default", "lint", "test-all", "doc", "deny", "trip-wires", "tools-test", "ci-sweep"]
 
 [tasks.bench]
 description = "Run all benchmarks"
