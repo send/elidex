@@ -828,6 +828,10 @@ mod viewport_tests;
 mod change_on_blur_tests;
 
 #[cfg(test)]
+#[path = "../content_focus_fixup_probe_tests.rs"]
+mod focus_fixup_probe_tests;
+
+#[cfg(test)]
 mod parent_message_gate_tests {
     use super::parent_message_allowed;
 
