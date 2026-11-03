@@ -334,6 +334,23 @@ from a fresh page load:
 Record in the PR body: engine and version (`navigator.userAgent`), date, the page source, and each case's log. One engine
 is evidence, not proof; the PR body says so. The outcome selects the §4.3 branch (C4 / C6 assert it) and the §4.4 row.
 
+**Pre-step run 1 (2026-11-03, observed).** Substitution: Claude in Chrome was not connected; the run used headless Google
+Chrome 156.0.8078.80 (macOS) driven over CDP (user steps `Input.dispatchMouseEvent` / `dispatchKeyEvent` / `insertText`, every
+logged event `isTrusted === true`; script steps `Runtime.evaluate`). Same on `<input>` and `<textarea>`: M0 none, **M1 change**, M2
+none, M3 change, **M4 change**, M5 none; N1–N4 no `input`; N5 not measured (synthetic composition only). M1 and M4 both fire: the
+§4.3 STOP row (PM 303 → PM 305).
+
+**Pre-step run 2 — predictions written before running (PM 305).** Model H: the baseline is the value at focus; a script value
+write re-baselines it only while the user has not edited since focus; `change` fires iff the user edited and value ≠ baseline.
+Alternative H′: the baseline is the value at the last `change` (or at focus) and a script write re-baselines only before any
+user edit ever. Each case on `<input>` and `<textarea>`, fresh page:
+
+- **M6** click; script `x`; type `a`; script `y`; blur → H: change. H′: change.
+- **M7** click; type `a`; Backspace; blur → H: none. H′: none.
+- **M8** click; type `a`; blur (change); click; script `x`; type `b`; blur → H: change. H′: change.
+- **M9** click; type `a`; blur (change); click; script `x`; type `y`; Backspace (value `x`); blur → H: none. H′: change
+  (separates H from H′).
+
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there. Shell cells drive
 `handle_key` / `handle_ime` on a `build_test_content_state` fixture (P9) and observe events through listeners writing to a
 global array read back with `eval_script`. UA focus moves use `content::focus::set_focus`.
