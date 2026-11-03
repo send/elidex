@@ -1,9 +1,9 @@
 # C0c `EH-attrs-at-creation-C0c` — the adoption notification (`adoptedCallback`) and `document.adoptNode` (per-PR plan memo)
 
-Per-PR slice **C0c** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3;
+Per-PR slice **C0c** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.1;
 "the program memo"), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program
 decisions **D-3 (c), D-6, D-13, D-19**, after its prerequisite pure-move splits **D-14 (b), (d), (e)** ((d) / (e) unless L3
-RC-0a / RC-2a have done them), on C0b's head. It closes
+RC-0a has done them), on C0b's head. It closes
 slot `#11-custom-elements-adopted-callback` (D-17 #227) and, as the program's last PR, slot
 `#11-cross-document-adopt-on-insert` (program R-1, R-2). Program IDs are cited as the program memo's; C0b's as the C0b
 memo's (`docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`, "the C0b memo").
@@ -25,7 +25,8 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 1* (2026-11-03): first draft, carved from the C0 memo rev 2.1 (`d262ca8c`) D-3 (c) / D-6 / D-13 /
+**Changelog.** *Rev 3.1* (2026-11-03, with the program memo's rev 3.1): §1 states why `adoptNode` stays in this PR (R2
+Ax3 MIN-7); D-14 (e)'s L3 side is RC-0a (L3 #583 `55d35a16`). *Rev 1* (2026-11-03): first draft, carved from the C0 memo rev 2.1 (`d262ca8c`) D-3 (c) / D-6 / D-13 /
 T6, T7, T14–T16, T18 / U13 per plan-review R1's SPLIT and PM 244; D-19 decided (R1 Ax1 MIN-2); §4.7's layering table
 added (Ax1 MIN-1); `[CEReactions]` drain point stated (Ax4 MIN).
 
@@ -106,13 +107,17 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 - **D-14 (b), (d), (e) — prerequisites.** As program D-14: (b) `vm/host/document.rs` (1197); (d) `range/live.rs` (1021):
   its inline test module (from `:498`) to a sibling file — L3 RC-0a's planned move, done by whichever lands first; (e)
   `dom/tests/mutation_hook.rs` (1143): the specialised-hook scenarios from the `:973` section rule to a sibling file —
-  done by whichever of RC-2a and C0c lands first. Each its own PR (or commit of L3's), a pure move.
+  done by whichever of L3 RC-0a and C0c's prereq lands first (RC-0a's scope since L3 `55d35a16`). Each its own PR (or commit of L3's), a pure move.
 
 ## §1. Shape and verdict
 
 **Axes (program §2): A4 notification, with A1, A2, A3, A5, A7, A8, A9 at the 8 pairs marked C0c.** Edge-dense as a
 slice of the program; plan-review mandatory; a terminal unit once passed (base case (c)). Why `adoptNode` travels with
-the notification: its callback cell (T15) needs D-6, and `adoptNode` is the adopt algorithm's own entry (PM 158).
+the notification (program §1; the coupling is ordering, not mechanism): before the notification it would ship a new
+`[CEReactions]` method without its callback (T15); after it, as its own PR, it would carry no mechanism of its own (one
+session function over C0b's `adopt` plus marshalling, D-13) and no invariant the notification does not share — its
+pairs A1×A9 and A4×A9 are pinned by T15 / T16, which need both halves; PM 158 put it in the program as the adopt
+algorithm's own entry. Splitting it buys no smaller decision surface for one more per-PR memo and review.
 
 **K-0 lens.** Adds `adoptedCallback` and `adoptNode` where HEAD has none (R-5). Same-document moves enqueue nothing
 (T14).
@@ -215,7 +220,7 @@ no-ops" (`consumer.rs:73-74`); `walkers.rs:86-91` (D-19) and `:112-113` ("Pushed
 | `crates/core/elidex-ecs/src/dom/tree/walkers.rs` | 392 | D-19 | < 1000 |
 | `crates/dom/elidex-custom-elements/src/consumer.rs` | 329 | `handle_adopt` | < 1000 |
 | `crates/dom/elidex-dom-api/src/range/live.rs` | 1021 | no-op arm | **split first** (D-14 (d), unless L3 RC-0a did) |
-| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 1143 | no-op arm in the recorder | **split first** (D-14 (e), unless L3 RC-2a did) |
+| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 1143 | no-op arm in the recorder | **split first** (D-14 (e), unless L3 RC-0a did) |
 | `crates/script/elidex-js/src/vm/host/custom_elements/flush.rs` | 237 | the arm | < 1000 |
 | `crates/script/elidex-js/src/vm/host/document.rs` | 1197 | **split first (D-14 (b))**; native in `document_factories.rs` (NEW) | prereq PR |
 | `crates/dom/elidex-dom-api/src/document.rs` 665, `registry.rs` 785 | as listed | `AdoptNode` | < 1000 |
@@ -283,7 +288,7 @@ the method-scope reaction drain.
 
 | # | edge | kind | note |
 |---|---|---|---|
-| c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) / (e) shared with L3 RC-0a / RC-2a |
+| c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) / (e) shared with L3 RC-0a |
 | c0-bc | C0b → C0c | code + semantic | `adopt`, the walk, the stamps the pairs read |
 | c0b | C0c → C1 | semantic + code | C1's per-segment pair values (D-C5, T25) need the segments and the consumer; C1's edge rows are C1's |
 | c0e | C0c ↔ L3 RC-2a | census collision | `CloneCreated` and `Adopt` share the enum, `handle`, the exhaustive matches; whichever lands second re-runs P-6 and adds its arm to every exhaustive match |

@@ -1,9 +1,10 @@
 # C0a `EH-attrs-at-creation-C0a` — the *replace* mutation records follow the current step order (per-PR plan memo)
 
-Per-PR slice **C0a** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3; "the
-program memo"), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program decision
+Per-PR slice **C0a** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.1;
+"the program memo"), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program decision
 **D-12** (PM decision 160 (a); "in the C0 program", PM 244) after its prerequisite pure-move split **D-14 (a)**. It is
-the first program PR to land and adds the umbrella's C0 program row (program D-9, record R-3). Siblings and IDs: the
+the first program PR to land and adds the umbrella's C0 program row and rewrites its §1.2 order line (program D-9,
+record R-3; PM 227 O-1). Siblings and IDs: the
 program memo's header; program IDs (H-*, P-*, D-*, A*, R-*) are cited as the program memo's.
 
 **Placement.** PM 160 (a): the replace record order is fixed in the C0 program; PM 160 (b): `mutation/mod.rs` is split
@@ -17,7 +18,9 @@ code arrives with C0b (program D-5).
 **Not in scope.** The fragment arm's adoption (C0b, D-5); insertion adoption itself (C0b); `replaceChild(X, X)`'s
 records (`#11-replace-child-self-records`, registered PM 227); `adoptNode`'s removal record (C0c, D-13).
 
-**Changelog.** *Rev 1* (2026-11-03): first draft, carved from the C0 memo rev 2.1 (`d262ca8c`) D-12 / D-14 (a) / T17 /
+**Changelog.** *Rev 3.1* (2026-11-03, with the program memo's rev 3.1; plan-review R2 of the program): the umbrella
+order-line rewrite (PM 227 O-1) added to this PR's records (§8, DoD 5); `#11-replace-child-self-records`'s measurement
+procedure restored here (§7; R2 Ax5 IMP-4). *Rev 1* (2026-11-03): first draft, carved from the C0 memo rev 2.1 (`d262ca8c`) D-12 / D-14 (a) / T17 /
 U14 / P-9 per plan-review R1's SPLIT and PM 244.
 
 ## §0. Frame, premises, decisions
@@ -126,10 +129,32 @@ PR description.
 **Mutation guards.** Step-over kept → T17, U14. Step-over applied to the coalesced record → U14b, T17's `r[1]`.
 **Kept green.** `cargo test -p elidex-script-session --all-features`, `-p elidex-dom-api`, `-p elidex-js`; `mise run ci`.
 
-## §7. Out of scope
+## §7. Out of scope, and the `replaceChild(X, X)` measurement procedure
 
-`replaceChild(X, X)` (`#11-replace-child-self-records`; its re-eval "after C0 lands" reads "after C0a lands", program
-R-6 (e)).
+`replaceChild(X, X)` (`#11-replace-child-self-records`, ledger `:687`; its re-eval "after C0 lands" reads "after C0a
+lands", program R-6 (e)). Its fix is not this PR's; the slot requires this procedure to run **before** any fix, because
+HEAD's no-op is commented as "browser-parity" (`mutation/mod.rs:757-760` at `27b50dfe`) and the parity is unmeasured.
+
+**Spec outcome** (`webref body dom concept-node-replace`, run 2026-11-03): for `P = [A, X, B]`, `P.replaceChild(X, X)`:
+step 2 referenceChild = B; step 4 previousSibling = A; step 6 adopts X, whose *remove* (not suppressed) queues record 1
+= `{removedNodes [X], previousSibling A, nextSibling B}`; step 7 is skipped (child's parent is null: "can only be false
+if child is node"); step 9 re-inserts X before B, suppressed; step 10 queues record 2 = `{addedNodes [X], removedNodes
+[], previousSibling A, nextSibling B}`. elidex at HEAD: no records.
+
+**Procedure** (in the built-in Chromium of the desktop app, on `about:blank`; record `navigator.userAgent`):
+1. `P = document.createElement('div'); document.body.append(P); A = document.createElement('a'); X =
+   document.createElement('x-x'); B = document.createElement('b'); P.append(A, X, B); mo = new MutationObserver(() =>
+   {}); mo.observe(P, {childList: true}); P.replaceChild(X, X); r = mo.takeRecords();` then serialise each record as
+   `{type, added: [...addedNodes].map(n => n.localName), removed: [...removedNodes].map(n => n.localName), prev:
+   previousSibling?.localName ?? null, next: nextSibling?.localName ?? null}`.
+2. Variants: X the only child (`P.append(X)` alone); X first (`[X, B]`) and last (`[A, X]`); P detached (no
+   `document.body.append(P)`); X a defined custom element (run before step 1's `createElement`: `log = []; customElements.define('x-x', class extends HTMLElement {
+   connectedCallback() { log.push('c') } disconnectedCallback() { log.push('d') } })`, recording `log`: the spec's
+   remove-then-insert gives `['d', 'c']` when P is connected).
+3. Record every variant's records and `log` in the slot (ledger `:687`) with the Chromium version and the date.
+4. Decision input for the slot's owner: Chromium = spec → the fix follows the spec and the "browser-parity" comment is
+   withdrawn; Chromium = no records → a spec-vs-browser divergence, taken to the PM before any change (the fix is not
+   chosen here).
 
 ## §8. Edges and records
 
@@ -138,8 +163,12 @@ R-6 (e)).
 | c0-pre-a | D-14 (a) → C0a | code predecessor | pure move |
 | c0-ab | C0a → C0b | code predecessor (soft) | both edit `apply_replace_child`; C0b adds the fragment arm's step-6 call and comment on C0a's numbering |
 
-Records carried by C0a's PR: the umbrella §1.2 C0 program row and its changelog line (program R-3, exact text there;
-revision number per program D-9). For the PM: program R-6 (e) re-eval wording.
+Records carried by C0a's PR: the umbrella §1.2 C0 program row, **the §1.2 order line rewritten to PM 153's order with
+C0 as the program** (PM 227 O-1), and one changelog line for both (program R-3 holds the exact texts: the row, the
+line it replaces — "approval PR → slice a → { IBP-sandbox N1, T3 } → C1's handling decided → slice b …" — and its
+replacement "approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → C1 → T3 → slice b";
+revision number per program D-9). For the PM: program R-6 (e) re-eval wording; the ledger `:687` pointer to this memo's
+§7.
 
 ## §9. Definition of done
 
@@ -149,6 +178,6 @@ revision number per program D-9). For the PM: program R-6 (e) re-eval wording.
 3. D-12 implemented; every H-a2 comment renumbered per D-12's map; `/usr/bin/grep -n 'step 1[1-4]' <child_list.rs>`
    returns no *replace* step (the function's numbering stops at 11).
 4. T17, U14, U14b green; §6's crates and `mise run ci` green.
-5. The umbrella row (program R-3) in the PR, revision number per D-9 at rebase.
+5. The umbrella row and the rewritten order line (program R-3) in the PR, revision number per D-9 at rebase.
 6. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md`
    exits 0 (run).
