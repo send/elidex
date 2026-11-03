@@ -440,6 +440,9 @@ V; type `z`; Backspace (value back to V); blur → **H: no `change`** (baseline 
 - **W7** `<input>` empty: `setRangeText("x", 0, 0)` → H: none.
 - **W8** `<input value="d">` in a `<form>`, script `value = "q"` before focus: `form.reset()` (→ `"d"`) → H: none.
 
+**Pre-step run 3 — observed.** W3 none; W4 none; W5 none; **W6 `change`** (value `a@b,c@d`); W7 none; W8 none. Five of six H
+predictions hold; **W6 fails**: in Chromium the `multiple`-toggle sanitization does not re-baseline. Back to the PM (PM 305).
+
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
 `build_test_content_state` fixture (P9) and observe events through listeners writing to a global array read back with
