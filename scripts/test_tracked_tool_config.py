@@ -10,6 +10,7 @@ The module is called as `t.f(...)` so unittest.mock.patch.object reaches the mem
 """
 
 import ast
+import errno
 import os
 import re
 import subprocess
@@ -103,6 +104,8 @@ def mise_probs(text, tracked=()):
     return probs({"mise.toml": text}, extra=tracked)
 
 
+# The only modules tracked_tool_config.py may import (no alias): none can launch a process.
+MODULE_IMPORTS = ("errno", "os", "re", "stat", "string")
 CONTROLS_2_TO_5 = ("C2", "C3", "C4", "C5", "L1", "L2", "mutants_are_killed")
 
 
@@ -138,11 +141,14 @@ class TrackedToolConfig(unittest.TestCase):
         launchers = ("system", "popen", "fork", "posix_spawn", "execv", "execl", "spawn", "exec")
         for n in ast.walk(mod):
             if isinstance(n, ast.Import):
-                self.assertNotIn("subprocess", [a.name for a in n.names])
+                for a in n.names:
+                    self.assertIsNone(a.asname, "import alias %s" % a.name)
+                    self.assertIn(a.name, MODULE_IMPORTS, "import outside the allow-list: %s" % a.name)
             if isinstance(n, ast.ImportFrom):
-                self.assertNotEqual(n.module, "subprocess")
-                if n.module == "os":
-                    for a in n.names:
+                self.assertIn(n.module, MODULE_IMPORTS, "import outside the allow-list: %s" % n.module)
+                for a in n.names:
+                    self.assertIsNone(a.asname, "import alias %s" % a.name)
+                    if n.module == "os":
                         self.assertFalse(a.name.startswith(launchers), "os launch import %s" % a.name)
             if isinstance(n, ast.Attribute):
                 self.assertFalse(
@@ -153,10 +159,19 @@ class TrackedToolConfig(unittest.TestCase):
             self.assertFalse(isinstance(n, ast.Name) and n.id in ("TestCase", "__name__"), "TestCase / __main__ guard")
             self.assertFalse(isinstance(n, ast.Attribute) and n.attr == "TestCase")
             self.assertFalse(isinstance(n, ast.Constant) and n.value == "--self-test")
-        names = {n.name for n in mod.body if isinstance(n, ast.FunctionDef)}
-        for name in t.CLAUSES_2_TO_5:
-            self.assertIn(name, names)
+        # the seam: CLAUSES_2_TO_5 is the module's complete set of top-level names minus `problems`
+        defined = set()
+        for n in mod.body:
+            if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
+                defined.add(n.name)
+            elif isinstance(n, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = n.targets if isinstance(n, ast.Assign) else [n.target]
+                for tg in targets:
+                    defined.update(x.id for x in ast.walk(tg) if isinstance(x, ast.Name))
+        self.assertIn("problems", defined)
         self.assertNotIn("problems", t.CLAUSES_2_TO_5)
+        self.assertEqual(set(t.CLAUSES_2_TO_5), defined - {"problems"})
+        self.assertEqual(len(t.CLAUSES_2_TO_5), len(set(t.CLAUSES_2_TO_5)))
         for cid in CONTROLS_2_TO_5:
             self.assertTrue(callable(getattr(type(self), "test_" + cid, None)), "no test_" + cid)
 
@@ -196,10 +211,7 @@ class TrackedToolConfig(unittest.TestCase):
         ]
         for p in green:
             self.assertFalse(t.is_member(p), p)
-        promise = [p for p in tracked_paths(REPO) if "promise" in p.rsplit("/", 1)[-1].casefold()]
-        self.assertGreaterEqual(len(promise), 1)
-        for p in promise:
-            self.assertFalse(t.is_member(p), p)
+        self.assertFalse(t.is_member("crates/x/src/promise.rs"))  # `mise` inside a word is not a component prefix
 
     def test_C2(self):
         self.control_C2()
@@ -270,6 +282,8 @@ class TrackedToolConfig(unittest.TestCase):
                 f.write("plain\n")
             os.symlink("target.txt", os.path.join(d, "mise.link.toml"))
             os.mkdir(os.path.join(d, "mise"))
+            with open(os.path.join(d, "mise.ok.toml"), "w") as f:
+                f.write("x = 1\n")
             with open(os.path.join(d, "mise.bad.toml"), "wb") as f:
                 f.write(b"\xff\xfe")
             read = t.worktree_reader(d)
@@ -283,6 +297,30 @@ class TrackedToolConfig(unittest.TestCase):
                 f = self.only(t.problems([p], read), "4", p)
                 self.assertIn("unclassifiable (%s)" % kind, f)
                 self.assertIn(remedy, f)
+            # unreadable: any OSError from the read maps to its own kind (open patched; a chmod is
+            # no control when the suite runs as root)
+            for exc, name in (
+                (PermissionError(errno.EACCES, "denied"), "EACCES"),
+                (IsADirectoryError(errno.EISDIR, "is a directory"), "EISDIR"),
+            ):
+                with mock.patch("builtins.open", side_effect=exc):
+                    f = self.only(t.problems(["mise.ok.toml"], read), "4", "mise.ok.toml")
+                self.assertIn("unclassifiable (unreadable: %s)" % name, f)
+                self.assertIn("track the file itself as UTF-8 text", f)
+        # a symlinked parent component: the file itself is a regular file, the path is not
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, "real"))
+            with open(os.path.join(d, "real", "mise.toml"), "w") as f:
+                f.write("x = 1\n")
+            os.symlink("real", os.path.join(d, "link"))
+            read = t.worktree_reader(d)
+            f = self.only(t.problems(["link/mise.toml"], read), "4", "link/mise.toml")
+            self.assertIn("unclassifiable (symlink)", f)
+            self.assertEqual(t.problems(["real/mise.toml"], read), [])
+        # content holding NUL (BOM-less UTF-16 decodes as UTF-8) is non-text
+        f = self.only(probs({"mise.toml": "x = 1\n".encode("utf-16-le")}), "4", "mise.toml")
+        self.assertIn("unclassifiable (contains NUL)", f)
+        self.assertIn("track the file itself as UTF-8 text", f)
         bad = "mise\udcff.toml"
         f = self.only(t.problems([bad], memory_read({})), "4", "mise\\udcff.toml")
         self.assertIn("unclassifiable (non-UTF-8)", f)
@@ -405,7 +443,7 @@ class TrackedToolConfig(unittest.TestCase):
             for name in (".miserc.toml", "mise.local.toml", ".python-version"):
                 with open(os.path.join(d, name), "w") as f:
                     f.write("python 3.12\n")
-            _setup(d, "git", "add", ".miserc.toml")
+            _setup(d, "git", "-c", "core.excludesFile=", "add", "-f", ".miserc.toml")
             self.only(t.problems(lister(d), t.worktree_reader(d)), "3a", ".miserc.toml")
 
     def test_L2(self):

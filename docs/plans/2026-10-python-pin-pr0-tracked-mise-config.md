@@ -232,9 +232,9 @@ skip (left to clause 1, PR-1; body :372). Any other spelling at the root (`.TOOL
 **Clause 4 — no `python` in any other member's text.** For each member not skipped and not red by clause 3:
 - **Read** its bytes from the worktree at the repository root (the same source as the driver's own parse step,
   `scripts/python-suites.sh:445-451`). **Red, unclassifiable** — the rule cannot see the text mise would read (body
-  :158, I1: "whatever the rule cannot classify falls to red") — in four kinds: the path is **missing** from the
-  worktree; it is a **symlink**; it is not a regular file (a **gitlink** directory, or another non-file); its bytes,
-  or its name, are **not UTF-8** (a name `git` printed that decodes only with surrogate escapes).
+  :158, I1: "whatever the rule cannot classify falls to red") — in five kinds: the path is **missing** from the
+  worktree; it is a **symlink** (any path component); it is **unreadable** (an `OSError` on the read); it is not a regular file (a **gitlink** directory, or another non-file); its bytes,
+  or its name, are **not UTF-8** or the bytes contain **NUL** (a name `git` printed that decodes only with surrogate escapes).
 - **Lines**: the text split on `\n`, numbered from 1; one trailing `\r` is removed before comparison.
 - **Occurrences**: every match of `python` under `re.IGNORECASE` in a line.
 - **(4b) admitted lines**: if the path is exactly `mise.toml`, a line equal to an entry of `ADMITTED_LINES` —
@@ -265,14 +265,14 @@ line rendered `backslashreplace` so a non-UTF-8 name prints. Remedies:
   new install setting, extend clause 4 (b) together with I6's assertion in the same PR";
 - 4, unclassifiable, missing: "the file is tracked but absent from the worktree; restore it (git checkout -- <path>)
   or remove it from the index (git rm <path>)";
-- 4, unclassifiable, symlink / gitlink or non-file / non-UTF-8: "track the file itself as UTF-8 text under a UTF-8
+- 4, unclassifiable, symlink / unreadable / gitlink or non-file / non-UTF-8 or NUL: "track the file itself as UTF-8 text under a UTF-8
   name (not a symlink or a submodule), or rename it out of the member names".
 The live test's failure message is the joined list; the driver prints a failing test's detail to stdout
 (`_Result._bad`, `scripts/python-suites.sh`), so both callers show every finding, not the first.
 
 ### §4.3 The two files' interfaces
 
-**`scripts/tracked_tool_config.py`** — stdlib only (`os`, `re`), no process launch, no `TestCase`, no top-level
+**`scripts/tracked_tool_config.py`** — stdlib only, imports limited to the allow-list `errno`, `os`, `re`, `stat`, `string` (no `as` alias), no process launch, no `TestCase`, no top-level
 `__main__` guard, no `"--self-test"` constant (driver step 3 (a) / (b)), no import of any `python_suites_*` module:
 - `fold(c)`, `is_member(path)` — clause 2;
 - `red_outright(path)` — clause 3 (a finding or `None`);
@@ -281,20 +281,21 @@ The live test's failure message is the joined list; the driver prints a failing 
 - `finding(clause, path, line, what, text, remedy)` — clause 5's one string;
 - `member_problems(tracked, read)` — clauses 2–5 over `tracked` (an iterable of paths, deduplicated and sorted
   inside, since an index with unmerged entries lists a path once per stage), with `read(path)` returning the bytes
-  of a regular file or raising `Unclassifiable(kind)`, kind ∈ {`missing`, `symlink`, `not-a-file`};
+  of a regular file or raising `Unclassifiable(kind)`, kind ∈ {`missing`, `symlink`, `not-a-file`, `unreadable: <errno name>`};
 - `problems(tracked, read)` — **the composition, not a clause**: in PR-0 it returns `member_problems(tracked, read)`;
 - `worktree_reader(root)` — the `read` above over a checkout (`os.lstat` decides the kind);
 - constants `ROOT_PIN = ".tool-versions"`, `ROOT_CONFIG = "mise.toml"`, `ADMITTED_LINES` (the two lines) and
-  `CLAUSES_2_TO_5` — the names of the clause functions above (`fold` through `member_problems`).
+  `CLAUSES_2_TO_5` — every top-level name of the module except `problems` (the clause functions above, their
+  constants and private helpers, `Unclassifiable`, `worktree_reader`, and the tuple itself).
 
 **Clause 1's place** (D2 reason 2): PR-1 adds clause 1 as its own function (`root_pin_problems`,
 its parser `python_pin.py`'s) that no clause-2–5 function calls and that calls none of them except `finding`, and
-edits only `problems` to merge its findings into the sorted result. C0 (§6) keeps only the names; that PR-1's diff
+edits only `problems` to merge its findings into the sorted result. C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems`; that PR-1's diff
 adds no line to, and removes none from, the span (`ast` line range at PR-0's merge sha) of any function named in
 `CLAUSES_2_TO_5` is a condition checked in PR-1's review, per function span.
 
-**`scripts/test_tracked_tool_config.py`** — the set member (stdlib: `os`, `re`, `subprocess`, `sys`, `tempfile`,
-`unittest`, `unittest.mock`). It puts its own directory first on `sys.path` when absent (under the driver, step 4
+**`scripts/test_tracked_tool_config.py`** — the set member (stdlib: `ast`, `errno`, `os`, `re`, `subprocess`, `sys`,
+`tempfile`, `unittest`, `unittest.mock`). It puts its own directory first on `sys.path` when absent (under the driver, step 4
 already has `sys.path[0]` = `scripts`) and imports `tracked_tool_config`. **The driver's member contract, re-checked
 for the pair**: the member is in the population (`scripts/test_tracked_tool_config.py` matches `MEMBER_PATHSPEC`,
 `:(glob)**/test_*.py`) and runs in the `scripts` root under the offline regime, its `git` child outside the guard's claim as D3 (i) states; the module is
@@ -327,8 +328,8 @@ leg). Its listing:
 | E9 | admitted lines: both exact in the root `mise.toml` (LF and CRLF) | green | 4b |
 | E10 | admitted-line near misses: indented, trailing space, trailing `# c`, `python.compile=false`, the same exact line in `sub/mise.toml` or `.mise.toml` | red 4 | 4b is exact text in the root `mise.toml` only |
 | E11 | path substrings: `"bash scripts/python-suites.sh"`, `` `scripts/python-suites.sh` ``, `(scripts/python-suites.sh)`, `scripts/python-suites.sh.` at a sentence end, `scripts/python-suites.sh:435` → green; `./scripts/python-suites.sh`, `ubi:scripts/python-suites.sh`, `scripts/python-suites.sh.bak`, `scripts/python-suites.sh@1`, an untracked `scripts/python_nope.sh`, a tracked root-level `python.txt` used as `python.txt = 1` → red 4 | as stated | 4a boundaries and the `/` rule |
-| E12 | over-approximated names: `scripts/mise_helper.py` with `python` → red 4; without → green; `Mise/notes.md` → member; `..mise.toml` → —; `crates/css/elidex-css/src/declaration/misc.rs` and the four tracked `*promise*` files → —; nested `sub/mise.toml` with `[tools] node = "20"` only → green; `scripts/tracked_tool_config.py`, `scripts/test_tracked_tool_config.py` → — | as stated | clause 2's prefix and the one-dot drop; a non-Python tool is green (body :400–401) |
-| E13 | tracked-state cases: an untracked `.miserc.toml` / `mise.local.toml` → —; a staged, uncommitted `.miserc.toml` → red 3a; a tracked member deleted from the worktree → red 4 (unclassifiable, missing); a tracked symlink `mise.ci.toml` → red 4 (symlink); a tracked symlink `.miserc.toml` → red 3a (clause 3 reads no text); a gitlink at `mise` → red 4 (not-a-file); non-UTF-8 bytes in `mise.ci.toml` → red 4 (non-UTF-8); a member whose name is not UTF-8 (`mise\xff.toml`) → red 4 (non-UTF-8); a path listed twice (unmerged) → one finding | as stated | the list is the index (`git ls-files`); the text is the worktree's |
+| E12 | over-approximated names: `scripts/mise_helper.py` with `python` → red 4; without → green; `Mise/notes.md` → member; `..mise.toml` → —; `crates/css/elidex-css/src/declaration/misc.rs` and the in-memory path `crates/x/src/promise.rs` → —; nested `sub/mise.toml` with `[tools] node = "20"` only → green; `scripts/tracked_tool_config.py`, `scripts/test_tracked_tool_config.py` → — | as stated | clause 2's prefix and the one-dot drop; a non-Python tool is green (body :400–401) |
+| E13 | tracked-state cases: an untracked `.miserc.toml` / `mise.local.toml` → —; a staged, uncommitted `.miserc.toml` → red 3a; a tracked member deleted from the worktree → red 4 (unclassifiable, missing); a tracked symlink `mise.ci.toml` → red 4 (symlink); a tracked symlink `.miserc.toml` → red 3a (clause 3 reads no text); a tracked file under a symlinked directory → red 4 (symlink); an unreadable member → red 4 (unreadable); a gitlink at `mise` → red 4 (not-a-file); non-UTF-8 bytes or a NUL byte in `mise.ci.toml` → red 4 (non-UTF-8 / contains NUL); a member whose name is not UTF-8 (`mise\xff.toml`) → red 4 (non-UTF-8); a path listed twice (unmerged) → one finding | as stated | the list is the index (`git ls-files`); the text is the worktree's |
 | E14 | the listing: exit 0 with a warning on stderr → red (the stderr text in the message); a non-zero exit → red; a NUL-split stdout with dot-paths first → every record kept | as stated | D3: stdout only, stderr is a finding, never data |
 
 **Outside the rule, stated, no control** (body :404–414, §11): a TOML escape spelling `python` without its letters
@@ -353,15 +354,17 @@ this plan's.
   [0-3]\t([^\0]+)` in full, and the set of their paths must equal the set `tracked_paths` returned. A record fused with
   any other text fails the first, a listed non-path fails the second — the contamination D2 reason 5 describes.
 - **L2 (scratch repository, red + green)**: a temporary `git -c init.defaultBranch=main init -q` (setup commands
-  run with `GIT_*` dropped and are checked by exit code only; strict stderr is the listing's) with `.miserc.toml`
+  run with `GIT_*` dropped and are checked by exit code only, with `git add -f` and `-c core.excludesFile=` so a global gitignore cannot break them; strict stderr is the listing's) with `.miserc.toml`
   staged and `mise.local.toml` and `.python-version` present but untracked;
   `problems(tracked_paths(dir), worktree_reader(dir))` reports exactly `.miserc.toml` (3a). Kills a list taken from
   a directory walk (would add the untracked two) and one taken from `HEAD` (would miss the staged one). The body
   takes the lister as a parameter (`control_L2(self, lister=tracked_paths)`).
 - **C0 (layering and the PR-1 seam)**: (i) by `ast` over both new files: no import of a `python_suites_*` module, no
-  `subprocess` / `os` launch in `tracked_tool_config.py`, no `TestCase` / `__main__` guard / `"--self-test"`
-  constant in it (step 3 (a) / (b) restated where the predicate lives, so a violation names this pair); (ii) every
-  name in `CLAUSES_2_TO_5` is a function of the module, and `problems` is not among them; (iii) the named control
+  `subprocess` / `os` launch in `tracked_tool_config.py` (its imports are exactly the allow-list of §4.3, no alias; an import of
+  `subprocess` / `multiprocessing` / `pty` / `ctypes` / `importlib` / `shutil` or any alias is red, as is an `os.system` /
+  `popen` / `exec*` / `spawn*` attribute), no `TestCase` / `__main__` guard / `"--self-test"`
+  constant in it (step 3 (a) / (b) restated where the predicate lives, so a violation names this pair); (ii) the
+  names in `CLAUSES_2_TO_5` are exactly the module's top-level names (`ast`: functions, classes, assignments) minus `problems`; (iii) the named control
   set exists: the class defines `test_<id>` for every ID in `CONTROLS_2_TO_5` (C2, C3, C4, C5, L1, L2 and the
   mutant test), a tuple in the member. PR-1 adds clause 1's controls beside them and removes none.
 - **C1 (listing)**: `checked_z_output` over fabricated results — `(0, b".miserc.toml\0.mise.toml\0mise.toml\0", b"")`
@@ -374,15 +377,14 @@ this plan's.
   `subprocess.PIPE` (not merged into stdout), (b) no `GIT_*` key in the recorded `env`, (c) the call raises
   `AssertionError` containing `warning: x`.
 - **C2 (members)**: red side — every E3/E4/E6/E8 path and `Mise/notes.md` is a member; green side — the E7 paths,
-  `..mise.toml`, `misc.rs`, the two new files, and the tracked `*promise*` paths of the live list (asserted ≥ 1, so
-  the control is not vacuous) are not.
+  `..mise.toml`, `misc.rs`, the two new files, and the fixed in-memory path `crates/x/src/promise.rs` are not.
 - **C3 (red outright)**: r1 E3's seven paths, empty content, each red 3a; r2 E4 each red 3b; r3 E6 each red 3c; r4
   a `.miserc.toml` whose `read` raises if called (clause 3 reads no text). g1 E5: root `.tool-versions` holding
   `python 3.12` is green under `problems` and is never read (the interval, pinned so PR-1's clause 1 is the change
   that turns it); g1 is the one existing control PR-1 edits.
 - **C4 (content)**: r1 E2 — `main`'s line 122 text in a `mise.toml` fixture is red 4 at its line (the "red at main"
   of the reword); r2 E8's members, each red 4 at the line; r3 E11's red substrings; r4 E12's `mise_helper.py`;
-  r5 E13's unclassifiable cases (missing, symlink, gitlink, non-UTF-8 bytes), each with its kind's remedy, built in
+  r5 E13's unclassifiable cases (missing, symlink, symlinked parent directory, unreadable via a patched `open`, gitlink, non-UTF-8 bytes, NUL bytes), each with its kind's remedy, built in
   a temporary directory and read through `worktree_reader` (so the reader's kinds are what is tested), and the
   non-UTF-8 name through `member_problems` with an in-memory `read` (macOS refuses that name on disk, Errno 92);
   r6 `python.compile = true`; r7 E10's near misses. g1 the live `mise.toml` text (also covered by L1); g2
@@ -521,7 +523,7 @@ None (body :869: "PR-0 §9 (none)").
    one leading dot ignored — `mise.toml`, `.mise.local.toml`, `.config/mise/…`, `rtx.toml`, `mise_helper.py`)
    contains `python` in any case, except inside the path of a tracked file and the two `[settings]` lines PR-1
    adds. Two reds go beyond the umbrella's wording: (1) such a file is also red when it cannot be read as text — a
-   symlink, a gitlink, tracked but missing from the worktree (restore it or `git rm` it), or not UTF-8 in content
+   symlink, a gitlink, unreadable, tracked but missing from the worktree (restore it or `git rm` it), or not UTF-8 / containing NUL in content
    or name; (2) `python` counts as inside a path only for a tracked path containing `/`, bounded by non-path
    characters — `` `scripts/python-suites.sh` `` passes, `./scripts/python-suites.sh`, `ubi:scripts/python-suites.sh`
    and `scripts/python-suites.sh.bak` are red. Untracked files are not checked. A `[tools]` entry for a non-Python

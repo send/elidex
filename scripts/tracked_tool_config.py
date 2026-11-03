@@ -13,6 +13,7 @@ This module is pure: it launches nothing and holds no test. The set member
 controls. Stdlib only, Python 3.9 syntax.
 """
 
+import errno
 import os
 import re
 import stat
@@ -24,15 +25,37 @@ ADMITTED_LINES = (
     "python.compile = false",
     "python.github_attestations = true",
 )
+# Every top-level name of this module except `problems` (the composition point PR-1 edits); C0 holds it.
 CLAUSES_2_TO_5 = (
+    "ROOT_PIN",
+    "ROOT_CONFIG",
+    "ADMITTED_LINES",
+    "CLAUSES_2_TO_5",
+    "_WORD",
+    "_BEFORE_FORBIDDEN",
+    "_AFTER_FORBIDDEN",
+    "_PYTHON",
+    "_CUT",
+    "_REMEDY_RC",
+    "_REMEDY_VERSION_FILE",
+    "_REMEDY_OCCURRENCE",
+    "_REMEDY_MISSING",
+    "_REMEDY_UNREADABLE",
+    "Unclassifiable",
     "fold",
+    "_basename",
     "is_member",
+    "_show",
+    "finding",
     "red_outright",
     "admitted_line",
+    "_bounded",
     "admits_occurrence",
     "content_findings",
-    "finding",
+    "_unreadable",
     "member_problems",
+    "_errno_kind",
+    "worktree_reader",
 )
 
 _WORD = string.ascii_letters + string.digits + "_"
@@ -66,7 +89,7 @@ _REMEDY_UNREADABLE = (
 
 
 class Unclassifiable(Exception):
-    """The text mise would read cannot be seen: kind is missing / symlink / not-a-file."""
+    """The text mise would read cannot be seen: kind is missing / symlink / not-a-file / unreadable: <errno>."""
 
     def __init__(self, kind):
         Exception.__init__(self, kind)
@@ -199,6 +222,9 @@ def member_problems(tracked, read):
         except UnicodeDecodeError:
             out.append(_unreadable(path, "non-UTF-8"))
             continue
+        if "\x00" in text:
+            out.append(_unreadable(path, "contains NUL"))
+            continue
         out.extend(content_findings(path, text, paths))
     return out
 
@@ -208,8 +234,14 @@ def problems(tracked, read):
     return member_problems(tracked, read)
 
 
+def _errno_kind(e):
+    return "unreadable: " + errno.errorcode.get(e.errno, "OSError")
+
+
 def worktree_reader(root):
     """`read` over a checkout: only a regular file (by lstat) yields bytes."""
+
+    real_root = os.path.realpath(root)
 
     def read(path):
         full = os.path.join(root, path)
@@ -217,11 +249,18 @@ def worktree_reader(root):
             st = os.lstat(full)
         except (FileNotFoundError, NotADirectoryError):
             raise Unclassifiable("missing")
+        except OSError as e:
+            raise Unclassifiable(_errno_kind(e))
         if stat.S_ISLNK(st.st_mode):
             raise Unclassifiable("symlink")
+        if os.path.realpath(full) != os.path.join(real_root, path):
+            raise Unclassifiable("symlink")  # a symlinked parent component
         if not stat.S_ISREG(st.st_mode):
             raise Unclassifiable("not-a-file")
-        with open(full, "rb") as f:
-            return f.read()
+        try:
+            with open(full, "rb") as f:
+                return f.read()
+        except OSError as e:
+            raise Unclassifiable(_errno_kind(e))
 
     return read
