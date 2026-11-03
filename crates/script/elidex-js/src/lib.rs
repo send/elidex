@@ -50,6 +50,9 @@ mod tests_call_listener;
 mod tests_dispatch_integration;
 #[cfg(test)]
 #[cfg(feature = "engine")]
+mod tests_engine_common;
+#[cfg(test)]
+#[cfg(feature = "engine")]
 mod tests_engine_s1a;
 #[cfg(test)]
 #[cfg(feature = "engine")]

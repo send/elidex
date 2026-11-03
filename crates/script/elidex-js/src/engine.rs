@@ -357,12 +357,13 @@ impl ScriptEngine for ElidexJsEngine {
     }
 
     fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
-        // The single-derivation-chain source for bound-path dispatch: when a
-        // batch bracket has the VM bound (HostData `dom_ptr` non-null), hand
-        // out the bound `EcsDom` reconstructed from `dom_ptr` so the shared
-        // dispatch loop routes dom access through the same raw pointer the
-        // VM's natives hold — never a fresh `ctx.dom` reborrow that would
-        // invalidate `dom_ptr` under Stacked Borrows
+        // The single-derivation-chain source for bound-path dispatch: whenever
+        // the VM is bound — any bind, a `HostDriver` bracket or a direct
+        // `vm().bind` — i.e. `HostData::is_bound` (both `session_ptr` and
+        // `dom_ptr` non-null), hand out the bound `EcsDom` reconstructed from
+        // `dom_ptr` so the shared dispatch loop routes dom access through the
+        // same raw pointer the VM's natives hold — never a fresh `ctx.dom`
+        // reborrow that would invalidate `dom_ptr` under Stacked Borrows
         // (`#11-bound-safe-dispatch-dom-aliasing`). `None` when unbound (no
         // bracket) → the caller falls back to `ctx.dom`.
         self.vm.bound_dom_mut()
@@ -382,15 +383,13 @@ impl HostDriver for ElidexJsEngine {
         // `ctx.session`/`ctx.dom` valid + unaliased until `unbind`. `Vm::bind`
         // no-ops without an installed `HostData`.
         //
-        // Known soundness gap — event dispatch (slot
-        // `#11-bound-safe-dispatch-dom-aliasing`). Driving event dispatch under a
-        // batch bracket relies on the bound `*mut dom` and the `&mut ctx.dom`
-        // reborrows inside the shared `script_dispatch_event` referring to the
-        // same `EcsDom` — a Stacked-Borrows aliasing violation, pre-existing in
-        // the VM dispatch path (not introduced here). The principled fix is a
-        // bound-safe dispatch API designed when the shell wires dispatch
-        // bracketing (S5); until then only `eval` / `drain_*` bracketing — the
-        // assume-bound trait methods that never touch `ctx` — is fully sound.
+        // Event dispatch under a bracket is sound because the shared
+        // `script_dispatch_event_core` routes every dom access through
+        // `bound_dom_mut` (the bound `dom_ptr`) while bound: one derivation
+        // chain, no `ctx.dom` reborrow (slot
+        // `#11-bound-safe-dispatch-dom-aliasing`). The Stacked-Borrows
+        // regression is
+        // `tests_dispatch_integration::bound_dispatch_routing_is_stacked_borrows_clean`.
         unsafe {
             self.vm.bind(
                 std::ptr::from_mut(ctx.session),

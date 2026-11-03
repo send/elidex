@@ -57,12 +57,11 @@ impl HostData {
     ///
     /// # Test-fixture panic safety (regression guard)
     ///
-    /// Some fixtures unbind from a guard's `Drop` (`UnbindOnDrop` in
-    /// `tests_dom_handler_dispatch.rs` / `tests_indexeddb_common.rs`,
-    /// `test_helpers::with_bound_vm`), so a panic still runs `unbind()`
-    /// before the `session` / `dom` locals expire. Many others call
-    /// `unbind()` only on the success path, so a panic before it leaves
-    /// **non-null dangling** `session_ptr` / `dom_ptr`.
+    /// Some fixtures unbind from a guard's `Drop` (the `UnbindOnDrop` guards
+    /// under `vm/tests/`, `test_helpers::with_bound_vm`), so a panic still
+    /// runs `unbind()` before the `session` / `dom` locals expire. Many
+    /// others call `unbind()` only on the success path, so a panic before it
+    /// leaves **non-null dangling** `session_ptr` / `dom_ptr`.
     ///
     /// The rule is by drop order, not by type list. A `Drop` whose body
     /// reaches host state (`unbind()` / `is_bound()` / `session()` /

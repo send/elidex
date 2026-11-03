@@ -16,22 +16,20 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom};
 use elidex_plugin::EventPayload;
 use elidex_script_session::event_dispatch::DispatchEvent;
-use elidex_script_session::{
-    EventListeners, HostDriver, ListenerId, ScriptContext, ScriptEngine, SessionCore,
-};
+use elidex_script_session::{EventListeners, ListenerId, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
+use crate::tests_engine_common::with_bound_ctx;
 use crate::vm::value::JsValue;
 
 /// Compile a JS function and stash it in `listener_store` under
 /// `listener_id`.  Returns nothing — the engine state carries the
 /// registration.
 ///
-/// Requires a **bound** VM: call it from inside an
-/// `with_bound_ctx` bracket.
+/// Requires a **bound** VM: call it from inside a [`with_bound_ctx`] bracket.
 /// It evals the JS to install the function on `globalThis` under
 /// `__listener__`, then reads the ObjectId out of globals and stores it in
 /// `HostData::listener_store`.
@@ -54,23 +52,6 @@ fn register_listener(engine: &mut ElidexJsEngine, js_source: &str, listener_id: 
         .host_data()
         .expect("HostData installed")
         .store_listener(listener_id, func_id);
-}
-
-/// Run `f` with the engine bound to a fresh `ScriptContext` over `session` / `dom`
-/// (ctx first, then `HostDriver::with_bound`, whose guard unbinds on panic before
-/// the locals drop).
-#[allow(unsafe_code)]
-fn with_bound_ctx<R>(
-    engine: &mut ElidexJsEngine,
-    session: &mut SessionCore,
-    dom: &mut EcsDom,
-    doc: Entity,
-    f: impl FnOnce(&mut ElidexJsEngine, &mut ScriptContext<'_>) -> R,
-) -> R {
-    let mut ctx = ScriptContext::new(session, dom, doc);
-    // SAFETY: `ctx` lives for the whole bracket; `f` gets only the reborrowed ctx
-    // and reaches session/dom only through the bound VM.
-    unsafe { engine.with_bound(&mut ctx, f) }
 }
 
 #[test]

@@ -12,6 +12,7 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
+use crate::tests_engine_common::with_bound_ctx;
 use crate::vm::value::JsValue;
 
 /// Construct an unbound engine + session + dom with a fresh `document_root`,
@@ -318,24 +319,32 @@ fn nested_bind_trips_non_reentrancy_assert() {
 }
 
 /// Bind through `engine.vm()` directly (bypassing `HostDriver::bind`).
+///
+/// # Safety
+///
+/// Same contract as `crate::vm::test_helpers::bind_vm`: the caller keeps
+/// `session` / `dom` alive and unaliased until the VM is unbound.
 #[allow(unsafe_code)]
-fn direct_vm_bind(
+unsafe fn direct_vm_bind(
     engine: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     doc: Entity,
 ) {
-    // SAFETY: callers keep `session`/`dom` alive and unaliased until unbind
-    // (the Drop regression deliberately does not).
+    // SAFETY: forwarded from this fn's `# Safety` contract.
     unsafe { crate::vm::test_helpers::bind_vm(engine.vm(), session, dom, doc) }
 }
 
 #[test]
+#[allow(unsafe_code)]
 fn direct_vm_bind_counts_as_bound() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     assert!(!engine.vm().is_bound());
     assert!(ScriptEngine::bound_dom_mut(&mut engine).is_none());
-    direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
+    // SAFETY: `session` / `dom` are locals that outlive the bind and nothing
+    // else touches them before `engine.unbind()` below; `bound_dom_mut` only
+    // reborrows through the bound pointer and drops the borrow at once.
+    unsafe { direct_vm_bind(&mut engine, &mut session, &mut dom, doc) };
     assert!(engine.vm().is_bound());
     assert!(ScriptEngine::bound_dom_mut(&mut engine).is_some());
     engine.unbind();
@@ -351,9 +360,15 @@ fn direct_vm_bind_counts_as_bound() {
 /// it (CI does not run miri). The CI-visible guard of the single bind state is
 /// `direct_vm_bind_counts_as_bound`.
 #[test]
+#[allow(unsafe_code)]
 fn drop_with_direct_vm_bind_and_freed_dom_is_sound() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
+    // SAFETY: deliberately VIOLATES the contract — `dom` / `session` are
+    // dropped below while the VM is still bound, leaving non-null dangling
+    // pointers. Nothing dereferences them afterwards: `ElidexJsEngine::Drop`
+    // only reads their null-ness (`is_bound`) and skips the teardown (the
+    // regression under test).
+    unsafe { direct_vm_bind(&mut engine, &mut session, &mut dom, doc) };
     drop(dom);
     drop(session);
     drop(engine);
@@ -362,10 +377,60 @@ fn drop_with_direct_vm_bind_and_freed_dom_is_sound() {
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "batch brackets must not nest")]
+#[allow(unsafe_code)]
 fn direct_vm_bind_then_host_bind_trips_nesting_assert() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    direct_vm_bind(&mut engine, &mut session, &mut dom, doc);
+    // SAFETY: `session` / `dom` outlive the bind, but the test deliberately
+    // leaves the VM bound and then reborrows both for `ScriptContext::new`
+    // (which invalidates the bound pointers under Stacked Borrows). No deref
+    // follows: the nesting assert in `bind_engine` fires before `Vm::bind`,
+    // and the unwind `Drop` only reads the pointers' null-ness.
+    unsafe { direct_vm_bind(&mut engine, &mut session, &mut dom, doc) };
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     // Panics while still bound; its unwind Drop is sound (skips teardown).
     bind_engine(&mut engine, &mut ctx);
+}
+
+/// Regression: the UNBOUND arm of `ElidexJsEngine::Drop` runs the document
+/// teardown backstop. `HostData::ce_registry` is document-lifetime — it survives
+/// the bracket's `unbind` and only `Vm::teardown_document` clears it — and a
+/// clone of its `Arc` outlives the engine, so the clear is observable after
+/// `drop`. Inverting the Drop gate, or deleting the teardown call, leaves the
+/// definition in place and fails this test (the bound arm is covered by
+/// `drop_with_direct_vm_bind_and_freed_dom_is_sound`).
+#[test]
+fn drop_unbound_engine_runs_document_teardown() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
+        let r = ScriptEngine::eval(
+            engine,
+            "customElements.define('x-drop', class extends HTMLElement {});",
+            ctx,
+        );
+        assert!(r.success, "define must succeed: {:?}", r.error);
+    });
+    // `with_bound`'s guard unbound the VM: this is the unbound-Drop arm.
+    assert!(!engine.vm().is_bound());
+    let registry = std::sync::Arc::clone(
+        &engine
+            .vm()
+            .host_data()
+            .expect("host data installed")
+            .ce_registry,
+    );
+    assert!(
+        registry
+            .lock()
+            .expect("CE registry mutex poisoned")
+            .is_defined("x-drop"),
+        "the definition survives the per-bracket unbind (document-lifetime)"
+    );
+    drop(engine);
+    assert!(
+        !registry
+            .lock()
+            .expect("CE registry mutex poisoned")
+            .is_defined("x-drop"),
+        "dropping an unbound engine must run `Vm::teardown_document`, clearing the registry"
+    );
 }
