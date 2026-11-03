@@ -43,7 +43,7 @@ clippy / test / doc steps run with `--all-features` so feature-gated code
 paths like `#![cfg(feature = "engine")]` are exercised; `cargo fmt --check`
 and `cargo deny check` don't depend on feature selection and so don't need
 the flag; the one deliberate exception is the default-features `cargo check`,
-which verifies production builds compile in their own feature configuration —
+which verifies production builds compile with no dev-only feature on —
 rationale in the step's comment in `.github/workflows/ci.yml`):
 
 - `cargo fmt --all -- --check`

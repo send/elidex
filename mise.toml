@@ -3,7 +3,7 @@ description = "Run cargo check"
 run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.check-default]
-description = "Run cargo check with default features (production feature configuration)"
+description = "Run cargo check with default features (lib + bin, no dev-only feature)"
 # The one cargo task without `--all-features`; same step as the `check` job's
 # default-features step in .github/workflows/ci.yml, whose comment is the
 # canonical rationale.
