@@ -13,7 +13,7 @@ flush, and D-13, after D-14 (b); any time after C0b and before C1); PM 311 (afte
 consumer-less event).
 
 **Scope.**
-1. The adopt walk records one contents segment per template contents fragment it reaches (D-3 (c)).
+1. The adopt walk's contents segments and skipped contents fragments (D-3 (c)).
 2. `MutationEvent::Adopt` (NEW) with `AdoptedContents` (NEW), dispatched once per adopt call after the walk and before
    the link (D-6).
 3. The custom-element consumer's `Adopt` arm and the VM flush's `adoptedCallback` invocation (D-6); explicit no-op
@@ -25,7 +25,9 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.7* (2026-11-03, PM 315): a contents fragment whose `old` equals `new` is skipped by both the
+**Changelog.** *Rev 3.7.1* (2026-11-03): sweep after PM 315 — scope item 1, §2 A3×A4, §3 and §4.2 point at D-3 (c) /
+D-6 instead of implying a segment per fragment; U19's third leg and §6.3's row restore the pin of a nested segment
+under a `None` (silent re-home) segment, dropped by rev 3.7's reshaping of the second leg. *Rev 3.7* (2026-11-03, PM 315): a contents fragment whose `old` equals `new` is skipped by both the
 stamps and the segments, and a skipped fragment reads `None` in D-6's lookup (D-3 (c), D-6, I-A4, U19, §6.3); C0c's
 PR corrects #583's `dom/mod.rs` statements (DoD 8; §8's PM line deleted); T15r's spec column is derived, not measured.
 *Rev 3.6* (2026-11-03, with the program memo's rev 3.6): plan-review at `76af676a` (0 CRIT / 8 IMP /
@@ -72,7 +74,7 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 ### §0.4 Decisions (this PR; full statements in the program memo)
 
 - **D-3 (c) — segments.** The walk (C0b's private helper in `tree/mutation.rs`) collects, for each contents fragment it
-  reaches, `AdoptedContents { fragment, documents }` with `old` = the fragment's node document read before the walk
+  reaches and does not skip (below), `AdoptedContents { fragment, documents }` with `old` = the fragment's node document read before the walk
   writes it and `new` = the target it writes (C2: `document`; C1: `f(document)`), in walk order; `documents = None` when
   `old` is `None`, or when the template lies in a `None` segment. A fragment is **skipped** when its `old` equals `new`
   (the nested adopt's step 3 guard, "If document is not oldDocument", `#concept-node-adopt`) or its template's innermost
@@ -161,7 +163,7 @@ null-registry document (e.g. DOMParser) gets an extra `adoptedCallback(dp, docum
 | A1×A4 | each pair's `old` is a stamp read before the walk, `new` the stamp written; the consumer reads no tree position | U13, T18 |
 | A1×A9 | `adoptNode`'s record is the removal's; the stamp change is no record | T16 |
 | A2×A4 | `Adopt` precedes `Insert`; in `replace_child`, `Adopt(new_child)` precedes `Remove(old_child)` | U4 (C0c part), T7 |
-| A3×A4 | the consumer visits the walk's set in spec order (D-19), each node with its segment's pair | U13, U18, T18 |
+| A3×A4 | the consumer visits the walk's set in spec order (D-19), each node with its pair (D-6's lookup) | U13, U18, T18 |
 | A4×A5 | builds adopt nothing (C0b D-10) and run with the dispatcher taken, so no `adoptedCallback` from a build | C0b's U9 walk counter (`Adopt` is dispatched only from a walk) |
 | A4×A7 | `adoptedCallback` runs at the next drain, after the insertion completes; slice a's processing is inside `Insert` | T6 |
 | A4×A8 | after C0b every script-reachable custom element has a node document, so the silent re-home cannot swallow a callback | U2 (C0b) re-run: no `Adopt` for an ownerless root |
@@ -181,7 +183,7 @@ steps 1–2); `dfn html 'appropriate template contents owner document'` → §4.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG DOM §4.5 Interface Document | *adopt* 3.3.3 | custom → enqueue `adoptedCallback` « oldDocument, document »: one event per adopt call, each node its own pair (the root's outside contents; a segment's inside; the innermost for nested contents) | `MutationEvent::Adopt` (NEW) in `crates/core/elidex-ecs/src/dom/mutation_event.rs:107`; consumer `crates/dom/elidex-custom-elements/src/consumer.rs:75` | ✓ | yes |
+| WHATWG DOM §4.5 Interface Document | *adopt* 3.3.3 | custom → enqueue `adoptedCallback` « oldDocument, document »: one event per adopt call, each node its own pair (D-6's lookup) | `MutationEvent::Adopt` (NEW) in `crates/core/elidex-ecs/src/dom/mutation_event.rs:107`; consumer `crates/dom/elidex-custom-elements/src/consumer.rs:75` | ✓ | yes |
 | WHATWG DOM §4.5 Interface Document | *adopt* 3.4 (template adopting steps) | each contents fragment's (old, new) recorded where the walk writes it | the walk's contents edge (C0b's private helper in `crates/core/elidex-ecs/src/dom/tree/mutation.rs`) | ✓ | yes |
 | WHATWG DOM §4.5 Interface Document | `adoptNode` 1–4 | Document → NotSupportedError; ShadowRoot → HierarchyRequestError; adopt; return node | dom-api `AdoptNode` (NEW) in `crates/dom/elidex-dom-api/src/document.rs`; session `apply_adopt_node` (NEW); VM native (NEW) | ✓ | yes |
 | WHATWG DOM §4.2.3 Mutation algorithms | *remove* step 16 (queue a tree mutation record, §4.3.2), run by adopt step 2 | the source record of `adoptNode` on a parented node | `source_removal_record` `crates/script/elidex-script-session/src/mutation/mod.rs:341` | ✓ | yes |
@@ -200,7 +202,7 @@ Two new script entry points: `adoptedCallback` (author code, through the existin
 
 | site | C0b | C0c |
 |---|---|---|
-| `adopt` (`tree/mutation.rs`) | walk, no event | walk + segments; `Adopt` iff the root's pair |
+| `adopt` (`tree/mutation.rs`) | walk, no event | walk + skips + segments (D-3 (c)); `Adopt` iff the root's pair |
 | `mutation_event.rs:107` | seven variants | + `Adopt`, `AdoptedContents` |
 | `dom/mod.rs:32`, `lib.rs:44-47` | `MutationEvent` re-exported | + `AdoptedContents` |
 | `walkers.rs:112-118` | contents after the subtree | contents right after the template |
@@ -300,7 +302,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | U10 | red | `EcsDom::adopt(fragment, D)` on a parentless fragment with children | one `Adopt`, `documents = Some((X, D))` |
 | U13 | red (order; `elidex-custom-elements`) | a template with a custom light child `L` and a custom element `C` in its contents, adopted | reactions `C` then `L`; `C` with its segment's pair |
 | U18 | red (D-19; `elidex-ecs`) | `for_each_uncapped_shadow_inclusive(root, Include, …)` over a template with contents and light children, and a shadow host | template, its contents subtree, then its light children; host, its shadow tree, its light children |
-| U19 | guard | nested contents: a template inside contents of a template, a custom element in the inner contents; second leg: the outer contents already in the target, the inner contents (with the element) adopted into `X` first | the inner element gets the innermost segment's pair; second leg: no segment for either contents, the inner contents and the element still read `X`, no reaction (D-3 (c) skip) |
+| U19 | guard | nested contents: a template inside contents of a template, a custom element in the inner contents; second leg: the outer contents already in the target, the inner contents (with the element) adopted into `X` first; third leg (fixture): the outer contents ownerless (silent re-home), the inner contents in `X` ≠ the target | the inner element gets the innermost segment's pair; second leg: no segment for either contents, the inner contents and the element still read `X`, no reaction (D-3 (c) skip); third leg: both segments recorded with `documents = None`, both contents and the element stamped with the target (not skipped), no reaction (its own pair would give `Adopted(X, target)`) |
 
 ### §6.3 Mutation guards
 
@@ -310,6 +312,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | `Adopted` after `Connected` / `Adopt` after `Insert` | T6, T7, U4 |
 | root pair used for contents | T18, U13, U19 |
 | the walk stamps or records inside a fragment whose `old` equals `new` | U19 (second leg) |
+| a segment under a `None` segment keeps its own pair | U19 (third leg) |
 | contents visited after the template's subtree | U13, U18 |
 | `Adopt` on a same-document move / for an ownerless root | T14, U5, U2′ |
 | `adoptNode` without the removal record | T16 |

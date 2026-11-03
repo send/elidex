@@ -56,7 +56,8 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.6* (2026-11-03): C0c's plan-review (`76af676a`; dispositions in the C0c memo §10) and PM 306 /
+**Changelog.** *Rev 3.7* (2026-11-03): sweep after PM 315 — D-3 (a) / (c), §2.1 A3, §2.2 A3×A4 and §9 item 6 point at
+C0c memo D-3 (c) / D-6 / DoD 8 instead of restating the pre-3.7 segment rule. *Rev 3.6* (2026-11-03): C0c's plan-review (`76af676a`; dispositions in the C0c memo §10) and PM 306 /
 311. Edge c0h (#583 → C0c) and the order line; §9 item 6 gains C0c's points; D-3 (c) / D-6: a segment under a `None`
 pair is `None`, `Adopt` iff the root's pair; D-14 (b), §4.7: `adoptNode` in `document.rs`; c0e's file overlap; R-2's
 iframe side; H-C1 (vi); §7's null-registry row points to the slot; K-0 names C0c's recorded regression. *Rev 3.5*
@@ -190,11 +191,10 @@ cells) and cites this text.
   walk (D-6); C0b ships no event variant (no consumer-less event, PM 244).
 - **D-3 — the adopt walk.** `adopt_subtree` moves to `mutation.rs` and keeps its walk (`for_each_uncapped_shadow_inclusive(root,
   TemplateContentsWalk::Include, …)`). **(a) (C0b)** sets every visited node's `AssociatedDocument` to `document`
-  (step 3.1; for template contents, HTML §4.12.3's adopting steps with the identity target under C2; C1 replaces that
+  (from C0c, except inside a fragment C0c memo D-3 (c) skips; step 3.1; for template contents, HTML §4.12.3's adopting steps with the identity target under C2; C1 replaces that
   one edge with `f(document)`, C1 memo D-C5); **(b) (C0b)** re-homes each visited element's materialized Attr entities —
-  its `AttrEntityCache` entries (step 3.3.1, H-17, H-23); **(c) (C0c)** records a contents segment `{ fragment, documents:
-  Option<(old, new)> }` per contents fragment reached, `None` when `old` is `None` or equals `new`, or when the template's
-  own pair is `None` (C0c memo D-3 (c)).
+  its `AttrEntityCache` entries (step 3.3.1, H-17, H-23); **(c) (C0c)** records contents segments `{ fragment, documents:
+  Option<(old, new)> }` — which fragments, and when `documents` is `None`: C0c memo D-3 (c).
 - **D-4 (C0b) — the primitives adopt at the spec's position.** Each of `append_child`, `insert_before`, `replace_child`
   computes `target = node_document_for_new_nodes(parent)` — the parent's node document, through the one redirection
   of D-10 — and in place of its bare `detach_with_hook(child, parent)` runs D-2: the removal, then the walk if `target`
@@ -482,7 +482,7 @@ per adopt call, per-node pairs), not a per-descendant hook.
 |---|---|---|
 | A1 fact | **I-U:** for every node n with a parent or host p **whose `node_document_for_new_nodes(p)` is `Some`**, `node_document(n)` equals it — the parent's node document, except under the fragment-parse root (D-10), which exists only during a build; template contents are not children (their fragment is stamped by `attach_template_contents` and by the walk's contents edge). Under an ownerless p the child keeps its stamp (D-4, U3): reachable only from fixtures and below a node whose source had no node document (A5×A8). Each element's materialized Attrs share its node document. `node_document` reads only the stamp; no production reader derives a node document from tree position or `document_root()` | C0b |
 | A2 position | At every link the child's adoption completes after its old-parent removal and before `link_node`; in `replace_child` before `old_child`'s removal; a replaced-in fragment is adopted itself; a pre-inserted fragment keeps its node document | C0b |
-| A3 walk | Adoption re-homes the root's shadow-including inclusive descendants, each element's cached Attr entities and each reached template's contents (C2: same document), uncapped; from C0c in spec order (D-19), recording each contents fragment's pair | C0b, C0c |
+| A3 walk | Adoption re-homes the root's shadow-including inclusive descendants, each element's cached Attr entities and each reached template's contents (C2: same document), uncapped; from C0c in spec order (D-19), with the skips and segments of C0c memo D-3 (c) | C0b, C0c |
 | A4 notification | `Adopt` fires once per adopt call iff the root's pair is a (live, different) pair, before that root's `Insert`; every custom element whose pair is `Some` gets exactly one `Adopted` with its own pair, in spec order, before its `Connected` | C0c |
 | A5 builds | No node of a fragment build other than its root ever holds the throwaway document; the build's returned nodes carry the redirect document from creation; `FragmentParseRoot` exists only during a build; DOMParser builds stamp their document | C0b |
 | A6 consumers | Every production node-document read goes through `node_document`, or `owner_document` at exactly two sites; no position-based or "Document → itself" derivation remains | C0b |
@@ -509,7 +509,7 @@ per adopt call, per-node pairs), not a per-descendant hook.
 | A2×A7 | yes | Slice a's T-a2 runs inside `Insert`, after D-4's adoption (T8) | C0b |
 | A2×A8 | yes | A node created under `source = p` and linked under `p` is a no-op adopt; under an ownerless parent it keeps its stamp (U3) | C0b |
 | A2×A9 | yes | The record layer captures the source record before calling the primitive (H-7); D-12 changes which siblings it reads, not when | C0a |
-| A3×A4 | yes | The consumer visits the walk's node set in spec order (D-19), each node with its segment's pair (T18, U13) | C0c |
+| A3×A4 | yes | The consumer visits the walk's node set in spec order (D-19), each node with its pair (C0c memo D-6's lookup; T18, U13) | C0c |
 | A3×A5 | yes | No build link walks a subtree into another document (D-10), so the contents edge never meets the throwaway | C0b |
 | A3×A6 | yes | Every consumer reads the node's own stamp (attrs included); none walks up | C0b |
 | A3×A7 | yes | A handler on a shadow-tree element of a moved host reads the new document through its own stamp; C1 replaces only the contents target | C0b |
@@ -829,7 +829,8 @@ deferred.
 5. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the per-PR memos (C0a, C0b, C0c) and the node memo exits 0
    (the node input is an input file with no §3 and is not a preflight target) at each landing (run; do not trust a stored verdict).
 6. **The C0 program PR that lands after #583** (PM 273): before landing, compare this memo's text against #583's text
-   as it stands on main on these points, and fix any wording mismatch on the C0 side:
+   as it stands on main on these points, and fix any wording mismatch on the C0 side (except #583's `dom/mod.rs`
+   statements, below):
    - the A6 owner;
    - `EcsDom::adopt` = C0b;
    - `NewNodeOwner`;
@@ -840,8 +841,7 @@ deferred.
    C0c's points, checked by C0c's PR (it lands after #583, edge c0h):
    - H6's census rule (whichever of C0c and RC-2a lands second re-runs the census and adds the arms);
    - H8's null-registry row ("the row is C0c's because of that hook");
-   - #583 §7's `dom/mod.rs` row (`:1888` on `1d57b387`, "C0c does not edit it") and its restatements, against C0c's
-     re-export (C0c memo §5);
+   - #583's `dom/mod.rs` statements: C0c's PR corrects them on #583's side (C0c memo DoD 8; PM 315 (3));
    - the `#11-ce-reactions-method-scope-drain` slot text, including PM 306's line (a pending upgrade loses
      `adoptedCallback`), and `#11-document-null-registry-adopt-reset`'s, including PM 311's (C0c memo §8).
 7. No dangling reference to the generic feature guard (PM 266): `git grep -n 'FEATURE_CLASS\|test-only feature' --
