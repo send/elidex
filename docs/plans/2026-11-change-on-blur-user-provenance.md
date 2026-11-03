@@ -443,6 +443,13 @@ V; type `z`; Backspace (value back to V); blur → **H: no `change`** (baseline 
 **Pre-step run 3 — observed.** W3 none; W4 none; W5 none; **W6 `change`** (value `a@b,c@d`); W7 none; W8 none. Five of six H
 predictions hold; **W6 fails**: in Chromium the `multiple`-toggle sanitization does not re-baseline. Back to the PM (PM 305).
 
+**Measured divergence, accepted (PM 307).** Case W6 (headless Chrome 156): Chromium fires `change` (value `a@b,c@d`); elidex
+fires none (C24), because every non-user write before the first user edit is absorbed into the baseline (§4.3). Accepted because
+(1) the spec defines no baseline ("the user has changed the element's value"), so which setter re-baselines is one engine's
+internals; (2) the case is narrow (toggle `multiple` while focused before the first edit, then edit back to the sanitized value);
+(3) matching it would reintroduce per-writer calls and an exception list. Reopen if another engine is measured and agrees with
+Chromium.
+
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
 `build_test_content_state` fixture (P9) and observe events through listeners writing to a global array read back with
@@ -525,6 +532,8 @@ the WPT runner does not drive.
 - `ime.rs:158` ("No-op for now.", IME enable / disable) is unrelated to provenance; left as is.
 
 ## §8. Edges, hand-offs and records
+
+- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot.
 
 - **Order and edges**: umbrella §1.2–§1.3 (this PR is (1); e1 into the focus-fixup PR).
 - **A2c** (`#11-vm-host-synthetic-dom-event-dispatch`): when VM `blur()` / `focus()` start running the canonical
