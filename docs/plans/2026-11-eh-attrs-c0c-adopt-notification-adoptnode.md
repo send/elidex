@@ -25,7 +25,10 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.6* (2026-11-03, with the program memo's rev 3.6): plan-review at `76af676a` (0 CRIT / 8 IMP /
+**Changelog.** *Rev 3.7* (2026-11-03, PM 315): a contents fragment whose `old` equals `new` is skipped by both the
+stamps and the segments, and a skipped fragment reads `None` in D-6's lookup (D-3 (c), D-6, I-A4, U19, §6.3); C0c's
+PR corrects #583's `dom/mod.rs` statements (DoD 8; §8's PM line deleted); T15r's spec column is derived, not measured.
+*Rev 3.6* (2026-11-03, with the program memo's rev 3.6): plan-review at `76af676a` (0 CRIT / 8 IMP /
 22 MIN) and PM 306 / 311; dispositions §10. Reactions read in their own eval (§6.1); red-first base table (§6.5);
 `adoptNode` registered as an own property in `document.rs`; the segment lookup (D-6) and the skipped-segment rule
 (D-3 (c)); the null-registry regression recorded (§1, §8, T15r); edge c0h; R-6 (b) / (f) in DoD 7. *Rev 3.2* (2026-11-03, with the program memo's rev 3.2; PM 273): DoD 8 — the C0 program PR that lands
@@ -70,10 +73,12 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 
 - **D-3 (c) — segments.** The walk (C0b's private helper in `tree/mutation.rs`) collects, for each contents fragment it
   reaches, `AdoptedContents { fragment, documents }` with `old` = the fragment's node document read before the walk
-  writes it and `new` = the target it writes (C2: `document`; C1: `f(document)`), `documents = None` when `old` is
-  `None` or equals `new` (the nested adopt's step 3 guard), or when the template's own pair (the root's, or the segment
-  it lies in, found as in D-6) is `None` (that guard skipped the enclosing step 3, so its step 3.4 never runs), in walk
-  order.
+  writes it and `new` = the target it writes (C2: `document`; C1: `f(document)`), in walk order; `documents = None` when
+  `old` is `None`, or when the template lies in a `None` segment. A fragment is **skipped** when its `old` equals `new`
+  (the nested adopt's step 3 guard, "If document is not oldDocument", `#concept-node-adopt`) or its template's innermost
+  contents fragment (D-6's lookup) is skipped: the walk writes no stamp to it or to a node whose innermost contents
+  fragment is skipped, and records no segment for it. C0c is the first place this is reachable (`adoptNode` can put
+  contents in another document than their template's).
 - **D-6 — the event and its consumers.** `MutationEvent::Adopt { node, documents: Option<(Entity, Entity)>, contents:
   &'a [AdoptedContents] }`; `adopt` dispatches it after the walk, before returning to the primitive (so before
   `link_node` and `Insert`), iff `documents` is `Some` (*adopt* step 3's guard; every segment under a `None` pair is
@@ -85,8 +90,8 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   for each element in `CEState::Custom` whose pair is `Some` (*adopt* 3.3.3: "enqueue a custom element callback
   reaction with inclusiveDescendant, callback name "adoptedCallback", and « oldDocument, document »"). *An element's
   pair* is its innermost segment's: `r = find_tree_root(e)` (`walkers.rs:319`), and while `r` is a shadow root,
-  `r = find_tree_root(shadow_host(r))` (`shadow.rs:514`); if `r` is a segment's `fragment`, that segment's `documents`,
-  else the root's. The nearest contents fragment is the innermost segment, so leaving a segment needs no signal and the
+  `r = find_tree_root(shadow_host(r))` (`shadow.rs:514`); if `r` is a segment's `fragment`, that segment's `documents`;
+  if `r` is `node`, the root's; else `None` (a skipped fragment has no segment, D-3 (c)). The nearest contents fragment is the innermost segment, so leaving a segment needs no signal and the
   walker keeps its one visit callback. *Rejected:* an exit callback on the walker (a second shape of the one walk, which
   D-19 rejects) and a consumer-side segment stack (popping it needs the same ancestor test). Like every ancestor read,
   `find_tree_root` is capped at `MAX_ANCESTOR_DEPTH` (10 000, `dom/mod.rs:46`). **Flush:** the
@@ -165,7 +170,7 @@ null-registry document (e.g. DOMParser) gets an extra `adoptedCallback(dp, docum
 **I-A4 (axis invariant).** `Adopt` fires once per adopt call iff the root's pair is a (live, different) document pair,
 before that root's `Insert`; every custom element of the adopted subtree whose pair is `Some` gets exactly one `Adopted`
 reaction with its own pair, in spec order (contents right after their template), enqueued before its `Connected`; an
-element inside a segment under a `None` pair gets none (D-3 (c)).
+element inside a `None` or skipped segment gets none (D-3 (c)).
 
 ## §3. Spec coverage map
 
@@ -281,7 +286,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | T7 | red | after T6: `log = []; document.body.append(e)` ‖ `log`; variant: `old = document.createElement('x-a'); old.id = 'o'; document.body.append(old); e2 = document.createElement('x-a'); e2.id = 'n'; dp.body.append(e2)` ‖ `log = []; document.body.replaceChild(e2, old)` ‖ `log` | `[['d', ''], ['c', false]]`; variant `[['d', 'n'], ['d', 'o'], ['c', false]]` | `[['d', ''], ['a', false, false], ['c', false]]`; variant `[['d', 'n'], ['a', false, false], ['d', 'o'], ['c', false]]` (`Adopted(e2)` before `Disconnected(old)`) |
 | T14 | guard (K-0) | same-document move: `q = document.createElement('x-a'); document.body.append(q)` ‖ `log = []; document.body.prepend(q)` ‖ `log` | `[['d', ''], ['c', false]]` | the same (no `Adopted`) |
 | T15 | red | (i) `n = dp.getElementById('d'); r = document.adoptNode(n); [r === n, n.ownerDocument === document, n.parentNode]`; (ii) `document.adoptNode(dp)`; `h = document.createElement('div'); h.attachShadow({mode: 'open'}); document.adoptNode(h.shadowRoot)`; (iii) `c = document.createElement('x-a'); c.id = 'c'; dp.body.append(c)` ‖ `log = []; document.adoptNode(c)` ‖ `log` (`c` is created in a registry-bearing document) | `TypeError` (H-15) | (i) `[true, true, null]`; (ii) `NotSupportedError`, `HierarchyRequestError`; (iii) `[['d', 'c'], ['a', false, false]]` |
-| T15r | known defect (recorded regression, §1, §8; not the spec column) | `k = dp.createElement('x-a'); k.id = 'k'; dp.body.append(k)` ‖ `log = []; document.body.append(k)` ‖ `log` | `[['d', 'k'], ['c', false]]` (`k` wrongly upgraded in `dp`: the `createElement` native upgrades whatever the document, `vm/host/document.rs:355`) | C0c: `[['d', 'k'], ['a', false, false], ['c', false]]`. Spec (and the Chromium probe in #583 §9's slot text): `k` is not custom in `dp`, so `[['c', false]]` after its upgrade at insertion; `#11-document-null-registry-adopt-reset` changes this cell to that |
+| T15r | known defect (recorded regression, §1, §8; not the spec column) | `k = dp.createElement('x-a'); k.id = 'k'; dp.body.append(k)` ‖ `log = []; document.body.append(k)` ‖ `log` | `[['d', 'k'], ['c', false]]` (`k` wrongly upgraded in `dp`: the `createElement` native upgrades whatever the document, `vm/host/document.rs:355`) | C0c: `[['d', 'k'], ['a', false, false], ['c', false]]`. Spec (derived from the spec text; DOMParser's null-registry behaviour is not measured in a browser): `k` is not custom in `dp`, so `[['c', false]]` after its upgrade at insertion; `#11-document-null-registry-adopt-reset` changes this cell to that |
 | T16 | red | `MutationObserver` on `d`'s old parent in `dp`, `{childList: true}`: `document.adoptNode(d); mo.takeRecords()` | `TypeError` | one record: `removedNodes [d]`, target the old parent, siblings pre-removal |
 | T18 | red (per-node pairs; P-4) | `t = dp.createElement('template'); dp.body.append(t); e = document.createElement('x-a'); t.content.append(e); document.adoptNode(t.content)` ‖ `log = []; dp2.body.append(t)` ‖ `log` | `TypeError` | `[['a', true, false]]`: `e`'s pair is its segment's (`old = document`, the contents' node document; `new = dp2` under C2), not the root's (`dp`, `dp2`), which would give `['a', false, false]`; C1 turns `new` into `dp2`'s inert document |
 
@@ -295,7 +300,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | U10 | red | `EcsDom::adopt(fragment, D)` on a parentless fragment with children | one `Adopt`, `documents = Some((X, D))` |
 | U13 | red (order; `elidex-custom-elements`) | a template with a custom light child `L` and a custom element `C` in its contents, adopted | reactions `C` then `L`; `C` with its segment's pair |
 | U18 | red (D-19; `elidex-ecs`) | `for_each_uncapped_shadow_inclusive(root, Include, …)` over a template with contents and light children, and a shadow host | template, its contents subtree, then its light children; host, its shadow tree, its light children |
-| U19 | guard | nested contents: a template inside contents of a template, a custom element in the inner contents; second leg: the outer contents already in the target (outer segment `None`) | the inner element gets the innermost segment's pair; second leg: no reaction for it (D-3 (c)) |
+| U19 | guard | nested contents: a template inside contents of a template, a custom element in the inner contents; second leg: the outer contents already in the target, the inner contents (with the element) adopted into `X` first | the inner element gets the innermost segment's pair; second leg: no segment for either contents, the inner contents and the element still read `X`, no reaction (D-3 (c) skip) |
 
 ### §6.3 Mutation guards
 
@@ -304,7 +309,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | CE arm missing | T6, U13 |
 | `Adopted` after `Connected` / `Adopt` after `Insert` | T6, T7, U4 |
 | root pair used for contents | T18, U13, U19 |
-| a segment under a `None` pair keeps its own pair | U19 (second leg) |
+| the walk stamps or records inside a fragment whose `old` equals `new` | U19 (second leg) |
 | contents visited after the template's subtree | U13, U18 |
 | `Adopt` on a same-document move / for an ownerless root | T14, U5, U2′ |
 | `adoptNode` without the removal record | T16 |
@@ -363,9 +368,7 @@ that slot's fix).
   register R-6 (b) `#11-import-node` and (f) `#11-img-adopting-steps-relevant-mutations` at this landing (program §9
   item 4);
 - the PM adds the recorded regression above to `#11-document-null-registry-adopt-reset`'s defect text at registration
-  (PM 311), and D-13's pending-upgrade line to `#11-ce-reactions-method-scope-drain`'s (PM 306);
-- #583's §7 `dom/mod.rs` row (`:1888` on `1d57b387`: "C0c does not edit it") and its restatements (§9 `:2005`, H6
-  `:2277-2278`) need correcting: C0c re-exports `AdoptedContents` there (§5).
+  (PM 311), and D-13's pending-upgrade line to `#11-ce-reactions-method-scope-drain`'s (PM 306).
 
 ## §9. Definition of done
 
@@ -379,6 +382,9 @@ that slot's fix).
 7. The umbrella row's C0c clause updated; the PM has applied R-1 and R-2 and registered `#11-import-node` and
    `#11-img-adopting-steps-relevant-mutations` (R-6 (b), (f)).
 8. Program §9 item 6's points, C0c's included, compared with #583 as on main (C0c lands after it, edge c0h; PM 273).
+   C0c's PR corrects #583's three statements that C0c does not edit `dom/mod.rs` — §7's row, §9, H6 (`:1888`, `:2005`,
+   `:2277-2278` as of #583's head; re-located by content) — to the facts at that point (C0c re-exports
+   `AdoptedContents` there, §5).
 
 ## §10. Review dispositions (plan-review at `76af676a`; 0 CRIT / 8 IMP / 22 MIN; PM 306 / 311)
 
@@ -388,7 +394,7 @@ that slot's fix).
 | Ax2 IMP-2, Ax4 MIN-5 (drain timing; redefinition) | evals split at `‖`; one class with `disconnectedCallback`; logs in T6's shape | §6.1 |
 | Ax3 IMP-1 (red-first) | base-formulation table | §6.5 |
 | Ax5 IMP-1 (`Document.prototype`) | own property via `DOCUMENT_METHODS_POST_LIVE_COLLECTION`, native in `document.rs` | H-c6, D-13, §4, §5 |
-| Ax5 IMP-2 (RC-2a overlap) | `walkers.rs`, re-exports added; #583 `:1888` line for the PM | §0.1, §5, c0e, §8 |
+| Ax5 IMP-2 (RC-2a overlap) | `walkers.rs`, re-exports added; #583 `:1888` line (C0c's PR from rev 3.7) | §0.1, §5, c0e, §9 |
 | Ax5 IMP-3 (cross-check) | program §9 item 6 extended; DoD 8 | program §9; §9 |
 | Ax5 IMP-4 (order vs #583) | edge c0h (PM 311) | Placement, c0h; program §1, §8 |
 | Ax5 IMP-5 (null-registry) | recorded regression, bounded by L3's slot; T15 creates in `document`; T15r (PM 311) | §1, §6.1, §8 |
