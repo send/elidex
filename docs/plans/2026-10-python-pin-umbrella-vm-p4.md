@@ -191,8 +191,6 @@ cite this list and do not restate it:
 8. **For information, no consent asked**: the `:327` overlap with the lane's own fix of `:278` / `:327` / `:328`
    (PM decision 220, §5.2 *Stage 1b's hits*), and #510's memo staying unsplit under PR-1's amendments (body §6
    *One stated exception*), which the lane may answer with a prereq split.
-9. **A question on O8**: a red on a line the VM P4 lane wrote that appears because PR-1 switches the interpreter to
-   the pin (or because PR-2's guard prelude causes it) — is it PR-1's / PR-2's, or the VM P4 lane's?
 
 No post-#506 ratchet remains (body §9 step 8): PR-1's derivation at its base names #506's files (§5.2).
 

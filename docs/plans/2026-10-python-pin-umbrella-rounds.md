@@ -328,7 +328,7 @@ update; user decision (d) (PM decision 253) removes them rather than patching ar
 
 | Item | What changed, where |
 |---|---|
-| U1 O8's clause "a red arising from the family sources PR-1 changes is PR-1's" | deleted (VM P4 file, O8); round 1's deleted claim stays deleted; the open case is asked as (c) item 9 |
+| U1 O8's clause "a red arising from the family sources PR-1 changes is PR-1's" | deleted (VM P4 file, O8); round 1's deleted claim stays deleted |
 | U2 §9 step 0's "the new head is then converged afresh … re-sent for the diff only" | deleted; step 0 ends as at `722e7523` |
 
 ---

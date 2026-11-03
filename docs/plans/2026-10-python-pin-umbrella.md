@@ -744,7 +744,7 @@ landing"). **#581 lands these four files** (decision 221; not PR-1), as written 
 | file | sections | its reader | lines at #581 fix round 3 |
 |---|---|---|---|
 | `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 999 |
-| `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 200 |
+| `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 198 |
 | `…-python-pin-umbrella-records.md` | R§0, R§4.1, R§4.2, R§6, R§7.2, R§9, R§11 | whoever re-opens a decision: a bump, a re-measurement, a reviewer | 580 |
 | `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 697 |
 
