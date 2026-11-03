@@ -482,7 +482,7 @@ deleted, its reason recorded.
 | `crates/core/elidex-ecs/src/dom/shadow.rs`, `tree_clone.rs` | 549, 425 | shadow-root stamp; shallow clone document; reader | < 1000 |
 | `crates/core/elidex-ecs/Cargo.toml` | — | `[features] fixtures` | — |
 | 24 crates' `Cargo.toml` (`[dev-dependencies]`, D-17 (3)'s population) | — | `features = ["fixtures"]` (D-17) | mechanical; no `.rs` file touched for it |
-| `scripts/check-fixture-boundary.sh` (NEW); `.github/workflows/ci.yml` (a step after #585's default-features step; the `rust` filter gains the script's path)| — | the boundary check (D-17 (4)) | new |
+| `scripts/check-fixture-boundary.sh` (NEW); `.github/workflows/ci.yml` (a step after #585's default-features step; the `rust` filter gains the script's path) | — | the boundary check (D-17 (4)) | new |
 | `crates/script/elidex-script-session/src/mutation/child_list.rs` (NEW: D-14 (a), before C0a) | — | D-5 | re-measure |
 | `crates/script/elidex-script-session/src/scripting.rs` | 279 | clause (b) + docstring | < 1000 |
 | `crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs` | 994 → ≈ 625 after D-14 (c) (handlers to `table_mutation/handlers.rs`, NEW, a prereq PR) | `create_table_element` (NEW), eight sites (`git grep -n 'create_element(' -- crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs` → 8) | split first (PM 258) |
