@@ -24,7 +24,9 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.7.3* (2026-11-03, focused re-check after PM 315; with the program memo's rev 3.9): the skip covers
+**Changelog.** *Rev 3.7.4* (2026-11-03, PM 319): D-6's lookup runs only when needed and its depth cap is a stated
+defect (§8); D-3 (c) gives the None-under-None rationale; H-c6 / D-13 receiver corrected to `document_receiver`; T15 (iv).
+*Rev 3.7.3* (2026-11-03, focused re-check after PM 315; with the program memo's rev 3.9): the skip covers
 the Attr re-home (D-3 (c), U19, §6.3); U19's legs get distinct documents and an unambiguous order; §2 A1×A4 says what
 tree position chooses. *Rev 3.7.2* (2026-11-03, PM 317 / 318; with the program memo's rev 3.8): #583 landed (`12ea5dce`):
 DoD 8 lists its four `dom/mod.rs` statements on main, edge c0h; the `live.rs` / `mutation_hook.rs` splits are L3
@@ -64,7 +66,7 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 | H-c3 | Where reactions drain | `flush_ce_reactions` is called at script-execution and event checkpoints: `crates/script/elidex-js/src/vm/interpreter.rs:54`, `crates/script/elidex-js/src/engine.rs:165`, `crates/script/elidex-js/src/vm/natives_timer.rs:281`, `crates/script/elidex-js/src/vm/host/custom_elements/define.rs:204` (`git grep -n 'flush_ce_reactions()' -- crates/script`); not at a `[CEReactions]` method's return (L3 memo Rev 5, E2 measurement) |
 | H-c4 | The VM → engine-independent dispatch | `invoke_dom_api` (`crates/script/elidex-js/src/vm/host/dom_bridge.rs:462`) calls a registered dom-api handler, maps a `DomApiError` to its DOMException and allocates the returned node's wrapper (`:516-523`); handlers push session records (`push_records`, e.g. `crates/dom/elidex-dom-api/src/element/tree.rs:285`) |
 | H-c5 | Custom elements inside template contents exist | P-4 (C1 memo P-C14): an element upgraded in a document and appended into `tpl.content` stays custom (adoption does not un-upgrade), so per-node pairs are load-bearing |
-| H-c6 | Document methods are own properties | no `Document.prototype`: `install_document_methods_for_entity` (`crates/script/elidex-js/src/vm/host/document.rs:983`) installs `DOCUMENT_METHODS_POST_LIVE_COLLECTION` (`:1077-1096`) on each Document wrapper, install order = own-property order (`:995-1003`); callers `:967` (bind), `dom_parser.rs:305`, `node_methods_extras.rs:263`. Unbound or non-Document receiver → `null` (`:14-15`, `:278-283`) |
+| H-c6 | Document methods are own properties | no `Document.prototype`: `install_document_methods_for_entity` (`crates/script/elidex-js/src/vm/host/document.rs:983`) installs `DOCUMENT_METHODS_POST_LIVE_COLLECTION` (`:1077-1096`) on each Document wrapper, install order = own-property order (`:995-1003`); callers `:967` (bind), `dom_parser.rs:305`, `node_methods_extras.rs:263`. Unbound VM or non-HostObject `this` → `null`; a non-Document HostObject → `TypeError` "Illegal invocation" (`document_receiver` `:83-88` → `require_receiver`, `event_target.rs:331-363`) |
 
 ### §0.3 Premise errors
 
@@ -79,7 +81,8 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 - **D-3 (c) — segments.** The walk (C0b's private helper in `tree/mutation.rs`) collects, for each contents fragment it
   reaches and does not skip (below), `AdoptedContents { fragment, documents }` with `old` = the fragment's node document read before the walk
   writes it and `new` = the target it writes (C2: `document`; C1: `f(document)`), in walk order; `documents = None` when
-  `old` is `None`, or when the template lies in a `None` segment. A fragment is **skipped** when its `old` equals `new`
+  `old` is `None`, or when the template lies in a `None` segment (a design choice: that state is reachable only from
+  fixtures, A4×A8, so no behaviour depends on it). A fragment is **skipped** when its `old` equals `new`
   (the nested adopt's step 3 guard, "If document is not oldDocument", `#concept-node-adopt`) or its template's innermost
   contents fragment (D-6's lookup) is skipped: the walk writes no stamp to it or to a node whose innermost contents
   fragment is skipped, re-homes none of such a node's Attrs (the guard gates the whole loop, 3.1 and 3.3.1), and
@@ -99,8 +102,8 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   `r = find_tree_root(shadow_host(r))` (`shadow.rs:514`); if `r` is a segment's `fragment`, that segment's `documents`;
   if `r` is `node`, the root's; else `None` (a skipped fragment has no segment, D-3 (c)). The nearest contents fragment is the innermost segment, so leaving a segment needs no signal and the
   walker keeps its one visit callback. *Rejected:* an exit callback on the walker (a second shape of the one walk, which
-  D-19 rejects) and a consumer-side segment stack (popping it needs the same ancestor test). Like every ancestor read,
-  `find_tree_root` is capped at `MAX_ANCESTOR_DEPTH` (10 000, `dom/mod.rs:46`). **Flush:** the
+  D-19 rejects) and a consumer-side segment stack (popping it needs the same ancestor test). The lookup runs only when a fragment is skipped (walk) or a
+  segment's pair differs from the root's (consumer); otherwise every node takes the root's pair. Its depth cap: §8. **Flush:** the
   `Adopted` arm (`flush.rs:133-138`) resolves the two Document wrappers and calls `invoke_callback(&mut ctx, entity,
   adopted_callback_sid, &[old, new])` (H-c2), with the same error routing as `connectedCallback`. **Other consumers:**
   `range/live.rs:113-163` (the one exhaustive production match) gains an explicit no-op `Adopt` arm (live ranges are
@@ -121,7 +124,7 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 - **D-13 — `document.adoptNode(node)`.** *VM* (marshalling): `native_document_adopt_node` (NEW) in
   `vm/host/document.rs` (where the installer and the method tables stay after D-14 (b)), installed as an own property
   by an `("adoptNode", …)` entry appended to `DOCUMENT_METHODS_POST_LIVE_COLLECTION` (H-c6; appending keeps the
-  existing names' order). It brand-checks `this` (unbound or non-Document → `null`, as its siblings, H-c6), unwraps
+  existing names' order). It brand-checks `this` with `document_receiver`, as its siblings (H-c6), unwraps
   `node` (non-Node → `TypeError` per WebIDL) and calls `invoke_dom_api("adoptNode", …)`, which maps errors and
   returns node's wrapper (H-c4). *dom-api*: `AdoptNode` (NEW) in `crates/dom/elidex-dom-api/src/document.rs`,
   registered in `registry.rs`: step 1 a Document → `NotSupportedError`; step 2 a ShadowRoot → `HierarchyRequestError`;
@@ -290,7 +293,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | T6 | red | `log = []; customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { log.push(['a', o === document, n === dp]) } connectedCallback() { log.push(['c', this.ownerDocument === dp]) } disconnectedCallback() { log.push(['d', this.id]) } }); e = document.createElement('x-a'); dp.body.append(e)` ‖ `log` | `[['c', true]]` (C0b adopts; no callback) | `[['a', true, true], ['c', true]]` |
 | T7 | red | after T6: `log = []; document.body.append(e)` ‖ `log`; variant: `old = document.createElement('x-a'); old.id = 'o'; document.body.append(old); e2 = document.createElement('x-a'); e2.id = 'n'; dp.body.append(e2)` ‖ `log = []; document.body.replaceChild(e2, old)` ‖ `log` | `[['d', ''], ['c', false]]`; variant `[['d', 'n'], ['d', 'o'], ['c', false]]` | `[['d', ''], ['a', false, false], ['c', false]]`; variant `[['d', 'n'], ['a', false, false], ['d', 'o'], ['c', false]]` (`Adopted(e2)` before `Disconnected(old)`) |
 | T14 | guard (K-0) | same-document move: `q = document.createElement('x-a'); document.body.append(q)` ‖ `log = []; document.body.prepend(q)` ‖ `log` | `[['d', ''], ['c', false]]` | the same (no `Adopted`) |
-| T15 | red | (i) `n = dp.getElementById('d'); r = document.adoptNode(n); [r === n, n.ownerDocument === document, n.parentNode]`; (ii) `document.adoptNode(dp)`; `h = document.createElement('div'); h.attachShadow({mode: 'open'}); document.adoptNode(h.shadowRoot)`; (iii) `c = document.createElement('x-a'); c.id = 'c'; dp.body.append(c)` ‖ `log = []; document.adoptNode(c)` ‖ `log` (`c` is created in a registry-bearing document) | `TypeError` (H-15) | (i) `[true, true, null]`; (ii) `NotSupportedError`, `HierarchyRequestError`; (iii) `[['d', 'c'], ['a', false, false]]` |
+| T15 | red | (i) `n = dp.getElementById('d'); r = document.adoptNode(n); [r === n, n.ownerDocument === document, n.parentNode]`; (ii) `document.adoptNode(dp)`; `h = document.createElement('div'); h.attachShadow({mode: 'open'}); document.adoptNode(h.shadowRoot)`; (iii) `c = document.createElement('x-a'); c.id = 'c'; dp.body.append(c)` ‖ `log = []; document.adoptNode(c)` ‖ `log` (`c` is created in a registry-bearing document); (iv) `x = document.createElement('div'); document.body.append(x); r = dp.adoptNode(x); [r === x, x.ownerDocument === dp, x.parentNode]` (a non-bound Document's wrapper, `dom_parser.rs:305`) | `TypeError` (H-15) | (i) `[true, true, null]`; (ii) `NotSupportedError`, `HierarchyRequestError`; (iii) `[['d', 'c'], ['a', false, false]]`; (iv) `[true, true, null]` |
 | T15r | known defect (recorded regression, §1, §8; not the spec column) | `k = dp.createElement('x-a'); k.id = 'k'; dp.body.append(k)` ‖ `log = []; document.body.append(k)` ‖ `log` | `[['d', 'k'], ['c', false]]` (`k` wrongly upgraded in `dp`: the `createElement` native upgrades whatever the document, `vm/host/document.rs:355`) | C0c: `[['d', 'k'], ['a', false, false], ['c', false]]`. Spec (derived from the spec text; DOMParser's null-registry behaviour is not measured in a browser): `k` is not custom in `dp`, so `[['c', false]]` after its upgrade at insertion; `#11-document-null-registry-adopt-reset` changes this cell to that |
 | T16 | red | `MutationObserver` on `d`'s old parent in `dp`, `{childList: true}`: `document.adoptNode(d); mo.takeRecords()` | `TypeError` | one record: `removedNodes [d]`, target the old parent, siblings pre-removal |
 | T18 | red (per-node pairs; P-4) | `t = dp.createElement('template'); dp.body.append(t); e = document.createElement('x-a'); t.content.append(e); document.adoptNode(t.content)` ‖ `log = []; dp2.body.append(t)` ‖ `log` | `TypeError` | `[['a', true, false]]`: `e`'s pair is its segment's (`old = document`, the contents' node document; `new = dp2` under C2), not the root's (`dp`, `dp2`), which would give `['a', false, false]`; C1 turns `new` into `dp2`'s inert document |
@@ -369,6 +372,11 @@ document (e.g. DOMParser) gets an extra `adoptedCallback(dp, document)` when ado
 lands", and is L3's next item after C0c. C0c adds no guard that skips `Adopted` for such elements (it would duplicate
 that slot's fix).
 
+**Stated defect (PM 319).** `find_tree_root` stops at depth `MAX_ANCESTOR_DEPTH` (10 000; `walkers.rs:319-337`,
+`dom/mod.rs:46`), so below it D-6's lookup misses: the element's `adoptedCallback` is lost, and a node inside a skipped
+fragment is stamped by mistake. Same root as `#11-live-range-bridge-wide-sibling-index` (engine-wide
+`MAX_ANCESTOR_DEPTH` caps).
+
 **Records carried by C0c's PR.** The umbrella row's "C0c: planned." → "C0c: landed (#<PR>)." with a changelog line
 (program R-3). **For the PM:**
 - program R-1 (close `#11-cross-document-adopt-on-insert`), R-2 (close `#11-custom-elements-adopted-callback`), and
@@ -415,7 +423,7 @@ that slot's fix).
 | Ax3 MIN (drain slot unregistered) | registered at #583's landing (PM 306), edge c0h | c0h |
 | Ax3 MIN (R-6 (b), (f) in DoD) | DoD 7 (PM 311) | §8, §9 |
 | Ax3 MIN (§1 reason) | A1×A9 is `adoptNode`'s own | §1; program §1 |
-| Ax3 MIN (receiver) | `null`, as siblings | D-13, H-c6 |
+| Ax3 MIN (receiver) | `document_receiver`, as siblings (corrected PM 319) | D-13, H-c6, T15 |
 | Ax3 MIN (three files) | decided | §5 |
 | Ax3 MIN (iframe side) | R-2 names `#11-windowproxy-browsing-context` | program R-2 |
 | Ax4 MIN-1–4 | *remove* step 16; contents via adopt 3.4 + adopting steps; pair wording; anchors | D-13, D-19, §3, §4.8 |
