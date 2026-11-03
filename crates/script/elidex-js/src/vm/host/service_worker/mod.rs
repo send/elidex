@@ -204,11 +204,7 @@ impl VmInner {
     /// runs before the call returns.
     #[cfg(feature = "engine")]
     pub(crate) fn deliver_sw_client_update(&mut self, update: elidex_api_sw::SwClientUpdate) {
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
         {

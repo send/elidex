@@ -68,7 +68,7 @@ use super::super::value::{
 use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
-use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototype_chain};
+use super::named_property_exotic::{coerce_key_or_none, key_on_prototype_chain};
 
 use elidex_ecs::Entity;
 
@@ -528,11 +528,7 @@ pub(crate) fn try_indexed_get(
         }
         _ => return None,
     };
-    if !vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
+    if !vm.is_bound() {
         // Post-unbind: indexed access on a retained wrapper returns the
         // empty string (out-of-range token) — matches the empty-block
         // behaviour for any index.  All sources share this default.
@@ -618,7 +614,7 @@ pub(crate) fn try_get(
     if key_on_prototype_chain(vm, id, sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         // Post-unbind: CSSOM §6.6.1 named getter is spec-shaped to
         // always return a string (empty for absent), so a retained
         // `el.style.color` after `Vm::unbind()` must still surface `""`
@@ -688,7 +684,7 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(()));
     }
     let mut ctx = NativeContext::new_call(vm);
@@ -725,7 +721,7 @@ pub(crate) fn try_delete(
     if key_on_prototype_chain(vm, id, key_sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(true));
     }
     let mut ctx = NativeContext::new_call(vm);

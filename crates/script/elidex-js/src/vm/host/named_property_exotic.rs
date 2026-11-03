@@ -60,15 +60,3 @@ pub(super) fn key_on_prototype_chain(
     }
     false
 }
-
-/// Post-unbind tolerance helper: trap helpers must not reach into
-/// engine-bound state when the VM is unbound.  Wrappers (`dataset` /
-/// `localStorage` / `sessionStorage`) are plain JS objects, so user
-/// code can retain them across a `Vm::unbind()` boundary; the trap
-/// helpers check this guard before calling into `EcsDom` / the
-/// storage backend.
-pub(super) fn is_bound(vm: &VmInner) -> bool {
-    vm.host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-}

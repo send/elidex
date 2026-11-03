@@ -447,11 +447,7 @@ impl VmInner {
         // for the rationale (microtask-drain parity with MO under
         // `observer_common::deliver_to_observer_callbacks`'s
         // unconditional-drain contract).
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
         // `time` follows the `Performance.now()` getter shape — see

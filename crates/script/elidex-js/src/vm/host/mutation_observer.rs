@@ -430,11 +430,7 @@ impl VmInner {
         // `queue_mutation_record` (deferred to the engine's own §4.3 microtask).
         // Both share `notify_one` + `deliver_pending_mutation_records`; they
         // differ only in *when* the callbacks run (embedder-chosen vs microtask).
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
         // S5-6b §4.3.1: the external-records entry OWNS the record→CE
@@ -459,11 +455,7 @@ impl VmInner {
     pub(crate) fn queue_mutation_record(&mut self, record: &elidex_script_session::MutationRecord) {
         // Silent no-op post-unbind so a stray late record does not panic via
         // `host_data` access.
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
         if self.notify_one(record) && !self.mutation_observer_microtask_queued {
@@ -478,11 +470,7 @@ impl VmInner {
     /// `NotifyMutationObservers` microtask, alongside the slotchange step 7.
     pub(crate) fn deliver_pending_mutation_records(&mut self) {
         // Silent no-op post-unbind (mirrors the producer guard).
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
         // Take the pending mutation observers as the §4.3 notifySet (step 2 clone

@@ -241,12 +241,7 @@ pub(super) fn entity_from_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
 ) -> Option<elidex_ecs::Entity> {
-    if !ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
+    if !ctx.vm.is_bound() {
         return None;
     }
     let JsValue::Object(id) = this else {

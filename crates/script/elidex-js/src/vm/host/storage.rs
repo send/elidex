@@ -64,7 +64,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototype_chain};
+use super::named_property_exotic::{coerce_key_or_none, key_on_prototype_chain};
 
 // ---------------------------------------------------------------------------
 // Origin derivation
@@ -636,7 +636,7 @@ pub(crate) fn try_has(
     if key_on_prototype_chain(vm, id, sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         // Match `super::dataset::try_has` post-unbind contract:
         // fall through to ordinary [[HasProperty]] (which on a
         // sealed wrapper with no own data returns `false`).
@@ -663,7 +663,7 @@ pub(crate) fn try_get(
     if key_on_prototype_chain(vm, id, sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return None;
     }
     let key_str = vm.strings.get_utf8(sid);
@@ -699,7 +699,7 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(()));
     }
     let key_str = vm.strings.get_utf8(key_sid);
@@ -726,7 +726,7 @@ pub(crate) fn try_delete(
     if key_on_prototype_chain(vm, id, key_sid) {
         return None;
     }
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(true));
     }
     let key_str = vm.strings.get_utf8(key_sid);
@@ -744,7 +744,7 @@ pub(crate) fn collect_keys(
     id: ObjectId,
 ) -> Option<Result<Vec<StringId>, VmError>> {
     let is_local = area_from_id(vm, id)?;
-    if !is_bound(vm) {
+    if !vm.is_bound() {
         return Some(Ok(Vec::new()));
     }
     let backend = backend_for(vm, is_local);

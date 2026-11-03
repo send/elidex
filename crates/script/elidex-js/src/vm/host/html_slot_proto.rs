@@ -392,11 +392,7 @@ pub(in crate::vm) fn snapshot_pending_slot_change_signals(vm: &mut VmInner) -> V
     if vm.pending_slot_change_signals.is_empty() {
         return Vec::new();
     }
-    if !vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
+    if !vm.is_bound() {
         // Defensive — `Vm::unbind` clears `pending_slot_change_signals`
         // (see `vm_api.rs`), so this branch is only reachable on a
         // torn-down VM that somehow re-enters `drain_microtasks`.

@@ -57,28 +57,25 @@ impl HostData {
     ///
     /// # Test-fixture panic safety (regression guard)
     ///
-    /// Only `tests_dom_handler_dispatch.rs::with_doc_vm` (added
-    /// in `#11-arch-hoist-a`) wraps the bound VM in an
-    /// `UnbindOnDrop` guard so a panic inside the closure still
-    /// runs `unbind()` before the `session` / `dom` locals
-    /// expire.  ~36 sibling test fixtures across `vm/tests/`
-    /// instead call `vm.unbind()` only on the success path.
+    /// Some fixtures unbind from a guard's `Drop` (the `UnbindOnDrop` guards
+    /// under `vm/tests/`, `test_helpers::with_bound_vm`), so a panic still
+    /// runs `unbind()` before the `session` / `dom` locals expire. Many
+    /// others call `unbind()` only on the success path, so a panic before it
+    /// leaves **non-null dangling** `session_ptr` / `dom_ptr`.
     ///
-    /// That gap is **safe today** because no `Drop` impl on
-    /// `Vm` / `VmInner` / `HostData` ever derefs `session_ptr`
-    /// or `dom_ptr` — the field-drop chain only touches `Copy`
-    /// raw pointers and self-contained ECMA state, so dangling
-    /// pointers left by a panic are never read.
-    ///
-    /// **If you add a manual `Drop` impl to any of `Vm`,
-    /// `VmInner`, or `HostData`, and the body reaches host
-    /// state through `is_bound()` / `session()` / `dom()` /
-    /// `with_session_and_dom` / `dom_shared()` (or any future
-    /// gated accessor), every test fixture must adopt the
-    /// `UnbindOnDrop` pattern before that change can land.**
-    /// Plan memo `m4-12-pr-arch-hoist-a-plan.md` §L records this
-    /// trigger; the sweep is a ~30-60 min mechanical edit
-    /// across the existing fixtures.
+    /// The rule is by drop order, not by type list. A `Drop` whose body
+    /// reaches host state (`unbind()` / `is_bound()` / `session()` /
+    /// `dom()` / `with_session_and_dom` / `dom_shared()` /
+    /// `Vm::teardown_document`, or any future gated accessor) is sound
+    /// only if it cannot run after `session` / `dom` expire:
+    /// - an unbind guard declared AFTER the `session` / `dom` locals (the
+    ///   guards above, `ElidexJsEngine::with_bound`'s `UnbindGuard`) drops
+    ///   first, so it may unbind while bound — that is its job;
+    /// - a `Drop` with no such ordering — on `Vm` / `VmInner` / `HostData`,
+    ///   or on a type that owns a `Vm` — **must check `is_bound()` first
+    ///   and skip when bound**, because a still-bound VM's pointers may be
+    ///   dangling. `ElidexJsEngine::Drop` is the one such `Drop` today (it
+    ///   gates `Vm::teardown_document` on `!vm.is_bound()`).
     #[allow(unsafe_code)]
     pub unsafe fn bind(
         &mut self,

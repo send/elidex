@@ -263,11 +263,7 @@ impl VmInner {
     /// shell drives this from its update-the-rendering step after a resize (the
     /// call-site rides the S5-6 flip); VM tests drive it directly.
     pub(in crate::vm) fn deliver_visual_viewport_events(&mut self) {
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
 
