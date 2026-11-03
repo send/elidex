@@ -108,7 +108,7 @@ drain slot is its own slot (merge candidate judged at re-eval), the null-registr
 **RC-2a goes first** (before RC-1; it lands before C1, which depends on all of RC-2a), and every §8 owner is as
 proposed (`#11-script-element-prepare-lifecycle` → VM lane, L3 fallback). Q-Z1 and Q-Z6 / H11 stay open.
 
-**Rev 6.3** (2026-11-03) — A6: Layout confirmed C0b properties (a)/(b) for the C0 program plan, PM 251/256. Wording only: the RC-2b-first branch of A6 no longer waits on Layout's confirmation (Q-Z6 answered, H11 closed; §2 C3 holds the full statement).
+**Rev 6.3** (2026-11-03) — A6: Layout confirmed C0b properties (a)/(b) for the C0 program plan, PM 251/256. Wording only: the RC-2b-first branch of A6 no longer waits on Layout's confirmation (Q-Z6 answered, H11 closed; §2 C3 holds the full statement); fix-delta review: NEW-file annotation, default-features qualifier.
 
 ## §0. Frame, premises, decisions
 
@@ -847,15 +847,15 @@ ECS-native.
   - **C0b in RC-2b's base**: RC-2b creates the fragment with
     `dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))` (the existing owner-taking
     constructor, `crates/core/elidex-ecs/src/dom/mod.rs:525`, with C0b's entry; §0.3 item 32). If C0b's condition (b)
-    below holds, the ownerless `create_document_fragment()` is test-only, so a production call of it does not compile,
-    and the compiler forces RC-2b onto the entry. Once (b) lands, that is the mechanism behind A6. Until then a call of
+    below holds, the ownerless `create_document_fragment()` is test-only, so a production call of it does not compile in the default-features build
+    (C0b's fixture-boundary check), and the compiler forces RC-2b onto the entry there. Once (b) lands, that is the mechanism behind A6. Until then a call of
     the ownerless constructor would leave the fragment unstamped, and with the fallback gone it would read
     `ownerDocument === null`; RC-2b's DoD grep (§5.2b) is what checks the branch.
   - **RC-2b first** (the driver's reading, sent to the PM): RC-2b keeps
     today's call (`create_document_fragment()`, as A1 does), so it adds no ownerless site beyond today's (A1 is
     replaced by A6), and C0b's D-11 migration covers the landed site as an existing production site. At C0 rev 2.1 Layout's
     answer was "no" on both properties below (the census was a fixed snapshot, and P-8 a grep run by hand); the C0 restructure changed
-    both. The RC-2b-first branch rests on C0b's two properties: (a) the creation census is a population produced by a command re-run at C0b's base and head; (b) the ownerless creators are `cfg(test/fixtures)` only, enforced by a default-features check (user decision, PM 255) plus `scripts/check-fixture-boundary.sh`. Layout confirmed both for the C0 program plan (PM 251). If C0b lands without either, this branch reopens.
+    both. The RC-2b-first branch rests on C0b's two properties: (a) the creation census is a population produced by a command re-run at C0b's base and head; (b) the ownerless creators are `cfg(test/fixtures)` only, enforced by a default-features check (user decision, PM 255) plus `scripts/check-fixture-boundary.sh` (NEW: C0b). Layout confirmed both for the C0 program plan (PM 251). If C0b lands without either, this branch reopens.
   - **Interim, RC-2b first and C0b not landed** (PM 247; checked at `27b50dfe`, verified 2026-11-03): extract creates
     an ownerless fragment today (`range/mutation.rs:266`, `dom.create_document_fragment()`); the `ownerDocument` getter
     falls back to `dom.document_root()` (`node_methods/core.rs:279`); cloneContents is a stub that throws
@@ -863,7 +863,7 @@ ECS-native.
     reads the bound main document through the fallback: the same as today's extract, non-null, no regression. It is
     wrong only for a range in a non-main document (cloned, `createHTMLDocument` or DOMParser), where it gives the main
     document, which is no worse than today's extract. A null `ownerDocument` can appear only if C0b deletes the
-    fallback (D-1 (c)) without migrating the site, which is the case C0b's properties (a) and (b), confirmed by Layout (PM 251), rule out.
+    fallback (D-1 (c)) without migrating the site, which is the case C0b's properties (a) and (b), confirmed by Layout for the C0 program plan (PM 251), rule out; the branch reopens if C0b lands without either.
   - **No automated guard today.** C0 rev 2's U12 lists no Range operation, and its P-8 is a grep run by hand, so
     nothing automated catches a null `ownerDocument` on a Range fragment at `27b50dfe` or at C0 rev 2.1. C0b adds the
     cell and the census test. No statement in this memo rests on U12 or P-8 going red.
@@ -1549,7 +1549,7 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   entry, the `ownerDocument` cell and the census test.
   - **C0b in RC-2b's base**: `dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))`,
     C0b's entry (C0 rev 2 D-10, D-11). Once C0b's condition (b) holds, the ownerless constructor does not compile in
-    production code, so the compiler forces this call (C3).
+    production code in the default-features build (C0b's fixture-boundary check), so the compiler forces this call there (C3).
   - **RC-2b first**: today's `create_document_fragment()` call (A1's), so
     no ownerless site is added beyond today's; C0b's D-11 migration covers the landed site, provided C0b's conditions
     (a) and (b) hold: Layout confirmed (a) and (b) for the C0 program plan (PM 251; §2 C3); if C0b lands without either, the branch reopens (C3). Interim until C0b: both results read the bound main document through the getter's
@@ -1940,9 +1940,9 @@ stated (PM 215 Q-Y1). Cross-lane:
 - **RC-2b and C0b on A6, the creation site (C3; PM 244 / 247).** RC-2b is not gated on C0b. RC-2b owns the call
   `node_document_for_new_nodes(start node)` in extractContents and cloneContents; C0b owns the entry, the
   `ownerDocument` cell for both orders and the census test. With C0b in RC-2b's base, RC-2b calls the entry, and once
-  C0b's condition (b) holds the compiler forces it. With RC-2b first, RC-2b keeps today's call and C0b's D-11
+  C0b's condition (b) holds the compiler forces it in the default-features build (C0b's fixture-boundary check). With RC-2b first, RC-2b keeps today's call and C0b's D-11
   migration covers the site; that branch is the driver's reading and rests on C0b's conditions (a) (a census re-run at C0b's base and head) and
-  (b) (test-only ownerless constructors), which Layout confirmed for the C0 program plan (PM 251; §2 C3); it reopens if C0b
+  (b) (ownerless creators, `cfg(test/fixtures)` only), which Layout confirmed for the C0 program plan (PM 251; §2 C3); it reopens if C0b
   lands without either. The interim of that branch reads the main document through the fallback, as today's
   extract does (C3). Appendix A, re-run at RC-2b's head, goes to Layout.
 - **RC-2a and C0b on `node_methods/clone.rs`, the pass-4 hand stamps (R61-3 (d), PM 247).** Once C0b's shallow
@@ -2199,7 +2199,7 @@ and H10 are registered by the PM at memo landing):
 - **Q-Z5 (owners of the §8 proposed slots).** Each row proposes an owner with a reason (§8 table); the PM assigns.
   **Answered, PM 249**: every owner as proposed; `#11-script-element-prepare-lifecycle` → the VM lane (L3 fallback),
   because script prepare and the "already started" state sit at the script-execution boundary (§8).
-- **Q-Z6 (Layout's confirmation for A6, PM 247). Answered, PM 251/256.** Layout confirmed C0b's (a) (a census produced by a command re-run at C0b's base and head) and (b) (the ownerless creators are test-only) for the C0 program plan (PM 251; §2 C3 has the full statement); the RC-2b-first branch of A6 reopens if C0b lands without either.
+- **Q-Z6 (Layout's confirmation for A6, PM 247). Answered, PM 251/256.** Layout confirmed C0b's (a) (a census produced by a command re-run at C0b's base and head) and (b) (the ownerless creators are `cfg(test/fixtures)` only) for the C0 program plan (PM 251; §2 C3 has the full statement); the RC-2b-first branch of A6 reopens if C0b lands without either.
 
 **Hand-offs** (the memo edits neither Layout's files nor the ledger):
 
@@ -2263,7 +2263,7 @@ and H10 are registered by the PM at memo landing):
   parent is `Object.prototype` (`vm/host/attr_proto.rs:134-146`), so `attr.cloneNode` is undefined in the VM. When
   this slot gives Attr a Node entity, it adds the Attr half of StaticRange step 1 to Range's engine check (the one
   RC-1 creates) and the Attr clone.
-- **H11 (closed; Q-Z6, PM 251/256)** Layout confirmed C0b's (a) (the creation census is a population produced by a command re-run at C0b's base and head) and (b) (the ownerless creators are test-only) for the C0 program plan (PM 251; §2 C3). Under (b) the C0b-first order is also enforced by the compiler (§2 C3). If C0b lands without either, the RC-2b-first branch reopens.
+- **H11 (closed; Q-Z6, PM 251/256)** Layout confirmed C0b's (a) (the creation census is a population produced by a command re-run at C0b's base and head) and (b) (the ownerless creators are `cfg(test/fixtures)` only) for the C0 program plan (PM 251; §2 C3). Under (b) the C0b-first order is also enforced by the compiler in the default-features build (C0b's fixture-boundary check; §2 C3). If C0b lands without either, the RC-2b-first branch reopens.
 
 **Proposed slots** (register, fold or decline; Why / trigger / re-eval / owner in §0.4, §8 and §9):
 
