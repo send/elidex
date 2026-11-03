@@ -79,7 +79,10 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.2* (2026-11-03): aligned to the C0 program (C0 draft rev 3.6, `65180942`): C0 is three PRs
+**Changelog.** *Rev 3.3* (2026-11-03): the clone post-pass passes `node_document_for_new_nodes(pair_doc)`, not the
+`Entity` (`NewNodeOwner` has no public constructor, C0b D-17; a Document → itself, C0b U11); the per-pair document
+stays an `Entity` in either §4.4 representation; A2×A5 no longer says the clone path skips the entry (D-C3, §2.2, §4.4).
+*Rev 3.2* (2026-11-03): aligned to the C0 program (C0 draft rev 3.6, `65180942`): C0 is three PRs
 (C0b gives I its hook and value, C0c the per-segment pairs; edges c3b / c3c); the §13.4 redirection is
 `FragmentParseRoot` on the fragment-parse root (C0 D-10), so the "re-home through the throwaway and back" text is gone
 (C0 P-17); the hook's argument is a `NewNodeOwner` (D-17); §4.3's constraint is met by D-20; `walkers.rs` changes order
@@ -226,7 +229,7 @@ New in rev 2:
   today's orphan fragment (a documentless context or an orphan clone). No caller computes I itself. This is C0b's hook
   point (C0 draft D-10, "C1's hook point"): on the base the strict tier, the tolerant tier and `createElement` already
   pass `node_document_for_new_nodes(template)` (C0 draft D-10, D-11, §4.4), the template's node document with the §13.4
-  redirection; the clone post-pass passes the pair's document (D-C6). C1 changes no caller's argument for the three entry callers; it changes what the
+  redirection; the clone post-pass passes the entry on the pair's Document (D-C6; a Document → itself, C0b U11). C1 changes no argument of the other three callers; it changes what the
   helper does with it (applies `f`). Through idempotence a template nested in contents gets I whether its caller passes
   D or I.
 - **D-C4 — the new-node entry is C0's; C1 guarantees its value inside contents (PM decisions 199 / 207, 223 O-2 /
@@ -381,7 +384,7 @@ unparsable relative URL, M13's custom element staying custom in I). The remainin
 | A1×A9 | yes | `is_inert_template_document(node_document(n))` is the branch-A template-origin fact (S-2), derived from the node document, so it tracks moves (a node moved out loses it through C0's adoption) |
 | A2×A3 | yes | Both tiers call C0's entry with the intended parent per node (C0 draft D-11, D-20), whose node document is I inside outer contents; the inner template's contents get `f(I) = I` (T4, both tiers) |
 | A2×A4 | yes | Declarative shadow content inside contents: the strict DSD path (`attach_declarative_shadow`, `shadow.rs:136`) and the tolerant DSD recursion (`try_attach_declarative_shadow`, `convert.rs:120`) create the shadow content with the entry's value for the shadow root, which C0 stamped with the host's node document I (T12; Q-S2) |
-| A2×A5 | yes | The clone post-pass is an establishing caller (D-C3) and site A10 of the new-node census: it passes the pair's document, not the entry's (a clone's document is the operation's, DOM §4.4 *clone a single node*), so the clone path is the one creation path that does not call the entry (§4.5) |
+| A2×A5 | yes | The clone post-pass is an establishing caller (D-C3) and site A10 of the new-node census: like every creation path it calls the entry, but on a Document (the operation's, or for a pair inside copied contents the pair's, D-C6; a Document → itself, C0b U11), never on a source node, so a clone's document is the one it is cloned with (DOM §4.4 *clone a single node* "given document"), not its source's (§4.4) |
 | A2×A6 | yes | Fragment build: every node under the fragment-parse root holds the context's document from creation (C0 draft D-10), so no build link adopts and no finishing walk runs (D-8); contents fragments are stamped `f(context doc)` at attach (T14 parity, both tiers) |
 | A2×A7 | yes | No `f(throwaway)` is ever computed (D-C4), so neither the success path nor the strict rollback (`despawn_subtree(document)`, which reaches contents with `Include`) creates or leaks an I (U4, U5) |
 | A2×A8 | yes | DOMParser: `dp`'s templates' contents are in `f(dp)`, a third document, read null (N1) and, after T3, target null, exactly as `dp`'s own nodes (T6) |
@@ -497,8 +500,11 @@ subtree **true** (DOM §4.4 step 6.7; P-C12), which makes the shallow branch (`c
 shallow-cloned shadow child) unnecessary. C1 then:
 1. gives each worklist pair the document its copy was made in: the root pair `shadow_doc` (today's value), every pair
    produced under a pair P the document P's children were cloned with;
-2. in pass 3, `replicate_template_contents(s, d, …, pair_doc, …)`: `new_fragment = attach_template_contents(d, pair_doc)`
-   (mapped inside), then clones each source contents child with `node_document(new_fragment)` (= `f(pair_doc)`) and
+2. in pass 3, `replicate_template_contents(s, d, …, pair_doc, …)`: `new_fragment = attach_template_contents(d,
+   node_document_for_new_nodes(pair_doc))` (mapped inside; `pair_doc` is the pair's Document entity, which the entry
+   returns unchanged, C0b U11 — the one public way to a `NewNodeOwner`, whose constructors are `pub(crate)` in
+   `elidex-ecs`, C0b D-17 (1); C0b's census gives clone.rs's own creations the same kind of `source`, C0b §4.4
+   `clone.rs:321`, `:323`, `:422`: the operation's document), then clones each source contents child with `node_document(new_fragment)` (= `f(pair_doc)`) and
    records those pairs with that document;
 3. in pass 4, the host stamp, the shadow-root stamp and the shadow children use `pair_doc` (`clone.rs:283-284`, `:294`
    at `593aa314`).
