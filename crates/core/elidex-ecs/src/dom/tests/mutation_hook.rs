@@ -64,7 +64,7 @@ impl MutationDispatcher for MockHook {
         // attribute tests use a separate fixture.  The Remove arm
         // records (node, parent, removed_index) only — the
         // descendants snapshot is asserted by `DescendantSnapshotHook`
-        // in this same file.
+        // in `mutation_hook_specialised.rs`.
         match *event {
             MutationEvent::Insert {
                 node,

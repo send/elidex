@@ -1,6 +1,10 @@
+//! Shadow-honor clone tests (DOM clone-a-node step 6) — split out from
+//! `clone.rs` (~1000-line file convention).
+
 use super::*;
 use crate::test_util::entity_of as cloned_entity;
 use elidex_custom_elements::{CEState, CustomElementState};
+use elidex_ecs::{ShadowInit, ShadowRootMode};
 
 // -----------------------------------------------------------------------
 // Shadow honor — DOM §4.4 clone-a-node step 6, applied per node via
@@ -8,8 +12,6 @@ use elidex_custom_elements::{CEState, CustomElementState};
 // flag (shallow clones replicate clonable shadow trees too; only the
 // shadow children's own clone depth follows the flag, step 6.7).
 // -----------------------------------------------------------------------
-
-use elidex_ecs::{ShadowInit, ShadowRootMode};
 
 fn clonable_init() -> ShadowInit {
     ShadowInit {

@@ -1,4 +1,7 @@
-//! Integration tests for `Range` / `StaticRange` (WHATWG DOM §4.4 / §4.5).
+//! Integration tests for `Range` (WHATWG DOM §5.5): constructor, boundary
+//! setters, live-range tracking, compare and point queries. The stub,
+//! `createRange`, `StaticRange` (§5.4), validation and coercion tests are in
+//! `tests_range_stubs_validation.rs`.
 //!
 //! Slot `#11-traversal-and-range-pr-a2-bindings`.
 
