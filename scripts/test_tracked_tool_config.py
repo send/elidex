@@ -336,10 +336,6 @@ class TrackedToolConfig(unittest.TestCase):
             self.only(mise_probs(line + "\n"), "4", "mise.toml", 1)
         for p in ("sub/mise.toml", ".mise.toml"):
             self.only(probs({p: "python.compile = false\n"}), "4", p, 1)
-        # g1: the live file (also L1)
-        with open(os.path.join(REPO, "mise.toml"), "rb") as f:
-            live = f.read()
-        self.assertEqual(probs({"mise.toml": live}, extra=[DRIVER]), [])
         # g2: path substrings are green while the path is tracked, red once it is not
         greens = (
             'run = "bash scripts/python-suites.sh"',

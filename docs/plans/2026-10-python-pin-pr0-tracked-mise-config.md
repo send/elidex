@@ -387,7 +387,8 @@ this plan's.
   r5 E13's unclassifiable cases (missing, symlink, symlinked parent directory, unreadable via a patched `open`, gitlink, non-UTF-8 bytes, NUL bytes), each with its kind's remedy, built in
   a temporary directory and read through `worktree_reader` (so the reader's kinds are what is tested), except that the
   NUL-byte content and the non-UTF-8 name go through `member_problems` (`probs`) with an in-memory `read` (macOS refuses that name on disk, Errno 92);
-  r6 `python.compile = true`; r7 E10's near misses. g1 the live `mise.toml` text (also covered by L1); g2
+  r6 `python.compile = true`; r7 E10's near misses. (No live-file case: the live `mise.toml` is L1's alone, judged against the full tracked
+  listing — a live check against a fixture's partial list would red a reference to any other tracked path.) g2
   E11's green substrings, with `scripts/python-suites.sh` in the fixture's tracked list and removed from it (then
   red: the admission depends on the list, not on the string's shape); g3 E9's two lines, LF and CRLF; g4 E12's
   nested `[tools] node` file.
