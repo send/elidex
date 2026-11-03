@@ -16,8 +16,9 @@ which is still true of that base.
 
 **Order and preconditions** (body :563 row, :567–568; PM decisions 141, 233): #581 merged (done) → **PR-0** →
 PR-1 → the PR-1 → PR-2 interval → PR-2. PR-0 needs this plan's `/elidex-plan-review` before implementation (body
-§9 step 1). PR-0 touches **no pin and no VM P4 family file**; the one VM P4 consent it can need is conditional on
-its timeout measurement (§7, vm-p4 O3) and goes through the PM before PR-0 lands.
+§9 step 1). PR-0 touches **no pin**, and a VM P4 file only if its timeout measurement raises the value (§7): then
+it edits vm-p4 O3, deletes "no VM P4 file, " from body :563, and VM P4's consent goes through the PM before PR-0
+lands.
 
 **Edge-dense: yes — PR-0 is not a single intersection** (decision D1, §4.1). It carries its own pair matrix (§2)
 and its own plan-review, and it is a terminal unit under CLAUDE.md *Edge-dense work* (c).
@@ -54,8 +55,9 @@ T5 (body §4.2, :363–398) is the tracked-tree half of I1 (*one spelling*): ove
 tracked **names and text** that does not model mise's configuration surface (PM decision 150 (1)). PR-0 lands its
 clauses 2–5 — members, red outright, no `python` outside admitted occurrences, the diagnostic — and the one
 reword of `mise.toml:122` that clause 4 needs on `main`. PR-1 adds clause 1 (the one-line root `.tool-versions`) and
-the two `[settings]` lines **without editing** clauses 2–5 (body :613–633, *PR-0 rebuilt*; held by construction,
-§4.3). The ideal this serves (body §1): the version is spelled once, and a tracked second spelling that local mise
+the two `[settings]` lines **without editing** clauses 2–5 (body :613–633, *PR-0 rebuilt*): C0 keeps only the
+names; that PR-1 edits no clause-2–5 function body is a condition checked in PR-1's review, per function span
+(§4.3). The ideal this serves (body §1): the version is spelled once, and a tracked second spelling that local mise
 honours and CI does not is red in CI, not discovered at the next local run (T5 job (i), body :358–361).
 
 ---
@@ -85,7 +87,7 @@ the umbrella names as the reason the question is open (body :100–102): A-iii's
 | pair | intersection in PR-0 | mechanism | held by |
 |---|---|---|---|
 | T × S | clause 4 admits the two lines as exact text in the root `mise.toml` only, ahead of PR-1 | `ADMITTED_LINES`, exact-line equality (§4.2) | C4-g3, C4-r6, C4-r7, mutant M5 (§6) |
-| T × G | T5 is a member under the driver's contract: in the population, its non-member module clean under step 3 (a) / (b), run under the regime; its list is its own `git ls-files`, stdout only | the member's `tracked_paths` (§4.3), outside the pin layer (D2) | L1, L2, C0, mutants M1, M8, M9 (§6); P6 unchanged |
+| T × G | T5 is a member under the driver's contract: in the population, its non-member module clean under step 3 (a) / (b), run under the regime; its list is its own `git ls-files`, stdout only | the member's `tracked_paths` (§4.3), outside the pin layer (D2) | L1, L2, C0, C6, mutants M1, M8, M9, M10 (§6); P6 unchanged |
 | T × L | T5 must compile and run on 3.9 | stdlib only, no construct newer than 3.9 (no `match`, no `itertools.pairwise`, no PEP 604 unions at run time) | the `"3.9"` leg running the new member |
 | T × M | the reword stays inside the reader's grammar (a one-line basic string, no escape) and clause 4 reads the same line | one edited line; nothing pins its text (D4) | Q4 live (existing), L1, C4-r1 |
 | G × L | a member launching `git ls-files` under the regime, on both legs | precedents on both legs: P6 (`git grep -n -F 'def test_P6_pins_file_never_credits' 115a667c -- scripts/test_python_suites_driver.py` prints `:259`) and the non-pin member `.claude/tools/test_plan_memo_umbrella_check.py` (`subprocess.run` at its `:39`); `main`'s CI at `115a667c` is green (`gh run list -R send/elidex --branch main --workflow ci.yml --limit 1`) | L1 on both legs |
@@ -134,8 +136,8 @@ and no pin file imports either. The pair is compared against **both** homes it c
      key classification) one function away — the decision surface CLAUDE.md *One issue, one way* asks to remove.
   2. *PR-1 rewrites the readers module and must not edit clauses 2–5.* PR-1 moves the `mise.toml` reader onto
      `tomllib` (the text grammar retires; body :728–729) and adds clause 1. In its own module, with clauses 2–5 in
-     functions that clause 1 neither edits nor is called from (§4.3), "PR-1 adds clause 1 without editing clauses
-     2–5" (body :625) is checkable from PR-1's diff by function span; inside a module PR-1 rewrites, it is not.
+     named functions (§4.3), C0 keeps only the names; that PR-1 edits no clause-2–5 function body ("PR-1 adds
+     clause 1 without editing clauses 2–5", body :625) is a condition checked in PR-1's review, per function span.
   3. *Different subject.* The readers read two named files (`ci.yml`, `mise.toml`); T5 is a predicate over the
      tracked tree (body :365–366).
 - **Against the pin helpers** (`scripts/python_suites_fixtures.py`, `_launch` / `base_env` / `PIN_FILES`):
@@ -145,14 +147,14 @@ and no pin file imports either. The pair is compared against **both** homes it c
      and the predicate module into `PIN_FILES`; then PR-1's clause 1, whose parser is `python_pin.py`'s (body
      :630–631), would force `scripts/python_pin.py` into `PIN_FILES` and under G9's launch scan — a coupling no
      invariant asks for. Outside the pin layer, the same P6 lines are what keep the pair outside: either import
-     direction turns P6 red.
+     direction turns P6 red. PR-1's `python_pin` import keeps the pair out of P6 only while no `PIN_FILES` member
+     imports `python_pin` (its tests load it by path, body :207–217).
   5. *`_launch` is fail-open for this use.* It merges stderr into stdout (`stderr=subprocess.STDOUT`,
      `scripts/python_suites_fixtures.py:116`) and decodes with `"replace"` (`:119`). A git warning on exit 0 would fuse
-     onto the first NUL-separated path; dot-paths sort first (`.miserc.toml`, `.mise.toml`), so exactly the member
-     T5 most needs to see would become a non-path and vanish — silent green. T5's list is taken stdout only (D3).
-  The precedents for a member that launches its own process without the fixtures are the non-pin members
-  `.claude/tools/test_plan_memo_umbrella_check.py` and `.claude/tools/_webref/test_spec_labels.py`, which import
-  neither helper.
+     onto the first NUL-separated path, so the first record is contaminated: a non-path in the list, and its path
+     missing from it. T5's list is taken stdout only (D3).
+  The precedent for a member that launches its own process without the fixtures is the non-pin member
+  `.claude/tools/test_plan_memo_umbrella_check.py` (`subprocess.run` at its `:39`), which imports neither helper.
 - **Names**: `tracked_tool_config` names the subject — the tracked tool-configuration files (mise's config, rc and
   version files) — and carries no `python_suites_` prefix, which is the A-iii pin family's (`PIN_FILES` lists only
   `python_suites_*` and `test_python_suites_*` files), so the pair does not read as one of its pieces. Neither path
@@ -170,7 +172,8 @@ PR-0's plan; if no, PR-0 takes its file list from the driver … and PR-0's plan
   driver header's stated limit includes a child that "is not Python" (`scripts/python-suites.sh:100`); the socket
   guard is a `sitecustomize.py`, installed only in Python processes. `git ls-files` is offline because of what it
   is — a read of the local index and nothing else (no remote, no fetch, no credential helper) — not because the
-  regime measured it. Its environment is the regime's on every key (the member passes `os.environ` minus `GIT_*`,
+  regime measured it. (In a partial clone with a sparse index, `ls-files` may lazily fetch trees; CI's checkout has
+  no filter.) Its environment is the regime's on every key (the member passes `os.environ` minus `GIT_*`,
   changing no regime key), so its Python descendants, if any, would be guarded; it has none.
 - (ii) **It already runs.** P6 (`scripts/test_python_suites_driver.py:259-262`) launches `git -C REPO ls-files -z`
   on the live tree, on both legs of every `tools` run since it landed.
@@ -284,25 +287,24 @@ The live test's failure message is the joined list; the driver prints a failing 
 - constants `ROOT_PIN = ".tool-versions"`, `ROOT_CONFIG = "mise.toml"`, `ADMITTED_LINES` (the two lines) and
   `CLAUSES_2_TO_5` — the names of the clause functions above (`fold` through `member_problems`).
 
-**Clause 1's place, by construction** (D2 reason 2): PR-1 adds clause 1 as its own function (`root_pin_problems`,
+**Clause 1's place** (D2 reason 2): PR-1 adds clause 1 as its own function (`root_pin_problems`,
 its parser `python_pin.py`'s) that no clause-2–5 function calls and that calls none of them except `finding`, and
-edits only `problems` to merge its findings into the sorted result. So PR-1's diff adds no line to, and removes
-none from, the span (`ast` line range at PR-0's merge sha) of any function named in `CLAUSES_2_TO_5`; C0 (§6) pins
-the names and the controls that hold them.
+edits only `problems` to merge its findings into the sorted result. C0 (§6) keeps only the names; that PR-1's diff
+adds no line to, and removes none from, the span (`ast` line range at PR-0's merge sha) of any function named in
+`CLAUSES_2_TO_5` is a condition checked in PR-1's review, per function span.
 
 **`scripts/test_tracked_tool_config.py`** — the set member (stdlib: `os`, `re`, `subprocess`, `sys`, `tempfile`,
-`unittest`, `unittest.mock`). It puts its own directory first on `sys.path` when absent (as
-`.claude/tools/_webref/test_spec_labels.py:18` does; under the driver, step 4 already has `sys.path[0]` = `scripts`)
-and imports `tracked_tool_config`. **The driver's member contract, re-checked for the pair**: the member is in the
-population (`scripts/test_tracked_tool_config.py` matches `MEMBER_PATHSPEC`, `:(glob)**/test_*.py`) and runs in the
-`scripts` root under the offline regime, its `git` child outside the guard's claim as D3 (i) states; the module is
+`unittest`, `unittest.mock`). It puts its own directory first on `sys.path` when absent (under the driver, step 4
+already has `sys.path[0]` = `scripts`) and imports `tracked_tool_config`. **The driver's member contract, re-checked
+for the pair**: the member is in the population (`scripts/test_tracked_tool_config.py` matches `MEMBER_PATHSPEC`,
+`:(glob)**/test_*.py`) and runs in the `scripts` root under the offline regime, its `git` child outside the guard's claim as D3 (i) states; the module is
 a tracked non-member `.py` that step 3 (a) passes (no `TestCase`) and step 3 (b) passes (no `__main__` guard, no
 `"--self-test"` constant, so not an entry point to name); both parse on 3.9 (step 3's parse clause, the `"3.9"`
 leg). Its listing:
 - `checked_z_output(argv, returncode, stdout, stderr)` — pure: raises `AssertionError` naming `argv`, the exit code
   and the stderr text (decoded `"replace"`, for display only) when the exit code is non-zero or stderr is non-empty;
   otherwise the stdout records, decoded `"utf-8", "surrogateescape"`, NUL-split, empty records dropped;
-- `git_z(root, *args)` — `subprocess.run(["git", "-C", root, *args], env=<os.environ minus GIT_*>,
+- `git_z(root, *args, run=subprocess.run)` — `run(["git", "-C", root, *args], env=<os.environ minus GIT_*>,
   stdout=PIPE, stderr=PIPE, timeout=600)` into `checked_z_output`;
 - `tracked_paths(root)` — `sorted(set(git_z(root, "ls-files", "-z")))`.
 
@@ -310,7 +312,7 @@ leg). Its listing:
 
 ## §5 Edge matrix
 
-"Red n" = red by clause n; "skip" = member, left to clause 1; "—" = not a member. 58 cases in 14 rows.
+"Red n" = red by clause n; "skip" = member, left to clause 1; "—" = not a member.
 
 | # | case (path: content) | verdict | why |
 |---|---|---|---|
@@ -339,7 +341,7 @@ version is silent once PR-1's admission exists; before PR-1 nothing admits, so n
 ## §6 Tests and controls
 
 All in `scripts/test_tracked_tool_config.py`. Pure controls call `member_problems` / `problems` with a path list and
-an in-memory `read`; the live and scratch tests launch only through `git_z`. Each control asserts the **clause
+an in-memory `read`; the live and scratch tests take every listing through `git_z`. Each control asserts the **clause
 number and the path (and line)** in the finding, not only "non-empty". Each control body is a plain method
 `control_<id>(self)` called by its `test_<id>` method, so the mutant test can run it again under a mutant. IDs are
 this plan's.
@@ -348,10 +350,11 @@ this plan's.
   parent directory's parent. **Non-vacuity**: the list is non-empty, `"mise.toml"` is in it and
   `is_member("mise.toml")` is true. **Index cross-check** (every entry is a real index path): `git_z(REPO,
   "ls-files", "-z", "--stage")` gives one record per index entry; each record must match `[0-7]{6} [0-9a-f]{40,64}
-  [0-3]\t(.+)` in full, and the set of their paths must equal the set `tracked_paths` returned. A record fused with
+  [0-3]\t([^\0]+)` in full, and the set of their paths must equal the set `tracked_paths` returned. A record fused with
   any other text fails the first, a listed non-path fails the second — the contamination D2 reason 5 describes.
-- **L2 (scratch repository, red + green)**: a temporary `git -c init.defaultBranch=main init -q` (through `git_z`,
-  `GIT_*` dropped) with `.miserc.toml` staged and `mise.local.toml` and `.python-version` present but untracked;
+- **L2 (scratch repository, red + green)**: a temporary `git -c init.defaultBranch=main init -q` (setup commands
+  run with `GIT_*` dropped and are checked by exit code only; strict stderr is the listing's) with `.miserc.toml`
+  staged and `mise.local.toml` and `.python-version` present but untracked;
   `problems(tracked_paths(dir), worktree_reader(dir))` reports exactly `.miserc.toml` (3a). Kills a list taken from
   a directory walk (would add the untracked two) and one taken from `HEAD` (would miss the staged one). The body
   takes the lister as a parameter (`control_L2(self, lister=tracked_paths)`).
@@ -360,23 +363,29 @@ this plan's.
   constant in it (step 3 (a) / (b) restated where the predicate lives, so a violation names this pair); (ii) every
   name in `CLAUSES_2_TO_5` is a function of the module, and `problems` is not among them; (iii) the named control
   set exists: the class defines `test_<id>` for every ID in `CONTROLS_2_TO_5` (C2, C3, C4, C5, L1, L2 and the
-  mutant test), a tuple in the member. PR-1 adds clause 1's controls beside them and removes none (C0 (iii) turns
-  red otherwise).
+  mutant test), a tuple in the member. PR-1 adds clause 1's controls beside them and removes none.
 - **C1 (listing)**: `checked_z_output` over fabricated results — `(0, b".miserc.toml\0.mise.toml\0mise.toml\0", b"")`
   → the three paths, dot-paths kept; `(0, same, b"warning: x\n")` → raises, the message containing `warning: x`;
   `(128, b"", b"fatal: y\n")` → raises with `128` and `fatal: y`; `(0, b"mise\xff.toml\0", b"")` → one path that
   `os.fsencode` maps back to `b"mise\xff.toml"`.
+- **C6 (the listing's launch)**: `control_C6(self, launch=git_z)` calls `launch(REPO, "ls-files", "-z", run=fake)`
+  under `mock.patch.dict(os.environ, {"GIT_DIR": "x"})`; `fake` records its kwargs and returns
+  `subprocess.CompletedProcess(argv, 0, b"mise.toml\0", b"warning: x\n")`. Asserts (a) the recorded `stderr` is
+  `subprocess.PIPE` (not merged into stdout), (b) no `GIT_*` key in the recorded `env`, (c) the call raises
+  `AssertionError` containing `warning: x`.
 - **C2 (members)**: red side — every E3/E4/E6/E8 path and `Mise/notes.md` is a member; green side — the E7 paths,
   `..mise.toml`, `misc.rs`, the two new files, and the tracked `*promise*` paths of the live list (asserted ≥ 1, so
   the control is not vacuous) are not.
 - **C3 (red outright)**: r1 E3's seven paths, empty content, each red 3a; r2 E4 each red 3b; r3 E6 each red 3c; r4
   a `.miserc.toml` whose `read` raises if called (clause 3 reads no text). g1 E5: root `.tool-versions` holding
-  `python 3.12` is green and is never read (the interval, pinned so PR-1's clause 1 is the change that turns it).
+  `python 3.12` is green under `problems` and is never read (the interval, pinned so PR-1's clause 1 is the change
+  that turns it); g1 is the one existing control PR-1 edits.
 - **C4 (content)**: r1 E2 — `main`'s line 122 text in a `mise.toml` fixture is red 4 at its line (the "red at main"
   of the reword); r2 E8's members, each red 4 at the line; r3 E11's red substrings; r4 E12's `mise_helper.py`;
-  r5 E13's unclassifiable cases (missing, symlink, gitlink, non-UTF-8 bytes, non-UTF-8 name), each with its kind's
-  remedy, built in a temporary directory and read through `worktree_reader` (so the reader's kinds are what is
-  tested); r6 `python.compile = true`; r7 E10's near misses. g1 the live `mise.toml` text (also covered by L1); g2
+  r5 E13's unclassifiable cases (missing, symlink, gitlink, non-UTF-8 bytes), each with its kind's remedy, built in
+  a temporary directory and read through `worktree_reader` (so the reader's kinds are what is tested), and the
+  non-UTF-8 name through `member_problems` with an in-memory `read` (macOS refuses that name on disk, Errno 92);
+  r6 `python.compile = true`; r7 E10's near misses. g1 the live `mise.toml` text (also covered by L1); g2
   E11's green substrings, with `scripts/python-suites.sh` in the fixture's tracked list and removed from it (then
   red: the admission depends on the list, not on the string's shape); g3 E9's two lines, LF and CRLF; g4 E12's
   nested `[tools] node` file.
@@ -390,19 +399,21 @@ this plan's.
 **Mutation — in the member, on every run.** `MUTANTS` in the member is a table of (ID, target, wrong
 implementation, killing control); `test_mutants_are_killed` applies each by `unittest.mock.patch.object` on the
 `tracked_tool_config` module (or, for the member's own listing, passes the wrong function as the parameter of
-`control_L2(self, lister=tracked_paths)` / `control_C1(self, check=checked_z_output)`: M1, M8, M9), runs the killing control's
-body and asserts it raises `AssertionError`; it also asserts the table's IDs are exactly M1–M9 and that each
-killing control passes unpatched (so a mutant is not killed by a broken control). The module's functions call each
-other through module globals, so a patch reaches every internal call.
+`control_L2(self, lister=tracked_paths)` / `control_C1(self, check=checked_z_output)` / `control_C6(self,
+launch=git_z)`: M1, M8, M9, M10), runs the killing control's body and asserts it raises `AssertionError`; it also
+asserts the table's IDs are exactly M1–M6 and M8–M10 and that each killing control passes unpatched (so a mutant is
+not killed by a broken control). The module's functions call each other through module globals, so a patch
+reaches every internal call; the member calls them as `t.f(...)` after `import tracked_tool_config as t` (no
+`from … import`), so a patch reaches the member's calls too.
 - M1 the list from a directory walk (`os.walk` lister) — L2;
-- M2 case-sensitive names (`fold` without `casefold`) — C3 r1's `.MISERC.TOML`, r3's `.PYTHON-VERSION`;
+- M2 case-sensitive names (`fold` without `casefold`) — C3 r1's `.MISERC.TOML`;
 - M3 4a without the `/` rule — C4 r3's `python.txt`;
 - M4 4a without boundaries — C4 r3;
 - M5 4b by `in` instead of equality — C4 r7;
 - M6 symlinks read through (`worktree_reader` following the link) — C4 r5;
-- M7 the root `.tool-versions` compared case-insensitively — C3 r2's `.Tool-Versions`;
 - M8 stderr merged into stdout before the split (`_launch`'s shape) — C1's warning case;
-- M9 stdout decoded `"replace"` — C1's non-UTF-8 name case.
+- M9 stdout decoded `"replace"` — C1's non-UTF-8 name case;
+- M10 `git_z` merging stderr into stdout (`stderr=subprocess.STDOUT`) — C6 (a).
 The mutants are stdlib (`unittest.mock`) and need no second process, so they run on both legs; their cost is a
 few re-runs of pure controls.
 
@@ -415,29 +426,33 @@ few re-runs of pure controls.
 - `scripts/test_tracked_tool_config.py` — NEW (set member, §6);
 - `mise.toml` — the one line of D4;
 - `docs/plans/2026-10-python-pin-umbrella.md` — two sentences that are false, each corrected by deletion or a
-  number only, nothing added (PM 289 Q2):
+  number only, nothing added (PM 289 Q2), and body :563's deletion if the timeout rises (below):
   - body :728–729, false once PR-0 lands (PR-0 does not grow the readers module): "PR-0 and PR-1 both grow
     `scripts/python_suites_readers.py`" becomes "PR-1 grows `scripts/python_suites_readers.py`", the rest of the
     sentence unchanged, rewrapped within the paragraph;
   - body :594, false since #585: "(the `:115` reword)" becomes "(the `:122` reword)";
-  the body stays ≤ 1000 lines (999 at `115a667c`: `wc -l`; both edits remove characters);
-- `.github/workflows/ci.yml` and the vm-p4 companion — **only if the timeout changes** (below);
+  the body stays ≤ 1000 lines (999 at `115a667c`: `wc -l`; every edit removes characters);
+- `.github/workflows/ci.yml` — the timeout comment's record of PR-0's run, always; the value, and the vm-p4
+  companion, **only if the timeout rises** (below);
 - this plan.
 
 **The `tools` timeout (PM 289 Q1, PM 294).** PR-0 adds a member, so it fires `ci.yml`'s rule "a PR that adds suite
 cost re-derives `timeout-minutes` in the same PR from its own run of this job" (`git grep -n -F 'a PR that adds
 suite cost' 115a667c -- .github/workflows/ci.yml` prints `:243`; the value at `:262`, 22). Counter-precedent: #506
 (`3ec0ae5c`) added the member `docs/plans/test_vm_p4_family_layout.py` without a `ci.yml` edit (`git show --stat
-3ec0ae5c -- .github/workflows/ci.yml` prints nothing); PR-0 does not follow it. PR-0 re-derives by the comment's
-method — about 4× the slower leg's end-to-end duration, read with the comment's `gh run view <run-id> --json jobs`
-command, as #510 derived 22 — on its own CI run.
-- **The derived value is 22**: nothing is edited; the PR body records the run id, both legs' durations and the
-  arithmetic.
-- **It differs**: `ci.yml` enters the edit set — the value and the comment's record of the run, as #549 and #510
-  recorded theirs — and vm-p4 O3 (`git grep -n -F 'under the unchanged value 22' 115a667c --
-  docs/plans/2026-10-python-pin-umbrella-vm-p4.md` prints `:151`) becomes false: PR-0 corrects **only that
-  sentence, the number only**, adding nothing. The vm-p4 file is a VM P4 companion, so the corrected wording goes
-  to the PM for VM P4's consent **before PR-0 lands**. O3's other sentence ("PR-1's re-derive … is the first one
+3ec0ae5c -- .github/workflows/ci.yml` prints nothing); PR-0 does not follow it. The rule (PM 302): on PR-0's own CI
+run, N = ceil(4 × the slower Python-suites leg's end-to-end duration in minutes), read with the comment's `gh run
+view <run-id> --json jobs` command; the value is raised to N only if N > 22 and never lowered in PR-0. The run id,
+both legs' durations and the computation are recorded in that comment, as #549 and #510 recorded theirs (body
+:575–577: "record its run in that comment"), so `ci.yml` is edited even when the value stays 22 — then only the
+comment's record of the run.
+- **N ≤ 22**: the value stays 22; vm-p4 O3 and body :563 stay true and are not edited.
+- **N > 22**: the value becomes N, and vm-p4 O3 (`git grep -n -F 'under the unchanged value 22' 115a667c --
+  docs/plans/2026-10-python-pin-umbrella-vm-p4.md` prints `:151`) becomes false: PR-0 deletes ", under the
+  unchanged value 22" and adds nothing — before "has been in the job since `3ec0ae5c`, under the unchanged value 22
+  (the split", after "has been in the job since `3ec0ae5c` (the split". Body :563's cell "no VM P4 file, no pin"
+  becomes "no pin". The vm-p4 file is a VM P4 companion, so the corrected wording goes to the PM for VM P4's
+  consent **before PR-0 lands**. O3's other sentence ("PR-1's re-derive … is the first one
   measured with the guard, on the pin") stays true either way — PR-0's run is not on the pin, and rounds :384–385
   states the same claim as "the first measured with the guard on the pin" — so it is not edited.
 
@@ -464,9 +479,9 @@ and never writes a direct launch of one; `git grep -nP 'python3?(\.[0-9]+)? +(-[
 **Lanes** (body §8): the overlap is the *every lane* row (body :816) — from PR-0, a tracked `.miserc*`, a non-root
 `.tool-versions`, a `.python-version*`, a `python` outside the admitted occurrences in any file whose path has a
 component starting `mise` / `rtx`, or such a file T5 cannot read as UTF-8 text, is red. Textual overlaps: `mise.toml`
-(anyone editing `[tasks.tools-test]`; whichever lands second re-reads); `ci.yml` only if the timeout changes (§7;
-textual with PR-1 and Dependabot, which touches `steps:` only; no ordering change — PR-0 precedes PR-1, the
-cargo-deny PR is after PR-2).
+(anyone editing `[tasks.tools-test]`; whichever lands second re-reads); `ci.yml`'s timeout comment, and its value
+if it rises (§7; textual with PR-1 and Dependabot, which touches `steps:` only; no ordering change — PR-0 precedes
+PR-1, the cargo-deny PR is after PR-2).
 
 **Pre-landing sweep** (body :821–824): the driver re-runs A-iii §13's sweep with PR-0's contended paths added
 (`mise.toml`, the two new files), and runs T5 on **each open PR's head**: the list from `git ls-tree -r -z
@@ -497,8 +512,8 @@ None (body :869: "PR-0 §9 (none)").
    tools-test` green locally; `mise run ci` before push (CLAUDE.md *Workflow*).
 3. The pre-landing sweep of §8; reds handed off.
 4. CI: every job green, the `tools` job on **both** legs (the `"3.9"` leg is the only measurement of T × L); the
-   timeout derived from that run (§7) — if it is not 22, `ci.yml` is edited, CI re-runs, and O3's corrected wording
-   has VM P4's consent through the PM before landing.
+   timeout derived from that run (§7) and recorded in the `ci.yml` comment, CI re-run; if N > 22 the value rises and
+   O3's corrected wording has VM P4's consent through the PM before landing.
 5. **PM notice to every lane** with the landing (body :836–838, §9 step 2; §8 row *every lane*). Text to send:
    "From PR-0 (`<merge sha>`), `mise run tools-test` and the `tools` CI job are red when a **tracked** file is a
    mise rc file (`.miserc*`, any directory), a `.tool-versions` other than the repository root's, or a
@@ -517,13 +532,14 @@ None (body :869: "PR-0 §9 (none)").
 **DoD**:
 - [ ] the two new files as §4.3, outside the pin layer (no `PIN_FILES` edit; P6 green); every §6 control as
       written, each asserting clause and path; L1 green with its index cross-check; the mutant test green with
-      M1–M9 each killed; the existing pins green;
+      M1–M6 and M8–M10 each killed; the existing pins green;
 - [ ] `git grep -n -i python -- mise.toml` prints only lines whose occurrences lie in `scripts/python-suites.sh`;
-- [ ] the umbrella body's :728 and :594 sentences corrected as §7, nothing added, body ≤ 1000 lines;
+- [ ] the umbrella body's :728 and :594 sentences (and :563 if N > 22) corrected as §7, nothing added, body ≤ 1000
+      lines;
 - [ ] the X1 pattern prints nothing over this plan (§7); the set member `.claude/tools/test_plan_memo_umbrella_check.py`
       green under the driver (its `symbol_attribution_control` reads every `docs/plans/*.md`);
-- [ ] the timeout derived and recorded (§7): in the PR body if 22; otherwise `ci.yml` and O3 edited, with VM P4's
-      consent for O3 through the PM; the sweep result in the PR body;
+- [ ] the timeout derived and recorded in the `ci.yml` comment (§7); if N > 22, the value, O3 and body :563
+      edited, with VM P4's consent for O3 through the PM; the sweep result in the PR body;
 - [ ] CI green on both legs; the PM notice sent.
 
 ---
