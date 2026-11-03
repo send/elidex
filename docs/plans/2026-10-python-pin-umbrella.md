@@ -89,8 +89,8 @@ lane SSoT = `project_ci-tools-lane.md`, its top block "HANDOFF NOW (2026-10-31)"
   stops**, unchanged. Reason and R8's terminator: R§0, §12.7.
 - **PM decision 221** (2026-11-01, `PORTFOLIO:358`; R8, §12.8): the memo lands as the memo-only docs PR **#581**,
   not with PR-1; the one consent request is sent **once, after #581's `/external-converge` ends**, #581's merge
-  waits for it, PR-1's implementation follows (§9 steps 0, 3). I1: action (4) removed; the facts gain the config
-  files mise loaded and each one's `[env] _.path`, as mise reports them (§4.2; relayed by the CI/tools driver).
+  waits for it, PR-1's implementation follows (§9 steps 0, 3). I1: draft 8's action (4) removed; the facts gain the
+  config files mise loaded and each one's `[env] _.path`, as mise reports them (§4.2; relayed by the CI/tools driver).
 - **PM decision 233** (2026-11-01; PM message): "the config mise chose" = the files `mise config ls` lists; the
   consent list includes V1–V15 and V6's question (no record shows them sent); PR-0 stays after #581 (§6).
 
@@ -431,7 +431,7 @@ printed, never read as the version's source; `mise where python` / `mise which p
 
 **The refusal — facts, then one generic block (PM decisions 217, 221).** Every refusal exits non-zero and
 prints what it observed, and nothing it inferred. **This list is the one enumeration** of the printed facts
-(§2 I5, I5 × I6, §7.1, C31 and C37 cite it):
+(§0, §2 I5, I5 × I6, §7.1, §11, R§4.2 *Each case's fix*, C16, C31 and C37 cite it):
 1. the pin, the pin file `<root>/.tool-versions`, and the version running;
 2. **`sys.executable` as the interpreter reports it**, not resolved and not a PATH entry (measured: a Homebrew
    build reached through a symlink reports `/opt/homebrew/opt/python@3.X/bin/python3.X`; macOS `/usr/bin/python3`
@@ -560,7 +560,7 @@ their reader is the VM P4 lane (§6 *This umbrella's own length*).
 
 | PR | Scope | Depends on |
 |---|---|---|
-| **PR-0 tracked mise config** | T5's clauses 2–5 (§4.2): the member predicate over `git ls-files`, the red-outright clause (`.miserc*`, a non-root `.tool-versions`, `.python-version*`), the no-`python` content clause with its admitted occurrences, the diagnostic, their controls — by default in the readers module and its pins (`scripts/python_suites_readers.py`, `scripts/test_python_suites_ci.py`; PR-0's plan records why, or names its own module, §4.2); and the one truthful reword of `mise.toml:115` that clause 4 needs | the umbrella's and PR-0's own plan-review; nothing else (no VM P4 file, no pin) |
+| **PR-0 tracked mise config** | T5's clauses 2–5 (§4.2): the member predicate over `git ls-files`, the red-outright clause (`.miserc*`, a non-root `.tool-versions`, `.python-version*`), the no-`python` content clause with its admitted occurrences, the diagnostic, their controls — by default in the readers module and its pins (`scripts/python_suites_readers.py`, `scripts/test_python_suites_ci.py`; PR-0's plan records why, or names its own module, §4.2); and the one truthful reword of `mise.toml:115` that clause 4 needs | #581 merged, which waits for the VM P4 lane's consent (§9 step 0); the umbrella's and PR-0's own plan-review; no VM P4 file, no pin |
 | **PR-1 pin, gate and provisioning** | `.tool-versions` (the one line); `scripts/python_pin.py` (the one reader: the one-line parser, admission, the refusal with its oracle and the warning; root from its own path); the driver's Step 1 → exact; `tools` job → one leg reading the pin file; the `ci.yml` reader and its pins; T5's clause 1; the `mise.toml` reader → `tomllib` (draft 2's PR-3: rows M1–M3 retire, Q4 / M2 restated over parsed data) with `[settings] python.compile = false` + `python.github_attestations = true` and their assertion; `mise.toml`'s task text; the removal of #510's floor-motivated code and the VM P4 statements and lines V1–V23 (§5.2); I7's support module `scripts/python_pin_testing.py` (§2); docs; the amendments (§5) | PR-0; its own plan-review; #581 merged, which waits for the VM P4 lane's consent to §5.3 (c)'s whole subject, incl. its answer on V6 (decisions 127 (a), 205, 211, 213, 221); PR-1's implementation starts after the consent |
 | **PR-2 entry-point guard** | the launch-evidence predicate, the guard prelude in every derived entry point (root by the entry file's fixed depth, §4.3), their pins (incl. the X1 bound); `SKILL.md` Step 0's comment; the `tools` timeout re-derive in `ci.yml` (PR-2 §8); the UNCHECKED lines naming it become CHECKED (§5.1, §13 C13); the two VM P4 launch lines P2 (§5.3 (b), decision 205) | PR-1; its plan reviewed before PR-1 lands; P2 is in the same consent (§5.3 (c)) |
 
@@ -725,9 +725,9 @@ git ls-files -z -- <the PR's edit set> | xargs -0 wc -l | sort -n | tail -n 12
 
 The family's own bound also applies: the plan-memo self-test's `line_bound_control`
 (`plan_memo_selftest_properties.py:688`) holds every family source under 1000 lines on every run, and §5.2's
-edits remove lines. PR-0 and PR-1 both grow `scripts/python_suites_readers.py` (678 lines at `ee6c7a1a`) and
-`scripts/test_python_suites_ci.py` (378); PR-1's `mise.toml` half shrinks the former (the text grammar retires).
-`scripts/test_python_suites_regime.py` (853) is not in any PR's edit set (no construct it holds names the
+edits remove lines (not guaranteed under V6's outcome (ii), §5.2). PR-0 and PR-1 both grow `scripts/python_suites_readers.py`
+(678 lines at `ee6c7a1a`) and `scripts/test_python_suites_ci.py` (378); PR-1's `mise.toml` half shrinks the former (the text
+grammar retires). `scripts/test_python_suites_regime.py` (853) is not in any PR's edit set (no construct it holds names the
 interpreter: `git grep -nE '3\.9|"3\.x"|matrix|setup-python|python-version' -- scripts/test_python_suites_regime.py`
 prints nothing); if an implementation finds it must edit it, its G7/G11 fixtures are the seam for the prereq
 split — and sweep 4, which does edit it, applies the rule itself (§10).
@@ -741,12 +741,12 @@ the lane wants a split first, it lands as that lane's prereq before PR-1.
 **This umbrella's own length — the seam set, decided now** (K3, decision 205; it replaces draft 6's "split at
 landing"). **#581 lands these four files** (decision 221; not PR-1), as written — nothing is restructured:
 
-| file | sections | its reader | lines at #581 fix round 1 |
+| file | sections | its reader | lines at #581 fix round 2 |
 |---|---|---|---|
 | `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 1000 |
 | `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 198 |
 | `…-python-pin-umbrella-records.md` | R§0, R§4.1, R§4.2, R§6, R§7.2, R§9, R§11 | whoever re-opens a decision: a bump, a re-measurement, a reviewer | 580 |
-| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 662 |
+| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 684 |
 
 Counts: `wc -l docs/plans/2026-10-python-pin-umbrella*.md` (draft 8 was one file split at its `# Landing file N`
 markers, §14). Why these seams: each
@@ -830,21 +830,21 @@ files, and for PR-2 every derived entry point); for PR-0 and PR-1 the sweep also
 0. **#581 — this memo, memo only (PM decision 221).** After its `/external-converge` ends, the PM sends the VM P4
    lane **one** consent request carrying §5.3 (c)'s list, with `…-umbrella-vm-p4.md` attached; #581 merges only
    once the consent is in (landing fixes the VM P4 edits as plan). An answer that changes an item is a memo edit
-   on #581 before its merge.
+   on #581 before its merge; the new head is then converged afresh (the old head's dry does not carry over) and the
+   consent request is re-sent for the diff only.
 1. Each PR passes `/elidex-plan-review` on its per-PR plan before implementation; the umbrella first (R1–R8,
    §12); PR-2's plan before PR-1 lands (§6, the interval's bound).
-2. **PR-0** lands (no cross-lane precondition). PM notice to every lane with it (§8 row *every lane*; R4 MIN — a new
+2. **PR-0** lands, after #581 merged (step 0: #581's merge waits for the consent). PM notice to every lane with it (§8 row *every lane*; R4 MIN — a new
    cross-lane red needs its notice): a tracked `.miserc*`, a non-root `.tool-versions`, a `.python-version*`, or
    a `python` outside the admitted occurrences in any mise-named file is red from now on.
-3. **PR-1's preconditions and landing report.** Before implementation: step 0's consent (§5.3 (c): V1–V23,
-   V6's answer, P2, O4, the checker run, O8). The checker run: PR-1 edits a VM-P4 family memo (V19–V21, V23), so
-   it runs CLAUDE.md:55's checker on the entry memo on the pin, exit 0 expected (§5.3 (c), C32). The landing
-   report to the PM: §5's amendments (A-iii D3 / §8 / §12(1) / §6's UNCHECKED line, #510's memo §1 / §8 / §3 row,
-   and the ledger); §5.2's VM P4 edits (V1–V23) and the regenerated manifest; the notice to every lane (§8 row
-   *every lane*: the root `.tool-versions` is one line); the slots in PR-1 §9 to register; the interval as open
-   (§6); and the **re-evaluation of `#11-aiii-gate-tamper-hardening`**, whose trigger (b) PR-1 fires twice (the
-   `tools` job's step composition; mise `[settings]` / how `mise.toml` is read) — its items and what PR-0 / PR-1
-   do to each: R§9.
+3. **PR-1's preconditions and landing report.** Before implementation: step 0's consent (§5.3 (c)). The checker
+   run: PR-1 edits a VM-P4 family memo (V19–V21, V23), so it runs CLAUDE.md:55's checker on the entry memo on the
+   pin, exit 0 expected (§5.3 (c), C32). The landing report to the PM: §5's amendments (A-iii D3 / §8 / §12(1) /
+   §6's UNCHECKED line, #510's memo §1 / §8 / §3 row, and the ledger); §5.2's VM P4 edits (V1–V23) and the
+   regenerated manifest; the notice to every lane (§8 row *every lane*: the root `.tool-versions` is one line); the
+   slots in PR-1 §9 to register; the interval as open (§6); and the **re-evaluation of
+   `#11-aiii-gate-tamper-hardening`**, whose trigger (b) PR-1 fires twice (the `tools` job's step composition; mise
+   `[settings]` / how `mise.toml` is read) — its items and what PR-0 / PR-1 do to each: R§9.
 4. **PR-1's landing step — through the PM, to every lane: run `mise install` in each worktree after rebasing onto
    PR-1's `main`** — first `mise trust` in that worktree if mise reports it untrusted (`main`'s `mise.toml` already
    holds `[bootstrap.packages]`, #535, and PR-1 adds `[settings]`; mise reads neither untrusted, R§4.2 table) — and
@@ -855,7 +855,7 @@ files, and for PR-2 every derived entry point); for PR-0 and PR-1 the sweep also
 5. **The interval** (§6): #514's re-derive starts (decision 124), citing PR-1's artifacts only (§5.1, §8); the
    M4-12 umbrella's pre-research may start; sweep 4 may land (it may also land earlier or later).
 6. **PR-2** lands. Its landing report: the derived entry-point set (PR body), the UNCHECKED → CHECKED lines (§13
-   C13), the **close** of the PR-1 → PR-2 interval (§6), the P2 edits made under the consent of step 3 (§5.3 (b)),
+   C13), the **close** of the PR-1 → PR-2 interval (§6), the P2 edits made under the consent of step 0 (§5.3 (b)),
    and the stale-claim hand-off.
 7. **The cargo-deny PR** (after PR-2, because PR-2 edits `ci.yml`; §6). Then the **M4-12 exit-gate program**
    (decisions 118, 150 (3)).

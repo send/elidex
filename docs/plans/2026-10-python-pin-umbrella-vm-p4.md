@@ -81,8 +81,8 @@ commits the diff. Module docstrings, helper functions and comments outside a dig
   name the pin-reachable cause, not "3.9–3.12"); V7 and V8 stay (V8's subject exists); V9 keeps its `RuntimeError`
   arm with the new reason (CONTROL line changes only if its docstring does); V10, V11 and V15 are restated to the
   new reason. **Line headroom (R8 A5-7)**: `plan_memo_selftest_controls.py` is 997 lines at `ee6c7a1a` and
-  `line_bound_control` reds at 1000 (R§0), so V9's new reason replaces the "3.9-3.12" sentence within 2 added
-  lines at most; if it cannot, the file's split is the VM P4 lane's prereq before PR-1 (body §6 *1000-line rule*). The class changes from "floor-motivated code branch" to "statement", and §1's "no code for an
+  `line_bound_control` reds at 1000 (R§0), so V9's new reason and V10's restatement, both in that file, add 2
+  lines at most together; if they cannot, the file's split is the VM P4 lane's prereq before PR-1 (body §6 *1000-line rule*). The class changes from "floor-motivated code branch" to "statement", and §1's "no code for an
   interpreter nothing admits" is met by the re-justification.
 
 Stage-1 hits **not** edited, each with its class: dated measurement records naming the interpreters they ran on,
@@ -154,7 +154,7 @@ diff touches no `.claude/**`" was false (R6 K1).
 | O6 → **V17** | seam-split `:804-806` | V17 (§5.2) | PR-1, with consent (decision 205 Q1) |
 | O7 | the family sources and `plan_memo_selftest_manifest.txt` | V1–V11 and V22 (`plan_memo_sibling.py:158`, the two rows at `plan_memo_selftest_mutants_codex0927.py:51-52`, `:56-57`, MUTANT lines `:2122` / `:2126`), then `--write-manifest` on the pin at PR-1's base (§5.2 *Manifest rule*); #506 changed no family source | PR-1, with consent — for V22, unless the VM P4 lane fixes it itself: PR-1's stage 1c at PR-1's own base decides (a live hit → PR-1 edits it; none → V22 has left PR-1's edit set) |
 | O9 | #506's slot ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` (a VM-P4 family memo, in the guard's `FAMILY` glob) | V19–V21 (`:58-60`, `:322`, `:323`) and V23 (`:327`), with dated markers, cell text only (no table header, no row added or moved); then the checker run of CLAUDE.md:55 on the entry memo, exit 0 expected ((c)) | PR-1, with consent (decisions 211, 213) |
-| O8 | `docs/plans/*.md` as `symbol_attribution_control`'s corpus | the corpus holds #506's ten memos and, from #581, this umbrella's four files; #581's CI and then each PR's run the control over them. **Ownership by who wrote the line, not by whose file it is** (R8 A1-2): a red on a line #581 or a later python-pin PR wrote — in a python-pin file, or in a VM P4 memo PR-1 amends (V12, V13, V15–V21, V23 and their markers) — is that PR's to fix in its own edit; a red on a line no python-pin PR wrote would already be red on `main` (the `tools` job runs on every push to `main`) and is the VM P4 lane's | #581 / PR-1 for their lines, with consent (in (c)); VM P4 for the rest |
+| O8 | `docs/plans/*.md` as `symbol_attribution_control`'s corpus | the corpus holds #506's ten memos and, from #581, this umbrella's four files; #581's CI and then each PR's run the control over them. **Ownership by who wrote the line, not by whose file it is** (R8 A1-2): a red on a line #581 or a later python-pin PR wrote — in a python-pin file, or in a VM P4 memo PR-1 amends (V12, V13, V15–V21, V23 and their markers) — is that PR's to fix in its own edit; a red arising from the family sources PR-1 changes is PR-1's | #581 / PR-1 for their lines, with consent (in (c)); VM P4 for the rest |
 
 **(b) PR-2**
 

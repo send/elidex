@@ -86,7 +86,7 @@ A plain §n is the body's section; §12–§14 are the rounds record's.
   `/external-converge` (the user's N1 precedent, "change the instrument"); any other IMP → the PM (§12.7).
 - **PM decision 221** (2026-11-01, `PORTFOLIO:358`): R8 CRIT 0 / IMP 2 / MIN 18, both IMPs in draft 8's additions →
   no R9; a docs-only PR (#581) and `/external-converge`. The record's words: "The VM P4 consent request is sent
-  once after the converge finishes, and the docs PR's merge waits for that consent. I1: action (4) is removed
+  once after the converge finishes, and the docs PR's merge waits for that consent. I1: action (4) [draft 8's] is removed
   (what was left of the inference layer). I2: fixed by the same change." **As relayed by the CI/tools driver**
   (the fix-round brief, not in `PORTFOLIO:358`): every "lands with PR-1" statement is fixed; PR-1's
   implementation comes after the consent; T1 (b)'s dead end is solved by printing, as facts, the config files
@@ -323,7 +323,7 @@ date named), never a derived value.
 | another version wins (`mise.local.toml`, `MISE_PYTHON_VERSION`, a second `.tool-versions` line, an rc-renamed file) | that `source` and its `version` (table above) | (3) |
 | `[]` (an rc file redirecting to a missing file) | "mise resolves no Python at <cwd>" (table above) | (3), its `.miserc*` clause |
 | the pin, not installed | `installed: false`; `mise which python3` exit 1 (table above) | (1) |
-| another `python3` ahead of mise's shim (Homebrew; `/usr/bin`) | `sys.executable` as reported — `/opt/homebrew/opt/python@3.15/bin/python3.15` for Homebrew, the developer-directory path for `/usr/bin/python3` (R§0 *#581 fix round 1*, J4) — beside `mise which python3` (the install); `mise.toml`'s `env._.path` answer rc 1 | (4) (measured: `mise -C <P> exec -- python3` runs the install, R§0) |
+| another `python3` ahead of mise's shim (Homebrew; `/usr/bin`) | `sys.executable` as reported — `/opt/homebrew/opt/python@3.14/bin/python3.14` for Homebrew 3.14 (R§0 *#581 fix round 1*, *`sys.executable` as reported* and *T1 (b)*), the developer-directory path for `/usr/bin/python3` 3.9.6 (R§0 J4) — beside `mise which python3` (the install, *T1 (b)*); with no `_.path`, `mise.toml`'s `env._.path` answer rc 1 (*Another `python3` ahead*) | (4) (measured: `mise -C <P> exec -- python3` runs the install, R§0) |
 | `[env] _.path` holds another version (§11 T1 (b)) | `sys.executable` `/opt/homebrew/opt/python@3.14/bin/python3.14` (not under `altbin`), `mise which python3` the install, `source` the root `.tool-versions`, and `mise config get -f <P>/mise.toml env._.path` → `["altbin"]` (R§0 *#581 fix round 1*) | (3), its `_.path` clause — (4) runs `altbin/python3` too (measured) |
 | cwd outside the repository | the cwd and the root, two paths (item 3) | (4) |
 

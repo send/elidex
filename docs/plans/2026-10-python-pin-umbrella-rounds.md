@@ -272,7 +272,7 @@ first fix round. Draft 9 is that fix round, in place on #581's branch (the four 
 
 | Finding | What changed, where |
 |---|---|
-| **I1** (A2-1 + A4-1) action (4) assumes `sys.executable`'s directory is a PATH entry — false on real interpreters | **action (4) removed** (decision 221); body §4.2 *The refusal*: the facts gain (c) `mise config ls --json`'s paths and (d) each one's `mise config get -f <path> env._.path` (measured, R§0 *#581 fix round 1*), so T1 (b) shows which file holds the entry and the user decides; item 2 states what `sys.executable` reports (measured); R§4.2 *Each case's fix* rewritten — the middle column holds only measured output; body §11 T1 (b) restated from a real-interpreter run (R§11 *T1*); body §2 I5 × I6 no longer claims "the block holds the fix for each case" |
+| **I1** (A2-1 + A4-1) draft 8's action (4) assumes `sys.executable`'s directory is a PATH entry — false on real interpreters | **draft 8's action (4) removed** (decision 221); body §4.2 *The refusal*: the facts gain (c) `mise config ls --json`'s paths and (d) each one's `mise config get -f <path> env._.path` (measured, R§0 *#581 fix round 1*), so T1 (b) shows which file holds the entry and the user decides; item 2 states what `sys.executable` reports (measured); R§4.2 *Each case's fix* rewritten — the middle column holds only measured output; body §11 T1 (b) restated from a real-interpreter run (R§11 *T1*); body §2 I5 × I6 no longer claims "the block holds the fix for each case" |
 | **I2** (A5-1) consent timing vs the landing path | decision 221: the memo lands as #581, not with PR-1 — body §0 (decision bullet, *Landing paths*, PM 211 bullet), §5.1 (#514 items), §6 (*Depends on*, *Ordering*, *own length*), §8, §9 steps 0 and 3, VM P4 file (intro, O8, *landing memos* paragraph), C14 / C33 (C38); the request is sent once after #581's converge and #581's merge waits for it |
 | A1-1 + A5-3 the consent subject listed three ways | one list, §5.3 (c) (V1–V23, V6's question, V22's option, P2, O4, the checker run, O8, and two items for information); §6, §8, §9 step 3 and the O4 / O7 / O8 owner cells cite it ("with consent") |
 | A1-2 O8's red ownership by file owner | O8: ownership by who wrote the line; PR-1's lines in VM P4 memos are PR-1's |
@@ -302,6 +302,25 @@ unchanged to R§9 (body length); (4) (c) includes V1–V15 and V6's question (A5
 by PM decision 233; (5) PR-0 stays after #581 — it cites the umbrella, which must be on `main` first (PM decision
 233, keeping decision 141's order).
 
+### §12.9 #581 fix round 2 (PM decision 243) — sibling sweep
+
+A re-check of fix round 1 (`4d7f02bc`) found 2 IMP of one shape — a canonical statement changed, the sites citing it
+not — and 6 MIN; PM decision 243 adds U1 and U2. Instrument: each canonical's citing sites enumerated with `git grep
+-nF`, one line per site in the commit body.
+
+| Finding | What changed, where |
+|---|---|
+| **IMP-1** C31 still stated draft 8's refusal (items 1–5, three stderr lines, four actions, two commands); body §4.2's citer list | C31 rewritten to cite body §4.2 / C37 (a); C27's "two commands" gains the third (`config ls`); body §4.2's list of citers made true |
+| **IMP-2** PR-0's *Depends on* and §9 step 2 omitted #581's merge | body §6 PR-0 row and §9 step 2: after #581 merged (which waits for the consent) |
+| M1 §9 step 3 restated the consent subject partially | cites §5.3 (c) only |
+| M2 §9 step 6 "the consent of step 3" | step 0 |
+| M3 "action (4)" now names `exec` in R§4.2's numbering | "draft 8's action (4)": body §0 PM 221 bullet, §12.8 I1 row, §14; R§0's quote of decision 221 gains a bracketed clarifier |
+| M4 V6 (ii)'s 2 lines assigned to V9 only; body §6 "§5.2's edits remove lines" | VM P4 file: V9 and V10 together; body §6: not guaranteed under (ii) |
+| M5 §13's header omitted C25 / C26 among C38's amendments | header |
+| M6 R§4.2's "another `python3` ahead" row cited a run that was admitted (bare `python3` was the pin) | cites the `sys.executable`, T1 (b) and J4 runs; the rc 1 stays on the *Another `python3` ahead* run |
+| U1 O8's "a red on a line no python-pin PR wrote would already be red on `main`" (unmeasured) | deleted; a red arising from the family sources PR-1 changes is PR-1's |
+| U2 an answer that changes the memo | §9 step 0: the new head is converged afresh and the request re-sent for the diff only |
+
 ---
 
 ## §13 Per-PR plan consequences (drafts 3–8, #581 fix round 1)
@@ -309,7 +328,7 @@ by PM decision 233; (5) PR-0 stays after #581 — it cites the umbrella, which m
 For the driver to schedule; the per-PR plans are not edited by this draft. C1–C8 are draft 3's, C9–C14 draft
 4's, C15–C20 draft 5's, C21–C24 draft 6's, each amended where a later draft changes it; C25–C29 are new in draft 7, C30 in its
 decision-211 fold, C31–C36 in draft 8 (which amends C4, C6, C14, C16, C20, C24, C26, C27), C37–C38 in #581's fix
-round 1 (which amend C14, C20, C24, C31, C33).
+round 1 (which amend C14, C20, C24, C25, C26, C31, C33); #581's fix round 2 corrects C27 and C31 in place (§12.9).
 This list is complete for #581's fix round 1: every per-PR plan statement that it makes false or incomplete has an
 item here.
 
@@ -512,7 +531,8 @@ item here.
   --json` lists the running interpreter's directory before the install's (cause: `_.path`) and one that does not
   (cause: PATH order); a no-mise fixture asserting the remedy text names installing mise. **Draft 8 withdraws
   the `mise env --json` read, both cause fixtures and "never write the pin into it"** (PM decision 217; C31); "the
-  two commands" and the no-mise fixture stay, the latter asserting the generic block's first action.
+  two commands" and the no-mise fixture stay, the latter asserting the generic block's first action. **#581's fix
+  round 1** adds a third command, `mise -C <root> config ls` (body §4.2's block).
 - **C28 — I7's helper home and the child-process rule (R6 M3, M5, M7)**: PR-1 §4's edit set names
   `scripts/python_pin_testing.py` (not a set member, not a T5 member) as the helper's file; PR-1 §6 states that
   every fixture reaching the oracle or the warning runs `python_pin.py` as a child under the helper (a test-only
@@ -527,14 +547,12 @@ item here.
   regenerated manifest (two MUTANT lines); the consent request offers the VM P4 lane the fix itself, and if it
   takes it, V22 leaves PR-1's edit set and PR-1's re-derivation records that.
 - **C31 — PR-1's refusal is facts plus one generic block (PM decision 217)**: PR-1 §4.2 (b) / C4 / C16 (b) /
-  C27 are restated to body §4.2 *The refusal*: items 1–5 (the pin and its file, the version found,
-  `sys.executable` as reported, the cwd and the root, mise's answer per element with `install_path` and `mise
-  which python3`'s result — or "no answer" with mise's first three stderr lines —, the warning lines), then the
-  fixed generic block of four actions and the oracle's two commands; no cause line, no remedy chosen. Pins: every
-  oracle fixture asserts its fact lines and that the generic block is byte-identical to the module's one
-  constant; the fake `mise` records its argv, and a control asserts it was asked exactly `ls --current --json
-  python` and `which python3` (a mutant adding `env --json` is red); the dead-end check of R§4.2 *Each case's
-  fix* is a table in PR-1's plan with one fixture per row. PR-1 §2's I5 × I6 row follows body §2.
+  C27 are restated to body §4.2 *The refusal* — its facts and its generic block as C37 (a) states them; no cause
+  line, no remedy chosen. Pins: every oracle fixture asserts its fact lines and that the generic block is
+  byte-identical to the module's one constant; the fake `mise` records its argv, and a control asserts it was
+  asked exactly C37 (a)'s commands (a mutant adding `env --json` is red); the dead-end check of R§4.2 *Each case's
+  fix* is a table in PR-1's plan with one fixture per row. PR-1 §2's I5 × I6 row follows body §2. (Draft 8's text
+  here — items 1–5, three stderr lines, four actions, two commands — was replaced by #581's fix round 2, §12.9.)
 - **C32 — PR-1's VM-P4 checker run (R7 J1)**: PR-1 §8 / §12 add, after the V19–V21 / V23 edits, `python3
   .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-07-vm-p4-es-language-completeness.md` on the pin,
   exit 0 expected (CLAUDE.md:55), its output in the PR body; a 1 or 2 is fixed in PR-1's edit. The guard runs as a
@@ -651,7 +669,7 @@ item here.
 - **#581 fix round 1** (draft 9, 2026-11-01): PM decision 221; base `ee6c7a1a`. Draft 8 was split at its `# Landing
   file N` markers into the four files of body §6 (#581's first commit, `0613bd85`); this round edits
   them in place on #581's branch `ci-python-pin-umbrella` and gives each companion a title line and a sentence
-  saying where it lives. I1 (action (4) removed; the facts gain `mise config ls --json` and per-file `env._.path`),
+  saying where it lives. I1 (draft 8's action (4) removed; the facts gain `mise config ls --json` and per-file `env._.path`),
   I2 (the memo lands as #581; the consent once, after #581's converge, #581's merge waiting for it), the 18 MINs
   (§12.8), §5.3 (c) the one consent list, R§9 (moved from body §9 step 3), C37–C38. Counts (body §6's command):
   body 998 lines, VM P4 198, records 580, rounds 661, total 2437. Measurements by the designer,
@@ -660,3 +678,7 @@ item here.
   reported; another `python3` ahead of the shim); three J2 rows on both interpreters; V23's grep; the controls
   file's headroom. The user's `~/.local/state/mise/tracked-configs` / `trusted-configs` listings had 144 / 72 lines
   before and after; no entry points into `scratchpad/c1`. No cargo build; no commit (the driver commits).
+- **#581 fix round 2** (2026-11-03): PM decision 243; on #581's branch at `722e7523`. The sibling sweep of §12.9
+  (IMP-1, IMP-2, M1–M6, U1, U2), each canonical's citing sites enumerated by `git grep -nF` and listed in the
+  commit body. Counts (body §6's command): body 1000 lines, VM P4 198, records 580, rounds 684, total 2462. No
+  measurement, no mise, no cargo build.
