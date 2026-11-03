@@ -154,6 +154,18 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
    `call_internal` — one of dec. 10's four unrooted windows — is already reached at N≫1 through it,
    so sharing puts that on one audited path. ⚠ *This entry once said `Reflect.apply` "will home there" too; that is withdrawn — **dec. 17** resolves the generic path the other way (it must NOT reuse the dense fast path), and dec. 17 is the home of that question.* The array-like/dense distinction stays a
    *caller-side* precondition, not a second helper.
+   ⚠ **Correction (2026-11-03, 1aa plan-review R1): "`collect_array_like` already has the correct
+   `.or_undefined()` normalisation" is false for `collect_array_like`'s own caller.** Its dense branch
+   (`vm/natives_function.rs:278-280` at `eaa741b5`) takes every `ObjectKind::Array` and maps a hole to
+   `undefined`. `Function.prototype.apply` (§20.2.3.1 step 4) is CreateListFromArrayLike (§7.3.19),
+   whose step 6.b `? Get(obj, indexName)` consults the prototype chain for a hole. So dec. 17's
+   reasoning for `Reflect.apply` applies to `Function.prototype.apply` as well. Probe at `eaa741b5`:
+   with a getter on `Array.prototype[0]`, `f.apply(null, [ , 1])` passes `undefined, 1` where the spec
+   passes the getter's value. The normalisation is right for the compiler-built arrays **1aa**
+   unpacks, and wrong for a holey array reaching CreateListFromArrayLike. **1aa** fixes it with this
+   entry's own rule: the dense branch is taken only when no element is `Empty` (the caller-side
+   precondition), and a holey array goes through the per-index `Get` path. Sharing the dense fast path
+   with 1aa stands.
 9. **Slice 0ca sweep method — RESOLVED (executed, not stipulated).** The three-pass sweep is now
    documented and **run** at the head of §2.2, and §2.2 is its output. It earned its keep
    immediately: it found 3 defects (`(x)++`, `(x)+=1`, `(a[0])++`) that the probe, R1, R2 and
@@ -196,8 +208,12 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     direct unit test on `ic_call(.., None)` so the branch is exercised where it lands.
     **RESOLVED (Codex R1 re-raised it): the second option.** Moving dec. 11 to that child is not free —
     §5's 1a row records `dispatch.rs`'s two callers as the *only* callers of `ic_call`/`ic_call_method`,
-    and re-signaturing them is what lets the layout work compile at all. So the refactor stays with
-    the child of umbrella 1a that owns the argument-layout and inline-cache contract, and **a direct
+    and re-signaturing them is what lets the layout work compile at all (⚠ *not true of 1aa's layout
+    helper, which compiles without it — the reason this resolution holds is the one below, that the
+    refactor stays inside the 1a half with its own direct test, and 1ad is inside the 1a half*). So the refactor stays with
+    **1ad** (the child of umbrella 1a that owns the inline-cache entry point — ⚠ *this read "the child of
+    umbrella 1a that owns the argument-layout and inline-cache contract", i.e. 1aa; 1aa's plan-review R1,
+    2026-11-03, split the IC half out of 1aa as 1ad, and this entry's item went with it*), and **a direct
     unit test on `ic_call(.., None)` is a required acceptance item of that child**, not an optional one;
     without it that child ships exactly the dead third state I-4 rejects. ⚠ **The owner is the child and
     not `1a`, which is an umbrella from this revision and names nobody as an owner (§5)** — placing this

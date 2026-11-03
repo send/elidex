@@ -518,8 +518,8 @@ Tagged templates, class fields, super-property, private names — each its own s
 text; this subsection is the record of the derivation §5's 1a row says the umbrella runs at its own
 start. §5's row-kind rule makes this its home — an umbrella's derivation is what *its* plan-memo
 states, and this file is the 1a/1b detail §5's row points at — while the **split, ordering and
-owner** it produces live in the structured cells: the rows **1aa**, **1ab** and **1ac** directly under
-1a in §5's table. Nothing below restates a `Deps` cell; where an edge is named, the cell is the
+owner** it produces live in the structured cells: the rows **1aa**, **1ab**, **1ac** and **1ad** directly under
+1a in §5's table (1ad split from 1aa at 1aa's plan-review R1, below). Nothing below restates a `Deps` cell; where an edge is named, the cell is the
 authority and this prose is the reason.
 
 **Seed — by command, over the spec's clause index** (§5: *a derivation's seed is produced by a
@@ -538,12 +538,20 @@ walk (`mark_roots`), as the 1a row already says. The seed is the input; each chi
 The grouping is the 1a row's own: three mechanisms, each with an assertion the other two pass
 (edge 32 / edge 21 / edges 27/28). The criterion re-applied to each group, at `eaa741b5`:
 
-- **(a) argument layout + IC entry** — two axes (the args-array→window contract, the
-  `Option<usize>` IC entry), and they do not intersect inside the group: the `None` arm and the
-  layout helper meet only in 1b's handlers. The canonical form is in-tree
-  (`construct_synchronous`'s callee-then-args layout). Neither disjunct ⇒ **one terminal row, 1aa**,
-  a **prerequisite** row in §5's sense, because the `None` arm has no JS-reachable holder until 1b's
-  children land.
+- **(a) argument layout + IC entry** — ⚠ *this read "two axes (the args-array→window contract, the
+  `Option<usize>` IC entry), and they do not intersect inside the group … Neither disjunct ⇒ one
+  terminal row, 1aa". That counted mechanisms where the criterion asks for axes.* 1aa's plan-review
+  (R1, 2026-11-03) took the measurement literally, each invariant broken alone by a compiling mutant
+  against the test that turns red (`docs/plans/2026-11-vm-p4-slice-1a-1aa.md` §2). Layout order, hole
+  normalisation, no allocation in the layout window, no iteration on the layout path (edge 32) and
+  argument width each fail while the others pass, and all five meet at `lay_out_call_args`. That is
+  ≥3 intersecting axes, so the first disjunct is **met**. The IC entry (`None` never touches
+  `call_ic_slots`) fails alone and intersects none of them. ⇒ **two terminal rows**: **1aa** (the
+  layout half, plus `Function.prototype.apply`'s hole precondition, which shares its primitive) and
+  **1ad** (the IC half), a **prerequisite** row in §5's sense, because the `None` arm has no
+  JS-reachable holder until 1b's children land. ⚠ **Open**: 1aa still carries the five intersecting
+  axes. Whether it is terminal by necessity (one ~20-line body whose every partition lands it missing
+  a property while `super(...)` makes it live) is that plan's §7 Q1, and is not settled here.
 - **(b) `op_array_spread`'s `return()`** — one axis (iterator-protocol observability), governed by
   §13.2.4.1, whose `SpreadElement` production drains through §7.4.10 and calls no IteratorClose
   (`webref body ecma262 sec-runtime-semantics-arrayaccumulation | grep -ci iteratorclose` → 0).
@@ -557,13 +565,16 @@ The grouping is the 1a row's own: three mechanisms, each with an assertion the o
 
 | Obligation, edge or acceptance item | Placed on |
 |---|---|
-| `lay_out_call_args`; the `Empty` normalisation; converting `op_super_call_spread`; correcting its docstring (the `expr_class.rs` producer is NOT folded); the IC `Option<usize>` refactor (dec. 11) | **1aa** |
-| edge **32**; dec. 11's direct `ic_call(.., None)` unit test; edge **16** (structural); dec. 8's shared dense path and dec. 17's dense half | **1aa** |
+| `lay_out_call_args`; the `Empty` normalisation; converting `op_super_call_spread`; correcting its docstring (the `expr_class.rs` producer is NOT folded) | **1aa** |
+| edge **32**; edge **16**, discharged structurally (a disjoint field borrow that makes an allocation in the window unrepresentable, plus a Rust tripwire test) and **not** by a `debug_assert!` (ratified at 1aa's plan-review R1; the 1a and 1aa rows say the same); dec. 8's shared dense path and dec. 17's dense half; `Function.prototype.apply`'s hole precondition (dec. 8's correction note, 2026-11-03) | **1aa** |
+| the IC `Option<usize>` refactor (dec. 11); dec. 11's direct `ic_call(.., None)` / `ic_call_method(.., None)` unit tests with their `Some` controls | **1ad** (split from 1aa at its plan-review R1) |
 | dec. 13a's `return()` removal; edge **21**; §6.2a's "`op_array_spread` is [C19]/[C22]-only afterwards"; the §6.2a-3 transport table's inline site | **1ab** |
 | dec. 10's rooting of `stack_slice` and `actual_args`; edges **27/28**; the `#11-vm-operand-rooting-by-construction` edge (the Rust placement affordance) | **1ac** — its `Deps` cell |
+| the touch-time split verdict on `vm/interpreter.rs` (1366 lines), assigned to umbrella 1a "through the children each mints for the work" (`2026-07-vm-p4-touch-time-split-record.md`, *Files the watch list still owns*) | **1ac** — the only child of 1a that touches the file (placed at 1aa's plan-review R1) |
 
 **Sibling edges: none.** No child consumes another's artifact — 1aa touches no drain and no
-`interpreter.rs` window, 1ab no call-entry path, 1ac no layout helper — so their order is free.
+`interpreter.rs` window, 1ab no call-entry path, 1ac no layout helper, and 1ad only the IC entry,
+which no sibling calls — so their order is free.
 1aa is written first because it is the producer every consumer in 1b reaches; that is a reason, not
 an ordering.
 
@@ -572,8 +583,8 @@ carries no ordering (§5's row-kind rule), so its `Deps` cell stays **—**, and
 each edge does not exist until 1b's derivation mints it. What 1a's derivation outputs is the
 producer ids those edges will name:
 
-- **1aa** — the child 1b mints for the argument-emit helper and the spread call handlers consume
-  `lay_out_call_args` and `ic_call(.., None)`: an artifact edge (a shared Rust helper signature, the
+- **1aa** and **1ad** — the child 1b mints for the argument-emit helper and the spread call handlers
+  consume `lay_out_call_args` (1aa) and `ic_call(.., None)` (1ad): artifact edges (a shared Rust helper signature, the
   class (d) of §5's edge-completeness passage). This is the `1b → 1a` edge that passage measured at
   `b3eb07c1`, with both endpoints now children.
 - **1ab** — 1b's spread aggregation reuses `op_array_spread` on the call path (§6.2a: "1b
@@ -584,7 +595,7 @@ producer ids those edges will name:
   artifact consumed is the rooted window; no JS-level 1b test can detect its absence (§6.4's ⚠⚠
   note), which is why the edge, not a test, carries it.
 
-So **1b depends on 1a's derivation's output, genuinely, and on all three children** — and the 1b
+So **1b depends on 1a's derivation's output, genuinely, and on all four children** — and the 1b
 `Deps` cell is correct as **—**: an umbrella cell that named `1aa` would order every 1b child,
 including ones (the I-3 tagged-template contract, dec. 12's bound) that consume nothing of 1a's.
 
@@ -605,13 +616,21 @@ reason to move it into 1a.
 phrase now denotes exactly one row:
 "the child of umbrella 1a that owns the argument-layout and inline-cache contract" = **1aa**;
 "the child of umbrella 1a that removes `op_array_spread`'s `return()`" = **1ab**;
-"the child of umbrella 1a that roots the four call-entry argument windows" = **1ac**. The structured
+"the child of umbrella 1a that roots the four call-entry argument windows" = **1ac**;
+"the child of umbrella 1a that owns the inline-cache entry point" = **1ad**. Since 1ad was split
+out of 1aa, the first phrase still denotes 1aa wherever it carries a layout obligation (edge 32, the
+docstring, dec. 8/17's dense path). The one prose site where it carried the IC obligation, §9
+dec. 11, is re-pointed to **1ad** by id, so each phrase still denotes one row. **Exempt:** the
+§6.2a-3 transport table's owner cell for the inline site (the *Inline re-implementation* row above,
+"the child of umbrella 1a that removes `op_array_spread`'s `return()`") sits in this file's verbatim
+carve region and keeps the phrase. It denotes **1ab** by this map. The structured
 owner cells that carried a phrase (the entry's citation table `Used by` column and its §3 coverage
 row for §13.2.4.1) are re-pointed to the id; prose sentences keep the phrase, which this map makes
 unambiguous.
 
 **1aa's per-PR plan** is `docs/plans/2026-11-vm-p4-slice-1a-1aa.md` (outside the family glob, so cited
-by path, not linked).
+by path, not linked). **1ad's per-PR plan memo is owed** and is not written yet; its input is that
+plan's §8, which carries rev 1's IC design and tests, corrected for the R1 dry-run.
 
 ---
 

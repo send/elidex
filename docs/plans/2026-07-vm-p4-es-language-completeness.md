@@ -43,7 +43,7 @@ rule.
 | ID | Citation | Anchor | Used by |
 |---|---|---|---|
 | [C19] | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `#sec-runtime-semantics-argumentlistevaluation` | the child umbrella **1b**'s derivation mints for the argument-emit helper · the child of umbrella 4a that owns the tagged-call lowering |
-| [C20] | ECMA-262 §13.3.6.2 EvaluateCall | `#sec-evaluatecall` | the child umbrella **1b**'s derivation mints for the argument-emit helper · the child of umbrella 4a that owns the tagged-call lowering |
+| [C20] | ECMA-262 §13.3.6.2 EvaluateCall | `#sec-evaluatecall` | the child umbrella **1b**'s derivation mints for the argument-emit helper · **1ad** (the child of umbrella 1a that owns the inline-cache entry point: `ic_call` / `ic_call_method`, steps 1-2, 4-5, 7) · the child of umbrella 4a that owns the tagged-call lowering |
 | [C33] | ECMA-262 §13.3.5.1.1 EvaluateNew | `#sec-evaluatenew` | the child umbrella **1b**'s derivation mints for the argument-emit helper |
 | [C34] | ECMA-262 §7.3.14 Construct | `#sec-construct` | the child umbrella **1b**'s derivation mints for the argument-emit helper |
 | [C35] | ECMA-262 §7.4.10 IteratorStepValue | `#sec-iteratorstepvalue` | **1ab** (the child of umbrella 1a that removes `op_array_spread`'s `return()`, minted by that umbrella's derivation) |
