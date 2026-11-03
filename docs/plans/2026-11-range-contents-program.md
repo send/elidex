@@ -124,6 +124,8 @@ program's child-list split (PM 160); fix-delta review fixes.
 
 **Rev 6.5** (2026-11-03) — TERMINAL gate: C0 references restated as own-words substance + PM IDs, PM 273; suspension-point rule; clippy rename, PM 262/265; PM-ID attributions corrected per PM records; TERMINAL-gate fixes: PM 158/160/244 attributions; A6 rule stated once in §2 C3, other sites reference it (PM 244; confirmed PM 247 / 261); cloner owner rule and `begin_detached_fragment` re-attributed to the C0 program plan.
 
+**Rev 6.6** (2026-11-03) — hand-stamp rule corrected per PM 293: C0b-first, C0b removes both stamps; rule stated once in H9.
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 The decision and how this memo refines the cut
@@ -1534,15 +1536,7 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   extends it to the shadow child's descendant: once the shadow children are deep clones, `clone_subtree`'s
   `doc_override` stamps them and the hand stamp at `node_methods/clone.rs:294-301` goes. The assertion reads
   `owner_document` and expects the source's document, as the test does today; any further node-document rule is
-  Layout's (C3). **The hand stamps and C0b (R61-3 (d), PM 247).** Two hand stamps sit in pass 4: `:282-285` stamps
-  the cloned host and the replicated shadow root, which neither the shallow cloner nor `attach_shadow_with_init`
-  stamps today, and the `if !deep` block `:294-301` stamps the one shallow shadow-child clone. Once C0b's shallow
-  cloner stamps the operation's document and `attach_shadow_with_init` takes its owner from the entry (per the C0 program plan (Layout, unlanded)),
-  both are dead. The rule is that whichever of C0b and RC-2a lands second removes the stamps that are dead at
-  its head, and the other side's DoD notes it. **If C0b is in RC-2a's base, RC-2a writes no hand stamp at all**
-  (PM 247): it deletes `:282-285` and, with D14, `:294-301`. If RC-2a lands first, D14 still deletes `:294-301`,
-  because its loop no longer makes a shallow clone, so that block is gone in either order; RC-2a keeps `:282-285` and
-  adds no stamp, and C0b, landing second, removes `:282-285`. The stamp guard above stays green in all three states. **`cloneNode` as today** (§0.3 item 29): the existing `cloneNode` custom-element and form tests stay
+  Layout's (C3). **The hand stamps and C0b (R61-3 (d), PM 247 / 293).** Pass-4 hand stamps: which side removes which, per H9 (PM 247 / 293). The stamp guard above stays green in all three states (H9). **`cloneNode` as today** (§0.3 item 29): the existing `cloneNode` custom-element and form tests stay
   green unchanged (same candidates, same order, same queue position; the #466 I3 case
   `detachedInput.cloneNode().value` reads the copied value before any insertion); `cloneNode(true)` (`Subtree`) and
   `cloneNode(false)` (`SelfOnly`) of a defined custom element each enqueue its upgrade; no upgrade for a
@@ -1988,12 +1982,7 @@ stated (PM 215 Q-Y1). Cross-lane:
   proposed `#11-document-null-registry-adopt-reset`; none of these is an order. The edges below name RC-2a and RC-2b separately (R61-3 (f)).
 - **RC-2b and C0b on A6, the creation site.** RC-2b is not gated on C0b; owner and calls per §2 C3, which also
   holds the compiler enforcement, C0b's conditions (a) / (b) and the interim. Appendix A, re-run at RC-2b's head, goes to Layout.
-- **RC-2a and C0b on `node_methods/clone.rs`, the pass-4 hand stamps (R61-3 (d), PM 247).** Once C0b's shallow
-  cloner stamps and `attach_shadow_with_init` takes its owner from the entry (per the C0 program plan (Layout, unlanded)), the hand stamps at `clone.rs:282-285`
-  and `:294-301` are dead. Whichever of C0b and RC-2a lands second removes the ones dead at its head, and the other
-  side's DoD notes it. If C0b is in RC-2a's base, RC-2a writes no hand stamp at all. D14 deletes `:294-301` in either
-  order, because its loop no longer makes a shallow clone (§5.2a Tests). Layout adds the same conditional to C0b's
-  edge row (PM 247); hand-off H9.
+- **RC-2a and C0b on `node_methods/clone.rs`, the pass-4 hand stamps (R61-3 (d), PM 247 / 293).** Pass-4 hand stamps: which side removes which, per H9 (PM 247 / 293).
 - **RC-2a before C1 on `node_methods/clone.rs`.** C1 depends on all of RC-2a (Layout, PM 249), not only D14.
   D14 and C1 rev 1 (`1a2cb286`, D-C6) edit the same lines
   (`clone.rs:262` pass 3's subtree flag, `:290` the step 6.7 child clone, `:294-301` the shallow-branch stamp). D14
@@ -2299,12 +2288,17 @@ and H10 are registered by the PM at memo landing):
   Applied by Layout (the row is split into a scoped half and a non-scoped half; PM 258). Also the C0 program's
   hand-off to L3 is applied:
   the getter fallback premise is fixed (§0.2), RC-2b's A6 follows §2 C3 (PM 244), and both named slots are L3's (§8).
-- **H9 (Layout, via the PM; PM 247)** The pass-4 hand stamps of `node_methods/clone.rs` (`:282-285` the cloned host
+- **H9 (Layout, via the PM; PM 247, PM 293)** The pass-4 hand stamps of `node_methods/clone.rs` (`:282-285` the cloned host
   and replicated shadow root, `:294-301` the `!deep` shadow-child stamp) are dead once C0b's shallow cloner stamps and
-  `attach_shadow_with_init` takes the entry's owner (per the C0 program plan (Layout, unlanded)). Whichever of C0b and RC-2a lands second removes the ones dead at
-  its head, and the other notes it in its DoD; if C0b is in RC-2a's base, RC-2a writes no hand stamp at all. D14
-  removes `:294-301` in either order, because its loop no longer makes a shallow clone, so in the RC-2a-first order
-  only `:282-285` is left for C0b (§5.2a, §9). Layout adds the conditional to C0b's edge row (PM 247).
+  `attach_shadow_with_init` takes the entry's owner (per the C0 program plan (Layout, unlanded)). The rule is forced by the
+  build: C0b makes `set_associated_document` `pub(crate)` (per that plan), and both stamps call it directly from the
+  dom-api crate (at origin/main, `:282-285` the two calls on the replicated shadow root and the cloned host, `:294-301` the
+  call on the shadow-child clone), so C0b cannot leave either call in its head. **C0b first**: C0b removes both `:282-285`
+  and `:294-301`; RC-2a writes no hand stamp. **RC-2a first**: RC-2a's D14 removes `:294-301`, because its loop no longer
+  makes a shallow clone; RC-2a keeps `:282-285` and adds no stamp, and C0b, landing second, removes `:282-285`. In both
+  orders whichever lands second removes what is dead at its head, and the other side's DoD notes it (PM 247 / 249, with
+  PM 293's constraint). The stamp guard (`tests/clone.rs:902`) stays green in all three states: C0b first, RC-2a first
+  with C0b not yet landed, and both landed. Layout carries the same rule in C0b's edge row (PM 247 / 293).
 - **H10 (PM, ledger; R61-1, PM 247; paste-ready, addressed to `#11-dom-api-attr-entity-model-unification`)** Facet
   (added 2026-11-03, from the Range contents umbrella Rev 6.1, `docs/plans/2026-11-range-contents-program.md` §0.3
   item 32 / §0.4 D16): *StaticRange constructor with an Attr container.* DOM §5.4 `new StaticRange(init)` step 1:
@@ -2353,7 +2347,7 @@ and H10 are registered by the PM at memo landing):
 branch (E3); whether `SelectionError` folds there (E3, §8); D10 / D11 / D12 / D13 measurements; the cap-policy justifications (§5.1 DoD). RC-2a: the
 Attribute-stub check (§5.2a); the census of exhaustive `MutationEvent` matches, re-run if C0c lands first (§4.3
 condition 1, §9); the no-dispatcher one-shot census and whether it becomes a standing check (§0.3 item 34); which
-pass-4 hand stamps it removes, by C0b's state at its base (§5.2a, H9); the #466 reversal review (R6-3); where the form
+pass-4 hand stamps it removes: per H9 (PM 247 / 293); the #466 reversal review (R6-3); where the form
 pass's first-level walk calls `for_each_clone_created` (§4.3 condition 4). RC-2b: which C0b branch applies at its base
 (§2 C3), and Layout's answer on (a) / (b) if RC-2b lands first; the D-g′ ordering mutant run. RC-4: §5.4 (a)-(e); the P4 producer; whether J12 needs a new wrapper in
 `settings_route.rs`.
