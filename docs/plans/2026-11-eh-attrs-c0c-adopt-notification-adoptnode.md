@@ -24,7 +24,9 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.7.2* (2026-11-03, PM 317 / 318; with the program memo's rev 3.8): #583 landed (`12ea5dce`):
+**Changelog.** *Rev 3.7.3* (2026-11-03, focused re-check after PM 315; with the program memo's rev 3.9): the skip covers
+the Attr re-home (D-3 (c), U19, §6.3); U19's legs get distinct documents and an unambiguous order; §2 A1×A4 says what
+tree position chooses. *Rev 3.7.2* (2026-11-03, PM 317 / 318; with the program memo's rev 3.8): #583 landed (`12ea5dce`):
 DoD 8 lists its four `dom/mod.rs` statements on main, edge c0h; the `live.rs` / `mutation_hook.rs` splits are L3
 RC-0a's (PM 318): header, D-14, §5, c0-pre-b, DoD 1. *Rev 3.7.1* (2026-11-03): sweep after PM 315 — scope item 1, §2 A3×A4, §3 and §4.2 point at D-3 (c) /
 D-6 instead of implying a segment per fragment; U19's third leg and §6.3's row restore the pin of a nested segment
@@ -80,7 +82,8 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   `old` is `None`, or when the template lies in a `None` segment. A fragment is **skipped** when its `old` equals `new`
   (the nested adopt's step 3 guard, "If document is not oldDocument", `#concept-node-adopt`) or its template's innermost
   contents fragment (D-6's lookup) is skipped: the walk writes no stamp to it or to a node whose innermost contents
-  fragment is skipped, and records no segment for it. C0c is the first place this is reachable (`adoptNode` can put
+  fragment is skipped, re-homes none of such a node's Attrs (the guard gates the whole loop, 3.1 and 3.3.1), and
+  records no segment for it. C0c is the first place this is reachable (`adoptNode` can put
   contents in another document than their template's).
 - **D-6 — the event and its consumers.** `MutationEvent::Adopt { node, documents: Option<(Entity, Entity)>, contents:
   &'a [AdoptedContents] }`; `adopt` dispatches it after the walk, before returning to the primitive (so before
@@ -160,7 +163,7 @@ null-registry document (e.g. DOMParser) gets an extra `adoptedCallback(dp, docum
 
 | pair | intersection | pinned by |
 |---|---|---|
-| A1×A4 | each pair's `old` is a stamp read before the walk, `new` the stamp written; the consumer reads no tree position | U13, T18 |
+| A1×A4 | each pair's `old` is a stamp read before the walk, `new` the stamp written; tree position only chooses which pair applies (D-6), no node document is derived from it | U13, T18 |
 | A1×A9 | `adoptNode`'s record is the removal's; the stamp change is no record | T16 |
 | A2×A4 | `Adopt` precedes `Insert`; in `replace_child`, `Adopt(new_child)` precedes `Remove(old_child)` | U4 (C0c part), T7 |
 | A3×A4 | the consumer visits the walk's set in spec order (D-19), each node with its pair (D-6's lookup) | U13, U18, T18 |
@@ -302,7 +305,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | U10 | red | `EcsDom::adopt(fragment, D)` on a parentless fragment with children | one `Adopt`, `documents = Some((X, D))` |
 | U13 | red (order; `elidex-custom-elements`) | a template with a custom light child `L` and a custom element `C` in its contents, adopted | reactions `C` then `L`; `C` with its segment's pair |
 | U18 | red (D-19; `elidex-ecs`) | `for_each_uncapped_shadow_inclusive(root, Include, …)` over a template with contents and light children, and a shadow host | template, its contents subtree, then its light children; host, its shadow tree, its light children |
-| U19 | guard | nested contents: a template inside contents of a template, a custom element in the inner contents; second leg: the outer contents already in the target, the inner contents (with the element) adopted into `X` first; third leg (fixture): the outer contents ownerless (silent re-home), the inner contents in `X` ≠ the target | the inner element gets the innermost segment's pair; second leg: no segment for either contents, the inner contents and the element still read `X`, no reaction (D-3 (c) skip); third leg: both segments recorded with `documents = None`, both contents and the element stamped with the target (not skipped), no reaction (its own pair would give `Adopted(X, target)`) |
+| U19 | guard | nested contents: a template inside contents of a template, a custom element in the inner contents; first leg: the outer template in `D0`, the outer contents in `Y`, the inner contents in `X` (three distinct documents); second leg: the outer contents adopted into the target, then the inner contents (with the element and its materialized `a = el.getAttributeNode('id')`) into `X`; third leg (fixture): the outer contents ownerless (silent re-home), the inner contents in `X` ≠ the target | first leg: the inner element gets `Adopted(X, target)` (the innermost segment's pair); second leg: no segment for either contents, the inner contents, the element and `a` still read `X`, no reaction (D-3 (c) skip); third leg: both segments recorded with `documents = None`, both contents and the element stamped with the target (not skipped), no reaction (its own pair would give `Adopted(X, target)`) |
 
 ### §6.3 Mutation guards
 
@@ -312,6 +315,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | `Adopted` after `Connected` / `Adopt` after `Insert` | T6, T7, U4 |
 | root pair used for contents | T18, U13, U19 |
 | the walk stamps or records inside a fragment whose `old` equals `new` | U19 (second leg) |
+| the skip applied to the stamps but not to the Attr re-home | U19 (second leg) |
 | a segment under a `None` segment keeps its own pair | U19 (third leg) |
 | contents visited after the template's subtree | U13, U18 |
 | `Adopt` on a same-document move / for an ownerless root | T14, U5, U2′ |

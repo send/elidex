@@ -55,7 +55,8 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.8* (2026-11-03, PM 317 / 318): #583 landed (`12ea5dce`): header coordinates, edge c0h; D-14 (d),
+**Changelog.** *Rev 3.9* (2026-11-03, focused re-check after PM 315; with C0c memo rev 3.7.3): D-3's skip pointer covers
+(b) as well as (a); I-U and §2.2 A1×A4 say what tree position chooses. *Rev 3.8* (2026-11-03, PM 317 / 318): #583 landed (`12ea5dce`): header coordinates, edge c0h; D-14 (d),
 (e) are L3 RC-0a's (PM 318): header table, D-14, c0-pre-b, H-L3 (2), §9 item 2. *Rev 3.7* (2026-11-03): sweep after PM 315 — D-3 (a) / (c), §2.1 A3, §2.2 A3×A4 and §9 item 6 point at
 C0c memo D-3 (c) / D-6 / DoD 8 instead of restating the pre-3.7 segment rule. *Rev 3.6* (2026-11-03): C0c's plan-review (`76af676a`; dispositions in the C0c memo §10) and PM 306 /
 311. Edge c0h (#583 → C0c) and the order line; §9 item 6 gains C0c's points; D-3 (c) / D-6: a segment under a `None`
@@ -190,8 +191,8 @@ cells) and cites this text.
   session's fragment arm (D-5), and from C0c `apply_adopt_node` (D-13). C0c adds one `MutationEvent::Adopt` after the
   walk (D-6); C0b ships no event variant (no consumer-less event, PM 244).
 - **D-3 — the adopt walk.** `adopt_subtree` moves to `mutation.rs` and keeps its walk (`for_each_uncapped_shadow_inclusive(root,
-  TemplateContentsWalk::Include, …)`). **(a) (C0b)** sets every visited node's `AssociatedDocument` to `document`
-  (from C0c, except inside a fragment C0c memo D-3 (c) skips; step 3.1; for template contents, HTML §4.12.3's adopting steps with the identity target under C2; C1 replaces that
+  TemplateContentsWalk::Include, …)`); from C0c, (a) and (b) skip the nodes C0c memo D-3 (c) skips. **(a) (C0b)** sets every
+  visited node's `AssociatedDocument` to `document` (step 3.1; for template contents, HTML §4.12.3's adopting steps with the identity target under C2; C1 replaces that
   one edge with `f(document)`, C1 memo D-C5); **(b) (C0b)** re-homes each visited element's materialized Attr entities —
   its `AttrEntityCache` entries (step 3.3.1, H-17, H-23); **(c) (C0c)** records contents segments `{ fragment, documents:
   Option<(old, new)> }` — which fragments, and when `documents` is `None`: C0c memo D-3 (c).
@@ -476,7 +477,7 @@ per adopt call, per-node pairs), not a per-descendant hook.
 
 | axis | invariant | PR |
 |---|---|---|
-| A1 fact | **I-U:** for every node n with a parent or host p **whose `node_document_for_new_nodes(p)` is `Some`**, `node_document(n)` equals it — the parent's node document, except under the fragment-parse root (D-10), which exists only during a build; template contents are not children (their fragment is stamped by `attach_template_contents` and by the walk's contents edge). Under an ownerless p the child keeps its stamp (D-4, U3): reachable only from fixtures and below a node whose source had no node document (A5×A8). Each element's materialized Attrs share its node document. `node_document` reads only the stamp; no production reader derives a node document from tree position or `document_root()` | C0b |
+| A1 fact | **I-U:** for every node n with a parent or host p **whose `node_document_for_new_nodes(p)` is `Some`**, `node_document(n)` equals it — the parent's node document, except under the fragment-parse root (D-10), which exists only during a build; template contents are not children (their fragment is stamped by `attach_template_contents` and by the walk's contents edge). Under an ownerless p the child keeps its stamp (D-4, U3): reachable only from fixtures and below a node whose source had no node document (A5×A8). Each element's materialized Attrs share its node document. `node_document` reads only the stamp; no production reader derives a node document from tree position or `document_root()` (C0c memo D-6 uses tree position only to choose a recorded pair) | C0b |
 | A2 position | At every link the child's adoption completes after its old-parent removal and before `link_node`; in `replace_child` before `old_child`'s removal; a replaced-in fragment is adopted itself; a pre-inserted fragment keeps its node document | C0b |
 | A3 walk | Adoption re-homes the root's shadow-including inclusive descendants, each element's cached Attr entities and each reached template's contents (C2: same document), uncapped; from C0c in spec order (D-19), with the skips and segments of C0c memo D-3 (c) | C0b, C0c |
 | A4 notification | `Adopt` fires once per adopt call iff the root's pair is a (live, different) pair, before that root's `Insert`; every custom element whose pair is `Some` gets exactly one `Adopted` with its own pair, in spec order, before its `Connected` | C0c |
@@ -492,7 +493,7 @@ per adopt call, per-node pairs), not a per-descendant hook.
 |---|---|---|---|
 | A1×A2 | yes | I-U is established by D-4 at every link (H-2); a primitive that linked before adopting would let an `Insert` consumer read the old stamp (U4) | C0b |
 | A1×A3 | yes | I-U across the host edge needs a shadow-including walk; the contents edge's stamp comes from the same walk (U1, T4) | C0b |
-| A1×A4 | yes | Each pair's `old` is a stamp read before the walk, `new` the stamp written; the consumer reads no tree position | C0c |
+| A1×A4 | yes | Each pair's `old` is a stamp read before the walk, `new` the stamp written; tree position only chooses which pair applies (C0c memo D-6), no node document is derived from it | C0c |
 | A1×A5 | yes | Build nodes are created and linked in the redirect document (D-10); the throwaway holds only root; the strict rollback despawns everything | C0b |
 | A1×A6 | yes | Deleting the fallbacks is sound only if every script-reachable node is stamped: I-U for linked nodes, D-11 / D-17 for creations (T20–T23, U8, U12) | C0b |
 | A1×A7 | yes | N1's node clause becomes `node_document(target) != bound`; equal to the proxy's answer for a connected node, the last adoption's for a detached one (T8–T10) | C0b |
