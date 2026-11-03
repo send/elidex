@@ -8,7 +8,7 @@ Nested **program C0** of the standalone program `EH-attrs-at-creation` (umbrella
 | PR | per-PR plan memo | content (decisions of §0.4) |
 |---|---|---|
 | **C0a** `EH-attrs-at-creation-C0a` | `docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md` (NEW) | D-12, after its prerequisite split D-14 (a) |
-| **C0b** `EH-attrs-at-creation-C0b` | `docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md` (NEW) | D-1, D-2 (no `Adopt` event), D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-15 (iii), D-17, D-18, D-20, D-21, after its prerequisites D-14 (c) and the CI/tools default-features check PR (D-17 (iii), PM 255) |
+| **C0b** `EH-attrs-at-creation-C0b` | `docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md` (NEW) | D-1, D-2 (no `Adopt` event), D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-15 (iii), D-17, D-18, D-20, after its prerequisites C0b-pre1 = D-14 (c), the CI/tools default-features check PR #585 (D-17 (iii), PM 255; merged `115a667c`) and **C0b-pre2** = D-21 (`docs/plans/2026-11-eh-attrs-c0b-pre2-attr-relation.md`, NEW, with its own plan-review; PM 283) |
 | **C0c** `EH-attrs-at-creation-C0c` | `docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md` (NEW) | D-3 (c), D-6, D-13, D-19, after its prerequisite splits D-14 (b), (d), (e) |
 
 This memo holds what the three share: the frame and premises (§0), the decisions with their owning PR (§0.4), the
@@ -56,7 +56,10 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.2* (2026-11-03): C0a's plan-review (`4c79d9c8`; 0 CRIT / 3 IMP / 15 MIN; dispositions in the
+**Changelog.** *Rev 3.3* (2026-11-03): C0b's plan-review (`15e99049`; dispositions in the C0b memo §10) and PM 283.
+D-21 is C0b-pre2's (NEW per-PR memo), before C0b: header table, D-21, §1, §3, edge c0-pre2, R-3, §9. The CI/tools PR
+is #585 (edge c0-pre-ci). D-17 (iii), H-24: the boundary check reads build edges too. §4.4: the census population by
+property, raw spawns included. *Rev 3.2* (2026-11-03): C0a's plan-review (`4c79d9c8`; 0 CRIT / 3 IMP / 15 MIN; dispositions in the
 C0a memo §10) and PM 266 / 271 / 273. D-12: `capture_move_source`, the per-line renumber table (C0a). D-9 / R-3 /
 H-T: C0a also writes the order line's immediate consequences in the umbrella (PM 271, amending PM 223 O-1; table
 E1–E13 in R-3), R-B stated as text, "nothing else" narrowed. D-17 (iii), A8, H-24: the guard claims only that
@@ -122,7 +125,7 @@ check: the crates are identical). Every § number ↔ title pair and algorithm s
 | H-21 | The `AssociatedDocument` write and read surface | writers: `set_associated_document` (`pub`, `mod.rs:789`) — prod callers `teardown.rs:257`, `tree_clone.rs:221`, `:230`, `:417`, `node_methods/clone.rs:283`, `:284`, `:299`; the creators' `insert_one` (`mod.rs:341-358` and kin). Readers: `get_associated_document` (`pub`, `mod.rs:777`; outside `mod.rs` only test reads `scripting.rs:201`, `:234`), `owner_document`. The component's field is `pub` (`components.rs:595`); no production code outside `elidex-ecs` names the type: `git grep -n 'set_associated_document(\|get_associated_document(\|AssociatedDocument(' -- 'crates/*.rs'` |
 | H-22 | The four ownerless creators and their reach | `create_element` (`mod.rs:331`), `create_text` (`:492`), `create_document_fragment` (`:519`), `create_comment` (`:593`), all `pub`, each `…_with_owner(…, None)`. Raw call lines: `git grep -n -E '\.create_(element\|text\|comment\|document_fragment)\(' -- 'crates/*.rs' \| wc -l` → 2577; outside test-path files (`… \| /usr/bin/grep -v -E '/tests/\|tests\.rs\|/tests_\|test_helpers\|test_util\|/benches/' \| wc -l`) → 431, of which most are inline `#[cfg(test)]` modules (§4.4) |
 | H-23 | The element↔Attr relation has four partial writers in dom-api | `GetAttributeNode` creates, sets `owner_element` and registers in `AttrEntityCache` (`char_data/attr.rs:90`, `:97`, `:101-110`); `SetAttributeNode` (`:117-183`) sets `owner_element` only (`:180`) — no stamp, no cache entry, the replaced Attr keeps its element; `RemoveAttributeNode` nulls `owner_element` (`:233`) and keeps the cache entry; `RemoveAttribute` evicts the entry (`element/props.rs:148`) and keeps the Attr's `owner_element`. DOM §4.9 *append an attribute* 1–3, *replace an attribute* 2–5, *remove an attribute* 2–3 (`webref body dom concept-element-attributes-append`, `-replace`, `-remove`, run 2026-11-03) set list, element and node document together. Unit-observable only (H-17) |
-| H-24 | `fixtures` (NEW, C0b) can be checked from cargo's own feature graph: a dev-only feature does not appear on normal edges | `test-hooks` (`crates/net/elidex-net/Cargo.toml:39`, "Not enabled in production builds") is enabled only by `elidex-js`'s `[dev-dependencies]` (`crates/script/elidex-js/Cargo.toml:197`, `:202`): `cargo tree --workspace -e normal,features -i elidex-net \| /usr/bin/grep -c 'feature "test-hooks"'` → 0, with `-e normal,dev,features` → 1 (run 2026-11-03), so the `-e normal,features` tree is the population and a check over it is not vacuous; `cargo tree --workspace -e normal,features -i elidex-ecs` lists only `elidex-ecs feature "default"` at `27b50dfe` (run 2026-11-03). The only target-specific dependency tables (`crates/core/elidex-sandbox/Cargo.toml:14`, `:18`, `:21`) name external crates only, so no target-specific edge can enable `fixtures` and the host-target tree is complete for it. `parallel` (`elidex-style`) is enabled by no member (`cargo tree --workspace -e normal,features -i elidex-style \| /usr/bin/grep -c 'feature "parallel"'` → 0); its code (`git grep -n 'cfg(feature = "parallel")' -- crates` → 4) creates no node |
+| H-24 | `fixtures` (NEW, C0b) can be checked from cargo's own feature graph: a dev-only feature does not appear on normal edges | `test-hooks` (`crates/net/elidex-net/Cargo.toml:39`, "Not enabled in production builds") is enabled only by `elidex-js`'s `[dev-dependencies]` (`crates/script/elidex-js/Cargo.toml:197`, `:202`): `cargo tree --workspace -e normal,features -i elidex-net \| /usr/bin/grep -c 'feature "test-hooks"'` → 0, with `-e normal,dev,features` → 1 (run 2026-11-03), so the `-e normal,features` tree is the population and a check over it is not vacuous; `cargo tree --workspace -e normal,features -i elidex-ecs` lists only `elidex-ecs feature "default"` at `27b50dfe` (run 2026-11-03), and so does `-e normal,build,features` (the build edges, which a product build also activates; the one `[build-dependencies]` table, `crates/dom/elidex-html-parser-strict/Cargo.toml:17`, names external crates), under which `test-hooks` counts 0, and 1 with `dev` added (run 2026-11-03). The only target-specific dependency tables (`crates/core/elidex-sandbox/Cargo.toml:14`, `:18`, `:21`) name external crates only, so no target-specific edge can enable `fixtures` and the host-target tree is complete for it. `parallel` (`elidex-style`) is enabled by no member (`cargo tree --workspace -e normal,features -i elidex-style \| /usr/bin/grep -c 'feature "parallel"'` → 0); its code (`git grep -n 'cfg(feature = "parallel")' -- crates` → 4) creates no node |
 | H-25 | The strict tier leaves *in frameset* in the fragment case | `crates/dom/elidex-html-parser-strict/src/tree_builder/modes/in_frameset.rs:31-33` switches to *after frameset* without HTML §13.2.6.4.18 (`#parsing-main-inframeset`)'s "If the parser's fragment context element is null and" guard; *after after frameset* then inserts a comment into `tb.document` (`modes/after_after_frameset.rs:15`), which in the fragment case is the throwaway |
 
 ### §0.3 Premise errors (reported)
@@ -355,9 +358,9 @@ cells) and cites this text.
   build: it does not compile. It depends on no list of operations. **(b) C0b** adds `scripts/check-fixture-boundary.sh`
   (NEW) and appends its invocation to that step and that task (C0b writes no CLAUDE.md line and adds no step or task
   of its own). Its claim (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads
-  the population from cargo, not from the manifests' text: it fails if `cargo tree --workspace -e normal,features -i
-  elidex-ecs` lists `elidex-ecs feature "fixtures"` (H-24: the `-e normal,features` tree has no dev edges, and a dev
-  edge does show there under `-e normal,dev,features`, so the check is not vacuous; the host-target tree is complete for
+  the population from cargo, not from the manifests' text: it fails if `cargo tree --workspace -e normal,build,features
+  -i elidex-ecs` lists `elidex-ecs feature "fixtures"` (H-24: that tree has no dev edges, and a dev edge does show there
+  under `-e normal,build,dev,features`, so the check is not vacuous; the host-target tree is complete for
   `fixtures`, H-24). The generic guard: R-9. **Scope of the guarantee (A8):** the default-features build of the workspace (every
   product feature some member enables is in it) with `fixtures` off its normal edges; code compiled only under a
   product feature that no member enables is outside it — at `27b50dfe` only `elidex-style/parallel`, whose 4 `cfg`
@@ -394,7 +397,7 @@ cells) and cites this text.
   (html5ever has already placed each node). Order stays bottom-up: with D-10 every created node already holds the
   context's (or the parsed document's) node document, so each bottom-up link is a no-op compare and the final link
   under root is one too.
-- **D-21 (C0b; R2 Ax2 IMP-1, PM 258) — an element's Attr entities are one relation, written only in `elidex-ecs`.**
+- **D-21 (C0b-pre2; R2 Ax2 IMP-1, PM 258, PM 283) — an element's Attr entities are one relation, written only in `elidex-ecs`.**
   The spec's element *attribute list* and each attribute's *element* are one relation, encoded as the element-side
   `AttrEntityCache` (the materialized attribute list: the adopt walk's set, D-3 (b)) and its back-pointer
   `AttrData.owner_element`, written together by one module — as `link_node` writes both sides of `TreeRelation` —
@@ -410,7 +413,8 @@ cells) and cites this text.
   shadow cross-references (`:56-71`) and orphans children (`:121-131`) before the despawn, also nulls the element of
   each Attr in the despawned element's cache and removes a despawned Attr from its element's cache, so no reader sees a
   dead entity. `attr_owner_element` replaces every dom-api read (`char_data/attr.rs:145`, `:214`, `:317`, `:359`). Full
-  statement and cell U19: C0b memo D-21.
+  statement and cells: the C0b-pre2 memo (its stamp, through HEAD's `set_associated_document`, is unread in production,
+  H-17; C0b switches its read and the Attr's creation, and C0b's U19 reads the node-document legs).
 
 ## §1. Program shape
 
@@ -430,8 +434,8 @@ creation, A9 mutation records. ≥ 3 intersecting axes: edge-dense (PM 143); eac
   (unstamped nodes still read HEAD's fallbacks), but for that PR's lifetime the node document has two derivations — the
   stored fact for stamped nodes and the position proxy for the rest — which one-issue-one-way forbids, and the next PR
   would still have to land creation and the reader collapse together (cut (1)'s coupling). (3) **reader collapse
-  last**: the same two-derivation period as (2). So creation, maintenance (with D-21's Attr relation, the walk's Attr
-  edge), the reader collapse and the consumers' migration land together; the 23 pairs are the creation, maintenance and
+  last**: the same two-derivation period as (2). So creation, maintenance (with the walk's Attr edge over C0b-pre2's
+  relation), the reader collapse and the consumers' migration land together; the 23 pairs are the creation, maintenance and
   reads of one fact.
 - *C0c = notification + `adoptNode`.* Without D-6, `adoptedCallback` is never called — HEAD's behaviour (H-12) — so K-0
   holds at C0b's head and no consumer-less event ships (the `Adopt` variant arrives with its consumer). The notification
@@ -444,7 +448,8 @@ creation, A9 mutation records. ≥ 3 intersecting axes: edge-dense (PM 143); eac
   smaller decision surface.
 
 **Order.** N1 (landed, `27b50dfe`) → **C0a** → **C0b** → **C0c** → C1 → T3 → slice b. C0a may land any time before
-C0b; C0b after D-14 (c) and the CI/tools default-features check PR (edges c0-pre-c, c0-pre-ci); C0c any time after C0b
+C0b; C0b after C0b-pre1 = D-14 (c), the CI/tools default-features check PR #585 and C0b-pre2 (edges c0-pre-c,
+c0-pre-ci, c0-pre2; PM 283 orders pre1 → pre2 → C0b); C0c any time after C0b
 and before C1. RC-2a is C1's prerequisite (PM 249 Q-Z4; L3 orders RC-2a before RC-1), in either order with C0b (edge
 c0g) and C0c (edge c0e). Downstream needs: C1's template-contents value (D-C3, D-C4) needs C0b; C1's
 per-segment `adoptedCallback` pairs (D-C5's notification half, T25) need C0c; T3 needs C0b (`node_document`); L3 RC-2 /
@@ -559,7 +564,7 @@ The program's union (each per-PR memo carries its own map with its own lookups).
 | WHATWG DOM §4.2.6 Mixin ParentNode | *convert nodes into a node* | text and fragment given this's node document | `crates/dom/elidex-dom-api/src/child_node/mod.rs:302` (C0b D-11) | ✓ | yes |
 | WHATWG DOM §4.5 Interface Document | *adopt* 1–3.4; `adoptNode` 1–4 | oldDocument, remove, per-descendant steps; adoptNode's errors | `EcsDom::adopt` (NEW, C0b); `MutationEvent::Adopt` (NEW, C0c); dom-api `AdoptNode` (NEW, C0c) | ✗ (3.2, 3.3.2 §7) | yes |
 | WHATWG DOM §4.4 Interface Node | *node document*; `ownerDocument`; *clone a single node*; *string replace all* 2 | the stored fact; the getter; clones and texts given document | `crates/core/elidex-ecs/src/dom/mod.rs:817`; `crates/dom/elidex-dom-api/src/node_methods/core.rs:279`; `crates/core/elidex-ecs/src/dom/tree_clone.rs:251`; `crates/dom/elidex-dom-api/src/node_methods/text_content.rs:119-120` (C0b) | ✓ | yes |
-| WHATWG DOM §4.9 Interface Element | *attach a shadow root* 5; `insertAdjacentText` 1; *set an attribute* 2–8, *append an attribute* 1–3, *replace an attribute* 2–5, *remove an attribute* 2–3 | given element's node document; the Attr relation (D-21) | `crates/core/elidex-ecs/src/dom/shadow.rs:171`; `crates/dom/elidex-dom-api/src/element/tree.rs:431-432`; `crates/core/elidex-ecs/src/dom/attribute.rs:291`; `crates/dom/elidex-dom-api/src/char_data/attr.rs:117` (C0b) | ✓ | yes |
+| WHATWG DOM §4.9 Interface Element | *attach a shadow root* 5; `insertAdjacentText` 1; *set an attribute* 2–8, *append an attribute* 1–3, *replace an attribute* 2–5, *remove an attribute* 2–3 | given element's node document; the Attr relation (D-21) | `crates/core/elidex-ecs/src/dom/shadow.rs:171`; `crates/dom/elidex-dom-api/src/element/tree.rs:431-432`; `crates/core/elidex-ecs/src/dom/attribute.rs:291`; `crates/dom/elidex-dom-api/src/char_data/attr.rs:117` (the relation: C0b-pre2; the Attr's node document: C0b) | ✓ | yes |
 | WHATWG DOM §4.11 Interface Text | *split a Text node* 5 | new node given node's node document | `crates/dom/elidex-dom-api/src/char_data/split_text.rs:148` (C0b) | ✓ | yes |
 | WHATWG DOM §5.5 Interface Range | *extract* 1, 4.1, 16.1, 19.1; *clone the contents* 1 | fragment given range's start node's node document; clones | `crates/dom/elidex-dom-api/src/range/mutation.rs:266` (C0b; RC-2b's sites per §4.5) | ✓ | yes |
 | WHATWG DOM §4.8 Interface ShadowRoot | *shadow-including tree order* | the walk's order | `crates/core/elidex-ecs/src/dom/tree/walkers.rs:99` (C0c D-19) | ✓ | no |
@@ -601,10 +606,11 @@ marshalling only (§4.7): in C0b the CE constructor passes `document_entity_opt(
 
 ### §4.4 Creation census (D-11)
 
-**Population (definition).** Every production call of an `elidex-ecs` node creator — the creators of D-17 (i), the
-argumentless creators of H-22, `create_document_node` / `create_document_root` (a Document is its own; no owner
-decision), `clone_node_shallow`, `clone_subtree` — in any crate, outside test targets. **Command** (re-run at C0b's base
-and at its head, C0b DoD):
+**Population (definition, by property).** Every production spawn of an entity whose `NodeKind` is a DOM node kind
+(`Element` … `DocumentFragment`, nodeType 1–11), in any crate, outside test targets — through an `elidex-ecs` node
+creator (the creators of D-17 (i), the argumentless creators of H-22, `create_document_node` / `create_document_root`
+(a Document is its own; no owner decision), `clone_node_shallow`, `clone_subtree`) or through a raw `World` spawn.
+**Command (a), creator calls** (re-run at C0b's base and at its head, C0b DoD):
 `git grep -n -E '\.(create_(element|element_with_owner|element_ns|text|text_with_owner|comment|comment_with_owner|document_fragment|document_fragment_with_owner|document_type|attribute)|attach_template_contents|clone_node_shallow|clone_subtree)\(' -- 'crates/*.rs' | /usr/bin/grep -v -E '/tests/|tests\.rs|/tests_|test_helpers|test_util|/benches/'`;
 the hits it lists at or after their file's first `#[cfg(test)]` line are inline test modules; **the hits before it are
 the production sites** (by property; at `27b50dfe`: `… | while IFS=: read f n _; do c=$(/usr/bin/grep -n -m1
@@ -612,7 +618,12 @@ the production sites** (by property; at `27b50dfe`: `… | while IFS=: read f n 
 wc -l` → 60: the six `dom/mod.rs` lines where creators delegate to one another, and the sites of the snapshot below,
 some rows of which cite the owner-read line one above the creation call). At C0b's head the command is informational: the
 guarantee is D-17's (an unmigrated argumentless call does not compile; an owner-taking call cannot be ownerless except
-through the entry's `None`). **Snapshot at `27b50dfe`** (not the population): the C0b memo §4.4, with each member's `source`; C0b re-derives it at
+through the entry's `None`). **Command (b), raw spawns**: `git grep -n -P '\.(spawn|spawn_at|spawn_batch|reserve_entity|reserve_entities)\('
+-- 'crates/*.rs'` with (a)'s two test filters → 15 production hits at `27b50dfe` (run 2026-11-03); the members are those
+whose bundle carries a DOM `NodeKind`, read at the hit (the builder at `tree_clone.rs:379` adds the source's kind): the
+seven creator bodies in `dom/mod.rs` (`:348`, `:411`, `:503`, `:529`, `:604`, `:622`, `:635`), `shadow.rs:189` (the
+shadow root) and `tree_clone.rs:379`; the other six spawn `Window`, `Worker` or `OffscreenCanvas` entities or threads.
+**Snapshot at `27b50dfe`** (not the population): the C0b memo §4.4, with each member's `source`; C0b re-derives it at
 its base.
 
 ### §4.5 L3's Range sites (L3 memo Appendix A at Rev 5 `b6e500e7`)
@@ -690,7 +701,8 @@ deferred.
 | c0-pre-a | D-14 (a) → C0a | code predecessor | pure move |
 | c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) and (e) shared with L3 RC-0a (whoever lands first; (e) in RC-0a since L3 `55d35a16`, P-19 (d)) |
 | c0-pre-c | D-14 (c) → C0b | code predecessor | pure move (PM 258) |
-| c0-pre-ci | CI/tools default-features check PR → C0b | code predecessor (CI) | PM 255 / 263: the CI/tools lane owns the default-features Clippy step, its `mise` task and the CLAUDE.md exception; C0b appends `scripts/check-fixture-boundary.sh` to them (D-17 (iii)) |
+| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | PM 255 / 263: #585 owns the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception; C0b appends `scripts/check-fixture-boundary.sh` to them (D-17 (iii)) |
+| c0-pre2 | C0b-pre2 → C0b | code + semantic predecessor | D-21: the relation C0b's walk re-homes (D-3 (b)); C0b switches its stamp's read and the Attr's creation (PM 283) |
 | c0a | N1 (#580, landed) → C0b | code + semantic | clause (b) on N1's landed body; T8–T10 need N1's gate |
 | c0-ab | C0a → C0b | code predecessor (soft) | C0a may land any time before C0b; both edit `apply_replace_child` (D-12 / D-5) |
 | c0-bc | C0b → C0c | code + semantic | `adopt`, the walk, the stamps the pairs read |
@@ -743,7 +755,7 @@ deferred.
   slot `#11-cross-document-adopt-on-insert` (DOM §4.2.3 *insert* step 7.1, §4.5 *adopt*); C0b ends the stale node
   document after a cross-document move (a node moved into another document keeps its old node document, which T3's
   step 3 would read; edge x9). C0a: landed (#<PR>). C0b: planned. C0c: planned. | IBP-sandbox N1's implementation landed; C0a after D-14 (a);
-  C0b after C0a, D-14 (c) and the CI/tools default-features check PR; C0c after C0b and D-14 (b) |". **Order line**
+  C0b after C0a, D-14 (c), the CI/tools default-features check PR (#585) and C0b-pre2 (the element↔Attr relation, D-21); C0c after C0b and D-14 (b) |". **Order line**
   (PM 227 O-1; also by C0a's PR): the line "**Order (PM decisions 21, 23, 25; §L):** approval PR → slice a → {
   IBP-sandbox N1, T3 } → C1's handling decided → slice b. N1 and T3 are independent of each other. The PM decides C1's
   handling once slice a and N1 have landed (§8.1)." (umbrella on `main` `d7d34035`, §1.2) is replaced by:
@@ -818,12 +830,13 @@ deferred.
 ## §9. Program definition of done
 
 1. C0a, C0b, C0c each landed with its own per-PR plan-review passed and its own DoD met (their §9).
-2. D-14 (a) landed before C0a; (c) and the CI/tools default-features check PR before C0b; (b), (d), (e) before C0c (or
+2. D-14 (a) landed before C0a; (c), the CI/tools default-features check PR #585 and C0b-pre2 (its plan-review passed, its DoD
+   met) before C0b; (b), (d), (e) before C0c (or
    (d) / (e) by L3 first).
 3. The umbrella row, the order line and the PM 271 consistency edits (R-3) added by C0a; the row updated by C0b and
    C0c.
 4. The PM has applied R-1, R-2, R-6 (a), R-8 and registered R-6 (b), (c), (f), (g) at the landings (PM 251).
-5. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the three per-PR memos and the node memo exits 0
+5. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the per-PR memos (C0a, C0b-pre2, C0b, C0c) and the node memo exits 0
    (the node input is an input file with no §3 and is not a preflight target) at each landing (run; do not trust a stored verdict).
 6. **The C0 program PR that lands after #583** (PM 273): before landing, compare this memo's text against #583's text
    as it stands on main on these points, and fix any wording mismatch on the C0 side:
@@ -888,6 +901,15 @@ Dangling-reference check (§9 item 7), run 2026-11-03 at rev 3.2: `git grep -n '
 docs/plans/` → 5 hits, each intended: this memo's rev 3.1 changelog (`*Rev 3.1*` entry), §9 item 7 itself, this paragraph, §10.1's R2 row
 "Ax3 MIN-1" (the rev 3.1 disposition, superseded by PM 266 above), and the C0b memo's rev 3.1 changelog. The rev 3
 changelog's "default-features `cargo check` CI step" (Q-3) is likewise history, superseded by PM 263.
+
+### §10.3 Rev 3.3 (C0b plan-review at `15e99049`; PM 283)
+
+| item | disposition | where |
+|---|---|---|
+| C0b plan-review (Ax2, Ax3, Ax4) | every finding fixed; the per-finding table is the C0b memo §10 | C0b memo |
+| PM 283 (SPLIT, Ax3 IMP-1) | D-21 is C0b-pre2's, a prerequisite PR of C0b with its own memo and plan-review | header table, D-21, §1, §8 c0-pre2, R-3, §9; C0b-pre2 memo |
+| Ax3 MIN (c0-pre-ci without an ID; build edges) | #585; `-e normal,build,features` | §8, D-17 (iii), H-24 |
+| Ax2 MIN-3 (census by name) | population by property, command (b) for raw spawns | §4.4 |
 
 ## §11. Open questions (for the PM)
 

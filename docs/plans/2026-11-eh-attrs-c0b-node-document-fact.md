@@ -1,10 +1,11 @@
 # C0b `EH-attrs-at-creation-C0b` — the node document is the stored fact: one creation entry, insertion adoption, one reader (per-PR plan memo)
 
-Per-PR slice **C0b** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.2;
+Per-PR slice **C0b** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.3;
 "the program memo"), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program
 decisions **D-1, D-2 (without the `Adopt` event), D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-15 (iii), D-17, D-18,
-D-20, D-21**, after two prerequisites: D-14 (c) (the `table_mutation/mod.rs` pure-move split) and the CI/tools
-default-features check PR (PM 255). Program IDs (H-*, P-*, D-*, A*, R-*, edges c0*) are cited as the program memo's;
+D-20**, after three prerequisites: C0b-pre1 = D-14 (c) (the `table_mutation/mod.rs` pure-move split), the CI/tools
+default-features check PR #585 (PM 255; head `c20696d7`, merged as `115a667c`) and C0b-pre2 = D-21 (the element↔Attr
+relation, `docs/plans/2026-11-eh-attrs-c0b-pre2-attr-relation.md`, PM 283). Program IDs (H-*, P-*, D-*, A*, R-*, edges c0*) are cited as the program memo's;
 this memo's own IDs carry a `b` where they could collide (H-b*, U16, U17, U19, U20, T23). Siblings: the program memo's
 header (C1 rev 3.1 `b5e47f4b`, L3 Rev 6.1 / PR #583 `a164ffe0`, T3 rev 3, N1 landed).
 
@@ -12,8 +13,8 @@ header (C1 rev 3.1 `b5e47f4b`, L3 Rev 6.1 / PR #583 `a164ffe0`, T3 rev 3, N1 lan
 PM 244 (C0b = the node-document fact, unsplittable; `adoptedCallback` stays uncalled as on HEAD; the `Adopt` variant
 does not exist yet); PM 255 (user decision γ: the default-features check is a CI/tools PR before C0b; C0b adds the
 fixture-boundary script); PM 263 (that step is the default-features Clippy step); PM 266 (the script's claim is
-`fixtures` only); PM 258 (the Attr relation in C0b; D-14 (c) a prereq). Program order:
-C0a → **C0b** → C0c (C0a may land any time before C0b).
+`fixtures` only); PM 258 (D-14 (c) a prereq); PM 283 (this memo's plan-review SPLIT: the Attr relation is C0b-pre2).
+Program order: C0a → C0b-pre1 → C0b-pre2 → **C0b** → C0c (C0a may land any time before C0b).
 
 **Scope.** One fact — the node document, stored as `AssociatedDocument`:
 1. **Read** by one function, `EcsDom::node_document` (NEW); `owner_document` is the getter's wrapper; every
@@ -25,7 +26,7 @@ C0a → **C0b** → C0c (C0a may land any time before C0b).
 3. **Kept true** by DOM *adopt* (`EcsDom::adopt`, NEW: steps 1, 2, 3.1, 3.3.1, 3.4 under C2) at the three linking
    primitives and the session's replace-with-fragment arm (D-2, D-3 (a)(b), D-4, D-5); the fragment parse needs no
    finishing re-home (D-8).
-4. **Written and read only inside `elidex-ecs`** (D-18), the element↔Attr relation included (D-21).
+4. **Written and read only inside `elidex-ecs`** (D-18), as the element↔Attr relation is from C0b-pre2 (D-21).
 5. The IBP documents' `effective_node_document` becomes this PR's `node_document` (D-15: the node memo and node
    input land with the program memo; the parent's F10 amendment line lands in this PR, §8).
 
@@ -33,7 +34,14 @@ C0a → **C0b** → C0c (C0a may land any time before C0b).
 spec-order walk and `document.adoptNode` (C0c: D-3 (c), D-6, D-13, D-19); the *replace* record order (C0a); template
 contents' owner `f` (C1); program §7.
 
-**Changelog.** *Rev 3.2* (2026-11-03, with the program memo's rev 3.2; PM 263 / 266 / 273 and the D-21 re-check of
+**Changelog.** *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
+Ax3 / Ax4, and PM 283; dispositions §10): D-21 and what only it needs (population P-10, U19's relation legs, §5.2's Attr tests,
+the handler hollowing, `AttrData`'s visibility) moved to C0b-pre2 (NEW memo); C0b keeps D-3 (b), U1's Attr variant
+(built through `attr_node` / `set_attr_node`) and U19's node-document legs. The CI/tools prereq is #585; the boundary
+script reads build edges too and is in ci.yml's `rust` filter. A test-only walk counter (U5, U8, U9); red-first base
+formulations (§6.5); kinds corrected (T13, U6, U8, U12 red; U3, U10 guard); U4 / U7 / §6.3 guards made killable or
+marked unobservable; §4.3 decided (spawn tuple, a parse bench, threshold); §5.2's rewrite-vs-delete rule; census by
+property; Axis 4 citation fixes. *Rev 3.2* (2026-11-03, with the program memo's rev 3.2; PM 263 / 266 / 273 and the D-21 re-check of
 rev 3.1): D-17 (4) claims only that `fixtures` is enabled from `[dev-dependencies]` only, read from `cargo tree`; the
 classification table and the generic claim are dropped (the generic guard: program R-9); the CI/tools step is the
 default-features Clippy step (PM 263); U17 reduced to its `fixtures` and default-build controls. D-21: the replace
@@ -52,7 +60,8 @@ decided, T19 → U1 Attr variant + U16, T23 added, U4 restated.
 
 ### §0.1 Coordinate frame and re-measure scope
 
-Coordinates are `27b50dfe` (program §0.1). C0b's base is `origin/main` with C0a landed (soft), and possibly L3's
+Coordinates are `27b50dfe` (program §0.1). C0b's base is `origin/main` with C0b-pre1, #585 and C0b-pre2 landed, C0a
+landed (soft), and possibly L3's
 RC-0a, RC-2a and / or RC-2b (program edges c0f, c0g). At the base (§9 item 1) every coordinate below is re-measured,
 and the scope of the re-measure includes RC-2's files whether or not they have landed: `crates/dom/elidex-dom-api/src/node_methods/clone.rs`,
 `crates/dom/elidex-dom-api/src/node_methods/tests/clone.rs` (or its RC-0a split), `crates/dom/elidex-custom-elements/src/consumer.rs`,
@@ -84,7 +93,8 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   true.
 - **P-10.** `owner_document`'s docstring calls the unstamped population "legacy" (`mod.rs:812-815`); it is most parser
   output, every shadow root and every shallow clone (H-4).
-- **P-11.** `split_text.rs` cites "§4.10" (it is §4.11 Interface Text) and off-by-one steps; full list §4.9.
+- **P-11.** `split_text.rs` cites "§4.10" (it is §4.11 Interface Text) for *split a Text node* and off-by-one steps;
+  `:215`'s §4.10 (*replace data*, Interface CharacterData) is correct; full list §4.9.
 - **P-12 / P-13.** VM `isConnected` compares with the bound document (D-16, §7); `same_document` (`selection.rs:614-619`)
   is not touched (§7).
 - **P-17.** The C1 memo's text on the re-home through the throwaway is stale after D-8 / D-10 (program H-C1).
@@ -133,7 +143,8 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   document). `clone_node_shallow(&mut self, src, document: NewNodeOwner)` (DOM *clone a single node* "given document");
   `attach_shadow_with_init` spawns the shadow root with `node_document_for_new_nodes(host)` (*attach a shadow root*
   step 5); `create_attribute(name, owner)` (callers `CreateAttribute` `char_data/attr.rs:35` → `this`;
-  `GetAttributeNode` `attr.rs:90` → the element, through D-21's `attr_node`); `create_document_type(…, owner)`; the table helpers through
+  C0b-pre2's `attr_node` → the element, through the entry; D-21 (d)'s *append* / *replace* stamp then reads
+  `node_document(element)`); `create_document_type(…, owner)`; the table helpers through
   `create_table_element(dom, table, local_name)` (NEW, HTML §4.9.1 *create a table element*) for the six
   table-created sites (`table_mutation/mod.rs:116`, `:127`, `:138`, `:148`, `:355`, `:359`), and the entry with the
   section (`:448`, §4.9.5 `insertRow` step 2) and the row (`:512`, §4.9.8 `insertCell` step 2) directly (their
@@ -143,9 +154,11 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   dom.node_document_for_new_nodes(d))`; `None` → spawns nothing and returns `None`. The VM
   (`custom_elements/html_element.rs:231`) passes `ctx.host().document_entity_opt()` (the current global's associated
   Document; `None` before bind and after unbind, `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:477-483`)
-  and maps `None` to a `TypeError` (marshalling only). *Why not an ownerless element:* `NewNodeOwner` has no public
+  and maps `None` to a `TypeError` (marshalling only) **before** it evaluates `ctx.host().dom()` (`:233`), which an
+  unbound host cannot answer (Ax2 FP-B2). *Why not an ownerless element:* `NewNodeOwner` has no public
   constructor (D-17), and an unbound VM is an elidex-only state with no spec counterpart (the constructor's "current
-  global object's associated Document" always exists in the spec), so refusing creation is the fail-closed reading. The
+  global object's associated Document", HTML §3.2.3 *HTML element constructors* step 9.2, always exists in the spec),
+  so refusing creation is the fail-closed reading. The
   two existing tests that spawn with `None` (`elidex-custom-elements/src/tests.rs:261`, `:283`) pass a fixture Document.
 - **D-15 — the IBP documents.** The node memo amendment, node input note and N1 n3 supersession landed with the
   program memo; **this PR carries the parent's F10 amendment line** (PM 244 Q4: the PR that makes it true; exact text
@@ -164,14 +177,16 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   | cut -d/ -f1-3 | sort -u | wc -l`) enables the feature in `[dev-dependencies]` only; no `.rs` file changes for it.
   (4) **The guard, split by PM 255.** The default-features Clippy step in CI's `check` job ("Clippy (default
   features, no dev-only feature)": `cargo clippy` over the workspace with default features and `-D warnings`, PM 263),
-  its `mise run ci` task and the CLAUDE.md exception to the all-features rule (H-b4) are the **CI/tools
-  default-features check PR**'s, landed before C0b (edge c0-pre-ci; the default-features build it compiles was green at
-  `27b50dfe` as a `cargo check`, run 2026-11-03). C0b adds `scripts/check-fixture-boundary.sh` (NEW) and appends its
-  invocation to that step and that task; C0b writes no CLAUDE.md line and adds no step or task. The script's claim
+  its `mise run ci` task (`check-default`) and the CLAUDE.md exception to the all-features rule (H-b4) are the **CI/tools
+  default-features check PR #585**'s (head `c20696d7`, merged as `115a667c`; edge c0-pre-ci). C0b adds
+  `scripts/check-fixture-boundary.sh` (NEW), appends its invocation to that step and that task, and adds the script's
+  path to ci.yml's `rust` path filter (`.github/workflows/ci.yml:34-47`), which gates the `check` job, so a PR touching
+  only the script runs it; C0b writes no CLAUDE.md line and adds no step or task. The script's claim
   (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads the population from
-  cargo: it runs `cargo tree --workspace -e normal,features -i elidex-ecs` and fails if the output contains
-  `elidex-ecs feature "fixtures"` (program H-24: the `-e normal,features` tree carries no dev edge, and the same form
-  shows `test-hooks` under `-e normal,dev,features`, so the check is not vacuous; the only target-specific dependency
+  cargo: it runs `cargo tree --workspace -e normal,build,features -i elidex-ecs` (build edges included: a
+  build-dependency's features are on in a product build) and fails if the output contains `elidex-ecs feature
+  "fixtures"` (program H-24: that tree carries no dev edge, and the same form shows `test-hooks` under
+  `-e normal,build,dev,features`, so the check is not vacuous; the only target-specific dependency
   tables, `elidex-sandbox`'s, name external crates only, so the host-target tree is complete for `fixtures`). It reads
   no manifest text, so a quoted key or an implicit feature of an optional dependency cannot hide an edge from it. The
   generic guard over other dev-only features is not C0b's (program R-9). The guarantee, scoped (program A8): in the
@@ -193,40 +208,9 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   contents are attached with `node_document_for_new_nodes(entity)` and converted with `parent = fragment`; DSD content
   with `parent = shadow_root`. `lib.rs:158`'s `owner_doc` is deleted. Bottom-up order is kept (§4.3 shows why it costs
   nothing).
-- **D-21 (C0b; R2 Ax2 IMP-1, PM 258) — an element's Attr entities are one relation, written only in `elidex-ecs`.**
-  The spec's element *attribute list* and each attribute's *element* are one relation; elidex encodes it as the
-  element-side `AttrEntityCache` (name → materialized Attr entity) and the Attr-side `AttrData.owner_element`, today
-  written piecemeal by four dom-api handlers (H-23). **SoT:** the cache is the element's materialized attribute list
-  (the adopt walk's set, D-3 (b)); `owner_element` its back-pointer — two encodings of one relation written together by
-  one module, as `link_node` writes both sides of `TreeRelation` (H-2). **Writers** (in
-  `crates/core/elidex-ecs/src/dom/attribute.rs`): `attr_node(element, name)` (get or materialize; the Attr created with
-  `node_document_for_new_nodes(element)`; `GetAttributeNode`'s cache logic moves here); `set_attr_node(element, attr)`
-  (DOM *set an attribute* 2–8: the in-use check, then *append an attribute* 1–3 or *replace an attribute* 2–5 — cache
-  entry, element, node document = the element's, the old Attr's element null — with the value and *handle attribute
-  changes* through the existing `set_attribute` chokepoint — **in this order**: the cache entry is swapped and both
-  elements written (*replace* 2–5; *append* 1–3) before the chokepoint runs (*replace* 6 / *append* 4, *handle attribute changes*), because the
-  chokepoint's `sync_cached_attr_value` (`crates/core/elidex-ecs/src/dom/attribute.rs:245-256`) writes the new value into
-  the Attr its cache entry names, so swapping first leaves the old Attr's value as it was; it returns the old Attr (*set
-  an attribute* 8) or the Attr itself when it is already the element's (step 4)); and the `remove_attribute` chokepoint (`attribute.rs:291`)
-  evicts a materialized Attr and nulls its element (*remove an attribute* 2–3), as `sync_cached_attr_value` already
-  keeps its value in the set chokepoint. `AttrEntityCache` (type and field) and `AttrData.owner_element` become `pub(crate)` —
-  `AttrEntityCache` leaves the re-export (`lib.rs:30`), its only outside users being the handlers this decision empties
-  (`git grep -n AttrEntityCache -- 'crates/*.rs' ':!crates/core/elidex-ecs'` → `char_data/attr.rs`, `element/props.rs`,
-  a VM comment); `attr_owner_element(attr)` (NEW, pub) replaces the dom-api reads (`char_data/attr.rs:145`, `:214`,
-  `:317`, `:359`). **The reverse pointer at despawn:** `destroy_entity` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:51`)
-  nulls the element of every Attr in the despawned element's `AttrEntityCache` and, when the despawned entity is an
-  Attr, removes it from its element's cache — beside the cross-references it already clears before the despawn (the
-  shadow host / root pair `:56-71`, the children's parent links `:121-131`). *Why there, not "readers treat a dead
-  owner as null":* the relation's one writer stays `elidex-ecs` and keeps both encodings true at every state, so no
-  reader needs a liveness check and none can return a dead entity (hecs' generation makes a stale `Entity` unaliased,
-  not meaningful); a reader-side rule would be a second derivation of the relation, repeated in every reader. So
-  `RemoveAttributeNode`'s guard for "the Attr still pointing at a despawned element" (`char_data/attr.rs:221-225`,
-  `require_live_element`) has no input left and is deleted with its comment (the chokepoint's Element guard,
-  `attribute.rs:299`, covers a non-Element receiver; `:214` rejects an Attr not on `this`). `SetAttributeNode`, `RemoveAttributeNode`, `RemoveAttribute`
-  (`props.rs:148`) and `GetAttributeNode` keep only marshalling and error mapping. *Rejected:* the SoT as a query over
-  `AttrData.owner_element` (a world scan per adopted element, and the cache stays for identity: still two encodings,
-  one of them then unmaintained); stamping inside the dom-api handlers (four partial writers of one relation: H-23's
-  shape). Unit-observable only (H-17): cell U19 reads `node_document(attr)` after the element's adopt.
+- **D-21 — C0b-pre2's** (PM 283; the C0b-pre2 memo carries the decision, its cells AR1–AR6 and its tests). C0b
+  relies on it: the walk's Attr edge (D-3 (b)) re-homes the cache C0b-pre2 keeps equal to the element's attribute
+  list, and C0b switches its stamp's read and `attr_node`'s creation (D-11).
 
 ## §1. Shape and verdict
 
@@ -236,7 +220,8 @@ enumerated there): creation first (stamps at creation, reader collapsed, no adop
 creation document — T3 worse than HEAD (K-0); adoption first with the fallbacks kept is K-0-safe but leaves, for that
 PR's lifetime, two node-document derivations (the stored fact and the position proxy), which one-issue-one-way
 forbids, and its successor would carry cut (1)'s coupling anyway; the reader collapse last has the same two-derivation
-period. D-21 belongs here because the walk's Attr edge (D-3 (b)) is correct only over a faithful attribute list.
+period. D-21 is C0b-pre2's (PM 283, Ax3 IMP-1): its invariants are independent of A1–A9 and its one node-document
+write is unread in production (H-17); the walk's Attr edge (D-3 (b)) needs it first (edge c0-pre2).
 Preflight's breadth warning (§3) is answered by the same argument: the rows are the creation, maintenance and reads of
 one fact.
 
@@ -252,16 +237,16 @@ The 23 pairs marked C0b in program §2.2, with what this PR's cells pin:
 |---|---|
 | A1×A2 | U4 (stamp readable inside the `Insert` consumer; `Remove` → `Insert` order), T1, T2 |
 | A1×A3 | U1 (shadow, contents, Attr variants), T4, T5 |
-| A1×A5 | U9, U11 (no build node holds the throwaway), U8 |
+| A1×A5 | U9, U11 (no build node holds the throwaway), U8 (walk count 0) |
 | A1×A6 | T20–T23, U8, U12, D-17's compile guarantee |
 | A1×A7 | T8–T10 |
 | A1×A8 | U2, U3, U7, U20; D-18 by visibility |
 | A2×A3, A2×A8 | U1, U2, U3 |
-| A2×A5, A3×A5 | U9 (a recording dispatcher installed around a fragment parse sees no walk: every link a compare), U11 |
+| A2×A5, A3×A5 | U9 (the walk counter stays 0 across a fragment parse: every link a compare), U11 |
 | A2×A6 | T12 |
 | A2×A7 | T8 |
 | A3×A6, A3×A7 | T4 (handler variant), U1 |
-| A3×A8 | U1 Attr variant, U16, U19 (D-21) |
+| A3×A8 | U1 Attr variant, U16, U19 (the relation itself: C0b-pre2) |
 | A5×A6, A5×A7, A5×A8, A5×A9 | T1, U11 (documentless context), existing DOMParser cells |
 | A6×A7 | T8–T10; D-15 |
 | A6×A8 | U15, T20–T23 |
@@ -273,8 +258,8 @@ The 23 pairs marked C0b in program §2.2, with what this PR's cells pin:
 Lookups (2026-11-03): `heading dom 4.2.3 / 4.2.6 / 4.4 / 4.5 / 4.9 / 4.11 / 5.5`; `heading html 2.4.3 / 4.2.3 /
 4.9.1 / 4.9.5 / 4.9.8 / 4.12.3 / 8.1.8.1 / 8.5.1 / 13.2.6.1 / 13.4`; `body dom concept-node-insert` (7.1),
 `concept-node-adopt` (1–3), `concept-node-replace` (6), `concept-range-extract` (1, 4.1, 16.1, 19.1),
-`concept-range-clone` (1), `concept-text-split` (5); `body html html-fragment-parsing-algorithm` (4, 11–15, 22–23),
-`concept-element-attributes-set` (2–8), `-append` (1–3), `-replace` (2–5), `-remove` (2–3);
+`concept-range-clone` (1, 14.1), `concept-text-split` (5), `concept-element-attributes-append` (3), `-replace` (4);
+`body html html-fragment-parsing-algorithm` (4, 11–15, 22–23), `html-element-constructors` (9.2);
 `creating-and-inserting-nodes` (*create an element for the token* 3, 13; *insert a foreign element* 1–2; *insert a
 character* 5; *insert a comment* 4; *adjusted insertion location* 3–5), `create-a-table-element`, `dom-tbody-insertrow`
 (2), `dom-tr-insertcell` (2), `set-the-frozen-base-url` (1), `getting-the-current-value-of-the-event-handler` (3.1).
@@ -286,7 +271,7 @@ character* 5; *insert a comment* 4; *adjusted insertion location* 3–5), `creat
 | WHATWG DOM §4.4 Interface Node | *node document*; `ownerDocument`; *clone a single node* (given document); *string replace all* 2 | the stored fact; null for a Document; clones and texts given a document | `crates/core/elidex-ecs/src/dom/mod.rs:817`; `crates/dom/elidex-dom-api/src/node_methods/core.rs:279`; `crates/core/elidex-ecs/src/dom/tree_clone.rs:251`; `crates/dom/elidex-dom-api/src/node_methods/text_content.rs:119` | ✓ | yes |
 | WHATWG DOM §4.2.6 Mixin ParentNode | *convert nodes into a node* 1, 3 | texts and fragment given this's node document | `crates/dom/elidex-dom-api/src/child_node/mod.rs:302` | ✓ | yes |
 | WHATWG DOM §4.9 Interface Element | *attach a shadow root* 5; `insertAdjacentText` 1 | given element's node document | `crates/core/elidex-ecs/src/dom/shadow.rs:171`; `crates/dom/elidex-dom-api/src/element/tree.rs:431-432` | ✓ | yes |
-| WHATWG DOM §4.9 Interface Element | *set an attribute* 2–8; *append an attribute* 1–3; *replace an attribute* 2–5; *remove an attribute* 2–3 | list, element and node document written together (D-21) | `crates/core/elidex-ecs/src/dom/attribute.rs:291` (`remove_attribute`), `attr_node` / `set_attr_node` (NEW); handlers `crates/dom/elidex-dom-api/src/char_data/attr.rs:42`, `:118`, `:188`, `crates/dom/elidex-dom-api/src/element/props.rs:148` | ✓ | yes |
+| WHATWG DOM §4.9 Interface Element | *append an attribute* 3; *replace an attribute* 4 | the Attr's node document = the element's, read through `node_document` (the rest of the relation: C0b-pre2) | C0b-pre2's `attr_node` / `set_attr_node` in `crates/core/elidex-ecs/src/dom/attribute.rs` | ✓ | yes |
 | WHATWG DOM §4.11 Interface Text | *split a Text node* 5 | new node given node's node document | `crates/dom/elidex-dom-api/src/char_data/split_text.rs:148` | ✓ | yes |
 | WHATWG DOM §5.5 Interface Range | *extract* 1, 4.1, 16.1, 19.1; *clone the contents* 1 | fragment given range's start node's node document; clones given their source's | `crates/dom/elidex-dom-api/src/range/mutation.rs:266` (and RC-2b's sites if present, program §4.5) | ✓ | yes |
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for the token* 3; *insert a foreign element* 1–2; *insert a character* 5; *insert a comment* 4; *adjusted insertion location* 3–5 | intendedParent's / targetParent's node document; insertions into root redirected | strict `crates/dom/elidex-html-parser-strict/src/tree_builder/insert.rs:61`, `:111`, `:133`, `:141`, `:155`, `:210`, `crates/dom/elidex-html-parser-strict/src/tree_builder/shadow.rs:124`, `:153`; tolerant `crates/dom/elidex-html-parser/src/convert.rs:237` | ✓ | yes |
@@ -332,7 +317,6 @@ entity per build); no event variant; no side-store.
 | clause (b) `scripting.rs:106-124` | Document arm + composed-root proxy | one arm over `node_document` |
 | `document_base.rs:173-178`; `href_accessor.rs:50`; `document_props.rs:75` | local derivations | `node_document` |
 | `set_associated_document` / `get_associated_document` `mod.rs:789`, `:777`; `AssociatedDocument` `components.rs:595`, re-export `lib.rs:30` | `pub` | `pub(crate)`; not re-exported |
-| element↔Attr relation (`char_data/attr.rs:90-110`, `:180`, `:233`; `element/props.rs:148`) | four partial writers in dom-api (H-23) | `attr_node`, `set_attr_node`, `remove_attribute` in `elidex-ecs` (D-21); handlers marshal |
 | `spawn_custom_element_entity` `entity_spawn.rs:51` | `owner: Option<Entity>` from the VM | `document: Option<Entity>` → owner decision inside; `None` → `None` (D-11) |
 | dom-api pass-4 hand stamps `clone.rs:282-285`, `:294-301` | stamp the shadow root, host, shallow shadow child | dead; removed per c0g |
 | creation sites (§4.4) | ownerless or `owner_document(x)` | `node_document_for_new_nodes(source)` |
@@ -345,15 +329,17 @@ the fragment root: the redirect document, D-10). Each link's adopt therefore fin
 does no walk: one component read for the target, one for the child. Moves inside a build (strict foster parenting, the
 adoption agency's reparenting) stay inside one document: compares. The fragment parse's finishing walk (HEAD: one
 uncapped walk over every returned node) is deleted (D-8). The entry per creation is one `FragmentParseRoot` lookup and
-one `node_document` read; the stamp joins the spawn bundle where the creator allows it (`create_*_with_owner` today
-spawns then `insert_one`s; the PR may fold the component into the spawn tuple). Measured in the PR (§9 item 7): `mise
-run bench` CSS / style / layout parse benches before and after; a regression beyond noise goes to the PM with the
-profile, the fallbacks are not restored.
+one `node_document` read; the owner-taking creators put `AssociatedDocument` in the spawn tuple (`create_*_with_owner`
+today spawns, then `insert_one`s it: a second archetype move per node), so the stamp costs no extra move. U8 pins "no
+walk in a document parse". **Measured in the PR** (§9 item 7): `mise run bench` has no HTML-parse bench (its benches
+are CSS parse, style resolve and layout), so C0b adds one (`crates/dom/elidex-html-parser/benches/`, NEW, criterion:
+a document parse per tier over one fixed input) and runs it on the base and the head; a median regression above 5%
+with criterion's p < 0.05 on either tier goes to the PM with the profile, and the fallbacks are not restored.
 
 ### §4.4 Creation census (D-11)
 
-The population is defined in program §4.4 (every production call of an `elidex-ecs` node creator), enumerated by the
-command there, run at C0b's base (§9 item 1) and at its head (§9 item 3). The program's table is the **`27b50dfe`
+The population is defined in program §4.4 by property (every production spawn of an entity whose `NodeKind` is a DOM
+node kind, through a creator or a raw `World::spawn`), enumerated by the two commands there, run at C0b's base (§9 item 1) and at its head (§9 item 3). The program's table is the **`27b50dfe`
 snapshot**; the base's run replaces it in the PR description, with each member's `source`. Members not in the snapshot
 (RC-2b's contents-algorithm sites if RC-2b landed first; anything else landed since) are migrated by the same rule:
 `source` = the node whose node document the spec creates it given (*clone the contents* / *extract* step 1: the
@@ -394,8 +380,7 @@ population); A7–A9 through the cloner and the reader in either order.
 
 One fact (the component), one creation entry, one later writer (the adopt walk), one reader (`node_document`). The
 redirection is a component on the entity it describes. No side-store, no observer registry. Writes and reads are
-confined to `elidex-ecs` by visibility (D-18), and so is the element↔Attr relation (D-21: one relation, two encodings
-written by one module, the `TreeRelation` idiom). No algorithm in `vm/host/`: the CE constructor passes the marshalled
+confined to `elidex-ecs` by visibility (D-18), as the element↔Attr relation is from C0b-pre2. No algorithm in `vm/host/`: the CE constructor passes the marshalled
 document to `spawn_custom_element_entity`, which makes the owner decision (program §4.7).
 
 ### §4.8 Docstring citation table (Axis 4)
@@ -404,29 +389,28 @@ document to `spawn_custom_element_entity`, which makes the owner decision (progr
 |---|---|
 | `node_document` (NEW) | DOM §4.4 *node document* (`#concept-node-document`) |
 | `owner_document` (doc rewrite) | DOM §4.4 `ownerDocument` getter (`#dom-node-ownerdocument`) |
-| `node_document_for_new_nodes` (NEW home) | DOM §4.4 *node document* ("set upon creation"); HTML §13.2.6.1 *create an element for the token* step 3, *insert a character* step 5, *insert a comment* step 4, *adjusted insertion location* steps 3–5; HTML §13.4 steps 14–15 (the redirection) |
+| `node_document_for_new_nodes` (NEW home) | DOM §4.4 *node document* ("set upon creation"); DOM §4.2.3 *insert* step 7.1 (the primitives' adopt target); HTML §13.2.6.1 (`#creating-and-inserting-nodes`) *create an element for the token* step 3, *insert a character* step 5, *insert a comment* step 4, *adjusted insertion location* steps 3–5; HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 14–15: root represents the redirect target (program D-10) |
 | `NewNodeOwner` (NEW) | DOM §4.4 *node document*; the program's D-17 (why ownerless is test-only) |
-| `attr_node` / `set_attr_node` (NEW); `remove_attribute` (doc) | DOM §4.9 *get an attribute by name*, *set an attribute* steps 2–8, *append an attribute* 1–3, *replace an attribute* 2–5 (`#concept-element-attributes-set`, `-append`, `-replace`); *remove an attribute* 2–3 (`#concept-element-attributes-remove`) |
-| `spawn_custom_element_entity` (doc) | DOM §4.4 *node document* (set upon creation); the `None` arm is elidex-only (D-11) |
-| `FragmentParseRoot` (NEW) | HTML §13.4 *HTML fragment parsing algorithm* step 15 (*insertion target redirection map*[root] = (fragment, null)), step 14 (fragment in target's node document) |
+| `spawn_custom_element_entity` (doc) | DOM §4.4 *node document* (set upon creation); HTML §3.2.3 *HTML element constructors* step 9.2 (`#html-element-constructors`); the `None` arm is elidex-only (D-11) |
+| `FragmentParseRoot` (NEW) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) step 15 (*insertion target redirection map*[root] = (fragment, null)), step 14 (fragment in target's node document) |
 | `adopt` (NEW) | DOM §4.5 *adopt* steps 1–3 (3.2, 3.3.2 not modelled; 3.3.3 C0c), named |
 | `append_child` / `insert_before` / `replace_child` (doc) | DOM §4.2.3 *insert* step 7.1; *replace* step 6 |
 | session fragment arm (doc) | DOM §4.2.3 *replace* step 6 |
-| `begin_detached_fragment` (doc rewrite) | HTML §13.4 steps 4, 11, 12, 15 |
-| `finish_detached_fragment` (doc rewrite) | HTML §13.4 steps 22–23 (identity: step 14 created the fragment in target's node document) |
-| `attach_template_contents` (doc) | HTML §4.12.3 *template contents* (C2: the template's node document) |
+| `begin_detached_fragment` (doc rewrite) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 4, 11, 12, 15 |
+| `finish_detached_fragment` (doc rewrite) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 22–23 (identity: step 14 created the fragment in target's node document) |
+| `attach_template_contents` (doc) | HTML §4.12.3 *template contents* (`#template-contents`; C2: the template's node document) |
 | `create_attribute` (doc) | DOM §4.5 `createAttribute` ("creating an attribute given this"; `#dom-document-createattribute`) |
 | `create_document_type` (doc) | DOM §4.4 *node document* (set upon creation) |
 | `attach_shadow_with_init` (doc) | DOM §4.9 *attach a shadow root* step 5 ("given element's node document") |
 | `clone_node_shallow` (signature + doc) | DOM §4.4 *clone a single node* ("given document") |
 | `create_table_element` (NEW) | HTML §4.9.1 *create a table element* (`#create-a-table-element`) |
 | section `insertRow` / row `insertCell` sites | HTML §4.9.5 `insertRow` step 2 (`#dom-tbody-insertrow`); HTML §4.9.8 `insertCell` step 2 (`#dom-tr-insertcell`) |
-| strict tree-builder creation sites | HTML §13.2.6.1 (the named algorithm and step at each site) |
-| tolerant `convert_node` (doc) | HTML §13.2.6.1 *create an element for the token* step 3 (intendedParent = the converted parent for an RcDom conversion) |
-| inert document `<html>` | HTML §8.5.1 *parse HTML from a string* |
+| strict tree-builder creation sites | HTML §13.2.6.1 (`#creating-and-inserting-nodes`; the named algorithm and step at each site) |
+| tolerant `convert_node` (doc) | HTML §13.2.6.1 (`#creating-and-inserting-nodes`) *create an element for the token* step 3 (intendedParent = the converted parent for an RcDom conversion) |
+| inert document `<html>` | HTML §8.5.1 *parse HTML from a string* (`#parse-html-from-a-string`) |
 | `split_text_at_offset` (doc fix) | DOM §4.11 *split a Text node* step 5 (P-11) |
-| clause (b) docstring (rewrite) | HTML §8.1.8.1 *get the current value of the event handler* step 3.1–3.2; DOM §4.4 *node document* |
-| `BaseUrlMaintainer` callers | HTML §4.2.3 *set the frozen base URL* step 1 |
+| clause (b) docstring (rewrite) | HTML §8.1.8.1 *get the current value of the event handler* (`#getting-the-current-value-of-the-event-handler`) step 3.1–3.2; DOM §4.4 *node document* |
+| `BaseUrlMaintainer` callers | HTML §4.2.3 *set the frozen base URL* (`#set-the-frozen-base-url`) step 1 |
 | the four fixture creators (doc) | none (test fixtures; the docstring states that production cannot create an ownerless node, program D-17) |
 
 ### §4.9 Comment sites made true or false by C0b
@@ -444,9 +428,11 @@ cell comments `crates/script/elidex-js/src/vm/tests/tests_event_handler_scriptin
 `walkers.rs:23` (`adopt_subtree` "so HTML §13.4 fragment adopt moves the contents") and `:94`; `lib.rs:150-159`
 (tolerant's `owner_doc` comment); the getter's fallback comment (`core.rs:245-278`); `document_props.rs:59`
 ("falls back to the tree-root walk"); `split_text.rs`: §4.10 → §4.11 at `:1`, `:27`, `:34`, `:71`, `:153`, `:194`,
-`:215`, `:362`, and the step offsets against `webref body dom concept-text-split` (`:27` and `:153` "step 7.2" → steps
-7.4–7.5, the parent-offset updates; `:141` "Step 4: allocate" → step 5; `:362` "step 8" → step 7.2; `:194` "7.2/7.3"
-correct), `:140-147` ("legacy entities relying on the tree-root Document fallback").
+`:362` (not `:215`, whose §4.10 is CharacterData's *replace data*), and the step numbers against `webref body dom
+concept-text-split` (`:72` "steps 1-8" → 1–9; `:27` and `:153` "step 7.2" → steps 7.4–7.5, the parent-offset updates;
+`:362` "step 8" → steps 7.2–7.3; `:194` "7.2/7.3" correct; `:141`'s "Step 4" is the docstring's own list, `:82`, kept
+and annotated "(= spec *split a Text node* step 5)"), `:140-147` ("legacy entities relying on the tree-root Document
+fallback").
 
 ## §5. Populations, tests that change, touched files, risks
 
@@ -469,18 +455,9 @@ correct), `:140-147` ("legacy entities relying on the tree-root Document fallbac
   `/usr/bin/grep -rn 'fn owner_doc\b' crates --include='*.rs'` → 1 → 0.
 - **P-7 Document-destroying paths**: `finish_detached_fragment` (`teardown.rs:341`), the strict error path
   (`despawn_subtree(document)`, `tree_builder/mod.rs:234`); DOMParser documents are never destroyed (H-18).
-- **P-8 creation census**: program §4.4's command (population, not list); D-17's compile guarantee.
+- **P-8 creation census**: program §4.4's commands (population, not list); D-17's compile guarantee.
 - **P-9 write surface**: `git grep -n 'set_associated_document(\|AssociatedDocument' -- 'crates/*.rs' ':!crates/core/elidex-ecs'`
   → at C0b's head: comments only (the type cannot be named outside `elidex-ecs`, D-18; a code use is a compile error).
-- **P-10 Attr relation writers** (D-21): `git grep -n -E 'owner_element *=|AttrEntityCache' -- 'crates/*.rs'
-  ':!crates/core/elidex-ecs'` → 23 lines at `27b50dfe`: `char_data/attr.rs` 9 (writes `:97`, `:180`, `:233`; cache `:3`, `:61`, `:77`, `:101-107`), `element/props.rs` 3,
-  dom-api tests writing `owner_element` directly (`char_data/tests/attr.rs` 6, `node_methods/tests/contains_compare.rs`
-  3: rewritten over `set_attr_node`, §5.2; one of them, `char_data/tests/attr.rs:430-449`
-  `remove_attribute_node_on_non_element_errors_without_detaching`, builds an Attr whose element is a Document, a state
-  `set_attr_node` cannot produce and D-21's despawn rule removes, so it is rewritten to the reachable shape — the Attr set
-  on an element `e` through `set_attr_node`, `RemoveAttributeNode` invoked with the Document as receiver → error, and
-  `attr_owner_element(attr) == Some(e)` — not rebuilt through an `elidex-ecs`-internal fixture), a VM comment (`element_attrs.rs:374`) and a property-name table entry
-  (`vm/well_known.rs:417`, not a write); at C0b's head the last two only.
 
 ### §5.2 Existing tests whose expectation changes
 
@@ -494,34 +471,37 @@ deleted fallbacks (rewritten to the stamp contract); `crates/core/elidex-ecs/src
 (2, `:351`); the `scripting.rs` inline tests (`:192`, `:226`, `:269` comments; `:201`, `:234` raw reads); the N1 cells
 C8, C8b–C8e, C8g, C8h, C30, C31 in `tests_event_handler_scripting_gates.rs`; the base-URL maintainer tests in
 `document_base.rs`; `crates/script/elidex-js/src/vm/tests/tests_associated_document.rs`; `elidex-custom-elements/src/tests.rs:259-290`
-(spawn with `None`, D-11); `crates/dom/elidex-dom-api/src/char_data/tests/attr.rs` (D-21). The complete list is a
+(spawn with `None`, D-11). The complete list is a
 pre-implementation step (§9 item 2), which also lists every fixture test whose assertion reads the node document of an
-ownerless (fixture-created) node — a state production cannot reach after C0b (program D-17 *Rejected*) — and rewrites
-each over an owned node or deletes it as testing nothing reachable.
+ownerless (fixture-created) node — a state production cannot reach after C0b (program D-17 *Rejected*). **Rule:** a
+test whose named behaviour is other than that read (a tree operation, an event, a value) is rewritten over a node
+created with an owner, keeping its other assertions; a test whose only subject is the ownerless node's document is
+deleted, its reason recorded.
 
 ### §5.3 Touched files
 
 | file | lines at `27b50dfe` | change | 1000-line decision |
 |---|---|---|---|
-| `crates/core/elidex-ecs/src/dom/mod.rs` | 926 | `node_document`, entry, `NewNodeOwner` (NEW); creators; visibility; shims out | net ≈ +10; < 1000; re-measure (RC-2 may add `fire_clone_created`) |
-| `crates/core/elidex-ecs/src/components.rs` | 822 | `FragmentParseRoot` (NEW); `AssociatedDocument`, `AttrEntityCache` and `AttrData.owner_element` visibility | < 1000 |
-| `crates/core/elidex-ecs/src/dom/attribute.rs`; `crates/core/elidex-ecs/src/lib.rs` | 331; — | `attr_node`, `set_attr_node`, `attr_owner_element` (NEW), `remove_attribute` evicts (D-21); re-exports narrowed | ≈ 420; < 1000 |
+| `crates/core/elidex-ecs/src/dom/mod.rs` | 926 | `node_document`, entry, `NewNodeOwner` (NEW); creators (stamp in the spawn tuple, §4.3); visibility; shims out; the walk counter (§6.2) | net ≈ +10; < 1000; re-measure (RC-2 may add `fire_clone_created`) |
+| `crates/core/elidex-ecs/src/components.rs` | 822 | `FragmentParseRoot` (NEW); `AssociatedDocument` visibility | < 1000 |
+| `crates/core/elidex-ecs/src/dom/attribute.rs` (after C0b-pre2); `crates/core/elidex-ecs/src/lib.rs` | re-measure; 51 | `attr_node` creates through the entry, the *append* / *replace* stamp reads `node_document` (D-11); `AssociatedDocument` out of the re-export | < 1000 |
 | `crates/core/elidex-ecs/src/dom/tree/mutation.rs` | 467 | `adopt` (NEW), the walk (moved in), primitives | ≈ 560; < 1000 |
 | `crates/core/elidex-ecs/src/dom/tree/teardown.rs` | 344 | walk out; `begin` / `finish` | < 1000 |
 | `crates/core/elidex-ecs/src/dom/shadow.rs`, `tree_clone.rs` | 549, 425 | shadow-root stamp; shallow clone document; reader | < 1000 |
 | `crates/core/elidex-ecs/Cargo.toml` | — | `[features] fixtures` | — |
 | 26 crates' `Cargo.toml` (`[dev-dependencies]`) | — | `features = ["fixtures"]` (D-17) | mechanical; no `.rs` file touched for it |
-| `scripts/check-fixture-boundary.sh` (NEW); `mise.toml` and `.github/workflows/ci.yml` (the CI/tools PR's default-features task and step gain the script's invocation) | — | the boundary check (D-17 (4)); C0b adds no task, step or CLAUDE.md line (PM 255) | new |
+| `scripts/check-fixture-boundary.sh` (NEW); `mise.toml` and `.github/workflows/ci.yml` (#585's `check-default` task and default-features step gain the script's invocation; the `rust` filter gains its path) | — | the boundary check (D-17 (4)); C0b adds no task, step or CLAUDE.md line (PM 255) | new |
 | `crates/script/elidex-script-session/src/mutation/child_list.rs` (NEW: D-14 (a), before C0a) | — | D-5 | re-measure |
 | `crates/script/elidex-script-session/src/scripting.rs` | 279 | clause (b) + docstring | < 1000 |
 | `crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs` | 994 → ≈ 625 after D-14 (c) (handlers to `table_mutation/handlers.rs`, NEW, a prereq PR) | `create_table_element` (NEW), eight sites (`git grep -n 'create_element(' -- crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs` → 8) | split first (PM 258) |
-| `crates/dom/elidex-dom-api/src/node_methods/tests/clone.rs` | 992 | D-18 test rewrites | if RC-0a has not split it and the edit reaches 1000, a standalone split first |
+| `crates/dom/elidex-dom-api/src/node_methods/tests/clone.rs` | 992 | D-18 test rewrites: net ≤ 0 (the seven stamp calls deleted, the creations gain an argument) | no split by C0b; if the base's re-measure exceeds 1000 (RC-2a's cells), a standalone split along its test groups first (touch-time rule) |
 | `crates/dom/elidex-dom-api/src/` — `element/document_base.rs` 555, `href_accessor.rs` 567, `char_data/document_props.rs` 403, `char_data/split_text.rs` 447, `char_data/attr.rs` 386, `child_node/mod.rs` 459, `element/tree.rs` 633, `element/select.rs` 358, `node_methods/text_content.rs` 181, `node_methods/core.rs` 346, `node_methods/clone.rs` 458, `cssom_sheet.rs` 873, `focus/delegate.rs` 253, `range/mutation.rs` 640, `document.rs` 665 | as listed | D-7, D-11, D-18 | all < 1000 |
 | parsers — strict `tree_builder/mod.rs` 493, `insert.rs` 380, `shadow.rs` 218; tolerant `lib.rs` 258, `convert.rs` 678 | as listed | D-10, D-11, D-20 | < 1000 |
 | `crates/dom/elidex-custom-elements/src/entity_spawn.rs` 68, `tests.rs`; `crates/script/elidex-js/src/vm/host/custom_elements/html_element.rs` | — | owner decision in the helper; VM marshals `None` → `TypeError` (D-11) | < 1000 |
-| `crates/dom/elidex-dom-api/src/char_data/tests/attr.rs` 450, `element/props.rs` 153, `node_methods/tests/contains_compare.rs` | as listed | D-21 handlers; tests over `set_attr_node`; U19 | re-measure `tests/attr.rs` (≥ 1000 → split first) |
+| `crates/dom/elidex-dom-api/src/char_data/tests/attr.rs` (after C0b-pre2) | re-measure | U16, U19 (their home) | ≥ 1000 → split first |
 | `crates/dom/elidex-form/src/inert_document.rs`, `submit.rs` 546; `crates/css/elidex-style/src/pseudo.rs` 81; `crates/layout/elidex-layout-table/src/grid.rs` 513; `crates/layout/elidex-layout/src/layout/anonymous_table.rs` 170 | as listed | owner argument | < 1000 |
 | `crates/core/elidex-ecs/src/dom/tests/adopt_on_insert.rs` (NEW), `crates/script/elidex-js/src/vm/tests/tests_insertion_adoption.rs` (NEW) | — | cells | new |
+| `crates/dom/elidex-html-parser/benches/` (NEW), its `Cargo.toml`, `mise.toml`'s `bench` task | — | the parse bench (§4.3) | new |
 
 ### §5.4 Named risks (the observable change each is)
 
@@ -534,8 +514,8 @@ missed by D-11 would read null; it cannot compile (D-17). R-9 P1 (program §2.0)
 ## §6. Test plan
 
 Columns: *base* = C0b's base (= `27b50dfe` for these outcomes unless a sibling landed: then re-recorded red-first);
-*C0b = spec* (under C2 for template rows). **Red-first**: every red cell is run on the base with its control green, and
-the failure recorded in the PR. (×2) = both parser tiers. `dp` = `new DOMParser().parseFromString('<div id=d><span
+*C0b = spec* (under C2 for template rows). **Red-first**: every red cell is run on the base in its base formulation
+(§6.5) with its control green, and the failure recorded in the PR. (×2) = both parser tiers. `dp` = `new DOMParser().parseFromString('<div id=d><span
 id=s></span></div>', 'text/html')`; `dp2` a second one.
 
 ### §6.1 VM integration (`tests_insertion_adoption.rs`, NEW)
@@ -552,33 +532,40 @@ id=s></span></div>', 'text/html')`; `dp2` a second one.
 | T10 | red (needs N1) | `y = document.createElement('div'); y.setAttribute('onclick','window.hit=1'); h = dp.createElement('div'); h.append(y); typeof y.onclick` | `'function'` | `'object'` |
 | T11 | red | `f = dp.createDocumentFragment(); f.append(dp.createElement('i')); c = document.createElement('u'); document.body.append(c); document.body.replaceChild(f, c); f.ownerDocument === document`; variant `document.body.append(f2)` → `f2.ownerDocument === dp` | `[false, true]` | `[true, true]` |
 | T12 | red | `x = document.createElement('base'); x.setAttribute('href','https://other.test/'); dp.head.append(x); a = dp.createElement('a'); a.setAttribute('href','y'); dp.body.append(a); a.href` | not `'https://other.test/y'` (P-7; exact value recorded red-first) | `'https://other.test/y'` |
-| T13 | guard (R-B, PM 153) | `p = document.createElement('div'); dd = new DOMParser().parseFromString('<body></body>','text/html'); b = dd.body; p.append(b); b.ownerDocument === document`; `b2 = document.createElement('body'); dd.documentElement.append(b2); b2.remove(); b2.ownerDocument === dd` | `false`, `false` | `true`, `true` (T3 memo's XW-9 / XW-10 / EW-15 / EW-16 facts) |
+| T13 | red (R-B, PM 153) | `p = document.createElement('div'); dd = new DOMParser().parseFromString('<body></body>','text/html'); b = dd.body; p.append(b); b.ownerDocument === document`; `b2 = document.createElement('body'); dd.documentElement.append(b2); b2.remove(); b2.ownerDocument === dd` | `false`, `false` | `true`, `true` (T3 memo's XW-9 / XW-10 / EW-15 / EW-16 facts) |
 | T19 | withdrawn (rev 3) | the VM has no Attr entity and no `ownerDocument` on Attr (H-17) | — | moved to U1 (Attr variant) and U16 |
 | T20 | red | `dp.body.cloneNode(false).ownerDocument === dp` | `false` | `true` |
 | T21 | red | `t = dp.createElement('table'); [t.createTHead(), t.insertRow(), t.createCaption(), t.tBodies[0].insertRow(), t.rows[0].insertCell()].map(n => n.ownerDocument === dp)` | all `false` | all `true` (§4.9.1; §4.9.5; §4.9.8) |
 | T22 | red | `x = dp.createElement('div'); x.append('t', dp.createElement('i')); x.insertAdjacentText('beforeend','u'); [x.firstChild.ownerDocument === dp, x.lastChild.ownerDocument === dp]` | `[false, false]` | `[true, true]` |
-| T23 | red (Range; both landing orders vs L3 RC-2b) | `q = new DOMParser().parseFromString('<p id=p>ab<i>c</i></p>','text/html'); p = q.getElementById('p'); r = document.createRange(); r.setStart(p.firstChild, 1); r.setEnd(p, 2); f = r.extractContents(); [f.ownerDocument === q, f.firstChild.ownerDocument === q, f.lastChild.ownerDocument === q]`; **cloneContents leg** (present iff RC-2b is in C0b's base): `r2 = document.createRange(); r2.selectNodeContents(q.getElementById('p')); g = r2.cloneContents(); [g.ownerDocument === q, g.firstChild.ownerDocument === q]` | extract: `[false, false, false]` (ownerless fragment and Text clone → getter `document_root()`); clone leg: as RC-2b left it | all `true` (*extract* 1, 16.1; *clone the contents* 1). If RC-2b lands after C0b, RC-2b adds the clone leg to this cell (H-L3) |
+| T23 | red (Range; both landing orders vs L3 RC-2b) | `q = new DOMParser().parseFromString('<p id=p>ab<i>c</i></p>','text/html'); p = q.getElementById('p'); r = document.createRange(); r.setStart(p.firstChild, 1); r.setEnd(p, 2); f = r.extractContents(); [f.ownerDocument === q, f.firstChild.ownerDocument === q, f.lastChild.ownerDocument === q]`; **cloneContents leg** (present iff RC-2b is in C0b's base): `r2 = document.createRange(); r2.selectNodeContents(q.getElementById('p')); g = r2.cloneContents(); [g.ownerDocument === q, g.firstChild.ownerDocument === q]` | extract: `[false, false, false]` (ownerless fragment and Text clone → getter `document_root()`); clone leg: as RC-2b left it | all `true` (*extract* 1, 16.1, 18; *clone the contents* 1, 14.1). If RC-2b lands after C0b, RC-2b adds the clone leg to this cell (H-L3) |
 
 ### §6.2 Unit (`crates/core/elidex-ecs/src/dom/tests/adopt_on_insert.rs`, NEW, unless stated)
 
+**The walk counter** (U5, U8, U9; Ax2 IMP-1). `EcsDom` carries a `u64` field incremented once per run of `adopt`'s
+private walk, read by `pub fn adopt_walk_count(&self) -> u64`; field, increment and reader are compiled only under
+`#[cfg(any(test, feature = "fixtures"))]`, D-17's gate. The parser crates' tests (U8, U9 ×2) read it through their
+`[dev-dependencies]` `fixtures` (D-17 (3)); no lib or bin target can, since `fixtures` is off every normal and build edge
+(U17 (b), the boundary script) and the default-features Clippy step compiles that build. No component records the
+walk: re-stamping a node with its own document changes no component, so a counter is the only observation.
+
 | cell | kind | shape | expected |
 |---|---|---|---|
-| U1 | red | `append_child(D_parent, n)` with `n` stamped `X`, a child, a shadow root with content, a template with contents; variants `insert_before`, `replace_child`, an append into a contents fragment stamped `D`; **Attr variant**: `n` with an `AttrEntityCache` entry whose entity was created by `create_attribute(name, owner X)` | every visited node, the contents and the cached Attr entity stamped `D` (adopt 3.1, 3.3.1, 3.4) |
+| U1 | red | `append_child(D_parent, n)` with `n` stamped `X`, a child, a shadow root with content, a template with contents; variants `insert_before`, `replace_child`, an append into a contents fragment stamped `D`; **Attr variant**: `n` stamped `X` with one Attr materialized by `attr_node` and one set by `set_attr_node` (C0b-pre2; the only states D-21 allows) | every visited node, the contents and the cached Attr entity stamped `D` (adopt 3.1, 3.3.1, 3.4) |
 | U2 | red | ownerless `n` (a fixture creator) appended under `D` | stamped `D` (silent re-home) |
-| U3 | red | `n` stamped `D` appended under an ownerless parent | keeps `D` |
-| U4 | red | a recording `MutationDispatcher` over `append_child` of an `X`-stamped parented node, and over `replace_child`; the recorder's `Insert` arm reads `node_document(node)` | events `Remove(old parent)`, `Insert`; replace: `Remove(new_child's old parent)`, `Remove(old_child)`, `Insert`; the `Insert` arm reads `D` (the stamp is written before `Insert`). (C0c adds `Adopt`'s position) |
-| U5 | guard | same-document move | stamps unchanged; no walk (a counting walk hook in the test build) |
-| U6 | guard | adoption past the depth and breadth caps (`destroy.rs:381`'s shape) | every node re-homed |
-| U7 | red | `node_document(D) == Some(D)`; `owner_document(D) == None`; a node whose document was destroyed → `None`; an unstamped node in a Document's tree → `None` (no fallback) | as stated |
-| U8 | guard (×2) | parse a document with templates, a declarative shadow root, foreign content and a doctype; every node except the Document carries `D` **at creation**, before any later append | all stamped |
-| U9 | guard (×2) | fragment parse into a context in `D` with a recording dispatcher installed around it and a walk counter | no event reaches the dispatcher; the walk counter stays 0 (every build link is a compare, A2×A5); returned nodes stamped `D`; `FragmentParseRoot` absent afterwards (success and strict rollback) |
-| U10 | red | `EcsDom::adopt(fragment, D)` on a parentless fragment with children | fragment and children stamped `D` (C0c adds the event count) |
+| U3 | guard | `n` stamped `D` appended under an ownerless parent | keeps `D` |
+| U4 | red | a recording `MutationDispatcher` over `append_child` of an `X`-stamped parented node, and over `replace_child`; the recorder's `Insert` arm reads `node_document(node)`, and in the replace variant its `Remove(old_child)` arm reads `node_document(new_child)` | events `Remove(old parent)`, `Insert`; replace: `Remove(new_child's old parent)`, `Remove(old_child)`, `Insert`; the `Insert` arm reads `D` (the stamp is written before `Insert`); the `Remove(old_child)` arm reads `D` (`new_child`'s walk precedes `old_child`'s removal, D-4). (C0c adds `Adopt`'s position) |
+| U5 | guard | same-document move | stamps unchanged; the walk counter unchanged |
+| U6 | red | `append_child` under `D` of an `X`-stamped subtree past the depth and the breadth caps (the shapes of `destroy.rs:399`, `:437`) | every node re-homed |
+| U7 | red | `node_document(D) == Some(D)`; `owner_document(D) == None`; a node whose document was destroyed → `None`; an unstamped node in a Document's tree → `None`; an unstamped node under a fragment stamped `D` → `None` (no fallback) | as stated |
+| U8 | red (×2) | parse a document with templates, a declarative shadow root, foreign content and a doctype, reading the walk counter before and after | the counter unchanged — no link walked, so every linked node carried `D` from its creation (D-4 walks iff the child's stamp differs from the target), which the end state alone cannot show (U2's silent re-home); and every node except the Document reads `D` |
+| U9 | guard (×2) | fragment parse into a context in `D`, reading the walk counter before and after | the counter unchanged (D-8: no finishing walk; every build link is a compare, A2×A5); returned nodes stamped `D`; `FragmentParseRoot` absent afterwards (success and strict rollback) |
+| U10 | guard | `EcsDom::adopt(fragment, D)` on a parentless fragment with children | fragment and children stamped `D` (C0c adds the event count) |
 | U11 | red | `node_document_for_new_nodes`: a Document → itself; a node → its stamp; the fragment root → the context's document; the throwaway → the throwaway; a node created under root during a build → the context's document, **never the throwaway** (both tiers, including a top-level template's contents and a template nested in a top-level element); documentless context → `None` | as stated |
-| U12 | guard (dom-api) | a DOMParser document's tree after `CreateAttribute`, `cloneNode(false)`, the table helpers, `append('s')`, `splitText`, `textContent`, Range extract (and cloneContents if present) — every created node stamped. A value check, **not** the census (D-17 is) | all stamped |
+| U12 | red (dom-api) | a DOMParser document's tree after `CreateAttribute`, `cloneNode(false)`, the table helpers, `append('s')`, `splitText`, `textContent`, Range extract (and cloneContents if present) — every created node stamped. A value check, **not** the census (D-17 is) | all stamped |
 | U15 | red (dom-api) | `ownerDocument.get` on an element whose document was destroyed (stamp dangling), with a bound document present | `JsValue::Null` (base: the bound document) |
 | U16 | red (dom-api, H-17) | `CreateAttribute` on Document `X` → the Attr entity's `node_document == X`; `GetAttributeNode` on an element of `X` → the cached entity stamped `X`; append the element under `D` → the cached entity stamped `D` | as stated (the dom-api Attr path is not reached from the VM; `#11-dom-api-attr-entity-model-unification`) |
 | U17 | control (D-17) | in a scratch clone: (a) add `dom.create_element("x", Default::default())` to a non-test fn of `elidex-dom-api` → the CI/tools default-features Clippy step fails (while `cargo clippy --all-features` compiles it: why the step exists); (b) add `features = ["fixtures"]` to `elidex-dom-api`'s normal `elidex-ecs` dependency → `bash scripts/check-fixture-boundary.sh` fails; (c) revert → green | recorded in the PR |
-| U19 | red (dom-api, D-21) | Attr `a` from `CreateAttribute` on Document `Y` (`node_document(a) == Y`); `SetAttributeNode(a)` on element `e` of Document `X` → `node_document(a) == X` (*append* 3) and `GetAttributeNode(e, name)` returns `a` (same entity, *append* 1); `append_child` of `e` under a node of `D` → `node_document(a) == D`; `old = SetAttributeNode(b)` with the same name → `old` is `a` (*set an attribute* 8), `attr_owner_element(a) == None` (*replace* 5), `a`'s value is the value it had before the call and `b`'s value is the element's attribute value (D-21's order); `SetAttributeNode(b)` again → returns `b` (step 4), no change; adopt `e` into `X` → `a` keeps `D`, `b` is `X`; `RemoveAttributeNode(b)`, then adopt `e` into `D` → `b` keeps `X`; `GetAttributeNode` then `RemoveAttribute(name)` → the removed Attr keeps its document across the next adopt; `destroy_entity(e)` → `attr_owner_element` of every Attr `e` had materialized is `None`. Observation: `EcsDom::node_document(attr)` and `attr_owner_element(attr)` read in the test (the VM never reaches these handlers, H-17) | base: `a` unstamped from creation (`create_attribute` takes no owner, H-4) and after `SetAttributeNode`, never re-homed, and `GetAttributeNode` returns a new entity; C0b: as stated |
+| U19 | red (dom-api; the node-document legs, the relation's being C0b-pre2's AR1–AR6) | Attr `a` from `CreateAttribute` on Document `Y` → `node_document(a) == Y`; `SetAttributeNode(e, a)` with `e` of Document `X` → `X` (*append* 3); `append_child` of `e` under a node of `D` → `a` is `D` (adopt 3.3.1); `SetAttributeNode(e, b)`, same name → `b` is `D` (*replace* 4); adopt `e` into `X` → `a` keeps `D`, `b` is `X`; `RemoveAttributeNode(e, b)`, then adopt `e` into `D` → `b` keeps `X`; `GetAttributeNode` then `RemoveAttribute(name)` → the removed Attr keeps its document across the next adopt. Read with `EcsDom::node_document(attr)` (the VM never reaches these handlers, H-17) | base: `a` unstamped from creation (H-4); the `SetAttributeNode` legs stamped (C0b-pre2); never re-homed by a move; C0b: as stated |
 | U20 | red (`elidex-custom-elements` unit, D-11) | `spawn_custom_element_entity(dom, "x-e", "x-e", Some(doc))` → `node_document == doc`; with `None` → `None` and no entity spawned (entity count unchanged) | base: `None` spawns an ownerless element |
 
 ### §6.3 Mutation guards
@@ -586,16 +573,16 @@ id=s></span></div>', 'text/html')`; `dp2` a second one.
 | mutation | killed by |
 |---|---|
 | no adoption in the primitives | T1, T2, U1 |
-| adopt after `link_node` | U4 |
+| adopt after `link_node` | `replace_child`: U4 (its `Remove(old_child)` arm reads `D`); `append_child` / `insert_before`: unobservable — nothing runs between `link_node` and `fire_after_insert` (H-10), so §2.0's contract holds by review; adopt after `fire_after_insert`: U4 |
 | light-tree-only walk | T4, U1 |
 | attrs not re-homed | U1 Attr variant, U16 |
-| fallbacks kept | U7; getter fallback kept: U15 |
-| a creation site left ownerless | compile (D-17, U17 (a)); T20–T23, U8, U12 |
+| fallbacks kept (tree root, fragment root's stamp) | U7; getter fallback kept: U15 |
+| a creation site left ownerless | compile (D-17, U17 (a)); T20–T23, U8 (counter), U12 |
 | entry without the redirection / redirection on the throwaway instead of root | U11, U9 (walk counter) |
 | replace-with-fragment does not adopt the fragment / pre-insert adopts it | T11, U10 |
-| clause (b) keeps the proxy | T9, T10 |
+| clause (b) keeps the proxy | P-4 (§9 item 3: `find_tree_root_composed` gone from `scripting.rs`); T8–T10 pin the outcome (equal under I-U, so they cannot kill it) |
 | a normal dependency enables `fixtures` | U17 (b) |
-| `SetAttributeNode` does not stamp or register; a removed Attr stays in the walk's set; the chokepoint runs before the entry swap (old Attr's value overwritten); despawn leaves the reverse pointer | U19 |
+| a set Attr not stamped, or a removed one still re-homed | U19 |
 | the CE helper creates an ownerless element for `None` | U20 |
 
 ### §6.4 Kept green
@@ -606,6 +593,30 @@ elidex-ecs`, `-p elidex-dom-api`, `-p elidex-custom-elements`, `-p elidex-html-p
 elidex-html-parser-strict`, `-p elidex-form`, `-p elidex-script-session`, `-p elidex-js`, `-p elidex-style`, `-p
 elidex-layout-table`, `-p elidex-layout`; then `mise run ci` (includes the default-features Clippy step with
 the fixture-boundary script).
+
+### §6.5 Base formulations (red-first; Ax3 IMP-2)
+
+A red cell that names a NEW API is run on the base through HEAD's API instead; a compile failure is not counted as red.
+`get_associated_document` (`pub` at the base; HEAD's raw stamp, which `node_document` reads at C0b's head) stands for
+`node_document` throughout.
+
+| cell | NEW API in the cell | base formulation → expected base result | control (green on the base) |
+|---|---|---|---|
+| T1–T5, T8–T12, T13, T20–T23 | none | the script as written → the *base* column | the moved / created node's `ownerDocument` read before the operation |
+| U1 | `node_document` | the primitives as written, stamps read with `get_associated_document` → `X` (no adoption); the Attr variant through C0b-pre2's `attr_node` / `set_attr_node` | each node reads `X` before the link |
+| U2 | `node_document` | the fixture creator (unflagged on the base), appended under `D` → `None` | a node stamped with `set_associated_document(m, D)` reads `D` |
+| U4 | `node_document` | the recorder's arms read `get_associated_document` → `X` | the recorded event sequence (unchanged) |
+| U6 | none | as written → the deepest and the last child read `X` | the same reads before the append |
+| U7 | `node_document` | leg 1 `get_associated_document(D)` → `None`; the destroyed-document, tree-root and fragment legs through `owner_document` → `Some(_)` (the fallbacks C0b deletes) | leg 2, `owner_document(D) == None` |
+| U8 | `adopt_walk_count` | the counter: compile failure, not counted; HEAD proxy: after the parse, non-foreign parser elements read `None` (H-4) | strict: foreign elements read `D` (H-4); tolerant: a template's contents fragment reads `D` (`convert.rs:284`) |
+| U11 | `node_document_for_new_nodes`, `FragmentParseRoot` | compile failure, not counted; HEAD proxy: right after `begin_detached_fragment()` the root reads `None` (ownerless, `teardown.rs:302`), where C0b's root reads the throwaway | the returned throwaway's `node_kind` is `Document` |
+| U12 | none | as written, stamps read with `get_associated_document` → `None` for the table helpers, `cloneNode(false)`, `append('s')`, Range extract | `createElement` on the DOMParser document reads it (`document.rs:235`) |
+| U15 | none | as written → the bound document | the getter on a live-stamped element → its document |
+| U16 | `node_document` | `get_associated_document`: `CreateAttribute` → `None`; after the element's append under `D` → `X` | the `GetAttributeNode` leg reads `X` (C0b-pre2's stamp) |
+| U19 | `node_document` | `get_associated_document` per leg → *base* column | the first `SetAttributeNode` leg reads `X` |
+| U20 | the `Option<Entity>` return | HEAD's signature `(…, owner: Option<Entity>) -> Entity`: `None` spawns an entity (count + 1) reading `None` | `Some(doc)` reads `doc` |
+
+Guards (U3, U5, U9, U10) are not run on the base; U10's walk exists there as `adopt_subtree` (`teardown.rs:251`).
 
 ## §7. Out of scope
 
@@ -620,7 +631,8 @@ Attr variant and U16 pin both of C0b's Attr obligations (D-3 (b) and D-11) on th
 | c0a | N1 (#580) → C0b | code + semantic | clause (b) on N1's landed body; T8–T10 |
 | c0-ab | C0a → C0b | code (soft) | D-5's step-6 comment on C0a's numbering |
 | c0-pre-c | D-14 (c) → C0b | code predecessor | `table_mutation/mod.rs` handlers → `table_mutation/handlers.rs` (NEW), a pure move (PM 258) |
-| c0-pre-ci | CI/tools default-features check PR → C0b | code predecessor (CI) | the step, its `mise` task and the CLAUDE.md exception are the CI/tools lane's (PM 255); C0b appends `scripts/check-fixture-boundary.sh` to them |
+| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception are #585's (PM 255 / 263); C0b appends `scripts/check-fixture-boundary.sh` to them and adds its path to the `rust` filter |
+| c0-pre2 | C0b-pre2 → C0b | code + semantic predecessor | the relation the walk's Attr edge re-homes (D-3 (b)); `attr_node` / `set_attr_node`, whose creation and stamp read C0b switches (D-11); file overlap `teardown.rs` (PM 283) |
 | c0-bc | C0b → C0c | code + semantic | `adopt`, the walk, the stamps |
 | c0b | C0b → C1 | semantic + code | the entry, `NewNodeOwner` hook, the walk's contents edge; C1's edge rows are C1's |
 | c0c | C0b → T3 | data flow | `node_document` |
@@ -642,20 +654,22 @@ that does not exist on `main`.) **For the PM:** program R-1's C0b append; R-6 (a
 ## §9. Definition of done
 
 1. Coordinates re-measured at C0b's base over §0.1's scope (RC-2's files included); populations P-2 to P-9 re-run and
-   recorded in the PR; the census command (program §4.4) run at the base, its result recorded with each member's
+   recorded in the PR; the census commands (program §4.4) run at the base, their result recorded with each member's
    `source`.
 2. Pre-implementation run: the fallbacks deleted alone on the base, §6.4's commands, every red test recorded with its
    reason.
-3. At C0b's head: the census command re-run and recorded; P-3 = `core.rs:279`, `selection.rs:618`; P-4 first command =
-   the definition and `node_proto.rs` only, second = 0; P-5 = 0 and 0; P-9, P-10 as stated; the four argumentless creators
+3. At C0b's head: the census commands re-run and recorded; P-3 = `core.rs:279`, `selection.rs:618`; P-4 first command =
+   the definition and `node_proto.rs` only, second = 0; P-5 = 0 and 0; P-9 as stated; the four argumentless creators
    absent from `EcsDom` (`/usr/bin/grep -n 'pub fn create_element(&mut self, tag' crates/core/elidex-ecs/src/dom/mod.rs`
    → 0).
-4. D-1, D-2, D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-17, D-18, D-20, D-21 implemented with §4.8's citations; the strict
+4. D-1, D-2, D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-17, D-18, D-20 implemented with §4.8's citations (D-21 by
+   C0b-pre2); the strict
    tree builder's method is gone; P-1 unchanged.
-5. §6.1 and §6.2 cells present; every red cell red on the base with its control green; U17 recorded.
+5. §6.1 and §6.2 cells present; every red cell red on the base in its §6.5 formulation with its control green; U17
+   recorded.
 6. §5.2 rewrites done; §4.9's comment sites rewritten.
 7. §6.4 green; `mise run ci` green (incl. the default-features Clippy step with the fixture-boundary script) and the CI
-   `check` job's "Clippy (default features, no dev-only feature)" step green; parse cost measured (§4.3). The §5.2 list of fixture tests that assert
+   `check` job's "Clippy (default features, no dev-only feature)" step green; parse cost measured with the new bench against §4.3's threshold. The §5.2 list of fixture tests that assert
    an unreachable ownerless-node state is recorded with each one's rewrite or deletion.
 8. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the program memo,
    and `docs/plans/2026-09-ibp-sandbox.md` exits 0 (run).
@@ -667,3 +681,34 @@ that does not exist on `main`.) **For the PM:** program R-1's C0b append; R-6 (a
     which T3's step 3 reads; T3's residual R-B; PM 153): cell T13 green at C0b's head; H-T hands T3 the re-derived verdicts
     of XW-9, XW-10, EW-15, EW-16 and pin T-18.
 11. If this is the C0 program PR that lands after #583: program §9 item 6 (PM 273).
+
+## §10. Review dispositions (plan-review of C0b at `15e99049`, 2026-11-03; Ax2, Ax3, Ax4; PM 283)
+
+| finding | disposition | where |
+|---|---|---|
+| Ax3 IMP-1 (D-21 bundled; SPLIT) | split per PM 283: C0b-pre2 carries D-21 and what only it needs (`AttrData` visibility included); C0b keeps D-3 (b), U1's Attr variant, U19's node-document legs | C0b-pre2 memo; header, D-11, D-21, §1, §2, §3, §4.2, §4.8, §5, §6, §8 c0-pre2, §9 |
+| Ax3 IMP-2 (red cells over NEW APIs) | base formulations through HEAD's API; compile failure not counted; HEAD proxies for U8, U11 | §6.5, §6 header, §9 item 5 |
+| Ax3 IMP-3 (U8 cannot fail; §4.3 unguarded) | U8 reads the walk counter across a document parse | U8, §4.3, §6.3 |
+| Ax2 IMP-1 (counter has no test-only home) | counter, increment and reader under `#[cfg(any(test, feature = "fixtures"))]`; read from the parsers' dev-dependencies; U17 (b) and the boundary script keep it out of production | §6.2, §5.3 |
+| Ax2 MIN-1 (U9's dispatcher claim vacuous) | claim removed; U9 pinned by the counter | U9, §2 |
+| Ax2 MIN-2 (`AttrData` pub) | crate-private with accessors | C0b-pre2 D-21 (c) |
+| Ax2 MIN-3 (census names creators only) | population by property, raw spawns included, a second command | program §4.4; §4.4 |
+| Ax2 MIN-4 (U1 Attr variant unreachable) | built through `attr_node` / `set_attr_node` | U1 |
+| Ax2 FP-B1 | no change | — |
+| Ax2 FP-B2 (D-11 order) | `None` → `TypeError` before `ctx.host().dom()` | D-11 |
+| Ax3 MIN (T13, U8, U12, U6 labelled guard, red on the base) | kinds red; U6 via `append_child`, its shape cites `destroy.rs:399` / `:437` (`:381` was a dispatcher test); U3 and U10 are green on the base: guards | §6.1, §6.2, §6.5 |
+| Ax3 MIN (adopt after `link_node` equivalent) | killer in `replace_child` (U4's `Remove(old_child)` arm); in `append_child` / `insert_before` unobservable | U4, §6.3 |
+| Ax3 MIN (clause (b) keeps the proxy: T9, T10 equivalent) | killer = P-4 | §6.3 |
+| Ax3 MIN (fallbacks kept: U7 partial) | U7's fragment-root leg | U7 |
+| Ax3 MIN (§4.3 spawn tuple and bench undecided) | the stamp in the spawn tuple; `mise run bench` has no HTML-parse bench, so C0b adds one; threshold 5% median at p < 0.05 | §4.3, §5.3, §9 item 7 |
+| Ax3 MIN (§5.2 rewrite-vs-delete) | rule stated | §5.2 |
+| Ax3 MIN (`tests/clone.rs` seam, U19 home) | no split (net ≤ 0), split first only above 1000 at the base; U16 / U19 in `char_data/tests/attr.rs` | §5.3 |
+| Ax3 MIN (c0-pre-ci has no ID) | #585 (merged `115a667c`) | D-17 (4), §8 |
+| Ax3 MIN (script not in the `rust` filter) | path added in C0b | D-17 (4), §5.3 |
+| Ax3 MIN (`-e normal,features` misses build-dependencies) | `-e normal,build,features`; measured at `27b50dfe`: only `elidex-ecs feature "default"`; `test-hooks` 0 under it, 1 with `dev` added | D-17 (4); program D-17 (iii), H-24 |
+| Ax4 IMP-1, IMP-2, MIN (`split_text.rs`) | `:215` not changed; `:72` steps 1–9; `:362` steps 7.2–7.3; `:141` annotated, not renumbered | §0.3 P-11, §4.9 |
+| Ax4 IMP-3, MIN (§4.8 anchors and names) | algorithm names and anchors added; the entry row cites *insert* 7.1 and the redirect target | §4.8 |
+| Ax4 MIN (§3 Lookups `body html concept-element-attributes-*`) | `body dom`, narrowed to C0b's legs | §3 |
+| Ax4 MIN (D-11 source) | HTML §3.2.3 step 9.2 | D-11, §4.8 |
+| Ax4 MIN (`attr_owner_element` row; *remove an attribute* steps) | in C0b-pre2's table: *remove an attribute by name* 1–2 → *remove an attribute* 2–4 | C0b-pre2 §4.4 |
+| Ax4 MIN (T23 sources) | *extract* 1, 16.1, 18; *clone the contents* 1, 14.1 | T23 |
