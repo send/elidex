@@ -9,7 +9,7 @@ Nested **program C0** of the standalone program `EH-attrs-at-creation` (umbrella
 |---|---|---|
 | **C0a** `EH-attrs-at-creation-C0a` | `docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md` (NEW) | D-12, after its prerequisite split D-14 (a) |
 | **C0b** `EH-attrs-at-creation-C0b` | `docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md` (NEW) | D-1, D-2 (no `Adopt` event), D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-15 (iii), D-17, D-18, D-20, after its prerequisites C0b-pre1 = D-14 (c) and the CI/tools default-features check PR #585 (D-17 (iii), PM 255; merged `115a667c`) |
-| **C0c** `EH-attrs-at-creation-C0c` | `docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md` (NEW) | D-3 (c), D-6, D-13, D-19, after its prerequisite splits D-14 (b), (d), (e) |
+| **C0c** `EH-attrs-at-creation-C0c` | `docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md` (NEW) | D-3 (c), D-6, D-13, D-19, after its prerequisite split D-14 (b) |
 
 This memo holds what the three share: the frame and premises (§0), the decisions with their owning PR (§0.4), the
 program's shape and order (§1), the coupled-invariant matrix (§2), the spec map of the whole (§3), the creation
@@ -28,8 +28,7 @@ this branch, D-15) and its input file `docs/plans/2026-09-ibp-sandbox-input.md` 
 **rev 3.1 `b5e47f4b`** on branch `layout-eh-c1-template-owner-plan`, unpushed; "the C1 memo"); T3
 (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, rev 3 on branch `layout-eh-target-determination-plan` at
 `14ff3dc2`; "the T3 memo"); L3's Range program (`docs/plans/2026-11-range-contents-program.md`, **Rev 6.1 `d5bff269`**,
-PR #583 at head **`a164ffe0`**, branch `range-full-impl-plan`, whose local tip `9a74cdf9` adds two A6 wording commits on
-2026-11-03; "the L3 memo"; it splits RC-2 into **RC-2a** = the `CloneCreated` event and its consumers, the `cloneNode`
+PR #583 at head **`a164ffe0`**, landed on main as `12ea5dce`; "the L3 memo"; it splits RC-2 into **RC-2a** = the `CloneCreated` event and its consumers, the `cloneNode`
 migration, D14 and the #466 reversal, C1's prerequisite (PM 249 Q-Z4), and **RC-2b** = the contents algorithm; its
 Appendix A site IDs A1–A12 are cited as that memo's; L3 coordinates below are `a164ffe0`'s). Unlanded IDs are cited as
 those memos' IDs.
@@ -56,7 +55,8 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.7* (2026-11-03): sweep after PM 315 — D-3 (a) / (c), §2.1 A3, §2.2 A3×A4 and §9 item 6 point at
+**Changelog.** *Rev 3.8* (2026-11-03, PM 317 / 318): #583 landed (`12ea5dce`): header coordinates, edge c0h; D-14 (d),
+(e) are L3 RC-0a's (PM 318): header table, D-14, c0-pre-b, H-L3 (2), §9 item 2. *Rev 3.7* (2026-11-03): sweep after PM 315 — D-3 (a) / (c), §2.1 A3, §2.2 A3×A4 and §9 item 6 point at
 C0c memo D-3 (c) / D-6 / DoD 8 instead of restating the pre-3.7 segment rule. *Rev 3.6* (2026-11-03): C0c's plan-review (`76af676a`; dispositions in the C0c memo §10) and PM 306 /
 311. Edge c0h (#583 → C0c) and the order line; §9 item 6 gains C0c's points; D-3 (c) / D-6: a segment under a `None`
 pair is `None`, `Adopt` iff the root's pair; D-14 (b), §4.7: `adoptNode` in `document.rs`; c0e's file overlap; R-2's
@@ -318,14 +318,10 @@ cells) and cites this text.
   `vm/host/document_accessors.rs` (NEW). (c) **before C0b** (PM 258): `crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs`
   (994; C0b adds `create_table_element` and edits eight sites) — its *DomApiHandler bindings* section (from the section
   rule at `:624` to the end, before `mod tests;`) → `table_mutation/handlers.rs` (NEW); the algorithms stay in `mod.rs`
-  (≈ 625 lines). (d) **before C0c, unless L3 RC-0a has done it**:
-  `crates/dom/elidex-dom-api/src/range/live.rs` (1021; C0c adds an `Adopt` arm) — its inline test module (from `:498`)
-  moves to a sibling file; this is the move L3 RC-0a plans (L3 memo §7, `live.rs` row), so whichever of RC-0a and C0c's
-  prereq lands first does it and the other drops it (L3's row does not say so yet, P-19 (d)). (e) **before C0c, unless
-  L3 RC-0a has done it**: `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` (1143; C0c and RC-2a each add an arm
-  to its exhaustive match) — the specialised-hook scenarios (from the section rule at `:973`, "after_remove descendants
-  snapshot", to the end) move to a sibling test file; whichever of L3 RC-0a and C0c's prereq lands first carries the
-  split (L3 #583 `55d35a16` moved it into RC-0a's scope, so RC-2a starts from the split file; P-19 (d)). Each verified as a
+  (≈ 625 lines). (d) `crates/dom/elidex-dom-api/src/range/live.rs` (1021) and (e)
+  `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` (1143), where C0c adds no-op arms: whichever of L3 RC-0a and
+  C0c's prerequisite landed first was to split them, and RC-0a lands both splits first (PM 318), so they are RC-0a's,
+  not C0c's prerequisites; when C0c's base includes RC-0a, C0c is written on the split files. Each verified as a
   pure move (`git diff --stat`, `cargo test -p <crate>` green).
 - **D-15 ((i), (ii), (iv) on this branch; (iii) in C0b; all made true by C0b) — the IBP documents name
   `node_document`.** (i) The node memo's `effective_node_document` → `node_document`, in place, with the dated amendment
@@ -686,7 +682,7 @@ deferred.
 | # | edge | kind | note |
 |---|---|---|---|
 | c0-pre-a | D-14 (a) → C0a | code predecessor | pure move |
-| c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) and (e) shared with L3 RC-0a (whoever lands first; (e) in RC-0a since L3 `55d35a16`, P-19 (d)) |
+| c0-pre-b | D-14 (b) → C0c | code predecessor | pure move; (d), (e) are RC-0a's (D-14, PM 318) |
 | c0-pre-c | D-14 (c) → C0b | code predecessor | pure move (PM 258) |
 | c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | PM 255 / 263: #585 owns the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception; C0b adds `scripts/check-fixture-boundary.sh` as its own step after that step (D-17 (iii)) |
 | c0a | N1 (#580, landed) → C0b | code + semantic | clause (b) on N1's landed body; T8–T10 need N1's gate |
@@ -696,7 +692,7 @@ deferred.
 | c0c | C0b → T3 | data flow | T3 reads `node_document` |
 | c0d | C0b → L3 P1 | boundary | §2.0 |
 | c0e | C0c ↔ L3 RC-2a | census collision | RC-2a's `CloneCreated` and C0c's `Adopt` add variants to the same enum, arms to the same consumer and exhaustive matches; whichever lands second re-runs P-6 and adds its arm to every exhaustive match (`range/live.rs`, `mutation_hook.rs`). Both also edit `tree/walkers.rs` and the `dom/mod.rs` / `lib.rs` re-exports (C0c memo §5) |
-| c0h | #583 → C0c | ordering (PM 311) | C0c lands after #583 (the slots C0c points to are registered at #583's landing; C0c checks §9 item 6's C0c points) |
+| c0h | #583 → C0c | ordering (PM 311); #583 landed (`12ea5dce`) | C0c lands after #583 (the slots C0c points to are registered at #583's landing; C0c checks §9 item 6's C0c points) |
 | c0f | C0b ↔ L3 RC-2b | creation entry | §4.5 A6: RC-2b calls the entry if C0b is in its base; C0b migrates RC-2b's sites if RC-2b lands first (compile-enforced either way, D-17) |
 | c0g | C0b ↔ L3 RC-2a | file overlap `node_methods/clone.rs` | the pass-4 hand stamps `:282-285` (cloned host + replicated shadow root) and `:294-301` (the `!deep` shadow-child stamp; `git show 27b50dfe:crates/dom/elidex-dom-api/src/node_methods/clone.rs | sed -n '282,285p;294,301p'`) call `set_associated_document`, `pub(crate)` from C0b (D-18). C0b first: C0b removes both, and RC-2a writes no hand stamp. RC-2a first: D14 (RC-2a) removes `:294-301`, C0b removes `:282-285`. C0b's re-measure scope includes RC-2's files (`node_methods/clone.rs`, `node_methods/tests/clone.rs`, `elidex-custom-elements/src/consumer.rs`, `dom/mutation_event.rs`, `dom/mod.rs`, `tree_clone.rs`, `range/contents.rs`) |
 
@@ -719,8 +715,7 @@ deferred.
 - **H-L3 to L3** (via the PM): work handed to L3 only (PM 273: #583 states the shared points as decided substance with
   PM IDs; C0 edits need no notification, and the C0 program PR that lands after #583 checks the wording, §9 item 6):
   (1) A6 (§4.5): RC-2b owns the call in both orders; C0b owns the entry, T23 and the census; either way a missed site
-  does not compile (D-17); (2) the edges c0e (RC-2a × C0c), c0f (RC-2b × C0b), c0g (RC-2a × C0b, `clone.rs`) and
-  D-14 (d) / (e) bind L3's PRs in either landing order; (3) the slots `#11-selection-document-membership` (proposed),
+  does not compile (D-17); (2) the edges c0e (RC-2a × C0c), c0f (RC-2b × C0b), c0g (RC-2a × C0b, `clone.rs`) bind L3's PRs in either landing order; (3) the slots `#11-selection-document-membership` (proposed),
   `#11-vm-isconnected-bound-document`, `#11-import-node` (proposed, owner L3) and `#11-strict-frameset-fragment-mode`
   (proposed, owner L3 as the fragment-parse lane) are L3's.
 - **H-N4 to N4**: D-15 — `node_document`, adds no function; the N1 memo's n3 hand-off is superseded.
@@ -820,8 +815,8 @@ deferred.
 ## §9. Program definition of done
 
 1. C0a, C0b, C0c each landed with its own per-PR plan-review passed and its own DoD met (their §9).
-2. D-14 (a) landed before C0a; (c) and the CI/tools default-features check PR #585 before C0b; (b), (d), (e) before C0c (or
-   (d) / (e) by L3 first).
+2. D-14 (a) landed before C0a; (c) and the CI/tools default-features check PR #585 before C0b; (b) before C0c ((d), (e) are
+   RC-0a's, D-14).
 3. The umbrella row, the order line and the PM 271 consistency edits (R-3) added by C0a; the row updated by C0b and
    C0c.
 4. The PM has applied R-1, R-2, R-6 (a), R-8 and registered R-6 (b), (c), (f), (g) at the landings (PM 251; each is in

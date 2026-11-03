@@ -1,9 +1,8 @@
 # C0c `EH-attrs-at-creation-C0c` — the adoption notification (`adoptedCallback`) and `document.adoptNode` (per-PR plan memo)
 
-Per-PR slice **C0c** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.6;
+Per-PR slice **C0c** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.8;
 "the program memo"; its revs 3.3–3.5 do not touch C0c's decisions), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program
-decisions **D-3 (c), D-6, D-13, D-19**, after its prerequisite pure-move splits **D-14 (b), (d), (e)** ((d) / (e) unless L3
-RC-0a has done them), on C0b's head. It closes
+decisions **D-3 (c), D-6, D-13, D-19**, after its prerequisite pure-move split **D-14 (b)**, on C0b's head. It closes
 slot `#11-custom-elements-adopted-callback` (D-17 #227) and, as the program's last PR, slot
 `#11-cross-document-adopt-on-insert` (program R-1, R-2). Program IDs are cited as the program memo's; C0b's as the C0b
 memo's (`docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`, "the C0b memo").
@@ -25,7 +24,9 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.7.1* (2026-11-03): sweep after PM 315 — scope item 1, §2 A3×A4, §3 and §4.2 point at D-3 (c) /
+**Changelog.** *Rev 3.7.2* (2026-11-03, PM 317 / 318; with the program memo's rev 3.8): #583 landed (`12ea5dce`):
+DoD 8 lists its four `dom/mod.rs` statements on main, edge c0h; the `live.rs` / `mutation_hook.rs` splits are L3
+RC-0a's (PM 318): header, D-14, §5, c0-pre-b, DoD 1. *Rev 3.7.1* (2026-11-03): sweep after PM 315 — scope item 1, §2 A3×A4, §3 and §4.2 point at D-3 (c) /
 D-6 instead of implying a segment per fragment; U19's third leg and §6.3's row restore the pin of a nested segment
 under a `None` (silent re-home) segment, dropped by rev 3.7's reshaping of the second leg. *Rev 3.7* (2026-11-03, PM 315): a contents fragment whose `old` equals `new` is skipped by both the
 stamps and the segments, and a skipped fragment reads `None` in D-6's lookup (D-3 (c), D-6, I-A4, U19, §6.3); C0c's
@@ -136,10 +137,9 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   no workaround. An adopt applied by the shell's unbound flush reaches no consumer (dispatcher cleared at `unbind`,
   `vm/host/custom_elements/records.rs:22-30`), and the record leg converts only child-list and attribute records
   (`:74-138`), so its `adoptedCallback` is lost too (same slot).
-- **D-14 (b), (d), (e) — prerequisites.** As program D-14: (b) `vm/host/document.rs` (1197); (d) `range/live.rs` (1021):
-  its inline test module (from `:498`) to a sibling file — L3 RC-0a's planned move, done by whichever lands first; (e)
-  `dom/tests/mutation_hook.rs` (1143): the specialised-hook scenarios from the `:973` section rule to a sibling file —
-  done by whichever of L3 RC-0a and C0c's prereq lands first (RC-0a's scope since L3 `55d35a16`). Each its own PR (or commit of L3's), a pure move.
+- **D-14 (b) — prerequisite.** As program D-14: (b) `vm/host/document.rs` (1197), its own PR, a pure move. The splits
+  of `range/live.rs` (1021) and `dom/tests/mutation_hook.rs` (1143), program D-14 (d) / (e), are L3 RC-0a's (PM 318);
+  when C0c's base includes RC-0a, C0c is written on the split files.
 
 ## §1. Shape and verdict
 
@@ -260,8 +260,8 @@ no-ops" (`consumer.rs:73-74`); `walkers.rs:86-91` (D-19) and `:112-113` ("Pushed
 | `crates/core/elidex-ecs/src/dom/tree/walkers.rs` | 392 | D-19 (RC-2a also edits it, c0e) | < 1000 |
 | `crates/core/elidex-ecs/src/dom/mod.rs` 926, `crates/core/elidex-ecs/src/lib.rs` 51 | as listed | re-export `AdoptedContents` (`:32`, `:44-47`; c0e) | < 1000 (one line each) |
 | `crates/dom/elidex-custom-elements/src/consumer.rs` | 329 | `handle_adopt` | < 1000 |
-| `crates/dom/elidex-dom-api/src/range/live.rs` | 1021 | no-op arm | **split first** (D-14 (d), unless L3 RC-0a did) |
-| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 1143 | no-op arm in the recorder | **split first** (D-14 (e), unless L3 RC-0a did) |
+| `crates/dom/elidex-dom-api/src/range/live.rs` | 1021 | no-op arm | split by L3 RC-0a (D-14) |
+| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 1143 | no-op arm in the recorder | split by L3 RC-0a (D-14) |
 | `crates/script/elidex-js/src/vm/host/custom_elements/flush.rs` | 237 | the arm | < 1000 |
 | `crates/script/elidex-js/src/vm/host/document.rs` | 1197 | **split first (D-14 (b))**; then the native and its `DOCUMENT_METHODS_POST_LIVE_COLLECTION` entry (H-c6) in the remaining file (1197 − 144 − 516 = 537 lines, + ≈ 25) | prereq PR; < 1000 after |
 | `crates/dom/elidex-dom-api/src/document.rs` 665, `registry.rs` 785 | as listed | `AdoptNode` | < 1000 |
@@ -353,11 +353,11 @@ the method-scope reaction drain.
 
 | # | edge | kind | note |
 |---|---|---|---|
-| c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) / (e) shared with L3 RC-0a |
+| c0-pre-b | D-14 (b) → C0c | code predecessor | pure move |
 | c0-bc | C0b → C0c | code + semantic | `adopt`, the walk, the stamps the pairs read |
 | c0b | C0c → C1 | semantic + code | C1's per-segment pair values (D-C5, T25) need the segments and the consumer; C1's edge rows are C1's |
 | c0e | C0c ↔ L3 RC-2a | census collision + file overlap | `CloneCreated` and `Adopt` share the enum, `handle`, the exhaustive matches; whichever lands second re-runs P-6 and adds its arm to every exhaustive match. Files both edit: `walkers.rs` (D-19, `:86-118`; RC-2a's `for_each_clone_created`, #583 §7) and the re-exports `dom/mod.rs:32`, `lib.rs:44-47` (§5) |
-| c0h | #583 → C0c | ordering (PM 311) | C0c lands after #583: the slots it points to are registered at #583's landing, and DoD 8 checks #583's text |
+| c0h | #583 → C0c | ordering (PM 311); #583 landed (`12ea5dce`) | C0c lands after #583: the slots it points to are registered at #583's landing, and DoD 8 checks #583's text |
 
 **Recorded regression (2026-11-03, PM 311).** A custom element that elidex wrongly upgrades inside a null-registry
 document (e.g. DOMParser) gets an extra `adoptedCallback(dp, document)` when adopted; HEAD fires none (T15r). Bounded:
@@ -375,7 +375,7 @@ that slot's fix).
 
 ## §9. Definition of done
 
-1. D-14 (b), (d), (e) landed (or (d) / (e) by L3); coordinates re-measured at the base, RC-2a's files included; P-6, P-c1, P-c2 re-run and recorded.
+1. D-14 (b) landed; coordinates re-measured at the base, RC-2a's files included; P-6, P-c1, P-c2 re-run and recorded.
 2. D-3 (c), D-6, D-13, D-19 implemented with §4.8's citations.
 3. §6 cells present; every red cell red on the base (C0b's head) with its control green, recorded in the PR.
 4. P-c2 at the head lists exactly the native, the handler, the session function and tests.
@@ -385,9 +385,11 @@ that slot's fix).
 7. The umbrella row's C0c clause updated; the PM has applied R-1 and R-2 and registered `#11-import-node` and
    `#11-img-adopting-steps-relevant-mutations` (R-6 (b), (f)).
 8. Program §9 item 6's points, C0c's included, compared with #583 as on main (C0c lands after it, edge c0h; PM 273).
-   C0c's PR corrects #583's three statements that C0c does not edit `dom/mod.rs` — §7's row, §9, H6 (`:1888`, `:2005`,
-   `:2277-2278` as of #583's head; re-located by content) — to the facts at that point (C0c re-exports
-   `AdoptedContents` there, §5).
+   C0c's PR corrects #583's four statements that C0c does not edit `dom/mod.rs` to the facts at that point (C0c
+   re-exports `AdoptedContents` there, §5). As of main `12ea5dce` (line numbers a hint; re-located by content at
+   implementation): the Rev 6.4 changelog entry ("`dom/mod.rs` is RC-2a's and C0b's, not C0c's", `:116`); §7's
+   `dom/mod.rs` row ("C0c does not edit it", `:1888`); §9 ("is edited by RC-2a and C0b, not by C0c", `:2004-2005`);
+   H6 ("RC-2a's and C0b's, not C0c's", `:2277-2278`).
 
 ## §10. Review dispositions (plan-review at `76af676a`; 0 CRIT / 8 IMP / 22 MIN; PM 306 / 311)
 
