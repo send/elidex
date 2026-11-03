@@ -162,10 +162,13 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
    reasoning for `Reflect.apply` applies to `Function.prototype.apply` as well. Probe at `eaa741b5`:
    with a getter on `Array.prototype[0]`, `f.apply(null, [ , 1])` passes `undefined, 1` where the spec
    passes the getter's value. The normalisation is right for the compiler-built arrays **1aa**
-   unpacks, and wrong for a holey array reaching CreateListFromArrayLike. **1aa** fixes it with this
+   unpacks, and wrong for a holey array reaching CreateListFromArrayLike. **1ae** fixes it with this
    entry's own rule: the dense branch is taken only when no element is `Empty` (the caller-side
-   precondition), and a holey array goes through the per-index `Get` path. Sharing the dense fast path
-   with 1aa stands.
+   precondition), and a holey array goes through the per-index `Get` path. ⚠ *This read "**1aa** fixes
+   it"; the PM's ruling on 1aa's plan-review (PM 288) split the fix out of 1aa as **1ae**, a child of
+   umbrella 1a whose `Deps` names 1aa.* Sharing the dense fast path with 1aa stands: 1aa's
+   `array_argument_values` is the shared primitive, and 1ae's precondition sits in front of
+   `collect_array_like`'s call into it.
 9. **Slice 0ca sweep method — RESOLVED (executed, not stipulated).** The three-pass sweep is now
    documented and **run** at the head of §2.2, and §2.2 is its output. It earned its keep
    immediately: it found 3 defects (`(x)++`, `(x)+=1`, `(a[0])++`) that the probe, R1, R2 and

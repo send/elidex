@@ -1,12 +1,13 @@
-# VM P4 slice 1aa — the argument-layout contract (per-PR plan, rev 2)
+# VM P4 slice 1aa — the argument-layout contract (per-PR plan, rev 3)
 
 **Parent.** Umbrella **1a** (*Call-spread VM infrastructure*), row `1a` of the §5 slice table in
 `docs/plans/2026-07-vm-p4-slice-plan.md`. 1a's derivation is recorded in §6.6 of
 `docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md`. It minted three terminal children in
 rev 1, **1aa** (this memo), **1ab** (remove `op_array_spread`'s non-spec `return()`) and **1ac**
 (root the four call-entry argument windows). The plan-review of rev 1 re-applied the terminality
-measurement to 1aa and split the inline-cache entry point out as a fourth child, **1ad** (§2). This
-memo is 1aa's mandatory `/elidex-plan-review` input. It is outside the `2026-07-vm-p4-*` family glob,
+measurement to 1aa and split the inline-cache entry point out as a fourth child, **1ad** (§2). The
+PM's ruling on that review (PM 288) split `Function.prototype.apply`'s holey-array fix out as a fifth,
+**1ae** (§9). This memo is 1aa's mandatory `/elidex-plan-review` input. It is outside the `2026-07-vm-p4-*` family glob,
 so family memos cite it by path in backticks, never by a relative link.
 
 **Base.** `origin/main` = `eaa741b5`. Every `file:line` below is at that revision; crate paths are
@@ -15,15 +16,22 @@ lists the command that re-derives each one. Every probe in this memo ran in a th
 `git worktree add --detach … eaa741b5` with a temporary test module, removed afterwards, under
 `rustc 1.99.1 (58cf8f9c3 2026-10-13)`.
 
-**Kind.** A terminal row (§2 records the measurement and the one open point). It lands before the
+**Kind.** A terminal row, terminal by necessity (PM 288; §2 records the measurement and the ruling). It lands before the
 children of umbrella 1b that give its layout helper new callers, so the part with no JS-reachable
 holder yet (the helper's error contract and its no-allocation window) is asserted from Rust.
 
 **Rev 2 (plan-review R1).** D5 (the `Option<usize>` IC entry) moved to **1ad**; its design and its
 tests, corrected for the dry-run's G2–G4, are handed over in §8. `Function.prototype.apply`'s
-holey-array defect is fixed here (D6). The two pre-existing `super` defects of rev 1's §3.1 have a
+holey-array defect was fixed here (D6) in rev 2; it is 1ae's from rev 3. The two pre-existing `super` defects of rev 1's §3.1 have a
 home on Slice **S** (§3.1). Internal-error disposition, the `vm/dispatch.rs` arm shape and edge 16
 were decided by the driver (§1.1, §1.3, §7).
+
+**Rev 3 (PM 288).** D6 and its tests A1/A2 moved to **1ae**, a new terminal child of umbrella 1a whose
+`Deps` names 1aa; its design is handed over in §9. 1aa still makes `collect_array_like`'s dense branch
+read through the shared primitive (D2), with its behaviour unchanged. 1aa is ruled terminal by
+necessity (§2), which closes rev 2's §7 Q1; S's kind is re-applied at S's own derivation and
+plan-review, which closes Q2. The own-accessor defect of §1.5 has a home,
+`#11-vm-array-index-own-accessor-invisible`.
 
 **Overlap with a parked branch.** The local branch `vm-p4-rooting-carved` (`37a97d49`, merge-base
 `6b33854d`) rewrites `vm/dispatch.rs` (386 lines changed) and `vm/dispatch_helpers.rs` (+535), and
@@ -38,14 +46,16 @@ carries a `raise` method on `VmInner` (`dispatch_helpers.rs:313` on that branch,
 ### §0.1 What this PR implements
 
 The (a) mechanism of umbrella 1a's derivation without its IC half: the in-VM contract that turns an
-args array into a call's argument window, plus the one `apply` defect that shares its primitive.
+args array into a call's argument window.
 
 - **D1 — `lay_out_call_args` (NEW).** One stack-layout operation. The args array at the top of
   `vm.stack` is replaced in place by its elements, and the element count is returned. It is the
   single place an args array becomes an argument window (§1.1).
 - **D2 — `Empty` normalisation, shared with `collect_array_like`'s dense fast path (dec. 8).** One
   primitive maps an `ObjectKind::Array`'s `elements` to argument values (`JsValue::Empty` →
-  `Undefined`). D1 and `Function.prototype.apply`'s dense branch both read through it (§1.2).
+  `Undefined`). D1 and `Function.prototype.apply`'s dense branch both read through it (§1.2). The
+  dense branch's behaviour does not change here; the hole-free precondition in front of it is
+  **1ae**'s (§9).
 - **D3 — `super(...)` has one dispatch path.** `op_super_call_spread` becomes "lay out, then
   `op_super_call`", so the spread and flat `super` calls share argument hand-off and `[[Construct]]`
   dispatch. `op_super_call` takes `argc: usize`, so a spread window wider than 255 is not
@@ -55,12 +65,9 @@ args array into a call's argument window, plus the one `apply` defect that share
   constructor (`compiler/expr_class.rs:145-152`) emits `GetLocal 0; SuperCallSpread` over a
   rest-packed array. That producer is spec-required (ECMA-262 §15.7.14 step 14.a.iv.1 NOTE) and is
   **not** folded (§1.4).
-- **D6 — `Function.prototype.apply` takes the dense path only for a hole-free array.** A hole now
-  goes through the per-index `Get` path, as CreateListFromArrayLike (§7.3.19 step 6.b) requires
-  (§1.5; dec. 8 correction note, 2026-11-03).
+- **D6** — moved to **1ae** at rev 3 (PM 288); §9 holds its design and tests.
 
-No opcode is added, no emit site changes, and no call shape changes behaviour except `apply` over
-a holey array. `f(...xs)`, `o.m(...xs)` and `new F(...xs)` are still compiled by
+No opcode is added, no emit site changes, and no observable behaviour changes. `f(...xs)`, `o.m(...xs)` and `new F(...xs)` are still compiled by
 `compile_arguments`'s spread-as-one-argument arm after this PR; fixing them is umbrella 1b's (§5).
 
 ### §0.2 Premises re-verified at `eaa741b5`
@@ -104,6 +111,11 @@ a holey array. `f(...xs)`, `o.m(...xs)` and `new F(...xs)` are still compiled by
   `None` unit tests. Its own per-PR plan memo is owed; §8 hands over this memo's rev-1 design and
   tests, corrected. 1aa does not touch `vm/dispatch_ic.rs`, nor the `Op::Call` / `Op::CallMethod`
   arms.
+- **1ae** — `Function.prototype.apply` takes `collect_array_like`'s dense branch only for a
+  hole-free array (dec. 8's correction note), with its red test and dense control. Its `Deps` names
+  1aa, because the precondition guards the call into 1aa's `array_argument_values`. Its own per-PR
+  plan memo is owed; §9 hands over this memo's rev-2 design and tests. 1aa does not add the
+  precondition.
 - **Umbrella 1b's children** — `compile_call_arguments` / `ArgsForm`, `emit_call`, `CallSpread` /
   `CallMethodSpread` / `NewSpread` handlers (the first new consumers of D1 and the first `None`
   producers of 1ad), arity-based form selection (`f(a1…a300)`), the stack-depth bound (dec. 12), the
@@ -162,12 +174,15 @@ exactly one implementation:
 /// ArgumentListEvaluation-exact for the compiler-built arrays `lay_out_call_args` receives.
 /// NOT CreateListFromArrayLike-exact for a holey array (§7.3.19 step 6.b performs a real
 /// `Get`), so a CreateListFromArrayLike caller reads through it only for a hole-free array
-/// (dec. 8's caller-side precondition; `collect_array_like`).
+/// (dec. 8's caller-side precondition). ⚠ `collect_array_like`'s dense branch does not test
+/// it yet and reads a holey Array through this function (1ae owns the test).
 pub(super) fn array_argument_values(elements: &[JsValue]) -> impl Iterator<Item = JsValue> + '_  // (NEW)
 ```
 
-D1 extends the stack from it. `collect_array_like`'s dense branch collects from it under D6's
-precondition.
+D1 extends the stack from it. `collect_array_like`'s dense branch collects from it, for every
+`ObjectKind::Array` as today, so its behaviour is unchanged. The hole-free precondition that makes
+that exact for a holey array is **1ae**'s (§9); the docstring states the defect until 1ae removes
+the ⚠ line with the fix.
 
 ### §1.3 One `super(...)` path
 
@@ -225,37 +240,11 @@ iteration (ECMA-262 §15.7.14 step 14.a.iv.1 NOTE). The module docstring of `vm/
 on the invariant both producers share: the operand is a hole-free `ObjectKind::Array` that no user
 code can reach between its construction and the opcode.
 
-### §1.5 `apply` over a holey array (D6, dec. 8 correction)
+### §1.5 `apply` over a holey array — moved to 1ae (rev 3)
 
-`collect_array_like` (`vm/natives_function.rs:273-296`) takes its dense branch (`:278-280`) for
-**every** `ObjectKind::Array` and maps a hole to `undefined` with `.or_undefined()`. ECMA-262
-§20.2.3.1 step 4 is `? CreateListFromArrayLike(argArray)`, and §7.3.19 step 6.b is
-`? Get(obj, indexName)`, which consults the prototype chain for a hole. Probe at the base:
-
-```
-Object.defineProperty(Array.prototype, 0, { get(){ return 'G' }, configurable: true });
-function f(a, b){ return '' + a + ',' + b }
-f.apply(null, [ , 1])          // elidex: "undefined,1"   spec: "G,1"
-```
-
-After this PR, the dense branch is taken only when no element is `Empty`, and then it collects
-through `array_argument_values` (an identity on a hole-free array). A holey Array falls through to
-the existing per-index `get_property_value` loop (`:281-295`), which performs the `Get`. This is
-dec. 8's caller-side precondition, which dec. 8 says is where the dense/array-like distinction
-lives. Dec. 8's premise that "`collect_array_like` already has the correct `Empty` normalisation"
-is false for this caller: dec. 17's reasoning for `Reflect.apply` applies to `Function.prototype.apply`
-too. The correction is recorded in dec. 8 (2026-11-03). The dense branch stays for the common
-hole-free case.
-
-**An adjacent defect, found while probing the precondition (reported, not homed here).** An own
-accessor defined on an Array index is invisible to elidex's own `[[Get]]`. At the base,
-`const a = [1, 2]; Object.defineProperty(a, 0, { get(){ return 'G' } })` succeeds, and
-`typeof Object.getOwnPropertyDescriptor(a, 0).get` is `"function"`. But `a[0]` is `1`, `[...a]` is
-`1,2`, `f.apply(null, a)` sees `1,2`, and `super(...a)` passes `1,2` (spec: `G` each time). The
-element vector keeps the stale value beside the accessor. D6's precondition is therefore exact
-*relative to elidex's `[[Get]]`*, and no 1aa test can be green for this case until that is fixed.
-It sits in the property-storage layer (`ObjectKind::Array` elements against `defineProperty`), so
-it is neither 1aa's nor 1a's. It is routed to the driver for an owner.
+D6, its probe and the adjacent own-accessor defect it surfaced are in §9, the hand-off to **1ae**.
+The own-accessor defect is homed on `#11-vm-array-index-own-accessor-invisible`
+(`2026-07-vm-p4-slot-ledger.md`); it was routed to the driver for an owner in rev 2.
 
 ### §1.6 Lens checks
 
@@ -265,7 +254,7 @@ it is neither 1aa's nor 1a's. It is routed to the driver for an owner.
 - **ECS-native.** No per-entity state is introduced; nothing here is a side-store.
 - **One issue, one way.** After this PR there is one args-array→window operation (D1), one
   holes-as-arguments primitive (D2) with one stated precondition for CreateListFromArrayLike callers
-  (D6), and one `super` hand-off (D3). The only remaining second mechanism is the default derived
+  (which 1ae adds in front of its one such caller, §9), and one `super` hand-off (D3). The only remaining second mechanism is the default derived
   constructor's rest-packed producer, and that is the spec-required I-3 carve-out (§6.3).
 - **1000-line debt.** Touched files over 1000 lines: `vm/dispatch.rs` (1103). One arm changes on one
   line, net delta 0 (§1.3). Under 1000: `dispatch_helpers.rs` 391, `dispatch_class.rs` 347,
@@ -278,23 +267,21 @@ it is neither 1aa's nor 1a's. It is routed to the driver for an owner.
 | `vm/dispatch_helpers.rs` | `lay_out_call_args` (NEW), `array_argument_values` (NEW) |
 | `vm/dispatch_class.rs` | `op_super_call` takes `usize`; `op_super_call_spread` rewritten as lay out → `op_super_call` (§1.3), docstring rewritten; module docstring `:13-14` corrected |
 | `vm/dispatch.rs` | `Op::SuperCall` arm (`:939-942`) widens `argc` in place; nothing else |
-| `vm/natives_function.rs` | `collect_array_like`'s dense branch: hole-free precondition, reads through `array_argument_values` (D6) |
+| `vm/natives_function.rs` | `collect_array_like`'s dense branch reads through `array_argument_values` (D2); no precondition (1ae's, §9) |
 | `vm/tests/tests_call_args_layout.rs` (NEW) | §4.1 |
 | `vm/tests/tests_class_machinery.rs` | §4.2 |
-| `vm/tests/tests_function_apply_holes.rs` (NEW) — or the existing `Function.prototype` test module if one exists, chosen by the implementer | §4.3 |
 | `vm/tests/mod.rs` | registers the new modules |
 
 ### §1.8 Commit sequence (pins first)
 
 There is no honest red-first set for D1–D4 at the base. The Rust tests (T1–T3) name symbols that do
-not exist yet, and the JS tests (C1–C7) pin behaviour that is already correct (probed, §4.2). D6 has
-a real red-first test. So:
+not exist yet, and the JS tests (C1–C7) pin behaviour that is already correct (probed, §4.2). (D6's
+red-first test moved to 1ae with it, §9.) So:
 
 1. C1–C6 (§4.2), green at the base (probed) — committed first, so each later commit is measured
    against them.
-2. A1 (§4.3), red at the base (probed), with the D6 fix in the same commit; A2 green throughout.
-3. D1 + D2 with T1–T3.
-4. D3 + D4. The `usize` widening lands in the same commit as the conversion, so C6 is never red.
+2. D1 + D2 with T1–T3.
+3. D3 + D4. The `usize` widening lands in the same commit as the conversion, so C6 is never red.
 
 The mutation proof each test names (§4) is run once, on the final head. Each mutant is a compiling
 edit, named in §4. A revert that does not compile is not a proof.
@@ -306,7 +293,7 @@ edit, named in §4. A revert that does not compile is not a proof.
 **The measurement.** §5's head: "the only evidence that an axis is an axis is that it **fails while
 the others pass**", and the criterion's first disjunct asks for ≥3 such axes that intersect. This is
 the measurement that split 1a. Applied literally at this slice's HEAD, over rev 1's scope (D1–D5)
-plus D6:
+plus D6 (the table is the rev-2 measurement; A1 and A2 are 1ae's tests from rev 3, §9):
 
 | Invariant | Mutant that breaks it alone (compiles) | Red | Green under that mutant |
 |---|---|---|---|
@@ -315,7 +302,7 @@ plus D6:
 | **I-G (GC)** — no `ObjectId` the args array or its elements denote is held only in a Rust local across an allocation **in D1's window** | allocate a temporary JS array from the helper while GC is enabled | T2 | T1, T3, C1–C6 |
 | **I-O (observability)** — laying out performs no property lookup and no iteration (§15.7.14 step 14.a.iv.1 NOTE; edge 32) | lay out through `%Array.prototype%[%Symbol.iterator%]`, leaving the array on the stack | C1 | T1, T3, C2–C6; T2 too, because the iterator objects are allocated inside natives under `gc_enabled = false` (`vm/interpreter.rs:364`; dry-run G1) |
 | **I-W (width)** — no argument count passes through a `u8` on the array path | `self.op_super_call(argc as u8 as usize, …)` in `op_super_call_spread` | C6 | everything else |
-| **I-A (array-like)** — `apply` over a holey Array performs §7.3.19 step 6.b's `Get` | drop D6's hole-free precondition | A1 | everything else |
+| **I-A (array-like)** — `apply` over a holey Array performs §7.3.19 step 6.b's `Get` (**1ae** from rev 3) | drop D6's hole-free precondition | A1 | everything else |
 | **I-C (IC)** — `None` never reads or writes `call_ic_slots`; `Some(i)` behaves as today | `None` treated as slot 0 | 1ad's T4/T7 (§8) | everything else |
 
 **Where they intersect.** I-L, I-H, I-G and I-O are properties of one loop in one body,
@@ -330,23 +317,28 @@ list (I-L×I-G, I-L×I-H, I-L×I-O, I-L×I-W, I-H×I-O) already showed the inter
 driver's ruling (PM 285), **D5 is split out as 1ad**, its own terminal child of 1a. I-C intersects
 nothing, so 1ad is one axis. It gets its own per-PR plan memo, with §8 as its input.
 
-**⚠ Open — the measurement does not end at the split.** Without D5, the remainder (D1–D4 + D6)
-still carries ≥3 axes that fail alone and intersect at `lay_out_call_args`. Read literally, the
-measurement still says edge-dense. The driver's ruling settles D5; it does not settle the
-remainder. **Recommendation (not applied as a decision; §7 Q1): the remainder is terminal by
-necessity**, on two in-tree rules:
-- The family's own precedent, `#11-vm-operand-rooting-by-construction`: "a row that cannot be split
-  without defeating its deliverable is terminal by necessity". Here I-L, I-H, I-G and I-O are four
-  properties of one ~20-line loop, and I-W is its signature. Every partition would land that loop
-  missing one of its properties while D3 makes it live (`super(...)` is reachable today), or would
-  land it dead.
-- CLAUDE.md's base case (c): a narrowly scoped per-PR slice under an approved umbrella that has
-  passed plan-review is a terminal unit, "per-PR slice が同 subsystem を触ること自体は再分割 trigger
-  にしない".
+**Ruled (PM 288): the remainder is terminal by necessity.** Without D5 the remainder still carried
+≥3 axes that fail alone and intersect at `lay_out_call_args`, so read literally the measurement
+still said edge-dense, and rev 2 left that open (its §7 Q1). The ruling rests on three facts and two
+in-tree rules:
+- The five invariants (I-L order, I-H holes, I-G no allocation in the window, I-O no iteration, I-W
+  width) are properties of one ~20-line loop, `lay_out_call_args`, and of its return type. They are
+  not separable mechanisms.
+- Cutting that loop defeats the deliverable: every partition lands it missing one of its properties,
+  or lands it dead.
+- `super(...)` already runs the loop on a live path (D3), so a partial loop would ship as a
+  live, partial contract.
+- The family's own rule, in `#11-vm-operand-rooting-by-construction`: "a row that cannot be split
+  without defeating its deliverable is terminal by necessity".
+- CLAUDE.md's *Edge-dense work* base case (c): a narrowly scoped per-PR slice under an approved
+  umbrella that has passed plan-review is a terminal unit, "per-PR slice が同 subsystem を触ること自体は
+  再分割 trigger にしない". 1aa is a plan-reviewed slice under the approved #506 umbrella.
 
-I-A (D6) could be cut out as a sixth child: it fails alone and touches only `collect_array_like`.
-It intersects I-H at the shared primitive, and the driver placed it on 1aa. That placement stands
-unless Q1 is answered by re-splitting.
+So 1aa is terminal. The §5 row and carve-out §6.6 say the same.
+
+**I-A (D6) is cut out as 1ae (PM 288).** It fails alone and touches only `collect_array_like`, so it
+was the one part separable without cutting `lay_out_call_args`. It meets I-H at the shared primitive,
+and that meeting is now the sibling edge 1ae → 1aa (§9), not an intersection inside this PR.
 
 **Pairwise intersections that are real in this PR** (the reviewer's check list):
 
@@ -360,7 +352,9 @@ unless Q1 is answered by re-splitting.
 - **I-L × I-W** — the count D1 returns is `usize`, and its only consumer in this PR (`op_super_call`)
   takes `usize`.
 - **I-H × I-A** — the normalisation is ArgumentListEvaluation-exact, not CreateListFromArrayLike-exact.
-  D6's precondition is what makes sharing it with `collect_array_like` exact.
+  D6's precondition is what makes sharing it with `collect_array_like` exact. From rev 3 this pair
+  crosses a PR boundary: 1aa ships the primitive and its docstring's ⚠ line, and 1ae ships the
+  precondition (the 1ae → 1aa edge, §9).
 
 **I-G's scope.** I-G covers D1's window only. A second, pre-existing window sits downstream:
 `op_super_call` drains the laid-out values into `call_args: Vec<JsValue>` (`vm/dispatch_class.rs:58`),
@@ -414,8 +408,8 @@ D5 to 1ad (§8).
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.3 | IsConstructor(func) false → TypeError | the same `construct_synchronous` gate as SuperCall step 5 | ✗ (pre-existing; probed; homed on Slice S, §3.1) | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.4 | `? Construct(func, args, NewTarget)` | `construct_synchronous` — unchanged | ✓ | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.vi | `? InitializeInstanceElements(result, ctorFunc)` | — not touched | n/a (umbrella 2a's — row 2ab) | yes |
-| ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 4 | `? CreateListFromArrayLike(argArray)` | `collect_array_like` (D6) | ✓ (after D6) | yes |
-| ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 6.b | `next` = `? Get(obj, indexName)` — consults the prototype chain for a hole | dense branch only for a hole-free Array (D6); otherwise the per-index `get_property_value` loop | ✓ (after D6; red at the base, A1) | yes |
+| ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 4 | `? CreateListFromArrayLike(argArray)` | `collect_array_like` reads its dense branch through `array_argument_values` (D2), behaviour unchanged | ✗ for a holey Array (pre-existing; **1ae**, §9) | yes |
+| ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 6.b | `next` = `? Get(obj, indexName)` — consults the prototype chain for a hole | unchanged here: the dense branch takes every Array, holey ones included; the per-index `get_property_value` loop is taken only for a non-Array | ✗ (pre-existing; red at the base, A1; **1ae**, §9) | yes |
 
 **Breadth**: K=1 (ECMA-262), M=25. The preflight prints SPLIT-RECOMMENDED (M ≥ 20); rev 1 had M=16
 ("ok"). The rows added in rev 2 are the R1 completeness rows (abrupt branches, non-spread
@@ -423,8 +417,9 @@ productions, SuperCall steps 1-2 and 7-13, ClassDefinitionEvaluation 14.a.ii / 1
 step 1). Most of them are sites this PR does not touch ("unchanged", n/a, or a pre-existing ✗ with an
 owner). The rows whose touch column names a site this PR changes are 8: the three ArgumentListEvaluation
 consumer rows, `SuperCall` step 4, 14.a.i, 14.a.iv.1 NOTE, §20.2.3.1 step 4 and §7.3.19 step 6.b.
-Breadth is not the split criterion. §2's measurement is, and §2 records its verdict and the open
-point.
+(From rev 3 the last two are touched by D2's read-through only, behaviour unchanged; their ✗ is
+1ae's.) Breadth is not the split criterion. §2's measurement is, and §2 records its verdict and the
+ruling.
 
 ### §3.1 User-input touch audit, and the pre-existing defects
 
@@ -435,8 +430,9 @@ Sites this PR touches that user-controlled values flow through:
   array itself is compiler-built and unreachable from user code. Exposure change: **none**. The same
   values reach `dispatch_super` in the same order, and the count was already unbounded (the current
   `elements.clone()` + `construct_synchronous`'s re-push).
-- `collect_array_like`: a user array via `Function.prototype.apply`. Exposure change: a holey Array
-  now runs user getters on the prototype chain, which is what the spec requires (D6).
+- `collect_array_like`: a user array via `Function.prototype.apply`. Exposure change: **none** in
+  1aa (the dense branch reads through the shared primitive with the same normalisation). The change
+  that makes a holey Array run user getters on the prototype chain is 1ae's (§9).
 
 Pre-existing defects found while auditing, probed at the base. Neither is created or widened here.
 Both have the same home, judged on the criterion "which existing row's change already rewrites the
@@ -477,10 +473,11 @@ one home only. The two defects, their repros, owner and trigger are written in S
 (`2026-07-vm-p4-slot-ledger.md`) and pointed to from S's §5 row. That row's Re-eval stays *at
 registration: landing + 30 d* (§7 Q5).
 
-**⚠ What that home does to S's own kind (open, §7 Q2).** S's §5 row reads "one axis". By §2's
+**⚠ What that home does to S's own kind (§7 Q2, closed by PM 288).** S's §5 row reads "one axis". By §2's
 measurement, the lexical link, the step-3 ordering and the step-5 test each fail while the other two
 pass, and all three meet at the superCtor resolution site: three axes that intersect. The S row now
-says that its terminality has to be re-applied before it is scheduled, and **does not decide it**.
+says that its terminality has to be re-applied before it is scheduled, and **does not decide it**:
+PM 288 places the re-application at S's own derivation and plan-review.
 
 Measured at HEAD `41a45a43` before this revision:
 `/usr/bin/grep -c 'GetSuperConstructor' docs/plans/2026-07-vm-p4-*.md` is 1 in each of four
@@ -568,20 +565,14 @@ All of C1–C6 were run at `eaa741b5` (§6, "Probes") and are green there.
   carry more than 255. That is stated rather than implied as coverage.
 - **C7** the existing `super_call_spread_propagates_argv` (`:124`) is kept unchanged.
 
-### §4.3 `apply` over a holey array (D6)
+### §4.3 `apply` over a holey array — moved to 1ae (rev 3)
 
-- **A1** (red at the base, probe `"undefined,1"`). Define a getter on `Array.prototype[0]`
-  (`configurable: true`, removed at the end); `f.apply(null, [ , 1])` → `f` sees `"G,1"`. Kills:
-  dropping D6's precondition.
-- **A2** dense control (green at the base, probe `"7,1"`): `f.apply(null, [7, 1])` → `"7,1"`, with the
-  same getter installed, so an own element is shown to win over the prototype chain. Kills: a fix
-  that sends every Array through the generic path and reads the getter for an own element too.
-- No own-accessor test: it is red at the base for a reason outside this PR (§1.5).
+A1 and A2 are 1ae's, in §9.
 
 Not here, and why: edges 21 and 27/28 are 1ab's and 1ac's (carve-out §6.6). The `None` IC tests are
-1ad's (§8). The brief's call-shape regressions belong to 1b's children (§0.3 item 2). The existing
-suite passing is necessary and not sufficient: it covers neither I-O nor D6, which is why T2, C1 and
-A1 exist.
+1ad's (§8). A1/A2 are 1ae's (§9). The brief's call-shape regressions belong to 1b's children
+(§0.3 item 2). The existing suite passing is necessary and not sufficient: it does not cover I-O,
+which is why T2 and C1 exist.
 
 ---
 
@@ -592,6 +583,8 @@ A1 exist.
   is still `NaN` after this PR. `Op::CallSpread` / `Op::NewSpread` stay stubs
   (`vm/dispatch.rs:879-883`) until those children connect them to D1 + 1ad (and `do_new`).
 - **The IC `Option<usize>` entry** — 1ad (§8).
+- **`Function.prototype.apply` over a holey array** — 1ae (§9).
+- **An own accessor (or any non-default descriptor) on an Array index** — `#11-vm-array-index-own-accessor-invisible` (§9).
 - **`op_array_spread`'s `return()`** — 1ab.
 - **The four argument windows in `vm/interpreter.rs`**, and that file's touch-time split verdict — 1ac.
 - **Stack-depth bound** — dec. 12 places it on the child umbrella 1b mints for the argument-emit
@@ -609,7 +602,7 @@ A1 exist.
 | `array_argument_values` (NEW) | §13.3.8.1 (holes as `undefined`); §7.3.19 CreateListFromArrayLike step 6.b, as the precondition it does **not** meet for a holey array | — |
 | `op_super_call_spread` (rewritten) | [C13] ECMA-262 §13.3.7.1 `SuperCall : super Arguments` step 4 (argList); §15.7.14 step 14.a.iv.1 NOTE (the second producer) | step 4's hand-off; steps 3, 5, 6 via `dispatch_super` |
 | `op_super_call` (re-signed) | [C13] §13.3.7.1 `SuperCall` steps 3-6 (unchanged text; the D-S1 ordering divergence named) | 3, 5 (✗ D-S2), 6 |
-| `collect_array_like` | ECMA-262 §20.2.3.1 Function.prototype.apply step 4 → §7.3.19 CreateListFromArrayLike steps 2-7 | the generic loop: 3, 6.a, 6.b, 6.d; the dense branch: a hole-free fast path equal to steps 3-7 |
+| `collect_array_like` | ECMA-262 §20.2.3.1 Function.prototype.apply step 4 → §7.3.19 CreateListFromArrayLike steps 2-7 | the generic loop: 3, 6.a, 6.b, 6.d; the dense branch: reads through `array_argument_values`, equal to steps 3-7 for a hole-free Array only (the precondition is 1ae's, §9) |
 | `ic_call` / `ic_call_method` | 1ad's: §13.3.6.2 EvaluateCall steps 4-5 and 7 (and steps 1-2 for `ic_call_method`'s receiver) — §8 | — |
 
 ---
@@ -648,27 +641,26 @@ New symbols: `lay_out_call_args` (NEW), `array_argument_values` (NEW),
 `vm/tests/tests_zz_probe.rs` that calls `super::eval` / `eval_string` / `eval_number` /
 `eval_bool`, run with
 `env -u RUSTUP_TOOLCHAIN cargo test -p elidex-js --all-features --lib tests_zz_probe -- --nocapture --test-threads=1`,
-worktree removed afterwards). The JS of each probe is quoted where its result is cited: §1.5 (A1/A2),
-§1.5 (the own-accessor case), §3.1 (D-S1, D-S2), §3.2, §4.2 (C1–C6).
+worktree removed afterwards). The JS of each probe is quoted where its result is cited: §9 (A1/A2,
+the own-accessor case and its reach probes), §3.1 (D-S1, D-S2), §3.2, §4.2 (C1–C6).
 
 ---
 
-## §7. Questions for the plan-review (rev 2)
+## §7. Questions for the plan-review (rev 3)
 
 R1's questions are settled: **Q1** (edge 16): the structural approach is ratified, with the
 disjoint borrow and the T2 tripwire and no `debug_assert!` (§1.1). **Q2** (the wrapper): kept, as
 "lay out, then `op_super_call`" in `vm/dispatch_class.rs`, so `vm/dispatch.rs` does not grow (§1.3).
 **Q3** (stack-depth bound): dec. 12 keeps it on 1b's argument-emit child. **Q4/Q5** (owners): D-S1
-and D-S2 go to Slice S, and the `apply` hole is fixed here. Open:
+and D-S2 go to Slice S, and the `apply` hole was fixed here in rev 2 (it is 1ae's from rev 3, §9).
+Rev 2's questions follow; Q1 and Q2 are closed by PM 288, and Q3-Q5 stand:
 
-- **Q1 — is the remainder terminal?** §2: by the literal measurement, D1–D4 + D6 still carries five
-  intersecting axes after D5's split. The recommendation is "terminal by necessity" (the
-  operand-rooting precedent and CLAUDE.md's base case (c)); the alternative is a further split,
-  with D6 the only part separable without cutting `lay_out_call_args`. A ruling is needed before
-  implementation.
-- **Q2 — S's kind.** Homing D-S1/D-S2 on S gives S three intersecting axes (§3.1). S's row now says
-  its terminality has to be re-applied before it is scheduled. Who re-applies it, and when: S's own
-  plan-review, or the driver now?
+- **Q1 — is the remainder terminal? Closed (PM 288): terminal by necessity**, on the facts and
+  rules §2 records. The one part separable without cutting `lay_out_call_args`, D6, was split out
+  as **1ae** (§9), so the answer is both: 1aa is terminal, and D6 is no longer in it.
+- **Q2 — S's kind. Closed (PM 288): re-applied at S's own derivation and plan-review, not now.** S's
+  §5 row keeps its ⚠ (three intersecting axes once D-S1/D-S2 are homed there) and now names PM 288 as
+  the ruling on when it is re-applied.
 - **Q3 — the native-constructor re-entry window** (§2, I-G's scope): a native constructor that calls
   user code (e.g. an executor) while `op_super_call`'s `call_args` holds the only reference to the
   arguments. It is pre-existing and not changed here. It is recorded as a question for
@@ -734,3 +726,73 @@ IC code, the non-callable Object through `self.call`), step 6 n/a (no tail calls
   `[true, 4]`. Same slot precondition, order and comparison as T4, **plus its own `Some` control
   observing IC population** (G4; the 1ad row's acceptance requires one for each entry point). The
   native and non-callable branches as in T5 / T6. Kills: the receiver dropped on the `None` path.
+
+---
+
+## §9. Handed to 1ae — input for its per-PR plan (not 1aa scope)
+
+1ae's plan memo is owed and is not written in this round. What rev 2 designed for D6 is recorded
+here so it is not lost. 1ae's plan-review owns it from here.
+
+**Row.** 1ae, a terminal child of umbrella 1a, split from 1aa by the PM's ruling on 1aa's
+plan-review (PM 288). Its `Deps` names **1aa**. Judged on the criterion "does the fix live in the
+shared primitive's caller-side precondition": it does. The fix is a guard in front of
+`collect_array_like`'s call into `array_argument_values`, and that function's docstring (§1.2)
+states the guard as the precondition a CreateListFromArrayLike caller owes. Compilation does not
+force the edge, because the guard could be written in front of today's inline `.or_undefined()` map.
+It is taken anyway. Landing 1ae first would put the guard in front of a map that 1aa then deletes,
+so two PRs would place the same line, and A1's mutant ("drop the precondition") would be defined
+against a call about to disappear. 1ae also removes the ⚠ line that 1aa's docstring carries for
+`collect_array_like`.
+
+**Design (rev 2 §1.5, unchanged).** `collect_array_like` (`vm/natives_function.rs:273-296` at
+`eaa741b5`) takes its dense branch (`:278-280`) for **every** `ObjectKind::Array` and maps a hole to
+`undefined` with `.or_undefined()`. ECMA-262 §20.2.3.1 step 4 is `? CreateListFromArrayLike(argArray)`,
+and §7.3.19 step 6.b is `? Get(obj, indexName)`, which consults the prototype chain for a hole. Probe
+at the base:
+
+```
+Object.defineProperty(Array.prototype, 0, { get(){ return 'G' }, configurable: true });
+function f(a, b){ return '' + a + ',' + b }
+f.apply(null, [ , 1])          // elidex: "undefined,1"   spec: "G,1"
+```
+
+The fix takes the dense branch only when no element is `Empty`, and then collects through
+`array_argument_values` (an identity on a hole-free array). A holey Array falls through to the
+existing per-index `get_property_value` loop (`:281-295`), which performs the `Get`. This is dec. 8's
+caller-side precondition, which dec. 8 says is where the dense/array-like distinction lives. Dec. 8's
+premise that "`collect_array_like` already has the correct `Empty` normalisation" is false for this
+caller: dec. 17's reasoning for `Reflect.apply` applies to `Function.prototype.apply` too. The
+correction is recorded in dec. 8 (2026-11-03) and points at 1ae. The dense branch stays for the
+common hole-free case. Spec rows: §20.2.3.1 step 4 and §7.3.19 step 6.b of §3's map. Citation:
+§5.1's `collect_array_like` row, whose dense-branch cell becomes "a hole-free fast path equal to
+steps 3-7".
+
+**Tests (rev 2 §4.3, unchanged).** The test module is the implementer's choice: a new
+`vm/tests/tests_function_apply_holes.rs`, or the existing `Function.prototype` test module if one
+exists.
+- **A1** (red at the base, probe `"undefined,1"`). Define a getter on `Array.prototype[0]`
+  (`configurable: true`, removed at the end); `f.apply(null, [ , 1])` → `f` sees `"G,1"`. Kills:
+  dropping the precondition.
+- **A2** dense control (green at the base, probe `"7,1"`): `f.apply(null, [7, 1])` → `"7,1"`, with the
+  same getter installed, so an own element is shown to win over the prototype chain. Kills: a fix
+  that sends every Array through the generic path and reads the getter for an own element too.
+- Red-first: A1 lands with the fix in one commit; A2 is green throughout.
+- No own-accessor test, for the reason below.
+
+**The adjacent defect, now homed: `#11-vm-array-index-own-accessor-invisible`** (registered by the
+PM, PM 288; its row is in `2026-07-vm-p4-slot-ledger.md`; the live ledger's Re-eval is 2026-12-01).
+An own accessor defined on an Array index is invisible to elidex's own `[[Get]]`. At the base,
+`const a = [1, 2]; Object.defineProperty(a, 0, { get(){ return 'G' } })` succeeds, and
+`typeof Object.getOwnPropertyDescriptor(a, 0).get` is `"function"`. But `a[0]` is `1`, `[...a]` is
+`1,2`, `f.apply(null, a)` sees `1,2`, and `super(...a)` passes `1,2` (spec: `G` each time). The
+element vector keeps the stale value beside the accessor. 1ae's precondition is therefore exact
+*relative to elidex's `[[Get]]`*, and no 1ae test can be green for this case until the slot lands.
+The reach probes run for that row at PM 288 (same probe method as §6, `eaa741b5`) found the defect
+wider than its id: it also hides non-default data descriptors (`value`, `writable: false`,
+`enumerable: false`, `configurable: false`), leaves `length` unchanged for a define past the end,
+and, with no `defineProperty` at all, `Object.keys([1,2])` is empty,
+`Object.prototype.hasOwnProperty.call([1,2], 0)` is `false` and
+`Object.getOwnPropertyDescriptor([1,2], 0)` is `undefined`. The row states each probe and the code
+site behind it, and leaves to the PM whether the slot owns that whole root.
+
