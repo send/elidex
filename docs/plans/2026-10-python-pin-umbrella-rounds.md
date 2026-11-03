@@ -321,6 +321,16 @@ not — and 6 MIN; PM decision 243 adds U1 and U2. Instrument: each canonical's 
 | U1 O8's "a red on a line no python-pin PR wrote would already be red on `main`" (unmeasured) | deleted; a red arising from the family sources PR-1 changes is PR-1's |
 | U2 an answer that changes the memo | §9 step 0: the new head is converged afresh and the request re-sent for the diff only |
 
+### §12.10 #581 fix round 3 (PM decision 253, user decision (d)) — round 2's generator sentences removed
+
+A review of fix round 2 (`5e1fe4ff`) found that U1's and U2's added sentences contradict canonicals they did not
+update; user decision (d) (PM decision 253) removes them rather than patching around them.
+
+| Item | What changed, where |
+|---|---|
+| U1 O8's clause "a red arising from the family sources PR-1 changes is PR-1's" | deleted (VM P4 file, O8); round 1's deleted claim stays deleted; the open case is asked as (c) item 9 |
+| U2 §9 step 0's "the new head is then converged afresh … re-sent for the diff only" | deleted; step 0 ends as at `722e7523` |
+
 ---
 
 ## §13 Per-PR plan consequences (drafts 3–8, #581 fix round 1)
@@ -682,3 +692,6 @@ item here.
   (IMP-1, IMP-2, M1–M6, U1, U2), each canonical's citing sites enumerated by `git grep -nF` and listed in the
   commit body. Counts (body §6's command): body 1000 lines, VM P4 198, records 580, rounds 684, total 2462. No
   measurement, no mise, no cargo build.
+- **#581 fix round 3** (2026-11-03): PM decision 253 (user decision (d)); on #581's branch at `5e1fe4ff`. §12.10:
+  U1's and U2's sentences deleted, (c) item 9 added. Counts (body §6's command): body 999 lines, VM P4 200, records
+  580, rounds 697, total 2476. No measurement, no mise, no cargo build.

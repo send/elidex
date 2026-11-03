@@ -741,12 +741,12 @@ the lane wants a split first, it lands as that lane's prereq before PR-1.
 **This umbrella's own length — the seam set, decided now** (K3, decision 205; it replaces draft 6's "split at
 landing"). **#581 lands these four files** (decision 221; not PR-1), as written — nothing is restructured:
 
-| file | sections | its reader | lines at #581 fix round 2 |
+| file | sections | its reader | lines at #581 fix round 3 |
 |---|---|---|---|
-| `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 1000 |
-| `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 198 |
+| `docs/plans/2026-10-python-pin-umbrella.md` (the body) | §0–§11 | each PR's implementer, the PM | 999 |
+| `…-python-pin-umbrella-vm-p4.md` | §5.2, §5.3 (with (c), the consent subject) | the VM P4 lane: its files and lines, the consent subject | 200 |
 | `…-python-pin-umbrella-records.md` | R§0, R§4.1, R§4.2, R§6, R§7.2, R§9, R§11 | whoever re-opens a decision: a bump, a re-measurement, a reviewer | 580 |
-| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 684 |
+| `…-python-pin-umbrella-rounds.md` | §12, §13, §14 | the next round's reviewer; append-only (#510's `…-checker-rounds.md` precedent) | 697 |
 
 Counts: `wc -l docs/plans/2026-10-python-pin-umbrella*.md` (draft 8 was one file split at its `# Landing file N`
 markers, §14). Why these seams: each
@@ -830,8 +830,7 @@ files, and for PR-2 every derived entry point); for PR-0 and PR-1 the sweep also
 0. **#581 — this memo, memo only (PM decision 221).** After its `/external-converge` ends, the PM sends the VM P4
    lane **one** consent request carrying §5.3 (c)'s list, with `…-umbrella-vm-p4.md` attached; #581 merges only
    once the consent is in (landing fixes the VM P4 edits as plan). An answer that changes an item is a memo edit
-   on #581 before its merge; the new head is then converged afresh (the old head's dry does not carry over) and the
-   consent request is re-sent for the diff only.
+   on #581 before its merge.
 1. Each PR passes `/elidex-plan-review` on its per-PR plan before implementation; the umbrella first (R1–R8,
    §12); PR-2's plan before PR-1 lands (§6, the interval's bound).
 2. **PR-0** lands, after #581 merged (step 0: #581's merge waits for the consent). PM notice to every lane with it (§8 row *every lane*; R4 MIN — a new

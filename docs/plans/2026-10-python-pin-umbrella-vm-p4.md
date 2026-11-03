@@ -154,7 +154,7 @@ diff touches no `.claude/**`" was false (R6 K1).
 | O6 → **V17** | seam-split `:804-806` | V17 (§5.2) | PR-1, with consent (decision 205 Q1) |
 | O7 | the family sources and `plan_memo_selftest_manifest.txt` | V1–V11 and V22 (`plan_memo_sibling.py:158`, the two rows at `plan_memo_selftest_mutants_codex0927.py:51-52`, `:56-57`, MUTANT lines `:2122` / `:2126`), then `--write-manifest` on the pin at PR-1's base (§5.2 *Manifest rule*); #506 changed no family source | PR-1, with consent — for V22, unless the VM P4 lane fixes it itself: PR-1's stage 1c at PR-1's own base decides (a live hit → PR-1 edits it; none → V22 has left PR-1's edit set) |
 | O9 | #506's slot ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` (a VM-P4 family memo, in the guard's `FAMILY` glob) | V19–V21 (`:58-60`, `:322`, `:323`) and V23 (`:327`), with dated markers, cell text only (no table header, no row added or moved); then the checker run of CLAUDE.md:55 on the entry memo, exit 0 expected ((c)) | PR-1, with consent (decisions 211, 213) |
-| O8 | `docs/plans/*.md` as `symbol_attribution_control`'s corpus | the corpus holds #506's ten memos and, from #581, this umbrella's four files; #581's CI and then each PR's run the control over them. **Ownership by who wrote the line, not by whose file it is** (R8 A1-2): a red on a line #581 or a later python-pin PR wrote — in a python-pin file, or in a VM P4 memo PR-1 amends (V12, V13, V15–V21, V23 and their markers) — is that PR's to fix in its own edit; a red arising from the family sources PR-1 changes is PR-1's | #581 / PR-1 for their lines, with consent (in (c)); VM P4 for the rest |
+| O8 | `docs/plans/*.md` as `symbol_attribution_control`'s corpus | the corpus holds #506's ten memos and, from #581, this umbrella's four files; #581's CI and then each PR's run the control over them. **Ownership by who wrote the line, not by whose file it is** (R8 A1-2): a red on a line #581 or a later python-pin PR wrote — in a python-pin file, or in a VM P4 memo PR-1 amends (V12, V13, V15–V21, V23 and their markers) — is that PR's to fix in its own edit | #581 / PR-1 for their lines, with consent (in (c)); VM P4 for the rest |
 
 **(b) PR-2**
 
@@ -191,6 +191,8 @@ cite this list and do not restate it:
 8. **For information, no consent asked**: the `:327` overlap with the lane's own fix of `:278` / `:327` / `:328`
    (PM decision 220, §5.2 *Stage 1b's hits*), and #510's memo staying unsplit under PR-1's amendments (body §6
    *One stated exception*), which the lane may answer with a prereq split.
+9. **A question on O8**: a red on a line the VM P4 lane wrote that appears because PR-1 switches the interpreter to
+   the pin (or because PR-2's guard prelude causes it) — is it PR-1's / PR-2's, or the VM P4 lane's?
 
 No post-#506 ratchet remains (body §9 step 8): PR-1's derivation at its base names #506's files (§5.2).
 
