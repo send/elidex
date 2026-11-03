@@ -252,6 +252,9 @@ jobs:
   # trip-wire. The checker's plan asks for the next re-derivation when a run
   # measures under 2x (its §8 entry "The always-run self-test's cost grows with
   # REVIEW ROUNDS, not with the program").
+  # PR #586 (Python-pin PR-0) added a member and measured its run 41602387497:
+  # slower leg "3.9" 191 s end to end ("3.x" 168 s); ceil(4 x 3.18 min) = 13,
+  # not above 22, so the value stays (raised only above it, never lowered there).
   #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no
