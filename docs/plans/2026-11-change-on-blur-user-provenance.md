@@ -393,7 +393,7 @@ WPT subset is claimed. The change-on-blur WPTs need trusted user input, which th
   transition, an `input` listener's synchronous blur reaches step 2.1, and I6 (mark before `input`) becomes observable.
   A2c's plan should add the cell. Record R-1 below.
 - **Future user edit paths** (drag-drop insert, undo / redo, spin buttons): call `elidex_form::apply_user_edit` and fire
-  `input` iff `changed`. Record R-2 below, for the slot that first adds one.
+  `input` iff `changed` (I2).
 - **PR body records**: the pre-step's measurement (§6), the chosen branch, the Q7 table (§4.2), red-first results per cell,
   MG1–MG5 results, §8.1 / §8.2 texts.
 
