@@ -8,10 +8,12 @@ Siblings cited by ID:
 - slice a (`docs/plans/2026-10-eh-attrs-slice-a.md`, landed by #563 `3cd84a04`; "the slice-a plan");
 - IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.5, merged as a plan by #570; implementation
   **#580, merged** as `27b50dfe` on 2026-11-01; "the N1 memo");
-- **C0** (`docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, **rev 2** on branch `layout-dom-c0-insert-adopt-plan`,
-  `fa68c20f`, not on main; "the C0 draft"; read with `git -C <wt-c0-plan> show
-  fa68c20f:docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`; rev 1 was `fade8a19`, cited as "C0 rev 1" where a
-  rev-1 statement is meant);
+- **C0** (`docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, **rev 2.1** on branch `layout-dom-c0-insert-adopt-plan`,
+  `d262ca8c` (rebased onto `27b50dfe`), not on main; "the C0 draft"; read with `git -C <wt-c0-plan> show
+  d262ca8c:docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`; rev 2 is now `42ca6a2c`, rev 1 `5c4aedf2`, cited as
+  "C0 rev 2" / "C0 rev 1" where a statement of that rev is meant; rev 2.1 changed only coordinates, §3's
+  `adoptedCallback` wording (now D-6: one event per adopt call, each node its own pair, nested contents use the
+  innermost segment's pair, spec order), the C1 rev 3 reference, and a note under C0 Q-2 recording §4.3's constraint);
 - T3 (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, rev 3 draft on branch `layout-eh-attrs-t3-plan`,
   `14ff3dc2`, not on main; "the T3 draft");
 - L3's fragment plan (`docs/plans/2026-10-fragment-dsd-not-on-context.md`, #574 `6aea28da`; PR 0a #576 `cc6a6665` and
@@ -48,8 +50,8 @@ Draft IDs are cited as draft IDs.
 - The option texts of decisions 144, 145, 159, 199, 207 and 215 were not shown to this memo's author; they are cited
   as relayed in the driver's rev-2 brief, not quoted.
 
-**Prerequisites (at C1's base).** N1's implementation (#580) and **C0** landed; L3 RC-2's D14 landed (§4.4). T3 and
-slice b are **after** C1. Of these, only N1's implementation is on `origin/main` (`27b50dfe`, 2026-11-01); C0 and D14
+**Prerequisites (at C1's base).** N1's implementation (#580) and **C0** landed; L3 RC-2a (which carries D14) landed (§4.4). T3 and
+slice b are **after** C1. Of these, only N1's implementation is on `origin/main` (`27b50dfe`, 2026-11-01); C0 and RC-2a
 are not. The C0 dependency is
 semantic, not cosmetic: §1's table shows that C1 on a base without insertion adoption makes the most common template
 pattern worse than HEAD (PM decision 143); with C0 on the base it does not (§1, K-0 lens).
@@ -77,7 +79,7 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3* (2026-11-01): aligned with C0 rev 2 (`fa68c20f`; PM decisions 223 O-2 / 227): the new-node
+**Changelog.** *Rev 3.1* (2026-11-03): clerical — C0 reference to rev 2.1 `d262ca8c`; O-1 decided (a) (PM 223 O-1 / 232); edge c-D14 → c-RC2a (PM 241). *Rev 3* (2026-11-01): aligned with C0 rev 2 (`fa68c20f`, now `42ca6a2c` after C0's rebase; PM decisions 223 O-2 / 227): the new-node
 entry, its parser-tier migration and the per-node `adoptedCallback` pairs are C0's; D-C4, D-C5, §4.3, §5.1, §5.3,
 §6, §8, §9 and §11 shrink to the template-contents part; N1's implementation landed (`27b50dfe`); §10.1 lists each
 move. *Rev 2* (2026-11-01): driver brief inputs 1–9 (§10 lists each and its disposition); rebased on
@@ -186,7 +188,7 @@ New in rev 2:
   Hand-off H-2. **Folded by C0 rev 2** (D-10's overwrite note).
 - **P-C16 (T3 draft × C0 draft × this brief, umbrella rows).** The T3 draft (`14ff3dc2`) carries umbrella rev 8.4 / 8.5
   edits that add **both** C0 and C1 rows to §1.2 and edges x7–x10; the C0 draft D-9 says C0's PR adds the C0 row; the
-  driver's brief (PM decisions 144 / 159) says C1's PR adds the C1 row. Three branches claim the same lines. O-1 (§11).
+  driver's brief (PM decisions 144 / 159) says C1's PR adds the C1 row. Three branches claim the same lines. O-1 (§11); decided rev 3.1 (PM 223 O-1 / 232).
 
 ### §0.4 Decisions (this PR)
 
@@ -499,8 +501,11 @@ Whether the pair document is a third tuple field or read back from the stamp the
 `:417`) depends on whether the shallow root is stamped on the base (`#11-ownerless-node-creation`'s shallow-clone site,
 L3's D8): if every copy is stamped at creation, reading `node_document(d)` suffices; otherwise the field. *Rev 3:* C0
 draft D-11 makes `clone_node_shallow` stamp the operation's document, so on the base every copy is stamped at creation
-and the read-back form is available (Q-S12's second half answered); the choice stays implementation input. Edge c-D14
+and the read-back form is available (Q-S12's second half answered); the choice stays implementation input. Edge c-RC2a
 (§8) records the rebase.
+§4.4's per-pair document (D-C6, cell T24) is written on D14's form; it must be re-checked against RC-2a's final shape (the
+cloneNode migration and the CloneCreated consumers, L3 Rev 6) before C1's implementation starts — a precondition, not a
+design change.
 
 ### §4.5 L3's Range creation sites (A10–A12) and the rest of the census
 
@@ -755,7 +760,8 @@ Own deferrals: **0**. Every row is pre-existing or another PR's scope.
 - c1: N1 implementation → C1 (T17, T22, T23's read-null legs need N1's compile gate). N1 landed (#580, `27b50dfe`).
 - c3: **C0 → C1** (semantic precondition, PM decisions 143 / 153; code predecessor for the new-node entry, the creation
   census, the adopt walk's contents edge and the per-segment pairs, PM decisions 223 O-2 / 227; C0 draft edge c0b).
-- c-D14: **L3 RC-2 D14 → C1** (code predecessor on `clone.rs`'s child-clone loop, PM decision 215; C1 rebases on it).
+- c-RC2a: **L3 RC-2a → C1** (code predecessor on `clone.rs`'s child-clone loop: D14 and RC-2a's cloneNode migration both
+  rewrite it; PM decisions 215, 241; C1 rebases on it).
 - c-E: **C0** introduces the new-node entry (PM decisions 223 O-2 / 227; C0 draft D-10, edge c0f); L3 RC-4 (A11 / A12)
   reads it. If RC-4 lands before C1, its cells for a Range inside template contents assert C2's document and C1 flips
   them; if after, RC-4 asserts I.
@@ -770,22 +776,23 @@ Own deferrals: **0**. Every row is pre-existing or another PR's scope.
 - H-3 to B1: create I in D's relevant realm.
 - H-4 to T3 (rev 3): T3's downstream list for this memo's owner (T3 draft §8.2 "C1 (lands before T3)") is applied by
   rev 2 (P-C11): base "N1 and C0", edge c4 (C1 → T3) replaces rev 1's c2, T18 is a guard, R-C4 unchanged at C1. T3's
-  R-1 note ("done by this PR (umbrella rev 8.5)") conflicts with PM decisions 144 / 159 (O-1).
-- H-5 to L3 (RC-2 D14, RC-4): §4.4's per-pair document and §4.5's A11 / A12 contract.
+  R-1 note ("done by this PR (umbrella rev 8.5)") conflicts with PM decisions 144 / 159; resolved by O-1 (a): T3 drops its C0 / C1 rows (T3 rev 4's job, not this memo's).
+- H-5 to L3 (RC-2a incl. D14, RC-4): §4.4's per-pair document and §4.5's A11 / A12 contract.
 
-**Records (for the PM; exact texts).** Applied by C1's PR in place, with history (PM decisions 144 / 159); the vehicle
-and the revision number depend on O-1, so this rev does **not** edit the umbrella file.
+**Records (for the PM; exact texts).** Applied by C1's PR in place, with history (PM decisions 144 / 159): C1's PR
+applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223 O-1 / 232). This plan PR still does
+**not** edit the umbrella file.
 - **R-1 umbrella §1.2** — add the row (after C0's row, which the C0 draft's D-9 adds):
   "| **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot
   `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6);
-  closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2's D14 landed |".
+  closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed |".
   §1.6's heading and lead: "C1's handling (decided by the PM, not here)" → "C1's handling (decided: branch A, PM decision
   123)", keeping the old wording in the changelog entry. §8.1's `#11-template-contents-owner-document` bullet: "Owner
   TBD …" → "Owner: Layout lane (PM decision 123); C1, after C0 (PM decisions 143, 153); plan
   `docs/plans/2026-10-eh-attrs-c1-template-owner-document.md`".
 - **R-2 ledger `#11-template-contents-owner-document`**: "C1 plan-memo rev 2 (2026-11-01). Order (PM decision 153): N1
   implementation → C0 → C1 → T3 → slice b (supersedes this sub-bullet's 'N1 implementation → T3 → C1 → slice b'). C1's
-  base also contains L3 RC-2's D14 (PM decision 215). Closes at C1's landing; closes T3's R-A with it."
+  base also contains L3 RC-2a, which carries D14 (PM decisions 215, 241). Closes at C1's landing; closes T3's R-A with it."
 - **R-3 umbrella in-place corrections** (at C1's PR): cell C14's expected column "(spec: does not run; slice b inverts it
   under S-2)" → "(spec: does not run; C1 inverts it, with N1's compile gate and C0's adoption at the placement)"; K-5's
   "From N1, the DOMParser half reads null." → "From N1, the DOMParser half reads null; from C1, the template-contents half
@@ -826,7 +833,7 @@ and the revision number depend on O-1, so this rev does **not** edit the umbrell
    with T19 / T12 (parsed, both tiers, foreign and shadow content), T8 (appended), T9 / T10 (cloned) and T24 (cloned with
    a shadow host) as the per-route mutation guards. T3's target cells for R-A (T-17, EW-13, EW-14, XW-8) are T3's to
    assert on top of these facts (T3 lands after C1).
-10. The PM has applied R-1 to R-4 (or recorded why not), and decided O-1 and O-3 (O-2 is decided: PM 223 O-2 / 227).
+10. The PM has applied R-1 to R-4 (or recorded why not), and decided O-3 (O-1 is decided: (a), PM 223 O-1 / 232; O-2 is decided: PM 223 O-2 / 227).
 
 ## §10. Revision history / dispositions
 
@@ -834,7 +841,7 @@ and the revision number depend on O-1, so this rev does **not** edit the umbrell
 
 Why: PM decision 223 O-2 (C0 owns lifting the new-node entry into `EcsDom`) and PM decision 227 (C0 also migrates both
 parser tiers' creation sites onto it; C1 narrows to the template-contents hook) — both relayed by the driver, option
-texts not seen. C0 rev 2 (`fa68c20f`) implements them (D-10, D-11, §4.4) and also implements the per-node
+texts not seen. C0 rev 2 (`fa68c20f`, now `42ca6a2c` after C0's rebase; unchanged in rev 2.1) implements them (D-10, D-11, §4.4) and also implements the per-node
 `adoptedCallback` pairs (D-3 (c), D-6). One PR owns each change; C1 keeps only what is template-contents-specific.
 Base: rebased without conflict from `593aa314` onto `27b50dfe` (#578, #580); §0.1's frame check.
 
@@ -858,7 +865,7 @@ Base: rebased without conflict from `593aa314` onto `27b50dfe` (#578, #580); §0
 Also in rev 3: N1's implementation is landed (#580, `27b50dfe`), so the header, Prerequisites, edge c1 and the
 `scripting.rs` coordinates (H-C9, §3, §5.1, §5.2, §5.3, T22, R-5) are re-stated at `27b50dfe`; C0's cells T5 and T18
 (`new` leg), which pin C2 values for contents, are listed as rewritten by C1 (§5.2); §4.4 records that C0 D-11 stamps
-the shallow clone; O-1 notes C0 rev 2 D-9's record of PM 223 O-1. Unchanged: D-C1, D-C2, D-C6 to D-C11, §1.1, every
+the shallow clone; O-1 notes C0 rev 2 D-9's record of PM 223 O-1 (decided rev 3.1: (a), PM 223 O-1 / 232). Unchanged: D-C1, D-C2, D-C6 to D-C11, §1.1, every
 other cell, R-1 to R-3, R-5.
 
 ### §10.1 Rev 2 (2026-11-01): driver brief inputs 1–9
@@ -871,15 +878,15 @@ other cell, R-1 to R-3, R-5.
 | 3 | R-A closed by C1, in the DoD with a concrete cell | applied: §9 item 9 quotes T3 rev 3's R-A; new cell T23 (four routes) plus per-route guards | §6.1 T23, §9 |
 | 4 | `node_document_for_new_nodes` is the single new-node owner entry; no parallel path; slot `#11-ownerless-node-creation` | applied as D-C4 (contract = intendedParent's node document with #577's substitution; every parser creation in both tiers uses it). Premise error P-C13: it is strict-only and `pub(super)` today, so a single entry needs an `EcsDom` home; who adds it is O-2 | §0.3, §0.4 D-C4, §4.3, §8 R-4, §11 O-2 |
 | 5 | A10 in scope; A11 / A12 read the entry and must get the right document; A1–A9 out of scope with owner | applied: A10 = §4.4; A11 / A12 = §4.5 + U11 (no Range-specific branch needed); A1–A9 and the dom-api sites in §7 with owner C0 rev 2 / L3 | §4.5, §6.2, §7 |
-| 6 | clone.rs loop rewritten by D14 first; C1 rebases; write on D14's form; record the edge | applied: §4.4 on D14's form, edge c-D14. Premise error P-C12: the brief's "passes the operation's subtree flag" is today's code and the defect; D14's form is subtree **true** (DOM step 6.7). Found a C1 defect in the same loop (pass 4 stamps the operation's document inside copied contents): D-C6 per-pair document, T24 | §0.3, §0.4 D-C6, §4.4, §6 T24, §8 |
+| 6 | clone.rs loop rewritten by D14 first; C1 rebases; write on D14's form; record the edge | applied: §4.4 on D14's form, edge c-RC2a. Premise error P-C12: the brief's "passes the operation's subtree flag" is today's code and the defect; D14's form is subtree **true** (DOM step 6.7). Found a C1 defect in the same loop (pass 4 stamps the operation's document inside copied contents): D-C6 per-pair document, T24 | §0.3, §0.4 D-C6, §4.4, §6 T24, §8 |
 | 7 | Chromium measurement step before implementation, table to fill, no invented results | applied: §1.1 (13 rows, Chromium / other-engine columns empty), D-C11, DoD item 4; T1 / T20 gated on it | §1.1, §0.4, §9 |
 | 8 | fold scout answers Q-S1..Q-S9 | applied: Q-S1 → H-C12, D-C7, §7 (DOMParser documents never destroyed); release-leak premise → P-C6; Q-S2 → A2×A4, T12; Q-S3 → H-C4, P-C9; Q-S4 → §5.1 P-6 (residual Q-S11); Q-S5 → H-C16, R-C5 (residual Q-S10); Q-S6 → D-C9, §7, H-C11 (+ `hit_test.rs`, P-C8); Q-S7 → H-C17, §7; Q-S8 → §5.2 (lines re-located at `593aa314`); Q-S9 → H-C16, T11 | §0.2, §0.3, §5, §7 |
-| 9 | umbrella edits in C1's PR, in place, with history; C1 row only | texts written (§8 R-1, R-3); **not applied in this commit**: the T3 draft (`14ff3dc2`) already carries umbrella rev 8.4 / 8.5 with both C0 and C1 rows, and the C0 draft claims rev 8.4 for its row (P-C16); O-1 asks the PM which branch carries what before any of the three edits the file | §0.3 P-C16, §8, §11 O-1 |
+| 9 | umbrella edits in C1's PR, in place, with history; C1 row only | texts written (§8 R-1, R-3); **not applied in this commit**: the T3 draft (`14ff3dc2`) already carries umbrella rev 8.4 / 8.5 with both C0 and C1 rows, and the C0 draft claims rev 8.4 for its row (P-C16); O-1 asks the PM which branch carries what before any of the three edits the file (decided rev 3.1: (a), PM 223 O-1 / 232) | §0.3 P-C16, §8, §11 O-1 |
 
 ### §10.2 Rev 1 (2026-10-31)
 
 First draft, pre-plan-review. Its O-1 (C0 first) is decided by PM decisions 143 / 153; its O-2 (umbrella vehicle) by
-PM decisions 144 / 159 (open sequencing: O-1 below); its O-3 (URL resolution) becomes §1.1; its O-4 (split) is O-3
+PM decisions 144 / 159 (sequencing: O-1 below, decided rev 3.1: (a), PM 223 O-1 / 232); its O-3 (URL resolution) becomes §1.1; its O-4 (split) is O-3
 below; its Q-1 (shared node-document helper) is resolved by C0's `node_document` and D-C4's entry; its Q-2 is Q-2 below;
 its Q-3 (T18) is resolved (T18 is a guard at C1).
 
@@ -888,15 +895,15 @@ its Q-3 (T18) is resolved (T18 is a guard at C1).
 **For the PM / user.**
 - **O-1 Umbrella edit sequencing (P-C16).** *Rev 3 note:* C0 rev 2 D-9 records PM 223 O-1 (relayed; option text not
   seen here): one owner per §1.2 row, each PR adds its own, the umbrella revision number assigned at landing — the shape
-  of (a) below. The PM confirms that it covers C1's row (R-1) and R-3's texts; the T3 draft's C0 / C1 rows are then
-  T3's to drop. Three unmerged branches edit umbrella §1.2: the T3 draft (rev 8.4 / 8.5,
+  of (a) below. **Decided rev 3.1: (a)**, by PM decision 223 O-1, confirmed for C1 by PM decision 232: one owner per
+  §1.2 row; each PR adds only its own, in landing order; the umbrella revision number is assigned at landing; it covers
+  C1's row (R-1) and R-3's texts; the T3 draft drops its C0 / C1 rows (T3 rev 4's job). Options as history: three unmerged branches edit umbrella §1.2: the T3 draft (rev 8.4 / 8.5,
   both C0 and C1 rows, edges x7–x10), C0 rev 1 (D-9: the C0 row, x7, the order line, as rev 8.4; C0 rev 2 withdrew x7, the order line and the number,
   keeping its own row) and this memo (R-1,
   R-3: the C1 row and the C14 / K-5 / §8.2 texts). (a) Each PR carries its own row in landing order — C0's plan PR, then
   C1's, then T3's — and the T3 draft drops its C0 / C1 rows and renumbers (recommended: matches PM decisions 144 / 159
   and C0 draft D-9; each row lands with the PR that makes it true); (b) T3's PR carries all three as drafted (contradicts
-  144 / 159); (c) the PM applies all rows in one PM-owned docs PR. Until decided, this memo states the texts and edits
-  nothing.
+  144 / 159); (c) the PM applies all rows in one PM-owned docs PR.
 - **O-2 Which PR adds the `EcsDom` new-node entry (P-C13).** **Decided (rev 3): (a)**, by PM decisions 223 O-2 / 227
   (relayed): C0 adds the entry and migrates every production creation site, both parser tiers included (C0 draft
   D-10, D-11, §4.4); C1 supplies only the template-contents value through `attach_template_contents`'s second argument
