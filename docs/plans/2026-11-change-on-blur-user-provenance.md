@@ -351,6 +351,10 @@ user edit ever. Each case on `<input>` and `<textarea>`, fresh page:
 - **M9** click; type `a`; blur (change); click; script `x`; type `y`; Backspace (value `x`); blur → H: none. H′: change
   (separates H from H′).
 
+**Pre-step run 2 — observed** (same engine and driver as run 1; both kinds identical): M6 change (value `y`); M7 none; M8 change
+on both blurs (`a`, then `xb`); M9 `change` on the first blur only, none on the second (value `x`). Every H prediction holds; H′'s
+M9 prediction fails. Branch selected: **H = "B1 before the mark, A after it"** (PM 305 (i)).
+
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there. Shell cells drive
 `handle_key` / `handle_ime` on a `build_test_content_state` fixture (P9) and observe events through listeners writing to a
 global array read back with `eval_script`. UA focus moves use `content::focus::set_focus`.
