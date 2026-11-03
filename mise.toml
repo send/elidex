@@ -4,9 +4,9 @@ run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.check-default]
 description = "Run clippy with default features (lib + bin, no dev-only feature)"
-# The one cargo task without `--all-features`; same step as the `check` job's
-# default-features step in .github/workflows/ci.yml, whose comment is the
-# canonical rationale.
+# The one compiling cargo task of `mise run ci` without `--all-features`; same
+# step as the `check` job's default-features step in .github/workflows/ci.yml,
+# whose comment is the canonical rationale.
 run = "cargo clippy --workspace -- -D warnings"
 
 [tasks.test]

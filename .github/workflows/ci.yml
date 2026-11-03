@@ -91,7 +91,8 @@ jobs:
       - name: Run doc-tests
         run: cargo test --workspace --doc --all-features
 
-      # The only step without `--all-features`: clippy with `-D warnings` over
+      # The only compiling step without `--all-features` (fmt compiles nothing):
+      # clippy with `-D warnings` over
       # lib + bin targets (default targets; deliberately not `--all-targets`, since
       # tests/benches/examples legitimately enable dev features) with no
       # dev-only feature on. Under resolver 2 that is the union of the
@@ -102,7 +103,8 @@ jobs:
       # appears with them off); this step does not. It runs last so a failure here
       # does not skip clippy / tests, and on all 3 OS because default-feature
       # builds differ per target (`cfg(target_os/windows/unix)` sites exist in
-      # crates/). The C0b PR attaches, as the step directly after this one,
+      # crates/). The Layout lane's C0 program (its slice C0b, not the K2
+      # slice of that name) attaches, as the step directly after this one,
       # the boundary assertion stated as a property: every feature that
       # exposes test-only API is enabled only from dev-dependencies (no
       # feature name is listed).

@@ -67,7 +67,7 @@ mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
 
-その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `tools-test` (tracked な `test_*.py` 全部を offline で実行 = `scripts/python-suites.sh`、CI の `tools` job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。唯一の例外は `check-default` (`cargo clippy --workspace -- -D warnings`、default features、lib + bin): dev 専用 feature を有効にしない構成 (workspace の normal 依存 feature の和) で本番 build が warning なしに通ることを確かめる。理由の正典 = `.github/workflows/ci.yml` `check` job の同 step のコメント。`lint-fmt` / `deny` は feature と無関係。
+その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `tools-test` (tracked な `test_*.py` 全部を offline で実行 = `scripts/python-suites.sh`、CI の `tools` job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`mise run ci` が呼ぶ compile 系 cargo task で唯一の例外は `check-default` (`cargo clippy --workspace -- -D warnings`、default features、lib + bin): dev 専用 feature を有効にしない構成 (workspace の normal 依存 feature の和) で本番 build が warning なしに通ることを確かめる。理由の正典 = `.github/workflows/ci.yml` `check` job の同 step のコメント。`lint-fmt` / `deny` は feature と無関係。
 
 ## Architecture
 
