@@ -2,8 +2,8 @@
 
 This PR is slice **(1) provenance** under the umbrella `docs/plans/2026-11-focus-fixup-program.md` (order, edges,
 cross-PR invariants and slot owners: its §1–§4; scope by PM decisions 260 and 264). Branch
-`layout-change-on-blur-provenance`, worktree `wt-change-provenance`. Rev 3, 2026-11-03, draft for `/elidex-plan-review`.
-Owner Layout; crates `elidex-form`, `elidex-shell`, `elidex-dom-api` (one doc comment).
+`layout-change-on-blur-provenance`, worktree `wt-change-provenance`. Rev 3.1, 2026-11-03, draft for `/elidex-plan-review`.
+Owner Layout; crates `elidex-form`, `elidex-shell`, `elidex-dom-api` (one doc comment), `elidex-js` (one test migration).
 
 **Defect.** HTML's focus update steps fire `change` at a blurred control only if "the user has changed the element's
 value … while the control was focused without committing that change (such that it is different to what it was when the
@@ -59,7 +59,7 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   text control (P2), so `handle_key` sends it to `handle_key_widget` (`event_handlers.rs:337-340`), which has no Number arm
   (`:587-645`, `_ => {}`), and `is_editable_text` (`ime.rs:13-20`) rejects it. Typing into a number field does nothing.
   `stepUp()`/`stepDown()` (`html_input_value.rs:448`, `:456`) are script. Recorded as a defect, CP-3 (§8.1).
-  "Form reset?": reset is the UA's reset algorithm, not a user edit of the control (§4.10.5.5 fires no `input` for it),
+  "Form reset?": reset is the UA's reset algorithm (§4.10.5 / §4.10.23 Resetting a form), which fires no `input`, not a user edit,
   so it is a non-user writer (W8, §5.2), not a funnel member.
 - **E3 (rev 2's own design)** — rev 2 D-11 put the mark in `dispatch_input_event_typed`, reasoning that the spec couples
   `input` to "the user causes the element's value to change". The coupling holds in the spec, but **not in elidex's
@@ -88,8 +88,8 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   snapshot (P2), so they are outside this predicate.
 - **D-4 Non-user writers are not touched** (W1–W8, §5.2). H's re-baseline is taken once, at the first user value change,
   inside `apply_user_edit` (§4.3), so no writer calls anything and an unlisted or future writer cannot skip it.
-- **D-5 The dirty value flag is not moved.** It has a different predicate: §4.10.18.1 *A form control's value* sets it for
-  user changes **and** for script `value` writes (`set_value` step 3, `crates/dom/elidex-form-core/src/lib.rs:607-610`), so it is
+- **D-5 The dirty value flag is not moved.** It has a different predicate: its set rules (§4.10.5 for `<input>`, §4.10.11 for `<textarea>`; dfn §4.10.18.1)
+  set it for user changes **and** for script `value` writes (`set_value` step 3, `crates/dom/elidex-form-core/src/lib.rs:607-610`), so it is
   not "the user changed the value". Its own user-path defect, the flag set by cursor moves (`input.rs:88-90`), is
   recorded as CP-2 (§8.1) and not fixed here.
 - **D-6 No split in this PR** (PM decision 264 (M2)). `content/event_handlers.rs` is 965 lines at `d7d34035`; this PR
@@ -131,8 +131,11 @@ E3's wrong `change`. Breadth: K = 1, M = 9 (§3) → preflight "single PR scope"
 
 - **I1 One user-edit predicate** — a user action changed the value iff `value` after the action ≠ `value` before it,
   computed only in `apply_user_edit`.
-- **I2 `input` iff I1** — the shell fires `input` for a text control exactly when `apply_user_edit` reports a change
-  (§4.10.5.5: "Some user interactions do not cause changes to the value … ").
+- **I2 `input` for a value change iff I1** — the shell fires `input` for a user value change of a text control exactly
+  when `apply_user_edit` reports a change (§4.10.5.5: "any time the user causes the element's value to change … fire an
+  event named input"; "The input event fires whenever the user has modified the data of the control"). A user
+  writing-direction change fires `input` with no value change (§4.10.11 writing-direction paragraph step 2; §4.10.5.1.2
+  Text and Search state, same steps); that `input` is not decided by `changed` (§4.2 row 12, §8).
 - **I3 Provenance lifetime = snapshot lifetime** — every seed (UA step 4.1, VM `focus()`) starts unmarked with
   `initial` = the value; the first user value change sets `initial` to the value just before it and marks; later
   changes of either kind touch neither field. The mark goes away with the snapshot (take at step 2.1, reconciler
@@ -163,8 +166,10 @@ Pairs:
   mark is not (M1, M2); an unfocused control's write has no snapshot to affect.
 - **I3 × I5** — consume-once covers the mark. VM `blur()` leaves a marked snapshot behind (P3), and the next seed
   replaces it (`insert_one`), so a stale mark cannot survive into a new focus (C16).
-- **I4 × I5** — script-only changes fire no `change` on any sink path (C1 UA, C3 `blur_current`; the fixup path:
-  umbrella X1).
+- **I4 × I5** — script-only changes fire no `change` on any sink path: C1 (UA) and C3 (`blur_current`), both red under
+  MG1. The fixup path does not exist on this base; it is covered by construction, because the fixup reaches step 2.1
+  through the same sink method (`commit_change_on_blur` → `take_change_on_blur`, slice (2) P10), and slice (2)'s C6 and
+  C19 exercise that sink on the fixup path.
 - **I5 × I6** — an `input` listener that blurs synchronously does so through VM `blur()` / `focus()`, which are
   bit-level and fire nothing (A2c, `#11-vm-host-synthetic-dom-event-dispatch`). So the ordering is structural today and
   becomes observable at A2c. No cell; §8 records it for A2c.
@@ -180,12 +185,12 @@ Pairs:
 | WHATWG HTML §6.6.4 Processing model | focus update steps step 2.1 | user changed the value since focus **and** value ≠ baseline → `change`; script-only change → none; a script write before the user's first change re-baselines (H, §4.3) | `take_change_on_blur` (NEW, `focus_snapshot.rs`), called by the shell sink `dispatch_change_on_blur` (`focus.rs:177`), which only dispatches | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | focus update steps step 2.1 (other conjuncts) | "input element", "change event applies", "no defined activation behavior": the snapshot exists only on text controls (P1, P2); unchanged | `record_focus_snapshot` (unchanged) | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | focus update steps step 2.1.1 | set user validity → not here, `#11-focus-change-user-validity` | — | ✗ | no |
-| WHATWG HTML §4.10.5.5 Common event behaviors | "any time the user causes the element's value to change … fire … input"; "Some user interactions do not cause changes to the value" | `input` iff the value changed (I2) | `apply_user_edit` (NEW), shell text-edit handlers, IME commit | ✓ | yes |
+| WHATWG HTML §4.10.5.5 Common event behaviors | "any time the user causes the element's value to change … fire … input"; "fires whenever the user has modified the data" | `input` for a value change iff the value changed (I2) | `apply_user_edit` (NEW), shell text-edit handlers, IME commit | ✓ | yes |
 | WHATWG HTML §4.10.5.5 Common event behaviors | "not fired in response to changes made to the values of form controls by scripts" | no §5.2 writer marks (I4) | §5.2 writers (unchanged) | ✓ | yes |
 | WHATWG HTML §4.10.5.5 Common event behaviors | "change an input element's value on behalf of the user" (prefill) → `input` then `change` directly | no such path in elidex (Q7 table row 10); a future autofill fires both itself, not via blur | — | ✗ | no |
 | WHATWG HTML §4.10.5.5 Common event behaviors | "not fired when the browser changes the values … as part of state restoration" | no form state restoration in elidex; nothing to route | — | ✗ | no |
 | WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule in the text (E1) | same funnel as `<input>`; change-on-blur kept as browser behaviour, measured identical to `<input>` (§6) | `apply_user_edit`, `take_change_on_blur` | ✗ | yes |
-| WHATWG HTML §4.10.18.1 A form control's value | dirty value flag set when the user changes the value | not changed (D-5); cursor moves set it (`input.rs:88-90`), CP-2 | — | ✗ | yes |
+| WHATWG HTML §4.10.5 The input element / §4.10.11 The textarea element | dirty value flag set rules (dfn §4.10.18.1) | not changed (D-5); cursor moves set it (`input.rs:88-90`), CP-2 | — | ✗ | yes |
 
 Numbers and titles: `.claude/tools/webref coverage-map html 6.6.4 html 4.10.5.5 html 4.10.11` (§6.6.4 Processing model
 `#focus-processing-model`; §4.10.5.5 Common event behaviors `#common-input-element-events`; §4.10.11 The textarea
@@ -223,7 +228,8 @@ costs O(len), the same order as the edit itself (inserting into or draining from
 tail). The doc comment of `apply_user_edit` names the obligation of future user edit paths (§8).
 
 `FocusValueSnapshot` (`focus_snapshot.rs:17`) becomes `{ initial: String, user_changed: bool }`: one shape for both kinds,
-since `<input>` and `<textarea>` measured identical (§6), so no per-kind enum. `record_focus_snapshot` seeds
+since `<input>` and `<textarea>` measured identical (§6), so no per-kind enum. Both fields are private with read-only
+getters `initial()` / `user_changed()`, so only `focus_snapshot.rs` writes them (the `elidex-js` test reads the getters). `record_focus_snapshot` seeds
 `initial` = the value, `user_changed = false`. `note_user_value_change` does nothing without a snapshot; on an unmarked
 one it sets `initial = before` and `user_changed = true`; on a marked one it does nothing (§4.3).
 `take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool` (NEW, `focus_snapshot.rs`) replaces
@@ -256,7 +262,7 @@ Method: `git grep -n '&mut FormControlState' -- crates/shell` (14 hits, verified
 | 9 | Undo / redo | none | — | — | no path; same (§8) |
 | 10 | Autofill / prefill | none | — | — | no path; per §4.10.5.5 it fires `input` + `change` directly, not via blur |
 | 11 | Number spin / typing | none: Number never reaches `handle_key_text` (E2) | — | — | no path; CP-3 |
-| 12 | Textarea writing-direction change (§4.10.11 fires `input`) | none | — | — | no path; same (§8) |
+| 12 | Writing-direction change, textarea and Text / Search input (§4.10.11, §4.10.5.1.2: `input` with no value change) | none (sets `dir`, not `value`) | — | — | no path; its `input` is not decided by `changed` (I2, §8) |
 | 13 | Reset button | `reset_form` → `reset_value` (`form_input.rs:289-302` → `submit.rs:478`) | none (correct) | — | non-user writer, W8 (§5.2); the button click moves focus off the text control first (step 2.1 runs before the reset) |
 | 14 | Checkbox / radio / select | `form_input.rs:28`, `elidex_form::toggle_radio`, `navigate_select` (`event_handlers.rs:604-632`) | `:611`, `:630`, `form_input.rs:81` | — | not text controls, no snapshot (I7); unchanged. Observation: select arrow fires `input` without `change`, though §4.10.7 *send select update notifications* fires both, CP-4 |
 
@@ -306,8 +312,7 @@ predicate and MG1 use.
 ### §4.4 `input` without a value change (§6 N cases)
 
 Measured (run 1, both kinds): N1–N4 fire no `input` and leave the value unchanged (N3 / N4 inserted through the driver's
-`Input.insertText`, not a clipboard paste), so I2 stands as designed; C8, C11, C12, C27 and C28 assert it (§4.10.5.5:
-"Some user interactions do not cause changes to the value"). N5 (an IME commit with nothing to insert) was not measured:
+`Input.insertText`, not a clipboard paste), so I2 stands as designed; C8, C11, C12, C27 and C28 assert it. N5 (an IME commit with nothing to insert) was not measured:
 the driver had only a synthetic composition, so C11 rests on the spec text. Replacing a selection with identical text
 was not measured either; I2 follows elidex's own value comparison there (no change, no `input`).
 
@@ -368,7 +373,8 @@ W2 were measured in Chromium; W3–W8 follow elidex's rule that every non-user c
 ### §5.3 Named risks
 
 - **R1 `input` stops firing for non-changes** (I2). A page that relied on arrow-key `input` events loses them. That is
-  spec-correct (§4.10.5.5's own example). No elidex test asserts them (C8 is red-first on HEAD).
+  spec-correct: `input` fires for a user value change (I2); §4.10.5.5's examples of non-changes are a delete in an
+  empty control and an identical paste. No elidex test asserts them (C8 is red-first on HEAD).
 - **R2 Fail direction of the funnel.** A future user edit path that skips `apply_user_edit` fires neither `input` nor
   `change`. Both omissions are visible, so the miss is not silent. `apply_user_edit`'s doc comment names the paths (§8).
 - **R3 One engine, one writer measured** — H is measured on the `value` setter in Chromium 156 only; W3–W8 follow from
@@ -489,7 +495,8 @@ writer path that does not run fails loudly instead of passing.
 | C28 `paste_into_full_maxlength_fires_no_input`, both kinds | test clipboard `"q"`; `maxlength=1`, value `"z"`; UA focus; VM `b.setSelectionRange(1, 1)`; Cmd+V → value `"z"`, no `input` | red |
 | C29 `cut_marks_and_fires_input` | `<input id=b value="ab">`; UA focus; VM `b.setSelectionRange(0, 1)`; Cmd+X → test clipboard `"a"`, value `"b"`, `input` (`deleteByCut`); UA blur → `change` | green (control) |
 
-Mutation guards (final head; each must turn the named cells red, then reverted):
+Mutation guards (final head; each must turn the named cells red, then reverted). Slice (2) has its own MG1–MG7, so
+other plans cite these as "plan (1) MG1" etc.:
 
 | Guard | Mutation | Red cells |
 |---|---|---|
@@ -508,9 +515,7 @@ Coverage: engine-independent cells in `elidex-form` (C7); integration in `elidex
 `event_handlers.rs:669`, `:681` and `Cargo.toml`). Each gains a `#[cfg(test)]` early return to a thread-local
 in-memory clipboard in `content_test_support.rs` (mounted `#[cfg(test)]`, P9). That is hermetic, because each test runs
 on its own thread (`cargo test`) or in its own process (nextest), and it adds nothing to non-test builds. No new
-abstraction is introduced. The design's platform interface (`ClipboardManager`,
-`docs/design/en/23-platform-abstraction.md` "23.2.4 Clipboard and Drag & Drop") replaces the two fns' bodies when it
-lands, and the seam goes with them. No WPT subset is claimed. The change-on-blur WPTs need trusted user input, which
+abstraction is introduced. No WPT subset is claimed. The change-on-blur WPTs need trusted user input, which
 the WPT runner does not drive.
 
 ## §7. Out of scope and slots
@@ -526,9 +531,7 @@ the WPT runner does not drive.
   snapshot (the seed runs at focus only, P1), so a later user edit fires no `change`. The spec compares with the value
   "when the control was first focused", which a control that was not then a text control does not define, so this is
   recorded as a known property, not a defect.
-- Observation for the PM, not a slot here: the shell calls the system clipboard directly (`arboard`,
-  `event_handlers.rs:669`, `:681`), while `docs/design/en/08-security-model.md` (line 16) routes renderer clipboard
-  access through the Browser Process broker.
+- The renderer's direct system clipboard access (`event_handlers.rs:669`, `:681`) → `#11-renderer-clipboard-broker` (PM 312).
 - `ime.rs:158` ("No-op for now.", IME enable / disable) is unrelated to provenance; left as is.
 
 ## §8. Edges, hand-offs and records
@@ -536,11 +539,15 @@ the WPT runner does not drive.
 - W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot.
 
 - **Order and edges**: umbrella §1.2–§1.3 (this PR is (1); e1 into the focus-fixup PR).
+- **L3 P1 `#11-element-lifecycle-hooks`** (file overlap, no order): the same files — `content/event_handlers.rs`
+  activation, the reconciler arms hosting W4–W6, the type-flip clear `reconciler.rs:155-162`; re-check at whichever lands
+  second.
 - **A2c** (`#11-vm-host-synthetic-dom-event-dispatch`): when VM `blur()` / `focus()` start running the canonical
   transition, an `input` listener's synchronous blur reaches step 2.1, and I6 (mark before `input`) becomes observable.
   A2c's plan should add the cell. Record R-1 below.
-- **Future user edit paths** (drag-drop insert, undo / redo, spin buttons, the textarea writing-direction change): call
-  `elidex_form::apply_user_edit` and fire `input` iff `changed` (I2). Home: `apply_user_edit`'s doc comment, the
+- **Future user edit paths** (drag-drop insert, undo / redo, spin buttons, IME commit on blur (umbrella X5, FF-3)): call
+  `elidex_form::apply_user_edit` and fire `input` iff `changed` (I2). A future writing-direction change is not one of
+  them: it sets `dir` and fires `input` with no value change (§4.10.11 step 2), not through `changed`. Home: `apply_user_edit`'s doc comment, the
   function each such path must call; spin buttons are also CP-3's fix. No separate slot: none of these paths exists, and
   a path that skips the funnel shows as a missing `input` (R2).
 - **PR body records**: the pre-step's measurement (§6), the measured model H (§4.3), the Q7 table (§4.2), the writer
@@ -556,7 +563,7 @@ Search first: `memory/project_open-defer-slots.md` has no entry for any of the f
   (`input.rs:47-77`) runs before the readonly check (`:80`); §4.10.5.3.3: "When specified, the element is not mutable".
 - **CP-2 `#11-dirty-flag-on-cursor-move`** (crate `elidex-form-core`). *Defect:* `input.rs:88-90` sets the dirty
   value flag for every `Consumed` key, cursor moves included, so an arrow key stops later `value`-attribute / `defaultValue`
-  writes from updating the live value (§4.10.18.1: set when the user "changes the value"). *Fix shape:* the user paths
+  writes from updating the live value (§4.10.5 / §4.10.11: set when the user interacts "in a way that changes the value"). *Fix shape:* the user paths
   set the flag from `elidex_form::apply_user_edit`'s `changed` (I1), not from a second edit / move predicate in
   form-core.
 - **CP-3 `#11-number-input-user-edit-path`** (crates `elidex-shell`, `elidex-form-core`). *Defect:* typing into
@@ -574,7 +581,12 @@ Search first: `memory/project_open-defer-slots.md` has no entry for any of the f
   cell: an `input` listener blurs synchronously and the blur fires `change` (the change-on-blur provenance mark is set
   before `input`, docs/plans/2026-11-change-on-blur-user-provenance.md I6). A2c's VM sink calls
   `elidex_form::take_change_on_blur` (NEW) and only dispatches `change`; `vm/host` does not compute the predicate
-  (Layering mandate; umbrella X1)."
+  (Layering mandate; umbrella X1). This reverses A2a's decision "the VM no-op sink does not consume the snapshot"
+  (PM 279); C16 / MG5's premise P3 (VM `blur()` leaves the snapshot) is re-derived at A2c."
+- **R-3 → `#11-char-count-derive-at-reader`**, at landing: "`ime.rs:129` (the maxlength reader) now runs inside
+  `elidex_form::apply_user_edit`'s closure."
+- **R-4 → `#11-textarea-edit-path-newline-normalization`**, at landing: "The paste / IME splices run inside
+  `elidex_form::apply_user_edit`'s closure, and `input` fires iff `changed`."
 - **R-2 → `#11-focus-fixup-gated-on-session-records`**: "Depends on the change-on-blur provenance PR
   (docs/plans/2026-11-change-on-blur-user-provenance.md), which lands first (PM 260)."
 
@@ -587,13 +599,15 @@ Search first: `memory/project_open-defer-slots.md` has no entry for any of the f
    and their unit tests (`user_edit.rs`, `focus_snapshot.rs`), the `lib.rs` re-export, and the shell's user-input sites
    of §4.2 rows 1–4 (`event_handlers.rs`, `ime.rs`). A hit in `crates/script`, in another `elidex-form` file (the
    reconciler, `value_mode.rs`, `submit.rs`) or in a shell script-path writer (`form_input.rs`'s reset) is a non-user
-   writer marking (I4).
+   writer marking (I4). Also `git grep -n -E 'FocusValueSnapshot *\{|\.(initial|user_changed) *=[^=]' -- crates
+   ':!crates/dom/elidex-form'` → none (no field write outside `elidex-form`; the fields are private, §4.1).
 4. Cells C1–C29 green on the final head; NEW cells red / green on `d7d34035` as tabled (results in the PR body);
    MG1–MG8 each red on their cells, then reverted.
 5. No touched file over 1000 lines (`event_handlers.rs` estimated ~986, D-6); over 1000 → stop, the split PR lands first (umbrella e3).
 6. `cargo fmt --all`; `cargo test -p elidex-form -p elidex-shell -p elidex-js --all-features`; `mise run ci` green
    (`grep 'ERROR task failed'` on its log → none).
 7. PR body carries §8's records (applied at landing: umbrella §6 item 3).
+8. At landing, `#11-shell-effective-disabled-predicate-adoption`'s line cites are re-cited at the final head (PM 281).
 
 ## §10. Open items
 
@@ -606,6 +620,10 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
 
 ## Changelog
 
+- *Rev 3.1* (2026-11-03): plan-review fixes. I2 narrowed to `input` for a value change, normative §4.10.5.5 cites;
+  writing-direction `input` stated apart (row 12; IME commit on blur added to the §8 list of user edit paths); dirty-flag and reset cites; R1
+  example; `FocusValueSnapshot` fields private + DoD 3 field-write grep; I4 × I5 pointer by construction; MG name note;
+  R-1 reversal of A2a; R-3, R-4, DoD 8; L3 P1 edge; `elidex-js` in header; clipboard observation → slot pointer (PM 312).
 - **Rev 3 (2026-11-03)** — single design H (Chromium-measured, PM 305). Deleted: branches A-only / B1 / B2, their
   representations, the per-branch cell outcomes (C4, C6), the STOP rows, the per-kind branch paragraph, §4.4's
   unmeasured rows (incl. the conditional proposed L3 defect), the pre-step's branch-selection sentences and the B1 file
