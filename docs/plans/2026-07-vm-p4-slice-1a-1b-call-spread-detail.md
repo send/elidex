@@ -512,5 +512,106 @@ as three independently-failing mechanisms rather than one PR.
 
 Tagged templates, class fields, super-property, private names — each its own slice.
 
+### §6.6 Umbrella 1a's derivation (run at `eaa741b5`)
+
+⚠ **Added after the carve-out, not moved with it**: everything above §6.6 is the verbatim pre-split
+text; this subsection is the record of the derivation §5's 1a row says the umbrella runs at its own
+start. §5's row-kind rule makes this its home — an umbrella's derivation is what *its* plan-memo
+states, and this file is the 1a/1b detail §5's row points at — while the **split, ordering and
+owner** it produces live in the structured cells: the rows **1aa**, **1ab** and **1ac** directly under
+1a in §5's table. Nothing below restates a `Deps` cell; where an edge is named, the cell is the
+authority and this prose is the reason.
+
+**Seed — by command, over the spec's clause index** (§5: *a derivation's seed is produced by a
+command*). The 1a row's three mechanisms are governed by:
+`webref aoid ecma262 ArgumentListEvaluation` → **§13.3.8.1**; `webref heading ecma262 13.3.7` →
+**§13.3.7.1** Runtime Semantics: Evaluation (the `SuperCall` production), **§13.3.7.2**
+GetSuperConstructor; `webref aoid ecma262 ClassDefinitionEvaluation` → **§15.7.14** (step 14.a.iv.1
+NOTE); `webref heading ecma262 13.2.4` → **§13.2.4.1** ArrayAccumulation; `webref heading ecma262
+7.4` → **§7.4.4** GetIterator, **§7.4.10** IteratorStepValue, **§7.4.11** IteratorClose;
+`webref aoid ecma262 EvaluateCall` → **§13.3.6.2**. Mechanism (c) has **no** governing clause:
+GC root lifetime is engine-internal, and the canonical algorithm it is held to is the in-tree root
+walk (`mark_roots`), as the 1a row already says. The seed is the input; each child's own
+`/elidex-plan-review` derives what it owes beyond it.
+
+**Grouping, then terminality per group** (§5: *a derivation's output is a grouping, not a slice*).
+The grouping is the 1a row's own: three mechanisms, each with an assertion the other two pass
+(edge 32 / edge 21 / edges 27/28). The criterion re-applied to each group, at `eaa741b5`:
+
+- **(a) argument layout + IC entry** — two axes (the args-array→window contract, the
+  `Option<usize>` IC entry), and they do not intersect inside the group: the `None` arm and the
+  layout helper meet only in 1b's handlers. The canonical form is in-tree
+  (`construct_synchronous`'s callee-then-args layout). Neither disjunct ⇒ **one terminal row, 1aa**,
+  a **prerequisite** row in §5's sense, because the `None` arm has no JS-reachable holder until 1b's
+  children land.
+- **(b) `op_array_spread`'s `return()`** — one axis (iterator-protocol observability), governed by
+  §13.2.4.1, whose `SpreadElement` production drains through §7.4.10 and calls no IteratorClose
+  (`webref body ecma262 sec-runtime-semantics-arrayaccumulation | grep -ci iteratorclose` → 0).
+  ⇒ **one terminal row, 1ab**; its artifact is reachable today through `[...it]` and `super(...it)`.
+- **(c) the four call-entry argument windows** — one axis (GC root lifetime), four sites of one
+  shape (`git grep -n 'drain(base\.\.)' -- crates/script/elidex-js/src/vm/interpreter.rs` → `:630`,
+  `:665`, `:867`, `:914` at `eaa741b5`) ⇒ **one terminal row, 1ac**; reachable today through
+  `Function.prototype.apply` and `g(arr)`.
+
+**Placement of what the 1a row names** (each was written on 1a and is moved, not copied):
+
+| Obligation, edge or acceptance item | Placed on |
+|---|---|
+| `lay_out_call_args`; the `Empty` normalisation; converting `op_super_call_spread`; correcting its docstring (the `expr_class.rs` producer is NOT folded); the IC `Option<usize>` refactor (dec. 11) | **1aa** |
+| edge **32**; dec. 11's direct `ic_call(.., None)` unit test; edge **16** (structural); dec. 8's shared dense path and dec. 17's dense half | **1aa** |
+| dec. 13a's `return()` removal; edge **21**; §6.2a's "`op_array_spread` is [C19]/[C22]-only afterwards"; the §6.2a-3 transport table's inline site | **1ab** |
+| dec. 10's rooting of `stack_slice` and `actual_args`; edges **27/28**; the `#11-vm-operand-rooting-by-construction` edge (the Rust placement affordance) | **1ac** — its `Deps` cell |
+
+**Sibling edges: none.** No child consumes another's artifact — 1aa touches no drain and no
+`interpreter.rs` window, 1ab no call-entry path, 1ac no layout helper — so their order is free.
+1aa is written first because it is the producer every consumer in 1b reaches; that is a reason, not
+an ordering.
+
+**Edges onto 1b's children — placed by 1b's derivation, recorded here as its input.** Umbrella 1b
+carries no ordering (§5's row-kind rule), so its `Deps` cell stays **—**, and the consumer end of
+each edge does not exist until 1b's derivation mints it. What 1a's derivation outputs is the
+producer ids those edges will name:
+
+- **1aa** — the child 1b mints for the argument-emit helper and the spread call handlers consume
+  `lay_out_call_args` and `ic_call(.., None)`: an artifact edge (a shared Rust helper signature, the
+  class (d) of §5's edge-completeness passage). This is the `1b → 1a` edge that passage measured at
+  `b3eb07c1`, with both endpoints now children.
+- **1ab** — 1b's spread aggregation reuses `op_array_spread` on the call path (§6.2a: "1b
+  deliberately increases `op_array_spread`'s reachability"), and dec. 13a calls the removal "the
+  reuse precondition"; a 1b child asserting no `return()` on a call-path spread fails without it.
+- **1ac** — 1b's handlers route *N* user-controlled values through the four windows where today one
+  array value passes (§6.3 GC: "after this slice it passes **N** user-controlled values"). The
+  artifact consumed is the rooted window; no JS-level 1b test can detect its absence (§6.4's ⚠⚠
+  note), which is why the edge, not a test, carries it.
+
+So **1b depends on 1a's derivation's output, genuinely, and on all three children** — and the 1b
+`Deps` cell is correct as **—**: an umbrella cell that named `1aa` would order every 1b child,
+including ones (the I-3 tagged-template contract, dec. 12's bound) that consume nothing of 1a's.
+
+**`new F(...args)` — umbrella 1b's, not 1a's.** Its compile path is `compiler/expr.rs:88-92`
+(`compile_expr(callee)` → `compile_arguments` → `emit_u8(Op::New, argc)`), so it has **the same
+silent-wrong shape** as `f(...xs)`: the spread operand is passed as one argument (`new F(...[1,2])`
+calls `F` with the array as argument 0). Its spread opcode `Op::NewSpread` exists only as the
+`pop; pop; push undefined` stub (`vm/dispatch.rs:879-883`) and has no emit site
+(`git grep -n 'Op::NewSpread' -- crates/script/elidex-js/src/compiler` → 0). Both the emit change and
+the handler change behaviour, which §6.3's tags put in 1b ("everything that changes observable
+behaviour"), and §6.3's emit-site table already lists `expr.rs:92` `new` → `NewSpread`; 1b's row
+names "`new` with spread against the bound-function prefix splice". Its runtime op is `do_new`
+(`vm/ops.rs:681`), which reads arguments from the stack, so the 1b child that connects `NewSpread`
+reaches it through **1aa**'s `lay_out_call_args` — one more reason for the 1aa edge above, not a
+reason to move it into 1a.
+
+**Placeholder phrases resolve to ids.** The family names these children by charter in prose; each
+phrase now denotes exactly one row:
+"the child of umbrella 1a that owns the argument-layout and inline-cache contract" = **1aa**;
+"the child of umbrella 1a that removes `op_array_spread`'s `return()`" = **1ab**;
+"the child of umbrella 1a that roots the four call-entry argument windows" = **1ac**. The structured
+owner cells that carried a phrase (the entry's citation table `Used by` column and its §3 coverage
+row for §13.2.4.1) are re-pointed to the id; prose sentences keep the phrase, which this map makes
+unambiguous.
+
+**1aa's per-PR plan** is `docs/plans/2026-11-vm-p4-slice-1a-1aa.md` (outside the family glob, so cited
+by path, not linked).
+
 ---
 
