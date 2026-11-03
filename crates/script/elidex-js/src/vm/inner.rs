@@ -28,6 +28,17 @@ use super::value::{self, JsValue, Object, ObjectId, ObjectKind, StringId, Symbol
 use super::VmInner;
 
 impl VmInner {
+    /// Whether a session + dom are bound (`false` without installed
+    /// `HostData`). Post-unbind natives check this before reaching into
+    /// engine-bound state, since wrappers can outlive `Vm::unbind()`.
+    #[cfg(feature = "engine")]
+    #[must_use]
+    pub(crate) fn is_bound(&self) -> bool {
+        self.host_data
+            .as_deref()
+            .is_some_and(super::host_data::HostData::is_bound)
+    }
+
     /// Drop a `ListenerId` from `HostData::listener_store` AND prune
     /// any `AbortSignal` back-ref to it.
     ///

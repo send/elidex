@@ -410,11 +410,7 @@ impl VmInner {
     /// migrate their existing roots onto the SAME seam before the S5-6 flip
     /// (the hard pre-flip gate `#11-eventtarget-keepalive-registrant-coverage`).
     pub(in crate::vm) fn deliver_media_query_changes(&mut self) {
-        if !self
-            .host_data
-            .as_deref()
-            .is_some_and(super::super::host_data::HostData::is_bound)
-        {
+        if !self.is_bound() {
             return;
         }
 

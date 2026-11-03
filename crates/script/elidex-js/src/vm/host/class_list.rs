@@ -200,18 +200,13 @@ impl VmInner {
 // Post-unbind tolerance
 // ---------------------------------------------------------------------------
 
-/// `DOMTokenList` wrappers are plain JS objects, so user code can
-/// retain `el.classList` across a `Vm::unbind()` boundary; calling
-/// [`invoke_dom_api`] in that state panics at the
-/// `HostData::with_session_and_dom` assert.  Each native checks
-/// `ctx.host_if_bound()` first and returns a safe default
-/// (length=0 / value="" / contains=false / item=null / mutations
-/// no-op).  Mirrors `Attr` / `NamedNodeMap` post-unbind handling.
-fn vm_is_bound(vm: &super::super::VmInner) -> bool {
-    vm.host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-}
+// `DOMTokenList` wrappers are plain JS objects, so user code can retain
+// `el.classList` across a `Vm::unbind()` boundary; calling
+// [`invoke_dom_api`] in that state panics at the
+// `HostData::with_session_and_dom` assert.  Each native checks
+// `ctx.host_if_bound()` (or `VmInner::is_bound`) first and returns a safe
+// default (length=0 / value="" / contains=false / item=null / mutations
+// no-op).  Mirrors `Attr` / `NamedNodeMap` post-unbind handling.
 
 // ---------------------------------------------------------------------------
 // Brand check
@@ -687,7 +682,7 @@ pub(crate) fn try_indexed_get(
     // with the prototype-resident `item()`.  Allocate a NativeContext
     // inline; the bridge needs `&mut NativeContext` and `try_indexed_get`
     // is called from `ops_element::get_element` with a clean `&mut VmInner`.
-    if !vm_is_bound(vm) {
+    if !vm.is_bound() {
         // Post-unbind: indexed access on a retained `el.classList`
         // wrapper returns `undefined` (matches Copilot R1 guidance —
         // out-of-range integer-typed indices fall to `Undefined`,

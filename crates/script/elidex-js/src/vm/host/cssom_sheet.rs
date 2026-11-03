@@ -584,11 +584,7 @@ pub(crate) fn try_indexed_get_rule_list(
         }
         _ => return None,
     };
-    if !vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
+    if !vm.is_bound() {
         return Some(Ok(JsValue::Null));
     }
     let mut ctx = NativeContext::new_call(vm);
