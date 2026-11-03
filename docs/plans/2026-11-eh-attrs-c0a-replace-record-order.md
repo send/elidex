@@ -288,7 +288,7 @@ stay on T3's branch).
 T3's branch drops E1–E13 and its own C0 / C1 rows and order-line edits when it rebases onto C0a, keeps its x8, and
 renumbers its rev headings after C0a / C0b / C0c take the next numbers (program H-T; Ax5 MIN-2).
 
-For the PM: program R-6 (e) re-eval wording; the ledger `:688` pointer to this memo's §7; memory
+For the PM: program R-8 (the ledger order line); program R-6 (e) re-eval wording; the ledger `:688` pointer to this memo's §7; memory
 `project_b1-mutationobserver-next-task.md` `:42` lesson line (and `:44`): it must say that the source-removal siblings
 are read with `child` in place (current *replace* step 6 before step 7) and that C0a removed B1.2a's step-over (P-20) —
 read 2026-11-03, both lines already carry that correction ("[corrected 2026-11-03 …]"), so the record is a check at

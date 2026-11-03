@@ -38,7 +38,7 @@ those memos' IDs.
 `#11-cross-document-adopt-on-insert`, sub-bullet "Owner assigned 2026-10-31"): "Layout lane, as C0 of the EH-attrs
 program. C0 is a standalone PR before C1 … Edge-dense, so plan-review is mandatory. L3's P1 umbrella treats C0 as
 landing first (the insertion-steps boundary goes in C0's plan §2)". The same sub-bullet still records the order "N1
-implementation → T3 → C0 → C1 → slice b" (ledger `:132`); PM decision 153 (2026-10-31, user decision) superseded it:
+implementation → T3 → C0 → C1 → slice b"; PM decision 153 (2026-10-31, user decision) superseded it:
 **N1 implementation → C0 → C1 → T3 → slice b** (record R-8 corrects the ledger line). PM decision 223 O-2
 (2026-11-01): C0 owns lifting the new-node owner-document entry into `EcsDom`. PM decision 244 (2026-11-03): after
 plan-review R1 (verdict SPLIT) C0 is the program of three PRs above; "in C0" in PM decisions 158 / 160 (a) reads "in the
@@ -56,7 +56,9 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.3* (2026-11-03): C0b's plan-review (`15e99049`; dispositions in the C0b memo §10) and PM 283.
+**Changelog.** *Rev 3.4* (2026-11-03): C0b's plan-review of the re-cut (`0aaa80d9`; dispositions in the C0b memo §10.1)
+and PM 290. D-17 (iii) (b): the boundary script is its own step and task; c0g: the clone.rs stamps by landing order; R-7
+(parse cost) deleted; R-6 (c), (g) carried by C0b, R-8 by C0a; ledger cites by slot ID. *Rev 3.3* (2026-11-03): C0b's plan-review (`15e99049`; dispositions in the C0b memo §10) and PM 283.
 D-21 is C0b-pre2's (NEW per-PR memo), before C0b: header table, D-21, §1, §3, edge c0-pre2, R-3, §9. The CI/tools PR
 is #585 (edge c0-pre-ci). D-17 (iii), H-24: the boundary check reads build edges too. §4.4: the census population by
 property, raw spawns included. *Rev 3.2* (2026-11-03): C0a's plan-review (`4c79d9c8`; 0 CRIT / 3 IMP / 15 MIN; dispositions in the
@@ -343,9 +345,9 @@ cells) and cites this text.
   cloner, the parse root). So production code cannot ask for an ownerless node; it can only name a source, and a node is
   ownerless only when that source has no node document. (ii) The four argumentless creators (H-22) stay on `EcsDom` for
   fixtures but are compiled only under `#[cfg(any(test, feature = "fixtures"))]` (NEW `elidex-ecs` feature). Each crate
-  whose tests call them enables the feature **in `[dev-dependencies]` only** (`elidex-ecs = { workspace = true, features =
-  ["fixtures"] }`; 26 crates, `git grep -l -E '\.create_(element|text|comment|document_fragment)\(' -- 'crates/*.rs' |
-  cut -d/ -f1-3 | sort -u | wc -l`, verified 2026-11-03); no `.rs` file changes for it. (iii) **The CI-run census**
+  that depends on `elidex-ecs` and calls them in its tests enables the feature **in `[dev-dependencies]` only**
+  (`elidex-ecs = { workspace = true, features = ["fixtures"] }`; the population and its command: C0b memo D-17 (3)); no
+  `.rs` file changes for it. (iii) **The CI-run census**
   (PM 244 item 5), split by PM 255 (user decision γ) into two PRs: **(a) the CI/tools default-features check PR**
   (before C0b, owned by the CI/tools lane; it has value alone) adds the step "Clippy (default features, no dev-only
   feature)" — `cargo clippy` over the workspace with **default features** and `-D warnings` (PM 263), so lib and bin
@@ -356,8 +358,7 @@ cells) and cites this text.
   was green at `27b50dfe`, run 2026-11-03, exit 0; the step's own verdict is the CI/tools PR's.) A production call of
   an argumentless creator (a site C0b missed, or RC-2b's `create_document_fragment()` rebased onto C0b) fails this
   build: it does not compile. It depends on no list of operations. **(b) C0b** adds `scripts/check-fixture-boundary.sh`
-  (NEW) and appends its invocation to that step and that task (C0b writes no CLAUDE.md line and adds no step or task
-  of its own). Its claim (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads
+  (NEW) and runs it as its own step directly after that step and as its own `mise` task (C0b memo D-17 (4)). Its claim (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads
   the population from cargo, not from the manifests' text: it fails if `cargo tree --workspace -e normal,build,features
   -i elidex-ecs` lists `elidex-ecs feature "fixtures"` (H-24: that tree has no dev edges, and a dev edge does show there
   under `-e normal,build,dev,features`, so the check is not vacuous; the host-target tree is complete for
@@ -368,7 +369,7 @@ cells) and cites this text.
   fixture call lines onto the entry (a fixture needs no document, so the lines whose outcome reads no node document gain
   nothing; the tests whose assertions do read an ownerless node's node document pin a state production cannot reach after
   C0b and are found and rewritten by C0b's pre-implementation run, C0b memo §5.2 / §9); a dev-dependency-only fixture crate
-  with an extension trait (production cannot see a dev-dependency in any build, but every one of 296 test files (verified 2026-11-03, the command above without `cut`/`sort`) gains an
+  with an extension trait (production cannot see a dev-dependency in any build, but every one of 296 test files (`git grep -l -E '\.create_(element|text|comment|document_fragment)\(' 27b50dfe -- 'crates/*.rs' | wc -l`, run 2026-11-03) gains an
   import — 12 of them over 1000 lines, each a touch-time split — and the crate still needs a pub, feature-gated door
   into `elidex-ecs`, which `--all-features` exposes, so it needs the same kind of CI guard); a grep ratchet over
   non-test code (rev 2's P-8: inline `#[cfg(test)]` modules make the population fuzzy).
@@ -602,7 +603,7 @@ marshalling only (§4.7): in C0b the CE constructor passes `document_entity_opt(
 `ownerDocument` getter's docstring (`vm/host/node_methods_extras.rs:36-40`) and the cells file
 `vm/tests/tests_insertion_adoption.rs` (NEW); in C0c the flush arm's callback invocation and `adoptNode`'s native.
 
-§4.2 (reconcile HEAD → head), §4.3 (cost), §4.8 (citations) and §4.9 (comment sites) are per PR (in each per-PR memo).
+§4.2 (reconcile HEAD → head), §4.8 (citations) and §4.9 (comment sites) are per PR (in each per-PR memo).
 
 ### §4.4 Creation census (D-11)
 
@@ -670,7 +671,7 @@ its base.
   /usr/bin/grep -v '/tests/\|tests\.rs\|/tests_'` → 11 files; re-run by C0c and by RC-2a, whichever lands second (c0e).
 - **Risks** (detail in the per-PR memos): R-1 `ownerDocument` after a move; R-2 a removed parse node keeps its document;
   R-3 N1's gate follows the adopted document; R-4 base URL; R-5 `adoptedCallback` / `adoptNode` reach author code
-  (C0c); R-6 replace's records (C0a) and fragment (C0b); R-7 parse cost (C0b §4.3); R-8 the getter fallback deleted
+  (C0c); R-6 replace's records (C0a) and fragment (C0b); R-8 the getter fallback deleted
   (C0b, guarded by D-17); R-9 P1 collision (§2.0); R-10 the `MutationEvent` census with L3 RC-2a (c0e).
 
 ## §7. Out of scope and slots
@@ -686,7 +687,7 @@ its base.
 | Selection API document-membership | **proposed** `#11-selection-document-membership` (R-6 (c)) | `same_document` (`selection.rs:614-619`) accepts a detached node whose node document is the selection's; step text unverified (webref cannot render the anchors) |
 | VM `isConnected` | `#11-vm-isconnected-bound-document` (**registered**, PM 227, owner L3) | compares the composed root with the bound document |
 | HTML `img` adopting steps | **proposed** `#11-img-adopting-steps-relevant-mutations` (R-6 (f)) | an `img` adopted into another document does not re-run *update the image data* (HTML §4.8.4.3.2 Reacting to DOM mutations, *relevant mutations*: "The element's adopting steps are run"); `/usr/bin/grep -rln 'relevant mutation\|update_image_data' crates` → no hit |
-| VM Attr wrapper vs dom-api Attr entity | `#11-dom-api-attr-entity-model-unification` (registered, ledger `:721`) | the VM's Attr has no entity and no `ownerDocument` (H-17), so adopt 3.3.1 is observable only at unit level until that slot lands |
+| VM Attr wrapper vs dom-api Attr entity | `#11-dom-api-attr-entity-model-unification` (registered) | the VM's Attr has no entity and no `ownerDocument` (H-17), so adopt 3.3.1 is observable only at unit level until that slot lands |
 
 Own deferrals: **4 proposed slots** for pre-existing defects the program touches but does not fix ((b), (c), (f),
 (g)); each has defect, owner, trigger and date in R-6, registered at landing (PM 251). No planned implementation is
@@ -701,7 +702,7 @@ deferred.
 | c0-pre-a | D-14 (a) → C0a | code predecessor | pure move |
 | c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) and (e) shared with L3 RC-0a (whoever lands first; (e) in RC-0a since L3 `55d35a16`, P-19 (d)) |
 | c0-pre-c | D-14 (c) → C0b | code predecessor | pure move (PM 258) |
-| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | PM 255 / 263: #585 owns the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception; C0b appends `scripts/check-fixture-boundary.sh` to them (D-17 (iii)) |
+| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | PM 255 / 263: #585 owns the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception; C0b adds `scripts/check-fixture-boundary.sh` as its own step after that step and its own task (D-17 (iii)) |
 | c0-pre2 | C0b-pre2 → C0b | code + semantic predecessor | D-21: the relation C0b's walk re-homes (D-3 (b)); C0b switches its stamp's read and the Attr's creation (PM 283) |
 | c0a | N1 (#580, landed) → C0b | code + semantic | clause (b) on N1's landed body; T8–T10 need N1's gate |
 | c0-ab | C0a → C0b | code predecessor (soft) | C0a may land any time before C0b; both edit `apply_replace_child` (D-12 / D-5) |
@@ -711,7 +712,7 @@ deferred.
 | c0d | C0b → L3 P1 | boundary | §2.0 |
 | c0e | C0c ↔ L3 RC-2a | census collision | RC-2a's `CloneCreated` and C0c's `Adopt` add variants to the same enum, arms to the same consumer and exhaustive matches; whichever lands second re-runs P-6 and adds its arm to every exhaustive match (`range/live.rs`, `mutation_hook.rs`) |
 | c0f | C0b ↔ L3 RC-2b | creation entry | §4.5 A6: RC-2b calls the entry if C0b is in its base; C0b migrates RC-2b's sites if RC-2b lands first (compile-enforced either way, D-17) |
-| c0g | C0b ↔ L3 RC-2a | file overlap `node_methods/clone.rs` | the pass-4 hand stamps in `node_methods/clone.rs` are `:282-285` (cloned host + replicated shadow root) and `:294-301` (the `!deep` shadow-child stamp; verified at `27b50dfe`, `git show 27b50dfe:crates/dom/elidex-dom-api/src/node_methods/clone.rs | sed -n '282,285p;294,301p'`). D14 (in RC-2a) removes `:294-301` in either order. Whichever of C0b and RC-2a lands second removes the stamps that are dead at its head; the other notes this in its DoD. If C0b is in RC-2a's base, RC-2a writes no hand stamp. If RC-2a lands first, only `:282-285` is left for C0b to remove (PM 247 / 249, L3 Rev 6.1 H9). C0b's re-measure scope includes RC-2's files (`node_methods/clone.rs`, `node_methods/tests/clone.rs`, `elidex-custom-elements/src/consumer.rs`, `dom/mutation_event.rs`, `dom/mod.rs`, `tree_clone.rs`, the RC-2b contents module) |
+| c0g | C0b ↔ L3 RC-2a | file overlap `node_methods/clone.rs` | the pass-4 hand stamps `:282-285` (cloned host + replicated shadow root) and `:294-301` (the `!deep` shadow-child stamp; `git show 27b50dfe:crates/dom/elidex-dom-api/src/node_methods/clone.rs | sed -n '282,285p;294,301p'`) call `set_associated_document`, `pub(crate)` from C0b (D-18). C0b first: C0b removes both, and RC-2a writes no hand stamp. RC-2a first: D14 (RC-2a) removes `:294-301`, C0b removes `:282-285`. C0b's re-measure scope includes RC-2's files (`node_methods/clone.rs`, `node_methods/tests/clone.rs`, `elidex-custom-elements/src/consumer.rs`, `dom/mutation_event.rs`, `dom/mod.rs`, `tree_clone.rs`, `range/contents.rs`) |
 
 **Hand-offs.**
 - **H-C1 to C1** (via its driver): rev 3's changes for C1's text: (i) the program is three PRs; C1's contents value
@@ -801,7 +802,7 @@ deferred.
   `EcsDom` entry `node_document_for_new_nodes` exists; every production creator takes a `NewNodeOwner` from it, and the
   argumentless creators are test-only by construction (`elidex-ecs`'s `fixtures` feature, enabled only from
   `[dev-dependencies]`; checked by `scripts/check-fixture-boundary.sh` in CI). Remaining facets: template contents (C1); L3 RC-4's planned sites (they call
-  the entry)." Also correct the slot's text (ledger `:683`), which still says "C1 puts both parser tiers on it": per PM
+  the entry)." Also correct the slot's text, which still says "C1 puts both parser tiers on it": per PM
   223 O-2 / 227 C0 (C0b) migrates every production site including both parser tiers; C1 changes only
   `attach_template_contents`. (b) **proposed** `#11-import-node` — defect: "`document.importNode(node, options)` is
   absent (TypeError); DOM §4.5 `[CEReactions, NewObject] importNode` clones node into this." Owner: L3 (DOM node
@@ -822,7 +823,7 @@ deferred.
   / #577; PM to confirm — the strict tier has no lane of its own). Trigger: the next strict tree-builder touch, or a
   frameset fragment WPT failure. Re-eval: 2026-12-15.
 - **R-7 roadmap**: none beyond R-2.
-- **R-8 ledger order line (PM 143 sub-bullet, ledger `:132`)**: "Order: N1 implementation → T3 → C0 → C1 → slice b"
+- **R-8 ledger order line (slot `#11-cross-document-adopt-on-insert`, PM 143 sub-bullet; at C0a's landing)**: "Order: N1 implementation → T3 → C0 → C1 → slice b"
   is superseded by PM 153 ("N1 implementation → C0 → C1 → T3 → slice b") and, for C0's inside, by PM 244 (C0a → C0b →
   C0c). Append: "*Corrected 2026-11-03*: order per PM 153 / 244 — N1 → C0a → C0b → C0c → C1 → T3 → slice b."
 - **R-9 (PM 266).** The generic guard is handed to `#11-test-only-feature-boundary-guard` (CI/tools, registered PM 266).
@@ -835,7 +836,8 @@ deferred.
    (d) / (e) by L3 first).
 3. The umbrella row, the order line and the PM 271 consistency edits (R-3) added by C0a; the row updated by C0b and
    C0c.
-4. The PM has applied R-1, R-2, R-6 (a), R-8 and registered R-6 (b), (c), (f), (g) at the landings (PM 251).
+4. The PM has applied R-1, R-2, R-6 (a), R-8 and registered R-6 (b), (c), (f), (g) at the landings (PM 251; each is in
+   the "For the PM" line of the PR that carries it: R-6 (e), R-8 C0a; R-1's append, R-6 (a), (c), (g) C0b; R-1, R-2, R-6 (b), (f) C0c).
 5. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the per-PR memos (C0a, C0b-pre2, C0b, C0c) and the node memo exits 0
    (the node input is an input file with no §3 and is not a preflight target) at each landing (run; do not trust a stored verdict).
 6. **The C0 program PR that lands after #583** (PM 273): before landing, compare this memo's text against #583's text
@@ -845,7 +847,7 @@ deferred.
    - `NewNodeOwner`;
    - C0b → P1, with C0c's Adopt in the same window;
    - the mutation_hook.rs / live.rs split, L3 side = RC-0a;
-   - the clone.rs pass-4 stamps (H9: :282-285 / :294-301, second lander removes).
+   - the clone.rs pass-4 stamps (H9: C0b first → C0b removes :282-285 and :294-301; RC-2a first → D14 :294-301, C0b :282-285).
 7. No dangling reference to the generic feature guard (PM 266): `git grep -n 'FEATURE_CLASS\|test-only feature' --
    docs/plans/` hits only this item and changelog / review-disposition lines that record earlier revisions (run at each
    landing; at rev 3.2: §10.2 of this memo lists the hits).
