@@ -167,7 +167,7 @@ decision 167 (a defect: fix); T1 / T2 by **user decision 170** (narrow the guara
 | MIN A5 C7 must drop pr2 `:199` "#506 (its checker copy)" | C7 |
 | MIN A5 the umbrella is longer than 1000 lines | §6 *This umbrella's own length*: split at landing (§12–§13 → `…-rounds.md`, #510 precedent; §5.2–§5.3 next if still over); §0 landing paths |
 | MIN A5 §9 step 3 quotes slot text not in the ledger; clause 4 incidentally reds `[env] PYTHONOPTIMIZE` | §9 step 3 quotes items (1) and (3) from the ledger row and states the incidental red |
-| MIN A5 place the `RUSTUP_TOOLCHAIN` mise-task unset and the `ci.yml:167` item | §6 *Ordering*, two new bullets; §6 interval bullet |
+| MIN A5 place the `RUSTUP_TOOLCHAIN` mise-task unset and the `ci.yml:186` item | §6 *Ordering*, two new bullets; §6 interval bullet |
 
 ### §12.6 Plan-review R6 (draft 6) — disposition
 
@@ -206,7 +206,7 @@ not in that directory (its findings are in `r6-disposition.md` only).
 
 **Draft 7 fold (PM decision 211, 2026-11-01)** — the three items draft 7 reported to the PM: M11's sibling lines
 → **V19–V21** (D7-1 (a); both slots' homing re-checked, §5.2 V19); the guard's `-W error` warning → **V22** (D7-2;
-with the two mutation rows and two MUTANT lines it couples to); the `ci.yml:167` item → after PR-2 (D7-3, §6).
+with the two mutation rows and two MUTANT lines it couples to); the `ci.yml:186` item → after PR-2 (D7-3, §6).
 Found while folding, not decided: the slot ledger's `:327` (§5.2 *Stage 1b's hits*), reported to the PM.
 
 ### §12.7 Plan-review R7 (draft 7 + PM 211 fold) — disposition
@@ -414,7 +414,7 @@ item here.
 - **C11 — PR-0's plan is new** (`…-pr0-tracked-mise-config.md`), for T5's clauses 2–5 as §4.2 defines them — the
   member predicate, the red-outright clause, the no-`python` clause with its admitted occurrences (tracked-path
   substrings; the two `[settings]` lines, admitted ahead of PR-1), the diagnostic — and the reword of
-  `mise.toml:115`. Controls: red — `.miserc.toml`, `.miserc` (a dot-less `miserc.toml` too), a nested
+  `mise.toml:122`. Controls: red — `.miserc.toml`, `.miserc` (a dot-less `miserc.toml` too), a nested
   `sub/.tool-versions`, `.python-version`, `.python-versions`, `.config/mise/conf.d/py.toml` and `mise.ci.toml`
   each holding a python line, a file task `mise/tasks/x` with a `#MISE tools=` python header, `[env]
   MISE_PYTHON_VERSION` in `mise.toml`, `python.compile = true`, a `.rtx.toml` with a python line; green — the
