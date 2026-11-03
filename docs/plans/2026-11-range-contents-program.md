@@ -79,6 +79,24 @@ share one scope-gated walk; a ratchet for the no-dispatcher windows; the textare
 `range_proto_mutation.rs` host decisions and the StaticRange constructor check fold into E3 (new predicted D16, the
 constructor's Attr half); `SelectionError`'s mapper gets a proposed slot; §8 slots get proposed owners.
 
+**Rev 6.1** (2026-11-03) — fix-delta review of Rev 6 (0 CRIT / 1 IMP / 8 MIN), PM 244 / 247 and driver decisions
+**R61-1 … R61-3**. **R61-1**: D16 is reframed. At `27b50dfe` the VM has no JS `createAttribute`, and a VM Attr is an
+`ObjectKind::Attr` wrapper with no entity, so `new StaticRange({startContainer: el.getAttributeNode('a'), …})` throws
+**TypeError** at `require_node_arg` where the spec throws InvalidNodeTypeError (§0.3 item 32). That is a visible
+wrong-exception divergence of the VM Attr model, recorded as a facet of `#11-dom-api-attr-entity-model-unification`
+(PM hand-off H10). Rev 6's proposed `#11-static-range-attr-container` is **withdrawn** (never registered), RC-1 folds
+only the doctype check and adds no engine Attr branch, and `#11-attr-clone-node`'s reachability is corrected: no VM
+or Wasm path reaches it, only Rust (§8). **R61-2**: Rev 6's no-dispatcher "ratchet" is a **one-shot census** whose
+population is every production site that removes or replaces `EcsDom`'s mutation dispatcher (§0.3 item 34); a
+standing check is RC-2a's per-PR decision. **R61-3**: PM 244 splits C0 into **C0a** (replace record order), **C0b**
+(the node-document fact and the new-node entry) and **C0c** (`EcsDom::adopt`, `MutationEvent::Adopt`, adoptNode); the
+memo now names the part it means. L3 depends on C0b only. RC-2b owns A6's call to the entry, and C0b owns the entry,
+the `ownerDocument` cell and the census test (PM 244). The RC-2b-first branch depends on Layout's confirmation of two
+C0b conditions (PM 247, §2 C3). The `CloneCreated` × `Adopt` overlap is with C0c, and the D14 hand-stamp edge on
+`node_methods/clone.rs` is with C0b (§9). Also: the adopt step 3.3.2 summary is complete (3.3.2.1-3.3.2.4); the D15
+basis in elidex is split into predicted and unmeasured; the null-registry test rule allows tests that match the
+measured target; the `SelfOnly` visit set is stated exactly; the conditions that bind RC-2b are marked.
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 The decision and how this memo refines the cut
@@ -92,7 +110,7 @@ order and adds one mechanism, both forced by the code:
 | 3 toString | **RC-1** (first), with the shared containment primitives and `deleteContents` | toString's defect and a `deleteContents` / `extractContents` defect have one root: both walk pre-order and `break` at `end_container` (`crates/dom/elidex-dom-api/src/range/mutation.rs:50-52` and `:93-95`). The fix is one containment primitive. If it landed with clone/extract and toString kept its own walk until slice 3, two enumerations of "nodes in the range" would coexist (strangler). So the primitive lands once and every consumer moves in that PR. |
 | 1 clone/extract | **RC-2a**, **RC-2b** | Unchanged in substance: one algorithm parameterised by clone vs move (RC-2b). It consumes RC-1. Rev 6 carves the engine-wide clone-creation event, which `cloneNode` shares, out as RC-2a (R6-2: the created-set carrier was redesigned in every revision, Rev 2 → Rev 5, while its `cloneNode` half is correct on its own). The node document of the nodes RC-2b creates is not this program's (Layout, `#11-ownerless-node-creation`, §8). |
 | 2 surroundContents | **RC-3** | Unchanged. It consumes RC-1's fixed `insertNode` (§0.4 D10/D11 are fixed in RC-1, which already rewrites `insertNode`). |
-| 4 createContextualFragment | **RC-4** | Independent of RC-1..3 (parser path). It adds the `Fragment` value to the `ParserScriptingMode` enum that IBP-sandbox N9 introduces, with its semantics in both parser backends, and it reads the node document through C0's `EcsDom::node_document` (§5.4, §9). |
+| 4 createContextualFragment | **RC-4** | Independent of RC-1..3 (parser path). It adds the `Fragment` value to the `ParserScriptingMode` enum that IBP-sandbox N9 introduces, with its semantics in both parser backends, and it reads the node document through C0b's `EcsDom::node_document` (§5.4, §9). |
 | — | **RC-0a / RC-0b** | Prereq pure-move splits (§7). RC-0b lands before N9 (PM 207). |
 
 The added mechanism is the **live-range reference** (§4.2, RC-1): the mutating algorithms read and write the
@@ -202,11 +220,13 @@ R5 (the created-set carrier) is withdrawn. The carrier is now the clone-created 
 - `ownerDocument` getter: `dom.owner_document(this).or_else(|| dom.document_root())`
   (`crates/dom/elidex-dom-api/src/node_methods/core.rs:279`). An unstamped node in the bound document's VM reports
   `document`, so `r.extractContents().ownerDocument === document` is green before any fix (it masks R2's D8, now Layout's, §0.4).
-  **C0 rev 2 deletes this fallback** (C0 memo D-1 (c): "The getter's `.or_else(|| dom.document_root())` is deleted",
-  on the strength of D-11's zero-ownerless ratchet; C0's hand-off H-L3 to L3 says so). Rev 5's "C0 keeps this line's
-  code" (from C0 rev 1's P-3) no longer holds. After C0 an unstamped node reads `ownerDocument === null`, so the cell
-  above stays green only because the fragment is stamped: by C0 when it migrates today's site (A1), or by RC-2b through
-  C0's entry if RC-2b lands after C0 (§2 C3, Appendix A6).
+  **C0b deletes this fallback** (C0 rev 2 D-1 (c): "The getter's `.or_else(|| dom.document_root())` is deleted",
+  argued from D-11's zero-ownerless census; C0 rev 2's hand-off H-L3 to L3 says so; D-1 is in C0b, PM 244). Rev 5's
+  "C0 keeps this line's code" (from C0 rev 1's P-3, quoted in Rev 5's §0.2) no longer holds. After C0b an unstamped
+  node reads `ownerDocument === null`, so the cell above stays green only because the fragment is stamped: by RC-2b
+  through C0b's entry if C0b is in RC-2b's base, or by C0b's migration of the landed site if RC-2b lands first (the
+  latter depends on Layout's confirmation, PM 247; §2 C3, Appendix A6). C0 rev 2's census is not an automated guard
+  for this cell: its U12 lists no Range operation, and its P-8 is a grep run by hand (§2 C3).
 - Shallow clones: `clone_recording(deep = false)` → `EcsDom::clone_node_shallow` stamps no `AssociatedDocument`
   (`node_methods/clone.rs:313-327`; the shadow branch stamps its one shallow clone by hand, `:294-301`). Spec: "clone a
   single node" step 8 "Set copy's node document to document" for every copy (`webref body dom clone-a-single-node`).
@@ -244,20 +264,28 @@ R5 (the created-set carrier) is withdrawn. The carrier is now the clone-created 
     derive the mode through F10 with `NodeDocumentOf(context)` (`docs/plans/2026-09-ibp-sandbox-input.md:66`); F11
     applies at every production fragment-parse caller (`docs/plans/2026-09-inline-box-predicate.md:1773`).
     `#11-range-full-impl`'s re-eval was extended to 2026-11-01 with N9's plan-memo as venue (`ibp-sandbox.md:763`).
-  - C0 (`EH-attrs-at-creation-C0`, Layout, `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` **rev 2** on branch
-    `layout-dom-c0-insert-adopt-plan`, `42ca6a2c`, not on main; rev 1 was `fade8a19`; cited by § and decision ID)
-    adds `EcsDom::node_document` (NEW: C0 D-1), deletes `owner_document`'s tree-position fallbacks and the getter's
+  - The C0 program (`EH-attrs-at-creation-C0`, Layout). Its plan is `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`
+    **rev 2** on branch `layout-dom-c0-insert-adopt-plan` (`42ca6a2c`, not on main; rev 1 was `fade8a19`; rev 2.1
+    `d262ca8c` re-frames it onto `27b50dfe`: `git log --oneline -3 layout-dom-c0-insert-adopt-plan` in the main
+    checkout, verified 2026-11-03), cited by § and decision ID. **PM 244 splits it into three PRs**: **C0a** (the replace
+    record order, D-12), **C0b** (the node-document fact: `EcsDom::node_document`, the new-node entry and the creation
+    census, D-1, D-10, D-11) and **C0c** (`EcsDom::adopt`, `MutationEvent::Adopt` and `document.adoptNode`, D-2, D-6,
+    D-13). No split memo is on the branch yet (its tip is rev 2.1), so the placement of the other decisions is Layout's
+    split memo's, and this memo assigns only the ones PM 244 names. **L3 depends on C0b only.** C0b adds
+    `EcsDom::node_document` (NEW: C0b, D-1), deletes `owner_document`'s tree-position fallbacks and the getter's
     `document_root()` fallback (D-1 (a), (c)), and adds the one new-node owner entry
-    `EcsDom::node_document_for_new_nodes(&self, source: Entity) -> Option<Entity>` (NEW: C0 D-10), from which every
-    production creation site takes its owner; the four ownerless shims (`create_element`, `create_text`,
+    `EcsDom::node_document_for_new_nodes(&self, source: Entity) -> Option<Entity>` (NEW: C0b, D-10), from which every
+    production creation site takes its owner. In rev 2 the four ownerless shims (`create_element`, `create_text`,
     `create_comment`, `create_document_fragment`) keep their signatures for test fixtures with **zero production
-    callers** at C0's head, held by the P-8 census ratchet and test U12 (D-11). Its §4.5 maps this memo's Appendix A
-    sites: A6 is "**L3 RC-2** if RC-2 lands after C0 (it must call the entry …); **C0** if RC-2 lands first" (RC-2b
-    here). `#11-ownerless-node-creation` (C0 R-6 (a)) is registered (PM 207). C0's §7 puts "adopt steps 3.2, 3.3.2
-    (registries)" in the `#11-shadow-scoped-custom-element-registry` family. `#11-selection-document-membership` (C0
-    R-6 (c)) is a **proposal, not a registered slot**; it names `selection.rs:614-619`, and C0's hand-off H-L3 makes it
-    L3's (§8).
-  - PM 157: N4's planned `EcsDom::effective_node_document` (NEW) (in N4's plan, not in the code; `ibp-sandbox.md:228`) is replaced by C0's `node_document` in C0's
+    callers** at C0's head, in rev 2's words (D-11). That claim is checked by P-8, a grep run by hand over a fixed snapshot, and by U12,
+    which lists no Range operation, so nothing automated catches a missed Range site at rev 2.1 (PM 247; §2 C3 states
+    the two conditions under which it would be caught). Rev 2's §4.5 maps this memo's Appendix A sites: A6 is "**L3 RC-2** if RC-2 lands after C0 (it must call the entry …); **C0** if RC-2 lands first" (RC-2b and C0b
+    here; PM 244 reassigns the call to RC-2b in both orders, §2 C3). `#11-ownerless-node-creation` (C0 R-6 (a)) is
+    registered (PM 207). Rev 2's §7 puts "adopt steps 3.2, 3.3.2 (registries)" in the
+    `#11-shadow-scoped-custom-element-registry` family; the adopt function is C0c's. `#11-selection-document-membership`
+    (C0 R-6 (c)) is a **proposal, not a registered slot**; it names `selection.rs:614-619`, and rev 2's hand-off H-L3
+    makes it L3's (§8).
+  - PM 157: N4's planned `EcsDom::effective_node_document` (NEW) (in N4's plan, not in the code; `ibp-sandbox.md:228`) is replaced by C0's `node_document` (C0b's since PM 244) in C0's
     plan-review, so the engine has one node-document reader. This memo states no Layout order (PM 215 Q-Y1); RC-4's
     dependencies are listed in §5.4.
   - PR #578 (`vm-host-data-split`, PM 203) is **merged** (`169a0a7c`). It moved the `HostData::split_dom_*`
@@ -429,10 +457,12 @@ code or the spec corrects:
 24. D14's basis is **measured**, not predicted: an existing unit test asserts the wrong result (§0.2). RC-2a inverts
     that test.
 25. D-g's "`cloneNode` … one Subtree root event": the event's scope follows the operation's `subtree` flag (§4.3
-    condition 1), so `cloneNode(false)` fires `SelfOnly`. For a shallow clone the two scopes visit the same set,
-    because the copy has no light children: the root, then its shadow tree. That is today's walk on that root
-    (`walkers.rs:54-80`), so `cloneNode`'s CE behaviour is today's for both flag values, apart from D14 (§4.3
-    condition 1).
+    condition 1), so `cloneNode(false)` fires `SelfOnly`. For a shallow clone the copy has no light children, so
+    `SelfOnly` visits the root, then its shadow tree. Rev 6.1 states the difference from today's walk on that root
+    (`walkers.rs:54-80`) exactly (Rev 6 said "the same set"): the `SelfOnly` walk starts at the ShadowRoot entity and
+    so visits it, which today's walk does not (it pushes the shadow root's children, `:69-73`); the elements are
+    the same, in the same order, at the same depths. Neither consumer acts on a ShadowRoot (§4.3 condition 1), so
+    `cloneNode`'s CE behaviour is today's for both flag values, apart from D14 (§4.3 condition 1).
 
 Rev 5, the check of driver decision D-g′ against the code at `ee6c7a1a` (the four checks the driver asked for; all
 four hold), and premises in the R4 dispositions and the Rev 5 brief that the code or the memos correct:
@@ -521,14 +551,39 @@ checks the dispositions asked for:
       dom-staticrange-staticrange`), whereas the live range's checks reject a doctype only. The host check
       (`reject_invalid_container`, `vm/host/static_range_proto.rs:266-290` at `27b50dfe`) tests DocumentType only, and
       its comment calls the Attr branch a forward stub because "no Entity in current elidex storage can fail this
-      check". That premise is stale: `EcsDom`'s `create_attribute` spawns an entity with `NodeKind::Attribute`
-      (`crates/core/elidex-ecs/src/dom/mod.rs:634-643` at `27b50dfe`), reached from `document.createAttribute`. So the
-      fold implements the whole step, and the Attr half is the new predicted row D16 (§0.4).
+      check". **Rev 6 called that comment stale; Rev 6.1 withdraws that (R61-1): the comment is correct for the VM.**
+      Checked at `27b50dfe` (verified 2026-11-03):
+      - The VM has no JS `createAttribute`: `git grep -n createAttribute -- crates/script/elidex-js/src` hits only two
+        test comments (`vm/tests/tests_mutation_observer/attr_node.rs:118`, `:300`, "no JS createAttribute").
+      - A VM Attr is a wrapper of kind `ObjectKind::Attr`, allocated by `alloc_attr` (`vm/host/attr_proto.rs:175-189`),
+        payload-free, with its `(owner Element, qualified name)` state in `VmInner::attr_states` (module doc `:11-14`).
+        It carries no entity.
+      - The StaticRange constructor converts each container with `require_node_arg` (`static_range_proto.rs:225-226`).
+        That accepts only `ObjectKind::HostObject` (`extract_node_entity`, `vm/host/node_proto.rs:224-262`), so an Attr
+        wrapper fails with **TypeError** "parameter is not of type 'Node'" (`node_proto.rs:271-284`). It never reaches
+        `reject_invalid_container`.
+      - So `new StaticRange({startContainer: el.getAttributeNode('a'), startOffset: 0, endContainer: el,
+        endOffset: 0})` throws TypeError where step 1 throws InvalidNodeTypeError (Attr is a Node, so the dictionary
+        conversion passes and step 1 decides). That is a visible wrong-exception divergence, and its root is the VM
+        Attr model (an Attr that is not a Node entity), the `#11-dom-api-attr-entity-model-unification` family, not a
+        Range host check.
+      - `EcsDom`'s `create_attribute` (`crates/core/elidex-ecs/src/dom/mod.rs:634-643`) does spawn a
+        `NodeKind::Attribute` entity, but only `elidex-dom-api`'s `CreateAttribute` and `GetAttributeNode`
+        handlers call it (`char_data/attr.rs:35`, `:90`). Both are registered in the dom-api handler registry
+        (`registry.rs:85-86` for "createAttribute"), and no production dispatcher names either: the VM's
+        `invoke_dom_api` callers (`git grep -n -E 'invoke_dom_api\(\s*ctx,\s*"(getAttributeNode|createAttribute)"' --
+        crates/script` = 0) and the Wasm host functions (`elidex-wasm-runtime/src/host/funcs.rs`: its handler names
+        are `querySelector`, `getElementById`, `createElement`, `createTextNode`, `appendChild`, `removeChild`,
+        `setAttribute`, `getAttribute` and the text-content / style helpers) both leave them out. An Attr entity is therefore reachable from Rust only, as D3's CDATASection is.
+      - So RC-1's fold moves only the doctype check into the engine (E3) and adds no engine Attr branch, which would be
+        dead code. D16 is recorded as a facet of `#11-dom-api-attr-entity-model-unification` (§0.4, hand-off H10), and
+        Rev 6's proposed `#11-static-range-attr-container` is withdrawn (never registered).
     - **"The creation entry C0 names" for the fragment (R6-4).** C0 rev 2 names one entry,
       `EcsDom::node_document_for_new_nodes(source)` (D-10), and its D-11 has every production site pass that result
       as the owner; it names no fragment-specific constructor. The owner-taking fragment constructor is the existing
       `EcsDom::create_document_fragment_with_owner(owner: Option<Entity>)` (`crates/core/elidex-ecs/src/dom/mod.rs:525`
-      at `27b50dfe`), so RC-2b's C0-first branch is that call with the entry's result (§2 C3).
+      at `27b50dfe`), so RC-2b's branch with C0b in its base is that call with the entry's result (§2 C3; C0b's since
+      PM 244).
     - Checked and holding at `27b50dfe`: `split_dom_and_live_ranges` at `engine_feature/bind.rs:274`; five
       `split_dom_and_live_ranges` sites in `range_proto_mutation.rs` (`:49`, `:85`, `:114`, `:146`, `:192`) and three
       `with_range(` snapshot reads (`:87`, `:116`, `:148`); the host-decided HierarchyRequestError at
@@ -543,9 +598,20 @@ checks the dispositions asked for:
       *its* `document`, the source's node document. So each element clone's step 2.3 reads the source document's
       global registry, and "create an element" enqueues the upgrade.
     - "Clone a node" step 4 then appends the copy into the cloned document, and that insertion adopts it. Adopt step
-      3.3.2 sets the element's registry to the cloned document's registry's effective global custom element registry.
-      The cloned document's registry is null (a document's registry is null unless stated otherwise,
-      `document-custom-element-registry`), and the effective global registry of a non-global registry is null.
+      3.3.2 applies to an element whose registry is null or not scoped (Rev 6.1 states all four sub-steps; Rev 6 gave
+      only the result). 3.3.2.1 lets registry be null. 3.3.2.2: if the element's registry is non-null, or its parent is
+      null, or its parent is an exclusive DocumentFragment, registry becomes the document's custom element registry.
+      3.3.2.3: otherwise, that is, for an element with a null registry whose parent is non-null and not an exclusive
+      DocumentFragment, registry is looked up from the parent ("look up a custom element registry", HTML §4.13.4, `webref dfn html 'look up
+      a custom element registry'`). 3.3.2.4 sets the
+      element's registry to registry's effective global custom element registry. (`webref body dom
+      concept-node-adopt`, checked 2026-11-03.) An element cloned from the main document carries the global registry,
+      which is non-null, so 3.3.2.2 applies whatever its parent is, and registry is the cloned document's. That
+      registry is null (a document's registry is null unless stated otherwise, `document-custom-element-registry`), and
+      the effective global custom element registry of null is null (it returns registry only when registry is a global
+      one, else null), so the element's registry becomes null. 3.3.2.3 is the case of an element that already has a
+      null registry, below a non-null parent that is not an exclusive DocumentFragment: it takes the registry looked
+      up from that parent.
     - When the queued upgrade runs, "upgrade an element" step 9 puts the element's (null) registry into the active
       constructor map, and the HTML element constructor step 5 finds no definition in a null registry and throws, so
       the element would end "failed".
@@ -564,23 +630,39 @@ checks the dispositions asked for:
       (DOM §4.5 adopt step 3.3.2). That is engine-wide (creation, clone, parser, adopt), so D15 leaves the program for
       the proposed `#11-document-null-registry-adopt-reset` (§9), which replaces Rev 5's proposed
       `#11-clone-document-registry-rewrite` (folded into it; never registered).
-34. **No-dispatcher windows while bound (Ax2 MIN).** A `CloneCreated` fired while the dispatcher is out of `EcsDom`
-    reaches no consumer, so both passes would be lost. Census at `27b50dfe` (`git grep -n
-    'take_mutation_dispatcher()\|begin_detached_fragment(' -- crates ':!*tests*'` = 6 lines, verified 2026-11-03):
-    - `EcsDom::despawn_subtree` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:209`): an event-free structural
-      teardown; it despawns and creates nothing.
+34. **No-dispatcher windows (Ax2 MIN; a one-shot census, R61-2).** A `CloneCreated` fired while `EcsDom` has no
+    dispatcher reaches no consumer, so both passes would be lost. The population is defined by the property, not by
+    method names: **every production site that makes `EcsDom`'s mutation dispatcher absent or replaces it**. That is
+    every call of the four `EcsDom` methods that write the slot (`set_mutation_dispatcher`, `clear_mutation_dispatcher`,
+    `take_mutation_dispatcher`, and `begin_detached_fragment`, which takes it), and every direct write of the private
+    field `dispatcher` (`crates/core/elidex-ecs/src/dom/mod.rs:66`). Command (`-P`, because `git grep -E` drops `\b`
+    silently): `git grep -n -P
+    '\b(take_mutation_dispatcher|clear_mutation_dispatcher|set_mutation_dispatcher|begin_detached_fragment)\(|\bdispatcher\.(take|replace)\(|\bdispatcher
+    = None' -- crates ':!*tests*'`. At `27b50dfe` it gives 27 lines (verified 2026-11-03): 7 are in inline
+    `#[cfg(test)]` modules (`char_data/split_text.rs:369`, `:395`; `range/live.rs:588`, `:868`;
+    `elidex-form/src/value_mode.rs:130`; `event_handler_processing/mod.rs:317`; `mutation/html_fragment.rs:696`), and
+    one is a comment (`vm/lifecycle.rs:251`). The 19 production lines form these sites; the struct initialiser
+    `dispatcher: None` in `EcsDom`'s constructor (`mod.rs:138`) is construction, not removal:
+    - **The slot's own methods** (`mod.rs:167`/`:171` set, `:175`/`:176` clear, `:181`/`:184` take): definitions only.
+    - **Bind and unbind**: `Vm::bind` installs the `ConsumerDispatcher` (`vm/vm_api.rs:316`, and `debug_assert`s that
+      nothing was displaced), and `Vm::unbind` clears it (`vm/lifecycle.rs:34`). Outside that span the VM is unbound,
+      its natives run no clone pass today (`host_if_bound()`, §0.3 item 29), so the coverage is today's.
+    - `EcsDom::despawn_subtree` (take `crates/core/elidex-ecs/src/dom/tree/teardown.rs:209`, restore `:240`): an
+      event-free structural teardown; it despawns and creates nothing.
     - `EcsDom::begin_detached_fragment` (definition `teardown.rs:293`, take at `:300`) and its two callers, the strict
-      fragment build (`elidex-html-parser-strict/src/tree_builder/mod.rs:180`) and the html5ever one
-      (`elidex-html-parser/src/lib.rs:143`): the fragment parse. The parser crates create nodes through `EcsDom`
-      constructors and never call the canonical cloner, which lives in `elidex-dom-api`.
-    - `parse_into_inert_document` (`crates/dom/elidex-form/src/inert_document.rs:112`): the DOMParser parse; parse only.
+      fragment build (`elidex-html-parser-strict/src/tree_builder/mod.rs:180`, restore `:241`) and the html5ever one
+      (`elidex-html-parser/src/lib.rs:143`, restore `:162`): the fragment parse. The parser crates create nodes through
+      `EcsDom` constructors and never call the canonical cloner, which lives in `elidex-dom-api`.
+    - `parse_into_inert_document` (`crates/dom/elidex-form/src/inert_document.rs:112`, restore `:199`): the DOMParser
+      parse; parse only.
     - Nested dispatch: `EcsDom::dispatch_event` takes the dispatcher for the duration of a dispatch
       (`crates/core/elidex-ecs/src/dom/mod.rs:207`) and already `debug_assert`s `dispatch_depth == 0` on entry
       (`:200-206`), so a `CloneCreated` fired from inside a consumer trips that assertion in debug builds, provided
       `fire_clone_created` goes through `dispatch_event` (as `fire_split_text` does, `mod.rs:246`).
     - No window runs script, and the cloner entry is reached only from VM natives (`CloneNode`, and the contents
-      algorithm after RC-2b), so no clone happens inside any window today. RC-2a's DoD holds this with a ratchet
-      (§5.2a). **RC-4's case**: RC-4 parses inside `begin_detached_fragment`, so nothing it creates during the parse
+      algorithm after RC-2b), so no clone happens inside any window today. This is a **one-shot census** at
+      `27b50dfe`, re-run once at RC-2a's base (§5.2a DoD). Whether it becomes a standing check (a trip-wire or a test)
+      is RC-2a's per-PR plan decision. **RC-4's case**: RC-4 parses inside `begin_detached_fragment`, so nothing it creates during the parse
       can carry a creation event to a consumer. RC-4 calls no cloner there. If the conditional
       `#11-fragment-parse-ce-upgrade-timing` (§8) reuses `CloneCreated` for parsed elements, its event must fire after
       the dispatcher is restored, not inside the window.
@@ -601,12 +683,12 @@ predicted row is measured first by its home slice, at the pre-fix head, under th
 | D13 | Raw-sibling tree access in Range. (a) Boundary-point comparison on a shadow host counts the ShadowRoot as a child: `h.attachShadow({mode:'open'}); h.append(a, b)`; range `(h, 1)`-`(h, 2)` reports `a` as contained (and `isPointInRange(h, 1)` / `comparePoint` / deleteContents on such ranges act on the shifted index). (b) The pre-order walk of toString and `contained_top_level_nodes` enters the ShadowRoot of a host inside the range, so toString can include shadow-tree text and deleteContents / extractContents can act on the shadow tree | silent-wrong | predicted | (a) `range/mod.rs:549-571`; (b) `range/mod.rs:573-584` (§0.2) | RC-1 | new: proposed `#11-range-compare-points-shadow-index` |
 | D10 | `insertNode` with a Comment start: no throw; `node` becomes a child of the Comment | silent-wrong | predicted | §0.2 append_child | RC-1 | new: proposed `#11-range-insert-node-validity` |
 | D11 | `insertNode` step 6 checks cycles + ShadowRoot only, not the full "ensure pre-insert validity" (e.g. a doctype into an element, a Text into a Document) | silent-wrong | predicted (measured with D10) | `mutation.rs:476-494` | RC-1 | same as D10 |
-| D16 | `new StaticRange({startContainer: attr, …})` with an Attr container (`document.createAttribute`) does not throw; StaticRange constructor step 1 throws InvalidNodeTypeError for a DocumentType **or Attr** container (`webref body dom dom-staticrange-staticrange`) | silent-wrong | predicted | `vm/host/static_range_proto.rs:266-290` tests DocumentType only (§0.3 item 32) | RC-1 (the E3 fold moves the whole step 1 into the engine) | new: proposed `#11-static-range-attr-container` |
+| D16 | `new StaticRange({startContainer: el.getAttributeNode('a'), …})` throws **TypeError** (`require_node_arg`: a VM Attr wrapper is `ObjectKind::Attr`, no entity, so it is "not of type 'Node'"); StaticRange constructor step 1 throws InvalidNodeTypeError for a DocumentType **or Attr** container (`webref body dom dom-staticrange-staticrange`). The VM has no JS `createAttribute`, and an Attr entity is reachable from Rust only (§0.3 item 32, Rev 6.1) | visible (wrong exception) | predicted (read from the code at `27b50dfe`, not run) | `vm/host/static_range_proto.rs:225-226`, `vm/host/node_proto.rs:224-284`, `vm/host/attr_proto.rs:175-189` (§0.3 item 32) | **out of the program** (R61-1): the root is the VM Attr model, not a Range host check; RC-1 folds only the doctype half of step 1 (E3) | facet of `#11-dom-api-attr-entity-model-unification` (registered; hand-off H10). Rev 6's proposed `#11-static-range-attr-container` is withdrawn, never registered |
 | D6 | extractContents leaves partially contained ancestors in the tree and flattens their contained descendants into the fragment | silent-wrong | predicted | §0.2 extract | RC-2b | `#11-range-extract-partial-ancestor-clone` |
 | D7 | extractContents with a Comment boundary: same-container is a no-op; cross-container skips the Comment's clone and splice | silent-wrong | predicted | `mutation.rs:278`, `:333`, `:373` | RC-2b | `#11-range-comment-extract-clone` |
 | D14 | "Clone a node" step 6.7 clones a clonable shadow root's children with the operation's `subtree` flag, not true: `h.attachShadow({mode:'open', clonable:true}).append(x)` with `x` holding a child; `h.cloneNode(false).shadowRoot.firstChild` has no children (spec: a deep copy of `x`). RC-2b's shallow clone of a partially contained shadow host hits the same path | silent-wrong | **measured** (`node_methods/tests/clone.rs:792-827` asserts the wrong result, §0.2) | `node_methods/clone.rs:288-290` (`clone_recording(dom, child, deep, …)`); `webref body dom concept-node-clone` step 6.7 "subtree set to true" | RC-2a (in the canonical cloner, so `cloneNode` and the Range methods get it at once) | `#11-clone-shadow-children-subtree` (**registered**, PM 212) |
 | D9 | extractContents does not throw HierarchyRequestError for a contained doctype (step 11); e.g. `r.selectNodeContents(document); r.extractContents()` moves the doctype | silent-wrong | predicted | no doctype check in `mutation.rs:265-402` | RC-2b | new: proposed `#11-range-contents-doctype-check` |
-| D15 | Custom elements in a document whose custom element registry should be null are upgraded while they are there. `document.cloneNode(true)`: `propagate_ce_identity` copies the source's `registry` unchanged (`node_methods/clone.rs:344-366`); the association is `Document` (the VM's one registry; `elidex-custom-elements/src/state.rs:70-78`), and `prepare_upgrade` skips only `Null` (`upgrade.rs:74-76`), so a defined custom element inside a cloned document is predicted to get an `Upgrade` there; the same class covers `createHTMLDocument` and DOMParser documents and the adopt-time reset when such an element enters a registry-bearing document (Ax3). Chromium does not upgrade them there and upgrades them once they are appended into the main document (measured; §0.3 item 33). The spec text is ambiguous for the clone case (§0.3 item 33), so the target rests on the measurement | silent-wrong | predicted in elidex; measured in Chromium (HeadlessChrome 156, 2026-11-03, `handoff/l3-d15probe/`) | §0.3 item 33 | **out of the program** (R6-1): engine-wide, not a Range defect. Every Range slice adds **no new divergence on top of it** (§5 preamble) | proposed `#11-document-null-registry-adopt-reset` (§9), which replaces Rev 5's proposed `#11-clone-document-registry-rewrite` (folded into it) |
+| D15 | Custom elements in a document whose custom element registry should be null are upgraded while they are there. `document.cloneNode(true)`: `propagate_ce_identity` copies the source's `registry` unchanged (`node_methods/clone.rs:344-366`); the association is `Document` (the VM's one registry; `elidex-custom-elements/src/state.rs:70-78`), and `prepare_upgrade` skips only `Null` (`upgrade.rs:74-76`), so a defined custom element inside a cloned document is predicted to get an `Upgrade` there. The same class covers `createHTMLDocument` documents (**predicted**: the VM `createElement` native calls `route_custom_element_upgrade` on the created element whatever its document, `vm/host/document.rs:355`, and that skips only a `Null` association, `vm/host/custom_elements/creation.rs:160-186`) and DOMParser documents (**unmeasured**: the parse runs with the dispatcher removed, `elidex-form/src/inert_document.rs:112`, so the insertion leg enqueues nothing during the parse, and no other path has been checked), and the adopt-time reset when such an element enters a registry-bearing document (Ax3). Chromium does not upgrade them there and upgrades them once they are appended into the main document (measured; §0.3 item 33). The spec text is ambiguous for the clone case (§0.3 item 33), so the target rests on the measurement | silent-wrong | predicted in elidex (cloned and `createHTMLDocument` documents), unmeasured (DOMParser documents); measured in Chromium (HeadlessChrome 156, 2026-11-03, `handoff/l3-d15probe/`) | §0.3 item 33 | **out of the program** (R6-1): engine-wide, not a Range defect. Every Range slice adds **no new divergence on top of it** (§5 preamble) | proposed `#11-document-null-registry-adopt-reset` (§9), which replaces Rev 5's proposed `#11-clone-document-registry-rewrite` (folded into it) |
 | — | extractContents fragment / Text clones have no node document (R2's D8) | silent-wrong | predicted | `mutation.rs:266`, `:303`; Appendix A | **out of the program**: Layout, facet of `#11-ownerless-node-creation` (PM 207, §8) | R2's proposed `#11-range-contents-node-document` withdrawn |
 | — | cloneContents unimplemented | visible (throws) | measured (`tests_range.rs:441-452`) | §0.2 stubs | RC-2b | `#11-range-full-impl` (clone part) |
 | — | surroundContents unimplemented | visible | predicted (no stub test: `git grep -n surroundContents -- crates/script/elidex-js/src/vm/tests/tests_range.rs` = 0) | §0.2 (`range_proto_mutation.rs:213-262`) | RC-3 | `#11-range-full-impl` (surround part) |
@@ -614,12 +696,14 @@ predicted row is measured first by its home slice, at the pre-fix head, under th
 
 **Classification and ledger handling.** Every row is **pre-existing** at `ee6c7a1a` (none is introduced by this
 program), and every proposed ID is **closed by the program's own home slice**, except D15's, which leaves the
-program for an engine-wide slot (R6-1, §9). D14's slot is registered (PM 212); the other new IDs are still proposed. Slot IDs marked "proposed" are for the
+program for an engine-wide slot (R6-1, §9). D16 leaves the program too: it is a facet of the registered
+`#11-dom-api-attr-entity-model-unification` (R61-1, hand-off H10). D14's slot is registered (PM 212); the other new IDs are still proposed. Slot IDs marked "proposed" are for the
 PM to register or fold; the memo does not edit the ledger. If the PM folds a proposed ID into the program instead of
 registering it, that ID still needs a "Not registered by design" homing row while it appears in memo text
 (`memory/reference_slot-homing-checker.md` rule (d)). This also applies to the withdrawn
-`#11-range-contents-node-document` and to Rev 5's `#11-clone-document-registry-rewrite` (folded into
-`#11-document-null-registry-adopt-reset`, never registered), which still appear here. Each proposed slot's fields
+`#11-range-contents-node-document`, to Rev 5's `#11-clone-document-registry-rewrite` (folded into
+`#11-document-null-registry-adopt-reset`, never registered) and to Rev 6's `#11-static-range-attr-container`
+(withdrawn by R61-1, never registered), which still appear here. Each proposed slot's fields
 (D15's are in §9): defect = the table row;
 **Why deferred** = the fix lands in its home slice, in the umbrella's order (§9), not in a separate PR; trigger = the
 home slice's per-PR plan-review; re-eval date = **2026-12-01** (proposed), or that slice's landing if earlier.
@@ -645,7 +729,6 @@ way, because it is the slice's own design, not that row's fix:
 | D12 | insertNode on `LiveRangeRef`; step 13 evaluated after step 12; the host's `with_range_mut` / `Range::new` carrier is deleted |
 | D13 | every Range index, length and walk uses the exposed child list (B3) |
 | D6, D7, D9 | the one contents algorithm (§4.3, RC-2b) |
-| D16 | the StaticRange constructor's step 1 is an engine check returning `DomApiError` (E3), for both DocumentType and Attr |
 | D14 | the subtree flag is per pair, not per operation: the step 6.7 clone passes true, and every pair it produces keeps true for passes 3 and 4 (today both take the operation's `deep`: pass 3 at `node_methods/clone.rs:262`, pass 4's child clone at `:290`, so a `<template>` or a nested clonable host inside that shadow tree would still be cloned shallowly); the shallow-branch stamp (`:294-301`) goes with it. D14 is measured, so its row has no green branch: the existing test (`tests/clone.rs:792-827`) is inverted |
 
 ## §1. Shape and verdict
@@ -659,12 +742,12 @@ per-PR plan that passes plan-review under this umbrella is a terminal unit.
 | PR | Scope | Depends on | Closes | Plan-review |
 |---|---|---|---|---|
 | RC-0a | Pure-move test splits: `range/live.rs`, `selection.rs`, `range/tests.rs`, VM `tests_range.rs`, `node_methods/tests/clone.rs` (§7) | — | — | not required (pure move; `git diff --color-moved`) |
-| RC-1 | Containment primitives; exposed child list for every Range index, length and walk (D13); live-range reference; toString, deleteContents, Selection.deleteFromDocument, insertNode (steps 1, 6, 13) moved onto them; extract's enumeration and its final boundary (newNode / newOffset) moved to the canonical set, the shared helper and `LiveRangeRef` (interim body); `DomApiErrorKind` gains `WrongDocumentError` / `InvalidNodeTypeError` with mapper arms; `RangePointError`, the host-side Range DOMException decisions of `range_proto.rs` and `range_proto_mutation.rs`, and the StaticRange constructor check fold into `DomApiError` (E3) | RC-0a; PR #578 (merged, `169a0a7c`; PM 207, §4.2) | `#11-range-tostring-boundary-text`; proposed D4, D5 (both halves), D10, D11, D12, D13, D16 | required |
-| RC-2a | The clone-creation event: `MutationEvent::CloneCreated { root, scope }` and its two dispatch-time consumer arms (D-g′, §4.3 conditions 1-5); `cloneNode` moves onto it, and the VM post-pass and `enqueue_subtree_upgrade_reactions` are deleted; D14; the #466 I2 / I3 reversal (§4.3). `cloneNode(false)` on a clonable shadow host is a `SelfOnly` root with a shadow tree, so both `CloneScope` values are live in this slice | RC-0a (the `node_methods/tests/clone.rs` split); no code dependency on RC-1 (§9); lands **before C1**, which rebases on D14 (PM 215 Q-Y2, PM 216; §9); shares the `MutationEvent` census with C0's `Adopt` (§9) | `#11-clone-shadow-children-subtree` | required; also a review venue for the #466 reversal (R6-3, §5.2a) |
-| RC-2b | One "contents" algorithm for clone and extract; cloneContents; every clone through the canonical entry, so each clone root fires RC-2a's event (per partial child, per contained child, per CharacterData clone); D6, D7, D9; keeps RC-1's D4 / D5 extract controls green. The fragment's owner under both C0 orders (C3, R6-4) | RC-1, RC-2a; not gated on C0 (§2 C3 states both orders) | `#11-range-extract-partial-ancestor-clone`, `#11-range-comment-extract-clone`, `#11-range-full-impl` clone part; proposed D9 | required |
+| RC-1 | Containment primitives; exposed child list for every Range index, length and walk (D13); live-range reference; toString, deleteContents, Selection.deleteFromDocument, insertNode (steps 1, 6, 13) moved onto them; extract's enumeration and its final boundary (newNode / newOffset) moved to the canonical set, the shared helper and `LiveRangeRef` (interim body); `DomApiErrorKind` gains `WrongDocumentError` / `InvalidNodeTypeError` with mapper arms; `RangePointError`, the host-side Range DOMException decisions of `range_proto.rs` and `range_proto_mutation.rs`, and the StaticRange constructor's doctype check fold into `DomApiError` (E3; no engine Attr branch, R61-1) | RC-0a | `#11-range-tostring-boundary-text`; proposed D4, D5 (both halves), D10, D11, D12, D13 | required |
+| RC-2a | The clone-creation event: `MutationEvent::CloneCreated { root, scope }` and its two dispatch-time consumer arms (D-g′, §4.3 conditions 1-5); `cloneNode` moves onto it, and the VM post-pass and `enqueue_subtree_upgrade_reactions` are deleted; D14; the #466 I2 / I3 reversal (§4.3). `cloneNode(false)` on a clonable shadow host is a `SelfOnly` root with a shadow tree, so both `CloneScope` values are live in this slice | RC-0a (the `node_methods/tests/clone.rs` split); no code dependency on RC-1 (§9); lands **before C1**, which rebases on D14 (PM 215 Q-Y2, PM 216; §9); shares the `MutationEvent` census with C0c's `Adopt`, and the shadow-branch hand stamp of `node_methods/clone.rs` with C0b (§9) | `#11-clone-shadow-children-subtree` | required; also a review venue for the #466 reversal (R6-3, §5.2a) |
+| RC-2b | One "contents" algorithm for clone and extract; cloneContents; every clone through the canonical entry, so each clone root fires RC-2a's event (per partial child, per contained child, per CharacterData clone); D6, D7, D9; keeps RC-1's D4 / D5 extract controls green. RC-2b owns the fragment's creation call, A6, under both C0b orders (C3; R6-4, PM 244 / 247) | RC-1, RC-2a; not gated on C0b (§2 C3 states both orders) | `#11-range-extract-partial-ancestor-clone`, `#11-range-comment-extract-clone`, `#11-range-full-impl` clone part; proposed D9 | required |
 | RC-3 | surroundContents | RC-2b | `#11-range-full-impl` surround part | required |
 | RC-0b | Pure-move split of `html_fragment.rs` inline tests (§7); lands **before N9** (PM 207, touch-time split: the first toucher splits; N9 rebases onto it) | — | — | not required |
-| RC-4 | createContextualFragment through the session fragment-parse path; adds the `Fragment` value to N9's `ParserScriptingMode` and maps it in both parser backends (the script-element half is unobservable in elidex, §5.4) | RC-0b; three landings, no order claimed (PM 215 Q-Y1, PM 216): **IBP-sandbox N9** (the enum, F11; N4's J12 route before it), **C0** (`EcsDom::node_document`, and C0's new-node entry `EcsDom::node_document_for_new_nodes(source)`, C0 D-10, PM 223 / 227), **C1** (kept per PM 216; its reason moved to C0, so it is a PM question, §5.4); independent of RC-1..3 (§5.4, §9) | `#11-range-full-impl` contextual part (the slot closes when RC-2b, RC-3, RC-4 have all landed) | required |
+| RC-4 | createContextualFragment through the session fragment-parse path; adds the `Fragment` value to N9's `ParserScriptingMode` and maps it in both parser backends (the script-element half is unobservable in elidex, §5.4) | RC-0b; three landings, no order claimed (PM 215 Q-Y1, PM 216): **IBP-sandbox N9** (the enum, F11; N4's J12 route before it), **C0b** (`EcsDom::node_document`, and C0b's new-node entry `EcsDom::node_document_for_new_nodes(source)`, C0 rev 2 D-10, PM 223 / 227 / 244), **C1** (kept per PM 216; its reason moved to C0b, so it is a PM question, §5.4); independent of RC-1..3 (§5.4, §9) | `#11-range-full-impl` contextual part (the slot closes when RC-2b, RC-3, RC-4 have all landed) | required |
 
 ## §2. Invariants
 
@@ -731,27 +814,46 @@ ECS-native.
   applied to each root. A SelfOnly root has no light children when its event fires (§0.3 item 26), so neither pass
   can reach a moved original. `cloneNode` and the Range methods share this one path, and template-content clones stay
   outside the CE pass (rule in §4.3), as today.
-- **C3 (node document: not this program's; RC-2b's fragment under both C0 orders)**: the spec creates the fragment
+- **C3 (node document: not this program's; RC-2b's fragment under both C0b orders)**: the spec creates the fragment
   given the start node's node document ("clone the contents" / "extract" step 1, `webref body dom concept-range-clone`,
   `concept-range-extract`), and every clone gets its operation's document ("clone a single node" step 8). How each
-  creation site gets its owner is the facet of `#11-ownerless-node-creation` owned by Layout (PM 207). C0 rev 2 decides
-  the mechanism: one entry, `EcsDom::node_document_for_new_nodes(source)` (C0 D-10), whose result every production
-  creation site passes as its owner, the four ownerless shims (`create_document_fragment()` among them) with zero
-  production callers, held by C0's P-8 ratchet and U12 (D-11), and the getter's `document_root()` fallback deleted
-  (D-1 (c)). C0's §4.5 assigns A6 by order ("L3 RC-2 if RC-2 lands after C0 (it must call the entry …); C0 if RC-2
-  lands first"). So RC-2b's fragment creation has two branches (R6-4):
-  - **C0 first**: RC-2b creates the fragment with `dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))`
-    (the existing owner-taking constructor, `crates/core/elidex-ecs/src/dom/mod.rs:525`, with C0's entry; §0.3 item 32).
-    A call of the ownerless `create_document_fragment()` would break C0's D-11 invariant (zero production callers of
-    the shims, held by the P-8 census ratchet; U12 is that ratchet's test form for the sites it lists), and with the
-    fallback gone the fragment's `ownerDocument` would read null.
-  - **RC-2b first**: RC-2b creates the fragment with today's call (`create_document_fragment()`, as A1 does), so it
-    adds no ownerless site beyond today's (A1 is replaced by A6), and C0 migrates the landed site (C0's own §4.5 row
-    for A6).
-  - Either way the clones go through the canonical cloner, whose owner rule C0 sets (A7-A9 are "C0, either order" in
-    C0's §4.5), and RC-2b's DoD checks the branch it landed in (§5.2b). Every Range creation site is listed in
-    Appendix A. No Range code reads the node document through any reader other than the canonical one of its base:
-    `EcsDom::owner_document` today, C0's `EcsDom::node_document` after C0.
+  creation site gets its owner is the facet of `#11-ownerless-node-creation` owned by Layout (PM 207), and since PM 244
+  it is C0b's. C0 rev 2 decides the mechanism: one entry, `EcsDom::node_document_for_new_nodes(source)` (D-10), whose
+  result every production creation site passes as its owner (D-11), and the getter's `document_root()` fallback deleted
+  (D-1 (c)); all three are C0b's. **Who owns what for A6 (PM 244, R61-3 (b))**: RC-2b owns the call
+  `node_document_for_new_nodes(start node)` in both extractContents and cloneContents, because RC-2b is the creation
+  site. C0b owns only the entry, the `ownerDocument` cell for both orders, and the census test. Two branches:
+  - **C0b in RC-2b's base**: RC-2b creates the fragment with
+    `dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))` (the existing owner-taking
+    constructor, `crates/core/elidex-ecs/src/dom/mod.rs:525`, with C0b's entry; §0.3 item 32). If C0b's condition (b)
+    below holds, the ownerless `create_document_fragment()` is test-only, so a production call of it does not compile,
+    and the compiler forces RC-2b onto the entry. Once (b) lands, that is the mechanism behind A6. Until then a call of
+    the ownerless constructor would leave the fragment unstamped, and with the fallback gone it would read
+    `ownerDocument === null`; RC-2b's DoD grep (§5.2b) is what checks the branch.
+  - **RC-2b first** (the driver's reading, sent to the PM; **depends on Layout's confirmation, PM 247**): RC-2b keeps
+    today's call (`create_document_fragment()`, as A1 does), so it adds no ownerless site beyond today's (A1 is
+    replaced by A6), and C0b's D-11 migration covers the landed site as an existing production site. That holds only
+    if both conditions hold in C0b: **(a)** C0b's creation census is a population produced by a command that is re-run
+    at C0b's own base and at its head, so a site that landed after the census was first taken is found; **(b)** the
+    ownerless constructors (`create_document_fragment()` and the other three shims) become test-only, so a production
+    caller does not compile. Layout's answer at C0 rev 2.1 was "no" on both (the census was a fixed snapshot, and P-8
+    a grep run by hand); the C0 restructure is changing both, and Layout's yes / no is pending. This memo does not
+    claim either holds at rev 2.1.
+  - **Interim, RC-2b first and C0b not landed** (PM 247; checked at `27b50dfe`, verified 2026-11-03): extract creates
+    an ownerless fragment today (`range/mutation.rs:266`, `dom.create_document_fragment()`); the `ownerDocument` getter
+    falls back to `dom.document_root()` (`node_methods/core.rs:279`); cloneContents is a stub that throws
+    (`vm/host/range_proto_mutation.rs:213-224`, the throw at `:220`). So in this order both fragments' `ownerDocument`
+    reads the bound main document through the fallback: the same as today's extract, non-null, no regression. It is
+    wrong only for a range in a non-main document (cloned, `createHTMLDocument` or DOMParser), where it gives the main
+    document, which is no worse than today's extract. A null `ownerDocument` can appear only if C0b deletes the
+    fallback (D-1 (c)) without migrating the site, which is the case Layout's confirmation of (a) and (b) rules out.
+  - **No automated guard today.** C0 rev 2's U12 lists no Range operation, and its P-8 is a grep run by hand, so
+    nothing automated catches a null `ownerDocument` on a Range fragment at `27b50dfe` or at C0 rev 2.1. C0b adds the
+    cell and the census test. No statement in this memo rests on U12 or P-8 going red.
+  - Either way the clones go through the canonical cloner, whose owner rule C0b sets (A7-A9 are "C0, either order" in
+    C0 rev 2's §4.5; the shallow cloner's stamp is D-11), and RC-2b's DoD checks the branch it landed in (§5.2b). Every
+    Range creation site is listed in Appendix A. No Range code reads the node document through any reader other than
+    the canonical one of its base: `EcsDom::owner_document` today, C0b's `EcsDom::node_document` after C0b.
 - **E1 (throw before mutating)**: errors the spec raises before any mutation (extract / clone step 11 doctype; surround
   steps 1-2; insert steps 1 and 6) leave the tree, the records and the range untouched. elidex's own refusal of a
   ProcessingInstruction boundary (PI clones are unsupported, `node_methods/clone.rs:126-131`; PI has no producer,
@@ -796,9 +898,11 @@ ECS-native.
   `dom_exc_hierarchy_request_error` (`:173`), which decides insertNode steps 1 / 6 in the host; the engine returns
   the `HierarchyRequestError` instead (RC-1 rewrites `insertNode` anyway). The StaticRange constructor's step 1
   (`reject_invalid_container`, `vm/host/static_range_proto.rs:266-290`, InvalidNodeTypeError at `:284`) is the same
-  doctype test as `reject_doctype` plus the Attr half the host lacks (D16, §0.3 item 32); it becomes one engine check
-  in `elidex-dom-api` `range/` that both `reject_doctype`'s callers and the constructor call, with the Attr test
-  applied only by the constructor (the live range's set-start / set-end step 1 rejects a doctype only).
+  doctype test as `reject_doctype`; it becomes one engine check in `elidex-dom-api` `range/` that both
+  `reject_doctype`'s callers and the constructor call. The step's Attr half gets **no engine branch** (R61-1): a VM
+  Attr has no entity and fails the constructor's `require_node_arg` with TypeError before any check runs, and an Attr
+  entity is reachable from Rust only, so the branch would be dead code (§0.3 item 32). That wrong-exception
+  divergence is D16, a facet of `#11-dom-api-attr-entity-model-unification` (§0.4).
   `SelectionError` (`selection.rs:119-133`) keeps its own host mapper `map_selection_error`
   (`vm/host/dom_selection_proto.rs:304-335`, also used by `dom_selection_mutation.rs`). Measured at `27b50dfe`: five
   variants, each a kind `DomApiErrorKind` has after RC-1 (`OutOfRange` maps to IndexSizeError), raised by the
@@ -824,7 +928,7 @@ ECS-native.
   plan I1, `docs/plans/2026-10-fragment-dsd-not-on-context.md` §2); a created `body` context is destroyed before
   return, in every outcome.
 - **P4 (result)**: a new DocumentFragment whose node document is the start node's node document, read through
-  `EcsDom::node_document` (C0; the one reader, PM 157); no MutationRecord.
+  `EcsDom::node_document` (C0b; the one reader, PM 157); no MutationRecord.
 - **X1 (layering)**: algorithms in `elidex-dom-api` (`range/`); `vm/host/range_proto_mutation.rs` does brand check,
   argument conversion, live-range-reference lookup, error mapping, record commit, wrapper creation, and for RC-4 the
   realm-document read through N4's J12 route (`vm/host/settings_route.rs`, §5.4). No clone pass, loop or walker in
@@ -833,7 +937,7 @@ ECS-native.
   existing `LiveRangeRegistry` map (Range objects are not entities). Clones use the existing ECS cloner. Clone
   creation is event data on the existing `MutationEvent` stream (a variant, the idiom `mutation_event.rs:8-15`
   states), consumed at dispatch by two existing consumers, which write existing components and push onto the existing
-  reaction queue (the same idiom as `handle_insert` and C0's `Adopt` arm). It adds no subscriber, no registry, no
+  reaction queue (the same idiom as `handle_insert` and C0c's `Adopt` arm). It adds no subscriber, no registry, no
   reaction variant and no per-entity state. The `ClonedFrom` marker stays as today, the form pass's only.
 
 Pairs (one line each; pairs not listed do not interact):
@@ -874,8 +978,8 @@ Pairs (one line each; pairs not listed do not interact):
 | WHATWG DOM §5.5 Interface Range | insert a node into a live range steps 1-13 | PI or Comment start / parentless Text / start is node / Text split / fragment / node is referenceNode / step 13 collapsed | `Range::insert_node` (RC-1: steps 1, 6, 13) | ✓ | yes |
 | WHATWG DOM §5.5 Interface Range | surroundContents steps 1-7 | non-Text partially contained / Document-DocumentType-DocumentFragment newParent / newParent has children / late throw from insert or append | `Range::surround_contents` (RC-3) | ✓ | yes |
 | WHATWG DOM §5.5 Interface Range | select a node | parent null throws | the throw is decided in the host today (`require_attached_node`, `vm/host/range_proto.rs:519-539`), not in `Range::select_node` (`range/boundary.rs:125`); RC-1 folds it into the engine (E3); RC-3 consumes it | ✓ | no |
-| WHATWG DOM §5.4 Interface StaticRange | StaticRange constructor step 1 | DocumentType / Attr container | decided in the host today (`reject_invalid_container`, `vm/host/static_range_proto.rs:266-290`, DocumentType only); RC-1 folds it into the engine with the Attr half (E3, D16) | ✓ | yes |
-| WHATWG DOM §4.5 Interface Document | adopt step 3.3.2 (an element's registry set to the document's registry's effective global custom element registry) | null-registry document / registry-bearing document | not modelled (no document whose registry is null); proposed `#11-document-null-registry-adopt-reset` (§9); C0 adds `EcsDom::adopt` without the registry steps (C0 §7) | ✗ (slot) | no |
+| WHATWG DOM §5.4 Interface StaticRange | StaticRange constructor step 1 | DocumentType / Attr container | decided in the host today (`reject_invalid_container`, `vm/host/static_range_proto.rs:266-290`, DocumentType only); RC-1 folds the DocumentType half into the engine (E3). The Attr half is D16, a facet of `#11-dom-api-attr-entity-model-unification`: a VM Attr is not a Node entity and throws TypeError earlier (§0.3 item 32) | ✗ (Attr half, slot) | yes |
+| WHATWG DOM §4.5 Interface Document | adopt step 3.3.2 (3.3.2.1-3.3.2.4: registry from the document's registry when the element's is non-null or its parent is null or an exclusive DocumentFragment, else looked up from the parent; then its effective global custom element registry) | null-registry document / registry-bearing document; parent null / exclusive DocumentFragment / other | not modelled (no document whose registry is null); proposed `#11-document-null-registry-adopt-reset` (§9); C0c adds `EcsDom::adopt` without the registry steps (C0 rev 2 §7) | ✗ (slot) | no |
 | WHATWG DOM §4.2.3 Mutation algorithms | ensure pre-insert validity; pre-insert; insert; append; remove; replace all | per-step rejection | `ensure_pre_insertion_validity` (`child_node/mod.rs:251`); session `apply_*` | ✓ | yes |
 | WHATWG DOM §4.3.2 Queuing a mutation record | queue a mutation record | childList / characterData | `commit_notify_records` (unchanged) | ✓ | no |
 | WHATWG DOM §4.4 Interface Node | clone a node (step 3 "Run any cloning steps"); clone a single node (step 8 node document) | shallow / deep; shadow host; template; custom element | `clone_node_with_shadow_honor` (`node_methods/clone.rs:227`); step 6.7 subtree true (D14, RC-2a); one `CloneCreated` event per entry call, scope from the `subtree` flag, handled at dispatch (§4.3, D-g′, RC-2a); registry steps 2.1-2.3 unchanged (D15 is out of the program, `#11-document-null-registry-adopt-reset`, §9); node document of clones: Layout (C3) | ✓ (registry steps ✗, slot) | yes |
@@ -994,7 +1098,9 @@ element" for every element created by cloning ("clone a single node" step 2.4, `
 nothing else, and each element's upgrade must enter the reaction queue at the point of the clone, in spec step order,
 among the `Disconnected` / `Connected` reactions of the same call (§0.3 item 18). Both run **at dispatch time** of one
 event, in the consumer of their own crate. Conditions, each a requirement on RC-2a (the event, the arms, the walk)
-unless marked RC-2b (the Range roots):
+unless marked **(RC-2b)**, a requirement on the contents algorithm (the Range roots, their order and the append order
+into them). The RC-2b parts are in condition 1 ("Why the entry", "Scope from the flag") and condition 4 ("The visit
+set at the event is the created set"):
 
 1. **The event and its emitter.** `elidex-ecs` `dom/mutation_event.rs` gains `MutationEvent::CloneCreated { root:
    Entity, scope: CloneScope }` and `pub enum CloneScope { Subtree, SelfOnly }` (NEW, re-exported beside
@@ -1008,12 +1114,18 @@ unless marked RC-2b (the Range roots):
    - **Why the entry, not the contents algorithm.** Every production clone goes through this entry (`CloneNode`
      today, the contents algorithm after RC-2b: `git grep -n 'clone_node_with_shadow_honor' -- crates ':!*tests*'`).
      A caller cannot forget the event, so the R3 Ax2 risk of a missed root failing open is closed by construction.
-     The contents algorithm (RC-2b) calls the entry once per clone root, in spec order (§0.3 item 17), so the
+     **(RC-2b)** The contents algorithm calls the entry once per clone root, in spec order (§0.3 item 17), so the
      events fire in that order.
-   - **Scope from the flag.** A contained child's deep clone (clone step 14.1) is `Subtree`. A partially contained
-     child's clone (clone steps 13.1 / 16.1, extract steps 17.1 / 20.1) is shallow, so `SelfOnly`. CharacterData
-     clones are shallow too; both passes find nothing in them. `cloneNode(true)` is `Subtree`. `cloneNode(false)` is
-     `SelfOnly`, which visits the same set as `Subtree` would on a shallow copy (§0.3 item 25).
+   - **Scope from the flag.** **(RC-2b)** A contained child's deep clone (clone step 14.1) is `Subtree`. A partially
+     contained child's clone (clone steps 13.1 / 16.1, extract steps 17.1 / 20.1) is shallow, so `SelfOnly`.
+     CharacterData clones are shallow too; both passes find nothing in them. (RC-2a) `cloneNode(true)` is `Subtree`.
+     `cloneNode(false)` is `SelfOnly`. On a shallow copy, which has no light children, `SelfOnly` visits the root,
+     then the root's ShadowRoot entity (if any) and its shadow tree; today's walk on that root visits the root, then
+     the shadow tree's elements at the same depths, but **not the ShadowRoot entity** (`for_each_shadow_inclusive_descendant`
+     pushes the shadow root's children, never the shadow root, `walkers.rs:69-73`). So the two sets differ by that
+     one entity. Neither consumer can observe it: the CE pass acts only on entities carrying `CustomElementState`
+     (`prepare_upgrade`) and the form pass only on `ClonedFrom` markers, and a ShadowRoot carries neither; the
+     elements are visited in the same order at the same depths, so the cap is unchanged (§0.3 item 25).
    - **`cloneNode` behaviour.** It is today's for both flag values (§0.3 item 29): the same walk, order, cap and
      root, and the same queue position. Only D14 changes the copy for `cloneNode(false)` on a clonable shadow host:
      the shadow children are now deep copies, so their descendants exist and get their upgrades. That is D14's
@@ -1026,13 +1138,13 @@ unless marked RC-2b (the Range roots):
      `elidex-form/Cargo.toml:15`).
    - **Other consumers.** The variant is a data addition. Every `match` on `MutationEvent` that has no wildcard
      gains a no-op arm; the per-PR plan lists them (`git grep -l 'MutationEvent::' -- crates ':!*tests*'` = 31 files at
-     `ee6c7a1a` and at `27b50dfe`, verified 2026-11-03). The live-range bridge ignores the event (L × C). C0's `Adopt` touches the same enum, `match` set and
+     `ee6c7a1a` and at `27b50dfe`, verified 2026-11-03). The live-range bridge ignores the event (L × C). C0c's `Adopt` touches the same enum, `match` set and
      census; whichever of the two lands second re-runs the census and adds its arms (§9).
 2. **The CE arm, at dispatch.** `CustomElementReactionConsumer::handle` (`consumer.rs:75-96`) gains an arm for
    `CloneCreated { root, scope }`. Like `handle_insert` (`:98-123`), it locks the registry, runs
    `apply_clone_creation_ce_semantics(dom, &registry, root, scope)`, drops the guard, then locks the queue and pushes
    one `CustomElementReaction::Upgrade(entity)` per returned candidate, in order. This is the same idiom as today's
-   `handle_insert` and C0's `Adopt` arm: a consumer that derives reactions from the event when it fires. So the
+   `handle_insert` and C0c's `Adopt` arm: a consumer that derives reactions from the event when it fires. So the
    upgrades sit in the flat FIFO at the clone's position: for extract step 17.1 they come before the `Disconnected`
    of the moves at step 17.4 (§0.3 item 18). No reaction variant is added, and `invoke_one` (`flush.rs:100-140`) is
    unchanged. The arm needs `&mut EcsDom` for the `is_value` clear, which `handle` already receives (§0.2). It writes
@@ -1043,7 +1155,8 @@ unless marked RC-2b (the Range roots):
      Rev 4's argument that `define` cannot run before resolution is no longer needed.
 3. **The form arm, at dispatch.** `FormControlReconciler::handle` (`elidex-form/src/reconciler.rs:41-52`) gains an
    arm for `CloneCreated { root, scope }` that calls `apply_clone_form_state(dom, root, scope)`
-   (`elidex-form/src/clone.rs:44-63`; Rev 6 adds the `scope` argument, condition 4, and nothing else changes). It writes `FormControlState`, `ElementState` and removes `ClonedFrom`, all components, through
+   (`elidex-form/src/clone.rs:44-63`). Rev 6 adds the `scope` argument, and the function's first-level walk moves
+   onto the shared `for_each_clone_created` (condition 4); its template-content frontier stays its own. It writes `FormControlState`, `ElementState` and removes `ClonedFrom`, all components, through
    `create_form_control_state`, the function `handle_insert` already calls at dispatch (`reconciler.rs:84-95`;
    §0.3 item 27). It runs synchronously inside the clone, so a detached clone reads its copied state before the entry
    returns (I3, below). **Scope (Rev 6, Ax2 MIN)**: Rev 5 let the form arm ignore the scope, because at a SelfOnly
@@ -1069,8 +1182,8 @@ unless marked RC-2b (the Range roots):
      `SelfOnly` `<template>` clone has none, step 1, `webref body html the-template-element`). So the CE pass
      still skips template contents (condition 6) and the form pass still covers them (#466's I5): the scope gate is
      shared, the template frontier stays the form pass's own.
-   - **The visit set at the event is the created set, by construction.** A `Subtree` root's event fires after the
-     entry's worklist, so its whole subtree exists, and nothing the call does later adds a node under it
+   - **The visit set at the event is the created set, by construction.** **(RC-2b: the append order.)** A `Subtree`
+     root's event fires after the entry's worklist, so its whole subtree exists, and nothing the call does later adds a node under it
      (contained children's deep clones are appended to the fragment whole; extract has no `Subtree` roots). A
      `SelfOnly` root has no light children when its event fires: the algorithm appends the subfragment only after the
      entry returns (§0.3 item 26). So the light-children exclusion in D-a″ is also what the tree gives at that moment;
@@ -1124,7 +1237,8 @@ unless marked RC-2b (the Range roots):
      document. Until then the walk shape is the interim, as today.
 
 One clone path serves `cloneNode` and the Range natives: the entry fires, and the two consumers run their passes at
-dispatch. No native has a clone step. `apply_clone_form_state` changes only by the `scope` argument (condition 4). The VM `cloneNode` post-pass
+dispatch. No native has a clone step. `apply_clone_form_state` gains the `scope` argument, and its first-level walk
+moves onto `for_each_clone_created` (condition 4; the template frontier is unchanged). The VM `cloneNode` post-pass
 (`node_methods_extras.rs:214-232`: `enqueue_subtree_upgrade_reactions` and the `apply_clone_form_state` call) is
 deleted, and `enqueue_subtree_upgrade_reactions` (`vm/host/custom_elements/upgrade.rs:128`) with it, so the separate
 post-clone seam is retired (one issue, one way).
@@ -1152,7 +1266,7 @@ Why neither binds D-g′:
 
 - **I2 was a lane boundary, not an engine invariant.** It recorded which crates L3 could edit when #466 was planned.
   It said nothing against an event on its merits. The enum's own design invites the addition: "new mutation kinds
-  are enum variant additions" (`mutation_event.rs:8-12`). The boundary no longer holds for this work. Layout's C0
+  are enum variant additions" (`mutation_event.rs:8-12`). The boundary no longer holds for this work. Layout's C0c
   adds `Adopt` to the same enum, and RC-2a adds `CloneCreated`; both lanes now edit `EcsDom`, and §9 states how the two
   edits meet. What I2 protected in substance is I1, the crate boundary (`elidex-dom-api` cannot see
   `FormControlState`), and I1 still holds: `elidex-dom-api` fires through `elidex-ecs`, and the copy stays in
@@ -1183,7 +1297,7 @@ newOffset helper with extract.
 | "clone a node" with per-class cloning steps | ECS cloner + post-pass worklist over (src, dst) pairs (existing); the form cloning steps keep the existing `ClonedFrom` marker on `<input>` / `<textarea>` clones; clone creation is a `MutationEvent` variant (event-as-data on the existing stream), not an observer callback |
 | subrange objects | plain values on the stack (L2) |
 | `[CEReactions]` element queues and per-element reaction queues | one existing flat reaction queue fed by the mutation-event leg; clone upgrades enter it at dispatch of `CloneCreated` (C2); the per-element grouping is not modelled (`#11-ce-element-queue-grouping`, registered) and neither is the per-method element-queue stack (proposed `#11-ce-reactions-method-scope-drain`) (E2, §9) |
-| "create an element" run for each clone copy | an event-driven consumer pass over the clone root (event-as-data, the `handle_insert` / C0 `Adopt` idiom), not a callback the cloner calls |
+| "create an element" run for each clone copy | an event-driven consumer pass over the clone root (event-as-data, the `handle_insert` / C0c `Adopt` idiom), not a callback the cloner calls |
 
 No component, system or side-store is added. One event variant is added, and no reaction variant. The existing `ClonedFrom` marker is unchanged (§4.3 condition 5).
 
@@ -1197,11 +1311,14 @@ plus JS-level VM tests (`crates/script/elidex-js/src/vm/tests/tests_range.rs`, s
 tests (`crates/script/elidex-js/src/vm/tests/tests_mutation_observer/range_ops.rs`).
 
 **Null-registry documents (R6-1).** `#11-document-null-registry-adopt-reset` (§9) is a pre-existing, engine-wide
-defect: elidex upgrades custom elements early in a cloned document (and is predicted to in `createHTMLDocument` /
-DOMParser documents, §0.4 D15), where Chromium does not. Every slice **adds no new divergence on top of this defect**:
-it keeps reading the registry association that today's code gives (`propagate_ce_identity`'s copy,
-`prepare_upgrade`'s `Null` skip), adds no registry rule of its own, and no test of it asserts an upgrade outcome
-inside such a document (a test that did would pin the defect). RC-2a, RC-2b and RC-4 create elements and say so in
+defect: elidex is predicted to upgrade custom elements early in a cloned document and in a `createHTMLDocument`
+document (read from the code, not run), and DOMParser documents are unmeasured (their parse runs with the
+dispatcher removed, `elidex-form/src/inert_document.rs:112`; §0.4 D15), where Chromium does not upgrade them. Every
+slice **adds no new divergence on top of this defect**: it keeps reading the registry association that today's code
+gives (`propagate_ce_identity`'s copy, `prepare_upgrade`'s `Null` skip), adds no registry rule of its own, and **no
+test of it asserts an upgrade outcome that differs from the measured target** (a test that did would pin the
+defect). A test whose outcome matches both the spec and the target is allowed, for example §4.3 condition 6's "no
+upgrade for a template-content clone". RC-2a, RC-2b and RC-4 create elements and say so in
 their DoDs; RC-1 and RC-3 create no element (RC-3's clones are CharacterData, §5.3).
 
 ### §5.1 RC-1 — containment primitives, exposed index, live-range reference, toString, deleteContents, insertNode
@@ -1228,7 +1345,8 @@ their DoDs; RC-1 and RC-3 create no element (RC-3's clones are CharacterData, §
   of `range_proto.rs` fold with it (`reject_doctype`, `validate_boundary_node_and_offset`'s offset check,
   `require_attached_node`, compareBoundaryPoints' `how` and root checks; E3): the engine methods throw them, and the
   natives map. So do `range_proto_mutation.rs`'s host-decided HierarchyRequestError for insertNode (`:170-178`) and
-  the StaticRange constructor's step 1 (`static_range_proto.rs:266-290`), the latter with its Attr half (D16; E3).
+  the StaticRange constructor's step 1 doctype check (`static_range_proto.rs:266-290`), with no engine Attr branch
+  (E3; D16 is out of the program, R61-1).
   `SelectionError` is not folded here unless the per-PR plan's diff touches its methods (E3; proposed
   `#11-selection-error-fold`, §8).
 - **Order**: after RC-0a. PR #578 has landed (`169a0a7c`), so RC-1 is written against the post-split
@@ -1239,7 +1357,7 @@ their DoDs; RC-1 and RC-3 create no element (RC-3's clones are CharacterData, §
   `crates/script/elidex-js/src/vm/host/dom_bridge.rs` (two mapper arms, visibility),
   `crates/script/elidex-js/src/vm/host/range_proto_mutation.rs`, `crates/script/elidex-js/src/vm/host/range_proto.rs`
   (the `RangePointError` mapper at `:820-840` replaced; the host-side error decisions folded, E3; the toString native
-  only if its signature changes), `crates/script/elidex-js/src/vm/host/static_range_proto.rs` (step 1 folded, D16),
+  only if its signature changes), `crates/script/elidex-js/src/vm/host/static_range_proto.rs` (the step 1 doctype check folded, E3),
   tests.
 - **Tests**: unit: toString with Element start (children before `start_offset` excluded) and Element end
   (descendants before `end_offset` included), CDATASection (Rust-constructed); delete with Element end container
@@ -1262,12 +1380,12 @@ their DoDs; RC-1 and RC-3 create no element (RC-3's clones are CharacterData, §
     with its shadow tree, which is correct either way and so does not discriminate.
   **extract final boundary** when start is not an inclusive ancestor of end (D5's extract half, on the interim body;
   RC-2b keeps it green). VM: the same through JS; `Selection.deleteFromDocument` final boundary; `r.selectNode(x);
-  r.insertNode(x)` end boundary; the D10/D11 cases of §0.4; D16: `new StaticRange({startContainer:
-  document.createAttribute('a'), startOffset: 0, endContainer: document.body, endOffset: 0})` throws
-  InvalidNodeTypeError, and the doctype case keeps throwing it. MO: record order unchanged for existing `range_ops.rs` cases; new D4 cases
+  r.insertNode(x)` end boundary; the D10/D11 cases of §0.4; the StaticRange constructor with a doctype container keeps throwing
+  InvalidNodeTypeError through the engine check (no Attr case: the VM has no JS `createAttribute`, and an Attr
+  wrapper fails `require_node_arg` first, D16, §0.3 item 32). MO: record order unchanged for existing `range_ops.rs` cases; new D4 cases
   emit the removal (delete) and move (extract) records for X.
 - **DoD**: negative controls for D1, D2, D3, D4 (delete **and** extract), D5 (delete, Selection **and** extract), D10,
-  D11, D12, D13, D16, each red-first or under its green-branch rule (§0.4), the outcome recorded in the PR body;
+  D11, D12, D13, each red-first or under its green-branch rule (§0.4), the outcome recorded in the PR body;
   `git grep -n 'contained_top_level_nodes\|next_in_preorder_global\|commit_range_after_mutation' -- crates`
   returns nothing; no snapshot or boundary carrier is left in the host: `git grep -n
   'with_range_mut\|with_range(\|Range::new\|split_dom_and_live_ranges' --
@@ -1309,7 +1427,9 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   its files is an RC-1 file, except that the census's no-op arm may touch an exhaustive `MutationEvent` match in a file
   RC-1 also edits (the per-PR plan names it; whichever lands second rebases). The program order lists it after RC-1
   (§9). **It lands before C1** (Layout), which edits the same cloner lines (`node_methods/clone.rs:262`, `:290`,
-  `:294-301`; C1 rev 1 `1a2cb286` D-C6); C1 rebases onto it (PM 215 Q-Y2, PM 216: "D14 first").
+  `:294-301`; C1 rev 1 `1a2cb286` D-C6); C1 rebases onto it (PM 215 Q-Y2, PM 216: "D14 first"). It shares the
+  shadow-branch hand stamps of `node_methods/clone.rs` with **C0b** (edge in §9; Tests below) and the `MutationEvent`
+  census with **C0c** (§9 H6). Neither is an order.
 - **Scope**: §4.3 conditions 1-6. `MutationEvent::CloneCreated { root, scope }` and `CloneScope` (NEW), `EcsDom::fire_clone_created`
   (NEW, through `dispatch_event`), and the scope-gated walk `EcsDom::for_each_clone_created` (NEW) (condition 4); the
   emitter in `clone_node_with_shadow_honor`; the CE arm of `CustomElementReactionConsumer` and the form arm of
@@ -1338,7 +1458,7 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   `collect_template_inclusive_descendants`, if the per-PR plan routes it there), `crates/script/elidex-js/src/vm/consumer_dispatcher.rs`
   (field docs, §6), `crates/script/elidex-js/src/vm/host/node_methods_extras.rs` (the post-pass deleted),
   `crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs` (`enqueue_subtree_upgrade_reactions` deleted), every
-  exhaustive `match` on `MutationEvent` (no-op arm; the per-PR plan's census, §4.3 condition 1, re-run if C0's `Adopt`
+  exhaustive `match` on `MutationEvent` (no-op arm; the per-PR plan's census, §4.3 condition 1, re-run if C0c's `Adopt`
   lands first, §9), tests (`crates/dom/elidex-dom-api/src/node_methods/tests/clone_shadow.rs` (NEW: RC-0a)).
 - **Tests**: **D14**: `host.cloneNode(false)` on a host with a clonable shadow root whose child has a child: the clone's
   shadow tree holds a deep copy (negative control; the existing test `tests/clone.rs:792-827` is inverted; same for a
@@ -1348,7 +1468,15 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   extends it to the shadow child's descendant: once the shadow children are deep clones, `clone_subtree`'s
   `doc_override` stamps them and the hand stamp at `node_methods/clone.rs:294-301` goes. The assertion reads
   `owner_document` and expects the source's document, as the test does today; any further node-document rule is
-  Layout's (C3). **`cloneNode` as today** (§0.3 item 29): the existing `cloneNode` custom-element and form tests stay
+  Layout's (C3). **The hand stamps and C0b (R61-3 (d), PM 247).** Two hand stamps sit in pass 4: `:282-285` stamps
+  the cloned host and the replicated shadow root, which neither the shallow cloner nor `attach_shadow_with_init`
+  stamps today, and the `if !deep` block `:294-301` stamps the one shallow shadow-child clone. Once C0b's shallow
+  cloner stamps the operation's document and `attach_shadow_with_init` takes its owner from the entry (C0 rev 2
+  D-11), both are dead. The rule is that whichever of C0b and RC-2a lands second removes the stamps that are dead at
+  its head, and the other side's DoD notes it. **If C0b is in RC-2a's base, RC-2a writes no hand stamp at all**
+  (PM 247): it deletes `:282-285` and, with D14, `:294-301`. If RC-2a lands first, D14 still deletes `:294-301`,
+  because its loop no longer makes a shallow clone, so that block is gone in either order; RC-2a keeps `:282-285` and
+  adds no stamp, and C0b, landing second, removes `:282-285`. The stamp guard above stays green in all three states. **`cloneNode` as today** (§0.3 item 29): the existing `cloneNode` custom-element and form tests stay
   green unchanged (same candidates, same order, same queue position; the #466 I3 case
   `detachedInput.cloneNode().value` reads the copied value before any insertion); `cloneNode(true)` (`Subtree`) and
   `cloneNode(false)` (`SelfOnly`) of a defined custom element each enqueue its upgrade; no upgrade for a
@@ -1365,24 +1493,28 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   -- crates ':!*tests*'` shows the emitter helper, the CE arm, the form arm and the no-op arms of the census, nothing
   else; both arms call `for_each_clone_created` and no other walk for the clone root's first level. The
   production-cloner census (`git grep -n 'clone_node_with_shadow_honor\|"cloneNode"' -- crates`) is re-run, and every
-  caller is the entry's own callers listed in §4.3 condition 1. **No-dispatcher windows (ratchet, Ax2 MIN)**: `git grep -n
-  'take_mutation_dispatcher()\|begin_detached_fragment(' -- crates ':!*tests*'` lists exactly the 6 lines of §0.3
-  item 34 at RC-2a's base (re-run there; C0 D-10 changes `begin_detached_fragment`'s signature, which the pattern
-  still matches), and the per-PR plan records, for each, that no cloner-entry call is reachable inside the window; a
-  new hit fails this DoD until the plan records the same for it. A nested fire is caught by `dispatch_event`'s existing
+  caller is the entry's own callers listed in §4.3 condition 1. **No-dispatcher windows (one-shot census, Ax2 MIN,
+  R61-2)**: the §0.3 item 34 command (every production site that removes or replaces `EcsDom`'s dispatcher) is re-run
+  once at RC-2a's base (C0b's D-10 changes `begin_detached_fragment`'s signature, which the pattern still matches),
+  and the per-PR plan lists every production hit, the 19 lines of item 34 plus any new one, with, for each window,
+  the reason no cloner-entry call is reachable inside it. A hit the plan does not account for fails this DoD. It is
+  one-shot: whether it becomes a standing check (a trip-wire in `scripts/trip-wires.sh` or a test) is RC-2a's per-PR
+  plan decision, recorded there. A nested fire is caught by `dispatch_event`'s existing
   `debug_assert` on `dispatch_depth` (§0.3 item 34), which a unit test fires from inside a test consumer
   (`#[cfg(debug_assertions)]` plus `#[should_panic]`). E2 for `cloneNode` (`[CEReactions]`): the queue position of its upgrades is
   today's (§0.3 item 29). **Null-registry documents (R6-1, §5 preamble)**: RC-2a adds no new divergence on top of
   `#11-document-null-registry-adopt-reset`'s defect: `propagate_ce_identity`'s registry copy and `prepare_upgrade`'s
-  `Null` skip are unchanged (the diff touches neither), and today's early upgrade inside `document.cloneNode(true)` is
-  stated as the pre-existing defect, not tested as a target. The #466 reversal is reviewed in RC-2a's
+  `Null` skip are unchanged (the diff touches neither), and the predicted early upgrade inside
+  `document.cloneNode(true)` is stated as the pre-existing defect, not tested as a target. **C0b edge**: the hand
+  stamps of pass 4 are removed by whichever of C0b and RC-2a lands second (Tests above), and the DoD records which
+  state RC-2a's base was in. The #466 reversal is reviewed in RC-2a's
   `/elidex-plan-review` and the outcome is recorded in the per-PR plan (R6-3). RC-2a hygiene rows of §6 done.
 
 ### §5.2b RC-2b — one contents algorithm for clone and extract
 
-- **Order**: after RC-1 (B1, `LiveRangeRef`, the newNode / newOffset helper) and RC-2a (the event). Not gated on C0:
-  the node document of the nodes it creates is Layout's, and its fragment creation is stated for both C0 orders
-  (C3, §8), so the silent-wrong fixes D6, D7 and D9 do not wait for C0 or the P1 switch-back (PM 201 / 202).
+- **Order**: after RC-1 (B1, `LiveRangeRef`, the newNode / newOffset helper) and RC-2a (the event). Not gated on C0b:
+  the node document of the nodes it creates is Layout's, and its fragment creation is stated for both C0b orders
+  (C3, §8), so the silent-wrong fixes D6, D7 and D9 do not wait for C0b or the P1 switch-back (PM 201 / 202).
 - **Scope**: §4.3. cloneContents implemented; extractContents replaced by the same function. Same-container and
   partial CharacterData for Text, Comment and CDATASection via `get_char_data` and canonical clone + set data (D7);
   partially contained element children cloned shallowly with recursive subranges (D6); doctype throw at step 11
@@ -1390,13 +1522,18 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   through RC-1's newNode / newOffset helper (D5 stays green). Every clone goes through the canonical entry, so each
   clone root fires RC-2a's `CloneCreated` and the two arms run at dispatch: a `SelfOnly` event per partially contained
   child (clone steps 13.1 / 16.1, extract steps 17.1 / 20.1) and per CharacterData clone, a `Subtree` event per
-  contained child's deep clone (clone step 14.1). No native has a clone step (§4.3). **The fragment (R6-4, C3)**:
-  - **C0 first**: `dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))`, C0's entry
-    (C0 D-10, D-11; C0 §4.5 A6 "L3 RC-2 if RC-2 lands after C0 (it must call the entry …)").
-  - **RC-2b first**: today's `create_document_fragment()` call (A1's), so no ownerless site is added beyond today's;
-    C0 migrates the landed site (C0's own §4.5 row for A6).
+  contained child's deep clone (clone step 14.1). No native has a clone step (§4.3). **The fragment (A6; R6-4, PM
+  244 / 247, C3)**: RC-2b owns the creation call in extractContents and cloneContents in both orders; C0b owns the
+  entry, the `ownerDocument` cell and the census test.
+  - **C0b in RC-2b's base**: `dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))`,
+    C0b's entry (C0 rev 2 D-10, D-11). Once C0b's condition (b) holds, the ownerless constructor does not compile in
+    production code, so the compiler forces this call (C3).
+  - **RC-2b first** (depends on Layout's confirmation, PM 247): today's `create_document_fragment()` call (A1's), so
+    no ownerless site is added beyond today's; C0b's D-11 migration covers the landed site, provided C0b's conditions
+    (a) and (b) hold (C3). Interim until C0b: both results read the bound main document through the getter's
+    fallback, as today's extract does (C3).
   - The per-PR plan states which branch applies at its base, and the DoD checks that branch. The clones' owner rule
-    is the canonical cloner's, which C0 sets in either order (C0 §4.5 A7-A9).
+    is the canonical cloner's, which C0b sets in either order (C0 rev 2 §4.5 A7-A9).
 - **Files**: `crates/dom/elidex-dom-api/src/range/contents.rs` (NEW), `crates/dom/elidex-dom-api/src/range/mutation.rs`,
   `crates/dom/elidex-dom-api/src/range/mod.rs`, `crates/script/elidex-js/src/vm/host/range_proto_mutation.rs` (the
   cloneContents native, the extract native on the new body), tests (`range/tests.rs` as split by RC-0a, VM
@@ -1436,28 +1573,34 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   would pin that gap. (2) An `<input>` inside a contained subtree (a `Subtree` root). (3) An `<input>` inside a
   partially contained element's subrange (its own root, swept by its own event). In each the live value is copied and
   no `ClonedFrom` remains (a world query for `ClonedFrom` is empty after the call). **`ownerDocument` of the result**
-  (R6-4, PM 227): `r.extractContents().ownerDocument === document` and `r.cloneContents().ownerDocument === document`
-  for a range in the bound document, green in both branches (C0 first: the entry stamps the fragment; RC-2b first: the
-  getter's fallback until C0, then C0's migration of the site, §0.2). In the C0-first branch also a range in a
-  DOMParser document: both results' `ownerDocument` is that document (the start node's node document, extract /
-  clone step 1); this case is red in the RC-2b-first branch until C0, so it is added there by C0's migration, not
-  here. MO: extract records in spec order (start replace data, recursive subrange removals on the partial child,
+  (R6-4, PM 227 / 244 / 247): `r.extractContents().ownerDocument === document` and `r.cloneContents().ownerDocument
+  === document` for a range in the bound document, green in both branches (C0b in the base: the entry stamps the
+  fragment; RC-2b first: the getter's fallback until C0b, then C0b's migration of the site, C3). These are RC-2b's
+  regression pins. The discriminating cell, a range in a non-main document (a DOMParser document) whose results'
+  `ownerDocument` is that document (the start node's node document, extract / clone step 1), is **C0b's cell, in both
+  orders** (PM 244). With C0b in RC-2b's base, RC-2b keeps C0b's extractContents row green and adds the
+  cloneContents row to the same cell, since that method does not exist at C0b's head. With RC-2b first, the cell
+  reads the main document for both methods until C0b (C3, interim), and C0b adds it with the migration. RC-2b does
+  not assert that interim value. MO: extract records in spec order (start replace data, recursive subrange removals on the partial child,
   contained moves, end replace data); clone produces none.
 - **DoD**: negative controls for D6, D7, D9, each red-first or under the green-branch rule (§0.4); RC-1's D4 and D5
   extract controls still green; the D-g′ ordering test and its mutant run recorded; the cloneContents stub test
-  (`tests_range.rs:441-452`) replaced by behaviour tests. **Fragment creation, by branch (R6-4)**: C0 first:
+  (`tests_range.rs:441-452`) replaced by behaviour tests. **Fragment creation, by branch (R6-4)**: C0b in the base:
   `git grep -n -E 'create_(text|document_fragment)\(' -- crates/dom/elidex-dom-api/src/range ':!*tests*'` returns
-  nothing (no production caller of an ownerless shim, so C0's D-11 / P-8 ratchet stays green), and `git grep -n
+  nothing (no production caller of an ownerless constructor; this grep is RC-2b's own check, and once C0b's condition
+  (b) holds the compiler enforces it, C3), and `git grep -n
   'create_document_fragment_with_owner(' -- crates/dom/elidex-dom-api/src/range ':!*tests*'` shows the one call, fed by
   `node_document_for_new_nodes`; RC-2b first: `git grep -n -E 'create_(text|document_fragment)[a-z_]*\(' --
   crates/dom/elidex-dom-api/src/range ':!*tests*'` lists only the fragment creation (today, besides `range/live.rs`'s
   inline tests that RC-0a moves to a test file, 4 hits: `range/mutation.rs:266`, `:303`, `:354`, `:392`; the three Text
-  clones move to the canonical cloner); either way the `ownerDocument` cells above are green, and Appendix A is re-run
-  at RC-2b's head and sent to Layout. E2 for extractContents and cloneContents (enqueue at the spec's steps; tests
+  clones move to the canonical cloner), and the PR body records that this branch depends on Layout's confirmation of
+  C0b's conditions (a) and (b) (PM 247, C3); either way the bound-document `ownerDocument` pins above are green, and
+  Appendix A is re-run at RC-2b's head and sent to Layout. E2 for extractContents and cloneContents (enqueue at the spec's steps; tests
   assert only orders equal under both models). **Null-registry documents (R6-1, §5 preamble)**: RC-2b adds no new
   divergence on top of `#11-document-null-registry-adopt-reset`'s defect: its clones take the association RC-2a's
-  cloner gives, it adds no registry rule, and cloneContents / extractContents inside a cloned document upgrade early
-  exactly as `cloneNode` there does today (the pre-existing defect, stated, not tested as a target). RC-2b hygiene rows
+  cloner gives, it adds no registry rule, and cloneContents / extractContents inside a cloned document are predicted
+  to upgrade early exactly as `cloneNode` there is predicted to today (the pre-existing defect, stated, not tested as
+  a target). RC-2b hygiene rows
   of §6 done.
 
 ### §5.3 RC-3 — surroundContents
@@ -1489,13 +1632,14 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   in `docs/plans/2026-09-ibp-sandbox.md:585-594`). The "expected" clause is an expectation of timing with its source
   cited, not a claim about Layout's order. N9 lands the `ParserScriptingMode` enum (F11: `Normal | Disabled | Inert`,
   `ibp-sandbox.md:510`), and RC-4 adds the `Fragment` value. The enum's owner stays N9 (F11, a surface of the approved
-  plan #532; PM 216). RC-4 also needs **C0**, for two things: `EcsDom::node_document` (the reader) and **C0's
+  plan #532; PM 216). RC-4 also needs **C0b** (PM 244: the node-document part of the C0 program; RC-4 needs
+  nothing of C0a or C0c), for two things: `EcsDom::node_document` (the reader) and **C0b's
   new-node entry `EcsDom::node_document_for_new_nodes(&self, source: Entity) -> Option<Entity>`** (C0 rev 2 D-10;
   PM 223, PM 227). Today the only function of that name is a `pub(super)` method of the strict parser's `TreeBuilder`
   (`crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:271`, at `27b50dfe`), which RC-4's code in
   `elidex-dom-api` / `elidex-script-session` cannot call. C1 rev 2 (`b518b32f`, O-2) left open which PR promotes it;
   C0 rev 2 moves it into `EcsDom` and deletes the strict method (D-10, PM 223 O-2). **C1** stays in the dependency list
-  because PM 216 put it there, but its reason (the entry) has moved to C0, so whether RC-4 still waits for C1 is a PM
+  because PM 216 put it there, but its reason (the entry) has moved to C0 (now C0b), so whether RC-4 still waits for C1 is a PM
   question (PM list). C1 rev 2's edge c-E plans both orders: "If RC-4 lands before C1, its cells for a Range inside
   template contents assert C2's document and C1 flips them; if after, RC-4 asserts I" (C1's own names for the two
   documents; `docs/plans/2026-10-eh-attrs-c1-template-owner-document.md` at `b518b32f`, edge c-E). PM 216 rules out the
@@ -1517,10 +1661,10 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   the route that marshals F10's call, `ibp-sandbox.md:495`). RC-4 adds no second realm-to-document read. It inherits
   **J2** (`ibp-sandbox.md:380`): an unbound VM is refused by the route before F10 is called. The native then passes
   the document down; that is marshalling, and the engine derives nothing from the VM (X1). **Node document**: RC-4 reads it
-  only through `EcsDom::node_document` (C0). That is the engine's one reader (PM 157: N4's `effective_node_document`
+  only through `EcsDom::node_document` (C0b). That is the engine's one reader (PM 157: N4's `effective_node_document`
   is replaced by `node_document` in C0's plan-review), so RC-4 adds none. RC-4's two creation sites (the `body`
-  context and the result fragment) pass `dom.node_document_for_new_nodes(start_node)` as their owner (C0 D-10, D-11;
-  C0 §4.5 A11 / A12 "entry(start node)"; one creation entry, PM 207). They are listed in Appendix A. The created `body` is destroyed
+  context and the result fragment) pass `dom.node_document_for_new_nodes(start_node)` as their owner (C0 rev 2 D-10,
+  D-11, both C0b's; C0 rev 2 §4.5 A11 / A12 "entry(start node)"; one creation entry, PM 207). They are listed in Appendix A. The created `body` is destroyed
   before return on every path (P3). Trusted Types: elidex has none (innerHTML passes the string through,
   `dom_inner_html.rs:146`), so step 2 is identity until it exists; the gap is program-wide, not this program's (§8
   proposed slot).
@@ -1584,7 +1728,7 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   the same tree and cannot be told apart until `#11-script-element-prepare-lifecycle` models the script-element
   state (above), so it does not pin Fragment against Inert. A second case, a context whose document has scripting
   disabled (F10 derives Disabled, §5.4 (c)), parses `<noscript>` as Disabled. **P4, discriminating test** (R3
-  Ax3-IMP4; rationale re-checked in Rev 6 against C0 D-1 (c)): RC-4 lands after C0, and C0 deletes the getter's
+  Ax3-IMP4; rationale re-checked in Rev 6 against C0 rev 2 D-1 (c)): RC-4 lands after C0b, and C0b deletes the getter's
   `document_root()` fallback (`node_methods/core.rs:279`, §0.2), so an unstamped fragment would read null and a
   bound-document case is no longer green by the fallback. It is still not enough: RC-4 also reads the realm document
   (J12, the bound document), so a fragment wrongly given the realm document instead of the start node's node
@@ -1621,7 +1765,7 @@ Non-citation hygiene only. Citation correctness is the per-PR rule below; the um
 | `custom_elements/upgrade.rs:117-127` (doc of `enqueue_subtree_upgrade_reactions`), `node_methods_extras.rs:214-229` (shim comments), `node_methods_extras.rs:187-190` (the `cloneNode` doc naming `apply_clone_form_state`), `elidex-form/src/clone.rs:16-17` ("invoked synchronously at clone time from the VM `cloneNode` shim") | deleted with the post-pass, or rewritten to name the consumer arms | RC-2a |
 | `node_methods/clone.rs:288-289` "shadow children clone with the operation's own `subtree` flag" | rewritten with the D14 fix (step 6.7: subtree true) | RC-2a |
 | `selection.rs:690` `#[allow(dead_code)]` on the test helper `elem` ("kept for future cross-doc / no-association tests") | connect it (a no-association test RC-1 needs anyway) or delete it | RC-1 |
-| `vm/host/static_range_proto.rs:272-281` "the Attr branch is a forward-stub: no Entity in current elidex storage can fail this check" (stale: Attr entities exist, §0.3 item 32) | deleted with the fold (D16, E3) | RC-1 |
+| `vm/host/static_range_proto.rs:272-281` "the Attr branch is a forward-stub: no Entity in current elidex storage can fail this check" | **correct for the VM** (Rev 6 called it stale; R61-1 withdraws that, §0.3 item 32): a VM Attr has no entity. The function goes with the doctype fold (E3), so its comment moves to the engine check's doc, re-pointed from "forward-stub" to the facet of `#11-dom-api-attr-entity-model-unification` (D16) | RC-1 |
 
 **Citation rule (each per-PR plan, on the files it edits).** Every § number, § ↔ title pair and step number in those
 files is fixed or verified in that PR. The method is the sweep below (truth first, then the four patterns of Axis 4):
@@ -1671,10 +1815,10 @@ not touched by `ee6c7a1a..27b50dfe` have the same counts):
 | `crates/dom/elidex-dom-api/src/node_methods/tests/clone.rs` | 992 | RC-2a (D14 tests, the shared-walk and `cloneNode` scope cases); also C1 (Layout) rebases onto D14 in the same area | **RC-0a**: a D14 unit test alone would take it past 1000, so the split comes first (CLAUDE.md touch-time split) rather than putting the test elsewhere. Split at its existing section header `:722` ("Shadow honor", to `:992`) into `node_methods/tests/clone_shadow.rs` (NEW); D14's and RC-2a's shadow tests go there. Layout is told, since C1 rebases after RC-2a |
 | `crates/script/elidex-script-session/src/mutation/html_fragment.rs` | 858 (tests from `:277`) | RC-4; also N9 (F11's fragment derivation, `ibp-sandbox.md:510-511`) | **RC-0b** (projected): inline tests to `mutation/tests_html_fragment.rs` (NEW), as `mutation/tests_replace_all.rs` already is. Lands **before N9** (PM 207: the first toucher splits; N9 rebases onto it) |
 | `crates/script/elidex-js/src/vm/host_data/mod.rs` | 2024 at `ee6c7a1a`; 729 at `27b50dfe` (PR #578 merged, `169a0a7c`) | not touched (§4.2) | none: PR #578 was that split, and RC-1 starts after it. If a per-PR plan must touch `HostData`, it edits the post-#578 file (`mod.rs` or `engine_feature/bind.rs`) |
-| `crates/script/elidex-script-session/src/mutation/mod.rs` | 994 | RC-4 (+1-2 re-export); also edited by C0 (D-5's fragment arm, C0 memo O-4 (b)) | **re-measured at each per-PR plan** that touches it: if C0 (or anything else) has taken it to ≥ 1000, a standalone pure-move split comes first (CLAUDE.md touch-time split); at `ee6c7a1a` none |
-| `crates/core/elidex-ecs/src/dom/mod.rs` | 926 (also at `27b50dfe`) | RC-2a (`fire_clone_created`, about 15 lines, and a re-export); also edited by C0 (Layout: `node_document` and `node_document_for_new_nodes` sit beside `owner_document` here, C0 D-1 / D-10, and the `Adopt` helpers) | none as prereq at ~940; re-measured at RC-2a's per-PR plan, after whichever of C0 / RC-2a lands first, and a split comes first if the two together take it to ≥ 1000 |
+| `crates/script/elidex-script-session/src/mutation/mod.rs` | 994 | RC-4 (+1-2 re-export); also edited by the C0 program (D-5's fragment arm, C0 rev 2 O-4 (b); which of C0a-C0c carries D-5 is Layout's split memo's) | **re-measured at each per-PR plan** that touches it: if a C0 part (or anything else) has taken it to ≥ 1000, a standalone pure-move split comes first (CLAUDE.md touch-time split); at `ee6c7a1a` none |
+| `crates/core/elidex-ecs/src/dom/mod.rs` | 926 (also at `27b50dfe`) | RC-2a (`fire_clone_created`, about 15 lines, and a re-export); also edited by C0b (Layout: `node_document` and `node_document_for_new_nodes` sit beside `owner_document` here, C0 rev 2 D-1 / D-10) and by C0c (the `Adopt` helpers) | none as prereq at ~940; re-measured at RC-2a's per-PR plan, after whichever of C0b / C0c / RC-2a land first, and a split comes first if they together take it to ≥ 1000 |
 | `crates/dom/elidex-dom-api/src/range/mutation.rs` | 640 | RC-1..RC-4 | none as prereq; new code goes into `containment.rs` / `contents.rs` (NEW) so it does not grow past ~800 |
-| `range/mod.rs` 587, `range/boundary.rs` 299, `range_proto_mutation.rs` 262, `range_proto.rs` 906, `tests_mutation_observer/range_ops.rs` 586, `node_methods/clone.rs` 458, `elidex-custom-elements/src/upgrade.rs` 526, `consumer.rs` 329, `node_methods_extras.rs` 293, `custom_elements/upgrade.rs` 487, `elidex-form/src/clone.rs` 304, `elidex-form/src/reconciler.rs` 333, `vm/consumer_dispatcher.rs` 160, `child_node/mod.rs` 459, `dom_bridge.rs` 696, `elidex-ecs` `dom/mutation_event.rs` 352 (also C0's `Adopt`), `elidex-script-session/src/types.rs` 327; Rev 6 adds `elidex-ecs` `dom/tree/walkers.rs` 392 (RC-2a, `for_each_clone_created`), `elidex-form/src/init.rs` 295 (RC-2a, if the walk is routed there), `vm/host/static_range_proto.rs` 421 (RC-1, D16) | under 1000 | various | each per-PR plan re-measures. `range_proto.rs` (906) is touched by RC-1 (the `RangePointError` mapper and the host-side error fold, E3), which moves code out of it; RC-1's plan re-measures it. `reaction.rs` and `custom_elements/flush.rs` are no longer touched (D-g′ adds no reaction variant) |
+| `range/mod.rs` 587, `range/boundary.rs` 299, `range_proto_mutation.rs` 262, `range_proto.rs` 906, `tests_mutation_observer/range_ops.rs` 586, `node_methods/clone.rs` 458, `elidex-custom-elements/src/upgrade.rs` 526, `consumer.rs` 329, `node_methods_extras.rs` 293, `custom_elements/upgrade.rs` 487, `elidex-form/src/clone.rs` 304, `elidex-form/src/reconciler.rs` 333, `vm/consumer_dispatcher.rs` 160, `child_node/mod.rs` 459, `dom_bridge.rs` 696, `elidex-ecs` `dom/mutation_event.rs` 352 (also C0c's `Adopt`), `elidex-script-session/src/types.rs` 327; Rev 6 adds `elidex-ecs` `dom/tree/walkers.rs` 392 (RC-2a, `for_each_clone_created`), `elidex-form/src/init.rs` 295 (RC-2a, if the walk is routed there), `vm/host/static_range_proto.rs` 421 (RC-1, the doctype fold) | under 1000 | various | each per-PR plan re-measures. `range_proto.rs` (906) is touched by RC-1 (the `RangePointError` mapper and the host-side error fold, E3), which moves code out of it; RC-1's plan re-measures it. `reaction.rs` and `custom_elements/flush.rs` are no longer touched (D-g′ adds no reaction variant) |
 
 RC-0a and RC-0b are pure moves (no text change beyond module declarations), reviewed with `git diff --color-moved`.
 
@@ -1695,10 +1839,10 @@ RC-0a and RC-0b are pure moves (no text change beyond module declarations), revi
   (cause: no parser-path insertion-validity pass is planned).
 - **Selection.containsNode**: uses the Selection spec's own containment (`node_fully_contained`,
   `selection.rs:652-670`), not DOM "contained"; B1 does not replace it.
-- **`#11-selection-document-membership`** (C0's R-6 (c) **proposal**, not a registered slot; **owner L3**, per C0
+- **`#11-selection-document-membership`** (C0 rev 2's R-6 (c) **proposal**, not a registered slot; **owner L3**, per C0
   rev 2's hand-off H-L3, "Slots `#11-selection-document-membership` and `#11-vm-isconnected-bound-document` are
-  L3's"): its site `selection.rs:614-619` is in RC-1's file. RC-1 does not change it. If this memo lands before C0,
-  the ID is named on main with no ledger row, so it needs a homing row (PM list, H5).
+  L3's"): its site `selection.rs:614-619` is in RC-1's file. RC-1 does not change it. If this memo lands before the C0
+  program registers it, the ID is named on main with no ledger row, so it needs a homing row (PM list, H5).
 - **`#11-vm-isconnected-bound-document`** (registered, PM 227; owner L3; backstop 2026-12-15; ledger entry): the VM's
   `isConnected` compares the composed tree root with the bound document (`vm/host/node_proto.rs:441-463`), so a node
   in a DOMParser or cloned document reports `false`. Related, not touched: the program's tests that place a range in
@@ -1708,9 +1852,10 @@ RC-0a and RC-0b are pure moves (no text change beyond module declarations), revi
   derivation and F11 at every fragment-parse caller (§0.2). The enum's owner stays N9 (F11; PM 216). RC-4 adds
   `Fragment` after N9 lands (§5.4).
 - **Node document of Range-created nodes** (C3's write rule; R2's D8; shallow-clone stamping): a facet of
-  `#11-ownerless-node-creation` (registered, PM 207), owned by **Layout** (C0 / C1). One mechanism: every creation
-  site takes its owner from C0's entry `EcsDom::node_document_for_new_nodes(source)` (C0 D-10 / D-11, PM 223), and
-  reads use only `node_document` (C0). RC-2b's fragment under both C0 orders is §2 C3.
+  `#11-ownerless-node-creation` (registered, PM 207), owned by **Layout** (C0b / C1). One mechanism: every creation
+  site takes its owner from C0b's entry `EcsDom::node_document_for_new_nodes(source)` (C0 rev 2 D-10 / D-11, PM 223),
+  and reads use only `node_document` (C0b). RC-2b's fragment under both C0b orders, and who owns A6's call (RC-2b) and
+  its cell (C0b), is §2 C3.
   Appendix A is this program's input to C0 rev 2. Template contents' owner document is C1's
   (`#11-template-contents-owner-document`).
 - **XML fragment parsing** (§5.4 (b)): `#11-domparser-xml-real-parsing` (`vm/host/dom_parser.rs:253-262`).
@@ -1722,14 +1867,14 @@ owner with a one-line reason, and the PM decides):
 |---|---|---|---|---|---|
 | `#11-trusted-types` | elidex has no Trusted Types; every sink that takes `(TrustedHTML or DOMString)` (createContextualFragment step 2, innerHTML, …) treats the string as is | program-wide gap (one mechanism for every sink), not a Range defect; until it exists, createContextualFragment step 2 is identity, like innerHTML | a Trusted Types / CSP `require-trusted-types-for` program | L3 (proposed): every sink it gates (createContextualFragment, innerHTML, `insertAdjacentHTML`, …) is a DOM / HTML API surface L3 owns | 2026-12-01 |
 | `#11-processing-instruction-clone` | `CloneNode` refuses ProcessingInstruction with NotSupportedError (`node_methods/clone.rs:126-131`), an unslotted stub | unreachable from script (no PI producer, §0.2); the Range contents algorithm refuses a PI boundary before any mutation (E1) | a PI producer (XML parsing, `createProcessingInstruction`) | L3 (proposed): the stub is in the canonical cloner, `node_methods/clone.rs`, which L3 edits in RC-2a | 2026-12-01 |
-| `#11-attr-clone-node` | `attr.cloneNode()` throws NotSupportedError (`node_methods/clone.rs:120-125`); reachable from script through `document.createAttribute` (`char_data/attr.rs:22`) | not a Range defect: a range never holds an Attr, and RC-2a does not plan to edit `CloneNode`'s `invoke` (`node_methods/clone.rs:91`) (§5.2a; if it does, the fix folds into RC-2a). **Fold candidate** (PM decides): the open `#11-dom-api-attr-entity-model-unification` (the `elidex-dom-api` Attr handlers keep a second Attr-identity mode; ledger, that slot's entry), since an Attr clone needs the Attr entity model that slot settles | an Attr-node program, the fold, or RC-2a's diff touching that `match` | L3 (proposed): the stub is in `CloneNode`'s `invoke` in `elidex-dom-api`, beside the Attr handlers of its fold candidate | 2026-12-01 |
+| `#11-attr-clone-node` | `CloneNode` on an Attribute entity returns NotSupportedError (`node_methods/clone.rs:120-125`). **Reachable from Rust only** (R61-1, measured at `27b50dfe`, verified 2026-11-03; Rev 6 said "through `document.createAttribute`", which was wrong): the VM has no JS `createAttribute`, and a VM Attr is an `ObjectKind::Attr` wrapper whose prototype is `Attr.prototype` with `Object.prototype` as parent (`vm/host/attr_proto.rs:134-146`), not `Node.prototype`, so `attr.cloneNode` is `undefined` in the VM and the native `cloneNode` (which takes a `HostObject` `this`) is never reached. The dom-api `CreateAttribute` handler that spawns an Attribute entity (`char_data/attr.rs:18-38`) is named by no VM `invoke_dom_api` call and no Wasm host function (§0.3 item 32). As with D3, it is a Rust-API defect; from script the visible defect is the missing `Attr.cloneNode`, which belongs to the Attr model | not a Range defect: a range never holds an Attr, and RC-2a does not plan to edit `CloneNode`'s `invoke` (`node_methods/clone.rs:91`) (§5.2a; if it does, the fix folds into RC-2a). **Fold candidate** (PM decides): the open `#11-dom-api-attr-entity-model-unification` (the `elidex-dom-api` Attr handlers keep a second Attr-identity mode; ledger, that slot's entry), since an Attr clone needs the Attr entity model that slot settles | an Attr-node program, the fold, or RC-2a's diff touching that `match` | L3 (proposed): the stub is in `CloneNode`'s `invoke` in `elidex-dom-api`, beside the Attr handlers of its fold candidate; the reachability above goes to that slot's owner with D16 (hand-off H10) | 2026-12-01 |
 | `#11-script-element-prepare-lifecycle` (replaces Rev 3's conditional script-run slot) | elidex keeps no script-element "already started" or parser-document state (`git grep -n -i -w -E 'already_started\|parser_document' -- crates` = 0; the strict parser omits it on purpose, `text_only.rs:50-54`). So HTML §13.2.6.4.4 script start tag steps 2-3 cannot be represented: parser scripting modes Inert and Fragment give the same element, and the spec's difference (Inert's scripts never run; Fragment's run when inserted, HTML §4.12.1.1 prepare the script element) is not modelled. **Neighbour**: the closed `#11-tags-T2a-script-load-lifecycle` (roadmap `m4-12-platform-gap-roadmap.md`, that slot's row: "CLOSED 2026-05-16 (sweep A10 close-as-won't-fix)", about the `async` / `defer` load lifecycle of a dynamic `<script>.src`). This slot differs: it is the "already started" / parser-document state that decides *whether* an inserted parsed script runs at all, which createContextualFragment (Fragment) and innerHTML (Inert) must tell apart; T2a was about *when* a fetched script runs. The won't-fix reason (framework demand for dynamic `.src`) does not cover it | the defect is in script-element processing (dynamic script execution), not in Range; RC-4 adds the `Fragment` value and its tree mapping, which is all that is observable today (§5.4) | RC-4's per-PR plan answering (a), or a dynamic script-execution program | VM lane (proposed): script execution runs in the VM / script-session path, not in the DOM algorithms; L3 is the alternative, since RC-4's question (a) informs it | 2026-12-01 |
 | `#11-html5ever-fragment-scripting-mode` (conditional, §5.4 (e)) | the html5ever backend's tree for a Fragment-mode parse differs from the strict backend's (e.g. `<noscript>` with scripting enabled) | only if RC-4's question (e) finds a difference; a tolerant-path parser defect, not a Range one | RC-4's per-PR plan answering (e) | L3 (proposed): only RC-4's question (e) can find it, and the Fragment mapping in the html5ever backend is RC-4's code | 2026-12-01 |
 | `#11-live-range-bridge-wide-sibling-index` (X5) | past `MAX_ANCESTOR_DEPTH` (10,000) previous siblings, `EcsDom::index_in_parent` returns `None` and the tree primitives fire no `MutationEvent` (`navigation.rs:55-75`; `tree/mutation.rs:46`, `:75`, `:191`), so live ranges (and every other consumer) miss those updates | pre-existing and engine-wide (the bridge and every consumer share the fire site), not a Range-algorithm defect; Range's own derivations are uncapped (B3) | a wide-DOM program, or a report of a missed live-range update | L3 (proposed): the live-range bridge (`range/live.rs`) is L3's; the fire site in `elidex-ecs` is shared, so its plan coordinates with every consumer's owner | 2026-12-01 |
 | `#11-ce-reactions-method-scope-drain` (**proposed**, E2; the full registration proposal is in §9) | `[CEReactions]` methods do not invoke their element queue before returning (HTML §4.13.6 `[CEReactions]` steps 1-4); elidex drains only at checkpoints (§0.2, §9) | engine-wide (§9) | §9 | L3 (proposed, §9; Q-Z2): it owns the CE reactions and `#11-ce-element-queue-grouping` | 2026-12-01 |
 | `#11-fragment-parse-ce-upgrade-timing` (conditional, §5.4 (d)) | parsed custom elements get their upgrade reaction at insertion instead of at creation (HTML §13.2.6.1 steps 13, 15) | only if RC-4's question (d) finds a difference; a parser-path defect shared with innerHTML. Its fix should reuse or generalise RC-2a's `MutationEvent::CloneCreated` (a creation event the CE consumer handles at dispatch, §4.3) instead of adding a second creation mechanism such as an `ElementsCreated` event (R4 Ax2; one issue, one way); a parse runs inside `begin_detached_fragment`, where no event reaches a consumer, so such an event fires after the dispatcher is restored (§0.3 item 34) | RC-4's per-PR plan answering (d) | L3 (proposed): the CE reaction consumer and RC-2a's creation event are L3's, and RC-4's question (d) finds it | 2026-12-01 |
 | `#11-selection-error-fold` | `SelectionError` (`selection.rs:119-133`, five variants) keeps its own host mapper `map_selection_error` (`vm/host/dom_selection_proto.rs:304-335`), a second engine→host error mapper beside `dom_api_error_to_vm_error` after RC-1 folds `RangePointError` (E3; one issue, one way) | measured, not silent: every variant maps to the right DOMException today; its callers are the Selection API methods (18 production `SelectionError::` lines in `selection.rs`, verified 2026-11-03), which the program does not otherwise edit, so folding them is a Selection API change, not a Range one. RC-1's per-PR plan may fold it if its diff touches those methods (E3) | RC-1's per-PR plan (fold there or leave), or the next Selection API touch | L3 (proposed): the Selection API engine (`selection.rs`) and its VM natives are L3's, and RC-1 sets the canonical error form it folds into | 2026-12-01 |
-| `#11-document-null-registry-adopt-reset` (**proposed**, R6-1; the full registration text is in §9) | elidex has no document whose custom element registry is null and no adopt-time registry reset (DOM §4.5 adopt step 3.3.2), so custom elements in cloned / `createHTMLDocument` / DOMParser documents are upgraded there, where Chromium upgrades them only once they enter the main document (§0.4 D15, §0.3 item 33) | engine-wide (§9) | §9 | L3 (proposed, §9): it owns the CE registry association and the CE consumer that C0's `Adopt` arm feeds | 2026-12-01 |
+| `#11-document-null-registry-adopt-reset` (**proposed**, R6-1; the full registration text is in §9) | elidex has no document whose custom element registry is null and no adopt-time registry reset (DOM §4.5 adopt step 3.3.2), so custom elements in cloned and `createHTMLDocument` documents are predicted to be upgraded there (read from the code, not run) and DOMParser documents are unmeasured (their parse runs with the dispatcher removed, `inert_document.rs:112`), where Chromium upgrades them only once they enter the main document (§0.4 D15, §0.3 item 33) | engine-wide (§9) | §9 | L3 (proposed, §9): it owns the CE registry association and the CE consumer that C0c's `Adopt` arm feeds | 2026-12-01 |
 
 The two conditional slots (`#11-fragment-parse-ce-upgrade-timing`, `#11-html5ever-fragment-scripting-mode`) are
 registered only if their trigger finds the defect. Until then each is named in this memo with no ledger row, so each
@@ -1747,37 +1892,53 @@ that is the PM's call, and the listed order stands until then. RC-2b needs both 
 stated (PM 215 Q-Y1). Cross-lane:
 
 - **Suspension points (PM decision 201).** Each RC is a suspension point: after any merged slice, L3 may switch to P1
-  when C0 lands ("L3 switches to P1 at a slice boundary once C0 lands", PM 201). No slice is left half-landed; the
-  program resumes at the next RC.
+  when C0 lands ("L3 switches to P1 at a slice boundary once C0 lands", PM 201, written before PM 244 split C0; it
+  means the C0 program). No slice is left half-landed; the program resumes at the next RC.
 - **PR #578 has landed** (`169a0a7c`). `LiveRangeRef` is written against the post-#578 `engine_feature/` layout
   (§4.2); RC-1 no longer waits for anything outside the program.
-- **RC-2b is not gated on C0.** The node document of the nodes it creates is Layout's (§8). Its fragment creation has
-  a branch for each order (C3, R6-4): after C0 it calls C0's entry, before C0 it keeps today's call and C0 migrates
-  it (C0 §4.5 A6). Appendix A, re-run at RC-2b's head, goes to Layout.
+- **L3 and the C0 program (PM 244).** L3 depends on **C0b only** (RC-4's reader and entry). C0a (the replace record
+  order) touches no Range code and is no edge here. C0c (`EcsDom::adopt`, `MutationEvent::Adopt`, adoptNode) meets
+  RC-2a on the `MutationEvent` census and is the hook of the proposed `#11-document-null-registry-adopt-reset`, neither
+  an order. The edges below name RC-2a and RC-2b separately (R61-3 (f)).
+- **RC-2b and C0b on A6, the creation site (C3; PM 244 / 247).** RC-2b is not gated on C0b. RC-2b owns the call
+  `node_document_for_new_nodes(start node)` in extractContents and cloneContents; C0b owns the entry, the
+  `ownerDocument` cell for both orders and the census test. With C0b in RC-2b's base, RC-2b calls the entry, and once
+  C0b's condition (b) holds the compiler forces it. With RC-2b first, RC-2b keeps today's call and C0b's D-11
+  migration covers the site; that branch is the driver's reading and **depends on Layout's confirmation (PM 247)** of
+  C0b's conditions (a) (a census re-run at C0b's base and head) and (b) (test-only ownerless constructors), neither
+  of which held at C0 rev 2.1. The interim of that branch reads the main document through the fallback, as today's
+  extract does (C3). Appendix A, re-run at RC-2b's head, goes to Layout.
+- **RC-2a and C0b on `node_methods/clone.rs`, the pass-4 hand stamps (R61-3 (d), PM 247).** Once C0b's shallow
+  cloner stamps and `attach_shadow_with_init` takes its owner from the entry, the hand stamps at `clone.rs:282-285`
+  and `:294-301` are dead. Whichever of C0b and RC-2a lands second removes the ones dead at its head, and the other
+  side's DoD notes it. If C0b is in RC-2a's base, RC-2a writes no hand stamp at all. D14 deletes `:294-301` in either
+  order, because its loop no longer makes a shallow clone (§5.2a Tests). Layout adds the same conditional to C0b's
+  edge row (PM 247); hand-off H9.
 - **RC-2a (D14) before C1 on `node_methods/clone.rs`.** D14 and C1 rev 1 (`1a2cb286`, D-C6) edit the same lines
   (`clone.rs:262` pass 3's subtree flag, `:290` the step 6.7 child clone, `:294-301` the shallow-branch stamp). D14
   lands first and C1 rebases onto it (PM 215 Q-Y2; agreed by Layout, PM 216; C1 rev 2 `b518b32f` records it as
   edge c-D14). RC-0a's split of
-  `node_methods/tests/clone.rs` (§7) lands before both.
+  `node_methods/tests/clone.rs` (§7) lands before both. C1's per-segment `(old, new)` pairs (C0 rev 2 §4.6, D-C5 on
+  D-6) come after C0c (PM 244); that is a Layout edge, stated here only because C1 rebases onto RC-2a.
 - **`<template>` clone tests and C1.** RC-2a's and RC-2b's template tests assert structure, not node documents. The CE-pass rule
   (§4.3 condition 6) does not depend on C1.
 - **RC-0b before N9** (PM 207 Q-X2). RC-0b splits `html_fragment.rs`'s tests first (touch-time split: the first
   toucher splits); N9 rebases onto it.
-- **RC-2a and C0 on `MutationEvent` (H6; C0's edge c0e).** C0's `Adopt` and RC-2a's `CloneCreated` add variants to
+- **RC-2a and C0c on `MutationEvent` (H6; C0 rev 2's edge c0e).** C0c's `Adopt` and RC-2a's `CloneCreated` add variants to
   the same enum (`crates/core/elidex-ecs/src/dom/mutation_event.rs`), arms to the same consumer `match`es
-  (`CustomElementReactionConsumer::handle`, and C0's `Adopt` arm sits beside RC-2a's arm there), and rows to the same
+  (`CustomElementReactionConsumer::handle`, and C0c's `Adopt` arm sits beside RC-2a's arm there), and rows to the same
   census of exhaustive `MutationEvent` matches (§4.3 condition 1). Both also edit `crates/core/elidex-ecs/src/dom/mod.rs`
-  (§7). Neither waits for the other. **Whichever of the two lands second re-runs the census at its own head and adds
+  (§7), as C0b does. Neither waits for the other. **Whichever of the two lands second re-runs the census at its own head and adds
   its no-op arms to every exhaustive match the first one added**, and re-measures `dom/mod.rs` (§7). The PM tells
   Layout (PM 222); H6 below is the text.
-- **RC-4's dependencies** (§5.4; PM 215 Q-Y1, PM 216, PM 223): N9 landed (the enum; expected after Layout's slice b
+- **RC-4's dependencies** (§5.4; PM 215 Q-Y1, PM 216, PM 223, PM 244): N9 landed (the enum; expected after Layout's slice b
   and N4 / N5, the end of the node-memo chain, `docs/plans/2026-09-ibp-sandbox.md:585-594`; N4 lands the J12 route),
-  C0 (`node_document`, and C0's entry `EcsDom::node_document_for_new_nodes(source)`, C0 D-10, PM 223 / 227), and C1
+  C0b (`node_document`, and C0b's entry `EcsDom::node_document_for_new_nodes(source)`, C0 rev 2 D-10, PM 223 / 227), and C1
   (kept per PM 216; PM question, §5.4). This lists dependencies and makes no ordering claim. If any of them is late, the
   driver tells the PM before starting RC-4. Waiting is acceptable because createContextualFragment throws today
   (visible, not paydown (c)), and RC-1..3, which carry every silent-wrong fix, are not gated on N9. The
   `range/mutation.rs:632` line: N9 re-points it, RC-4 deletes it (§6).
-- **`mutation/mod.rs`** (994 lines, C0 edits it): re-measured at each per-PR plan (§7).
+- **`mutation/mod.rs`** (994 lines, the C0 program edits it): re-measured at each per-PR plan (§7).
 
 **Engine-wide `[CEReactions]` slots (E2).** The Range slices promise only that they add no divergence beyond these
 two. Both are about the reaction machinery every `[CEReactions]` method shares, not about Range.
@@ -1855,15 +2016,23 @@ two. Both are about the reaction machinery every `[CEReactions]` method shares, 
   `#11-clone-document-registry-rewrite`, which is folded into it and was never registered; the registration text for
   the PM, PM main-a2; every field below is ready to paste):
   - **Defect.** elidex has no document whose custom element registry is null, and no adopt-time registry reset (DOM
-    §4.5 adopt step 3.3.2: an element's registry becomes the adopting document's registry's effective global custom
-    element registry, `webref body dom concept-node-adopt`). elidex keeps one registry per VM, and an element's
+    §4.5 adopt step 3.3.2, `webref body dom concept-node-adopt`, for an element whose registry is null or not scoped:
+    3.3.2.1 registry = null; 3.3.2.2 if the element's registry is non-null, or its parent is null, or its parent is an
+    exclusive DocumentFragment, registry = the adopting document's custom element registry; 3.3.2.3 otherwise, for a
+    null-registry element under a non-null, non-DocumentFragment parent, registry = the result of looking up a custom
+    element registry given the parent; 3.3.2.4 the element's registry = registry's effective global custom element
+    registry). elidex keeps one registry per VM, and an element's
     `RegistryAssociation` is either `Document` (that registry; the default) or `Null` (permanent: never upgraded,
     `elidex-custom-elements/src/state.rs` doc, `upgrade.rs:74-76`). So custom elements in a document that has no
-    registry are treated as if it had the main one. **Today** (the pre-existing defect): elidex upgrades a defined
-    custom element inside `document.cloneNode(true)` there (predicted from the code: `propagate_ce_identity` copies
-    `Document`, `node_methods/clone.rs:344-366`); `document.implementation.createHTMLDocument('').createElement(…)`
-    (the VM creation path, `vm/host/custom_elements/creation.rs`) and DOMParser documents
-    (`elidex-form/src/inert_document.rs:110`) are the same class, unmeasured in elidex. **Target, measured in
+    registry are treated as if it had the main one. **Today** (the pre-existing defect; nothing below was run in
+    elidex): a defined custom element inside `document.cloneNode(true)` is **predicted** to be upgraded there
+    (`propagate_ce_identity` copies `Document`, `node_methods/clone.rs:344-366`, and `prepare_upgrade` skips only
+    `Null`); `document.implementation.createHTMLDocument('').createElement(…)` is **predicted** to be upgraded there
+    (the VM `createElement` native calls `route_custom_element_upgrade` on the created element whatever its document,
+    `vm/host/document.rs:355`, which skips only `Null`, `vm/host/custom_elements/creation.rs:160-186`); DOMParser
+    documents are **unmeasured**: `parse_into_inert_document` takes the dispatcher out for the whole parse
+    (`elidex-form/src/inert_document.rs:112`, restored at `:199`), so the insertion leg of the CE consumer enqueues
+    nothing during the parse, and no other upgrade path for the parsed elements has been checked. **Target, measured in
     Chromium** (HeadlessChrome 156.0.0.0, 2026-11-03, probe `handoff/l3-d15probe/index.html`, result `result.txt`; one
     engine, evidence not proof): no upgrade in any of those documents (also for `cloneContents` / `extractContents`
     inside a cloned document); after being appended into the main document each element upgrades (constructor, then
@@ -1876,27 +2045,29 @@ two. Both are about the reaction machinery every `[CEReactions]` method shares, 
     `Null` of `{customElementRegistry: null}` (Ax3's option (b)), set at creation (clone, `createElement` on such a
     document, the parser) and read by every upgrade path (creation, `define()`'s walk, insertion,
     `customElements.upgrade()`, the clone pass). (3) The adopt-time reset of DOM §4.5 adopt step 3.3.2 for the
-    non-scoped case, on C0's `EcsDom::adopt` (NEW: C0) and `MutationEvent::Adopt` (NEW: C0) (C0 D-2, D-6), after which insertion's upgrade
+    non-scoped case, all four sub-steps 3.3.2.1-3.3.2.4 (Defect above), on C0c's `EcsDom::adopt` (NEW: C0c) and
+    `MutationEvent::Adopt` (NEW: C0c) (C0 rev 2 D-2, D-6), after which insertion's upgrade
     attempt runs as today. (4) **Template contents (§4.3 condition 6), folded in** (decided here, R6-1): the inert
     template document is one of these documents, so condition 6's population and spec basis move into this slot, and
     today's walk-shape exclusion stays as the interim until it lands; keeping two rules for one concept is what Ax3
     flagged. The representation (a component on the document entity under the side-store rule, the association
     variant, the consumer arm) is the slot plan's to decide. Out of scope: scoped registries and adopt steps 3.2 /
-    3.3.2 for a scoped registry (`#11-shadow-scoped-custom-element-registry`, M4-14), which C0's §7 assigns steps 3.2
-    / 3.3.2 to as a family; this slot takes the non-scoped half.
+    3.3.2 for a scoped registry (`#11-shadow-scoped-custom-element-registry`, M4-14), which C0 rev 2's §7 assigns steps
+    3.2 / 3.3.2 to as a family; this slot takes the non-scoped half.
   - **Why deferred.** Engine-wide (creation, clone, parser, adopt), not a Range defect: the Range slices reach it only
     through the canonical cloner, and a Range-only rule would be a second rule for one concept. Rev 5's Range-local fix
     (a permanent `Null` on the clones of a document) would turn "upgraded too early" into "never upgraded" after
-    adoption, which the measurement shows is wrong. The reset also needs C0's adopt function, which is Layout's C0.
+    adoption, which the measurement shows is wrong. The reset also needs the adopt function, which is Layout's C0c.
     Every Range slice adds no new divergence on top of this defect (§5 preamble; RC-2a, RC-2b, RC-4 DoDs).
   - **Owner (proposed; the PM decides).** L3: it owns the CE registry association and the CE reaction consumer, which
-    is where C0's `Adopt` arm sits.
-  - **Trigger.** Any of: C0 landing (`EcsDom::adopt` (NEW: C0) and `MutationEvent::Adopt` (NEW: C0) exist, so the reset has its hook); a
+    is where C0c's `Adopt` arm sits.
+  - **Trigger.** Any of: C0c landing (`EcsDom::adopt` (NEW: C0c) and `MutationEvent::Adopt` (NEW: C0c) exist, so the reset has its hook); a
     test, WPT subset or report involving custom elements in a cloned, `createHTMLDocument` or DOMParser document; work
     on `#11-shadow-scoped-custom-element-registry`, which needs the same document-registry fact.
-  - **Re-eval.** 2026-12-01, the same as the other proposed slots, or C0's landing if earlier.
+  - **Re-eval.** 2026-12-01, the same as the other proposed slots, or C0c's landing if earlier.
   - **Relations.** (a) C0 rev 2 §7 row "adopt steps 3.2, 3.3.2 (registries)" → `#11-shadow-scoped-custom-element-registry`
-    family: this slot takes the non-scoped half of step 3.3.2, so that row is re-pointed for that half (hand-off H8).
+    family; that row belongs with the adopt function, so it is C0c's since PM 244. This slot takes the non-scoped half
+    of step 3.3.2, so that row is re-pointed for that half (hand-off H8).
     (b) `#11-shadow-scoped-custom-element-registry` (M4-14): the scoped half; when it lands, §4.3 condition 6's
     scoped-registry caveat is re-checked there. (c) `#11-clone-document-registry-rewrite` (Rev 5, proposed, never
     registered): folded into this slot; it needs a "Not registered by design" homing row while the memo names it.
@@ -1906,7 +2077,7 @@ two. Both are about the reaction machinery every `[CEReactions]` method shares, 
 **Definition of done.**
 
 - RC-0a, RC-1, RC-2a, RC-2b, RC-3 merged in that order (RC-2a may move ahead of RC-1 by PM decision, §9 Order); RC-2a
-  before C1's clone edit; RC-0b before N9; RC-4 after N9, C0 and C1. Each of RC-1, RC-2a, RC-2b, RC-3, RC-4 passed
+  before C1's clone edit; RC-0b before N9; RC-4 after N9, C0b and C1. Each of RC-1, RC-2a, RC-2b, RC-3, RC-4 passed
   its own `/elidex-plan-review` before implementation, and RC-2a's review covered the #466 reversal (R6-3).
 - Every §0.4 silent-wrong row in the program has its negative control, red before and green after, recorded in its
   PR body, or its green-branch regression pin (§0.4).
@@ -1961,26 +2132,32 @@ Rev 5: the #466 reversal goes to `/external-converge` R1 (PM 222); `#11-ce-eleme
 (PM 223); the C0 overlap is told to Layout by the PM (PM 222, H6); the new-node document entry is C0 rev 2's (PM 223),
 so Rev 4's H1 question is answered and dropped. Rev 6: D15 leaves the program for a slot, the RC-2a / RC-2b split, the
 #466 review venues and RC-2b's two C0 branches are driver decisions R6-1 … R6-4 (PM 231); Rev 5's
-`#11-clone-document-registry-rewrite` is withdrawn, folded into `#11-document-null-registry-adopt-reset`.
+`#11-clone-document-registry-rewrite` is withdrawn, folded into `#11-document-null-registry-adopt-reset`. Rev 6.1: the
+C0 split (PM 244), A6's owner (RC-2b's call, C0b's entry / cell / census test, PM 244), the hand-stamp conditional and
+the "depends on Layout's confirmation" mark (PM 247), and D16's reframing (R61-1, approved by PM 247) are decided.
 
 **Questions** (the PM decides):
 
 - **Q-Z1 (C1 as an RC-4 dependency).** PM 216 listed C1 because RC-4 needed `node_document_for_new_nodes`. PM 223
-  moves that entry to C0. Does C1 stay a dependency of RC-4? If not, C1 rev 2's edge c-E "RC-4 before C1" branch
+  moves that entry to C0 (C0b since PM 244). Does C1 stay a dependency of RC-4? If not, C1 rev 2's edge c-E "RC-4 before C1" branch
   becomes possible (§5.4). Rev 6 keeps C1 listed until the PM rules.
 - **Q-Z2 (owner of the proposed `#11-ce-reactions-method-scope-drain`).** Proposed L3; the VM lane is the alternative (§9). Merge
   with `#11-ce-reaction-mutation-observer-ordering` or not.
 - **Q-Z3 (owner and registration of the proposed `#11-document-null-registry-adopt-reset`).** Proposed L3 (§9). It
-  takes the non-scoped half of adopt step 3.3.2, which C0's §7 assigns, with step 3.2, to the
+  takes the non-scoped half of adopt step 3.3.2, which C0 rev 2's §7 (now with C0c) assigns, with step 3.2, to the
   `#11-shadow-scoped-custom-element-registry` family; the PM decides whether that row is re-pointed (H8).
 - **Q-Z4 (RC-2a's position).** RC-2a has no code dependency on RC-1 (§5.2a). The listed order is RC-1 → RC-2a; if C1
   is waiting on D14, the PM may put RC-2a first.
 - **Q-Z5 (owners of the §8 proposed slots).** Each row proposes an owner with a reason (§8 table); the PM assigns.
+- **Q-Z6 (Layout's confirmation for A6, PM 247; pending).** The RC-2b-first branch of A6 ("C0b's D-11 migration covers
+  the site") is the driver's reading and holds only if C0b gives (a) a census produced by a command re-run at C0b's
+  base and head and (b) test-only ownerless constructors (§2 C3). Layout's answer at rev 2.1 was "no" on both; the
+  restructure is changing both. The PM relays Layout's yes / no (H11). Until then the branch stays marked.
 
 **Hand-offs** (the memo edits neither Layout's files nor the ledger):
 
 - **H1 (Layout, statement)** RC-4's two creation sites (Appendix A11 / A12) pass `EcsDom::node_document_for_new_nodes(start_node)`
-  (C0 rev 2 D-10, which moves the strict `TreeBuilder`'s `pub(super)` `node_document_for_new_nodes`,
+  (C0 rev 2 D-10, C0b's since PM 244, which moves the strict `TreeBuilder`'s `pub(super)` `node_document_for_new_nodes`,
   `tree_builder/mod.rs:271`, into `EcsDom`; PM 223, PM 227). C1 rev 2 O-2 is thereby answered.
 - **H2 (Layout)** RC-0a splits `node_methods/tests/clone.rs` (§7), then RC-2a lands D14 on `node_methods/clone.rs`,
   and C1 rebases onto both (§9).
@@ -1993,14 +2170,16 @@ so Rev 4's H1 question is answered and dropped. Rev 6: D15 leaves the program fo
   four pre-existing slots (promote-to-PR, 2026-12-01); the roadmap row text. Also narrow and re-date the overdue
   `#11-insertadjacenthtml-context-validity` (§8). From Rev 5: interim "Not registered by design (conditional)"
   homing rows for `#11-fragment-parse-ce-upgrade-timing` and `#11-html5ever-fragment-scripting-mode` (§8); a homing
-  row for C0's proposed `#11-selection-document-membership` (owner L3, C0 H-L3) if this memo lands before C0 (§8);
+  row for C0's proposed `#11-selection-document-membership` (owner L3, C0 rev 2 H-L3) if this memo lands before the
+  C0 program registers it (§8);
   optionally a note on the closed `#11-clone-cloning-steps-event` that its mechanism becomes `CloneCreated` in RC-2a
   (§4.3 "#466 reversal"). New in Rev 6: a "Not registered by design (folded into
   `#11-document-null-registry-adopt-reset`)" homing row for `#11-clone-document-registry-rewrite` while the memo names
   it; the registration texts of `#11-ce-reactions-method-scope-drain` and `#11-document-null-registry-adopt-reset`
-  (§9, complete).
-- **H6 (Layout, via the PM, PM 222; C0 edge c0e)** C0's `Adopt` and RC-2a's `CloneCreated` share the `MutationEvent`
-  enum, the consumer `match`es and the census of exhaustive matches, and both edit `elidex-ecs` `dom/mod.rs`.
+  (§9, complete). New in Rev 6.1: a "Not registered by design (withdrawn, R61-1)" homing row for
+  `#11-static-range-attr-container` while the memo names it; the D16 facet line (H10).
+- **H6 (Layout, via the PM, PM 222; C0 rev 2 edge c0e, now C0c's)** C0c's `Adopt` and RC-2a's `CloneCreated` share the `MutationEvent`
+  enum, the consumer `match`es and the census of exhaustive matches, and both edit `elidex-ecs` `dom/mod.rs` (as C0b does).
   Whichever lands second re-runs the census at its head, adds its arms to every exhaustive match the first one added,
   and re-measures `dom/mod.rs` (§9, §7).
 - **H7 (Layout, observation)** C1 rev 2's edge c-E plans "RC-4 before C1" as one branch; PM 216 rules it out while C1
@@ -2008,15 +2187,45 @@ so Rev 4's H1 question is answered and dropped. Rev 6: D15 leaves the program fo
 - **H8 (Layout, via the PM; Q-Z3)** C0 rev 2 §7's row "adopt steps 3.2, 3.3.2 (registries)" →
   `#11-shadow-scoped-custom-element-registry` family: the non-scoped half of step 3.3.2 (an element of a null-registry
   document adopted into a registry-bearing one) is proposed `#11-document-null-registry-adopt-reset` (§9), which hooks
-  C0's `MutationEvent::Adopt` (NEW: C0). Also C0 H-L3 is applied: the getter fallback premise is fixed (§0.2), RC-2b's A6 follows
-  C0's two branches (§2 C3), and both named slots are L3's (§8).
+  C0c's `MutationEvent::Adopt` (NEW: C0c); the row moves with the adopt function to C0c. Also C0 rev 2 H-L3 is applied:
+  the getter fallback premise is fixed (§0.2), RC-2b's A6 follows the two C0b orders with RC-2b owning the call (§2
+  C3, PM 244), and both named slots are L3's (§8).
+- **H9 (Layout, via the PM; PM 247)** The pass-4 hand stamps of `node_methods/clone.rs` (`:282-285` the cloned host
+  and replicated shadow root, `:294-301` the `!deep` shadow-child stamp) are dead once C0b's shallow cloner stamps and
+  `attach_shadow_with_init` takes the entry's owner. Whichever of C0b and RC-2a lands second removes the ones dead at
+  its head, and the other notes it in its DoD; if C0b is in RC-2a's base, RC-2a writes no hand stamp at all. D14
+  removes `:294-301` in either order, because its loop no longer makes a shallow clone, so in the RC-2a-first order
+  only `:282-285` is left for C0b (§5.2a, §9). Layout adds the conditional to C0b's edge row (PM 247).
+- **H10 (PM, ledger; R61-1, PM 247; paste-ready, addressed to `#11-dom-api-attr-entity-model-unification`)** Facet
+  (added 2026-11-03, from the Range contents umbrella Rev 6.1, `docs/plans/2026-11-range-contents-program.md` §0.3
+  item 32 / §0.4 D16): *StaticRange constructor with an Attr container.* DOM §5.4 `new StaticRange(init)` step 1:
+  "If init["startContainer"] or init["endContainer"] is a DocumentType or Attr node, then throw an
+  "InvalidNodeTypeError" DOMException" (`webref body dom dom-staticrange-staticrange`). In the VM at `27b50dfe` an Attr
+  is an `ObjectKind::Attr` wrapper with no entity (`vm/host/attr_proto.rs:175-189`), so
+  `new StaticRange({startContainer: el.getAttributeNode('a'), startOffset: 0, endContainer: el, endOffset: 0})`
+  throws **TypeError** at `require_node_arg` (`vm/host/static_range_proto.rs:225-226` → `vm/host/node_proto.rs:271-284`,
+  "parameter is not of type 'Node'") instead of InvalidNodeTypeError: a visible wrong-exception divergence whose
+  root is the Attr model, not a Range check. The doctype half is folded into the engine by Range RC-1 (E3), which
+  adds no Attr branch (an Attr entity is not reachable from script). *Reachability, measured at `27b50dfe`*: the VM
+  has no JS `createAttribute` (`git grep -n createAttribute -- crates/script/elidex-js/src` hits test comments
+  only); the dom-api `CreateAttribute` / `GetAttributeNode` handlers, the only callers of `EcsDom`'s `create_attribute`
+  (`char_data/attr.rs:35`, `:90`), are named by no VM `invoke_dom_api` call and no Wasm host function, so an
+  Attribute entity is reachable from Rust only. The same holds for `CloneNode`'s Attribute stub
+  (`node_methods/clone.rs:120-125`, proposed `#11-attr-clone-node`, fold candidate of this slot): `Attr.prototype`'s
+  parent is `Object.prototype` (`vm/host/attr_proto.rs:134-146`), so `attr.cloneNode` is undefined in the VM. When
+  this slot gives Attr a Node entity, it adds the Attr half of StaticRange step 1 to Range's engine check (the one
+  RC-1 creates) and the Attr clone.
+- **H11 (Layout, via the PM; Q-Z6, PM 247)** A6 in the RC-2b-first order rests on C0b's conditions (a) (the creation
+  census is a population produced by a command re-run at C0b's base and head) and (b) (the ownerless constructors are
+  test-only, so a production caller does not compile). Under (b) the C0b-first order is also enforced by the
+  compiler (§2 C3). Layout confirms or declines each; the memo claims neither at rev 2.1.
 
 **Proposed slots** (register, fold or decline; Why / trigger / re-eval / owner in §0.4, §8 and §9):
 
 - From §0.4, closed by the program's own slices (owner L3, the program's lane): `#11-range-contained-enumeration-end-element` (D4),
   `#11-range-delete-extract-new-boundary` (D5), `#11-range-insert-node-step13-timing` (D12),
   `#11-range-compare-points-shadow-index` (D13, raw-sibling tree access), `#11-range-insert-node-validity` (D10,
-  D11), `#11-static-range-attr-container` (D16, new in Rev 6), `#11-range-contents-doctype-check` (D9). Folded IDs
+  D11), `#11-range-contents-doctype-check` (D9). Folded IDs
   need "Not registered by design" homing rows.
 - From §8 / §9, outside the program (owners proposed in the §8 table): `#11-trusted-types`,
   `#11-processing-instruction-clone`, `#11-attr-clone-node` (fold candidate `#11-dom-api-attr-entity-model-unification`),
@@ -2028,15 +2237,18 @@ so Rev 4's H1 question is answered and dropped. Rev 6: D15 leaves the program fo
 - Withdrawn, never registered; each needs a "Not registered by design" homing row while the memo names it:
   `#11-range-contents-node-document` (R2's D8, now a facet of `#11-ownerless-node-creation`);
   `#11-fragment-script-run-on-insert` (Rev 3's conditional, replaced by `#11-script-element-prepare-lifecycle`);
-  `#11-clone-document-registry-rewrite` (Rev 5's D15 slot, folded into `#11-document-null-registry-adopt-reset`, R6-1).
+  `#11-clone-document-registry-rewrite` (Rev 5's D15 slot, folded into `#11-document-null-registry-adopt-reset`, R6-1);
+  `#11-static-range-attr-container` (Rev 6's D16 slot, withdrawn by R61-1: D16 is a facet of the registered
+  `#11-dom-api-attr-entity-model-unification`, H10).
 
 **For the per-PR plans** (not PM questions): RC-1: the `RangePointError` and host-side error fold, including
-`range_proto_mutation.rs`'s HierarchyRequestError and the StaticRange constructor (E3); whether `SelectionError` folds
-there (E3, §8); D10 / D11 / D12 / D13 / D16 measurements; the cap-policy justifications (§5.1 DoD). RC-2a: the
-Attribute-stub check (§5.2a); the census of exhaustive `MutationEvent` matches, re-run if C0 lands first (§4.3
-condition 1, §9); the no-dispatcher-window ratchet (§0.3 item 34); the #466 reversal review (R6-3); where the form
-pass's first-level walk calls `for_each_clone_created` (§4.3 condition 4). RC-2b: which C0 branch applies at its base
-(§2 C3); the D-g′ ordering mutant run. RC-4: §5.4 (a)-(e); the P4 producer; whether J12 needs a new wrapper in
+`range_proto_mutation.rs`'s HierarchyRequestError and the StaticRange constructor's doctype check, with no Attr
+branch (E3); whether `SelectionError` folds there (E3, §8); D10 / D11 / D12 / D13 measurements; the cap-policy justifications (§5.1 DoD). RC-2a: the
+Attribute-stub check (§5.2a); the census of exhaustive `MutationEvent` matches, re-run if C0c lands first (§4.3
+condition 1, §9); the no-dispatcher one-shot census and whether it becomes a standing check (§0.3 item 34); which
+pass-4 hand stamps it removes, by C0b's state at its base (§5.2a, H9); the #466 reversal review (R6-3); where the form
+pass's first-level walk calls `for_each_clone_created` (§4.3 condition 4). RC-2b: which C0b branch applies at its base
+(§2 C3), and Layout's answer on (a) / (b) if RC-2b lands first; the D-g′ ordering mutant run. RC-4: §5.4 (a)-(e); the P4 producer; whether J12 needs a new wrapper in
 `settings_route.rs`.
 
 ## Appendix A. Range node-creation sites for C0 rev 2
@@ -2052,18 +2264,18 @@ modules of `range/live.rs` (from `:498`) and `selection.rs` (from `:676`). After
 
 | # | Site | Creates | Owner today | Fate in the program |
 |---|---|---|---|---|
-| A1 | `range/mutation.rs:266` (extract) | the result DocumentFragment | **ownerless**: `create_document_fragment()` → owner `None` (`crates/core/elidex-ecs/src/dom/mod.rs:519-521`) | replaced by A6 (RC-2b), or migrated by C0 if C0 lands first (C0 §4.5 A1) |
-| A2 | `range/mutation.rs:303` (extract, same Text container) | Text clone | **ownerless**: `create_text` → owner `None` (`dom/mod.rs:492-494`) | replaced by A7 (RC-2b), or migrated by C0 if C0 lands first (C0 §4.5 A2-A4) |
-| A3 | `range/mutation.rs:354` (extract, partial start Text) | Text clone | **ownerless** (same) | replaced by A7 (RC-2b), or migrated by C0 if C0 lands first (C0 §4.5 A2-A4) |
-| A4 | `range/mutation.rs:392` (extract, partial end Text) | Text clone | **ownerless** (same) | replaced by A7 (RC-2b), or migrated by C0 if C0 lands first (C0 §4.5 A2-A4) |
-| A5 | `range/mutation.rs:505` (insertNode step 7) | the split Text tail, via `split_text_at_offset` | `create_text_with_owner(tail, owner_document(text))` (`char_data/split_text.rs:148-149`): owned when the Text resolves an owner, including through `owner_document`'s tree-position fallback, which C0 D-1 deletes | unchanged (RC-1 keeps the primitive) |
-| A6 | RC-2b contents algorithm, "clone the contents" / "extract" step 1 | the result DocumentFragment | (planned) **C0 first**: `create_document_fragment_with_owner(node_document_for_new_nodes(start_node))`, stamped; **RC-2b first**: today's `create_document_fragment()`, ownerless as A1 (§2 C3, R6-4) | C0 first: RC-2b calls the entry; RC-2b first: C0 migrates the site (C0 §4.5 A6) |
+| A1 | `range/mutation.rs:266` (extract) | the result DocumentFragment | **ownerless**: `create_document_fragment()` → owner `None` (`crates/core/elidex-ecs/src/dom/mod.rs:519-521`) | replaced by A6 (RC-2b), or migrated by C0b if C0b lands first (C0 rev 2 §4.5 A1) |
+| A2 | `range/mutation.rs:303` (extract, same Text container) | Text clone | **ownerless**: `create_text` → owner `None` (`dom/mod.rs:492-494`) | replaced by A7 (RC-2b), or migrated by C0b if C0b lands first (C0 rev 2 §4.5 A2-A4) |
+| A3 | `range/mutation.rs:354` (extract, partial start Text) | Text clone | **ownerless** (same) | replaced by A7 (RC-2b), or migrated by C0b if C0b lands first (C0 rev 2 §4.5 A2-A4) |
+| A4 | `range/mutation.rs:392` (extract, partial end Text) | Text clone | **ownerless** (same) | replaced by A7 (RC-2b), or migrated by C0b if C0b lands first (C0 rev 2 §4.5 A2-A4) |
+| A5 | `range/mutation.rs:505` (insertNode step 7) | the split Text tail, via `split_text_at_offset` | `create_text_with_owner(tail, owner_document(text))` (`char_data/split_text.rs:148-149`): owned when the Text resolves an owner, including through `owner_document`'s tree-position fallback, which C0b deletes (C0 rev 2 D-1) | unchanged (RC-1 keeps the primitive) |
+| A6 | RC-2b contents algorithm, "clone the contents" / "extract" step 1 | the result DocumentFragment | (planned) **C0b in RC-2b's base**: `create_document_fragment_with_owner(node_document_for_new_nodes(start_node))`, stamped; **RC-2b first**: today's `create_document_fragment()`, ownerless as A1 (§2 C3, R6-4) | **RC-2b owns the call in both orders, C0b owns the entry, the `ownerDocument` cell and the census test (PM 244).** C0b in the base: RC-2b calls the entry (compiler-enforced once C0b's condition (b) holds); RC-2b first: C0b's D-11 migration covers the site, **depending on Layout's confirmation of C0b's conditions (a) and (b) (PM 247, §2 C3)**; interim: `ownerDocument` reads the main document through the getter's fallback, as today's extract |
 | A7 | RC-2b, CharacterData clones (same-container and partial start / end cases) | shallow canonical clone + set data | (planned) `clone_node_with_shadow_honor(deep = false)` → `clone_node_shallow` stamps none (`node_methods/clone.rs:320-326`): **ownerless** | owner rule: Layout |
 | A8 | RC-2b, "a clone of" the first / last partially contained child | shallow canonical clone of an element | (planned) as A7: **ownerless**. If the child is a clonable shadow host, the replicated shadow root and its children are stamped from `owner_document(src)` (`node_methods/clone.rs:239-243`, `:282-285`, `:294-301`) | owner rule: Layout |
 | A9 | RC-2b clone mode, contained children | deep canonical clone | (planned) `clone_subtree` stamps the root and every descendant from `owner_document(src)` (`crates/core/elidex-ecs/src/dom/tree_clone.rs:204-232`); **ownerless** when the source resolves no owner (`:223-227`) | owner rule: Layout |
 | A10 | RC-2b, `<template>` clones under A8 / A9 | template content fragment and its clones | `attach_template_contents(dst, clone_doc)` (`node_methods/clone.rs:422`), `clone_doc` = `owner_document(src)` | C1 (`#11-template-contents-owner-document`) |
-| A11 | RC-4, HTML §8.5.7 step 6 | the `body` context element | (planned) created in the start node's node document | `node_document_for_new_nodes(start_node)`, C0's entry (C0 D-10; PM 223, PM 227) |
-| A12 | RC-4 result | the DocumentFragment holding the parsed roots | (planned) node document = the start node's (P4) | `node_document_for_new_nodes(start_node)`, C0's entry (C0 D-10; PM 223, PM 227) |
+| A11 | RC-4, HTML §8.5.7 step 6 | the `body` context element | (planned) created in the start node's node document | `node_document_for_new_nodes(start_node)`, C0b's entry (C0 rev 2 D-10; PM 223, PM 227) |
+| A12 | RC-4 result | the DocumentFragment holding the parsed roots | (planned) node document = the start node's (P4) | `node_document_for_new_nodes(start_node)`, C0b's entry (C0 rev 2 D-10; PM 223, PM 227) |
 
 Not Range sites: the nodes the fragment parse creates (parser path, `html_fragment.rs` / the parser crates); RC-3
 creates no node (`newParent` is the caller's); `selection.rs:687`, `:692` are test helpers.
