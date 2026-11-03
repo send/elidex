@@ -1,6 +1,6 @@
 # C0c `EH-attrs-at-creation-C0c` — the adoption notification (`adoptedCallback`) and `document.adoptNode` (per-PR plan memo)
 
-Per-PR slice **C0c** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.1;
+Per-PR slice **C0c** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.2;
 "the program memo"), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program
 decisions **D-3 (c), D-6, D-13, D-19**, after its prerequisite pure-move splits **D-14 (b), (d), (e)** ((d) / (e) unless L3
 RC-0a has done them), on C0b's head. It closes
@@ -25,7 +25,8 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.1* (2026-11-03, with the program memo's rev 3.1): §1 states why `adoptNode` stays in this PR (R2
+**Changelog.** *Rev 3.2* (2026-11-03, with the program memo's rev 3.2; PM 273): DoD 8 — the C0 program PR that lands
+after #583 compares the shared points' wording (program §9 item 6). *Rev 3.1* (2026-11-03, with the program memo's rev 3.1): §1 states why `adoptNode` stays in this PR (R2
 Ax3 MIN-7); D-14 (e)'s L3 side is RC-0a (L3 #583 `55d35a16`). *Rev 1* (2026-11-03): first draft, carved from the C0 memo rev 2.1 (`d262ca8c`) D-3 (c) / D-6 / D-13 /
 T6, T7, T14–T16, T18 / U13 per plan-review R1's SPLIT and PM 244; D-19 decided (R1 Ax1 MIN-2); §4.7's layering table
 added (Ax1 MIN-1); `[CEReactions]` drain point stated (Ax4 MIN).
@@ -307,3 +308,4 @@ the method-scope reaction drain.
 6. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md`
    and on the program memo exit 0 (run).
 7. The umbrella row's C0c clause updated; the PM has applied R-1 and R-2.
+8. If this is the C0 program PR that lands after #583: program §9 item 6 (PM 273).

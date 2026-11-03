@@ -1,6 +1,6 @@
 # C0b `EH-attrs-at-creation-C0b` — the node document is the stored fact: one creation entry, insertion adoption, one reader (per-PR plan memo)
 
-Per-PR slice **C0b** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.1;
+Per-PR slice **C0b** of the C0 program (program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, rev 3.2;
 "the program memo"), under the umbrella `docs/plans/2026-10-event-handler-attrs-at-creation.md`. It carries program
 decisions **D-1, D-2 (without the `Adopt` event), D-3 (a)(b), D-4, D-5, D-7, D-8, D-10, D-11, D-15 (iii), D-17, D-18,
 D-20, D-21**, after two prerequisites: D-14 (c) (the `table_mutation/mod.rs` pure-move split) and the CI/tools
@@ -11,7 +11,8 @@ header (C1 rev 3.1 `b5e47f4b`, L3 Rev 6.1 / PR #583 `a164ffe0`, T3 rev 3, N1 lan
 **Placement.** PM 143 / 153 (C0 before C1, order N1 → C0 → C1 → T3 → slice b); PM 223 O-2 (the entry in `EcsDom`);
 PM 244 (C0b = the node-document fact, unsplittable; `adoptedCallback` stays uncalled as on HEAD; the `Adopt` variant
 does not exist yet); PM 255 (user decision γ: the default-features check is a CI/tools PR before C0b; C0b adds the
-fixture-boundary script); PM 258 (the guard by property; the Attr relation in C0b; D-14 (c) a prereq). Program order:
+fixture-boundary script); PM 263 (that step is the default-features Clippy step); PM 266 (the script's claim is
+`fixtures` only); PM 258 (the Attr relation in C0b; D-14 (c) a prereq). Program order:
 C0a → **C0b** → C0c (C0a may land any time before C0b).
 
 **Scope.** One fact — the node document, stored as `AssociatedDocument`:
@@ -32,7 +33,14 @@ C0a → **C0b** → C0c (C0a may land any time before C0b).
 spec-order walk and `document.adoptNode` (C0c: D-3 (c), D-6, D-13, D-19); the *replace* record order (C0a); template
 contents' owner `f` (C1); program §7.
 
-**Changelog.** *Rev 3.1* (2026-11-03, with the program memo's rev 3.1; plan-review R2 of the program, PM 255 / 258):
+**Changelog.** *Rev 3.2* (2026-11-03, with the program memo's rev 3.2; PM 263 / 266 / 273 and the D-21 re-check of
+rev 3.1): D-17 (4) claims only that `fixtures` is enabled from `[dev-dependencies]` only, read from `cargo tree`; the
+classification table and the generic claim are dropped (the generic guard: program R-9); the CI/tools step is the
+default-features Clippy step (PM 263); U17 reduced to its `fixtures` and default-build controls. D-21: the replace
+order (the cache entry before the set chokepoint), the reverse pointer at the owner's despawn, `attr.rs:145` / `:214`
+added to the replaced reads; U19 gains the return value, the old Attr's value and the despawn leg;
+`char_data/tests/attr.rs:430-449` rewritten to a reachable state and the handler's dead guard deleted. DoD 11 (PM
+273). *Rev 3.1* (2026-11-03, with the program memo's rev 3.1; plan-review R2 of the program, PM 255 / 258):
 D-21 (NEW: the Attr relation; U19); D-17 (4) split per PM 255 and the guard by property over every test-only feature;
 D-18's type crate-private; D-11's CE owner decision in `elidex-custom-elements` (U20); D-14 (c) a prereq; the parent's
 F10 line carried here (§8); §1's verdict reasons; DoD 9 aligned with PM 249; the `27b50dfe` census snapshot moved here
@@ -154,26 +162,23 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   code cannot create"; `crates/core/elidex-ecs/Cargo.toml` gains `[features] fixtures = []`. Every crate whose tests call
   them (26 crates at `27b50dfe`, verified 2026-11-03: `git grep -l -E '\.create_(element|text|comment|document_fragment)\(' -- 'crates/*.rs'
   | cut -d/ -f1-3 | sort -u | wc -l`) enables the feature in `[dev-dependencies]` only; no `.rs` file changes for it.
-  (4) **The guard, split by PM 255.** The default-features `cargo check --workspace` step in CI's `check` job, its
-  `mise run ci` task and the CLAUDE.md exception to the all-features rule (H-b4) are the **CI/tools default-features
-  check PR**'s, landed before C0b (edge c0-pre-ci; green at `27b50dfe`, run 2026-11-03). C0b adds
-  `scripts/check-fixture-boundary.sh` (NEW) and appends its invocation to that step and that task; C0b writes no
-  CLAUDE.md line and adds no step or task. The script's property (PM 258): *every feature that exposes test-only API is
-  enabled only from `[dev-dependencies]`*. It holds `FEATURE_CLASS`, a table classifying every `[features]` key of every
-  tracked `Cargo.toml` (`default` excluded) as `test-only` or `product` — at C0b: `test-only` `elidex-ecs/fixtures`,
-  `elidex-net/test-hooks`; `product` `elidex-style/parallel`, `elidex-js/compat-webapi`, `elidex-js/engine`,
-  `elidex-script-session/web-storage`, `elidex-storage-core/web-storage` (program H-24) — and fails (i) if a key is
-  missing from the table (H-24's `awk` enumeration; an unknown falls on the guarded side), (ii) if a table row names
-  no existing key (a stale row), (iii) if `cargo tree --workspace -e normal,features -i <crate>` lists `<crate> feature
-  "<f>"` for a `test-only` `<f>` (H-24: the `-e normal` filter drops dev edges, so the assertion is not always red).
-  *Why a table in the script:* one place, beside the guard that reads it; fail-closed by (i); readable with POSIX
-  `awk` / `grep` (the `check` job declares no language runtime, CLAUDE.md *CI*). *Rejected:* a per-crate
-  `[package.metadata]` marker (fails open: an unmarked test-only feature escapes; `cargo metadata` needs a JSON
-  parser); a naming convention (binds existing names, `test-hooks` / `fixtures`, and fails open the same way). The
-  guarantee, scoped (program A8): in the workspace's default-features build — CI's step and every product build — an
-  argumentless creator does not exist, so an unmigrated production call does not compile, and no normal edge turns on
-  a test-only feature; production code has no way to construct an ownerless `NewNodeOwner`. Outside it: code under a
-  product feature no member enables (`elidex-style/parallel`, creating no node, H-24).
+  (4) **The guard, split by PM 255.** The default-features Clippy step in CI's `check` job ("Clippy (default
+  features, no dev-only feature)": `cargo clippy` over the workspace with default features and `-D warnings`, PM 263),
+  its `mise run ci` task and the CLAUDE.md exception to the all-features rule (H-b4) are the **CI/tools
+  default-features check PR**'s, landed before C0b (edge c0-pre-ci; the default-features build it compiles was green at
+  `27b50dfe` as a `cargo check`, run 2026-11-03). C0b adds `scripts/check-fixture-boundary.sh` (NEW) and appends its
+  invocation to that step and that task; C0b writes no CLAUDE.md line and adds no step or task. The script's claim
+  (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads the population from
+  cargo: it runs `cargo tree --workspace -e normal,features -i elidex-ecs` and fails if the output contains
+  `elidex-ecs feature "fixtures"` (program H-24: the `-e normal,features` tree carries no dev edge, and the same form
+  shows `test-hooks` under `-e normal,dev,features`, so the check is not vacuous; the only target-specific dependency
+  tables, `elidex-sandbox`'s, name external crates only, so the host-target tree is complete for `fixtures`). It reads
+  no manifest text, so a quoted key or an implicit feature of an optional dependency cannot hide an edge from it. The
+  generic guard over other dev-only features is not C0b's (program R-9). The guarantee, scoped (program A8): in the
+  workspace's default-features build — CI's step and every product build — an argumentless creator does not exist, so
+  an unmigrated production call does not compile, and no normal edge turns on `fixtures`; production code has no way
+  to construct an ownerless `NewNodeOwner`. Outside it: code under a product feature no member enables
+  (`elidex-style/parallel`, creating no node, H-24).
 - **D-18 — visibility.** `adopt_subtree` private (in `mutation.rs`); `set_associated_document` / `get_associated_document`
   `pub(crate)`; the type `AssociatedDocument` `pub(crate)` and out of the re-export (`lib.rs:30`), so no code outside
   `elidex-ecs` can name it — `insert_one`, `get::<&mut _>`, a copy or `world_mut().remove_one::<_>` of it do not
@@ -198,12 +203,26 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   `node_document_for_new_nodes(element)`; `GetAttributeNode`'s cache logic moves here); `set_attr_node(element, attr)`
   (DOM *set an attribute* 2–8: the in-use check, then *append an attribute* 1–3 or *replace an attribute* 2–5 — cache
   entry, element, node document = the element's, the old Attr's element null — with the value and *handle attribute
-  changes* through the existing `set_attribute` chokepoint); and the `remove_attribute` chokepoint (`attribute.rs:291`)
+  changes* through the existing `set_attribute` chokepoint — **in this order**: the cache entry is swapped and both
+  elements written (*replace* 2–5; *append* 1–3) before the chokepoint runs (*replace* 6 / *append* 4, *handle attribute changes*), because the
+  chokepoint's `sync_cached_attr_value` (`crates/core/elidex-ecs/src/dom/attribute.rs:245-256`) writes the new value into
+  the Attr its cache entry names, so swapping first leaves the old Attr's value as it was; it returns the old Attr (*set
+  an attribute* 8) or the Attr itself when it is already the element's (step 4)); and the `remove_attribute` chokepoint (`attribute.rs:291`)
   evicts a materialized Attr and nulls its element (*remove an attribute* 2–3), as `sync_cached_attr_value` already
   keeps its value in the set chokepoint. `AttrEntityCache` (type and field) and `AttrData.owner_element` become `pub(crate)` —
   `AttrEntityCache` leaves the re-export (`lib.rs:30`), its only outside users being the handlers this decision empties
   (`git grep -n AttrEntityCache -- 'crates/*.rs' ':!crates/core/elidex-ecs'` → `char_data/attr.rs`, `element/props.rs`,
-  a VM comment); `attr_owner_element(attr)` (NEW, pub) replaces the dom-api reads (`attr.rs:317`, `:359`); `SetAttributeNode`, `RemoveAttributeNode`, `RemoveAttribute`
+  a VM comment); `attr_owner_element(attr)` (NEW, pub) replaces the dom-api reads (`char_data/attr.rs:145`, `:214`,
+  `:317`, `:359`). **The reverse pointer at despawn:** `destroy_entity` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:51`)
+  nulls the element of every Attr in the despawned element's `AttrEntityCache` and, when the despawned entity is an
+  Attr, removes it from its element's cache — beside the cross-references it already clears before the despawn (the
+  shadow host / root pair `:56-71`, the children's parent links `:121-131`). *Why there, not "readers treat a dead
+  owner as null":* the relation's one writer stays `elidex-ecs` and keeps both encodings true at every state, so no
+  reader needs a liveness check and none can return a dead entity (hecs' generation makes a stale `Entity` unaliased,
+  not meaningful); a reader-side rule would be a second derivation of the relation, repeated in every reader. So
+  `RemoveAttributeNode`'s guard for "the Attr still pointing at a despawned element" (`char_data/attr.rs:221-225`,
+  `require_live_element`) has no input left and is deleted with its comment (the chokepoint's Element guard,
+  `attribute.rs:299`, covers a non-Element receiver; `:214` rejects an Attr not on `this`). `SetAttributeNode`, `RemoveAttributeNode`, `RemoveAttribute`
   (`props.rs:148`) and `GetAttributeNode` keep only marshalling and error mapping. *Rejected:* the SoT as a query over
   `AttrData.owner_element` (a world scan per adopted element, and the cache stays for identity: still two encodings,
   one of them then unmaintained); stamping inside the dom-api handlers (four partial writers of one relation: H-23's
@@ -456,7 +475,11 @@ correct), `:140-147` ("legacy entities relying on the tree-root Document fallbac
 - **P-10 Attr relation writers** (D-21): `git grep -n -E 'owner_element *=|AttrEntityCache' -- 'crates/*.rs'
   ':!crates/core/elidex-ecs'` → 23 lines at `27b50dfe`: `char_data/attr.rs` 9 (writes `:97`, `:180`, `:233`; cache `:3`, `:61`, `:77`, `:101-107`), `element/props.rs` 3,
   dom-api tests writing `owner_element` directly (`char_data/tests/attr.rs` 6, `node_methods/tests/contains_compare.rs`
-  3: rewritten over `set_attr_node`, §5.2), a VM comment (`element_attrs.rs:374`) and a property-name table entry
+  3: rewritten over `set_attr_node`, §5.2; one of them, `char_data/tests/attr.rs:430-449`
+  `remove_attribute_node_on_non_element_errors_without_detaching`, builds an Attr whose element is a Document, a state
+  `set_attr_node` cannot produce and D-21's despawn rule removes, so it is rewritten to the reachable shape — the Attr set
+  on an element `e` through `set_attr_node`, `RemoveAttributeNode` invoked with the Document as receiver → error, and
+  `attr_owner_element(attr) == Some(e)` — not rebuilt through an `elidex-ecs`-internal fixture), a VM comment (`element_attrs.rs:374`) and a property-name table entry
   (`vm/well_known.rs:417`, not a write); at C0b's head the last two only.
 
 ### §5.2 Existing tests whose expectation changes
@@ -554,8 +577,8 @@ id=s></span></div>', 'text/html')`; `dp2` a second one.
 | U12 | guard (dom-api) | a DOMParser document's tree after `CreateAttribute`, `cloneNode(false)`, the table helpers, `append('s')`, `splitText`, `textContent`, Range extract (and cloneContents if present) — every created node stamped. A value check, **not** the census (D-17 is) | all stamped |
 | U15 | red (dom-api) | `ownerDocument.get` on an element whose document was destroyed (stamp dangling), with a bound document present | `JsValue::Null` (base: the bound document) |
 | U16 | red (dom-api, H-17) | `CreateAttribute` on Document `X` → the Attr entity's `node_document == X`; `GetAttributeNode` on an element of `X` → the cached entity stamped `X`; append the element under `D` → the cached entity stamped `D` | as stated (the dom-api Attr path is not reached from the VM; `#11-dom-api-attr-entity-model-unification`) |
-| U17 | control (D-17) | in a scratch clone: (a) add `dom.create_element("x", Default::default())` to a non-test fn of `elidex-dom-api` → the CI/tools default-features `cargo check` step fails (while `cargo clippy --all-features` compiles it: why the step exists); (b) add `features = ["fixtures"]` to `elidex-dom-api`'s normal `elidex-ecs` dependency → `bash scripts/check-fixture-boundary.sh` fails at (iii); (c) add `features = ["test-hooks"]` to `elidex-js`'s normal `elidex-net` dependency (`Cargo.toml:84`) → fails at (iii); (d) add an unclassified `[features] probe = []` to any crate → fails at (i); (e) a `FEATURE_CLASS` row naming a missing key → fails at (ii); (f) revert → green | recorded in the PR |
-| U19 | red (dom-api, D-21) | Attr `a` from `CreateAttribute` on Document `Y` (`node_document(a) == Y`); `SetAttributeNode(a)` on element `e` of Document `X` → `node_document(a) == X` (*append* 3) and `GetAttributeNode(e, name)` returns `a` (same entity, *append* 1); `append_child` of `e` under a node of `D` → `node_document(a) == D`; `SetAttributeNode(b)` with the same name → `attr_owner_element(a) == None` (*replace* 5); adopt `e` into `X` → `a` keeps `D`, `b` is `X`; `RemoveAttributeNode(b)`, then adopt `e` into `D` → `b` keeps `X`; `GetAttributeNode` then `RemoveAttribute(name)` → the removed Attr keeps its document across the next adopt. Observation: `EcsDom::node_document(attr)` and `attr_owner_element(attr)` read in the test (the VM never reaches these handlers, H-17) | base: `a` unstamped from creation (`create_attribute` takes no owner, H-4) and after `SetAttributeNode`, never re-homed, and `GetAttributeNode` returns a new entity; C0b: as stated |
+| U17 | control (D-17) | in a scratch clone: (a) add `dom.create_element("x", Default::default())` to a non-test fn of `elidex-dom-api` → the CI/tools default-features Clippy step fails (while `cargo clippy --all-features` compiles it: why the step exists); (b) add `features = ["fixtures"]` to `elidex-dom-api`'s normal `elidex-ecs` dependency → `bash scripts/check-fixture-boundary.sh` fails; (c) revert → green | recorded in the PR |
+| U19 | red (dom-api, D-21) | Attr `a` from `CreateAttribute` on Document `Y` (`node_document(a) == Y`); `SetAttributeNode(a)` on element `e` of Document `X` → `node_document(a) == X` (*append* 3) and `GetAttributeNode(e, name)` returns `a` (same entity, *append* 1); `append_child` of `e` under a node of `D` → `node_document(a) == D`; `old = SetAttributeNode(b)` with the same name → `old` is `a` (*set an attribute* 8), `attr_owner_element(a) == None` (*replace* 5), `a`'s value is the value it had before the call and `b`'s value is the element's attribute value (D-21's order); `SetAttributeNode(b)` again → returns `b` (step 4), no change; adopt `e` into `X` → `a` keeps `D`, `b` is `X`; `RemoveAttributeNode(b)`, then adopt `e` into `D` → `b` keeps `X`; `GetAttributeNode` then `RemoveAttribute(name)` → the removed Attr keeps its document across the next adopt; `destroy_entity(e)` → `attr_owner_element` of every Attr `e` had materialized is `None`. Observation: `EcsDom::node_document(attr)` and `attr_owner_element(attr)` read in the test (the VM never reaches these handlers, H-17) | base: `a` unstamped from creation (`create_attribute` takes no owner, H-4) and after `SetAttributeNode`, never re-homed, and `GetAttributeNode` returns a new entity; C0b: as stated |
 | U20 | red (`elidex-custom-elements` unit, D-11) | `spawn_custom_element_entity(dom, "x-e", "x-e", Some(doc))` → `node_document == doc`; with `None` → `None` and no entity spawned (entity count unchanged) | base: `None` spawns an ownerless element |
 
 ### §6.3 Mutation guards
@@ -571,8 +594,8 @@ id=s></span></div>', 'text/html')`; `dp2` a second one.
 | entry without the redirection / redirection on the throwaway instead of root | U11, U9 (walk counter) |
 | replace-with-fragment does not adopt the fragment / pre-insert adopts it | T11, U10 |
 | clause (b) keeps the proxy | T9, T10 |
-| a normal dependency enables `fixtures` / `test-hooks`; an unclassified feature; a stale class row | U17 (b)–(e) |
-| `SetAttributeNode` does not stamp or register; a removed Attr stays in the walk's set | U19 |
+| a normal dependency enables `fixtures` | U17 (b) |
+| `SetAttributeNode` does not stamp or register; a removed Attr stays in the walk's set; the chokepoint runs before the entry swap (old Attr's value overwritten); despawn leaves the reverse pointer | U19 |
 | the CE helper creates an ownerless element for `None` | U20 |
 
 ### §6.4 Kept green
@@ -581,8 +604,8 @@ id=s></span></div>', 'text/html')`; `dp2` a second one.
 cells, slice a's E1–E8 and U8, N1's cells not listed in §5.2. Commands: `cargo test --all-features` for `-p
 elidex-ecs`, `-p elidex-dom-api`, `-p elidex-custom-elements`, `-p elidex-html-parser`, `-p
 elidex-html-parser-strict`, `-p elidex-form`, `-p elidex-script-session`, `-p elidex-js`, `-p elidex-style`, `-p
-elidex-layout-table`, `-p elidex-layout`; then `mise run ci` (includes the default-features step with the
-fixture-boundary script).
+elidex-layout-table`, `-p elidex-layout`; then `mise run ci` (includes the default-features Clippy step with
+the fixture-boundary script).
 
 ## §7. Out of scope
 
@@ -631,8 +654,8 @@ that does not exist on `main`.) **For the PM:** program R-1's C0b append; R-6 (a
    tree builder's method is gone; P-1 unchanged.
 5. §6.1 and §6.2 cells present; every red cell red on the base with its control green; U17 recorded.
 6. §5.2 rewrites done; §4.9's comment sites rewritten.
-7. §6.4 green; `mise run ci` green (incl. the default-features step with the fixture-boundary script) and the CI
-   `check` job's default-features step green; parse cost measured (§4.3). The §5.2 list of fixture tests that assert
+7. §6.4 green; `mise run ci` green (incl. the default-features Clippy step with the fixture-boundary script) and the CI
+   `check` job's "Clippy (default features, no dev-only feature)" step green; parse cost measured (§4.3). The §5.2 list of fixture tests that assert
    an unreachable ownerless-node state is recorded with each one's rewrite or deletion.
 8. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the program memo,
    and `docs/plans/2026-09-ibp-sandbox.md` exits 0 (run).
@@ -640,5 +663,7 @@ that does not exist on `main`.) **For the PM:** program R-1's C0b append; R-6 (a
    (RC-2a) removes `:294-301` in either order, and whichever of C0b and RC-2a lands second removes the stamps dead at
    its head. If RC-2a is in C0b's base, C0b removes `:282-285`. If not, C0b removes neither and this DoD notes that
    RC-2a, landing second, removes both (D14 `:294-301`, and `:282-285`, dead at its head) and writes no hand stamp.
-10. **T3's residual R-B is closed by C0b** (PM 153): cell T13 green at C0b's head; H-T hands T3 the re-derived verdicts
+10. **The stale node document after a cross-document move is ended by C0b** (a moved node kept its old node document,
+    which T3's step 3 reads; T3's residual R-B; PM 153): cell T13 green at C0b's head; H-T hands T3 the re-derived verdicts
     of XW-9, XW-10, EW-15, EW-16 and pin T-18.
+11. If this is the C0 program PR that lands after #583: program §9 item 6 (PM 273).
