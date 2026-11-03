@@ -79,7 +79,7 @@ algorithm, and the mixed case is measured. So: a multi-PR program, each slice pl
 | nested PR | scope (detail: the slice plan) | owner | slots | prerequisites |
 |---|---|---|---|---|
 | **(1) provenance** | DC2: one user-edit funnel; `input` iff the value changed; the change-on-blur substep judged by one elidex-form fn (X1); the Chromium pre-step picks the branch | Layout | closes none (DC2 was found inside DC1's scope); registers CP-1 to CP-4 | this umbrella approved; plan (1) plan-reviewed; split PR if 264 (M2) triggers |
-| **(2) focus-fixup** | DC1: the fixup step through the canonical focusing steps for the viewport, ungated, at HEAD's position; the silent reset deleted; the record-gated form-owner cache removed | Layout | closes `#11-focus-fixup-gated-on-session-records` and the folded `#11-render-side-effect-version-delta-signal` (PM 278); appends O1; registers FF-1 to FF-3 (FF-4 if Axis 2 picks (Y)) | (1) on `origin/main`; plan (2) plan-reviewed |
+| **(2) focus-fixup** | DC1: the fixup step through the canonical focusing steps for the viewport, ungated, at HEAD's position; the silent reset deleted; the record-gated form-owner cache removed | Layout | closes `#11-focus-fixup-gated-on-session-records` and the folded `#11-render-side-effect-version-delta-signal` (PM 278); appends O1; registers FF-1 to FF-4 | (1) on `origin/main`; plan (2) plan-reviewed |
 | **(3) being-rendered** | DC3: the first CV-focus leg that makes the focus predicate read computed style (per PM 242 (7) likely the author-hidden S2 leg right after CV-render); carries O1 | Layout (CV umbrella `docs/plans/2026-10-content-visibility.md`, CV-focus) | discharge of `#11-focusable-area-being-rendered` decided by CV-focus's plan (ledger APPEND on that slot); O1 is cited there | (2) landed; the CV erratum (e5); the CV umbrella's own edges |
 
 Row (3) is shared (PM decision 269): this program fixes O1 and the edges e2 / e5; the PR, its plan and its other
@@ -193,7 +193,7 @@ texts are the per-PR plans', with the amendments below. Re-eval dates are propos
 | FF-1 | `#11-cross-document-rendering-order` | Layout | multi-document order, not the fixup | the probe in plan (2) FF-1 (§8.1); re-probe at `#11-windowproxy-browsing-context` | 2026-12-15 | (2) landing |
 | FF-2 | `#11-radio-group-same-tree-filter` | L3 | radio semantics, not the fixup | next PR touching radio-group semantics | 2026-12-15 | (2) landing |
 | FF-3 | `#11-ime-composition-end-on-blur` | L3 (proposed) | platform IME wiring; carries X5 (FP-2) | Chromium measurement, or the first PR wiring IME commit / cancel | 2026-12-15 | (2) landing |
-| FF-4 | `#11-form-owner-ecs-component` | L3 | only if plan-review Axis 2 picks (Y) | Axis 2's verdict | PM sets at landing (conditional) | (2) landing |
+| FF-4 | `#11-form-owner-ecs-component` | L3 | migration is edge-dense, outside (2) (Axis 2 picked (Y), PM 292) | plan (2) §8.1 FF-4 | PM sets at landing | (2) landing |
 | O1 | obligation on `#11-focusable-area-being-rendered` | Layout (CV-focus) | needs computed style in the predicate | the CV erratum names the leg (e5) | 2026-12-15 | (2) landing |
 
 **O1 (program text; plan (2) §8's O1 plus the amendments in FP-3):** attaches to the first CV-focus leg that makes the
