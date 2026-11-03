@@ -591,7 +591,7 @@ exit-gate umbrella's pre-research may start) → PR-2 → the **cargo-deny PR** 
   after PR-1 on the pin.
 - **The queued `RUSTUP_TOOLCHAIN` unset in mise tasks** (lane SSoT "Queue", decision 142's follow-up: `mise run
   ci` / `lint` must not let an inherited stale `RUSTUP_TOOLCHAIN` override `rust-toolchain.toml`, e.g. a
-  task-level unset) edits `mise.toml` — **textual** with PR-0 (the `:115` reword) and PR-1 (`[settings]`, the
+  task-level unset) edits `mise.toml` — **textual** with PR-0 (the `:122` reword) and PR-1 (`[settings]`, the
   task text): anywhere, whichever lands second re-reads. It spells no `python`, so T5's clause 4 stays green; if
   it lands after PR-0, its text is under clause 4 like any other member line.
 - **The `ci.yml:186` docs item** (lane SSoT "Next sweeps", 10-25, "after #501"; the entry names a line at an
@@ -725,9 +725,9 @@ git ls-files -z -- <the PR's edit set> | xargs -0 wc -l | sort -n | tail -n 12
 
 The family's own bound also applies: the plan-memo self-test's `line_bound_control`
 (`plan_memo_selftest_properties.py:688`) holds every family source under 1000 lines on every run, and §5.2's
-edits remove lines (not guaranteed under V6's outcome (ii), §5.2). PR-0 and PR-1 both grow `scripts/python_suites_readers.py`
-(678 lines at `ee6c7a1a`) and `scripts/test_python_suites_ci.py` (378); PR-1's `mise.toml` half shrinks the former (the text
-grammar retires). `scripts/test_python_suites_regime.py` (853) is not in any PR's edit set (no construct it holds names the
+edits remove lines (not guaranteed under V6's outcome (ii), §5.2). PR-1 grows `scripts/python_suites_readers.py` (678 lines at `ee6c7a1a`)
+and `scripts/test_python_suites_ci.py` (378); PR-1's `mise.toml` half shrinks the former (the text grammar retires).
+`scripts/test_python_suites_regime.py` (853) is not in any PR's edit set (no construct it holds names the
 interpreter: `git grep -nE '3\.9|"3\.x"|matrix|setup-python|python-version' -- scripts/test_python_suites_regime.py`
 prints nothing); if an implementation finds it must edit it, its G7/G11 fixtures are the seam for the prereq
 split — and sweep 4, which does edit it, applies the rule itself (§10).
