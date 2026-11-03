@@ -34,7 +34,7 @@ Program order: C0a → C0b-pre1 → C0b-pre2 → **C0b** → C0c (C0a may land a
 spec-order walk and `document.adoptNode` (C0c: D-3 (c), D-6, D-13, D-19); the *replace* record order (C0a); template
 contents' owner `f` (C1); program §7.
 
-**Changelog.** *Rev 3.4* (2026-11-03, with the program memo's rev 3.4): plan-review at `0aaa80d9` and PM 290, §10.1. *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
+**Changelog.** *Rev 3.4.1* (2026-11-03): mise task and CLAUDE.md edits removed (PM 297). *Rev 3.4* (2026-11-03, with the program memo's rev 3.4): plan-review at `0aaa80d9` and PM 290, §10.1. *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
 Ax3 / Ax4, and PM 283; dispositions §10): D-21 and what only it needs (population P-10, U19's relation legs, §5.2's Attr tests,
 the handler hollowing, `AttrData`'s visibility) moved to C0b-pre2 (NEW memo); C0b keeps D-3 (b), U1's Attr variant
 (built through `attr_node` / `set_attr_node`) and U19's node-document legs. The CI/tools prereq is #585; the boundary
@@ -183,8 +183,7 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   default-features check PR #585**'s (head `c20696d7`, merged as `115a667c`; edge c0-pre-ci). C0b adds
   `scripts/check-fixture-boundary.sh` (NEW) as its own step directly after that step, where #585's canonical comment
   puts it (`.github/workflows/ci.yml:104-107` at `115a667c`; a separate step, so neither command's exit status masks or
-  skips the other), and as its own `mise` task (`check-fixture-boundary`) in `ci`'s `depends` (so `check-default` stays the CI step's mirror, as
-  its comment says); it adds the script's path to ci.yml's `rust` path filter (`:34-47`), which gates the `check` job,
+  skips the other), and nowhere else (no `mise` task, no CLAUDE.md line; PM 255, 297). The fixture-boundary check runs in CI only (PM 297). It adds the script's path to ci.yml's `rust` path filter (`:34-47`), which gates the `check` job,
   so a PR touching only the script runs it (the script runs `cargo`, so it belongs to the job that installs the
   toolchain). When `#11-test-only-feature-boundary-guard`'s generic guard lands, it absorbs this script. The script's claim
   (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads the population from
@@ -483,7 +482,7 @@ deleted, its reason recorded.
 | `crates/core/elidex-ecs/src/dom/shadow.rs`, `tree_clone.rs` | 549, 425 | shadow-root stamp; shallow clone document; reader | < 1000 |
 | `crates/core/elidex-ecs/Cargo.toml` | — | `[features] fixtures` | — |
 | 24 crates' `Cargo.toml` (`[dev-dependencies]`, D-17 (3)'s population) | — | `features = ["fixtures"]` (D-17) | mechanical; no `.rs` file touched for it |
-| `scripts/check-fixture-boundary.sh` (NEW); `.github/workflows/ci.yml` (a step after #585's default-features step; the `rust` filter gains the script's path); `mise.toml` (a task in `ci`'s `depends`); `CLAUDE.md` at `origin/main` `115a667c` — `:52` (`mise run ci`'s task list), `:70` (the new task beside `check-default`: cargo without `--all-features` by design), `:96` (the `check` job's content) | — | the boundary check (D-17 (4)) | new |
+| `scripts/check-fixture-boundary.sh` (NEW); `.github/workflows/ci.yml` (a step after #585's default-features step; the `rust` filter gains the script's path)| — | the boundary check (D-17 (4)) | new |
 | `crates/script/elidex-script-session/src/mutation/child_list.rs` (NEW: D-14 (a), before C0a) | — | D-5 | re-measure |
 | `crates/script/elidex-script-session/src/scripting.rs` | 279 | clause (b) + docstring | < 1000 |
 | `crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs` | 994 → ≈ 625 after D-14 (c) (handlers to `table_mutation/handlers.rs`, NEW, a prereq PR) | `create_table_element` (NEW), eight sites (`git grep -n 'create_element(' -- crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs` → 8) | split first (PM 258) |
@@ -583,7 +582,7 @@ walk: re-stamping a node with its own document changes no component, so a counte
 cells, slice a's E1–E8 and U8, N1's cells not listed in §5.2. Commands: `cargo test --all-features` for `-p
 elidex-ecs`, `-p elidex-dom-api`, `-p elidex-custom-elements`, `-p elidex-html-parser`, `-p
 elidex-html-parser-strict`, `-p elidex-form`, `-p elidex-script-session`, `-p elidex-js`, `-p elidex-style`, `-p
-elidex-layout-table`, `-p elidex-layout`; then `mise run ci` (includes `check-default` and the fixture-boundary task).
+elidex-layout-table`, `-p elidex-layout`; then `mise run ci`.
 
 ### §6.5 Base formulations (red-first; Ax3 IMP-2)
 
@@ -622,8 +621,8 @@ Attr variant and U16 pin both of C0b's Attr obligations (D-3 (b) and D-11) on th
 | c0a | N1 (#580) → C0b | code + semantic | clause (b) on N1's landed body; T8–T10 |
 | c0-ab | C0a → C0b | code (soft) | D-5's step-6 comment on C0a's numbering |
 | c0-pre-c | D-14 (c) → C0b | code predecessor | `table_mutation/mod.rs` handlers → `table_mutation/handlers.rs` (NEW), a pure move (PM 258) |
-| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception are #585's (PM 255 / 263); C0b adds `scripts/check-fixture-boundary.sh` as its own step directly after that step and its own task (D-17 (4)) and adds its path to the `rust` filter |
-| c0-py | CI/tools Python-pin PR-0 / PR-1 ↔ C0b | file overlap `.github/workflows/ci.yml`, `mise.toml`, CLAUDE.md `## CI` | `docs/plans/2026-10-python-pin-umbrella.md` §6 `:563-565` on `origin/main` `115a667c`; whichever lands second re-checks the `check` job's step order, the `rust` filter, `ci`'s `depends` and CLAUDE.md `## CI` against the other |
+| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception are #585's (PM 255 / 263); C0b adds `scripts/check-fixture-boundary.sh` as its own step directly after that step (D-17 (4)) and adds its path to the `rust` filter |
+| c0-py | CI/tools Python-pin PR-0 / PR-1 ↔ C0b | file overlap `.github/workflows/ci.yml` | `docs/plans/2026-10-python-pin-umbrella.md` §6 `:563-565` on `origin/main` `115a667c`; whichever lands second re-checks the `check` job's step order and the `rust` filter against the other |
 | c0-pre2 | C0b-pre2 → C0b | code + semantic predecessor | the relation the walk's Attr edge re-homes (D-3 (b)); `attr_node` / `set_attr_node`, whose creation and stamp read C0b switches (D-11); file overlap `teardown.rs` (PM 283) |
 | c0-bc | C0b → C0c | code + semantic | `adopt`, the walk, the stamps |
 | c0b | C0b → C1 | semantic + code | the entry, `NewNodeOwner` hook, the walk's contents edge; C1's edge rows are C1's |
@@ -662,7 +661,7 @@ date of `#11-dom-api-attr-entity-model-unification` (2026-10-31) has passed.
 5. §6.1 and §6.2 cells present; every red cell red on the base in its §6.5 formulation with its control green; U17
    recorded.
 6. §5.2 rewrites done; §4.9's comment sites rewritten (the VM `ownerDocument` docstring included).
-7. §6.4 green; `mise run ci` green (incl. `check-default` and the fixture-boundary task) and the CI
+7. §6.4 green; `mise run ci` green and the CI
    `check` job's "Clippy (default features, no dev-only feature)" step and the fixture-boundary step after it green. The §5.2 list of fixture tests that assert
    an unreachable ownerless-node state is recorded with each one's rewrite or deletion.
 8. `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo, the program memo,
@@ -712,7 +711,7 @@ date of `#11-dom-api-attr-entity-model-unification` (2026-10-31) has passed.
 |---|---|---|
 | PM 290 (unmeasured cost claim) | §4.3, the parse bench, its threshold and R-7 deleted; the spawn-tuple stamp and D-20's order justified structurally | D-20, §5.3, §5.4, §9 item 7 |
 | Ax5 IMP-1 (C0b-first order cannot keep the clone.rs stamps) | C0b first → C0b removes both; RC-2a first → D14 `:294-301`, C0b `:282-285` | D-18, §8 c0g, §9 item 9; program c0g, §9 item 6 |
-| Ax5 IMP-2 (appending masks or skips) | own step after #585's step (its comment `ci.yml:104-107`); own `mise` task | D-17 (4), §5.3, §6.4, §8 c0-pre-ci, §9 item 7 |
+| Ax5 IMP-2 (appending masks or skips) | own step after #585's step (its comment `ci.yml:104-107`) | D-17 (4), §5.3, §6.4, §8 c0-pre-ci, §9 item 7 |
 | Ax1 MIN-1, MIN-2 | VM docstring in §4.9; `FragmentParseRoot` crate-private | §4.9, §9 item 6, D-18 |
-| Ax5 MINs (CLAUDE.md, filter reason, L3 coordinates, R-6 (c) / (g) / R-8 carriers, ledger cites, re-eval date, generic guard, risk IDs, D-17 (3), H-b4, Python-pin edge) | CLAUDE.md `:52` / `:70` / `:96` (tools.md: bench only, moot); one clause each; `8bd83753`, `range/contents.rs`; (c), (g) → C0b, R-8 → C0a; slot IDs; one line; one sentence; R-b*; by dependency, 24; on `115a667c`; edge c0-py | §5.3, D-17, header, §0.1, §8, §5.4, §1, §0.2 |
+| Ax5 MINs (CLAUDE.md, filter reason, L3 coordinates, R-6 (c) / (g) / R-8 carriers, ledger cites, re-eval date, generic guard, risk IDs, D-17 (3), H-b4, Python-pin edge) | (tools.md: bench only, moot); one clause each; `8bd83753`, `range/contents.rs`; (c), (g) → C0b, R-8 → C0a; slot IDs; one line; one sentence; R-b*; by dependency, 24; on `115a667c`; edge c0-py | §5.3, D-17, header, §0.1, §8, §5.4, §1, §0.2 |
 | Ax1 FP; Ax5 FP (#433 tension, PM 258 / 283) | no change | — |

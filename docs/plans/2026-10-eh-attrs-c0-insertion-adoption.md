@@ -56,8 +56,8 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.4* (2026-11-03): C0b's plan-review of the re-cut (`0aaa80d9`; dispositions in the C0b memo §10.1)
-and PM 290. D-17 (iii) (b): the boundary script is its own step and task; c0g: the clone.rs stamps by landing order; R-7
+**Changelog.** *Rev 3.4.1* (2026-11-03): mise task and CLAUDE.md edits removed (PM 297). *Rev 3.4* (2026-11-03): C0b's plan-review of the re-cut (`0aaa80d9`; dispositions in the C0b memo §10.1)
+and PM 290. D-17 (iii) (b): the boundary script is its own step; c0g: the clone.rs stamps by landing order; R-7
 (parse cost) deleted; R-6 (c), (g) carried by C0b, R-8 by C0a; ledger cites by slot ID. *Rev 3.3* (2026-11-03): C0b's plan-review (`15e99049`; dispositions in the C0b memo §10) and PM 283.
 D-21 is C0b-pre2's (NEW per-PR memo), before C0b: header table, D-21, §1, §3, edge c0-pre2, R-3, §9. The CI/tools PR
 is #585 (edge c0-pre-ci). D-17 (iii), H-24: the boundary check reads build edges too. §4.4: the census population by
@@ -358,7 +358,7 @@ cells) and cites this text.
   was green at `27b50dfe`, run 2026-11-03, exit 0; the step's own verdict is the CI/tools PR's.) A production call of
   an argumentless creator (a site C0b missed, or RC-2b's `create_document_fragment()` rebased onto C0b) fails this
   build: it does not compile. It depends on no list of operations. **(b) C0b** adds `scripts/check-fixture-boundary.sh`
-  (NEW) and runs it as its own step directly after that step and as its own `mise` task (C0b memo D-17 (4)). Its claim (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads
+  (NEW) and runs it as its own step directly after that step, and adds no `mise` task and writes no CLAUDE.md line (C0b memo D-17 (4); PM 255, 297). Its claim (PM 266): *`fixtures` is enabled from `[dev-dependencies]` only*. It names `fixtures` and reads
   the population from cargo, not from the manifests' text: it fails if `cargo tree --workspace -e normal,build,features
   -i elidex-ecs` lists `elidex-ecs feature "fixtures"` (H-24: that tree has no dev edges, and a dev edge does show there
   under `-e normal,build,dev,features`, so the check is not vacuous; the host-target tree is complete for
@@ -702,7 +702,7 @@ deferred.
 | c0-pre-a | D-14 (a) → C0a | code predecessor | pure move |
 | c0-pre-b | D-14 (b), (d), (e) → C0c | code predecessor | pure moves; (d) and (e) shared with L3 RC-0a (whoever lands first; (e) in RC-0a since L3 `55d35a16`, P-19 (d)) |
 | c0-pre-c | D-14 (c) → C0b | code predecessor | pure move (PM 258) |
-| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | PM 255 / 263: #585 owns the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception; C0b adds `scripts/check-fixture-boundary.sh` as its own step after that step and its own task (D-17 (iii)) |
+| c0-pre-ci | CI/tools default-features check PR #585 → C0b | code predecessor (CI); landed (`115a667c`) | PM 255 / 263: #585 owns the step "Clippy (default features, no dev-only feature)", its `mise` task `check-default` and the CLAUDE.md exception; C0b adds `scripts/check-fixture-boundary.sh` as its own step after that step (D-17 (iii)) |
 | c0-pre2 | C0b-pre2 → C0b | code + semantic predecessor | D-21: the relation C0b's walk re-homes (D-3 (b)); C0b switches its stamp's read and the Attr's creation (PM 283) |
 | c0a | N1 (#580, landed) → C0b | code + semantic | clause (b) on N1's landed body; T8–T10 need N1's gate |
 | c0-ab | C0a → C0b | code predecessor (soft) | C0a may land any time before C0b; both edit `apply_replace_child` (D-12 / D-5) |
