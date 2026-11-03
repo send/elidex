@@ -11,7 +11,7 @@ ea12ce7f..115a667c`): #585, which added the `check-default` mise task and so mov
 at `115a667c` prints 122). #585 also edited the umbrella body and rounds (`git diff -U0 ea12ce7f 115a667c --
 'docs/plans/2026-10-python-pin-umbrella*.md'`): four `mise.toml:115` → `:122` cites (body :563, :621, :999, rounds
 :417) and four `ci.yml:167` → `:186` cites (body :84, :597, rounds :170, :209). It missed one: body :594's base-less
-"(the `:115` reword)" has been false since #585 and PR-0 corrects it (§7). Body :393 keeps `:115` "at `ee6c7a1a`",
+"(the `:115` reword)" has been false since #585; it sits in the bullet body :592–596, which PR-0 deletes (§7). Body :393 keeps `:115` "at `ee6c7a1a`",
 which is still true of that base.
 
 **Order and preconditions** (body :563 row, :567–568; PM decisions 141, 233): #581 merged (done) → **PR-0** →
@@ -432,7 +432,8 @@ few re-runs of pure controls.
   - body :728–729, false once PR-0 lands (PR-0 does not grow the readers module): "PR-0 and PR-1 both grow
     `scripts/python_suites_readers.py`" becomes "PR-1 grows `scripts/python_suites_readers.py`", the rest of the
     sentence unchanged, rewrapped within the paragraph;
-  - body :594, false since #585: "(the `:115` reword)" becomes "(the `:122` reword)";
+  - body :592–596, the bullet "The queued `RUSTUP_TOOLCHAIN` unset in mise tasks", false since that item was
+    withdrawn (PM 287/314; it also holds :594's stale `:115`): deleted whole;
   the body stays ≤ 1000 lines (999 at `115a667c`: `wc -l`; every edit removes characters);
 - `.github/workflows/ci.yml` — the timeout comment's record of PR-0's run, always; the value, and the vm-p4
   companion, **only if the timeout rises** (below);
@@ -536,7 +537,7 @@ None (body :869: "PR-0 §9 (none)").
       written, each asserting clause and path; L1 green with its index cross-check; the mutant test green with
       M1–M6 and M8–M10 each killed; the existing pins green;
 - [ ] `git grep -n -i python -- mise.toml` prints only lines whose occurrences lie in `scripts/python-suites.sh`;
-- [ ] the umbrella body's :728 and :594 sentences (and :563 if N > 22) corrected as §7, nothing added, body ≤ 1000
+- [ ] the umbrella body's :728 sentence and :592–596 bullet (and :563 if N > 22) corrected as §7, nothing added, body ≤ 1000
       lines;
 - [ ] the X1 pattern prints nothing over this plan (§7); the set member `.claude/tools/test_plan_memo_umbrella_check.py`
       green under the driver (its `symbol_attribution_control` reads every `docs/plans/*.md`);

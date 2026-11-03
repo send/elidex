@@ -589,11 +589,6 @@ exit-gate umbrella's pre-research may start) → PR-2 → the **cargo-deny PR** 
   finds a `ci.yml` edit (K27 or another), in which case it takes the cargo-deny PR's rule. Its overlap with PR-1
   is textual (the driver's Step 1 region; whichever lands second re-reads); before PR-1 it is green on both legs,
   after PR-1 on the pin.
-- **The queued `RUSTUP_TOOLCHAIN` unset in mise tasks** (lane SSoT "Queue", decision 142's follow-up: `mise run
-  ci` / `lint` must not let an inherited stale `RUSTUP_TOOLCHAIN` override `rust-toolchain.toml`, e.g. a
-  task-level unset) edits `mise.toml` — **textual** with PR-0 (the `:122` reword) and PR-1 (`[settings]`, the
-  task text): anywhere, whichever lands second re-reads. It spells no `python`, so T5's clause 4 stays green; if
-  it lands after PR-0, its text is under clause 4 like any other member line.
 - **The `ci.yml:186` docs item** (lane SSoT "Next sweeps", 10-25, "after #501"; the entry names a line at an
   older base, not its subject): it edits `ci.yml`, so by decision 150 (3)'s `ci.yml` rule it goes **after PR-2**,
   as the cargo-deny PR does (PR-2 edits `ci.yml`; PM decision 211 D7-3). Its plan re-derives the line.
