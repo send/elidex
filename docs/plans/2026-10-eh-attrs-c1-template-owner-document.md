@@ -79,7 +79,9 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.3* (2026-11-03): the clone post-pass passes `node_document_for_new_nodes(pair_doc)`, not the
+**Changelog.** *Rev 3.4* (2026-11-03): §4.4 step 3, D-C6, A4×A5 and §5.1 P-3 on the base: C0b D-18 / edge c0g remove
+pass 4's hand stamps; the host and shadow root get the pair's document from creation (C0b D-11); `clone_subtree`'s
+override type is §11 Q-4. *Rev 3.3* (2026-11-03): the clone post-pass passes `node_document_for_new_nodes(pair_doc)`, not the
 `Entity` (`NewNodeOwner` has no public constructor, C0b D-17; a Document → itself, C0b U11); the per-pair document
 stays an `Entity` in either §4.4 representation; A2×A5 no longer says the clone path skips the entry (D-C3, §2.2, §4.4).
 *Rev 3.2* (2026-11-03): aligned to the C0 program (C0 draft rev 3.6, `65180942`): C0 is three PRs
@@ -266,9 +268,9 @@ New in rev 2:
 - **D-C6 — the template cloning steps, and one document per clone pair.** The copy's contents are established at the
   copy's creation through D-C3 with the pair's document, and the source contents' children are cloned with **document
   = the copy's contents' node document** (HTML §4.12.3 *cloning steps* step 2), not the operation's. Every later pass
-  for a pair inside those children (a nested template's contents; a clonable shadow host's shadow root, its host stamp
-  and its shadow children) uses **that pair's document**, not the operation-wide `shadow_doc` (H-C7: at HEAD the
-  shadow pass stamps the operation's document onto a host inside copied contents, `clone.rs:283-284`). The worklist
+  for a pair inside those children (a nested template's contents; a clonable shadow host's shadow children) uses
+  **that pair's document**, not the operation-wide `shadow_doc`; the host and its shadow root follow from the host's
+  creation (§4.4 step 3). The worklist
   therefore carries a document per pair; its representation (a third tuple field, or a read of the stamp the cloner
   wrote) is input (§4.4), written on D14's form (shadow children cloned with subtree true).
 - **D-C7 — lifetime.** I exists iff D has needed it (lazy, D-C2). Destroying D destroys its linked I
@@ -395,7 +397,7 @@ unparsable relative URL, M13's custom element staying custom in I). The remainin
 | A3×A7 | no | Nesting creates no further document (A1×A3) |
 | A3×A8 | yes | Nested contents read null and (after T3) target null like outer contents (same I) |
 | A3×A9 | no | The EH contract does not distinguish depth inside contents |
-| A4×A5 | yes | A clonable shadow host inside copied contents: its shadow root, host stamp and shadow children use the pair's document I, not the operation's (`clone.rs:283-284` at HEAD stamp the operation's) (T24). D14's subtree-true form is assumed (§4.4) |
+| A4×A5 | yes | A clonable shadow host inside copied contents: its host, shadow root and shadow children are in the pair's document I, not the operation's (§4.4 step 3) (T24). D14's subtree-true form is assumed (§4.4) |
 | A4×A6 | yes | Adopt's walk is shadow-including under each target: a shadow root inside contents goes to `f(X)`, a shadow root of the template's light descendants to X (U9) |
 | A4×A7 | no | Shadow roots create no document |
 | A4×A8 | yes | `shadowRoot.ownerDocument` in contents reads I; a handler on a shadow-root-direct child in contents reads null under N1 (no Insert fires there, H2, so it is processed only by slice b's creation path) |
@@ -496,8 +498,8 @@ D-20). The tolerant legs of T3, T12, T19 and U12 still kill that form (§6.3).
 ### §4.4 Clone (D-C6), on D14
 
 On C1's base D14 has rewritten pass 4's child loop (`clone.rs:290-302` at `593aa314`) to clone shadow children with
-subtree **true** (DOM §4.4 step 6.7; P-C12), which makes the shallow branch (`clone.rs:295-300`, the explicit stamp of a
-shallow-cloned shadow child) unnecessary. C1 then:
+subtree **true** (DOM §4.4 step 6.7; P-C12), and pass 4 has no hand stamp: C0b removes `clone.rs:282-285` (host and
+shadow root) and D14 or C0b, by landing order, `:294-301` (C0b D-18, edge c0g). C1 then:
 1. gives each worklist pair the document its copy was made in: the root pair `shadow_doc` (today's value), every pair
    produced under a pair P the document P's children were cloned with;
 2. in pass 3, `replicate_template_contents(s, d, …, pair_doc, …)`: `new_fragment = attach_template_contents(d,
@@ -506,8 +508,9 @@ shallow-cloned shadow child) unnecessary. C1 then:
    `elidex-ecs`, C0b D-17 (1); C0b's census gives clone.rs's own creations the same kind of `source`, C0b §4.4
    `clone.rs:321`, `:323`, `:422`: the operation's document), then clones each source contents child with `node_document(new_fragment)` (= `f(pair_doc)`) and
    records those pairs with that document;
-3. in pass 4, the host stamp, the shadow-root stamp and the shadow children use `pair_doc` (`clone.rs:283-284`, `:294`
-   at `593aa314`).
+3. in pass 4, clones the shadow children with `pair_doc` (`clone.rs:294` at `593aa314`). The host and the shadow root
+   need no step: the host was made in `pair_doc` by its pair's clone (step 2 inside contents), and the shadow root takes the host's document at
+   attach (`attach_shadow_with_init` → `node_document_for_new_nodes(host)`, C0b D-11, H-b3).
 Whether the pair document is a third tuple field or read back from the stamp the deep cloner wrote (`tree_clone.rs:221`,
 `:417`) depends on whether the shallow root is stamped on the base (`#11-ownerless-node-creation`'s shallow-clone site,
 L3's D8): if every copy is stamped at creation, reading `node_document(d)` suffices; otherwise the field. *Rev 3:* C0
@@ -591,7 +594,7 @@ Filter for production code everywhere: `NT='/tests/\|tests\.rs\|/tests_\|test_he
   test at `593aa314`; C0 adds `adopt` and moves the function.
 - **P-3 clone stamps**: `/usr/bin/grep -rnF 'set_associated_document(' crates --include='*.rs' | /usr/bin/grep -v "$NT"`
   → `tree_clone.rs:221`, `:230`, `:417`, `clone.rs:283`, `:284`, `:299`, `teardown.rs:257`, definition `mod.rs:789`
-  (verified 2026-11-01). D14 removes `clone.rs:299`; C1 changes the document of `clone.rs:283-284` (D-C6).
+  (verified 2026-11-01). On C1's base the three `clone.rs` calls are gone (C0b D-18, edge c0g); C1 adds none (D-C6).
 - **P-4 parser owner decisions** and **P-5 parser creation sites**: **moved to C0 (rev 3)**. They are C0's creation
   census and its ratchet (C0 draft D-11, §4.4; C0b memo §5.1 P-3, P-8; PM decisions 223 O-2 / 227). C1 neither adds nor
   changes a parser creation site. At C1's base C1 re-runs C0's P-8 (0 production ownerless creations) and C0's P-3 (no
@@ -877,8 +880,9 @@ its Q-3 (T18) is resolved (T18 is a guard at C1).
 - **Q-1** (the entry's signature), **Q-2** (the adopt walk's shape) and **Q-3** (`adoptedCallback` arguments in
   contents) are answered by C0: Q-1 by D-10 / D-17 (one `source`, a `NewNodeOwner`, the redirection by
   `FragmentParseRoot` on the fragment-parse root); Q-2 by D-3 (c) (the `Include` walk with one contents edge; no walker
-  variant; D-19 reorders it); Q-3 by D-6 (C1 sets the segment's `new`). §4.3's constraint is met by D-20. No
-  plan-review question of C1's own remains open beyond §11's PM items and the scout questions.
+  variant; D-19 reorders it); Q-3 by D-6 (C1 sets the segment's `new`). §4.3's constraint is met by D-20. C1's
+  own open plan-review question is Q-4, beside §11's PM items and the scout questions.
+- **Q-4** C0b fixes `clone_node_shallow`'s document type (`NewNodeOwner`, D-11) but not `clone_subtree`'s override's; if it is `NewNodeOwner`, §4.4 steps 2–3 pass `node_document_for_new_nodes(..)` of the pair's document.
 
 **Scout questions** (facts this memo needs; not read here).
 - **Q-S10** For a non-bound Document wrapper (I, or a DOMParser document): `defaultView`, `URL`, `documentURI`,
