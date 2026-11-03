@@ -89,9 +89,9 @@ jobs:
       # `--all-features` hides a site that only compiles with a dev-only
       # feature. It runs on all 3 OS because default-feature builds differ per
       # target (`cfg(target_os/windows/unix)` sites exist in crates/). The
-      # fixture-boundary assertion of the C0b PR
-      # (`scripts/check-fixture-boundary.sh`) attaches as the step directly
-      # after this one.
+      # C0b PR attaches, as the step directly after this one, the boundary
+      # assertion stated as a property: every feature that exposes test-only
+      # API is enabled only from dev-dependencies (no feature name is listed).
       - name: Check (default features, the production feature configuration)
         run: cargo check --workspace
 
