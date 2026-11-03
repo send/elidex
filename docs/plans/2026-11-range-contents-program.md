@@ -630,7 +630,7 @@ checks the dispositions asked for:
       `EcsDom::node_document_for_new_nodes(source)`, and every production creation site passes that result as the
       owner (one creation entry, PM 207 / 223); it has no fragment-specific constructor. The owner-taking fragment constructor is the existing
       `EcsDom::create_document_fragment_with_owner(owner: Option<Entity>)` (`crates/core/elidex-ecs/src/dom/mod.rs:525`
-      at `27b50dfe`), so the call there type-checks only with the entry's result; owner and calls per §2 C3. C0b changes the parameter to `owner: NewNodeOwner` (per the C0 program plan (Layout, unlanded)), the type the entry returns and
+      at `27b50dfe`); owner and calls per §2 C3. C0b changes the parameter to `owner: NewNodeOwner` (per the C0 program plan (Layout, unlanded)), the type the entry returns and
       the only one production code can obtain, so no other owner expression type-checks there.
     - Checked and holding at `27b50dfe`: `split_dom_and_live_ranges` at `engine_feature/bind.rs:274`; five
       `split_dom_and_live_ranges` sites in `range_proto_mutation.rs` (`:49`, `:85`, `:114`, `:146`, `:192`) and three
@@ -1563,8 +1563,8 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   today's (§0.3 item 29). **Null-registry documents (R6-1, §5 preamble)**: RC-2a adds no new divergence on top of
   `#11-document-null-registry-adopt-reset`'s defect: `propagate_ce_identity`'s registry copy and `prepare_upgrade`'s
   `Null` skip are unchanged (the diff touches neither), and the predicted early upgrade inside
-  `document.cloneNode(true)` is stated as the pre-existing defect, not tested as a target. **C0b edge**: the hand
-  stamps of pass 4 are removed by whichever of C0b and RC-2a lands second (Tests above), and the DoD records which
+  `document.cloneNode(true)` is stated as the pre-existing defect, not tested as a target. **C0b edge**: which side
+  removes which pass-4 hand stamp: per H9 (PM 247 / 293), and the DoD records which
   state RC-2a's base was in. The #466 reversal is reviewed in RC-2a's
   `/elidex-plan-review` and the outcome is recorded in the per-PR plan (R6-3). RC-2a hygiene rows of §6 done.
 
