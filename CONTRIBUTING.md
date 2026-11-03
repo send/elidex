@@ -42,9 +42,13 @@ Pull requests are tested on Ubuntu, macOS, and Windows. CI checks (the
 clippy / test / doc steps run with `--all-features` so feature-gated code
 paths like `#![cfg(feature = "engine")]` are exercised; `cargo fmt --check`
 and `cargo deny check` don't depend on feature selection and so don't need
-the flag):
+the flag; the one deliberate exception is the default-features `cargo check`,
+which verifies production builds compile in their own feature configuration
+because `--all-features` unification can hide a site that only compiles with
+a dev-only feature):
 
 - `cargo fmt --all -- --check`
+- `cargo check --workspace` (default features, lib + bin)
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `cargo nextest run --workspace --all-features` (unit tests, no doc-tests)
 - `cargo test --workspace --doc --all-features` (doc-tests only)

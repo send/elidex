@@ -82,6 +82,19 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      # The only step without `--all-features`: it checks that production
+      # builds (lib + bin, default targets; deliberately not `--all-targets`,
+      # since tests/benches/examples legitimately enable dev features) compile
+      # in their own feature configuration. Feature unification under
+      # `--all-features` hides a site that only compiles with a dev-only
+      # feature. It runs on all 3 OS because default-feature builds differ per
+      # target (`cfg(target_os/windows/unix)` sites exist in crates/). The
+      # fixture-boundary assertion of the C0b PR
+      # (`scripts/check-fixture-boundary.sh`) attaches as the step directly
+      # after this one.
+      - name: Check (default features, the production feature configuration)
+        run: cargo check --workspace
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
