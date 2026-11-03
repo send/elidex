@@ -4,10 +4,9 @@ run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.check-default]
 description = "Run cargo check with default features (production feature configuration)"
-# The one cargo task without `--all-features`: feature unification under
-# `--all-features` hides a production site that only compiles with a dev-only
-# feature. Lib + bin targets only (no `--all-targets`); same step as the
-# `check` job's default-features step in .github/workflows/ci.yml.
+# The one cargo task without `--all-features`; same step as the `check` job's
+# default-features step in .github/workflows/ci.yml, whose comment is the
+# canonical rationale.
 run = "cargo check --workspace"
 
 [tasks.test]
