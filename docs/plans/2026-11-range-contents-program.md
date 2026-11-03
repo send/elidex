@@ -630,10 +630,8 @@ checks the dispositions asked for:
       `EcsDom::node_document_for_new_nodes(source)`, and every production creation site passes that result as the
       owner (one creation entry, PM 207 / 223); it has no fragment-specific constructor. The owner-taking fragment constructor is the existing
       `EcsDom::create_document_fragment_with_owner(owner: Option<Entity>)` (`crates/core/elidex-ecs/src/dom/mod.rs:525`
-      at `27b50dfe`), so RC-2b's branch with C0b in its base is that call with the entry's result (§2 C3; C0b's since
-      PM 244). C0b changes the parameter to `owner: NewNodeOwner` (per the C0 program plan (Layout, unlanded)), the type the entry returns and
-      the only one production code can obtain, so the call is `create_document_fragment_with_owner(dom.node_document_for_new_nodes(start_node))`
-      with no conversion, and no other owner expression type-checks there.
+      at `27b50dfe`), so the call there type-checks only with the entry's result; owner and calls per §2 C3. C0b changes the parameter to `owner: NewNodeOwner` (per the C0 program plan (Layout, unlanded)), the type the entry returns and
+      the only one production code can obtain, so no other owner expression type-checks there.
     - Checked and holding at `27b50dfe`: `split_dom_and_live_ranges` at `engine_feature/bind.rs:274`; five
       `split_dom_and_live_ranges` sites in `range_proto_mutation.rs` (`:49`, `:85`, `:114`, `:146`, `:192`) and three
       `with_range(` snapshot reads (`:87`, `:116`, `:148`); the host-decided HierarchyRequestError at
@@ -779,7 +777,7 @@ way, because it is the slice's own design, not that row's fix:
 | D12 | insertNode on `LiveRangeRef`; step 13 evaluated after step 12; the host's `with_range_mut` / `Range::new` carrier is deleted |
 | D13 | every Range index, length and walk uses the exposed child list (B3) |
 | D6, D7, D9 | the one contents algorithm (§4.3, RC-2b) |
-| D14 | the subtree flag is per pair, not per operation: the step 6.7 clone passes true, and every pair it produces keeps true for passes 3 and 4 (today both take the operation's `deep`: pass 3 at `node_methods/clone.rs:262`, pass 4's child clone at `:290`, so a `<template>` or a nested clonable host inside that shadow tree would still be cloned shallowly); the shallow-branch stamp (`:294-301`) goes with it. D14 is measured, so its row has no green branch: the existing test (`tests/clone.rs:792-827`) is inverted |
+| D14 | the subtree flag is per pair, not per operation: the step 6.7 clone passes true, and every pair it produces keeps true for passes 3 and 4 (today both take the operation's `deep`: pass 3 at `node_methods/clone.rs:262`, pass 4's child clone at `:290`, so a `<template>` or a nested clonable host inside that shadow tree would still be cloned shallowly); the shallow-branch stamp (`:294-301`): who removes it, per H9. D14 is measured, so its row has no green branch: the existing test (`tests/clone.rs:792-827`) is inverted |
 
 ## §1. Shape and verdict
 
@@ -875,7 +873,7 @@ ECS-native.
   statement of this rule; every other site references it): **RC-2b owns the creation site of the result fragment in
   both extractContents and cloneContents, and its call there, in both landing orders**. With C0b in RC-2b's base, the
   call is the entry call `node_document_for_new_nodes(start node)` (via `create_document_fragment_with_owner`; the
-  ownerless creator does not exist in production code); with RC-2b landing first, it is today's call (A1's), which
+  ownerless creator does not exist in production code (once C0b's condition (b) holds)); with RC-2b landing first, it is today's call (A1's), which
   C0b's migration of existing production sites rewrites. C0b owns the entry, the `ownerDocument` cell for both
   orders, and the census test.
   Two branches:
@@ -888,7 +886,7 @@ ECS-native.
     the dev-dependency-only feature assertion), and the compiler forces RC-2b onto the entry there. Once (b) lands, that is the mechanism behind A6. Until then a call of
     the ownerless constructor would leave the fragment unstamped, and with the fallback gone it would read
     `ownerDocument === null`; RC-2b's DoD grep (§5.2b) is what checks the branch.
-  - **RC-2b first** (the driver's reading, sent to the PM): RC-2b keeps
+  - **RC-2b first** (confirmed PM 247 / 261): RC-2b keeps
     today's call (`create_document_fragment()`, as A1 does), so it adds no ownerless site beyond today's (A1 is
     replaced by A6), and C0b's migration rewrites it (above). Layout's
     earlier answer was "no" on both properties below (the census was a fixed snapshot checked by a hand-run grep); the
@@ -1494,7 +1492,7 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   its files is an RC-1 file, except that the census's no-op arm may touch an exhaustive `MutationEvent` match in a file
   RC-1 also edits (the per-PR plan names it; whichever lands second rebases). The program order puts it first,
   before RC-1 (PM 249, Q-Z4; §9). **It lands before C1** (Layout; C1 depends on all of RC-2a, PM 249), which edits
-  the same cloner lines (`node_methods/clone.rs:262`, `:290`,
+  the same cloner lines at origin/main (`node_methods/clone.rs:262`, `:290`,
   `:294-301`; C1 rev 1 `1a2cb286` D-C6); C1 rebases onto it (PM 215 Q-Y2, PM 216: "D14 first"). It shares the
   shadow-branch hand stamps of `node_methods/clone.rs` with **C0b** (edge in §9; Tests below) and the `MutationEvent`
   census with **C0c** (§9 H6). Neither is an order.
@@ -1534,7 +1532,7 @@ the Range contents algorithm (RC-2b) consumes it. Each has its own per-PR plan a
   upgrade (the CE check on the D14 control, a `SelfOnly` root whose shadow tree the walk visits). **Shadow-children
   stamp guard**: `clone_node_shallow_shadow_children_carry_owner_document` (`tests/clone.rs:902`) stays green, and RC-2a
   extends it to the shadow child's descendant: once the shadow children are deep clones, `clone_subtree`'s
-  `doc_override` stamps them and the hand stamp at `node_methods/clone.rs:294-301` goes. The assertion reads
+  `doc_override` stamps them; who removes the hand stamp at `node_methods/clone.rs:294-301` is H9's. The assertion reads
   `owner_document` and expects the source's document, as the test does today; any further node-document rule is
   Layout's (C3). **The hand stamps and C0b (R61-3 (d), PM 247 / 293).** Pass-4 hand stamps: which side removes which, per H9 (PM 247 / 293). The stamp guard above stays green in all three states (H9). **`cloneNode` as today** (§0.3 item 29): the existing `cloneNode` custom-element and form tests stay
   green unchanged (same candidates, same order, same queue position; the #466 I3 case
@@ -1984,7 +1982,7 @@ stated (PM 215 Q-Y1). Cross-lane:
   holds the compiler enforcement, C0b's conditions (a) / (b) and the interim. Appendix A, re-run at RC-2b's head, goes to Layout.
 - **RC-2a and C0b on `node_methods/clone.rs`, the pass-4 hand stamps (R61-3 (d), PM 247 / 293).** Pass-4 hand stamps: which side removes which, per H9 (PM 247 / 293).
 - **RC-2a before C1 on `node_methods/clone.rs`.** C1 depends on all of RC-2a (Layout, PM 249), not only D14.
-  D14 and C1 rev 1 (`1a2cb286`, D-C6) edit the same lines
+  D14 and C1 rev 1 (`1a2cb286`, D-C6) edit the same lines at origin/main
   (`clone.rs:262` pass 3's subtree flag, `:290` the step 6.7 child clone, `:294-301` the shallow-branch stamp). D14
   lands first and C1 rebases onto it (PM 215 Q-Y2; agreed by Layout, PM 216; C1 rev 2 `b518b32f` records it as
   edge c-D14). RC-0a's split of
@@ -2295,9 +2293,7 @@ and H10 are registered by the PM at memo landing):
   dom-api crate (at origin/main, `:282-285` the two calls on the replicated shadow root and the cloned host, `:294-301` the
   call on the shadow-child clone), so C0b cannot leave either call in its head. **C0b first**: C0b removes both `:282-285`
   and `:294-301`; RC-2a writes no hand stamp. **RC-2a first**: RC-2a's D14 removes `:294-301`, because its loop no longer
-  makes a shallow clone; RC-2a keeps `:282-285` and adds no stamp, and C0b, landing second, removes `:282-285`. In both
-  orders whichever lands second removes what is dead at its head, and the other side's DoD notes it (PM 247 / 249, with
-  PM 293's constraint). The stamp guard (`tests/clone.rs:902`) stays green in all three states: C0b first, RC-2a first
+  makes a shallow clone; RC-2a keeps `:282-285` and adds no stamp, and C0b, landing second, removes `:282-285` (PM 247 / 249 / 293). The stamp guard (`tests/clone.rs:902`) stays green in all three states: C0b first, RC-2a first
   with C0b not yet landed, and both landed. Layout carries the same rule in C0b's edge row (PM 247 / 293).
 - **H10 (PM, ledger; R61-1, PM 247; paste-ready, addressed to `#11-dom-api-attr-entity-model-unification`)** Facet
   (added 2026-11-03, from the Range contents umbrella Rev 6.1, `docs/plans/2026-11-range-contents-program.md` §0.3
@@ -2372,7 +2368,7 @@ modules of `range/live.rs` (from `:498`) and `selection.rs` (from `:676`). After
 | A5 | `range/mutation.rs:505` (insertNode step 7) | the split Text tail, via `split_text_at_offset` | `create_text_with_owner(tail, owner_document(text))` (`char_data/split_text.rs:148-149`): owned when the Text resolves an owner, including through `owner_document`'s tree-position fallback, which C0b deletes (PM 244) | unchanged by the Range program (RC-1 keeps the primitive); C0b migrates the call to entry(text) (PM 244) |
 | A6 | RC-2b contents algorithm, "clone the contents" / "extract" step 1 | the result DocumentFragment | (planned) **C0b in RC-2b's base**: `create_document_fragment_with_owner(node_document_for_new_nodes(start_node))` (the entry's `NewNodeOwner` passed as is, per the C0 program plan (Layout, unlanded)), stamped; **RC-2b first**: today's `create_document_fragment()`, ownerless as A1 (§2 C3, R6-4) | owner and calls per §2 C3 (R6-4); C3 also holds the compiler enforcement, C0b's conditions (a) / (b) and the interim |
 | A7 | RC-2b, CharacterData clones (same-container and partial start / end cases) | shallow canonical clone + set data | (planned) `clone_node_with_shadow_honor(deep = false)` → `clone_node_shallow` stamps none (`node_methods/clone.rs:320-326`): **ownerless** | owner rule: Layout |
-| A8 | RC-2b, "a clone of" the first / last partially contained child | shallow canonical clone of an element | (planned) as A7: **ownerless**. If the child is a clonable shadow host, the replicated shadow root and its children are stamped from `owner_document(src)` (`node_methods/clone.rs:239-243`, `:282-285`, `:294-301`) | owner rule: Layout |
+| A8 | RC-2b, "a clone of" the first / last partially contained child | shallow canonical clone of an element | (planned) as A7: **ownerless**. If the child is a clonable shadow host, the replicated shadow root and its children are stamped from `owner_document(src)` (at origin/main, `node_methods/clone.rs:239-243`, `:282-285`, `:294-301`) | owner rule: Layout |
 | A9 | RC-2b clone mode, contained children | deep canonical clone | (planned) `clone_subtree` stamps the root and every descendant from `owner_document(src)` (`crates/core/elidex-ecs/src/dom/tree_clone.rs:204-232`); **ownerless** when the source resolves no owner (`:223-227`) | owner rule: Layout |
 | A10 | RC-2b, `<template>` clones under A8 / A9 | template content fragment and its clones | `attach_template_contents(dst, clone_doc)` (`node_methods/clone.rs:422`), `clone_doc` = `owner_document(src)` | C1 (`#11-template-contents-owner-document`) |
 | A11 | RC-4, HTML §8.5.7 step 6 | the `body` context element | (planned) created in the start node's node document | `create_element_with_owner("body", attrs, node_document_for_new_nodes(start_node))`, C0b's entry returning `NewNodeOwner` (PM 223, PM 227; the type per the C0 program plan (Layout, unlanded)) |
