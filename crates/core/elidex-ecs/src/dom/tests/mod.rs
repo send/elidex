@@ -18,6 +18,7 @@ mod destroy;
 mod dispatch_guard;
 mod equality;
 mod mutation_hook;
+mod mutation_hook_specialised;
 mod namespace;
 mod node_kind;
 mod shadow_dom;

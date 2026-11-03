@@ -585,3 +585,5 @@ fn next_in_preorder_global(current: Entity, dom: &EcsDom) -> Option<Entity> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_adjust;

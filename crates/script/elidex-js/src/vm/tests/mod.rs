@@ -143,6 +143,7 @@ mod tests_post_message;
 mod tests_promise;
 mod tests_promise_rejection_event;
 mod tests_range;
+mod tests_range_static;
 mod tests_readable_stream;
 mod tests_realtime;
 mod tests_realtime_keepalive;

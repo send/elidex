@@ -1,4 +1,5 @@
 mod clone;
+mod clone_shadow;
 mod contains_compare;
 mod equality_owner;
 mod normalize_text;
