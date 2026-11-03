@@ -141,7 +141,7 @@ def _bounded(line, start, end):
 def admits_occurrence(line, s, tracked):
     """Clause 4 (a): the `python` at line[s:s+6] lies inside a tracked path containing `/`."""
     for p in tracked:
-        if "/" not in p or p not in line:
+        if "/" not in p:
             continue
         a = line.find(p)
         while a != -1:
@@ -174,35 +174,33 @@ def _unreadable(path, kind):
 def member_problems(tracked, read):
     """Clauses 2-5 over `tracked`; `read(path)` returns bytes or raises Unclassifiable."""
     paths = sorted(set(tracked))
-    rows = []
+    out = []
     for path in paths:
         if not is_member(path):
             continue
         red = red_outright(path)
         if red is not None:
-            rows.append((path, 0, red))
+            out.append(red)
             continue
         if path == ROOT_PIN:
             continue
         try:
             path.encode("utf-8")
         except UnicodeEncodeError:
-            rows.append((path, 0, _unreadable(path, "non-UTF-8")))
+            out.append(_unreadable(path, "non-UTF-8"))
             continue
         try:
             data = read(path)
         except Unclassifiable as e:
-            rows.append((path, 0, _unreadable(path, e.kind)))
+            out.append(_unreadable(path, e.kind))
             continue
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
-            rows.append((path, 0, _unreadable(path, "non-UTF-8")))
+            out.append(_unreadable(path, "non-UTF-8"))
             continue
-        for i, f in enumerate(content_findings(path, text, paths)):
-            rows.append((path, i + 1, f))
-    rows.sort(key=lambda r: (r[0], r[1]))
-    return [r[2] for r in rows]
+        out.extend(content_findings(path, text, paths))
+    return out
 
 
 def problems(tracked, read):

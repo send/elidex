@@ -99,17 +99,21 @@ def probs(files, extra=()):
     return t.problems(list(data) + list(extra), memory_read(data))
 
 
-def mise_probs(text, tracked=(), path="mise.toml"):
-    return probs({path: text}, extra=tracked)
+def mise_probs(text, tracked=()):
+    return probs({"mise.toml": text}, extra=tracked)
 
 
 CONTROLS_2_TO_5 = ("C2", "C3", "C4", "C5", "L1", "L2", "mutants_are_killed")
 
 
+def _prefix(clause, path, line=None):
+    return "T5 clause %s: %s" % (clause, path) + ("" if line is None else ":%d" % line)
+
+
 class TrackedToolConfig(unittest.TestCase):
     def only(self, found, clause, path, line=None):
         self.assertEqual(len(found), 1, found)
-        prefix = "T5 clause %s: %s" % (clause, path) + ("" if line is None else ":%d" % line)
+        prefix = _prefix(clause, path, line)
         self.assertTrue(found[0].startswith(prefix + ":"), "%r does not start with %r" % (found[0], prefix))
         return found[0]
 
@@ -346,7 +350,7 @@ class TrackedToolConfig(unittest.TestCase):
         out = t.problems(tracked, read)
         self.assertEqual(len(out), len(expect), out)
         for got, (clause, path, line, remedy) in zip(out, expect):
-            prefix = "T5 clause %s: %s" % (clause, path) + ("" if line is None else ":%d" % line)
+            prefix = _prefix(clause, path, line)
             self.assertTrue(got.startswith(prefix + ":"), (got, prefix))
             self.assertIn(" -- ", got)
             self.assertIn(remedy, got.split(" -- ", 1)[1])
@@ -411,9 +415,10 @@ class TrackedToolConfig(unittest.TestCase):
 
     def test_mutants_are_killed(self):
         self.assertEqual(sorted(m[0] for m in MUTANTS), sorted("M%d" % i for i in (1, 2, 3, 4, 5, 6, 8, 9, 10)))
+        for control in sorted({m[3] for m in MUTANTS}):
+            getattr(self, "control_" + control)()  # each killing control passes unpatched
         for mid, target, wrong, control, param in MUTANTS:
             body = getattr(self, "control_" + control)
-            body()  # the killing control passes unpatched
             killed = False
             try:
                 if param is not None:
@@ -443,7 +448,7 @@ def _fold_case_sensitive(c):
 
 def _admits(line, s, tracked, need_slash, bounded):
     for p in tracked:
-        if (need_slash and "/" not in p) or p not in line:
+        if need_slash and "/" not in p:
             continue
         a = line.find(p)
         while a != -1:
