@@ -429,6 +429,17 @@ user edit ever. Each case on `<input>` and `<textarea>`, fresh page:
 on both blurs (`a`, then `xb`); M9 `change` on the first blur only, none on the second (value `x`). Every H prediction holds; H′'s
 M9 prediction fails. Branch selected: **H = "B1 before the mark, A after it"** (PM 305 (i)).
 
+**Pre-step run 3 — W3–W8 (Q-1), predictions written before running.** Same engine and driver. Pattern per writer (separates H
+from "non-user writes other than the `value` setter do not re-baseline"): focus the control; the writer changes the value to
+V; type `z`; Backspace (value back to V); blur → **H: no `change`** (baseline V); the alternative: `change` (V ≠ focus-time value).
+
+- **W3** `<textarea>` empty: `defaultValue = "x"` (non-dirty) → H: none.
+- **W4** `<input>` empty: `setAttribute("value", "x")` (non-dirty) → H: none.
+- **W5** `<input type=text>` holding `" ab"`: `type = "url"` (sanitize → `"ab"`) → H: none.
+- **W6** `<input type=email>` holding `"a@b, c@d"`: `multiple = true` (→ `"a@b,c@d"`) → H: none.
+- **W7** `<input>` empty: `setRangeText("x", 0, 0)` → H: none.
+- **W8** `<input value="d">` in a `<form>`, script `value = "q"` before focus: `form.reset()` (→ `"d"`) → H: none.
+
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
 `build_test_content_state` fixture (P9) and observe events through listeners writing to a global array read back with
