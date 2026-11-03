@@ -8,12 +8,12 @@ Siblings cited by ID:
 - slice a (`docs/plans/2026-10-eh-attrs-slice-a.md`, landed by #563 `3cd84a04`; "the slice-a plan");
 - IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.5, merged as a plan by #570; implementation
   **#580, merged** as `27b50dfe` on 2026-11-01; "the N1 memo");
-- **C0** (`docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`, **rev 2.1** on branch `layout-dom-c0-insert-adopt-plan`,
-  `d262ca8c` (rebased onto `27b50dfe`), not on main; "the C0 draft"; read with `git -C <wt-c0-plan> show
-  d262ca8c:docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md`; rev 2 is now `42ca6a2c`, rev 1 `5c4aedf2`, cited as
-  "C0 rev 2" / "C0 rev 1" where a statement of that rev is meant; rev 2.1 changed only coordinates, §3's
-  `adoptedCallback` wording (now D-6: one event per adopt call, each node its own pair, nested contents use the
-  innermost segment's pair, spec order), the C1 rev 3 reference, and a note under C0 Q-2 recording §4.3's constraint);
+- **C0**, a program of three PRs **C0a → C0b → C0c** (PM decision 244): program memo
+  `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` **rev 3.6** ("the C0 draft"; its decision IDs D-n carry their
+  owning PR) and per-PR memos `docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md`,
+  `2026-11-eh-attrs-c0b-node-document-fact.md`, `2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md` ("the C0b
+  memo" etc.), branch `layout-dom-c0-insert-adopt-plan` `65180942`, not on main. "C0 rev 1" / "C0 rev 2" mark a
+  statement of that earlier rev;
 - T3 (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, rev 3 draft on branch `layout-eh-attrs-t3-plan`,
   `14ff3dc2`, not on main; "the T3 draft");
 - L3's fragment plan (`docs/plans/2026-10-fragment-dsd-not-on-context.md`, #574 `6aea28da`; PR 0a #576 `cc6a6665` and
@@ -50,9 +50,9 @@ Draft IDs are cited as draft IDs.
 - The option texts of decisions 144, 145, 159, 199, 207 and 215 were not shown to this memo's author; they are cited
   as relayed in the driver's rev-2 brief, not quoted.
 
-**Prerequisites (at C1's base).** N1's implementation (#580) and **C0** landed; L3 RC-2a (which carries D14) landed (§4.4). T3 and
-slice b are **after** C1. Of these, only N1's implementation is on `origin/main` (`27b50dfe`, 2026-11-01); C0 and RC-2a
-are not. The C0 dependency is
+**Prerequisites (at C1's base).** N1's implementation (#580), **C0a, C0b and C0c** landed; L3 RC-2a (which carries D14)
+landed (§4.4). Order: N1 → C0a → C0b → C0c → C1 → T3 → slice b (C0 draft §1 *Order*). Of these, only N1's
+implementation is on `origin/main`; C0 and RC-2a are not. The C0 dependency is
 semantic, not cosmetic: §1's table shows that C1 on a base without insertion adoption makes the most common template
 pattern worse than HEAD (PM decision 143); with C0 on the base it does not (§1, K-0 lens).
 
@@ -79,7 +79,12 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.1* (2026-11-03): clerical — C0 reference to rev 2.1 `d262ca8c`; O-1 decided (a) (PM 223 O-1 / 232); edge c-D14 → c-RC2a (PM 241). *Rev 3* (2026-11-01): aligned with C0 rev 2 (`fa68c20f`, now `42ca6a2c` after C0's rebase; PM decisions 223 O-2 / 227): the new-node
+**Changelog.** *Rev 3.2* (2026-11-03): aligned to the C0 program (C0 draft rev 3.6, `65180942`): C0 is three PRs
+(C0b gives I its hook and value, C0c the per-segment pairs; edges c3b / c3c); the §13.4 redirection is
+`FragmentParseRoot` on the fragment-parse root (C0 D-10), so the "re-home through the throwaway and back" text is gone
+(C0 P-17); the hook's argument is a `NewNodeOwner` (D-17); §4.3's constraint is met by D-20; `walkers.rs` changes order
+in C0c (D-19); §10's rev 2 / rev 3 tables moved to history pointers. Rebased onto `12ea5dce`; no cited coordinate
+moved (§0.1). *Rev 3.1* (2026-11-03): clerical — C0 reference to rev 2.1 `d262ca8c`; O-1 decided (a) (PM 223 O-1 / 232); edge c-D14 → c-RC2a (PM 241). *Rev 3* (2026-11-01): aligned with C0 rev 2 (`fa68c20f`, now `42ca6a2c` after C0's rebase; PM decisions 223 O-2 / 227): the new-node
 entry, its parser-tier migration and the per-node `adoptedCallback` pairs are C0's; D-C4, D-C5, §4.3, §5.1, §5.3,
 §6, §8, §9 and §11 shrink to the template-contents part; N1's implementation landed (`27b50dfe`); §10.1 lists each
 move. *Rev 2* (2026-11-01): driver brief inputs 1–9 (§10 lists each and its disposition); rebased on
@@ -108,6 +113,8 @@ fallbacks (C0 draft D-1). Code references come from `/usr/bin/grep -n` / `sed -n
 `crates/script/elidex-script-session/src/scripting.rs` (N1's implementation) and
 `crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs`; every other coordinate is byte-identical and
 stays a `593aa314` coordinate. The two changed files are cited at `27b50dfe` (H-C9, §5.1 P-7, §5.2, §5.3).
+*Rev 3.2:* rebased onto `12ea5dce`; of the cited files only `cssom_sheet.rs` changed (at `:584`, not the cited `:213`),
+so the frame stays (`git diff --stat 27b50dfe 12ea5dce -- crates`).
 
 ### §0.2 Premises re-measured
 
@@ -117,10 +124,10 @@ At `593aa314` unless the row says "on the base" (= `593aa314` + N1 implementatio
 |---|---|---|
 | H-C1 | One establishing helper exists; its owner parameter is the C2 approximation | `EcsDom::attach_template_contents` `crates/core/elidex-ecs/src/dom/mod.rs:557`; doc `:548-556` ("ships the **C2 approximation** `owner_doc = template's own node document`"; its "strict: post-insert `owner_document(template)`" is stale since #577, §5.2); creates the fragment with `create_document_fragment_with_owner(owner_doc)` and links `TemplateContents { fragment }` (`crates/core/elidex-ecs/src/components.rs:366`) |
 | H-C2 | Four production callers of the helper | `/usr/bin/grep -rnF 'attach_template_contents(' crates --include='*.rs' \| /usr/bin/grep -v '/tests/\|tests\.rs\|/tests_'` → clone post-pass `crates/dom/elidex-dom-api/src/node_methods/clone.rs:422`, `createElement` `crates/dom/elidex-dom-api/src/document.rs:264` (`Some(this)`), tolerant `crates/dom/elidex-html-parser/src/convert.rs:284` (threaded `owner_document`), strict `attach_ordinary_template_contents` `crates/dom/elidex-html-parser-strict/src/tree_builder/shadow.rs:123-125` (`node_document_for_new_nodes()`), plus the definition (verified 2026-11-01) |
-| H-C3 | The strict parser has one new-node owner function (since #577) | `node_document_for_new_nodes` (strict `TreeBuilder` method) `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:271` (`pub(super)`): fragment parse → `owner_document(context)`, else `Some(self.document)`. Its callers: `/usr/bin/grep -rn 'node_document_for_new_nodes' crates` → `insert.rs:108` (`insert_foreign_element`) and `shadow.rs:124` (`attach_ordinary_template_contents`) only. It takes no intended parent, so inside template contents it returns the parse (or context) document. **On the base** C0 deletes it and adds `EcsDom::node_document_for_new_nodes(source)` (NEW: C0), `node_document(source)` with the §13.4 substitution read from `FragmentParseDocument` (NEW: C0) on the throwaway (C0 draft D-10) |
+| H-C3 | The strict parser has one new-node owner function (since #577) | `node_document_for_new_nodes` (strict `TreeBuilder` method) `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:271` (`pub(super)`): fragment parse → `owner_document(context)`, else `Some(self.document)`. Its callers: `/usr/bin/grep -rn 'node_document_for_new_nodes' crates` → `insert.rs:108` (`insert_foreign_element`) and `shadow.rs:124` (`attach_ordinary_template_contents`) only. It takes no intended parent, so inside template contents it returns the parse (or context) document. **On the base** C0b deletes it and adds `EcsDom::node_document_for_new_nodes(source) -> NewNodeOwner` (NEW: C0b), `node_document(source)` except under the §13.4 fragment-parse root, which carries `FragmentParseRoot { redirect_document }` (NEW: C0b) and answers the context's document (C0 draft D-10, D-17) |
 | H-C4 | The other parser creations stamp nothing | strict: `insert_element_named` `insert.rs:55` (`create_element`), `insert_comment` / `insert_comment_to` `:131`, `:140` (`create_comment`), `append_text` `:193` (`create_text`), the DSD template `shadow.rs:153`; tolerant: `convert_node` `convert.rs:237` creates elements with `None` (`:251`), text, comment and doctype without an owner (`:305`, `:309`, `:316`). The tolerant tier stamps **only** the contents fragment (`convert.rs:284` → the helper); the threaded `owner_document` is otherwise only an argument (`:199`, `:286`, `:289`) (scout Q-S3). The tolerant tier's fragment entry chooses its threaded document itself: `owner_document(context)` `crates/dom/elidex-html-parser/src/lib.rs:158`, a second statement of H-C3's fragment branch. **On the base** every site of this row takes its owner from C0's entry (C0 draft D-11, §4.4) and `lib.rs:158`'s choice is gone |
 | H-C5 | Today descendants without a stamp resolve through the tree root; C0 removes that | `EcsDom::owner_document` `mod.rs:817`: stamp first, else the tree root's Document, else a `DocumentFragment` root's stamp (`:836-856`). **On the base** C0 deletes both fallbacks and adds `EcsDom::node_document` (NEW: C0) (Document → itself; node → its live `AssociatedDocument`, else `None`) as the sole reader (C0 draft D-1); every node linked under a parent with a node document is stamped by C0's link-time adopt (C0 draft D-4, invariant I-U) |
-| H-C6 | Adoption re-homes template contents to the **same** document as the template | `EcsDom::adopt_subtree` `crates/core/elidex-ecs/src/dom/tree/teardown.rs:251` walks `for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, …)` and stamps every visited node with `document`. Caller: `finish_detached_fragment` (`teardown.rs:337`); a test (`dom/tests/destroy.rs:324`). **On the base** C0 keeps this walk as `adopt`'s step 3 (C0 draft D-3: "Under C2 the template adopting steps … are the identity … C1 replaces that one edge with `f(document)`") records a contents segment `{ fragment, documents: Option<(old, new)> }` per contents fragment it reaches (C0 draft D-3 (c)), and dispatches one `MutationEvent::Adopt` (NEW: C0) per adopt call carrying the root pair and the segments; C0's custom-element consumer gives each element its own segment's pair, contents right after their template (C0 draft D-6) |
+| H-C6 | Adoption re-homes template contents to the **same** document as the template | `EcsDom::adopt_subtree` `crates/core/elidex-ecs/src/dom/tree/teardown.rs:251` walks `for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, …)` and stamps every visited node with `document`. Caller: `finish_detached_fragment` (`teardown.rs:337`); a test (`dom/tests/destroy.rs:324`). **On the base** C0b keeps this walk as `adopt`'s step 3 with the identity contents edge that C1 replaces by `f(document)` (C0 draft D-3 (a)) and deletes the `finish_detached_fragment` caller (D-8); C0c records a contents segment `{ fragment, documents: Option<(old, new)> }` per contents fragment reached (D-3 (c)), visits contents right after their template (D-19), and dispatches one `MutationEvent::Adopt` (NEW: C0c) per adopt call whose consumer gives each element its own segment's pair (D-6) |
 | H-C7 | A clone stamps an explicit owner on every node the deep cloner makes | `clone_subtree`'s document choice `crates/core/elidex-ecs/src/dom/tree_clone.rs:206-210`, root stamp `:221`, descendant stamp `:417`. The post-pass `clone_node_with_shadow_honor` `clone.rs:227` computes **one** `shadow_doc` (`:239-243`) and threads it into every pair's template pass (`replicate_template_contents`, `:262`, def `:405`; fragment `:422`, children `:426`) and shadow pass (host and shadow root stamps `:283-284`, shadow children `:290-302`) |
 | H-C8 | The `ownerDocument` getter and URL resolution read the node document | dom-api getter `crates/dom/elidex-dom-api/src/node_methods/core.rs:279` (`owner_document(this).or_else(\|\| dom.document_root())`); href base `crates/dom/elidex-dom-api/src/element/href_accessor.rs:50`; base URL `crates/dom/elidex-dom-api/src/element/document_base.rs:177`. On the base the last two read `node_document` (C0 draft D-7 (b), (c)) |
 | H-C9 | The handler gates derive the node document through one rule | `scripting_disabled_for_platform_object` clause (b) `crates/script/elidex-script-session/src/scripting.rs:108-122` at `27b50dfe` (node arm, composed-root proxy; fn `:97`). Its doc names the template false negative as this slot's (`:73-74` at `27b50dfe`). **On the base** C0 replaces the proxy by `node_document(entity) != bound` (C0 draft D-7 (a)); T3 (after C1) reads `node_document` too (C0 draft H-T) |
@@ -152,7 +159,7 @@ New in rev 2:
 - **P-C7 (rev 1, D-C7: "a fragment parse that builds a template creates an I for its throwaway document").** Wrong at
   `593aa314`: since #577 both tiers attach a fragment parse's template contents with the **context's** node document
   (strict `node_document_for_new_nodes`, tolerant `lib.rs:158`), so no inert document of the throwaway is ever needed.
-  D-C4 keeps that substitution, and D-C7 / U4 are restated.
+  On the base C0's root redirect keeps that value (C0 draft D-10); D-C7 / U4 are restated.
 - **P-C8 (rev 1, P-8 / H-C11).** Rev 1's root-consumer census filtered with `grep -v test`, which also drops
   `crates/layout/elidex-layout/src/hit_test.rs` (the path contains "test"); the consumers are 4, not 3. Every census in
   this rev filters with `'/tests/\|tests\.rs\|/tests_'`.
@@ -179,13 +186,14 @@ New in rev 2:
   giving contents the inert document." A custom element created in the document and appended into `tpl.content` stays
   custom in the inert document (adopt does not un-upgrade), so custom elements in contents exist on C1's head, and a
   later adoption of their template must give them `adoptedCallback(f(old), f(new))` (D-C5, cell T25). Hand-off H-2.
-  **Folded by C0 rev 2** (D-3 (c) per-segment pairs, D-6 consumer order; its P-4, cells T18, U13).
+  **Folded by C0** (C0c: D-3 (c) per-segment pairs, D-6, D-19; C0c memo P-4, cells T18, U13).
 - **P-C15 (C0 rev 1 × #577).** C0 rev 1 (frame `1ed126b4`, before #577) does not mention
   `node_document_for_new_nodes`. On C0's base its link-time adopt (D-4) re-homes a strict foreign element, created with
   the context's document by that function in a fragment parse, to the throwaway document at its append (the parent's
   node document), and `finish_detached_fragment` re-homes it back. The intermediate stamp is unobservable (the parse
   runs with the dispatcher taken), but the function's fragment branch then describes a stamp that C0 overwrites.
-  Hand-off H-2. **Folded by C0 rev 2** (D-10's overwrite note).
+  **Moot since C0 rev 3:** no build node except the root holds the throwaway and no build link adopts (C0 draft D-8,
+  D-10; its P-17).
 - **P-C16 (T3 draft × C0 draft × this brief, umbrella rows).** The T3 draft (`14ff3dc2`) carries umbrella rev 8.4 / 8.5
   edits that add **both** C0 and C1 rows to §1.2 and edges x7–x10; the C0 draft D-9 says C0's PR adds the C0 row; the
   driver's brief (PM decisions 144 / 159) says C1's PR adds the C1 row. Three branches claim the same lines. O-1 (§11); decided rev 3.1 (PM 223 O-1 / 232).
@@ -213,19 +221,19 @@ New in rev 2:
   `EcsDom::is_inert_template_document(&self, document: Entity) -> bool` (NEW) reads the marker; the predicate is the
   per-node "template origin" fact slice b's S-2 reads through the node document (§4.6).
 - **D-C3 — the establishing steps call the rule once, inside the helper.** `attach_template_contents(template,
-  node_document)` keeps its name and its single-attach contract; its second parameter becomes **the template's node
-  document** and the helper applies `f` to it. `None` keeps today's orphan fragment (a documentless context or an
-  orphan clone). No caller computes I itself. This is C0's hook point (C0 draft D-10, "C1's hook point"): on the base
-  the strict tier, the tolerant tier and `createElement` already pass `node_document_for_new_nodes(template)` (C0
-  draft D-10, D-11, §4.4), which is the template's node document with the §13.4 substitution; the clone post-pass
-  passes the pair's document (D-C6). C1 changes no caller's argument for the three entry callers; it changes what the
+  owner)` keeps its name and its single-attach contract; its second argument, a `NewNodeOwner` on the base (C0 draft
+  D-17), carries **the template's node document** and the helper applies `f` to `owner.document()`. `None` keeps
+  today's orphan fragment (a documentless context or an orphan clone). No caller computes I itself. This is C0b's hook
+  point (C0 draft D-10, "C1's hook point"): on the base the strict tier, the tolerant tier and `createElement` already
+  pass `node_document_for_new_nodes(template)` (C0 draft D-10, D-11, §4.4), the template's node document with the §13.4
+  redirection; the clone post-pass passes the pair's document (D-C6). C1 changes no caller's argument for the three entry callers; it changes what the
   helper does with it (applies `f`). Through idempotence a template nested in contents gets I whether its caller passes
   D or I.
 - **D-C4 — the new-node entry is C0's; C1 guarantees its value inside contents (PM decisions 199 / 207, 223 O-2 /
-  227).** C0 adds `EcsDom::node_document_for_new_nodes(source)` (NEW: C0) — `node_document(source)`, with the one
-  substitution of a §13.4 throwaway carrying `FragmentParseDocument` by its `context_document` — deletes the strict
-  tree builder's method, and migrates every production creation site, both parser tiers included, onto it (C0 draft
-  D-10, D-11, §4.4). C1 adds no entry, no entry branch and no creation-site change. C1's obligation is the entry's
+  227).** C0b adds `EcsDom::node_document_for_new_nodes(source)` (NEW: C0b, H-C3) — `node_document(source)`, except
+  that the §13.4 fragment-parse root answers its `FragmentParseRoot`'s `redirect_document` — deletes the strict tree
+  builder's method, and migrates every production creation site, both parser tiers included, onto it (C0 draft D-10,
+  D-11, D-20, §4.4). C1 adds no entry, no entry branch and no creation-site change. C1's obligation is the entry's
   **value** inside template contents:
   - inside template contents `source` is the contents fragment or one of its descendants; D-C3 makes the fragment's
     stamp I, C0's link-time adopt (C0 draft D-4, invariant I-U) carries it to every linked descendant, and shadow roots
@@ -233,12 +241,10 @@ New in rev 2:
     I there with no template-specific branch, for nested contents too (`f(I) = I`);
   - in document parsing the creation stamp and C0's link-time stamp therefore agree inside contents: no `Adopt` from D
     to I for a parsed node (cell U12, both tiers);
-  - in a fragment build the template's own entry value is the context's node document (the substitution), so
-    `attach_template_contents` computes `f(context's document)`, never `f(throwaway)` (D-C7, U4); linked nodes are
-    re-homed through the throwaway and back as C0's overwrite note states (C0 draft D-10; P-C15).
-  Rev 2's D-C4 (C1 states the entry's contract and moves both parser tiers' creation sites onto it), §4.3's parser-site
-  list and Q-1 (the entry's signature) moved to C0 rev 2 (D-10, D-11, §4.4; C0 draft D-10 answers Q-1 with one `source`
-  parameter and the `FragmentParseDocument` component).
+  - in a fragment build no node except the root holds the throwaway and no build link adopts (C0 draft D-8, D-10), so
+    a template of the build has the context's node document (inside contents, its I) and `attach_template_contents`
+    computes `f(context's document)`; `f` is never computed for the throwaway (D-C7, U4).
+  Rev 2's D-C4, §4.3's parser-site list and Q-1 moved to C0 (§10).
 - **D-C5 — the template adopting steps inside C0's adopt.** DOM §4.5 *adopt* step 3 walks node's **shadow-including
   inclusive descendants**, which do not include template contents; step 3.4 runs each descendant's *adopting steps*,
   and a template's (HTML §4.12.3) adopt its contents into `f(node's new node document)`. C1 replaces C0's identity edge
@@ -246,11 +252,12 @@ New in rev 2:
   the template's contents (recursively the same way) into `f(document)`; nested templates resolve to the same I
   (idempotence). The walk's shape is C0's: `adopt_subtree` keeps its uncapped `TemplateContentsWalk::Include` walk and
   has one contents edge, where it records a segment `{ fragment, documents: Option<(old, new)> }` with `new` = the
-  target it writes into the contents (C0 draft D-3 (c)); rev 2's Q-2 is answered there, and C1 adds no walker variant.
+  target it writes into the contents (C0 draft D-3 (c), C0c); rev 2's Q-2 is answered there, and C1 adds no walker
+  variant (C0c's D-19 changes only the `Include` visiting order).
   C1's whole change is that edge's target: `new` = `f(target of the template)` instead of the template's target.
-  **Notification (owner split).** C0 owns the consumer change: one `MutationEvent::Adopt` per adopt call carries every
-  segment's pair, and the custom-element consumer visits contents right after their template and gives each element its
-  own segment's pair (C0 draft D-6; its cells T18 and U13 pin per-node pairs and order under C2). C1 owns only the
+  **Notification (owner split).** C0c owns the consumer change: one `MutationEvent::Adopt` per adopt call carries every
+  segment's pair, and the custom-element consumer visits contents right after their template (D-19) and gives each
+  element its own segment's pair (C0 draft D-6; C0c's cells T18 and U13 pin per-node pairs and order under C2). C1 owns only the
   value of the contents pair: through the edge above it becomes « `f(old)`, `f(document)` » with no consumer change
   (cell T25). Rev 2's Q-3 (consumer mechanism) is answered by C0 draft D-6; C1 does not touch the consumer.
 - **D-C6 — the template cloning steps, and one document per clone pair.** The copy's contents are established at the
@@ -308,7 +315,7 @@ Without C0, rows 1, 2 and 5 are **worse than HEAD** on the most common template 
 and rows 3 and 4 leave two answers to one node-document question depending on how the node got there (the decision
 surface One-issue-one-way forbids). With C0 on the base every row reaches the spec's value: rows 1, 2, 5 by C0's
 adoption at the append, rows 3 and 4 by C0's adoption at the placement into a contents fragment whose node document is I
-(C0 draft §4.6, C0-2). §6 T9 is the K-0 guard for rows 1–2.
+(C0 draft §4.6, I-U). §6 T9 is the K-0 guard for rows 1–2.
 
 **K-0 lens (umbrella K-0, S-3: no step worse than HEAD).** On C1's base (N1, C0, D14), C1's observable changes are
 §5.4's R-C1 to R-C8. Each moves an outcome from C2's to the spec's; none moves it to a third value. Two need a
@@ -339,7 +346,7 @@ is derived from the cited steps; the HEAD column from code reading at `593aa314`
 | M10 | nested: `<template id=o><template id=i></template></template>`; `[i.ownerDocument === o.content.ownerDocument, i.content.ownerDocument === o.content.ownerDocument]` | `[true, true]` | `[true, true]` (all `document`) | `[true, true]` (all I) | | |
 | M11 | `tpl.innerHTML = '<b id=x onclick="window.hit=1"></b>'; b = tpl.content.firstChild; [b.onclick, (b.dispatchEvent(new Event('click')), window.hit)]` | `[null, undefined]` (*get the current value of the event handler*: browsing context null) | `[function, 1]` | `[null, undefined]` | | |
 | M12 | `<template id=s><div id=h><template shadowrootmode=open><span></span></template></div></template>`: `[s.content.getElementById('h').shadowRoot !== null, …shadowRoot.ownerDocument === s.content.ownerDocument]` | DSD attaches inside contents when the parser's flag is set (§13.2.6.4.4); then `[true, true]` | `[true, true]` (both `document`) | `[true, true]` (both I) | | |
-| M13 | custom element in contents: `customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { log.push([o, n]) } })`; `e = document.createElement('x-a'); tpl.content.append(e); log` | `[[document, I]]` (insert step 7.1 adopts into the contents' node document; `e` stays custom) | `[]` | `[[document, I]]` (needs C0's `Adopt`) | | |
+| M13 | custom element in contents: `customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { log.push([o, n]) } })`; `e = document.createElement('x-a'); tpl.content.append(e); log` | `[[document, I]]` (insert step 7.1 adopts into the contents' node document; `e` stays custom) | `[]` | `[[document, I]]` (needs C0c's `Adopt`) | | |
 
 M3, M4–M6 and M13 are the rows where elidex's planned value is a reading (M3's unbound-Document methods, M4–M5's
 unparsable relative URL, M13's custom element staying custom in I). The remaining rows confirm the spec reading.
@@ -355,7 +362,7 @@ unparsable relative URL, M13's custom element staying custom in I). The remainin
 | A3 nesting | A template at any depth inside contents of D's templates has node document I and contents node document I; there is one I per non-inert Document, never an I of I |
 | A4 shadow | A shadow root inside template contents (declarative or `attachShadow`) and its content report I (C0's host-link stamp, A2's entry); the adopt and clone walks reach them under the contents' document |
 | A5 clone | The copy's contents are established in `f(pair document)`; their children, and every pass for a pair among them, use `f(pair document)`; a clone of contents is in I; a clone of D or of I is a non-inert Document with no link |
-| A6 adopt | Adopting a template into X (C0's insertion adopt, or the fragment parse's early re-home) re-homes the template and its shadow-including descendants to X and its contents (and nested contents) to `f(X)`; a custom element in contents gets `adoptedCallback(f(old), f(X))` in spec order |
+| A6 adopt | Adopting a template into X (C0's insertion adopt or `adoptNode`) re-homes the template and its shadow-including descendants to X and its contents (and nested contents) to `f(X)`; a custom element in contents gets `adoptedCallback(f(old), f(X))` in spec order |
 | A7 lifetime | I is created on first need and destroyed exactly when D is; no fragment parse, strict parse error or clone creates an I for a throwaway document |
 | A8 consumers | Every reader of a node's document reads I for a node in template contents through `node_document` (the `ownerDocument` getter, the base URL, N1's compile gate, T3's step 3 after C1); no render / layout / hit-test root discovery visits I |
 | A9 EH contract | K-0 and S-3 hold; the bind pass still walks no template contents (K-5, K-6, U8 (ii)); S-1's template-contents extension and S-2's branch-A read-null are satisfiable on C1's head (§4.6); T3's R-A premises hold at C1's head (§9 item 9) |
@@ -372,10 +379,10 @@ unparsable relative URL, M13's custom element staying custom in I). The remainin
 | A1×A7 | yes | Lazy creation inside `f`; destruction cascades from D, so `f` never returns a destroyed I while D lives (U3, U4, U7) |
 | A1×A8 | yes | Consumers read the result through `node_document`; no consumer calls `f`. One node-document reader (C0), one new-node entry (D-C4), one contents rule (D-C2): three functions for three facts, not three for one |
 | A1×A9 | yes | `is_inert_template_document(node_document(n))` is the branch-A template-origin fact (S-2), derived from the node document, so it tracks moves (a node moved out loses it through C0's adoption) |
-| A2×A3 | yes | Both tiers call C0's entry with the intended parent (C0 draft D-11), whose node document is I inside outer contents; the inner template's contents get `f(I) = I`. A tolerant threaded value is recomputed at each contents fragment (§4.3's constraint on C0's Q-2); either way it maps to I (T4, both tiers) |
+| A2×A3 | yes | Both tiers call C0's entry with the intended parent per node (C0 draft D-11, D-20), whose node document is I inside outer contents; the inner template's contents get `f(I) = I` (T4, both tiers) |
 | A2×A4 | yes | Declarative shadow content inside contents: the strict DSD path (`attach_declarative_shadow`, `shadow.rs:136`) and the tolerant DSD recursion (`try_attach_declarative_shadow`, `convert.rs:120`) create the shadow content with the entry's value for the shadow root, which C0 stamped with the host's node document I (T12; Q-S2) |
 | A2×A5 | yes | The clone post-pass is an establishing caller (D-C3) and site A10 of the new-node census: it passes the pair's document, not the entry's (a clone's document is the operation's, DOM §4.4 *clone a single node*), so the clone path is the one creation path that does not call the entry (§4.5) |
-| A2×A6 | yes | Fragment build: the entry substitutes the context's document for the throwaway; contents fragments are stamped `f(context doc)` at attach and never re-homed by C0's link (they are not linked); light nodes are re-homed to the throwaway by C0's link (P-C15) and back by `finish_detached_fragment`, whose walk (D-C5) maps contents to `f(context doc)` = their stamp already (T14 parity, both tiers) |
+| A2×A6 | yes | Fragment build: every node under the fragment-parse root holds the context's document from creation (C0 draft D-10), so no build link adopts and no finishing walk runs (D-8); contents fragments are stamped `f(context doc)` at attach (T14 parity, both tiers) |
 | A2×A7 | yes | No `f(throwaway)` is ever computed (D-C4), so neither the success path nor the strict rollback (`despawn_subtree(document)`, which reaches contents with `Include`) creates or leaks an I (U4, U5) |
 | A2×A8 | yes | DOMParser: `dp`'s templates' contents are in `f(dp)`, a third document, read null (N1) and, after T3, target null, exactly as `dp`'s own nodes (T6) |
 | A2×A9 | yes | The pre-bind parse puts contents in I before bind; slice a's bind pass still excludes them (U8 (ii) unchanged). Slice b's S-1 extension processes them at creation-equivalent time; C1 gives them a non-bound node document so their raw values read null (§4.6) |
@@ -396,7 +403,7 @@ unparsable relative URL, M13's custom element staying custom in I). The remainin
 | A5×A9 | yes | S-1 processes clones at creation (T3 draft D-T10 moves the clone path into T3, after C1); a clone of contents is in I, so its raw values read null until inserted, which is S-2's branch-A outcome. The umbrella's §9 N-2 problem (no per-node fact) does not arise: the fact is the node document |
 | A6×A7 | yes | Adopting all templates out of D's contents leaves I alive (D lives); an adopt never targets a throwaway's I (none exists, A2×A7) |
 | A6×A8 | yes | After adoption every consumer reads the new document through `node_document` (C0) |
-| A6×A9 | yes | C0's adoption precedes the Insert event (C0-3), so slice a's Insert arm (T-a2) and N1's gate see the adopted document; a node placed into contents is processed at T-a2 with node document I and reads null (W-K5's template half closes; R-3) |
+| A6×A9 | yes | C0's adoption precedes the Insert event (C0 draft D-4), so slice a's Insert arm (T-a2) and N1's gate see the adopted document; a node placed into contents is processed at T-a2 with node document I and reads null (W-K5's template half closes; R-3) |
 | A7×A8 | yes | A node outliving its I reads `ownerDocument` null through `node_document`'s dangling guard; I is never a render / layout / hit-test root (D-C9; U6) |
 | A7×A9 | no | The EH contract never reads I's lifetime |
 | A8×A9 | yes | N1's node clause reads I for contents: umbrella C14 inverts (no run, `null`; T17). The base's target rule ignores the document, so C18 is unchanged at C1 (T18) and T3 rewrites it; T3's R-A target cells (T-17, EW-13, EW-14, XW-8) rest on C1's facts (§9 item 9) |
@@ -427,18 +434,18 @@ intendedParent's node document"; text / comment: "targetParent's node document")
 | WHATWG HTML §4.12.3 The template element | template *adopting steps*, steps 1–2 | document = node's new node document's appropriate owner; adopt contents into it | C0's adopt walk (`EcsDom::adopt_subtree`, `crates/core/elidex-ecs/src/dom/tree/teardown.rs:251` at `593aa314`; moved by C0 D-3): its contents edge's target and segment `new` (D-C5); C0's `Adopt` consumer unchanged by C1 | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | template *cloning steps* (node, copy, subtree), steps 1–2 | subtree false → return; else clone each contents child with document = copy's contents' node document, subtree true, parent = copy's contents | `replicate_template_contents` `crates/dom/elidex-dom-api/src/node_methods/clone.rs:405` (D-C6) | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | `content` getter | return the template contents | `crates/script/elidex-js/src/vm/host/html_template_proto.rs:106` (unchanged) | ✓ | no |
-| WHATWG DOM §4.5 Interface Document | *adopt* steps 1–3 | 3 document ≠ oldDocument → for each shadow-including inclusive descendant: 3.1 set node document; 3.2 / 3.3.1–3.3.2 registries and attributes (not C1's); 3.3.3 `adoptedCallback`; 3.4 adopting steps | C0's `adopt` / `adopt_subtree` (C0 D-2, D-3) and `MutationEvent::Adopt` (NEW: C0) consumer (C0 D-6); C1 edits only the contents edge's target, hence the contents segments' `new` (D-C5) | ✗ | yes |
+| WHATWG DOM §4.5 Interface Document | *adopt* steps 1–3 | 3 document ≠ oldDocument → for each shadow-including inclusive descendant: 3.1 set node document; 3.2 / 3.3.1–3.3.2 registries and attributes (not C1's); 3.3.3 `adoptedCallback`; 3.4 adopting steps | C0b's `adopt` / `adopt_subtree` (C0 D-2, D-3) and C0c's `MutationEvent::Adopt` (NEW: C0c) consumer (C0 D-6); C1 edits only the contents edge's target, hence the contents segments' `new` (D-C5) | ✗ | yes |
 | WHATWG DOM §4.2.3 Mutation algorithms | *insert* step 7.1; *replace* step 6 | adopt node into parent's node document | C0 (C0 D-4); not touched by C1 | ✗ | yes |
 | WHATWG DOM §4.4 Interface Node | *clone a node* steps 2, 3, 5, 6.7 | 2 copy created in document (runs the establishing steps); 3 cloning steps; 5 children with the same document; 6.7 shadow children with the same document, subtree true | `clone_node_with_shadow_honor` `clone.rs:227` (D-C6, on D14), `clone_subtree` `crates/core/elidex-ecs/src/dom/tree_clone.rs:206-210` (unchanged) | ✓ | yes |
 | WHATWG DOM §4.4 Interface Node | *node document*; `ownerDocument` getter | a node's node document; a document's is itself; getter null for a document | C0's `EcsDom::node_document` (NEW: C0) and `owner_document` `mod.rs:817`; getter `crates/dom/elidex-dom-api/src/node_methods/core.rs:279` (unchanged by C1; new values) | ✓ | no |
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *appropriate place for inserting a node*; *create an element for a token* step 3; text and comment insertion | a template target parent → its template contents; document = intendedParent's node document; text / comment = targetParent's node document | C0's `EcsDom::node_document_for_new_nodes` (NEW: C0) and its migrated parser call sites (C0 draft D-10, D-11, §4.4; at `593aa314` the strict `TreeBuilder` method `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:271` and tolerant `convert_node` `crates/dom/elidex-html-parser/src/convert.rs:237`); C1 changes no site, only the value inside contents (D-C4) | ✓ | yes |
 | WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | start tag "template", the declarative branch ("Keep") | the declarative shadow root attaches when the parser's allow-declarative-shadow-roots flag is true, inside template contents too | strict `attach_declarative_shadow` `tree_builder/shadow.rs:136`, `attach_ordinary_template_contents` `:123` (D-C3); tolerant `try_attach_declarative_shadow` `convert.rs:120` | ✗ | yes |
-| WHATWG HTML §13.4 Parsing HTML fragments | the throwaway Document and the returned nodes | templates parsed in the build get the context's inert document (D-C4's substitution); the finishing re-home and the caller's insertion adopt | `begin_detached_fragment` `teardown.rs:293`, `finish_detached_fragment` `teardown.rs:330`; tolerant `crates/dom/elidex-html-parser/src/lib.rs:158` (replaced by C0's `FragmentParseDocument` substitution, C0 draft D-10); C1: D-C4's value, D-C5 | ✗ | yes |
+| WHATWG HTML §13.4 Parsing HTML fragments | the throwaway Document and the returned nodes | templates parsed in the build get the context's inert document (C0's root redirect, D-C4); the caller's insertion adopt | `begin_detached_fragment` `teardown.rs:293` (C0b inserts `FragmentParseRoot` on the root, C0 draft D-10), `finish_detached_fragment` `teardown.rs:330` (its re-home deleted, D-8); tolerant `crates/dom/elidex-html-parser/src/lib.rs:158` (deleted, D-20); C1: D-C4's value | ✗ | yes |
 | WHATWG HTML §8.5.4 The innerHTML property | setter on a template: the target is its template contents | parsed nodes replace the contents' children (inserted, so adopted into I by C0) | `crates/script/elidex-script-session/src/mutation/html_fragment.rs` (unchanged; C0 adopts) | ✗ | yes |
 | WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` `text/html` | the new document is "not created by this algorithm": its templates get its own inert document | `parse_into_inert_document` `crates/dom/elidex-form/src/inert_document.rs:110` (unchanged; values change via D-C3) | ✗ | yes |
 | WHATWG HTML §2.4.3 Document base URLs | *fallback base URL* steps 1–2 | I's URL is `about:blank` and its about base URL is null → base `about:blank` | `DocumentBaseUrl(about_blank_url())` from `create_document_node` `mod.rs:410`; read by `href_accessor.rs:50` (§1.1 M4–M6) | ✓ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | *get the current value of the event handler* step 3; *determine the target of an event handler* step 3 | raw value in a document whose browsing context is null → null; node document not an active document → null target | N1's compile gate (C0's `node_document` form of clause (b), `crates/script/elidex-script-session/src/scripting.rs:108-122` at `27b50dfe`; doc `:73-74` rewritten); T3 (after C1) | ✗ | yes |
-| WHATWG DOM §4.8 Interface ShadowRoot | *shadow-including inclusive descendant* | adopt's walk order (contents excluded; reached through step 3.4) | `for_each_uncapped_shadow_inclusive` `crates/core/elidex-ecs/src/dom/tree/walkers.rs:99` (unchanged; C0 draft D-3 (c)'s contents edge, D-C5) | ✓ | no |
+| WHATWG DOM §4.8 Interface ShadowRoot | *shadow-including inclusive descendant* | adopt's walk order (contents excluded; reached through step 3.4) | `for_each_uncapped_shadow_inclusive` `crates/core/elidex-ecs/src/dom/tree/walkers.rs:99` (C0c reorders `Include`, C0 draft D-19; C1 leaves it unchanged) | ✓ | no |
 
 ### §3.1 User-input touch audit
 
@@ -473,17 +480,15 @@ returned (D-C7 makes it unreachable; the check is defensive, as `node_document`'
 is the same lookup without the spawn. `attach_template_contents` calls the rule on `Some(node_document)`, then creates
 the fragment with that owner, as today.
 
-### §4.3 The new-node entry (D-C4): C0's, with C1's value constraint
+### §4.3 The new-node entry (D-C4): C0b's
 
-The entry, its signature (one `source`, the substitution by the `FragmentParseDocument` component), the deletion of the
-strict tree builder's method and the migration of every parser and dom-api creation site are C0's (C0 draft D-10,
-D-11, §4.4; PM decisions 223 O-2 / 227). C1 changes none of them. On C1's head the entry returns I inside template
-contents because D-C3 stamps the contents fragment with I (D-C4). One constraint follows for C0's open Q-2 (the tolerant
-converter passes the intended parent per node, or keeps a threaded value computed by the entry): a threaded value must
-be recomputed from the entry **at each contents fragment** (`node_document_for_new_nodes(fragment)`), not carried from
-the template's level, which today's `convert_children(&contents, fragment, dom, owner_document, opts)`
-(`crates/dom/elidex-html-parser/src/convert.rs:284-286`) does; carried, it would stamp contents' children with D on
-C1's head. The tolerant legs of T3, T12, T19 and U12 kill that form (§6.3). Hand-off H-2 records it for C0.
+The entry, its signature (one `source`; `NewNodeOwner`; the redirection by `FragmentParseRoot` on the fragment-parse
+root), the deletion of the strict tree builder's method and the migration of every parser and dom-api creation site
+are C0b's (C0 draft D-10, D-11, D-17, D-20, §4.4; PM decisions 223 O-2 / 227). C1 changes none of them. On C1's head the
+entry returns I inside template contents because D-C3 stamps the contents fragment with I (D-C4). Rev 3's constraint
+on C0's Q-2 (a tolerant value threaded from the template's level, as `convert.rs:284-286` does today, would stamp
+contents' children with D) is met by construction: Q-2 is decided per node and the threaded owner is deleted (C0 draft
+D-20). The tolerant legs of T3, T12, T19 and U12 still kill that form (§6.3).
 
 ### §4.4 Clone (D-C6), on D14
 
@@ -538,15 +543,15 @@ design change.
 
 ### §4.7 What C1 takes from C0 (C0 draft §4.6)
 
-| C1 needs | C0 draft's answer | C1's use |
+| C1 needs | C0 draft's answer (PR) | C1's use |
 |---|---|---|
-| one reader of a node's node document | `EcsDom::node_document` (NEW: C0) (D-1); `owner_document` = getter wrapper | every read in C1's code (D-C10) |
-| every insertion adopts, before `Insert` | D-4 at the three primitives; D-5 for replace-with-fragment | §1 rows 1–5; T7, T8, T9, T13 |
-| a contents fragment's node document is the parent document for nodes placed into it | C0-2 (C0 draft §4.6): `node_document(fragment)` = its stamp | T7, T8 |
-| the one adopt walk to edit | D-3: `adopt_subtree` (moved to `mutation.rs`), `Include` walk, one contents edge recording segments (D-3 (c)) | D-C5 replaces the contents edge's target |
-| one adoption notification | D-6: one `MutationEvent::Adopt` (NEW: C0) per adopt call with per-segment (old, new) pairs; custom-element consumer in spec order (contents right after their template) | D-C5 sets the segment's `new`; no consumer change (T25) |
-| one new-node owner entry, every creation site on it | D-10, D-11, §4.4: `EcsDom::node_document_for_new_nodes(source)` (NEW: C0), `FragmentParseDocument` (NEW: C0); strict method deleted; hook = `attach_template_contents`'s second argument | D-C3 applies `f` in the helper; D-C4's value inside contents |
-| the fragment parse's early re-home without events | D-8 | A2×A6 |
+| one reader of a node's node document | `EcsDom::node_document` (NEW: C0b) (D-1); `owner_document` = getter wrapper | every read in C1's code (D-C10) |
+| every insertion adopts, before `Insert` | D-4 at the three primitives; D-5 for replace-with-fragment (C0b) | §1 rows 1–5; T7, T8, T9, T13 |
+| a contents fragment's node document is the parent document for nodes placed into it | `node_document(fragment)` = its stamp (C0b) | T7, T8 |
+| the one adopt walk to edit | D-3: `adopt_subtree` (moved to `mutation.rs`), `Include` walk, one contents edge (C0b); segments (D-3 (c), C0c) | D-C5 replaces the contents edge's target |
+| one adoption notification | D-6, D-19 (C0c): one `MutationEvent::Adopt` per adopt call with per-segment (old, new) pairs; consumer in spec order | D-C5 sets the segment's `new`; no consumer change (T25) |
+| one new-node owner entry, every creation site on it | D-10, D-11, D-17, D-20 (C0b); hook = `attach_template_contents`'s second argument (`NewNodeOwner`) | D-C3 applies `f` in the helper; D-C4's value inside contents |
+| no `f(throwaway)` | D-8, D-10 (C0b): no build node but the root holds the throwaway; no build link adopts | A2×A6, A2×A7 |
 
 ### §4.8 ECS-native and Layering checks
 
@@ -582,12 +587,12 @@ Filter for production code everywhere: `NT='/tests/\|tests\.rs\|/tests_\|test_he
   → `tree_clone.rs:221`, `:230`, `:417`, `clone.rs:283`, `:284`, `:299`, `teardown.rs:257`, definition `mod.rs:789`
   (verified 2026-11-01). D14 removes `clone.rs:299`; C1 changes the document of `clone.rs:283-284` (D-C6).
 - **P-4 parser owner decisions** and **P-5 parser creation sites**: **moved to C0 (rev 3)**. They are C0's creation
-  census and its ratchet (C0 draft D-11, §4.4, §5.1 P-3 and P-8; PM decisions 223 O-2 / 227). C1 neither adds nor
+  census and its ratchet (C0 draft D-11, §4.4; C0b memo §5.1 P-3, P-8; PM decisions 223 O-2 / 227). C1 neither adds nor
   changes a parser creation site. At C1's base C1 re-runs C0's P-8 (0 production ownerless creations) and C0's P-3 (no
   `owner_document(` in either parser crate) as base checks only (§9 item 1).
-- **P-6 node-document consumers** (values change for nodes in contents, code unchanged by C1): the C0 draft's P-3
-  census (17 production `owner_document(` readers at `593aa314`; at C0's head `node_methods/core.rs:279` and
-  `selection.rs:618` only, the rest read `node_document`, C0 draft D-1 (b), D-7). Re-run at C1's
+- **P-6 node-document consumers** (values change for nodes in contents, code unchanged by C1): C0's P-3
+  census (C0 draft §5, list in the C0b memo §5.1; at C0b's head `node_methods/core.rs:279` and `selection.rs:618`
+  only, the rest read `node_document`, C0 draft D-1, D-7). Re-run at C1's
   base: `/usr/bin/grep -rn 'node_document(\|owner_document(' crates --include='*.rs' | /usr/bin/grep -v "$NT"`.
   Scout Q-S4's classification (2026-10-31) found no reader whose new value for a node in contents is not the spec's
   except the two Q-S10 rows (`documentURL` / href paths' `document_root()` fallback on I) and `focus/delegate.rs:85`
@@ -609,13 +614,12 @@ contents and their `<p>` → I, not the document) and `fragment_parsed_template_
 (`:214`: the shallow copy's `content` → the document's I); `crates/core/elidex-ecs/src/dom/tests/associated_document.rs`
 and `dom/tests/traversal.rs:18` (`attach_template_contents(template, Some(doc))`: still compiles, value changes); slice
 a's VM tests holding umbrella cell C14 (`crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs`,
-inverted, T17); C0's cells that pin C2 values for template contents and say "C1 turns …" (C0 draft T5, T18's `new`
+inverted, T17); C0's cells that pin C2 values for template contents and say "C1 turns …" (C0b memo T5, C0c memo T18's `new`
 leg: rewritten to the inert document, C1's T13 / T25 values; the list is re-derived at C1's base with
-`/usr/bin/grep -n 'C1 turns' <C0 memo>`). C18's test (`tests_event_handler_attrs_window_delegating.rs`) is **unchanged** at C1 (T18). The complete
+`/usr/bin/grep -n 'C1 turns' <C0b and C0c memos>`). C18's test (`tests_event_handler_attrs_window_delegating.rs`) is **unchanged** at C1 (T18). The complete
 list is re-derived at C1's base (C0 and D14 change neighbouring tests).
 Docstrings: P-7, plus `components.rs:354-364` (`TemplateContents`' adopt sentence), `attach_template_contents`'s
-"strict: post-insert `owner_document(template)`" (stale since #577; C0 may already have rewritten its caller list,
-C0 draft §5.2), `replicate_template_contents`'s "the C2 owner-doc approximation" (`clone.rs:398-399`), `scripting.rs:73-74` (at `27b50dfe`).
+"strict: post-insert `owner_document(template)`" (stale since #577; C0b rewrites its caller list, C0b memo §4.9), `replicate_template_contents`'s "the C2 owner-doc approximation" (`clone.rs:398-399`), `scripting.rs:73-74` (at `27b50dfe`).
 
 ### §5.3 Touched files
 
@@ -644,8 +648,8 @@ Line counts: `wc -l` at `593aa314` (verified 2026-11-01); re-measured at C1's ba
 creation sites and the entry's strict method, `crates/dom/elidex-html-parser/src/convert.rs`,
 `crates/dom/elidex-html-parser/src/lib.rs`, `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs`,
 `tree_builder/insert.rs`, `tree_builder/shadow.rs` (C0 draft D-10, D-11, §4.4); and
-`crates/core/elidex-ecs/src/dom/tree/walkers.rs` (rev 2's Q-2, answered by C0 draft D-3 (c): no walker change). C1's
-diff touches none of them.
+`crates/core/elidex-ecs/src/dom/tree/walkers.rs` (rev 2's Q-2, answered by C0 draft D-3 (c); C0c reorders `Include`,
+D-19). C1's diff touches none of them.
 
 ### §5.4 Named risks (and the observable change each is)
 
@@ -664,7 +668,7 @@ diff touches none of them.
 
 ## §6. Test plan
 
-Columns: *HEAD* = `593aa314`; *base* = HEAD + N1 implementation + C0 + D14 (still C2); *C1 = spec*. **Red-first**: every
+Columns: *HEAD* = `593aa314`; *base* = HEAD + N1 implementation + C0a–C0c + RC-2a with D14 (still C2); *C1 = spec*. **Red-first**: every
 *red* cell is run on C1's base before the fix with its control green, and the failure is recorded in the PR description.
 Cross-tier: cells marked (×2) run under both parser tiers. A cell whose spec value depends on §1.1 is asserted only
 after the measurement agrees (D-C11).
@@ -694,7 +698,7 @@ after the measurement agrees (D-C11).
 | T22 | red | `tpl.innerHTML = '<b id=x onclick="1">'`; read `x.onclick` | a function (`scripting.rs:73-74`'s false negative, at `27b50dfe`) | `null` |
 | T23 | red (**R-A closure**, §9 item 9; needs N1, C0) | for each route by which a `<b onfocus="window.hit=1">` reaches template contents — (i) parsed (×2), (ii) `tpl.content.append(b)` of a `createElement`'d `b`, (iii) `tpl.content.cloneNode(true)` of contents holding it, (iv) `tpl.cloneNode(true)` of a template holding it — read `[b.ownerDocument === tpl.content.ownerDocument, b.ownerDocument !== document]`; for route (ii) also `b.onfocus === null` (the only route on which the base writes a raw value: slice a's Insert arm, W-K5; routes (i), (iii), (iv) are unprocessed at both base and C1 — K-5 and the G5 / K3 window — so their handler leg is slice b's, not this cell's) | `[true, false]` for every route; route (ii) `b.onfocus === null` → `false` | `[true, true]` for every route; route (ii) → `true` |
 | T24 | red | clonable shadow host in contents: `tpl.innerHTML = '<div id=h></div>'`; `h = tpl.content.firstChild; h.attachShadow({mode:'open', clonable:true}).innerHTML = '<i></i>'`; `c = tpl.cloneNode(true); ch = c.content.firstChild; [ch.ownerDocument !== document, ch.shadowRoot.ownerDocument !== document, ch.shadowRoot.firstChild.ownerDocument !== document]` | `[false, false, false]` | `[true, true, true]` (C1 without D-C6's per-pair document: `[false, false, false]`, the host re-stamped with `document`) |
-| T25 | red (§1.1 M13; needs C0's `Adopt`; C1's half only: the pair **values**; C0's T18 / U13 own per-node pairs and order) | `I = tpl.content.ownerDocument`; `x-a` with an `adoptedCallback(o, n)` logging the pair; `dp = new DOMParser().parseFromString('<template id=t></template>','text/html'); I_dp = dp.getElementById('t').content.ownerDocument`; `e = document.createElement('x-a'); dp.getElementById('t').content.append(e)`; `document.body.append(dp.getElementById('t'))` | first callback `(document, dp)` (C2: `I_dp` is `dp`); second `(dp, document)` | first `(document, I_dp)`; second `(I_dp, I)`, in that order |
+| T25 | red (§1.1 M13; needs C0c's `Adopt`; C1's half only: the pair **values**; C0c's T18 / U13 own per-node pairs and order) | `I = tpl.content.ownerDocument`; `x-a` with an `adoptedCallback(o, n)` logging the pair; `dp = new DOMParser().parseFromString('<template id=t></template>','text/html'); I_dp = dp.getElementById('t').content.ownerDocument`; `e = document.createElement('x-a'); dp.getElementById('t').content.append(e)`; `document.body.append(dp.getElementById('t'))` | first callback `(document, dp)` (C2: `I_dp` is `dp`); second `(dp, document)` | first `(document, I_dp)`; second `(I_dp, I)`, in that order |
 
 ### §6.2 Unit (`crates/core/elidex-ecs/src/dom/tests/template_owner.rs`, NEW)
 
@@ -710,7 +714,7 @@ after the measurement agrees (D-C11).
 | U8 | red | clone policy: `clone_subtree(D)` copy has no link; `clone_subtree(I)` copy has no marker | absent |
 | U9 | red | C0's adopt of a template into X, with nested contents and a shadow host in contents: shadow-including descendants → X, contents and nested contents and their shadow trees → `f(X)` | as stated |
 | U10 | guard | the adopt walk past the depth and breadth caps (as `despawn_subtree_tears_down_past_the_traversal_depth_cap`, `dom/tests/destroy.rs`) | every node re-homed |
-| U11 | red | C0's new-node entry for a `source` in D's template contents (the fragment, a descendant, nested contents, a shadow root in contents) → `f(D)`; and for a template parsed in a fragment build with context in D, its contents fragment's stamp → `f(D)` (never `f(throwaway)`). The entry's own contract (D → D; the throwaway → the context's document) is C0's cells, not C1's | as stated |
+| U11 | red | C0's new-node entry for a `source` in D's template contents (the fragment, a descendant, nested contents, a shadow root in contents) → `f(D)`; and for a template parsed in a fragment build with context in D, its contents fragment's stamp → `f(D)` (never `f(throwaway)`). The entry's own contract (D → D; the fragment-parse root → the context's document) is C0b's cells (its U11), not C1's | as stated |
 | U12 | red (×2) | document parse of `<template><svg></svg><b>t</b><!--c--></template>` into D with a recording `MutationDispatcher` installed: after the parse every node in contents carries `AssociatedDocument == f(D)`, and the recorder holds no `Adopt` event (an `Adopt` would mean a node was created with another document and re-homed at its link) | as stated |
 
 ### §6.3 Mutation guards
@@ -724,7 +728,7 @@ after the measurement agrees (D-C11).
 | contents children cloned with the operation's document | T10 |
 | shadow pass uses the operation-wide document inside copied contents | T24 |
 | no destroy cascade | U7 |
-| `f` of the throwaway computed (substitution dropped) | U4 |
+| `f` of the throwaway computed (root redirect dropped) | U4 |
 | link or marker copied by clone | T11, U8 |
 | `root_entities` not excluding I | U6 |
 | inside contents the entry's value is not I (a creation stamp from the parse / context document; the defect class C0's entry would have if it ignored `source`, here observed through contents) | T19 (strict leg), U11, U12 |
@@ -734,8 +738,8 @@ after the measurement agrees (D-C11).
 ### §6.4 Kept green
 
 Slice a's U8 (ii) (the bind pass does not walk template contents), E1–E8, C18 (T18), and the #380 template suite
-(`tests_html_t2d_protos.rs` `template_*`, `dom/tests/destroy.rs`, `dom/tests/traversal.rs`), C0's cells (its §6) except
-the C2 legs §5.2 rewrites (C0's U13, the per-node pair order, stays green), D14's cells. Commands: `cargo test -p elidex-ecs --all-features`, `-p elidex-dom-api`, `-p elidex-html-parser`,
+(`tests_html_t2d_protos.rs` `template_*`, `dom/tests/destroy.rs`, `dom/tests/traversal.rs`), C0a–C0c's cells except
+the C2 legs §5.2 rewrites (C0c's U13, the per-node pair order, stays green), D14's cells. Commands: `cargo test -p elidex-ecs --all-features`, `-p elidex-dom-api`, `-p elidex-html-parser`,
 `-p elidex-html-parser-strict`, `-p elidex-custom-elements`, `-p elidex-script-session`, `-p elidex-js`, then `mise run ci`.
 
 ## §7. Out of scope and slots
@@ -758,11 +762,15 @@ Own deferrals: **0**. Every row is pre-existing or another PR's scope.
 
 **Edges.**
 - c1: N1 implementation → C1 (T17, T22, T23's read-null legs need N1's compile gate). N1 landed (#580, `27b50dfe`).
-- c3: **C0 → C1** (semantic precondition, PM decisions 143 / 153; code predecessor for the new-node entry, the creation
-  census, the adopt walk's contents edge and the per-segment pairs, PM decisions 223 O-2 / 227; C0 draft edge c0b).
+- c3b: **C0b → C1** (semantic + code, PM decisions 143 / 153 / 244; C0 draft edge c0b): the reader, insertion
+  adoption, the new-node entry and its creation census, the hook (`attach_template_contents`'s `NewNodeOwner`) and the
+  adopt walk's contents edge — I's value (D-C3, D-C4, D-C5's target).
+- c3c: **C0c → C1** (semantic + code; C0 draft edge c0b, C0c memo edge c0b): the segments and the `Adopt` consumer —
+  the per-segment (old, new) pairs whose `new` D-C5 sets (T25).
 - c-RC2a: **L3 RC-2a → C1** (code predecessor on `clone.rs`'s child-clone loop: D14 and RC-2a's cloneNode migration both
-  rewrite it; PM decisions 215, 241; C1 rebases on it).
-- c-E: **C0** introduces the new-node entry (PM decisions 223 O-2 / 227; C0 draft D-10, edge c0f); L3 RC-4 (A11 / A12)
+  rewrite it; PM decisions 215, 241, 249; C1 rebases on it). RC-2a is in either order with C0b and C0c (C0 draft edges
+  c0g, c0e).
+- c-E: **C0b** introduces the new-node entry (PM decisions 223 O-2 / 227; C0 draft D-10, §4.5 A11 / A12); L3 RC-4 (A11 / A12)
   reads it. If RC-4 lands before C1, its cells for a Range inside template contents assert C2's document and C1 flips
   them; if after, RC-4 asserts I.
 - c4: **C1 → T3** (T3 draft: T3 relies on D-C2 to D-C6; R-A closed by C1; T3 rewrites C18).
@@ -770,9 +778,7 @@ Own deferrals: **0**. Every row is pre-existing or another PR's scope.
 
 **Hand-offs.**
 - H-1 to slice b: §4.6 items 1–4; the umbrella's §9 N-2 / N-3 (branch B's per-node fact) do not apply in branch A.
-- H-2 to C0 (via the PM): P-C14 and P-C15 are **delivered** — folded by C0 rev 2 (D-3 (c), D-6; D-10's overwrite
-  note). Rev 3 adds one item: §4.3's constraint on C0's Q-2 (a tolerant threaded value is recomputed from the entry at
-  each contents fragment).
+- H-2 to C0: closed. P-C14 is folded (C0c), P-C15 is moot (C0 D-8, D-10), §4.3's constraint is met (D-20).
 - H-3 to B1: create I in D's relevant realm.
 - H-4 to T3 (rev 3): T3's downstream list for this memo's owner (T3 draft §8.2 "C1 (lands before T3)") is applied by
   rev 2 (P-C11): base "N1 and C0", edge c4 (C1 → T3) replaces rev 1's c2, T18 is a guard, R-C4 unchanged at C1. T3's
@@ -782,7 +788,7 @@ Own deferrals: **0**. Every row is pre-existing or another PR's scope.
 **Records (for the PM; exact texts).** Applied by C1's PR in place, with history (PM decisions 144 / 159): C1's PR
 applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223 O-1 / 232). This plan PR still does
 **not** edit the umbrella file.
-- **R-1 umbrella §1.2** — add the row (after C0's row, which the C0 draft's D-9 adds):
+- **R-1 umbrella §1.2** — add the row (after the C0 program's row, which C0a's PR adds, C0 draft D-9):
   "| **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot
   `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6);
   closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed |".
@@ -809,13 +815,13 @@ applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223
 
 ## §9. Definition of done
 
-1. Coordinates re-measured at C1's base (N1 implementation, C0, D14 landed); §5.1 populations re-run and any change
-   recorded in the PR; C0's §5.1 P-3 and P-8 re-run as base checks (§5.1 P-4 / P-5).
+1. Coordinates re-measured at C1's base (N1 implementation, C0a–C0c, RC-2a with D14 landed); §5.1 populations re-run
+   and any change recorded in the PR; the C0b memo's §5.1 P-3 and P-8 re-run as base checks (§5.1 P-4 / P-5).
 2. `appropriate_template_contents_owner_document`, `inert_template_document_of`, `is_inert_template_document` and both
    components exist in `elidex-ecs` with §4.9's citations; no other site computes a template contents' node document
    (P-1 re-run); C1's diff adds no `owner_document(` call (D-C10). C1's diff adds no new-node entry, no entry branch
    and no creation-site change, and touches none of §5.3's "removed in rev 3" files (`git diff --stat <base>..HEAD`);
-   C0's P-3 and P-8 ratchets (C0 draft §5.1) still hold at C1's head.
+   C0's P-3 and P-8 ratchets (C0b memo §5.1) still hold at C1's head.
 3. D-C3 to D-C9 implemented; the clone-policy table has both rows.
 4. §1.1's table filled (engine and version recorded) before the implementation branch is cut; any row differing from
    the "C1 head" column decided by the PM (D-C11).
@@ -837,51 +843,10 @@ applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223
 
 ## §10. Revision history / dispositions
 
-### §10.0 Rev 3 (2026-11-01): alignment with C0 rev 2 (PM decisions 223 O-2 / 227)
-
-Why: PM decision 223 O-2 (C0 owns lifting the new-node entry into `EcsDom`) and PM decision 227 (C0 also migrates both
-parser tiers' creation sites onto it; C1 narrows to the template-contents hook) — both relayed by the driver, option
-texts not seen. C0 rev 2 (`fa68c20f`, now `42ca6a2c` after C0's rebase; unchanged in rev 2.1) implements them (D-10, D-11, §4.4) and also implements the per-node
-`adoptedCallback` pairs (D-3 (c), D-6). One PR owns each change; C1 keeps only what is template-contents-specific.
-Base: rebased without conflict from `593aa314` onto `27b50dfe` (#578, #580); §0.1's frame check.
-
-| rev-2 item | moved to | what C1 keeps |
-|---|---|---|
-| D-C4: the entry's contract, its `EcsDom` home, both parser tiers' creation sites onto it | C0 D-10, D-11, §4.4 | the entry's value inside contents (I), via D-C3; §4.3's constraint on C0's Q-2 |
-| §4.3 parser-site list (strict wrapper, tolerant `convert_node` / `try_attach_declarative_shadow`, `lib.rs:158`) | C0 D-10, D-11, §4.4 | none |
-| §5.1 P-4 (parser owner decisions), P-5 (parser creation sites) | C0 §5.1 P-3, P-8 | base checks only (§9 items 1–2) |
-| §5.3 rows: `convert.rs`, `lib.rs`, strict `tree_builder/mod.rs`, `insert.rs`, `shadow.rs` | C0 §5.3 / D-11 | none |
-| §5.3 row `consumer.rs`; D-C5's consumer mechanism; Q-3 | C0 D-6 (cells T18, U13) | the contents segment's `new` = `f(document)` (D-C5); cell T25 (values only) |
-| §5.3 row `walkers.rs`; Q-2 | C0 D-3 (c) | the contents edge's target (D-C5) |
-| Q-1 (entry signature) | C0 D-10 | none |
-| §4.9 row "the new-node entry (doc rewrite or NEW)"; §5.2 docstring of the strict method | C0 D-10 (method deleted) | none |
-| U11's entry-contract legs (D → D; throwaway → context) | C0's cells | U11's contents legs |
-| mutation guard "`adoptedCallback` gets the outer (old, new)" | C0 T18 / U13 | guard "segment `new` left at the template's target" (T25, U9) |
-| O-2 | decided (a) by PM 223 O-2 / 227 | — |
-| R-4 ledger text | rewritten for the new split | — |
-| edges c3, c-E | C0 → C1 now also a code predecessor for the entry and the pairs; c-E's entry owner is C0 | — |
-| H-2 (P-C14, P-C15) | delivered (C0 D-6, D-10) | new item: §4.3's constraint |
-
-Also in rev 3: N1's implementation is landed (#580, `27b50dfe`), so the header, Prerequisites, edge c1 and the
-`scripting.rs` coordinates (H-C9, §3, §5.1, §5.2, §5.3, T22, R-5) are re-stated at `27b50dfe`; C0's cells T5 and T18
-(`new` leg), which pin C2 values for contents, are listed as rewritten by C1 (§5.2); §4.4 records that C0 D-11 stamps
-the shallow clone; O-1 notes C0 rev 2 D-9's record of PM 223 O-1 (decided rev 3.1: (a), PM 223 O-1 / 232). Unchanged: D-C1, D-C2, D-C6 to D-C11, §1.1, every
-other cell, R-1 to R-3, R-5.
-
-### §10.1 Rev 2 (2026-11-01): driver brief inputs 1–9
-
-| input | content (as relayed) | disposition | where |
-|---|---|---|---|
-| Step 0 | fetch, rebase on `origin/main`, re-verify every `file:line` | done: rebased without conflict onto `593aa314` (#576, #577, #579 included); every coordinate re-measured; symbol and grep keys preferred | §0.1, §0.2, §5.1 |
-| 1 | order N1 impl → C0 → C1 → T3 → slice b; fix stale order refs; claim nothing landed that is not on main | applied: header, Prerequisites, §1, §6 column header, edges c1/c3/c4, T18, A8×A9, R-C4; N1 (#580 open) and C0 (draft) stated as not landed | header, §0.3 P-C11, §1, §6, §8 |
-| 2 | map every owner-document read/write onto C0's `node_document` / `Adopt`; no second reader; state the dependency (PM 143) | applied: D-C10 (no `owner_document(` in C1's new code, DoD item 2); §4.7 table; D-C5 edits C0's walk and `Adopt` consumer; the dependency table in §1 with the C1-without-C0 column marked rejected. Found P-C14 (C0's consumer premise) and P-C15 (C0 × #577) | §0.4, §1, §4.7, §8 H-2 |
-| 3 | R-A closed by C1, in the DoD with a concrete cell | applied: §9 item 9 quotes T3 rev 3's R-A; new cell T23 (four routes) plus per-route guards | §6.1 T23, §9 |
-| 4 | `node_document_for_new_nodes` is the single new-node owner entry; no parallel path; slot `#11-ownerless-node-creation` | applied as D-C4 (contract = intendedParent's node document with #577's substitution; every parser creation in both tiers uses it). Premise error P-C13: it is strict-only and `pub(super)` today, so a single entry needs an `EcsDom` home; who adds it is O-2 | §0.3, §0.4 D-C4, §4.3, §8 R-4, §11 O-2 |
-| 5 | A10 in scope; A11 / A12 read the entry and must get the right document; A1–A9 out of scope with owner | applied: A10 = §4.4; A11 / A12 = §4.5 + U11 (no Range-specific branch needed); A1–A9 and the dom-api sites in §7 with owner C0 rev 2 / L3 | §4.5, §6.2, §7 |
-| 6 | clone.rs loop rewritten by D14 first; C1 rebases; write on D14's form; record the edge | applied: §4.4 on D14's form, edge c-RC2a. Premise error P-C12: the brief's "passes the operation's subtree flag" is today's code and the defect; D14's form is subtree **true** (DOM step 6.7). Found a C1 defect in the same loop (pass 4 stamps the operation's document inside copied contents): D-C6 per-pair document, T24 | §0.3, §0.4 D-C6, §4.4, §6 T24, §8 |
-| 7 | Chromium measurement step before implementation, table to fill, no invented results | applied: §1.1 (13 rows, Chromium / other-engine columns empty), D-C11, DoD item 4; T1 / T20 gated on it | §1.1, §0.4, §9 |
-| 8 | fold scout answers Q-S1..Q-S9 | applied: Q-S1 → H-C12, D-C7, §7 (DOMParser documents never destroyed); release-leak premise → P-C6; Q-S2 → A2×A4, T12; Q-S3 → H-C4, P-C9; Q-S4 → §5.1 P-6 (residual Q-S11); Q-S5 → H-C16, R-C5 (residual Q-S10); Q-S6 → D-C9, §7, H-C11 (+ `hit_test.rs`, P-C8); Q-S7 → H-C17, §7; Q-S8 → §5.2 (lines re-located at `593aa314`); Q-S9 → H-C16, T11 | §0.2, §0.3, §5, §7 |
-| 9 | umbrella edits in C1's PR, in place, with history; C1 row only | texts written (§8 R-1, R-3); **not applied in this commit**: the T3 draft (`14ff3dc2`) already carries umbrella rev 8.4 / 8.5 with both C0 and C1 rows, and the C0 draft claims rev 8.4 for its row (P-C16); O-1 asks the PM which branch carries what before any of the three edits the file (decided rev 3.1: (a), PM 223 O-1 / 232) | §0.3 P-C16, §8, §11 O-1 |
+The rev 3 table (each rev 2 item moved to C0 rev 2, and what C1 kept) and the rev 2 table (driver brief inputs 1–9
+and their dispositions) are history: `git show <sha>:docs/plans/2026-10-eh-attrs-c1-template-owner-document.md`
+§10.0 / §10.1, with `<sha>` = `git log --format=%h -1 --grep='C1 plan-memo rev 3.1' -- <memo>` on this branch (after the
+squash merge, from the plan PR's head ref). Rev 3.2's alignments are the header changelog's.
 
 ### §10.2 Rev 1 (2026-10-31)
 
@@ -893,31 +858,21 @@ its Q-3 (T18) is resolved (T18 is a guard at C1).
 ## §11. Open questions
 
 **For the PM / user.**
-- **O-1 Umbrella edit sequencing (P-C16).** *Rev 3 note:* C0 rev 2 D-9 records PM 223 O-1 (relayed; option text not
-  seen here): one owner per §1.2 row, each PR adds its own, the umbrella revision number assigned at landing — the shape
-  of (a) below. **Decided rev 3.1: (a)**, by PM decision 223 O-1, confirmed for C1 by PM decision 232: one owner per
-  §1.2 row; each PR adds only its own, in landing order; the umbrella revision number is assigned at landing; it covers
-  C1's row (R-1) and R-3's texts; the T3 draft drops its C0 / C1 rows (T3 rev 4's job). Options as history: three unmerged branches edit umbrella §1.2: the T3 draft (rev 8.4 / 8.5,
-  both C0 and C1 rows, edges x7–x10), C0 rev 1 (D-9: the C0 row, x7, the order line, as rev 8.4; C0 rev 2 withdrew x7, the order line and the number,
-  keeping its own row) and this memo (R-1,
-  R-3: the C1 row and the C14 / K-5 / §8.2 texts). (a) Each PR carries its own row in landing order — C0's plan PR, then
-  C1's, then T3's — and the T3 draft drops its C0 / C1 rows and renumbers (recommended: matches PM decisions 144 / 159
-  and C0 draft D-9; each row lands with the PR that makes it true); (b) T3's PR carries all three as drafted (contradicts
-  144 / 159); (c) the PM applies all rows in one PM-owned docs PR.
-- **O-2 Which PR adds the `EcsDom` new-node entry (P-C13).** **Decided (rev 3): (a)**, by PM decisions 223 O-2 / 227
-  (relayed): C0 adds the entry and migrates every production creation site, both parser tiers included (C0 draft
-  D-10, D-11, §4.4); C1 supplies only the template-contents value through `attach_template_contents`'s second argument
-  (D-C3, D-C4). Rev 2's (a) also had C1 move the parser tiers; under the decision that moved to C0 too.
+- **O-1 Umbrella edit sequencing (P-C16).** **Decided rev 3.1: (a)**, by PM decision 223 O-1, confirmed for C1 by PM
+  decision 232: one owner per §1.2 row; each PR adds only its own, in landing order; the umbrella revision number is
+  assigned at landing; it covers C1's row (R-1) and R-3's texts; the T3 draft drops its C0 / C1 rows (T3 rev 4's job).
+  The options as asked are in the rev 3.1 text (§10).
+- **O-2 Which PR adds the `EcsDom` new-node entry (P-C13).** **Decided (rev 3): C0** (now C0b), by PM decisions 223 O-2
+  / 227; C1 supplies only the template-contents value through `attach_template_contents`'s second argument (D-C3, D-C4).
 - **O-3 Split.** If `mod.rs` is ≥ 990 lines at the base, the template-contents helpers move to `template_owner.rs` as a
   standalone pure-move PR first (the #537 precedent) or as a standalone first commit of C1's PR.
 
 **For plan-review.**
 - **Q-1** (the entry's signature), **Q-2** (the adopt walk's shape) and **Q-3** (`adoptedCallback` arguments in
-  contents) are **answered by C0 rev 2** (rev 3): Q-1 by C0 draft D-10 (one `source` parameter; the substitution by the
-  `FragmentParseDocument` component); Q-2 by C0 draft D-3 (c) (the existing `Include` walk with one contents edge; no
-  walker variant); Q-3 by C0 draft D-6 (one event per adopt call, per-segment pairs, spec order; C1 sets the segment's
-  `new`). The remaining C1-side constraint is §4.3's (C0's own Q-2, tolerant threaded value). No plan-review question
-  of C1's own remains open beyond §11's PM items and the scout questions.
+  contents) are answered by C0: Q-1 by D-10 / D-17 (one `source`, a `NewNodeOwner`, the redirection by
+  `FragmentParseRoot` on the fragment-parse root); Q-2 by D-3 (c) (the `Include` walk with one contents edge; no walker
+  variant; D-19 reorders it); Q-3 by D-6 (C1 sets the segment's `new`). §4.3's constraint is met by D-20. No
+  plan-review question of C1's own remains open beyond §11's PM items and the scout questions.
 
 **Scout questions** (facts this memo needs; not read here).
 - **Q-S10** For a non-bound Document wrapper (I, or a DOMParser document): `defaultView`, `URL`, `documentURI`,
