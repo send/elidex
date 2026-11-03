@@ -185,7 +185,7 @@ texts are the per-PR plans', with the amendments below. Re-eval dates are propos
 |---|---|---|---|---|---|---|
 | CP-1 | `#11-readonly-selection-edit-bypass` | L3 | form-core key action, not DC2 | next PR touching form-core key handling | 2026-12-15 | (1) landing |
 | CP-2 | `#11-dirty-flag-on-cursor-move` | L3 | dirty value flag, not DC2 | with CP-1 | 2026-12-15 | (1) landing |
-| CP-3 | `#11-number-input-user-edit-path` | L4 (shell), interim owner Layout (PM 312) | number has no user edit path at all | L3 form program's next slice | 2026-12-15 | (1) landing |
+| CP-3 | `#11-number-input-user-edit-path` | L4 (shell), interim owner Layout (PM 312) | number has no user edit path at all | the next PR touching number-input editing | 2026-12-15 | (1) landing |
 | CP-4 | `#11-select-keyboard-change-event` | L4 (shell), interim owner Layout (PM 312) | select's own event, not text controls | next PR touching select interaction | 2026-12-15 | (1) landing |
 | FF-1 | `#11-cross-document-rendering-order` | Layout | multi-document order, not the fixup | the probe in plan (2) FF-1 (§8.1); re-probe at `#11-windowproxy-browsing-context` | 2026-12-15 | (2) landing |
 | FF-2 | `#11-radio-group-same-tree-filter` | L3 | radio semantics, not the fixup | next PR touching radio-group semantics | 2026-12-15 | (2) landing |
