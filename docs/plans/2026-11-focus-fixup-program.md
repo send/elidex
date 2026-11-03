@@ -190,7 +190,7 @@ texts are the per-PR plans', with the amendments below. Re-eval dates are propos
 | CP-2 | `#11-dirty-flag-on-cursor-move` | L3 | dirty value flag, not DC2 | with CP-1 | 2026-12-15 | (1) landing |
 | CP-3 | `#11-number-input-user-edit-path` | L3 | number has no user edit path at all | L3 form program's next slice | 2026-12-15 | (1) landing |
 | CP-4 | `#11-select-keyboard-change-event` | L3 | select's own event, not text controls | next PR touching select interaction | 2026-12-15 | (1) landing |
-| FF-1 | `#11-cross-document-rendering-order` | Layout | multi-document order, not the fixup | the probe in plan (2) P-1; re-probe at `#11-windowproxy-browsing-context` | 2026-12-15 | (2) landing |
+| FF-1 | `#11-cross-document-rendering-order` | Layout | multi-document order, not the fixup | the probe in plan (2) FF-1 (§8.1); re-probe at `#11-windowproxy-browsing-context` | 2026-12-15 | (2) landing |
 | FF-2 | `#11-radio-group-same-tree-filter` | L3 | radio semantics, not the fixup | next PR touching radio-group semantics | 2026-12-15 | (2) landing |
 | FF-3 | `#11-ime-composition-end-on-blur` | L3 (proposed) | platform IME wiring; carries X5 (FP-2) | Chromium measurement, or the first PR wiring IME commit / cancel | 2026-12-15 | (2) landing |
 | FF-4 | `#11-form-owner-ecs-component` | L3 | only if plan-review Axis 2 picks (Y) | Axis 2's verdict | PM sets at landing (conditional) | (2) landing |
