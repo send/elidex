@@ -46,7 +46,7 @@ focused area of doc is not a focusable area, then run the focusing steps for doc
   reads computed style (HTML §6.6.2: the element is "being rendered, delegating its rendering to its children, or being
   used as relevant canvas fallback content"), the fixup step must run after that frame's style and layout and after
   ResizeObserver delivery (spec order: step 16 before the fixup step). PM decisions 246 and 248 put the move with that
-  PR, not with (2). Obligation O1 (§4).
+  PR, not with (2). Which part of it (3) reads is decided by CV-focus's plan. Obligation O1 (§4).
 
 ### §0.3 Decisions already made (cited as "PM decision N")
 
@@ -63,7 +63,7 @@ focused area of doc is not a focusable area, then run the focusing steps for doc
 | 265 | (1) and (2) need an approved umbrella | this memo |
 | 269 | Row (3) shared with the CV umbrella, the PR is CV-focus; both plans apply 264 (M2) in their next revisions, before their reviews; vehicle (§1.4) accepted | §1.2; §5 |
 | 278 | `#11-render-side-effect-version-delta-signal` folded into `#11-focus-fixup-gated-on-session-records`; O1 on the first style-reading CV-focus leg; CV erratum edge; discharge decided by CV-focus's plan; the CV erratum renames the CV umbrella's `reconcile_focus` references | §1.2–§1.3; §4; §6 |
-| 279 | Style freshness recorded as a defect on FU, no mechanism here; the step-2.1 judgement in one elidex-form fn | X1, X8; x6; §4 |
+| 279 | The step-2.1 judgement in one elidex-form fn | X1, X8; §4 |
 
 ## §1. Program shape
 
@@ -103,8 +103,9 @@ CV erratum → T3. **(3)** follows (2) and the CV erratum, at the CV umbrella's 
 | x3 | canonical-focus A2b | external, file overlap, no order | A2b (click ancestor climb, editing-host fallback) edits shell `content/focus.rs` `set_focus` / the click entry, which (1) and (2) also edit; the later lander rebases. The A2b / A2c / A3 order is Layout's to propose (PM 98), not fixed |
 | x4 | L3 form domain | external, no order | CP-1 to CP-4, FF-2, FF-3, FF-4 are L3-owned defects found by (1) and (2); none gates a slice |
 | x5 | `#11-windowproxy-browsing-context` | external, after (2) | record R-S9 (plan (2) §4.4 S9) |
-| x6 | FU `#11-forced-style-layout-flush-on-script-read` (owner Layout) | external, no order | defect record FS-1 (§4): once (3) lands, script-time `focus()` and the fixup step read the one predicate over different styles. Remedy is FU's (its FU-4); O1 cites this edge. FU-5's "not `reconcile_focus`" carries to the fixup (plan (2) §8) |
 | x7 | `#11-shell-effective-disabled-predicate-adoption` | external, file overlap, no order | pointer only: (1) edits shell files that slot cites (§5) |
+
+Script-time freshness of VM `focus()` against the fixup, and the window between the leg and A2c, are decided by the CV-focus leg's plan (CV K15 :393-396).
 
 Acyclic. No edge points from (2) or (3) back into (1).
 
@@ -138,14 +139,13 @@ Only pairs that span two slices. "(1) I5" = plan (1)'s invariant I5.
   `apply_user_edit` before the change-on-blur substep. Home: FF-3's slot text (record FP-2).
 - **X6 Placement after the style the predicate reads** — (2) I9 × (3): the fixup step runs after the style and layout
   whose computed style the predicate reads, and after RO delivery. Before (3) the predicate is attribute-only, so the
-  before-style position gives the same answer (PM 246). (3) reads the whole §6.6.2 condition (being rendered,
-  delegating its rendering to its children, relevant canvas fallback content), not *being rendered* alone.
+  before-style position gives the same answer (PM 246).
 - **X7 Same-frame effects re-stated** — (2) I4 / I10 × (3): (2)'s C7 and C17 assert same-frame effects that hold only
   while the fixup precedes style. Decided (PM 242 (1)): spec order, no in-frame re-style; (3) re-states both as
   next-frame effects.
 - **X8 One predicate for writer and fixup** — (2) I8 × (3): the leg that makes the fixup's predicate read computed style
   changes the VM `focus()` gate to the same predicate in the same leg, with or without A2c (x1), or every frame
-  focuses-then-resets with events. Freshness is not this program's (PM 279): see x6.
+  focuses-then-resets with events. See e4/e5.
 
 **(1) × (3): empty.** (1) changes who marks and where the substep is judged (snapshot and value only); (3) changes when
 the fixup step runs and what the focusability predicate reads (computed style only). They share no state; the only path
@@ -198,15 +198,12 @@ texts are the per-PR plans', with the amendments below. Re-eval dates are propos
 
 **O1 (program text; plan (2) §8's O1 plus the amendments in FP-3):** attaches to the first CV-focus leg that makes the
 focus predicate read computed style. That leg moves the fixup step after the frame's style and layout and after RO
-delivery (X6), re-states C7 / C17 under PM 242 (1)'s one-frame lag (X7), changes the VM `focus()` gate in the same leg
-(X8), and cites x6 for style freshness. CV-focus's plan decides the slot's discharge.
+delivery (X6), re-states C7 / C17 under PM 242 (1)'s one-frame lag (X7), and changes the VM `focus()` gate in the same leg
+(X8). CV-focus's plan decides the slot's discharge.
 
 Records for existing slots: **R-1** → `#11-vm-host-synthetic-dom-event-dispatch` (A2c; plan (1) §8.2, amended by PR-2);
 **R-2** → `#11-focus-fixup-gated-on-session-records` (plan (1) §8.2); **R-S9** → `#11-windowproxy-browsing-context`;
 **R-A3** → `#11-canonical-focus-update-steps` (plan (2) §8.2); and:
-- **FS-1** → `#11-forced-style-layout-flush-on-script-read` (edge x6): "`el.style.display='none'; el.focus()` focuses
-  and then blurs within the same frame (VM `focus()` reads the previous frame's style; the fixup reads this frame's).
-  Reachable once the first CV-focus leg makes the focus predicate read computed style (focus-fixup umbrella O1)."
 - **CR-1** → the CV erratum PR (e4): it renames the CV umbrella's `reconcile_focus` references (12 at `d7d34035`:
   `git grep -n reconcile_focus d7d34035 -- docs/plans/2026-10-content-visibility.md` → :89, :241, :291, :360, :394,
   :398, :463, :634, :664, :690, :841, :875) to the canonical fixup (`focus_fixup_steps` / `content::focus::focus_fixup` (NEW), both plan (2)'s);
@@ -219,6 +216,7 @@ Records for the slice plans (the driver applies them in their next revisions):
   initial`; B2 `value == last_user_value && value != initial`; B1 as A after re-baseline). Every sink calls it and only
   dispatches `change`: the shell sink's `dispatch_change_on_blur` becomes a dispatcher, and A2c's VM sink calls the same
   function. I5 reads 'one judgement, called by every sink' (umbrella X1)."
+  Existing text PR-1 rewrites: `crates/dom/elidex-dom-api/src/focus/update_steps.rs:72-76` (the `commit_change_on_blur` doc comment 'the shell takes the snapshot, compares, and dispatches').
 - **PR-2 → plan (1) R-1**, appended: "A2c's VM sink calls `elidex_form::take_change_on_blur` (NEW) and only dispatches
   `change`; `vm/host` does not compute the predicate (Layering mandate; umbrella X1)."
 - **FP-1 → plan (2) §8.2 and §9**: "PR (2) closes `#11-focus-fixup-gated-on-session-records` and the folded
@@ -228,7 +226,7 @@ Records for the slice plans (the driver applies them in their next revisions):
   composition, the commit goes through `elidex_form::apply_user_edit` (NEW) before the change-on-blur substep runs, so a
   commit that changes the value marks the snapshot and fires `input`, and one that changes nothing fires neither."
 - **FP-3 → plan (2) §8 O1 and the CV-umbrella bullet**: O1 is re-pointed to "the first CV-focus leg that makes the focus
-  predicate read computed style (PM 242 (7))", gains X8 and the x6 citation, and states the lag as decided (PM 242 (1));
+  predicate read computed style (PM 242 (7))", gains X8, and states the lag as decided (PM 242 (1));
   the CV-umbrella bullet's "not edited here; CV-focus re-derives" becomes "the CV erratum renames them (CR-1, PM 278)".
 
 ## §5. Open for the PM
@@ -253,6 +251,7 @@ its trigger or scope.
 
 ## Changelog
 
+- *Rev 2.1* (2026-11-03): removals per PM 282 (X6 sentence; FS-1, x6, FU-4 assignment, display repro); e4/e5 pointer; PR-1 list + update_steps.rs:72-76.
 - **Rev 2 (2026-11-03)** — plan-review of rev 1 (CRIT 0 / IMP 8 after merge / MIN 14 raw) and PM decisions 278, 279:
   X1 becomes one elidex-form judgement for every sink (records PR-1, PR-2); X5 homed on FF-3 (FP-2); X8 into O1, style
   freshness as defect record FS-1 on FU (edge x6); (3) = the first style-reading CV-focus leg, x1 corrected, CV erratum
