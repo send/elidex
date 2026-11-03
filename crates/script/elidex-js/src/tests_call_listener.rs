@@ -76,8 +76,8 @@ fn first_green_listener_calls_prevent_default() {
     // VM's raw pointers derive from `ctx` and stay valid for the bracket.
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
         register_listener(engine, "function (e) { e.preventDefault(); }", listener_id);
-        // Drive call_listener.  The placeholder ScriptContext is not used
-        // by the VM impl (microtask drain wires up in PR3 C6).
+        // Drive call_listener. The VM impl ignores `ctx` (assume-bound: it
+        // reaches the DOM through the bound VM).
         engine.call_listener(listener_id, &mut event, target, false, false, ctx);
     });
 
@@ -227,8 +227,9 @@ fn passive_listener_prevent_default_is_silently_ignored() {
         register_listener(engine, "function (e) { e.preventDefault(); }", listener_id);
 
         // passive=true threads through to ObjectKind::Event.passive, which
-        // gates preventDefault into a silent no-op (WHATWG DOM §2.10
-        // step 5.5).
+        // gates preventDefault into a silent no-op (WHATWG DOM §2.9 inner
+        // invoke step 2.11 sets the in passive listener flag; §2.2 set the
+        // canceled flag then no-ops).
         engine.call_listener(
             listener_id,
             &mut event,
@@ -304,7 +305,7 @@ fn current_target_is_the_this_binding_for_the_listener() {
         assert_eq!(
             m,
             JsValue::Boolean(true),
-            "this must equal currentTarget inside listener body (WHATWG DOM §2.10)"
+            "this must equal currentTarget inside listener body (WHATWG DOM §2.9 inner invoke step 2.13)"
         );
     });
 }

@@ -210,7 +210,7 @@ impl ScriptEngine for ElidexJsEngine {
         _ctx: &mut ScriptContext<'_>,
     ) {
         // Fail-loud BATCH-BIND contract, for every listener kind: dispatch runs
-        // assuming bound (see `bound` above). The batch-bind bracket in
+        // assuming bound (see the `ElidexJsEngine` BATCH-BIND doc). The batch-bind bracket in
         // pipeline.rs relies on this assert, independent of whether a
         // reconcile runs. An uninstalled `HostData` is legitimate (no
         // listeners can exist; the lookup below returns without invoking) and
