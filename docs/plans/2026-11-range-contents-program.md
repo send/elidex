@@ -89,7 +89,7 @@ only the doctype check and adds no engine Attr branch, and `#11-attr-clone-node`
 or Wasm path reaches it, only Rust (§8). **R61-2**: Rev 6's no-dispatcher "ratchet" is a **one-shot census** whose
 population is every production site that removes or replaces `EcsDom`'s mutation dispatcher (§0.3 item 34); a
 standing check is RC-2a's per-PR decision. **R61-3**: PM 244 splits C0 into **C0a** (replace record order, PM 160 / 244), **C0b**
-(the node-document fact and the new-node entry) and **C0c** (`EcsDom::adopt`, `MutationEvent::Adopt`, adoptNode (adoptNode: PM 158 in C0 scope, PM 244 in C0c)); the
+(the node-document fact and the new-node entry) and **C0c** (`EcsDom::adopt`, `MutationEvent::Adopt`, adoptNode: PM 158 in C0 scope, PM 244 in C0c); the
 memo now names the part it means. L3 depends on C0b only. A6's owner: see §2 C3 (PM 244). The RC-2b-first branch depends on Layout's confirmation of two
 C0b conditions (PM 247, §2 C3). The `CloneCreated` × `Adopt` overlap is with C0c, and the D14 hand-stamp edge on
 `node_methods/clone.rs` is with C0b (§9). Also: the adopt step 3.3.2 summary is complete (3.3.2.1-3.3.2.4); the D15
