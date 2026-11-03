@@ -231,6 +231,13 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     argument-emit helper must add a bound (and edge 29 must assert it, with an expected value), and
     placing both on that child is a mandatory output of the derivation — ⚠ *this read "Slice 1b must
     add a bound … a **1b blocker**", and an umbrella carries no obligation and blocks nothing.*
+    ⚠ *(1aa plan-review R2, 2026-11-03) **Site, not owner**: the bound lives in `lay_out_call_args`, the
+    one place an args array becomes a stack window, because `super(...)` and the rest-packed default
+    derived constructor reach the stack only through that helper and never through the emit helper.
+    The owner is unchanged (that child), and it owes an edge-29-style acceptance on the super path
+    too, `super(...arrOf(bound + 1))` → RangeError. `Function.prototype.apply` has no such push at
+    `eaa741b5` (`call_internal` grows the stack by the callee's `local_count` only), so the bound has
+    no second site.*
 13. **[§6.2a](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) — the reused drain's `IteratorClose` divergence — RESOLVED as two units.** ⚠ **The "Round-8
     sequencing hazard" is withdrawn with the premise it rested on**: the child umbrella 0bc mints for the binding-pattern rest path owns [C39], whose rest form
     (`[a, ...rest] = it`) needs a drain-into-array and whose spec **requires no `IteratorClose` on
@@ -306,7 +313,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     exists, which is the same measurement that deleted the edge. What 0cb buys later slices is a
     baseline they are *measured against once it exists*, not a precondition they wait on. Was an unowned either/or in §7.2; ratified here so 0cb's author
     reads a decision, not a fork.
-17. **Dense vs generic argument unpacking — RESOLVED (keep them separate), owners the child of umbrella 1a that owns the argument-layout and inline-cache contract and the child umbrella 10a mints for `Reflect.apply` (§28.1.1).**
+17. **Dense vs generic argument unpacking — RESOLVED (keep them separate), owners the child of umbrella 1a that owns the argument-layout and inline-cache contract and the child umbrella 10a mints for `Reflect.apply` (§28.1.1).** ⚠ *"keep them separate" is superseded in part by the guarded reuse (2026-11-03 note at the end of this entry).*
     **Umbrella 1a's child** shares `collect_array_like`'s **dense** fast path (dec. 8), and may, because the arrays it
     unpacks are compiler-emitted and dense by construction. **The child umbrella 10a mints for `Reflect.apply` must NOT reuse that fast path**: ECMA-262 **§28.1.1** `Reflect.apply` delegates the argument list to
     **§7.3.19** `CreateListFromArrayLike`, which performs a real `Get` per index, so a getter on
@@ -316,6 +323,20 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     array-like-vs-dense distinction stays a **caller-side precondition** (dec. 8), not a second
     helper. §-numbers verified via `webref heading ecma262 28.1.1` /
     `webref aoid ecma262 CreateListFromArrayLike`. Was an unowned either/or inside dec. 6.
+    ⚠ **Superseded in part (2026-11-03, 1aa plan-review R2): "must NOT reuse that fast path" is
+    replaced by a *guarded* reuse — one issue, one way.** Both CreateListFromArrayLike callers,
+    `Function.prototype.apply` (**1ae**) and `Reflect.apply` (the child umbrella 10a mints), put the
+    same caller-side hole-free precondition in front of the one shared dense primitive (1aa's
+    `array_argument_values`): an Array with no `Empty` element takes the dense path, and any other
+    array-like, a holey Array included, goes through the per-index `Get`. **1ae is the producer of
+    the guard**; the `Reflect.apply` child of umbrella 10a reuses it rather than writing a second one. The separating witness
+    stays as stated above (a getter on `Array.prototype[0]` must run for
+    `Reflect.apply(f, null, new Array(1))`), and it holds under the guarded reuse, since the Array
+    constructor fills `new Array(1)` with `JsValue::Empty` (`vm/natives.rs:699` at `eaa741b5`), so
+    the guard sends it to the `Get` path. ⚠ The guarded path is spec-exact only once
+    `#11-vm-array-index-property-single-store` lands; until then it is exact relative to elidex's
+    `[[Get]]` (an own accessor on an Array index is invisible to the dense path and to `[[Get]]`
+    alike).
 
 ---
 
