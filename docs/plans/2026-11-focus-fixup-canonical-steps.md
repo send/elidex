@@ -1,12 +1,13 @@
 # `focus-fixup-canonical-steps` — the render-time focus fixup runs ungated, through the canonical focus update steps (per-PR plan-memo)
 
-Slot **`#11-focus-fixup-gated-on-session-records`** (owner Layout, registered PM 245). Scope set by **PM decision 248**
-(items 1–6, quoted by number below as "248 (n)"); the one-frame `:focus` lag question is **PM 242 (1)**. Branch
-`layout-focus-fixup-ungated`, worktree `wt-focus-fixup`. Rev 3, 2026-11-03, draft for `/elidex-plan-review`. Rev 2 applied
-**PM decision 252** (M1–M5, quoted as "252 (Mn)") and the scout answers to rev 1's Q1–Q6 (§0.5); rev 1 = `cbee12e2`,
-rev 2 = `1477feef`. Rev 3 applies **PM decision 260**: the change-on-blur user-change provenance (rev 2's D-11) is its own
-PR, **`docs/plans/2026-11-change-on-blur-user-provenance.md`** (branch `layout-change-on-blur-provenance`), which **lands before this PR**.
-**Depends on:** that PR (§8 order line). Changelog at the end.
+This PR is slice **(2) focus-fixup** under the umbrella `docs/plans/2026-11-focus-fixup-program.md` (order, edges,
+cross-PR invariants X1–X8, slot inventory and owners: its §1–§4), a terminal per-PR slice by CLAUDE.md *Edge-dense work*
+base case (c). Slot **`#11-focus-fixup-gated-on-session-records`** (owner Layout, registered PM 245). Scope set by **PM
+decision 248** (items 1–6, quoted by number below as "248 (n)"). Branch `layout-focus-fixup-ungated`, worktree
+`wt-focus-fixup`. Rev 4, 2026-11-03, draft for `/elidex-plan-review`. Rev 2 applied **PM decision 252** (M1–M5, quoted
+as "252 (Mn)") and the scout answers to rev 1's Q1–Q6 (§0.5); rev 3 applied **PM decision 260** (rev 2's D-11 became
+slice (1), `docs/plans/2026-11-change-on-blur-user-provenance.md`, "the provenance PR", which lands first: umbrella
+e1). Rev 1 = `cbee12e2`, rev 2 = `1477feef`, rev 3 = `36bcc114`. Changelog at the end.
 
 **Measured defect.** `crate::re_render` (`crates/shell/elidex-shell/src/lib.rs:559`) ran the "update the rendering" step-17
 focus fixup `reconcile_focus` (`crates/dom/elidex-dom-api/src/focus/sot.rs:178`) only when `session.flush` returned
@@ -25,9 +26,8 @@ removal, `68c17ccf` /simplify). Two bases are used for red-first runs (§6): **b
 **base B** = `68c17ccf` (ungated silent fixup). Re-run: `git -C <wt> log --oneline d7d34035..68c17ccf` → 3 commits.
 Rev 2's new cites are at the same coordinates: `git diff --stat 68c17ccf cbee12e2` → only this memo; rev 3 adds no new
 code cite (`git diff --stat 68c17ccf 1477feef` → only this memo). **Re-base note:** this branch rebases onto `origin/main`
-after the provenance PR lands. That PR moves the shell's text-edit handlers out of `content/event_handlers.rs` into
-`content/text_edit.rs` (its D-6), so C6's user-edit step and every `event_handlers.rs` cite below are re-derived at the
-rebased head before implementation.
+after the provenance PR lands (umbrella e1). That PR edits `content/event_handlers.rs` and `content/focus.rs` in place
+(no split, PM 264 (M2)), so their cites below are re-measured at the rebased head before implementation.
 
 ### §0.2 Premises re-measured
 
@@ -42,7 +42,7 @@ rebased head before implementation.
 | P7 | The version API: `EcsDom::rev_version` (`crates/core/elidex-ecs/src/dom/mod.rs:656`) propagates to the document root; `EcsDom::inclusive_descendants_version` (`:701`) reads it; the read-time-validation precedent is `LiveCollection`'s `refresh_if_stale` (`crates/dom/elidex-dom-api/src/live_collection/mod.rs:231-235`, `cached_version: Option<u64>` `:112`) | read at HEAD |
 | P8 | VM `focus()` gates on `is_focusable && is_in_document` (`crates/script/elidex-js/src/vm/host/html_element_proto.rs:302-305`) and writes the bit directly (`set_focus_bit`), seeding the snapshot; VM `blur()` is bit-level (`:351`, `focus::blur`); `is_focusable` (`focus/predicate.rs:205`) does not enforce C2 (`:176-180`) nor fieldset-inherited disabled (`:182-185`) | read at HEAD |
 | P9 | The change-on-blur snapshot exists only on text controls: `record_focus_snapshot` stores it iff `kind.is_text_control()` and removes it otherwise (`crates/dom/elidex-form/src/focus_snapshot.rs:28-45`); `is_text_control` = text / password / textarea / email / url / tel / search (`crates/dom/elidex-form-core/src/lib.rs:104-115`, no `Hidden`, no button kinds); a `type` flip to a non-text kind clears it at the `set_attribute` chokepoint (`crates/dom/elidex-form/src/reconciler.rs:155-162`, cell `reconciler_tests.rs` `e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot`); VM `type =` reaches it through `attr_set` (`html_input_proto.rs:848-853`) | read at HEAD |
-| P10 | At HEAD, `dispatch_change_on_blur` fires `change` iff a snapshot exists and `fcs.value() != snapshot` (`content/focus.rs:177-193`): it does not know *who* changed the value, so a script `value` write to a focused text control makes the next blur fire `change`. The provenance PR (`docs/plans/2026-11-change-on-blur-user-provenance.md`, PM 260) replaces this predicate with "a user value change since focus **and** value ≠ focus-time value" and lands first; this PR reads it through the unchanged sink method `commit_change_on_blur` | read at HEAD; the provenance memo §0.2 P4 |
+| P10 | At HEAD, `dispatch_change_on_blur` fires `change` iff a snapshot exists and `fcs.value() != snapshot` (`content/focus.rs:177-193`): it does not know *who* changed the value, so a script `value` write to a focused text control makes the next blur fire `change`. The provenance PR replaces this predicate with "a user value change since focus **and** value ≠ focus-time value", computed by `elidex_form::take_change_on_blur` (NEW) (the provenance PR's D-1, umbrella X1), which the shell sink's `commit_change_on_blur` calls before only dispatching; this PR's fixup reaches it through that sink method | read at HEAD; the provenance memo §0.2 P4 |
 
 ### §0.3 Premise errors (in the brief)
 
@@ -95,7 +95,7 @@ the fix to the provenance PR, which lands first.
 - **D-5 Shell entry.** `content::focus::focus_fixup` (NEW, `pub(crate)`, `content/focus.rs`) constructs
   `ShellFocusSink { pipeline }` and calls `elidex_dom_api::focus::focus_fixup_steps` (NEW). `crate::re_render` calls it. The sink
   needs only `&mut PipelineResult`, so every caller in P4 gets the same behaviour; no `ContentState` dependency.
-- **D-6 Position** (248 (4)). **This PR does not move the position; the move goes with the being-rendered PR.** Inside
+- **D-6 Position** (248 (4)). **This PR does not move the position; the move goes with O1's leg (§8).** Inside
   the pre-style block the call moves up by one statement, from after `prune_dead_animation_entities` (`lib.rs:606`) to
   directly after the session settle (flush + CE loop, `lib.rs:576-596`), so entities a fixup listener removes are pruned
   this frame (C7 covers the listener-mutation side). Relative order to style resolution, layout and display-list build is
@@ -122,7 +122,7 @@ the fix to the provenance PR, which lands first.
   mutations make an answer stale", and `rev_version` propagates within that same `EcsDom` (`dom/mod.rs:656-664`), so the
   stamp reads the root the bumps reach. Robustness comes from the `None` bypass, not a second source. Limitation: a
   control in a detached tree is versioned by its own root, not the document's, so a detached-tree move does not
-  invalidate; reachable only through the missing same-tree filter (proposed slot, §8 M3 (b)). `lib.rs:598-601` is deleted; `invalidate`
+  invalidate; reachable only through the missing same-tree filter (FF-2, §8.1). `lib.rs:598-601` is deleted; `invalidate`
   (`:49`, no caller: `git grep -n '\.invalidate(' -- crates/dom/elidex-form crates/shell` → none outside the file) is
   deleted; `invalidate_all` becomes the private clear. Where the baseline lives: **on the consumer**, not a `ContentState`
   field, not a `PipelineResult` field and not a document component — (i) it is the cache's validity stamp, read by no
@@ -172,17 +172,11 @@ the fix to the provenance PR, which lands first.
 ## §1. Shape and verdict
 
 Edge-dense by CLAUDE.md's rule (§2 has ten coupled invariants spanning event dispatch, script re-entry, iframe passes,
-form state and render position), so plan-review is mandatory. **Single PR**: the algorithm is the approved A2a seam
-(`#357`), reused; the parts that would widen the PR are already homed elsewhere — the position move and computed-style
-predicate (being-rendered / CV-focus), the focus chain and Window events (A3), C2 (`#11-shadow-focus-delegation`), the
-fieldset predicate (`#11-focusable-area-fieldset-inherited-disabled`), VM event dispatch (A2c). Breadth K = 1 spec, M = 12
-rows (§3) → preflight "single PR scope". The form-owner cache (D-8) is a different concept found by 248 (2)'s sweep and
-kept in this PR by that decision; it is a separate commit with its own cells. The change-on-blur provenance, which rev 2
-brought in by 252 (M5)'s rule (a pre-existing wrong event the fixup newly reaches), is **its own PR by PM 260** and lands
-first (§8 order line): it is independently correct (it also fixes the wrong `change` `origin/main` fires when the user
-blurs after a script-written value), its review axes differ (the user-edit path enumeration, the Chromium measurement of
-the mixed case), and landing it first means this PR never ships a newly reachable wrong `change`. This PR keeps only the
-pin C19.
+form state and render position), so plan-review is mandatory. **Single PR**, a terminal slice under the umbrella (base
+case (c)): the algorithm is the approved A2a seam (`#357`), reused; the parts that would widen the PR are homed elsewhere
+(§7). Breadth K = 1 spec, M = 12 rows (§3) → preflight "single PR scope". The form-owner cache (D-8) is a different
+concept found by 248 (2)'s sweep and kept in this PR by that decision; it is a separate commit with its own cells. The
+provenance PR and the order against it are the umbrella's (§1.2, e1); this PR keeps only the pin C19.
 
 ## §2. Coupled invariants
 
@@ -190,10 +184,10 @@ pin C19.
   `session.flush`'s output.
 - **I2 Canonical transition** — the fixup moves focus only through `focus_update_steps(old, None)` via a sink: step 2.1
   `change` while `old` is still designated, then the bit cleared, then `blur` + `focusout` at `old`, related null. Step
-  2.1's predicate is the provenance PR's (a user value change since focus and value ≠ focus-time value); the fixup reaches
-  it through the same sink method as every other blur path, so no fixup-specific invariant exists for it (C19 pins it).
-- **I3 Snapshot consumed once** — the holder's `FocusValueSnapshot` is taken by `commit_change_on_blur`
-  (`take_focus_snapshot`, `content/focus.rs:178`) exactly once per transition.
+  2.1 is judged by `elidex_form::take_change_on_blur` (P10), which the sink calls on every blur path, the fixup's
+  included; the sink only dispatches (umbrella X1), so no fixup-specific invariant exists for it (C19 pins it).
+- **I3 Snapshot consumed once** — the holder's `FocusValueSnapshot` is removed by `elidex_form::take_change_on_blur`,
+  called from the sink's `commit_change_on_blur`, exactly once per transition (umbrella X2).
 - **I4 Script re-entry inside `re_render`** — `change` / `blur` / `focusout` listeners run after the settle and before
   style; their VM-native writes are visible to this frame's style, layout and display list; MutationObserver / CE for
   them settle at the VM checkpoint after each callback (Q2); a reentrant `focus()` wins (`update_steps.rs:204`, `:223`).
@@ -217,7 +211,7 @@ pin C19.
   fires, `FormControlState.composition_text` keeps the preedit, and the display-list build still splices it into the
   control's text (`elidex-render` `builder/form.rs:226-236`), because the shell has no blur-time composition path
   (`content/ime.rs:157-159`, Q3). The fixup makes this blur reachable from script, but every UA blur has the same gap at
-  `origin/main`. Home: proposed slot, §8 (no existing slot — §8 records the search).
+  `origin/main`. Home: FF-3 (§8.1, which records the search for an existing slot).
 
 Pairs:
 - **I1 × I2** — ungated + event-firing: an idle frame must fire nothing. `focus_fixup_steps` returns before the
@@ -244,8 +238,8 @@ Pairs:
   so `focusable_cache`, the iframe rescan (`:441`) and `event_loop.rs:424-432`'s render signal see them this frame.
 - **I4 × I7** — a listener that moves a radio or writes `form` bumps the root version; the next `get_form_owner` sees it,
   whether or not a `re_render` intervened (C12, C13).
-- **I4 × I9** — listener writes are styled this frame only because the fixup is before style; the being-rendered move must
-  either re-run style for them or accept a one-frame lag (obligation O1, §8).
+- **I4 × I9** — listener writes are styled this frame only because the fixup is before style; after O1's move they show
+  next frame (one-frame lag, decided by PM 242 (1); O1, §8).
 - **I4 × FU** — a listener's script-time style read (`getComputedStyle`, once FU exists) reaches FU's forced update, which
   must not include step 17 (CV umbrella FU-5, `docs/plans/2026-10-content-visibility.md:239-241`); no recursion.
 - **I5 × I9** — spec step 16 (ResizeObserver) precedes step 17, so RO callbacks should see the pre-fixup holder; at HEAD
@@ -266,10 +260,10 @@ Pairs:
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 17 | "set the navigation API's focus changed during ongoing navigation to false" | unmodelled (no Navigation API; `update_steps.rs:227-230` records the same for step 4.1.1) | ✓ | no |
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 17 notes | "will usually fire blur events, and possibly change events"; removal = the synchronous fixup, no events | events: I2; removal: `EcsDom::fire_after_remove` unchanged | ✓ | yes |
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering* steps 16 → 17 | ResizeObserver broadcast before the fixup | not met: RO delivered after (`content/mod.rs:433`); obligation O1 | ✗ | no |
-| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 2 | docs order: a container document before its children, each step over all docs | not met: elidex runs a whole `re_render` per pipeline, children first (`content/mod.rs:355-357`); unchanged, proposed slot (§8, 252 (M2)) | ✗ | no |
+| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 2 | docs order: a container document before its children, each step over all docs | not met: elidex runs a whole `re_render` per pipeline, children first (`content/mod.rs:355-357`); unchanged, FF-1 (§8.1, 252 (M2)) | ✗ | no |
 | WHATWG HTML §6.6.4 Processing model | focusing steps 1–5, target = viewport | 1 viewport is a focusable area; 2 n/a; 3 not a navigable container; 4 DOM anchor = Document, `inert` unmodelled; 5 viewport already focused (no holder) → return | `focusing_steps_for_viewport` (NEW) | ✓ | no |
 | WHATWG HTML §6.6.4 Processing model | focusing steps 6–8; focus update steps step 1 | old chain [holder] (holder not focusable → chain stops), new chain [viewport, Document]; no common tail; single-element model → `focus_update_steps(old, None)` | `update_steps.rs:175` (unchanged) | ✓ | yes |
-| WHATWG HTML §6.6.4 Processing model | focus update steps step 2.1–2.4 | user-edited text control → `change` (snapshot consume; "the user has changed the element's value" = the provenance PR's predicate, a script-only change fires none, pinned on the fixup path by C19); blur target = holder; related blur target null (last new entry is a Document) | `ShellFocusSink::commit_change_on_blur` / `fire_focus_event` (`content/focus.rs:121`, `:136`), unchanged here | ✓ | yes |
+| WHATWG HTML §6.6.4 Processing model | focus update steps step 2.1–2.4 | user-edited text control → `change` (snapshot consume; "the user has changed the element's value" = the provenance PR's predicate, a script-only change fires none, pinned on the fixup path by C19); blur target = holder; related blur target null (last new entry is a Document) | `ShellFocusSink::commit_change_on_blur` (calls `elidex_form::take_change_on_blur`, P10) / `fire_focus_event` (`content/focus.rs:121`, `:136`), unchanged here | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | focus update steps step 4 | Document entry: not a focusable area, focus event target = its Window → `focus` at Window (not fired, D-9); viewport entry: designated (bit cleared), no event; reentrant-wins gate | `update_steps.rs:220-245`; the Window event → A3 | ✗ | yes |
 | WHATWG HTML §6.6.4 Processing model | unfocusing steps steps 5, 6, 8 | 6 "not a focusable area → return" (why D-1 rejects them; omitted in elidex, E2); 8 focusing steps for topDocument's viewport | `unfocusing_steps` step 8 → `focusing_steps_for_viewport` (NEW) | ✗ | yes |
 | WHATWG HTML §6.6.2 Data model | focusable area criteria; focus chain | predicate = `is_focusable`: C1, C3 (direct `disabled` only), C5 (attribute-reachable); C2, fieldset-inherited C3, CSS C5 not enforced | `focus/predicate.rs:205` (unchanged) | ✗ | yes |
@@ -289,12 +283,12 @@ provenance PR's; its fixup-path consequence is folded into the step 2.1–2.4 ro
 Author-controlled inputs reaching the changed code: any script write that changes the holder's focusability (`hidden` on
 it or an ancestor, `disabled`, `type`, `tabindex`, `contenteditable`, `href` removal) — now fires author listeners
 (`change`, `blur`, `focusout`) from inside `re_render`; those listeners can mutate the DOM, move focus, and register
-observers (I4). User input: the edited value compared by `commit_change_on_blur`. Radio `name` / `form` attributes and
+observers (I4). User input: the edited value, judged by `elidex_form::take_change_on_blur` (P10). Radio `name` / `form` attributes and
 tree moves reach `get_form_owner` (D-8). Every listener runs on the renderer main thread inside the existing `with_bound`
 bracket discipline (`PipelineResult::dispatch_event`, `lib.rs:293`); `crate::re_render` is never entered inside a bracket
 (its `session.flush` would alias, `lib.rs:560-563`), so the dispatch nests nothing. Adjacent pre-existing surface:
 the radio group scan includes radios outside the document tree (`radio.rs:118-123` has no same-tree filter, against
-§4.10.5.1.16's "Both a and b are in the same tree") — not widened; proposed slot (§8, 252 (M3) (b)). User edits mark the
+§4.10.5.1.16's "Both a and b are in the same tree") — not widened; FF-2 (§8.1, 252 (M3) (b)). User edits mark the
 change-on-blur snapshot in the provenance PR's funnel, not here.
 
 ## §4. Mechanism
@@ -363,13 +357,12 @@ changes (via `MutationObserver` or explicit call)") is rewritten.
     gains an edge-dense sub-program, which by CLAUDE.md would itself want a separate plan-reviewed PR.
   - **(Y) Slot, owner L3 (form).** D-8's validate-on-read is the interim and is deleted at the migration. Consequences:
     correctness now (I7) with no new mutation-time system; the side-store stays, named, with a slot; the stamp clears
-    the whole map on any tree mutation (coarser than per-control reset, cost bounded by R2). Proposed slot text, if
-    chosen: `#11-form-owner-ecs-component` — "`AncestorCache.form_owner` (`elidex-form/src/ancestor_cache.rs:14`, on
+    the whole map on any tree mutation (coarser than per-control reset, cost bounded by R2). Slot text, if chosen
+    (FF-4; owner and re-eval: umbrella §4): `#11-form-owner-ecs-component` — "`AncestorCache.form_owner` (`elidex-form/src/ancestor_cache.rs:14`, on
     `PipelineResult`) is a per-entity side-store of a `Send + Sync`, non-identity value, which CLAUDE.md's side-store
     rule says is an ECS component; replace it by a form-owner component written by *reset the form owner* (§4.10.18.3)
-    and delete the read-time stamp of PR focus-fixup D-8. Owner L3 (form). Trigger: the next PR that touches form-owner
-    association (form-associated custom elements, `form` attribute reflection) or the L3 form program's next slice.
-    Date: PM sets at registration."
+    and delete the read-time stamp of PR focus-fixup D-8. Trigger: the next PR that touches form-owner association
+    (form-associated custom elements, `form` attribute reflection) or the L3 form program's next slice."
 
 ### §4.4 Concept sweep — "a consumer that depends on DOM changes but is gated on session records"
 
@@ -394,22 +387,17 @@ Scope: `crate::re_render` (`lib.rs:559-711`), the functions it calls in the same
 
 Hits: S2, S3 (fixed here); adjacent S9 (not reachable, §8). No other record-gated DOM consumer.
 
-### §4.5 Change-on-blur provenance — why the provenance PR lands first (252 (M5), PM 260)
+### §4.5 Change-on-blur provenance — the fixup-path facts (252 (M5), PM 260)
 
-The design moved to `docs/plans/2026-11-change-on-blur-user-provenance.md` (PM 260). What stays here is the reachability argument that fixes the order:
+The design is the provenance PR's; the order and its reason are umbrella e1. What stays here is what the fixup path adds:
 
 1. The brief's example (text→hidden after an edit) is not the case: P9 clears the snapshot at the flip, so no `change`
    fires on any path (E5). C20 pins that for the fixup path.
-2. The conjunct elidex does not check at HEAD is "the user has changed the element's value" (P10). Sequence: a text
-   control is focused (snapshot = focus-time value, by UA `set_focus` or VM `focus()`); a script writes `value`; a script
-   then makes the control non-focusable (`disabled`, `hidden` on it or an ancestor, `tabindex` removal on a
-   non-control, …).
-3. At `origin/main` (base A) the VM-native write leaves the control focused (gated fixup), so `change` fires only if a
-   later UA focus move blurs it — the same defect, on a path the user triggers. At base B the reset is silent: no
-   `change`. **This PR on a base without the provenance PR** fires the wrong `change` at the next rendering update,
-   from script alone — a new trigger.
-4. Hence the order: the provenance PR first, then this PR. C19 is the pin. It is red on this branch until the rebase
-   onto a `main` that contains the provenance PR, and green after.
+2. The case that is: a focused text control, a script `value` write, then a script-made non-focusability (`disabled`,
+   `hidden` on it or an ancestor, `tabindex` removal on a non-control, …). Base A leaves it focused; base B resets it
+   silently; this PR on a base without the provenance PR fires `change` at the next rendering update from script alone.
+   C19 pins the absence of that `change`: red on this branch until the rebase onto a `main` that contains the provenance
+   PR, green after.
 
 ## §5. Populations and named risks
 
@@ -491,7 +479,7 @@ final, rebased head.
 | C3 (F6) `control_session_buffered_hidden_runs_focus_fixup` | existing control; → `== None` | green / green |
 | C4 `focusable_focus_survives_idle_rendering_updates` | existing negative; add: no `blur` recorded | green / green |
 | C5 (NEW) `focus_fixup_fires_blur_then_focusout_at_holder` | `b` has `blur`/`focusout` listeners recording type, `relatedTarget`, `document.activeElement`; VM `d.hidden = true`; frame → `["blur","focusout"]`, related null, `activeElement === body` in both | red / red |
-| C6 (NEW) `focus_fixup_fires_change_for_edited_text_control` | `<input id=b>` focused by UA `set_focus` (seeds snapshot); value edited through the shell user-edit path (a text key handled at `event_handlers.rs:575`, which fires `input` via `dispatch_input_event_typed`); VM `b.disabled = true`; frame → `["change","blur","focusout"]`, `change` listener sees `activeElement === b`, `take_focus_snapshot(b)` → None | red / red |
+| C6 (NEW) `focus_fixup_fires_change_for_edited_text_control` | `<input id=b>` focused by UA `set_focus` (seeds snapshot); value changed through the shell user-edit path (a value-changing text key, which after the rebase goes through the provenance PR's `apply_user_edit` funnel; umbrella X3); VM `b.disabled = true`; frame → `["change","blur","focusout"]`, `change` listener sees `activeElement === b`, `b` has no `FocusValueSnapshot` | red / red |
 | C7 (NEW) `focus_fixup_listener_mutation_is_rendered_this_frame` | `blur` listener appends `<p id=late>x</p>`; frame → `#late` has a `LayoutBox` after the same `re_render` | red / red |
 | C8 (NEW) `focus_fixup_listener_mutation_is_observed` | MutationObserver on `body` (childList); `blur` listener appends; after the frame the callback has run once and saw `activeElement === body` | red / red (Q2) |
 | C9 (NEW) `focus_fixup_reentrant_focus_wins` | `blur` listener calls `c.focus()` (`c` focusable); frame → `current_focus == c`, `b` saw exactly one `blur`, the outer transition designated nothing after | red / red |
@@ -505,7 +493,7 @@ final, rebased head.
 | C17 (NEW, D-13) `focus_fixup_unfocus_is_styled_this_frame` | `<style>#b:focus{color:rgb(255,0,0)}</style><button id=b>`; UA focus `b`; one frame (pin: `b`'s `ComputedStyle` color is red); VM `b.disabled = true`; one `re_render` → `b`'s `ComputedStyle` color is not red and `ElementState` lacks `FOCUS`, after that same `re_render` | red / green |
 | C18 (NEW pin, 248 (6)) `delegates_focus_host_focused_by_vm_survives_fixup` | `<div id=h tabindex=0>` with an open `delegatesFocus` shadow root and a focusable delegate; VM `h.focus()`; two frames → `current_focus == h`, no `blur` | green / green |
 | C19 (NEW pin, PM 260) `focus_fixup_no_change_from_script_alone` | `<input id=b>` UA-focused (snapshot seeded), no user edit; VM `b.value = "x"; b.disabled = true`; one rendering update → `["blur","focusout"]`, no `change` | red / red (A: no events; B: silent); **red on this branch until the provenance PR lands** (pre-rebase: `["change","blur","focusout"]`), green after the rebase |
-| C20 (NEW pin, E5; was rev 2 C23) `focus_fixup_no_change_after_type_flip_to_hidden` | UA focus `<input id=b>`; user edit (as C6); VM `b.type = "hidden"`; frame → no `change`, `take_focus_snapshot(b)` → None; on the final head also `["blur","focusout"]` | green / green (the no-`change` half) |
+| C20 (NEW pin, E5; was rev 2 C23) `focus_fixup_no_change_after_type_flip_to_hidden` | UA focus `<input id=b>`; user edit (as C6); VM `b.type = "hidden"`; frame → no `change`, `b` has no `FocusValueSnapshot`; on the final head also `["blur","focusout"]` | green / green (the no-`change` half) |
 
 Mutation guards (run on the final head; each must turn the named cells red):
 
@@ -524,7 +512,7 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15) and `elidex-fo
 
 ## §7. Out of scope and slots
 
-- Position after style + computed-style predicate + RO order → being-rendered / CV-focus (obligation O1, §8).
+- Position after style + computed-style predicate + RO order → O1's CV-focus leg (§8).
 - Window `focus` (S7) and the focus chain → `#11-canonical-focus-update-steps` part A3 (D-9; record R-A3, §8.2).
 - C2 in the predicate → `#11-shadow-focus-delegation` / A2 (c).
 - Fieldset-inherited disabled → `#11-focusable-area-fieldset-inherited-disabled` (A3; coordinated with
@@ -532,32 +520,31 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15) and `elidex-fo
 - VM `focus()` / `blur()` event dispatch and unfocusing step 6 → A2c, `#11-vm-host-synthetic-dom-event-dispatch`.
 - OOP iframe focus messages → `#11-oop-iframe-focus-lifecycle` (C16 tests only the child's own fixup, not messages).
 - `user validity` at step 2.1.1 → `#11-focus-change-user-validity`.
-- Cross-document rendering order (§3 row 5) → proposed slot P-1; radio same-tree filter (§3.1) → proposed slot P-2;
-  IME composition end on blur (I10) → proposed slot P-3; form-owner side-store (§4.3) → plan-review Axis 2 judgement,
-  slot text ready if (Y); in-process child `needs_render` (S9) → no slot, re-check record R-S9 (§8.2).
-- **Moved, not deferred:** change-on-blur user-change provenance → its own PR, `docs/plans/2026-11-change-on-blur-user-provenance.md` (PM 260), which lands
-  before this PR (§8 order line; pin C19).
+- Cross-document rendering order (§3 row 5) → FF-1; radio same-tree filter (§3.1) → FF-2; IME composition end on blur
+  (I10) → FF-3; form-owner side-store (§4.3) → plan-review Axis 2 judgement, FF-4 if (Y); in-process child
+  `needs_render` (S9) → no slot, re-check record R-S9 (§8.2). Owners and re-eval: umbrella §4.
+- **Moved, not deferred:** change-on-blur user-change provenance → slice (1) (umbrella §1.2; pin C19).
 
 ## §8. Edges, hand-offs and records
 
-- **Order:** provenance PR (`docs/plans/2026-11-change-on-blur-user-provenance.md`, branch `layout-change-on-blur-provenance`) → **this PR** → being-rendered PR
-  (O1). **Dependency (PM 260):** this PR merges only after the provenance PR is on `origin/main`; this branch rebases onto
-  it, C19 turns green there, and the `event_handlers.rs` cites are re-derived (§0.1 re-base note).
-- **O1 — obligation on the being-rendered PR** (`#11-focusable-area-being-rendered`, CV-focus; 248 (4)). This PR does not
-  move the position; the move goes with the being-rendered PR. That PR moves the fixup after style/layout because (a) its
-  predicate reads computed style, which exists only after Phase 2, and (b) ResizeObserver delivery
-  (`content/mod.rs:433`, `deliver_layout_observations`) must see the pre-fixup holder — spec step 16 precedes 17 (I5 × I9).
-  It also decides the one-frame `:focus` lag (PM 242 (1)): after the move the cleared bit is not in the frame's style
-  unless the frame re-styles, and the fixup's listener writes (I4 × I9) face the same choice. Its plan cites this
-  paragraph, C7 and C17 (both assert same-frame effects and will have to be re-stated by that decision).
-- **CV umbrella** (`docs/plans/2026-10-content-visibility.md`, approved #541) names `reconcile_focus` at 12 sites (verified 2026-11-03
-  via `git grep -c 'reconcile_focus' -- docs/plans/2026-10-content-visibility.md`, e.g. `:89`, `:241`, `:394`, `:463`, `:690`);
-  after this PR the symbol is `focus_fixup_steps` and it fires events. Not edited here (approved text, HEAD-anchored
-  coordinates); CV-focus's per-PR plan re-derives at its base. Its K8 ("render-time readers … read the last style pass,
-  which they run after", `:360`) is O1's target state, not HEAD's.
+- **Order and edges:** umbrella §1.2–§1.3 (e1: this PR merges only after the provenance PR is on `origin/main`; this
+  branch rebases onto it and C19 turns green there, §0.1 re-base note).
+- **O1 — obligation on `#11-focusable-area-being-rendered`** (umbrella §4 O1; 248 (4)). O1 attaches to the first
+  CV-focus leg that makes the focus predicate read computed style (PM 242 (7)). This PR does not move the position; that
+  leg moves the fixup after style/layout because (a) its predicate reads computed style, which exists only after
+  Phase 2, and (b) ResizeObserver delivery (`content/mod.rs:433`, `deliver_layout_observations`) must see the pre-fixup
+  holder — spec step 16 precedes 17 (I5 × I9). The one-frame `:focus` lag is decided (PM 242 (1)): spec order, no
+  in-frame re-style; the leg re-states C7 and C17 (and the listener writes of I4 × I9) as next-frame effects (umbrella
+  X7). The same leg changes the VM `focus()` gate to the fixup's predicate (umbrella X8; I8 here); script-time freshness
+  of that gate is the leg's plan's (umbrella e4 / e5). Its plan cites this paragraph.
+- **CV umbrella** (`docs/plans/2026-10-content-visibility.md`, approved #541) names `reconcile_focus` at 12 sites (`git
+  grep -c reconcile_focus d7d34035 -- docs/plans/2026-10-content-visibility.md` → 12, verified 2026-11-03; listed in
+  umbrella CR-1); after this PR the symbol is `focus_fixup_steps` and it fires events. The CV erratum renames them
+  (umbrella CR-1, PM 278). Its K8 ("render-time readers … read the last style pass, which they run after", `:360`) is
+  O1's target state, not HEAD's.
 - **FU** (`#11-forced-style-layout-flush-on-script-read`): FU-5's "not `reconcile_focus`" carries to `focus_fixup_steps`;
   the new fact is that the fixup runs script, whose style reads reach FU's point (I4 × FU).
-- **Canonical-focus A2b / A2c / A3**: A2c adds unfocusing step 6 and VM event dispatch — `focus_fixup_steps` does not use
+- **Canonical-focus A2b / A2c / A3** (umbrella x1–x3): A2c adds unfocusing step 6 and VM event dispatch — `focus_fixup_steps` does not use
   `unfocusing_steps`, so step 6 cannot break it (E2); after A2c a reentrant VM `focus()` from a fixup listener fires its own
   events (I2 × I8). A3's chain adds S7 (Window `focus`) and may re-home `focusing_steps_for_viewport` under a target enum.
 - **PR body records** (248 (6), R4): (i) VM `focus()` gates on `is_focusable && is_in_document`
@@ -567,9 +554,9 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15) and `elidex-fo
   concept-sweep table §4.4; (vii) §8.1–§8.2's texts for the PM; (viii) C19's pre-rebase red and post-rebase green
   results (the landing-order pin).
 
-### §8.1 Proposed slots (texts for the PM to register at landing; IDs are proposals)
+### §8.1 Slots FF-1 to FF-3 (defect and trigger texts; ID, owner, why and re-eval: umbrella §4)
 
-- **P-1 `#11-cross-document-rendering-order`** (252 (M2); owner Layout, crate `elidex-shell`). *Defect:* HTML *update
+- **FF-1 `#11-cross-document-rendering-order`** (252 (M2); crate `elidex-shell`). *Defect:* HTML *update
   the rendering* collects the documents in tree order (a container before its children) and runs each step over all of
   them before the next step; elidex runs one whole `crate::re_render` per pipeline, the in-process children's
   (`content/mod.rs:355`, `re_render_all_iframes`) before the parent's (`:357`), and OOP children on their own thread
@@ -579,22 +566,24 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15) and `elidex-fo
   child listener sees the parent's pre-fixup state). *Trigger:* (1) a probe first — a parent + in-process child fixture
   whose RO / rAF / fixup listeners record order into a shell-visible log, compared with the spec order; a difference
   makes the slot a defect with a cell, no difference closes it as unobservable today; (2) re-run the probe when
-  `#11-windowproxy-browsing-context` lands (cross-document script access makes more orders observable). *Date:* PM sets.
-- **P-2 `#11-radio-group-same-tree-filter`** (252 (M3) (b); owner L3, crate `elidex-form`). *Defect:* the radio button
+  `#11-windowproxy-browsing-context` lands (cross-document script access makes more orders observable).
+- **FF-2 `#11-radio-group-same-tree-filter`** (252 (M3) (b); crate `elidex-form`). *Defect:* the radio button
   group scan (`elidex-form/src/radio.rs:110-123`, `find_radio_group_impl`) selects candidates by kind + `name` and form
   owner only; §4.10.5.1.16 Radio Button state's *radio button group* also requires "Both a and b are in the same tree",
   so a detached or other-tree radio with the same name and form owner joins the group (checking one unchecks the
   other). Also the only path on which PR focus-fixup D-8's document-root stamp can be stale (a detached-tree move).
-  *Trigger:* the next PR touching `radio.rs` or radio-group semantics. *Date:* PM sets.
-- **P-3 `#11-ime-composition-end-on-blur`** (Q3, I10; proposed owner L3, crates `elidex-shell` `content/ime.rs` +
-  `elidex-form`). *Search first:* the ledger has no IME composition-end slot — the only IME-related one,
+  *Trigger:* the next PR touching `radio.rs` or radio-group semantics.
+- **FF-3 `#11-ime-composition-end-on-blur`** (Q3, I10; crates `elidex-shell` `content/ime.rs` + `elidex-form`). *Search first:* the ledger has no IME composition-end slot — the only IME-related one,
   `#11-textarea-edit-path-newline-normalization` (`memory/project_open-defer-slots.md:123`), is newline folding on the
   paste / IME insert paths, a different defect. *Defect:* when focus leaves a text control during an active composition
   (UA blur, VM `blur()`, or the step-17 fixup), elidex neither commits nor cancels it: no `compositionend`, the preedit
   stays in `FormControlState.composition_text` and is still painted into the control (`elidex-render`
   `builder/form.rs:226-236`); the shell's `ImeKind::Enabled | Disabled` arms are no-ops (`content/ime.rs:157-159`).
+  *Constraint (umbrella X5):* when blur commits an active composition, the commit goes through
+  `elidex_form::apply_user_edit` (NEW) before the change-on-blur substep runs, so a commit that changes the value marks
+  the snapshot and fires `input`, and one that changes nothing fires neither.
   *Trigger:* (1) measure in the built-in Chromium whether blur commits or cancels the composition and which events fire;
-  (2) the first shell PR that wires the platform IME cancel / commit request. *Date:* PM sets.
+  (2) the first shell PR that wires the platform IME cancel / commit request.
 
 ### §8.2 Records for existing slots (PM applies at landing)
 
@@ -605,7 +594,10 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15) and `elidex-fo
   Document entries — `focus` / `blur` at the Window — which the single-element model omits (elidex does not fire the
   Window focus event the spec chain gives). First observable site: the step-17 focus fixup (docs/plans/2026-11-focus-fixup-canonical-steps.md
   D-9); Chromium measurement there."
-- **O1 → `#11-focusable-area-being-rendered`** (as §9 item 7).
+- **Closure (umbrella FP-1):** "PR (2) closes `#11-focus-fixup-gated-on-session-records` and the folded
+  `#11-render-side-effect-version-delta-signal` (PM 278); the folded slot's remedy (a version-delta signal threaded
+  through the render entry) is superseded by this PR's design."
+- **O1 → `#11-focusable-area-being-rendered`** (§8 O1; as §9 item 7).
 
 ## §9. Definition of done
 
@@ -618,14 +610,16 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15) and `elidex-fo
 5. Comments F4, F5 and §5.1's sites updated; `focus/tests.rs` ≤ 999 lines.
 6. `cargo fmt --all`; `cargo test -p elidex-dom-api -p elidex-form -p elidex-shell --all-features`; `mise run ci` green
    (`grep 'ERROR task failed'` on its log → none).
-7. PR body carries §8's records; the slot `#11-focus-fixup-gated-on-session-records` reported closed to the PM, with O1
-   appended to `#11-focusable-area-being-rendered`, R-S9 and R-A3 (§8.2) and P-1–P-3 (§8.1) handed over (PM transcribes).
+7. PR body carries §8's records; `#11-focus-fixup-gated-on-session-records` and the folded
+   `#11-render-side-effect-version-delta-signal` reported closed to the PM, the folded slot's version-delta remedy
+   superseded (§8.2 closure, umbrella FP-1), with O1 appended to `#11-focusable-area-being-rendered`, R-S9 and R-A3
+   (§8.2) and FF-1 to FF-3 (§8.1; FF-4 if Axis 2 picks (Y)) handed over (PM transcribes).
 8. The provenance PR (`docs/plans/2026-11-change-on-blur-user-provenance.md`) is merged on `origin/main`, this branch is rebased onto it, and C19 is green
    on the rebased head (it was red before the rebase, recorded in the PR body).
 
 ## §10. Open items
 
-Rev 1's Q1–Q6 are answered (§0.5) and its M1–M5 decided by PM 252 (applied: M1 → D-9 / R-A3; M2 → P-1; M3 (b) → P-2;
+Rev 1's Q1–Q6 are answered (§0.5) and its M1–M5 decided by PM 252 (applied: M1 → D-9 / R-A3; M2 → FF-1; M3 (b) → FF-2;
 M4 → §4.4 S9 / R-S9; M5 → §4.5, whose fix PM 260 moved to the provenance PR).
 
 **Questions for scout:** none. Rev 2's Q7 (the user-edit path enumeration) and Q8 (the script-writer population)
@@ -635,10 +629,19 @@ moved with the provenance design; the provenance memo answers Q7 (§4.2) and lis
 
 - **M3 (a)** — plan-review Axis 2 judges §4.3's (X) migrate-in-this-PR vs (Y) slot with D-8 as interim. Not decided
   here (252 (M3) (a)).
-- **M6 (decided, PM 260)** — rev 2 asked whether D-11 stays in this PR. PM 260: it becomes its own PR,
-  `docs/plans/2026-11-change-on-blur-user-provenance.md`, landing before this PR. Applied in rev 3 (D-10, D-11 tombstone, §4.5, C19, §8 order line, §9 item 8).
 
 ## Changelog
+
+- **Rev 4 (2026-11-03; umbrella `docs/plans/2026-11-focus-fixup-program.md` rev 2.1 records FP-1 to FP-3, CR-1; PM 264
+  (M2), 278, 282).** Header: slice (2) under the umbrella, base case (c). FP-1: §8.2 closure record and §9 item 7 (the
+  folded `#11-render-side-effect-version-delta-signal` closed, its version-delta remedy superseded). FP-2: FF-3's X5
+  constraint. FP-3: O1 attaches to the first style-reading CV-focus leg (PM 242 (7)), the one-frame lag decided (PM 242
+  (1); also D-6, I4 × I9), X8 added with freshness pointed to the leg's plan; the CV-umbrella bullet points to CR-1.
+  PM 264 (M2): §0.1 re-base note and C6 no longer assume a `text_edit.rs` move. Change-on-blur judgement =
+  `elidex_form::take_change_on_blur` (umbrella X1): P10, I2, I3, §3 row, §3.1; C6 / C20 assert the absent
+  `FocusValueSnapshot` (`take_focus_snapshot` is replaced by the provenance PR). Umbrella pointers: §1's provenance
+  rationale, §4.5 (narrowed to the fixup-path facts), §7, §8 order line; P-1 to P-3 → FF-1 to FF-3, §4.3 (Y) → FF-4,
+  owners and dates removed from slot texts. §10's M6 removed (decided, rev 3).
 
 - **Rev 3 (2026-11-03, PM 260).** Rev 2's D-11 (change-on-blur user-change provenance) moved to its own PR,
   `docs/plans/2026-11-change-on-blur-user-provenance.md`, which lands first. Removed: D-11's design (now a tombstone), I11 and its pairs (I2 × I11, I3 × I11,
