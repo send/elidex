@@ -1,206 +1,263 @@
-# Focus-fixup program — the step-17 focus fixup through the canonical steps, with a correct change-on-blur (umbrella memo)
+# Focus-fixup program — the rendering-time focus fixup through the canonical steps, with a correct change-on-blur (umbrella memo)
 
-Program label **`focus-fixup`**. Owner: Layout lane. Rev 1, 2026-11-03, draft for `/elidex-plan-review`. Required by
-**PM decision 265**: the provenance PR and the focus-fixup PR each become a terminal per-PR slice under CLAUDE.md
-*Edge-dense work* base case (c), which names an approved umbrella; a PM decision does not stand in for one. This memo
-is that umbrella. It restates what the two per-PR plans decide only where the cross-PR layer needs it, and adds that layer:
-the nested-PR set, the order and its edges, the invariants that span PRs, the slot inventory and the program DoD.
+Program label **`focus-fixup`**. Owner: Layout lane. Rev 2, 2026-11-03 (plan-review of rev 1 `1e5976a7` applied; PM
+decisions 278, 279). Required by **PM decision 265**: the provenance PR and the focus-fixup PR each become a terminal
+per-PR slice under CLAUDE.md *Edge-dense work* base case (c), which names an approved umbrella. This memo is that
+umbrella: the nested-PR set, the order and its edges, the invariants that span PRs, the slot inventory and the program
+DoD. Slice detail (mechanism, files, new functions, cells) is each slice plan's and is pointed to, not restated.
 
 Nested per-PR plans (each plan-reviewed on its own):
-- **(1) provenance** — `docs/plans/2026-11-change-on-blur-user-provenance.md`, rev 1 at `fb42a1a0`, branch
-  `layout-change-on-blur-provenance` (this memo travels on that branch, §1.4).
-- **(2) focus-fixup** — `docs/plans/2026-11-focus-fixup-canonical-steps.md`, rev 3 at `36bcc114`, branch
-  `layout-focus-fixup-ungated` (worktree `wt-focus-fixup`; the file is not on this branch until (2) rebases, so it is
-  cited as a path, not linked).
-- **(3) being-rendered** — no plan yet; the obligation it carries is fixed here (§1.2, §2 X6–X8).
+- **(1) provenance** — `docs/plans/2026-11-change-on-blur-user-provenance.md` (rev 1 at `fb42a1a0`; this branch).
+- **(2) focus-fixup** — `docs/plans/2026-11-focus-fixup-canonical-steps.md` (rev 3 at `36bcc114`, branch
+  `layout-focus-fixup-ungated`; not on this branch until (2) rebases, so cited as a path).
+- **(3) being-rendered** — the first CV-focus leg that makes the focus predicate read computed style (§1.2); its plan is
+  the CV umbrella's. This program fixes only the obligation it carries (O1, §4) and the edges into it.
 
 **Approval scope.** Approving this umbrella decides the nested-PR set, the order and its edges (§1), the cross-PR
 invariants (§2), the program-level spec map (§3), the slot inventory and owners (§4) and the program DoD (§6). It does
-not decide anything inside a slice: each slice's mechanism, cells and guards stay its own plan's.
+not decide anything inside a slice.
 
 ## §0. Frame, program statement, decisions
 
 ### §0.1 Coordinate frame
 
 Base `origin/main` **`d7d34035`** (#582) for both per-PR plans (`git log --oneline -1 origin/main` → `d7d34035`).
-This memo cites no new code line; every code fact below is quoted from a per-PR plan and keeps that plan's frame.
+This memo cites no new code line; code facts are the per-PR plans' and keep their frame.
 
 ### §0.2 Program statement — the defect classes
 
-- **DC1 Step-17 fixup gated on session records** (slot `#11-focus-fixup-gated-on-session-records`, PM decision 245).
-  The render-time focus fixup runs only when `session.flush` returns records, so VM-native writes (`d.hidden = true`)
-  leave a non-focusable element focused; and once ungated, HEAD's `reconcile_focus` is a silent reset (no `change` /
-  `blur` / `focusout`, snapshot never consumed). PM decision 248 sets the ideal: ungated **and** through the canonical
-  §6.6.4 focusing steps for the viewport. Plan (2).
-- **DC2 Change-on-blur has no "the user has changed the value" provenance.** Step 2.1 of the focus update steps fires
-  `change` only if the user changed the value while focused; elidex compares the value with the focus-time snapshot and
-  nothing else, so a script `value` write followed by a blur fires `change`. Found by plan (2)'s rev 2 under PM decision
-  252 (M5); moved to its own PR by PM decision 260. Plan (1). The same predicate gates `input`: elidex fires `input` on
-  user actions that do not change the value (cursor moves, readonly navigation, empty paste / IME commit) — plan (1) D-2,
-  in scope by PM decision 264 (M3).
-- **DC3 The being-rendered obligation** (slot `#11-focusable-area-being-rendered`). Once the focusability predicate
-  reads computed style (*being rendered*), the fixup must run after that frame's style and layout, and after
-  ResizeObserver delivery (spec step 16 precedes 17); the one-frame `:focus` lag question (PM decision 242 (1)) is
-  decided there. PM decisions 246 and 248 put the move with that PR, not with (2). Plan (2) records it as obligation O1.
+Names used below. **The fixup step** = WHATWG HTML *update the rendering* (`#update-the-rendering`), the step "if the
+focused area of doc is not a focusable area, then run the focusing steps for doc's viewport" (currently step 17).
+**The change-on-blur substep** = *focus update steps* (`#focus-update-steps`) step 2's first substep (currently 2.1).
+
+- **DC1 The fixup step is gated on session records** (slot `#11-focus-fixup-gated-on-session-records`, PM decision 245;
+  the folded `#11-render-side-effect-version-delta-signal`, PM decision 278). VM-native writes produce no records, so a
+  non-focusable element stays focused; ungating HEAD's silent reset alone fires no `change` / `blur` / `focusout`.
+  PM decision 248 sets the ideal: ungated **and** through the canonical focusing steps for the viewport. Plan (2).
+- **DC2 Change-on-blur has no user-change provenance.** The change-on-blur substep fires `change` at an entry only if it
+  is an input element, the change event applies to it, it has no defined activation behavior, and the user has changed
+  its value (or list of selected files) while focused without committing that change, so that it differs from the
+  focus-time value; its substep 1 sets user validity first (`#11-focus-change-user-validity`, not this program). elidex
+  compares only with the focus-time value, so a script write followed by a blur fires `change`. The same predicate gates
+  `input` (fired today on user actions that change nothing). Found by plan (2) rev 2 (PM decision 252 (M5)); own PR by PM
+  decision 260; `input` in scope by PM decision 264 (M3). Plan (1). `textarea` has no change rule in the spec text;
+  plan (1) keeps browser behaviour, measured.
+- **DC3 The being-rendered obligation** (slot `#11-focusable-area-being-rendered`). Once the focusable-area predicate
+  reads computed style (HTML §6.6.2: the element is "being rendered, delegating its rendering to its children, or being
+  used as relevant canvas fallback content"), the fixup step must run after that frame's style and layout and after
+  ResizeObserver delivery (spec order: step 16 before the fixup step). PM decisions 246 and 248 put the move with that
+  PR, not with (2). Obligation O1 (§4).
 
 ### §0.3 Decisions already made (cited as "PM decision N")
 
 | PM decision | Content | Applied in |
 |---|---|---|
-| 242 (1) | The one-frame `:focus` lag after the fixup moves after style is decided with the being-rendered move | (3); (2) O1 |
-| 245 | Slot `#11-focus-fixup-gated-on-session-records` registered, owner Layout, a standalone PR, plan-review if edge-dense | (2) |
-| 246 | Scope narrowed: the fixup stays before style; the move after style/layout goes to `#11-focusable-area-being-rendered` | (2) D-6; (3) |
-| 248 | Scope re-widened (reverses 246's "gate only"): ungated **and** canonical; form-owner cache sibling in (2); RO order added as a second reason for the being-rendered move | (2) D-1 to D-8; (3) |
-| 252 | (M1) Window `focus` event → canonical-focus A3; (M2) cross-document order → proposed slot; (M3) form-owner side-store judged by plan-review Axis 2, radio same-tree filter → proposed slot; (M4) in-process child `needs_render` → record on `#11-windowproxy-browsing-context`; (M5) a pre-existing wrong event the fixup newly reaches is fixed before or with it | (2) §8; (1) exists because of M5 |
-| 260 | The change-on-blur provenance is its own PR and lands before (2) | (1); (2) rev 3 |
-| 264 | Owners of the proposed slots (§4); (M2) no split commit bundled in (1) — if `content/event_handlers.rs` is over 1000 lines after (1), a standalone split PR goes before (1); (M3) the `input`-firing fix is in (1), and the Chromium pre-step also measures `input` | (1) rev 2 (pending); §4 |
-| 265 | (1) and (2) need an approved umbrella; this memo | this memo |
-
-PM decision 264 (M2) supersedes plan (1)'s D-6 (commit (0), the `text_edit.rs` move) and with it plan (2)'s §0.1
-re-base note, which assumes the move (§2 X3). Both per-PR plans apply it in their next revision; this memo does not edit them.
+| 242 (1) | The fixup step runs after this frame's style/layout, ungated; spec order: the un-focus restyle shows next frame (one-frame `:focus` lag), no in-frame re-style; recorded as decided | (3); O1; X7 |
+| 242 (7) | CV-focus is split: the author-hidden S2 leg lands right after CV-render; the until-found attribute→S2 switch stays after A2c | (3); x1; e5 |
+| 245 | Slot `#11-focus-fixup-gated-on-session-records` registered (owner Layout, re-eval 2026-12-15); Layout order C0 → C0 plan-reviews → this PR → C1 → CV erratum → T3; the CV erratum cites the slot | (2); §1.2 order; e4 |
+| 246 | The fixup stays before style in (2); the move goes to `#11-focusable-area-being-rendered` | (2); (3) |
+| 248 | Reverses 246's "gate only": ungated **and** canonical; form-owner cache sibling in (2); RO order a second reason for the move | (2); (3) |
+| 252 | (M1) Window `focus` → canonical-focus A3; (M2) cross-document order → slot; (M3) radio same-tree filter → slot; (M5) a wrong event the fixup newly reaches is fixed before or with it | (2) §8; (1) exists because of M5 |
+| 260 | Provenance is its own PR and lands before (2) | (1); e1 |
+| 264 | Owners of the proposed slots (§4); (M2) no split bundled in (1), a standalone split PR first if `content/event_handlers.rs` is over 1000 lines after (1) — supersedes plan (1) D-6 and plan (2)'s §0.1 re-base note; (M3) `input` fix in (1) | (1), (2) next revs; §4; e3 |
+| 265 | (1) and (2) need an approved umbrella | this memo |
+| 269 | Row (3) shared with the CV umbrella, the PR is CV-focus; both plans apply 264 (M2) in their next revisions, before their reviews; vehicle (§1.4) accepted | §1.2; §5 |
+| 278 | `#11-render-side-effect-version-delta-signal` folded into `#11-focus-fixup-gated-on-session-records`; O1 on the first style-reading CV-focus leg; CV erratum edge; discharge decided by CV-focus's plan; the CV erratum renames the CV umbrella's `reconcile_focus` references | §1.2–§1.3; §4; §6 |
+| 279 | Style freshness recorded as a defect on FU, no mechanism here; the step-2.1 judgement in one elidex-form fn | X1, X8; x6; §4 |
 
 ## §1. Program shape
 
 ### §1.1 Edge density
 
-Edge-dense by both arms of the CLAUDE.md rule: (a) the axes event dispatch (`input` / `change` / `blur` order),
-focus-transition paths (UA sink, `blur_current`, VM `focus()` / `blur()`, the step-17 fixup), script writers and
-re-entry, the snapshot lifecycle, and render-phase position all intersect (§2); (b) "the user has changed the
-element's value" is prose with no algorithm, and the mixed case is measured, not read. So: a multi-PR program, each
-slice plan-reviewed before implementation, each slice a terminal unit under base case (c).
+Edge-dense by both arms of the CLAUDE.md rule: (a) event dispatch order (`input` / `change` / `blur`), the focus-transition
+paths (UA sink, `blur_current`, VM `focus()` / `blur()`, the fixup step), script writers and re-entry, the snapshot
+lifecycle and the render-phase position intersect (§2); (b) "the user has changed the element's value" is prose with no
+algorithm, and the mixed case is measured. So: a multi-PR program, each slice plan-reviewed, each a terminal unit.
 
 ### §1.2 Nested PRs
 
-| nested PR | scope | owner | slots owned / closed | prerequisites |
+| nested PR | scope (detail: the slice plan) | owner | slots | prerequisites |
 |---|---|---|---|---|
-| **(1) provenance** (`layout-change-on-blur-provenance`) | DC2: one user-edit funnel at the value change (`elidex_form::apply_user_edit` (NEW)); `input` iff the value changed; step 2.1 reads a user-change mark on `FocusValueSnapshot`; the §6 Chromium pre-step picks branch A / B1 / B2 | Layout | owns no registered slot (its defect is DC2, found inside DC1's scope, PM decision 252 (M5) / 260); closes none; registers CP-1 to CP-4 (§4) | this umbrella approved; plan (1) plan-reviewed; if PM decision 264 (M2) triggers, the standalone split PR |
-| **(2) focus-fixup** (`layout-focus-fixup-ungated`) | DC1: `focus_fixup_steps` = focusing steps for the viewport, ungated in every `crate::re_render`; `reconcile_focus` deleted; form-owner cache validated at read time; position unchanged relative to style | Layout | owns and closes `#11-focus-fixup-gated-on-session-records`; appends O1 to `#11-focusable-area-being-rendered`; records R-S9, R-A3; registers FF-1 to FF-3 (and FF-4 if Axis 2 picks (Y)) | (1) on `origin/main`; branch rebased onto it; plan (2) plan-reviewed |
-| **(3) being-rendered** | DC3: the predicate reads computed style (*being rendered*); the fixup moves after style and layout and after RO delivery; the one-frame `:focus` lag decided (PM decision 242 (1)); C7 / C17 of plan (2) re-stated | Layout (the CV umbrella's CV-focus, `docs/plans/2026-10-content-visibility.md`, which says CV-focus's plan decides the slot's discharge) | owns and closes `#11-focusable-area-being-rendered`, O1 included | (2) landed; the CV umbrella's own edges into CV-focus (A2c, FU) |
+| **(1) provenance** | DC2: one user-edit funnel; `input` iff the value changed; the change-on-blur substep judged by one elidex-form fn (X1); the Chromium pre-step picks the branch | Layout | closes none (DC2 was found inside DC1's scope); registers CP-1 to CP-4 | this umbrella approved; plan (1) plan-reviewed; split PR if 264 (M2) triggers |
+| **(2) focus-fixup** | DC1: the fixup step through the canonical focusing steps for the viewport, ungated, at HEAD's position; the silent reset deleted; form-owner cache validated on read | Layout | closes `#11-focus-fixup-gated-on-session-records` and the folded `#11-render-side-effect-version-delta-signal` (PM 278); appends O1; registers FF-1 to FF-3 (FF-4 if Axis 2 picks (Y)) | (1) on `origin/main`; plan (2) plan-reviewed |
+| **(3) being-rendered** | DC3: the first CV-focus leg that makes the focus predicate read computed style (per PM 242 (7) likely the author-hidden S2 leg right after CV-render); carries O1 | Layout (CV umbrella `docs/plans/2026-10-content-visibility.md`, CV-focus) | discharge of `#11-focusable-area-being-rendered` decided by CV-focus's plan (ledger APPEND on that slot); O1 is cited there | (2) landed; the CV erratum (e5); the CV umbrella's own edges |
 
-Row (3) is **shared** with the CV umbrella: this program fixes only the obligation (O1 and §2 X6–X8) and the edge
-(2) → (3). The PR itself, its plan and its other prerequisites are the CV umbrella's. One PR, two umbrellas that each
-name one part of it: §5 M1 asks the PM to confirm this.
+Row (3) is shared (PM decision 269): this program fixes O1 and the edges e2 / e5; the PR, its plan and its other
+prerequisites are the CV umbrella's.
 
-**Order (PM decisions 260, 246/248, 265):** this umbrella approved → [standalone `event_handlers.rs` split, only if PM
-decision 264 (M2) triggers] → **(1) provenance** → **(2) focus-fixup** → **(3) being-rendered**.
+**Order (Layout lane; PM decisions 245, 260, 264, 265):** C0 restructure → C0 plan-reviews → this umbrella approved →
+[standalone `event_handlers.rs` split, only if 264 (M2) triggers] → **(1) provenance** → **(2) focus-fixup** → C1 →
+CV erratum → T3. **(3)** follows (2) and the CV erratum, at the CV umbrella's position for its leg.
 
 ### §1.3 Edges
 
 | # | edge | kind | reason |
 |---|---|---|---|
-| e1 | (1) → (2) | semantic precondition | (2) fires step 2.1 from a script-made non-focusability. Without (1)'s predicate, "VM `b.value = "x"; b.disabled = true`" fires `change` at the next rendering update from script alone, a newly reachable wrong event (PM decision 252 (M5)). Plan (2)'s pin C19 is red until (1) is on its base |
-| e2 | (2) → (3) | code predecessor + semantic | (3) moves the call (2) creates (`content::focus::focus_fixup` (NEW) in `crate::re_render`) and keeps (2)'s canonical events; moving a silent `reconcile_focus` instead would skip step 2.1. The move is needed only once the predicate reads style (DC3; PM decisions 246, 248) |
-| e3 | split PR → (1) | scheduling, conditional | PM decision 264 (M2): only if `content/event_handlers.rs` is over 1000 lines after (1) |
-| x1 | canonical-focus `#11-canonical-focus-update-steps` A2c (`#11-vm-host-synthetic-dom-event-dispatch`) | external, after (1) and (2) | VM `blur()` / `focus()` start running the canonical transition: (1)'s "mark before `input`" becomes observable (record R-1), and a fixup listener's reentrant `focus()` fires its own events (plan (2) I2 × I8). The CV umbrella's CF-1 puts A2c before CV-focus, so before (3) |
-| x2 | canonical-focus A3 | external, after (2) | the Window `focus` event at the Document entry of the new chain, which (2) does not fire (plan (2) D-9; PM decision 252 (M1); record R-A3) |
-| x3 | CV-focus (CV umbrella) | external, shared row (3) | §1.2 |
-| x4 | L3 form domain | external, no order | CP-1 to CP-4, FF-2, FF-3, FF-4 (§4) are L3-owned defects found by (1) and (2); none gates a slice of this program |
-| x5 | `#11-windowproxy-browsing-context` | external, after (2) | record R-S9: when cross-document script access lands, re-check whether the in-process child's `needs_render`-gated fixup becomes reachable (plan (2) §4.4 S9) |
+| e1 | (1) → (2) | semantic precondition | (2) runs the change-on-blur substep on a script-made non-focusability; without (1), VM `b.value = "x"; b.disabled = true` fires `change` from script alone (PM 252 (M5)). Plan (2)'s pin C19 is red until (1) is on its base |
+| e2 | (2) → (3) | code predecessor + semantic | (3) moves the call (2) creates and keeps its canonical events; moving the silent reset would skip the substep. The move is needed only once the predicate reads style (PM 246, 248) |
+| e3 | split PR → (1) | scheduling, conditional | PM 264 (M2) |
+| e4 | (2) → CV erratum | doc coherence | the CV erratum writes the CV-focus split into the CV umbrella and cites `#11-focus-fixup-gated-on-session-records` (PM 245); it also renames the CV umbrella's `reconcile_focus` references (record CR-1, §4), which name a symbol (2) deletes |
+| e5 | CV erratum → (3) | definitional | the erratum creates the leg that is (3) (PM 242 (7)); O1 attaches to it |
+| x1 | canonical-focus A2c (`#11-vm-host-synthetic-dom-event-dispatch`) | external, after (1) and (2) | VM `blur()` / `focus()` start running the canonical transition: A2c's VM sink calls the elidex-form judgement and only dispatches (X1, record R-1); (1)'s "mark before `input`" becomes observable; a fixup listener's reentrant `focus()` fires its own events (plan (2) I2 × I8). A2c is **not** necessarily before (3): after PM 242 (7) only the until-found leg waits on A2c (CF-1), so X8 must hold without A2c |
+| x2 | canonical-focus A3 | external, after (2) | the Window `focus` event at the Document entry of the new chain, not fired by (2) (PM 252 (M1); record R-A3) |
+| x3 | canonical-focus A2b | external, file overlap, no order | A2b (click ancestor climb, editing-host fallback) edits shell `content/focus.rs` `set_focus` / the click entry, which (1) and (2) also edit; the later lander rebases. The A2b / A2c / A3 order is Layout's to propose (PM 98), not fixed |
+| x4 | L3 form domain | external, no order | CP-1 to CP-4, FF-2, FF-3, FF-4 are L3-owned defects found by (1) and (2); none gates a slice |
+| x5 | `#11-windowproxy-browsing-context` | external, after (2) | record R-S9 (plan (2) §4.4 S9) |
+| x6 | FU `#11-forced-style-layout-flush-on-script-read` (owner Layout) | external, no order | defect record FS-1 (§4): once (3) lands, script-time `focus()` and the fixup step read the one predicate over different styles. Remedy is FU's (its FU-4); O1 cites this edge. FU-5's "not `reconcile_focus`" carries to the fixup (plan (2) §8) |
+| x7 | `#11-shell-effective-disabled-predicate-adoption` | external, file overlap, no order | pointer only: (1) edits shell files that slot cites (§5) |
 
 Acyclic. No edge points from (2) or (3) back into (1).
 
 ### §1.4 Vehicle: this memo travels with (1)
 
-The umbrella is committed on (1)'s branch, not in a separate docs PR. Reasons: (i) e1 makes (2) and (3) wait for (1)
-anyway, so a separate docs PR would land earlier without unblocking anything; (ii) (1)'s plan has an open item that
-this memo answers (plan (1) §1 / §10 M1, "confirm that a PM decision counts as the umbrella"), and its rev 2 (PM decision
-264) is written on the same branch, so the answer and the question land together; (iii) precedent: the EH-attrs umbrella's
-revisions travelled with IBP-sandbox N1's PR. Approval is the plan-review of this memo, not its merge: it is reviewed
-before (1)'s first code commit. If (1) stalls (the pre-step's STOP row), (2) is blocked by e1 regardless.
+The umbrella is committed on (1)'s branch (PM decision 269): (i) e1 makes (2) and (3) wait for (1) anyway; (ii) (1)'s
+open item "does a PM decision count as the umbrella" is answered by this memo, on the same branch; (iii) precedent: the
+EH-attrs umbrella's revisions travelled with IBP-sandbox N1's PR. Approval is this memo's plan-review, before (1)'s
+first code commit.
+
+**Stall contingency.** Owner: Layout lane. Trigger: plan (1)'s Chromium pre-step hits its STOP row. Layout reports the
+STOP to the PM the same day. DC1 stays a live defect meanwhile (its slot's re-eval 2026-12-15); the PM decides between
+waiting for (1) and shipping (2) ahead of it with a guard against e1's wrong `change`.
 
 ## §2. Cross-PR coupled invariants
 
-Only pairs that span two slices (intra-slice pairs are each plan's §2). "(1) I5" = plan (1)'s invariant I5.
+Only pairs that span two slices. "(1) I5" = plan (1)'s invariant I5.
 
-- **X1 One step-2.1 reader, every blur path** — (1) I5 × (2) I2: `commit_change_on_blur` → `dispatch_change_on_blur` is the
-  only reader of the provenance; (2) adds the fixup path through the same sink method, so the fixup inherits (1)'s
-  predicate with no fixup-specific code. Pinned by (1) C1 / C3 (UA, `blur_current`) and (2) C19 (fixup).
-- **X2 Snapshot consumed once, mark dies with it** — (1) I3 × (2) I3: (1) changes `take_focus_snapshot`'s return type and
-  the `FocusValueSnapshot` fields; (2)'s cells that read it (C6, C20: `take_focus_snapshot(b)` → None) are re-derived at
-  (2)'s rebase. A type flip to a non-text kind clears snapshot and mark together ((2) E5 / C20).
+- **X1 One change-on-blur judgement, in elidex-form, every sink** — (1) I5 × (2) I2 × x1. The substep's condition (the
+  qualifiers of DC2 and the branch's user-change predicate, `user_changed` or `last_user_value`) is computed by one
+  elidex-form function (NEW, engine-independent; record PR-1 names it); it consumes the snapshot. Every sink — the shell
+  sink (UA, `blur_current`, (2)'s fixup) and A2c's VM sink — calls it and only dispatches `change`; no sink, shell or
+  `vm/host`, computes the predicate. Pinned by (1) C1 / C3 and (2) C19; A2c's cells are A2c's.
+- **X2 Snapshot consumed once, mark dies with it** — (1) I3 × (2) I3: (2)'s snapshot-reading cells are re-derived at its
+  rebase onto (1); a type flip to a non-text kind clears snapshot and mark together.
 - **X3 (2)'s user-edit step goes through (1)'s funnel** — (1) I1 / I2 × (2) C6: after (1), `input` fires iff the value
-  changed, so (2)'s C6 must use a value-changing key; its `event_handlers.rs` cite and the `text_edit.rs` re-base note
-  are re-derived at the rebased head (PM decision 264 (M2) drops the move).
-- **X4 Fixup listeners never mark** — (1) I4 × (2) I4: a `change` / `blur` / `focusout` listener run by the fixup that
-  writes `value` is a script writer (no mark), and the snapshot is already taken ((2) I3 × I4). No cell beyond C19.
-- **X5 IME composition at a fixup blur** — (1)'s IME-commit routing × (2) I10 / FF-3: a future blur-time commit must
-  go through `apply_user_edit` before step 2.1 so it marks and fires `input`; FF-3's text carries this.
-- **X6 Placement after the style the predicate reads** — (2) I9 × (3): the fixup runs after the style pass whose
-  computed style the predicate reads, and after RO delivery ((2) I5 × I9). Before (3) the predicate is attribute-only,
-  so before-style placement gives the same answer (PM decision 246).
-- **X7 Same-frame effects re-stated** — (2) I4 / I10 × (3): (2)'s C7 (listener mutation rendered this frame) and C17
-  (`:focus` cleared this frame) hold only while the fixup precedes style; (3) re-states both by its PM decision 242 (1)
-  choice (re-style the frame, or accept a one-frame lag).
-- **X8 One predicate for writer and fixup** — (2) I8 × (3): when (3) makes the fixup's predicate read style, the VM
-  `focus()` gate changes in the same PR, or every frame focuses-then-resets with events ((2) I1 × I8).
+  changed, so C6 uses a value-changing key; its cites are re-derived at the rebased head (264 (M2) drops the move).
+- **X4 Fixup listeners never mark** — (1) I4 × (2) I4: a listener run by the fixup that writes `value` is a script
+  writer; the snapshot is already taken. Position-independent, so it also holds after (3).
+- **X5 IME commit at a fixup blur** — (1)'s IME routing × (2) I10: a future blur-time composition commit goes through
+  `apply_user_edit` before the change-on-blur substep. Home: FF-3's slot text (record FP-2).
+- **X6 Placement after the style the predicate reads** — (2) I9 × (3): the fixup step runs after the style and layout
+  whose computed style the predicate reads, and after RO delivery. Before (3) the predicate is attribute-only, so the
+  before-style position gives the same answer (PM 246). (3) reads the whole §6.6.2 condition (being rendered,
+  delegating its rendering to its children, relevant canvas fallback content), not *being rendered* alone.
+- **X7 Same-frame effects re-stated** — (2) I4 / I10 × (3): (2)'s C7 and C17 assert same-frame effects that hold only
+  while the fixup precedes style. Decided (PM 242 (1)): spec order, no in-frame re-style; (3) re-states both as
+  next-frame effects.
+- **X8 One predicate for writer and fixup** — (2) I8 × (3): the leg that makes the fixup's predicate read computed style
+  changes the VM `focus()` gate to the same predicate in the same leg, with or without A2c (x1), or every frame
+  focuses-then-resets with events. Freshness is not this program's (PM 279): see x6.
+
+**(1) × (3): empty.** (1) changes who marks and where the substep is judged (snapshot and value only); (3) changes when
+the fixup step runs and what the focusability predicate reads (computed style only). They share no state; the only path
+between them is (2)'s call into the sink, covered by X1, and listener writes, covered by X4.
 
 ## §3. Spec coverage map
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 17 | focused area not a focusable area → focusing steps for the viewport, ungated, canonical events | (2): `crate::re_render` in `crates/shell/elidex-shell/src/lib.rs` → `focus_fixup_steps` (NEW) in `crates/dom/elidex-dom-api/src/focus/update_steps.rs` | ✓ | yes |
-| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* steps 16 → 17 | style, layout and ResizeObserver before the fixup | (3) (obligation O1); (2) leaves the position, X6 | ✗ | no |
-| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 2 | documents in tree order, each step over all | not met; proposed FF-1 (owner Layout) | ✗ | no |
-| WHATWG HTML §6.6.4 Processing model | focusing steps 1–8, target = viewport; unfocusing steps step 8 | one viewport transition, two callers | (2): `focusing_steps_for_viewport` (NEW), `crates/dom/elidex-dom-api/src/focus/update_steps.rs` | ✓ | yes |
-| WHATWG HTML §6.6.4 Processing model | focus update steps step 2.1 | `change` iff the user changed the value since focus and value ≠ focus-time value; script-only → none; mixed case by the pre-step | (1): `dispatch_change_on_blur`, `crates/shell/elidex-shell/src/content/focus.rs`; mark on `FocusValueSnapshot`, `crates/dom/elidex-form/src/focus_snapshot.rs` | ✓ | yes |
-| WHATWG HTML §6.6.4 Processing model | focus update steps step 4, Document entry | `focus` at the Window | not fired; external canonical-focus A3 (R-A3) | ✗ | no |
-| WHATWG HTML §4.10.5.5 Common event behaviors | `input` when the user changes the value; none for script changes | `input` iff `apply_user_edit` reports a change | (1): `apply_user_edit` (NEW, `elidex-form`); shell key / clipboard / IME handlers | ✓ | yes |
+| WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, the fixup step (currently 17) | focused area not a focusable area → focusing steps for the viewport, ungated, canonical events | (2) | ✓ | yes |
+| WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, ResizeObserver step (currently 16) before the fixup step | style, layout and RO before the fixup | (3), O1; (2) keeps the position (X6) | ✗ | no |
+| WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, docs in tree order (currently step 2) | each step over all documents | not met; FF-1 | ✗ | no |
+| WHATWG HTML §6.6.4 Processing model | focusing steps, target = viewport; unfocusing steps (currently step 8) | one viewport transition, two callers | (2) | ✓ | yes |
+| WHATWG HTML §6.6.4 Processing model | *focus update steps*, the change-on-blur substep (currently 2.1) | DC2's qualifiers; user change since focus and value ≠ focus-time value; script-only → none; mixed case by the pre-step | (1); X1 | ✓ | yes |
+| WHATWG HTML §6.6.4 Processing model | *focus update steps*, user validity (currently 2.1.1) | set user validity | not this program; `#11-focus-change-user-validity` | ✗ | no |
+| WHATWG HTML §6.6.4 Processing model | *focus update steps*, Document entry of the new chain (currently step 4) | `focus` at the Window | not fired; canonical-focus A3 (R-A3) | ✗ | no |
+| WHATWG HTML §4.10.5.5 Common event behaviors | `input` when the user changes the value; none for script | `input` iff the funnel reports a change | (1) | ✓ | yes |
 | WHATWG HTML §4.10.11 The textarea element | user change → `input`; no `change` rule in the text | same funnel; change-on-blur kept as browser behaviour, measured | (1) | ✗ | yes |
-| WHATWG HTML §6.6.2 Data model | focusable area criteria (being rendered) | predicate reads computed style | (3): `crates/dom/elidex-dom-api/src/focus/predicate.rs` | ✗ | no |
+| WHATWG HTML §6.6.2 Data model | focusable area condition | being rendered, delegating its rendering to its children, or relevant canvas fallback content | (3) | ✗ | no |
 | WHATWG HTML §15.1 Introduction | *being rendered* | the predicate's style read | (3) | ✗ | no |
 
 Numbers and titles: `.claude/tools/webref coverage-map html 8.1.7.3 html 6.6.4 html 6.6.2 html 4.10.5.5 html 4.10.11`
 (§8.1.7.3 `#event-loop-processing-model`, §6.6.4 `#focus-processing-model`, §6.6.2 `#data-model`, §4.10.5.5
-`#common-input-element-events`, §4.10.11 `#the-textarea-element`); `webref dfn html 'update the rendering'` → §8.1.7.3;
-`webref dfn html 'focus update steps'` → §6.6.4; `webref dfn html 'being rendered'` → §15.1 Introduction
-`#being-rendered`. Step 17 and step 2.1 texts: `.claude/tools/webref body html update-the-rendering`,
-`focus-update-steps` (2026-11-03). Breadth: K = 1, M = 10. Each slice's §3 is the row-level SSoT; this table only
-assigns each row to its slice.
+`#common-input-element-events`, §4.10.11 `#the-textarea-element`); `webref dfn html 'being rendered'` → §15.1
+`#being-rendered`. Step texts: `.claude/tools/webref body html update-the-rendering`, `focus-update-steps`, `data-model`
+(2026-11-03). Breadth: K = 1, M = 11. Each slice's §3 is the row-level SSoT; this table only assigns rows to slices.
 
 ### §3.1 User-input touch audit
 
-User input reaches the program through (1)'s funnel (keys, clipboard, IME) and is compared at step 2.1 on every blur
-path, the fixup's included (X1). Script reaches it through value writers (never marking, X4) and through the
-listeners (2) newly runs inside `crate::re_render`, on the renderer main thread inside the existing dispatch bracket.
-No slice adds a parse of user input.
+User input reaches the program through (1)'s funnel (keys, clipboard, IME) and is judged at the change-on-blur substep
+on every blur path, the fixup's included (X1). Script reaches it through value writers (never marking, X4) and through
+the listeners (2) newly runs inside the rendering update, on the renderer main thread. No slice adds a parse of user input.
 
 ## §4. Slots and records (registered or applied by the PM at each landing)
 
-IDs are proposals. The per-PR plans both number theirs P-1…; here they are prefixed **CP-** (plan (1) §8.1) and
-**FF-** (plan (2) §8.1, §4.3) so the program has one namespace. Owners: PM decision 264.
+IDs are proposals, prefixed **CP-** (plan (1) §8.1) and **FF-** (plan (2) §8.1, §4.3). Owners: PM decision 264. Slot
+texts are the per-PR plans', with the amendments below. Re-eval dates are proposals: 2026-12-15 matches DC1's slot.
 
-| ID | Slot | Owner | From | Registered at |
-|---|---|---|---|---|
-| CP-1 | `#11-readonly-selection-edit-bypass` | L3 | plan (1) P-1 | (1) landing |
-| CP-2 | `#11-dirty-flag-on-cursor-move` | L3 | plan (1) P-2 | (1) landing |
-| CP-3 | `#11-number-input-user-edit-path` | L3 | plan (1) P-3 | (1) landing |
-| CP-4 | `#11-select-keyboard-change-event` | L3 | plan (1) P-4 | (1) landing |
-| FF-1 | `#11-cross-document-rendering-order` | Layout | plan (2) P-1 (PM decision 252 (M2)) | (2) landing |
-| FF-2 | `#11-radio-group-same-tree-filter` | L3 | plan (2) P-2 (PM decision 252 (M3) (b)) | (2) landing |
-| FF-3 | `#11-ime-composition-end-on-blur` | L3 (proposed) | plan (2) P-3; carries X5 | (2) landing |
-| FF-4 | `#11-form-owner-ecs-component` | L3 | plan (2) §4.3 (Y), only if plan-review Axis 2 picks (Y) | (2) landing |
+| ID | Slot | Owner | Why not in a slice | Trigger | Re-eval | Registered at |
+|---|---|---|---|---|---|---|
+| CP-1 | `#11-readonly-selection-edit-bypass` | L3 | form-core key action, not DC2 | next PR touching form-core key handling | 2026-12-15 | (1) landing |
+| CP-2 | `#11-dirty-flag-on-cursor-move` | L3 | dirty value flag, not DC2 | with CP-1 | 2026-12-15 | (1) landing |
+| CP-3 | `#11-number-input-user-edit-path` | L3 | number has no user edit path at all | L3 form program's next slice | 2026-12-15 | (1) landing |
+| CP-4 | `#11-select-keyboard-change-event` | L3 | select's own event, not text controls | next PR touching select interaction | 2026-12-15 | (1) landing |
+| FF-1 | `#11-cross-document-rendering-order` | Layout | multi-document order, not the fixup | the probe in plan (2) P-1; re-probe at `#11-windowproxy-browsing-context` | 2026-12-15 | (2) landing |
+| FF-2 | `#11-radio-group-same-tree-filter` | L3 | radio semantics, not the fixup | next PR touching radio-group semantics | 2026-12-15 | (2) landing |
+| FF-3 | `#11-ime-composition-end-on-blur` | L3 (proposed) | platform IME wiring; carries X5 (FP-2) | Chromium measurement, or the first PR wiring IME commit / cancel | 2026-12-15 | (2) landing |
+| FF-4 | `#11-form-owner-ecs-component` | L3 | only if plan-review Axis 2 picks (Y) | Axis 2's verdict | PM sets at landing (conditional) | (2) landing |
+| O1 | obligation on `#11-focusable-area-being-rendered` | Layout (CV-focus) | needs computed style in the predicate | the CV erratum names the leg (e5) | 2026-12-15 | (2) landing |
 
-Records for existing slots: **R-1** → `#11-vm-host-synthetic-dom-event-dispatch` (A2c), **R-2** →
-`#11-focus-fixup-gated-on-session-records` (plan (1) §8.2); **R-S9** → `#11-windowproxy-browsing-context`, **R-A3** →
-`#11-canonical-focus-update-steps`, **O1** → `#11-focusable-area-being-rendered` (plan (2) §8.2). Texts are the per-PR plans'.
+**O1 (program text; plan (2) §8's O1 plus the amendments in FP-3):** attaches to the first CV-focus leg that makes the
+focus predicate read computed style. That leg moves the fixup step after the frame's style and layout and after RO
+delivery (X6), re-states C7 / C17 under PM 242 (1)'s one-frame lag (X7), changes the VM `focus()` gate in the same leg
+(X8), and cites x6 for style freshness. CV-focus's plan decides the slot's discharge.
+
+Records for existing slots: **R-1** → `#11-vm-host-synthetic-dom-event-dispatch` (A2c; plan (1) §8.2, amended by PR-2);
+**R-2** → `#11-focus-fixup-gated-on-session-records` (plan (1) §8.2); **R-S9** → `#11-windowproxy-browsing-context`;
+**R-A3** → `#11-canonical-focus-update-steps` (plan (2) §8.2); and:
+- **FS-1** → `#11-forced-style-layout-flush-on-script-read` (edge x6): "`el.style.display='none'; el.focus()` focuses
+  and then blurs within the same frame (VM `focus()` reads the previous frame's style; the fixup reads this frame's).
+  Reachable once the first CV-focus leg makes the focus predicate read computed style (focus-fixup umbrella O1)."
+- **CR-1** → the CV erratum PR (e4): it renames the CV umbrella's `reconcile_focus` references (12 at `d7d34035`:
+  `git grep -n reconcile_focus d7d34035 -- docs/plans/2026-10-content-visibility.md` → :89, :241, :291, :360, :394,
+  :398, :463, :634, :664, :690, :841, :875) to the canonical fixup (`focus_fixup_steps` / `content::focus::focus_fixup` (NEW), both plan (2)'s);
+  the PM updates the ledger's CF-R1 text at that landing.
+
+Records for the slice plans (the driver applies them in their next revisions):
+- **PR-1 → plan (1) rev 2**: "The change-on-blur substep judgement moves out of shell `dispatch_change_on_blur` into
+  `elidex_form::take_change_on_blur` (NEW) (single owner `elidex-form`, module `focus_snapshot.rs`). It consumes the
+  `FocusValueSnapshot` and returns whether the substep fires (the §4.3 branch's predicate: A `user_changed && value !=
+  initial`; B2 `value == last_user_value && value != initial`; B1 as A after re-baseline). Every sink calls it and only
+  dispatches `change`: the shell sink's `dispatch_change_on_blur` becomes a dispatcher, and A2c's VM sink calls the same
+  function. I5 reads 'one judgement, called by every sink' (umbrella X1)."
+- **PR-2 → plan (1) R-1**, appended: "A2c's VM sink calls `elidex_form::take_change_on_blur` (NEW) and only dispatches
+  `change`; `vm/host` does not compute the predicate (Layering mandate; umbrella X1)."
+- **FP-1 → plan (2) §8.2 and §9**: "PR (2) closes `#11-focus-fixup-gated-on-session-records` and the folded
+  `#11-render-side-effect-version-delta-signal` (PM 278); the folded slot's remedy (a version-delta signal threaded
+  through the render entry) is superseded by this PR's design."
+- **FP-2 → plan (2) §8.1 P-3**, appended to *Defect*: "*Constraint (umbrella X5):* when blur commits an active
+  composition, the commit goes through `elidex_form::apply_user_edit` (NEW) before the change-on-blur substep runs, so a
+  commit that changes the value marks the snapshot and fires `input`, and one that changes nothing fires neither."
+- **FP-3 → plan (2) §8 O1 and the CV-umbrella bullet**: O1 is re-pointed to "the first CV-focus leg that makes the focus
+  predicate read computed style (PM 242 (7))", gains X8 and the x6 citation, and states the lag as decided (PM 242 (1));
+  the CV-umbrella bullet's "not edited here; CV-focus re-derives" becomes "the CV erratum renames them (CR-1, PM 278)".
 
 ## §5. Open for the PM
 
-- **M1** — Row (3) is shared with the CV umbrella (§1.2): this program owns the obligation and the edge (2) → (3), and
-  the CV umbrella owns the PR (CV-focus). Confirm, or name one owner (alternative: (3) is a standalone Layout PR before
-  CV-focus, nested here).
-- **M2** — PM decision 264 (M2) supersedes plan (1) D-6 and plan (2)'s §0.1 re-base note (§0.3). Confirm that both
-  plans' next revisions apply it before their plan-reviews, not at implementation.
+None. Rev 1's M1 is decided (PM decision 269: shared row, the PR is CV-focus; refined by 278: the first style-reading
+leg, discharge by CV-focus's plan) and M2 is decided (PM decision 269: both plans apply 264 (M2) in their next revisions,
+before their reviews). x7's slot is not edited by this program; the driver reports to the PM whether (1)'s edits change
+its trigger or scope.
 
 ## §6. Definition of done (program)
 
-1. This umbrella is plan-reviewed and approved before (1)'s first code commit; each slice's own plan is plan-reviewed
-   before its implementation.
-2. The landing order of §1.2 holds: (1) on `origin/main` before (2) merges; (2) before (3). (2)'s C19 recorded red
-   before its rebase and green after (plan (2) §9 item 8).
-3. At each landing the PM registers that slice's slots (§4) and applies its records; `#11-focus-fixup-gated-on-session-records`
-   is reported closed at (2)'s landing.
-4. The being-rendered obligation O1 (placement after style/layout, RO order, the PM decision 242 (1) lag, X6–X8) is on
-   `#11-focusable-area-being-rendered` from (2)'s landing until (3) discharges it.
+1. This umbrella is plan-reviewed and approved before (1)'s first code commit; each slice's plan is plan-reviewed before
+   its implementation.
+2. The order of §1.2 holds: (1) on `origin/main` before (2) merges; (2) before (3). (2)'s C19 recorded red before its
+   rebase and green after (plan (2) §9 item 8).
+3. At each landing the PM registers that slice's slots and applies its records (§4); at (2)'s landing
+   `#11-focus-fixup-gated-on-session-records` and the folded `#11-render-side-effect-version-delta-signal` are closed.
+4. O1 is on `#11-focusable-area-being-rendered` from (2)'s landing, and the CV erratum names the leg it attaches to and
+   applies CR-1. From then on O1's discharge is CV-focus's plan's (PM 278); this program does not wait for that leg.
 5. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
    docs/plans/2026-11-focus-fixup-program.md` exits 0.
+
+## Changelog
+
+- **Rev 2 (2026-11-03)** — plan-review of rev 1 (CRIT 0 / IMP 8 after merge / MIN 14 raw) and PM decisions 278, 279:
+  X1 becomes one elidex-form judgement for every sink (records PR-1, PR-2); X5 homed on FF-3 (FP-2); X8 into O1, style
+  freshness as defect record FS-1 on FU (edge x6); (3) = the first style-reading CV-focus leg, x1 corrected, CV erratum
+  edges e4 / e5, discharge by CV-focus's plan, CR-1 rename record; folded slot closed by (2) (FP-1); §4 why / trigger /
+  re-eval; §5 decided (PM 269); (1) × (3) stated empty; slice detail trimmed to pointers; stall contingency; spec steps
+  by anchor + name, the full §6.6.2 condition and the change-on-blur qualifiers; Layout-lane order; A2b and x7 edges;
+  X7's lag decided.
+- **Rev 1 (2026-11-03)** — initial draft (`1e5976a7`).
