@@ -25,7 +25,7 @@ ADMITTED_LINES = (
     "python.compile = false",
     "python.github_attestations = true",
 )
-# Every top-level name of this module except `problems` (the composition point PR-1 edits); C0 holds it.
+# Every top-level name of this module except `problems` (the composition point PR-1 edits, with C0's two lists); C0 holds it.
 CLAUSES_2_TO_5 = (
     "ROOT_PIN",
     "ROOT_CONFIG",
@@ -79,7 +79,7 @@ _REMEDY_OCCURRENCE = (
     "together with I6's assertion in the same PR"
 )
 _REMEDY_MISSING = (
-    "the file is tracked but absent from the worktree; restore it "
+    "the file is tracked but absent from the worktree (or, under a sparse checkout, outside the cone); restore it "
     "(git checkout -- <path>) or remove it from the index (git rm <path>)"
 )
 _REMEDY_UNREADABLE = (

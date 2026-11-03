@@ -90,7 +90,7 @@ the umbrella names as the reason the question is open (body :100–102): A-iii's
 | T × G | T5 is a member under the driver's contract: in the population, its non-member module clean under step 3 (a) / (b), run under the regime; its list is its own `git ls-files`, stdout only | the member's `tracked_paths` (§4.3), outside the pin layer (D2) | L1, L2, C0, C6, mutants M1, M8, M9, M10 (§6); P6 unchanged |
 | T × L | T5 must compile and run on 3.9 | stdlib only, no construct newer than 3.9 (no `match`, no `itertools.pairwise`, no PEP 604 unions at run time) | the `"3.9"` leg running the new member |
 | T × M | the reword stays inside the reader's grammar (a one-line basic string, no escape) and clause 4 reads the same line | one edited line; nothing pins its text (D4) | Q4 live (existing), L1, C4-r1 |
-| G × L | a member launching `git ls-files` under the regime, on both legs | precedents on both legs: P6 (`git grep -n -F 'def test_P6_pins_file_never_credits' 115a667c -- scripts/test_python_suites_driver.py` prints `:259`) and the non-pin member `.claude/tools/test_plan_memo_umbrella_check.py` (`subprocess.run` at its `:39`); `main`'s CI at `115a667c` is green (`gh run list -R send/elidex --branch main --workflow ci.yml --limit 1`) | L1 on both legs |
+| G × L | a member launching `git ls-files` under the regime, on both legs | precedent: P6 (`git grep -n -F 'def test_P6_pins_file_never_credits' 115a667c -- scripts/test_python_suites_driver.py` prints `:259`); `main`'s CI at `115a667c` is green (`gh run list -R send/elidex --branch main --workflow ci.yml --limit 1`) | L1 on both legs |
 | S × M | — in PR-0 (PR-0 writes no `[settings]` line); PR-1's writes × clause 4 is PR-1's slice-local pair (C9, C21) | — | PR-1 |
 | S × G, S × L, G × M, L × M | — (S has no text on `main`; the reader already runs on both legs; the reader launches nothing) | — | — |
 
@@ -135,9 +135,9 @@ and no pin file imports either. The pair is compared against **both** homes it c
      and text. Co-locating a non-modelling rule beside two modelling readers puts the retired shape (draft 4's T5b
      key classification) one function away — the decision surface CLAUDE.md *One issue, one way* asks to remove.
   2. *PR-1 rewrites the readers module and must not edit clauses 2–5.* PR-1 moves the `mise.toml` reader onto
-     `tomllib` (the text grammar retires; body :728–729) and adds clause 1. In its own module, with clauses 2–5 in
+     `tomllib` (the text grammar retires; body :729–730) and adds clause 1. In its own module, with clauses 2–5 in
      named functions (§4.3), C0 keeps only the names; that PR-1 edits no clause-2–5 function body ("PR-1 adds
-     clause 1 without editing clauses 2–5", body :625) is a condition checked in PR-1's review, per function span.
+     clause 1 and the settings lines without editing clauses 2–5", body :624–625) is a condition checked in PR-1's review, per function span.
   3. *Different subject.* The readers read two named files (`ci.yml`, `mise.toml`); T5 is a predicate over the
      tracked tree (body :365–366).
 - **Against the pin helpers** (`scripts/python_suites_fixtures.py`, `_launch` / `base_env` / `PIN_FILES`):
@@ -175,7 +175,7 @@ PR-0's plan; if no, PR-0 takes its file list from the driver … and PR-0's plan
   regime measured it. (In a partial clone with a sparse index, `ls-files` may lazily fetch trees; CI's checkout has
   no filter.) Its environment is the regime's on every key (the member passes `os.environ` minus `GIT_*`,
   changing no regime key), so its Python descendants, if any, would be guarded; it has none.
-- (ii) **It already runs.** P6 (`scripts/test_python_suites_driver.py:259-262`) launches `git -C REPO ls-files -z`
+- (ii) **It already runs.** P6 (`scripts/test_python_suites_driver.py:259-262`) launches `git -C REPO ls-files -z -- *.py`
   on the live tree, on both legs of every `tools` run since it landed.
 - (iii) **The driver's own list cannot serve**: it lists only the set and the `.py` population (`git grep -n -F
   'members = git_lines(root, "ls-files"' 115a667c -- scripts/python-suites.sh` prints `:435`; `ALL_PY_PATHSPEC` at
@@ -232,7 +232,7 @@ skip (left to clause 1, PR-1; body :372). Any other spelling at the root (`.TOOL
 **Clause 4 — no `python` in any other member's text.** For each member not skipped and not red by clause 3:
 - **Read** its bytes from the worktree at the repository root (the same source as the driver's own parse step,
   `scripts/python-suites.sh:445-451`). **Red, unclassifiable** — the rule cannot see the text mise would read (body
-  :158, I1: "whatever the rule cannot classify falls to red") — in five kinds: the path is **missing** from the
+  :158, I1: "whatever the rule cannot classify falls to red") — in six kinds (the strings `member_problems` emits: `missing`, `symlink`, `not-a-file`, `unreadable: <errno>`, `non-UTF-8`, `contains NUL`): the path is **missing** from the
   worktree; it is a **symlink** (any path component); it is **unreadable** (an `OSError` on the read); it is not a regular file (a **gitlink** directory, or another non-file); its bytes,
   or its name, are **not UTF-8** or the bytes contain **NUL** (a name `git` printed that decodes only with surrogate escapes).
 - **Lines**: the text split on `\n`, numbered from 1; one trailing `\r` is removed before comparison.
@@ -263,7 +263,7 @@ line rendered `backslashreplace` so a non-UTF-8 name prints. Remedies:
 - 4, occurrence: "the Python version is spelled only in the root .tool-versions; reword (a description need not
   say Python; a tracked path is admitted), or rename the file so no path component starts with mise / rtx; for a
   new install setting, extend clause 4 (b) together with I6's assertion in the same PR";
-- 4, unclassifiable, missing: "the file is tracked but absent from the worktree; restore it (git checkout -- <path>)
+- 4, unclassifiable, missing: "the file is tracked but absent from the worktree (or, under a sparse checkout, outside the cone); restore it (git checkout -- <path>)
   or remove it from the index (git rm <path>)";
 - 4, unclassifiable, symlink / unreadable / gitlink or non-file / non-UTF-8 or NUL: "track the file itself as UTF-8 text under a UTF-8
   name (not a symlink or a submodule), or rename it out of the member names".
@@ -290,7 +290,7 @@ The live test's failure message is the joined list; the driver prints a failing 
 
 **Clause 1's place** (D2 reason 2): PR-1 adds clause 1 as its own function (`root_pin_problems`,
 its parser `python_pin.py`'s) that no clause-2–5 function calls and that calls none of them except `finding`, and
-edits only `problems` to merge its findings into the sorted result. C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems`; that PR-1's diff
+edits only `problems` to merge its findings into the sorted result, plus C0's two lists (§6: it adds its clause-1 names to the names C0 excludes from `CLAUSES_2_TO_5` and, if the module imports `python_pin`, adds it to the import allow-list). C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems`; that PR-1's diff
 adds no line to, and removes none from, the span (`ast` line range at PR-0's merge sha) of any function named in
 `CLAUSES_2_TO_5` is a condition checked in PR-1's review, per function span.
 
@@ -381,17 +381,17 @@ this plan's.
 - **C3 (red outright)**: r1 E3's seven paths, empty content, each red 3a; r2 E4 each red 3b; r3 E6 each red 3c; r4
   a `.miserc.toml` whose `read` raises if called (clause 3 reads no text). g1 E5: root `.tool-versions` holding
   `python 3.12` is green under `problems` and is never read (the interval, pinned so PR-1's clause 1 is the change
-  that turns it); g1 is the one existing control PR-1 edits.
+  that turns it); g1 is the one existing control PR-1 edits, and C0 the one existing control whose two lists PR-1 extends (its clause-1 names; `python_pin` in the import allow-list if imported) and nothing else in C0.
 - **C4 (content)**: r1 E2 — `main`'s line 122 text in a `mise.toml` fixture is red 4 at its line (the "red at main"
   of the reword); r2 E8's members, each red 4 at the line; r3 E11's red substrings; r4 E12's `mise_helper.py`;
   r5 E13's unclassifiable cases (missing, symlink, symlinked parent directory, unreadable via a patched `open`, gitlink, non-UTF-8 bytes, NUL bytes), each with its kind's remedy, built in
-  a temporary directory and read through `worktree_reader` (so the reader's kinds are what is tested), and the
-  non-UTF-8 name through `member_problems` with an in-memory `read` (macOS refuses that name on disk, Errno 92);
+  a temporary directory and read through `worktree_reader` (so the reader's kinds are what is tested), except that the
+  NUL-byte content and the non-UTF-8 name go through `member_problems` (`probs`) with an in-memory `read` (macOS refuses that name on disk, Errno 92);
   r6 `python.compile = true`; r7 E10's near misses. g1 the live `mise.toml` text (also covered by L1); g2
   E11's green substrings, with `scripts/python-suites.sh` in the fixture's tracked list and removed from it (then
   red: the admission depends on the list, not on the string's shape); g3 E9's two lines, LF and CRLF; g4 E12's
   nested `[tools] node` file.
-- **C5 (diagnostic)**: one fixture with a 3a, a 3c, a missing member and two clause-4 findings in two files: the
+- **C5 (diagnostic)**: one fixture with a 3a, a 3c, a missing member and three clause-4 findings in two files: the
   result is sorted by (path, line), each string carries the clause, the path, the line for clause 4 and its
   clause's (and kind's) remedy; a line longer than 120 characters is cut.
 - **Existing pins that must stay green unchanged**: Q4 / M1–M3 (the reader over the reworded live file), P6 (which
@@ -523,7 +523,7 @@ None (body :869: "PR-0 §9 (none)").
    one leading dot ignored — `mise.toml`, `.mise.local.toml`, `.config/mise/…`, `rtx.toml`, `mise_helper.py`)
    contains `python` in any case, except inside the path of a tracked file and the two `[settings]` lines PR-1
    adds. Two reds go beyond the umbrella's wording: (1) such a file is also red when it cannot be read as text — a
-   symlink, a gitlink, unreadable, tracked but missing from the worktree (restore it or `git rm` it), or not UTF-8 / containing NUL in content
+   symlink, a gitlink, unreadable, tracked but missing from the worktree or, under a sparse checkout, outside the cone (restore it or `git rm` it), or not UTF-8 / containing NUL in content
    or name; (2) `python` counts as inside a path only for a tracked path containing `/`, bounded by non-path
    characters — `` `scripts/python-suites.sh` `` passes, `./scripts/python-suites.sh`, `ubi:scripts/python-suites.sh`
    and `scripts/python-suites.sh.bak` are red. Untracked files are not checked. A `[tools]` entry for a non-Python
@@ -555,10 +555,10 @@ reader; the description's rewrite to the pin (body §4.4; C21's "before" is D4's
 `mise.toml` writes × clause 4" with a control that the post-PR-1 `mise.toml` is green (C9, C21); the refusal, its
 oracle, the warning, I7.
 
-**`ADMITTED_LINES` is the one source of the two lines' text.** PR-1's C10 takes its expected keys and values from
-`tracked_tool_config.ADMITTED_LINES` (parsing each entry as the one-line TOML it is, or asserting equality with it),
-not from a second literal; the importer is a non-pin file (this member is the natural home), because a pin file
-importing `tracked_tool_config` would put it under P6's closure (D2 reason 4) and P6 would turn red. A new install
+**`ADMITTED_LINES` is the one source of the two lines' text.** PR-1's I6 assertion (C10) takes its keys/values from
+`tracked_tool_config.ADMITTED_LINES` or asserts equality with it — one source; where C10 lives, and in which layer, is
+PR-1's plan's decision (umbrella body :564, :270–274 place the assertion with the `mise.toml` reader). Stated as a
+fact, not a placement: a pin file importing `tracked_tool_config` comes under P6's closure (D2 reason 4). A new install
 setting therefore extends `ADMITTED_LINES` and C10 in the same PR (clause 5's remedy).
 
 **PR-2**: nothing of T5. The new module has no `__main__` guard and no launch line names the new member, so neither
