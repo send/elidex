@@ -42,16 +42,16 @@ Pull requests are tested on Ubuntu, macOS, and Windows. CI checks (the
 clippy / test / doc steps run with `--all-features` so feature-gated code
 paths like `#![cfg(feature = "engine")]` are exercised; `cargo fmt --check`
 and `cargo deny check` don't depend on feature selection and so don't need
-the flag; the one deliberate exception is the default-features `cargo check`,
+the flag; the one deliberate exception is the default-features clippy,
 which verifies production builds compile with no dev-only feature on —
 rationale in the step's comment in `.github/workflows/ci.yml`):
 
 - `cargo fmt --all -- --check`
-- `cargo check --workspace` (default features, lib + bin)
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `cargo nextest run --workspace --all-features` (unit tests, no doc-tests)
 - `cargo test --workspace --doc --all-features` (doc-tests only)
 - `cargo doc --workspace --no-deps --all-features` (with `-D warnings`)
+- `cargo clippy --workspace -- -D warnings` (default features, lib + bin)
 - `cargo deny check` (licenses and vulnerabilities)
 - `bash scripts/python-suites.sh` (the `tools` job: every tracked `test_*.py`, offline, on
   Python 3.9 and the newest 3.x)

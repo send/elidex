@@ -67,7 +67,7 @@ mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
 
-その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `tools-test` (tracked な `test_*.py` 全部を offline で実行 = `scripts/python-suites.sh`、CI の `tools` job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。唯一の例外は `check-default` (`cargo check --workspace`、default features、lib + bin): dev 専用 feature を有効にしない構成 (workspace の normal 依存 feature の和) で本番 build が通ることを確かめる。理由の正典 = `.github/workflows/ci.yml` `check` job の同 step のコメント。`lint-fmt` / `deny` は feature と無関係。
+その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `tools-test` (tracked な `test_*.py` 全部を offline で実行 = `scripts/python-suites.sh`、CI の `tools` job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。唯一の例外は `check-default` (`cargo clippy --workspace -- -D warnings`、default features、lib + bin): dev 専用 feature を有効にしない構成 (workspace の normal 依存 feature の和) で本番 build が warning なしに通ることを確かめる。理由の正典 = `.github/workflows/ci.yml` `check` job の同 step のコメント。`lint-fmt` / `deny` は feature と無関係。
 
 ## Architecture
 
@@ -93,7 +93,7 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` と、3 job が使う composite action の `.github/actions/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + default features の `cargo check --workspace` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。
+`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` と、3 job が使う composite action の `.github/actions/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests + default features の `cargo clippy --workspace -- -D warnings`、clippy / nextest / doc-tests は `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。
 
 4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は **install するものが何も無い** (language runtime も package manager も cache も network も不要) ので filter は何も買わない。⚠ **「~1s だから」ではない、そして新しい数字も書かない** — 所要時間は machine 依存で再現せず、wire が増えるたび陳腐化する。gating の判断が乗っているのは **setup step が無いこと**。⚠ **道具の列挙で書かない** — 「grep のみ」も「shell / `git` / `grep`」も、どちらも実際より狭くて偽だった (前者を退ける編集が後者を書いた)。検証可能な性質は「この job に setup step が無い」こと = `uses:` が checkout 1 つだけ。所要時間も書かない (`timeout-minutes` の測り方の置き場は同 job のコメントだけで、この段落は測り方を持たない)。理由の正典 = 同 job のコメント。
 
