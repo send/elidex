@@ -1,4 +1,4 @@
-"""T5 clauses 2-5: the tracked-tree rule over mise's tool-configuration files.
+"""T5 clauses 1-5: the tracked-tree rule over mise's tool-configuration files.
 
 Plan of record: docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md (section 4.2 / 4.3).
 
@@ -6,11 +6,13 @@ A fail-safe predicate over tracked NAMES and TEXT. It models no part of mise's c
 surface: a tracked file whose path has a component starting `mise` / `rtx` (case-folded, one
 leading dot ignored), or a `.tool-versions` / `.python-version*` file, is a member, and a member
 may not spell `python` outside the admitted occurrences. The version is spelled once (the
-root `.tool-versions`, clause 1, added later); a second tracked spelling is red.
+root `.tool-versions`, clause 1); a second tracked spelling is red.
 
 This module is pure: it launches nothing and holds no test. The set member
 `scripts/test_tracked_tool_config.py` supplies the file list (its own `git ls-files`) and the
-controls. Stdlib only, Python 3.9 syntax.
+controls. Stdlib only, the pinned interpreter's grammar. The one name taken from outside the standard
+library is the pin parser (`from python_pin import PinFileError, parse_pin`); `python_pin` also holds
+`ask_mise`, which launches, so this module binds no name that can.
 """
 
 import errno
@@ -19,13 +21,15 @@ import re
 import stat
 import string
 
+from python_pin import PinFileError, parse_pin
+
 ROOT_PIN = ".tool-versions"
 ROOT_CONFIG = "mise.toml"
 ADMITTED_LINES = (
     "python.compile = false",
     "python.github_attestations = true",
 )
-# Every top-level name of this module except `problems` (the composition point PR-1 edits, with C0's two lists); C0 holds it.
+# Every top-level name of this module except `problems` and clause 1's names (`root_pin_problems`, `_REMEDY_PIN`); C0 holds it.
 CLAUSES_2_TO_5 = (
     "ROOT_PIN",
     "ROOT_CONFIG",
@@ -81,6 +85,10 @@ _REMEDY_OCCURRENCE = (
 _REMEDY_MISSING = (
     "the file is tracked but absent from the worktree (or, under a sparse checkout, outside the cone); restore it "
     "(git checkout -- <path>) or remove it from the index (git rm <path>)"
+)
+_REMEDY_PIN = (
+    "the root .tool-versions is exactly one line, python X.Y.Z (the pin); another tool goes "
+    "into mise.toml [tools]"
 )
 _REMEDY_UNREADABLE = (
     "track the file itself as UTF-8 text under a UTF-8 name (not a symlink or a "
@@ -229,9 +237,34 @@ def member_problems(tracked, read):
     return out
 
 
+def root_pin_problems(tracked, read):
+    """Clause 1: the root pin file is tracked, readable, and exactly `python X.Y.Z`."""
+    if ROOT_PIN not in set(tracked):
+        return [finding("1", ROOT_PIN, None, "the root pin file is not tracked", None, _REMEDY_PIN)]
+    try:
+        data = read(ROOT_PIN)
+    except Unclassifiable as e:
+        return [finding("1", ROOT_PIN, None, "unclassifiable (%s)" % e.kind, None, _REMEDY_PIN)]
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return [finding("1", ROOT_PIN, None, "unclassifiable (non-UTF-8)", None, _REMEDY_PIN)]
+    try:
+        parse_pin(text)
+    except PinFileError as e:
+        return [finding("1", ROOT_PIN, None, "not exactly one line `python X.Y.Z`: %s" % e, None, _REMEDY_PIN)]
+    return []
+
+
 def problems(tracked, read):
-    """The composition (not a clause): in PR-0, clauses 2-5."""
-    return member_problems(tracked, read)
+    """The composition (not a clause): clauses 1-5, sorted by (path, line)."""
+    head = re.compile(r"T5 clause \w+: (.*?)(?::([0-9]+))?: ")
+
+    def key(finding_text):
+        m = head.match(finding_text)
+        return (m.group(1), int(m.group(2)) if m.group(2) else -1)
+
+    return sorted(member_problems(tracked, read) + root_pin_problems(tracked, read), key=key)
 
 
 def _errno_kind(e):

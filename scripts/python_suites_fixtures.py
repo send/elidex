@@ -78,9 +78,33 @@ UNGUARDED_LAUNCHES = {
 }
 
 
+# The directories a pin-file child resolves programs from: the admitted interpreter's directory
+# first (so `python3` is the interpreter running the pins, never a mise shim), then the two
+# directories that hold `bash`, `git` and the POSIX utilities the scratch driver calls on both
+# macOS and ubuntu-24.04.
+CHILD_PATH = os.pathsep.join((os.path.dirname(sys.executable), "/usr/bin", "/bin"))
+
+
 def base_env():
-    """The caller's environment without any GIT_* variable."""
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    """The caller's environment without any GIT_* or MISE_* variable, PATH = CHILD_PATH.
+
+    Invariant I7 (iii) (plan docs/plans/2026-10-python-pin-pr1-pin-and-gate.md, 4.3; scratch
+    repositories x I7): after Step 1 exists, a scratch driver whose PATH reached a mise shim would
+    run the real mise in a tree holding a copied `.tool-versions` (state writes; an unisolated
+    oracle on any refusal). Every launch of a pin file takes its environment from here, so none
+    can reach mise: `python3` is the admitted interpreter, no outer MISE_* leaks. Fail-safe: a
+    `mise` in any directory of CHILD_PATH raises, naming it, rather than leave a reachable real
+    mise (the isolation has one home, scripts/python_pin_testing.py, which a pin file does not load)."""
+    for d in CHILD_PATH.split(os.pathsep):
+        hit = shutil.which("mise", path=d)
+        if hit is not None:
+            raise AssertionError(
+                "base_env: %s is reachable from the pins' child PATH (%s); run the pins on an "
+                "interpreter whose directory holds no `mise`" % (hit, CHILD_PATH)
+            )
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "MISE_"))}
+    env["PATH"] = CHILD_PATH
+    return env
 
 
 def regime_changes(env, ref=None):
@@ -128,6 +152,10 @@ class Scratch:
         self.dir = case.tmpdir("python-suites-pin-")
         (self.dir / "scripts").mkdir()
         shutil.copy(str(DRIVER), str(self.dir / "scripts" / "python-suites.sh"))
+        # The driver's Step 1 reads the pin and runs its reader from its own tree (scratch
+        # repositories x I1): each scratch tree holds the live pin and the live reader.
+        shutil.copy(str(REPO / ".tool-versions"), str(self.dir / ".tool-versions"))
+        shutil.copy(str(REPO / "scripts" / "python_pin.py"), str(self.dir / "scripts" / "python_pin.py"))
         for rel, body in files.items():
             p = self.dir / rel
             p.parent.mkdir(parents=True, exist_ok=True)

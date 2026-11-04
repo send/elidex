@@ -48,13 +48,13 @@ MUTANTS += [
      [R38_RENDER]),
     ("R38 of 2026-09-27 agree: every generated name resolves (plant a resolver that refuses `((`: 20 of 40 left)",
      "plan_memo_sibling.py",
-     '    raw = re.split(r"[#?]", dest, 1)[0]',
-     '    raw = re.split(r"[#?]", dest, 1)[0]\n    if "((" in dest:\n        return None',
+     '    raw = re.split(r"[#?]", dest, maxsplit=1)[0]',
+     '    raw = re.split(r"[#?]", dest, maxsplit=1)[0]\n    if "((" in dest:\n        return None',
      [R38_AGREE]),
     ("R38 of 2026-09-27 run: every generated run is followed (plant a resolver that refuses a fragment: 12 of 40 left)",
      "plan_memo_sibling.py",
-     '    raw = re.split(r"[#?]", dest, 1)[0]',
-     '    raw = re.split(r"[#?]", dest, 1)[0]\n    if "#" in dest:\n        return None',
+     '    raw = re.split(r"[#?]", dest, maxsplit=1)[0]',
+     '    raw = re.split(r"[#?]", dest, maxsplit=1)[0]\n    if "#" in dest:\n        return None',
      [R38_RUN]),
 ]
 

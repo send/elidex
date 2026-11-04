@@ -353,8 +353,7 @@ enforce.
 - **Scope note for the split PR**: this puts tools code (a Python test) into #506, a plan PR. The
   split PR's description says so, and the `/pre-push` run for the split covers it: `mise run
   tools-test` / `mise run ci` run `scripts/python-suites.sh` once, under the first `python3` on `PATH`
-  (its header, step 1). The `"3.9"` / `"3.x"` matrix exists only in GitHub's `tools` job, so the
-  3.9 floor is measured by CI, not by `/pre-push`; the guard uses no syntax newer than 3.9. The guard
+  (its header, step 1). At the split's date the `"3.9"` / `"3.x"` matrix existed only in GitHub's `tools` job, so the 3.9 floor was measured by CI, not by `/pre-push`; the guard used no syntax newer than 3.9. (Amended 2026-11-04 by python-pin PR-1: the `tools` job has one leg, the pin (`.tool-versions`), which `mise run tools-test` / `/pre-push` also run; the sentence is the record of the split's date.) The guard
   adds suite cost, so the split PR also applies the `tools` job's timeout rule (§3 step 2, last check).
 
 ### §1.6 Rejected (record only): all four tables kept in the entry, no S0
@@ -801,7 +800,7 @@ enter it); the guard adds the second. The other set members that touch a `docs` 
      directory, so `registry_membership_control` stays green — §1.5);
    - `mise run tools-test` green, with `root docs/plans (1 member(s))` in its output;
    - the `tools` job timeout (`ci.yml`, the job's "Timeout" comment: a PR that adds suite cost
-     re-derives `timeout-minutes` in the same PR from its own run, the slower leg bounding the job):
+     re-derives `timeout-minutes` in the same PR from its own run, the slower leg bounding the job; amended 2026-11-04 by python-pin PR-1: two legs at the split's run, one leg, the pin, since PR-1, whose run re-derives the timeout):
      the split PR reads its own run's slower leg with the comment's `gh run view` command and writes
      one line in its description — the guard's cost (measured locally: `Ran 2 tests in` 1.6-1.9 s, 1.8-2.1 s wall, at load average ≈ 60 — the split PR states its own figure), the leg's duration,
      and whether the 22-minute value keeps the comment's margin (re-derive when a run measures under

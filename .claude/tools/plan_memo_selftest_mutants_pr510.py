@@ -200,7 +200,7 @@ MUTANTS += [
     # stage (c) refuses that name either way.  Its control stays, carrying the
     # reversal (`plan_memo_selftest_cases_sibling.py`).
     ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", SIBLING,
-     '    try:\n        return path.resolve()\n    except (OSError, RuntimeError):\n        return path',
+     '    try:\n        return path.resolve()\n    except OSError:\n        return path',
      '    return path.resolve()',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
     ("R8-5 sibling: the dedup is a set (re-inject the list membership test)", MEMO,
@@ -301,9 +301,6 @@ MUTANTS += [
       "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
       "(def) a label-and-colon line that is NOT a valid definition (junk after the destination) at a "
       "block start is prose, not an orphan: `[sib]` later is exempt, rc 0"]),
-    ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", SIBLING,
-     '    except (OSError, RuntimeError):\n        return path', '    except OSError:\n        return path',
-     ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
     ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", BLOCKS,
      '    if html_block_ends(arg, lines[i]):      # the opener may meet the end condition itself\n        return i + 1',
      '    if True:\n        return i + 1',

@@ -176,33 +176,30 @@ def control_char_destination_control(M):
 
 
 def unavailable_sibling_control(M):
-    """(e) of `sibling_path`: an `OSError` (an over-long name) OR, on Python
-    3.9-3.12, a `RuntimeError` (a symlink loop) from `resolve()` is the
-    unavailable-sibling schema miss, rc 2 -- not an exception.  Neither is
-    raised for these names on every platform / version, so both are
-    injected: `Path.resolve` raises for the named file while the control
-    runs.  An exception from `check()` is red here."""
+    """(e) of `sibling_path`: an `OSError` from `resolve()` is the
+    unavailable-sibling schema miss, rc 2 -- not an exception.  No name
+    provokes it on every platform / version, so it is injected: `Path.resolve`
+    raises for the named file while the control runs.  An
+    exception from `check()` is red here."""
     import plan_memo_sibling
     orig = plan_memo_sibling.pathlib.Path.resolve
-    report = []
-    for name, exc in (("a" * 4000 + ".md", OSError(36, "File name too long")),
-                      ("loop.md", RuntimeError("Symlink loop from 'loop.md'"))):
-        def resolve(self, *a, _name=name, _exc=exc, **kw):
-            if self.name == _name:
-                raise _exc
-            return orig(self, *a, **kw)
-        plan_memo_sibling.pathlib.Path.resolve = resolve
-        try:
-            res, _ = run_on(M, build(), "See [x](%s)." % name)
-        except Exception as e:       # noqa: BLE001 -- the defect under test
-            return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
-        finally:
-            plan_memo_sibling.pathlib.Path.resolve = orig
-        miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
-        if res.rc != 2 or not miss:
-            return False, "%s: rc %d, miss %s (must be rc 2 with the miss)" % (type(exc).__name__, res.rc, miss)
-        report.append("%s -> rc 2 + miss" % type(exc).__name__)
-    return True, "; ".join(report)
+    name, exc = "a" * 4000 + ".md", OSError(36, "File name too long")
+
+    def resolve(self, *a, **kw):
+        if self.name == name:
+            raise exc
+        return orig(self, *a, **kw)
+    plan_memo_sibling.pathlib.Path.resolve = resolve
+    try:
+        res, _ = run_on(M, build(), "See [x](%s)." % name)
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    finally:
+        plan_memo_sibling.pathlib.Path.resolve = orig
+    miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
+    if res.rc != 2 or not miss:
+        return False, "OSError: rc %d, miss %s (must be rc 2 with the miss)" % (res.rc, miss)
+    return True, "OSError -> rc 2 + miss"
 
 
 def undecodable_sibling_control(M):
@@ -721,8 +718,8 @@ def parse_runtime_error_control(M):
     of `check()` -- crash = FAIL -- never the "linked memo unavailable" miss.
     `RecursionError` is a `RuntimeError`, and until PR #510 R16 the chokepoint
     caught `RuntimeError` (for the py<=3.12 symlink-loop case `_resolve`
-    alone guards), so a parser defect was reported as an unavailable memo,
-    rc 2, with no census.  Red when `check()` returns instead of raising."""
+    guarded until the pin), so a parser defect was reported as an unavailable
+    memo, rc 2, with no census.  Red when `check()` returns instead of raising."""
     import plan_memo_memo
     orig = plan_memo_memo.quote_content
 

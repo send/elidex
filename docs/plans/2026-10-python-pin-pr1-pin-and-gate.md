@@ -306,7 +306,7 @@ pin)`, else ask mise and print the refusal, return 1.
 
 **Header (C15, C16 (f)).** A pointer to the bump rule (body §4.1, :331–334, and its rows; C15, rounds :445–447,
 places the pointer, not the rule, here; C16 (f)'s "the header keeps the bump rule", rounds :463, is read as that
-pointer — PR-1 amends that wording in place, §4.7), and the oracle probe recipe with the program's isolation lines (body :113–117): R§11 *T1*'s
+pointer — PR-1 corrects that wording by an appended rounds entry, §4.7), and the oracle probe recipe with the program's isolation lines (body :113–117): R§11 *T1*'s
 environment block, then questions (a)–(d) — the
 "probe scripts" R§4.2 :309–310 says this plan records (the `probe.sh` / `probe2.sh` files are not in the tree; the
 recipe is re-derived from R§11). The re-measure rule is N17, not a header sentence (C24).
@@ -463,7 +463,7 @@ Discovery, run at PR-1's base and again at its final head (word edges spelled ou
 # D1 — live surfaces, repo-wide (landed records excluded; the VM P4 family has its own stages below)
 git grep -nE '3\.(9|1[0-4])([^0-9x]|$)|"3\.x"|\(3, ?9\)|(^|[^A-Za-z])(floor|legs?|matrix)([^A-Za-z]|$)|setup-python|python-version|Python 3\.[0-9]+\+|version_info|except ImportError' -- ':!docs/plans/**' ':!docs/audits/**' ':!crates/**' ':!docs/design/**' ':!*.lock' ':!.claude/tools/plan_memo*' ':!.claude/tools/plan-memo*' ':!.claude/tools/test_plan_memo*'
 # D2 — the landed A-iii memo (amended in place, §4.7)
-git grep -nE 'floor|legs?|matrix|tomllib|3\.9|UNCHECKED' -- docs/plans/2026-07-citation-hygiene-Aiii-suite-scheduler.md
+git grep -nE 'floor|legs?|matrix|tomllib|3\.9|UNCHECKED|text readers?' -- docs/plans/2026-07-citation-hygiene-Aiii-suite-scheduler.md
 # D3 — the VM P4 family: vm-p4 §5.2's stages 1, 1b, 1c, 2, 2c, verbatim, with the revision 660e594c (vm-p4 :21–39)
 ```
 **Classes** (each hit gets one; the PR body lists every hit with its class):
@@ -476,23 +476,29 @@ git grep -nE 'floor|legs?|matrix|tomllib|3\.9|UNCHECKED' -- docs/plans/2026-07-c
 | **a ledger claim tied to an event that has happened** (stage 1b) | amended in place, dated marker | V18 (#510's memo `:1097–1108`), V19–V21, V23 (slot ledger `:58–60`, `:322`, `:323`, `:327`) |
 | **a call the pin deprecates** (stage 1c / 2c) | keyword form, every copy in one commit, manifest regenerated | V22 (`plan_memo_sibling.py:158`; `plan_memo_selftest_mutants_codex0927.py:51`, `:52`, `:56`, `:57`) |
 | **pin / reader** | §6's rows | `python_suites_readers.py:385–470`; `test_python_suites_ci.py`'s fixtures and Q7 / R2 / R6 / R9; `test_python_suites_driver.py:79–114` (Q5) |
-| **dated measurement** | kept as the record of its date, or re-derived under its rule | `ci.yml:247–257` (kept; PR-1 adds its own, §7); vm-p4 :88–99's kept rows; `plan_memo_emphasis.py:103–104, 113`, `plan_memo_tokens.py:108`, `plan_memo_selftest_harness.py:428`, `plan_memo_selftest_manifest.py:200–204` |
-| **not a target** | unchanged; named in the PR body | `ci.yml:62–64` (the `check` OS matrix), `codeql.yml` (language matrix), `floor` in `.claude/tools/webref-generic-core-trip-wire*`, `Cargo.toml` patch floors, `plan-sweep.py`, the skills' "edge matrix" / "floor" prose, `.plan-z1b-consume-delta.md`, `test_python_suites_regime.py:806`, `CLAUDE.md:30` (the edge matrix), PR-0's fixture data (`test_tracked_tool_config.py:75`, `:83–84`, `:228`, `:247–257`, `:369`, `:378`, `:439–441`: `main`'s old text, file names and fixture versions), T5's file-name class `.python-version*` (`tracked_tool_config.py:7`, `:114`, `:142–143`: a name clauses 2 / 3c match, not an interpreter version), the driver's parse-failure message naming the running interpreter (`python-suites.sh:453`, `sys.version_info`), vm-p4 :88–102's non-interpreter words |
+| **dated measurement** | kept as the record of its date, or re-derived under its rule | `ci.yml:247–257` (kept; PR-1 adds its own, §7); A-iii §8's local measurements (`:535–538`, framed at #510's `06926607`, "The 3.9 leg is the slower one" included); vm-p4 :88–99's kept rows; `plan_memo_emphasis.py:103–104, 113`, `plan_memo_tokens.py:108`, `plan_memo_selftest_harness.py:428`, `plan_memo_selftest_manifest.py:200–204` |
+| **not a target** | unchanged; named in the PR body | `ci.yml:62–64` (the `check` OS matrix), A-iii's shell floor (`:231–235`, A1's `trip-wires` floor of shell / `git` / `grep`), "legacy endpoint" (`:340`) and "the text readers' grammar" (`:30`, what earlier drafts wrote), `codeql.yml` (language matrix), `floor` in `.claude/tools/webref-generic-core-trip-wire*`, `Cargo.toml` patch floors, `plan-sweep.py`, the skills' "edge matrix" / "floor" prose, `.plan-z1b-consume-delta.md`, `test_python_suites_regime.py:806`, `CLAUDE.md:30` (the edge matrix), PR-0's fixture data (`test_tracked_tool_config.py:75`, `:83–84`, `:228`, `:247–257`, `:369`, `:378`, `:439–441`: `main`'s old text, file names and fixture versions), T5's file-name class `.python-version*` (`tracked_tool_config.py:7`, `:114`, `:142–143`: a name clauses 2 / 3c match, not an interpreter version), the driver's parse-failure message naming the running interpreter (`python-suites.sh:453`, `sys.version_info`), vm-p4 :88–102's non-interpreter words |
 
 The A-iii UNCHECKED line (`:441–443`) is rewritten by PR-1 to "the pin on `SKILL.md`'s direct `preflight.py` path —
 UNCHECKED, assigned to PR-2 of the python-pin umbrella" (body :529–531); PR-2 flips it (C13).
 
 ### §4.7 The landed memos — amended in place
 
-Every amendment replaces the sentence (or the clause it names) and appends `(amended <PR-1 landing date> by #<PR-1>, python-pin PR-1)`.
+Every amendment (the rounds file excepted, below) replaces the sentence (or the clause it names) and appends `(amended <PR-1 landing date> by #<PR-1>, python-pin PR-1)`.
 - **A-iii** (`docs/plans/2026-07-citation-hygiene-Aiii-suite-scheduler.md`): the user-ratified D3 (`:327–329`), §8
   (`:523`), §12(1) (`:586`) exactly as body :514–516; and the statements PR-1 falsifies (body :526–531): L5 (`:104`)
   and the five `× L5` rows (`:114`, `:118`, `:121`, `:123`, `:125`) to I2 / I3 wording; §4.4 (`:312–332`) to the pin,
-  one leg, the image reason, Step 0's path → PR-2; §4.2 step 1 (`:162`); §6's text-reader rationale (`:416–417`) to
-  "`ci.yml` read as text, `mise.toml` with `tomllib` (since PR-1)"; Q5 (`:434`) → N1, Q7 (`:436`) → N4, Q13 (`:438`)
+  one leg, the image reason, Step 0's path → PR-2; §4.2 step 1 (`:162`); §6's text-reader rationale and its property (`:416–422`) to
+  "`ci.yml` read as text, `mise.toml` with `tomllib` (since PR-1)", the construct property scoped to `ci.yml` and
+  `mise.toml` red on what `tomllib` refuses and on an unmodelled key (N7 / N8); Q5 (`:434`) → N1, Q7 (`:436`) → N4, Q13 (`:438`)
   and §6.1's M1–M3 (`:474–476`) marked retired → N7 / N8, R2 (`:466`) → N5; §12(6) (`:599`) → "the pin is
   measured: N4 green and the `tools` job green"; §13's Slice-B row (`:612`) → B has no interpreter edit; the §6
-  UNCHECKED line (§4.6). Line numbers: `git grep -n -F` of each quoted sentence at PR-1's base.
+  UNCHECKED line (§4.6); and, to the pin / one leg / the `tomllib` reader: §4.2's job sentence (`:150`, "a two-leg
+  `python-version` matrix") and helper list (`:157`, "`ci.yml` / `mise.toml` text readers"), step 5's "floor leg"
+  (`:201`), the wrapper contract's "matrix leg" (`:215`), §4.2.1's "on every leg" (`:245`), §4.6's `CLAUDE.md`
+  paragraph "legs `"3.9"` / `"3.x"`" (`:362–363`), Q4's "§6.1 M1–M2" (`:433`) → over parsed TOML, N7, Q13's "text readers'" (`:438`), R6's
+  `python-version: [` half (`:470`, retired with the matrix, §6.2), §7's "the floor" (`:507`), §9's "on the floor"
+  (`:548`), and §10's Q3 closure (`:563`, the draft-3 record kept, the pin appended). Line numbers: `git grep -n -F` of each quoted sentence at PR-1's base.
 - **#510's memo** (V12 `:73`, V13 `:1116–1117`, V15 `:434`, V18 `:1097–1108`) and **#506's** (V16, V17, V19–V21,
   V23): §8.1 (the consent's conditions decide their text and their pointers).
 - **PR-0's plan** (`docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md`): in `:291–293`'s sentence only the
@@ -512,8 +518,9 @@ Every amendment replaces the sentence (or the clause it names) and appends `(ame
   and `scripts/tracked_tool_config.py:1`, `:233` (all §4.5).
 - **The umbrella** (PM 353; precedent: PR-0 edited the body; C38 decides the landing vehicle, not an edit bar) —
   the statements PR-1 falsifies, each re-read at `660e594c`. The body is 994 lines at the base; if the markers
-  take it past 1000, body :752's seam rule applies in PR-1. The rounds file is "append-only" (body :744): its two
-  amendments are dated in-place corrections, as PR-0's line fixes there (rounds :170, :209) were:
+  take it past 1000, body :752's seam rule applies in PR-1. The rounds file is "append-only" (body :744; PM 355):
+  its two corrections are one appended dated entry at its end (§14 *python-pin PR-1 correction (2026-11-04)*), and each corrected entry keeps its text and gains
+  only a one-line "superseded by" pointer to that entry:
   - body :187: the clause "and PR-1's reader asserts both values" → "and PR-1's T5 member
     (`scripts/test_tracked_tool_config.py`, W2) asserts both values over parsed TOML"; marker after "pinned image." (:188);
   - the body :564 row: the clause "with `[settings] python.compile = false` + `python.github_attestations = true`
@@ -528,11 +535,11 @@ Every amendment replaces the sentence (or the clause it names) and appends `(ame
     test's `PATH` logs any child that bypassed the helper (PR-1 plan §6.5, N19 (c))." and the marker;
   - body :241: "seven constructs that 3.9.6 rejects pass it" → "ten constructs …" (R§11's gap rows, records
     :559–568); marker after "R§11's accepted rows";
-  - rounds :463, C16 (f): "the header keeps the bump rule" → "the header keeps the pointer to the bump rule (C15)";
-    marker at (f)'s end;
-  - rounds :598–599, C38: "and lists none of its four files in its edit set;" → "and amends the body and this file
-    in place where PR-1 falsifies a statement (PM 353; vm-p4 only on PR-1 plan §8.4's contingency);"; marker at
-    C38's end (:602).
+  - rounds :463, C16 (f): the entry carries "the header keeps the bump rule" → "the header keeps the pointer to
+    the bump rule (C15)"; the pointer after (f)'s end;
+  - rounds :598–599, C38: the entry carries "and lists none of its four files in its edit set;" → "and amends the
+    body in place and appends to this file where PR-1 falsifies a statement (PM 353; vm-p4 only on PR-1 plan
+    §8.4's contingency);"; the pointer after C38's end (:603).
 - **CI/tools ledger items 3 / 4** (body :533–548): through the PM (§10).
 
 ### §4.8 The I7 helper — `scripts/python_pin_testing.py` (NEW; body :197–234, C23, C28, C34)

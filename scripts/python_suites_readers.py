@@ -1,14 +1,16 @@
-"""Text readers for `.github/workflows/ci.yml` and `mise.toml` (slice A-iii).
+"""Readers for `.github/workflows/ci.yml` and `mise.toml` (slice A-iii; python-pin PR-1).
 
-Used only by `test_python_suites_ci.py`. They model a stated subset and raise
-`ReaderError` naming the line on anything else inside the regions they read;
-their grammar is stated on each reader. Not a set member, no tests, no entry
-point.
+Used only by `test_python_suites_ci.py`. `ci.yml` is read as text (no stdlib YAML parser exists
+on any version): the YAML reader models a stated subset and raises `ReaderError` naming the line
+on anything else inside the regions it reads; its grammar is stated on the reader. `mise.toml` is
+read with `tomllib`, which every interpreter the driver admits has. Not a set member, no tests,
+no entry point.
 """
 
 from __future__ import annotations
 
 import re
+import tomllib
 
 class ReaderError(Exception):
     """An unmodelled construct inside a region the pins read: red, naming the line."""
@@ -44,7 +46,7 @@ _BAD_PLAIN_START = set("&*!{}[]|>'\"%@`,#")
 
 
 def _key(km):
-    """The key text of a `_YKEY` / `_TKEY` match, whichever alternative matched."""
+    """The key text of a `_YKEY` match, whichever alternative matched."""
     return next(g for g in km.groups() if g is not None)
 
 
@@ -382,11 +384,12 @@ DRIVER_ARGVS = (
 # `needs` / `if`, BASH_ENV, PYTHON*, proxy variables, ...) is refused without
 # being named.
 WORKFLOW_KEYS = {"name", "on", "concurrency", "permissions", "env", "jobs"}
-TOOLS_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "strategy", "steps"}
+TOOLS_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "steps"}
 WORKFLOW_ENV_KEYS = {"CARGO_TERM_COLOR", "CARGO_INCREMENTAL"}  # neither touches the shell or Python
 DRIVER_STEP_KEYS = {"name", "id", "run", "timeout-minutes"}
 SETUP_STEP_KEYS = {"name", "id", "uses", "with"}
-MATRIX_EXPR = "${{ matrix.python-version }}"
+PIN_FILE_INPUT = "python-version-file"
+PIN_FILE = ".tool-versions"
 
 
 def driver_is_command(cmd):
@@ -432,41 +435,41 @@ def driver_step_index(job):
 TOOLS_RUNS_ON = "ubuntu-24.04"
 
 
-def q7_problems(job, di):
-    """Q7: the two-leg matrix, consumed by the last setup-python before the driver,
-    on the runner image that serves the "3.9" leg (`ubuntu-latest` will not
-    keep doing so)."""
+def setup_problems(job, di):
+    """I1 x I3: the one leg reads the pin only through `python-version-file`, on the pinned image.
+
+    Red unless: exactly one step whose `uses` starts `actions/setup-python@` exists in the whole
+    job (a second one is a second spelling of the interpreter), it precedes the credited driver
+    step, its keys are within SETUP_STEP_KEYS, its `with` is a mapping whose key set is exactly
+    {python-version-file} and whose value is the plain or quoted scalar `.tool-versions`; and
+    `runs-on` is exactly TOOLS_RUNS_ON (`ubuntu-latest` will not keep serving the pinned patch)."""
     problems = []
     if job.get("runs-on") != TOOLS_RUNS_ON:
         problems.append("runs-on is not exactly %s" % TOOLS_RUNS_ON)
-    matrix = job.get("strategy", {}).get("matrix") if isinstance(job.get("strategy"), YMap) else None
-    if not isinstance(matrix, YMap):
-        return ["no strategy.matrix mapping"]
-    if set(matrix) != {"python-version"}:
-        problems.append("matrix keys %s are not exactly python-version" % sorted(matrix))
-    legs = matrix.get("python-version")
-    if not (
-        isinstance(legs, YSeq)
-        and sorted(legs) == ["3.9", "3.x"]
-        and all(isinstance(l, YScalar) and l.style == "quoted" for l in legs)
-    ):
-        problems.append("python-version legs are not exactly quoted \"3.9\" and \"3.x\"")
+    steps = job.get("steps")
+    found = []
+    if isinstance(steps, YSeq):
+        found = [
+            i for i, st in enumerate(steps) if isinstance(st, YMap) and str(st.get("uses", "")).startswith("actions/setup-python@")
+        ]
+    if not found:
+        return problems + ["no actions/setup-python step in the job"]
+    if len(found) != 1:
+        return problems + ["%d actions/setup-python steps: exactly one is allowed (a second is a second spelling of the interpreter)" % len(found)]
     if di is None:
-        return problems + ["no credited driver step to precede"]
-    setup = None
-    for st in job["steps"][:di]:
-        if isinstance(st, YMap) and str(st.get("uses", "")).startswith("actions/setup-python@"):
-            setup = st
-    if setup is None:
-        return problems + ["no actions/setup-python step before the driver step"]
+        return problems + ["no credited driver step to follow the actions/setup-python step"]
+    if found[0] > di:
+        return problems + ["the actions/setup-python step does not precede the driver step"]
+    setup = steps[found[0]]
+    if set(setup) - SETUP_STEP_KEYS:
+        problems.append("the actions/setup-python step has keys outside %s: %s" % (sorted(SETUP_STEP_KEYS), sorted(set(setup) - SETUP_STEP_KEYS)))
     with_ = setup.get("with")
-    if (
-        set(setup) - SETUP_STEP_KEYS
-        or not isinstance(with_, YMap)
-        or set(with_) != {"python-version"}
-        or re.sub(r"\s+", " ", str(with_["python-version"])) != MATRIX_EXPR
-    ):
-        problems.append("the last setup-python before the driver does not consume %s" % MATRIX_EXPR)
+    if not isinstance(with_, YMap) or set(with_) != {PIN_FILE_INPUT}:
+        problems.append("the actions/setup-python `with` is not exactly the one key %s" % PIN_FILE_INPUT)
+    else:
+        val = with_[PIN_FILE_INPUT]
+        if not (isinstance(val, YScalar) and val.style in ("plain", "quoted") and str(val) == PIN_FILE):
+            problems.append("%s is not exactly the scalar %s" % (PIN_FILE_INPUT, PIN_FILE))
     return problems
 
 
@@ -498,181 +501,47 @@ def tools_problems(text):
     di = driver_step_index(job)
     if di is None:
         problems.append("no run: step executes the driver")
-    problems += q7_problems(job, di)
+    problems += setup_problems(job, di)
     return problems
 
 
-_TKEY = re.compile(r"""^(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))[ ]*=[ ]*""")
-_THEADER = re.compile(r"^(\[\[?)([^\[\]]+)(\]\]?)[ ]*(#.*)?$")
-_TPART = re.compile(r"""[ ]*(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))[ ]*""")
-
-
-def _toml_key_path(s, lineno):
-    """The dotted key at the start of `s` as (list of parts, end offset), each part
-    bare or quoted (the `_TKEY` key grammar). A part that is not one key -- a
-    backslash escape included -- raises."""
-    parts, pos = [], 0
-    while True:
-        m = _TPART.match(s, pos)
-        if m is None:
-            raise ReaderError(lineno, "unmodelled key", s)
-        parts.append(_key(m))
-        pos = m.end()
-        if s[pos : pos + 1] != ".":
-            return parts, pos
-        pos += 1
-
-
-def _toml_value(v, lineno):
-    v = v.strip()
-    if not v:
-        raise ReaderError(lineno, "missing value", v)
-    if v.startswith(('"""', "'''")):
-        raise ReaderError(lineno, "multi-line string not modelled", v)
-    if v[:1] in "\"'":
-        q = v[0]
-        end = v.find(q, 1)
-        if end < 0 or (q == '"' and "\\" in v[1:end]):
-            raise ReaderError(lineno, "unmodelled string", v)
-        tail = v[end + 1 :].strip()
-        if tail and not tail.startswith("#"):
-            raise ReaderError(lineno, "text after a string", v)
-        return v[1:end]
-    if v.startswith("["):
-        m = re.match(r"""^\[((?:\s*(?:"[^"\\]*"|'[^']*')\s*,)*\s*(?:"[^"\\]*"|'[^']*')?\s*)\]\s*(#.*)?$""", v)
-        if m is None:
-            raise ReaderError(lineno, "unmodelled array (one line of strings only)", v)
-        return [s[1:-1] for s in re.findall(r"""("[^"\\]*"|'[^']*')""", m.group(1))]
-    if re.match(r"^(true|false)\s*(#.*)?$", v):
-        return v.startswith("true")
-    raise ReaderError(lineno, "unmodelled value", v)
-
-
-_CLOSED = (None, 0)
-
-
-def _scan_strings(raw, carry, lineno):
-    """Advance the carry (open multi-line string delimiter or None, open-array
-    depth) over one line; return the new carry. The body of a multi-line string
-    and the continuation lines of an open array are text, never structure. A
-    close this reader does not model raises: an escaped `\"\"\"`, quotes right
-    after the close (valid TOML -- up to two quotes may end the body -- but not
-    read here), a `]` with no array open."""
-    delim, depth = carry
-    i, n = 0, len(raw)
-    while i < n:
-        if delim is not None:
-            j = raw.find(delim, i)
-            if j < 0:
-                return delim, depth
-            slashes = len(raw[:j]) - len(raw[:j].rstrip("\\"))
-            if (delim == '"""' and slashes % 2) or raw[j + 3 : j + 4] == delim[0]:
-                raise ReaderError(lineno, "ambiguous multi-line string close", raw)
-            delim, i = None, j + 3
-            continue
-        c = raw[i]
-        if c == "#":
-            return None, depth
-        if raw.startswith(('"""', "'''"), i):
-            delim, i = raw[i : i + 3], i + 3
-        elif c in "\"'":
-            j = i + 1
-            while j < n and raw[j] != c:
-                j += 2 if (c == '"' and raw[j] == "\\") else 1
-            i = j + 1
-        else:
-            depth += (c == "[") - (c == "]")
-            if depth < 0:
-                raise ReaderError(lineno, "a ] with no array open", raw)
-            i += 1
-    return delim, depth
-
-
-def mise_sections(text, wanted):
-    """Reads the `[tasks.<name>]` sections in `wanted` of `mise.toml`.
-
-    Modelled inside those sections: blank and `#` lines; `key = value` with a
-    bare or quoted key and a value that is a one-line basic/literal string, a
-    one-line array of such strings, or true/false, with an optional trailing
-    comment. Anything else inside them raises ReaderError naming the line, and
-    so does anything elsewhere that could also define those tasks: a `[tasks]`
-    table, a subtable `[tasks.<name>.x]`, an array of tables `[[tasks...]]`, or a
-    dotted `tasks.` key. Headers and the keys of lines outside the read sections
-    are read with the same key grammar; a key or header outside it (a backslash
-    escape included) is a ReaderError. A missing
-    or duplicated section is red. The body of a multi-line string (`\"\"\"` /
-    `'''`) opened outside the read sections is text, and so are the continuation
-    lines of an array left open there: the file is tracked across lines, so a
-    line in them that looks like a header or a key is neither; an unterminated
-    string or array, or a close that is ambiguous, is a ReaderError."""
-    out = {}
-    current = None
-    carry, opened = _CLOSED, 0
-    for lineno, raw in enumerate(text.splitlines(), 1):
-        if carry != _CLOSED:
-            carry = _scan_strings(raw, carry, lineno)
-            continue
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        hm = _THEADER.match(line)
-        if line.startswith("["):
-            if hm is None or len(hm.group(1)) != len(hm.group(3)):
-                raise ReaderError(lineno, "unmodelled table header", raw)
-            path, end = _toml_key_path(hm.group(2), lineno)
-            if end != len(hm.group(2)):
-                raise ReaderError(lineno, "unmodelled header key", raw)
-            under_read = len(path) > 2 and path[1] in wanted
-            if path == ["tasks"] or (path[0] == "tasks" and (len(hm.group(1)) == 2 or under_read)):
-                raise ReaderError(lineno, "a second way to define a read task", raw)
-            current = None
-            for w in wanted:
-                if path == ["tasks", w]:
-                    if w in out:
-                        raise ReaderError(lineno, "duplicate section", raw)
-                    out[w] = {}
-                    current = w
-            continue
-        if current is None:
-            path, end = _toml_key_path(line, lineno)
-            if line[end : end + 1] != "=":
-                raise ReaderError(lineno, "unmodelled key", raw)
-            if path[0] == "tasks":  # dotted, or `tasks = { ... }` (an inline table)
-                raise ReaderError(lineno, "a tasks key outside the read sections", raw)
-            carry, opened = _scan_strings(line[end + 1 :], carry, lineno), lineno
-            continue
-        km = _TKEY.match(line)
-        if km is None:
-            raise ReaderError(lineno, "unmodelled key", raw)
-        key = _key(km)
-        if key in out[current]:
-            raise ReaderError(lineno, "duplicate key %r" % key, raw)
-        out[current][key] = (_toml_value(line[km.end():], lineno), lineno)
-    if carry != _CLOSED:
-        raise ReaderError(opened, "unterminated multi-line string or array", text.splitlines()[opened - 1])
-    for w in wanted:
-        if w not in out:
-            raise ReaderError(0, "section [tasks.%s] missing" % w, "")
-    return out
+TOOLS_TEST_RUN = "bash " + DRIVER_REL
+CI_TASK_KEYS = {"description", "depends"}
+TOOLS_TEST_TASK_KEYS = {"description", "run"}
 
 
 def mise_problems(text):
-    """Q4 over mise.toml's [tasks.ci] and [tasks.tools-test]."""
-    s = mise_sections(text, ("ci", "tools-test"))
+    """Q4 / N7 over parsed `mise.toml`: `[tasks.ci]` and `[tasks.tools-test]`.
+
+    `tasks` is a table; `tasks.ci` a table with keys within CI_TASK_KEYS whose `depends` is a list
+    of strings containing "tools-test"; `tasks.tools-test` a table with keys within
+    TOOLS_TEST_TASK_KEYS (an allowlist: `sources`, `outputs`, `env`, `dir` and any future key are
+    red, naming it -- mise would skip a task on unchanged `sources`) whose `run` is exactly
+    TOOLS_TEST_RUN. A TOML syntax error is one problem naming tomllib's message. The install
+    settings are not this reader's (the T5 member asserts them, W2)."""
+    try:
+        doc = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return ["mise.toml does not parse: %s" % e]
+    tasks = doc.get("tasks")
+    if not isinstance(tasks, dict):
+        return ["[tasks] is not a table"]
     problems = []
-    ci, tt = s["ci"], s["tools-test"]
-    for k in set(ci) - {"description", "depends"}:
-        problems.append("[tasks.ci] has unmodelled key %s" % k)
-    deps = ci.get("depends", (None, 0))[0]
-    if not (isinstance(deps, list) and "tools-test" in deps):
-        problems.append('[tasks.ci].depends does not contain "tools-test"')
-    for k in ("sources", "outputs"):
-        if k in tt:
-            problems.append("[tasks.tools-test] has %s (mise would skip it when unchanged)" % k)
-    for k in set(tt) - {"description", "run", "sources", "outputs"}:
-        problems.append("[tasks.tools-test] has unmodelled key %s" % k)
-    if tt.get("run", (None, 0))[0] != "bash " + DRIVER_REL:
-        problems.append("[tasks.tools-test].run is not the string %r" % ("bash " + DRIVER_REL))
+    ci = tasks.get("ci")
+    if not isinstance(ci, dict):
+        problems.append("[tasks.ci] is not a table")
+    else:
+        for k in sorted(set(ci) - CI_TASK_KEYS):
+            problems.append("[tasks.ci] has key %r outside %s" % (k, sorted(CI_TASK_KEYS)))
+        deps = ci.get("depends")
+        if not (isinstance(deps, list) and all(isinstance(d, str) for d in deps) and "tools-test" in deps):
+            problems.append('[tasks.ci].depends is not a list of strings containing "tools-test"')
+    tt = tasks.get("tools-test")
+    if not isinstance(tt, dict):
+        problems.append("[tasks.tools-test] is not a table")
+    else:
+        for k in sorted(set(tt) - TOOLS_TEST_TASK_KEYS):
+            problems.append("[tasks.tools-test] has key %r outside %s" % (k, sorted(TOOLS_TEST_TASK_KEYS)))
+        if tt.get("run") != TOOLS_TEST_RUN:
+            problems.append("[tasks.tools-test].run is not the string %r" % TOOLS_TEST_RUN)
     return problems
-
-

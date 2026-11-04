@@ -16,9 +16,9 @@ Two rules decided here, once:
     from PARSING it is a crash out of the population (crash = FAIL), never
     that miss -- the chokepoint catches `OSError` and `UnicodeDecodeError`
     and nothing else (⚠ until PR #510 R16 it caught `RuntimeError` too,
-    for the py<=3.12 symlink-loop case that `plan_memo_sibling._resolve` alone
-    guards, and a `RecursionError` -- a `RuntimeError` -- out of ~500 nested
-    `>` markers was reported as "linked memo unavailable", rc 2, no census);
+    for the py<=3.12 symlink-loop case that `plan_memo_sibling._resolve`
+    guarded until the pin, and a `RecursionError` -- a `RuntimeError` -- out
+    of ~500 nested `>` markers was reported as "linked memo unavailable", rc 2, no census);
   * the population is transitive over the memos a memo links; the same id
     declared twice, and a reference no definition answers (the memo it meant
     to link is outside the population), are schema misses.
@@ -79,9 +79,9 @@ class Population:
             # exception out of the population.  I/O ONLY: `Memo(p)` also
             # PARSES, and a parser exception must surface as a crash (crash =
             # FAIL), never as this miss -- so no `RuntimeError` here (its one
-            # legitimate source, the py<=3.12 symlink-loop `resolve()`, is
-            # guarded at `_resolve`; a `RecursionError` IS a `RuntimeError`,
-            # and PR #510 R16 found ~500 nested `>` reported as "unavailable")
+            # former legitimate source, the py<=3.12 symlink-loop `resolve()`,
+            # was guarded at `_resolve` until the pin; a `RecursionError` IS a
+            # `RuntimeError`, and PR #510 R16 found ~500 nested `>` reported as "unavailable")
             try:
                 memo = Memo(p)
             except (OSError, UnicodeDecodeError) as e:
