@@ -1,7 +1,12 @@
-//! Built-in global registration.
+//! Built-in global registration order: `register_globals` runs the
+//! `register_*` families in the sequence the prototype chain requires.
 //!
-//! All `register_*` methods that populate the VM's global environment with
-//! standard JS built-ins (console, Math, JSON, Error constructors, etc.).
+//! Where the families live: `globals_fundamentals.rs` (prototype roots,
+//! iterator prototypes, `Object` / `Array` / `Math` / `JSON`),
+//! `globals_install.rs` (shared property-install primitives),
+//! `globals_primitives.rs` (String / Number / Boolean / RegExp / Symbol /
+//! BigInt, `console`), `globals_errors.rs` (Error family),
+//! `globals_async.rs` (Promise, Generator).
 
 use super::natives::{
     native_decode_uri, native_decode_uri_component, native_encode_uri, native_encode_uri_component,
@@ -963,9 +968,4 @@ impl VmInner {
             );
         }
     }
-
-    // String / Number / Boolean / RegExp / Symbol / BigInt prototypes
-    // and the `console` namespace are registered from
-    // `vm/globals_primitives.rs` — extracted to keep this file under
-    // the 1000-line convention.
 }

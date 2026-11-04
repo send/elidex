@@ -49,7 +49,7 @@ fn crypto_prototype_constructor_chain() {
     // Crypto.prototype chains through to the root prototype.  Walk
     // the chain to verify it terminates at null (i.e. the chain is
     // well-formed; the root prototype itself is opaque — see
-    // `register_object_global` in `vm/globals.rs` which omits the
+    // `register_object_global` in `vm/globals_fundamentals.rs` which omits the
     // `Object.prototype` data prop on the `Object` global).
     assert!(
         eval_bool(

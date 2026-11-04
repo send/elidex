@@ -1,7 +1,8 @@
 //! Native (Rust-implemented) JS built-in functions.
 //!
 //! These are free functions with the `NativeFn` signature, referenced by name
-//! in `globals.rs` when registering built-in objects.
+//! in `globals.rs` and its `globals_*.rs` siblings when registering built-in
+//! objects.
 //!
 //! Object-related built-ins are in `natives_object.rs`.
 
