@@ -206,8 +206,9 @@ the `ConstructAdmission` classifier, the rewritten `is_constructor`, and the sha
 That module rather than `vm/dispatch_class.rs` (347 lines) because #588 already made it the predicate's
 home and the classifier, the predicate and the helper are one IsConstructor unit; `dispatch_class.rs`
 keeps the construct *dispatch*. `vm/object_kind.rs` lost `is_constructor` in #588 and gains nothing here.
-`unwrap_bound_function_chain` stays in `vm/dispatch_class.rs` unchanged; the helper and the predicate
-call it. **Gating**: every item in the module is ECMAScript core and has an ungated caller (`do_new`,
+The bound-chain walk stays in `vm/dispatch_class.rs` as one private depth loop, `walk_bound_chain`, with
+two forms over it: `unwrap_bound_function_chain` (collects the bound arguments; the helper calls it) and the
+target-only `bound_chain_target` (the predicate calls it). **Gating**: every item in the module is ECMAScript core and has an ungated caller (`do_new`,
 `construct_synchronous`, `vm/dispatch.rs:998`), so the module carries no `#[cfg(feature = "engine")]` —
 neither the per-item gates #588 moved (`vm/construct_admission.rs:7` on the `ObjectKind` import, `:35`
 on `is_constructor`, at `4fd85f4e`) nor a gate on its `mod` line (`vm/mod.rs:12`, ungated as #588 left
@@ -226,9 +227,11 @@ applies to the function object created from this code". `compile_nested_function
 - `FunctionCreation::Method` (NEW) — DefineMethod / MethodDefinitionEvaluation: `compiler/expr_class.rs:305`
   (class and static methods, accessors, generator and async methods) and `:354` (private methods), and
   the object-literal route below. Bit `false`.
-- `FunctionCreation::ClassConstructor` (NEW) — the written class constructor (`compiler/expr_class.rs:121`,
-  which already sets `is_class_ctor`): ClassDefinitionEvaluation step 15.a creates it by DefineMethod and
-  step 17 applies MakeConstructor. Bit `true`.
+- `FunctionCreation::ClassConstructor` (NEW) — the written class constructor (`compiler/expr_class.rs:121`):
+  ClassDefinitionEvaluation step 15.a creates it by DefineMethod and step 17 applies MakeConstructor. Bit
+  `true`. `compile_nested_function` derives both bits from the `FunctionCreation` it is given —
+  `has_construct` and `is_class_ctor` (`true` for `ClassConstructor` only) — so the caller at `:121` no
+  longer sets `is_class_ctor` itself.
 - The synthesized class constructor (`synthesize_default_class_ctor`, `compiler/expr_class.rs:69`) is
   not compiled through `compile_nested_function`; it sets `has_construct: true` in its struct literal
   (step 14.b + step 17, MakeConstructor branch 2.a).
@@ -263,11 +266,12 @@ native arm is today's `CallShape` split (OD-1 leaves it as is); every other kind
 `#[cfg(feature = "engine")]` is removed (P-4). **One bound-chain walk**: today `is_constructor` has its
 own loop (`vm/object_kind.rs:1682`), which returns `false` past `MAX_BIND_CHAIN_DEPTH`, while the
 entries' `unwrap_bound_function_chain` raises a RangeError there — two pieces of code applying one depth
-limit with two outcomes. The rewritten `is_constructor` drops its loop and calls
-`unwrap_bound_function_chain`, mapping that call's depth error to `false` (a predicate answers, it does
+limit with two outcomes. The rewritten `is_constructor` drops its loop and calls the target-only
+`bound_chain_target`, mapping that call's depth error to `false` (a predicate answers, it does
 not throw; ClassDefinitionEvaluation step 8.g, `customElements.define` and the TypedArray gates then
-raise their own TypeError), so the depth limit is applied by one piece of code and the predicate
-callers keep today's outcome. Out of scope and unchanged: the third walker,
+raise their own TypeError). `bound_chain_target` and the entries' `unwrap_bound_function_chain` are two
+forms of the one private depth loop `walk_bound_chain` (`vm/dispatch_class.rs`), so the depth limit is
+applied by one piece of code and the predicate callers keep today's outcome. Out of scope and unchanged: the third walker,
 `unwrap_bound_chain` in `vm/host/typed_array_static.rs:91-100`, which resolves the TypedArray kind
 rather than admitting a construct; it is `#11-vm-typed-array-create-construct`'s to fold (§5).
 
@@ -291,10 +295,13 @@ and the admission refuses `null` with the `Super` entry's message. The custom-el
 `JsValue::Object(constructor)` (`vm/host/custom_elements/upgrade.rs:315`). So every IsConstructor refusal
 at both entries, `null` included, is the admission's. **Which entry each caller passes** (driver's
 decision): `construct_synchronous` takes the entry as a parameter. `dispatch_super_inner` passes `Super`.
-The custom-element upgrade passes `New`: HTML "upgrade an element" step 10.3 ("Let constructResult be the
-result of constructing C, with no arguments", `.claude/tools/webref body html concept-upgrade-an-element`)
-performs `Construct(C)` directly, the same shape as `new`; it always passes `JsValue::Object`, so the key
-is only ever read by the non-Object arm and changes no behaviour.
+The custom-element upgrade passes `New`: HTML "upgrade an element" (§4.13.5) step 10.3 ("Let
+constructResult be the result of constructing C, with no arguments", `.claude/tools/webref body html
+concept-upgrade-an-element`) links "constructing" to WebIDL "construct a callback function" (§3.12,
+`.claude/tools/webref dfn webidl construct`), whose step 3 is "If IsConstructor(F) is false, throw a
+TypeError" and whose step 10 is `Construct(F, jsArgs)` (`.claude/tools/webref body webidl
+construct-a-callback-function`). It always passes `JsValue::Object`, so the key is only ever read by the
+non-Object arm and changes no behaviour.
 
 **Placement.** Both entries run the admission after the arguments are evaluated and before any
 allocation, frame push or stack splice: EvaluateNew (§13.3.5.1.1) step 5 follows step 4's
@@ -329,14 +336,38 @@ non-Object the `Super` entry sees). Every other arm ignores the entry. Unchanged
 
 **Docstrings and comments.** `construct_synchronous`'s claim that it is invoked from "`do_new`'s JS
 branch" (`vm/dispatch_class.rs:220-221`) is false — `do_new` pushes its frame inline (`vm/ops.rs:784-793`)
-and the second caller is the custom-element upgrade. Two comments name the `can_construct()` gates this PR
-removes and are rewritten to name the admission helper: `vm/interpreter.rs:328-329` and
-`vm/host/events.rs:578`. Further implementation obligations, same commit as the code they sit on:
+and the second caller is the custom-element upgrade. **Refusal-location comments**: every comment that
+says where the `[[Construct]]` refusal, the illegal-constructor message or the bound-chain depth rule
+lives is rewritten to name the admission helper (`VmInner::admit_construct`) or, for the depth rule,
+`walk_bound_chain`. The population is the concept, not a token: scoping it by the `can_construct()`
+token found only `vm/interpreter.rs:328-329` and `vm/host/events.rs:578` and missed the rest, which the
+final review (`/elidex-review`) found. The sites at HEAD (`de7d1f84`), with the base tree's wording in
+brackets: `vm/interpreter.rs:328-330` [`do_new`'s `can_construct()` gate] and `:352` "both
+chokepoints" [`do_new` + here]; `vm/host/events.rs:578` [`do_new`'s `can_construct() == false`];
+`vm/error.rs:100-104` [the two chokepoints `call_dispatch` + `do_new`]; `vm/value.rs:738`, `:755`
+[`do_new` / `call_dispatch`]; `vm/host/abort.rs:177` [the gate in `do_new` / `call_dispatch`];
+`vm/host/wasm/exported_func.rs:134-138` [the catch-all arm in `ops.rs::do_new`];
+`vm/natives_symbol.rs:15` [`do_new` via `constructable: false`]; `vm/shape_ops.rs:261-265` [the
+`do_new` path, §10.2.2 catch-all — re-cited to ECMA-262 §10.3], `:311`, `:319` [`do_new` /
+`call_dispatch`]; `vm/tests/helpers.rs:201` [`vm/ops.rs::do_new`];
+`vm/tests/tests_call_shape_sanity.rs:19-20`, `:110` [`do_new`]; `vm/tests/tests_wasm.rs:179-182` [the
+catch-all arm of `do_new`]; `vm/tests/tests_class_machinery.rs:307`, `:379` [the shared unwrap, now
+via `admit_construct`]; `vm/host/typed_array_static.rs:84-85` [`do_new`'s depth policy in `ops.rs`].
+The same review's other comment corrections: `construct_synchronous`'s doc (`vm/dispatch_class.rs:255-260`,
+the future-caller sentence now names `Reflect.construct`, `#11-vm-proxy-reflect`); the upgrade's spec
+path (`vm/construct_admission.rs:49-53`, `vm/dispatch_class.rs:264-268`,
+`vm/host/custom_elements/upgrade.rs:314-317`; the `New` entry, above); the module header's TypedArray
+walker cite by name (`vm/construct_admission.rs:21`); the default-derived `super()` comment re-cited to
+SuperCall step 5 (`compiler/expr_class.rs:212-216`); and the arrow-not-constructor cites re-cited to
+InstantiateArrowFunctionExpression (`vm/tests/tests_class_machinery.rs:335-337`,
+`vm/tests/tests_custom_elements.rs:201-203`). Further implementation obligations, same commit as the
+code they sit on:
 
 - **`is_constructor`'s doc** (`vm/construct_admission.rs:10-34` at `4fd85f4e`): "has a `[[Construct]]`
   internal slot" → "internal method" (IsConstructor step 2's wording); the paragraph on JS functions,
   which describes the `this_mode` / `is_async` / `is_generator` test, is rewritten to say the JS arm reads
-  `has_construct`, and the walk paragraph to say it is `unwrap_bound_function_chain`'s.
+  `has_construct`, and the walk paragraph to say it is `bound_chain_target`'s, the target-only form of
+  `walk_bound_chain`.
 - **The module header** (`vm/construct_admission.rs:1-5`): rewritten to describe what the module holds
   (classifier, predicate, admission helper), not what a follow-up adds.
 - **ClassDefinitionEvaluation step drift.** The comments cite "step 6 / 6.f / 6.f.i / 6.f.ii / 6.f.iii";
@@ -354,7 +385,10 @@ removes and are rewritten to name the admission helper: `vm/interpreter.rs:328-3
   heritage cites — 20 matching lines).
 - **`vm/host/typed_array_static.rs:116-121`**: the "deferred to a follow-up PR" sentence is re-pointed to
   `#11-vm-typed-array-create-construct` (PM 332), and its `TypedArrayCreate(C, ⟨len⟩)` is spelled by
-  the current AO name, TypedArrayCreateFromConstructor (§23.2.4.1).
+  the current AO name, TypedArrayCreateFromConstructor (§23.2.4.1). The same file's species-path variant,
+  "defers to a follow-up" in `species_constructor_for_typed_array`'s doc (`:253-254` at `115a667c`,
+  TypedArraySpeciesCreate's missing `Construct`), is re-pointed to the same slot (`:254-258` at
+  `de7d1f84`). The literal `'deferred to a follow-up PR'` found only the first; §6's command finds both.
 
 The new items cite by AO name, with numbers from `webref aoid`:
 
@@ -725,11 +759,28 @@ Run from the repository root at `115a667c`.
 - `Op::NewSpread` never emitted: `git grep -n NewSpread 115a667c -- crates/script/elidex-js/src/compiler` → no output;
   `compiler/expr.rs:88-93` (`git grep -n 'ExprKind::New {' -- crates/script/elidex-js/src/compiler/expr.rs`),
   `compiler/expr_member.rs:70-75` (`git grep -n 'Argument::Spread(e) =>' -- crates/script/elidex-js/src/compiler/expr_member.rs`).
-- `vm/interpreter.rs:95`, `:208-216`, `:248-260`, `:328-329`, `:866-906`, `:912`: `git grep -n 'fn call_construct_native\|Ok return leaked\|while self.frames.len() > entry_frames\|can_construct()\` gate\|if is_async {\|if is_generator {' -- crates/script/elidex-js/src/vm/interpreter.rs`.
+- `vm/interpreter.rs:95`, `:208-216`, `:248-260`, `:328-329`, `:866-906`, `:912`: `git grep -n 'fn call_construct_native\|Ok return leaked\|while self.frames.len() > entry_frames\|can_construct()\` gate\|if is_async {\|if is_generator {' 115a667c -- crates/script/elidex-js/src/vm/interpreter.rs`.
 - `vm/value.rs:588-599`, `:700-712`, `:839`: `git grep -n 'pub struct FunctionObject\|CallShape::IllegalConstructor\`\] — neither\|mode: CallMode::Construct { new_target }' -- crates/script/elidex-js/src/vm/value.rs`.
 - `vm/host/custom_elements/define.rs:49`, `upgrade.rs:315`, `vm/host/typed_array_static.rs:146`, `:287`:
   `git grep -n 'is_constructor(\|construct_synchronous(' -- crates/script/elidex-js/src/vm/host`.
-- `vm/host/events.rs:578`: `git grep -n "can_construct() == false" -- crates/script/elidex-js/src/vm/host/events.rs`.
+- `vm/host/events.rs:578`: `git grep -n "can_construct() == false" 115a667c -- crates/script/elidex-js/src/vm/host/events.rs`.
+- §1.3 refusal-location comments, at `de7d1f84`: the rewritten sites name the helper,
+  `git grep -n 'admit_construct' de7d1f84 -- crates/script/elidex-js/src ':!crates/script/elidex-js/src/vm/construct_admission.rs'`
+  (every listed site except `typed_array_static.rs:84-85`, plus the code calls `vm/ops.rs:697` and
+  `vm/dispatch_class.rs:300`); the depth-rule site, `git grep -n 'walk_bound_chain' de7d1f84 -- crates/script/elidex-js/src/vm/host`
+  (`typed_array_static.rs:85`). Residual check, a line filter and so not the population's definition:
+  `git grep -n -E 'do_new|ops\.rs' <rev> -- crates/script/elidex-js/src | /usr/bin/grep -i -E 'gate|not a constructor|reject|refus|catch-all|policy|constructable|illegal|chokepoint'`
+  → 14 lines at `115a667c` (it misses `abort.rs:177` and `exported_func.rs:134-138`, whose vocabulary is
+  on the neighbouring line), no output at `de7d1f84`.
+- §1.3 bound-chain walk, at `de7d1f84`: `git grep -n 'fn walk_bound_chain\|fn bound_chain_target\|fn unwrap_bound_function_chain\|bound_chain_target(' de7d1f84 -- crates/script/elidex-js/src/vm`
+  (`dispatch_class.rs:192`, `:213`, `:220`; the predicate's call `construct_admission.rs:105`).
+- §1.3 upgrade entry: `.claude/tools/webref dfn html "upgrade an element"` (§4.13.5);
+  `.claude/tools/webref dfn webidl construct` (§3.12, `#construct-a-callback-function`);
+  `.claude/tools/webref body webidl construct-a-callback-function` (step 3 IsConstructor, step 10
+  Construct); the "constructing" link target is in the cached HTML source, not the extracted body
+  (`href=https://webidl.spec.whatwg.org/#construct-a-callback-function`).
+- §1.3 class-ctor bits, at `de7d1f84`: `git grep -n 'compiled.is_class_ctor =\|compiled.has_construct =\|child.is_class_ctor' de7d1f84 -- crates/script/elidex-js/src/compiler`
+  (`expr_function.rs` only).
 - `vm/host/event_handler_attrs.rs:675-677`: `git grep -n 'fn lazy_compile_handler' -- crates/script/elidex-js/src/vm/host`.
 - `bytecode/compiled.rs:42-81`: `git grep -n 'pub struct CompiledFunction' -- crates/script/elidex-js`.
 - `compiler/expr_function.rs:95`, `:169`, `compiler/expr.rs:31-32`, `:211`, `:217`, `compiler/mod.rs:84`,
@@ -737,7 +788,10 @@ Run from the repository root at `115a667c`.
 - `compiler/expr_object.rs:14-24`, `:74-75`: `git grep -n 'fn compile_accessor\|fn compile_object_expr' -- crates/script/elidex-js/src/compiler/expr_object.rs`.
 - §1.1 missing construct sites: `git grep -n 'fn native_array_from\|fn native_array_of' 115a667c -- crates/script/elidex-js/src/vm/natives_array_hof.rs` (`:489`, `:556`, each followed by `_this: JsValue`);
   `git grep -n 'fn native_promise_resolve' 115a667c -- crates/script/elidex-js/src/vm/natives_promise.rs` (`:760`, `_this` on the parameter line after);
-  `git grep -n 'deferred to a follow-up PR' 115a667c -- crates/script/elidex-js/src/vm/host/typed_array_static.rs` (`:120`, sentence `:116-121`);
+  `git grep -n 'follow-up' 115a667c -- crates/script/elidex-js/src/vm/host/typed_array_static.rs` (`:120`, sentence `:116-121`;
+  `:254`, the species-path variant, sentence `:253-254`), and at `de7d1f84`
+  `git grep -n 'follow-up\|typed-array-create-construct' de7d1f84 -- crates/script/elidex-js/src/vm/host/typed_array_static.rs`
+  (no `follow-up`; the slot at `:121` and `:256`);
   spec: `.claude/tools/webref body ecma262 sec-array.from`, `sec-array.of`, `sec-promise.resolve`;
   `aoid ecma262 PromiseResolve` / `NewPromiseCapability` / `TypedArrayCreateFromConstructor`.
 - §1.3 comment obligations: `git grep -n '6\.f\|step 6\b' 4fd85f4e -- crates/script/elidex-js/src` (20 heritage lines);
