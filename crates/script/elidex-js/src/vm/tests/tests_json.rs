@@ -574,6 +574,71 @@ fn parse_reviver_array() {
     );
 }
 
+// ----------------------------------------------------------------------------
+// reviver-built graphs: `internalize` recursion is bounded by MAX_JSON_DEPTH
+// ----------------------------------------------------------------------------
+
+/// Run `body` (JS statements ending in an expression that may throw) and
+/// report `"<name>|<message>"` of the caught error, or `"no-throw"`.
+fn caught(body: &str) -> String {
+    eval_string(&format!(
+        "var __r; try {{ {body}; __r = 'no-throw'; }} catch (e) {{ __r = e.name + '|' + e.message; }} __r"
+    ))
+}
+
+const DEPTH_MSG: &str = "RangeError|Maximum JSON nesting depth exceeded";
+
+/// JS prologue for a reviver that, on key `a`, installs an acyclic chain of
+/// `n` nested objects as `this.b`. `MAX_JSON_DEPTH` is 800 in debug builds.
+fn chain_reviver(n: usize) -> String {
+    format!(
+        "JSON.parse('{{\"a\":1,\"b\":2}}', function (k, v) {{
+            if (k === 'a') {{
+                var top = {{}}; var cur = top;
+                for (var i = 0; i < {n}; i++) {{ cur.x = {{}}; cur = cur.x; }}
+                this.b = top;
+            }}
+            return v;
+        }})"
+    )
+}
+
+#[test]
+fn parse_reviver_cyclic_graph_throws_range_error() {
+    // T-CYCLE: a reviver that installs a cycle must surface a catchable
+    // RangeError, not abort the process via Rust-stack overflow.
+    assert_eq!(
+        caught(
+            r#"JSON.parse('{"a":1,"b":2}', function (k, v) {
+                if (k === 'a') { const o = {}; o.self = o; this.b = o; }
+                return v;
+            })"#
+        ),
+        DEPTH_MSG
+    );
+}
+
+#[test]
+fn parse_reviver_deep_acyclic_chain_within_cap_ok() {
+    // T-DEEP-OK: well inside the cap (800 in debug) must not throw.
+    assert_eq!(caught(&chain_reviver(790)), "no-throw");
+}
+
+#[test]
+fn parse_reviver_deep_acyclic_chain_over_cap_throws() {
+    // T-DEEP-OVER: past the cap in both profiles (cap is 800/1000).
+    assert_eq!(caught(&chain_reviver(1100)), DEPTH_MSG);
+}
+
+#[test]
+fn parse_deep_text_without_reviver_hits_parser_cap() {
+    // T-NO-REVIVER (control): the parser's own cap, unchanged.
+    assert_eq!(
+        caught("JSON.parse('['.repeat(2000) + ']'.repeat(2000))"),
+        DEPTH_MSG
+    );
+}
+
 // ============================================================================
 // JSON round-trip
 // ============================================================================
