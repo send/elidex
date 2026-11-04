@@ -93,21 +93,29 @@ Body §2's text (:148–234) is the definition; PR-1's share, one line each:
   admits; the warning on every Step 1.
 - **I6**: `mise.toml [settings]` holds `python.compile = false` and `python.github_attestations = true`, asserted over
   parsed TOML (W2, §6) — for what mise installs from the tracked configuration only.
-- **I7**: the population is a property, not a list — **every child a test starts whose `PATH` lookup of `python3` or
-  `mise`, or whose code (the driver's Step 1, `python_pin.main`), can reach mise**. Its members at `660e594c` plus
-  PR-1, each with its mechanism: (i) the children of `scripts/python_pin_testing.py` (NEW)'s `isolated_mise_env`
-  (NEW) — the fake first or no `mise` (N3's no-mise-call half, N9–N15, N19–N20); (ii) N1, whose environment is
-  stated exactly in §6.1; (iii) every pin-file child whose environment comes from `python_suites_fixtures.base_env()`
-  — `Scratch`'s driver, `git` and G9-baseline runs, and the direct driver launch at
-  `test_python_suites_regime.py:549–558` — which no longer inherits the outer `PATH` or any `MISE_*` (§4.3; N22).
-  Outside it: the `git` children of `test_tracked_tool_config.py` (they look up neither name and run no Step 1).
+- **I7**: the population is defined by **where a child's environment comes from**, not by which name it looks up
+  (any `PATH` lookup — `git`, `bash` — can resolve to a mise shim): (i) **every launch whose environment comes from
+  `scripts/python_pin_testing.py` (NEW)'s `isolated_mise_env` (NEW)** — the fake first or no `mise` (N3's no-mise-call
+  half, N9–N15, N19–N20); (iii) **every launch whose environment derives from `python_suites_fixtures.base_env()`**,
+  which no longer carries the outer `PATH` or any `MISE_*` (§4.3; N22) — at `660e594c`, `git grep -n -F 'base_env()'
+  -- scripts` prints its definition (`python_suites_fixtures.py:81`) and seven launch sites: `Scratch.git` / `run` /
+  `baseline` (`:139`, `:149`, `:160`), `test_python_suites_driver.py:261` (P6's `git ls-files`), and
+  `test_python_suites_regime.py:549` (the direct driver launch, `:549–558`), `:681` and `:690` (G9's two
+  `sys.executable -c pass` launches, `:681–683`, `:690–691`); PR-1 adds N22's; (ii) N1, in both: its environment
+  is the helper's with `base_env()`'s `PATH` (stated exactly in §6.1). Not in the population: the `git` children of
+  `test_tracked_tool_config.py`, whose environment is its own `_without_git_env()` (`:45–46`, the outer `PATH`); the
+  member is not a pin file and cannot take `base_env()` (P6), so a `git` that is itself a mise shim on the outer
+  `PATH` reaches mise there — in the live root and in L2's scratch tree, which holds a `.tool-versions` from PR-1
+  (§4.5) — a stated limit below.
 
 **Stated limits, not guarantees** (C22): same-version-other-source (body §11 T1, T2, the same-version bullet);
 untracked install-setting overrides (body §11, warned while set, never red); the oracle's shape (mise unpinned —
 degrades to item 6, never changes an exit status); the refusal on a real non-pin interpreter, measured once per
 module digest by hand (N17's record, §10); `feature_version` best-effort (N16's limit); on a platform without
-`os.killpg` the oracle's timeout kills mise only, not its descendants (§4.2 *Process tree*; no caller runs there);
-a host whose `/usr/bin` or `/bin` holds `mise` cannot run the pins (red, named — §4.3 `base_env`).
+`os.killpg` the oracle's timeout kills mise only, not its descendants, and everywhere a descendant that starts its
+own session leaves the killed group (§4.2 *Process tree*); a host where any directory of `CHILD_PATH` holds `mise`
+cannot run the pins (red, named — §4.3 `base_env`); a `git` on the outer `PATH` that is a mise shim, under T5's
+member (I7 above).
 
 ### §2.2 The fifteen umbrella pairs, gate half (body :285–309)
 
@@ -116,7 +124,7 @@ a host whose `/usr/bin` or `/bin` holds `mise` cannot run the pins (red, named �
 | I1 × I2 | Step 1 compares against the value read from `.tool-versions` at run time | `python_pin.read_pin` (NEW) called by `main` (NEW); no literal in the driver | N1's spelling control (edit the scratch pin to the shim's version → admitted; kills DM5), DM2 for a literal in the driver; NM3 |
 | I1 × I3 | CI reads the pin only through `python-version-file`; a `python-version` input beside it would win | `setup_problems` (NEW) in the readers: the setup step's `with` is exactly that one key | N4's red controls (added input, other file, second step) |
 | I1 × I5 | the reader and the refusal run on the interpreter being refused | `python_pin.py` stdlib-only, `sys` / `os` at top level, `subprocess` / `json` on the refusal path only, 3.9 grammar; index-only reads of `sys.version_info` | N16 (feature_version + the six rejected rows), N17 (digest record), N18 (imports) |
-| I1 × I6 | the one spelling names a patch both installers serve prebuilt; mise refuses a source build or an unverified archive | the two `[settings]` lines, W2 over parsed TOML from `tracked_tool_config.ADMITTED_LINES` (one source); clause 1 | W1, W2, W3; the bump rule in `python_pin.py`'s header |
+| I1 × I6 | the one spelling names a patch both installers serve prebuilt; mise refuses a source build or an unverified archive | the two `[settings]` lines, W2 over parsed TOML from `tracked_tool_config.ADMITTED_LINES` (one source); clause 1 | W1, W2, W3; a pointer to the bump rule in `python_pin.py`'s header (§4.2 *Header*) |
 | I1 × I7 | tests' scratch trees copy `python_pin.py` and write their own `.tool-versions`; the isolated mise reads only those | `pin_tree` (NEW) in the helper; `Scratch` copies both files | N9, N19 (a) |
 | I2 × I3 | one admitted interpreter ⇒ one leg | the job's `strategy` leaves; `strategy` leaves the job-key allowlist | N4, N6 |
 | I2 × I5 | Step 1 runs before any suite | the driver's Step 1 precedes the heredocs and the first `git` | N1 ("member(s) in" absent on every refusal) |
@@ -137,12 +145,12 @@ once).
 | pair | intersection | mechanism | held by |
 |---|---|---|---|
 | scratch repos × I1 | every A-iii scratch driver now runs Step 1, so each scratch tree must hold the pin and its reader | `Scratch.__init__` copies `.tool-versions` and `scripts/python_pin.py` from the live tree | every existing scratch pin stays green; N1 |
-| scratch repos × I7 | after Step 1 exists, a scratch driver whose `PATH` reaches a mise shim runs the real mise in a tree holding a copied `.tool-versions` (state writes; an unisolated oracle on any refusal) | `base_env()` pins `PATH` and drops `MISE_*` (§4.3) for every pin-file child, `Scratch`'s and the regime file's direct launch alike | N22 and its mutant FM1 |
+| scratch repos × I7 | after Step 1 exists, a scratch driver whose `PATH` reaches a mise shim runs the real mise in a tree holding a copied `.tool-versions` (state writes; an unisolated oracle on any refusal) | `base_env()` pins `PATH` and drops `MISE_*` (§4.3) for every launch of I7 (iii) (§2.1) | N22 and its mutant FM1 |
 | the oracle × I3 (no mise in CI) | CI and local must print the same facts | fake `mise` fixtures with the measured shapes (R§4.2) | N10–N12 |
 | the VM P4 removals × I2 | V5 / V6 / V22 are correct only on the pin | removed with Step 1's exact admission in the same PR | the guard and #510's self-test green on the pin; C35's census (§10) |
 | the `mise.toml` reader × Step 1's ordering | the `tomllib` reader is safe only after admission | the reader is a pin module run by a member, i.e. after Step 1 | N7 / N8 (member runs); I1 × I5 binds `python_pin.py` only |
 | PR-1's `mise.toml` writes × PR-0's clause 4 | the `[settings]` lines, the reworded description and the new comment must spell no `python` outside admitted occurrences | exact admitted lines; no word `python` in the new text except tracked paths with `/` | L1 (live), W3 (fixture) |
-| clause 1 × PR-0's seam | PR-0 :384 let PR-1 edit C3 g1 and C0's two lists only; that seam assumed clause 1 could join `problems` without touching a fixture, and it cannot (every fixture world without a tracked root pin turns red clause 1) | clause 1 is `root_pin_problems` (NEW), its own names; `problems` merges it; the valid-world baseline lives in the member's fixture layer (§4.5 *What the member's fixtures change*) | C0 (§4.5's edits), the review condition per function span (PR-0 :293–295, kept), C3–C5 / L2 green through the baseline |
+| clause 1 × PR-0's seam | PR-0 :293 and :384 let PR-1 edit only `problems`, C3 g1 and C0's two lists; why that seam cannot hold is §4.5 *What the member's fixtures change* | clause 1 is `root_pin_problems` (NEW), its own names; `problems` merges it; the valid-world baseline lives in the member's fixture layer (§4.5) | C0 (§4.5's edits), the review condition per function span (PR-0 :293–295, kept), C3–C5 / L2 green through the baseline |
 | `python_pin` × the pin layer (P6) | a pin file importing `python_pin` would pull it into `PIN_FILES` | no pin file imports it; `Scratch` copies it by path; `tracked_tool_config` (not a pin file) imports it | P6 unchanged |
 | the I7 helper × G9 | a pin file loads `python_pin_testing.py` by path, outside P6's import scan | the helper launches nothing | N21 (no call in G9's spawner set, read from G9's own source — §6.3) |
 | the timeout × #510's 2× trigger | PR-1 re-derives the value from its one leg | §7's rule (N = ceil(4 × the leg); raise-only recommended, PM decision 3) keeps the ratio ≥ 4 under either reading | the `ci.yml` comment's record |
@@ -211,9 +219,12 @@ stderr captured separately, through `subprocess.Popen(…, start_new_session=GRO
   question is asked, and the facts say so ("not asked: an earlier question timed out") — a fact about the refusal,
   not a cause. So a hang costs one timeout, not four.
 - **Process tree**: each question runs in its own session, so mise and everything it starts form one process
-  group; on `TimeoutExpired` the oracle calls `os.killpg(proc.pid, 9)` (9 = SIGKILL on Linux and macOS; `os` is
-  already imported, so `signal` stays out — body :241), then `proc.wait()` and closes the pipes **without reading
-  them again**, so neither mise nor a descendant holding the pipes can block the refusal or outlive it. Measured
+  group; `communicate` is wrapped so that **any** exception out of it (`TimeoutExpired`, and a `KeyboardInterrupt`:
+  Ctrl-C signals the terminal's foreground group, which mise's new session is not in) runs `os.killpg(proc.pid, 9)`
+  (9 = SIGKILL on Linux and macOS; `os` is already imported, so `signal` stays out — body :241), then `proc.wait()`,
+  and closes the pipes **without reading them again**; a `TimeoutExpired` then becomes the fact below, anything else
+  is re-raised. So no member of the group can block the refusal or outlive it; a descendant that starts its own
+  session has left the group and is not killed (a stated limit, §2.1). Measured
   2026-11-04 on macOS `/usr/bin/python3` 3.9.6 by the command below: `group 1.0 s gone` (the background `sleep` is
   dead), `child 1.0 s alive` (`proc.kill()` without a session leaves it). N15 pins both on the pin (no survivor;
   NM14).
@@ -237,11 +248,13 @@ stderr captured separately, through `subprocess.Popen(…, start_new_session=GRO
 
 **Shapes the fakes answer.** Measured 2026-11-04, mise 2026.10.25 macos-arm64, in a scratch project `$P` holding
 `.tool-versions` = `python 3.15.2` and a `mise.toml` with PR-1's two `[settings]` lines, every call as
-`cd $P && $I [MISE_TRUSTED_CONFIG_PATHS=$P] $M <question>`, where `M=$(type -P mise)`, `d=$(mktemp -d)`,
-`: > $d/g.toml` and `I="env -i HOME=$HOME PATH=/usr/bin:/bin MISE_OFFLINE=1 MISE_AUTO_INSTALL=false
+`cd $P && $I [MISE_TRUSTED_CONFIG_PATHS=$P] $M <question>`, run by `bash` (in zsh, `M=$(whence -p mise)`), where
+`M=$(type -P mise)`, `d=$(mktemp -d)`, `P=$d/p` (inside `$d`, so the post-check below covers it), `: > $d/g.toml` and
+`I="env -i HOME=$HOME PATH=/usr/bin:/bin MISE_OFFLINE=1 MISE_AUTO_INSTALL=false
 MISE_DATA_DIR=$d/data MISE_CACHE_DIR=$d/cache MISE_STATE_DIR=$d/state MISE_CONFIG_DIR=$d/config
-MISE_GLOBAL_CONFIG_FILE=$d/g.toml"` (body :113–117's probe rule); nothing was installed, and the user's
-`tracked-configs` / `trusted-configs` gained no entry resolving under `$d`:
+MISE_GLOBAL_CONFIG_FILE=$d/g.toml"` (body :113–117's probe rule); nothing was installed (`$d/data/installs` absent),
+mise recorded `$P/mise.toml`, `$P/.tool-versions` and `$d/g.toml` in `$d/state/tracked-configs`, and the user's
+`tracked-configs` / `trusted-configs` gained no entry resolving under `$d` (or its `/private` real path):
 - (a) trusted, not installed: rc 0, one element with exactly the keys `version`, `requested_version`,
   `install_path` (under `MISE_DATA_DIR` as given, `/var/…`), `source` `{"type": ".tool-versions", "path"}` (the real
   path, `/private/var/…`), `installed` (`false`) and `active`; untrusted: rc 1, empty stdout, five stderr lines (R§4.2's
@@ -252,8 +265,10 @@ MISE_GLOBAL_CONFIG_FILE=$d/g.toml"` (body :113–117's probe rule); nothing was 
 - (d) `$P/mise.toml` without the key: rc 1, `Key not found: env._.path in <path>`; `$P/.tool-versions`: rc 1, a
   TOML parse error.
 
-The fakes copy these shapes; E8's, E9's and E11's answers copy R§4.2's rows (records :292–299 and :326, mise
-2026.10.21 / .25) and E12's `["altbin"]` R§0's; no other answer is authored. §10 step 4's real run checks that a real mise's answers
+The fakes copy these shapes — E7's (the untrusted rows), E10's ((a)'s not-installed row, (b), and the trusted (c) / (d) rows) and E13's (the trusted rows;
+its subject is item 3's paths); E8's, E9's and E11's answers copy R§4.2's rows (records :292–299 and :326, mise
+2026.10.21 / .25) and E12's `["altbin"]` R§0's; E6 has no fake. E14–E16's answers (garbage or exit 2, a hang, an
+over-long stderr) are authored fault injections, not mise shapes. §10 step 4's real run checks that a real mise's answers
 still parse (its (c) prints one path per line, not item 6).
 
 **The refusal (body :432–456; C31, C37).** `refusal_text(…)` (NEW) is pure; `main` prints it to stderr and returns 1.
@@ -283,8 +298,9 @@ never sees a malformed live pin in CI; W1 reaches its parse branch in-process).
 **`main()`** (NEW): print the warning lines; read the pin (exit 2 on error); return 0 if `admitted(sys.version_info,
 pin)`, else ask mise and print the refusal, return 1.
 
-**Header (C15, C16 (f)).** A pointer to the bump rule (body §4.1, :331–334, and its rows; C15 places the pointer,
-not the rule, here), and the oracle probe recipe with the program's isolation lines (body :113–117): R§11 *T1*'s
+**Header (C15, C16 (f)).** A pointer to the bump rule (body §4.1, :331–334, and its rows; C15, rounds :445–448,
+places the pointer, not the rule, here; C16 (f)'s "the header keeps the bump rule", rounds :463, is read as that
+pointer — a wording drift reported in §8.3), and the oracle probe recipe with the program's isolation lines (body :113–117): R§11 *T1*'s
 environment block, then questions (a)–(d) — the
 "probe scripts" R§4.2 :309–310 says this plan records (the `probe.sh` / `probe2.sh` files are not in the tree; the
 recipe is re-derived from R§11). The re-measure rule is N17, not a header sentence (C24).
@@ -296,9 +312,9 @@ recipe is re-derived from R§11). The re-measure rule is N17, not a header sente
   python3 is not the pinned interpreter, or the pin file is unreadable (scripts/python_pin.py printed what it
   observed, above)` and exits 1. `-I -S` stay (the admission is the interpreter's property). `python3 -VV` is echoed
   after it. The cwd mise is asked at is `$root`, where the shim resolved this `python3`. No `(3, 9)` remains.
-- **Header** (`:10–12`, `:15–19`, `:129–131`): "Python >= 3.9 standard library" → "the pinned interpreter's standard
+- **Header** (`:10–12`, `:15–19`, `:129–132`): "Python >= 3.9 standard library" → "the pinned interpreter's standard
   library"; step 1 → the pin (exact, `scripts/python_pin.py`, measured by the `tools` job's one leg, the warning).
-  The "pins … live in" sentence (`:129–131`, the pin layer = `PIN_FILES`) is unchanged; after it, one new sentence:
+  The "pins … live in" sentence (`:129–132`, the pin layer = `PIN_FILES`) is unchanged; after it, one new sentence:
   `scripts/test_python_pin.py` (Step 1's reader and refusal) and `scripts/test_tracked_tool_config.py` (T5) are set
   members outside the pin layer — neither imports a pin file, and no pin file imports them.
 - **`Scratch`** (`scripts/python_suites_fixtures.py:126–136`): copies the live `.tool-versions` and
@@ -309,15 +325,19 @@ recipe is re-derived from R§11). The re-measure rule is N17, not a header sente
   environment without any `GIT_*` **or `MISE_*`** variable, with `PATH` replaced by `CHILD_PATH` (NEW constant) =
   `os.path.dirname(sys.executable)`, `/usr/bin`, `/bin` — the admitted interpreter's directory first, then the two
   directories that hold `bash`, `git` and the POSIX utilities the scratch driver calls on both macOS and
-  `ubuntu-24.04`. The pin files' driver, `git` and baseline launches take their environment from it (`Scratch.run` /
-  `git` / `baseline` at `:138–169`, the regime file's `:549–558`, the driver file's `:260`; children of a scratch
-  run inherit it), so after Step 1 exists none can reach mise: `python3`
+  `ubuntu-24.04`. Every launch of I7 (iii) (§2.1, its sites and grep) takes its environment from it, and children
+  of a scratch run inherit it, so after Step 1 exists none can reach mise: `python3`
   resolves to the admitted interpreter, not a shim, and no outer `MISE_*` reaches a child. Fail-safe: when
-  `shutil.which("mise", path=CHILD_PATH)` finds one (a distribution package in `/usr/bin`), `base_env()` raises
-  `AssertionError` naming it rather than leave a reachable real mise (the stated limit of §2.1). Why not the helper's
-  isolation here: these runs are admitted runs, so making mise unreachable is stronger than isolating it, and the
-  fixtures module (a pin file) does not load `python_pin_testing.py`. The docstring says why (§2.3, scratch × I7).
-  Pinned by N22 and FM1 (§6.1).
+  `shutil.which("mise", path=CHILD_PATH)` finds one in **any** of its three directories — `/usr/bin` (a distribution
+  package) or the interpreter's own directory (a package manager's `bin` holding both, e.g. Homebrew's) —
+  `base_env()` raises `AssertionError` naming it rather than leave a reachable real mise (the stated limit of
+  §2.1). Raise, not isolate: the isolation has one home, the helper (one issue, one way), and the fixtures module
+  (a pin file) does not load `python_pin_testing.py`; an inline copy of its `MISE_*` lines here would be a second
+  one, and its temporary directories would need a lifetime `base_env()` does not own. The red names the path, and
+  the remedy is the host's (run the pins on an interpreter whose directory holds no `mise`, e.g. mise's own install
+  of the pin, §10 step 2). Whether `ubuntu-24.04`'s image holds a `mise` in `/usr/bin` is **unverified** (no
+  source for it is in the tree); if it does, the `tools` job is red, named, on PR-1's own run. The docstring says
+  why (§2.3, scratch × I7). Pinned by N22 and FM1 (§6.1).
 
 ### §4.4 CI — the `tools` job and the `ci.yml` reader
 
@@ -388,11 +408,15 @@ not edited), or when `parse_pin` raises (its `why`); it calls `finding` and noth
 `_REMEDY_PIN` (NEW): "the root .tool-versions is exactly one line, python X.Y.Z (the pin); another tool goes into
 mise.toml [tools]". The module takes the parser only: `from python_pin import PinFileError, parse_pin`
 (`sys.path[0]` is `scripts` under the driver) — `python_pin` also holds `ask_mise`, which launches, so the module
-binds no name that can. The module docstring's "clause 1, added later" and "Python 3.9 syntax" are restated
-(statement class).
+binds no name that can. Restated (statement class): the module docstring's first line "T5 clauses 2-5" (`:1`), its
+"clause 1, added later" and "Python 3.9 syntax" (`:9`, `:13`), the `CLAUSES_2_TO_5` comment (`:28`,
+"`problems` (the composition point PR-1 edits, with C0's two lists)") → every top-level name except `problems` and
+clause 1's names, C0 holding it, without the PR-1 seam (the next paragraph says why it went), and `problems`'
+docstring "in PR-0, clauses 2-5" (`:233`) → clauses 1–5.
 
-**What the member's fixtures change** (supersedes PR-0 :384's "g1 is the one existing control PR-1 edits, and C0 …
-nothing else in C0"; that seam assumed clause 1 could join `problems` without touching a fixture, and it cannot:
+**What the member's fixtures change** (supersedes PR-0 :293's "edits only `problems` … plus C0's two lists" and
+:384's "g1 is the one existing control PR-1 edits, and C0 … nothing else in C0" — the one statement of why; §2.3 and
+§4.7 refer here). That seam assumed clause 1 could join `problems` without touching a fixture, and it cannot:
 with clause 1 merged, every fixture world whose tracked list lacks a root `.tool-versions` gains a clause-1 finding,
 so C3 r1–r4's `only(…)`, C4's `only(…)` and `== []` cases, C5's exact list, L2 and `test_mutants_are_killed`'s
 unpatched pre-run all turn red). T5 stays one predicate, `problems` over clauses 1–5; the **valid world is the
@@ -411,8 +435,10 @@ fixture layer's baseline**. In `scripts/test_tracked_tool_config.py` at `660e594
 - L2's scratch repository (`:437–443`) writes a real `.tool-versions` holding `PIN_BYTES` and adds it with the same
   `git add -f` line; M1 (`_walk_lister`) still dies there (it lists the untracked files);
 - C0: the comment of `MODULE_IMPORTS` (`:107`, "none can launch a process" — restated: none launches when imported,
-  and from `python_pin` only the parser is taken) and the tuple gaining `python_pin`; the `ImportFrom` check
-  (`:147–152`) admitting from `python_pin` exactly `PinFileError` and `parse_pin`; the seam assertion (`:171–173`)
+  and from `python_pin` only the parser is taken) and the tuple gaining `python_pin`; the `Import` check (`:143–146`,
+  which admits any `MODULE_IMPORTS` name) rejecting `import python_pin` (it would bind the module, `ask_mise`
+  included); the `ImportFrom` check (`:147–152`) admitting from `python_pin` exactly `PinFileError` and
+  `parse_pin`; the seam assertion (`:171–173`)
   excluding the clause-1 names (`root_pin_problems`, `_REMEDY_PIN`) beside `problems`; the existence loop
   (`:175–176`) running over `CONTROLS_2_TO_5 + CONTROLS_1` (§6.4).
 - `:427` (L1, the live tree) and every other line are unchanged; PR-0's `MUTANTS` table and its exact ID assertion
@@ -458,11 +484,16 @@ Every amendment replaces the sentence and appends `(amended <PR-1 landing date> 
   UNCHECKED line (§4.6). Line numbers: `git grep -n -F` of each quoted sentence at PR-1's base.
 - **#510's memo** (V12 `:73`, V13 `:1116–1117`, V15 `:434`, V18 `:1097–1108`) and **#506's** (V16, V17, V19–V21,
   V23): §8.1 (the consent's conditions decide their text and their pointers).
-- **PR-0's plan** (`docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md`): `:384`'s "g1 is the one existing
-  control PR-1 edits, and C0 the one existing control whose two lists PR-1 extends … and nothing else in C0" gets
-  the marker and the pointer "superseded: PR-1 also edits the member's fixture layer and C0 as its plan §4.5 lists —
-  clause 1 cannot join `problems` without a valid-world baseline in every fixture". `:291–295` (the module-side seam:
-  clause 1 its own function, `problems` the one composition edit) stays true and is not edited.
+- **PR-0's plan** (`docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md`): `:293`'s "edits only `problems` …
+  plus C0's two lists (§6: …)" and `:384`'s "g1 is the one existing control PR-1 edits, and C0 the one existing
+  control whose two lists PR-1 extends … and nothing else in C0" each get the marker and the pointer "superseded:
+  PR-1 also edits the module's statements, the member's fixture layer and C0 as its plan §4.5 lists" (the reason is
+  §4.5's). Kept, not edited: `:291–293`'s clause 1 as its own function calling nothing of clauses 2–5 but `finding`,
+  and `:293–295`'s review condition per function span (as `:58–59` and `:139–140` state it).
+  The sweep at `660e594c`: `git grep -n -F "C0's two lists" -- docs/plans scripts` prints PR-0 `:293` and
+  `scripts/tracked_tool_config.py:28` (§4.5); `git grep -n -F "PR-1 edits" -- docs/plans scripts` adds PR-0 `:59`,
+  `:139` (the kept condition), `:384`, and umbrella / rounds / vm-p4 lines on other subjects (the VM P4 lane's
+  lines and checker run, the J1 row, clause 1's placement in the PR-0 split at umbrella `:627`).
 - **CI/tools ledger items 3 / 4** (body :533–548): through the PM (§10).
 
 ### §4.8 The I7 helper — `scripts/python_pin_testing.py` (NEW; body :197–234, C23, C28, C34)
@@ -543,8 +574,15 @@ then runs anyway is **unmeasured**. Measured 2026-11-04, mise 2026.10.25
 macos-arm64, in a scratch project holding `python 3.15.2`, the two `[settings]` lines and `[tasks.x] run = "echo
 task-ran; command -v python3"`: `$I MISE_TRUSTED_CONFIG_PATHS=$P $M run x` (`$I` / `$M` as §4.2 *Shapes the fakes
 answer*, without `MISE_OFFLINE=1 MISE_AUTO_INSTALL=false` because the install is the subject; everything under `$d`)
-installed `cpython-3.15.2+20261026-aarch64-apple-darwin-install_only_stripped` (27.7 MB, 3.5 s) into `$d/data`
-before the task, whose `command -v python3` printed that install; rc 0. §10 step 9 tells every lane.
+installed `cpython-3.15.2+20261026-aarch64-apple-darwin-install_only_stripped` into `$d/data`
+before the task, whose `command -v python3` printed that install; rc 0. §10 step 9 tells every lane. (8) The pins'
+scratch drivers, `git` and utilities, locally: from the outer `PATH` (which may put a newer `bash` or GNU tools
+ahead of `/bin`) → from `CHILD_PATH` (§4.3) — on macOS `/bin/bash` 3.2.57 and Apple's `/usr/bin` tools (macOS has
+no `/usr/bin/bash`: `ls /usr/bin/bash` fails); on `ubuntu-24.04` the same `/usr/bin` as before. Measured at `660e594c` on 2026-11-04, the
+driver and every scratch driver it starts (they take `bash` from that `PATH`) on exactly those:
+`env PATH="$(dirname "$(python3 -c 'import sys;print(sys.executable)')"):/usr/bin:/bin" /bin/bash
+scripts/python-suites.sh` → `GREEN -- 11 member(s), 130 test(s) passed`. After PR-1 every local pin run is on
+them, so §10 step 2's run measures PR-1's own driver there.
 
 ---
 
@@ -578,9 +616,12 @@ unmutated.
   `.tool-versions`, no member ran.
 - **N22** (I7 (iii)): `write_sentinel` puts a `mise` and a `python3` sentinel in a directory first on the test's
   `os.environ["PATH"]` (`mock.patch.dict`); then a passing `Scratch` run (`s.run()`) and a direct driver launch
-  built as the regime file's `:549–558` is (`_launch(["bash", …], env=base_env(), …)`) are both GREEN and
+  built as the regime file's `:549–558` is (`_launch(["bash", …], env=fixtures.base_env(), …)`) are both GREEN and
   `sentinel.log` is absent; `shutil.which("python3", path=CHILD_PATH)` resolves (`os.path.realpath`) to
-  `os.path.realpath(sys.executable)`; `base_env()` holds no `MISE_*` key although the patched `os.environ` sets one.
+  `os.path.realpath(sys.executable)`; `fixtures.base_env()` holds no `MISE_*` key although the patched `os.environ`
+  sets one. N22 reaches `base_env` only as an attribute of the module object (`import python_suites_fixtures as
+  fixtures`), never through the file's by-name import (`:26`), so FM1's patch reaches all three of its uses; the
+  `CHILD_PATH` assertion pins the constant, which FM1 leaves.
 - **Driver and fixture mutants** (`DRIVER_MUTANTS`, NEW, in this file): DM rows are source mutants over the scratch
   copies of the driver and of `python_pin.py` — (ID, file, find, replace, killing control), the find text occurring
   exactly once in the live file it mutates (a stale row is red), written into the scratch tree after
@@ -591,7 +632,8 @@ unmutated.
   DM4 Step 1's failure branch without its `exit 1` (the check no longer precedes the first suite) → N1's `member(s)
   in` assertion; DM5 `python_pin.py`'s `main` comparing against a literal triple instead of `read_pin`'s value → N1's
   spelling control (I1 × I2: editing the pin must move acceptance). FM1 (`mock.patch.object` on the
-  fixtures module) `base_env` restored to `660e594c`'s body (outer `PATH`, `MISE_*` kept) → N22. The test asserts
+  fixtures module) `base_env` restored to `660e594c`'s body (outer `PATH`, `MISE_*` kept) → N22's `Scratch` run,
+direct launch and no-`MISE_*` assertion, each of which kills it alone. The test asserts
   each killing control passes unmutated and raises `AssertionError` mutated.
 
 ### §6.2 `scripts/test_python_suites_ci.py` (pin file)
@@ -629,10 +671,12 @@ fake's log holds exactly (a), (b), (c) and one (d) per listed path, in order. **
 wins **and** `mise which` ≠ `sys.executable` **and** a warned variable: all three printed. **N13** warning — E17 /
 E18, on refusal and on admission, exit status unchanged. **N14** `sys.executable` — one fixture without the
 override: item 2 equals the child's real value (C37 (b)). **N15** limits — E14, E15 (fixture timeout 1 s, the test's
-own subprocess timeout 60 s through `run_child`), E16; and E15's **no survivor**: after the refusal returns, both pids
-the fake wrote to `hang.pids` (the fake, the group leader, and its `sleep`) are gone within 5 s (polled with
-`os.kill(pid, 0)` until `ProcessLookupError`; reaping an orphan is its new parent's, so a short poll, not an instant
-check). **N19** I7 pins — (a) inside N10's fixtures: the fake recorded the five variables
+own subprocess timeout 60 s through `run_child`), E16; and E15's **no survivor**: after the refusal returns,
+`hang.pids` holds exactly two pids (the fake, the group leader, and its `sleep`; absent, one line or a third is red),
+and both are gone within 5 s, polled: gone = `os.kill(pid, 0)` raises `ProcessLookupError`, or on Linux
+`/proc/<pid>/stat`'s state field is `Z` (a zombie no reaper has collected yet, e.g. under a container's pid 1;
+killed is what is asserted). macOS has no `/proc`, so there the poll relies on `launchd` reaping orphans — the
+assumption §4.2's measurement (`group 1.0 s gone`) observed. **N19** I7 pins — (a) inside N10's fixtures: the fake recorded the five variables
 under the test's root, the global file empty, no other `MISE_*`, and `shutil.which("mise", path=child_PATH)` is the
 fake (or `None` for E6); (b) after one refusal, no entry of the real `tracked-configs` / `trusted-configs` (outer
 `MISE_STATE_DIR`, else `$XDG_STATE_HOME/mise`, else `~/.local/state/mise`; read only; absent = empty, never a skip)
@@ -782,8 +826,12 @@ Umbrella statements this plan departs from, for the PM (the umbrella is not edit
 reader asserts both values") and the body :564 row ("their assertion" with the `tomllib` reader) — W2 lives in the T5
 member (§4.5); body :229–230's prescription "(c) a mutant that drops the helper turns (a) red everywhere and (b) red
 locally" — PR-1's NM-I7 is killed by the fixture-owned sentinel N19 (c) instead (§6.5); body :241's "seven
-constructs" against R§11's ten accepted rows (A4 FYI, umbrella-side). PR-0's plan `:384` is amended in place by PR-1
-itself (§4.7).
+constructs" against R§11's ten accepted rows (A4 FYI, umbrella-side); body :270–274, which gives I6's assertion
+("reads their table and values from parsed TOML") as half of why the `mise.toml` reader moves to `tomllib` — with
+W2 in the member that half no longer goes through the reader, which moves for I2 × I3 and C3 alone (§4.5); and
+rounds :463, C16 (f)'s "the header keeps the bump rule", against C15 (rounds :445–448) placing only a pointer
+there (§4.2 *Header* reads it as the pointer). PR-0's plan `:293` and `:384` are amended in place by PR-1 itself
+(§4.7).
 
 For the VM P4 lane (vm-p4 :114–115, carried here because no file holds it): its manifest-regeneration practice
 ("byte-identical on 3.9/3.12/3.14", #562's commit body) becomes "regenerated on the pin" from PR-1's landing.
@@ -796,9 +844,10 @@ decision 124); every lane (from PR-1, the root `.tool-versions` is exactly one `
 (body :816–819; C3): A-iii §13's sweep with `.tool-versions`, `scripts/python_pin.py`, `scripts/python_pin_testing.py`,
 `mise.toml`, the readers and §8.1's files added; `git diff --stat origin/main...<head> -- scripts` per open PR; T5
 (clauses 1–5) on each open PR's head, as PR-0 §8 runs it. **The interval** (body :676–708) opens at PR-1's landing;
-the landing report says so. **Contingency on C38** (**PM decision needed** 1): if §7's N > 22, vm-p4 O3's "under the
-unchanged value 22" (vm-p4 :151) becomes false; recommended: delete those words only, as PR-0 §7 prescribed for
-itself, with VM P4's consent through the PM before landing.
+the landing report says so. **Contingency on C38** (**PM decision needed** 1): if PR-1's value is not 22, vm-p4
+O3's "under the unchanged value 22" (vm-p4 :151) becomes false, whichever way it moves; recommended: delete those
+words only, as PR-0 §7 prescribed for itself, with VM P4's consent through the PM before landing. Coupled to PM
+decision 3 (§7): under raise-only the trigger is N > 22; under "set it to N" it is N ≠ 22.
 
 ---
 
@@ -853,9 +902,12 @@ Decision 170's limit is not a slot (body :866–867).
     `MISE_OFFLINE=1`, since mise must look for a prebuilt), where `<patch>` is one the plain listing has and
     python-build-standalone does not build (R§4.1's `comm -23` recipe, records :256) → rc 1, `no precompiled python
     found`. This plan's record of it (the scratch `mise.toml` held the two `[settings]` lines and one task): 2026-11-04,
-    mise 2026.10.25 macos-arm64, `python@3.11.2` → rc 1 in 351 ms,
+    mise 2026.10.25 macos-arm64, `python@3.11.2` → rc 1,
     `no precompiled python found for core:python@3.11.2 on aarch64-apple-darwin`, nothing under `$d/data/installs`.
-    The holders of I2 × I6 are then: W2 = the settings are present; this step = mise refuses (a dated record between
+    Negative control (nothing installed either), so the refusal is attributable to the tracked file: `$I
+    MISE_TRUSTED_CONFIG_PATHS=$P $M settings get python.compile` (§4.2's `$I`) prints `false`, rc 0, in that
+    project, and `mise ERROR Setting [python.compile] is not set`, rc 1, in an empty one (its own path trusted) —
+    measured 2026-11-04, mise 2026.10.25 macos-arm64. The holders of I2 × I6 are then: W2 = the settings are present; this step = mise refuses (a dated record between
     landings, since mise is unpinned).
 
 **DoD / exit criterion** (C22):
@@ -882,7 +934,8 @@ PR-2 (body :565 row): the launch-evidence predicate and the guard in every deriv
 itself (it reads no version-sensitive import before admission); (2) the helper's `LAUNCHER` and `write_fake_python3`
 are PR-2's E1 fixtures; (3) PR-2's entry points refuse with exit 1 and pin-file errors exit 2, as `main` does.
 
-**PM decisions needed** (recommendations above): (1) §8.4 — the C38 contingency on vm-p4 O3 if the timeout rises;
+**PM decisions needed** (recommendations above): (1) §8.4 — the C38 contingency on vm-p4 O3 if the value is not 22
+(coupled to (3));
 (2) §8.1 row 2 — applying consent item 2's wording to V9's docstring ("an over-long name" dropped there too), a
 VM-P4-written line the consent's table names only as "drop the `RuntimeError` arm and its sentence" (recommended:
 ask VM P4; until it answers, PR-1 makes the deletion only); (3) §7 — whether PR-1's timeout re-derive may lower the
