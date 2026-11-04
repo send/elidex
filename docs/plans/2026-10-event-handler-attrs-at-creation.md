@@ -1038,7 +1038,8 @@ These are evidence that slice b's plan must account for. None of them is decided
   reconcile.
 - **N-6, policy at direct-call sites (R2 A1 MIN).** A direct call needs the `SpecLevelPolicy`, which the VM holds (H19).
   The capable sites (`inert_document.rs:110`, `elidex-dom-api` `node_methods/clone.rs:227`) carry none today. Rev 8.<t>:
-  the clone's site is T3's, in the VM's `cloneNode` shim, which holds the policy (T3 memo D-T10).
+  the clone's site is T3's: an `EventHandlerAttributeConsumer` arm on L3 RC-2a's `MutationEvent::CloneCreated`; the
+  consumer holds the policy (T3 memo D-T10, PM decision 359).
 - **N-7, rev 4's slice-b cell shapes** (B1: multi-attribute DOMParser write; B2: never-inserted clone read; B3: body
   clone vs `window.on*`; B4: template contents before and after a move out; B5: DOMParser `<body onpageshow>`; B6:
   shadow-root-direct and post-bind host shadow content; B8: multi-attribute post-bind write). Each pins a §1.5 window.
@@ -1108,7 +1109,7 @@ The criterion for N1's landing is the IBP-sandbox node memo's §5.1 claim (each 
 restrictive than it; none is a restriction escape"); §L classifies NR8 (a) as worse but does not gate the landing.
 
 Moved to slice b's plan (not open here): **O9** call-site shape (§9 N-1; rev 8.<t>: decided for the clone path by T3's
-plan, T3 memo D-T10, one session entry point called from the VM's `cloneNode` shim; slice b decides it for its paths); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
+plan, T3 memo D-T10, one session entry point called from the `CloneCreated` arm; slice b decides it for its paths); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
 
 Open:
 - **O4, writer completeness.** Is §5.0 complete for handler state, in particular any VM path that writes
