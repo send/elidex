@@ -54,10 +54,12 @@ build.
 - Slice S's D-S1 (ordering) stays on S. This slot is S's former D-S2 limb and nothing else of S.
 - Missing built-ins (`Object.hasOwn`, `Reflect.construct`, `Proxy`) are not this. Neither `Reflect` nor
   `Proxy` exists in the VM (§1.1), so neither is an entry point to fix; both are
-  `#11-vm-proxy-reflect`'s (slice-plan row **10a**), and §5 records what they consume from this slot.
+  `#11-vm-proxy-reflect`'s (`Reflect.construct` in slice-plan row **10a**, Proxy `[[Construct]]` in row
+  **10b**), and §5 records what they consume from this slot.
 - The built-ins that should `[[Construct]]` their receiver and do not (`Array.from`, `Array.of`,
   `Promise.resolve`, the TypedArray statics' TypedArrayCreateFromConstructor): each is a missing
-  construct entry, stated as a defect in §1.1 and homed in §5.
+  construct site (an admission for `Promise.resolve` and the TypedArray statics, a branch on the
+  predicate for `Array.from` / `Array.of`), stated as a defect in §1.1 and homed in §5.
 - The **argument values** of `new X(...args)`: a spread is passed as one argument (the array), owned by
   `#11-vm-call-spread-arguments` (umbrella 1b's child for `new F(...xs)`). The admission is not affected —
   the call is `Op::New` → `do_new` — so T-NEW spells the spread form (§4). `Op::NewSpread` is never
@@ -108,13 +110,12 @@ build.
   engine-side, so §1.3 removes the gate (#588 moved it unchanged, gate included). The other 15
   errors belong to `#11-elidex-js-default-features-build-broken` (owner CI/tools; the profile question
   is `#11-elidex-js-no-default-features-support`). **Landing obligations** — the same three sites §5
-  names: (1) in `#11-elidex-js-default-features-build-broken`, replace the error count with the one
-  measured at implementation and drop `dispatch.rs:998` from its site list. The obligation is "the
-  count falls by exactly one and no E0425 for `is_constructor` remains", not a literal: this revision
-  re-measured **16** at `115a667c` (rustc 1.99.1), while the live slot records **18** at `fab44a1d`
-  (PM 334), and `115a667c..fab44a1d` changes only test files in the crate, so the two figures are not
-  reconciled here. The PR body states the measured before/after counts (PM 318); (2) in `#11-elidex-js-no-default-features-support`,
-  drop `object_kind::is_constructor` from the errors it names; (3) the family's quote of the same 16 errors
+  names: (1) in `#11-elidex-js-default-features-build-broken`, drop `dispatch.rs:998` from that slot's
+  site list; the PR body states the default-features error count before/after (exactly one fewer, the
+  `is_constructor` E0425 gone). The live slot records no count (PM 336), so the obligation is relative,
+  not a literal (PM 318); (2) in `#11-elidex-js-no-default-features-support`,
+  drop `object_kind::is_constructor` (the slot's wording; `construct_admission::is_constructor` since
+  #588) from the errors it names; (3) the family's quote of the same 16 errors
   in `docs/plans/2026-07-vm-p4-slot-ledger.md:310` (`#11-vm-typed-array-family-layering-and-gate`) is
   pinned to `907f3135` by its own text, so it stays true and gets no edit — a note only.
 - **P-5 — `Op::NewSpread` is not an entry.** The ledger and the previous revision of this memo treated
@@ -154,10 +155,10 @@ Found by `git grep -n 'CallMode::Construct {' 115a667c -- crates/script/elidex-j
 | custom-element upgrade — `construct_synchronous` | `vm/host/custom_elements/upgrade.rs:315` | indirectly: the constructor was admitted at define time by `is_constructor` (`define.rs:49`) | covered by the `construct_synchronous` fix, no own change |
 | native construct — `call_construct_native` | `vm/interpreter.rs:95`, sole caller `vm/ops.rs:808` | reached only after `do_new`'s native check | no own change (behind `do_new`) |
 | `Op::NewSpread` | `vm/dispatch.rs:879-883` | n/a: never emitted (`git grep -n NewSpread 115a667c -- crates/script/elidex-js/src/compiler` → no output) | **no** — dead arm, not an entry |
-| `Reflect.construct`, Proxy `construct` trap | — | n/a: neither exists (`git grep -c 'Proxy' 115a667c -- crates/script/elidex-js/src/vm/object_kind.rs crates/script/elidex-js/src/vm/value.rs` → no output); owned by `#11-vm-proxy-reflect` (slice-plan row **10a**) | no — hand-off in §5 |
-| `Array.from` / `Array.of` receiver | `vm/natives_array_hof.rs:489` / `:556` | **missing entry, silently wrong**: both take `_this` and never read it, so they never run IsConstructor(*C*) / Construct(*C*) (`Array.from` steps 5.a and 9, `Array.of` step 4), and `class A extends Array {}; A.from([1]) instanceof A` is `false` (read from the signatures at `115a667c`, not probed) | no — slice-plan row **9a** (§5) |
-| `Promise.resolve` receiver | `vm/natives_promise.rs:760` | **missing entry, silently wrong**: takes `_this`, so PromiseResolve(*C*, *x*) (§27.5.4.7.1) and its NewPromiseCapability(*C*) (§27.5.1.5, step 1 IsConstructor, step 6 Construct) are skipped — a subclass receiver gets a plain `%Promise%` and a non-constructor receiver is not refused (read, not probed) | no — slice-plan row **9da** (§5) |
-| TypedArray statics' TypedArrayCreateFromConstructor | `vm/host/typed_array_static.rs:116-121` | **missing entry, silently wrong**: TypedArrayCreateFromConstructor (§23.2.4.1) step 1 is `Construct(ctor, argList)`; the statics only *test* with `is_constructor` (`:146`, `:287`) and build the instance directly, so a subclass constructor's body never runs — the "deferred to a follow-up PR" comment names no slot | no — `#11-vm-typed-array-create-construct` (§5) |
+| `Reflect.construct`, Proxy `construct` trap | — | n/a: neither exists (`git grep -c 'Proxy' 115a667c -- crates/script/elidex-js/src/vm/object_kind.rs crates/script/elidex-js/src/vm/value.rs` → no output); owned by `#11-vm-proxy-reflect` (`Reflect.construct`: slice-plan row **10a**; Proxy `[[Construct]]`: row **10b**) | no — hand-off in §5 |
+| `Array.from` / `Array.of` receiver | `vm/natives_array_hof.rs:489` / `:556` | **missing branch, silently wrong**: both take `_this` and never read it, so they never test IsConstructor(*C*) and never Construct(*C*), and `class A extends Array {}; A.from([1]) instanceof A` is `false` (read from the signatures at `115a667c`, not probed). These are a **branch, not an admission**: `Array.from` steps 5.a and 9 and `Array.of` step 4 are `If IsConstructor(C) … Construct(C) … Else ArrayCreate`, so a non-constructor receiver is not refused (`Array.from.call({}, [1])` returns a plain Array) | no — slice-plan row **9a** (§5): branches on the predicate |
+| `Promise.resolve` receiver | `vm/natives_promise.rs:760` | **missing entry, silently wrong**: takes `_this`, so PromiseResolve(*C*, *x*) (§27.5.4.7.1) and its NewPromiseCapability(*C*) (§27.5.1.5, step 1 IsConstructor, step 6 Construct) are skipped — a subclass receiver gets a plain `%Promise%` and a non-constructor receiver is not refused (read, not probed). **Admission shape**: NewPromiseCapability step 1 throws a TypeError when IsConstructor(*C*) is false | no — slice-plan row **9da** (§5): consumes the admission |
+| TypedArray statics' TypedArrayCreateFromConstructor | `vm/host/typed_array_static.rs:116-121` | **missing entry, silently wrong**: TypedArrayCreateFromConstructor (§23.2.4.1) step 1 is `Construct(ctor, argList)`; the statics only *test* with `is_constructor` (`:146`, `:287`) and build the instance directly, so a subclass constructor's body never runs — the "deferred to a follow-up PR" comment names no slot. **Admission shape**: the AO's `ctor` parameter is a constructor and its step 1 is the Construct | no — `#11-vm-typed-array-create-construct` (§5): consumes the admission |
 
 ### §1.2 What the predicate must answer, against what it answers
 
@@ -292,8 +293,9 @@ debug-only, like the `debug_assert_eq!` at `vm/interpreter.rs:210` that the orig
 in release, and that is deliberate: a release check would cost a branch on every construct, a hot path,
 and the structural guarantee is elsewhere — the admission at the cause plus the classifier's fail-safe
 default (`has_construct` defaults to `false`, unknown kinds are `NotConstructor`), so a kind nobody
-classified is refused before it reaches the push. T-POP pins the release behaviour (§4.1: the cell
-reads the caller's locals, so a release over-pop is a wrong value, not a silent pass).
+classified is refused before it reaches the push. T-POP is release-observable by its value (§4.1: the
+cell reads the caller's locals, so a release over-pop is a wrong value, not a silent pass); CI runs debug
+nextest, where the `debug_assert!` fires first; no gate runs it in release.
 
 **Error wording** is the crate's existing set, now produced in one place: a JS non-constructor or
 non-callable kind → `"not a constructor"` (`vm/ops.rs:686`, `:712`, `:750`;
@@ -323,8 +325,8 @@ removes and are rewritten to name the admission helper: `vm/interpreter.rs:328-3
   `%Function.prototype%`), 8.g IsConstructor false → TypeError, 8.h the constructor path (8.h.i
   `Get(superclass, "prototype")`, 8.h.ii protoParent neither Object nor null → TypeError). The old
   sub-step letters also disagree with each other (`tests_class_machinery.rs:218` labels protoParent
-  `6.f.iii`, `:271` labels it `6.f.i`). This PR edits the heritage check at `vm/dispatch.rs:998`, so it
-  re-cites every site of the concept by AO name plus these step numbers: `vm/dispatch.rs:967`,
+  `6.f.iii`, `:271` labels it `6.f.i`). This PR changes the heritage check's answer through the predicate (no
+  code edit at `vm/dispatch.rs:998`), so it re-cites every site of the concept by AO name plus these step numbers: `vm/dispatch.rs:967`,
   `:982-986`; `vm/tests/tests_class_machinery.rs:199`, `:218`, `:227`, `:252`, `:271`, `:280`, and the
   three D4 did not list, `:319` (8.g), `:345` (8.h.ii), `:357` (8.c); `bytecode/opcode.rs:355`;
   `compiler/expr_class.rs:20`, `:200`, `:217`, `:232-234` (sweep:
@@ -371,8 +373,8 @@ fails (derived here; the post-implementation run in §4.2 records it).
 
 | Mutant | Cells it fails | Fails alone? | Invariant it breaks | Folded into | Meets the other axes at |
 |---|---|---|---|---|---|
-| **M8** admission after `push_js_call_frame` in `construct_synchronous` | T-ORD's super half only: the async X's push runs its body (`vm/interpreter.rs:866-906`), so `log` is `1,2`. Every TypeError cell still gets its TypeError, and T-POP still reads `x\|10,20,TE\|2`, because `with_call_mode`'s Err path pops the frames and truncates the stack back to entry (`vm/interpreter.rs:248-260`) | yes | refusal precedes every callee effect | **A3** | A2: the one admission line in `construct_synchronous`; A1: the kinds whose push runs a body are async kinds that A1 classifies `NotConstructor` |
-| **M8b** admission after the inline frame push in `do_new` (`vm/ops.rs:784-793`) | T-ORD's new half only (`log` is `1,2`) | yes | same | **A3** | A2: the one admission line in `do_new`; A1: as M8 |
+| **M8** admission's JS-function refusal after `push_js_call_frame` in `construct_synchronous` (the native arm stays before the branch, §4.2) | T-ORD's super half only: the async X's push runs its body (`vm/interpreter.rs:866-906`), so `log` is `1,2`. Every TypeError cell still gets its TypeError, and T-POP still reads `x\|10,20,TE\|2`, because `with_call_mode`'s Err path pops the frames and truncates the stack back to entry (`vm/interpreter.rs:248-260`) | yes | refusal precedes every callee effect | **A3** | A2: the one admission line in `construct_synchronous`; A1: the kinds whose push runs a body are async kinds that A1 classifies `NotConstructor` |
+| **M8b** admission's JS-function refusal after the inline frame push in `do_new` (`vm/ops.rs:784-793`; native arm as M8) | T-ORD's new half only (`log` is `1,2`) | yes | same | **A3** | A2: the one admission line in `do_new`; A1: as M8 |
 | **M9** the super path keeps its own native message | T-MSG's `Crypto` half only | yes | each entry consults the one admission, its error mapping included | **A2** (error arm) | owned by A2 |
 | **M10** the admission walks the chain with `is_constructor` before unwrapping | T-DEPTH only (over-depth becomes a TypeError) | yes | a bound function is classified as its target, with the depth RangeError | **A1** (bound arm) | owned by A1 |
 
@@ -479,7 +481,7 @@ outer()
 
 | Cell | Asserts | Base (`115a667c`) | Mutant it kills |
 |---|---|---|---|
-| T-NEW | `new X()` → TypeError, message `not a constructor`, per non-constructor kind (arrow and async arrow already pass); spread spelling `new X(...[1])` with X = generator → TypeError, and `new F(...[1])` with F = a function declaration constructs (`typeof` is `object`) | red for the other 13; spread: red for the generator (it constructs), the control green | M1 (no admission in `do_new`), M3, M4, M5 |
+| T-NEW | `new X()` → TypeError, message `not a constructor`, per non-constructor kind (arrow and async arrow already pass); spread spelling `new X(...[1])` with X = generator → TypeError, and `new F(...[1])` with F = a function declaration constructs (`typeof` is `object`); native non-constructor on the `new` path: `new Math.max()` → TypeError, message `max is not a constructor` (`CallShape::CallableOnly`), so a native hole in `do_new` is seen | red for the other 13; spread: red for the generator (it constructs), the control green; `new Math.max()` green (§1.2's `Math.max` row, `new` column) | M1 (no admission in `do_new`), M3, M4, M5; the `Math.max` cell kills an M8b built with the native arm moved too |
 | T-SUPER-DEF | `class B extends A {}` + `Object.setPrototypeOf(B, X)` → `new B()` TypeError, per kind | red for all 15 (debug: panic for the 7 frameless kinds) | M2, M3, M4, M5 |
 | T-SUPER-EXP | same with `constructor(){ super(); }` | red for all 15 | M2 |
 | T-POP | the body above → `"x\|10,20,TE\|2"`, per frameless kind | red: debug panics at `vm/interpreter.rs:210`; release — probed with the variant body `try { r = new B() } catch (e) { r = 'T' } return [a, b, typeof r].join(',')`, which returned `"x\|[object Object]\|2"`; this exact body is not probed at base | M2, M5 (frameless kinds) |
@@ -524,13 +526,18 @@ Run on the final head only, sequentially (≤ 2 parallel builds), each recorded 
   class-with-written-constructor control).
 - **M7** the classifier is applied to the bound wrapper instead of the unwrapped target (bound
   controls fail).
-- **M8** the admission moved after `push_js_call_frame` in `construct_synchronous`.
-- **M8b** the admission moved after the inline frame push in `do_new` (`vm/ops.rs:784-793`).
+- **M8** the admission's JS-function refusal moved after `push_js_call_frame` in `construct_synchronous`.
+- **M8b** the admission's JS-function refusal moved after the inline frame push in `do_new` (`vm/ops.rs:784-793`).
+- **What M8 / M8b move** — only the refusal for JS-function targets. The native arm of the
+  classification (`CallableOnlyNative` / `IllegalConstructorNative`) stays before the JS/native branch in
+  each entry, because the native branch reaches no frame push: moving it too would let `Math.max`
+  construct, and M8 would also fail T-MSG's `Math.max` half and no longer fail T-ORD alone (§2's table);
+  in `do_new` the `new Math.max()` cell of T-NEW sees the same hole.
 - **How M8 / M8b are built** — not a pure move, because the code before each push consumes the helper's
   `(target, prepended)` return (`do_new`'s splice and `extract_js_callee`, `vm/ops.rs:698-707`;
   `construct_synchronous`'s argument combine, `vm/dispatch_class.rs:257-265`). Each mutant keeps a raw
-  `unwrap_bound_function_chain` call where the helper was, and calls the helper (its result discarded
-  except for the refusal) after the push. Insertion points: in `do_new`, immediately after the inline
+  `unwrap_bound_function_chain` call and the native arm's refusal where the helper was, and calls the
+  helper (its result discarded except for the refusal) in the JS branch after the push. Insertion points: in `do_new`, immediately after the inline
   frame push (`vm/ops.rs:784-793`); in `construct_synchronous`, inside the `with_call_mode` closure's JS
   branch **between `push_js_call_frame` and the new frame-balance `debug_assert!`** — after the assert,
   a debug run panics for every frameless kind in T-SUPER-* / T-POP, and M8 no longer fails T-ORD alone
@@ -561,26 +568,35 @@ A mutant no cell kills is a missing cell, added before the PR leaves review.
   gives `new` a real spread path. Whatever opcode it uses, it consumes this PR's admission helper and
   writes no check of its own; EvaluateNew step 5 at `do_new` is this slot's (umbrella §3 row 17 and
   slice-plan 1b's module cell say so).
-- **`Reflect.construct` and a future Proxy `[[Construct]]`** → `#11-vm-proxy-reflect` (slice-plan row
-  **10a**). `Reflect.construct(target, args, newTarget)` tests IsConstructor on *both* `target` and
+- **`Reflect.construct` and a future Proxy `[[Construct]]`** → `#11-vm-proxy-reflect`: `Reflect.construct`
+  in slice-plan row **10a** (the 10a umbrella), Proxy `[[Construct]]` in row **10b** (the 10b umbrella). `Reflect.construct(target, args, newTarget)` tests IsConstructor on *both* `target` and
   `newTarget`, and a Proxy's `[[Construct]]` exists iff its target's does. Both consume this slot's
   classifier and admission helper (a Proxy as a new `ObjectKind` arm of the classifier) and write no
   check of their own.
-- **Missing construct entries in built-ins (§1.1)**, each silently wrong at `115a667c` and each, when
-  implemented, a new `[[Construct]]` entry that consumes this slot's admission helper and writes no
-  check of its own (PM 332):
+- **Missing construct sites in built-ins (§1.1)**, each silently wrong at `115a667c` and each, when
+  implemented, writing no IsConstructor test of its own (PM 332). Two have the admission's shape and
+  one is a branch:
   - `Array.from` / `Array.of` ignore their receiver (`vm/natives_array_hof.rs:489`, `:556`), so a
-    subclass gets a plain Array → slice-plan row **9a** (which already names `Array.from`).
+    subclass gets a plain Array → slice-plan row **9a** (which already names `Array.from`). **A branch,
+    not an admission**: `Array.from` steps 5.a / 9 and `Array.of` step 4 are `If IsConstructor(C) …
+    Construct(C) … Else ArrayCreate` (`.claude/tools/webref body ecma262 sec-array.from`, `sec-array.of`),
+    so `Array.from.call({}, [1])` returns a plain Array. The fix branches on the `is_constructor`
+    predicate; when true, constructs through `construct_synchronous` (which applies the admission);
+    writes no IsConstructor test of its own.
   - `Promise.resolve` ignores its receiver (`vm/natives_promise.rs:760`), skipping PromiseResolve /
-    NewPromiseCapability(*C*) → slice-plan row **9da**.
+    NewPromiseCapability(*C*) → slice-plan row **9da**. **Admission shape**: NewPromiseCapability step 1
+    throws a TypeError when IsConstructor(*C*) is false, so the fix consumes the admission helper.
   - The TypedArray statics never Construct their receiver (TypedArrayCreateFromConstructor step 1;
     `vm/host/typed_array_static.rs:116-121`) → `#11-vm-typed-array-create-construct` (new, owner VM P4,
-    ordered after this slot; umbrella 9's derivation mints its child row). That slot also owns folding
-    the file's own bound-chain walker (`:91-100`) into the admission's unwrap.
+    ordered after this slot; umbrella 9's derivation mints its child row). **Admission shape**: the AO's
+    `ctor` parameter is a constructor and step 1 is `Construct(ctor, argList)`, so the fix consumes the
+    admission helper. That slot also owns folding the file's own bound-chain walker (`:91-100`) into the
+    admission's unwrap.
   This branch adds one defect sentence to each of the 9a and 9da rows in
   `docs/plans/2026-07-vm-p4-slice-plan.md`; §1.3 re-points the TypedArray comment.
-- **P-4** → the same three sites §0.3 names: `#11-elidex-js-default-features-build-broken` (count and
-  site list), `#11-elidex-js-no-default-features-support` (its `is_constructor` mention), and the note on
+- **P-4** → the same three sites §0.3 names: `#11-elidex-js-default-features-build-broken` (drop
+  `dispatch.rs:998` from its site list; the PR body states the default-features error count before/after,
+  exactly one fewer, the `is_constructor` E0425 gone), `#11-elidex-js-no-default-features-support` (its `is_constructor` mention), and the note on
   `docs/plans/2026-07-vm-p4-slot-ledger.md:310`'s quote, pinned at `907f3135` and not edited.
 - **`vm/object_kind.rs` (1700 lines)** — `is_constructor` was moved out by #588 (`4fd85f4e`); this PR
   adds nothing to the file.
@@ -623,14 +639,15 @@ A mutant no cell kills is a missing cell, added before the PR leaves review.
   re-derives, instead of carrying: the slot-row count in slice-plan `:223` (51 → 52 here), the C row's
   denominator (slice-plan `:961`, 51 → 52), and slot-ledger `:208` (registration figures) and `:359`
   (carve-marker totals).
-- **Live-ledger landing item for the PM** — the live entry of this slot and its §8 cell agree on
-  *scope* (P-1's "no compiler change" is withdrawn) but still differ: the live entry states the owed
-  T-POP value as `"x|10,20,object|2"`, the control value, where the owed post-fix value is
-  `"x|10,20,TE|2"` (P-3); it files the heritage check under `construct_synchronous` ("SuperCall / class
-  heritage"), where heritage is `vm/dispatch.rs:998` through the predicate; and it is silent on the
-  measured design the cell carries (three intersecting axes, §2; the `FunctionCreation` variants and the
-  compile-time bit, §1.3). Slot-ledger `:208` and the §8 row are narrowed to say "agree on scope" and
-  name this item.
+- **Live-ledger landing item for the PM** — the live entry of this slot agrees with its §8 cell on scope
+  (P-1's "no compiler change" withdrawn, PM 318) and, since PM 332, on the measured design (three axes,
+  §2; `ClassConstructor`, §1.3) and the owed T-POP value `"x|10,20,TE|2"` (P-3). One difference remains:
+  the entry's main text files the heritage check under `construct_synchronous` ("SuperCall / class
+  heritage"), where heritage goes through `is_constructor` at `vm/dispatch.rs:998`. Slot-ledger `:208`
+  and the §8 row name this one difference and this item.
+- **Live-ledger landing item for the PM, `#11-vm-typed-array-create-construct`** — the live entry does
+  not mention the third bound-chain walker, `unwrap_bound_chain` in `vm/host/typed_array_static.rs:91-100`
+  (§1.3), which that slot owns folding into the admission's unwrap (above); the PM adds it to the entry.
 
 ## §6. Re-derivation
 
@@ -668,7 +685,7 @@ Run from the repository root at `115a667c`.
 - `compiler/expr_function.rs:95`, `:169`, `compiler/expr.rs:31-32`, `:211`, `:217`, `compiler/mod.rs:84`,
   `compiler/expr_class.rs:69`, `:121`, `:305`, `:354`: `git grep -n 'compile_nested_function(\|fn synthesize_default_class_ctor\|fc.source_map.add(fc.pc(), span)' -- crates/script/elidex-js/src/compiler`.
 - `compiler/expr_object.rs:14-24`, `:74-75`: `git grep -n 'fn compile_accessor\|fn compile_object_expr' -- crates/script/elidex-js/src/compiler/expr_object.rs`.
-- §1.1 missing entries: `git grep -n 'fn native_array_from\|fn native_array_of' 115a667c -- crates/script/elidex-js/src/vm/natives_array_hof.rs` (`:489`, `:556`, each followed by `_this: JsValue`);
+- §1.1 missing construct sites: `git grep -n 'fn native_array_from\|fn native_array_of' 115a667c -- crates/script/elidex-js/src/vm/natives_array_hof.rs` (`:489`, `:556`, each followed by `_this: JsValue`);
   `git grep -n 'fn native_promise_resolve' 115a667c -- crates/script/elidex-js/src/vm/natives_promise.rs` (`:760`, `_this` on the parameter line after);
   `git grep -n 'deferred to a follow-up PR' 115a667c -- crates/script/elidex-js/src/vm/host/typed_array_static.rs` (`:120`, sentence `:116-121`);
   spec: `.claude/tools/webref body ecma262 sec-array.from`, `sec-array.of`, `sec-promise.resolve`;
