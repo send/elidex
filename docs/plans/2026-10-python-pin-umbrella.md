@@ -589,11 +589,6 @@ exit-gate umbrella's pre-research may start) → PR-2 → the **cargo-deny PR** 
   finds a `ci.yml` edit (K27 or another), in which case it takes the cargo-deny PR's rule. Its overlap with PR-1
   is textual (the driver's Step 1 region; whichever lands second re-reads); before PR-1 it is green on both legs,
   after PR-1 on the pin.
-- **The queued `RUSTUP_TOOLCHAIN` unset in mise tasks** (lane SSoT "Queue", decision 142's follow-up: `mise run
-  ci` / `lint` must not let an inherited stale `RUSTUP_TOOLCHAIN` override `rust-toolchain.toml`, e.g. a
-  task-level unset) edits `mise.toml` — **textual** with PR-0 (the `:115` reword) and PR-1 (`[settings]`, the
-  task text): anywhere, whichever lands second re-reads. It spells no `python`, so T5's clause 4 stays green; if
-  it lands after PR-0, its text is under clause 4 like any other member line.
 - **The `ci.yml:186` docs item** (lane SSoT "Next sweeps", 10-25, "after #501"; the entry names a line at an
   older base, not its subject): it edits `ci.yml`, so by decision 150 (3)'s `ci.yml` rule it goes **after PR-2**,
   as the cargo-deny PR does (PR-2 edits `ci.yml`; PM decision 211 D7-3). Its plan re-derives the line.
@@ -724,19 +719,19 @@ git ls-files -z -- <the PR's edit set> | xargs -0 wc -l | sort -n | tail -n 12
 ```
 
 The family's own bound also applies: the plan-memo self-test's `line_bound_control`
-(`plan_memo_selftest_properties.py:688`) holds every family source under 1000 lines on every run, and §5.2's
-edits remove lines (not guaranteed under V6's outcome (ii), §5.2). PR-0 and PR-1 both grow `scripts/python_suites_readers.py`
-(678 lines at `ee6c7a1a`) and `scripts/test_python_suites_ci.py` (378); PR-1's `mise.toml` half shrinks the former (the text
-grammar retires). `scripts/test_python_suites_regime.py` (853) is not in any PR's edit set (no construct it holds names the
-interpreter: `git grep -nE '3\.9|"3\.x"|matrix|setup-python|python-version' -- scripts/test_python_suites_regime.py`
-prints nothing); if an implementation finds it must edit it, its G7/G11 fixtures are the seam for the prereq
-split — and sweep 4, which does edit it, applies the rule itself (§10).
-**One stated exception** (R4 MIN): #510's memo, `docs/plans/2026-08-plan-memo-umbrella-checker.md`, is 1707 lines
-at `ee6c7a1a` and PR-1 amends it in place (§5.1, V12, V13, V15, V18). PR-1 does not split it first: it is a landed
-record owned by the VM P4 lane, PR-1's edits are four dated amendment markers that replace text rather than grow
-it, and where that memo's cohesion seams lie is the owning lane's call — #506's split is that lane's
-restructuring of its family (§5.3). The request goes to the VM P4 lane through the PM with the consent (§5.3 (c)); if
-the lane wants a split first, it lands as that lane's prereq before PR-1.
+(`plan_memo_selftest_properties.py:688`) holds every family source under 1000 lines on every run, and §5.2's edits
+remove lines (not guaranteed under V6's outcome (ii), §5.2). PR-1 grows `scripts/python_suites_readers.py` (678
+lines at `ee6c7a1a`) and `scripts/test_python_suites_ci.py` (378); PR-1's `mise.toml` half shrinks the former (the
+text grammar retires). `scripts/test_python_suites_regime.py` (853) is not in any PR's edit set (no construct it
+holds names the interpreter: `git grep -nE '3\.9|"3\.x"|matrix|setup-python|python-version' --
+scripts/test_python_suites_regime.py` prints nothing); if an implementation finds it must edit it, its G7/G11
+fixtures are the seam for the prereq split — and sweep 4, which does edit it, applies the rule itself (§10). **One
+stated exception** (R4 MIN): #510's memo, `docs/plans/2026-08-plan-memo-umbrella-checker.md`, is 1707 lines at
+`ee6c7a1a` and PR-1 amends it in place (§5.1, V12, V13, V15, V18). PR-1 does not split it first: it is a landed
+record owned by the VM P4 lane, PR-1's edits are four dated amendment markers that replace text rather than grow it,
+and where that memo's cohesion seams lie is the owning lane's call — #506's split is that lane's restructuring of
+its family (§5.3). The request goes to the VM P4 lane through the PM with the consent (§5.3 (c)); if the lane wants
+a split first, it lands as that lane's prereq before PR-1.
 
 **This umbrella's own length — the seam set, decided now** (K3, decision 205; it replaces draft 6's "split at
 landing"). **#581 lands these four files** (decision 221; not PR-1), as written — nothing is restructured:
