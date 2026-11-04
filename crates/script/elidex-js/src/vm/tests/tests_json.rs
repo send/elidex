@@ -588,8 +588,14 @@ fn caught(body: &str) -> String {
 
 const DEPTH_MSG: &str = "RangeError|Maximum JSON nesting depth exceeded";
 
-/// JS prologue for a reviver that, on key `a`, installs an acyclic chain of
-/// `n` nested objects as `this.b`. `MAX_JSON_DEPTH` is 800 in debug builds.
+/// Cells run on the libtest thread (2 MiB unless `RUST_MIN_STACK`), which is
+/// the smallest stack production VM threads get (all plain `thread::spawn`;
+/// see the `MAX_JSON_DEPTH` docstring), so "cap - 10 passes" ratchets the cap
+/// against frame growth.
+use crate::vm::natives_json::MAX_JSON_DEPTH;
+
+/// JS reviver that, on key `a`, installs an acyclic chain of `n` nested
+/// objects as `this.b` (`n + 2` levels with the root).
 fn chain_reviver(n: usize) -> String {
     format!(
         "JSON.parse('{{\"a\":1,\"b\":2}}', function (k, v) {{
@@ -620,14 +626,14 @@ fn parse_reviver_cyclic_graph_throws_range_error() {
 
 #[test]
 fn parse_reviver_deep_acyclic_chain_within_cap_ok() {
-    // T-DEEP-OK: well inside the cap (800 in debug) must not throw.
-    assert_eq!(caught(&chain_reviver(790)), "no-throw");
+    // T-DEEP-OK: just inside the cap must not throw.
+    assert_eq!(caught(&chain_reviver(MAX_JSON_DEPTH - 10)), "no-throw");
 }
 
 #[test]
 fn parse_reviver_deep_acyclic_chain_over_cap_throws() {
-    // T-DEEP-OVER: past the cap in both profiles (cap is 800/1000).
-    assert_eq!(caught(&chain_reviver(1100)), DEPTH_MSG);
+    // T-DEEP-OVER: past the cap.
+    assert_eq!(caught(&chain_reviver(MAX_JSON_DEPTH + 100)), DEPTH_MSG);
 }
 
 #[test]

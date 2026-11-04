@@ -400,14 +400,25 @@ impl<'a> JsonParser<'a> {
 }
 
 /// §25.5.2.4 InternalizeJSONProperty — apply reviver function.
+///
+/// Recursion is bounded by [`MAX_JSON_DEPTH`] (`depth` counts object/array
+/// levels entered): the reviver runs before the walk descends and may install
+/// arbitrary graphs, including cycles (`this.b = o; o.self = o`), which the
+/// spec walk would never terminate on. Exceeding the bound is a catchable
+/// `RangeError`, the same one the parser and `JSON.stringify` raise, instead of
+/// a Rust-stack-overflow process abort.
 fn internalize(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
     reviver: ObjectId,
     index_buf: &mut String,
+    depth: usize,
 ) -> Result<JsValue, VmError> {
     match val {
         JsValue::Object(obj_id) => {
+            if depth >= MAX_JSON_DEPTH {
+                return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            }
             match &ctx.get_object(obj_id).kind {
                 ObjectKind::Array { elements } => {
                     let len = elements.len();
@@ -416,7 +427,7 @@ fn internalize(
                         let elem = ctx
                             .vm
                             .get_element(JsValue::Object(obj_id), JsValue::Number(i as f64))?;
-                        let new_val = internalize(ctx, elem, reviver, index_buf)?;
+                        let new_val = internalize(ctx, elem, reviver, index_buf, depth + 1)?;
                         index_buf.clear();
                         let _ = write!(index_buf, "{i}");
                         let key_str = ctx.intern(index_buf);
@@ -425,7 +436,7 @@ fn internalize(
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_str), new_val],
                         )?;
-                        // Spec §25.5.2.4: reviver returning undefined → [[Delete]].
+                        // Spec §25.5.2.4 step 5.b.iv.4.a: reviver returning undefined → [[Delete]].
                         // With JsValue::Empty this creates a proper sparse hole.
                         // JS code cannot produce Empty, so only check Undefined.
                         debug_assert!(!result.is_empty(), "reviver should never return Empty");
@@ -442,19 +453,19 @@ fn internalize(
                     }
                 }
                 ObjectKind::Ordinary | ObjectKind::Arguments { .. } => {
-                    // Snapshot keys in ES spec order (§25.5.2.4 step 5).
+                    // Snapshot keys in ES spec order (§25.5.2.4 step 5.c.i).
                     let keys = collect_own_keys_es_order(ctx.vm, obj_id)?;
 
                     for key_sid in keys {
                         let child = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;
-                        let new_val = internalize(ctx, child, reviver, index_buf)?;
+                        let new_val = internalize(ctx, child, reviver, index_buf, depth + 1)?;
                         let result = ctx.call_function(
                             reviver,
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_sid), new_val],
                         )?;
                         if matches!(result, JsValue::Undefined) {
-                            // §25.5.2.4 step 3.d: `? O.[[Delete]](P)`.
+                            // §25.5.2.4 step 5.c.ii.3.a: `? value.[[Delete]](propertyKey)`.
                             // Observable only via Proxy deleteProperty trap
                             // (not yet implemented), but propagate for spec
                             // conformance once Proxy lands.
@@ -543,7 +554,7 @@ pub(in crate::vm) fn native_json_parse(
             );
 
             let mut index_buf = String::with_capacity(8);
-            let internalized = internalize(ctx, result, rev_id, &mut index_buf)?;
+            let internalized = internalize(ctx, result, rev_id, &mut index_buf, 0)?;
             let final_val = ctx.call_function(
                 rev_id,
                 JsValue::Object(wrapper_id),
