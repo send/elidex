@@ -64,7 +64,9 @@ shape end-to-end), §9 DoD 1. Line counts, census commands and the #466 reversal
 `:257-261`; §9 DoD 1 is decided by a PR-head re-run (parameter rename `deep` → `subtree`); the `shadow_doc = None`
 behaviour change is stated (slot `#11-ownerless-node-creation`).
 
-**Rev 3.4** (2026-11-05, implementation PR; PM 367/368, from Layout T3 O-9) — plan change, not clerical: the shared walk has no depth cap. The cloner copies with no cap (`tree_clone.rs` `clone_children_recursive`), so §4.3's "today's order and cap" would leave clone elements deeper than `MAX_ANCESTOR_DEPTH` without the CE and form arms the spec runs on them. `for_each_clone_created` is its own iterative walk in creation order (step 2 → 5 → 6.7), uncapped, terminated by a visited set; §4.3 and §6 (a deep-tree cell above the old cap) follow. The capped walker and its other callers are unchanged (slot `#11-capped-walker-deep-element-processing`). The form arm's template-contents step (D-3) also walks uncapped (`for_each_uncapped_shadow_inclusive` with `TemplateContentsWalk::Include`) instead of `collect_template_inclusive_descendants`, which is a capped caller left to the slot.
+**Rev 3.4** (2026-11-05, implementation PR; PM 367/368, from Layout T3 O-9) — plan change, not clerical: the shared walk has no depth cap. The cloner copies with no depth cap (`tree_clone.rs` `clone_children_recursive`; its breadth is another matter, §4.3), so §4.3's "today's order and cap" would leave clone elements deeper than `MAX_ANCESTOR_DEPTH` without the CE and form arms the spec runs on them. `for_each_clone_created` is its own iterative walk in creation order (step 2 → 5 → 6.7), uncapped, terminated by a visited set; §4.3 and §6 (a deep-tree cell above the old cap) follow. The capped walker and its other callers are unchanged (slot `#11-capped-walker-deep-element-processing`). The form arm's template-contents step (D-3) also walks uncapped (`for_each_uncapped_shadow_inclusive` with `TemplateContentsWalk::Include`) instead of `collect_template_inclusive_descendants`, which is a capped caller left to the slot.
+
+**Rev 3.5** (2026-11-05, implementation-PR erratum at `4fe6d3fb`: the memo follows the code — code-review findings and PM 349 / 367 / 369 / 373 / 392 — no further design change). Every remaining description of the clone walk as capped or as built on `for_each_shadow_inclusive_descendant` follows Rev 3.4 (§2 B, §3, D-3, §4.3, §4.5, §4.8 residual, §4.10); the cloner's bound is stated exactly in §4.3 (depth-uncapped, breadth-capped through `EcsDom::children`; the breadth cap is a pre-existing defect folded into `#11-capped-walker-deep-element-processing`); the form arm is the `CloneCreated` match arm itself, with no `handle_clone_created` free fn, and `collect_template_inclusive_descendants` is off the clone path (§4.5, §4.10, §5.1). The #466-reversal premise "dom-api cannot see `FormControlState`" was false and is replaced by the real constraint in §2 G × F (PM 392 decision 2; the alternative design is slot `#11-form-cloning-steps-in-cloner`, pointer only). §4.4 states the clone arm's poison recovery as the code has it; §4.7 states `RestoreDispatcher::drop`'s restore-then-assert order; §6 names the tests the implementation added beyond the plan; §8 lists the four slots this PR produced (pointers; registered by the PM); §9 DoD 8(b) records the fourth file its grep now hits (a test). Line numbers marked `4fe6d3fb` are at that head; unmarked ones stay at `fab44a1d`.
 
 ## §0. Frame, premises, decisions
 
@@ -241,7 +243,10 @@ file is edited.
   Complement: a caller that reaches the entry without naming it or the handler's method name would have to call the
   handler through the registry by another string, and `registry.rs:394` registers it under `"cloneNode"` only.
 - **Crate edges.** `elidex-custom-elements` depends on `elidex-ecs` only (`crates/dom/elidex-custom-elements/Cargo.toml:13-14`);
-  `elidex-form` on `elidex-ecs` and `elidex-dom-api` (`crates/dom/elidex-form/Cargo.toml:15`, `:17`); `elidex-dom-api`
+  `elidex-form` on `elidex-ecs`, `elidex-form-core` and `elidex-dom-api` (`crates/dom/elidex-form/Cargo.toml:15-17`;
+  also `elidex-script-session`, `:21`); `elidex-form-core`, the leaf that holds `FormControlState` (`lib.rs:348`), on
+  `elidex-ecs` and `elidex-plugin` only (`crates/dom/elidex-form-core/Cargo.toml:14-15`; Rev 3.5, the fact §2 G × F
+  rests on); `elidex-dom-api`
   on `elidex-ecs` and `elidex-custom-elements` (`crates/dom/elidex-dom-api/Cargo.toml:15`, `:18`), never on
   `elidex-form`. `#466`'s I1 holds and no edge is added.
 - **#466.** `docs/plans/2026-07-clone-cloning-steps-fcs.md`: I1 `:52`, I2 `:53`, I3 `:54`, I4 `:55`, I5 `:56`; the
@@ -309,8 +314,10 @@ file is edited.
 - **D-3 (where the form pass's first-level walk calls `for_each_clone_created`).** In `elidex-form/src/clone.rs`,
   not in `init.rs`: `apply_clone_form_state` takes the first level from the shared scope-gated walk and then walks each
   `<template>` content fragment it found with `for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, …)`
-  (Rev 3.4: uncapped, nested templates followed). `init.rs` is not edited; `parse_into_inert_document`, the other caller of
-  `collect_template_inclusive_descendants`, is untouched (§4.5).
+  (Rev 3.4: uncapped, nested templates followed). `collect_template_inclusive_descendants` (`init.rs:111`) is off the
+  clone path (Rev 3.5): its one remaining caller, `parse_into_inert_document` (`inert_document.rs:168` at `4fe6d3fb`),
+  is a capped caller left to the slot and is untouched; `init.rs`'s only edit is the doc line of that helper that named
+  the clone copy (`init.rs:108` at `4fe6d3fb`; §4.5, §5.1).
 - **D-4 (the no-dispatcher census becomes a standing check; brief item 4; Rev 2, R1 F1).** Yes, as a **runtime
   property check inside `elidex-ecs`**, not a source grep. The property is "no `CloneCreated` is fired while the
   dispatcher has been taken out for a window" — a take-and-restore span (`despawn_subtree`,
@@ -389,8 +396,9 @@ position (umbrella E2), **F** detached read (#466 I3), **G** crate boundary (#46
 - **A (one emitter, exactly once)**: every production clone goes through `clone_node_with_shadow_honor`, which fires
   `CloneCreated { root: cloned, scope }` once, after its worklist converges and before `Some(cloned)`. Its helpers
   (`clone_recording`, `replicate_template_contents`, the shadow loop) never fire. A caller cannot forget the event.
-- **B (the visit set at dispatch is the created set)**: `Subtree` = today's walk from the root; `SelfOnly` = the root,
-  then today's walk over its shadow root if any; never the root's light children. At the event a `SelfOnly` root has
+- **B (the visit set at dispatch is the created set)**: `Subtree` = the root and every node the clone created under
+  it, in creation order; `SelfOnly` = the root, then its shadow root and that root's subtree if any; never the root's
+  light children (the walk, §4.3). At the event a `SelfOnly` root has
   no light children (umbrella §0.3 item 26), so the rule and the tree agree; the rule stays in the walk so it does
   not depend on the caller's timing (RC-2b appends after the entry returns).
 - **C (re-entry)**: both arms read the tree and write components only (`CustomElementState.is_value`;
@@ -431,10 +439,10 @@ Pairs (one line each; pairs not listed do not interact):
 | B × H | after D14 a `SelfOnly` root's shadow tree is a complete deep copy, so the `SelfOnly` walk over it reaches the grandchild custom elements D14 creates; before D14 those did not exist |
 | B × F | the form arm's visit set is the same scope-gated first level plus the template frontier; a `SelfOnly` root cannot carry a `<template>` with contents (template step 1), but a `<template>` inside its shadow tree can (cloned with true after D14), and the frontier reaches it |
 | C × D | the lock guards are dropped before any component write that the other consumer could read; neither consumer reads the other's components, so the form-before-CE dispatch order (field order) is unobservable |
-| C × I | inside a dispatch the slot is `Absent` and `dispatch_depth > 0`: a `fire_clone_created` from a consumer is quiet on the window assertion and trips the depth assertion (the §6 nested-fire test expects the re-entry message); a `take_mutation_dispatcher` inside a dispatch finds `Absent`, returns `None` and leaves it. `Taken` is reachable inside a dispatch only by a consumer that installs and then takes (`Absent` → `Installed` → `Taken`); `RestoreDispatcher::drop` then passes its `debug_assert!` (the slot is not `Installed`, §4.7) and writes `Installed(pending)` — what today's `Option` does for the same sequence (`None` → `Some` → `None`, the `is_none()` assertion passes, `Some(pending)` written), so the behaviour is unchanged and the enum neither detects nor worsens it. No consumer does this (measured at `fab44a1d`): the 13 `impl MutationDispatcher for` bodies (`git grep -n 'impl MutationDispatcher for' -- crates`) contain none of the 46 call lines (`git grep -n 'set_mutation_dispatcher(' -- crates` → 38, `git grep -n 'take_mutation_dispatcher(' -- crates` → 8; a brace-matched scan of each impl block finds 0 of them inside), and the production installs are the four window restores, each guarded by its own take's `Some` (a take inside a dispatch returns `None`, so no restore runs there), `Vm::bind`, and five inline-test installs at test-fn level (§4.7's 11). So the assertion has only today's installed-inside-a-dispatch case to report |
+| C × I | inside a dispatch the slot is `Absent` and `dispatch_depth > 0`: a `fire_clone_created` from a consumer is quiet on the window assertion and trips the depth assertion (the §6 nested-fire test expects the re-entry message); a `take_mutation_dispatcher` inside a dispatch finds `Absent`, returns `None` and leaves it. `Taken` is reachable inside a dispatch only by a consumer that installs and then takes (`Absent` → `Installed` → `Taken`); `RestoreDispatcher::drop` then writes `Installed(pending)` and passes its `debug_assert!` (the displaced value was not `Installed`, §4.7) — what today's `Option` does for the same sequence (`None` → `Some` → `None`, the `is_none()` assertion passes, `Some(pending)` written), so the behaviour is unchanged and the enum neither detects nor worsens it. No consumer does this (measured at `fab44a1d`): the 13 `impl MutationDispatcher for` bodies (`git grep -n 'impl MutationDispatcher for' -- crates`) contain none of the 46 call lines (`git grep -n 'set_mutation_dispatcher(' -- crates` → 38, `git grep -n 'take_mutation_dispatcher(' -- crates` → 8; a brace-matched scan of each impl block finds 0 of them inside), and the production installs are the four window restores, each guarded by its own take's `Some` (a take inside a dispatch returns `None`, so no restore runs there), `Vm::bind`, and five inline-test installs at test-fn level (§4.7's 11). So the assertion has only today's installed-inside-a-dispatch case to report |
 | C × F | `create_form_control_state` at dispatch is the precedent `handle_insert` already sets; the clone's own internal `Insert` events (deep clone, template contents, and after D14 the shadow children's descendants of a shallow clone, A × B) run that same function before the sweep, so a cloned control under a cloned shadow child first gets a default `FormControlState` from `handle_insert`, which the arm then overwrites — today's deep-clone behaviour. The other consumers (`event_handler_attrs`, `base_url`) see those `Insert`s as they see a deep clone's today |
 | E × C | the CE arm pushes during dispatch, not after `invoke_dom_api`; between those two points today nothing touched the queue (§0.2), so the position is unchanged and the earlier `is_value` clear is unobservable |
-| G × F | the form copy still cannot be done by `elidex-dom-api` (it cannot see `FormControlState`); the event carries only `root` and `scope`, never pairs, so the marker remains the linkage — grounded in §4.8 "marker over pairs", not in #466's I1 × I2 row |
+| G × F | the form copy stays in `elidex-form` for a reason other than visibility (Rev 3.5, PM 392 decision 2 — the premise that `elidex-dom-api` cannot see `FormControlState` was false): the component lives in the leaf crate `elidex-form-core` (`lib.rs:348`; deps `elidex-ecs` + `elidex-plugin`, §0.2 "Crate edges"), which `elidex-dom-api` could depend on without a cycle. What the cloning steps need and dom-api cannot reach is the re-derivation `copy_form_state` runs first, `create_form_control_state` (`elidex-form/src/init.rs:63`, called at `clone.rs:114`): it is an `&mut EcsDom` system, and `elidex-form-core` is chartered as pure derivations with no such systems (`elidex-form-core/src/lib.rs:1-14`), so it cannot move down to where dom-api could call it. RC-2a keeps its design; running the steps inside the cloner is slot `#11-form-cloning-steps-in-cloner` (§8, pointer only). The event carries only `root` and `scope`, never pairs, so the marker remains the linkage — grounded in §4.8 "marker over pairs", not in #466's I1 × I2 row |
 | H × J | D14 and the census touch different files (`node_methods/clone.rs`; `mutation_event.rs` and the match sites); the only shared file with another lane is `node_methods/clone.rs` with C0b (stamps, H9) and C1 (rebases, umbrella §9) |
 | I × J | a window that takes the dispatcher also silences every other variant, by design (the windows exist to suppress `Insert` / `Remove` during a throwaway build or teardown); only `CloneCreated` asserts against it, because a clone inside a window is a defect while a suppressed insert is the window's purpose. C0c's `Adopt` decides for itself whether it asserts; nothing here is shared with it |
 
@@ -451,9 +459,9 @@ Pairs (one line each; pairs not listed do not interact):
 | WHATWG HTML §4.10.5 The input element | cloning steps (propagate value, dirty value flag, checkedness, dirty checkedness flag, indeterminateness) | each field; dirty checkedness unmodeled | the form arm → `apply_clone_form_state(dom, root, scope)` → `copy_form_state` (`elidex-form/src/clone.rs:74-152`) | ✗ (dirty checkedness: `#11-input-dirty-checkedness-flag`, pre-existing, `clone.rs:122-126`) | yes |
 | WHATWG HTML §4.10.11 The textarea element | cloning steps (propagate raw value and dirty value flag) | both fields | same | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | cloning steps 1-2 (subtree false → return; else clone the contents' children with subtree true into copy's contents) | root template, shallow / deep; template inside a cloned shadow tree | `replicate_template_contents` (`clone.rs:405-431`) with the pair's own flag — the operation's for the root pair, true for every other (D-5 (ii)) | ✓ | yes |
-| WHATWG HTML §4.13.3 Core concepts | look up a custom element definition step 1 (null registry → null) | template contents (null-registry document) | the walk shape (today's `for_each_shadow_inclusive_descendant` does not enter template contents); interim of umbrella §4.3 condition 6, folded into `#11-document-null-registry-adopt-reset` | ✗ (slot) | no |
+| WHATWG HTML §4.13.3 Core concepts | look up a custom element definition step 1 (null registry → null) | template contents (null-registry document) | the walk shape (`for_each_clone_created` does not enter template contents, §4.3); interim of umbrella §4.3 condition 6, folded into `#11-document-null-registry-adopt-reset` | ✗ (slot) | no |
 | WHATWG DOM §4.5 Interface Document | a document's custom element registry (null unless stated otherwise) | the inert template document | same interim; not modelled | ✗ (slot) | no |
-| WHATWG DOM §4.8 Interface ShadowRoot | shadow-including descendant (the visit **set**: `Subtree` = the root and its shadow-including descendants minus the ShadowRoot nodes themselves; `SelfOnly` = the root, its ShadowRoot entity and that root's shadow-including descendants minus nested ShadowRoot nodes — §4.3; the walk's **order** is DOM §4.4 "clone a node" creation order, steps 2 → 5 → 6.7: the node, its light children, then its shadow children — not §4.8 "shadow-including tree order", which would take the shadow tree just after the host) | `Subtree` / `SelfOnly` | `EcsDom::for_each_clone_created` (NEW, `walkers.rs`), on `for_each_shadow_inclusive_descendant` (`walkers.rs:54-80`) | ✓ | no |
+| WHATWG DOM §4.8 Interface ShadowRoot | shadow-including descendant (the visit **set**: `Subtree` = the root and its shadow-including descendants minus the ShadowRoot nodes themselves; `SelfOnly` = the root, its ShadowRoot entity and that root's shadow-including descendants minus nested ShadowRoot nodes — §4.3; the walk's **order** is DOM §4.4 "clone a node" creation order, steps 2 → 5 → 6.7: the node, its light children, then its shadow children — not §4.8 "shadow-including tree order", which would take the shadow tree just after the host) | `Subtree` / `SelfOnly` | `EcsDom::for_each_clone_created` (NEW, `walkers.rs`; its own uncapped work-list walk, §4.3) | ✓ | no |
 
 Numbers and titles: `webref heading dom 4.4` (Interface Node), `dom 4.9` (Interface Element), `dom 4.5` (Interface
 Document), `dom 4.8` (Interface ShadowRoot); `webref heading html 4.13.6` (Custom element reactions), `html 4.10.5`
@@ -554,24 +562,39 @@ Everything else in the file is unchanged: `CloneNode`'s `invoke` (so the Attribu
 `EcsDom::for_each_clone_created(&self, root: Entity, scope: CloneScope, visit: &mut F)` (NEW) in
 `crates/core/elidex-ecs/src/dom/tree/walkers.rs`, beside `for_each_shadow_inclusive_descendant` (`:54`):
 
-- `Subtree` → an iterative, uncapped walk of its own (explicit work-list, breadth by `child_list_uncapped`, a `visited`
-  set as the termination guard; Rev 3.4), not `for_each_shadow_inclusive_descendant`. The visit
+- `Subtree` → `visit(root)`, then an explicit work-list seeded with the root's successors; each popped node is
+  visited and its successors pushed. A node's successors are its light children (`child_list_uncapped`) and then its
+  shadow root's children, pushed so that `pop()` yields the light children first (`push_clone_children` /
+  `push_shadow_children` / `push_light_children`, `walkers.rs:186-202` at `4fe6d3fb`). A `visited` set is the
+  termination guard (each entity once, however malformed the links); there is no depth counter (Rev 3.4). The visit
   set is DOM §4.8 "shadow-including descendant" (plus the root); the order is the clone's **creation order** — DOM
   §4.4 "clone a node" step 2 (the node), step 5 (its light children, recursively), step 6.7 (its shadow children) —
   which is the order the upgrade reactions are enqueued in today (umbrella §0.3 item 14). It is not §4.8
   "shadow-including tree order" (that traverses a host's shadow tree just after the host, before its light children);
   the §3 row and `for_each_clone_created`'s doc say so.
-- `SelfOnly` → `visit(root)`; then, if `self.get_shadow_root(root)` is `Some(sr)`,
-  `self.for_each_shadow_inclusive_descendant(sr, visit)`. That visits the ShadowRoot entity first (today's walk from
-  the host does not, `walkers.rs:69-73`), then the same elements in the same order at the same depths; neither
-  consumer acts on a ShadowRoot (umbrella §4.3 condition 1). The root's light children are never visited. The visit
-  set, stated for both scopes (R2 G13): `Subtree` = the root plus its shadow-including descendants (DOM §4.8) minus
-  the ShadowRoot nodes themselves (today's walk visits a shadow root's children, never the root, `walkers.rs:69-73`);
+- `SelfOnly` → `visit(root)`; then, if `self.get_shadow_root(root)` is `Some(sr)`, `visit(sr)` and seed the work-list
+  with `sr`'s children; the same loop runs from there (Rev 3.5: defined by the walk itself). So the ShadowRoot entity
+  is visited (neither consumer acts on one, umbrella §4.3 condition 1), the root's light children never are, and the
+  shadow tree is walked by the same rule as a `Subtree` root. The visit set, stated for both scopes (R2 G13):
+  `Subtree` = the root plus its shadow-including descendants (DOM §4.8) minus the ShadowRoot nodes themselves;
   `SelfOnly` = the root, its ShadowRoot entity, and that shadow root's shadow-including descendants minus nested
   ShadowRoot nodes.
 
 It lives in `elidex-ecs` because that is the one crate both consumers depend on. One walk, two consumers (umbrella
-§4.3 condition 4; one issue, one way). There is no depth cap (Rev 3.4): the cloner has none, so the walk covers every element the clone created.
+§4.3 condition 4; one issue, one way). It shares nothing with the capped `for_each_shadow_inclusive_descendant`
+(`walkers.rs:54-80`), whose other callers are unchanged; the two coexist until slot
+`#11-capped-walker-deep-element-processing` (§8) replaces both with one bounding rule (the slot comment above the walk
+says so).
+
+**The cloner's bound, stated exactly (Rev 3.5; the canonical statement — the other sites point here).**
+`clone_children_recursive` (`tree_clone.rs:390-424`) is an explicit stack with no depth check, so a clone's depth is
+unbounded and the walk follows it (Rev 3.4). Its breadth is capped: each level's children come from `EcsDom::children`
+(`tree_clone.rs:403`), whose sibling loop stops after `MAX_ANCESTOR_DEPTH` entries (`tree/navigation.rs:255`, a count
+guard against a corrupted sibling chain), so the cloner itself silently drops any one parent's children past that
+count, and the walk — whose breadth is the uncapped `child_list_uncapped` — never sees them: the truncation is the
+cloner's, not the walk's. That is a pre-existing defect of the cloner, out of this PR's scope, folded into
+`#11-capped-walker-deep-element-processing` (PM 392: one bounding rule for depth and breadth; the same family as
+`#11-live-range-bridge-wide-sibling-index`).
 
 ### §4.4 The CE arm (`elidex-custom-elements`)
 
@@ -591,18 +614,22 @@ It lives in `elidex-ecs` because that is the one crate both consumers depend on.
   `handle_clone_created(&mut self, root, scope, dom: &mut EcsDom)` (NEW): lock the registry; `let candidates =
   apply_clone_creation_ce_semantics(dom, &registry, root, scope);` drop the guard; if non-empty, lock the queue and
   push one `CustomElementReaction::Upgrade(entity)` per candidate in order. This is `handle_insert`'s shape
-  (`:98-123`) with `&mut EcsDom`, which `handle` already receives. The poison policy is the consumer's `expect`
-  (`:116`, `:120`), not the shim's `unwrap_or_else` (`vm/host/custom_elements/upgrade.rs:138`, `:150`): every
-  insertion already takes the `expect` path, so this adds no failure mode (umbrella §0.3 item 28). The module doc
+  (`:98-123`) with `&mut EcsDom`, which `handle` already receives. Its poison policy is the deleted shim's, not the other arms' (Rev 3.5): both
+  locks recover from poison (`.lock().unwrap_or_else(PoisonError::into_inner)`, `consumer.rs:149-164` at `4fe6d3fb`,
+  as `vm/host/custom_elements/upgrade.rs:138`, `:150` did), where `handle_insert` `expect`s (`:116`, `:120`). The clone
+  path therefore has exactly the shim's failure modes and no new one: a re-entrant `catch_unwind` embedder whose
+  earlier panic poisoned a guard is not stuck on this arm (umbrella §0.3 item 28). The module doc
   (`:72-74`) and the gating-rules section name the new arm.
 
 ### §4.5 The form arm (`elidex-form`)
 
 - `apply_clone_form_state(dom, clone_root, scope: CloneScope)` (`clone.rs:44-65`) gains `scope`. Its collection
-  step (`:49`) becomes (D-3): first level = `dom.for_each_clone_created(clone_root, scope, |e| found.push(e))`;
-  then, for each first-level `e` with `dom.template_contents_fragment(e) == Some(fragment)`, walk `fragment` with
-  `dom.for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, …)` (Rev 3.4: uncapped; the walker
-  follows nested `<template>`s itself and terminates by its visited set). It becomes **`pub(crate)`** and its re-export is removed from
+  step (`:49`) becomes (D-3): one `dom.for_each_clone_created(clone_root, scope, …)` pass whose closure keeps each
+  marked entity with its source (`cloned_source`) and collects each `<template>`'s content fragment
+  (`dom.template_contents_fragment(e)`); then each collected fragment is walked with
+  `dom.for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, …)` for more marked entities
+  (Rev 3.4: uncapped; the walker follows nested `<template>`s itself and terminates by its visited set;
+  `clone.rs:56-72` at `4fe6d3fb`). It becomes **`pub(crate)`** and its re-export is removed from
   `crates/dom/elidex-form/src/lib.rs:46`: after the VM deletion its callers are the arm and the six inline tests
   (`git grep -n 'apply_clone_form_state' -- crates` at `fab44a1d`, **16** lines: the definition and its six
   inline-test calls, the re-export, the VM call `node_methods_extras.rs:230`, and doc mentions in `tree_clone.rs:28`,
@@ -611,10 +638,10 @@ It lives in `elidex-ecs` because that is the one crate both consumers depend on.
   unchanged. A `SelfOnly` `<template>` root has an empty fresh fragment (template cloning steps step 1;
   `replicate_template_contents` returns at `:423-425`), so the frontier finds nothing under it; a `<template>` inside the root's shadow tree has
   contents after D14 and the frontier reaches them. The module doc (`:16-18`) names the arm.
-- `FormControlReconciler::handle` (`reconciler.rs:43-52`) gains, before the wildcard,
-  `MutationEvent::CloneCreated { root, scope } => handle_clone_created(root, scope, dom)`, a free fn
-  `handle_clone_created` (NEW) beside `handle_insert` that calls `crate::clone::apply_clone_form_state(dom, root, scope)`.
-  The module doc (`:4-8`) names it. The six inline tests in `clone.rs` (`:195` … `:297`) pass `CloneScope::Subtree`;
+- `FormControlReconciler::handle` (`reconciler.rs:43-52`) gains, before the wildcard, the arm
+  `MutationEvent::CloneCreated { root, scope } => { crate::clone::apply_clone_form_state(dom, root, scope); }`
+  (`reconciler.rs:53-55` at `4fe6d3fb`) — the call is in the arm; there is no `handle_clone_created` free fn in
+  `elidex-form` (Rev 3.5; the CE consumer's method of that name is §4.4's). The module doc (`:4-8`) names the arm. The six inline tests in `clone.rs` (`:195` … `:297`) pass `CloneScope::Subtree`;
   one gains a `SelfOnly` case (§6).
 - Order between the arms: `form_control` is dispatched before `custom_elements` (`consumer_dispatcher.rs:155`, `:158`),
   the reverse of the shim; the two write disjoint components and neither reads the other's (§2 C × D).
@@ -674,9 +701,13 @@ state made explicit:
 - `dispatch_event`: `Installed(d)` → `Absent` (today's `take()` at `:207`, with the state named), then the existing
   depth increment and `RestoreDispatcher`; `Absent` / `Taken` → return (today's "no dispatcher" path). A dispatch in
   progress is **not** a window: it is already represented by `dispatch_depth`, and a fire inside it is the re-entry
-  assertion's case (`:200-206`), so it does not use `Taken`. `RestoreDispatcher::drop` (`:120-130`) writes
-  `Installed(pending)` and its `debug_assert!` becomes "the slot is not `Installed`" (a dispatcher installed inside
-  a dispatch would be overwritten, as today); the doc at `:99-114` is rewritten for the enum.
+  assertion's case (`:200-206`), so it does not use `Taken`. `RestoreDispatcher::drop` (`:120-130`; `:132-147` at `4fe6d3fb`) restores first and
+  reports after (Rev 3.5): it `mem::replace`s the slot with `Installed(pending)` (`Absent` if the guard holds nothing),
+  decrements `dispatch_depth`, and only then `debug_assert!`s that the displaced value was not `Installed` — or that
+  the thread is already panicking, so an unwinding dispatch does not double-panic. A dispatcher installed inside a
+  dispatch is thus displaced by the restore and reported with the slot and the counter already consistent (§6
+  `installing_inside_dispatch_asserts_after_restoring_state`); a dispatcher cleared or taken inside a dispatch reads
+  `Absent` either way and is silently restored over. The doc at `:99-114` (`:109-126` at `4fe6d3fb`) says exactly this.
 
 **The assertion.** `fire_clone_created` (§4.1) runs, before `dispatch_event`,
 
@@ -706,7 +737,7 @@ field and what it does on each state after D-4:
 | `clear_mutation_dispatcher` (`:176`) | write | `Absent` | `Absent` | `Absent` |
 | `take_mutation_dispatcher` (`:184`) | read + write | `Taken`, returns `Some(d)` | unchanged, `None` | unchanged, `None` |
 | `dispatch_event` (`:207`) | read + write | `Absent` for the dispatch, then the guard restores `Installed(d)` | return (no dispatcher) | return (no dispatcher) |
-| `RestoreDispatcher::drop` (`:123`, `:127`) | read + write | `debug_assert!` fails (a dispatcher installed inside a dispatch; today's `is_none()` check with the state named) | writes `Installed(pending)` | reached only by install-then-take inside a dispatch, which no consumer does (§2 C × I); the assertion passes it and `Installed(pending)` is written, as today's `Option` does |
+| `RestoreDispatcher::drop` (`:123`, `:127`) | read + write | writes `Installed(pending)`, decrements, then the `debug_assert!` fails on the displaced value (a dispatcher installed inside a dispatch; today's `is_none()` check with the state named, after the restore) | writes `Installed(pending)` | reached only by install-then-take inside a dispatch, which no consumer does (§2 C × I); `Installed(pending)` is written and the assertion passes, as today's `Option` does |
 | `new()` (`:138`) | write | — | `Absent` | — |
 | **`destroy_entity` (`tree/teardown.rs:80`)** | read | fires (`index_in_parent` + `is_connected`) | no-dispatcher branch | no-dispatcher branch |
 | `fire_clone_created` (NEW, §4.1) | read | dispatches | silent no-op | `debug_assert!` fails |
@@ -781,7 +812,7 @@ boundary) still holds (§2 G). I3 excluded a *deferred* consumer; this consumer 
 shim ran under `host_if_bound()`, so a clone on an unbound `EcsDom` got no copy then either; what is new is the window
 case, where a dispatcher exists but is taken out, and that is the F × I pair (§2), closed by D-4's assertion rather
 than by prose. I4 and I5 hold unchanged: the same function creates the state at clone time, over the same tree
-(§2 B × F; `cloneNode(true)` is `Subtree`, today's walk; the template frontier stays).
+(§2 B × F; `cloneNode(true)` is `Subtree`, the walk of §4.3; the template frontier stays).
 
 **Marker over pairs** (why the event carries `root` + `scope` and not the `(src, dst)` list). Not #466's I1 × I2 row
 (it rests on I2, which no longer binds). The independent reason: the pairs worklist is not in the consumers' visit
@@ -789,18 +820,14 @@ order — `clone_children_recursive` appends each parent's children as a group, 
 the pairs run div, x-a, x-c, x-b while creation order is div, x-a, x-b, x-c (umbrella §0.3 item 14, measured there) —
 and both arms take their set and order from the one scope-gated walk (umbrella §4.3 condition 4). A pairs list in
 the event would be a second definition of the visit set, in a different order. The marker is the per-entity src link
-the walk cannot recover; it stays. **Residual** (R2 G11, a pre-existing defect, stated, not fixed here): the walk is
-capped at `MAX_ANCESTOR_DEPTH` (§0.2 "The walk") but the cloner is not — `clone_children_recursive`
-(`tree_clone.rs:390-424`) is an explicit stack with no depth check (`git grep -n MAX_ANCESTOR_DEPTH --
-crates/core/elidex-ecs/src/dom/tree_clone.rs` → its doc at `:384` only) — so clones below the cap are created and are
-invisible to both arms: no upgrade reaction is enqueued for a custom element there, and no form state is copied to a
-control there (its `ClonedFrom` marker is never swept; harmless by `tree_clone.rs:29`'s rule — a stale marker
-resolves to a miss and despawns with its entity). Today's post-pass has the same hole (the same walk, `upgrade.rs:131`
-and `init.rs:116`), and so does `handle_insert`: `classify_connected_subtree` (`consumer.rs:193-217`) walks
+the walk cannot recover; it stays. **Residual** (R2 G11; Rev 3.4 / 3.5 restate it): the clone walk is no longer
+capped, so clones below `MAX_ANCESTOR_DEPTH` are visited by both arms (§4.3; the deep-tree cells of §6 pin it). What
+remains of G11 is the cloner's own breadth truncation (§4.3 "The cloner's bound") and `handle_insert`'s cap:
+`classify_connected_subtree` (`consumer.rs:193-217`; its walk call at `:244` at `4fe6d3fb`) walks
 `for_each_shadow_inclusive_descendant` from the inserted root, so an element inserted deeper than the cap gets no
-`Connected` / `Upgrade` reaction either (uncertain in R2; read from the code here). The cap is the deliberate DoS
-bound of the walker (`walkers.rs:40-47`); lifting it for the two arms alone would make clones and inserts disagree,
-so it is left as it is and recorded.
+`Connected` / `Upgrade` reaction (uncertain in R2; read from the code). Lifting that cap for one caller is the slot's
+work, not this PR's: `#11-capped-walker-deep-element-processing` (§8) replaces the capped walker and the uncapped
+clone walk with one bounding rule.
 
 **What flips.** No #466 test changes its expected value: the eleven VM tests in `tests_clone_form_state.rs` (`:48-180`,
 the I3 case among them) and the six `elidex-form` unit tests (`clone.rs:184-304`) stay green; the unit tests gain a
@@ -922,11 +949,11 @@ webref cannot confirm is replaced by the name.
 | `EcsDom::fire_clone_created` (NEW) | `elidex-ecs` | NEW, one call to the existing private `dispatch_event` (`fire_split_text` shape) |
 | `DispatcherSlot` (D-4) | `elidex-ecs` | NEW private enum replacing the `Option` slot; the three public slot methods (`set` `:167` / `clear` `:175` / `take` `:181`) keep their signatures; the private `dispatch_event` (`:199`) and `RestoreDispatcher` follow the enum |
 | `destroy_entity`'s slot read (`tree/teardown.rs:80`) | `elidex-ecs` | existing read follows the enum (`Installed(_)`; §4.7 "The readers") |
-| `EcsDom::for_each_clone_created` (NEW) | `elidex-ecs` | NEW, over the existing `for_each_shadow_inclusive_descendant` and `get_shadow_root` |
+| `EcsDom::for_each_clone_created` (NEW) | `elidex-ecs` | NEW work-list walk over the existing `child_list_uncapped` and `get_shadow_root` (§4.3); independent of the capped walker |
 | census no-op arm | `elidex-dom-api` `range/live.rs` | existing exhaustive `match` gains an arm (D-8, §5.2) |
 | the fire and D14 | `elidex-dom-api` | existing `clone_node_with_shadow_honor`; existing `clone_recording` (pass 4, with true) / `replicate_template_contents` (pass 3, with the pair's own flag) — D-5 |
 | CE arm | `elidex-custom-elements` | existing `CustomElementReactionConsumer::handle` gains an arm; NEW `handle_clone_created` (the `handle_insert` shape); existing `apply_clone_creation_ce_semantics` (+ `scope`, `pub(crate)`) |
-| form arm | `elidex-form` | existing `FormControlReconciler::handle` gains an arm; NEW free fn `handle_clone_created` beside `handle_insert`; existing `apply_clone_form_state` (+ `scope`, `pub(crate)`), `collect_template_inclusive_descendants` |
+| form arm | `elidex-form` | existing `FormControlReconciler::handle` gains an arm that calls `apply_clone_form_state` directly (§4.5); existing `apply_clone_form_state` (+ `scope`, `pub(crate)`); existing `for_each_uncapped_shadow_inclusive` for the template frontier |
 | `cloneNode` native | `elidex-js` `vm/host/` | existing `native_node_clone_node`, post-pass deleted; `enqueue_subtree_upgrade_reactions` deleted |
 | test probe | `elidex-dom-api` `test_util.rs` | NEW `CloneCreatedProbe` (the `AttrChangeCounter` shape) |
 
@@ -976,8 +1003,12 @@ twin of §6 (f) goes to the new file); `tests_clone_node.rs` (296, `cloneNode` b
 `crates/core/elidex-ecs/src/dom/tests/mod.rs` (28: RC-2a-pre adds `mod mutation_hook_fire_helpers;`, RC-2a adds
 nothing). RC-2a-pre's own edit set is `mutation_hook.rs` (the move, the two visibility changes and the module-doc
 list, D-1), `mutation_hook_fire_helpers.rs` (NEW) and that `tests/mod.rs`, nothing else (D-1, §7). Stated because
-the umbrella listed them as possible: `crates/dom/elidex-form/src/init.rs` (D-3), `CloneNode`'s `invoke` (D-6), every
-Range file, `reaction.rs`, `custom_elements/flush.rs`. No file under `scripts/` or `.claude/tools/` (D-4, Rev 2).
+the umbrella listed them as possible: `CloneNode`'s `invoke` (D-6), every Range file, `reaction.rs`,
+`custom_elements/flush.rs`. No file under `scripts/` or `.claude/tools/` (D-4, Rev 2). Beyond the table, at
+`4fe6d3fb` (Rev 3.5; `git diff --stat "$(git merge-base origin/main 4fe6d3fb)" 4fe6d3fb`) the PR also touches
+`crates/dom/elidex-form/src/init.rs` and `inert_document.rs` (one doc line each: the clone copy is no longer a caller
+of `collect_template_inclusive_descendants`, D-3), `crates/script/elidex-js/src/vm/host/html_template_proto.rs` (one
+doc line) and `crates/dom/elidex-custom-elements/src/tests.rs` (the engine-level arm test of §6).
 
 ### §5.2 Exhaustive `MutationEvent` matches gaining an arm
 
@@ -1015,18 +1046,22 @@ under both rules, so it is renamed and its comment rewritten (§4.9) and it stay
 
 - `elidex-ecs`, `tests/mutation_hook_fire_helpers.rs` (the `fire_*` group, moved there by RC-2a-pre; D-1):
   `fire_clone_created_helper_routes_to_hook` — `fire_clone_created` records `MockEvent::CloneCreated { root, scope }`
-  once per call, for both scopes (the `fire_split_text_helper_routes_to_hook` shape); and one line in the existing
-  `fire_helpers_silent_when_no_hook_installed`: with no dispatcher installed `fire_clone_created` is a no-op (no
-  panic).
+  once per call, for both scopes (the `fire_split_text_helper_routes_to_hook` shape); and the existing
+  `fire_helpers_silent_when_no_hook_installed`, strengthened (PM 349; Rev 3.5): after the three fires with no
+  dispatcher installed, `fire_clone_created` among them, it asserts the slot is still `DispatcherSlot::Absent` and
+  the tree (children, parents) unchanged — the no-op is pinned as a property, not as the absence of a panic.
 - `elidex-ecs`, `tests/dispatch_guard.rs`: a hook that calls `dom.fire_clone_created(…)` from inside `dispatch`
-  panics under `#[cfg(debug_assertions)]` (`#[should_panic(expected = "re-entry contract")]`, matching the message at
-  `dom/mod.rs:200-206`).
-- `elidex-ecs`, `tests/traversal.rs`: `for_each_clone_created` with `SelfOnly` on a root that has light children and a
-  clonable shadow root visits the root, then the ShadowRoot entity and its subtree, never the light children; with
-  `Subtree` it equals `for_each_shadow_inclusive_descendant` on a shallow tree; with `SelfOnly` on a root without a
-  shadow root it visits the root only. Deep-tree cell (Rev 3.4, the negative control for the removed cap): a chain of
-  `MAX_ANCESTOR_DEPTH + 5` below the root, built bottom-up, is visited in full including the deepest, under `Subtree`
-  and through a `SelfOnly` root's shadow tree.
+  panics under `#[cfg(debug_assertions)]` (`fire_clone_created_from_inside_dispatch_hits_reentry_assertion`,
+  `#[should_panic(expected = "violates re-entry contract")]`, matching the message at `dom/mod.rs:200-206`).
+- `elidex-ecs`, `tests/traversal.rs`: `clone_created_self_only_visits_root_and_shadow_tree_not_light_children`
+  (`SelfOnly` on a root with light children and a clonable shadow root: the root, then the ShadowRoot entity and its
+  subtree, never the light children); `clone_created_subtree_is_creation_order_and_matches_capped_walk_on_shallow_tree`
+  (`Subtree` equals `for_each_shadow_inclusive_descendant` on a shallow tree);
+  `clone_created_self_only_without_shadow_root_visits_root_only`. Deep-tree cells (Rev 3.4, the negative control for
+  the removed cap; Rev 3.5 names them): `clone_created_subtree_reaches_past_max_ancestor_depth` — a chain of
+  `MAX_ANCESTOR_DEPTH + 5` below the root, built bottom-up, visited in full down to the deepest, with the capped walker
+  measured short on the same tree; `clone_created_self_only_reaches_past_max_ancestor_depth_in_shadow_tree` — the
+  same chain under a `SelfOnly` root's shadow root: host, ShadowRoot, then the whole chain.
 - `elidex-dom-api`, `test_util.rs`: `CloneCreatedProbe` (NEW), a `MutationDispatcher` recording `(root, scope)`
   (the `AttrChangeCounter` shape, `test_util.rs:21-34`).
 - `elidex-dom-api`, `tests/clone_shadow.rs`: (a) one event per entry call: `cloneNode(true)` of a host with a
@@ -1062,11 +1097,34 @@ under both rules, so it is renamed and its comment rewritten (§4.9) and it stay
   set on the `<input>`, then `host.cloneNode(false)` — `clone.shadowRoot.firstChild.firstChild` exists (D-5 (i) at
   the root pair) and its `.value` reads the copy (pass 2's marker on the grandchild's pair, the `SelfOnly` walk
   through the shadow root, the form arm).
-- `elidex-ecs`, `tests/dispatch_guard.rs` (D-4, §4.7): (w1) a clone fired inside a take-window panics in debug
-  (`#[cfg(debug_assertions)]`, `#[should_panic(expected = "dispatcher is taken out")]`); (w2) a take on an unbound
-  `EcsDom` opens no window, and the fire stays silent; (w3) a restored dispatcher closes the window and receives
-  the event. (w1) is the check's negative control: it is red (no panic, test fails) at any head where the assertion is
-  missing.
+- `elidex-ecs`, `tests/dispatch_guard.rs` (D-4, §4.7): (w1) `fire_clone_created_asserts_while_dispatcher_is_taken` —
+  a clone fired inside a take-window panics in debug (`#[cfg(debug_assertions)]`, `#[should_panic(expected =
+  "dispatcher is taken out")]`); (w2) `fire_clone_created_is_silent_after_empty_take` — a take on an unbound `EcsDom`
+  opens no window, and the fire stays silent; (w3) `fire_clone_created_dispatches_after_take_and_restore` — a restored
+  dispatcher closes the window and receives the event. (w1) is the check's negative control: it is red (no panic, test
+  fails) at any head where the assertion is missing.
+
+**Tests the implementation added beyond the plan** (Rev 3.5; each name verified with `git grep -n 'fn <name>'` at
+`4fe6d3fb`), one line each:
+
+- `elidex-custom-elements`, `tests.rs`: `clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope` — the
+  arm through `CustomElementReactionConsumer::handle` on `<x-el><x-el>` (both defined): `Subtree` enqueues exactly one
+  `Upgrade` per candidate, root then child; `SelfOnly` enqueues the root only. Pinned at the engine level because a
+  duplicated enqueue is invisible at the JS level (the second is a `prepare_upgrade` Skip and the constructor still runs
+  once).
+- `elidex-form`, `clone.rs` inline: `template_contents_deeper_than_depth_cap_are_processed` — a marked `<input>`
+  `MAX_ANCESTOR_DEPTH + 5` below a cloned `<template>`'s content fragment gets its value and dirty flag copied and its
+  marker swept (the uncapped template frontier, D-3).
+- `elidex-js`, `tests_clone_created.rs`: `clone_scope_reaches_the_custom_element_arm` — `<div><x-el></div>`:
+  `cloneNode(true)` runs the light-descendant clone's constructor once, `cloneNode(false)` runs none; the event's
+  `scope` reaches the walk through the arm.
+- `elidex-ecs`, `tests/dispatch_guard.rs`: `clear_closes_a_taken_window` — install, take, `clear_mutation_dispatcher`
+  leaves the slot `Absent`, not `Taken`, and `fire_clone_created` is then silent (R2 G2's clear-from-`Taken`, pinned);
+  `installing_inside_dispatch_asserts_after_restoring_state` — a dispatcher that installs another from inside its own
+  dispatch trips `RestoreDispatcher::drop`'s assertion (caught with `catch_unwind`); afterwards `dispatch_depth == 0`,
+  the slot is `Installed`, and the next event reaches the original dispatcher, not the displaced one (§4.7).
+- `elidex-ecs`, `tests/mutation_hook_fire_helpers.rs`: the strengthened `fire_helpers_silent_when_no_hook_installed`
+  (above; PM 349).
 
 **Coverage statement (CLAUDE.md "Supported-surface testing").** The `cloneNode` surface is guarded by the VM
 end-to-end tests above plus the engine-independent unit tests in the three crates; D14 by its negative control; the
@@ -1123,7 +1181,15 @@ umbrella's §7 rows for RC-2a are thereby discharged at this base.
 - `#11-input-dirty-checkedness-flag` (pre-existing, `elidex-form/src/clone.rs:122-126`): untouched.
 - `#11-clone-cloning-steps-event` (closed by #466): stays closed; the PM may annotate it (umbrella H5).
 - The node document of clones and the `:282-285` stamps: C0b's (H9); C1 rebases onto this PR (umbrella §9).
-- No new slot is proposed by this memo.
+- Slots this PR's code and gate produced (Rev 3.5; owner L3, registered by the PM; one line each, pointers only):
+  - `#11-capped-walker-deep-element-processing` — the capped walkers' depth and the cloner's breadth under one
+    bounding rule (§4.3 "The cloner's bound", §4.8 residual; PM 367 / 369 / 392).
+  - `#11-ce-upgrade-returned-object-typeerror` — "upgrade an element" step 10.4 throws a `TypeError` when the
+    constructor's result is not the element (`webref body html concept-upgrade-an-element`, §4.13.5 Upgrades, read
+    2026-11-05); elidex throws `NotSupportedError` and marks the element failed (PM 373).
+  - `#11-form-cloning-steps-in-cloner` — the alternative to §2 G × F's design (PM 392).
+  - `#11-dispatcher-take-window-unwind-guard` — a panic inside a take window leaves the slot `Taken` (§4.7's windows
+    restore by straight-line code, not by a guard; PM 392).
 
 ## §9. Edges, hand-offs, definition of done
 
@@ -1208,9 +1274,11 @@ visibility) with the `fire_*` group in
    (a) `git grep -n -P '\.dispatcher\.(is_some|is_none|take|replace)\(|\.dispatcher\s*=\s*None\b' --
    crates/core/elidex-ecs/src` → **no output** (every `Option` idiom on the field is gone; the enum refuses them at
    compile time, and the grep is the re-runnable record of that);
-   (b) `git grep -n -P '\.dispatcher\b|^\s*dispatcher:' -- crates/core/elidex-ecs/src` → lines in exactly three files,
-   `dom/mod.rs`, `dom/tree/teardown.rs`, `dom/tests/dispatch_guard.rs` — the file set of §0.2's slot access census at
-   `fab44a1d` (no reader was added elsewhere);
+   (b) `git grep -n -P '\.dispatcher\b|^\s*dispatcher:' -- crates/core/elidex-ecs/src` → lines in exactly four files (run at
+   `4fe6d3fb`, Rev 3.5: `dom/mod.rs` 12, `dom/tests/dispatch_guard.rs` 5, `dom/tests/mutation_hook_fire_helpers.rs` 1,
+   `dom/tree/teardown.rs` 1) — §0.2's slot access census file set plus the one test line of the strengthened
+   `fire_helpers_silent_when_no_hook_installed` (its `Absent` assertion, §6; PM 349). The property this records: no
+   non-test reader was added — the production files are `dom/mod.rs` and `dom/tree/teardown.rs`, as at `fab44a1d`;
    (c) `git grep -n 'Option<Box<dyn MutationDispatcher' -- crates/core/elidex-ecs/src/dom/mod.rs` → **exactly three
    lines**: the return type of `set_mutation_dispatcher`, the return type of `take_mutation_dispatcher`, and
    `RestoreDispatcher`'s `pending` field (the `EcsDom` field is `dispatcher: DispatcherSlot`);
