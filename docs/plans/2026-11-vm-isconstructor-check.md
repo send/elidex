@@ -289,7 +289,12 @@ After this PR the read no longer throws: it hands the resolved superCtor (`JsVal
 `construct_synchronous`, whose callee parameter becomes a `JsValue` (`ctor_id: ObjectId` today, `:234`),
 and the admission refuses `null` with the `Super` entry's message. The custom-element upgrade passes
 `JsValue::Object(constructor)` (`vm/host/custom_elements/upgrade.rs:315`). So every IsConstructor refusal
-at both entries, `null` included, is the admission's.
+at both entries, `null` included, is the admission's. **Which entry each caller passes** (driver's
+decision): `construct_synchronous` takes the entry as a parameter. `dispatch_super_inner` passes `Super`.
+The custom-element upgrade passes `New`: HTML "upgrade an element" step 10.3 ("Let constructResult be the
+result of constructing C, with no arguments", `.claude/tools/webref body html concept-upgrade-an-element`)
+performs `Construct(C)` directly, the same shape as `new`; it always passes `JsValue::Object`, so the key
+is only ever read by the non-Object arm and changes no behaviour.
 
 **Placement.** Both entries run the admission after the arguments are evaluated and before any
 allocation, frame push or stack splice: EvaluateNew (§13.3.5.1.1) step 5 follows step 4's
@@ -388,8 +393,8 @@ fails (derived here; the post-implementation run in §4.2 records it).
 
 The null super constructor (§1.3) adds no axis: its refusal is the admission's non-Object arm, on the
 **same admission line** in `construct_synchronous` that A2 and A3 already decide — A2 because the
-`Super` entry must consult that arm (M11, M12), A3 because the line runs after the arguments (T-ORD's
-null half pins the order).
+`Super` entry must consult that arm (M11, M12), A3 because the line runs after the arguments (the null
+half is S's acceptance; in this PR the line cannot move ahead of the arguments).
 
 | Mutant | Cells it fails | Fails alone? | Invariant it breaks | Folded into | Meets the other axes at |
 |---|---|---|---|---|---|
@@ -573,9 +578,10 @@ Run on the final head only, sequentially (≤ 2 parallel builds), each recorded 
   in `do_new` the `new Math.max()` cell of T-NEW sees the same hole.
 - **How M8 / M8b are built** — not a pure move, because the code before each push consumes the helper's
   `(target, prepended)` return (`do_new`'s splice and `extract_js_callee`, `vm/ops.rs:698-707`;
-  `construct_synchronous`'s argument combine, `vm/dispatch_class.rs:257-265`). Each mutant keeps a raw
-  `unwrap_bound_function_chain` call and the native arm's refusal where the helper was, and calls the
-  helper (its result discarded except for the refusal) in the JS branch after the push. Insertion points: in `do_new`, immediately after the inline
+  `construct_synchronous`'s argument combine, `vm/dispatch_class.rs:257-265`). Each mutant keeps, where
+  the helper was, the non-Object arm's refusal (the raw `unwrap_bound_function_chain` takes an
+  `ObjectId`, so the non-Object callee is refused before it), a raw `unwrap_bound_function_chain` call and
+  the native arm's refusal, and calls the helper (its result discarded except for the refusal) in the JS branch after the push. Insertion points: in `do_new`, immediately after the inline
   frame push (`vm/ops.rs:784-793`); in `construct_synchronous`, inside the `with_call_mode` closure's JS
   branch **between `push_js_call_frame` and the new frame-balance `debug_assert!`** — after the assert,
   a debug run panics for every frameless kind in T-SUPER-* / T-POP, and M8 no longer fails T-ORD alone
