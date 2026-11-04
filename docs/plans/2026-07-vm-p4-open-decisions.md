@@ -149,10 +149,10 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
    `Reflect.apply`. Semantics differ (spread's array is compiler-guaranteed dense; `apply` is
    generic array-like per CreateListFromArrayLike). Share the dense fast path or keep separate with
    a stated reason? **Recommendation (added round 8 — this was the only §9 entry with none, and it
-   sits inside the 1a half's deliverable — specifically the child of umbrella 1a that owns the argument-layout and inline-cache contract): share — for that child only.** `collect_array_like` already has the correct
+   sits inside the 1a half's deliverable — specifically 1aa, the child of umbrella 1a that owns the argument-layout contract — this read "the argument-layout and inline-cache contract"; the inline-cache half is 1ad's since 1aa's plan-review R1, and this entry's sharing is not about it): share — for that child only.** `collect_array_like` already has the correct
    `.or_undefined()` normalisation that child needs, and
    `call_internal` — one of dec. 10's four unrooted windows — is already reached at N≫1 through it,
-   so sharing puts that on one audited path. ⚠ *This entry once said `Reflect.apply` "will home there" too; that is withdrawn — **dec. 17** resolves the generic path the other way (it must NOT reuse the dense fast path), and dec. 17 is the home of that question.* The array-like/dense distinction stays a
+   so sharing puts that on one audited path. ⚠ *This entry once said `Reflect.apply` "will home there" too; that is withdrawn — **dec. 17** resolves the generic path the other way (it must NOT reuse the dense fast path), and dec. 17 is the home of that question.* ⚠ *(2026-11-05, 1aa R2 focused re-review) That withdrawal's reason, "must NOT reuse", is itself superseded: dec. 17's 2026-11-03 note replaces it with a guarded reuse over every CreateListFromArrayLike caller, and that note is the one statement of the rule — this entry does not restate it.* The array-like/dense distinction stays a
    *caller-side* precondition, not a second helper.
    ⚠ **Correction (2026-11-03, 1aa plan-review R1): "`collect_array_like` already has the correct
    `.or_undefined()` normalisation" is false for `collect_array_like`'s own caller.** Its dense branch
@@ -313,7 +313,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     exists, which is the same measurement that deleted the edge. What 0cb buys later slices is a
     baseline they are *measured against once it exists*, not a precondition they wait on. Was an unowned either/or in §7.2; ratified here so 0cb's author
     reads a decision, not a fork.
-17. **Dense vs generic argument unpacking — RESOLVED (keep them separate), owners the child of umbrella 1a that owns the argument-layout and inline-cache contract and the child umbrella 10a mints for `Reflect.apply` (§28.1.1).** ⚠ *"keep them separate" is superseded in part by the guarded reuse (2026-11-03 note at the end of this entry).*
+17. **Dense vs generic argument unpacking — RESOLVED (keep them separate), owners 1aa (the child of umbrella 1a that owns the argument-layout contract — *this read "the argument-layout and inline-cache contract"; the inline-cache half is 1ad's since 1aa's plan-review R1, and this entry is not about it*) and the child umbrella 10a mints for `Reflect.apply` (§28.1.1).** ⚠ *"keep them separate" is superseded in part by the guarded reuse (2026-11-03 note at the end of this entry).*
     **Umbrella 1a's child** shares `collect_array_like`'s **dense** fast path (dec. 8), and may, because the arrays it
     unpacks are compiler-emitted and dense by construction. **The child umbrella 10a mints for `Reflect.apply` must NOT reuse that fast path**: ECMA-262 **§28.1.1** `Reflect.apply` delegates the argument list to
     **§7.3.19** `CreateListFromArrayLike`, which performs a real `Get` per index, so a getter on
@@ -324,12 +324,24 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     helper. §-numbers verified via `webref heading ecma262 28.1.1` /
     `webref aoid ecma262 CreateListFromArrayLike`. Was an unowned either/or inside dec. 6.
     ⚠ **Superseded in part (2026-11-03, 1aa plan-review R2): "must NOT reuse that fast path" is
-    replaced by a *guarded* reuse — one issue, one way.** Both CreateListFromArrayLike callers,
-    `Function.prototype.apply` (**1ae**) and `Reflect.apply` (the child umbrella 10a mints), put the
-    same caller-side hole-free precondition in front of the one shared dense primitive (1aa's
-    `array_argument_values`): an Array with no `Empty` element takes the dense path, and any other
-    array-like, a holey Array included, goes through the per-index `Get`. **1ae is the producer of
-    the guard**; the `Reflect.apply` child of umbrella 10a reuses it rather than writing a second one. The separating witness
+    replaced by a *guarded* reuse — one issue, one way.** ⚠ *(2026-11-05, 1aa R2 focused re-review) This read "Both CreateListFromArrayLike callers"; ECMA-262
+    has four.* **The rule, over every CreateListFromArrayLike caller**: the one shared dense primitive
+    (1aa's `array_argument_values`) may be read through only (i) behind the caller-side hole-free
+    guard — an Array with no `Empty` element — and (ii) only where step 6.c cannot apply, i.e. the
+    caller passes no `validElementTypes`; anything else, a holey Array included, goes through the
+    per-index `Get` (and step 6.c's per-element test where it applies). **1ae is the producer of the
+    guard**; every other caller reuses it rather than writing a second one. The four callers (steps
+    from `webref body ecma262` over `sec-function.prototype.apply`, `sec-reflect.apply`,
+    `sec-reflect.construct` and `sec-proxy-object-internal-methods-and-internal-slots-ownpropertykeys`):
+    **§20.2.3.1** `Function.prototype.apply` step 4 — owner **1ae**, implemented today
+    (`native_function_apply` → `collect_array_like`); **§28.1.1** `Reflect.apply` step 2 and
+    **§28.1.2** `Reflect.construct` step 4 — owners the children umbrella **10a** mints, not yet
+    implemented (`git grep -n -w Reflect -- crates/script/elidex-js/src` finds comments only, at
+    `eaa741b5` and at `d1e9186a`); **§10.5.11** Proxy `[[OwnPropertyKeys]]` step 8,
+    `CreateListFromArrayLike(trapResultArray, property-key)` — owner the child umbrella **10b** mints
+    for that internal method, not yet implemented (no Proxy exotic object in-tree at either
+    revision), and by (ii) it **never** takes the dense path, since its `validElementTypes` is
+    property-key. The separating witness
     stays as stated above (a getter on `Array.prototype[0]` must run for
     `Reflect.apply(f, null, new Array(1))`), and it holds under the guarded reuse, since the Array
     constructor fills `new Array(1)` with `JsValue::Empty` (`vm/natives.rs:699` at `eaa741b5`), so

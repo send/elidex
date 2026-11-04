@@ -1,4 +1,4 @@
-# VM P4 slice 1aa — the argument-layout contract (per-PR plan, rev 4)
+# VM P4 slice 1aa — the argument-layout contract (per-PR plan, rev 4.1)
 
 **Parent.** Umbrella **1a** (*Call-spread VM infrastructure*), row `1a` of the §5 slice table in
 `docs/plans/2026-07-vm-p4-slice-plan.md`. 1a's derivation is recorded in §6.6 of
@@ -40,6 +40,13 @@ error (§1.1, §1.3). The two slot triggers 1aa fires are recorded, with a dispo
 ledger rows, which closes §7 Q3/Q4. The stack-depth bound is placed in `lay_out_call_args`, owned
 by 1b's argument-emit child (§1.1). The release-build outcome of D-S2 is measured (§3.1). The spec
 map is completed and re-cited (§3, §5.1).
+
+**Rev 4.1 (R2 focused re-review; read at `d1e9186a`, this branch's merge of origin/main `145927c9`).**
+D-S2 was discharged by #591 (`#11-vm-construct-isconstructor-check`); §3.1 keeps a discharge pointer
+only, and its `vm/object_kind.rs` cite is re-cited by name to `vm/construct_admission.rs`. D-CL3 is
+folded into 1ae (PM 310; §3.1, §9). §3's map gains the rows rev 4's sentence claimed, and its breadth
+paragraph says what "changes" means. §2's I-G mutant now breaks I-G. Every other `file:line` stays
+at `eaa741b5` (Base); the cites this revision adds name the revision they were read at.
 
 **Overlap with a parked branch.** The local branch `vm-p4-rooting-carved` (`37a97d49`, merge-base
 `6b33854d`) rewrites `vm/dispatch.rs` (386 lines changed) and `vm/dispatch_helpers.rs` (+535), and
@@ -125,12 +132,13 @@ No opcode is added, no emit site changes, and no observable behaviour changes. `
   hole-free array (dec. 8's correction note), with its red test and dense control. Its `Deps` names
   1aa, because the precondition guards the call into 1aa's `array_argument_values`. Its own per-PR
   plan memo is owed; §9 hands over this memo's rev-2 design and tests. 1aa does not add the
-  precondition.
+  precondition. Since PM 310 it also owns D-CL3, the generic path's length clamp (§3.1, §9).
 - **Umbrella 1b's children** — `compile_call_arguments` / `ArgsForm`, `emit_call`, `CallSpread` /
   `CallMethodSpread` / `NewSpread` handlers (the first new consumers of D1 and the first `None`
   producers of 1ad), arity-based form selection (`f(a1…a300)`), the stack-depth bound (dec. 12), the
   I-3 tagged-template input contract, and every edge of §6.4 the carve-out does not place on 1a's
-  children.
+  children. EvaluateNew step 5 at `do_new` is not theirs: its one owner statement is umbrella §3
+  row 17 (`#11-vm-construct-isconstructor-check`, landed as #591).
 
 ---
 
@@ -346,7 +354,7 @@ plus D6 (the table is the rev-2 measurement; A1 and A2 are 1ae's tests from rev 
 |---|---|---|---|
 | **I-L (layout)** — the stack holds exactly the array's elements, in index order, where the array was; the count equals the number pushed | push `elements` reversed, spelled `let v: Vec<_> = array_argument_values(elements).collect(); stack.extend(v.into_iter().rev())` (`array_argument_values` returns `impl Iterator`, not `DoubleEndedIterator`, so `.rev()` on it does not compile) | T1, C3, C5 (`"[0,2,1]"`), C6 (`arguments[299] === 0`) | T2, T3, C1, C2, A1, A2 |
 | **I-H (holes)** — no `JsValue::Empty` reaches an argument window | drop `.or_undefined()` from `array_argument_values` | T1 | T2, T3, C1–C6 (no compiler-built array has a hole), A1, A2 |
-| **I-G (GC)** — no `ObjectId` the args array or its elements denote is held only in a Rust local across an allocation **in D1's window** | allocate a temporary JS array from the helper while GC is enabled, **placed after the error-contract validation** (placed before it, the allocation takes T3's freed slot, `alloc_object` reusing freed slots first, `vm/inner.rs:121-123`, and T3's freed-slot case turns into an `Ok(0)` on a live object) | T2 | T1, T3, C1–C6 |
+| **I-G (GC)** — no `ObjectId` the args array or its elements denote is held only in a Rust local across an allocation **in D1's window** | after the error-contract validation, give up the disjoint borrow and spell the body as `let Some(JsValue::Object(id)) = self.stack.pop() else { unreachable!() }; let ObjectKind::Array { elements } = &self.get_object(id).kind else { unreachable!() }; let v: Vec<JsValue> = array_argument_values(elements).collect(); let _ = self.create_array_object(Vec::new()); self.stack.extend(v);` (the shared borrow of `elements` ends at the `collect`, so the `&mut self` call compiles): the array is popped, so its id is held only in the local `id`, and its element values only in the Rust `Vec` `v`, across `create_array_object` (`vm/inner.rs:173`, an allocation while GC is enabled). ⚠ *Rev 4's mutant, "allocate a temporary JS array from the helper", left the array on the stack, where it stays rooted, so it did not break I-G; and with the disjoint borrow in place it did not compile.* Placed after validation for the reason rev 4 gave: placed before it, the allocation takes T3's freed slot (`alloc_object` reuses freed slots first, `vm/inner.rs:121-123`) and T3's freed-slot case turns into an `Ok(0)` on a live object | T2 — by its stronger property, not by observing a freed object: T2 fails on **any** allocation in the window (its armed one-shot is consumed), and this mutant allocates; no test observes the dangling `id` itself | T1, T3, C1–C6 |
 | **I-O (observability)** — laying out performs no property lookup and no iteration (§15.7.14 step 14.a.iv.1 NOTE; edge 32) | lay out through `%Array.prototype%[%Symbol.iterator%]`, leaving the array on the stack | C1 | T1, T3, C2–C6; T2 too, because the iterator objects are allocated inside natives under `gc_enabled = false` (`vm/interpreter.rs:364`; dry-run G1) |
 | **I-W (width)** — no argument count passes through a `u8` on the array path | `self.op_super_call(argc as u8 as usize, …)` in `op_super_call_spread` | C6 | everything else |
 | **I-A (array-like)** — `apply` over a holey Array performs §7.3.19 step 6.b's `Get` (**1ae** from rev 3) | drop D6's hole-free precondition | A1 | everything else |
@@ -440,7 +448,9 @@ D5 to 1ad (§8). Rev 4 re-read the steps with `webref body ecma262 GetSuperConst
 `body ecma262 ArgumentListEvaluation` (all eight productions), `body ecma262 Construct` (steps 1-3),
 `body ecma262 ClassDefinitionEvaluation` (step 14.a.i-vii), `body ecma262 sec-function.prototype.apply`
 (steps 1-6) and `body ecma262 CreateListFromArrayLike` (steps 1-7), and completed the rows those
-bodies have and the map lacked (plan-review R2).
+bodies have and the map lacked (plan-review R2). ⚠ *That overclaimed: rev 4.1 added the rows it still
+lacked — `apply` steps 1 and 3.a / 5, CreateListFromArrayLike steps 1 and 4 / 5 / 6.a / 6.d / 6.e / 7,
+and the abrupt `precedingArgs` (step 1) of `ArgumentList , ... AssignmentExpression`.*
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
@@ -449,6 +459,7 @@ bodies have and the map lacked (plan-review R2).
 | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `ArgumentList : AssignmentExpression` steps 1-2; `ArgumentList : ArgumentList , AssignmentExpression` steps 1-3 | abrupt `? Evaluation` / `? GetValue` (and an abrupt `precedingArgs`, step 1) → the completion propagates | producer: the compiled argument expressions (unchanged); the throw unwinds before the opcode runs, so 1aa's consumer is never reached | ✓ (probed, §3.2) | yes |
 | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `ArgumentList : ... AssignmentExpression` steps 1-5; `ArgumentList : ArgumentList , ... AssignmentExpression` steps 1-4 | normal completion: the List is the drain order, `precedingArgs` first | producer `ArraySpread` → `op_array_spread` (unchanged); consumer `lay_out_call_args` preserves index order (I-L) | ✓ | yes |
 | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `ArgumentList : ... AssignmentExpression` steps 2-3; `ArgumentList : ArgumentList , ... AssignmentExpression` steps 2-3 | abrupt `? Evaluation` / `? GetValue` of the spread operand → the completion propagates | producer (unchanged); unwinds before `ArraySpread`, not on 1aa's consumer side | ✓ (probed, §3.2) | yes |
+| ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `ArgumentList : ArgumentList , ... AssignmentExpression` step 1 | abrupt `precedingArgs` → the completion propagates | producer: the preceding arguments, compiled before the spread operand (`compiler/expr_member.rs:116-127`, unchanged); the throw unwinds before `ArraySpread` and the opcode, so 1aa's consumer is never reached | ✓ (code read, not probed: the probed `super(1, ...(throw))` covers step 2, not step 1) | yes |
 | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `... AssignmentExpression` step 4 / `ArgumentList , ... AssignmentExpression` step 3 | `? GetIterator(…, sync)` throws: non-iterable spread operand → TypeError | producer `op_array_spread` → `resolve_iterator` (unchanged; not on 1aa's consumer side) | ✓ (probed, §3.2) | yes |
 | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `... AssignmentExpression` step 5.a / `ArgumentList , ... AssignmentExpression` step 4.a | `? IteratorStepValue` throws → the error propagates | producer `op_array_spread`'s drain (unchanged): propagation ✓ (probed, §3.2); the extra `return()` it calls on that path is ✗ and is **1ab**'s (edge 21) | ✗ (`return()` half; 1ab) | yes |
 | ECMA-262 §13.3.8.1 Runtime Semantics: ArgumentListEvaluation | `... AssignmentExpression` step 5.b | the iterator is done at once: the List is empty | `super(...[])` → `lay_out_call_args` returns `Ok(0)` → window of 0 (C2) | ✓ | yes |
@@ -456,7 +467,7 @@ bodies have and the map lacked (plan-review R2).
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` steps 1-2 | GetNewTarget; Assert constructor | `dispatch_super_inner` reads the frame's `CallMode::Construct { new_target }` (`vm/dispatch_class.rs:132-135`) — unchanged | ✓ | no |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` step 3 → step 4 order | superCtor is fixed **before** the arguments are evaluated | — `dispatch_super_inner` resolves `home.prototype` (`:121-124`) when the opcode runs, after the arguments | ✗ (pre-existing; probed; homed on Slice S, §3.1) | yes |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` step 4 | `argList` from ArgumentListEvaluation | flat: `Op::SuperCall` (`u8` operand) → `op_super_call(usize)`; spread: `op_super_call_spread` → `lay_out_call_args` (NEW) → `op_super_call` | ✓ | yes |
-| ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` step 5 | IsConstructor(superCtor) false → TypeError | `construct_synchronous` accepts every `ObjectKind::Function` (`:267`, `:272`), with no arrow / method / generator / async test | ✗ (pre-existing; probed in debug and release builds, §3.1; homed on Slice S) | yes |
+| ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` step 5 | IsConstructor(superCtor) false → TypeError | `construct_synchronous` → `admit_construct` (`vm/construct_admission.rs`, from #591) — not touched by 1aa; at the base it accepted every `ObjectKind::Function` | ✓ from #591 (✗ at `eaa741b5`: D-S2, discharged by `#11-vm-construct-isconstructor-check`, §3.1) | yes |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` step 6 | `? Construct(superCtor, argList, newTarget)` | `construct_synchronous(super_class, receiver, args, CallMode::Construct { new_target }, pre_alloc)` (`:139-145`) — unchanged | ✓ | yes |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` steps 7-9 | GetThisEnvironment; `? BindThisValue(thisER, result)` | `dispatch_super_inner` *assigns* `this_value` / `new_instance` (`:150-154`), with no `[[ThisBindingStatus]]` | ✗ (pre-existing; owner `#11-vm-derived-constructor-this-binding`, and Slice S for the arrow spelling) | yes |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | `SuperCall` steps 10-12 | `? InitializeInstanceElements(result, funcObj)` | — not touched | n/a (instance-element initialisation is umbrella 2a's — row 2ab) | yes |
@@ -464,42 +475,51 @@ bodies have and the map lacked (plan-review R2).
 | ECMA-262 §13.3.7.2 GetSuperConstructor ( ) | steps 1-6 | `GetThisEnvironment()` (1) → Assert Function Environment Record (2) → `[[FunctionObject]]` (3) → Assert ECMAScript function object (4) → `! activeFunc.[[GetPrototypeOf]]()` (5) → return superCtor (6) | `home_class` → `.prototype` (`vm/dispatch_class.rs:116-125`) — unchanged; correct for a constructor frame. Through an arrow it is ✗ and is Slice S's | ✓ (constructor frame) | yes |
 | ECMA-262 §7.3.14 Construct ( ctor [ , argList [ , newTarget ] ] ) | step 1 | `newTarget` defaults to `ctor` | — every `super` caller passes `newTarget` | n/a (never absent on this path) | no |
 | ECMA-262 §7.3.14 Construct ( ctor [ , argList [ , newTarget ] ] ) | step 2 | `argList` defaults to a new empty List | — every `super` caller passes `argList` (possibly empty) | n/a (never absent on this path) | no |
-| ECMA-262 §7.3.14 Construct ( ctor [ , argList [ , newTarget ] ] ) | step 3 | `? ctor.[[Construct]](argList, newTarget)`; `ctor` is a constructor by the parameter's type, so Construct has no IsConstructor step of its own — the test is its callers' (`SuperCall` step 5, 14.a.iv.3) | `construct_synchronous`, reached from SuperCall step 6 / ClassDefinitionEvaluation 14.a.iv.4 with `newTarget` explicit — unchanged | ✓ (the callers' missing test is the step-5 / 14.a.iv.3 ✗ rows) | yes |
+| ECMA-262 §7.3.14 Construct ( ctor [ , argList [ , newTarget ] ] ) | step 3 | `? ctor.[[Construct]](argList, newTarget)`; `ctor` is a constructor by the parameter's type, so Construct has no IsConstructor step of its own — the test is its callers' (`SuperCall` step 5, 14.a.iv.3) | `construct_synchronous`, reached from SuperCall step 6 / ClassDefinitionEvaluation 14.a.iv.4 with `newTarget` explicit — unchanged | ✓ (the callers' test is the step-5 / 14.a.iv.3 rows, applied by `admit_construct` from #591) | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.i | `args` = the List passed by [[Call]] / [[Construct]] | rest-param packing into local 0 (`compiler/expr_class.rs:145-152`, unchanged) → `lay_out_call_args` | ✓ | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.ii | NewTarget undefined → TypeError | the class-constructor call-mode guard on the call path — not touched | ✓ (probed, §3.2) | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iii | `ctorFunc` = the active function object | — no separate read: the default constructor's frame `home_class` stands for it in 14.a.iv.2, unchanged | n/a (no site of its own) | no |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv (the test) | `ctorFunc.[[ConstructorKind]]` is derived | decided at compile time: the derived default constructor is synthesized only when `ClassHeritage` is present (`compiler/expr_class.rs:129`), which is when step 18 sets `[[ConstructorKind]]` to derived — unchanged | n/a (no runtime test; compile-time selection, unchanged) | no |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.1 NOTE | must **not** call `%Array.prototype%[%Symbol.iterator%]` | `lay_out_call_args` reads `elements` directly (I-O); edge 32 (C1) | ✓ | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.2 | func = `! ctorFunc.[[GetPrototypeOf]]()` | `home_class` of the default ctor frame = the class → `.prototype` — unchanged | ✓ | yes |
-| ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.3 | IsConstructor(func) false → TypeError | the same `construct_synchronous` gate as SuperCall step 5 | ✗ (pre-existing; probed in debug and release builds, §3.1; homed on Slice S) | yes |
+| ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.3 | IsConstructor(func) false → TypeError | the same `construct_synchronous` → `admit_construct` admission as SuperCall step 5 — not touched by 1aa | ✓ from #591 (✗ at `eaa741b5`: D-S2, discharged, §3.1) | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.iv.4 | `? Construct(func, args, NewTarget)` | `construct_synchronous` — unchanged | ✓ | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.v | base branch: `? OrdinaryCreateFromConstructor(NewTarget, "%Object.prototype%")` | — a base default constructor emits no super call and never reaches `lay_out_call_args` | n/a (not on this path) | no |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.vi | `? InitializeInstanceElements(result, ctorFunc)` | — not touched | n/a (umbrella 2a's — row 2ab) | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | step 14.a.vii | return `NormalCompletion(result)` | the synthesized body's `Pop; ReturnUndefined`, after which `construct_synchronous` substitutes the constructed instance (`compiler/expr_class.rs:145-152`) — unchanged | n/a (not a site this PR touches) | no |
+| ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 1 | `func` = the this value | the native's `this` argument, read by `require_callable_this` (`vm/natives_function.rs:63`) — unchanged | ✓ | yes |
 | ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 2 | IsCallable(func) false → TypeError | `require_callable_this` (`vm/natives_function.rs:63`) — unchanged | ✓ | yes |
 | ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 3 | `argArray` undefined or null → `? Call(func, thisArg)` | `ctx.call_function(callee_id, this_arg, &[])` (`:67-69`) — unchanged | ✓ | yes |
+| ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | steps 3.a, 5 | `PrepareForTailCall()` (§15.10.3) | — | n/a (no tail calls in elidex, as the umbrella's EvaluateCall step 6 row records) | no |
 | ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 4 | `? CreateListFromArrayLike(argArray)` | `collect_array_like` reads its dense branch through `array_argument_values` (D2), behaviour unchanged | ✗ for a holey Array (pre-existing; **1ae**, §9) | yes |
 | ECMA-262 §20.2.3.1 Function.prototype.apply ( thisArg, argArray ) | step 6 | `? Call(func, thisArg, argList)` | `ctx.call_function(callee_id, this_arg, &call_args)` (`:77`) — unchanged | ✓ | yes |
+| ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 1 | `validElementTypes` absent → any | — `apply` passes none | n/a (always any on this path; see step 6.c) | no |
 | ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 2 | `obj` not an Object → TypeError | done by the caller, `native_function_apply` (`:71-75`), before `collect_array_like` is called — unchanged | ✓ | yes |
-| ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 3 | `length` = `? LengthOfArrayLike(obj)` | generic path: `get_property_value(length)` → `to_number` → `trunc`, NaN or negative → 0 (as ToLength), then `.min(DENSE_ARRAY_LEN_LIMIT)` (`1 << 27`, `vm/ops.rs:24`; `natives_function.rs:288`) — unchanged | ✗ (pre-existing: a length above 2^27 is silently truncated, where ToLength admits up to 2^53 − 1; observable only past 2^27 indices; no owner in the family — reported, §3.1) | yes |
+| ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 3 | `length` = `? LengthOfArrayLike(obj)` | generic path: `get_property_value(length)` → `to_number` → `trunc`, NaN or negative → 0 (as ToLength), then `.min(DENSE_ARRAY_LEN_LIMIT)` (`1 << 27`, `vm/ops.rs:24`; `natives_function.rs:288`) — unchanged | ✗ (pre-existing: a length above 2^27 is silently truncated, where ToLength admits up to 2^53 − 1; observable only past 2^27 indices; D-CL3, owner **1ae** since PM 310, §3.1, §9) | yes |
 | ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 6.b | `next` = `? Get(obj, indexName)` — consults the prototype chain for a hole | unchanged here: the dense branch takes every Array, holey ones included; the per-index `get_property_value` loop is taken only for a non-Array | ✗ (pre-existing; red at the base, A1; **1ae**, §9) | yes |
+| ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | steps 4, 5, 6.a, 6.d, 6.e, 7 | the List is built index by index from 0, `indexName` = `! ToString(𝔽(index))`, each `next` appended, and returned | generic path: `Vec::with_capacity`, `ctx.intern(&i.to_string())`, `result.push(val)` over `0..len` (`:289-296`) — unchanged; the dense branch builds its List through `array_argument_values` (D2), behaviour unchanged | ✓ (generic path); the dense branch is equal to steps 3-7 for a hole-free Array only (**1ae**, §9) | yes |
 | ECMA-262 §7.3.19 CreateListFromArrayLike ( obj [ , validElementTypes ] ) | step 6.c | `validElementTypes` is property-key and `next` is not a property key → TypeError | — `apply` passes no `validElementTypes` (step 1 makes it any) | n/a (never property-key on this path) | no |
 
-**Breadth**: K=1 (ECMA-262), M=40. The preflight prints SPLIT-DEFAULT (K ≥ 6 or M ≥ 30), which asks
-a single-PR memo to justify itself in this narrative; rev 1 had M=16 ("ok"), and rev 2 and rev 3 had
-M=25 (SPLIT-RECOMMENDED). The justification is the paragraph's last two sentences: of the 40 rows,
-32 name sites this PR does not change, and the split criterion is §2's measurement, under which 1aa
+**Breadth**: K=1 (ECMA-262), M=45. The preflight prints SPLIT-DEFAULT (K ≥ 6 or M ≥ 30), which asks
+a single-PR memo to justify itself in this narrative; rev 1 had M=16 ("ok"), rev 2 and rev 3 had
+M=25 (SPLIT-RECOMMENDED), and rev 4 had M=40. The justification is the paragraph's last two sentences: of the 45 rows,
+35 name sites this PR does not change (verified 2026-11-05, by reading the touch column of every row), and the split criterion is §2's measurement, under which 1aa
 is terminal by necessity (PM 288). The rows added in rev 2 are the R1 completeness rows (abrupt branches, non-spread
 productions, SuperCall steps 1-2 and 7-13, ClassDefinitionEvaluation 14.a.ii / 14.a.vi, Construct
 step 1). The rows added in rev 4 are the R2 completeness rows: the abrupt `? Evaluation` / `? GetValue`
 branches of both production kinds, the spread production's step 5.b (C2's row; rev 3 put C2 on
 `Arguments : ( )`, which is the flat `super()`), the TemplateLiteral productions (n/a),
 GetSuperConstructor steps 5-6, Construct step 2, ClassDefinitionEvaluation 14.a.iii / 14.a.iv's test
-/ 14.a.v / 14.a.vii (n/a), `apply` steps 2 / 3 / 6, and CreateListFromArrayLike steps 2 / 3 / 6.c. Most of them are sites this PR does not touch ("unchanged", n/a, or a pre-existing ✗ with an
-owner). The rows whose touch column names a site this PR changes are 8: the three ArgumentListEvaluation
-consumer rows (non-spread and spread normal completion, and step 5.b), `SuperCall` step 4, 14.a.i, 14.a.iv.1 NOTE, §20.2.3.1 step 4 and §7.3.19 step 6.b.
-(From rev 3 the last two are touched by D2's read-through only, behaviour unchanged; their ✗ is
-1ae's.) Breadth is not the split criterion. §2's measurement is, and §2 records its verdict and the
+/ 14.a.v / 14.a.vii (n/a), `apply` steps 2 / 3 / 6, and CreateListFromArrayLike steps 2 / 3 / 6.c. The rows added in rev 4.1 are the ones rev 4's sentence above claimed (n/a, ✓ and one code-read ✓).
+Most of them are sites this PR does not touch ("unchanged", n/a, or a pre-existing ✗ with an
+owner). The rows whose touch column names a site this PR changes are 10: `Arguments : ( )` (rev 4
+counted 8 and left it out, though its consumer `op_super_call(0)` is the function 1aa re-signs `u8` →
+`usize`), the three other ArgumentListEvaluation consumer rows (non-spread and spread normal
+completion — the flat half of the non-spread row reaches the same re-signed `op_super_call` — and step
+5.b), `SuperCall` step 4, 14.a.i, 14.a.iv.1 NOTE, §20.2.3.1 step 4, §7.3.19 step 6.b and §7.3.19's
+list-building row (the dense branch's read-through). **"Changes" means the site's code is edited — a
+signature or a body — not that its behaviour changes**: none of the 10 changes observable behaviour
+(§0.1). (From rev 3 the last three are touched by D2's read-through only; their ✗ is 1ae's.) Breadth is not the split criterion. §2's measurement is, and §2 records its verdict and the
 ruling.
 
 ### §3.1 User-input touch audit, and the pre-existing defects
@@ -516,8 +536,8 @@ Sites this PR touches that user-controlled values flow through:
   that makes a holey Array run user getters on the prototype chain is 1ae's (§9).
 
 Pre-existing defects found while auditing, probed at the base. None is created or widened here.
-D-S1 and D-S2 have the same home, judged on the criterion "which existing row's change already rewrites the
-superCtor resolution site":
+D-S1's home is judged on the criterion "which existing row's change already rewrites the superCtor
+resolution site" (rev 1-4 judged D-S2 onto the same home; #591 has since discharged it):
 
 - **D-S1 — `super(...)` resolves the super constructor after its arguments.** §13.3.7.1 `SuperCall`
   fixes `superCtor` at step 3, before ArgumentListEvaluation at step 4. `dispatch_super_inner` reads
@@ -526,57 +546,16 @@ superCtor resolution site":
   → `"C"` at the base (spec: `"A"`). The spread spelling `super(...[Object.setPrototypeOf(B, C)])`
   also gives `"C"`. Both `super` opcodes share it. A fix resolves before the arguments, which is an
   emit change and outside 1a's charter.
-- **D-S2 — the super constructor's IsConstructor test is missing for JS functions.** SuperCall step 5
-  and ClassDefinitionEvaluation 14.a.iv.3 throw a TypeError when the super constructor is not a
-  constructor. `construct_synchronous` (`:267`, `:272`) admits every `ObjectKind::Function`, unlike
-  `do_new` (`vm/ops.rs:709-713`, which rejects `ThisMode::Lexical`) and unlike the crate's
-  `is_constructor` (`vm/object_kind.rs:1673`, which also rejects async and generator functions, and
-  is `#[cfg(feature = "engine")]`). Probes, each
-  `class A{}; class B extends A{}; Object.setPrototypeOf(B, X); try { new B(); 'no-throw' } catch (e) { 'threw ' + (e instanceof TypeError) }`:
-  `X = ()=>{}` → `"no-throw"`; `X = ({m(){}}).m` → `"no-throw"`; `X = function*(){}` → the test build
-  **panics** on `debug_assert_eq!` "Ok return leaked 0 frame(s) above entry 2"
-  (`vm/interpreter.rs:210`). The hand-written `constructor(...a){ super(...a) }` and the flat
-  `constructor(){ super(1) }` spellings with `X = ()=>{}` also give `"no-throw"`. Control:
-  `new (()=>{})()` → `"threw true"`. ⚠ Whether `do_new` admits a method or a generator was not probed
-  in rev 3; rev 4 probed it (below). Its check reads only `this_mode`, and the slot's plan-review has
-  to choose one predicate for both paths (*One issue, one way*).
-
-  **Release-build outcome (rev 4, plan-review R2).** The generator panic above is a `debug_assert_eq!`,
-  so it says nothing about a release build. Measured in a throwaway `git worktree add --detach …
-  eaa741b5` with a temporary `vm/tests/tests_zz_probe.rs`, run both as
-  `env -u RUSTUP_TOOLCHAIN cargo test --release -p elidex-js --all-features --lib tests_zz_probe --
-  --nocapture --test-threads=1` (`cfg!(debug_assertions)` printed `false`) and without `--release`
-  (`true`), `rustc 1.99.1 (58cf8f9c3 2026-10-13)`. Each case ran in a fresh `Vm`, and the probe
-  printed `vm.inner.frames.len()` / `vm.inner.stack.len()` after `vm.eval`. With
-  `G = class A{}; class B extends A{}; Object.setPrototypeOf(B, function*(){ yield 1 });`:
-  - top level, `try { new B(); 'no-throw' } catch (e) { … }` → release `"no-throw"` (spec: a
-    TypeError); debug panics as above.
-  - top level, `const r = new B()`: release gives `typeof r` `"object"`, `r instanceof B` and
-    `r instanceof A` true, `Object.getPrototypeOf(r) === B.prototype` true, and `r.constructor === B`
-    true, so an ordinary-looking instance comes back.
-  - **inside a function**, `function inner(){ let a = 10, b = 20; const r = new B(); return [a, b,
-    typeof r].join(',') } function outer(){ let x = 'x'; const s = inner(); return x + '|' + s + '|'
-    + (1 + 1) } outer()` → release `"x|[object Object]|2"` (expected `"x|10,20,object|2"`). `inner`'s
-    `return` never runs: `inner` returns the constructed object. A loop of 20 `new B()` inside
-    `function f(){ let n = 0, tag = 't'; for (…) { try { new B(); n++ } catch (e) {} } return tag + n }`
-    likewise returns the object, not `"t20"`. This is the frame over-pop the debug assertion reports:
-    "leaked 0 frame(s) above entry N" with `left != right` means `frames.len()` fell **below** the
-    entry depth (`saturating_sub`), so the construct popped its caller's frame too.
-  - the Vm stays usable afterwards (`frames` and `stack` back to 0 at the `eval` boundary, and later
-    `eval`s on the same `Vm` give correct results), with no crash in 50 repetitions.
-  - the same no-throw for `async function(){}` and `()=>{}` as the super constructor (release), and
-    for the hand-written `constructor(...a){ super(...a) }` and the flat `super(1)` spellings with a
-    generator.
-  - **`do_new` (rev 3's open ⚠), debug and release alike:** `new (function*(){ yield 1 })()` →
-    `"no-throw object function"` (a generator object, with `next`); `new ({m(){ this.z = 1 }}).m()`
-    → `"no-throw object z=1"`; `new (async function(){})()` → `"no-throw object"`. The spec throws a
-    TypeError for each. So `do_new` admits methods, generators and async functions, and rejects only
-    arrows. Both construct paths lack the same test.
-
-  So in a release build D-S2 is **silent-wrong in production**, and for a generator super
-  constructor it also corrupts the caller's control flow (the enclosing function returns early with
-  the constructed object). It is not a crash. This memo does not change S's ordering: whether a
-  silent-wrong defect moves S earlier is the PM's question (PM 118 (c)), not this memo's.
+- **D-S2 — the super constructor's IsConstructor test — discharged by #591.** SuperCall step 5 and
+  ClassDefinitionEvaluation 14.a.iv.3 were not applied to a JS super constructor at the base
+  (`construct_synchronous` admitted every `ObjectKind::Function`). `#11-vm-construct-isconstructor-check`
+  landed the fix as #591 (squash `145927c9`): `do_new` and `construct_synchronous` both call
+  `admit_construct` (`vm/construct_admission.rs`, beside the predicate `is_constructor`, which #588
+  `4fd85f4e` moved there from `vm/object_kind.rs`) before any frame push. Its measured matrix,
+  including the release-build frame over-pop rev 4 measured here, is that slot's
+  (`docs/plans/2026-11-vm-isconstructor-check.md`); rev 4's probes stay in this memo's history at
+  `e493bd57`. 1aa neither owns nor changes it, and what Slice S keeps from it is acceptance, stated
+  once on S's §5 row.
 
 **The home: Slice S (`#11-vm-arrow-lexical-super`), judged (ii).** S's deliverable replaces the
 superCtor resolution site: "that link carried on the closure rather than read off the current frame".
@@ -584,18 +563,21 @@ That frame read is `dispatch_super_inner`'s `self.frames[frame_idx].home_class` 
 first line of GetSuperConstructor. The other candidates are weaker on that criterion.
 (i) `#11-vm-derived-constructor-this-binding` rewrites the receiver read and the substitution
 (`:136`, `:150-154`, SuperCall steps 7-9), not the resolution. (iii) A new row would be a second home
-for the resolution site, which S rewrites anyway. The IsConstructor test (D-S2) is SuperCall step 5,
-applied to the value step 3 resolved. Once the ordering moves resolution before the arguments, the
-test has to read the resolved value from wherever that move puts it. So D-S2 goes with D-S1, and
-one home only. The two defects, their repros, owner and trigger are written in S's ledger row
-(`2026-07-vm-p4-slot-ledger.md`) and pointed to from S's §5 row. That row's Re-eval stays *at
+for the resolution site, which S rewrites anyway. Rev 1-4 sent D-S2 (SuperCall step 5's test) to the
+same home, on the reasoning that the test reads the value step 3 resolves; #591 then discharged it on
+its own slot (D-S2 above). D-S1, its repro, owner and trigger are written in S's ledger row
+(`2026-07-vm-p4-slot-ledger.md`) and pointed to from S's §5 row, and both rows carry D-S2's
+discharge pointer. That row's Re-eval stays *at
 registration: landing + 30 d* (§7 Q5).
 
 **⚠ What that home does to S's own kind (§7 Q2, closed by PM 288).** S's §5 row reads "one axis". By §2's
 measurement, the lexical link, the step-3 ordering and the step-5 test each fail while the other two
 pass, and all three meet at the superCtor resolution site: three axes that intersect. The S row now
 says that its terminality has to be re-applied before it is scheduled, and **does not decide it**:
-PM 288 places the re-application at S's own derivation and plan-review.
+PM 288 places the re-application at S's own derivation and plan-review. ⚠ *(rev 4.1) The step-5
+test is no longer S's (D-S2 discharged by #591), but S's moved read must keep that admission's T-ORD
+null half green, so the count S's plan-review re-takes may be two or three; S's row says so, and this
+memo does not take it.*
 
 Measured at HEAD `41a45a43` before this revision:
 `/usr/bin/grep -c 'GetSuperConstructor' docs/plans/2026-07-vm-p4-*.md` is 1 in each of four
@@ -607,8 +589,10 @@ list. Rev 1 said 3, which was measured before §6.6 was written. None of the fou
 `vm/ops.rs:24`; `vm/natives_function.rs:288`), where §7.3.19 step 3's LengthOfArrayLike → ToLength
 admits up to 2^53 − 1. An array-like whose `length` is above 2^27 is read as if its length were
 2^27, with no error. This is pre-existing, not created or widened here (1aa does not touch the
-generic path), and observable only for an array-like with more than 2^27 indices. No row of the
-family owns it, so it is reported here, with no owner chosen in this memo.
+generic path), and observable only for an array-like with more than 2^27 indices. ⚠ *This read "No
+row of the family owns it, so it is reported here, with no owner chosen in this memo".* **Owner: 1ae**
+(PM 310 folded it there: the same function, `collect_array_like`, and the same AO). The spec-correct
+outcome and the acceptance are stated once, on 1ae's §5 row; §9 hands the design input over.
 
 ### §3.2 Probes behind the cells marked "probed, §3.2"
 
@@ -727,7 +711,7 @@ which is why T2 and C1 exist.
   is still `NaN` after this PR. `Op::CallSpread` / `Op::NewSpread` stay stubs
   (`vm/dispatch.rs:879-883`) until those children connect them to D1 + 1ad (and `do_new`).
 - **The IC `Option<usize>` entry** — 1ad (§8).
-- **`Function.prototype.apply` over a holey array** — 1ae (§9).
+- **`Function.prototype.apply` over a holey array, and D-CL3's length clamp** — 1ae (§9).
 - **An Array index's own properties (an own accessor, any non-default descriptor, and the own-property
   statics over Array indices)** — `#11-vm-array-index-property-single-store` (§9).
 - **`op_array_spread`'s `return()`** — 1ab.
@@ -735,7 +719,8 @@ which is why T2 and C1 exist.
 - **Stack-depth bound** — dec. 12 places it on the child umbrella 1b mints for the argument-emit
   helper. Its site is `lay_out_call_args` (§1.1), so the super path is bounded by the same check,
   with its own `super(...arrOf(bound + 1))` acceptance on that child. 1aa leaves the hook point.
-- **D-S1 / D-S2** — Slice S (§3.1).
+- **D-S1** — Slice S (§3.1). **D-S2** — discharged by #591 (`#11-vm-construct-isconstructor-check`,
+  §3.1); no next slice owns it.
 - **Catchable internal errors elsewhere on the `super` path** — `#11-vm-internal-error-hard-exit` (§1.3).
 - **Folding the default derived constructor onto `ArraySpread`** — forbidden (§15.7.14 step
   14.a.iv.1 NOTE); C1 pins it.
@@ -746,9 +731,9 @@ which is why T2 and C1 exist.
 |---|---|---|
 | `lay_out_call_args` (NEW) | [C19] ECMA-262 §13.3.8.1 ArgumentListEvaluation (consumer side: the List it lays out is [C13] §13.3.7.1 `SuperCall` step 4's argList, consumed at step 6, and §15.7.14 ClassDefinitionEvaluation step 14.a.i's `args`, consumed at step 14.a.iv.4); §15.7.14 step 14.a.iv.1 NOTE (no iteration) | none of ArgumentListEvaluation's own steps: it lays out a List already evaluated, as the hand-off between `SuperCall` steps 4 and 6 and between 14.a.i and 14.a.iv.4 |
 | `array_argument_values` (NEW) | the same consuming steps (`SuperCall` step 4 → 6; §15.7.14 14.a.i → 14.a.iv.4), for which holes cannot occur; §7.3.19 CreateListFromArrayLike step 6.b, as the precondition it does **not** meet for a holey array; the representation invariant it assumes (`#11-vm-array-index-property-single-store`) | — |
-| `op_super_call_spread` (rewritten) | [C13] ECMA-262 §13.3.7.1 `SuperCall : super Arguments` steps 3-6 (step 4's argList laid out here, steps 3, 5 and 6 via `op_super_call`); §15.7.14 steps 14.a.i and 14.a.iv.1-4, including 14.a.iv.1's NOTE (the second producer) | `SuperCall` step 4's hand-off and 14.a.i → 14.a.iv.4's; steps 3 (✗ D-S1 ordering), 5 (✗ D-S2), 6, and 14.a.iv.2-4 (14.a.iv.3 ✗ D-S2), via `op_super_call` → `dispatch_super` |
-| `op_super_call` (re-signed) | [C13] §13.3.7.1 `SuperCall` steps 3-6 (unchanged text; the D-S1 ordering divergence named) | step 4's hand-off (the drain); 3 (✗ D-S1: resolved after the arguments), 5 (✗ D-S2), 6 |
-| `collect_array_like` | ECMA-262 §20.2.3.1 Function.prototype.apply step 4 → §7.3.19 CreateListFromArrayLike steps 3-7 (step 2 is done by the caller, `native_function_apply`, `vm/natives_function.rs:71-75`; step 6.c is n/a, since `apply` passes no `validElementTypes`) | the generic loop: 3 (✗ above `DENSE_ARRAY_LEN_LIMIT`, §3), 4-5, 6.a, 6.b, 6.d, 6.e, 7; the dense branch: reads through `array_argument_values`, equal to steps 3-7 for a hole-free Array only (the precondition is 1ae's, §9) |
+| `op_super_call_spread` (rewritten) | [C13] ECMA-262 §13.3.7.1 `SuperCall : super Arguments` steps 3-6 (step 4's argList laid out here, steps 3, 5 and 6 via `op_super_call`); §15.7.14 steps 14.a.i and 14.a.iv.1-4, including 14.a.iv.1's NOTE (the second producer) | `SuperCall` step 4's hand-off and 14.a.i → 14.a.iv.4's; steps 3 (✗ D-S1 ordering), 5 (`construct_synchronous`'s `admit_construct`, #591), 6, and 14.a.iv.2-4 (14.a.iv.3 likewise), via `op_super_call` → `dispatch_super` |
+| `op_super_call` (re-signed) | [C13] §13.3.7.1 `SuperCall` steps 3-6 (unchanged text; the D-S1 ordering divergence named) | step 4's hand-off (the drain); 3 (✗ D-S1: resolved after the arguments), 5 (`admit_construct`, #591), 6 |
+| `collect_array_like` | ECMA-262 §20.2.3.1 Function.prototype.apply step 4 → §7.3.19 CreateListFromArrayLike steps 3-7 (step 2 is done by the caller, `native_function_apply`, `vm/natives_function.rs:71-75`; step 6.c is n/a, since `apply` passes no `validElementTypes`) | the generic loop: 3 (✗ above `DENSE_ARRAY_LEN_LIMIT`, §3; D-CL3, 1ae's), 4-5, 6.a, 6.b, 6.d, 6.e, 7; the dense branch: reads through `array_argument_values`, equal to steps 3-7 for a hole-free Array only (the precondition is 1ae's, §9) |
 | `ic_call` / `ic_call_method` | 1ad's: §13.3.6.2 EvaluateCall steps 1-2 (`thisValue`: `ic_call_method`'s receiver; `ic_call`'s `undefined` through `compute_this_for_call`), 4-5 and 7; step 3 (ArgumentListEvaluation) is not theirs (it is the argument-emit helper's, 1b) — §8 | — |
 
 ---
@@ -763,14 +748,16 @@ All at `eaa741b5`, from `crates/script/elidex-js/src/`:
 - `git grep -n 'Op::SuperCallSpread as u8' -- compiler/expr_class.rs` → `:149` (inside `:145-152`).
 - `git grep -n 'fn op_super_call\|fn dispatch_super\|fn construct_synchronous\|vm.stack.push(JsValue::Object(ctor_id))' -- vm/dispatch_class.rs`
   → `:46`, `:72`, `:104`, `:115`, `:232`, `:304`.
-- `git grep -n 'stack underflow\|VmError::internal(\|let is_js = \|if !is_js && !is_native_ctor' -- vm/dispatch_class.rs`
-  → `:55`, `:79`, `:88`, `:267`, `:272`, `:321`.
+- `git grep -n 'stack underflow\|VmError::internal(' -- vm/dispatch_class.rs`
+  → `:55`, `:79`, `:88`, `:321`.
 - `git grep -n 'Op::SuperCall =>\|Op::SuperCallSpread =>\|Op::CallSpread | Op::NewSpread' -- vm/dispatch.rs`
   → `:939`, `:884`, `:879`.
 - `git grep -n 'fn collect_array_like\|collect_array_like(ctx\|ObjectKind::Array { elements } = &obj.kind\|let length_key' -- vm/natives_function.rs`
   → `:273`, `:76` (1 caller), `:278`, `:124`, `:155`, `:281` (the `:124` / `:155` hits are other natives).
-- `git grep -n 'Arrow functions are not constructors' -- vm/ops.rs` → `:709`.
-- `git grep -n 'pub(crate) fn is_constructor' -- vm/object_kind.rs` → `:1673`.
+- (rev 4.1) D-S2's line cites (`vm/ops.rs`'s arrow test, `vm/dispatch_class.rs`'s two admission
+  tests, `vm/object_kind.rs`'s `is_constructor`) are retired with D-S2 (§3.1). Its discharge is cited
+  by name: `git grep -n 'pub(crate) fn is_constructor\|pub(crate) fn admit_construct' -- vm/construct_admission.rs`
+  at `d1e9186a` finds both.
 - `git grep -n 'pub(crate) fn alloc_object\|force_gc_before_next_alloc' -- vm/inner.rs` → `:89`, `:105`, `:106` (the one-shot is `#[cfg(test)]`, `vm/mod.rs:273`).
 - `git grep -n 'pub(crate) stack:\|pub(crate) objects:\|pub(crate) force_gc_before_next_alloc' -- vm/mod.rs`
   → `:182`, `:186`, `:274`.
@@ -788,7 +775,8 @@ New symbols: `lay_out_call_args` (NEW), `array_argument_values` (NEW),
 `eval_bool`, run with
 `env -u RUSTUP_TOOLCHAIN cargo test -p elidex-js --all-features --lib tests_zz_probe -- --nocapture --test-threads=1`,
 worktree removed afterwards). The JS of each probe is quoted where its result is cited: §9 (A1/A2,
-the own-accessor case and its reach probes), §3.1 (D-S1, D-S2), §3.2, §4.2 (C1–C6).
+the own-accessor case and its reach probes), §3.1 (D-S1; rev 4's D-S2 probes are in history at
+`e493bd57`), §3.2, §4.2 (C1–C6).
 
 ---
 
@@ -798,7 +786,7 @@ R1's questions are settled: **Q1** (edge 16): the structural approach is ratifie
 disjoint borrow and the T2 tripwire and no `debug_assert!` (§1.1). **Q2** (the wrapper): kept, as
 "lay out, then `op_super_call`" in `vm/dispatch_class.rs`, so `vm/dispatch.rs` does not grow (§1.3).
 **Q3** (stack-depth bound): dec. 12 keeps it on 1b's argument-emit child. **Q4/Q5** (owners): D-S1
-and D-S2 go to Slice S, and the `apply` hole was fixed here in rev 2 (it is 1ae's from rev 3, §9).
+and D-S2 go to Slice S (D-S2 since discharged by #591, §3.1), and the `apply` hole was fixed here in rev 2 (it is 1ae's from rev 3, §9).
 Rev 2's questions follow. Q1 and Q2 are closed by PM 288, Q3 and Q4 are closed in rev 4 by writing
 them onto their ledger rows (R2), and Q5 stands:
 
@@ -806,8 +794,9 @@ them onto their ledger rows (R2), and Q5 stands:
   rules §2 records. The one part separable without cutting `lay_out_call_args`, D6, was split out
   as **1ae** (§9), so the answer is both: 1aa is terminal, and D6 is no longer in it.
 - **Q2 — S's kind. Closed (PM 288): re-applied at S's own derivation and plan-review, not now.** S's
-  §5 row keeps its ⚠ (three intersecting axes once D-S1/D-S2 are homed there) and now names PM 288 as
-  the ruling on when it is re-applied.
+  §5 row keeps its ⚠ (three intersecting axes once D-S1/D-S2 are homed there; from rev 4.1, D-S2
+  discharged by #591, a count of two or three to be re-taken there) and now names PM 288 as the
+  ruling on when it is re-applied.
 - **Q3 — the native-constructor re-entry window** (§2, I-G's scope): a native constructor that calls
   user code (e.g. an executor) while `op_super_call`'s `call_args` holds the only reference to the
   arguments. It is pre-existing and not changed here. **Closed (rev 4): handed off, not measured.**
@@ -920,6 +909,15 @@ correction is recorded in dec. 8 (2026-11-03) and points at 1ae. The dense branc
 common hole-free case. Spec rows: §20.2.3.1 step 4 and §7.3.19 step 6.b of §3's map. Citation:
 §5.1's `collect_array_like` row, whose dense-branch cell becomes "a hole-free fast path equal to
 steps 3-7".
+
+**D-CL3, folded in (PM 310).** `collect_array_like`'s generic loop clamps CreateListFromArrayLike
+step 3's length with `.min(DENSE_ARRAY_LEN_LIMIT)` (`vm/natives_function.rs:288`, `vm/ops.rs:24` at
+`eaa741b5`; §3.1). It is the same function and the same AO as D6, so 1ae owns it. The spec-correct
+outcome (every index below the ToLength result read with `? Get`, and an abrupt `RangeError`, never a
+silently shortened List, where the List exceeds what elidex can hold) and its acceptance
+(`f.apply(null, { length: 2 ** 27 + 1 })`) are stated on 1ae's §5 row and not restated here. Open for
+1ae's plan-review: where that error is raised relative to the observable index `Get`s, and whether
+the two limbs intersect (a code read says no, §5 row).
 
 **Tests (rev 2 §4.3, unchanged).** The test module is the implementer's choice: a new
 `vm/tests/tests_function_apply_holes.rs`, or the existing `Function.prototype` test module if one
