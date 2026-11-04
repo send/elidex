@@ -40,6 +40,14 @@ citations — §0.2 (cloner callers), §0.3 item 5, §3, §4.1, §4.3, §4.5, §
 the command run at `fab44a1d` with its output, and the complement (what the command would miss and why that is
 empty or excluded).
 
+**Rev 3.1** (2026-11-04) — R3 MIN fixes (nine, no design change): census commands and complements stated as run
+(§0.2 `EcsDom\s*\{`, §4.7 `set_mutation_dispatcher(` with and without `':!*tests*'`); the RC-2a-pre edge lists the
+measured C0b / C0c overlaps (§9); `dom/mod.rs` row follows §4.10 (§5.1); "the one production reader" (§4.7); `Taken`
+inside a dispatch is reachable by install-then-take, which no consumer does and which behaves as today (§2 C × I,
+§4.7 table); `teardown.rs:102` / `mutation_hook.rs:279` cite the live range pre-remove steps by home and step (§4.9);
+RC-2a-pre also updates `mutation_hook.rs:1-9` and makes `pub(super)` only what the moved tests name — `MockEvent`,
+`install_mock`, not `MockHook` (D-1, §5.1, §7, §9); §7 gives a range, 1002–1012; the split holds across it.
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 Frame
@@ -105,9 +113,13 @@ file is edited.
   lines where the token is the parameter, a local or an argument (`dom/mod.rs:169`, `:213`; `teardown.rs:239`,
   `:240`). The narrower form `git grep -n -P '\.dispatcher\b|^\s*dispatcher:' -- crates/core/elidex-ecs/src` prints
   the 11 plus `:100` (doc) and `:169` (parameter). Complement: an access that does not spell the token is impossible —
-  no destructuring pattern of `EcsDom` exists (`git grep -n -P 'EcsDom\s*\{' -- crates` prints only the `struct` and
-  `impl` lines), the crate's one `macro_rules!` (`components.rs:11`) is outside `dom` and takes no field of `EcsDom`,
-  and any site outside `dom/**` is refused by the compiler. The workspace-wide `git grep -n -P '\.dispatcher\b' --
+  no destructuring pattern of `EcsDom` exists (`git grep -n -P 'EcsDom\s*\{' -- crates` prints **22** lines: the
+  `struct` declaration `dom/mod.rs:54`, **15** `impl EcsDom` / `impl Default for EcsDom` lines, and **6** fn
+  signatures whose `EcsDom` return or parameter type is followed by the body's `{` — `focus/update_steps.rs:304`,
+  `elidex-layout/benches/layout_bench.rs:9`, `:53`, `host_data/engine_feature/bind.rs:158`, `:242`,
+  `elidex-shell/src/content/focus.rs:113`; no struct literal and no pattern among them), the crate's one
+  `macro_rules!` (`components.rs:11`) is outside `dom` and takes no field of `EcsDom`, and any site outside `dom/**`
+  is refused by the compiler. The workspace-wide `git grep -n -P '\.dispatcher\b' --
   crates` adds one line, `crates/net/elidex-net/src/lib.rs:551`, excluded by path: it is the `dispatcher:
   SchemeDispatcher` field of another struct (`:343`), outside the crate the private field is bounded to. The `Taken`
   mapping of every reader is in §4.7 "The readers"; the invariant it gives is §2 I.
@@ -248,16 +260,21 @@ file is edited.
   `fire_normalize_merge_helper_routes_to_hook` / `fire_helpers_silent_when_no_hook_installed`
   (`mutation_hook.rs:886-949`) — so they go into that group, not into a per-variant file (one scenario, one file;
   Rev 2's `mutation_hook_clone_created.rs` sibling is withdrawn). Measured against the file's own shapes (§7), the
-  group with the new test and the arm puts the file at about 1004 lines, over 1000, so the `fire_*` group is split
-  out first as a **standalone pure-move prerequisite** (RC-2a-pre, the shape of RC-0a #587; CLAUDE.md touch-time, not
-  a deferral): `mutation_hook.rs:886-949` (64 lines) moves to
-  `crates/core/elidex-ecs/src/dom/tests/mutation_hook_fire_helpers.rs` (NEW), `MockEvent` / `MockHook` /
-  `install_mock` become `pub(super)` (visibility only — one recorder for the whole stream; a second `MockEvent` beside
-  the first would be a duplicated decision surface), and `tests/mod.rs` declares the module. RC-2a then adds the
+  group with the new test and the arm puts the file at 1002–1012 lines (§7's range; the split holds across it), so
+  the `fire_*` group is split out first as a **standalone pure-move prerequisite** (RC-2a-pre, the shape of RC-0a
+  #587; CLAUDE.md touch-time, not a deferral): `mutation_hook.rs:886-949` (64 lines) moves to
+  `crates/core/elidex-ecs/src/dom/tests/mutation_hook_fire_helpers.rs` (NEW); `MockEvent` and `install_mock` become
+  `pub(super)` — exactly what the moved tests name (`sed -n '886,949p' mutation_hook.rs | grep -o -E
+  'MockHook|install_mock|MockEvent' | sort | uniq -c` → `install_mock` 2, `MockEvent` 2, `MockHook` 0; `MockHook`
+  stays private — the moved tests reach it only through `install_mock` `:153`; `elem` reaches the sibling from
+  `tests/mod.rs:9` through `super::*`) (visibility only — one recorder for the whole stream; a second `MockEvent` beside the first
+  would be a duplicated decision surface); the module doc `mutation_hook.rs:1-9` drops `fire_split_text` /
+  `fire_normalize_merge` from its list of verified primitives (`:6-7`), which the sibling's module doc names instead;
+  and `tests/mod.rs` declares the module. RC-2a then adds the
   variant and the arm to `mutation_hook.rs` (about 907 → about 915) and its tests to the sibling (about 70 → about
   95). The nested-fire assertion test and D-4's window tests go to `dispatch_guard.rs`, the slot's own test file.
 - **D-2 (§7 re-measure; brief item 3).** Of the files RC-2a edits (§5.1, with the `wc -l` command), one would cross
-  1000 with RC-2a's addition — `mutation_hook.rs` (971 + about 33, §7) — and is split first (D-1, RC-2a-pre); every
+  1000 with RC-2a's addition — `mutation_hook.rs` (971 + 31–41, §7) — and is split first (D-1, RC-2a-pre); every
   other stays under (`dom/mod.rs` is 926 and gains about 35: the `fire_*` helper with its assertion, the slot enum, a
   re-export; §4.7). `tests_custom_elements.rs` is 1320 and is therefore not touched (F2). Neither C0b nor C0c has
   landed. If either lands before RC-2a's implementation starts (both edit `dom/mod.rs`: C0b adds the entry
@@ -372,7 +389,7 @@ Pairs (one line each; pairs not listed do not interact):
 | B × H | after D14 a `SelfOnly` root's shadow tree is a complete deep copy, so the `SelfOnly` walk over it reaches the grandchild custom elements D14 creates; before D14 those did not exist |
 | B × F | the form arm's visit set is the same scope-gated first level plus the template frontier; a `SelfOnly` root cannot carry a `<template>` with contents (template step 1), but a `<template>` inside its shadow tree can (cloned with true after D14), and the frontier reaches it |
 | C × D | the lock guards are dropped before any component write that the other consumer could read; neither consumer reads the other's components, so the form-before-CE dispatch order (field order) is unobservable |
-| C × I | inside a dispatch the slot is `Absent` and `dispatch_depth > 0`: a `fire_clone_created` from a consumer is quiet on the window assertion and trips the depth assertion (the §6 nested-fire test expects the re-entry message); a `take_mutation_dispatcher` inside a dispatch finds `Absent`, returns `None` and leaves it, so the slot is never `Taken` when `RestoreDispatcher::drop` runs, and its `debug_assert!` (the slot is not `Installed`, §4.7) has only today's installed-inside-a-dispatch case to report |
+| C × I | inside a dispatch the slot is `Absent` and `dispatch_depth > 0`: a `fire_clone_created` from a consumer is quiet on the window assertion and trips the depth assertion (the §6 nested-fire test expects the re-entry message); a `take_mutation_dispatcher` inside a dispatch finds `Absent`, returns `None` and leaves it. `Taken` is reachable inside a dispatch only by a consumer that installs and then takes (`Absent` → `Installed` → `Taken`); `RestoreDispatcher::drop` then passes its `debug_assert!` (the slot is not `Installed`, §4.7) and writes `Installed(pending)` — what today's `Option` does for the same sequence (`None` → `Some` → `None`, the `is_none()` assertion passes, `Some(pending)` written), so the behaviour is unchanged and the enum neither detects nor worsens it. No consumer does this (measured at `fab44a1d`): the 13 `impl MutationDispatcher for` bodies (`git grep -n 'impl MutationDispatcher for' -- crates`) contain none of the 46 call lines (`git grep -n 'set_mutation_dispatcher(' -- crates` → 38, `git grep -n 'take_mutation_dispatcher(' -- crates` → 8; a brace-matched scan of each impl block finds 0 of them inside), and the production installs are the four window restores, each guarded by its own take's `Some` (a take inside a dispatch returns `None`, so no restore runs there), `Vm::bind`, and five inline-test installs at test-fn level (§4.7's 11). So the assertion has only today's installed-inside-a-dispatch case to report |
 | C × F | `create_form_control_state` at dispatch is the precedent `handle_insert` already sets; the clone's own internal `Insert` events (deep clone, template contents, and after D14 the shadow children's descendants of a shallow clone, A × B) run that same function before the sweep, so a cloned control under a cloned shadow child first gets a default `FormControlState` from `handle_insert`, which the arm then overwrites — today's deep-clone behaviour. The other consumers (`event_handler_attrs`, `base_url`) see those `Insert`s as they see a deep clone's today |
 | E × C | the CE arm pushes during dispatch, not after `invoke_dom_api`; between those two points today nothing touched the queue (§0.2), so the position is unchanged and the earlier `is_value` clear is unobservable |
 | G × F | the form copy still cannot be done by `elidex-dom-api` (it cannot see `FormControlState`); the event carries only `root` and `scope`, never pairs, so the marker remains the linkage — grounded in §4.8 "marker over pairs", not in #466's I1 × I2 row |
@@ -646,13 +663,14 @@ field and what it does on each state after D-4:
 | `clear_mutation_dispatcher` (`:176`) | write | `Absent` | `Absent` | `Absent` |
 | `take_mutation_dispatcher` (`:184`) | read + write | `Taken`, returns `Some(d)` | unchanged, `None` | unchanged, `None` |
 | `dispatch_event` (`:207`) | read + write | `Absent` for the dispatch, then the guard restores `Installed(d)` | return (no dispatcher) | return (no dispatcher) |
-| `RestoreDispatcher::drop` (`:123`, `:127`) | read + write | `debug_assert!` fails (a dispatcher installed inside a dispatch; today's `is_none()` check with the state named) | writes `Installed(pending)` | unreachable (§2 C × I); the assertion passes it |
+| `RestoreDispatcher::drop` (`:123`, `:127`) | read + write | `debug_assert!` fails (a dispatcher installed inside a dispatch; today's `is_none()` check with the state named) | writes `Installed(pending)` | reached only by install-then-take inside a dispatch, which no consumer does (§2 C × I); the assertion passes it and `Installed(pending)` is written, as today's `Option` does |
 | `new()` (`:138`) | write | — | `Absent` | — |
 | **`destroy_entity` (`tree/teardown.rs:80`)** | read | fires (`index_in_parent` + `is_connected`) | no-dispatcher branch | no-dispatcher branch |
 | `fire_clone_created` (NEW, §4.1) | read | dispatches | silent no-op | `debug_assert!` fails |
 | `dispatch_guard.rs:44`, `:66` | read (tests) | `matches!(…, Installed(_))` holds | fails | fails |
 
-The one reader outside `dom/mod.rs` is `destroy_entity`'s `self.dispatcher.is_some()`, which becomes
+The one production reader outside `dom/mod.rs` (the other two outside it, `dispatch_guard.rs:44` / `:66`, are
+test reads) is `destroy_entity`'s `self.dispatcher.is_some()`, which becomes
 `matches!(self.dispatcher, DispatcherSlot::Installed(_))`: `Taken` and `Absent` both read as "no dispatcher" there,
 and that is what
 `despawn_subtree`'s window needs. It relies on that branch to skip `index_in_parent` and `is_connected` per node
@@ -675,13 +693,19 @@ fired while a window is open — at the one place that knows whether a window is
 by `take_mutation_dispatcher` anywhere in the tree, or a new caller of the entry (RC-2b), is covered with nothing to
 register. Bounded (R2 G2): a window built another way — `set_mutation_dispatcher` with a stand-in dispatcher and a
 later restore, the replace-then-retrieve pattern its doc allows (`dom/mod.rs:163-166`) — leaves the slot `Installed`
-and is invisible to the check. No such window exists at `fab44a1d`: `git grep -n 'set_mutation_dispatcher(' -- crates`
-(run 2026-11-04) gives **11** lines — the definition (`dom/mod.rs:167`), the four window restores (`teardown.rs:240`,
-`tree_builder/mod.rs:241`, `elidex-html-parser/src/lib.rs:162`, `inert_document.rs:199`; each passes back the box its
-own take returned, §0.2), `Vm::bind`'s install (`vm_api.rs:324`), and five inline-test installs (`split_text.rs:369`,
-`:395`; `value_mode.rs:130`; `event_handler_processing/mod.rs:317`; `html_fragment.rs:696`), none of them a stand-in
-with a later restore. The complement is a future caller; the take-and-restore idiom is the one the four windows use
-and the one the doc names, so a stand-in window would be a new idiom, reviewed as such. It sees only what runs:
+and is invisible to the check. No such window exists at `fab44a1d`: `git grep -n 'set_mutation_dispatcher(' -- crates
+':!*tests*'` (run 2026-11-04) gives **11** lines — the definition (`dom/mod.rs:167`), the four window restores
+(`teardown.rs:240`, `tree_builder/mod.rs:241`, `elidex-html-parser/src/lib.rs:162`, `inert_document.rs:199`; each
+passes back the box its own take returned, §0.2), `Vm::bind`'s install (`vm_api.rs:324`), and five inline-test
+installs (`split_text.rs:369`, `:395`; `value_mode.rs:130`; `event_handler_processing/mod.rs:317`;
+`html_fragment.rs:696`), none of them a stand-in with a later restore. Without the exclusion the same grep gives
+**38** lines; the **27** it excludes (paths containing `tests`) are 25 test installs (`install_mock`'s
+`mutation_hook.rs:155` among them), the restore of `take_mutation_dispatcher_round_trip` (`mutation_hook.rs:454`:
+passes back its own take's box — a take-and-restore, not a stand-in) and the replace-without-restore of
+`set_mutation_dispatcher_returns_previous_hook` (`:476`: installs a second `MockHook` over the first and never restores
+it — a replace, not a window); none of the 27 is a stand-in with a later restore either. The complement is a future
+caller; the take-and-restore idiom is the one the four windows use and the one the doc names, so a stand-in window
+would be a new idiom, reviewed as such. It sees only what runs:
 a clone inside a window on a path no test exercises stays silent, and every path is silent in release. Against
 that, Rev 1's wire saw every production write of the slot but, by its own header, not whether a clone ran inside
 one — the classification was a judgment recorded in a row; its population was defined by an identifier and matched
@@ -809,11 +833,17 @@ substeps (`webref body html dom-customelementregistry-upgrade`): no step 8 → "
 `getHTML` in §8.5.3 (HTML serialization methods), `innerHTML` in §8.5.4, `outerHTML` in §8.5.5 (`webref dfn html`
 for each) → cite those four;
 `:325` "shadow content is skipped per §4.4.6" (`getHTML()` with no options) → "HTML §8.5.3"; `mutation_hook.rs:279`
-"WHATWG DOM §5.5 'remove a node' step 4" — DOM §5.5 = Interface Range; "remove" is DOM §4.2.3 Mutation algorithms
-(`webref heading dom 4.2.3`; `webref body dom concept-node-remove`), whose step 3 runs the live range pre-remove
-steps, where step 3 is "Let index be node's index" (`webref body dom live-range-pre-remove-steps`) → "DOM §4.2.3
-'remove' step 3 (live range pre-remove steps, step 3)"; `teardown.rs:102` "WHATWG §5.5 remove step 4" — the same
-drift, the same fix; `teardown.rs:47` "shadow-tree boundaries are the consumer's responsibility per WHATWG §5.5" —
+"WHATWG DOM §5.5 'remove a node' step 4" — "remove" is DOM §4.2.3 Mutation algorithms (`webref heading dom 4.2.3`;
+`webref body dom concept-node-remove`), whose step 3 runs the live range pre-remove steps; those steps are *defined*
+in DOM §5.5 Interface Range (`webref dfn dom 'live range pre-remove steps'` → §5.5 `#live-range-pre-remove-steps`),
+so the section number was not the drift — the algorithm name and the step were. `:279` is about the index the hook
+reports, which is pre-remove step 3 "Let index be node's index" (`webref body dom live-range-pre-remove-steps`) →
+"DOM §4.2.3 'remove' step 3 → live range pre-remove steps (DOM §5.5 Interface Range), step 3"; `teardown.rs:102`
+"WHATWG §5.5 remove step 4" — the same home, a different step: the comment names the `(parent, removed_index)`
+collapse, which is pre-remove steps 4–5 (each live range whose start / end is an inclusive descendant of the node is
+set to (parent, index)) → "DOM §4.2.3 'remove' step 3 → live range pre-remove steps (DOM §5.5 Interface Range),
+steps 4–5" (Rev 3.1 corrects Rev 3's `d5af9447` `:812-816`, which gave both sites step 3 and called §5.5 a drift);
+`teardown.rs:47` "shadow-tree boundaries are the consumer's responsibility per WHATWG §5.5" —
 resolves to DOM §5.5 Interface Range (the consumer is the live-range registry; `webref heading dom 5.5`) and holds;
 the spec word is added ("DOM §5.5 Interface Range"). Verified and left as they are in `teardown.rs`: the bare
 `§2.1.4` at `:110`, `:135`, `:215` resolve to HTML §2.1.4 DOM trees, the "HTML element removing steps" step 2
@@ -867,7 +897,7 @@ measures the four files named below as not touched by RC-2a):
 |---|---|---|
 | `crates/dom/elidex-dom-api/src/node_methods/clone.rs` | 458 | the fire; D14 (per-pair flag, `:294-301` deleted); docs (§4.2, §4.9) |
 | `crates/core/elidex-ecs/src/dom/mutation_event.rs` | 352 | `CloneCreated`, `CloneScope`; docs |
-| `crates/core/elidex-ecs/src/dom/mod.rs` | 926 | `fire_clone_created` with D-4's assertion; `DispatcherSlot` (the slot, `new()`, the four methods, `dispatch_event`, `RestoreDispatcher`); re-export; slot doc; `:426` citation |
+| `crates/core/elidex-ecs/src/dom/mod.rs` | 926 | `fire_clone_created` with D-4's assertion; `DispatcherSlot` (the slot, `new()`, the three public slot methods `set` / `clear` / `take`, the private `dispatch_event`, `RestoreDispatcher`; §4.10); re-export; slot doc; `:426` citation |
 | `crates/core/elidex-ecs/src/lib.rs` | 51 | re-export |
 | `crates/core/elidex-ecs/src/dom/tree/walkers.rs` | 392 | `for_each_clone_created`; `:254` citation |
 | `crates/core/elidex-ecs/src/dom/tree_clone.rs` | 425 | doc rows `:28-29` only |
@@ -884,7 +914,7 @@ measures the four files named below as not touched by RC-2a):
 | `crates/dom/elidex-dom-api/src/range/live.rs` | 500 | the census no-op arm |
 | `crates/dom/elidex-dom-api/src/node_methods/tests/clone_shadow.rs` | 277 | D14 inversion; stamp-guard extension; event-count and scope tests; header |
 | `crates/dom/elidex-dom-api/src/test_util.rs` | 49 | `CloneCreatedProbe` (NEW) test dispatcher recording `(root, scope)` |
-| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 971 (about 907 after RC-2a-pre) | `MockEvent` variant + recorder arm (D-1); the recorder is `pub(super)` since RC-2a-pre |
+| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 971 (about 907 after RC-2a-pre) | `MockEvent` variant + recorder arm (D-1); `MockEvent` / `install_mock` are `pub(super)` since RC-2a-pre (D-1) |
 | `crates/core/elidex-ecs/src/dom/tests/mutation_hook_fire_helpers.rs` (NEW in RC-2a-pre, about 70) | — at `fab44a1d` | `fire_clone_created_helper_routes_to_hook`; one line in `fire_helpers_silent_when_no_hook_installed` (D-1, §6) |
 | `crates/core/elidex-ecs/src/dom/tests/dispatch_guard.rs` | 69 | the nested-fire assertion test; D-4's three window tests; the two `is_some()` reads follow the enum (§4.7) |
 | `crates/core/elidex-ecs/src/dom/tests/traversal.rs` | 413 | `for_each_clone_created` unit tests |
@@ -898,8 +928,8 @@ Not touched, with the reason: `crates/script/elidex-js/src/vm/tests/tests_custom
 "stay green" guard, §6); `tests_create_element_options.rs` (376: its `:219-237` case stays as a guard; the `true`
 twin of §6 (f) goes to the new file); `tests_clone_node.rs` (296, `cloneNode` basics; untouched);
 `crates/core/elidex-ecs/src/dom/tests/mod.rs` (28: RC-2a-pre adds `mod mutation_hook_fire_helpers;`, RC-2a adds
-nothing). RC-2a-pre's own edit set is `mutation_hook.rs` (the move and the three visibility changes),
-`mutation_hook_fire_helpers.rs` (NEW) and that `tests/mod.rs`, nothing else (D-1, §7). Stated because
+nothing). RC-2a-pre's own edit set is `mutation_hook.rs` (the move, the two visibility changes and the module-doc
+list, D-1), `mutation_hook_fire_helpers.rs` (NEW) and that `tests/mod.rs`, nothing else (D-1, §7). Stated because
 the umbrella listed them as possible: `crates/dom/elidex-form/src/init.rs` (D-3), `CloneNode`'s `invoke` (D-6), every
 Range file, `reaction.rs`, `custom_elements/flush.rs`. No file under `scripts/` or `.claude/tools/` (D-4, Rev 2).
 
@@ -992,11 +1022,17 @@ files the plan names"; `teardown.rs` joined the edit set in Rev 3, G1, and is in
 the files the umbrella listed as possible, one is over 1000, `crates/script/elidex-js/src/vm/tests/tests_custom_elements.rs`
 (1320), and RC-2a does not touch it (R1 F2; §5.1). Of the edit set, one crosses 1000 with RC-2a's addition:
 `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs`, 971 at `fab44a1d`, plus the `MockEvent` variant (4 lines,
-the file's one-field-per-line variant style, `:17-52`), the `MockHook` arm (4), the routing test
-`fire_clone_created_helper_routes_to_hook` (about 24: the `fire_split_text_helper_routes_to_hook` shape, `:886-909`,
-with a two-element expected `vec!`) and one line in `fire_helpers_silent_when_no_hook_installed` → about **1004**
-(R2 G7; counted against the file's own shapes, not Rev 2's "about 10"). The next largest, `dom/mod.rs`, is 926 and
-gains about 35 (D-2).
+the file's one-field-per-line variant style, `:17-52`: every variant there is multi-line, the two-field `TextChange`
+included), the `MockHook` arm (3: a two-field pattern and its one-line push fit rustfmt's widths, unlike the
+three-field arms `:69-80`), the routing test `fire_clone_created_helper_routes_to_hook` (22–32: the
+`fire_split_text_helper_routes_to_hook` shape `:886-909` is 24 lines by `sed -n '886,909p' … | wc -l`; the two-element
+expected `vec!` and the scope set-up move it either way), its blank separator line (1) and one line in
+`fire_helpers_silent_when_no_hook_installed` → **1002–1012** (Rev 3.1, a range: 971 + 31–41; Rev 3's point
+estimate was 1004, and R3's own range, 999–1006, overlaps this one; counted against the file's own shapes, not Rev
+2's "about 10"). The decision does not depend on where in the range the landed count falls, nor on the range's low
+end slipping under 1000: the split is harmless (a pure move of one scenario, no behaviour change) and the seam is
+real (next paragraph), and CLAUDE.md's touch-time discipline is a cohesion judgment, not a line-count trigger — so
+the split stands at either end. The next largest, `dom/mod.rs`, is 926 and gains about 35 (D-2).
 
 **The split (RC-2a-pre; cohesion, not timing).** The seam is real and named: the `fire_*` helper group
 (`mutation_hook.rs:886-949`, 64 lines — `fire_split_text_helper_routes_to_hook`,
@@ -1005,8 +1041,9 @@ the file that tests the `EcsDom::fire_*` helpers other crates call, rather than 
 recorder tests are of that scenario
 (D-1). So the group moves, as a standalone pure-move prerequisite before RC-2a's implementation (RC-0a's shape,
 #587): `:886-949` to `tests/mutation_hook_fire_helpers.rs` (NEW, about 70 with its module doc and `use` lines),
-`MockEvent` / `MockHook` / `install_mock` to `pub(super)` (`:17`, `:55`, `:152`; visibility only — the recorder stays
-the one fixture of the whole stream), `mod mutation_hook_fire_helpers;` in `tests/mod.rs`. After it `mutation_hook.rs`
+`MockEvent` / `install_mock` to `pub(super)` (`:17`, `:152`; `MockHook` `:55` stays private — the moved tests do not
+name it, D-1; visibility only — the recorder stays the one fixture of the whole stream), the module doc `:1-9`
+without the two `fire_*` names (D-1), `mod mutation_hook_fire_helpers;` in `tests/mod.rs`. After it `mutation_hook.rs`
 is about 907; RC-2a's variant and arm put it at about 915 and the sibling at about 95. The other seams in the file
 stay for whoever adds a scenario there next: the slot-method tests `:434-485`, the shadow-root-silence group
 `:671-788`, the `replace_text_data` group `:788-885`. C0c's `Adopt` arm in the recorder (its memo at wt-c0-plan
@@ -1037,9 +1074,20 @@ umbrella's §7 rows for RC-2a are thereby discharged at this base.
 - **RC-0a (landed, `fab44a1d`)**: this memo cites the split files.
 - **RC-2a-pre (this memo, D-1, §7)**: the standalone pure-move split of `mutation_hook.rs`'s `fire_*` group, landed
   before RC-2a's implementation starts (RC-0a's shape, #587). Its edit set is `mutation_hook.rs`,
-  `tests/mutation_hook_fire_helpers.rs` (NEW) and `tests/mod.rs` of `elidex-ecs` (§5.1); no other lane's plan edits
-  them. If C0c lands first with its `Adopt` arm in the recorder, the move is unchanged: the arm is in the fixture,
-  which stays.
+  `tests/mutation_hook_fire_helpers.rs` (NEW) and `tests/mod.rs` of `elidex-ecs` (§5.1). Two of the three are also
+  edited by Layout's unlanded plans (measured in their memos at wt-c0-plan, Rev 3.1): C0c adds its `Adopt` no-op arm
+  to the recorder in `mutation_hook.rs` (`git -C …/wt-c0-plan show
+  05142d8c:docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md`, `:270`; `grep -n -E
+  'mutation_hook|tests/mod\.rs'` on it → `:19`, `:32`, `:110`, `:147`, `:216`, `:270`, none naming `tests/mod.rs`);
+  C0b adds `crates/core/elidex-ecs/src/dom/tests/adopt_on_insert.rs` (NEW) (`git -C …/wt-c0-plan show
+  a50b6d12:docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`, `:505`, `:543`) and therefore
+  a `mod adopt_on_insert;` line in `tests/mod.rs`, whose `mod` list (`:13-28`) is the only way a file under
+  `dom/tests/` compiles — the memo does not name `tests/mod.rs` (`grep -n -E
+  'mutation_hook|tests/mod\.rs|adopt_on_insert'` on it → `:505`, `:543` only, both the new file), the declaration
+  follows from the new file. Neither edits `mutation_hook_fire_helpers.rs` (NEW here). Both overlaps are
+  on disjoint lines: C0c's arm goes into the fixture's `match` (`:68-148`), which stays in `mutation_hook.rs` while
+  the moved group is `:886-949`; C0b's `mod` line sorts before `:13` and RC-2a-pre's `mod mutation_hook_fire_helpers;`
+  after `:20`. Whichever lands first, the move is unchanged.
 - **C0b (Layout, unlanded)** on `node_methods/clone.rs` and on `elidex-ecs` (R2 G9): H9 decides which stamps each
   side removes; at `fab44a1d` the RC-2a-first state applies (D-5), and the PR body records the state of its base.
   C0b also changes `begin_detached_fragment` to take `context` and `finish_detached_fragment` to drop it
@@ -1063,8 +1111,9 @@ umbrella's §7 rows for RC-2a are thereby discharged at this base.
 **Hand-offs** (for the PM; the memo edits neither the ledger nor Layout's files): close
 `#11-clone-shadow-children-subtree` at landing with the PR number and squash SHA; optionally annotate the closed
 `#11-clone-cloning-steps-event` (§4.8); tell Layout that RC-2a has landed (H2), that `MutationEvent` has its
-`CloneCreated` arm in the sites of §5.2 (H6), and — for C0c's recorder arm — that since RC-2a-pre the recorder
-(`MockEvent` / `MockHook` / `install_mock`) is `pub(super)` with the `fire_*` group in
+`CloneCreated` arm in the sites of §5.2 (H6), and — for C0c's recorder arm — that since RC-2a-pre `MockEvent` and
+`install_mock` are `pub(super)` (`MockHook` stays private; C0c's arm lives in `mutation_hook.rs` itself and needs no
+visibility) with the `fire_*` group in
 `tests/mutation_hook_fire_helpers.rs`, and `mutation_hook.rs` is at about 915 after RC-2a (D-1, §7).
 
 **Definition of done** (every command re-runnable at the PR head):
