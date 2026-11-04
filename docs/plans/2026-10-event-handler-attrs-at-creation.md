@@ -439,15 +439,16 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | x9 | C0 → T3 (rev 8.4) | semantic precondition (PM decision 153) | without insertion adoption a node moved into another document keeps its old node document, which T3's step 3 reads; C0b makes the node document a stored fact, kept true at every insertion and read by `EcsDom::node_document` |
 | x10 | N1 → C0 (rev 8.4) | code predecessor (PM decision 153) | C0b rewrites N1's compile-gate clause (b) to read `EcsDom::node_document` (C0 program memo D-7 (a)), so N1's implementation (#580) lands first |
 
-Acyclic. The order satisfies x4 transitively. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9). It is listed so that a re-ordering cannot drop it.
+Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
 
 ### §1.4 Slice a is an approved interim, required by dependency (PM decision 23)
 
 CLAUDE.md "One issue, one way" forbids a strangler state, in which a new mechanism coexists with the one it replaces.
 Slice a is such a state for **timing**: it processes post-bind creations at first insertion, where slice b's end state
 processes them at creation. The D-8 restriction exists for the same reason. The PM approves slice a as an interim
-because a dependency requires it. N1 requires K-1 (§L), and slice b requires T3, N1 and C1's handling (x3–x5). So the
-only order that satisfies both is slice a → N1 (with T3) → slice b.
+because a dependency requires it. N1 requires K-1 (§L), and slice b requires T3, N1 and C1's handling (x3–x5), and T3
+is started after C1 lands (x6, x9; PM decision 153). So the only order that satisfies both is slice a → N1 → C0 → C1 → T3 → slice b
+(PM decision 153; until rev 8.4: "slice a → N1 (with T3) → slice b").
 
 - **Kept by slice b:** S-6.
 - **Removed by slice b (the interim's whole surface):** (1) the D-8 restriction and X-W (S-5); (2) processing at

@@ -217,7 +217,7 @@ impl DomApiHandler for RemoveChild {
 ///   (replace step 1, ensure pre-insert validity step 3; matches Chrome/Firefox/WebKit).
 /// - `newChild` is `parent` itself, an ancestor of `parent`, or any other
 ///   pre-insertion validity violation → `HierarchyRequestError`
-///   (ensure pre-insert validity steps 1–2, 4–11). Cross-document violations also map here per
+///   (ensure pre-insert validity steps 1–2, 4–9, 11; step 10 is an Assert). Cross-document violations also map here per
 ///   §4.2.3 — `WrongDocumentError` is not a separate `DomApiErrorKind`.
 ///
 /// The replace is delegated to a single `EcsDom::replace_child` op so the
@@ -226,8 +226,10 @@ impl DomApiHandler for RemoveChild {
 /// not the two a naive remove-then-insert composition would produce. A
 /// **move** into the replace slot (an already-parented `newChild`) additionally
 /// emits the source-parent removal record from `newChild`'s adopt (B1.2a, §4.5
-/// step 2, NOT suppressed) — that is a distinct record on a different parent,
-/// not a split of the coalesced one.
+/// step 2, NOT suppressed) — that is a separate record, not a split of the
+/// coalesced one. It targets `newChild`'s old parent: another parent for a
+/// cross-parent move, but the same parent for a same-parent move
+/// (`P=[A,B]; P.replaceChild(B, A)`), where both records target `P`.
 pub struct ReplaceChild;
 
 impl DomApiHandler for ReplaceChild {
@@ -258,7 +260,7 @@ impl DomApiHandler for ReplaceChild {
         // host-including-inclusive-ancestor cycle, oldChild-is-child (NotFoundError,
         // ensure pre-insert validity step 3), node-type, Text/doctype placement, and
         // the Document element-child constraints (ensure pre-insert validity steps
-        // 8–9 exclude « oldChild » — these "differ from the pre-insert algorithm").
+        // 9.1 and 11 exclude « oldChild » — these "differ from the pre-insert algorithm").
         // The canonical validator the ChildNode/ParentNode mixins use; runs BEFORE
         // the self-replace short-circuit so `replaceChild(orphan, orphan)` throws
         // ensure pre-insert validity step 3's NotFoundError (replace step 1 runs

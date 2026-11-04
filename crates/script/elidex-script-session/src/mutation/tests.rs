@@ -300,6 +300,14 @@ fn apply_replace_child_move_source_not_adjacent_to_old_child() {
     assert_eq!(records[0].removed_nodes, vec![b]);
     assert_eq!(records[0].previous_sibling, Some(x));
     assert_eq!(records[0].next_sibling, None);
+    // Coalesced (replace steps 2-4): referenceChild = A's next = X (not B, so no
+    // step-3 adjustment); previousSibling = A's prev = None.
+    let coalesced = &records[1];
+    assert_eq!(coalesced.added_nodes, vec![b]);
+    assert_eq!(coalesced.removed_nodes, vec![a]);
+    assert_eq!(coalesced.previous_sibling, None);
+    assert_eq!(coalesced.next_sibling, Some(x));
+    assert_eq!(dom.children(parent), vec![b, x]);
 }
 
 #[test]

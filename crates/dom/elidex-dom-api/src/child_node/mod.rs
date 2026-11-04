@@ -447,7 +447,8 @@ pub(crate) fn ensure_replace_validity(
     let node_kind = validate_node_type(node, dom)?;
     validate_doctype_and_text(parent_kind, node_kind, node, dom)?;
 
-    // Step 6: Document parent constraints (excluding `child` from counts).
+    // Ensure pre-insert validity steps 9.1 and 11: Document parent constraints
+    // (excluding `child` from counts, `childrenToExclude` = « child »).
     if matches!(parent_kind, Some(NodeKind::Document)) {
         validate_document_element_constraint(parent, node, node_kind, Some(child), &[child], dom)?;
     }

@@ -9,14 +9,15 @@ use super::{empty_record, MutationKind, MutationRecord};
 /// The move source-removal context for a node passed to a childList op: its old
 /// parent + exposed siblings, captured **before** the relink (which destroys
 /// them), or `None` if the node was unparented (a fresh insert). This is the
-/// move-vs-fresh source of truth for `appendChild` / `insertBefore`; `replace`
-/// needs the `old_child` step-over and captures its own. The trailing `bool` is
+/// move-vs-fresh source of truth for `appendChild` / `insertBefore` / `replaceChild`
+/// (`apply_replace_child` captures it with `old_child` still in place: replace
+/// step 6 adopt runs before step 7 remove). The trailing `bool` is
 /// the old parent's connectedness (DOM "remove" step-12 `isParentConnected`),
 /// captured pre-relink for the source-removal record's `disconnectedCallback`
 /// gate.
 type MoveSource = Option<(Entity, Option<Entity>, Option<Entity>, bool)>;
 
-/// Capture the [`MoveSource`] for `node` (append/insert): old parent + `node`'s
+/// Capture the [`MoveSource`] for `node` (append/insert/replace): old parent + `node`'s
 /// exposed prev/next + the old parent's connectedness. The exposed-sibling
 /// helpers skip internal `ShadowRoot` entities (§4.8 encapsulation). Must run
 /// before the `EcsDom` relink (both the siblings and — for step-12

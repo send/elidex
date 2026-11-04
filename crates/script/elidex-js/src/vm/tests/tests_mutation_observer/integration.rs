@@ -17,7 +17,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::super::value::JsValue;
 use super::super::super::Vm;
-use super::setup_with_root;
+use super::{assert_same_parent_replace_move_records, setup_with_root};
 
 /// Create a detached element of `tag` and expose its wrapper as the JS global
 /// `name`, returning the entity. The element is registered in the identity map
@@ -650,49 +650,5 @@ fn real_mutation_without_observer_delivers_nothing() {
 #[test]
 fn real_replace_child_same_parent_move_source_removal_sees_old_child() {
     // C0a T17 (D-12): `P = [A, B]; P.replaceChild(B, A)` -- DOM replace step 6 adopts B (removal record, previousSibling = A) before step 7 removes A.
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
-
-    vm.eval(
-        "globalThis.P = document.createElement('div'); \
-         globalThis.A = document.createElement('a'); \
-         globalThis.B = document.createElement('b'); \
-         P.append(A, B); \
-         var mo = new MutationObserver(function(){}); \
-         mo.observe(P, {childList:true}); \
-         P.replaceChild(B, A); \
-         globalThis.r = mo.takeRecords();",
-    )
-    .unwrap();
-
-    assert_eq!(vm.eval("r.length").unwrap(), JsValue::Number(2.0));
-    // r[0]: adopt step 2's removal of B, with A (old child) still in place.
-    assert_eq!(
-        vm.eval("r[0].removedNodes.length === 1 && r[0].removedNodes[0] === B && r[0].addedNodes.length === 0")
-            .unwrap(),
-        JsValue::Boolean(true)
-    );
-    assert_eq!(
-        vm.eval("r[0].previousSibling === A").unwrap(),
-        JsValue::Boolean(true),
-        "source-removal previousSibling is A (replace step 6 adopts before step 7 removes A)"
-    );
-    assert_eq!(
-        vm.eval("r[0].nextSibling === null").unwrap(),
-        JsValue::Boolean(true)
-    );
-    // r[1]: the coalesced replace record (step 10).
-    assert_eq!(
-        vm.eval("r[1].addedNodes.length === 1 && r[1].addedNodes[0] === B && r[1].removedNodes.length === 1 && r[1].removedNodes[0] === A")
-            .unwrap(),
-        JsValue::Boolean(true)
-    );
-    assert_eq!(
-        vm.eval("r[1].previousSibling === null && r[1].nextSibling === null")
-            .unwrap(),
-        JsValue::Boolean(true)
-    );
-    vm.unbind();
+    assert_same_parent_replace_move_records("P.replaceChild(B, A)");
 }
