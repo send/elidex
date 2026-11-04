@@ -2,8 +2,8 @@
 
 This PR is slice **(1) provenance** under the umbrella `docs/plans/2026-11-focus-fixup-program.md` (order, edges,
 cross-PR invariants and slot owners: its §1–§4; scope by PM decisions 260 and 264). Branch
-`layout-change-on-blur-provenance`, worktree `wt-change-provenance`. Rev 3.1, 2026-11-03, draft for `/elidex-plan-review`.
-Owner Layout; crates `elidex-form`, `elidex-shell`, `elidex-dom-api` (one doc comment), `elidex-js` (one test migration).
+`layout-change-on-blur-provenance`, worktree `wt-change-provenance`. Rev 3.2, 2026-11-05 (rev 3.1 plan-reviewed; PM 393 changes listed in the changelog).
+Owner Layout; crates `elidex-form`, `elidex-shell`, `elidex-dom-api` (one doc comment), `elidex-js` (one test, one doc comment).
 
 **Defect.** HTML's focus update steps fire `change` at a blurred control only if "the user has changed the element's
 value … while the control was focused without committing that change (such that it is different to what it was when the
@@ -76,7 +76,10 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   value differs from the baseline: the focus-time value, re-baselined by a non-user write made before the user's first
   value change (model H, §4.3; measured in Chromium, §6; PM 305). One function computes it: `elidex_form::take_change_on_blur`
   (NEW, `focus_snapshot.rs`) consumes the snapshot and returns whether the substep fires; every sink only dispatches
-  `change` (umbrella X1, record PR-1).
+  `change` (umbrella X1, record PR-1). **Representation (changed, PM 393):** `FocusValueSnapshot(Option<String>)`, `None`
+  at seed and `Some(before)` from the first user value change (the H baseline); the verdict is
+  `matches!(snap, Some(b) if value != b)`. It replaces rev 3.1's `{ initial, user_changed }` because the focus-time
+  `initial` was dead state: it was read only when `user_changed`, and the first mark always overwrote it. Commit (4).
 - **D-2 One user-edit funnel, at the value change** (E3). `elidex_form::apply_user_edit` (NEW), in
   `crates/dom/elidex-form/src/user_edit.rs` (NEW), runs a user edit closure on the control's `FormControlState`, compares the value
   before and after, and if it changed (a) marks the snapshot (if one exists) and (b) returns `changed = true`. The shell
@@ -98,8 +101,8 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   +6), so ~986 after this PR, under 1000. A standalone split PR first is needed only if the final head measures over
   1000 (umbrella e3; DoD 5).
 - **D-7 Commits** — each commit builds, and every cell it adds passes in it:
-  1. `elidex-form` + shell sink + doc: `FocusValueSnapshot { initial, user_changed }`; `apply_user_edit` and
-     `note_user_value_change`, which marks but does not yet re-baseline; `take_change_on_blur` with HEAD's value-only
+  1. `elidex-form` + shell sink + doc: `FocusValueSnapshot { initial, user_changed }` (rev 3.1's shape; commit (4));
+     `apply_user_edit` and `note_user_value_change`, which marks but does not yet re-baseline; `take_change_on_blur` with HEAD's value-only
      predicate (`value != initial`, mark ignored), so no behaviour changes; the shell's `dispatch_change_on_blur` calls it
      and only dispatches; the `commit_change_on_blur` doc (§4.1). `take_focus_snapshot` and its `lib.rs` re-export are
      removed here, and every caller moves in this commit: `focus_snapshot.rs:95-143` (unit tests),
@@ -109,6 +112,10 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
      C11, C12, C27, C28, C29.
   3. `elidex-form`: `take_change_on_blur` reads the mark, and the first mark re-baselines (§4.3). Cells: C1, C3, C6, C9,
      C14, C16, C20–C26, C7 (k), (l).
+  4. `elidex-form`, `elidex-js` (test, doc): D-1's representation (PM 393); the getters become `baseline()`. No cell changes outcome. Two
+     pins of an unmarked snapshot's `initial()` (`reconciler_tests.rs` e2d; `elidex-js`
+     `redundant_focus_does_not_reseed_change_snapshot`) now make a user edit first and assert `take_change_on_blur`,
+     because an unmarked snapshot no longer differs from a re-seeded one.
 
 ## §1. Shape and verdict
 
@@ -136,9 +143,9 @@ E3's wrong `change`. Breadth: K = 1, M = 9 (§3) → preflight "single PR scope"
   event named input"; "The input event fires whenever the user has modified the data of the control"). A user
   writing-direction change fires `input` with no value change (§4.10.11 writing-direction paragraph step 2; §4.10.5.1.2
   Text and Search state, same steps); that `input` is not decided by `changed` (§4.2 row 12, §8).
-- **I3 Provenance lifetime = snapshot lifetime** — every seed (UA step 4.1, VM `focus()`) starts unmarked with
-  `initial` = the value; the first user value change sets `initial` to the value just before it and marks; later
-  changes of either kind touch neither field. The mark goes away with the snapshot (take at step 2.1, reconciler
+- **I3 Provenance lifetime = snapshot lifetime** — every seed (UA step 4.1, VM `focus()`) starts unmarked (no
+  baseline); the first user value change stores the value just before it as the baseline, which is the mark; later
+  changes of either kind leave it (D-1). The mark goes away with the snapshot (take at step 2.1, reconciler
   type-flip clear, non-text re-seed, despawn).
 - **I4 Non-user writers never mark** — no §5.2 writer calls `apply_user_edit`.
 - **I5 One judgement, called by every sink** (umbrella X1) — `take_change_on_blur` is the only consumer of the snapshot
@@ -225,16 +232,15 @@ pub struct UserEdit<R> { pub result: R, pub changed: bool }
 Body: borrow the state, `let before = fcs.value().to_owned()`, run `edit`, `changed = fcs.value() != before`, drop the
 borrow; if `changed`, call `focus_snapshot::note_user_value_change(dom, entity, before)` (NEW, `pub(crate)`). The clone
 costs O(len), the same order as the edit itself (inserting into or draining from the middle of a `String` shifts the
-tail). The doc comment of `apply_user_edit` names the obligation of future user edit paths (§8).
+tail); removing it → `#11-text-edit-primitives-report-change` (§8). The doc comment of `apply_user_edit` names the obligation of future user edit paths (§8).
 
-`FocusValueSnapshot` (`focus_snapshot.rs:17`) becomes `{ initial: String, user_changed: bool }`: one shape for both kinds,
-since `<input>` and `<textarea>` measured identical (§6), so no per-kind enum. Both fields are private with read-only
-getters `initial()` / `user_changed()`, so only `focus_snapshot.rs` writes them (the `elidex-js` test reads the getters). `record_focus_snapshot` seeds
-`initial` = the value, `user_changed = false`. `note_user_value_change` does nothing without a snapshot; on an unmarked
-one it sets `initial = before` and `user_changed = true`; on a marked one it does nothing (§4.3).
+`FocusValueSnapshot` (`focus_snapshot.rs:17`) takes D-1's shape: one shape for both kinds, since `<input>` and
+`<textarea>` measured identical (§6), so no per-kind enum. The field is private with a read-only getter `baseline()`, so
+only `focus_snapshot.rs` writes it. `record_focus_snapshot` seeds `None`. `note_user_value_change` does nothing without
+a snapshot; on `None` it stores `Some(before)`; on `Some` it does nothing (§4.3).
 `take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool` (NEW, `focus_snapshot.rs`) replaces
 `take_focus_snapshot` (whose only non-test caller was the shell sink; the tests read the component instead, D-7 (1)):
-it removes the snapshot and returns `snap.user_changed && fcs.value() != snap.initial`, `false` without a snapshot or a
+it removes the snapshot and returns D-1's verdict, `false` without a snapshot or a
 `FormControlState`. The shell's `dispatch_change_on_blur` dispatches `change` iff it returns `true`. The
 `commit_change_on_blur` doc (`crates/dom/elidex-dom-api/src/focus/update_steps.rs:72-76`, "the shell takes the snapshot,
 compares, and dispatches") is rewritten to: the sink calls `elidex_form::take_change_on_blur` and dispatches `change`
@@ -279,24 +285,23 @@ focus-time value. It does not say what a script write does to either. Chromium 1
 re-baselines it only while the user has not changed the value since focus (the mark); after the mark, `change` fires
 iff the value ≠ baseline. In rev 2's terms: B1 before the mark, A after it.
 
-| Event | `initial` | `user_changed` |
-|---|---|---|
-| seed (UA step 4.1, VM `focus()`) | the value | false |
-| non-user write (W1–W8, §5.2), unmarked | unchanged (absorbed at the mark, below) | false |
-| first user value change (`apply_user_edit`, `changed`) | the value just before that edit | true |
-| any later change, user or non-user | unchanged | true |
-| `take_change_on_blur` | removed | removed; returns `user_changed && value != initial` |
+| Event | Snapshot (D-1) |
+|---|---|
+| seed (UA step 4.1, VM `focus()`) | `None` |
+| non-user write (W1–W8, §5.2), unmarked | `None` (absorbed at the mark, below) |
+| first user value change (`apply_user_edit`, `changed`) | `Some(the value just before that edit)` |
+| any later change, user or non-user | unchanged |
+| `take_change_on_blur` | removed; returns D-1's verdict |
 
 **Re-baseline at the mark, not at each writer.** While unmarked, the value changes only through non-user writes (a user
 change would have marked), and under H each of them re-baselines; so under H the baseline equals the current value at
 every unmarked moment, and at the first user value change it is the value just before that edit — the `before` that
-`apply_user_edit` already holds (§4.1). Setting `initial = before` at the mark is therefore H exactly, with no call at
+`apply_user_edit` already holds (§4.1). Storing `Some(before)` at the mark is therefore H exactly, with no call at
 any writer. An unlisted or future non-user writer cannot skip the re-baseline, because nothing is asked of it: anything
-that does not go through `apply_user_edit` is non-user, the fail-safe direction. While unmarked, `initial` keeps the seed
-value and is never read (`take_change_on_blur` returns `false`); it is HEAD's baseline, which commit (1)'s value-only
-predicate and MG1 use.
+that does not go through `apply_user_edit` is non-user, the fail-safe direction. While unmarked there is no baseline, so
+`take_change_on_blur` returns `false`.
 
-| Case (§6) | Sequence (fresh focus, value `""` unless noted) | Chromium | `initial` at blur | Cell |
+| Case (§6) | Sequence (fresh focus, value `""` unless noted) | Chromium | baseline at blur | Cell |
 |---|---|---|---|---|
 | M0 | script `x` | none | unmarked | C1, C3, C14 |
 | M1 | type `a`; script `third` | `change` | `""` | C4 |
@@ -314,7 +319,7 @@ predicate and MG1 use.
 Measured (run 1, both kinds): N1–N4 fire no `input` and leave the value unchanged (N3 / N4 inserted through the driver's
 `Input.insertText`, not a clipboard paste), so I2 stands as designed; C8, C11, C12, C27 and C28 assert it. N5 (an IME commit with nothing to insert) was not measured:
 the driver had only a synthetic composition, so C11 rests on the spec text. Replacing a selection with identical text
-was not measured either; I2 follows elidex's own value comparison there (no change, no `input`).
+was not measured either; I2 follows elidex's own value comparison there (no change, no `input`). Probe: §6 N6.
 
 ## §5. Populations and named risks
 
@@ -410,6 +415,11 @@ is invalid). Script steps run via the page tool's JS evaluation, which does not 
 - **N4** paste into the full `maxlength=1` pair, caret at the end.
 - **N5** IME commit into the full `maxlength=1` pair, caret at the end (nothing to insert; C11). If the tool cannot drive
   a trusted composition, record "not measured".
+- **N6** (not run; PM 393, to run later) replace a selection with identical text, on `#b` / `#t` holding `a`
+  (script-set before focus): (i) click; Cmd+A; type `a`; (ii) click; Cmd+A; paste `a` (clipboard filled by Cmd+A, Cmd+C
+  in an `<input id=src2 value="a">`). Record `input` (`inputType`) and the value. Then, without blurring, script
+  `value = "x"`; click `#away`: `change` there means Chromium recorded the baseline (`value_before_first_user_edit_`)
+  at the identical replace (H: the script write would otherwise re-baseline). This PR keeps "value changed" (I1).
 
 Record in the PR body: engine and version (`navigator.userAgent`), date, the page source, and each case's log. One engine
 is evidence, not proof; the PR body says so.
@@ -471,7 +481,7 @@ writer path that does not run fails loudly instead of passing.
 | C4 (was rev 2 C22) `ua_blur_after_user_edit_then_script_write`, both kinds | UA focus `b`; key `a`; VM `b.value = "third"`; UA `set_focus(c)` → `change` (M1) | green |
 | C5 `ua_blur_after_user_edit_then_script_restore`, both kinds | UA focus `b`; key `a`; VM `b.value = ""`; UA blur → no `change` (M2) | green (pin) |
 | C6 `ua_blur_after_script_write_then_user_revert`, both kinds | UA focus `b`; VM `b.value = "x"`; key Backspace (value back to `""`: the setter moved the cursor to the end, `crates/dom/elidex-form-core/src/lib.rs:621-623`); UA blur → `change` (M4) | red |
-| C7 (was rev 2 C21; unit) `focus_snapshot.rs` / `user_edit.rs` | (a) seed → unmarked, `initial` = value; (b) seed + `apply_user_edit` that changes the value → marked; (c) `apply_user_edit` with no snapshot → no component inserted; (d) re-seed after a mark → unmarked; (e) edit that leaves the value equal → `changed == false`, unmarked; (f) `clipboard_paste` on a readonly state and on a full-`maxlength` state → unchanged; (g) `clipboard_cut` with a selection → changed, result = the cut text; (h) no `FormControlState` → `None`; `take_change_on_blur`: (i) no snapshot → `false`; (j) marked, value ≠ `initial` → `true`, snapshot removed, a second call → `false`; (k) unmarked with value ≠ `initial`, and marked with value = `initial` → `false`; (l) seed at `""`, value set to `"x"` directly (a non-user write), `apply_user_edit` appends `y` → `initial == "x"`, marked; a second `apply_user_edit` → `initial` still `"x"` | n/a (new API) |
+| C7 (was rev 2 C21; unit) `focus_snapshot.rs` / `user_edit.rs` | (a) seed → unmarked; (b) seed + `apply_user_edit` that changes the value → marked; (c) `apply_user_edit` with no snapshot → no component inserted; (d) re-seed after a mark → unmarked; (e) edit that leaves the value equal → `changed == false`, unmarked; (f) `clipboard_paste` on a readonly state and on a full-`maxlength` state → unchanged; (g) `clipboard_cut` with a selection → changed, result = the cut text; (h) no `FormControlState` → `None`; `take_change_on_blur`: (i) no snapshot → `false`; (j) marked, value ≠ baseline → `true`, snapshot removed, a second call → `false`; (k) unmarked with the value changed, and marked with value = baseline → `false`; (l) seed at `""`, value set to `"x"` directly (a non-user write), `apply_user_edit` appends `y` → baseline `"x"`; a second `apply_user_edit` → baseline still `"x"` | n/a (new API) |
 | C8 `arrow_key_fires_no_input` | `<input id=b value="ab">` UA-focused; VM `b.setSelectionRange(1, 1)` (so ArrowLeft moves); `handle_key` ArrowLeft → cursor at 0, no `input` | red |
 | C9 `arrow_key_then_script_write_no_change` | as C8, then VM `b.value = "x"`; UA blur → no `change` (M5) | red |
 | C10 `ime_commit_marks_and_fires_input` | UA focus `b`; `handle_ime(Commit("あ"))` → `compositionend`, `input`; UA blur → `change` | green (control) |
@@ -500,12 +510,12 @@ other plans cite these as "plan (1) MG1" etc.:
 
 | Guard | Mutation | Red cells |
 |---|---|---|
-| MG1 (was rev 2 MG8) | `take_change_on_blur` ignores `user_changed` (HEAD's value-only predicate); the shell cells turning red also show the shell sink's verdict comes from it (I5). They can turn red because `initial` keeps the seed value while unmarked (§4.3) | C1, C3, C7 (k), C9, C14, C16 |
+| MG1 (was rev 2 MG8) | the seed stores `Some(value)`, the focus-time copy D-1 removed (rev 3.1's form: `take_change_on_blur` ignores `user_changed`, HEAD's value-only predicate); an unmarked snapshot then has a baseline. The shell cells turning red also show the shell sink's verdict comes from it (I5) | C1, C3, C6, C7 (a)/(d)/(e)/(f)/(k)/(l), C9, C14, C16, C20–C26 (measured 2026-11-05) |
 | MG2 | rev 2's design (E3): `dispatch_input_event_typed` marks (the mutation makes `note_user_value_change` `pub` and calls it there with the current value) and every caller fires `input` unconditionally | C8, C9, C11, C12, C27, C28 |
 | MG3 (was rev 2 MG9) | delete the `note_user_value_change` call in `apply_user_edit` | C2, C10, C13, C15, C29 |
 | MG4 | `apply_user_edit` returns `changed = true` always | C7 (e)/(f), C8, C11, C12, C27, C28 |
 | MG5 | `record_focus_snapshot` keeps an existing mark when re-seeding | C7 (d), C16 |
-| MG6 | the first mark leaves `initial` at the seed value (rev 2's branch A; the analogue of a writer skipping the re-baseline) | C6, C7 (l), C20–C26 |
+| MG6 | the first mark leaves the baseline at the seed value (rev 2's branch A; the analogue of a writer skipping the re-baseline). Since D-1 there is no seed value, so this is MG1's mutation; its cells C6, C7 (l), C20–C26 are in MG1's row | MG1 |
 | MG7 | every user value change re-baselines, not only the first | C7 (l), C18, C20 |
 | MG8 | the input `value` setter (W1) goes through `apply_user_edit` | C1, C3 |
 
@@ -550,6 +560,12 @@ the WPT runner does not drive.
   them: it sets `dir` and fires `input` with no value change (§4.10.11 step 2), not through `changed`. Home: `apply_user_edit`'s doc comment, the
   function each such path must call; spin buttons are also CP-3's fix. No separate slot: none of these paths exists, and
   a path that skips the funnel shows as a missing `input` (R2).
+- **`#11-text-edit-primitives-report-change`** (Layout; PM 393): `apply_user_edit`'s per-keystroke O(n) copy and compare
+  (§4.1), and "`input` iff changed" at the four shell sites of §4.2 rows 1–4. This PR keeps `#[must_use]` and the
+  corrected doc on `apply_user_edit`. N6 (§6) is input to it.
+- **Pre-existing defects found in review** (PM 393; defect texts in the slot ledger): `#11-text-control-modifier-chords-insert`
+  (L3); `#11-implicit-submission-commits-change` (Layout); `#11-maxlength-truncated-input-data` (L3);
+  `#11-keydown-focus-move-edit-target` (Layout).
 - **PR body records**: the pre-step's measurement (§6), the measured model H (§4.3), the Q7 table (§4.2), the writer
   table (§5.2), red-first results per cell, MG1–MG8 results, §8.1 / §8.2 texts.
 
@@ -599,8 +615,9 @@ Search first: `memory/project_open-defer-slots.md` has no entry for any of the f
    and their unit tests (`user_edit.rs`, `focus_snapshot.rs`), the `lib.rs` re-export, and the shell's user-input sites
    of §4.2 rows 1–4 (`event_handlers.rs`, `ime.rs`). A hit in `crates/script`, in another `elidex-form` file (the
    reconciler, `value_mode.rs`, `submit.rs`) or in a shell script-path writer (`form_input.rs`'s reset) is a non-user
-   writer marking (I4). Also `git grep -n -E 'FocusValueSnapshot *\{|\.(initial|user_changed) *=[^=]' -- crates
-   ':!crates/dom/elidex-form'` → none (no field write outside `elidex-form`; the fields are private, §4.1).
+   writer marking (I4). Also `git grep -n -E 'FocusValueSnapshot *[({]|mut +(elidex_form::)?FocusValueSnapshot' -- crates
+   ':!crates/dom/elidex-form'` → none (no construction and no `&mut` borrow outside `elidex-form`, the only ways to
+   write the private field, §4.1).
 4. Cells C1–C29 green on the final head; NEW cells red / green on `d7d34035` as tabled (results in the PR body);
    MG1–MG8 each red on their cells, then reverted.
 5. No touched file over 1000 lines (`event_handlers.rs` estimated ~986, D-6); over 1000 → stop, the split PR lands first (umbrella e3).
@@ -620,6 +637,9 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
 
 ## Changelog
 
+- *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
+  point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
+  `#11-text-edit-primitives-report-change` and four pre-existing defect slots.
 - *Rev 3.1* (2026-11-03): plan-review fixes. I2 narrowed to `input` for a value change, normative §4.10.5.5 cites;
   writing-direction `input` stated apart (row 12; IME commit on blur added to the §8 list of user edit paths); dirty-flag and reset cites; R1
   example; `FocusValueSnapshot` fields private + DoD 3 field-write grep; I4 × I5 pointer by construction; MG name note;
