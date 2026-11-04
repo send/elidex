@@ -83,7 +83,8 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.6* (2026-11-04, focused re-check after R1; PM 335): `inert_template_document_of` deleted (D-C2,
+**Changelog.** *Rev 3.6.1* (2026-11-04, PM 337): T1's fixture sets the page URL, base column `[false, true, false, false, false]` (IMP-A); D-C3's clone post-pass → §4.4 `pair_owner` (MIN-B); A3×A6, D-C5's opening and P-C14's correction point to D-C5 (MIN-C); M3 / edge c-pre: I's URL is C1-pre's default, C1's `f` has no URL duty (MIN-D).
+*Rev 3.6* (2026-11-04, focused re-check after R1; PM 335): `inert_template_document_of` deleted (D-C2,
 D-C5, §4.2, §4.9, U4, §6.3, DoD 2; IMP-2); the adopt pair's restatements become pointers to D-C5 (A6, D-C5's
 Notification, R-C8, §4.7; IMP-3); T1's URL legs and M3's writer on C1-pre (edge c-pre; IMP-1); §4.2 matches its
 `debug_assert!`, R-9 pointer (MIN-1); §4.4's per-pair document is a `NewNodeOwner` (MIN-2); §3 `clone_subtree` row
@@ -206,7 +207,7 @@ New in rev 2:
 - **P-C14 (C0 rev 1, A3×A4).** "Elements in contents can be custom only if upgraded there; C1 makes that impossible by
   giving contents the inert document." A custom element created in the document and appended into `tpl.content` stays
   custom in the inert document (adopt does not un-upgrade), so custom elements in contents exist on C1's head, and a
-  later adoption of their template must give them `adoptedCallback(f(old), f(new))` (D-C5, cell T25). Hand-off H-2.
+  later adoption of their template must give them `adoptedCallback` with their contents' pair (see D-C5). Hand-off H-2.
   **Folded by C0** (C0c: D-3 (c) per-segment pairs, D-6, D-19; C0c memo P-4, cells T18, U13).
 - **P-C15 (C0 rev 1 × #577).** C0 rev 1 (frame `1ed126b4`, before #577) does not mention
   `node_document_for_new_nodes`. On C0's base its link-time adopt (D-4) re-homes a strict foreign element, created with
@@ -245,7 +246,7 @@ New in rev 2:
   today's orphan fragment (a documentless context or an orphan clone). No caller computes I itself. This is C0b's hook
   point (C0 draft D-10, "C1's hook point"): on the base the strict tier, the tolerant tier and `createElement` already
   pass `node_document_for_new_nodes(template)` (C0 draft D-10, D-11, §4.4), the template's node document with the §13.4
-  redirection; the clone post-pass passes the entry on the pair's Document (D-C6; a Document → itself, C0b U11). C1 changes no argument of the other three callers; it changes what the
+  redirection; the clone post-pass passes each pair's `pair_owner` (§4.4). C1 changes no argument of the other three callers; it changes what the
   helper does with it (applies `f`). Through idempotence a template nested in contents gets I whether its caller passes
   D or I.
 - **D-C4 — the new-node entry is C0's; C1 guarantees its value inside contents (PM decisions 199 / 207, 223 O-2 /
@@ -268,7 +269,7 @@ New in rev 2:
   inclusive descendants**, which do not include template contents; step 3.4 runs each descendant's *adopting steps*,
   and a template's (HTML §4.12.3) adopt its contents into `f(node's new node document)`. C1 replaces C0's identity edge
   with that: the walk re-homes the root's shadow-including tree to `document` and, for each template it reaches, adopts
-  the template's contents (recursively the same way) into `f(document)`; nested templates resolve to the same I
+  the template's contents as the contents edge below states; nested templates resolve to the same I
   (idempotence). The walk's shape is C0's: `adopt_subtree` keeps its uncapped `TemplateContentsWalk::Include` walk and
   has one contents edge, where it records a segment `{ fragment, documents: Option<(old, new)> }` with `new` = the
   target it writes into the contents (C0 draft D-3 (c), C0c); rev 2's Q-2 is answered there, and C1 adds no walker
@@ -358,7 +359,7 @@ is derived from the cited steps; the HEAD column from code reading at `593aa314`
 |---|---|---|---|---|---|---|
 | M1 | `tpl.content.ownerDocument !== document` | `true` (§4.12.3 establishing step 1) | `false` | `true` | | |
 | M2 | `tpl.content.ownerDocument === document.createElement('template').content.ownerDocument` | `true` (one associated inert template document) | `true` | `true` | | |
-| M3 | `I = tpl.content.ownerDocument; [I.defaultView, I.URL, I.baseURI, I.documentURI, I.body, I.ownerDocument]` | `[null, 'about:blank', 'about:blank', 'about:blank', null, null]` (browsing context null; URL is the default; §2.4.3 fallback base URL) | n/a (I is `document`) | the spec values, given C1-pre's Document install and per-entity facts (URL: C1-pre writes and reads it; edge c-pre) | | |
+| M3 | `I = tpl.content.ownerDocument; [I.defaultView, I.URL, I.baseURI, I.documentURI, I.body, I.ownerDocument]` | `[null, 'about:blank', 'about:blank', 'about:blank', null, null]` (browsing context null; URL is the default; §2.4.3 fallback base URL) | n/a (I is `document`) | the spec values, given C1-pre's Document install and per-entity facts (I gets C1-pre's default about:blank at creation (`create_document_node`); C1's `f` has no URL duty; edge c-pre) | | |
 | M4 | `tpl.innerHTML = '<a href="x.html"></a>'; tpl.content.firstChild.href` | the `href` content attribute value `"x.html"` (base `about:blank`, §2.4.3; `x.html` fails URL §4.4 *basic URL parser* against it, so url is null and HTML §4.6.3's `href` getter step 4 returns "this's href content attribute's value") | absolute against the page base | `"x.html"` | | |
 | M5 | parser path: page markup `<template id=h><a id=a href="x.html"></a><img id=i src="y.png"></template>`; `[h.content.getElementById('a').href, h.content.getElementById('i').src]` | `["x.html", "y.png"]`-shaped (`href` as M4; `src` by HTML §2.6.1's URL-reflecting getter: step 3.3 returns urlString only if not failure, else step 4 the content attribute value) | absolute | as M4 | | |
 | M6 | `c = tpl.content.cloneNode(true)` with M4's `<a>`; `[c.ownerDocument === tpl.content.ownerDocument, c.firstChild.href]`; `document.body.append(c)`; `a.href` | `[true, "x.html"]`, then absolute | `[true, absolute]`, then absolute | spec | | |
@@ -410,7 +411,7 @@ unparsable relative URL, M13's custom element staying custom in I). The remainin
 | A2×A9 | yes | The pre-bind parse puts contents in I before bind; slice a's bind pass still excludes them (U8 (ii) unchanged). Slice b's S-1 extension processes them at creation-equivalent time; C1 gives them a non-bound node document so their raw values read null (§4.6) |
 | A3×A4 | yes | A template inside a shadow tree inside contents, and a shadow host inside nested contents: all report I (T12 variant) |
 | A3×A5 | yes | Deep clone of an outer template clones the inner template inside the copy's contents with pair document I; the inner copy's contents are `f(I) = I` (T10) |
-| A3×A6 | yes | Adopting an outer template into X moves outer contents and every nested template and nested contents to `f(X)`; the target switches once, at the first contents edge (U9) |
+| A3×A6 | yes | Adopting an outer template into X: contents' pairs and skips per D-C5; the target switches once, at the first contents edge (U9) |
 | A3×A7 | no | Nesting creates no further document (A1×A3) |
 | A3×A8 | yes | Nested contents read null and (after T3) target null like outer contents (same I) |
 | A3×A9 | no | The EH contract does not distinguish depth inside contents |
@@ -729,7 +730,7 @@ after the measurement agrees (D-C11).
 
 | cell | kind | script | base | C1 = spec |
 |---|---|---|---|---|
-| T1 | red | `t = document.createElement('template'); I = t.content.ownerDocument; r = [I !== document, I instanceof Document, I.defaultView === null, I.URL === 'about:blank', I.documentURI === 'about:blank']` | `[false, true, false, u, u]`, `u` = `document.URL === 'about:blank'` | `[true, true, true, true, true]` (the second to fifth elements rest on C1-pre, edge c-pre; the third to fifth after §1.1 M3) |
+| T1 | red | fixture: page URL `http://example.com/page` (`vm.inner.navigation.current_url = url::Url::parse("http://example.com/page").unwrap()`, as `tests_forbidden_headers.rs:228` at `fab44a1d`); `t = document.createElement('template'); I = t.content.ownerDocument; r = [I !== document, I instanceof Document, I.defaultView === null, I.URL === 'about:blank', I.documentURI === 'about:blank']` | `[false, true, false, false, false]` | `[true, true, true, true, true]` (the second to fifth elements rest on C1-pre, edge c-pre; the third to fifth after §1.1 M3) |
 | T2 | guard | two `createElement('template')`: `t1.content.ownerDocument === t2.content.ownerDocument` (with T1's `!== document`) | `true` (both `document`) | `true` (same I) |
 | T3 | red (×2) | initial HTML `<template id=a><b id=b></b></template>`: `a.content.ownerDocument !== document`, `a.content.getElementById('b').ownerDocument === a.content.ownerDocument` | `[false, true]` | `[true, true]` |
 | T4 | red (×2) | `<template id=o><template id=i><p></p></template></template>`: `i.ownerDocument === o.content.ownerDocument`, `i.content.ownerDocument === o.content.ownerDocument`, `o.content.ownerDocument !== document` | `[true, true, false]` | `[true, true, true]` |
@@ -832,7 +833,7 @@ The other rows are pre-existing or another PR's scope.
   rewrite it; PM decisions 215, 241, 249; C1 rebases on it). RC-2a is in either order with C0b and C0c (C0 draft edges
   c0g, c0e).
 - c-pre: **C1-pre → C1** (code + semantic, PM 328): I's wrapper has the Document install and reads its own entity's
-  facts, which C1-pre also writes (URL included) (header; §4.1; T1, T5, §1.1 M3, R-C5).
+  facts; I gets C1-pre's default about:blank at creation (`create_document_node`); C1's `f` has no URL duty (header; §4.1; T1, T5, §1.1 M3, R-C5).
 - c-E: **C0b** introduces the new-node entry (PM decisions 223 O-2 / 227; C0 draft D-10, §4.5 A11 / A12); L3 RC-4 (A11 / A12)
   reads it. RC-4 lands **after** C1: the Range program's definition of done ("RC-4 after N9, C0b and C1") and its §5
   RC-4 text ("PM 216 rules out the first while C1 is a dependency", the first being this memo's old "RC-4 before C1"
