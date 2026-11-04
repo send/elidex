@@ -927,7 +927,8 @@ Decision 170's limit is not a slot (body :866–867).
    install`; report `which -a python3`. The PM tells the user first that installing the pin moves the global `python =
    "latest"` (body §7.2 (4)). Also: the root `.tool-versions` is exactly one line; and **any** `mise run <task>` in a
    worktree without the pin installed now installs it first (§5 behaviour delta (7)).
-10. Re-run body §7.2 (1)–(2) under the then-current mise (named) and `usage-pace.test.py` on 3.15.2; re-measure R§4.2's
+10. Re-run body §7.2 (1)–(2) under the then-current mise (named) and `usage-pace.test.py` and `agent-model-floor.test.py`
+    (the fourth global Python hook, `~/.claude/hooks/agent-model-floor.py`, PM 360) on 3.15.2; re-measure R§4.2's
     paragraph *The install settings and their overrides* (records :330–339) (C10).
 11. Re-measure compile-off **from the tracked file** under the then-current mise (named), with nothing installed: in
     a scratch project holding a copy of PR-1's root `mise.toml` and `.tool-versions`, `$I
