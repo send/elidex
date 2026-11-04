@@ -1,5 +1,5 @@
 //! Construct admission: the `IsConstructor` abstract operation
-//! (ECMA-262 §7.2.4, `.claude/tools/webref aoid ecma262 IsConstructor`).
+//! (ECMA-262 §7.2.4).
 //!
 //! The follow-up slot `#11-vm-construct-isconstructor-check` adds the
 //! constructor classifier and the shared admission helper here.
