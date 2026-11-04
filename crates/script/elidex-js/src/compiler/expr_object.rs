@@ -1,16 +1,19 @@
 //! Object literal and accessor (getter/setter) compilation.
 
+use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::bytecode::opcode::Op;
 use crate::scope::ScopeAnalysis;
 
-use super::expr::compile_expr;
+use super::expr::{compile_expr, compile_function_value, FunctionCreation};
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
 use super::CompileError;
 
-/// Compile a getter or setter property definition.
+/// Compile a getter or setter property definition.  The value is created
+/// by MethodDefinitionEvaluation (ECMA-262 §15.4.5), which never calls
+/// MakeConstructor, hence [`FunctionCreation::Method`].
 fn compile_accessor(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -21,7 +24,14 @@ fn compile_accessor(
     enumerable: bool,
 ) -> Result<(), CompileError> {
     if let Some(value) = property.value {
-        compile_expr(fc, prog, analysis, func_scopes, value)?;
+        compile_function_value(
+            fc,
+            prog,
+            analysis,
+            func_scopes,
+            value,
+            FunctionCreation::Method,
+        )?;
         let flags: u8 = u8::from(enumerable);
         match &property.key {
             PropertyKey::Identifier(name) => {
@@ -40,6 +50,33 @@ fn compile_accessor(
         }
     }
     Ok(())
+}
+
+/// Compile the value of an `Init` property.  A method-shorthand value
+/// is created by DefineMethod (ECMA-262 §15.4.4) — or, for a generator /
+/// async method, MethodDefinitionEvaluation (§15.4.5) — so it is a
+/// [`FunctionCreation::Method`]; a `key: function(){}` value stays an
+/// ordinary expression.
+fn compile_property_value(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    property: &Property,
+    value: NodeId<Expr>,
+) -> Result<(), CompileError> {
+    if property.flags.method() {
+        compile_function_value(
+            fc,
+            prog,
+            analysis,
+            func_scopes,
+            value,
+            FunctionCreation::Method,
+        )
+    } else {
+        compile_expr(fc, prog, analysis, func_scopes, value)
+    }
 }
 
 /// Compile an object literal expression.
@@ -72,7 +109,7 @@ pub(super) fn compile_object_expr(
                 }
                 // Then evaluate value.
                 if let Some(value) = prop.value {
-                    compile_expr(fc, prog, analysis, func_scopes, value)?;
+                    compile_property_value(fc, prog, analysis, func_scopes, prop, value)?;
                 } else {
                     fc.emit(Op::PushUndefined);
                 }

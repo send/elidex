@@ -631,7 +631,7 @@ constraint is recorded now rather than discovered in Slice 4a).
 | ECMA-262 §13.3.6.2 EvaluateCall | step 7 | `Call(func, thisValue, argList)` — the invocation | all three new handlers | ✓ | yes |
 | ECMA-262 §13.3.6.2 EvaluateCall | step 1.b.iii | `refEnv.WithBaseObject()` — reachable only via `with` | — | n/a (out of scope per I-6) | no |
 | ECMA-262 §13.3.5.1.1 EvaluateNew | step 4.a | argList = ArgumentListEvaluation | `Op::NewSpread` | ✓ | yes |
-| ECMA-262 §13.3.5.1.1 EvaluateNew | step 5 | `IsConstructor` false → TypeError (**after** step 4.a) | `do_new` | ✓ | yes |
+| ECMA-262 §13.3.5.1.1 EvaluateNew | step 5 | `IsConstructor` false → TypeError (**after** step 4.a) | `do_new` — ⚠ owned by `#11-vm-construct-isconstructor-check` (`docs/plans/2026-11-vm-isconstructor-check.md`), not by this program; the child 1b's derivation mints for `new F(...xs)` consumes that slot's admission helper and writes no check of its own | ✓ | yes |
 | ECMA-262 §13.3.5.1.1 EvaluateNew | step 6 | `Construct(ctor, argList)` — newTarget omitted | `do_new` | ✓ | yes |
 | ECMA-262 §7.3.14 Construct | step 1 | newTarget defaults to `ctor` | `new.target` propagation (edge 13) | ✓ | yes |
 | ECMA-262 §7.4.4 GetIterator | steps 1-2 | `kind = sync` selects `GetMethod(obj, %Symbol.iterator%)` | `Op::ArraySpread` (existing) | ✓ | yes |

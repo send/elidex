@@ -89,7 +89,7 @@ echo "trip-wire #4: per-ctor 'Illegal constructor' body-throw re-introduction"
 # collapsed their per-body `Err(VmError::type_error("Illegal constructor"))` /
 # `"Failed to construct '{X}': Illegal constructor"` throws to a single
 # both-mode gate driven by `CallShape::IllegalConstructor` (thrown via the
-# `VmError::illegal_constructor` SoT at `vm/ops.rs::do_new` +
+# `VmError::illegal_constructor` SoT at `VmInner::admit_construct` (`vm/construct_admission.rs`) +
 # `vm/interpreter.rs::call_dispatch`).  This wire catches any regression
 # that re-introduces a literal "Illegal constructor" TypeError in a ctor
 # body.  Excludes: (a) the `VmError::illegal_constructor` SoT definition in

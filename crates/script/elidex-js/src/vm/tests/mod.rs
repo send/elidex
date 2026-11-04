@@ -32,6 +32,7 @@ mod tests_clone_form_state;
 mod tests_clone_node;
 mod tests_coerce;
 mod tests_console;
+mod tests_construct_isconstructor;
 mod tests_cookie_referrer;
 mod tests_core_eval;
 mod tests_create_element_iframe;

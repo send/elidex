@@ -81,9 +81,9 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
 }
 
 /// Walk `BoundFunction` chains to the underlying target, capped at
-/// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] (matching `do_new`'s policy
-/// in `ops.rs`).  Returns the first non-`BoundFunction` `ObjectId`
-/// encountered; if the chain is too deep, returns the deepest
+/// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] (the same depth rule as
+/// `walk_bound_chain` in `vm/dispatch_class.rs`).  Returns the first
+/// non-`BoundFunction` `ObjectId` encountered; if the chain is too deep, returns the deepest
 /// `BoundFunction` reached (the subsequent prototype walk will
 /// then fail to find a registered TypedArray ctor and produce a
 /// TypeError, matching the spec behavior of rejecting chains
@@ -115,11 +115,13 @@ fn unwrap_bound_chain(vm: &VmInner, id: ObjectId) -> ObjectId {
 /// and then read the receiver's own `.prototype` data property
 /// to use as the new instance's prototype (so
 /// `(new Sub.of(...)).constructor === Sub` holds).  The full
-/// spec `TypedArrayCreate(C, ⟨len⟩)` would invoke `Construct(C,
-/// ⟨len⟩)` to let `Sub`'s ctor body run — that final step is
-/// deferred to a follow-up PR which threads `new.target`
-/// through; for the common `class Sub extends Uint8Array {}`
-/// (no ctor override) the bypass is observably equivalent.
+/// spec TypedArrayCreateFromConstructor (ECMA-262 §23.2.4.1)
+/// invokes `Construct(C, ⟨len⟩)` at its step 1 to let `Sub`'s
+/// ctor body run — that step is missing here and is owned by
+/// `#11-vm-typed-array-create-construct`, which constructs
+/// through the construct admission; for the common `class Sub
+/// extends Uint8Array {}` (no ctor override) the bypass is
+/// observably equivalent.
 ///
 /// The abstract `%TypedArray%` itself and any other receiver
 /// surface TypeError per §23.2.2.{1,2} step "If IsConstructor(C)
@@ -250,9 +252,10 @@ fn resolve_typed_array_constructor_in_chain(
 ///    `(ek, S.prototype)`; miss → TypeError ("species is not a
 ///    TypedArray constructor") — a deliberate over-reject of the
 ///    spec, which would `Construct(S, ⟨len⟩)` to honour a true
-///    user-defined ctor.  Full `Construct` integration defers to a
-///    follow-up; for `class Sub extends Uint8Array {}` (no ctor
-///    body) the chain-walk bypass is observably equivalent.
+///    user-defined ctor (TypedArraySpeciesCreate).  That missing
+///    `Construct` is owned by `#11-vm-typed-array-create-construct`;
+///    for `class Sub extends Uint8Array {}` (no ctor body) the
+///    chain-walk bypass is observably equivalent.
 ///
 /// Both `[[Get]]` calls run user accessors / proxy traps and may
 /// throw — propagated as abrupt completions, not swallowed.

@@ -258,8 +258,11 @@ impl VmInner {
     // -- Native function helpers ---------------------------------------------
 
     /// Helper: create a [`CallShape::CallableOnly`] native function object —
-    /// callable with `Foo(...)`, `new Foo(...)` throws "not a constructor"
-    /// via the existing `do_new` path (ECMA-262 §10.2.2 catch-all).  Used
+    /// callable with `Foo(...)`, `new Foo(...)` throws "`{name}` is not a
+    /// constructor", refused by `admit_construct`
+    /// (`ConstructAdmission::CallableOnlyNative`); a built-in has
+    /// `[[Construct]]` only if the spec says it is a constructor
+    /// (ECMA-262 §10.3 Built-in Function Objects).  Used
     /// for ordinary built-in methods and pseudo-ctors like `Symbol` /
     /// `BigInt` whose spec mandates `[[Call]]`-only semantics.
     pub(crate) fn create_native_function(
@@ -305,7 +308,7 @@ impl VmInner {
     /// Helper: create a [`CallShape::IllegalConstructor`] native function
     /// object — BOTH `new Foo(...)` and bare `Foo(...)` throw the
     /// canonical `"Failed to construct '{name}': Illegal constructor"`
-    /// TypeError at the dispatch / `do_new` site, per the WebIDL §3.7.1
+    /// TypeError at the dispatch site (`admit_construct` / `call_dispatch`), per the WebIDL §3.7.1
     /// (Interface object) creation algorithm step 1.1 ("If I was not
     /// declared with a constructor operation, then throw a TypeError").  Used by every
     /// WebIDL Interface-object that is exposed for `instanceof` /
@@ -313,7 +316,7 @@ impl VmInner {
     /// (`Crypto`, `Selection`, `FileList`, …); replaces the historic
     /// per-ctor `Err(VmError::type_error("Illegal constructor"))` body
     /// throw.  The collapsed `func` body is `unreachable!` (the gate
-    /// throws before the body runs — see `do_new` / `call_dispatch`).
+    /// throws before the body runs — see `admit_construct` / `call_dispatch`).
     /// Not engine-gated (sibling parity with
     /// [`Self::create_constructor_only_function`]).
     pub(crate) fn create_illegal_constructor_function(

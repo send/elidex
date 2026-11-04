@@ -964,9 +964,10 @@ impl VmInner {
                         JsValue::Null => None,
                         _ => {
                             // Spec-aligned class-heritage wording (ECMA-262
-                            // §15.7.14 ClassDefinitionEvaluation step 6.f
-                            // throws TypeError when the heritage value is
-                            // neither a constructor nor null). Mirrors
+                            // §15.7.14 ClassDefinitionEvaluation step 8.h.ii
+                            // throws TypeError when protoParent,
+                            // `Get(superclass, "prototype")`, is neither an
+                            // Object nor null). Mirrors
                             // V8 / SpiderMonkey error text for
                             // `class A extends 1 {}`.
                             let e = VmError::type_error(
@@ -979,11 +980,11 @@ impl VmInner {
                     self.get_object_mut(child_id).prototype = new_proto;
                 }
                 Op::AssertConstructor => {
-                    // `[value -- ]` ECMA-262 §15.7.14 step 6.f
+                    // `[value -- ]` ECMA-262 §15.7.14 step 8
                     // ClassDefinitionEvaluation: the heritage value
-                    // must be either `null` (step 6.f.i — protoParent
-                    // = null, constructorParent = %Function.prototype%)
-                    // or a constructor (step 6.f.iii). Other values
+                    // must be either `null` (step 8.f — protoParent
+                    // = null, ctorParent = %Function.prototype%)
+                    // or a constructor (step 8.g throws). Other values
                     // (non-constructable callables like Symbol /
                     // BigInt / arrow functions, primitives, ordinary
                     // objects) throw TypeError at class-definition

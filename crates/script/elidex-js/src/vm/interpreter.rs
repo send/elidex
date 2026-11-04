@@ -324,12 +324,13 @@ impl VmInner {
                     //     `new` falls through to run the ctor body.
                     //   * `IllegalConstructor` has no `[[Construct]]` at all, so
                     //     it throws UNCONDITIONALLY in both modes. (A direct
-                    //     `new X()` is in practice rejected upstream by
-                    //     `do_new`'s `can_construct()` gate, and `super()` by
-                    //     `construct_synchronous`'s `can_construct()` check,
-                    //     before reaching here — but the unconditional throw
-                    //     deliberately also guards any construct-mode entry, so
-                    //     do NOT add a `!mode.is_construct()` guard to it.)
+                    //     `new X()` and `super()` are in practice rejected
+                    //     upstream by the construct admission
+                    //     (`VmInner::admit_construct`, called by `do_new` and
+                    //     `construct_synchronous`), before reaching here —
+                    //     but the unconditional throw deliberately also
+                    //     guards any construct-mode entry, so do NOT add a
+                    //     `!mode.is_construct()` guard to it.)
                     match nf.shape {
                         // WebIDL §3.7.1 (Interface object) creation algorithm
                         // step 1.2 + ECMA-262 §27.2.3.1 step 1: `new`-only ctor
@@ -348,7 +349,7 @@ impl VmInner {
                         // as a constructor" — hence this arm is UNCONDITIONAL
                         // (no mode guard; see the block comment above). The
                         // message SoT lives in `VmError::illegal_constructor` so
-                        // both chokepoints (`do_new` + here) stay in sync.
+                        // both chokepoints (`admit_construct` + here) stay in sync.
                         super::value::CallShape::IllegalConstructor => {
                             let name = self.strings.get_utf8(nf.name);
                             return Err(VmError::illegal_constructor(&name));

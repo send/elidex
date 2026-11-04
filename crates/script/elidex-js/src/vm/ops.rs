@@ -682,18 +682,19 @@ impl VmInner {
         let args_start = self.stack.len() - argc;
         let constructor = self.stack[args_start - 1];
 
-        let JsValue::Object(mut ctor_id) = constructor else {
-            return Err(VmError::type_error("not a constructor"));
-        };
-
-        // §10.4.1.2 Bound Function Exotic Objects [[Construct]]: unwrap chain and prepend
-        // bound_args. bound_this is ignored (step 2) — the instance's
-        // receiver comes from new_target. Shared SoT with
-        // `construct_synchronous` via `unwrap_bound_function_chain`
-        // (D-17b R4 G4-4) so `new BoundCtor()` and `class B extends
-        // BoundCtor { ... super() ... }` resolve identically.
-        let (unwrapped_id, prepended) = self.unwrap_bound_function_chain(ctor_id)?;
-        ctor_id = unwrapped_id;
+        // EvaluateNew (ECMA-262 §13.3.5.1.1) step 5: IsConstructor,
+        // after step 4's argument evaluation (the arguments are already
+        // on the stack) and before any allocation, splice or frame
+        // push.  The admission owns every refusal — a non-Object, a JS
+        // function MakeConstructor never applied to, a non-constructor
+        // native — and unwraps a bound chain (Bound Function Exotic
+        // Objects `[[Construct]]`, §10.4.1.2): `bound_this` is ignored
+        // and the bound arguments of every link in the chain, outermost
+        // last, are returned for the splice below.  Shared with
+        // `construct_synchronous`, so `new BoundCtor()` and `super()`
+        // over a bound constructor resolve identically.
+        let (ctor_id, prepended) =
+            self.admit_construct(constructor, super::construct_admission::ConstructEntry::New)?;
         let prepended_len = prepended.len();
         if !prepended.is_empty() {
             // Replace the constructor slot with the unwrapped target and
@@ -704,52 +705,9 @@ impl VmInner {
         let argc = argc + prepended_len;
         let args_start = self.stack.len() - argc;
 
+        // Admitted: a JS function with `[[Construct]]`, or a
+        // constructable native (`None` here).
         let js_callee = self.extract_js_callee(ctor_id);
-
-        // Arrow functions are not constructors (§10.2.1 [[Construct]]).
-        if let Some(ref callee) = js_callee {
-            if callee.this_mode == super::value::ThisMode::Lexical {
-                return Err(VmError::type_error("not a constructor"));
-            }
-        }
-
-        // For non-JS callees, validate native constructability.  Both
-        // non-constructable shapes are gated here (the `[[Construct]]`
-        // chokepoint), but with distinct messages:
-        //   * `IllegalConstructor` (WebIDL §3.7.1 (Interface object)
-        //     creation algorithm step 1.1 — no constructor operation) →
-        //     "Failed to construct '{name}':
-        //     Illegal constructor" (also thrown bare-call at dispatch;
-        //     shared SoT in `VmError::illegal_constructor`).
-        //   * `CallableOnly` (ECMA-262 §10.3 built-in lacking
-        //     `[[Construct]]`; §7.2.4 IsConstructor precondition) →
-        //     "{name} is not a constructor".
-        if js_callee.is_none() {
-            let obj = self.get_object(ctor_id);
-            match &obj.kind {
-                // MUST precede the `!can_construct()` arm below:
-                // `IllegalConstructor` ALSO reports `can_construct() ==
-                // false`, so this arm intercepts it first to emit the
-                // distinct WebIDL "Illegal constructor" message instead of
-                // the generic "is not a constructor". Reordering these two
-                // arms silently regresses the message (caught only by the
-                // call-shape sanity tests, not the compiler).
-                ObjectKind::NativeFunction(ref nf)
-                    if matches!(nf.shape, super::value::CallShape::IllegalConstructor) =>
-                {
-                    let name_str = self.strings.get_utf8(nf.name);
-                    return Err(VmError::illegal_constructor(&name_str));
-                }
-                ObjectKind::NativeFunction(ref nf) if !nf.shape.can_construct() => {
-                    let name_str = self.strings.get_utf8(nf.name);
-                    return Err(VmError::type_error(format!(
-                        "{name_str} is not a constructor"
-                    )));
-                }
-                ObjectKind::NativeFunction(_) => {}
-                _ => return Err(VmError::type_error("not a constructor")),
-            }
-        }
 
         // Look up constructor.prototype for the new instance's [[Prototype]].
         let proto_key = PropertyKey::String(self.well_known.prototype);

@@ -16,8 +16,8 @@
 //! - [`IllegalConstructor`] (Crypto, FileList, …): BOTH bare-call and
 //!   `new` throw the canonical `"Failed to construct '{name}': Illegal
 //!   constructor"` (WebIDL §3.7.1 (Interface object) creation algorithm
-//!   step 1.1 — no ctor operation), gated at `do_new` (Construct) +
-//!   `call_dispatch` (Call)
+//!   step 1.1 — no ctor operation), gated in `admit_construct`
+//!   (which `[[Construct]]` reaches) + `call_dispatch` (Call)
 //!   with the shared `VmError::illegal_constructor` SoT.  Added by
 //!   `#11-vm-native-illegal-constructor-shape`.
 //!
@@ -107,7 +107,7 @@ fn promise_construct_resolves() {
 fn illegal_constructor_both_modes_all_sites() {
     // Every WebIDL interface object that declares no constructor
     // operation throws `"Failed to construct '{name}': Illegal
-    // constructor"` for BOTH `new X()` (gated at `do_new`) and bare
+    // constructor"` for BOTH `new X()` (gated in `admit_construct`) and bare
     // `X()` (gated at `call_dispatch`).  `assert_illegal_constructor`
     // exercises both modes per name, so this single test is 32 checks
     // (16 sites × 2 modes) against the shared

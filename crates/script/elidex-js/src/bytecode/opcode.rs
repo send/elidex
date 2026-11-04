@@ -352,7 +352,7 @@ pub enum Op {
     SetPrototype,
     /// `[value -- ]` Pop `value`; throw TypeError if it is not a
     /// constructor. Used by class-heritage validation (ECMA-262
-    /// §15.7.14 ClassDefinitionEvaluation step 6.f) to reject
+    /// §15.7.14 ClassDefinitionEvaluation step 8.g) to reject
     /// `class B extends Symbol {}` / `class B extends BigInt {}` —
     /// callable natives that lack `[[Construct]]` — at definition
     /// time, before any prototype splice fires.
