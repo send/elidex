@@ -156,7 +156,7 @@ once).
 | clause 1 × PR-0's seam | PR-0 :293 and :384 let PR-1 edit only `problems`, C3 g1 and C0's two lists; why that seam cannot hold is §4.5 *What the member's fixtures change* | clause 1 is `root_pin_problems` (NEW), its own names; `problems` merges it; the valid-world baseline lives in the member's fixture layer (§4.5) | C0 (§4.5's edits), the review condition per function span (PR-0 :293–295, kept), C3–C5 / L2 green through the baseline |
 | `python_pin` × the pin layer (P6) | a pin file importing `python_pin` would pull it into `PIN_FILES` | no pin file imports it; `Scratch` copies it by path; `tracked_tool_config` (not a pin file) imports it | P6 unchanged |
 | the I7 helper × G9 | a pin file loads `python_pin_testing.py` by path, outside P6's import scan | the helper launches nothing | N21 (no call in G9's spawner set, read from G9's own source — §6.3) |
-| the timeout × #510's 2× trigger | PR-1 re-derives the value from its one leg | §7's rule (N = ceil(4 × the leg); raise-only recommended, PM decision 3) keeps the ratio ≥ 4 under either reading | the `ci.yml` comment's record |
+| the timeout × #510's 2× trigger | PR-1 re-derives the value from its one leg | §7's rule (N = ceil(4 × the leg); raise-only, PM 353) keeps the ratio ≥ 4 | the `ci.yml` comment's record |
 | this plan × O8 | `symbol_attribution_control` reads every `docs/plans/*.md` | attributions here name defining modules only | the set member `.claude/tools/test_plan_memo_umbrella_check.py` green |
 
 ---
@@ -306,7 +306,7 @@ pin)`, else ask mise and print the refusal, return 1.
 
 **Header (C15, C16 (f)).** A pointer to the bump rule (body §4.1, :331–334, and its rows; C15, rounds :445–447,
 places the pointer, not the rule, here; C16 (f)'s "the header keeps the bump rule", rounds :463, is read as that
-pointer — a wording drift reported in §8.3), and the oracle probe recipe with the program's isolation lines (body :113–117): R§11 *T1*'s
+pointer — PR-1 amends that wording in place, §4.7), and the oracle probe recipe with the program's isolation lines (body :113–117): R§11 *T1*'s
 environment block, then questions (a)–(d) — the
 "probe scripts" R§4.2 :309–310 says this plan records (the `probe.sh` / `probe2.sh` files are not in the tree; the
 recipe is re-derived from R§11). The re-measure rule is N17, not a header sentence (C24).
@@ -394,7 +394,7 @@ The settings are **not** this reader's (next paragraph).
 
 **Where the I6 assertion lives (delegated by PR-0 :560–564; body :187 says "PR-1's reader asserts both values" and
 the body :564 row lists "their assertion" with the `tomllib` reader — this plan places it in the member instead, for
-the reasons below, and reports the statement drift to the PM, §8.3).** In the T5 member,
+the reasons below, and amends both statements in place, §4.7).** In the T5 member,
 `scripts/test_tracked_tool_config.py`, as W2, whose expected value is `tomllib.loads("[settings]\n" +
 "\n".join(ADMITTED_LINES))["settings"]`, and which asserts that the live root `mise.toml`'s parsed `settings` is a
 table **equal to it exactly** — the `python` entry and the key set.
@@ -510,6 +510,29 @@ Every amendment replaces the sentence (or the clause it names) and appends `(ame
   (§4.5), PR-0 `:293` (the kept review condition's sentence) and PR-0 `:367` (C0 as PR-0 lands it, not a claim
   about PR-1: kept); `git grep -n -F 'clauses 2-5' -- scripts docs/plans` prints `scripts/test_tracked_tool_config.py:1`
   and `scripts/tracked_tool_config.py:1`, `:233` (all §4.5).
+- **The umbrella** (PM 353; precedent: PR-0 edited the body; C38 decides the landing vehicle, not an edit bar) —
+  the statements PR-1 falsifies, each re-read at `660e594c`. The body is 994 lines at the base; if the markers
+  take it past 1000, body :752's seam rule applies in PR-1. The rounds file is "append-only" (body :744): its two
+  amendments are dated in-place corrections, as PR-0's line fixes there (rounds :170, :209) were:
+  - body :187: the clause "and PR-1's reader asserts both values" → "and PR-1's T5 member
+    (`scripts/test_tracked_tool_config.py`, W2) asserts both values over parsed TOML"; marker after "pinned image." (:188);
+  - the body :564 row: the clause "with `[settings] python.compile = false` + `python.github_attestations = true`
+    and their assertion" → "and the `[settings]` lines `python.compile = false` + `python.github_attestations =
+    true` (their assertion is in the T5 member, PR-1 plan §4.5)"; marker at the cell's end;
+  - body :271–274: the sentences from "That is the consequence" to "T5b is retired, §4.2)." → "That is the
+    consequence of **I2 × I3** — one admitted interpreter, one leg, the pin, which has `tomllib` — and of §13 C3
+    (PR-1 absorbs PR-3); I6's assertion of the two settings also reads parsed TOML, in the T5 member, not through
+    this reader (PR-1 plan §4.5)." and the marker;
+  - body :230: the clause "(c) a mutant that drops the helper turns (a) red everywhere and (b) red locally." → "(c) a
+    mutant that drops the helper is killed by fixture-owned evidence: a sentinel `mise` / `python3` first on the
+    test's `PATH` logs any child that bypassed the helper (PR-1 plan §6.5, N19 (c))." and the marker;
+  - body :241: "seven constructs that 3.9.6 rejects pass it" → "ten constructs …" (R§11's gap rows, records
+    :559–568); marker after "R§11's accepted rows";
+  - rounds :463, C16 (f): "the header keeps the bump rule" → "the header keeps the pointer to the bump rule (C15)";
+    marker at (f)'s end;
+  - rounds :598–599, C38: "and lists none of its four files in its edit set;" → "and amends the body and this file
+    in place where PR-1 falsifies a statement (PM 353; vm-p4 only on PR-1 plan §8.4's contingency);"; marker at
+    C38's end (:602).
 - **CI/tools ledger items 3 / 4** (body :533–548): through the PM (§10).
 
 ### §4.8 The I7 helper — `scripts/python_pin_testing.py` (NEW; body :197–234, C23, C28, C34)
@@ -749,7 +772,7 @@ with `mock.patch.object` by a function returning `dict(os.environ, **(extra_env 
 through) and counting its calls; its stale-row rule is that the attribute exists before patching and the count is
 non-zero after the control (a patch nothing called proves nothing). This replaces body :230's "(b) red locally": that
 kill read the user's real `tracked-configs` and, with mise on `PATH`, let the mutant run write real state, and it
-survived silently where mise is absent (§8.3). `WM` (in `test_tracked_tool_config.py`,
+survived silently where mise is absent (body :230, amended in place, §4.7). `WM` (in `test_tracked_tool_config.py`,
 `mock.patch.object` like PR-0's) — WM1 an untracked root pin passes → W1; WM2 clause 1 by a first-line reader (the
 module's `parse_pin` name patched) → W1; WM3 clause 1 following symlinks → W1; WM4 W2 by text search → W2 (E21); WM5
 `ADMITTED_LINES` gains a third line → W2 live red (the expected value comes from it).
@@ -767,30 +790,27 @@ module's `parse_pin` name patched) → W1; WM3 clause 1 following symlinks → W
 - `scripts/tracked_tool_config.py` (clause 1, `problems`, imports, docstring), `scripts/test_tracked_tool_config.py`
   (W1–W3, WM, and exactly §4.5 *What the member's fixtures change*);
 - `mise.toml`, `.github/workflows/ci.yml`, `README.md`, `CONTRIBUTING.md`, `CLAUDE.md` (`:54` V14, `:100`);
-- the A-iii memo and PR-0's plan (§4.7); the VM P4 lane's V1–V23 files and
-  `.claude/tools/plan_memo_selftest_manifest.txt` (regenerated, §8.1); this plan.
-**Not touched**: `scripts/test_python_suites_regime.py` (body :725–728), the umbrella's four files (C38; one
-contingency: §8.4), PR-2's entry points and `SKILL.md` Step 0.
+- the A-iii memo, PR-0's plan, and the umbrella body and rounds file (§4.7); vm-p4 only on §8.4's contingency;
+  the VM P4 lane's V1–V23 files and `.claude/tools/plan_memo_selftest_manifest.txt` (regenerated, §8.1); this plan.
+**Not touched**: `scripts/test_python_suites_regime.py` (body :725–728), the records file, PR-2's entry points and
+`SKILL.md` Step 0.
 
 **1000-line rule** (body :714–734): `git ls-files -z -- <edit set> | xargs -0 wc -l | sort -n | tail -n 12` at the
 base prints `scripts/python-suites.sh` 797, `scripts/python_suites_readers.py` 678, `scripts/test_tracked_tool_config.py`
 555, `scripts/test_python_suites_driver.py` 489, `scripts/test_python_suites_ci.py` 378 (and #510's memo 1707, the
-stated exception, body :728–734). Expected after PR-1: readers shrink (the TOML grammar goes), the driver changes by a
+stated exception, body :728–734; the umbrella body 994, §4.7). Expected after PR-1: readers shrink (the TOML grammar goes), the driver changes by a
 few lines, `test_tracked_tool_config.py` grows by W1–W3 and WM (re-measured at touch time; a split first if it
 would pass ~900); the new files stay well under 1000. `plan_memo_selftest_controls.py` (997) changes under (i) by
-V9's deletion (the `RuntimeError` arm and its sentence) and V10's restatement within its own lines, so it does not
-grow (consent item 3: no prereq split); PR-1 re-measures `wc -l` after the edit and states it.
+V9's deletions (the `RuntimeError` arm and its sentence; "(an over-long name)", §8.1 row 2) and V10's restatement
+within its own lines, so it does not grow (consent item 3: no prereq split); PR-1 re-measures `wc -l` after the edit and states it.
 
 **The `tools` timeout** (body :520–524; ci.yml `:243`). PR-1 changes the interpreter and adds members, so it
 re-derives under `ci.yml`'s rule from its **own final-head run**: N = ceil(4 × the one leg's end-to-end minutes),
-read with the comment's `gh run view <run-id> --json jobs` command. **Whether the value may fall is a PM decision
-(PM decision needed 3)**: `ci.yml`'s rule (`:243–244`) and body :520–524 say "re-derive", and PM 302's "raise only
-when N > 22" was given for PR-0 (`ci.yml:257`), not for the program; PR-1 drops the slower `"3.9"` leg, so its N may
-be below 22 (PR-0's run gave 13). **Recommended: raise-only in PR-1 as well** (the value becomes N only if N > 22),
-because a lower bound moves the job's limit toward the driver's 600 s `LAUNCH_TIMEOUT`
-(`scripts/python_suites_fixtures.py:31`), which is sweep 4's K27, not this PR's; the alternative (set it to N, possibly
-lower) is equally consistent with #510's trigger. The run id, the duration and the computation go into the comment.
-**#510's 2× trigger** (its memo `:1123–1125`): under either reading the value is ≥ N ≥ 4 × the duration, so the
+read with the comment's `gh run view <run-id> --json jobs` command. **Raise-only (PM 353, 2026-11-04)**: PM 302's
+"raise only when N > 22", given for PR-0 (`ci.yml:257`), is extended to the program, so the value becomes N only if
+N > 22 and otherwise stays 22 (PR-1 drops the slower `"3.9"` leg, so its N may be below 22; PR-0's run gave 13). The
+run id, the duration, the computation and this rule go into the comment.
+**#510's 2× trigger** (its memo `:1123–1125`): the value is ≥ N ≥ 4 × the duration, so the
 trigger cannot fire from PR-1's run; the PR body states the ratio. If the run itself is red on time, that is
 reported to the PM as #510's trigger fired (body :524).
 
@@ -806,8 +826,8 @@ The consent file's lines were given at `432c0190` / `eaa741b5`; each is re-read 
 
 | # | condition (consent file) | where it binds here | re-read at `660e594c` |
 |---|---|---|---|
-| 1 | V1–V23 + manifest OK; V12 / V13 / V15 / V18 keep or update the pointers into #510's memo | **Rule**: V12 (`:73`) and V15 (`:434`) are rewritten within their own lines, so lines 1–663 keep their count and seam-split `:733` ("`@ …umbrella-checker.md:663`") and `:778` stay true; PR-1 checks `git grep -n -F 'main memo line 2716 at' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` prints `:663` after its edits, and if not, updates `:733` in the same commit (consented). V18 rewrites `:1097–1108`; the new lines of the two slot IDs (`git grep -n -F -e '#11-plan-memo-acceptance-falsifiability-check' -e '#11-plan-memo-spec-field-single-home-check' -- <#510's memo>`) go to the PM for the ledger (§8.3). Seam-split `:573` also cites `:1098` and `:1103` (the `190d2adb:…` cites), inside V18's range: it is a census whose checker-plan lines are read at `e44ffce6` (seam-split `:12–13`), so a move of either cite by V18 does not make it false and it is not edited; PR-1 runs `git grep -n -F -e '190d2adb:…:1218' -e '190d2adb:…:2710' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` after V18 (prints `:1098`, `:1103` at `660e594c`) and names any move in the PR body | #510's memo `:1098` / `:1101` hold; seam-split `:733` holds; **drift**: the ledger rows are now `project_open-defer-slots.md:1056` / `:1057`, not `:1014` / `:1015` (`/usr/bin/grep -n` of each slot ID, 2026-11-04) |
-| 2 | V6 = outcome (i); keep `except OSError` with the true reason "defensive, e.g. `getcwd()` failure"; do not carry "3.13 made that an OSError" or "an over-long name"; add the third caller `plan_memo_memo.py:761` | V6: `except OSError:`; `_resolve`'s docstring: non-strict `resolve()` raises no `OSError` for a missing file or a symlink loop on the pin; the arm is defensive (e.g. a `getcwd()` failure); its callers are `sibling_path` (e) (`plan_memo_sibling.py:168`), `plan_memo_population.py:54` and `plan_memo_memo.py:761`, each of which now propagates a `RuntimeError` (E26, O4). `sibling_path`'s (e) sentence (`:151–153`) → "an `OSError` there makes the sibling UNAVAILABLE". V7 find text follows; V8 deleted; V10 / V11 / V15 restated as history. **V9**: the vm-p4 table's edit only — drop the `RuntimeError` arm and its sentence, a deletion (item 3 calls V9 / V10 moot under (i), i.e. no headroom question). Whether item 2's wording also reaches V9's remaining "(an over-long name)" (`plan_memo_selftest_controls.py:179`) is not in the consent: **pending VM P4's consent through the PM** (PM decision needed 2); until it is given PR-1 leaves that phrase (item 8) | `plan_memo_sibling.py:151–153`, `:174–183`, callers `:168`, `plan_memo_population.py:54`, `plan_memo_memo.py:761` (`git grep -n '_resolve' -- '.claude/tools/*.py'`) |
+| 1 | V1–V23 + manifest OK; V12 / V13 / V15 / V18 keep or update the pointers into #510's memo | **Rule**: V12 (`:73`) and V15 (`:434`) are rewritten within their own lines, so lines 1–663 keep their count and seam-split `:733` ("`@ …umbrella-checker.md:663`") and `:778` stay true; PR-1 checks `git grep -n -F 'main memo line 2716 at' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` prints `:663` after its edits, and if not, updates `:733` in the same commit (consented). V18 rewrites `:1097–1108`; the new lines of the two slot IDs (`git grep -n -F -e '#11-plan-memo-acceptance-falsifiability-check' -e '#11-plan-memo-spec-field-single-home-check' -- <#510's memo>`) go to the PM for the ledger (§8.3). Seam-split `:573` also cites `:1098` and `:1103` (the `190d2adb:…` cites), inside V18's range: it is a census whose checker-plan lines are read at `e44ffce6` (seam-split `:12–13`), so a move of either cite by V18 does not make it false and it is not edited; PR-1 runs `git grep -n -F -e '190d2adb:…:1218' -e '190d2adb:…:2710' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` after V18 (prints `:1098`, `:1103` at `660e594c`) and names any move in the PR body | #510's memo `:1098` / `:1101` hold; seam-split `:733` holds; **drift**: the ledger rows are now `project_open-defer-slots.md:1056` / `:1057`, not `:1014` / `:1015` (`/usr/bin/grep -n` of each slot ID, 2026-11-04; their post-V18 numbers are on the PM's landing list, §8.3) |
+| 2 | V6 = outcome (i); keep `except OSError` with the true reason "defensive, e.g. `getcwd()` failure"; do not carry "3.13 made that an OSError" or "an over-long name"; add the third caller `plan_memo_memo.py:761` | V6: `except OSError:`; `_resolve`'s docstring: non-strict `resolve()` raises no `OSError` for a missing file or a symlink loop on the pin; the arm is defensive (e.g. a `getcwd()` failure); its callers are `sibling_path` (e) (`plan_memo_sibling.py:168`), `plan_memo_population.py:54` and `plan_memo_memo.py:761`, each of which now propagates a `RuntimeError` (E26, O4). `sibling_path`'s (e) sentence (`:151–153`) → "an `OSError` there makes the sibling UNAVAILABLE". V7 find text follows; V8 deleted; V10 / V11 / V15 restated as history. **V9**: the vm-p4 table's edit only — drop the `RuntimeError` arm and its sentence, a deletion (item 3 calls V9 / V10 moot under (i), i.e. no headroom question). **V9's "(an over-long name)"** (`plan_memo_selftest_controls.py:179`): dropped too, with VM P4's consent of 2026-11-04 (PM 353) on its condition that no other cause replaces it; PR-1 names **no cause** (not V6's wording, which is `_resolve`'s reason, stated there once), so the docstring opens "(e) of `sibling_path`: an `OSError` from `resolve()` is the unavailable-sibling schema miss, rc 2 -- not an exception."; the injected `OSError(36, "File name too long")` (`:188`) is a fixture and stays | `plan_memo_sibling.py:151–153`, `:174–183`, callers `:168`, `plan_memo_population.py:54`, `plan_memo_memo.py:761` (`git grep -n '_resolve' -- '.claude/tools/*.py'`) |
 | 3 | V9 + V10 moot under (i); no prereq split (997 lines; fails at ≥ 1000) | §7's 1000-line rule | `wc -l .claude/tools/plan_memo_selftest_controls.py` → 997 |
 | 4 | V22 as written; the four find / replace strings in codex0927 rewritten in the same commit; `--write-manifest` (MUTANT rows `:2122` / `:2126`) | §4.6 class *a call the pin deprecates*; one commit; `python3 .claude/tools/plan-memo-umbrella-check.py --write-manifest` on the pin | codex0927 `:51`, `:52`, `:56`, `:57` (`git grep -nF 'dest, 1)' -- .claude/tools`); manifest `:2122`, `:2126` (`git grep -n -F -e 'R38 of 2026-09-27 agree' -e 'R38 of 2026-09-27 run' -- .claude/tools/plan_memo_selftest_manifest.txt`) |
 | 5 | P2: `:333` PR-2's proposal; `:799` delete the bullet | PR-2's (§11) | seam-split `:333`, `:799`, `:801` hold |
@@ -832,25 +852,11 @@ FYI of the consent (`:327`; `:278` false today): textual, whichever lands second
 
 ### §8.3 PM-owned records (PR-1 reports, the PM writes)
 
-The slot ledger: the two `#11-plan-memo-*` rows' new line numbers in #510's memo (§8.1 row 1); the two §9 slots
-registered with this plan as home (ledger rows `:1000`, `:1001` name the umbrella as interim home) — and, until then,
-`:1000`'s stale pointer: `#11-python-pin-single-builder` → umbrella `:356 / :870`, where `:870` is now the §10
-routed-G13 paragraph and the slot's lines are `:865` (§10's slot list) and `:885` (§11's bullet); `:356` holds
-(`git grep -n -F 'python-pin-single-builder' 660e594c -- docs/plans/2026-10-python-pin-umbrella.md` prints `:356`,
-`:865`, `:885`); the CI/tools lane SSoT's #514 checklist items 3 / 4 (body :533–548). The tamper slot
-`#11-aiii-gate-tamper-hardening` re-evaluation: trigger (b) fired twice (the `tools` steps; `[settings]` and how
-`mise.toml` is read) — R§9's items.
-
-Umbrella statements this plan departs from, for the PM (the umbrella is not edited here, C38): body :187 ("PR-1's
-reader asserts both values") and the body :564 row ("their assertion" with the `tomllib` reader) — W2 lives in the T5
-member (§4.5); body :229–230's prescription "(c) a mutant that drops the helper turns (a) red everywhere and (b) red
-locally" — PR-1's NM-I7 is killed by the fixture-owned sentinel N19 (c) instead (§6.5); body :241's "seven
-constructs" against R§11's ten accepted rows (A4 FYI, umbrella-side); body :270–274, which gives I6's assertion
-("reads their table and values from parsed TOML") as half of why the `mise.toml` reader moves to `tomllib` — with
-W2 in the member that half no longer goes through the reader, which moves for I2 × I3 and C3 alone (§4.5); and
-rounds :463, C16 (f)'s "the header keeps the bump rule", against C15 (rounds :445–447) placing only a pointer
-there (§4.2 *Header* reads it as the pointer). PR-0's plan `:293` and `:384` are amended in place by PR-1 itself
-(§4.7).
+The slot-ledger edits are on the PM's landing list (`elidex-pm-trial/handoff/pending-at-landing/python-pin-pr1.md`,
+PM 353): the two §9 slots' registrations, the two `#11-plan-memo-*` rows' post-V18 numbers (§8.1 row 1), the vm-p4
+:151 consent (§8.4) and V9's (§8.1 row 2). PR-1 reports, besides: the CI/tools lane SSoT's #514 checklist items 3 / 4
+(body :533–548); the tamper slot `#11-aiii-gate-tamper-hardening` re-evaluation: trigger (b) fired twice (the
+`tools` steps; `[settings]` and how `mise.toml` is read) — R§9's items.
 
 For the VM P4 lane (vm-p4 :114–115, carried here because no file holds it): its manifest-regeneration practice
 ("byte-identical on 3.9/3.12/3.14", #562's commit body) becomes "regenerated on the pin" from PR-1's landing.
@@ -863,10 +869,10 @@ decision 124); every lane (from PR-1, the root `.tool-versions` is exactly one `
 (body :816–819; C3): A-iii §13's sweep with `.tool-versions`, `scripts/python_pin.py`, `scripts/python_pin_testing.py`,
 `mise.toml`, the readers and §8.1's files added; `git diff --stat origin/main...<head> -- scripts` per open PR; T5
 (clauses 1–5) on each open PR's head, as PR-0 §8 runs it. **The interval** (body :676–708) opens at PR-1's landing;
-the landing report says so. **Contingency on C38** (**PM decision needed** 1): if PR-1's value is not 22, vm-p4
-O3's "under the unchanged value 22" (vm-p4 :151) becomes false, whichever way it moves; recommended: delete those
-words only, as PR-0 §7 prescribed for itself, with VM P4's consent through the PM before landing. Coupled to PM
-decision 3 (§7): under raise-only the trigger is N > 22; under "set it to N" it is N ≠ 22.
+the landing report says so. **The vm-p4 :151 contingency** (PM 353): only if N > 22 (§7's raise-only rule) does
+vm-p4 O3's "under the unchanged value 22" (vm-p4 :151) become false; PR-1 then deletes ", under the unchanged value
+22" only (PR-0 §7's form), with §4.7's marker, and VM P4's consent is obtained by the PM at that time (the PM's
+landing list holds it).
 
 ---
 
@@ -892,7 +898,8 @@ Decision 170's limit is not a slot (body :866–867).
 **Landing steps** (body §9 steps 3–4; C20, C32, C35, C36):
 1. This plan passes `/elidex-plan-review`; PR-2's plan passes its own before PR-1 lands.
 2. Implementation in a dedicated worktree off `origin/main`; `mise run tools-test` green on mise's 3.15.2; `mise run
-   ci` before push.
+   ci` before push. **Push rule** (PM 353): each push is judged by the remote ref via the API — `gh api
+   repos/send/elidex/git/ref/heads/<branch> --jq .object.sha` equals the pushed head — with at most 2 retries.
 3. R§4.1 row 3 at PR-1's base on mise's 3.15.2 (every suite green; every tracked `.py` compiles under `-W error`);
    C35: the set with `PYTHONWARNINGS=always::DeprecationWarning`, `DeprecationWarning` lines counted by source line
    (expected 0 after V22), in the PR body.
@@ -905,9 +912,9 @@ Decision 170's limit is not a slot (body :866–867).
    item 7). The manifest regenerated on the pin.
 6. CI: every job green; the `tools` job on its one leg; the timeout derived (§7) and recorded; CI re-run.
 7. The pre-landing sweep (§8.4); reds handed off. The X1 pattern over this plan: 0 hits.
-8. **Report to the PM**: §4.7's amendments; V1–V23 and the manifest; §8.3's ledger items, its umbrella statement
-   drifts and its note for the VM P4 lane (vm-p4 :114–115: manifest regeneration "on the pin"); the interval opened;
-   the tamper-slot re-evaluation; any O8 red (consent condition 8); the §9 slots.
+8. **Report to the PM**: §4.7's amendments; V1–V23 and the manifest; §8.3's items not on the PM's landing list and its
+   note for the VM P4 lane (vm-p4 :114–115: manifest regeneration "on the pin"); the interval opened;
+   the tamper-slot re-evaluation; any O8 red (consent condition 8).
 9. **Through the PM to every lane** (body :842–848): after rebasing onto PR-1's `main`, `mise trust` if mise reports the
    worktree untrusted (`main` already does since #535; PR-1's `[settings]` is a second such table — C36), then `mise
    install`; report `which -a python3`. The PM tells the user first that installing the pin moves the global `python =
@@ -954,9 +961,5 @@ PR-2 (body :565 row): the launch-evidence predicate and the guard in every deriv
 itself (it reads no version-sensitive import before admission); (2) the helper's `LAUNCHER` and `write_fake_python3`
 are PR-2's E1 fixtures; (3) PR-2's entry points refuse with exit 1 and pin-file errors exit 2, as `main` does.
 
-**PM decisions needed** (recommendations above): (1) §8.4 — the C38 contingency on vm-p4 O3 if the value is not 22
-(coupled to (3));
-(2) §8.1 row 2 — applying consent item 2's wording to V9's docstring ("an over-long name" dropped there too), a
-VM-P4-written line the consent's table names only as "drop the `RuntimeError` arm and its sentence" (recommended:
-ask VM P4; until it answers, PR-1 makes the deletion only); (3) §7 — whether PR-1's timeout re-derive may lower the
-value (recommended: raise-only, as PR-0).
+**PM decisions** (PM 353, 2026-11-04; none open): (1) the vm-p4 :151 contingency, §8.4; (2) V9's "(an over-long
+name)", §8.1 row 2; (3) the timeout is raise-only, §7; the umbrella drifts are PR-1's own amendments, §4.7.
