@@ -21,10 +21,22 @@ pub(crate) fn control(dom: &mut EcsDom, kind: FormControlKind, value: &str) -> E
     e
 }
 
-/// `(initial, user_changed)` of `e`'s snapshot, `None` when absent.
-pub(crate) fn snap(dom: &EcsDom, e: Entity) -> Option<(String, bool)> {
-    dom.world()
-        .get::<&FocusValueSnapshot>(e)
-        .ok()
-        .map(|s| (s.initial().to_string(), s.user_changed()))
+/// `e`'s change-on-blur snapshot, as the three cases tests distinguish.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Snap {
+    /// No snapshot.
+    Absent,
+    /// A snapshot with no baseline (no user value change since focus).
+    Unmarked,
+    /// A marked snapshot and its baseline.
+    Baseline(String),
+}
+
+pub(crate) fn snap(dom: &EcsDom, e: Entity) -> Snap {
+    match dom.world().get::<&FocusValueSnapshot>(e) {
+        Err(_) => Snap::Absent,
+        Ok(s) => s
+            .baseline()
+            .map_or(Snap::Unmarked, |b| Snap::Baseline(b.to_string())),
+    }
 }

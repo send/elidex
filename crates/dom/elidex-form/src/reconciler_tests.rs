@@ -226,7 +226,7 @@ fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
     assert!(
-        crate::test_support::snap(&dom, e).is_none(),
+        crate::test_support::snap(&dom, e) == crate::test_support::Snap::Absent,
         "type flip to a non-text kind must clear the stale focus snapshot"
     );
 }
@@ -234,21 +234,24 @@ fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
 #[test]
 fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
     // The complement of e2c: flipping between two text kinds (text → search)
-    // keeps the control a text control, so the focus-time baseline must
-    // survive — only a non-text destination clears it.
-    use crate::record_focus_snapshot;
+    // keeps the control a text control, so the user-edit mark must survive —
+    // only a non-text destination clears the snapshot. The edit comes first:
+    // an unmarked snapshot is indistinguishable from a re-seeded one, so only
+    // a marked one shows that the flip neither clears nor re-seeds it.
+    use crate::{apply_user_edit, record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
         state.set_value("typed".to_string());
     }
     record_focus_snapshot(&mut dom, e);
+    let edit = apply_user_edit(&mut dom, e, |f| f.insert_at_cursor("!")).unwrap();
+    assert!(edit.changed);
     assert!(dom.set_attribute(e, "type", "search").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Search));
-    assert_eq!(
-        crate::test_support::snap(&dom, e).map(|s| s.0),
-        Some("typed".to_string()),
-        "a text → text flip keeps the change-on-blur baseline"
+    assert!(
+        take_change_on_blur(&mut dom, e),
+        "a text → text flip keeps the change-on-blur mark"
     );
 }
 

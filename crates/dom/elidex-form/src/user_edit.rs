@@ -65,7 +65,7 @@ pub fn apply_user_edit<R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{control, snap};
+    use crate::test_support::{control, snap, Snap};
     use crate::{clipboard_cut, clipboard_paste, FormControlKind};
     use elidex_ecs::Attributes;
 
@@ -76,7 +76,7 @@ mod tests {
     }
 
     fn marked(dom: &EcsDom, e: Entity) -> bool {
-        snap(dom, e).is_some_and(|(_, changed)| changed)
+        matches!(snap(dom, e), Snap::Baseline(_))
     }
 
     /// C7 (e): an edit that leaves the value equal → unchanged, unmarked.
