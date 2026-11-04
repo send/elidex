@@ -447,7 +447,7 @@ CLAUDE.md "One issue, one way" forbids a strangler state, in which a new mechani
 Slice a is such a state for **timing**: it processes post-bind creations at first insertion, where slice b's end state
 processes them at creation. The D-8 restriction exists for the same reason. The PM approves slice a as an interim
 because a dependency requires it. N1 requires K-1 (§L), and slice b requires T3, N1 and C1's handling (x3–x5), and T3
-is started after C1 lands (x6, x9; PM decision 153). So the only order that satisfies both is slice a → N1 → C0 → C1 → T3 → slice b
+is started after C1 lands (x6, x8; PM decision 153). So the only order that satisfies both is slice a → N1 → C0 → C1 → T3 → slice b
 (PM decision 153; until rev 8.4: "slice a → N1 (with T3) → slice b").
 
 - **Kept by slice b:** S-6.
