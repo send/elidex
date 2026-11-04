@@ -73,10 +73,11 @@ test (PM decision 133, D-T5); the attribute change steps' step 1 namespace test 
 D-T8); the `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`, compat, PM decision 130); the
 foreign-element interfaces other than `body`'s (§8.1 item 4); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 4.1* (2026-11-05): PM decision 359. O-8: D-T10's placement changes from a VM call beside the
+**Changelog.** *Rev 4.2* (2026-11-05): O-9 closed per PM 367 (wording).
+*Rev 4.1* (2026-11-05): PM decision 359. O-8: D-T10's placement changes from a VM call beside the
 `cloneNode` post-pass to a `CloneCreated` arm of `EventHandlerAttributeConsumer` (RC-2a's event; edge x11), and the
 sites that rested on the old placement follow (H-T24, H-T25, P-T15, D-T3, §2 A4×A5, §4, §5.3, §5.4, §6, §8, §9).
-Q-15: the clone walk is RC-2a's, in *clone a node* order; cell T-16b pins it. New O-9 (§10).
+Q-15: the clone walk is RC-2a's, in *clone a node* order; cell T-16b pins it. O-9 closed (PM 367, §10).
 *Rev 4* (2026-11-04): PM decision 168 (O-7 = (a)): T3 takes applicability facets (1) and (3) (D-T8,
 `is_event_handler_content_attribute_of`); T-21 and U-T8 are red cells; §2.1 has 0 rows worse than the base; residual
 R-D2 and §2.2 are gone. Scout answers Q-7, Q-8, Q-10 to Q-13 and the driver's Q-14 are folded in (H-T7, H-T8, H-T16,
@@ -290,7 +291,7 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
     (`for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, …)`, H-T25; the form arm's frontier
     shape, the RC-2a plan §4.5); for each it runs `process_handler_content_attributes` with `ProcessingTiming::Creation`
     (NEW variant) and marks the element (D-1). D-T7's Creation column applies: every class delivered to T3's target. A
-    fresh clone is unmarked (the clone-policy row, D-1), so "once" holds. The walk's depth cap is O-9.
+    fresh clone is unmarked (the clone-policy row, D-1), so "once" holds. The walk is uncapped from RC-2a (O-9, PM 367).
   - **Order (Q-15).** Two Window writes collide only when two elements of one clone deliver the same Window-delegating
     name with the node document active. The walk visits a node, then its light children (DOM §4.4 *clone a node* step
     5), then its shadow children (step 6.7), so the later writer is the spec's (cell T-16b). Contents come last instead
@@ -776,7 +777,7 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | U-T3 | red (C8h's store; EW-5) | foreign document's `body`, `setAttribute('onfocus', 'A')` through the consumer | no `focus` entry on the body and none on the Window. Base: raw `A` on the body |
 | U-T4 | guard (D-5 keying) | U12's shape: bound document `d2 = create_document_node()` ≠ `document_root()`; a `body` in `d2` with `onhashchange=A`; `active = {d2, w}` | delivered to `w`; a `document_root()`-keyed step 3 returns `None` |
 | U-T6 | red (D-T7 delivery matrix) | for class ∈ {XW, EW, OR, FN (SVG `body` × a WEH name)} (derived from the two lists and a `div` name) × timing ∈ {Bind, Creation, first Insertion of an unmarked element, later Insertion of a marked element, HandlerWrite}: an element carrying one such attribute plus one ordinary attribute, its target's entry taken (`take_uncompiled`) after the first delivery | XW: delivered at Bind, Creation and every Insertion, never at HandlerWrite. EW: delivered at Bind and Creation only. OR and FN: Creation, or once. Base: EW and FN delivered at every Insertion |
-| U-T7 | red (D-T10 coverage) | `process_created_subtree` with `CloneScope::Subtree` over a clone root whose subtree has (i) a chain deeper than `MAX_ANCESTOR_DEPTH` and a parent wider than it (the U10 / U11 precedents; kept or reshaped by O-9), (ii) a clonable shadow root with `<button onclick=A>`, (iii) a `<template>` whose contents hold `<div onclick=A>` and a `<body onfocus=B>`, built with each owner (active, a non-active Document, I); then (ii)'s host with a light child, with `CloneScope::SelfOnly` | every element of (i)–(iii) is marked; under `SelfOnly` the shadow tree is marked and the light child is not; ordinary entries raw on their elements; the contents' `<body>` delivers nothing (I, EW-19); a non-active owner's `<body>` delivers nothing (EW-11, XW-14) |
+| U-T7 | red (D-T10 coverage) | `process_created_subtree` with `CloneScope::Subtree` over a clone root whose subtree has (i) a parent wider than `MAX_ANCESTOR_DEPTH` (the U11 precedent; independent of depth; the deeper-than-cap chain is RC-2a's deep-tree cell, PM 367), (ii) a clonable shadow root with `<button onclick=A>`, (iii) a `<template>` whose contents hold `<div onclick=A>` and a `<body onfocus=B>`, built with each owner (active, a non-active Document, I); then (ii)'s host with a light child, with `CloneScope::SelfOnly` | every child of (i)'s wide parent and every element of (ii)–(iii) is marked; under `SelfOnly` the shadow tree is marked and the light child is not; ordinary entries raw on their elements; the contents' `<body>` delivers nothing (I, EW-19); a non-active owner's `<body>` delivers nothing (EW-11, XW-14) |
 | U-T8 | red (D-T8; FN-1b, FN-4, FN-5, OR-1) | `is_event_handler_content_attribute_of` over every `EVENT_HANDLER_ATTRS` name × element {HTML `body`, HTML `frameset`, HTML `div`, SVG `body`, SVG `rect`, MathML `body`, MathML `mi`, null-namespace `body`}, through the AttributeChange arm and at Creation | HTML: GlobalEventHandlers names everywhere, WindowEventHandlers names on `body` / `frameset` only, Document-only names nowhere; SVG: every name; MathML: GlobalEventHandlers names only; null namespace: none. The base: every name installs |
 
 ### §6.3 End to end (shell)
@@ -801,7 +802,7 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | EW under the ordinary once rule (α) | T-15b, U-T6 (first-insertion row) |
 | X-W narrowed too far (XW not re-raw'd) | C8, U2, U-T6 |
 | clone path absent, or skipping a class | T-16, T-20, T-20b, U-T6 (Creation row), U-T7 |
-| clone path walking light tree only, or capped (O-9), or excluding template contents, or ignoring the scope | U-T7 |
+| clone path walking light tree only, or excluding template contents, or ignoring the scope | U-T7 |
 | clone walk in shadow-including tree order (shadow tree before light children) | T-16b |
 | clone path not marking (re-processed at insertion) | C9, C5 (iii), U-T7 |
 | `body` arm or `require_body_receiver` tag-only | T-19 |
@@ -979,14 +980,6 @@ RC-2a plan §4.3; PM decision 359 folded it into the plan-review), cell T-16b. R
 Q-1 to Q-6 → H-T15 to H-T20.
 
 **For the PM (designer's findings, not decided here):**
-- **O-9 — the clone walk's depth cap.** RC-2a's `for_each_clone_created` keeps today's `MAX_ANCESTOR_DEPTH` depth cap
-  (the RC-2a plan §4.3, last paragraph), while the cloner itself copies a chain at any depth (an explicit stack with no
-  depth check, `ecs/dom/tree_clone.rs:390-424`). So an element of a clone deeper than the cap is skipped by the CE and
-  form arms on the base, and by D-T10 under that walk, where rev 4's uncapped walk reached it (U-T7 (i)). (a) Keep the
-  cap: such an element falls back to processing at its first insertion (D-T10 *Fallback*; an EW pair there then gets
-  nothing, the spec the Window), and U-T7 (i) asserts the cap's boundary. (b) T3 makes `for_each_clone_created`
-  uncapped as `for_each_uncapped_shadow_inclusive` is (H-T25), in the same creation order (`walkers.rs`, `elidex-ecs`), which also changes the two RC-2a arms toward the
-  spec, and U-T7 (i) stays. Either keeps one walk for all three arms. The designer leans to (b) (Ideal over pragmatic);
-  it widens T3 into `elidex-ecs` and into RC-2a's arms, so it is the PM's.
+- **O-9 — closed (PM 367): (b), owner L3.** RC-2a's implementation PR makes `for_each_clone_created` uncapped (iterative, creation order) with its own deep-tree cell; T3's deep-element processing rests on it (edge x11).
 
 No browser measurement is needed: every outcome in §6 is spec-defined, including FN-4's (MathML Core §2.1.4, H-T23).
