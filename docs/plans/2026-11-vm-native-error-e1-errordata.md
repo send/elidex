@@ -4,7 +4,7 @@
 closes `#11-error-object-builtintag-dual-representation` (registered at #474, the candidate slot that
 `vm/tests/tests_object_constructor.rs:105-112` names): that slot is axis C as seen from
 Object.prototype.toString alone. **Owner**: VM P4. **Umbrella**: `docs/plans/2026-11-vm-native-error-program.md`
-(this commit); program E1 → E2, E2 gets its own plan and its own `/elidex-plan-review`. **Baseline**:
+(this commit); program order umbrella §1, E2 gets its own plan and its own `/elidex-plan-review`. **Baseline**:
 origin/main `f9cf8c40` (Rev 1-2: `145927c9`; Rev 3 re-ran every §6 command at `f9cf8c40`: every hit count
 is unchanged, and the only moved cites are `vm/natives.rs`, +1 line from `:4` on, and one comment moved from
 `vm/globals.rs` to `vm/globals_fundamentals.rs` by #592). Every `file:line` is at `f9cf8c40`; §6 re-derives
@@ -27,14 +27,15 @@ implementation starts by probing the two unprobed variants (§4.0); `serialized_
 beside `ErrorName` (§1.6), with a unit cell that kills M17 in E1 (§4.1); T-PROMO-UPGRADE is labelled a known
 deviation with its spec answer; the ECS paragraph, the stale comments E1 rewrites (§1.8) and the R2 clerical
 fixes.
-**Rev 5** (2026-11-05) — E0 re-slice, PM 385 rulings. E0: own unit after A2, edge E0 → E1; A3/A4 per PM 385
-(umbrella §0.2, §1.1). The program is F → E1 → E2. E1 still depends on E0 having landed; only E0's place
-changes (P-5, §0.4 OD-2, §4.1, §4.2). Nothing in E1's design changes.
+**Rev 5** (2026-11-05) — E0 re-slice, PM 385 rulings: E0 leaves the program's order and becomes an external
+unit (umbrella §1.1); the program order is umbrella §1's and E1's edge to E0 is umbrella §2's, unchanged.
+Only E0's place changes (the Prereqs paragraph, P-5, §0.4 OD-2, §1.4, §4.1, §4.2). Nothing in E1's design
+changes.
 
-**Prereqs (umbrella §1, program order F → E1, PM 370 / PM 374 / PM 385)**: **E0** (`#11-vm-json-internalize-non-array-objects`,
-registered) — JSON.parse's reviver walk keyed on `ObjectKind::Ordinary` (§0.3 P-5). Since PM 385 an
-**external prereq unit**, not a program PR: its own unit after A2 = `#11-vm-create-data-property-canonical`,
-with the edge E0 → E1 (umbrella §1.1). E1 does not land before E0 has landed.
+**Prereqs (program order: umbrella §1; E1's edge to E0: umbrella §2; PM 370 / PM 374 / PM 385)**: **E0**
+(`#11-vm-json-internalize-non-array-objects`, registered) — JSON.parse's reviver walk keyed on
+`ObjectKind::Ordinary` (§0.3 P-5). Since PM 385 an **external prereq unit**, not a program PR (umbrella
+§1.1).
 **Slice F** (VM P4, `#11-vm-structured-clone-file-split`) — the split of `vm/host/structured_clone.rs` (1077
 lines at `f9cf8c40`, touched here; CLAUDE.md "1000-line debt"); its seam, its process and E1's order after it
 (after F's plan-review and any layering-seam child that review orders first) are umbrella §1.2's. Every
@@ -136,9 +137,8 @@ clones as `{}` (message lost) although it has one.
   also skips Date, RegExp, wrappers, thrown errors) and independent of errors. Measured by §2's criterion it
   is a separate axis (its mutant fails one cell while every other passes), so it is **not** folded in: it is
   the prereq **E0** (`#11-vm-json-internalize-non-array-objects`, registered; PM 365 decision 1; umbrella
-  §1.1). **Re-sliced by PM 385**: E0 is an external prereq unit, ordered after A2 =
-  `#11-vm-create-data-property-canonical`, not a PR of the program; E1 still depends on it having landed
-  (edge E0 → E1). E0's own walk is not single-axis either (A2-A4, umbrella §1.1), which is why it left the
+  §1.1). **Re-sliced by PM 385**: E0 is an external prereq unit, not a PR of the program; E1 still depends
+  on it (umbrella §2). E0's own walk is not single-axis either (A2-A4, umbrella §1.1), which is why it left the
   program. The census that found it is §1.4.
 - **P-6 — the narrow E1 changes two spec-correct observables in structured clone.** Because E1 routes every
   `[[ErrorData]]` object to `clone_error`, and `clone_error` keeps the **source** prototype
@@ -158,7 +158,7 @@ Rev 1's open decisions, closed by PM 365 (one line each, where it went):
   through `error_intrinsic_prototype(name)` (§1.6). This is the content Rev 1 listed as option (b).
 - **OD-2 (E0, P-5)** → closed: a standalone prereq, slot `#11-vm-json-internalize-non-array-objects`
   (registered). Not folded into E1. Its placement was program row E0 until PM 385, which made it an external
-  prereq unit after A2 (umbrella §1.1); the edge E0 → E1 stands.
+  prereq unit (umbrella §1.1); the edge that remains is umbrella §2's.
 
 Still standing (a designer decision, not a PM one):
 
@@ -249,8 +249,9 @@ hygiene note).
     So in the spec `el.name` is `undefined`. Cell T-PROMO-UPGRADE pins the base value; the deviation is
     `#11-vm-native-ctor-receiver-promotion-admission`'s.
   - **(b) a second `super()`** in `class E extends TypeError` (probed at `f9cf8c40`, VM P4 scratchpad
-    `isctor/impl/super2-probe.log`): there is no BindThisValue check, so the second `super()` reaches
-    `error_ctor_impl` with a receiver that already has own `name` and `message`, and `error_ctor_impl`
+    `isctor/impl/super2-probe.log`): the second `super()` reaches `error_ctor_impl` with the already-initialised
+    receiver, which has own `name` and `message`, where the spec constructs a fresh object (SuperCall step 6
+    Construct, before step 9 BindThisValue; slot-ledger `:293`), and `error_ctor_impl`
     defines them with the define-new `define_shaped_property`. Base behaviour is a **debug panic** at
     `vm/shape_ops.rs:30` ("shape_add_transition called for existing key; use shape_reconfigure_transition
     instead") and, in release, a duplicate own `name` slot (read, not probed). The spec answer is a
@@ -259,8 +260,8 @@ hygiene note).
     the receiver is already `Error`, so the guard leaves it alone, as base leaves an `Ordinary` alone). E1
     pins no cell here (a cell would panic in debug builds). Owners (PM 374): `#11-vm-derived-constructor-this-binding`
     (the double-`super()` repro, a script-reachable debug panic plus a release duplicate own property, carried
-    by that slot's live-ledger pointer row, not yet by its canonical slot-ledger row, whose update is the PM's;
-    umbrella §5) and `#11-vm-native-ctor-receiver-promotion-admission` (the upgrade-path variant with an own
+    by that slot's live-ledger pointer row and, on this branch from `7fc0dbac`, by its canonical slot-ledger
+    row; umbrella §5) and `#11-vm-native-ctor-receiver-promotion-admission` (the upgrade-path variant with an own
     `name` / `message` expando, on its charter). Two variants are unprobed and are E1's first implementation
     step (§4.0).
 
@@ -343,7 +344,7 @@ E1 moves constructed errors out of `ObjectKind::Ordinary`. Every site whose beha
 being `Ordinary` sees them move:
 `git grep -n 'ObjectKind::Ordinary' f9cf8c40 -- crates/script/elidex-js/src ':!crates/script/elidex-js/src/vm/tests' | /usr/bin/grep -v 'kind: ObjectKind::Ordinary'`
 → 10 hits. Five are comments (`vm/globals_fundamentals.rs:262`, moved from `vm/globals.rs:1371` by #592; `vm/host/dom_exception.rs:7`, `vm/host/dom_rect.rs:8`, the guard comment in `clone_recursive`, `vm/host/wasm/namespace.rs:41`). `vm/gc/trace.rs:553` shares `Error`'s arm (no change). `classify`'s
-`Ordinary` arm, `clone_error`'s `Ordinary` arm and `vm/host/indexeddb/value.rs:295` are §1.3's. **`vm/natives_json/parse.rs:444` is P-5** (E0, an external prereq unit, landed before E1).
+`Ordinary` arm, `clone_error`'s `Ordinary` arm and `vm/host/indexeddb/value.rs:295` are §1.3's. **`vm/natives_json/parse.rs:444` is P-5** (E0, an external prereq unit; edge: umbrella §2).
 Kind-agnostic paths (property storage, `JSON.stringify`, which branches only on Array / Date / wrappers at
 `vm/natives_json/stringify.rs:63`, `:131`, `:470`, `:547-550`; the JSON shortcut behind worker `postMessage` and
 `history.state`, `vm/host/structured_serialize.rs`) do not branch on `Ordinary`, so an `Error` object takes
@@ -663,7 +664,7 @@ shape `vm/tests/tests_custom_elements.rs`'s `build_doc` / `run` (`test_helpers::
 
 **Existing tests that change or must stay green:**
 
-- E0's constructed-error row (umbrella §1.1; E0 is an external prereq unit after A2, landed before E1): the
+- E0's constructed-error row (umbrella §1.1; E0 is an external prereq unit; edge: umbrella §2): the
   reviver walks a constructed error's own enumerable properties. Green at E1's base (E0's walk does not test
   the kind of a non-array object); E1's DoD keeps it green. E0's other cells are its own unit's.
 - `clone_error_breaks_cycles_via_memo` and `clone_error_recurses_into_cause_value`
@@ -743,8 +744,8 @@ The payload removal has no mutant: the compiler checks every pattern site, and n
 - **Receiver admission of the in-place promotions** (§1.2, §2) → `#11-vm-native-ctor-receiver-promotion-admission`
   (registered, PM 370; pre-existing class, all promote sites; the upgrade-expando variant on its charter, PM
   374); path (b), the double-`super()` debug panic and release duplicate own property →
-  `#11-vm-derived-constructor-this-binding` (VM P4 ledger; carried by its live-ledger pointer row, PM 374, and
-  not yet by its canonical slot-ledger row, which is the PM's to update; umbrella §5). E1 pins its fail-safe
+  `#11-vm-derived-constructor-this-binding` (VM P4 ledger; carried by its live-ledger pointer row, PM 374, and,
+  on this branch from `7fc0dbac`, by its canonical slot-ledger row; umbrella §5). E1 pins its fail-safe
   stance on path (a) (T-PROMO-UPGRADE), leaves path (b) as base behaviour without a cell, and takes neither.
   **The receiver-admission slot's trigger fires on E1** ("a PR touching any promote site or the upgrade
   construct path"; E1 adds `promote_to_error`): at E1's landing the slot is re-evaluated, and its trigger is

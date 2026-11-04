@@ -27,9 +27,10 @@ the receiver-admission class staying with its registered slot (§5).
 there is a debug panic, owned by two registered slots; E1 memo §1.2); the umbrella-9 pointer row is specified
 in both its forms (§5); E1's order against the layering-seam derivation is stated once (§1.2); the clauses
 E1's map owns are added to §3; clerical fixes.
-**Rev 5** (2026-11-05) — E0 re-slice, PM 385 rulings. E0: own unit after A2, edge E0 → E1; A3/A4 per PM 385.
-The program is F → E1 → E2 (§0.2, §1). §1.1 now summarises the external unit with the facts VM P4 measured
-(A1-A4), and no longer calls the walk a single axis. The InternalizeJSONProperty row leaves §3, and E0's
+**Rev 5** (2026-11-05) — E0 re-slice, PM 385 rulings: E0 leaves the program's order and becomes an external
+unit (§1.1); the order is stated in §1 and the edge to E0 in §2; A3/A4 are homed per PM 385 (§5). §1.1
+now summarises the external unit with the facts VM P4 measured (A1-A4), and no longer calls the walk a
+single axis. The InternalizeJSONProperty row leaves §3, and E0's
 closing leaves §5's landing obligations. No design of F, E1 or E2 changes.
 
 ## §0. Frame, premises, decisions
@@ -79,8 +80,8 @@ no construction site in common with the instances' prototypes.
 **Revised by PM 365** (three decisions, final):
 
 1. **E0** (`#11-vm-json-internalize-non-array-objects`, registered PM 365) is a standalone prereq PR before E1
-   (§1, edge E0 → E1). **Placement superseded by PM 385** (below): E0 is no longer a PR of this program; the
-   edge E0 → E1 stands.
+   (§1). **Placement superseded by PM 385** (below): E0 is no longer a PR of this program; the edge that
+   remains is §2's.
 2. **E1-pre** is a standalone pure-move split of `vm/host/structured_clone.rs` before E1. **Refined by PM
    370**: E1-pre **is** VM P4 Slice F (`#11-vm-structured-clone-file-split`); what that means for this
    program is stated once, in §1.2.
@@ -90,10 +91,8 @@ no construction site in common with the instances' prototypes.
    (§4).
 
 **Revised by PM 385** (final): **E0 leaves the program's internal order.** It is its own unit
-(`#11-vm-json-internalize-non-array-objects`), ordered after its registered prereq A2 =
-`#11-vm-create-data-property-canonical`. The program becomes **F → E1 → E2** and keeps one edge to E0,
-**E0 → E1** (§2): E1's constructed errors become `ObjectKind::Error`, and without E0 a reviver stops visiting
-their properties. A3 is homed in `#11-vm-array-index-property-single-store` and A4 is
+(`#11-vm-json-internalize-non-array-objects`, §1.1). The program's order is §1's, and its one edge to E0 is
+§2's. A3 is homed in `#11-vm-array-index-property-single-store` and A4 is
 `#11-vm-json-internalize-recursion-bound`; neither is this program's (§1.1, §5).
 
 ### §0.3 Premise errors found while planning E1 (Rev 1; dispositions by PM 365)
@@ -119,21 +118,20 @@ implementation. A per-PR plan that passes plan-review under this umbrella is a t
 
 | PR | Scope | Depends on | Closes | Plan-review |
 |---|---|---|---|---|
-| E0 (external) | prereq = its own unit `#11-vm-json-internalize-non-array-objects`, after A2 = `#11-vm-create-data-property-canonical` (PM 385, §1.1); not this program's row | A2 (its own) | `#11-vm-json-internalize-non-array-objects` (E0's) | E0's own (§1.1) |
+| E0 (external) | prereq = its own unit `#11-vm-json-internalize-non-array-objects` (PM 385, §1.1); not this program's row | — | `#11-vm-json-internalize-non-array-objects` (E0's) | E0's own (§1.1) |
 | F (VM P4) | prereq = VM P4 Slice F, per its row in `docs/plans/2026-07-vm-p4-slice-plan.md` §5 (§1.2); not this program's row | — | `#11-vm-structured-clone-file-split` (F's) | F's own, per its row (§1.2) |
-| E1 | Axis C: every `[[ErrorData]]` creator makes `ObjectKind::Error` (payload dropped); every classifier keys on it (structured clone, IndexedDB; toString already does); and the clone's prototype by serialized name through `error_intrinsic_prototype(name)` (PM 365) | E0 (external, §1.1), F | `#11-error-object-builtintag-dual-representation`; axis C of `#11-vm-native-error-prototypes` | required — `docs/plans/2026-11-vm-native-error-e1-errordata.md` |
+| E1 | Axis C: every `[[ErrorData]]` creator makes `ObjectKind::Error` (payload dropped); every classifier keys on it (structured clone, IndexedDB; toString already does); and the clone's prototype by serialized name through `error_intrinsic_prototype(name)` (PM 365) | E0 (external; edge: §2), F | `#11-error-object-builtintag-dual-representation`; axis C of `#11-vm-native-error-prototypes` | required — `docs/plans/2026-11-vm-native-error-e1-errordata.md` |
 | E2 | Axes A + B (§4): own NativeError prototypes and EvalError, every remaining construction site's prototype, constructor `[[Prototype]]` = %Error%, and the contents of `error_intrinsic_prototype`'s table | E1 | `#11-vm-native-error-prototypes` | required — **its own per-PR plan and its own `/elidex-plan-review` before E2 is implemented**, which also gives E2's split verdict (§0.2); not planned here |
 
 **Order**: F → E1 → E2 (PM 385; F in E1-pre's place, PM 370), with E1's place after F stated in §1.2
-(PM 374). E0 is an external prereq of E1 (edge E0 → E1, §2); its own place, after A2, is its unit's, not
-this program's (§1.1). E0 and F have no code dependency on each other, and this program orders neither
-against the other.
+(PM 374). This is the one statement of the program's order; every other site refers here. E1's one edge
+outside the program, to the external unit E0, is §2's (§1.1 summarises the unit). E0 and F have no code
+dependency on each other, and this program orders neither against the other.
 
 ### §1.1 E0 — external prereq unit (`#11-vm-json-internalize-non-array-objects`; PM 385)
 
-**E0: own unit after A2, edge E0 → E1; A3/A4 per PM 385.** E0 is not a PR of this program. It is its own
-unit, ordered after its registered prereq A2 = `#11-vm-create-data-property-canonical`, and this program
-keeps one edge to it, E0 → E1 (§2). This section summarises the unit for that edge. E0's design, cells,
+E0 is not a PR of this program. It is its own unit, and this program's one edge to it is §2's. This
+section summarises the unit for that edge. E0's design, cells,
 mutants and plan-review are its own unit's, not this memo's. The four slots' rows are on the live ledger
 (path in §1.2).
 
@@ -159,7 +157,7 @@ mutants and plan-review are its own unit's, not this memo's. The four slots' row
     CreateDataProperty, and the VM has no canonical CreateDataProperty / [[DefineOwnProperty]]. At base, a
     reviver that freezes `this` makes JSON.parse throw, and a setter is called. The walk adds a new case: a
     reviver-installed `new Event('x')` makes JSON.parse throw TypeError (its WebIDL read-only properties).
-    → `#11-vm-create-data-property-canonical`, E0's registered prereq.
+    → `#11-vm-create-data-property-canonical` (its order against E0: **Order** below).
   - **A3**: `collect_own_keys_es_order` and `get_property` miss exotic index keys (`Object.keys([5,6])` →
     `""` at base). The walk adds a new case: a String wrapper's reviver sees `undefined`, and a non-undefined
     return creates an own `"0"`. → the exotic-keys extension of `#11-vm-array-index-property-single-store`
@@ -169,8 +167,9 @@ mutants and plan-review are its own unit's, not this memo's. The four slots' row
     process (Rust stack overflow), already at base. → `#11-vm-json-internalize-recursion-bound`
     (script-reachable process abort; standalone; the fix is a catchable RangeError). Independent of E0 and
     of this program.
-- **Order.** A2 → E0, and E0 → E1. E0's cells keep String-wrapper values out unless A3 has landed. A4 is
-  ordered against nothing here.
+- **Order.** E0's own order (after A2) is its unit's; see `#11-vm-json-internalize-non-array-objects` in the
+  live ledger. E0's cells keep String-wrapper values out unless A3 has landed. A4 is ordered against nothing
+  here.
 - **What E1 needs from E0** (the edge): once E0 has landed, a reviver visits the own enumerable properties
   of every non-array object, whatever its kind. That keeps a constructed error walked after E1 makes it
   `ObjectKind::Error`. The row E1 relies on: a reviver that places a constructed `new Error('x')` with an own
@@ -215,10 +214,10 @@ refers here. This memo draws no seam and states no acceptance of its own for the
   in IndexedDB silently — the regression PM 364 named.
 - **F → E1** (F in E1-pre's place, PM 370; the order against the layering-seam derivation, PM 374): §1.2.
 - **E0 → E1** (PM 365; kept by PM 385 as this program's only edge to E0, which is an external prereq unit,
-  §1.1). E1 moves constructed errors out of `ObjectKind::Ordinary`; E0 removes the one consumer that treats
-  that kind as "walkable object". Without E0, a reviver stops visiting a constructed error's properties, and
-  E1's DoD cannot keep the constructed-error row of §1.1 green. E0's own prereq (A2 → E0) is its unit's, not
-  an edge of this program.
+  §1.1). This is the one statement of the edge; every other site refers here. E1 moves constructed errors
+  out of `ObjectKind::Ordinary`; E0 removes the one consumer that treats that kind as "walkable object".
+  Without E0, a reviver stops visiting a constructed error's properties, and
+  E1's DoD cannot keep the constructed-error row of §1.1 green. E0's own order is its unit's (§1.1).
 - **The program invariant at E2's landing**: an object is an error iff it was created with `[[ErrorData]]`
   (one kind, one predicate); its prototype is the intrinsic its creator names (one rule per site, no shared
   prototype); and no site recognises an error by prototype identity.
@@ -313,11 +312,10 @@ facts it must not lose.
     which owns DOMException's structured clone (E1 memo SD-4). E1 still does not change DOMException's
     recognition (E1 memo §1.5).
   - E0 (the JSON internalize axis) → registered `#11-vm-json-internalize-non-array-objects`; program row E0
-    until PM 385, which re-sliced it into its own unit after A2 (§1.1). This program keeps the edge E0 → E1
-    only.
+    until PM 385, which re-sliced it into its own unit (§1.1). This program keeps only §2's edge to it.
 - **Registered by PM 385** (none is taken by this program; §1.1 states each): A2 =
-  `#11-vm-create-data-property-canonical` (silent; prereq of E0), A4 = `#11-vm-json-internalize-recursion-bound`
-  (script-reachable process abort; standalone, independent of this program), and A3 homed as the exotic-keys
+  `#11-vm-create-data-property-canonical` (silent; its order against E0: §1.1), A4 =
+  `#11-vm-json-internalize-recursion-bound` (script-reachable process abort; standalone, independent of this program), and A3 homed as the exotic-keys
   extension of `#11-vm-array-index-property-single-store` (PM 296's slot, extended by PM 385; not a new slot).
 - **Siblings, registered by PM 365** (E1 memo §5): `#11-vm-error-install-error-cause` (InstallErrorCause,
   §20.5.9.1, silent), `#11-vm-error-iserror` (Error.isError, §20.5.2.1, loud),
@@ -334,8 +332,8 @@ facts it must not lose.
   at PM 385's ledger state; it read `:1243` earlier on 2026-11-05, before rows were added above it). The canonical row in
   `docs/plans/2026-07-vm-p4-slot-ledger.md` (`:293`) did not carry it at `f9cf8c40`
   (`sed -n 293p docs/plans/2026-07-vm-p4-slot-ledger.md | /usr/bin/grep -c 'shape_add_transition\|panic'`
-  → 0) and carries it on this branch (→ 1 from `7fc0dbac`, a clerical mirror of the live-ledger sentence,
-  PM 382). **Its trigger fires on E1** ("a PR touching any promote site or the upgrade construct path": E1 adds `promote_to_error`), so its
+  → 0) and carries it on this branch (→ 1 from `7fc0dbac`, PM 382: a mirror of live row `:1246`, plus a spec
+  cite and a pointer to this memo; reviewed by the axis 4/5 pass on this PR). **Its trigger fires on E1** ("a PR touching any promote site or the upgrade construct path": E1 adds `promote_to_error`), so its
   disposition is recorded at E1's landing: re-evaluated there, its trigger restated for the promote sites that
   remain after E1 (E1 memo §5).
 - **Ledger agreement** (PM 370; the ledger edits are the PM's): `#11-error-object-builtintag-dual-representation`
@@ -446,7 +444,7 @@ facts it must not lose.
 ## §6. Definition of done (program)
 
 - E0 is not a PR of this program: its plan-review and DoD are its own unit's (§1.1). The program's DoD needs
-  only the edge: E1 does not land before E0 has landed.
+  only §2's edge to E0, checked at E1's landing.
 - Each PR: its per-PR plan through `/elidex-plan-review` (Slice F's under its own row, §1.2); `cargo test -p elidex-js --all-features`, then
   `mise run ci`; every silent-wrong defect it closes has a test red on the pre-fix head and green after, the
   red run recorded in the PR body; mutants run on the final head as its plan lists.
