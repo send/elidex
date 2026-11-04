@@ -407,6 +407,22 @@ fn c28_paste_into_full_maxlength_fires_no_input_textarea() {
     c28("textarea");
 }
 
+/// C30: the positive control for §4.2 row 3 (C27 / C28 are negative only) — a
+/// paste that changes the value fires `input` (`insertFromPaste`), marks, and the
+/// following blur fires `change`.
+#[test]
+fn c30_paste_changes_value_fires_input_and_change() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    set_test_clipboard("hi");
+    ua_focus(&mut s, "b");
+    clear_log(&mut s);
+    cmd_key(&mut s, "v");
+    assert_eq!(value(&s, "b"), "hi");
+    assert_eq!(log(&s), "input:insertFromPaste");
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "paste is a user change ({})", log(&s));
+}
+
 /// C29: cut writes the clipboard, fires `input` (`deleteByCut`) and marks.
 #[test]
 fn c29_cut_marks_and_fires_input() {

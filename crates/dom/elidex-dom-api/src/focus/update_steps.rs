@@ -82,12 +82,12 @@ pub trait FocusEventSink {
     /// focus-update step 2.1's "the user has changed the element's value ...
     /// such that it is different to what it was when the control was first
     /// focused". The canonical transition calls it **after** the `focus`/`focusin`
-    /// listeners (step 4.4), so a focus-handler's programmatic `value` write is
-    /// part of the baseline and is not later mistaken for a *user* edit (a
-    /// before-the-event seed would make such a write spuriously fire `change` on
-    /// blur). Runs on **every** engine (the snapshot is `elidex-form` state, not
-    /// event dispatch), so the canonical transition owns the seed *timing* while
-    /// the form-layer call lives behind the sink.
+    /// listeners (step 4.4): the baseline is the spec's focus-time value, i.e. the
+    /// value once focus handling has run. (Seed timing does not decide whether a
+    /// non-user write fires `change`; only the user-edit mark does.) Runs on
+    /// **every** engine (the snapshot is `elidex-form` state, not event dispatch),
+    /// so the canonical transition owns the seed *timing* while the form-layer call
+    /// lives behind the sink.
     fn seed_focus_snapshot(&mut self, new: Entity);
 
     /// §6.6.4 focus-update steps 2.2-2.4 / 4.2-4.4 — fire a `blur`/`focus` event
@@ -231,13 +231,10 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         // that surface lands).
         set_focus_bit(sink.dom(), Some(new));
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
-                                                                // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners,
-                                                                // so a listener's programmatic `value` write is part of the baseline and is
-                                                                // NOT counted as a user edit at the next blur (§6.6.4 step 2.1's change
-                                                                // fires only for values "the user has changed ... since first focused").
-                                                                // Seeding before the focus event (the value at designation) would make a
-                                                                // focus-handler write spuriously fire `change` on blur — matching real
-                                                                // browsers + the pre-A2a shell, which both seed after focus dispatch.
+                                                                // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners:
+                                                                // the baseline is the spec's focus-time value (§6.6.4 step 2.1: "different
+                                                                // to what it was when the control was first focused"), i.e. the value once
+                                                                // focus handling has run.
                                                                 // Guard: a `focusin` listener may have reentrantly moved focus on, so only
                                                                 // seed if `new` is still the focused element (reentrant-wins).
         if current_focus(sink.dom(), doc) == Some(new) {

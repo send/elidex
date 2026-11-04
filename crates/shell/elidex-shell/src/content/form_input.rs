@@ -96,7 +96,7 @@ pub(super) fn dispatch_input_event(state: &mut ContentState, target: Entity) {
 
 /// Dispatch an "input" event with `inputType` and data (`InputEvent` interface).
 ///
-/// Text-control edit callers fire it only when `elidex_form::apply_user_edit`
+/// Text-control edit callers fire it only when the form crate's user-edit funnel
 /// reports the user changed the value (HTML §4.10.5.5); checkbox / radio /
 /// select state changes fire it from their own state-change paths.
 pub(super) fn dispatch_input_event_typed(

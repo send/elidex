@@ -410,7 +410,10 @@ pub(super) fn probe_body_attr(pipeline: &crate::PipelineResult, attr: &str) -> O
 thread_local! {
     /// The in-memory clipboard that replaces the system clipboard in test
     /// builds (`event_handlers::{get,set}_clipboard_text`), so cut / paste cells
-    /// are hermetic: one per test thread.
+    /// are hermetic: one per test thread. Because it is thread-local it is **not**
+    /// visible to the content loop spawned by `spawn_test_content` /
+    /// `spawn_test_content_sized` (a different thread), so paste cells must use the
+    /// in-thread harness (`build_test_content_state`).
     static TEST_CLIPBOARD: std::cell::RefCell<Option<String>> =
         const { std::cell::RefCell::new(None) };
 }

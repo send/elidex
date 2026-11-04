@@ -140,7 +140,7 @@ mod tests {
 
     /// A user edit that appends `text`.
     fn user_append(dom: &mut EcsDom, e: Entity, text: &str) {
-        let edit = apply_user_edit(dom, e, |f| f.value.push_str(text)).unwrap();
+        let edit = apply_user_edit(dom, e, |f| f.insert_at_cursor(text)).unwrap();
         assert!(edit.changed);
     }
 

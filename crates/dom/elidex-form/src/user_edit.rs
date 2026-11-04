@@ -33,13 +33,17 @@ pub struct UserEdit<R> {
 /// this and fire `input` iff [`UserEdit::changed`] — today the shell's key
 /// edits, cut, paste and IME commit. A future user edit path (drag-and-drop
 /// insert, undo / redo, number spin buttons, IME commit on blur) must call it
-/// too; a path that skips it fires neither `input` nor `change`, so the miss is
-/// visible. Script and other non-user writers (the `value` / `defaultValue`
+/// too. Nothing enforces this at run time: a path that fires `input` directly
+/// without calling it would never mark the snapshot, so the contract is that
+/// *every* user value writer goes through this funnel, checked by the plan's
+/// DoD 2 / 3 greps (`docs/plans/2026-11-change-on-blur-user-provenance.md` §9).
+/// Script and other non-user writers (the `value` / `defaultValue`
 /// setters, attribute reconciliation, `setRangeText`, form reset) must **not**
 /// call it: §4.10.5.5's events "are not fired in response to changes made to
 /// the values of form controls by scripts". A user writing-direction change
 /// fires `input` without a value change (§4.10.11); that `input` is not decided
 /// here.
+#[must_use]
 pub fn apply_user_edit<R>(
     dom: &mut EcsDom,
     entity: Entity,
@@ -81,8 +85,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = focused_control(&mut dom, "ab");
         let edit = apply_user_edit(&mut dom, e, |f| {
-            f.value.push('x');
-            f.value.pop();
+            f.insert_at_cursor("x");
+            f.delete_backward();
         })
         .unwrap();
         assert!(!edit.changed);
