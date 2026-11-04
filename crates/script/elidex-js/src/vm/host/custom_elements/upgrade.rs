@@ -312,8 +312,9 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // `is_construct() == true` on the `NativeContext`. Routed via
     // the Stage 3 helper (single SoT for JS-side + native-side
     // construct dispatch), whose admission applies IsConstructor with
-    // the `New` entry: "upgrade an element" step 10.3 constructs C
-    // directly, the shape of `new`.
+    // the `New` entry: "upgrade an element" (HTML §4.13.5) step 10.3
+    // "constructing C" is WebIDL "construct a callback function"
+    // (§3.12), whose step 3 is IsConstructor(F).
     let result = ctx.vm.construct_synchronous(
         JsValue::Object(constructor),
         super::super::super::construct_admission::ConstructEntry::New,

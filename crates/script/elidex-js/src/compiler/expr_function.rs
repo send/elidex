@@ -262,6 +262,11 @@ pub(super) fn compile_nested_function(
     compiled.param_count = func.params.len() as u16;
     compiled.has_rest_param = func.params.last().is_some_and(|p| p.rest);
     compiled.has_construct = creation.has_construct(func);
+    // User-written class constructor: marks `home_class` threading
+    // ([C16] ClassDefinitionEvaluation — class ctor frames get
+    // `CallFrame::home_class = closure_obj_id`).  Set here with its
+    // sibling `has_construct`, one site for the creation path.
+    compiled.is_class_ctor = matches!(creation, FunctionCreation::ClassConstructor);
     Ok(compiled)
 }
 

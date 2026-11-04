@@ -18,7 +18,7 @@
 //! `unwrap_bound_function_chain` (collects the bound arguments; the
 //! admission uses it) and `bound_chain_target` (the target only; the
 //! predicate uses it) are its two forms.  The TypedArray resolver's
-//! walker (`vm/host/typed_array_static.rs:91`) is
+//! walker (`unwrap_bound_chain` in `vm/host/typed_array_static.rs`) is
 //! `#11-vm-typed-array-create-construct`'s.
 
 use super::value::{CallShape, JsValue, ObjectId, ObjectKind, StringId, VmError};
@@ -46,8 +46,11 @@ pub(crate) enum ConstructAdmission {
 /// entry keeps its message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConstructEntry {
-    /// EvaluateNew (§13.3.5.1.1), and a direct `Construct(C)` such as
-    /// the custom-element upgrade.
+    /// EvaluateNew (§13.3.5.1.1), and the custom-element upgrade, whose
+    /// IsConstructor comes from WebIDL "construct a callback function"
+    /// step 3 (§3.12; HTML "upgrade an element" §4.13.5 step 10.3,
+    /// "constructing C").  The upgrade always passes an Object, so the
+    /// key is only read by the non-Object arm.
     New,
     /// SuperCall Evaluation (§13.3.7.1): the callee is
     /// GetSuperConstructor's result, an Object or `null`.

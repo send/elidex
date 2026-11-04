@@ -81,9 +81,9 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
 }
 
 /// Walk `BoundFunction` chains to the underlying target, capped at
-/// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] (matching `do_new`'s policy
-/// in `ops.rs`).  Returns the first non-`BoundFunction` `ObjectId`
-/// encountered; if the chain is too deep, returns the deepest
+/// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] (the same depth rule as
+/// `walk_bound_chain` in `vm/dispatch_class.rs`).  Returns the first
+/// non-`BoundFunction` `ObjectId` encountered; if the chain is too deep, returns the deepest
 /// `BoundFunction` reached (the subsequent prototype walk will
 /// then fail to find a registered TypedArray ctor and produce a
 /// TypeError, matching the spec behavior of rejecting chains
@@ -252,9 +252,10 @@ fn resolve_typed_array_constructor_in_chain(
 ///    `(ek, S.prototype)`; miss → TypeError ("species is not a
 ///    TypedArray constructor") — a deliberate over-reject of the
 ///    spec, which would `Construct(S, ⟨len⟩)` to honour a true
-///    user-defined ctor.  Full `Construct` integration defers to a
-///    follow-up; for `class Sub extends Uint8Array {}` (no ctor
-///    body) the chain-walk bypass is observably equivalent.
+///    user-defined ctor (TypedArraySpeciesCreate).  That missing
+///    `Construct` is owned by `#11-vm-typed-array-create-construct`;
+///    for `class Sub extends Uint8Array {}` (no ctor body) the
+///    chain-walk bypass is observably equivalent.
 ///
 /// Both `[[Get]]` calls run user accessors / proxy traps and may
 /// throw — propagated as abrupt completions, not swallowed.

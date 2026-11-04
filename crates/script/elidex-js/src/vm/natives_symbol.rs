@@ -12,7 +12,7 @@ pub(super) fn native_symbol_constructor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `new Symbol()` is rejected by `do_new` via `constructable: false`.
+    // `new Symbol()` is refused by `admit_construct` (`Symbol` is `CallShape::CallableOnly`).
     // This function only runs for direct calls: `Symbol('desc')`.
     let desc = match args.first().copied() {
         Some(JsValue::Undefined) | None => None,

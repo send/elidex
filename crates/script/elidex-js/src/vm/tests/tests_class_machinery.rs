@@ -304,7 +304,7 @@ fn extends_conditional_null_takes_constructor_path() {
 
 // ---------------------------------------------------------------------------
 // D-17b R4 G4-4: BoundFunction in [[Construct]] dispatch. `do_new`
-// and `construct_synchronous` share `unwrap_bound_function_chain`
+// and `construct_synchronous` share `unwrap_bound_function_chain` (via `admit_construct`)
 // (ECMA-262 §10.4.1.2 Bound Function Exotic Objects [[Construct]]) so the two paths
 // can't drift on bound-chain unwrapping. The user-visible surface
 // for the divergence today is small — `class B extends Bound`
@@ -332,8 +332,9 @@ fn extends_non_constructor_throws_at_class_definition() {
 #[test]
 fn extends_arrow_function_throws_at_class_definition() {
     // Same theme: arrow functions are callable but NOT constructable
-    // per ECMA-262 §10.2.1 [[Construct]] — extending one must throw
-    // at class-definition time.
+    // (InstantiateArrowFunctionExpression, ECMA-262 §15.3.4, never
+    // applies MakeConstructor §10.2.5) — extending one must throw at
+    // class-definition time.
     super::eval_throws("class B extends (() => {}) {}");
 }
 
@@ -375,7 +376,7 @@ fn extends_heritage_expression_evaluated_once() {
 #[test]
 fn new_bound_constructor_via_do_new_still_works() {
     // `new BoundCtor(...)` itself (no class heritage) continues to
-    // unwrap via `do_new` → `unwrap_bound_function_chain` and
+    // unwrap via `do_new` → `admit_construct` → `unwrap_bound_function_chain` and
     // dispatch to the inner constructor with bound args prepended.
     // Regression for the shared-helper refactor: `do_new`'s
     // existing behavior must survive the extraction.

@@ -254,15 +254,18 @@ impl VmInner {
     /// (`dispatch_super_inner` and the custom-element upgrade; `do_new`
     /// pushes its JS frame inline and does not come here); the `mode`
     /// parameter keeps the signature symmetric with
-    /// [`super::VmInner::push_js_call_frame`] and primes the path for
-    /// a future native-`Function.construct`-via-this-helper caller.
+    /// [`super::VmInner::push_js_call_frame`]; `Reflect.construct`
+    /// (owned by `#11-vm-proxy-reflect`, slice-plan row 10a) consumes
+    /// this helper.
     ///
     /// `callee` is admitted by [`Self::admit_construct`] before any
     /// callee effect, keyed by `entry`: `dispatch_super_inner` passes
     /// [`ConstructEntry::Super`] (its callee is GetSuperConstructor's
     /// result, possibly `null`), the custom-element upgrade passes
-    /// [`ConstructEntry::New`] (HTML "upgrade an element" constructs C
-    /// directly, the shape of `new`).  The admission unwraps a
+    /// [`ConstructEntry::New`] (HTML "upgrade an element" §4.13.5 step
+    /// 10.3 "constructing C" reaches WebIDL "construct a callback
+    /// function" §3.12, whose step 3 is IsConstructor; the entry key
+    /// stays `New`).  The admission unwraps a
     /// BoundFunction (`class B extends A.bind(null) { ... super() ...
     /// }`) via [`Self::unwrap_bound_function_chain`], so the inner
     /// callable is dispatched with the chain's bound args prepended —

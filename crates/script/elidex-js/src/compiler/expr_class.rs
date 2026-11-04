@@ -121,7 +121,7 @@ pub(super) fn compile_class(
     let heritage = classify_heritage(prog, class.super_class);
     if let Some(ctor_member) = constructor {
         if let ClassMemberKind::Method { function, .. } = &ctor_member.kind {
-            let mut child = compile_nested_function(
+            let child = compile_nested_function(
                 fc,
                 prog,
                 analysis,
@@ -129,10 +129,6 @@ pub(super) fn compile_class(
                 function,
                 FunctionCreation::ClassConstructor,
             )?;
-            // User-written constructor: mark for home_class threading
-            // ([C16] ClassDefinitionEvaluation — class ctor frames get
-            // `CallFrame::home_class = closure_obj_id`).
-            child.is_class_ctor = true;
             let idx = fc.add_constant(Constant::Function(Box::new(child)));
             fc.emit_u16(Op::Closure, idx);
         }
@@ -214,8 +210,10 @@ pub(super) fn compile_class(
             // %Function.prototype%, so we only splice
             // `ctor.prototype.[[Prototype]] = null`. A user-written
             // `super()` then resolves to %Function.prototype% via
-            // GetSuperConstructor and throws TypeError on Construct —
-            // spec-mandated.
+            // GetSuperConstructor, and SuperCall evaluation (ECMA-262
+            // §13.3.7.1) step 5 throws TypeError because
+            // IsConstructor(%Function.prototype%) is false — before
+            // Construct (step 6); spec-mandated.
             fc.emit(Op::Dup); //                          [ctor ctor]
             let proto_name = fc.add_name("prototype");
             let ic1 = fc.alloc_ic_slot();

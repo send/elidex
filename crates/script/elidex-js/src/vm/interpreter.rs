@@ -349,7 +349,7 @@ impl VmInner {
                         // as a constructor" — hence this arm is UNCONDITIONAL
                         // (no mode guard; see the block comment above). The
                         // message SoT lives in `VmError::illegal_constructor` so
-                        // both chokepoints (`do_new` + here) stay in sync.
+                        // both chokepoints (`admit_construct` + here) stay in sync.
                         super::value::CallShape::IllegalConstructor => {
                             let name = self.strings.get_utf8(nf.name);
                             return Err(VmError::illegal_constructor(&name));
