@@ -214,7 +214,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             // Range must continuously correct that (§4.10.5.1.13).
             recorrect_range(&mut fcs);
         } else {
-            // HTML §4.10.5.1.18 (submit) / §4.10.5.1.19 (reset) default
+            // HTML §4.10.5.1.18 (submit) / §4.10.5.1.20 (reset) default
             // button label substitution — matches the `from_input_element`
             // path at createElement time.
             let displayed: &str = match fcs.kind {

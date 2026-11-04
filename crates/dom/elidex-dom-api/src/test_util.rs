@@ -44,6 +44,8 @@ pub(crate) struct CloneCreatedProbe {
     pub(crate) events: Arc<Mutex<Vec<(Entity, CloneScope)>>>,
     /// `(root has a shadow root, root has light children)` per event.
     pub(crate) shape_at_dispatch: Arc<Mutex<Vec<(bool, bool)>>>,
+    /// Child count of the root's shadow root at dispatch (0 when it has none).
+    pub(crate) shadow_children_at_dispatch: Arc<Mutex<Vec<usize>>>,
 }
 
 impl MutationDispatcher for CloneCreatedProbe {
@@ -54,6 +56,10 @@ impl MutationDispatcher for CloneCreatedProbe {
                 dom.get_shadow_root(root).is_some(),
                 !dom.children(root).is_empty(),
             ));
+            self.shadow_children_at_dispatch.lock().unwrap().push(
+                dom.get_shadow_root(root)
+                    .map_or(0, |sr| dom.children(sr).len()),
+            );
         }
     }
 }

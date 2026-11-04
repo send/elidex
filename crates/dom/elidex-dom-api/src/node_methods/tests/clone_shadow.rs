@@ -191,20 +191,25 @@ fn clone_node_document_deep_threads_clone_doc_into_replicated_shadow() {
 
 #[test]
 fn clone_node_shallow_shadow_children_carry_owner_document() {
-    // The shallow cloner stamps no AssociatedDocument; the shadow pass
-    // must thread the host's owner document onto replicated shadow
-    // children explicitly.
+    // The shadow pass (pass 4) threads the host's owner document onto the
+    // replicated shadow children as the cloner's `doc_override`. The shadow
+    // sources belong to a DIFFERENT document (`other`) than the host (`doc`),
+    // so a pass that dropped the override would fall back to
+    // `owner_document(src)` (tree_clone.rs) and stamp `other` — on the shadow
+    // child and, through the recursion, on its descendants.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
+    let other = dom.create_document_root();
+    assert_ne!(doc, other);
     let host = dom.create_element("section", Attributes::default());
     dom.set_associated_document(host, doc);
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
     let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, doc);
+    dom.set_associated_document(span, other);
     let leaf = dom.create_element("em", Attributes::default());
-    dom.set_associated_document(leaf, doc);
+    dom.set_associated_document(leaf, other);
     dom.append_child(span, leaf);
     dom.append_child(sr, span);
     wrap(host, &mut session);
@@ -218,14 +223,14 @@ fn clone_node_shallow_shadow_children_carry_owner_document() {
     assert_eq!(
         dom.owner_document(shadow_kids[0]),
         Some(doc),
-        "shallow-replicated shadow children keep the source's node document"
+        "shallow-replicated shadow children take the host's node document, not the source's"
     );
     let grandchildren = dom.children(shadow_kids[0]);
     assert_eq!(grandchildren.len(), 1, "step 6.7: descendants cloned");
     assert_eq!(
         dom.owner_document(grandchildren[0]),
         Some(doc),
-        "the shadow child's own descendants carry the node document too"
+        "the shadow child's own descendants carry the host's node document too"
     );
 }
 
@@ -390,6 +395,9 @@ fn clone_created_fires_after_the_whole_copy_exists() {
             .expect("attach clonable shadow");
         let light = dom.create_element("p", Attributes::default());
         dom.append_child(host, light);
+        let sr = dom.get_shadow_root(host).expect("shadow root");
+        let shadow_child = dom.create_element("b", Attributes::default());
+        dom.append_child(sr, shadow_child);
         wrap(host, &mut session);
 
         let probe = CloneCreatedProbe::default();
@@ -399,5 +407,9 @@ fn clone_created_fires_after_the_whole_copy_exists() {
             .unwrap();
         let shapes = probe.shape_at_dispatch.lock().unwrap().clone();
         assert_eq!(shapes, vec![(true, want_light)], "deep={deep}");
+        // Step 6.7: the shadow root's children already exist at dispatch,
+        // under both scopes.
+        let shadow_kids = probe.shadow_children_at_dispatch.lock().unwrap().clone();
+        assert_eq!(shadow_kids, vec![1], "deep={deep}");
     }
 }

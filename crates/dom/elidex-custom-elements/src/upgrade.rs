@@ -205,10 +205,16 @@ pub fn finalize_success(
     }
 }
 
-/// Post-constructor failure path (spec step 10, its exception branch): transition to
-/// [`CEState::Failed`] and drop every queued reaction targeting
-/// `entity` so re-enqueued Upgrade attempts short-circuit via
-/// `prepare_upgrade`'s early-return.
+/// Post-constructor failure path. Spec step 10's exception branch sets the
+/// definition to null, empties the reaction queue and rethrows, leaving the
+/// state "precustomized" (step 10.2) — it does not mark the element Failed
+/// (step 10.4 only throws the TypeError). Transitioning to
+/// [`CEState::Failed`] is elidex's own behaviour and part of the divergence
+/// slot `#11-ce-upgrade-returned-object-typeerror` owns; the observable
+/// difference is that `attachInternals()` accepts "precustomized" and rejects
+/// "failed". The queued reactions targeting `entity` are dropped so
+/// re-enqueued Upgrade attempts short-circuit via `prepare_upgrade`'s
+/// early-return.
 pub fn finalize_failure(
     dom: &mut EcsDom,
     queue: &mut VecDeque<CustomElementReaction>,
@@ -228,7 +234,7 @@ fn set_state(dom: &mut EcsDom, entity: Entity, new_state: CEState) {
 /// autonomous definition is found **at creation** with the synchronous
 /// custom elements flag set, the result's *is value* is set to **null**.
 /// With **no definition at creation** (defined later, upgraded later)
-/// the element is created with the given is value (step 7's
+/// the element is created with the given is value (step 6.2's
 /// create-an-element-internal call with `is`) and keeps it through the
 /// upgrade. Engine hosts call this on the
 /// defined-at-creation route, immediately before invoking/enqueuing

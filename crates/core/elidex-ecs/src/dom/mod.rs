@@ -117,11 +117,13 @@ pub struct EcsDom {
 /// stays in `pending`, and `Drop` writes back through the same borrow
 /// afterwards.  Unwinding drops the guard, so the slot and the counter
 /// are restored on the panic path as well.  The callback can reach
-/// `dispatcher` / `dispatch_depth` itself.  A dispatcher *installed*
-/// from inside a dispatch would be overwritten by the restore; the debug
-/// assertion in `Drop` reports that.  A dispatcher *cleared* or taken
-/// from inside a dispatch cannot be told apart (the slot is already
-/// empty), so the restore silently puts the old one back.
+/// `dispatcher` / `dispatch_depth` itself.  `Drop` always restores the
+/// slot and the counter first, then reports: a dispatcher *installed* from
+/// inside a dispatch (the slot is `Installed` at drop) is displaced by the
+/// restore and trips the debug assertion, after the state is already
+/// consistent.  A dispatcher *cleared* or taken from inside a dispatch
+/// cannot be told apart (the slot is `Absent` either way), so the restore
+/// silently puts the old one back.
 struct RestoreDispatcher<'a> {
     dom: &'a mut EcsDom,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
@@ -129,17 +131,19 @@ struct RestoreDispatcher<'a> {
 
 impl Drop for RestoreDispatcher<'_> {
     fn drop(&mut self) {
-        debug_assert!(
-            !matches!(self.dom.dispatcher, DispatcherSlot::Installed(_))
-                || std::thread::panicking(),
-            "a dispatcher was installed inside MutationDispatcher::dispatch; \
-             the take-and-restore would overwrite it"
+        let displaced = std::mem::replace(
+            &mut self.dom.dispatcher,
+            match self.pending.take() {
+                Some(d) => DispatcherSlot::Installed(d),
+                None => DispatcherSlot::Absent,
+            },
         );
-        self.dom.dispatcher = match self.pending.take() {
-            Some(d) => DispatcherSlot::Installed(d),
-            None => DispatcherSlot::Absent,
-        };
         self.dom.dispatch_depth = self.dom.dispatch_depth.saturating_sub(1);
+        debug_assert!(
+            !matches!(displaced, DispatcherSlot::Installed(_)) || std::thread::panicking(),
+            "a dispatcher was installed inside MutationDispatcher::dispatch; \
+             the take-and-restore overwrote it"
+        );
     }
 }
 

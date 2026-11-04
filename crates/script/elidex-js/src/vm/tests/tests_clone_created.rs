@@ -68,9 +68,13 @@ fn shallow_clone_of_shadow_host_upgrades_grandchild_custom_element() {
 }
 
 #[test]
-fn deep_and_shallow_clone_of_custom_element_each_enqueue_one_upgrade() {
-    // (f) `Subtree` and `SelfOnly` each enqueue exactly one upgrade for a
-    // custom-element root: original (1) + clone (2), for each flag.
+fn deep_and_shallow_clone_of_custom_element_each_upgrade_once() {
+    // (f) `Subtree` and `SelfOnly` each upgrade a custom-element root: original
+    // (1) + clone (2), for each flag. The constructor count cannot tell one
+    // enqueued `Upgrade` from two (the second hits a `prepare_upgrade` Skip),
+    // so "exactly one enqueue per candidate" is pinned at the engine level by
+    // `clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope`
+    // in elidex-custom-elements.
     for deep in ["true", "false"] {
         let out = run_then_read(
             &format!(
@@ -145,4 +149,36 @@ fn shallow_clone_copies_form_state_of_shadow_grandchild_input() {
          g ? g.value : 'no-grandchild'",
     );
     assert_eq!(out, "typed");
+}
+
+#[test]
+fn clone_scope_reaches_the_custom_element_arm() {
+    // The CE arm must pass the event's `scope` through to the walk: a deep clone
+    // of `<div><x-el></div>` (Subtree) upgrades the light-descendant clone, a
+    // shallow one (SelfOnly) does not — the light child is not a clone then.
+    let out = run_then_read(
+        "globalThis.n = 0; \
+         customElements.define('x-el', class extends HTMLElement { \
+             constructor() { super(); globalThis.n = (globalThis.n || 0) + 1; } }); \
+         var d = document.createElement('div'); \
+         d.append(document.createElement('x-el')); \
+         globalThis.n = 0; \
+         globalThis.__deep = d.cloneNode(true);",
+        "'' + globalThis.n",
+    );
+    assert_eq!(
+        out, "1",
+        "Subtree: the light-descendant clone's constructor ran"
+    );
+    let out = run_then_read(
+        "globalThis.n = 0; \
+         customElements.define('x-el', class extends HTMLElement { \
+             constructor() { super(); globalThis.n = (globalThis.n || 0) + 1; } }); \
+         var d = document.createElement('div'); \
+         d.append(document.createElement('x-el')); \
+         globalThis.n = 0; \
+         globalThis.__shallow = d.cloneNode(false);",
+        "'' + globalThis.n",
+    );
+    assert_eq!(out, "0", "SelfOnly: no constructor ran");
 }

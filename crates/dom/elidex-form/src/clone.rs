@@ -11,9 +11,8 @@
 //! or indeterminateness.
 //!
 //! This module closes that gap. The `elidex-dom-api` cloner tags each `<input>`
-//! / `<textarea>` clone with a transient [`ClonedFrom`] marker (it cannot read
-//! `FormControlState` — the crate dependency runs `elidex-form → elidex-dom-api`,
-//! never the reverse); this consumer, run synchronously at clone time by
+//! / `<textarea>` clone with a transient [`ClonedFrom`] marker (why it only
+//! records the link: see the `ClonedFrom` doc); this consumer, run synchronously at clone time by
 //! `FormControlReconciler`'s `MutationEvent::CloneCreated` arm (dispatched
 //! inside the cloner, before the clone entry returns), resolves each marker and
 //! materializes the copy **before any insertion**, so a detached clone reads

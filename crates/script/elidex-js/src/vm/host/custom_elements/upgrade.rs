@@ -291,9 +291,15 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
         Ok(value) => {
             // HTML §4.13.5 "upgrade an element" step 10.4 — if
             // SameValue(constructResult, element) is false, throw a
-            // TypeError AND mark the element Failed.  elidex currently
-            // throws a NotSupportedError DOMException here (slot
-            // `#11-ce-upgrade-returned-object-typeerror`). D-17b §5 routes the user ctor through
+            // TypeError. The spec's exception branch then sets the
+            // definition to null, empties the reaction queue and rethrows,
+            // so the state stays "precustomized" (set at step 10.2); it
+            // does NOT mark the element Failed. The Failed transition below
+            // is elidex's own behaviour, part of the divergence slot
+            // `#11-ce-upgrade-returned-object-typeerror` owns (together
+            // with throwing NotSupportedError instead of TypeError).
+            // Observable difference: `attachInternals()` accepts
+            // "precustomized" and rejects "failed". D-17b §5 routes the user ctor through
             // `construct_synchronous`, which DOES apply the
             // `[[Construct]]` return-substitution (non-Object return
             // → `Object(pre_alloc_instance)` — dispatch_class.rs

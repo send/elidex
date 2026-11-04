@@ -119,6 +119,10 @@ fn clear_closes_a_taken_window() {
     dom.set_mutation_dispatcher(Box::new(CountHook::default()));
     let _window = dom.take_mutation_dispatcher();
     dom.clear_mutation_dispatcher();
+    assert!(
+        matches!(dom.dispatcher, DispatcherSlot::Absent),
+        "clear must leave the slot Absent, not Taken"
+    );
     dom.fire_clone_created(el, CloneScope::Subtree);
 }
 
@@ -138,4 +142,53 @@ fn fire_clone_created_from_inside_dispatch_hits_reentry_assertion() {
     let el = dom.create_element("div", Attributes::default());
     dom.set_mutation_dispatcher(Box::new(Reenter(el)));
     dom.fire_clone_created(el, CloneScope::Subtree);
+}
+
+/// A dispatcher installed from inside its own dispatch trips the debug
+/// assertion in `RestoreDispatcher::drop`; the restore runs BEFORE the
+/// assertion, so after catching the panic the slot and the depth counter are
+/// already consistent and the original dispatcher is the one installed.
+#[cfg(debug_assertions)]
+#[test]
+fn installing_inside_dispatch_asserts_after_restoring_state() {
+    struct Installer {
+        count: Arc<Mutex<usize>>,
+    }
+    impl MutationDispatcher for Installer {
+        fn dispatch(&mut self, _event: &MutationEvent<'_>, dom: &mut EcsDom) {
+            *self.count.lock().unwrap() += 1;
+            dom.set_mutation_dispatcher(Box::new(PanicHook));
+        }
+    }
+    let mut dom = EcsDom::new();
+    let el = dom.create_element("div", Attributes::default());
+    let count = Arc::new(Mutex::new(0));
+    dom.set_mutation_dispatcher(Box::new(Installer {
+        count: count.clone(),
+    }));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dom.set_attribute(el, "id", "a");
+    }));
+    assert!(result.is_err(), "the displaced install should assert");
+    assert_eq!(*count.lock().unwrap(), 1);
+    assert_eq!(
+        dom.dispatch_depth, 0,
+        "depth not restored before the assert"
+    );
+    assert!(
+        matches!(dom.dispatcher, DispatcherSlot::Installed(_)),
+        "dispatcher not restored before the assert"
+    );
+    // The installed dispatcher is the ORIGINAL one (the displaced PanicHook is
+    // gone): another event reaches `Installer`, not `PanicHook`.
+    let again = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dom.set_attribute(el, "id", "b");
+    }));
+    assert!(again.is_err(), "Installer asserts again");
+    assert_eq!(
+        *count.lock().unwrap(),
+        2,
+        "original dispatcher not restored"
+    );
 }

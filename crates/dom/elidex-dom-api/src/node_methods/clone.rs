@@ -26,13 +26,15 @@ use elidex_script_session::{
 /// "clone a node" step 3).
 ///
 /// The cloning-step *value copy* (live value / dirty value flag / checkedness /
-/// indeterminateness) is an `elidex-form` concern, but this crate (`elidex-dom-api`)
-/// cannot read `FormControlState` — the dependency edge runs `elidex-form →
-/// elidex-dom-api`, never the reverse. So the cloner only records the src→dst
-/// *link* here; the engine-independent consumer
-/// `elidex_form::apply_clone_form_state` resolves it synchronously at clone
-/// time (from `FormControlReconciler`'s `MutationEvent::CloneCreated` arm, run
-/// at dispatch before the cloner entry returns), reads the source's
+/// indeterminateness) is an `elidex-form` concern, and the cloner here does not
+/// perform it. `FormControlState` itself lives in the leaf crate
+/// `elidex-form-core`, so reading it is not the constraint; the form cloning
+/// steps need `elidex-form`'s `create_form_control_state` (the canonical
+/// single-entity init, `init.rs`), and `elidex-form-core` is chartered as pure
+/// derivations with no `&mut EcsDom` systems (its `lib.rs` module doc). So the
+/// cloner only records the src→dst *link* here; `FormControlReconciler`'s
+/// `MutationEvent::CloneCreated` arm (run at dispatch before the cloner entry
+/// returns) resolves it synchronously, reads the source's
 /// `FormControlState`, materializes the copy on `dst`, and **removes this
 /// marker in the same pass**.
 ///
@@ -60,15 +62,17 @@ use elidex_script_session::{
 ///   re-clone does not propagate it), and auto-removed when its entity despawns.
 /// - **Never in the clone-policy copy-set** (`elidex_ecs`'s `tree_clone` module):
 ///   a subsequent clone of a still-marked entity does not propagate it.
-/// - The consumer walks the clone's shadow-inclusive descendants **plus** every
-///   `<template>`'s content fragment (`elidex_form`'s
-///   `collect_template_inclusive_descendants`), so every marker attached here —
+/// - The consumer's sweep is `EcsDom::for_each_clone_created` **plus**
+///   `for_each_uncapped_shadow_inclusive(…, TemplateContentsWalk::Include)` over
+///   every `<template>`'s content fragment, so every marker attached here —
 ///   light-tree, shadow-encapsulated, and template-encapsulated — is read and
 ///   removed in the same synchronous pass. Template contents must be included:
 ///   a JS-created `<input>`/`<textarea>` moved into `template.content` keeps the
 ///   `FormControlState` it got at creation, so a deep clone of that template has
-///   a live value to copy (a plain `for_each_shadow_inclusive_descendant` does
-///   not reach the detached content fragment).
+///   a live value to copy (the clone walk alone does not reach the detached
+///   content fragment). A `SelfOnly` clone deliberately leaves markers on the
+///   root's light children alone: that walk never visits them (no step 5 ran,
+///   so none of them is a clone).
 #[derive(Clone, Copy, Debug)]
 pub struct ClonedFrom {
     /// The source entity `dst` was cloned from — the node whose live
@@ -191,11 +195,9 @@ impl DomApiHandler for CloneNode {
 ///    spray a marker onto every node.  Each cloned form control receives
 ///    a transient `ClonedFrom` recording its source, which the
 ///    `elidex-form` consumer (`FormControlReconciler`'s `CloneCreated`
-///    arm, `apply_clone_form_state`) resolves and removes within the
-///    *same* synchronous clone operation.  This
-///    crate cannot read `FormControlState` — the dependency edge runs
-///    `elidex-form → elidex-dom-api`, never the reverse — so it records
-///    the src→dst *link* rather than copying the value itself.
+///    arm) resolves and removes within the *same* synchronous clone
+///    operation.  This crate records the src→dst *link* rather than
+///    copying the value itself (rationale: the `ClonedFrom` doc).
 ///
 /// 3. **`<template>` content-fragment replication** (HTML §4.12.3
 ///    cloning steps): a `<template>` clone gets its own *fresh* content

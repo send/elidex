@@ -11,7 +11,7 @@
 //!   single trait method's match in each dispatcher impl needs at
 //!   most a new arm (or `_ => {}` to ignore).
 //! - **ECS-native**: event-as-data, single dispatch method per consumer.
-//!   Behavior-pluralization (7 trait methods) → data-pluralization (7
+//!   Behavior-pluralization (7 trait methods) → data-pluralization (8
 //!   enum variants).
 //! - **Synchronous drain at chokepoint**: preserves "next IDL read sees
 //!   adjusted state" semantics (LiveRangeBridge / NodeIterator
@@ -121,8 +121,11 @@ pub enum CloneScope {
 /// - [`Self::CloneCreated`] — fired by `EcsDom::fire_clone_created` once a
 ///   "clone a node" call has created the whole copy, before the cloning
 ///   entry returns. Source spec: **WHATWG DOM §4.4** Interface Node, "clone
-///   a node" (steps 2, 5 and 6.7 define the created set; [`CloneScope`]
-///   carries which of them ran).
+///   a node" (steps 2, 5 and 6.7 define the created set). [`CloneScope`]
+///   records exactly whether step 5 ran (subtree true): step 6.7 runs under
+///   both scopes. The `SelfOnly` walk visits the ShadowRoot entity created at
+///   step 6.4 and the `Subtree` walk does not; see
+///   `EcsDom::for_each_clone_created` for the visit set.
 pub enum MutationEvent<'a> {
     /// A node has been linked into a parent.
     ///
@@ -137,7 +140,7 @@ pub enum MutationEvent<'a> {
     ///   `+= 1` (strict comparison).
     /// - `was_connected`: connectedness of `node` BEFORE this mutation
     ///   began — captured by the dispatcher at the engine fire site
-    ///   prior to the implicit detach + re-link. Per WHATWG DOM §4.4
+    ///   prior to the implicit detach + re-link. Per WHATWG DOM §4.2.2
     ///   "connected" (= shadow-including root is a Document).
     ///   Consumers that don't need the pre-mutation snapshot ignore
     ///   the field via the `..` destructure. The Custom Elements

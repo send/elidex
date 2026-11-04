@@ -443,7 +443,7 @@ fn element_get_html_shadow_roots_plain_array_like_throws_typeerror() {
 
 #[test]
 fn element_get_html_shadow_roots_null_throws_typeerror() {
-    // PR201 Copilot R6 / F1 regression: per WebIDL §3.10.16, a
+    // PR201 Copilot R6 / F1 regression: per WebIDL §3.2.17, a
     // dictionary member's default is applied ONLY when the value is
     // `undefined`. `null` is passed through to the sequence converter,
     // which rejects it because `sequence<ShadowRoot>` is not nullable.
@@ -559,7 +559,7 @@ fn element_get_html_huge_shadow_roots_length_is_capped_safely() {
 
 #[test]
 fn element_get_html_throws_typeerror_on_non_object_primitive_options() {
-    // PR201 Copilot R3 / F1 regression: WebIDL §3.10.16 dictionary
+    // PR201 Copilot R3 / F1 regression: WebIDL §3.2.17 dictionary
     // conversion throws TypeError for non-Object / non-null /
     // non-undefined arguments. The earlier draft silently fell back to
     // the default dictionary, which masked spec violations in caller
