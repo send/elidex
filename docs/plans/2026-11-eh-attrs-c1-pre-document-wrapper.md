@@ -81,6 +81,7 @@ comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-ma
 | H-14 | A Document entity is spawned at exactly two sites | `EcsDom::create_document_node` `crates/core/elidex-ecs/src/dom/mod.rs:410-416` (spawns `TreeRelation`, `NodeKind::Document`, `DocumentBaseUrl(about_blank_url())`; callers `create_document_root` `:395`, the fragment throwaway `crates/core/elidex-ecs/src/dom/tree/teardown.rs:301`, DOMParser `crates/dom/elidex-form/src/inert_document.rs:119`; C1's I will be a third caller) and the shallow cloner's builder `clone_node_shallow_unchecked` `crates/core/elidex-ecs/src/dom/tree_clone.rs:270-379` for a Document source (spawn `:379`). Population P-8 |
 | H-15 | No Document URL is stored anywhere | `crates/core/elidex-ecs/src/lib.rs:15-17` ("no real `DocumentUrl` ECS state yet"); `inert_document.rs:182-197` (DOMParser's caller URL seeds only `DocumentBaseUrl`); the clone-policy table `tree_clone.rs:13-40` has no URL row |
 | H-16 | The main document's URL is committed by the shell, and updated synchronously by `history` | the engine boundary `HostDriver::set_current_url` (`crates/script/elidex-script-session/src/engine.rs:360`) → `ElidexJsEngine::set_current_url` (`crates/script/elidex-js/src/engine.rs:556-558`) → `NavigationState::set_current_url` (`crates/script/elidex-js/src/vm/host/navigation.rs:216-218`, `None` → `about:blank`). Shell production callers (P-9): `crates/shell/elidex-shell/src/pipeline.rs:258` (pipeline build), `crates/shell/elidex-shell/src/app/navigation.rs:139`, `:346`, `:662`, `crates/shell/elidex-shell/src/content/navigation.rs:345`, `:423`, `:726` (7). The VM-side write is the *URL and history update steps* in `pushState` / `replaceState` (`crates/script/elidex-js/src/vm/host/history.rs:248`). The service-worker thread's `vm/sw_thread.rs:196` writes a worker script URL, not a Document's |
+| H-18 | The existing `DocumentBaseUrl` is the document **base** URL, a derived cache — not the document's URL | `DocumentBaseUrl` `crates/core/elidex-ecs/src/components.rs:131-137` ("Derived document base URL — first `<base>`'s frozen URL OR the fallback URL"); population P-12: one spawn writer (`create_document_node` `mod.rs:414`, `about:blank`), one maintainer writer (`recompute_document_base` `crates/dom/elidex-dom-api/src/element/document_base.rs:126-155`, insert `:154`; reached from `initialize_base_url_for_document` `:202-205` and the `BaseUrlMaintainer` arms `:300`, `:314`, `:366`, `:396`), every arm passing `about_blank_url()` as the fallback except DOMParser's caller URL (`inert_document.rs:196`); one reader, `document_base_url` `document_base.rs:50-62`, used by `GetDocumentBaseURI` (`document_props.rs:51`), `GetNodeBaseURI` (`:76`) and `href_accessor.rs:51` |
 | H-17 | Every shell commit site has the page `EcsDom` and its Document entity in hand | `PipelineResult { dom, document, runtime, url, .. }` `crates/shell/elidex-shell/src/lib.rs:199-215`; the build-time site runs inside `run_scripts_and_finalize(dom, document, ..)` (`pipeline.rs:189-205`) |
 
 ### §0.3 Premise errors in the brief (reported)
@@ -189,8 +190,9 @@ comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-ma
 - **D-14 — DOMParser's URL.** `elidex_form::parse_into_inert_document(dom, markup, caller_url)` sets the new
   Document's `DocumentUrl` to `caller_url` (HTML §8.5.1 step 3: "URL is relevantDocument's URL"), and the VM native
   (`dom_parser.rs:282`) passes the **bound document's** `DocumentUrl` (relevantDocument = this's relevant global's
-  associated Document), not `navigation.current_url`. The `caller_base_url` seed of `DocumentBaseUrl` keeps using the
-  same value (unchanged; base URL is `#11-document-base-url`'s).
+  associated Document), not `navigation.current_url`. The `initialize_base_url_for_document` fallback it already
+  passes (`inert_document.rs:196`) is then read back from the new Document's `DocumentUrl`, so one value feeds both
+  components (D-17; the base URL itself stays `#11-document-base-url`'s).
 - **D-15 — the main document's URL: one commit function.** `elidex_script_session::commit_document_url(driver, dom,
   document, url: Option<Url>)` (NEW, engine-independent): writes `dom.set_document_url(document, url or about:blank)`
   (HTML §7.5.1 *create and initialize a Document object*: URL = creationURL; navigation commits and fragment navigations
@@ -203,6 +205,27 @@ comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-ma
   VM helper `VmInner::update_document_url(doc, url)` (NEW; host marshalling: `EcsDom::set_document_url` plus the
   mirror), so a same-script `document.URL` after `pushState` reads the new URL. The history algorithm itself is
   pre-existing host code and is not moved here (§7).
+- **D-17 — `DocumentUrl` is a second component, not `DocumentBaseUrl` reused (PM 338).** The existing abstraction was
+  checked first. The spec keeps the two apart: a document's *URL* is its own fact (DOM §4.5: "URL (a URL) … Unless
+  stated otherwise … URL is "about:blank""), while its *document base URL* (HTML §2.4.3) is derived — step 1 "If
+  document has a descendant base element that has an href attribute, then return the frozen base URL of the first such
+  base element", step 2 the base URL override, step 3 the *fallback base URL*, whose steps are 1 "If document's URL
+  matches about:blank or about:srcdoc, and document's about base URL is non-null, then return document's about base
+  URL" and 2 "Return document's URL". So the two differ whenever a `<base href>` exists (`document.URL` is the page,
+  `document.baseURI` the `<base>`'s frozen URL) or an about base URL applies. elidex's `DocumentBaseUrl` is that derived
+  value (H-18): `BaseUrlMaintainer` overwrites it with a `<base>`'s frozen URL, so it cannot hold the document's URL,
+  and renaming it would leave the base URL without a home. **Relation**: `DocumentUrl` is an **input** of
+  `DocumentBaseUrl` (through the fallback base URL); `DocumentBaseUrl` stays a cache with one writer family,
+  `BaseUrlMaintainer` (`recompute_document_base` / `initialize_base_url_for_document`), and its one reader
+  `document_base_url`. Writers of each: `DocumentUrl` — spawn default, clone, DOMParser, `commit_document_url` (where
+  navigation writes the main document's, D-15), `update_document_url` (D-16); `DocumentBaseUrl` — spawn default and
+  `BaseUrlMaintainer` only (C1-pre adds no writer to it). HTML §2.4.3 *set the URL* is "1 Set document's URL to url;
+  2 Respond to base URL changes given document": step 1 is C1-pre's writers; step 2 (re-deriving the cache when the
+  URL changes) and making the maintainer's fallback read `DocumentUrl` instead of `about_blank_url()` are
+  `#11-document-base-url`'s, which owns every document-base reader and the fallback (R-7). The one C1-pre touch on
+  that side is DOMParser (D-14): the caller URL is written to `DocumentUrl` first and the same value is then passed as
+  the `initialize_base_url_for_document` fallback, read back from the component, so DOMParser's two facts come from one
+  source. The base URL override (DOM) and the about base URL (HTML) are not modelled (§7).
 
 ## §1. Shape and verdict
 
@@ -215,7 +238,7 @@ EH-attrs umbrella once the PM adds it to umbrella §1.2 (R-5), so a terminal uni
 (`document.rs` pure move, D-10) also before C1-pre. D-1 to D-16 stay one PR: the prototype without D-4 to D-9 would
 make I's surface reachable with the receiver-ignoring answers PM 328 rejects; D-9 without D-13 to D-16 has no store
 to read; D-13 to D-16 without D-9 has no reader. Within the PR the URL work is its own commit after the prototype
-commit (reviewable halves, one landing). Preflight reports SPLIT-RECOMMENDED (K = 4, M = 18): K counts the Selection
+commit (reviewable halves, one landing). Preflight reports SPLIT-RECOMMENDED (K = 4, M = 19): K counts the Selection
 API row, a single member (`getSelection`), and M's rows are the spec homes of the one member suite and the one URL
 fact, so a further split would separate a fact from its reader (the One-issue-one-way state) rather than shrink scope.
 
@@ -258,7 +281,7 @@ X3 and X7 are informative (the spec decides X3; X7 is unchanged). X4, X5 gate W6
 | B4 facts | Each member answers from `this`: tree facts through dom-api with `this`; browsing-context facts through the one predicate (D-4); the URL through `DocumentUrl` (D-9); every other fact per §5.1 P-11 |
 | B5 lifecycle | Bind / unbind / rebind change no wrapper's prototype and run no per-bind install; a newly bound document's wrapper gets the same prototype; no per-entity install state exists |
 | B6 consumers | DOMParser, `cloneNode`, C0c's `adoptNode`, C1's I carry no path-specific Document step; C1's T5, T1 (third and URL legs) and M3 hold on C1's head |
-| B7 URL | Every Document entity carries exactly one `DocumentUrl` from spawn; it changes only through `EcsDom::set_document_url`, called by the D-14 / D-15 / D-16 writers; every Document-member read of a document's URL reads it; the per-VM `current_url` equals the bound document's component after every commit and update |
+| B7 URL | `DocumentUrl` (the URL) and `DocumentBaseUrl` (the derived base URL) stay separate, and C1-pre writes only the former (D-17); every Document entity carries exactly one `DocumentUrl` from spawn; it changes only through `EcsDom::set_document_url`, called by the D-14 / D-15 / D-16 writers; every Document-member read of a document's URL reads it; the per-VM `current_url` equals the bound document's component after every commit and update |
 
 ### §2.2 All pairs (21), with intersection
 
@@ -313,6 +336,7 @@ not encountered"; possible multipage drift); the §4.1 row rests on the IDL and 
 | WHATWG DOM §4.5 Interface Document | a document's URL, default "about:blank"; `URL` / `documentURI` / `compatMode` getter steps | URL: return this's URL serialized; compatMode: quirks → "BackCompat", else "CSS1Compat" | `DocumentUrl` (NEW) `crates/core/elidex-ecs/src/components.rs`; `create_document_node` `crates/core/elidex-ecs/src/dom/mod.rs:410` (D-13); `GetDocumentUrl` `crates/dom/elidex-dom-api/src/char_data/document_props.rs:14` (D-9); `GetCompatMode` (D-7) | ✗ (mode not modelled, §5.1 P-11) | no |
 | WHATWG DOM §4.4 Interface Node | *clone a node* step 5 (Document: copy's encoding, content type, URL, origin, type, mode … to those of node); `ownerDocument` | Document clone | `clone_node_shallow_unchecked` `crates/core/elidex-ecs/src/dom/tree_clone.rs:270` copies `DocumentUrl` (D-13); `native_node_clone_node` `crates/script/elidex-js/src/vm/host/node_methods_extras.rs:201` (hook removed, D-2) | ✗ (encoding, content type, origin, type, mode not modelled) | yes |
 | WHATWG HTML §7.5.1 Shared document creation infrastructure | *create and initialize a Document object*: URL = creationURL | navigation-created Documents | `commit_document_url` (NEW) in `crates/script/elidex-script-session/src/engine.rs`; shell sites `crates/shell/elidex-shell/src/pipeline.rs:258` and P-9 (D-15) | ✓ | yes |
+| WHATWG HTML §2.4.3 Document base URLs | *document base URL* 1–3; *fallback base URL* 1–2; *set the URL* 1–2 | URL ≠ base URL when a `<base href>` exists (step 1) or an about base URL applies (fallback step 1); the fallback returns the document's URL | `DocumentUrl` (NEW) is the URL; `DocumentBaseUrl` stays the derived base (`crates/dom/elidex-dom-api/src/element/document_base.rs:126`) (D-17); set-the-URL step 2 and the fallback's read of `DocumentUrl` are `#11-document-base-url`'s | ✗ (fallback reads `about:blank`; about base URL, base URL override not modelled) | yes |
 | WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | *URL and history update steps* step 9 (set the URL given document to newURL) | `pushState` / `replaceState` | `crates/script/elidex-js/src/vm/host/history.rs:248` via `update_document_url` (NEW) (D-16) | ✓ | yes |
 | WHATWG HTML §7.2.2 The Window object | `defaultView` getter step 1; `HTMLDocument` = the Document interface object | browsing context null → null | `native_document_get_default_view` `document.rs:565` via the predicate (D-4) | ✓ | no |
 | WHATWG HTML §7.3.2 Browsing contexts | a Document's browsing context | bound document ↔ the VM's browsing context; any other → null | `document_has_browsing_context` (NEW) (D-4) | ✓ | no |
@@ -475,6 +499,21 @@ statement "the VM touches none of it" becomes true; R-C5's precedent text become
   | custom element registry (DOM §4.5) | `createElement` (and C0c's `adoptNode`) | the VM's registry, used whatever `this` is (`document.rs:310-355`; C0c memo T15r) | existing slot `#11-document-null-registry-adopt-reset` (scope (1): null for DOMParser documents and the inert template document) — no C1-pre change |
   | cookies (the jar) | `cookie` | `HostData::cookie_jar` | not a per-entity fact (CLAUDE.md side-store exception (b)) |
 
+- **P-12 `DocumentBaseUrl` writers and readers** (PM 338; property: a write or read of the component):
+  `git grep -n 'DocumentBaseUrl' -- 'crates/*.rs' | /usr/bin/grep -v "$NT"` plus the callers of its two functions,
+  `git grep -n 'recompute_document_base(\|initialize_base_url_for_document(\|document_base_url(' -- 'crates/*.rs' | /usr/bin/grep -v "$NT"`.
+  At `fab44a1d`: **writers** — `crates/core/elidex-ecs/src/dom/mod.rs:414` (spawn, `about:blank`);
+  `crates/dom/elidex-dom-api/src/element/document_base.rs:154` (the only maintainer insert, in `recompute_document_base`),
+  reached from `initialize_base_url_for_document` (`:202-205`; callers `BaseUrlMaintainer::initialize_from_tree` `:285`,
+  i.e. the bind path's D-31 pass `crates/script/elidex-js/src/vm/vm_api.rs:305-313`, with `about_blank_url()`, and
+  DOMParser `inert_document.rs:196` with the caller URL) and from the maintainer's Insert / Remove / AttributeChange
+  arms (`:300`, `:314`, `:366`, `:396`, all `about_blank_url()`). **Readers** — `document_base_url` (`:50-62`, the only
+  read of the component outside the maintainer's own `unchanged` check `:147-150`), called by `GetDocumentBaseURI`
+  (`crates/dom/elidex-dom-api/src/char_data/document_props.rs:51`), `GetNodeBaseURI` (`:76`) and
+  `effective_base_url` (`crates/dom/elidex-dom-api/src/element/href_accessor.rs:51`). Not cloned (`tree_clone.rs:31`,
+  "out-of-domain"). C1-pre adds no writer or reader to this population (D-17); it changes the value DOMParser's call
+  passes only in where it comes from (D-14).
+
   Facts no Document member reads at `fab44a1d` (encoding, content type, origin, type, allow declarative shadow roots,
   about base URL) are outside the population; a member that starts reading one must add a row.
 
@@ -569,6 +608,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | W16 | red (fixture; PM 335 (3); I's shape) | `d = p.ownerDocument; [d.URL, d.documentURI]` on the generic path, the bound document at `https://example.com/a` (fixture commits it through `commit_document_url`) | `[undefined, undefined]` (no install; with D-1 alone: the page URL) | `["about:blank", "about:blank"]` |
 | W18 | red | `u = dp.URL; history.pushState(null, '', '?x'); [u === 'https://example.com/a', dp.URL === u, document.URL.endsWith('?x')]` | `[true, false, true]` | `[true, true, true]` |
 | W19 | red | `c = document.cloneNode(); history.pushState(null, '', '?y'); [c.URL === 'https://example.com/a', document.URL.endsWith('?y')]` | `[false, true]` | `[true, true]` |
+| W21 | guard (D-17: URL ≠ base URL) | bound document at `https://example.com/a`, then `b = document.createElement('base'); b.href = 'https://cdn.example/x/'; document.head.append(b); [document.URL, document.baseURI]`; and `dp2 = new DOMParser().parseFromString('<base href="https://cdn.example/y/">', 'text/html'); [dp2.URL, dp2.baseURI]` | `[page URL, "https://cdn.example/x/"]`; `[page URL, "https://cdn.example/y/"]` | same (now `URL` from `DocumentUrl`, `baseURI` still from `DocumentBaseUrl`) |
 | W20 | guard (compat-webapi) | cookie scoped by the document URL: commit `https://example.com/p/a`, `document.cookie = 'k=v; path=/p'`; `document.cookie.includes('k=v')`; on `dp`: `dp.cookie === ''` | `true`; `true` | same (now through the component) |
 
 ### §6.2 Shell integration (the main document's URL; PM 335 (3))
@@ -612,6 +652,7 @@ three agree. The component leg is the red one; the `document.URL` leg is the K-0
 | DOMParser or clone install left behind | P-2 ratchet, W11 |
 | `URL` / `readyState` without brand check | W10 |
 | `GetDocumentUrl` falls back to `current_url` (or the VM native kept) | W16, W18, W19 |
+| `URL` reads `DocumentBaseUrl` (the reuse D-17 rejects) | W21 (both legs), W16 against a `<base>`-carrying variant |
 | `create_document_node` without the default | U1, W16 |
 | the cloner drops `DocumentUrl` | U2, W19 |
 | DOMParser reads `current_url` instead of the bound document's component (both equal at parse) | W18 is blind to it: U4 plus the P-10 ratchet (0 `navigation.current_url` in `dom_parser.rs`) |
@@ -635,6 +676,7 @@ three agree. The component leg is the red one; the `document.URL` leg is the K-0
 | `[LegacyUnforgeable] location` on Document | not tracked here | `document.location` is absent |
 | `[SameObject]` `forms` / `images` / `links` | not tracked here (live-collection family, B0 / B1 of the A1 gate) | each read allocates a new collection |
 | referrer, readiness, mode | R-8, R-4, R-9 (slot proposals) | §5.1 P-11 rows |
+| the base URL's dependency on the URL (fallback base URL step 2; *respond to base URL changes*), the about base URL, the base URL override | `#11-document-base-url` (R-7) | with no `<base href>`, `baseURI` and relative-URL resolution use `about:blank`, not the document's URL, and are not re-derived when the URL changes |
 | browsing-context facts as ECS components | B1 / `#11-browsing-context-state-ecs-components` | the predicate's input is per-VM `HostData::document` |
 | the per-Document custom element registry | `#11-document-null-registry-adopt-reset` | `I.createElement` / `dp.createElement` use the VM's registry |
 | the *URL and history update steps* algorithm living in vm/host | not tracked here (pre-existing; `history.rs`) | the algorithm computing newURL is host code; C1-pre only replaces its write |
@@ -696,7 +738,10 @@ pre-existing or another unit's scope.
   written by the same functions; this program's document-URL facet is now to re-point the mirror's readers (population:
   `git grep -n 'navigation\.current_url\|\.current_url\b' -- 'crates/*.rs'`, less tests and C1-pre's own) — the
   fallback base URL included — and delete the mirror for Window VMs. The closed `#11-document-url-real-navigation`
-  mentions in `crates/` are re-pointed by C1-pre."
+  mentions in `crates/` are re-pointed by C1-pre. `DocumentBaseUrl` stays the derived document base URL (C1-pre D-17,
+  HTML §2.4.3); this program's remaining base work includes making `BaseUrlMaintainer`'s fallback read the document's
+  `DocumentUrl` (the *fallback base URL* step 2) instead of `about_blank_url()` (`document_base.rs:285`, `:300`, `:366`,
+  `:396`) and re-deriving the cache when `DocumentUrl` changes (*set the URL* step 2, *respond to base URL changes*)."
 - **R-8 slot proposal `#11-document-referrer-component`**: **Defect**: a Document's referrer (HTML §3.1.4, set by
   *create and initialize a Document object*) is held per-VM (`NavigationState::referrer`, set by the shell through
   `Vm::set_navigation_referrer`, `crates/script/elidex-js/src/vm/vm_api.rs:186`), not on the Document entity — the
@@ -717,7 +762,7 @@ pre-existing or another unit's scope.
    `vm/host_data/**`.
 2. C1-pre0 landed as a pure move (no line changed outside moved blocks, `mod` and `use` lines); `vm/globals.rs` < 1000
    or the residue is `register_globals` alone (D-11).
-3. D-1 to D-16 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 0 among Document members; P-9's ratchet
+3. D-1 to D-17 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 0 among Document members; P-9's ratchet
    holds; P-10 0 hits.
 4. §1.1 filled before the implementation branch is cut; W6 asserted only if X4 / X5 agree, else the PM's decision.
 5. §6.1 to §6.3 cells present; every red cell run red on the base with its control green, recorded in the PR
@@ -733,7 +778,10 @@ pre-existing or another unit's scope.
 
 *Rev 1* (2026-11-04): first draft (PM 328 brief), with PM 335 applied before the first commit: D-9 rewritten (the
 component instead of "value per O-1"), D-13 to D-16 added, §1 axis B7, §2.2 to 21 pairs, §4.3, §5.1 P-8 to P-11, §6.1
-W16 / W18 to W20, §6.2, §6.3, R-4 / R-7 to R-9; the draft's O-1 (URL home) is decided by PM 335.
+W16 / W18 to W20, §6.2, §6.3, R-4 / R-7 to R-9; the draft's O-1 (URL home) is decided by PM 335. *Rev 1.1*
+(2026-11-04, PM 338): D-17 (`DocumentUrl` vs the existing `DocumentBaseUrl`: the base URL is derived from the URL,
+HTML §2.4.3, so the existing component is not reused), H-18, §5.1 P-12 (its writers and readers), the §3 row HTML
+§2.4.3, D-14's fallback read-back, W21, the §6.4 row, the §7 row, R-7's addendum.
 
 ## §11. Open questions
 
