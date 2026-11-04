@@ -271,13 +271,25 @@ callers keep today's outcome. Out of scope and unchanged: the third walker,
 `unwrap_bound_chain` in `vm/host/typed_array_static.rs:91-100`, which resolves the TypedArray kind
 rather than admitting a construct; it is `#11-vm-typed-array-create-construct`'s to fold (§5).
 
-**The admission.** One helper, used by both entries in place of their own checks: unwrap the bound
-chain with `unwrap_bound_function_chain` (`vm/dispatch_class.rs:180`, keeping its
-`Maximum bind chain depth exceeded` RangeError at `:199-201`), classify the target, and map a refusal to
-the error. `do_new` loses its arrow test (`vm/ops.rs:709-714`) and its native `match` (`:716-752`) and
-calls the helper where it now calls `unwrap_bound_function_chain` (`:695`); `construct_synchronous`
-replaces its unwrap (`:256`) and its kind test (`:267-281`) the same way. Checking the unwrapped target is
+**The admission.** One helper, used by both entries in place of their own checks. It takes the callee
+as a `JsValue` and the entry (`New` / `Super`), and owns IsConstructor step 1 (a non-Object is refused)
+for both entries; for an Object it unwraps the bound chain with `unwrap_bound_function_chain`
+(`vm/dispatch_class.rs:180`, keeping its `Maximum bind chain depth exceeded` RangeError at `:199-201`),
+classifies the target, and maps a refusal to the error. `do_new` loses its own non-Object let-else
+(`vm/ops.rs:685-687`), its arrow test (`:709-714`) and its native `match` (`:716-752`), and calls the
+helper where it now calls `unwrap_bound_function_chain` (`:695`); `construct_synchronous` replaces its
+unwrap (`:256`) and its kind test (`:267-281`) the same way. Checking the unwrapped target is
 IsConstructor of the wrapper by BoundFunctionCreate step 6.
+
+**The null super constructor moves into the admission.** Today the superCtor read refuses `null`
+(`dispatch_super_inner`'s `.prototype.ok_or_else(… "Super constructor null is not a constructor")`,
+`vm/dispatch_class.rs:121-124`) — a refusal outside the admission, for SuperCall step 5's IsConstructor,
+which webref places after step 4 (`.claude/tools/webref body ecma262 sec-super-keyword-runtime-semantics-evaluation`).
+After this PR the read no longer throws: it hands the resolved superCtor (`JsValue::Null` included) to
+`construct_synchronous`, whose callee parameter becomes a `JsValue` (`ctor_id: ObjectId` today, `:234`),
+and the admission refuses `null` with the `Super` entry's message. The custom-element upgrade passes
+`JsValue::Object(constructor)` (`vm/host/custom_elements/upgrade.rs:315`). So every IsConstructor refusal
+at both entries, `null` included, is the admission's.
 
 **Placement.** Both entries run the admission after the arguments are evaluated and before any
 allocation, frame push or stack splice: EvaluateNew (§13.3.5.1.1) step 5 follows step 4's
@@ -303,9 +315,12 @@ non-callable kind → `"not a constructor"` (`vm/ops.rs:686`, `:712`, `:750`;
 (`vm/ops.rs:744-747`, `vm/dispatch_class.rs:278`); `CallShape::IllegalConstructor` →
 `VmError::illegal_constructor` (`vm/ops.rs:737-741`). The super path gains the last arm, which it
 lacks today (`vm/dispatch_class.rs:265-281` reports an `IllegalConstructor` native as
-`"{name} is not a constructor"`): one mapping, both entries. Unchanged: the heritage message
-`"Class extends value is not a constructor or null"` (`vm/dispatch.rs:1001`) and the null-super
-message (`vm/dispatch_class.rs:124`).
+`"{name} is not a constructor"`): one mapping, both entries. **The non-Object arm is the one arm keyed
+by the entry**, so both existing messages are kept: `New` → `"not a constructor"` (`new null()`, today
+`vm/ops.rs:686`), `Super` → `"Super constructor null is not a constructor"` (today
+`vm/dispatch_class.rs:124`; GetSuperConstructor yields an Object or `null`, so `null` is the only
+non-Object the `Super` entry sees). Every other arm ignores the entry. Unchanged: the heritage message
+`"Class extends value is not a constructor or null"` (`vm/dispatch.rs:1001`).
 
 **Docstrings and comments.** `construct_synchronous`'s claim that it is invoked from "`do_new`'s JS
 branch" (`vm/dispatch_class.rs:220-221`) is false — `do_new` pushes its frame inline (`vm/ops.rs:784-793`)
@@ -344,13 +359,13 @@ The new items cite by AO name, with numbers from `webref aoid`:
 | `FunctionCreation` | `Ordinary`: InstantiateOrdinaryFunctionObject (§15.2.4) / Expression (§15.2.5) and the §15.5 / §15.6 / §15.8 instantiations; `Method`: DefineMethod (§15.4.4), MethodDefinitionEvaluation (§15.4.5); `ClassConstructor`: ClassDefinitionEvaluation (§15.7.14) steps 15.a and 17 |
 | `ConstructAdmission` + classifier | IsConstructor (§7.2.4); §10.3's built-in `[[Construct]]` "if and only if" sentence for the native arm, with a pointer to `#11-webidl-interface-object-isconstructor` |
 | `is_constructor` | IsConstructor (§7.2.4); BoundFunctionCreate (§10.4.1.3) step 6 for the walk |
-| admission helper | EvaluateNew (§13.3.5.1.1) step 5; SuperCall Evaluation (§13.3.7.1) step 5; ClassDefinitionEvaluation (§15.7.14) step 14.a.iv.3; Construct (§7.3.14), whose caller guarantees a constructor |
+| admission helper | IsConstructor (§7.2.4) step 1 (non-Object); EvaluateNew (§13.3.5.1.1) step 5; SuperCall Evaluation (§13.3.7.1) step 5; ClassDefinitionEvaluation (§15.7.14) step 14.a.iv.3; Construct (§7.3.14), whose caller guarantees a constructor |
 
 **Layering / ECS.** All of this is ECMAScript core in `vm/` and `compiler/`; nothing moves into
 `vm/host/`. Its census at `115a667c`: predicate callers `vm/host/custom_elements/define.rs:49` and
 `vm/host/typed_array_static.rs:146`, `:287` (unchanged code, new answer through the predicate); the
 entry caller `vm/host/custom_elements/upgrade.rs:315`, which reaches the admission through
-`construct_synchronous` and writes no check; a comment-only edit at `vm/host/events.rs:578`; and the
+`construct_synchronous` (now passing `JsValue::Object`) and writes no check; a comment-only edit at `vm/host/events.rs:578`; and the
 comment re-point at `vm/host/typed_array_static.rs:116-121`. No component, side store or session state
 is involved.
 
@@ -371,11 +386,18 @@ fails (derived here; the post-implementation run in §4.2 records it).
 - **A3, refusal before any callee effect** (the admission precedes every allocation, frame push and
   body execution). Mutants M8, M8b — measured below.
 
+The null super constructor (§1.3) adds no axis: its refusal is the admission's non-Object arm, on the
+**same admission line** in `construct_synchronous` that A2 and A3 already decide — A2 because the
+`Super` entry must consult that arm (M11, M12), A3 because the line runs after the arguments (T-ORD's
+null half pins the order).
+
 | Mutant | Cells it fails | Fails alone? | Invariant it breaks | Folded into | Meets the other axes at |
 |---|---|---|---|---|---|
 | **M8** admission's JS-function refusal after `push_js_call_frame` in `construct_synchronous` (the native arm stays before the branch, §4.2) | T-ORD's super half only: the async X's push runs its body (`vm/interpreter.rs:866-906`), so `log` is `1,2`. Every TypeError cell still gets its TypeError, and T-POP still reads `x\|10,20,TE\|2`, because `with_call_mode`'s Err path pops the frames and truncates the stack back to entry (`vm/interpreter.rs:248-260`) | yes | refusal precedes every callee effect | **A3** | A2: the one admission line in `construct_synchronous`; A1: the kinds whose push runs a body are async kinds that A1 classifies `NotConstructor` |
 | **M8b** admission's JS-function refusal after the inline frame push in `do_new` (`vm/ops.rs:784-793`; native arm as M8) | T-ORD's new half only (`log` is `1,2`) | yes | same | **A3** | A2: the one admission line in `do_new`; A1: as M8 |
 | **M9** the super path keeps its own native message | T-MSG's `Crypto` half only | yes | each entry consults the one admission, its error mapping included | **A2** (error arm) | owned by A2 |
+| **M11** the admission's non-Object arm for the `Super` entry removed | T-ORD's null half only (exact message) | yes | each entry consults the one admission, its non-Object arm included | **A2** (error arm) | owned by A2 |
+| **M12** the entry key collapsed (one non-Object message for both entries) | T-MSG's `new null()` cell or T-ORD's null half, whichever message was dropped | yes | same | **A2** (error arm) | owned by A2 |
 | **M10** the admission walks the chain with `is_constructor` before unwrapping | T-DEPTH only (over-depth becomes a TypeError) | yes | a bound function is classified as its target, with the depth RangeError | **A1** (bound arm) | owned by A1 |
 
 M8 is not a third over-pop route: for a frame-pushing kind the frame it pushed is popped by the same
@@ -420,9 +442,9 @@ the creation-path census, not a second subsystem; the single-PR verdict is §2's
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | ECMA-262 §7.2.4 IsConstructor ( arg ) | 1-3 | non-Object → false; has `[[Construct]]` → true; else false | `is_constructor` + the classifier (NEW), `vm/construct_admission.rs` | ✓ every `ObjectKind` reaches one arm; JS arm reads `has_construct` | yes — any script value |
-| ECMA-262 §13.3.5.1.1 EvaluateNew ( constructExpr, argumentsNode ) | 5 | IsConstructor false → TypeError, after step 4's argument evaluation (spread spelling included) | `vm/ops.rs:681` (`do_new`) | ✓ | yes |
-| ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | SuperCall 5 | IsConstructor(superCtor) false → TypeError, after step 4 | `vm/dispatch_class.rs:139` → `:232` | ✓ | yes — `Object.setPrototypeOf` on the class |
-| ECMA-262 §13.3.7.2 GetSuperConstructor ( ) | 5 | superCtor = the active function's `[[GetPrototypeOf]]()` — the script-writable input SuperCall step 5 tests | read by `dispatch_super_inner` (`vm/dispatch_class.rs:139`); unchanged | ✓ | yes — `Object.setPrototypeOf` |
+| ECMA-262 §13.3.5.1.1 EvaluateNew ( constructExpr, argumentsNode ) | 5 | IsConstructor false → TypeError, after step 4's argument evaluation (spread spelling included); a non-Object callee (`new null()`) is IsConstructor step 1, the admission's non-Object arm with the `New` message (`vm/ops.rs:685-687`'s let-else removed) | `vm/ops.rs:681` (`do_new`) | ✓ | yes |
+| ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | SuperCall 5 | IsConstructor(superCtor) false → TypeError, after step 4; a `null` superCtor is the admission's non-Object arm with the `Super` message (moved from the read at `vm/dispatch_class.rs:121-124`) | `vm/dispatch_class.rs:139` → `:232` | ✓ | yes — `Object.setPrototypeOf` on the class |
+| ECMA-262 §13.3.7.2 GetSuperConstructor ( ) | 5 | superCtor = the active function's `[[GetPrototypeOf]]()` — the script-writable input SuperCall step 5 tests | read by `dispatch_super_inner` (`vm/dispatch_class.rs:121-124`); no longer throws on `null`, hands the value to the admission | ✓ | yes — `Object.setPrototypeOf` |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | 14.a.iv.3 | default derived ctor: IsConstructor(func) false → TypeError | synthesized ctor → `Op::SuperCallSpread` → `vm/dispatch_class.rs:232` | ✓ | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | 8.g | heritage not a constructor → TypeError (consumer; changes through the predicate only). Siblings in step 8: 8.f, a `null` heritage, never consults the predicate (`vm/dispatch.rs:997`'s `JsValue::Null` disjunct); 8.h.ii, a `prototype` that is neither Object nor null → TypeError (the `_` arm of `Op::SetPrototype`, `vm/dispatch.rs:965`). A bound method moves from 8.h.ii (base: the predicate says *constructor*, then `Get(bound, "prototype")` is `undefined`) to 8.g — still a TypeError, and with the same text, since both sites throw `"Class extends value is not a constructor or null"` (`:973`, `:1001`), so the move is not observable by message | `vm/dispatch.rs:998` | ✓ | yes |
 | ECMA-262 §15.7.14 Runtime Semantics: ClassDefinitionEvaluation | 17 | MakeConstructor on the class constructor: written (step 15.a, branch 1.c) and default (step 14.b, branch 2.a) | `compiler/expr_class.rs:121` (`FunctionCreation::ClassConstructor` (NEW)), `:69` (struct literal) | ✓ | no |
@@ -488,13 +510,13 @@ outer()
 | T-POP-CTL | the body above with X = each control → `"x\|10,20,object\|2"` | green (stays green) | M6, M6b |
 | T-EXTENDS | `class B extends X {}` → TypeError for the method / getter / setter kinds | red for 6 | M3, M4 |
 | T-CTL | every control constructs through `new` and through both super forms; `extends` accepts function, both classes, `Object`, `Error` | green | M6, M6b, M7 |
-| T-ORD | the two bodies below, each in its own fresh `Vm` (so each half has its own `log`), each → `"TE\|1"`. An async callee because its push runs the body (`vm/interpreter.rs:866-906`); a generator's push runs none, so a generator callee would not separate the orders | red: the new half constructs, `"object\|1,2"`; the super half over-pops (release) / panics (debug) | M8 (super half), M8b (new half) |
-| T-MSG | `Object.setPrototypeOf(B, Crypto)` → `new B()` message equals `new Crypto()`'s (`Illegal constructor`); `Object.setPrototypeOf(B, Math.max)` → `max is not a constructor` | red for the first — not probed; at base the super path builds `{name} is not a constructor` (`vm/dispatch_class.rs:276-278`); the second is green (probed) | M9 |
+| T-ORD | the three bodies below, each in its own fresh `Vm` (so each half has its own `log`), the new and super halves → `"TE\|1"`, the null half → `"TE:Super constructor null is not a constructor\|1"`. An async callee because its push runs the body (`vm/interpreter.rs:866-906`); a generator's push runs none, so a generator callee would not separate the orders | red: the new half constructs, `"object\|1,2"`; the super half over-pops (release) / panics (debug). The null half is **green at base**: today the read refuses `null` inside the opcode, which runs after the arguments (by reading `vm/dispatch_class.rs:121-124`, not probed) | M8 (super half), M8b (new half), M11, M12 (null half) |
+| T-MSG | `Object.setPrototypeOf(B, Crypto)` → `new B()` message equals `new Crypto()`'s (`Illegal constructor`); `Object.setPrototypeOf(B, Math.max)` → `max is not a constructor`; `new null()` → TypeError, message **equals** `not a constructor` | red for the first — not probed; at base the super path builds `{name} is not a constructor` (`vm/dispatch_class.rs:276-278`); the second is green (probed); `new null()` green by reading `vm/ops.rs:685-687` (not probed) | M9; M12 (the `new null()` cell) |
 | T-DEPTH | a bound chain one past `MAX_BIND_CHAIN_DEPTH` (`vm/mod.rs:105`, 10 000) → RangeError at both entries: `new deep()`, and `Object.setPrototypeOf(B, deep)` → `new B()` | green by reading `vm/dispatch_class.rs:199-201` (not probed) | M10 |
 | T-CE | `customElements.define('x-m', ({m(){}}).m)` and the same with an object getter (name `x-g`) → TypeError whose message **equals** `Failed to execute 'define' on 'CustomElementRegistry': parameter 2 is not a constructor.` (`define.rs:52-53`), and afterwards `customElements.get('x-m') === undefined` / `customElements.get('x-g') === undefined`; control `customElements.define('x-c', class extends HTMLElement {})` defines. ⚠ **The message is load-bearing**: at base a method passes `is_constructor` and is then refused by the brand check `validate_html_element_constructor_chain` (`html_element.rs:301-336`) with a *different* TypeError, so an "any TypeError" assertion is green at base and under M3 | red for both by message (base: the brand check's TypeError); control green | M3 |
 
 The T-ORD bodies, written once; each half runs in a fresh `Vm` (a shared `log` would read `1,1` or
-`1,2,1` in the second half):
+`1,2,1` in a later half):
 
 ```js
 // new half
@@ -511,6 +533,22 @@ Object.setPrototypeOf(B, X);
 let r; try { r = typeof new B(); } catch (e) { r = e instanceof TypeError ? 'TE' : 'other'; }
 r + '|' + log.join()
 ```
+
+```js
+// null half
+const log = [];
+class A {} class B extends A { constructor(){ super(log.push(1)); } }
+Object.setPrototypeOf(B, null);
+let r; try { r = typeof new B(); } catch (e) { r = e instanceof TypeError ? 'TE:' + e.message : 'other'; }
+r + '|' + log.join()
+```
+
+**What the null half pins.** It is green at base, so it is not a regression cell for this PR's
+defect. It has two jobs. (1) This PR's pin that the `null` refusal goes through the admission with the
+`Super` message: M11 and M12 fail it. (2) The acceptance Slice S's D-S1 must keep green: when S moves
+the superCtor read ahead of the arguments, the refusal must stay in the admission after them, so `log`
+stays `1` (§5's S hand-off). A mutant that keeps the throw in the read is **not** added: until S moves
+the read, the read runs after the arguments too, so no cell can kill it here.
 
 ### §4.2 Mutants
 
@@ -545,6 +583,10 @@ Run on the final head only, sequentially (≤ 2 parallel builds), each recorded 
 - **M9** the super path keeps its own native message.
 - **M10** the admission walks the chain with `is_constructor` before unwrapping (over-depth becomes a
   TypeError).
+- **M11** the admission's non-Object arm for the `Super` entry removed (killed by T-ORD's null half,
+  exact message).
+- **M12** the entry key collapsed: one non-Object message for both entries, either one (killed by
+  T-MSG's `new null()` message or by T-ORD's null half, whichever message was dropped).
 
 A mutant no cell kills is a missing cell, added before the PR leaves review.
 
@@ -620,8 +662,10 @@ A mutant no cell kills is a missing cell, added before the PR leaves review.
   reads GetSuperConstructor at `vm/dispatch_class.rs:121-124`, after them; SuperCall steps 3-4 put it
   before). That change moves *when* superCtor is read, not *where* it is admitted: SuperCall step 5's
   IsConstructor still follows step 4, so S keeps routing the resolved superCtor through this slot's
-  admission helper (via `construct_synchronous`) and writes no IsConstructor check of its own. This
-  branch adds that sentence to S's two rows on main — slice-plan row **S** (`:972`) and the slot-ledger
+  admission helper (via `construct_synchronous`) and writes no IsConstructor check of its own. S moves
+  the read only: after this PR the read no longer throws, and every IsConstructor refusal, `null`
+  included, is the admission's (§1.3). **Acceptance S must keep green**: T-ORD's null half (§4.1,
+  `"TE:Super constructor null is not a constructor|1"`). This branch adds that sentence to S's two rows on main — slice-plan row **S** (`:972`) and the slot-ledger
   row `#11-vm-arrow-lexical-super` (`:287`) — on the same pattern as the 1b hand-off (umbrella §3 row 17,
   slice-plan 1b's module cell).
 - **Re-points owed on the 1a-plan branch (`vm-p4-slice-1a-plan`, `e493bd57`)**, which the driver makes
@@ -710,5 +754,7 @@ Run from the repository root at `115a667c`.
   InstantiateAsyncFunctionObject, InstantiateAsyncFunctionExpression, InstantiateArrowFunctionExpression,
   InstantiateAsyncArrowFunctionExpression, BoundFunctionCreate; step numbers from `body ecma262 <AO>`
   (each instantiation AO's body has no `MakeConstructor`: `body ecma262 <AO> | grep -c MakeConstructor` → 0).
+- Preflight's one soft warning (symbol `object_kind::is_constructor` not found) is §0.3 (2)'s quote of the live slot's wording, left as written.
+- §1.3 null move: `sed -n 115,125p` and `sed -n 228,240p crates/script/elidex-js/src/vm/dispatch_class.rs` (the read, the `ctor_id: ObjectId` parameter); `sed -n 315,316p crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs`; `.claude/tools/webref body ecma262 sec-super-keyword-runtime-semantics-evaluation` (SuperCall steps 3-5).
 - §0.4: `.claude/tools/webref body ecma262 sec-built-in-function-objects`; `.claude/tools/webref body webidl interface-object`.
 - §1.3 event handlers: `.claude/tools/webref body html getting-the-current-value-of-the-event-handler` (step 3.9).
