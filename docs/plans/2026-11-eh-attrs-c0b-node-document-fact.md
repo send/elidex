@@ -33,7 +33,7 @@ Program order: C0a → C0b-pre1 → **C0b** → C0c (C0a may land any time befor
 spec-order walk and `document.adoptNode` (C0c: D-3 (c), D-6, D-13, D-19); the *replace* record order (C0a); template
 contents' owner `f` (C1); program §7.
 
-**Changelog.** *Rev 3.6* (2026-11-04): C1 plan-review R1 Q-4 erratum (PM 319): `clone_subtree`'s document override is a
+**Changelog.** *Rev 3.6.1* (2026-11-04, C1 re-check MIN-4): §4.8 `clone_subtree` row; D-11's "as at HEAD" narrowed to `clone_subtree`. *Rev 3.6* (2026-11-04): C1 plan-review R1 Q-4 erratum (PM 319): `clone_subtree`'s document override is a
 `NewNodeOwner`, like `clone_node_shallow`'s (D-11); H-b3, D-7 (d), §3, §4.4, §4.9, §5.3 follow. *Rev 3.5* (2026-11-03): C0b-pre2 dropped (PM 300). *Rev 3.4.1* (2026-11-03): mise task and CLAUDE.md edits removed (PM 297). *Rev 3.4* (2026-11-03, with the program memo's rev 3.4): plan-review at `0aaa80d9` and PM 290, §10.1. *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
 Ax3 / Ax4, and PM 283; dispositions §10): D-21 and what only it needs (population P-10, U19's relation legs, §5.2's Attr tests,
 the handler hollowing, `AttrData`'s visibility) moved to C0b-pre2 (NEW memo); C0b keeps D-3 (b), U1's Attr variant
@@ -149,8 +149,8 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   value to the shadow and template passes, or `node_document_for_new_nodes(cloned)` for a Document source (the clone is
   its own, as `shadow_doc` today, `node_methods/clone.rs:239-243`). HEAD's `None` (derive from `src`, else an orphan)
   has no successor: production has no derive-from-`src` fallback, and a clone is ownerless only through the entry's
-  `None` (a source without a node document), as for every creator. A Document source still ignores the argument and
-  stamps the clone itself (`tree_clone.rs:230`), as at HEAD. The test
+  `None` (a source without a node document), as for every creator. A Document source still ignores the argument, and
+  `clone_subtree` stamps the clone itself (`tree_clone.rs:230`), as at HEAD. The test
   callers (`elidex-ecs`'s `dom/tests/clone.rs`, `dom/tests/associated_document.rs`; `elidex-dom-api`'s
   `live_collection/tests.rs:598`, `:631`) pass `node_document_for_new_nodes(src)`; none needs a fixtures-gated
   constructor. *Why one type:* one entry decides every owner (program D-11 / D-17); an `Option<Entity>` whose `None`
@@ -402,6 +402,7 @@ document to `spawn_custom_element_entity`, which makes the owner decision (progr
 | `create_document_type` (doc) | DOM §4.4 *node document* (set upon creation) |
 | `attach_shadow_with_init` (doc) | DOM §4.9 *attach a shadow root* step 5 ("given element's node document") |
 | `clone_node_shallow` (signature + doc) | DOM §4.4 *clone a single node* ("given document") |
+| `clone_subtree` (signature + doc) | DOM §4.4 *clone a node* (`#concept-node-clone`: "an optional document document (default node's node document)", steps 2, 5, 6.7) and *clone a single node* (`#clone-a-single-node`, "given … document") |
 | `create_table_element` (NEW) | HTML §4.9.1 *create a table element* (`#create-a-table-element`) |
 | section `insertRow` / row `insertCell` sites | HTML §4.9.5 `insertRow` step 2 (`#dom-tbody-insertrow`); HTML §4.9.8 `insertCell` step 2 (`#dom-tr-insertcell`) |
 | strict tree-builder creation sites | HTML §13.2.6.1 (`#creating-and-inserting-nodes`; the named algorithm and step at each site) |
