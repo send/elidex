@@ -765,7 +765,7 @@ fn replace_child_fragment_at_end() {
 
 #[test]
 fn replace_child_empty_fragment() {
-    // §4.2.3 replace: even an empty fragment removes oldChild (step 11) and
+    // §4.2.3 replace: even an empty fragment removes oldChild (step 7) and
     // queues ONE coalesced record (added = «», removed = [old]) — no fragment
     // record (the nested insert returns at step 3).
     let mut dom = EcsDom::new();

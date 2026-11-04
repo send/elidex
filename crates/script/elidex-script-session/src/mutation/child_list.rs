@@ -381,13 +381,13 @@ pub fn apply_remove_child(
 /// chokepoint and build the §4.2.3 "replace" childList record list — empty on
 /// failure, the **single coalesced** record for a fresh `new_child`, and **two**
 /// when `new_child` is already parented (a move into the replace slot): the
-/// coalesced record (step 14) **plus** a source-parent removal record from
-/// `new_child`'s adopt (step 13's insert calls adopt → remove with
+/// coalesced record (step 10) **plus** a source-parent removal record from
+/// `new_child`'s adopt (step 6: adopt step 2 → remove, with
 /// `suppressObservers` left at its default, so the source removal is observed).
 ///
 /// Capture follows `#concept-node-replace` literally and is **distinct** from the
 /// append/insert node-relative post-write rule — replace reads siblings
-/// pre-removal, `old_child`-relative (steps 7–9). Shared by the deferred-flush
+/// pre-removal, `old_child`-relative (steps 2–4). Shared by the deferred-flush
 /// path and the VM `replaceChild` handler.
 pub fn apply_replace_child(
     dom: &mut EcsDom,
@@ -407,43 +407,44 @@ pub fn apply_replace_child(
     // any mutation) and reuse in both the fragment and non-fragment arms.
     let parent_was_connected = dom.is_connected(parent);
     if dom.is_document_fragment(new_child) {
-        // DocumentFragment newChild — §4.2.3 "replace" steps 7-14 with expansion.
-        // §4.2.3 replace step 2 (atomic, before removing oldChild): a fragment that
-        // is a host-including inclusive ancestor of `parent` is a
-        // HierarchyRequestError. See `apply_append_child`.
+        // DocumentFragment newChild — §4.2.3 "replace" steps 2–10 with expansion
+        // (the adopt at step 6 comes with C0b's call, D-5).
+        // §4.2.3 replace step 1 (ensure pre-insert validity step 2; atomic, before
+        // removing oldChild): a fragment that is a host-including inclusive
+        // ancestor of `parent` is a HierarchyRequestError. See `apply_append_child`.
         if dom.is_ancestor_or_self(new_child, parent) {
             return Vec::new();
         }
         // Deferred-flush safety: `apply_mutation(Mutation::ReplaceChild)` skips the
         // dom-api handler's oldChild∈parent precheck, and this branch bypasses
         // `EcsDom::replace_child` (which would otherwise validate), so re-check here
-        // (replace step 3).
+        // (replace step 1: ensure pre-insert validity step 3).
         if dom.get_parent(old_child) != Some(parent) {
             return Vec::new();
         }
-        // step 7: referenceChild = oldChild's next sibling. Step 8's
+        // step 2: referenceChild = oldChild's next sibling. Step 3's
         // "if referenceChild is node" adjustment cannot fire — a fragment is
         // detached, never a sibling of oldChild (a fragment is never a live child;
         // the only producer of a live fragment child is the legacy variadic path,
         // converged in B1.2b — see PR #387 Codex R1 F4 defer).
         let reference_child = dom.next_exposed_sibling(old_child);
-        // step 9: previousSibling = oldChild's previous sibling (pre-removal).
+        // step 4: previousSibling = oldChild's previous sibling (pre-removal).
         let previous_sibling = dom.prev_exposed_sibling(old_child);
-        // step 11: remove oldChild (suppressObservers — no standalone record).
+        // step 7: remove oldChild (suppressObservers — no standalone record).
         if !dom.remove_child(parent, old_child) {
             return Vec::new();
         }
-        // steps 12-13: nodes = fragment's children; insert each before referenceChild
-        // (or append when oldChild was last). Step 13's insert is suppressObservers,
+        // steps 8–9: nodes = fragment's children; insert each before referenceChild
+        // (or append when oldChild was last). Step 9's insert is suppressObservers,
         // so its destination record is withheld; its step-4.2 fragment record is not.
         let frag_and_nodes = expand_fragment(dom, new_child, |d, n| match reference_child {
             Some(rc) => d.insert_before(parent, n, rc),
             None => d.append_child(parent, n),
         });
-        // step 14: one coalesced record (addedNodes = expanded children, removedNodes
+        // step 10: one coalesced record (addedNodes = expanded children, removedNodes
         // = «oldChild»). Build it inside each arm so the expanded `nodes` move in (no
         // extra clone). For an empty fragment `addedNodes` is «» but the record is
-        // still queued — oldChild was removed at step 11.
+        // still queued — oldChild was removed at step 7.
         let coalesced = |added_nodes: Vec<Entity>| MutationRecord {
             added_nodes,
             removed_nodes: vec![old_child],
@@ -453,21 +454,21 @@ pub fn apply_replace_child(
             ..empty_record(MutationKind::ChildList, parent)
         };
         return match frag_and_nodes {
-            // Order: step-13's fragment record (4.2) THEN step-14 coalesced.
+            // Order: step 9's fragment record (insert 4.2) THEN step 10's coalesced.
             Some((frag_record, nodes)) => vec![frag_record, coalesced(nodes)],
             // Empty fragment: no fragment record (nested insert returned at step 3),
             // but oldChild was still removed, so the coalesced record stands alone.
             None => vec![coalesced(Vec::new())],
         };
     }
-    // Coalesced-record siblings (steps 7–9), captured pre-removal, old_child-relative:
-    //  - previousSibling = step 9 = old_child's prev. NO adjustment exists, so this
+    // Coalesced-record siblings (steps 2–4), captured pre-removal, old_child-relative:
+    //  - previousSibling = step 4 = old_child's prev. NO adjustment exists, so this
     //    MAY legitimately equal `new_child` (e.g. `[A,B,C].replaceChild(A,B)` →
     //    previousSibling == A == new_child) — spec-faithful, do not "fix" it.
     let coalesced_prev = dom.prev_exposed_sibling(old_child);
-    //  - nextSibling = step 7 (old_child's next) WITH the step-8 adjustment: if that
+    //  - nextSibling = step 2 (old_child's next) WITH the step-3 adjustment: if that
     //    next is `new_child` itself (a move where new_child was old_child's next
-    //    sibling), referenceChild becomes new_child's next sibling instead. Step 8
+    //    sibling), referenceChild becomes new_child's next sibling instead. Step 3
     //    only fires on a move, so it is first observable here (B1 deferred moves).
     let coalesced_next = match dom.next_exposed_sibling(old_child) {
         Some(next) if next == new_child => dom.next_exposed_sibling(new_child),
@@ -492,7 +493,7 @@ pub fn apply_replace_child(
         parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     };
-    // Order: source-removal (from step 13's adopt) THEN coalesced (step 14).
+    // Order: source-removal (from step 6's adopt) THEN coalesced (step 10).
     move_record_list(source, new_child, coalesced)
 }
 
