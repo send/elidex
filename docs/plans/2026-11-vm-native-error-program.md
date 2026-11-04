@@ -338,10 +338,9 @@ facts it must not lose.
         are `docs/plans/2026-11-vm-native-error-program.md`'s. No marker, so the §8 half does not move.
       - `Trigger`: none of its own. The program memo's §1 order schedules it, and it closes at E2's landing
         (below).
-      - `Re-eval`: *at registration: landing + 30 d*. The slot-ledger's Re-eval rule counts a row as
-        registered only when its live-ledger entry has a Re-eval of its own, and this slot's entry has none
-        (`/usr/bin/grep 'vm-native-error-prototypes. — \*\*open' <the live ledger, path in this memo's §1.2> | /usr/bin/grep -ci 're-eval'`
-        → 0).
+      - `Re-eval`: `2026-12-05 (live ledger, PM 382)`. The slot-ledger's Re-eval rule counts a row as
+        registered only when its live-ledger entry has a Re-eval of its own, and this slot's entry now
+        carries that date, so the pointer row mirrors it rather than minting its own.
     - **Population figures the landing re-derives, never carries** (slice-plan census passage, lines at
       `f9cf8c40`). Each figure names the program that yields it. Before → after values are from the landing
       simulation (forms (a), (b) and (c) applied to a `git archive f9cf8c40 docs/plans .claude/tools` copy):
