@@ -57,13 +57,13 @@ migration to ECS components (B1 / `#11-browsing-context-state-ecs-components`); 
 
 ### §0.1 Coordinate frame
 
-Every `file:line` is a **`fab44a1d`** coordinate (this branch's base, `git merge-base HEAD origin/main`). Since then
-`origin/main` gained #586 (`660e594c`, tools) and **#588** (`4fd85f4e`, VM P4's `vm-is-constructor-move`), which adds
-one line (`mod construct_admission;`) near the top of `crates/script/elidex-js/src/vm/mod.rs`; no other cited file
-changed (`git diff --stat fab44a1d origin/main -- crates/script/elidex-js/src/vm/host crates/script/elidex-js/src/vm/globals.rs crates/script/elidex-js/src/vm/host_data crates/core crates/dom crates/shell`).
-Symbols are cited by name; re-find lines with `/usr/bin/grep -n '<symbol>' <file>`. Code reads are `git grep` /
-`/usr/bin/grep -n` / `sed -n` over the `fab44a1d` tree, run 2026-11-04. Every § number ↔ title pair and every step
-comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-map`), run 2026-11-04; commands in §3.
+Every `file:line` is a **`f9cf8c40`** coordinate (this branch's base, `git merge-base HEAD origin/main`). Code reads
+were run over `fab44a1d` (2026-11-04); of the cited files only `vm/globals.rs` (#592), `vm/mod.rs` and
+`vm/tests/tests_custom_elements.rs` changed since, and their cites are re-pinned (rev 2.1; `git diff --stat fab44a1d
+f9cf8c40 -- <cited files>`), so "at `fab44a1d`" below holds at `f9cf8c40` too. Symbols are cited by name; re-find lines
+with `/usr/bin/grep -n '<symbol>' <file>`. Code reads are `git grep` / `/usr/bin/grep -n` / `sed -n`. Every § number ↔
+title pair and every step comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-map`), run
+2026-11-04; commands in §3.
 
 ### §0.2 Premises re-measured (the brief's claims, checked)
 
@@ -78,7 +78,7 @@ comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-ma
 | H-7 | Six natives decide "has a browsing context" by comparing `this` with the bound document, each with its own copy | `/usr/bin/grep -n 'bound_doc != Some(doc)' crates/script/elidex-js/src/vm/host/document.rs` → `:580` defaultView, `:630` cookie get, `:675` cookie set, `:722` referrer, `:872` hidden, `:903` visibilityState (6) |
 | H-8 | Two Document members read VM-global state without consulting `this` at all | `readyState` `document.rs:492-501` (`_this`, constant `"complete"`); `getSelection` = `super::window::native_window_get_selection` (`document.rs:1095`; `crates/script/elidex-js/src/vm/host/window.rs:803-816`, `_this`, the VM's Selection singleton). `hasFocus` `document.rs:827-849` reads `this`'s focus but gates on the VM-global `is_tab_hidden`, not on `this`'s browsing context |
 | H-9 | No DOM node interface object exists in the VM | the global-name population: `git grep -n '=> "\(Document\|Node\|Element\|DocumentFragment\|ShadowRoot\|HTMLDocument\)"' -- crates/script/elidex-js/src` → 0; `HTMLElement` is the only DOM interface name (`crates/script/elidex-js/src/vm/well_known.rs:1546`, custom elements). So `x instanceof Document` throws `ReferenceError` (code reading, not run) |
-| H-10 | The VM's spec-level policy is fixed at construction | `spec_level_policy` set in `crates/script/elidex-js/src/vm/init.rs:177-185`; `installs` / `installs_dom` `crates/script/elidex-js/src/vm/globals.rs:1157-1169` read it. A once-per-VM install on a prototype therefore applies the same gates as today's per-wrapper install |
+| H-10 | The VM's spec-level policy is fixed at construction | `spec_level_policy` set in `crates/script/elidex-js/src/vm/init.rs:177-185`; `installs` / `installs_dom` `crates/script/elidex-js/src/vm/globals_install.rs:163-175` read it. A once-per-VM install on a prototype therefore applies the same gates as today's per-wrapper install |
 | H-11 | Prototype-level install of the same mixins has precedents | `install_parent_node_mixin` on `Element.prototype` (`crates/script/elidex-js/src/vm/host/element_proto.rs:108`) and `DocumentFragment.prototype` (`crates/script/elidex-js/src/vm/host/document_fragment_proto.rs:48`); `install_event_handler_attrs` on `HTMLElement.prototype` (`crates/script/elidex-js/src/vm/host/html_element_proto.rs:134`) |
 | H-12 | `document.rs`'s 1000-line split is already decided | C0 draft D-14 (b) (reviewed, PM 258 / 318): before C0c, a pure move of the node factories (`document.rs:278-421`) to `vm/host/document_factories.rs` and the accessors (`:423-938`) to `vm/host/document_accessors.rs`; the installer and tables stay in `document.rs` (≈ 537 lines). Coordinates unchanged at `fab44a1d` (`git diff --stat 27b50dfe fab44a1d -- crates/script/elidex-js/src/vm/host/document.rs` is empty) |
 | H-13 | Today's script-reachable Document entities all get the install | bound document (H-1), DOMParser (H-1), `document.cloneNode` (H-1). `document.implementation` / `createHTMLDocument` do not exist in the VM (`git grep -n 'createHTMLDocument\|"implementation"' -- crates/script/elidex-js/src` → 0); `adoptNode` is not in the VM yet (C0c adds it; it throws for a Document argument and returns its argument otherwise). A Document entity first wrapped by the generic path is reachable at `fab44a1d` only through a Rust fixture; C1's I is the first script-reachable one |
@@ -87,8 +87,8 @@ comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-ma
 
 - **P-1 (split).** The brief asks for a new "C1-pre0" split of `vm/host/document.rs`. That file's split is C0 D-14 (b)
   (H-12), already reviewed; a second seam for the same file would leave two split decisions for one file. C1-pre
-  takes D-14 (b) as its code predecessor and adds no seam to `document.rs` (D-10). C1-pre does need a split of a
-  different file it touches, `vm/globals.rs` (1533 lines); this memo names **that** prerequisite C1-pre0 (D-11).
+  takes D-14 (b) as its code predecessor and adds no seam to `document.rs` (D-10). The split of the other file it
+  touches, `vm/globals.rs`, is C1-pre0 (D-11).
 - **P-2 (URL ownership), resolved by PM 339 (user (A)).** The document URL is a facet of `#11-document-base-url`
   (IBP umbrella §0.6 item 18; `docs/plans/2026-09-inline-box-predicate.md:1659`: "either home answer for the document
   URL is the user's to ratify"); the user's ruling that `current_url` stays per-VM until B1 is of 2026-06-11, and the
@@ -156,16 +156,9 @@ comes from `.claude/tools/webref` (`heading`, `dfn`, `body`, `idl`, `coverage-ma
   proposal R-4.
 - **D-10 — `document.rs` split = C0 D-14 (b).** No new seam (§0.3 P-1). Whichever of C0c and C1-pre is cut first lands
   D-14 (b) as the C0 draft states it; the other rebases (edge e-14b).
-- **D-11 — C1-pre0: pure-move split of `vm/globals.rs` (1533).** C1-pre adds one call to `register_globals`. Seams (real
-  cohesion, each a different spec family): (i) the ECMA-262 fundamentals — `register_prototypes`,
-  `register_iterator_prototypes`, `register_object_global`, `register_array_global`, `register_math_global`,
-  `register_json_global` and their only native `native_function_prototype_noop` (`globals.rs:61-72`, `:1172-1533`) →
-  `crates/script/elidex-js/src/vm/globals_fundamentals.rs` (NEW: named after `globals_errors.rs` / `globals_primitives.rs`);
-  (ii) the property-install primitives `register_global_function`, `install_methods`, `install_ro_accessors`,
-  `install_rw_accessors`, `installs`, `installs_dom` (`:1014-1170`) → `crates/script/elidex-js/src/vm/globals_install.rs` (NEW).
-  What stays is `register_globals`, the flat ordered registration sequence its authors annotate as unsplittable
-  (`globals.rs:85-89`), ≈ 1000 lines; re-measured at the cut (§9 item 1). `vm/mod.rs` (2782) gains one field and is
-  **not** split: it is one struct definition (`VmInner`, `:181-2776`), and its only seam, grouping fields into
+- **D-11 — C1-pre0 (`vm/globals.rs` pure move): landed as #592 `f9cf8c40`**; follow-up
+  `#11-vm-globals-registration-structure`. `vm/mod.rs` (2785) gains one field and is
+  **not** split: it is one struct definition (`VmInner`, `:184-2773`), and its only seam, grouping fields into
   sub-structs, is a non-pure-move refactor deferred in memory `vm-inner-substruct-deferral`.
 - **D-12 — Layering / ECS-native.** vm/host keeps prototype install, brand check and marshalling only (D-4 consolidates
   an existing association check; D-7 removes a host answer in favour of the dom-api handler). The per-entity
@@ -181,13 +174,11 @@ B6 consumers (DOMParser, clone, C0c, C1). Rev 1's B7 (the Document URL fact) lef
 edge-dense: plan-review is mandatory (CLAUDE.md *Edge-dense work* (b)). It is a per-PR slice for the approved EH-attrs
 umbrella once the PM adds it to umbrella §1.2 (R-5), so a terminal unit after plan-review (base case (c)).
 
-**Split decision (re-run for rev 2): three units, unchanged.** C1-pre0 (`vm/globals.rs` pure move, D-11) → C1-pre
-(this memo), with C0 D-14 (b) (`document.rs` pure move, D-10) also before C1-pre. Both prerequisites are still needed
-after the removal: C1-pre still touches `vm/globals.rs` (one call in `register_globals`; 1533 lines at `fab44a1d` and
-at `origin/main` `4fd85f4e`; C1-pre0's branch `vm-globals-split-c1-pre0`, `cfa195fd`, on `4fd85f4e`, not merged, leaves
-971) and `vm/host/document.rs` (the installer, the class-B natives, `hasFocus`, `getSelection`, `compatMode`,
-`readyState`; 1197 lines). D-1 to D-8 and D-10 to D-12 stay one PR: the prototype without D-4 to D-8 would make I's
-surface reachable with the receiver-ignoring answers PM 328 rejects; D-4 to D-8 could land alone first, but they are
+**Split decision (re-run for rev 2): three units, unchanged.** C1-pre0 (`vm/globals.rs` pure move, D-11, landed) →
+C1-pre (this memo), with C0 D-14 (b) (`document.rs` pure move, D-10) also before C1-pre, still needed after the
+removal: C1-pre still touches `vm/host/document.rs` (the installer, the class-B natives, `hasFocus`, `getSelection`,
+`compatMode`, `readyState`; 1197 lines). D-1 to D-8 and D-10 to D-12 stay one PR: the prototype without D-4 to D-8
+would make I's surface reachable with the receiver-ignoring answers PM 328 rejects; D-4 to D-8 could land alone first, but they are
 the receiver half of the same member suite and their red cells use D-1's fixture (W1, W15). Rev 1's second commit
 (the URL work) is gone. Preflight: SPLIT-RECOMMENDED (K = 4, M = 15; rev 1: K = 4, M = 19) — K counts the Selection
 API row, a single member (`getSelection`), and M's rows are the spec homes of the one member suite, so a further split
@@ -294,14 +285,14 @@ dom-domimplementation-createhtmldocument`, `body dom clone-a-single-node`, `body
 
 ### §4.1 The prototype (D-1, D-2)
 
-1. `vm/mod.rs`: field `document_prototype: Option<ObjectId>` (NEW) beside `document_fragment_prototype` (`:506`);
+1. `vm/mod.rs`: field `document_prototype: Option<ObjectId>` (NEW) beside `document_fragment_prototype` (`:509`);
    `vm/init.rs`: its `None` initializer beside `:302`.
 2. `vm/host/document.rs` (after D-14 (b), where the installer and tables stay): `install_document_methods_for_entity`
    becomes `VmInner::register_document_prototype` (NEW): allocate an ordinary object with `prototype: node_prototype`,
    run the install sequence of `document.rs:995-1053` against it unchanged, store it. `Vm::install_document_methods_if_needed`
    is deleted.
-3. `vm/globals.rs` (after C1-pre0): one call in `register_globals`, after every registration the install sequence
-   needs (`register_node_prototype` `:215`; whatever `install_event_handler_attrs` and `install_parent_node_mixin`
+3. `vm/globals.rs`: one call in `register_globals`, after every registration the install sequence
+   needs (`register_node_prototype` `:175`; whatever `install_event_handler_attrs` and `install_parent_node_mixin`
    require — Q-S1) and before the first possible Document wrapper (the first bind).
 4. `entity_kind.rs`: `Some(NodeKind::Document) => PrototypeKind::Document` in `prototype_kind_for`'s `match`
    (`:169`); `PrototypeKind::Document` (NEW) documented like its siblings.
@@ -344,10 +335,10 @@ wrapper has `Document.prototype` (C1-pre D-1)" (R-2).
 `NT='/tests/\|tests\.rs\|/tests_\|test_helpers'`.
 - **P-1 wrapper allocations** (property: a VM object whose kind is `HostObject` is created):
   `git grep -nE '(kind: |\.kind = )ObjectKind::HostObject' -- 'crates/script/elidex-js/src/*.rs' | /usr/bin/grep -v "$NT"`
-  → 7 at `fab44a1d`: `vm/globals.rs:108` (globalThis), `vm/host/canvas/mod.rs:334`, `:829` (2D contexts via
+  → 7 at `f9cf8c40`: `vm/globals.rs:68` (globalThis), `vm/host/canvas/mod.rs:334`, `:829` (2D contexts via
   `intern_wrapper`), `vm/host/elements.rs:159` (DOM nodes), `vm/host/offscreen_canvas/mod.rs:365`, `:405`,
   `vm/host/worker.rs:395`. Only `elements.rs:159` wraps DOM node entities, so it is the only Document wrapper
-  allocator. Ratchet (§9 item 3): the count of DOM-node allocators stays 1.
+  allocator. Ratchet (§9 item 2): the count of DOM-node allocators stays 1.
 - **P-2 path-specific installs**: `git grep -n 'install_document_methods\|document_methods_installed' -- crates` →
   0 hits at C1-pre's head.
 - **P-3 Document wrapper first-wrap paths** (callers of the allocator that can receive a Document entity):
@@ -417,15 +408,14 @@ untouched: the URL native keeps HEAD's source. Docstrings: §4.1 item 6.
 
 ### §5.3 Touched files
 
-Line counts `wc -l` at `fab44a1d`, re-measured for rev 2 at `fab44a1d`, `origin/main` `4fd85f4e` and C1-pre0's
-`cfa195fd` (same count at all three unless shown); re-measured at the cut (§9 item 1). Every row is in `elidex-js`.
+Line counts `wc -l` at `f9cf8c40`; re-measured at the cut (§9 item 1). Every row is in `elidex-js`.
 
 | file | lines | change | 1000-line decision |
 |---|---|---|---|
 | `crates/script/elidex-js/src/vm/host/document.rs` | 1197 → ≈ 537 after D-14 (b) | installer → `register_document_prototype`; `readyState` native if it stays here | split by C0 D-14 (b) first (D-10) |
 | `vm/host/document_accessors.rs` (NEW: D-14 (b)) | ≈ 516 | the predicate, class-B natives, `native_document_get_selection` (NEW), `compatMode` | < 1000 |
-| `crates/script/elidex-js/src/vm/globals.rs` | 1533 (`fab44a1d`, `4fd85f4e`); 971 at `cfa195fd` | one registration call | split first by C1-pre0 (D-11) |
-| `crates/script/elidex-js/src/vm/mod.rs` | 2782 (`fab44a1d`), 2783 (`4fd85f4e`), 2785 (`cfa195fd`) | one field | not split (D-11) |
+| `crates/script/elidex-js/src/vm/globals.rs` | 972 | one registration call | < 1000 (C1-pre0, D-11) |
+| `crates/script/elidex-js/src/vm/mod.rs` | 2785 | one field | not split (D-11) |
 | `crates/script/elidex-js/src/vm/init.rs` | 858 | one initializer | < 1000 |
 | `crates/script/elidex-js/src/vm/host/elements.rs` | 425 | one arm, comment | < 1000 |
 | `crates/script/elidex-js/src/vm/host_data/engine_feature/entity_kind.rs` | 201 | `PrototypeKind::Document` | < 1000 |
@@ -451,11 +441,11 @@ Line counts `wc -l` at `fab44a1d`, re-measured for rev 2 at `fab44a1d`, `origin/
 
 ## §6. Test plan
 
-Columns: *HEAD* = `fab44a1d` (+ C1-pre0 and D-14 (b), both pure moves); *C1-pre* = spec. **Red-first**: every red cell
+Columns: *HEAD* = `f9cf8c40` (+ D-14 (b), a pure move); *C1-pre* = spec. **Red-first**: every red cell
 runs on the base before the change with its control green; the failures go in the PR description. Fixture shape (W1,
 W15): a second Document entity in the bound `EcsDom` made by `dom.create_document_node()` (the spawn C1's I will
 use), not bound, with an element appended and that element exposed as a global through
-`vm.inner.create_element_wrapper` + `vm.set_global` (`tests_custom_elements.rs:1184` idiom) — the shape C1's I has (a
+`vm.inner.create_element_wrapper` + `vm.set_global` (`tests_custom_elements.rs:1185` idiom) — the shape C1's I has (a
 Document in the page `EcsDom` reached through `ownerDocument`).
 
 ### §6.1 VM integration (`tests_document_wrapper.rs`, NEW)
@@ -518,7 +508,6 @@ append pre-existing defects to existing slots; the other rows are pre-existing o
 ## §8. Edges, hand-offs and records
 
 **Edges.**
-- e-pre0: **C1-pre0 → C1-pre** (code predecessor; D-11).
 - e-14b: **C0 D-14 (b) → C1-pre** (code predecessor; D-10). D-14 (b) also precedes C0c; whichever of C0c / C1-pre is
   cut first lands it.
 - e-c0c: **C0c ↔ C1-pre**, either order (no semantic dependency). If C1-pre lands first, C0c's `adoptNode` entry lands
@@ -528,10 +517,10 @@ append pre-existing defects to existing slots; the other rows are pre-existing o
 - e-dbu: **C1-pre ↔ `#11-document-base-url`**, either order (no data edge after PM 339). Common code: the URL and
   `cookie` natives, whose install C1-pre moves to the prototype without changing them: rebase only.
 - VM P4 (driver's check, re-done here): `vm-is-constructor-move` landed as #588 (`4fd85f4e`); its only file in common
-  with C1-pre is `vm/mod.rs` (one `mod` line near the top vs one field near `:506`: rebase only).
-  `vm-construct-isconstructor-check` and `vm-p4-slice-1a-plan` are docs-only (`git diff --stat
-  $(git merge-base origin/main <branch>) <branch>`); slice 1aa cites `dom_bridge.rs:567` as an idiom only. C1-pre0
-  touches `vm/globals.rs` and `vm/mod.rs` (`mod` lines): re-check both against open VM P4 branches at the cut.
+  with C1-pre is `vm/mod.rs` (one `mod` line near the top vs one field near `:509`: rebase only).
+  `vm-construct-isconstructor-check` landed as #591 (`145927c9`; no C1-pre file); `vm-p4-slice-1a-plan` is docs-only
+  (`git diff --stat $(git merge-base origin/main <branch>) <branch>`); slice 1aa cites `dom_bridge.rs:567` as an idiom
+  only.
 
 **Hand-offs.**
 - H-1 to B1: one `Document.prototype` per realm.
@@ -560,7 +549,7 @@ append pre-existing defects to existing slots; the other rows are pre-existing o
   cluster. **Trigger**: a PR that runs scripts before the shell marks the document complete, or B1.
   **Re-eval**: 2027-01-31. **Owner**: Layout (default; the PM may assign).
 - **R-5 umbrella §1.2**: add C1-pre's row before C1's: "| **C1-pre** (owner: Layout lane; PM 328 / 335 / 339) | slot
-  `#11-bridge-document-post-install`: every Document wrapper is a Document | C0 D-14 (b) and C1-pre0 landed |".
+  `#11-bridge-document-post-install`: every Document wrapper is a Document | C0 D-14 (b) landed |".
 - **R-6 PM**: the DOM node interface-object gap (§7 row 2), class and evidence, for the PM to register or decline.
 - **R-8 slot proposal `#11-document-referrer-component`**: **Defect**: a Document's referrer (HTML §3.1.4, set by
   *create and initialize a Document object*) is held per-VM (`NavigationState::referrer`, set by the shell through
@@ -618,22 +607,20 @@ append pre-existing defects to existing slots; the other rows are pre-existing o
 
 ## §9. Definition of done
 
-1. Coordinates re-measured at the cut (C1-pre0 and D-14 (b) landed); §5.1 populations re-run and
+1. Coordinates re-measured at the cut (D-14 (b) landed); §5.1 populations re-run and
    recorded; open VM P4 branches re-checked for `vm/globals.rs`, `vm/mod.rs`, `vm/init.rs`, `vm/host/elements.rs`,
    `vm/host_data/**`.
-2. C1-pre0 landed as a pure move (no line changed outside moved blocks, `mod` and `use` lines); `vm/globals.rs` < 1000
-   or the residue is `register_globals` alone (D-11).
-3. D-1 to D-8 and D-10 to D-12 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 1 among Document
+2. D-1 to D-8 and D-10 to D-12 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 1 among Document
    members (`native_document_get_url`, R-10).
-4. §1.1 filled before the implementation branch is cut; W6 asserted only if X4 / X5 agree, else the PM's decision.
-5. §6.1 cells present; every red cell run red on the base with its control green, recorded in the PR
+3. §1.1 filled before the implementation branch is cut; W6 asserted only if X4 / X5 agree, else the PM's decision.
+4. §6.1 cells present; every red cell run red on the base with its control green, recorded in the PR
    description.
-6. §5.2 rewrites done; `git grep -n 'install_document_methods\|document_methods_installed\|bridge-document-post-install' -- crates` → 0.
-7. `cargo test -p elidex-js --all-features` (§6.3) and `mise run ci` green.
-8. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`
+5. §5.2 rewrites done; `git grep -n 'install_document_methods\|document_methods_installed\|bridge-document-post-install' -- crates` → 0.
+6. `cargo test -p elidex-js --all-features` (§6.3) and `mise run ci` green.
+7. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`
    exits 0 (run, not trusted).
-9. The PM has applied R-1, R-2, R-3, R-5, R-10, R-11 (or recorded why not), registered or declined R-4, R-8, R-9 and
-   R-6, and decided O-2 and O-3.
+8. The PM has applied R-1, R-2, R-3, R-5, R-10, R-11 (or recorded why not), registered or declined R-4, R-8, R-9 and
+   R-6, and decided O-3.
 
 ## §10. Revision history
 
@@ -654,19 +641,18 @@ found). Removed: D-9, D-13 to D-17; H-14 to H-18 (H-14's two sites kept inline i
 owns no per-Document store); R-2 (C1's URL legs are the program's), R-4 / R-8 why-deferred, R-5; §1 split decision
 re-run (still three units: C1-pre0 and D-14 (b) still needed). Added: R-10 (the program's defect and D-17's
 finding as its input), R-11. §0.3 P-2 corrects the ruling's date (2026-06-11).
+*Rev 2.1* (2026-11-05): rebased on `f9cf8c40` (C1-pre0 landed as #592); cites into the moved code re-pinned; D-11
+reduced to a pointer; removed edge e-pre0, §9 item 2 (C1-pre0) and O-2.
 
 ## §11. Open questions
 
 **For the PM / user.**
-- **O-2 C1-pre0 (D-11).** `vm/globals.rs` is the VM core lane's file (driver absent): confirm the split (branch
-  `vm-globals-split-c1-pre0`, `cfa195fd`, not merged) and its owner
-  (proposed: Layout lane, as C1-pre's prerequisite).
 - **O-3 Order with C0c (e-c0c).** Either; the first cut takes D-14 (b). The PM picks if both are ready together.
 
 **Scout questions** (facts needed at the cut; not read here).
 - **Q-S1** In `register_globals`, the earliest point after which `install_event_handler_attrs`,
   `install_parent_node_mixin` and the `FACTORIES` natives can be installed on an object (prediction: after
-  `register_node_prototype` `:215`).
+  `register_node_prototype` `:175`).
 - **Q-S2** Any non-test Rust code that reads a Document wrapper's **own** properties? Prediction: none
   (`natives_promise.rs:526` only allocates a wrapper as an event target).
 - **Q-S3** Can a Document entity be wrapped while `HostData` is unbound (R-4)? Prediction: no.
