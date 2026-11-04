@@ -403,7 +403,7 @@ half is S's acceptance; in this PR the line cannot move ahead of the arguments).
 | **M9** the super path keeps its own native message | T-MSG's `Crypto` half only | yes | each entry consults the one admission, its error mapping included | **A2** (error arm) | owned by A2 |
 | **M11** the admission's non-Object arm for the `Super` entry removed | T-ORD's null half only (exact message) | yes | each entry consults the one admission, its non-Object arm included | **A2** (error arm) | owned by A2 |
 | **M12** the entry key collapsed (one non-Object message for both entries) | T-MSG's `new null()` cell or T-ORD's null half, whichever message was dropped | yes | same | **A2** (error arm) | owned by A2 |
-| **M10** the admission walks the chain with `is_constructor` before unwrapping | T-DEPTH only (over-depth becomes a TypeError) | yes | a bound function is classified as its target, with the depth RangeError | **A1** (bound arm) | owned by A1 |
+| **M10** the admission walks the chain with `is_constructor` before unwrapping | T-DEPTH (over-depth becomes a TypeError); also T-MSG / T-NEW, whose native messages the predicate's generic throw replaces | yes | a bound function is classified as its target, with the depth RangeError | **A1** (bound arm) | owned by A1 |
 
 M8 is not a third over-pop route: for a frame-pushing kind the frame it pushed is popped by the same
 `with_call_mode` Err path. M8b has no such boundary in `do_new`; what it does to a frame-pushing kind is
@@ -588,7 +588,7 @@ Run on the final head only, sequentially (≤ 2 parallel builds), each recorded 
   (§2's table).
 - **M9** the super path keeps its own native message.
 - **M10** the admission walks the chain with `is_constructor` before unwrapping (over-depth becomes a
-  TypeError).
+  TypeError; also fails T-MSG / T-NEW, whose native messages the generic throw replaces).
 - **M11** the admission's non-Object arm for the `Super` entry removed (killed by T-ORD's null half,
   exact message).
 - **M12** the entry key collapsed: one non-Object message for both entries, either one (killed by
