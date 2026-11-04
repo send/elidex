@@ -180,7 +180,9 @@ impl VmInner {
     /// and [`Self::construct_synchronous`] (the `super(...)` /
     /// invoke_upgrade path) call — and by the predicate
     /// [`super::construct_admission::is_constructor`], so the depth
-    /// limit is applied by one piece of code. Keeping the logic in one place ensures
+    /// limit is applied by one piece of code (in `vm/` core; the
+    /// TypedArray resolver's walker in `vm/host/typed_array_static.rs`
+    /// is `#11-vm-typed-array-create-construct`'s). Keeping the logic in one place ensures
     /// `new BoundCtor()` and `class B extends BoundCtor { ... }` /
     /// `super()` behave consistently — D-17b R4 G4-4 fix for the
     /// divergence where `construct_synchronous` rejected BoundFunction
@@ -189,8 +191,36 @@ impl VmInner {
         &self,
         ctor_id: ObjectId,
     ) -> Result<(ObjectId, Vec<JsValue>), VmError> {
+        let mut segments: Vec<&[JsValue]> = Vec::new();
+        let target = self.walk_bound_chain(ctor_id, |bound_args| {
+            if !bound_args.is_empty() {
+                segments.push(bound_args);
+            }
+        })?;
+        let total: usize = segments.iter().map(|seg| seg.len()).sum();
+        let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
+        for seg in segments.iter().rev() {
+            prepended.extend_from_slice(seg);
+        }
+        Ok((target, prepended))
+    }
+
+    /// Target-only form of [`Self::unwrap_bound_function_chain`]: the
+    /// same walk and the same depth `RangeError`, without collecting the
+    /// bound arguments (for callers that classify the target only).
+    pub(crate) fn bound_chain_target(&self, ctor_id: ObjectId) -> Result<ObjectId, VmError> {
+        self.walk_bound_chain(ctor_id, |_| {})
+    }
+
+    /// The one depth loop behind both forms: follows `BoundFunction`
+    /// targets from `ctor_id` (outermost first, handing each link's
+    /// `bound_args` to `visit`) and returns the first non-bound object.
+    fn walk_bound_chain<'a>(
+        &'a self,
+        ctor_id: ObjectId,
+        mut visit: impl FnMut(&'a [JsValue]),
+    ) -> Result<ObjectId, VmError> {
         let mut id = ctor_id;
-        let mut segments: Vec<Vec<JsValue>> = Vec::new();
         for _ in 0..super::MAX_BIND_CHAIN_DEPTH {
             let ObjectKind::BoundFunction {
                 target, bound_args, ..
@@ -198,21 +228,13 @@ impl VmInner {
             else {
                 break;
             };
-            let next = *target;
-            if !bound_args.is_empty() {
-                segments.push(bound_args.clone());
-            }
-            id = next;
+            visit(bound_args);
+            id = *target;
         }
         if matches!(self.get_object(id).kind, ObjectKind::BoundFunction { .. }) {
             return Err(VmError::range_error("Maximum bind chain depth exceeded"));
         }
-        let total: usize = segments.iter().map(Vec::len).sum();
-        let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
-        for seg in segments.iter().rev() {
-            prepended.extend_from_slice(seg);
-        }
-        Ok((id, prepended))
+        Ok(id)
     }
 
     /// Synchronous `[[Construct]]` dispatch (\[C11\]) used by

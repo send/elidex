@@ -17,87 +17,96 @@
 use super::super::value::JsValue;
 use super::super::Vm;
 
+/// One callee kind: its label, the expression that evaluates to it, and
+/// the tags the cells filter on.
+struct Kind {
+    name: &'static str,
+    src: &'static str,
+    /// Its call returns without pushing a frame (§0.3 P-2): the ones
+    /// whose `super(...)` over-popped the caller's frame.
+    frameless: bool,
+    /// A method, getter or setter: the predicate itself was wrong for
+    /// these (§1.2), so `extends` accepted them.
+    method_like: bool,
+    /// A bound function: `class B extends X {}` refuses it at
+    /// ClassDefinitionEvaluation step 8.h.ii (a bound function has no
+    /// `prototype`), which is spec-correct and not the `extends` cell's.
+    bound: bool,
+}
+
+const fn kind(name: &'static str, src: &'static str) -> Kind {
+    Kind {
+        name,
+        src,
+        frameless: false,
+        method_like: false,
+        bound: false,
+    }
+}
+
+impl Kind {
+    const fn frameless(mut self) -> Self {
+        self.frameless = true;
+        self
+    }
+    const fn method_like(mut self) -> Self {
+        self.method_like = true;
+        self
+    }
+    const fn bound(mut self) -> Self {
+        self.bound = true;
+        self
+    }
+}
+
+const GENERATOR: &str = "function*(){}";
+const FUNCTION_DECLARATION: &str = "(function(){ function F(){} return F; })()";
+
 /// The 15 callee kinds that have no `[[Construct]]` (§4.1's table).
-const NON_CONSTRUCTORS: &[(&str, &str)] = &[
-    ("generator", "function*(){}"),
-    ("async", "async function(){}"),
-    ("async generator", "async function*(){}"),
-    ("async arrow", "async () => {}"),
-    ("arrow", "() => {}"),
-    ("object-literal method", "({m(){}}).m"),
-    ("generator method", "({*m(){}}).m"),
-    ("async method", "({async m(){}}).m"),
-    ("class method", "(class { m(){} }).prototype.m"),
-    ("static method", "(class { static m(){} }).m"),
-    (
+const NON_CONSTRUCTORS: &[Kind] = &[
+    kind("generator", GENERATOR).frameless(),
+    kind("async", "async function(){}").frameless(),
+    kind("async generator", "async function*(){}").frameless(),
+    kind("async arrow", "async () => {}").frameless(),
+    kind("arrow", "() => {}"),
+    kind("object-literal method", "({m(){}}).m").method_like(),
+    kind("generator method", "({*m(){}}).m").frameless(),
+    kind("async method", "({async m(){}}).m").frameless(),
+    kind("class method", "(class { m(){} }).prototype.m").method_like(),
+    kind("static method", "(class { static m(){} }).m").method_like(),
+    kind(
         "object getter",
         "Object.getOwnPropertyDescriptor({get g(){ return 1; }}, 'g').get",
-    ),
-    (
+    )
+    .method_like(),
+    kind(
         "object setter",
         "Object.getOwnPropertyDescriptor({set s(v){}}, 's').set",
-    ),
-    (
+    )
+    .method_like(),
+    kind(
         "class getter",
         "Object.getOwnPropertyDescriptor((class { get g(){ return 1; } }).prototype, 'g').get",
-    ),
-    ("bound generator", "(function*(){}).bind(null)"),
-    ("bound method", "({m(){}}).m.bind(null)"),
-];
-
-/// The kinds whose call returns without pushing a frame (§0.3 P-2):
-/// the ones whose `super(...)` over-popped the caller's frame.
-const FRAMELESS: &[&str] = &[
-    "generator",
-    "async",
-    "async generator",
-    "async arrow",
-    "generator method",
-    "async method",
-    "bound generator",
-];
-
-/// The kinds that are methods, getters or setters: the predicate
-/// itself was wrong for these (§1.2), so `extends` accepted them.
-const METHOD_LIKE: &[&str] = &[
-    "object-literal method",
-    "class method",
-    "static method",
-    "object getter",
-    "object setter",
-    "class getter",
+    )
+    .method_like(),
+    kind("bound generator", "(function*(){}).bind(null)").frameless(),
+    kind("bound method", "({m(){}}).m.bind(null)"),
 ];
 
 /// Constructors (§4.1's controls).
-const CONTROLS: &[(&str, &str)] = &[
-    (
-        "function declaration",
-        "(function(){ function F(){} return F; })()",
-    ),
-    ("function expression", "function(){}"),
-    ("property-value function", "({ f: function(){} }).f"),
-    ("class without constructor", "class {}"),
-    (
+const CONTROLS: &[Kind] = &[
+    kind("function declaration", FUNCTION_DECLARATION),
+    kind("function expression", "function(){}"),
+    kind("property-value function", "({ f: function(){} }).f"),
+    kind("class without constructor", "class {}"),
+    kind(
         "class with written constructor",
         "class { constructor(){ this.k = 1; } }",
     ),
-    ("bound function", "(function(){}).bind(null)"),
-    ("bound class", "(class {}).bind(null)"),
-    ("Object", "Object"),
-    ("Error", "Error"),
-];
-
-/// Controls that `class B extends X {}` accepts: the bound ones are
-/// refused by ClassDefinitionEvaluation step 8.h.ii (a bound function
-/// has no `prototype`), which is spec-correct and not this cell's.
-const EXTENDS_CONTROLS: &[&str] = &[
-    "function declaration",
-    "function expression",
-    "property-value function",
-    "class without constructor",
-    "class with written constructor",
-    "Object",
-    "Error",
+    kind("bound function", "(function(){}).bind(null)").bound(),
+    kind("bound class", "(class {}).bind(null)").bound(),
+    kind("Object", "Object"),
+    kind("Error", "Error"),
 ];
 
 /// Evaluate `src` in a fresh `Vm`; a string completion is returned as
@@ -133,51 +142,68 @@ fn assert_rows(cell: &str, rows: &[(String, String, String)]) {
     );
 }
 
-fn kind(name: &str) -> &'static str {
-    NON_CONSTRUCTORS
-        .iter()
-        .chain(CONTROLS)
-        .find(|(n, _)| *n == name)
-        .map_or_else(|| panic!("unknown kind {name}"), |(_, src)| *src)
+/// `try { <stmts>; r = 'no throw' } catch (e) { r = <label> }`, then
+/// `then` (an expression over `r`, the completion value).  `class` is the
+/// expected error class: a match reads `TE` / `RE`, anything else
+/// `other:` + the error; `with_message` appends `e.message` instead
+/// (`TE:<message>`).
+fn catch_as(class: &str, with_message: bool, stmts: &str, then: &str) -> String {
+    let tag = &class[..1];
+    let label = if with_message {
+        format!("(e instanceof {class} ? '{tag}E:' : 'other:') + e.message")
+    } else {
+        format!("e instanceof {class} ? '{tag}E' : 'other:' + e")
+    };
+    format!("let r; try {{ {stmts}; r = 'no throw'; }} catch (e) {{ r = {label}; }} {then}")
 }
 
-/// `try { <expr>; 'no throw' } catch (e) { 'TE:' + message | 'other:' … }`.
-fn catch_message(stmts: &str) -> String {
+/// The shared prelude of the super cells: `B extends A` with `ctor_body`
+/// as its class body, its `[[Prototype]]` set to `x`.
+fn setup(x: &str, ctor_body: &str) -> String {
     format!(
-        "try {{ {stmts}; 'no throw' }} \
-         catch (e) {{ (e instanceof TypeError ? 'TE:' : 'other:') + e.message }}"
-    )
-}
-
-/// `try { <expr>; 'no throw' } catch (e) { 'TE' | 'other:' … }`.
-fn catch_type_error(stmts: &str) -> String {
-    format!(
-        "try {{ {stmts}; 'no throw' }} \
-         catch (e) {{ e instanceof TypeError ? 'TE' : 'other:' + e }}"
+        "const X = {x}; class A {{}} class B extends A {{ {ctor_body} }} \
+         Object.setPrototypeOf(B, X); "
     )
 }
 
 fn super_default(x: &str) -> String {
-    format!("const X = {x}; class A {{}} class B extends A {{}} Object.setPrototypeOf(B, X); ")
+    setup(x, "")
 }
 
 fn super_written(x: &str) -> String {
-    format!(
-        "const X = {x}; class A {{}} \
-         class B extends A {{ constructor(){{ super(); }} }} \
-         Object.setPrototypeOf(B, X); "
-    )
+    setup(x, "constructor(){ super(); }")
+}
+
+/// One super cell: `new B()` over every non-constructor kind must throw
+/// a TypeError.
+fn super_cell(cell: &str, prelude: fn(&str) -> String) {
+    let rows: Vec<_> = NON_CONSTRUCTORS
+        .iter()
+        .map(|k| {
+            row(
+                k.name,
+                catch_as(
+                    "TypeError",
+                    false,
+                    &format!("{}new B()", prelude(k.src)),
+                    "r",
+                ),
+                "TE",
+            )
+        })
+        .collect();
+    assert_rows(cell, &rows);
 }
 
 /// The T-POP body (§4.1), written once and shared with T-POP-CTL.
 fn pop_body(x: &str) -> String {
     format!(
-        "const X = {x}; class A {{}} class B extends A {{}} Object.setPrototypeOf(B, X); \
-         function inner() {{ let a = 10, b = 20; let r; \
+        "{}function inner() {{ let a = 10, b = 20; let r; \
            try {{ r = typeof new B(); }} catch (e) {{ r = e instanceof TypeError ? 'TE' : 'other'; }} \
            return [a, b, r].join(','); }} \
          function outer() {{ let x = 'x'; const s = inner(); return x + '|' + s + '|' + (1 + 1); }} \
-         outer()"
+         outer()",
+        setup(x, "")
     )
 }
 
@@ -192,30 +218,37 @@ fn row(label: impl Into<String>, src: String, expected: &str) -> (String, String
 fn t_new() {
     let mut rows: Vec<_> = NON_CONSTRUCTORS
         .iter()
-        .map(|(name, x)| {
+        .map(|k| {
             row(
-                *name,
-                catch_message(&format!("const X = {x}; new X()")),
+                k.name,
+                catch_as(
+                    "TypeError",
+                    true,
+                    &format!("const X = {}; new X()", k.src),
+                    "r",
+                ),
                 "TE:not a constructor",
             )
         })
         .collect();
     rows.push(row(
         "spread, generator",
-        catch_type_error(&format!("const X = {}; new X(...[1])", kind("generator"))),
+        catch_as(
+            "TypeError",
+            false,
+            &format!("const X = {GENERATOR}; new X(...[1])"),
+            "r",
+        ),
         "TE",
     ));
     rows.push(row(
         "spread, function declaration (control)",
-        format!(
-            "const F = {}; typeof new F(...[1])",
-            kind("function declaration")
-        ),
+        format!("const F = {FUNCTION_DECLARATION}; typeof new F(...[1])"),
         "object",
     ));
     rows.push(row(
         "Math.max",
-        catch_message("new Math.max()"),
+        catch_as("TypeError", true, "new Math.max()", "r"),
         "TE:max is not a constructor",
     ));
     assert_rows("T-NEW", &rows);
@@ -226,34 +259,14 @@ fn t_new() {
 /// non-constructor super constructor.
 #[test]
 fn t_super_default() {
-    let rows: Vec<_> = NON_CONSTRUCTORS
-        .iter()
-        .map(|(name, x)| {
-            row(
-                *name,
-                catch_type_error(&format!("{}new B()", super_default(x))),
-                "TE",
-            )
-        })
-        .collect();
-    assert_rows("T-SUPER-DEF", &rows);
+    super_cell("T-SUPER-DEF", super_default);
 }
 
 /// T-SUPER-EXP: a written `super()` (SuperCall Evaluation step 5)
 /// refuses every non-constructor super constructor.
 #[test]
 fn t_super_written() {
-    let rows: Vec<_> = NON_CONSTRUCTORS
-        .iter()
-        .map(|(name, x)| {
-            row(
-                *name,
-                catch_type_error(&format!("{}new B()", super_written(x))),
-                "TE",
-            )
-        })
-        .collect();
-    assert_rows("T-SUPER-EXP", &rows);
+    super_cell("T-SUPER-EXP", super_written);
 }
 
 /// T-POP: a frameless super constructor is refused inside `inner`, and
@@ -261,9 +274,10 @@ fn t_super_written() {
 /// over-pop returns early from `outer` with the constructed object).
 #[test]
 fn t_pop() {
-    let rows: Vec<_> = FRAMELESS
+    let rows: Vec<_> = NON_CONSTRUCTORS
         .iter()
-        .map(|name| row(*name, pop_body(kind(name)), "x|10,20,TE|2"))
+        .filter(|k| k.frameless)
+        .map(|k| row(k.name, pop_body(k.src), "x|10,20,TE|2"))
         .collect();
     assert_rows("T-POP", &rows);
 }
@@ -273,7 +287,7 @@ fn t_pop() {
 fn t_pop_control() {
     let rows: Vec<_> = CONTROLS
         .iter()
-        .map(|(name, x)| row(*name, pop_body(x), "x|10,20,object|2"))
+        .map(|k| row(k.name, pop_body(k.src), "x|10,20,object|2"))
         .collect();
     assert_rows("T-POP-CTL", &rows);
 }
@@ -282,12 +296,18 @@ fn t_pop_control() {
 /// getter and setter kinds (the predicate's own classification).
 #[test]
 fn t_extends() {
-    let rows: Vec<_> = METHOD_LIKE
+    let rows: Vec<_> = NON_CONSTRUCTORS
         .iter()
-        .map(|name| {
+        .filter(|k| k.method_like)
+        .map(|k| {
             row(
-                *name,
-                catch_type_error(&format!("const X = {}; class B extends X {{}}", kind(name))),
+                k.name,
+                catch_as(
+                    "TypeError",
+                    false,
+                    &format!("const X = {}; class B extends X {{}}", k.src),
+                    "r",
+                ),
                 "TE",
             )
         })
@@ -300,7 +320,7 @@ fn t_extends() {
 #[test]
 fn t_controls() {
     let mut rows = Vec::new();
-    for (name, x) in CONTROLS {
+    for Kind { name, src: x, .. } in CONTROLS {
         rows.push(row(
             format!("{name}, new"),
             format!("const X = {x}; typeof new X()"),
@@ -317,10 +337,15 @@ fn t_controls() {
             "object",
         ));
     }
-    for name in EXTENDS_CONTROLS {
+    for k in CONTROLS.iter().filter(|k| !k.bound) {
         rows.push(row(
-            format!("{name}, extends"),
-            catch_type_error(&format!("const X = {}; class B extends X {{}}", kind(name))),
+            format!("{}, extends", k.name),
+            catch_as(
+                "TypeError",
+                false,
+                &format!("const X = {}; class B extends X {{}}", k.src),
+                "r",
+            ),
             "no throw",
         ));
     }
@@ -333,36 +358,34 @@ fn t_controls() {
 /// Each half runs in its own fresh `Vm`, so each has its own `log`.
 #[test]
 fn t_order() {
+    let log = "r + '|' + log.join()";
     let rows = vec![
         row(
             "new half",
-            "const log = []; async function X(){ log.push(2) } \
-             let r; try { r = typeof new X(log.push(1)); } \
-             catch (e) { r = e instanceof TypeError ? 'TE' : 'other'; } \
-             r + '|' + log.join()"
-                .to_string(),
+            format!(
+                "const log = []; async function X(){{ log.push(2) }} {}",
+                catch_as("TypeError", false, "new X(log.push(1))", log)
+            ),
             "TE|1",
         ),
         row(
             "super half",
-            "const log = []; async function X(){ log.push(2) } \
-             class A {} class B extends A { constructor(){ super(log.push(1)); } } \
-             Object.setPrototypeOf(B, X); \
-             let r; try { r = typeof new B(); } \
-             catch (e) { r = e instanceof TypeError ? 'TE' : 'other'; } \
-             r + '|' + log.join()"
-                .to_string(),
+            format!(
+                "const log = []; async function X(){{ log.push(2) }} \
+                 class A {{}} class B extends A {{ constructor(){{ super(log.push(1)); }} }} \
+                 Object.setPrototypeOf(B, X); {}",
+                catch_as("TypeError", false, "new B()", log)
+            ),
             "TE|1",
         ),
         row(
             "null half",
-            "const log = []; \
-             class A {} class B extends A { constructor(){ super(log.push(1)); } } \
-             Object.setPrototypeOf(B, null); \
-             let r; try { r = typeof new B(); } \
-             catch (e) { r = e instanceof TypeError ? 'TE:' + e.message : 'other'; } \
-             r + '|' + log.join()"
-                .to_string(),
+            format!(
+                "const log = []; \
+                 class A {{}} class B extends A {{ constructor(){{ super(log.push(1)); }} }} \
+                 Object.setPrototypeOf(B, null); {}",
+                catch_as("TypeError", true, "new B()", log)
+            ),
             "TE:Super constructor null is not a constructor|1",
         ),
     ];
@@ -388,14 +411,17 @@ fn t_messages() {
         ),
         row(
             "super Math.max",
-            catch_message(
+            catch_as(
+                "TypeError",
+                true,
                 "class A {} class B extends A {} Object.setPrototypeOf(B, Math.max); new B()",
+                "r",
             ),
             "TE:max is not a constructor",
         ),
         row(
             "new null()",
-            catch_message("new null()"),
+            catch_as("TypeError", true, "new null()", "r"),
             "TE:not a constructor",
         ),
     ];
@@ -412,12 +438,7 @@ fn t_depth() {
          for (let i = 0; i < {}; i++) deep = deep.bind(null); ",
         crate::vm::MAX_BIND_CHAIN_DEPTH + 1
     );
-    let catch_range = |stmts: &str| {
-        format!(
-            "{deep}try {{ {stmts}; 'no throw' }} \
-             catch (e) {{ (e instanceof RangeError ? 'RE:' : 'other:') + e.message }}"
-        )
-    };
+    let catch_range = |stmts: &str| format!("{deep}{}", catch_as("RangeError", true, stmts, "r"));
     let rows = vec![
         row(
             "new deep()",
@@ -440,49 +461,31 @@ fn t_depth() {
 #[cfg(feature = "engine")]
 #[test]
 fn t_custom_elements_define() {
-    use elidex_ecs::{Attributes, EcsDom};
-    use elidex_script_session::SessionCore;
+    use super::super::test_helpers::{eval_str, with_page};
 
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    assert!(dom.append_child(doc, html));
-    assert!(dom.append_child(html, body));
-    #[allow(unsafe_code)]
-    // SAFETY: `session` / `dom` outlive the binding; `vm.unbind()` runs
-    // before either is dropped.
-    unsafe {
-        super::super::test_helpers::bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    let out = vm.eval(
-        "const r = []; \
-         for (const [n, f] of [['x-m', ({m(){}}).m], \
-                               ['x-g', Object.getOwnPropertyDescriptor({get g(){ return 1; }}, 'g').get]]) { \
-           let m; \
-           try { customElements.define(n, f); m = 'no throw'; } \
-           catch (e) { m = (e instanceof TypeError ? 'TE:' : 'other:') + e.message; } \
-           r.push(n + '=' + m + '|undefined after:' + (customElements.get(n) === undefined)); \
-         } \
-         customElements.define('x-c', class extends HTMLElement {}); \
-         r.push('x-c defined:' + (customElements.get('x-c') !== undefined)); \
-         r.join('\\n')",
-    );
-    let out = match out {
-        Ok(JsValue::String(id)) => vm.get_string(id),
-        other => format!("{other:?}"),
-    };
-    vm.unbind();
-    let msg =
-        "Failed to execute 'define' on 'CustomElementRegistry': parameter 2 is not a constructor.";
-    assert_eq!(
-        out,
-        format!(
-            "x-m=TE:{msg}|undefined after:true\n\
-             x-g=TE:{msg}|undefined after:true\n\
-             x-c defined:true"
-        )
-    );
+    with_page(|vm| {
+        let out = eval_str(
+            vm,
+            "const r = []; \
+             for (const [n, f] of [['x-m', ({m(){}}).m], \
+                                   ['x-g', Object.getOwnPropertyDescriptor({get g(){ return 1; }}, 'g').get]]) { \
+               let m; \
+               try { customElements.define(n, f); m = 'no throw'; } \
+               catch (e) { m = (e instanceof TypeError ? 'TE:' : 'other:') + e.message; } \
+               r.push(n + '=' + m + '|undefined after:' + (customElements.get(n) === undefined)); \
+             } \
+             customElements.define('x-c', class extends HTMLElement {}); \
+             r.push('x-c defined:' + (customElements.get('x-c') !== undefined)); \
+             r.join('\\n')",
+        );
+        let msg = "Failed to execute 'define' on 'CustomElementRegistry': parameter 2 is not a constructor.";
+        assert_eq!(
+            out,
+            format!(
+                "x-m=TE:{msg}|undefined after:true\n\
+                 x-g=TE:{msg}|undefined after:true\n\
+                 x-c defined:true"
+            )
+        );
+    });
 }

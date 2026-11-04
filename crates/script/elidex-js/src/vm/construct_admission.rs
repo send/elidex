@@ -14,7 +14,10 @@
 //!   derived constructor, and the custom-element upgrade).
 //!
 //! The bound-chain walk is `unwrap_bound_function_chain`'s
-//! (`vm/dispatch_class.rs`); every item here uses it.
+//! (`vm/dispatch_class.rs`) — one walk in `vm/` core, which every item
+//! here uses; the TypedArray resolver's walker
+//! (`vm/host/typed_array_static.rs:91`) is
+//! `#11-vm-typed-array-create-construct`'s.
 
 use super::value::{CallShape, JsValue, ObjectId, ObjectKind, StringId, VmError};
 use super::VmInner;
@@ -86,17 +89,16 @@ pub(crate) fn classify_construct_target(vm: &VmInner, id: ObjectId) -> Construct
 ///
 /// A bound function has one iff its target does (BoundFunctionCreate
 /// §10.4.1.3 step 6), so the chain is unwrapped with
-/// `unwrap_bound_function_chain` — the one walk, shared with the
-/// construct entries — and the target classified by
+/// `bound_chain_target` — the target-only form of the walk the
+/// construct entries share (`unwrap_bound_function_chain`) — and the target classified by
 /// [`classify_construct_target`].  A chain past
 /// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] answers `false`: a predicate
 /// answers rather than throws, and its callers (ClassDefinitionEvaluation
 /// step 8.g, `customElements.define`, the `%TypedArray%` statics) raise
 /// their own TypeError.
 pub(crate) fn is_constructor(vm: &VmInner, id: ObjectId) -> bool {
-    vm.unwrap_bound_function_chain(id).is_ok_and(|(target, _)| {
-        classify_construct_target(vm, target) == ConstructAdmission::Construct
-    })
+    vm.bound_chain_target(id)
+        .is_ok_and(|target| classify_construct_target(vm, target) == ConstructAdmission::Construct)
 }
 
 impl VmInner {

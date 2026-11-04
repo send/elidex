@@ -732,22 +732,11 @@ pub enum CallShape {
     IllegalConstructor,
 }
 
-impl CallShape {
-    /// Whether `new` is accepted (i.e. the function is a constructor for
-    /// the purposes of `IsConstructor` / `[[Construct]]` admission).
-    /// `true` for [`Self::Ordinary`] and [`Self::ConstructorOnly`];
-    /// `false` for [`Self::CallableOnly`] and
-    /// [`Self::IllegalConstructor`].
-    #[inline]
-    pub const fn can_construct(self) -> bool {
-        matches!(self, Self::Ordinary | Self::ConstructorOnly)
-    }
-}
-
 /// The single, shared `func` body for every [`CallShape::IllegalConstructor`]
 /// native (a WebIDL interface object that declares no constructor operation).
 ///
-/// Both gate chokepoints — `do_new` (`[[Construct]]`) and `call_dispatch`
+/// Both gate chokepoints — `VmInner::admit_construct`
+/// (`vm/construct_admission.rs`, `[[Construct]]`) and `call_dispatch`
 /// (`[[Call]]`) — reject an `IllegalConstructor` native via
 /// [`VmError::illegal_constructor`] (keyed on the function's own
 /// [`NativeFunction::name`]) *before* its `func` is ever read, so this body
@@ -763,7 +752,7 @@ pub(crate) fn native_illegal_constructor_unreachable(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     unreachable!(
-        "CallShape::IllegalConstructor gate throws in do_new / call_dispatch \
+        "CallShape::IllegalConstructor gate throws in admit_construct / call_dispatch \
          before this body runs"
     )
 }

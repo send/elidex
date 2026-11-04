@@ -47,6 +47,22 @@ pub(super) fn compile_function_value(
             ),
         });
     };
+    compile_function_closure(fc, prog, analysis, func_scopes, func, creation)
+}
+
+/// Compile an already-matched `func` as a closure value created by
+/// `creation`, leaving it on the stack.  The core of
+/// [`compile_function_value`]; [`compile_expr`]'s `ExprKind::Function`
+/// arm calls it directly (it has the `func` and has recorded the
+/// source-map entry).
+fn compile_function_closure(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    func: &Function,
+    creation: FunctionCreation,
+) -> Result<(), CompileError> {
     let child_func = compile_nested_function(fc, prog, analysis, func_scopes, func, creation)?;
     let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
     fc.emit_u16(Op::Closure, idx);
@@ -242,13 +258,13 @@ pub fn compile_expr(
             fc.emit(Op::PushUndefined);
         }
 
-        ExprKind::Function(_) => {
-            compile_function_value(
+        ExprKind::Function(func) => {
+            compile_function_closure(
                 fc,
                 prog,
                 analysis,
                 func_scopes,
-                expr_id,
+                func,
                 FunctionCreation::Ordinary,
             )?;
         }

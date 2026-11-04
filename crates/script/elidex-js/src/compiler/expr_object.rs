@@ -1,5 +1,6 @@
 //! Object literal and accessor (getter/setter) compilation.
 
+use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::bytecode::opcode::Op;
@@ -51,8 +52,34 @@ fn compile_accessor(
     Ok(())
 }
 
+/// Compile the value of an `Init` property.  A method-shorthand value
+/// is created by DefineMethod (ECMA-262 §15.4.4) — or, for a generator /
+/// async method, MethodDefinitionEvaluation (§15.4.5) — so it is a
+/// [`FunctionCreation::Method`]; a `key: function(){}` value stays an
+/// ordinary expression.
+fn compile_property_value(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    property: &Property,
+    value: NodeId<Expr>,
+) -> Result<(), CompileError> {
+    if property.flags.method() {
+        compile_function_value(
+            fc,
+            prog,
+            analysis,
+            func_scopes,
+            value,
+            FunctionCreation::Method,
+        )
+    } else {
+        compile_expr(fc, prog, analysis, func_scopes, value)
+    }
+}
+
 /// Compile an object literal expression.
-#[allow(clippy::too_many_lines)]
 pub(super) fn compile_object_expr(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -80,24 +107,9 @@ pub(super) fn compile_object_expr(
                         compile_expr(fc, prog, analysis, func_scopes, *e)?;
                     }
                 }
-                // Then evaluate value.  A method-shorthand value is
-                // created by DefineMethod (ECMA-262 §15.4.4) — or, for a
-                // generator / async method, MethodDefinitionEvaluation
-                // (§15.4.5) — so it is a `Method`; a `key: function(){}`
-                // value stays an ordinary function expression.
+                // Then evaluate value.
                 if let Some(value) = prop.value {
-                    if prop.flags.method() {
-                        compile_function_value(
-                            fc,
-                            prog,
-                            analysis,
-                            func_scopes,
-                            value,
-                            FunctionCreation::Method,
-                        )?;
-                    } else {
-                        compile_expr(fc, prog, analysis, func_scopes, value)?;
-                    }
+                    compile_property_value(fc, prog, analysis, func_scopes, prop, value)?;
                 } else {
                     fc.emit(Op::PushUndefined);
                 }
