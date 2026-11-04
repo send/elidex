@@ -22,6 +22,10 @@ Slice F (`#11-vm-structured-clone-file-split`), with F's seam and F's own proces
 draws a seam of its own (§1.2); the home is this memo, umbrella 9 gets a pointer row for A + B (§5); E2's
 split verdict is left to E2's own plan-review (§0.2, §4); E1's receiver promotion is fail-safe (E1 memo §1.2),
 the receiver-admission class staying with its registered slot (§5).
+**Rev 4** (2026-11-05) — plan-review R2, PM 374 rulings: E1's second-`super()` cell is dropped (base behaviour
+there is a debug panic, owned by two registered slots; E1 memo §1.2); the umbrella-9 pointer row is specified
+in both its forms (§5); E1's order against the layering-seam derivation is stated once (§1.2); the clauses
+E1's map owns are added to §3; clerical fixes.
 
 ## §0. Frame, premises, decisions
 
@@ -72,8 +76,8 @@ no construction site in common with the instances' prototypes.
 1. **E0** (`#11-vm-json-internalize-non-array-objects`, registered PM 365) is a standalone prereq PR before E1
    (§1, edge E0 → E1).
 2. **E1-pre** is a standalone pure-move split of `vm/host/structured_clone.rs` before E1. **Refined by PM
-   370**: E1-pre **is** VM P4 Slice F (`#11-vm-structured-clone-file-split`), with F's ratified seam and F's
-   own process (§1.2; edge F → E1). No second cut of the same file.
+   370**: E1-pre **is** VM P4 Slice F (`#11-vm-structured-clone-file-split`); what that means for this
+   program is stated once, in §1.2.
 3. **The clone's prototype by serialized name is E1's**: `clone_error` chooses it per HTML StructuredDeserialize
    step 22 through `error_intrinsic_prototype(name)`, which returns `error_prototype` for every name until E2,
    and E2 only fills that table (E1 memo §1.6). The "`clone_error` fallback" site of axis B leaves E2's scope
@@ -102,13 +106,14 @@ implementation. A per-PR plan that passes plan-review under this umbrella is a t
 
 | PR | Scope | Depends on | Closes | Plan-review |
 |---|---|---|---|---|
-| E0 | JSON.parse's reviver walk visits every non-array object (§1.1) | — | `#11-vm-json-internalize-non-array-objects` (registered, PM 365) | required — on the short per-PR plan section in E0's own PR (single axis, no memo) |
+| E0 | JSON.parse's reviver walk visits every non-array object (§1.1) | — | `#11-vm-json-internalize-non-array-objects` (registered, PM 365) | required — on the short per-PR plan section in E0's own PR (single axis, no memo); that section passes `/elidex-plan-review` before E0's code is written |
 | F (VM P4) | prereq = VM P4 Slice F, per its row in `docs/plans/2026-07-vm-p4-slice-plan.md` §5 (§1.2); not this program's row | — | `#11-vm-structured-clone-file-split` (F's) | F's own, per its row (§1.2) |
 | E1 | Axis C: every `[[ErrorData]]` creator makes `ObjectKind::Error` (payload dropped); every classifier keys on it (structured clone, IndexedDB; toString already does); and the clone's prototype by serialized name through `error_intrinsic_prototype(name)` (PM 365) | E0, F | `#11-error-object-builtintag-dual-representation`; axis C of `#11-vm-native-error-prototypes` | required — `docs/plans/2026-11-vm-native-error-e1-errordata.md` |
 | E2 | Axes A + B (§4): own NativeError prototypes and EvalError, every remaining construction site's prototype, constructor `[[Prototype]]` = %Error%, and the contents of `error_intrinsic_prototype`'s table | E1 | `#11-vm-native-error-prototypes` | required — **its own per-PR plan and its own `/elidex-plan-review` before E2 is implemented**, which also gives E2's split verdict (§0.2); not planned here |
 
-**Order**: E0 → F → E1 → E2 (PM 365; F in E1-pre's place, PM 370). E0 and F have no code dependency on each
-other; the order between them is the PM's, so it is a sequence, not a choice.
+**Order**: E0 → F → E1 → E2 (PM 365; F in E1-pre's place, PM 370), with E1's place after F stated in §1.2
+(PM 374). E0 and F have no code dependency on each other; the order between them is the PM's, so it is a
+sequence, not a choice.
 
 ### §1.1 E0 — JSON.parse's reviver walk (`#11-vm-json-internalize-non-array-objects`)
 
@@ -134,14 +139,22 @@ other; the order between them is the PM's, so it is a sequence, not a choice.
 ### §1.2 E1-pre = VM P4 Slice F (`#11-vm-structured-clone-file-split`)
 
 **Prereq = Slice F (VM P4), per its row** (`docs/plans/2026-07-vm-p4-slice-plan.md` §5, row **F**; PM 370).
-This memo draws no seam and states no acceptance of its own for the split (Rev 1-2's own seam and
+This is the one statement of Slice F in this program; every other mention in this memo and in the E1 memo
+refers here. This memo draws no seam and states no acceptance of its own for the split (Rev 1-2's own seam and
 "plan-review not required" are withdrawn); what follows only points at what F's row already says
-(`git grep -n '^| \*\*F\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`):
+(`git grep -n '^| \*\*F\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`), plus E1's place after it:
+
+- **E1's order (PM 374)**: E1 comes after F's plan-review and after any `#11-vm-structured-clone-layering-seam`
+  child that review orders before F's consumers; E1's cites follow wherever the clone-algorithm half lands.
+  The PM recorded the edge F → E1 on both rows of the live ledger
+  (`/Users/kazuaki/.claude/projects/-Users-kazuaki-repos-send-sh-elidex/memory/project_open-defer-slots.md`,
+  the pointer rows of `#11-vm-structured-clone-file-split` and `#11-vm-structured-clone-layering-seam`).
 
 - **Seam**: the file's own banners — the clone algorithm (`clone_value` through `data_clone_error`) vs
   `// Global registration` plus the WebIDL binding layer (`register_structured_clone_global`,
   `native_structured_clone`, `validate_transfer`, `ensure_empty_transfer_list`). F's row names no post-split
-  file paths, so E1 cites the structured-clone sites by function, "(after Slice F)", and names no path.
+  file paths, so E1 cites the structured-clone sites by function, "(after Slice F)", and names no
+  post-split path (pre-split lines at `f9cf8c40` appear only as locators, E1 memo §1.8).
 - **Process**: F is a §5 row with a mandatory `/elidex-plan-review` of its own; its acceptance is F's (the
   suite passes unchanged, the two halves compile as separate modules, the diff is hunk- and
   line-conserving with the hunk count recorded), and so is its declared green guard (zero content delta on
@@ -158,8 +171,7 @@ This memo draws no seam and states no acceptance of its own for the split (Rev 1
   landed first, every new own prototype would be one more prototype that the identity classifiers
   (`is_error_like_proto`, `is_error_like`) do not know, so a `new RangeError()` would clone as `{}` and store
   in IndexedDB silently — the regression PM 364 named.
-- **F → E1** (F in E1-pre's place, PM 370). Mechanical: E1's diff lands in F's clone-algorithm half, and E1's
-  memo cites it by function (after Slice F), never by a path F's row does not name.
+- **F → E1** (F in E1-pre's place, PM 370; the order against the layering-seam derivation, PM 374): §1.2.
 - **E0 → E1** (PM 365). E1 moves constructed errors out of `ObjectKind::Ordinary`; E0 removes the one
   consumer that treats that kind as "walkable object". Without E0, E1's DoD cannot keep E0's
   constructed-error acceptance row green.
@@ -170,14 +182,17 @@ This memo draws no seam and states no acceptance of its own for the split (Rev 1
 ## §3. Spec coverage map
 
 Program-level: the clauses each PR owns, so the per-PR maps can be checked against it. Numbers from
-`.claude/tools/webref heading ecma262 20.5`, `.claude/tools/webref aoid ecma262 <AO>` and
-`.claude/tools/webref dfn html <AO>`. E1's step-level map is its memo's §3.
+`.claude/tools/webref heading ecma262 20.5`, `.claude/tools/webref heading ecma262 5.2.4`,
+`.claude/tools/webref aoid ecma262 <AO>`, `.claude/tools/webref dfn html <AO>`,
+`.claude/tools/webref dfn IndexedDB-3 clone`, `.claude/tools/webref heading wasm-js-api-2 5.10` and
+`.claude/tools/webref heading webidl 3.14.1`. E1's step-level map is its memo's §3; every clause it owns has a
+row here.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | ECMA-262 §20.5.4 Properties of Error Instances | — | instances have [[ErrorData]]; prototypes do not | E1: `vm/object_kind.rs:135` + E1 memo §1.1's eight creators | ✓ | yes |
 | ECMA-262 §20.1.3.6 Object.prototype.toString ( ) | 8 | [[ErrorData]] → "Error" | E1: `vm/natives_symbol.rs:284` (unchanged arm, now reached) | ✓ | yes |
-| WHATWG HTML §2.7.4 StructuredSerializeInternal ( value, forStorage [ , memory ] ) | 18 | [[ErrorData]] and not a platform object; the name (18.1-18.2) | E1: `clone_recursive` guard, `classify`, and the name read in `clone_error` (after Slice F); the message (18.3-18.4) and the rest of the record: `#11-structured-clone-error-record-fidelity` | ✓ | yes |
+| WHATWG HTML §2.7.4 StructuredSerializeInternal ( value, forStorage [ , memory ] ) | 18 | [[ErrorData]] and not a platform object; the name (18.1-18.2) | E1: `clone_recursive` guard, `classify`, and the name read in `clone_error` (after Slice F), its step-18.2 comparison `serialized_error_name` in `vm/globals_errors.rs`; the message (18.3-18.4) and the rest of the record: `#11-structured-clone-error-record-fidelity` | ✓ | yes |
 | WHATWG HTML §2.7.7 StructuredDeserialize ( serialized, targetRealm [ , memory ] ) | 22 | prototype by serialized name (22.1-22.7); object with [[ErrorData]] (22.9) | E1 (`clone_error` → `error_intrinsic_prototype`, PM 365); E2 fills the table's per-name prototypes | ✓ | yes |
 | ECMA-262 §20.5.1.1 Error ( message [ , options ] ) | 1-2 | OrdinaryCreateFromConstructor « [[ErrorData]] » (E1); intrinsicDefaultProto %Error.prototype% (E2) | `vm/natives.rs:488` (`error_entry`) | ✓ | yes |
 | ECMA-262 §20.5.6.1.1 NativeError ( message [ , options ] ) | 1-2 | same with %NativeError.prototype% — E1 the slot, E2 the prototype | `vm/natives.rs:508-546` | ✓ | yes |
@@ -188,6 +203,13 @@ Program-level: the clauses each PR owns, so the per-PR maps can be checked again
 | ECMA-262 §20.5.7.2 Properties of the AggregateError Constructor | — | [[Prototype]] is %Error% | E2: `vm/globals_errors.rs:114-115` | ✓ | no |
 | ECMA-262 §27.5.4.3.1 PerformPromiseAny ( iteratorRecord, ctor, resultCapability, promiseResolve ) | 5.b.ii.1, 5.e.vii.1 | a newly created AggregateError object | E1: `vm/natives_promise_combinator.rs:258` | ✓ | yes |
 | ECMA-262 §25.5.2.4 InternalizeJSONProperty ( holder, name, reviver, parseRecord ) | 5.c | every non-array object is walked | E0: `vm/natives_json/parse.rs:444` | ✓ | yes — the reviver |
+| ECMA-262 §5.2.4.2 Throw | — | "throw a TypeError exception" ≡ ThrowCompletion(a newly created TypeError object) — the engine throw creates an [[ErrorData]] object | E1: `vm_error_to_thrown` `vm/ops.rs:171` → `create_error_object` (NEW) | ✓ | yes |
+| ECMA-262 §10.1.13 OrdinaryCreateFromConstructor ( ctor, intrinsicDefaultProto [ , internalSlotsList ] ) | 2-5 | the slot list « [[ErrorData]] » on the newTarget-derived object | E1: `do_new` pre-allocation `vm/ops.rs:722-729` + `promote_to_error` (NEW) | ✓ | yes |
+| ECMA-262 §20.5.7.1.1 AggregateError ( errors, message [ , options ] ) | 1-2 | OrdinaryCreateFromConstructor « [[ErrorData]] » (E1); its intrinsicDefaultProto and the constructor's [[Prototype]] (E2) | E1: `vm/natives.rs:602` → `error_receiver` (NEW) | ✓ | yes |
+| WHATWG HTML §2.7.6 StructuredSerializeForStorage ( value ) | — | IndexedDB serializes through StructuredSerializeInternal, so through step 18 | E1: `vm/host/indexeddb/value.rs:298` (kept), `:318-323` + `:363-371` (deleted) | ✓ | yes |
+| IndexedDB §5.11 Clone a value | 3-4 | one classifier, structured clone's | E1: `value_to_json` → `clone_value` `vm/host/indexeddb/value.rs:382` | ✓ | yes |
+| Wasm JS API §5.10 Error Objects | 2.1 | each class implements the NativeError Object Structure → instances have [[ErrorData]] (E1); the constructors' [[Prototype]] (E2) | E1: `vm/natives.rs:554`, `:569`, `:584`; `vm/host/wasm/errors.rs:201-206` | ✓ | yes |
+| Web IDL §3.14.1 DOMException custom bindings | — | that DOMException *instances* have [[ErrorData]] is a reading (E1 memo §1.5); a platform object, never step 18 | none — unchanged by E1 | ✓ (no touch) | yes |
 
 ## §4. E2's scope (stated, not planned)
 
@@ -211,11 +233,19 @@ facts it must not lose.
   (`vm/ops.rs:209-214`) and `build_aggregate_error` define is a workaround for the shared prototype; with
   own prototypes the spec's inherited `name` is the source of truth. **E2 decides whether and how it is
   removed** — this is the one statement of that decision; E1 keeps the property and references this line.
-- **M17's kill** (E1 memo §4.2): E1's by-name step 18.2 is unobservable in E1, because every arm of
-  `error_intrinsic_prototype` returns `error_prototype`. E2 owns the kill, with per-name cells that its own
-  prototypes make observable — `structuredClone(new X()) instanceof X` for each of the six NativeErrors, and a
-  script-set `e.name = 'RangeError'` on a TypeError choosing %RangeError.prototype%; the kill is an item of
-  E2's mutant list.
+  One E1 cell depends on it: T-PROMO-UPGRADE's `el.name === 'TypeError'` row (E1 memo §4.1) pins the
+  instance-level `name` that `error_ctor_impl` defines on the upgraded wrapper, so E2's decision changes that
+  row, and E2's plan states the row's new value with the decision.
+- **The table fill lands with the own prototypes**: E2 changes `error_intrinsic_prototype`'s arms in the same
+  PR as axis A, never after it — a table still returning `error_prototype` once the NativeErrors have their
+  own prototypes regresses `structuredClone(new RangeError()) instanceof RangeError` (true today through the
+  shared prototype).
+- **The by-name rule's cells** (E1 memo §4.2 M17): E1 kills M17 at unit level, on `serialized_error_name`'s
+  `ErrorName` return (E1 memo §4.1 T-NAME-UNIT). What E1 cannot observe is the table's per-name *values*,
+  because every arm returns `error_prototype` until E2; E2's per-name cells observe them —
+  `structuredClone(new X()) instanceof X` for each of the six NativeErrors, and a script-set
+  `e.name = 'RangeError'` on a TypeError choosing %RangeError.prototype% — with a mutant on the table (an arm
+  returning `error_prototype`) in E2's mutant list.
 - **E2's split verdict** (§0.2): E2's own plan-review measures it; the constructors' `[[Prototype]]` chain
   is an axis that review must measure, not assume folded into A or B's instance sites.
 - **Not E2**: `do_new`'s GetPrototypeFromConstructor fallback (E1 memo SD-5) is engine-wide; E2 meets it when
@@ -242,22 +272,55 @@ facts it must not lose.
 - **Registered by PM 370**: `#11-vm-native-ctor-receiver-promotion-admission` — the pre-existing class of
   in-place receiver promotions (every `promote_to_*` site, E1's `promote_to_error` included) reached with a
   receiver that is not a `do_new`-pre-allocated `Ordinary`; E1 takes its fail-safe stance (E1 memo §1.2) and
-  not the class. Its second path's spec answer is `#11-vm-derived-constructor-this-binding`'s (VM P4 ledger).
+  not the class. Its second path's spec answer is `#11-vm-derived-constructor-this-binding`'s (VM P4 ledger),
+  whose charter now carries the double-`super()` debug panic (PM 374; E1 memo §1.2). **Its trigger fires on
+  E1** ("a PR touching any promote site or the upgrade construct path": E1 adds `promote_to_error`), so its
+  disposition is recorded at E1's landing: re-evaluated there, its trigger restated for the promote sites that
+  remain after E1 (E1 memo §5).
 - **Ledger agreement** (PM 370; the ledger edits are the PM's): `#11-error-object-builtintag-dual-representation`
   closes at E1's landing; `#11-idb-structured-clone-storage` covers errors (after E1, IndexedDB rejects subclass
   and Wasm errors; the storage-format redesign is that slot's); the AggregateError and Wasm constructors'
   `[[Prototype]]` = %Error% is E2's (§4).
 - **Landing obligations**:
-  - **The umbrella-9 pointer row** (PM 370): one row in `docs/plans/2026-07-vm-p4-slice-plan.md` §5's table
-    (`| # | Slice | Primary module(s) | Slot | Tier | Deps |`), under umbrella 9, pointing at this memo for axes
-    **A + B only** (C and E0 are not umbrella-9 surface). Mechanics, all in the same edit: (i) re-derive the
-    §5 population figures that the row changes (the slice-plan's census passage, ~`:219-225` at `f9cf8c40`),
-    never carry them; (ii) the row names this memo as a backticked path only — no relative link from a family
-    memo to a memo outside the family (`docs/plans/test_vm_p4_family_layout.py`'s guard); (iii) run
-    `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-07-vm-p4-es-language-completeness.md`
-    (CLAUDE.md "VM-P4 umbrella memo の checker 実行"), rc 0 expected. ⚠ The in-flight `vm-p4-slice-1a-plan`
-    branch edits the same population figures (its diff touches slice-plan `:222-224`); whichever lands second
-    re-derives them on top of the other.
+  - **The umbrella-9 pointer, in both its forms** (PM 370; forms fixed by PM 374), for axes **A + B only** (C
+    and E0 are not umbrella-9 surface), all in one edit of `docs/plans/2026-07-vm-p4-slice-plan.md`:
+    - **(a) a §5 row** (`| # | Slice | Primary module(s) | Slot | Tier | Deps |`), in the form of rows **R**
+      and **M** (`git grep -n '^| \*\*R\*\* |\|^| \*\*M\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`):
+      - `#`: **NE** (unused in the family: `cat docs/plans/2026-07-vm-p4-*.md | /usr/bin/grep -c '\*\*NE\*\*'`
+        → 0 at `f9cf8c40`).
+      - `Slice`: opens, in bold as R and M carry it, with "NativeError object structure (axes A + B of
+        `#11-vm-native-error-prototypes`) — PROMOTED TO ITS OWN UMBRELLA, not a terminal unit, outside this
+        plan's slice sequence" (the kind literal is R's and M's, character for character), then one sentence: the program, its PRs and
+        their order are `docs/plans/2026-11-vm-native-error-program.md`'s; this row is umbrella 9's surface
+        carved out of its derivation (form (b)).
+      - `Primary module(s)`: **—**, as R and M carry it (the modules are the program memo's §4 census).
+      - `Slot`: `` `#11-vm-native-error-prototypes` `` (registered PM 363, so no **new**).
+      - `Tier`: **T3**, umbrella 9's, since the surface is umbrella 9's.
+      - `Deps`: **—** (an umbrella carries no ordering; the program's order is its own memo's §1).
+    - **(b) a mention in umbrella 9's row** (`git grep -n '^| \*\*9\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`),
+      in its rule's "**minus any surface another slot already owns**" clause, in the form of the clause's
+      `Atomics` / `Reflect` precedents: the Error intrinsics' A + B surface (ECMA-262 §20.5.3.1, §20.5.5,
+      §20.5.6.2-§20.5.6.3, §20.5.7.2; numbers from `.claude/tools/webref heading ecma262 20.5`) to the
+      promoted umbrella **NE** (`#11-vm-native-error-prototypes`); and, in the same sentence, that
+      `Error.isError` (§20.5.2.1, `#11-vm-error-iserror`) and InstallErrorCause (§20.5.9.1,
+      `#11-vm-error-install-error-cause`) are **not** subtracted — both are registered with owner "VM P4
+      (umbrella 9)" on the live ledger, and the mention is what makes them visible in the row.
+    - **Population figures the landing re-derives, never carries** (slice-plan census passage, lines at
+      `f9cf8c40`): `:222` the one-liner's `48 33 15` (total / §5 half / §8 half; **NE**'s `Slice` cell carries
+      the umbrella literal, so it enters the count); `:222` "all **64** §5 data rows" and `:224` "**64 at this
+      revision**" (a row is added); `:239` "the split is **33** §5 rows and **15** §8 slots"; and `:222` "The
+      reading returns **54**", re-read on the same line. Each is re-run by the command the passage itself
+      states, on the landing's tree.
+    - **The layout guard**: the row and the mention name this memo as a backticked path only — no relative
+      link from a family memo to a memo outside the family (`docs/plans/test_vm_p4_family_layout.py`).
+    - **The checker**: `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-07-vm-p4-es-language-completeness.md`
+      (CLAUDE.md "VM-P4 umbrella memo の checker 実行"), rc 0 expected.
+    - ⚠ **Overlap**: the in-flight `vm-p4-slice-1a-plan` branch edits the same population figures (its diff
+      touches slice-plan `:219-227`, hunk `@@ -219,9 +219,9 @@` of
+      `git diff f9cf8c40 vm-p4-slice-1a-plan -- docs/plans/2026-07-vm-p4-slice-plan.md`); whichever lands second
+      re-derives them on top of the other.
+  - **`#11-vm-native-ctor-receiver-promotion-admission`'s disposition at E1's landing** (its trigger fires on
+    E1, above).
   - Close `#11-vm-json-internalize-non-array-objects` at E0's landing,
     `#11-error-object-builtintag-dual-representation` at E1's and `#11-vm-native-error-prototypes` at E2's.
 
