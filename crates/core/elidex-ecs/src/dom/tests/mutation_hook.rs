@@ -11,7 +11,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::dom::{MutationDispatcher, MutationEvent};
+use crate::dom::{CloneScope, MutationDispatcher, MutationEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum MockEvent {
@@ -48,6 +48,10 @@ pub(super) enum MockEvent {
         prev_old_len: usize,
         parent: Option<Entity>,
         merged_child_index: Option<usize>,
+    },
+    CloneCreated {
+        root: Entity,
+        scope: CloneScope,
     },
 }
 
@@ -144,6 +148,12 @@ impl MutationDispatcher for MockHook {
             }
             MutationEvent::AttributeChange { .. } => {
                 // Generic MockHook does not record attribute events.
+            }
+            MutationEvent::CloneCreated { root, scope } => {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(MockEvent::CloneCreated { root, scope });
             }
         }
     }
@@ -276,8 +286,8 @@ fn replace_child_fires_remove_then_insert_at_same_index() {
 fn replace_child_with_earlier_sibling_reports_post_shift_index() {
     // When new_child is an earlier sibling of old_child in the same parent,
     // detach(new_child) shifts old_child down by one. The hook MUST report
-    // the post-shift index for the old_child removal (WHATWG DOM §5.5
-    // "remove a node" step 4). The implicit detach of new_child also fires
+    // the post-shift index for the old_child removal (DOM §4.2.3 "remove"
+    // step 3 → live range pre-remove steps (DOM §5.5 Interface Range), step 3). The implicit detach of new_child also fires
     // its own after_remove at new_child's pre-detach index.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");

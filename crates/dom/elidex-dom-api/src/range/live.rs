@@ -156,9 +156,10 @@ impl LiveRangeBridge {
                 parent,
                 merged_child_index,
             ),
-            MutationEvent::AttributeChange { .. } => {
+            MutationEvent::AttributeChange { .. } | MutationEvent::CloneCreated { .. } => {
                 // Range live-tracking does not depend on attribute
-                // mutations — Range boundaries are tree-positional.
+                // mutations — Range boundaries are tree-positional.  A clone
+                // creates detached nodes no existing boundary refers to.
             }
         }
     }

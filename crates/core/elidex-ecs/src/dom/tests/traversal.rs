@@ -411,3 +411,127 @@ fn w4_uncapped_walk_terminates_on_cyclic_links() {
         assert!(visited.contains(&e));
     }
 }
+
+// ---------------------------------------------------------------------------
+// for_each_clone_created (RC-2a; plan `docs/plans/2026-11-range-rc2a-clone-created.md` §4.3, §6)
+// ---------------------------------------------------------------------------
+
+fn clone_created_walk(dom: &EcsDom, root: Entity, scope: CloneScope) -> Vec<Entity> {
+    let mut out = Vec::new();
+    dom.for_each_clone_created(root, scope, &mut |e| out.push(e));
+    out
+}
+
+/// host (light: `a` > `a1`, `b`; shadow: `s1` > `s1a`).
+struct CloneFixture {
+    dom: EcsDom,
+    host: Entity,
+    sr: Entity,
+    a: Entity,
+    a1: Entity,
+    b: Entity,
+    s1: Entity,
+    s1a: Entity,
+}
+
+fn clone_fixture() -> CloneFixture {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let a = elem(&mut dom, "p");
+    let a1 = elem(&mut dom, "span");
+    let b = elem(&mut dom, "p");
+    assert!(dom.append_child(host, a));
+    assert!(dom.append_child(a, a1));
+    assert!(dom.append_child(host, b));
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let s1 = elem(&mut dom, "i");
+    let s1a = elem(&mut dom, "b");
+    assert!(dom.append_child(sr, s1));
+    assert!(dom.append_child(s1, s1a));
+    CloneFixture {
+        dom,
+        host,
+        sr,
+        a,
+        a1,
+        b,
+        s1,
+        s1a,
+    }
+}
+
+#[test]
+fn clone_created_self_only_visits_root_and_shadow_tree_not_light_children() {
+    let f = clone_fixture();
+    assert_eq!(
+        clone_created_walk(&f.dom, f.host, CloneScope::SelfOnly),
+        vec![f.host, f.sr, f.s1, f.s1a],
+        "root, its ShadowRoot, then the shadow tree; never light children"
+    );
+}
+
+#[test]
+fn clone_created_subtree_is_creation_order_and_matches_capped_walk_on_shallow_tree() {
+    let f = clone_fixture();
+    let got = clone_created_walk(&f.dom, f.host, CloneScope::Subtree);
+    // Creation order: node, light subtrees (step 5), shadow children (step 6.7).
+    assert_eq!(got, vec![f.host, f.a, f.a1, f.b, f.s1, f.s1a]);
+    let mut capped = Vec::new();
+    f.dom
+        .for_each_shadow_inclusive_descendant(f.host, &mut |e| capped.push(e));
+    assert_eq!(got, capped);
+}
+
+#[test]
+fn clone_created_self_only_without_shadow_root_visits_root_only() {
+    let mut f = clone_fixture();
+    let plain = elem(&mut f.dom, "div");
+    let child = elem(&mut f.dom, "p");
+    assert!(f.dom.append_child(plain, child));
+    assert_eq!(
+        clone_created_walk(&f.dom, plain, CloneScope::SelfOnly),
+        vec![plain]
+    );
+}
+
+/// Negative control for the removed cap: a chain below `MAX_ANCESTOR_DEPTH`
+/// must still be visited (the capped walker stops at the cap).
+#[test]
+fn clone_created_subtree_reaches_past_max_ancestor_depth() {
+    let mut dom = EcsDom::new();
+    let deepest = elem(&mut dom, "div");
+    let mut root = deepest;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        let parent = elem(&mut dom, "div");
+        assert!(dom.append_child(parent, root));
+        root = parent;
+    }
+    let visited = clone_created_walk(&dom, root, CloneScope::Subtree);
+    assert_eq!(visited.len(), MAX_ANCESTOR_DEPTH + 6, "every chain node");
+    assert_eq!(visited.first(), Some(&root));
+    assert_eq!(visited.last(), Some(&deepest), "the deepest is visited");
+    // The capped walker, by contrast, stops short (the contrast this cell guards).
+    let mut capped = 0usize;
+    dom.for_each_shadow_inclusive_descendant(root, &mut |_| capped += 1);
+    assert!(capped < visited.len());
+}
+
+#[test]
+fn clone_created_self_only_reaches_past_max_ancestor_depth_in_shadow_tree() {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let deepest = elem(&mut dom, "div");
+    let mut top = deepest;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        let parent = elem(&mut dom, "div");
+        assert!(dom.append_child(parent, top));
+        top = parent;
+    }
+    assert!(dom.append_child(sr, top));
+    let visited = clone_created_walk(&dom, host, CloneScope::SelfOnly);
+    // host, ShadowRoot, then the whole chain.
+    assert_eq!(visited.len(), MAX_ANCESTOR_DEPTH + 8);
+    assert_eq!(&visited[..3], &[host, sr, top]);
+    assert_eq!(visited.last(), Some(&deepest));
+}

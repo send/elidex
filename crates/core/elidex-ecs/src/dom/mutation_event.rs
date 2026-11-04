@@ -42,6 +42,19 @@ use hecs::Entity;
 
 use crate::EcsDom;
 
+/// Scope of a [`MutationEvent::CloneCreated`] event: which of the root's
+/// descendants were created by the same DOM §4.4 "clone a node" call.
+/// `Subtree`: step 5 ran (subtree true), so the light children and, under
+/// step 6.7, the shadow children of a clonable shadow host. `SelfOnly`: step 5
+/// did not run; the shadow children were still created when the root is a
+/// clonable shadow host (step 6 is not gated on subtree), each with subtree
+/// true (step 6.7), so their descendants exist too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloneScope {
+    Subtree,
+    SelfOnly,
+}
+
 /// One mutation event delivered to the dispatcher.
 ///
 /// ## Spec coverage (variant → WHATWG section)
@@ -104,6 +117,12 @@ use crate::EcsDom;
 ///   `oldValue`). Attribute name ASCII case-insensitivity per **WHATWG
 ///   DOM §4.9** Interface Element `getAttribute` (case-insens match
 ///   for HTML documents).
+///
+/// - [`Self::CloneCreated`] — fired by `EcsDom::fire_clone_created` once a
+///   "clone a node" call has created the whole copy, before the cloning
+///   entry returns. Source spec: **WHATWG DOM §4.4** Interface Node, "clone
+///   a node" (steps 2, 5 and 6.7 define the created set; [`CloneScope`]
+///   carries which of them ran).
 pub enum MutationEvent<'a> {
     /// A node has been linked into a parent.
     ///
@@ -309,6 +328,12 @@ pub enum MutationEvent<'a> {
         old_value: Option<&'a str>,
         new_value: Option<&'a str>,
     },
+
+    /// A "clone a node" call completed: `root` and its `scope` were created.
+    /// Fired by `EcsDom::fire_clone_created` from the canonical cloner's
+    /// entry, after the whole copy exists and before the entry returns.
+    /// Walk the created set with `EcsDom::for_each_clone_created`.
+    CloneCreated { root: Entity, scope: CloneScope },
 }
 
 /// Synchronous mutation event dispatcher.
@@ -318,7 +343,9 @@ pub enum MutationEvent<'a> {
 ///
 /// Production impl: `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` (typed
 /// composer of `LiveRangeBridge` + `NodeIteratorAdjuster` +
-/// `BaseUrlMaintainer` + `FormControlReconciler`). Dispatch order =
+/// `BaseUrlMaintainer` + `FormControlReconciler` +
+/// `EventHandlerAttributeConsumer` + `CanvasReconciler` +
+/// `CustomElementReactionConsumer`). Dispatch order =
 /// composer field declaration order = compile-time-visible.
 ///
 /// New mutation kinds are added as [`MutationEvent`] variant additions;

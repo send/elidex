@@ -64,6 +64,8 @@ shape end-to-end), §9 DoD 1. Line counts, census commands and the #466 reversal
 `:257-261`; §9 DoD 1 is decided by a PR-head re-run (parameter rename `deep` → `subtree`); the `shadow_doc = None`
 behaviour change is stated (slot `#11-ownerless-node-creation`).
 
+**Rev 3.4** (2026-11-05, implementation PR; PM 367/368, from Layout T3 O-9) — plan change, not clerical: the shared walk has no depth cap. The cloner copies with no cap (`tree_clone.rs` `clone_children_recursive`), so §4.3's "today's order and cap" would leave clone elements deeper than `MAX_ANCESTOR_DEPTH` without the CE and form arms the spec runs on them. `for_each_clone_created` is its own iterative walk in creation order (step 2 → 5 → 6.7), uncapped, terminated by a visited set; §4.3 and §6 (a deep-tree cell above the old cap) follow. The capped walker and its other callers are unchanged (slot `#11-capped-walker-deep-element-processing`).
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 Frame
@@ -552,7 +554,8 @@ Everything else in the file is unchanged: `CloneNode`'s `invoke` (so the Attribu
 `EcsDom::for_each_clone_created(&self, root: Entity, scope: CloneScope, visit: &mut F)` (NEW) in
 `crates/core/elidex-ecs/src/dom/tree/walkers.rs`, beside `for_each_shadow_inclusive_descendant` (`:54`):
 
-- `Subtree` → `self.for_each_shadow_inclusive_descendant(root, visit)`: today's order and cap, unchanged. The visit
+- `Subtree` → an iterative, uncapped walk of its own (explicit work-list, breadth by `child_list_uncapped`, a `visited`
+  set as the termination guard; Rev 3.4), not `for_each_shadow_inclusive_descendant`. The visit
   set is DOM §4.8 "shadow-including descendant" (plus the root); the order is the clone's **creation order** — DOM
   §4.4 "clone a node" step 2 (the node), step 5 (its light children, recursively), step 6.7 (its shadow children) —
   which is the order the upgrade reactions are enqueued in today (umbrella §0.3 item 14). It is not §4.8
@@ -568,7 +571,7 @@ Everything else in the file is unchanged: `CloneNode`'s `invoke` (so the Attribu
   ShadowRoot nodes.
 
 It lives in `elidex-ecs` because that is the one crate both consumers depend on. One walk, two consumers (umbrella
-§4.3 condition 4; one issue, one way). The depth cap applies per root from depth 0, as `cloneNode`'s does today.
+§4.3 condition 4; one issue, one way). There is no depth cap (Rev 3.4): the cloner has none, so the walk covers every element the clone created.
 
 ### §4.4 The CE arm (`elidex-custom-elements`)
 
@@ -1022,8 +1025,10 @@ under both rules, so it is renamed and its comment rewritten (§4.9) and it stay
   `dom/mod.rs:200-206`).
 - `elidex-ecs`, `tests/traversal.rs`: `for_each_clone_created` with `SelfOnly` on a root that has light children and a
   clonable shadow root visits the root, then the ShadowRoot entity and its subtree, never the light children; with
-  `Subtree` it equals `for_each_shadow_inclusive_descendant`; with `SelfOnly` on a root without a shadow root it
-  visits the root only.
+  `Subtree` it equals `for_each_shadow_inclusive_descendant` on a shallow tree; with `SelfOnly` on a root without a
+  shadow root it visits the root only. Deep-tree cell (Rev 3.4, the negative control for the removed cap): a chain of
+  `MAX_ANCESTOR_DEPTH + 5` below the root, built bottom-up, is visited in full including the deepest, under `Subtree`
+  and through a `SelfOnly` root's shadow tree.
 - `elidex-dom-api`, `test_util.rs`: `CloneCreatedProbe` (NEW), a `MutationDispatcher` recording `(root, scope)`
   (the `AttrChangeCounter` shape, `test_util.rs:21-34`).
 - `elidex-dom-api`, `tests/clone_shadow.rs`: (a) one event per entry call: `cloneNode(true)` of a host with a

@@ -11,7 +11,7 @@
 //! ([`EcsDom::for_each_uncapped_shadow_inclusive`], `walkers.rs`), and belong with the
 //! tree-mutation family.
 
-use super::super::EcsDom;
+use super::super::{DispatcherSlot, EcsDom};
 use super::walkers::TemplateContentsWalk;
 use crate::components::{Attributes, ShadowRoot};
 use crate::dom::MutationDispatcher;
@@ -44,7 +44,7 @@ impl EcsDom {
     /// suppressed explicitly per the light-tree-only contract: although
     /// `attach_shadow` sets `TreeRelation.parent = Some(host)`, shadow
     /// roots are not exposed as DOM children, and shadow-tree boundaries
-    /// are the consumer's responsibility per WHATWG §5.5.
+    /// are the consumer's responsibility per DOM §5.5 Interface Range.
     ///
     /// Returns `false` if the entity does not exist.
     #[must_use = "returns false if the entity does not exist"]
@@ -77,7 +77,7 @@ impl EcsDom {
         // depth), and recomputing it per node would make a deep
         // `despawn_subtree` O(n²) (a maliciously deep fragment's rollback).
         let parent = self.get_parent(entity);
-        let fire = if self.dispatcher.is_some() {
+        let fire = if matches!(self.dispatcher, DispatcherSlot::Installed(_)) {
             self.index_in_parent(entity)
                 .map(|idx| (idx, self.is_connected(entity)))
         } else {
@@ -99,8 +99,9 @@ impl EcsDom {
         //
         // Without this ordering, a Range boundary on a still-live
         // descendant of `entity` would silently miss the
-        // `(parent, removed_index)` collapse required by WHATWG §5.5
-        // remove step 4 (Copilot PR186 R2 #3).
+        // `(parent, removed_index)` collapse required by DOM §4.2.3
+        // "remove" step 3 → live range pre-remove steps (DOM §5.5 Interface
+        // Range), steps 4–5 (Copilot PR186 R2 #3).
         let defer_focus_clear = if let (Some(p), Some((idx, was_connected))) = (parent, fire) {
             self.fire_after_remove(entity, p, idx, was_connected);
             false
