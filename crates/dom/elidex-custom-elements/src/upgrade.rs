@@ -224,12 +224,13 @@ fn set_state(dom: &mut EcsDom, entity: Entity, new_state: CEState) {
     }
 }
 
-/// DOM §4.9 "create an element" step 5.1.4.10: the **synchronous**
-/// autonomous-definition branch (a matching autonomous definition
-/// already registered when `createElement` runs) sets the result's
-/// *is value* to **null** — unlike the async branch (definition
-/// registered later), where the creation-time is value is retained
-/// through the upgrade. Engine hosts call this on the
+/// DOM §4.9 "create an element" step 5.1.4.10: when a matching
+/// autonomous definition is found **at creation** with the synchronous
+/// custom elements flag set, the result's *is value* is set to **null**.
+/// With **no definition at creation** (defined later, upgraded later)
+/// the element is created with the given is value (step 7's
+/// create-an-element-internal call with `is`) and keeps it through the
+/// upgrade. Engine hosts call this on the
 /// defined-at-creation route, immediately before invoking/enqueuing
 /// the upgrade; the upgrade machinery itself must NOT clear the slot
 /// (that would also strip async-created elements, diverging from
@@ -558,7 +559,11 @@ mod sync_is_clear_tests {
         let (mut dom, el) = dom_with_marked_element("my-el", "other-el");
         clear_is_value_for_sync_autonomous(&registry, &mut dom, el);
         let state = dom.world().get::<&CustomElementState>(el).unwrap();
-        assert_eq!(state.is_value(), None, "DOM §4.9 step 5.1.3.10 clears");
+        assert_eq!(
+            state.is_value(),
+            None,
+            "DOM create-an-element step 5.1.4.10 clears"
+        );
     }
 
     #[test]

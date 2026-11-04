@@ -236,14 +236,13 @@ impl EcsDom {
              (see `MutationDispatcher::dispatch` docstring).  Queue the \
              work via per-consumer deferred state instead."
         );
-        if !matches!(self.dispatcher, DispatcherSlot::Installed(_)) {
+        let dispatcher = match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Absent) {
+            DispatcherSlot::Installed(d) => d,
             // Absent / Taken: no dispatcher; the slot is left as it is.
-            return;
-        }
-        let DispatcherSlot::Installed(dispatcher) =
-            std::mem::replace(&mut self.dispatcher, DispatcherSlot::Absent)
-        else {
-            unreachable!("checked Installed above");
+            other => {
+                self.dispatcher = other;
+                return;
+            }
         };
         self.dispatch_depth = self.dispatch_depth.saturating_add(1);
         let mut guard = RestoreDispatcher {

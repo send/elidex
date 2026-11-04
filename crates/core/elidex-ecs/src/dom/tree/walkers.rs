@@ -167,9 +167,7 @@ impl EcsDom {
                     if visited.insert(sr) {
                         visit(sr);
                         // `sr`'s children, as if `sr` were a plain root.
-                        for child in self.child_list_uncapped(sr).into_iter().rev() {
-                            stack.push(child);
-                        }
+                        self.push_shadow_children(root, &mut stack);
                     }
                 }
             }
@@ -186,14 +184,21 @@ impl EcsDom {
     /// Push `node`'s clone-creation successors so `pop()` yields its light
     /// children (in order) before its shadow root's children (in order).
     fn push_clone_children(&self, node: Entity, stack: &mut Vec<Entity>) {
+        self.push_shadow_children(node, stack);
+        self.push_light_children(node, stack);
+    }
+
+    /// Push the children of `node`'s shadow root (if any) so `pop()` yields
+    /// them in order.
+    fn push_shadow_children(&self, node: Entity, stack: &mut Vec<Entity>) {
         if let Some(sr) = self.get_shadow_root(node) {
-            for child in self.child_list_uncapped(sr).into_iter().rev() {
-                stack.push(child);
-            }
+            stack.extend(self.child_list_uncapped(sr).into_iter().rev());
         }
-        for child in self.child_list_uncapped(node).into_iter().rev() {
-            stack.push(child);
-        }
+    }
+
+    /// Push `node`'s light children so `pop()` yields them in order.
+    fn push_light_children(&self, node: Entity, stack: &mut Vec<Entity>) {
+        stack.extend(self.child_list_uncapped(node).into_iter().rev());
     }
 
     /// Returns `true` if `entity`'s shadow-including root is a

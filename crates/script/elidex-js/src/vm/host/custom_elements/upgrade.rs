@@ -291,8 +291,9 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
         Ok(value) => {
             // HTML §4.13.5 "upgrade an element" step 10.4 — if
             // SameValue(constructResult, element) is false, throw a
-            // "NotSupportedError" DOMException AND mark the element
-            // Failed. D-17b §5 routes the user ctor through
+            // TypeError AND mark the element Failed.  elidex currently
+            // throws a NotSupportedError DOMException here (slot
+            // `#11-ce-upgrade-returned-object-typeerror`). D-17b §5 routes the user ctor through
             // `construct_synchronous`, which DOES apply the
             // `[[Construct]]` return-substitution (non-Object return
             // → `Object(pre_alloc_instance)` — dispatch_class.rs
@@ -312,6 +313,7 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
             // `constructor() { return otherObj; }`.
             if matches!(value, JsValue::Object(id) if id != wrapper_id) {
                 finalize_failure_shim(ctx, entity);
+                // slot `#11-ce-upgrade-returned-object-typeerror`: spec throws TypeError.
                 let not_supported = ctx.vm.well_known.dom_exc_not_supported_error;
                 return Err(VmError::dom_exception(
                     not_supported,

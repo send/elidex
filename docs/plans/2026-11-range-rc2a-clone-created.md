@@ -64,7 +64,7 @@ shape end-to-end), §9 DoD 1. Line counts, census commands and the #466 reversal
 `:257-261`; §9 DoD 1 is decided by a PR-head re-run (parameter rename `deep` → `subtree`); the `shadow_doc = None`
 behaviour change is stated (slot `#11-ownerless-node-creation`).
 
-**Rev 3.4** (2026-11-05, implementation PR; PM 367/368, from Layout T3 O-9) — plan change, not clerical: the shared walk has no depth cap. The cloner copies with no cap (`tree_clone.rs` `clone_children_recursive`), so §4.3's "today's order and cap" would leave clone elements deeper than `MAX_ANCESTOR_DEPTH` without the CE and form arms the spec runs on them. `for_each_clone_created` is its own iterative walk in creation order (step 2 → 5 → 6.7), uncapped, terminated by a visited set; §4.3 and §6 (a deep-tree cell above the old cap) follow. The capped walker and its other callers are unchanged (slot `#11-capped-walker-deep-element-processing`).
+**Rev 3.4** (2026-11-05, implementation PR; PM 367/368, from Layout T3 O-9) — plan change, not clerical: the shared walk has no depth cap. The cloner copies with no cap (`tree_clone.rs` `clone_children_recursive`), so §4.3's "today's order and cap" would leave clone elements deeper than `MAX_ANCESTOR_DEPTH` without the CE and form arms the spec runs on them. `for_each_clone_created` is its own iterative walk in creation order (step 2 → 5 → 6.7), uncapped, terminated by a visited set; §4.3 and §6 (a deep-tree cell above the old cap) follow. The capped walker and its other callers are unchanged (slot `#11-capped-walker-deep-element-processing`). The form arm's template-contents step (D-3) also walks uncapped (`for_each_uncapped_shadow_inclusive` with `TemplateContentsWalk::Include`) instead of `collect_template_inclusive_descendants`, which is a capped caller left to the slot.
 
 ## §0. Frame, premises, decisions
 
@@ -307,9 +307,9 @@ file is edited.
   Some(d) = saved { set_mutation_dispatcher(d) }` with no early return between take and restore, §0.2), since C0b
   rewrites those call sites (R2 G9).
 - **D-3 (where the form pass's first-level walk calls `for_each_clone_created`).** In `elidex-form/src/clone.rs`,
-  not in `init.rs`: `apply_clone_form_state` takes the first level from the shared scope-gated walk and then runs the
-  existing `collect_template_inclusive_descendants` on each `<template>` content fragment it found (the fixpoint stays
-  where it is, unchanged). `init.rs` is not edited; `parse_into_inert_document`, the other caller of
+  not in `init.rs`: `apply_clone_form_state` takes the first level from the shared scope-gated walk and then walks each
+  `<template>` content fragment it found with `for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, …)`
+  (Rev 3.4: uncapped, nested templates followed). `init.rs` is not edited; `parse_into_inert_document`, the other caller of
   `collect_template_inclusive_descendants`, is untouched (§4.5).
 - **D-4 (the no-dispatcher census becomes a standing check; brief item 4; Rev 2, R1 F1).** Yes, as a **runtime
   property check inside `elidex-ecs`**, not a source grep. The property is "no `CloneCreated` is fired while the
@@ -600,11 +600,9 @@ It lives in `elidex-ecs` because that is the one crate both consumers depend on.
 
 - `apply_clone_form_state(dom, clone_root, scope: CloneScope)` (`clone.rs:44-65`) gains `scope`. Its collection
   step (`:49`) becomes (D-3): first level = `dom.for_each_clone_created(clone_root, scope, |e| found.push(e))`;
-  then, for each `e` in `found` with `dom.template_contents_fragment(e) == Some(fragment)`, extend `found` with
-  `crate::init::collect_template_inclusive_descendants(dom, fragment)` (the existing fixpoint, `init.rs:111-125`,
-  which already handles nested templates). That loop iterates the **first-level set only** (the entities the shared
-  walk produced); the entities the fixpoint appends are not iterated again, because the fixpoint has already
-  followed every nested `<template>` under them. It becomes **`pub(crate)`** and its re-export is removed from
+  then, for each first-level `e` with `dom.template_contents_fragment(e) == Some(fragment)`, walk `fragment` with
+  `dom.for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, …)` (Rev 3.4: uncapped; the walker
+  follows nested `<template>`s itself and terminates by its visited set). It becomes **`pub(crate)`** and its re-export is removed from
   `crates/dom/elidex-form/src/lib.rs:46`: after the VM deletion its callers are the arm and the six inline tests
   (`git grep -n 'apply_clone_form_state' -- crates` at `fab44a1d`, **16** lines: the definition and its six
   inline-test calls, the re-export, the VM call `node_methods_extras.rs:230`, and doc mentions in `tree_clone.rs:28`,

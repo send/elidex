@@ -20,7 +20,7 @@
 //! correctly too.
 
 use elidex_dom_api::ClonedFrom;
-use elidex_ecs::{CloneScope, EcsDom, ElementState, Entity};
+use elidex_ecs::{CloneScope, EcsDom, ElementState, Entity, TemplateContentsWalk};
 
 use crate::{create_form_control_state, FormControlKind, FormControlState};
 
@@ -30,7 +30,8 @@ use crate::{create_form_control_state, FormControlKind, FormControlState};
 ///
 /// Walks the entities the clone created (`EcsDom::for_each_clone_created`,
 /// shared with the custom-element arm) **plus** every `<template>`'s
-/// content fragment (`collect_template_inclusive_descendants`) and, for every
+/// content fragment (`EcsDom::for_each_uncapped_shadow_inclusive` with
+/// `TemplateContentsWalk::Include`, no depth cap) and, for every
 /// entity the cloner tagged with a [`ClonedFrom`] marker, copies the source's
 /// cloning-step form state onto the clone, then removes the marker.
 ///
@@ -46,37 +47,42 @@ use crate::{create_form_control_state, FormControlKind, FormControlState};
 /// fragment) — so a template-only walk would both drop that live value
 /// and leave the marker unswept.
 pub(crate) fn apply_clone_form_state(dom: &mut EcsDom, clone_root: Entity, scope: CloneScope) {
-    // Two-phase (the walker borrows `&self`, the copy below needs `&mut`):
-    // collect first, mutate after. First level = the shared clone walk; then
-    // each `<template>` found there contributes its content fragment's
-    // template-inclusive descendants (the fixpoint already follows nested
-    // templates, so the appended entities are not iterated again). The
-    // frontier matches the cloner's marker attach (no marker left unswept, no
-    // encapsulated control's value dropped).
-    let mut subtree: Vec<Entity> = Vec::new();
-    dom.for_each_clone_created(clone_root, scope, &mut |e| subtree.push(e));
-    let first_level = subtree.len();
-    for i in 0..first_level {
-        if let Some(fragment) = dom.template_contents_fragment(subtree[i]) {
-            let contents = crate::init::collect_template_inclusive_descendants(dom, fragment);
-            subtree.extend(contents);
+    // Two-phase (the walkers borrow `&self`, the copy below needs `&mut`):
+    // collect first, mutate after. The closures filter as they go: only
+    // marked entities are kept (with their source), and only `<template>`s
+    // contribute a content fragment. Each fragment is then walked uncapped
+    // with template contents included (nested templates are followed, and
+    // the walker's visited set terminates it), matching the cloner's marker
+    // attach: no marker left unswept, no encapsulated control's value dropped.
+    let mut marked: Vec<(Entity, Entity)> = Vec::new();
+    let mut fragments: Vec<Entity> = Vec::new();
+    dom.for_each_clone_created(clone_root, scope, &mut |e| {
+        if let Some(source) = cloned_source(dom, e) {
+            marked.push((e, source));
         }
+        if let Some(fragment) = dom.template_contents_fragment(e) {
+            fragments.push(fragment);
+        }
+    });
+    for fragment in fragments {
+        dom.for_each_uncapped_shadow_inclusive(fragment, TemplateContentsWalk::Include, &mut |e| {
+            if let Some(source) = cloned_source(dom, e) {
+                marked.push((e, source));
+            }
+        });
     }
 
-    for dst in subtree {
-        let Some(source) = dom
-            .world()
-            .get::<&ClonedFrom>(dst)
-            .ok()
-            .map(|marker| marker.source)
-        else {
-            continue;
-        };
+    for (dst, source) in marked {
         // Sweep the transient marker unconditionally — even a no-op copy must
         // not leave clone provenance (holding a source entity ref) behind.
         let _ = dom.world_mut().remove_one::<ClonedFrom>(dst);
         copy_form_state(dom, source, dst);
     }
+}
+
+/// The source entity `e`'s [`ClonedFrom`] marker names, if it carries one.
+fn cloned_source(dom: &EcsDom, e: Entity) -> Option<Entity> {
+    dom.world().get::<&ClonedFrom>(e).ok().map(|m| m.source)
 }
 
 /// Copy the cloning-step fields from `source`'s form state onto `dst` (creating
@@ -169,7 +175,7 @@ fn copy_form_state(dom: &mut EcsDom, source: Entity, dst: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_ecs::{Attributes, EcsDom};
+    use elidex_ecs::{Attributes, EcsDom, MAX_ANCESTOR_DEPTH};
 
     fn attrs_map(attrs: &[(&str, &str)]) -> Attributes {
         let mut map = Attributes::default();
@@ -236,6 +242,38 @@ mod tests {
             "light child is not part of a SelfOnly clone"
         );
         assert!(dom.world().get::<&ClonedFrom>(dst_light).is_ok());
+    }
+
+    #[test]
+    fn template_contents_deeper_than_depth_cap_are_processed() {
+        // A control below `MAX_ANCESTOR_DEPTH` inside a cloned template's
+        // content: clone processing has no depth cap (Rev 3.4).
+        let mut dom = EcsDom::new();
+        let src = control(&mut dom, "input", &[]);
+        {
+            let mut s = dom.world_mut().get::<&mut FormControlState>(src).unwrap();
+            s.value = "deep".to_string();
+            s.dirty_value = true;
+            s.update_char_count();
+        }
+        let dst_input = cloned_from(&mut dom, src, "input", &[]);
+        // Chain built bottom-up (O(1) appends) ending in the input.
+        let mut top = dst_input;
+        for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+            let parent = dom.create_element("div", Attributes::default());
+            assert!(dom.append_child(parent, top));
+            top = parent;
+        }
+        let template = dom.create_element("template", Attributes::default());
+        let fragment = dom.attach_template_contents(template, None);
+        assert!(dom.append_child(fragment, top));
+
+        apply_clone_form_state(&mut dom, template, CloneScope::Subtree);
+
+        let d = dom.world().get::<&FormControlState>(dst_input).unwrap();
+        assert_eq!(d.value, "deep");
+        assert!(d.dirty_value);
+        assert!(dom.world().get::<&ClonedFrom>(dst_input).is_err());
     }
 
     #[test]

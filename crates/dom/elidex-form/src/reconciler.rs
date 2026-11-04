@@ -21,7 +21,7 @@
 //! Per-attr arms cite their respective HTML sections (§4.10.5.3.x for
 //! input-common attrs, §4.10.19.x for naming/disabled/autofill).
 
-use elidex_ecs::{CloneScope, EcsDom, Entity, MutationEvent, TagType};
+use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
 use crate::value_mode::apply_type_change_value_migration;
 use crate::{
@@ -50,18 +50,12 @@ impl FormControlReconciler {
                 new_value,
                 ..
             } => handle_attribute_change(node, name, new_value, dom),
-            MutationEvent::CloneCreated { root, scope } => handle_clone_created(root, scope, dom),
+            MutationEvent::CloneCreated { root, scope } => {
+                crate::clone::apply_clone_form_state(dom, root, scope);
+            }
             _ => {}
         }
     }
-}
-
-/// DOM §4.4 "clone a node" completed: run the form-control cloning steps
-/// (HTML §4.10.5 `<input>` / §4.10.11 `<textarea>`) over the fresh clone, so
-/// each clone's `FormControlState` exists before any insertion (the
-/// insert-time absence guard then skips it).
-fn handle_clone_created(root: Entity, scope: CloneScope, dom: &mut EcsDom) {
-    crate::clone::apply_clone_form_state(dom, root, scope);
 }
 
 /// WHATWG DOM §4.2.3 "insert" runs the insertion steps for `node` **and
@@ -181,8 +175,10 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
     // `value` and `pattern` live outside the match because their
     // guard-conditional bodies create no-op branches that clippy's
     // match-arm-collapsing rule would flag as duplicate of the
-    // wildcard.  HTML §4.10.5.4 dirty-value-flag suppression / §4.10.5.3.6
-    // pattern same-value short-circuit.
+    // wildcard.  `value`: the dirty value flag (HTML §4.10.18.1) suppresses
+    // the IDL `value` update.  `pattern`: the same-value short-circuit below
+    // is elidex's own (it skips re-compiling an unchanged regex); the spec
+    // (§4.10.5.3.6) does not specify it.
     if name == "value" {
         let raw = new_value.unwrap_or("");
         // For `<input>`, `defaultValue` reflects the `value` content
