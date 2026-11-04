@@ -197,7 +197,7 @@ impl EcsDom {
     }
 
     /// Returns `true` if `entity`'s shadow-including root is a
-    /// `Document` (WHATWG DOM §4.4 "connected"). A `Document` entity
+    /// `Document` (WHATWG DOM §4.2.2 Shadow tree, "connected"). A `Document` entity
     /// itself counts as connected — its shadow-including root IS a
     /// Document (self).
     ///

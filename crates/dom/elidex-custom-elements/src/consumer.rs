@@ -24,8 +24,9 @@
 //!   no-ops.
 //! - `AttributeChanged` enqueued only when the attribute name is in
 //!   the element's definition's `observed_attributes` (HTML §4.13.6
-//!   "attribute change steps" — "for each attribute in element's
-//!   attribute list that is in observedAttributes").
+//!   "enqueue a custom element callback reaction" step 5.2: "If
+//!   definition's observed attributes does not contain attributeName,
+//!   then return").
 //! - `Upgrade` enqueued on `MutationEvent::CloneCreated` for every element
 //!   the clone created whose definition lookup is non-null (DOM §4.4
 //!   "clone a node" → "clone a single node"), in the clone's creation
@@ -109,7 +110,7 @@ impl CustomElementReactionConsumer {
     fn handle_insert(&mut self, node: Entity, _was_connected: bool, dom: &EcsDom) {
         // Skip when post-insert position is still disconnected
         // (orphan→orphan move): the insertion-steps loop only enqueues
-        // when "parent is connected" per WHATWG DOM §4.2.3 step 7.
+        // when "parent is connected" per WHATWG DOM §4.2.3 "insert" step 7.7.2.
         //
         // NOTE: we deliberately do NOT short-circuit on `was_connected`
         // — both Blink and Gecko fire connectedCallback on every
@@ -262,8 +263,9 @@ pub fn classify_disconnected_subtree(
 
 /// Classify an attribute change into an `AttributeChanged` reaction,
 /// gated on `CEState::Custom` + the definition's `observed_attributes`
-/// (HTML §4.13.6 "attribute change steps" — "for each attribute … that
-/// is in observedAttributes"). Returns `None` when the target is not a
+/// (HTML §4.13.6 "enqueue a custom element callback reaction" step 5.2 —
+/// "If definition's observed attributes does not contain attributeName,
+/// then return"). Returns `None` when the target is not a
 /// Custom element or the attribute is not observed.
 #[must_use]
 pub fn classify_attribute_change(

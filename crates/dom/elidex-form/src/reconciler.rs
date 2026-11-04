@@ -150,7 +150,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             return;
         };
         // HTML §4.10.5 type-change steps 1–3: value-mode value migration.
-        // MUST run BEFORE the kind update + sanitization (steps 6–9).
+        // MUST run BEFORE the kind update + sanitization (steps 4–9).
         // Step 1 writes the `value` content attribute via the
         // non-dispatching primitive (re-entry contract — see fn docs).
         apply_type_change_value_migration(old_kind, new_kind, dom, node);

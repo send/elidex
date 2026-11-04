@@ -40,7 +40,7 @@ pub struct ConsumerDispatcher {
     /// point adjustment lives in the mutation algorithms themselves
     /// (DOM §4.2.3 remove, §4.10 CharacterData "replace data",
     /// §4.11 Text "split a Text node" step 7, §4.4 Node `normalize()`
-    /// step 6.4).
+    /// steps 6.1–6.4).
     live_range: LiveRangeBridge,
     /// NodeIterator pre-removing-steps (WHATWG DOM §6.1).
     node_iter: NodeIteratorAdjuster,
@@ -72,7 +72,7 @@ pub struct ConsumerDispatcher {
     /// [`EventListeners`]: elidex_script_session::EventListeners
     event_handler_attrs: EventHandlerAttributeConsumer,
     /// Canvas bitmap reset on `<canvas>` `width`/`height` content-attribute
-    /// change (HTML §4.12.5 "set bitmap dimensions" — even a same-value write
+    /// change (HTML §4.12.5.1 "set bitmap dimensions" — even a same-value write
     /// clears the bitmap + resets state). Driven from the `AttributeChange` SoT
     /// (not the IDL setter) so `setAttribute` + parser-baked attributes are
     /// covered. Order-independent — it only touches the `Canvas2dContext`

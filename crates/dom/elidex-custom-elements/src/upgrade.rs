@@ -160,12 +160,12 @@ pub(crate) fn apply_clone_creation_ce_semantics(
 }
 
 /// Transition `entity` to [`CEState::Precustomized`] before the
-/// engine-bound constructor invocation. Spec §4.13.5 step 4.
+/// engine-bound constructor invocation. Spec §4.13.5 "upgrade an element" step 10.2.
 pub fn enter_constructor(dom: &mut EcsDom, entity: Entity) {
     set_state(dom, entity, CEState::Precustomized);
 }
 
-/// Post-constructor success path (spec steps 5-9): transition to
+/// Post-constructor success path (spec steps 4–5 and 12): transition to
 /// [`CEState::Custom`], enqueue `attributeChangedCallback` reactions
 /// for each already-present attribute in `observed_attributes`, and
 /// enqueue `connectedCallback` when the element is connected.
@@ -205,7 +205,7 @@ pub fn finalize_success(
     }
 }
 
-/// Post-constructor failure path (spec step 8): transition to
+/// Post-constructor failure path (spec step 10, its exception branch): transition to
 /// [`CEState::Failed`] and drop every queued reaction targeting
 /// `entity` so re-enqueued Upgrade attempts short-circuit via
 /// `prepare_upgrade`'s early-return.
@@ -224,7 +224,7 @@ fn set_state(dom: &mut EcsDom, entity: Entity, new_state: CEState) {
     }
 }
 
-/// DOM §4.9 "create an element" step 5.1.3.10: the **synchronous**
+/// DOM §4.9 "create an element" step 5.1.4.10: the **synchronous**
 /// autonomous-definition branch (a matching autonomous definition
 /// already registered when `createElement` runs) sets the result's
 /// *is value* to **null** — unlike the async branch (definition

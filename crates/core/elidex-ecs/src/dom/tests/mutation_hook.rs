@@ -576,9 +576,10 @@ fn index_in_parent_returns_none_for_orphan() {
 #[test]
 fn append_child_fires_after_remove_for_old_parent_on_move() {
     // Moving a node between parents must fire `after_remove` on the
-    // implicit detach from the old parent (per WHATWG insert algorithm
-    // step "If node has a parent, then remove node") so Range live-
-    // tracking sees the §5.5 step 4-6 adjustment.
+    // implicit detach from the old parent (DOM §4.2.3 "insert" step 7.1
+    // adopts node; DOM §4.5 "adopt" step 2: "If node's parent is non-null,
+    // then remove node") so Range live-tracking sees the live range
+    // pre-remove steps 4–7 adjustment (DOM §5.5 Interface Range).
     let mut dom = EcsDom::new();
     let old_parent = elem(&mut dom, "section");
     let new_parent = elem(&mut dom, "article");
@@ -639,8 +640,9 @@ fn insert_before_fires_after_remove_for_old_parent_on_move() {
 
 #[test]
 fn replace_child_fires_after_remove_for_new_child_old_parent() {
-    // WHATWG "replace a child" step 4: "If node's parent is not null,
-    // remove node". This implicit removal must fire `after_remove` on
+    // WHATWG DOM §4.2.3 "replace" step 6 adopts node, and DOM §4.5
+    // "adopt" step 2: "If node's parent is non-null, then remove node".
+    // This implicit removal must fire `after_remove` on
     // the new_child's old parent, in addition to the
     // remove(old_child) + insert(new_child) pair on `parent`.
     let mut dom = EcsDom::new();

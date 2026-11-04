@@ -289,7 +289,7 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // assertion lives in the guard's Drop body.
     match result {
         Ok(value) => {
-            // HTML §4.13.5 "upgrade an element" step 9.4 — if
+            // HTML §4.13.5 "upgrade an element" step 10.4 — if
             // SameValue(constructResult, element) is false, throw a
             // "NotSupportedError" DOMException AND mark the element
             // Failed. D-17b §5 routes the user ctor through

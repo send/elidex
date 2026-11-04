@@ -104,14 +104,14 @@ pub enum CloneScope {
 /// - [`Self::NormalizeMerge`] — fired by `EcsDom::fire_normalize_merge`
 ///   AFTER `prev` has absorbed `merged_child`'s data but BEFORE
 ///   `merged_child` is detached. Source spec: **WHATWG DOM §4.4**
-///   Interface Node `normalize()` step 6.4. Firing before detach lets
+///   Interface Node `normalize()` steps 6.1–6.4. Firing before detach lets
 ///   consumers migrate boundaries on `merged_child` to
 ///   `(prev, prev_old_len + off)` instead of collapsing via the
 ///   subsequent [`Self::Remove`].
 ///
 /// - [`Self::AttributeChange`] — fired AFTER an attribute write at the
 ///   `EcsDom::set_attribute` / `attr_remove` chokepoints. Source spec:
-///   **WHATWG DOM §4.3.2** "Queuing a mutation record" step 4.1 +
+///   **WHATWG DOM §4.3.2** "Queuing a mutation record" step 5.1 +
 ///   MutationRecord shape per **WHATWG DOM §4.3.3** Interface
 ///   MutationRecord (`attributeName` / `attributeNamespace` /
 ///   `oldValue`). Attribute name ASCII case-insensitivity per **WHATWG
@@ -173,7 +173,7 @@ pub enum MutationEvent<'a> {
     /// - `was_connected`: connectedness of `node` BEFORE detach —
     ///   captured by the dispatcher at the engine fire site prior to
     ///   the `detach` call (so the `get_parent` walk still reaches
-    ///   the document root). Per WHATWG DOM §4.4 "connected" and HTML
+    ///   the document root). Per WHATWG DOM §4.2.2 "connected" and HTML
     ///   §4.13.6 Custom Element `disconnectedCallback` fires ONLY on
     ///   the connected → disconnected transition. Consumers that
     ///   don't need transition tracking ignore the field via the `..`
@@ -248,7 +248,7 @@ pub enum MutationEvent<'a> {
     /// - Boundary on `node` with `off > offset` →
     ///   migrate to `(new_node, off - offset)` (spec strict-greater).
     /// - Boundary on `parent` with `idx > node_idx` → `idx += 1`
-    ///   (spec §4.11 step 7.2; the [`Self::Insert`] fired by the
+    ///   (spec §4.11 steps 7.1 + 7.4–7.5; the [`Self::Insert`] fired by the
     ///   prior `insert_before` already handles `idx > node_idx + 1`
     ///   via strict-greater compare against the inserted-at index —
     ///   consumer MUST ONLY apply the missing `idx == node_idx + 1`
@@ -262,7 +262,7 @@ pub enum MutationEvent<'a> {
     },
 
     /// BEFORE the remove-merged-child step of `Node.normalize()`
-    /// (WHATWG DOM §4.4 Interface Node `normalize()` step 6.4) on
+    /// (WHATWG DOM §4.4 Interface Node `normalize()` steps 6.1–6.4) on
     /// adjacent Text-node merge.
     ///
     /// **Ordering invariant**: fired AFTER `prev` has absorbed
@@ -281,7 +281,7 @@ pub enum MutationEvent<'a> {
     /// - `merged_child_index`: pre-removal index of `merged_child` in
     ///   `parent`'s child list, or `None` matched with `parent: None`.
     ///
-    /// Range live-tracking boundary adjustment per §4.4 step 6.4:
+    /// Range live-tracking boundary adjustment per §4.4 `normalize()` steps 6.1–6.4:
     /// - Boundary on `merged_child` at `off` →
     ///   migrate to `(prev, prev_old_len + off)`.
     /// - Boundary on `parent` at exactly `child_idx` of `merged_child`
@@ -308,9 +308,9 @@ pub enum MutationEvent<'a> {
     ///   attribute was just removed.
     ///
     /// Source spec: WHATWG DOM §4.3.2 "Queuing a mutation record" step
-    /// 4.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
+    /// 5.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
     /// MutationRecord.  MutationRecord attribute-*namespace* tracking
-    /// (`attributeNamespace`, set per WHATWG DOM §4.3.2 step 4.1 and
+    /// (`attributeNamespace`, set per WHATWG DOM §4.3.2 step 5.1 and
     /// declared in §4.3.3 Interface MutationRecord) is a separate concern
     /// from element-namespace tracking and is deferred to the
     /// `#11-mutation-observer-extras` slot (sub-item (a)) — when it lands,

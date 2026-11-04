@@ -492,7 +492,7 @@ fn element_get_html_dense_array_shadow_roots_capped_safely() {
 
 #[test]
 fn element_get_html_shadow_roots_honours_array_iterator_override() {
-    // WebIDL §3.10.16 step 4: an Array whose `[Symbol.iterator]` is
+    // WebIDL §3.2.21 Sequences step 4: an Array whose `[Symbol.iterator]` is
     // overridden must use the override, not dense storage.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \

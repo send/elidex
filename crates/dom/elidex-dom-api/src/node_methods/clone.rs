@@ -129,8 +129,9 @@ impl DomApiHandler for CloneNode {
                 // Window is NOT a Node per WHATWG DOM (no nodeType,
                 // EventTarget mixin only), so an explicit
                 // `Node.prototype.cloneNode.call(window)` from JS is
-                // a receiver-type mismatch.  Per WebIDL §3.6.5
-                // "illegal invocation" that must surface as a plain
+                // a receiver-type mismatch.  Per WebIDL §3.7.7
+                // Operations (the receiver does not implement the
+                // interface) that must surface as a plain
                 // TypeError, not a DOMException — DOMException is
                 // reserved for Node receivers whose operation can't
                 // be performed (e.g. Attribute / ProcessingInstruction
@@ -455,7 +456,7 @@ fn read_clonable_shadow_init(entity: Entity, dom: &EcsDom) -> Option<(ShadowInit
             slot_assignment: sr.slot_assignment,
             clonable: sr.clonable,
             serializable: sr.serializable,
-            // DOM §4.4 clone-a-node step 6.5 attaches the clone's
+            // DOM §4.4 clone-a-node step 6.4 attaches the clone's
             // shadow with the source root's registry — a
             // null-registry shadow tree clones to a null-registry
             // shadow tree.

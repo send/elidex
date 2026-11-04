@@ -285,7 +285,7 @@ impl EcsDom {
     }
 
     /// Fire [`MutationEvent::NormalizeMerge`] from a caller in another
-    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` step 6.4.
+    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` steps 6.1–6.4.
     ///
     /// **Caller ordering contract**: MUST be invoked AFTER `prev` has
     /// absorbed `merged_child`'s data but BEFORE `merged_child` is
@@ -458,7 +458,7 @@ impl EcsDom {
     /// For transient / throwaway documents that must not clobber the
     /// persistent [`document_root()`](Self::document_root) cache — e.g. the
     /// WHATWG HTML §13.4 fragment parsing algorithm's throwaway document
-    /// (step 2), which exists only to own the fragment's nodes during the
+    /// (step 4), which exists only to own the fragment's nodes during the
     /// parse and is despawned afterwards. Sharing the spawn with
     /// [`create_document_root`](Self::create_document_root) keeps the
     /// `Document` node shape (`TreeRelation` + base URL) defined in one place.
