@@ -5,14 +5,21 @@ closes `#11-error-object-builtintag-dual-representation` (registered at #474, th
 `vm/tests/tests_object_constructor.rs:105-112` names): that slot is axis C as seen from
 Object.prototype.toString alone. **Owner**: VM P4. **Umbrella**: `docs/plans/2026-11-vm-native-error-program.md`
 (this commit); program E1 → E2, E2 gets its own plan and its own `/elidex-plan-review`. **Baseline**:
-origin/main `145927c9`. Every `file:line` is at `145927c9`; §6 re-derives each one. Paths are relative to
+origin/main `145927c9`. Every `file:line` is at `145927c9`; §6 re-derives each one. The structured-clone
+sites are cited by function in E1-pre's split files (`vm/host/structured_clone/{mod,classify,cloners}.rs`),
+never by line. Paths are relative to
 `crates/script/elidex-js/src/` unless they start with `crates/` or `docs/`. Spec numbers come from
 `.claude/tools/webref` output only (§3 states the command per row).
 
-**Prereqs (umbrella §1)**: E1-pre, a pure-move split of `vm/host/structured_clone.rs` (1077 lines, touched
-here; CLAUDE.md "1000-line debt"). E0 — proposed, **PM decision OD-2** — JSON.parse's reviver walk keyed on
-`ObjectKind::Ordinary` (§0.3 P-5). E1 rebases onto both, and the driver re-derives the `structured_clone`
-cites after the rebase (§6).
+**Rev 2** (2026-11-05) — PM 365 folded in: E0 and E1-pre are standalone prereqs; Rev 1's OD-1 is closed into
+E1 (§1.6); Rev 1's OD-2 is E0; the proposed slots are registered. Nothing else in the design changes.
+
+**Prereqs (umbrella §1, order E0 → E1-pre → E1, PM 365)**: **E0** (`#11-vm-json-internalize-non-array-objects`,
+registered) — JSON.parse's reviver walk keyed on `ObjectKind::Ordinary` (§0.3 P-5; umbrella §1.1).
+**E1-pre** — a pure-move split of `vm/host/structured_clone.rs` (1077 lines at `145927c9`, touched here;
+CLAUDE.md "1000-line debt") into `vm/host/structured_clone/`: `mod.rs` (`clone_value`, `clone_recursive`,
+`data_clone_error`, registration), `classify.rs` (`CloneKind`, `classify`), `cloners.rs` (`clone_ordinary`,
+`clone_error`, `is_error_like_proto`, the other per-kind cloners) (umbrella §1.2). E1 rebases onto both.
 
 **The defect, stated as a defect.** An error object made by a constructor (`new TypeError('x')`,
 `TypeError('x')`, `new AggregateError([])`, `class E extends TypeError`, `new WebAssembly.CompileError()`),
@@ -41,13 +48,16 @@ clones as `{}` (message lost) although it has one.
   Object.prototype.toString (§20.1.3.6 step 8).
 - **The kind's payload**: `ObjectKind::Error { name: StringId }` becomes a payload-free `ObjectKind::Error`
   (§1.2).
+- **The clone's prototype (PM 365)**: `clone_error` picks the clone's prototype from the serialized name (HTML
+  §2.7.4 StructuredSerializeInternal steps 18.1-18.2, §2.7.7 StructuredDeserialize steps 22.1-22.7), through
+  `error_intrinsic_prototype(name)` (NEW), never from the source (§1.6).
 
 **Not in scope** (each stated as a defect with an owner in §5):
 
-- Own NativeError prototypes, `EvalError`, constructor `[[Prototype]]` = %Error%, and every construction
-  site that chooses a prototype (`vm_error_to_thrown`'s `error_prototype`, call-mode `error_entry`,
-  `clone_error`'s prototype rule): **E2**. E1 changes no prototype anywhere, unless the PM takes **OD-1 (b)**
-  (§0.4).
+- Own NativeError prototypes, `EvalError`, constructor `[[Prototype]]` = %Error%, every other construction
+  site that chooses a prototype (`vm_error_to_thrown`'s `error_prototype`, call-mode `error_entry`), and the
+  per-name entries of `error_intrinsic_prototype`'s table: **E2**. The only prototype E1 changes is a clone's
+  (§1.6), and through a table that returns `error_prototype` for every name until E2.
 - The own `.name` property that every elidex error constructor and the throw path define on the
   **instance** (`vm/natives.rs:455-461` in `error_ctor_impl`, `vm/ops.rs:209-214`). The spec defines `name`
   on the prototypes only (§20.5.3.3, §20.5.6.3.3). It is a workaround for the shared prototype and goes with
@@ -64,12 +74,12 @@ clones as `{}` (message lost) although it has one.
 | Engine-thrown errors are `ObjectKind::Error { name }`, toString → `"[object Error]"` | holds (`vm/ops.rs:171`, alloc `:201-206`) | probe "toString thrown" |
 | `natives_symbol.rs` ~`:284` keys on the kind | holds (`native_object_prototype_to_string`, `vm/natives_symbol.rs:240`, arm `:284`) | read |
 | `do_new` / `construct_synchronous` pre-allocate an `Ordinary` from newTarget.prototype, and `ensure_instance_or_alloc` returns `this` in construct mode | holds (`vm/ops.rs:722-729`; `vm/inner.rs:152`, `:158-161`); the super path passes the derived frame's `this_value`, which is `do_new`'s instance (`vm/dispatch_class.rs:138-148`) | read |
-| Classifiers by prototype identity at `structured_clone.rs` ~`:124` and ~`:699` (`is_error_proto`) and `indexeddb/value.rs` ~`:365` | holds, with the names corrected (§0.3 P-1): guard `vm/host/structured_clone.rs:133`, predicate `is_error_like_proto` `:697-702`; `is_error_like` `vm/host/indexeddb/value.rs:363-371` | `git grep -n 'error_prototype' 145927c9 -- crates/script/elidex-js/src` |
-| `structuredClone(Object.create(Error.prototype))` clones as an Error | holds: `instanceof Error` true; the clone's kind is `Ordinary` (toString `"[object Object]"`), because `clone_error` copies the source kind (`:648-652`) | probe "structuredClone fake error" → `cloned:[object Object]:true` |
+| Classifiers by prototype identity at `structured_clone.rs` ~`:124` and ~`:699` (`is_error_proto`) and `indexeddb/value.rs` ~`:365` | holds, with the names corrected (§0.3 P-1): the guard arm in `clone_recursive` (`vm/host/structured_clone/mod.rs` after E1-pre), predicate `is_error_like_proto` (`vm/host/structured_clone/cloners.rs`); `is_error_like` `vm/host/indexeddb/value.rs:363-371` | `git grep -n 'error_prototype' 145927c9 -- crates/script/elidex-js/src` |
+| `structuredClone(Object.create(Error.prototype))` clones as an Error | holds: `instanceof Error` true; the clone's kind is `Ordinary` (toString `"[object Object]"`), because `clone_error` copies the source kind (its `match` on the source's `kind`) | probe "structuredClone fake error" → `cloned:[object Object]:true` |
 
 ### §0.3 Premise errors
 
-- **P-1 — names.** The structured-clone predicate is `is_error_like_proto` (`vm/host/structured_clone.rs:697`),
+- **P-1 — names.** The structured-clone predicate is `is_error_like_proto` (`vm/host/structured_clone/cloners.rs`),
   not `is_error_proto`. The IndexedDB predicate is `is_error_like` (`vm/host/indexeddb/value.rs:363`). The
   two are **different predicates**: the first compares the immediate prototype for equality, the second
   walks the chain. That is already two ways (§1.3).
@@ -105,33 +115,29 @@ clones as `{}` (message lost) although it has one.
   is walked and an engine-thrown one is not; after the narrow E1 neither is. The defect is pre-existing (it
   also skips Date, RegExp, wrappers, thrown errors) and independent of errors. Measured by §2's criterion it
   is a separate axis (its mutant fails one cell while every other passes), so it is **not** folded in: it is
-  the proposed prereq **E0** and PM decision **OD-2** (§0.4). The census that found it is §1.4.
+  the prereq **E0** (`#11-vm-json-internalize-non-array-objects`, registered; PM 365 decision 1; umbrella
+  §1.1). The census that found it is §1.4.
 - **P-6 — the narrow E1 changes two spec-correct observables in structured clone.** Because E1 routes every
   `[[ErrorData]]` object to `clone_error`, and `clone_error` keeps the **source** prototype
-  (`vm/host/structured_clone.rs:656`, `src_proto.or(vm.error_prototype)`), two rows that clone as `{}` today
+  (`clone_error` allocates on `src_proto.or(vm.error_prototype)`), two rows that clone as `{}` today
   would clone as errors with the source's prototype: `structuredClone(new (class E extends TypeError {})())
   instanceof E` and `structuredClone(new WebAssembly.CompileError()) instanceof WebAssembly.CompileError`
   go from `false` (spec-correct, by accident of the `{}`) to `true` (spec: `false`). HTML StructuredDeserialize
   (§2.7.7) step 22 chooses the prototype **by the serialized name**, from the seven names step 18.2 keeps,
-  never from the source. The rows are read, not probed. **PM decision OD-1** (§0.4).
+  never from the source. The rows are read, not probed. **Decided by PM 365 (decision 3)**: E1 takes the
+  by-name rule (§1.6), so both rows stay `false`.
 
-### §0.4 Open decisions — for the PM
+### §0.4 Decisions
 
-- **OD-1 — the clone's prototype rule (P-6).** (a) E1 keeps `clone_error`'s source-prototype rule; the two
-  rows change as P-6 says and E2 fixes them. (b) E1 moves HTML §2.7.7 step 22's prototype choice into
-  `clone_error`: the prototype is a function of the serialized name (step 18.1-18.2: `? Get(value, "name")`,
-  any name outside the seven → "Error"), through one lookup `error_intrinsic_prototype(name)` (NEW, under
-  (b) only) that in E1 returns `error_prototype` for all seven names — which is what %TypeError.prototype%
-  *is* in elidex until E2 — and that E2 changes to the own prototypes. Under (b) E1 regresses nothing, the
-  AggregateError clone stops being `instanceof AggregateError` (spec: name "AggregateError" is not one of the
-  seven), and E2 inherits a seam instead of a construction site. **Designer recommendation: (b).** It moves
-  one site the umbrella assigned to E2 ("`clone_error` fallback") into E1, which is why it is the PM's call
-  and not taken here. Under (b) the `clone_error` row of §1.1 gains the lookup and §4 gains T-CLONE-SUB's (b)
-  form; nothing else in this memo changes.
-- **OD-2 — E0 (P-5).** (a) A standalone prereq PR, proposed slot `#11-vm-json-internalize-non-array-objects`
-  (silent-wrong today for Date / RegExp / wrappers / thrown errors; correct alone), landing before E1.
-  (b) Folded into E1, which then has three measured axes (§2). **Designer recommendation: (a)** — the
-  defect is not about errors, and the brief's rule is to report a further axis rather than widen.
+Rev 1's open decisions, closed by PM 365 (one line each, where it went):
+
+- **OD-1 (the clone's prototype rule, P-6)** → closed: E1 picks the clone's prototype by serialized name
+  through `error_intrinsic_prototype(name)` (§1.6). This is the content Rev 1 listed as option (b).
+- **OD-2 (E0, P-5)** → closed: a standalone prereq PR, program row E0 (umbrella §1, §1.1), slot
+  `#11-vm-json-internalize-non-array-objects` (registered). Not folded into E1.
+
+Still standing (a designer decision, not a PM one):
+
 - **OD-3 — Wasm in E1 (P-2).** The census puts the Wasm constructors and the Wasm bridge in E1. The
   alternative — leaving both Wasm paths `Ordinary` — keeps a second representation for objects that have the
   slot. **Designer decision: include**; listed so the driver can overrule it.
@@ -154,7 +160,7 @@ Found by concept (who allocates an error instance), not by the brief's list:
 | engine throw — `VmError` → JS value | `vm_error_to_thrown` `vm/ops.rs:171`, alloc `:201-206` | `Error { name }` | `create_error_object` (NEW); payload dropped |
 | `Promise.any` rejection | `build_aggregate_error` `vm/natives_promise_combinator.rs:258`, alloc `:259-264` | `Ordinary` | `create_error_object` (NEW) |
 | Wasm bridge — engine-thrown Wasm errors | `wasm_error_to_js_value` `vm/host/wasm/errors.rs:179`, alloc `:201-206` | `Ordinary` | `create_error_object` (NEW) |
-| structured clone of an error | `clone_error` `vm/host/structured_clone.rs:638`, kind `:648-652` | copies the source kind | always `create_error_object` (NEW); the `Ordinary` arm goes (unreachable after §1.3) |
+| structured clone of an error | `clone_error` (`vm/host/structured_clone/cloners.rs`), its `match` on the source kind | copies the source kind, on the source prototype | always `create_error_object` (NEW) on `error_intrinsic_prototype(name)` (§1.6); the `Ordinary` arm goes (unreachable after §1.3) |
 
 **Not creators of error instances** (checked, no change): `Error.prototype`, `AggregateError.prototype` and
 the Wasm prototypes are ordinary per spec (`vm/globals_errors.rs:34`, `:93`; `vm/host/wasm/errors.rs:103`);
@@ -217,8 +223,8 @@ that names the variant, by `git grep -n 'ObjectKind::Error' 145927c9 -- crates/`
 | Site | Reads `name`? |
 |---|---|
 | `vm/ops.rs:202` (write, the throw path) | writes it |
-| `vm/host/structured_clone.rs:649` (`clone_error`) | reads it, only to copy it into the clone's kind |
-| `vm/host/structured_clone.rs:242` (`classify`) | no (`{ .. }`) |
+| `clone_error` (`vm/host/structured_clone/cloners.rs`) | reads it, only to copy it into the clone's kind |
+| `classify` (`vm/host/structured_clone/classify.rs`) | no (`{ .. }`) |
 | `vm/host/indexeddb/value.rs:298` | no (`{ .. }`) |
 | `vm/natives_symbol.rs:284` | no (`{ .. }`) |
 | `vm/gc/trace.rs:556` | no (`{ .. }`; a `StringId`, no GC edge) |
@@ -240,8 +246,8 @@ By concept — anything that decides "is this an error" by prototype identity, b
 | Site | Today | E1 |
 |---|---|---|
 | Object.prototype.toString — `native_object_prototype_to_string` `vm/natives_symbol.rs:240`, arm `:284` (§20.1.3.6 step 8) | the kind | unchanged (respelled); now true for every constructed error |
-| structured clone — `clone_recursive` guard `vm/host/structured_clone.rs:133` + `is_error_like_proto` `:697-702` | the kind (`classify` `:242`) **or** an `Ordinary` whose immediate prototype `==` `error_prototype` / `aggregate_error_prototype` | the kind only (§2.7.4 step 18); guard and predicate deleted |
-| structured clone — `clone_error` kind copy `:648-652` | copies `Error { name }` or `Ordinary` | always the kind (§1.1) |
+| structured clone — the `CloneKind::Ordinary if is_error_like_proto` guard arm in `clone_recursive` (`vm/host/structured_clone/mod.rs`) + `is_error_like_proto` (`vm/host/structured_clone/cloners.rs`) | the kind (`classify`'s `ObjectKind::Error` arm, `vm/host/structured_clone/classify.rs`) **or** an `Ordinary` whose immediate prototype `==` `error_prototype` / `aggregate_error_prototype` | the kind only (§2.7.4 step 18); guard and predicate deleted |
+| structured clone — `clone_error`'s kind copy | copies `Error { name }` or `Ordinary` | always the kind (§1.1) |
 | IndexedDB — `reject_non_json_storable` `vm/host/indexeddb/value.rs:242`: arm `:298` + `Ordinary` branch `:318-323` → `is_error_like` `:363-371` | the kind **or** an `Ordinary` whose chain reaches either prototype | the kind only; the `Ordinary` error branch and `is_error_like` deleted (question 4) |
 
 No other site compares against either prototype: the remaining `error_prototype` hits are allocations
@@ -261,8 +267,8 @@ clone is `{}` on `Object.prototype`), and the subclass instance and the Wasm err
 E1 moves constructed errors out of `ObjectKind::Ordinary`. Every site whose behaviour depends on a value
 being `Ordinary` sees them move:
 `git grep -n 'ObjectKind::Ordinary' 145927c9 -- crates/script/elidex-js/src ':!crates/script/elidex-js/src/vm/tests' | /usr/bin/grep -v 'kind: ObjectKind::Ordinary'`
-→ 10 hits. Five are comments (`vm/globals.rs:1371`, `vm/host/dom_exception.rs:7`, `vm/host/dom_rect.rs:8`, `vm/host/structured_clone.rs:127`, `vm/host/wasm/namespace.rs:41`). `vm/gc/trace.rs:553` shares `Error`'s arm (no change). `vm/host/structured_clone.rs:239`
-/ `:650` and `vm/host/indexeddb/value.rs:295` are §1.3's. **`vm/natives_json/parse.rs:444` is P-5** (E0, OD-2).
+→ 10 hits. Five are comments (`vm/globals.rs:1371`, `vm/host/dom_exception.rs:7`, `vm/host/dom_rect.rs:8`, the guard comment in `clone_recursive`, `vm/host/wasm/namespace.rs:41`). `vm/gc/trace.rs:553` shares `Error`'s arm (no change). `classify`'s
+`Ordinary` arm, `clone_error`'s `Ordinary` arm and `vm/host/indexeddb/value.rs:295` are §1.3's. **`vm/natives_json/parse.rs:444` is P-5** (E0, landed before E1).
 Kind-agnostic paths (property storage, `JSON.stringify`, which branches only on Array / Date / wrappers at
 `vm/natives_json/stringify.rs:63`, `:131`, `:470`, `:547-550`; the JSON shortcut behind worker `postMessage` and
 `history.state`, `vm/host/structured_serialize.rs`) do not branch on `Ordinary`, so an `Error` object takes
@@ -272,8 +278,8 @@ the same path there as today's constructed error.
 
 - **Wasm errors have `[[ErrorData]]`** (Wasm JS API §5.10, quoted in §0.3 P-2). E1 changes their recognition:
   both Wasm creators are in §1.1 (OD-3). After E1, `Object.prototype.toString.call(new
-  WebAssembly.CompileError())` is `"[object Error]"`; structured clone routes them to `clone_error` (OD-1
-  decides the prototype); IndexedDB rejects them like every other error (`DataCloneError`, the v1 JSON-storage
+  WebAssembly.CompileError())` is `"[object Error]"`; structured clone routes them to `clone_error`, whose
+  prototype is `error_intrinsic_prototype("Error")` (their names are not among step 18.2's seven, §1.6); IndexedDB rejects them like every other error (`DataCloneError`, the v1 JSON-storage
   stance of `#11-idb-structured-clone-storage`) instead of silently storing `{}`.
 - **DOMException has `[[ErrorData]]`** per Web IDL §3.14.1 DOMException custom bindings ("It also has
   [[ErrorData]] and [[Stack]] slots, like all built-in exceptions",
@@ -284,8 +290,51 @@ the same path there as today's constructed error.
   classifier sees it as an error, which is what step 18 requires. Its slot has no consumer in elidex today
   (the only spec consumers are toString step 8, which its `@@toStringTag` overrides, and `Error.isError`, which
   elidex lacks). Modelling it — a "has `[[ErrorData]]`" predicate that admits a platform object, kept apart
-  from step 18's "and not a platform object" — **is a further axis, reported (stop-and-report SR-2) and not
-  taken**. It belongs with `Error.isError` (SD-2) and DOMException serialization (SD-4).
+  from step 18's "and not a platform object" — **is a further axis, not taken**. Rev 1 reported it (SR-2);
+  PM 365's registered `#11-domexception-serializable` cites it, and its consumer is `Error.isError` (SD-2, §5).
+
+### §1.6 The clone's prototype, by serialized name (PM 365, Rev 1's OD-1)
+
+**Why it is E1's.** §1.3 routes every `[[ErrorData]]` object to `clone_error`, and `clone_error` keeps the
+**source** prototype (`src_proto.or(vm.error_prototype)`). So without this section E1 turns two spec-`false`
+rows true (§0.3 P-6). HTML decides the clone's prototype from the serialized name and from nothing else:
+
+- StructuredSerializeInternal (§2.7.4) step 18.1 `Let name be ? Get(value, "name")`; step 18.2 "If name is
+  not one of "Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", or "URIError",
+  then set name to "Error"" (`.claude/tools/webref body html structuredserializeinternal`).
+- StructuredDeserialize (§2.7.7) step 22 (`serialized.[[Type]]` is "Error"): 22.1 prototype = %Error.prototype%;
+  22.2-22.7 one step per remaining name; 22.9 `OrdinaryObjectCreate(prototype, « [[ErrorData]], [[Stack]] »)`
+  (`.claude/tools/webref body html structureddeserialize`).
+
+**The design.**
+
+- `ErrorName` (NEW, `vm/globals_errors.rs`): a closed enum of step 18.2's seven names. `ErrorName::from_value`
+  implements step 18.2: a `JsValue::String` whose content is one of the seven gives that name; any other
+  string and any non-String value give `ErrorName::Error` (NEW) (step 18.2 compares the value, it does not
+  `ToString` it). No existing type has this set: `VmErrorKind` (`vm/error.rs`) has no `Error` / `EvalError`
+  and carries non-error variants, so it is not the step 18.2 domain.
+- `VmInner::error_intrinsic_prototype(name: ErrorName) -> Option<ObjectId>` (NEW, `vm/globals_errors.rs`,
+  beside `register_error_constructors`, which owns the intrinsics): an exhaustive `match`, one arm per name
+  (steps 22.1-22.7). **In E1 every arm returns `self.error_prototype`**, which is what %TypeError.prototype%
+  and its siblings *are* in elidex until E2 (and `EvalError` has no intrinsic yet). E2 changes the arms'
+  values and nothing else; the exhaustive `match` makes a forgotten name a compile error.
+- `clone_error` (`vm/host/structured_clone/cloners.rs`): (1) `name = vm.get_property_value(src, "name")?`
+  (`get_property_value`, `VmInner`'s method in `vm/shape_ops.rs`, is `Get` §7.3.1: an accessor's getter runs, an abrupt
+  completion propagates out of `structuredClone`); (2) `ErrorName::from_value(&name)`; (3)
+  `create_error_object(vm.error_intrinsic_prototype(name))` (step 22.9, §1.2); then the memo insertion and
+  the own-property copy as today. The `src_proto` parameter goes, and so does its argument at the
+  `clone_recursive` call site. The name read precedes the allocation, as step 18 precedes step 22.
+- **Not here**: steps 18.3-18.4 (the message by `[[GetOwnProperty]]` + `ToString`), the record's other
+  fields, and the own-property copy that carries `name`, `cause`, `errors` and script-added properties onto
+  the clone — `#11-structured-clone-error-record-fidelity` (registered, PM 365; §5). So the clone of a
+  `new AggregateError([], 'm')` keeps its own `name` data property `"AggregateError"` while its prototype is
+  %Error.prototype%; that mismatch is the record-fidelity slot's, not E1's.
+
+**Observables E1 changes here** (all toward the spec): a subclass instance's clone is not `instanceof` the
+subclass; a `WebAssembly.*Error`'s clone is not `instanceof` its class; an `AggregateError`'s clone is not
+`instanceof AggregateError`; a `name` getter on the source runs once during the clone (and its throw
+propagates). IndexedDB clones through the same function (`value_to_json` → `clone_value`), so the getter also
+runs on `store.add` / `put` of an error, before the v1 rejection — as StructuredSerializeForStorage requires.
 
 ## §2. Edge density, by measurement
 
@@ -298,27 +347,35 @@ evidenced only by a failure that occurs while the others pass. Measured on the b
   kind arm) correct. Mutants M1-M7, M9.
 - **C2, recognition** — every classifier keys on the kind. Evidence: with C1 fixed and the structured-clone
   guard kept (M8), T-CLONE-FAKE and T-IDB-FAKE fail while every T-TAG cell passes. Mutants M8, M10, M11.
+- **B-clone, the clone's prototype by serialized name** (§1.6; axis B's clone site, moved from E2 by PM 365).
+  Evidence: with C1 and C2 fixed and `clone_error` keeping `src_proto` (M13), the prototype rows of
+  T-CLONE-SUB, T-CLONE-AGG and T-CLONE-WASM fail while every T-TAG, T-CLONE-KIND and T-CLONE-FAKE cell
+  passes. Mutants M13, M15, M16.
 
 | Mutant | Cells it fails | Fails alone? | Axis |
 |---|---|---|---|
 | M3 promotion keyed on the receiver's prototype being `error_prototype` / `aggregate_error_prototype` | T-TAG subclass rows, T-WASM constructor rows, T-CLONE-SUB, T-IDB-SUB | yes | C1 |
 | M8 structured clone keeps `CloneKind::Ordinary if is_error_like_proto` | T-CLONE-FAKE, T-IDB-FAKE | yes | C2 |
 | M9 `clone_error` allocates `Ordinary` | T-CLONE-KIND; the existing `err:` row of `add_value_with_cloneable_non_json_type_throws_data_clone_error` (`vm/tests/tests_indexeddb_events.rs:560`), once IDB's prototype branch is gone | yes | C1 (`clone_error` is a creator) |
-| M14 (only under OD-2 (b)) `internalize` keeps `ObjectKind::Ordinary \| Arguments` | T-JSON's constructed-error row | yes | **C3** — the consumer axis P-5 names |
+| M13 `clone_error` keeps `src_proto` | the prototype rows of T-CLONE-SUB, T-CLONE-AGG, T-CLONE-WASM | yes | B-clone |
 
 The payload removal adds no axis: no site reads the value (§1.2), so no cell can fail on it. The IDB
 prototype branch adds none either: it becomes unreachable (§4.2 M12).
 
-**Two measured axes under OD-2 (a); three under OD-2 (b).** Either way E1 is a terminal unit: the base case
+**Three measured axes (C1, C2, B-clone).** Rev 1's third candidate, the JSON consumer (P-5), is E0's, not
+E1's (PM 365). The third axis here is the one PM 365 placed in E1; it is not a further axis beyond that
+decision. E1 is a terminal unit: the base case
 of CLAUDE.md "Edge-dense work" (c), a plan-reviewed, narrowly scoped slice under an approved umbrella
 (`docs/plans/2026-11-vm-native-error-program.md`). And C1 and C2 are not separable: a PR that does C1 alone
 makes the fake-error clone and the IDB rows depend on which predicate the clone takes, and a PR that does C2
 alone makes every constructed error unclonable as an error (the kind it keys on does not exist yet) — the
 second is a regression of `error_subclass_proto_preserved` (`vm/tests/tests_structured_clone.rs:171`). So C1 +
-C2 is terminal by necessity.
+C2 is terminal by necessity. B-clone is not separable from C2 either: C2 without it turns the two P-6 rows
+spec-wrong (and the AggregateError row stays so), and B-clone without C2 never sees the subclass and Wasm
+instances, which still clone through `clone_ordinary`.
 
 **Re-slice trigger**: the post-implementation run finds a mutant that fails alone and breaks an invariant
-neither C1 nor C2 owns (C3 counts only under OD-2 (b)).
+neither C1, C2 nor B-clone owns.
 
 ## §3. Spec coverage map
 
@@ -343,12 +400,12 @@ axes, not by spec count.
 | ECMA-262 §20.5.4 Properties of Error Instances | — | instances have [[ErrorData]] (value undefined); the prototypes do not (§20.5.3) | `ObjectKind::Error` payload dropped, `vm/object_kind.rs:135` | ✓ | no |
 | ECMA-262 §27.5.4.3.1 PerformPromiseAny ( iteratorRecord, ctor, resultCapability, promiseResolve ) | 5.b.ii.1, 5.e.vii.1 | "a newly created AggregateError object" | `build_aggregate_error` `vm/natives_promise_combinator.rs:258` → `create_error_object` (NEW) | ✓ both rejection points share the builder | yes — every input rejects |
 | ECMA-262 §20.1.3.6 Object.prototype.toString ( ) | 8 | [[ErrorData]] → "Error" (step 15-16 tag override unchanged) | `vm/natives_symbol.rs:284` | ✓ | yes |
-| WHATWG HTML §2.7.4 StructuredSerializeInternal ( value, forStorage [ , memory ] ) | 18 | [[ErrorData]] and not a platform object → Error record; otherwise falls through to the ordinary-object branch | `vm/host/structured_clone.rs:133` (guard deleted), `:242` | ✓ fake error, subclass, Wasm, AggregateError, thrown | yes — `structuredClone(x)` |
-| WHATWG HTML §2.7.7 StructuredDeserialize ( serialized, targetRealm [ , memory ] ) | 22.9 | OrdinaryObjectCreate(prototype, « [[ErrorData]], [[Stack]] ») — the clone has the slot (22.1-22.7, the prototype choice: OD-1) | `clone_error` `vm/host/structured_clone.rs:638` → `create_error_object` (NEW) | ✓ | yes |
+| WHATWG HTML §2.7.4 StructuredSerializeInternal ( value, forStorage [ , memory ] ) | 18, 18.1-18.2 | [[ErrorData]] and not a platform object → Error record; otherwise falls through to the ordinary-object branch. 18.1 `? Get(value, "name")`; 18.2 any value outside the seven names → "Error" (18.3-18.7: `#11-structured-clone-error-record-fidelity`) | `clone_recursive` guard arm deleted (`vm/host/structured_clone/mod.rs`), `classify` (`vm/host/structured_clone/classify.rs`); the name read and `ErrorName::from_value` (NEW) in `clone_error` (`vm/host/structured_clone/cloners.rs`) | ✓ fake error, subclass, Wasm, AggregateError, thrown; the seven names, any other string, a non-String, a getter, a throwing getter | yes — `structuredClone(x)`, the source's `name` |
+| WHATWG HTML §2.7.7 StructuredDeserialize ( serialized, targetRealm [ , memory ] ) | 22.1-22.7, 22.9 | prototype by serialized name (one step per name, %Error.prototype% otherwise); OrdinaryObjectCreate(prototype, « [[ErrorData]], [[Stack]] ») — the clone has the slot | `clone_error` → `error_intrinsic_prototype` (NEW, `vm/globals_errors.rs`; every arm `error_prototype` until E2) → `create_error_object` (NEW) | ✓ seven arms, exhaustive `match` | yes |
 | WHATWG HTML §2.7.6 StructuredSerializeForStorage ( value ) | — | IndexedDB's clone serializes through the same algorithm; v1 then rejects every Error record (JSON storage) | `vm/host/indexeddb/value.rs:298` (kept), `:318-323` + `:363-371` (deleted) | ✓ | yes — `store.add(x)` |
 | IndexedDB §5.11 Clone a value | 3-4 | StructuredSerializeForStorage then StructuredDeserialize — one classifier, structured clone's | `value_to_json` → `clone_value` `vm/host/indexeddb/value.rs:382` | ✓ | yes |
 | Wasm JS API §5.10 Error Objects | 2.1 | each class implements the NativeError Object Structure → instances have [[ErrorData]] | `vm/natives.rs:553`, `:568`, `:583`; `vm/host/wasm/errors.rs:201-206` | ✓ three classes, both paths | yes |
-| Web IDL §3.14.1 DOMException custom bindings | — | DOMException has [[ErrorData]] but is a platform object: never step 18 — **unchanged by E1** (SR-2) | none | ✓ (no touch) | yes |
+| Web IDL §3.14.1 DOMException custom bindings | — | DOMException has [[ErrorData]] but is a platform object: never step 18 — **unchanged by E1** (§1.5, §5) | none | ✓ (no touch) | yes |
 
 ### §3.1 User-input audit
 
@@ -381,12 +438,21 @@ rest are read, not probed.
 | T-CLONE-KIND | `c = structuredClone(new TypeError('m'))` → `Object.prototype.toString.call(c) === '[object Error]'`, `c instanceof TypeError`, `c.name === 'TypeError'`, `c.message === 'm'` | red on the toString half (*probe* `true,true,TypeError,m,[object Object]`) | M9, M1 |
 | T-CLONE-FAKE | `c = structuredClone(Object.create(Error.prototype))` → `c instanceof Error === false`, `Object.getPrototypeOf(c) === Object.prototype`, toString `"[object Object]"` | red (*probe* `cloned:[object Object]:true`) | M8 |
 | T-CLONE-THROWN | a caught `null.x` cloned → `instanceof TypeError`, `name === 'TypeError'`, `"[object Error]"` | green (*probe*); stays green | — (control) |
-| T-CLONE-SUB | `class E extends TypeError {}; c = structuredClone(new E('m'))` → `"[object Error]"`, `c instanceof TypeError`, `c.message === 'm'`; and `c instanceof E` is `true` under OD-1 (a), `false` under OD-1 (b) | red (base clones `{}`: `clone_ordinary` drops the non-enumerable `name` / `message`, `vm/host/structured_clone.rs:465-505`) | M1, M3, M13 under (b) |
+| T-CLONE-SUB | `class E extends TypeError {}; c = structuredClone(new E('m'))` → `"[object Error]"`, `c instanceof TypeError`, `c.message === 'm'`, `Object.getPrototypeOf(c) === TypeError.prototype`, and `c instanceof E === false` (§1.6) | red (base clones `{}`: `clone_ordinary` drops the non-enumerable `name` / `message`) | M1, M3, M13 |
+| T-CLONE-WASM | `c = structuredClone(new WebAssembly.CompileError('m'))` → `c instanceof WebAssembly.CompileError === false`, `Object.getPrototypeOf(c) === Error.prototype`, `"[object Error]"`; the same for `LinkError` / `RuntimeError` | red on the prototype and toString halves (base: `{}` on `Object.prototype`); the `instanceof` half green by accident of the `{}` | M5, M13 |
+| T-CLONE-AGG | `c = structuredClone(new AggregateError([], 'm'))` → `c instanceof AggregateError === false`, `Object.getPrototypeOf(c) === Error.prototype`, `c.message === 'm'`, `"[object Error]"` | red (base: `is_error_like_proto` admits `aggregate_error_prototype`, `clone_error` keeps it) | M4, M13 |
+| T-CLONE-NAME-GET | `e = new TypeError('m'); let n = 0; Object.defineProperty(e, 'name', { get() { n++; return 'TypeError'; } }); structuredClone(e); n === 1`; and a getter that throws a sentinel makes `structuredClone(e)` throw that sentinel | red (base: `clone_error` skips accessors, no `Get`; `n === 0`, no throw) | M15 |
+| T-CLONE-NAME-NONSTRING | `e = new Error('m'); e.name = Object.create({ toString() { throw 1; } }); c = structuredClone(e)` does not throw and `Object.getPrototypeOf(c) === Error.prototype` (the `toString` sits on the name object's prototype, so the own-property copy clones the name object as `{}` without meeting a function) | green (base copies data properties, no `ToString`); stays green | M16 |
 | T-IDB-FAKE | `store.add({ wrapped: Object.create(Error.prototype) }, 1)` does not throw | red (base: `clone_error` keeps `error_prototype` and the `Ordinary` kind, then `is_error_like` rejects with `DataCloneError`) | M8 |
 | T-IDB-SUB | `store.add({ wrapped: new (class extends TypeError {})('x') }, 1)` → `DataCloneError` | red (base: the clone is `{}`, stored) | M1, M3 |
-| T-JSON (OD-2) | a constructed error with an own enumerable `k`, placed by the reviver into a later key, has `k` visited: `const e = new Error('x'); e.k = 1; let seen = false; JSON.parse('{"a":0,"b":0}', function (k, v) { if (k === 'a') this.b = e; if (k === 'k') seen = true; return v; }); seen` → `true`; the same with a caught thrown error → `true` | constructed row green, thrown row red | M14; under OD-2 (a) this cell is E0's, and E1's DoD keeps it green |
 
 **Existing tests that change or must stay green:**
+
+- E0's acceptance cells (umbrella §1.1; landed before E1): the reviver walks a constructed error's own
+  enumerable properties. Green at E1's base (E0's walk is kind-independent); E1's DoD keeps them green.
+- `clone_error_breaks_cycles_via_memo` and `clone_error_recurses_into_cause_value`
+  (`vm/tests/tests_structured_clone.rs`): green, stay green (name `"TypeError"` / `"Error"` → `error_prototype`;
+  the own-property copy is unchanged).
 
 - `generic_object_prototype_tostring_builtin_tags` (`vm/tests/tests_object_constructor.rs:67`): its
   `new Error('e')` assertion at `:111-114` **pins the defect** (`"[object Object]"`) with a comment
@@ -417,53 +483,65 @@ cell kills is a missing cell, added before the PR leaves review.
 - **M12 — equivalent, no cell.** Keeping IndexedDB's `is_error_like` branch. After E1 it cannot fire: the walk
   runs on the clone (`value.rs:382`), a clone of an `[[ErrorData]]` object is always `ObjectKind::Error`
   (caught by the arm before it), and every other clone with an object-ish kind is allocated on
-  `Object.prototype` (`clone_ordinary`, `structured_clone.rs:471-474`) or on its own type's prototype. So
+  `Object.prototype` (`clone_ordinary`, `vm/host/structured_clone/cloners.rs`) or on its own type's prototype. So
   the branch is dead code and is deleted (CLAUDE.md "dead code は接続するか削除"); the PR body states this
   argument instead of a kill.
-- **M13** (OD-1 (b) only) `clone_error` keeps `src_proto`. **M14** (OD-2 (b) only) `internalize` keeps the
-  `Ordinary | Arguments` arm.
+- **M13** `clone_error` keeps `src_proto` (allocates on the source's prototype) → T-CLONE-SUB, T-CLONE-WASM,
+  T-CLONE-AGG prototype rows.
+- **M15** `clone_error` reads `name` as an own data property (no `Get`, a getter does not run) →
+  T-CLONE-NAME-GET.
+- **M16** `ErrorName::from_value` applies `ToString` to a non-String before the comparison →
+  T-CLONE-NAME-NONSTRING.
+- **M17 — equivalent in E1, no cell.** `ErrorName::from_value` returns `ErrorName::Error` (NEW) for every value (the
+  name is ignored). In E1 every arm of `error_intrinsic_prototype` returns `error_prototype`, so no E1 cell
+  can tell the names apart. E2's per-PR plan owns its kill, with the per-name cells that the own prototypes
+  make observable (`structuredClone(new RangeError()) instanceof RangeError`, and a script-set
+  `e.name = 'RangeError'` on a TypeError choosing %RangeError.prototype%). The PR body states this.
+- Rev 1's M14 (`internalize` keeps the `Ordinary | Arguments` arm) is E0's mutant now (umbrella §1.1).
 
 The payload removal has no mutant: the compiler checks every pattern site, and no site reads the value
 (§1.2's table is the evidence, re-derived by §6's command).
 
 ## §5. Non-goals, hand-offs, sibling defects
 
-- **E2** (umbrella §4): own NativeError prototypes and EvalError (axis A), the prototype each construction
-  site chooses, the constructors' `[[Prototype]]` = %Error% (AggregateError and the Wasm classes included,
+- **E2** (umbrella §4): own NativeError prototypes and EvalError (axis A), the prototype each remaining
+  construction site chooses, the per-name values of `error_intrinsic_prototype` (§1.6), the constructors' `[[Prototype]]` = %Error% (AggregateError and the Wasm classes included,
   P-4), `Error.prototype.constructor`, and dropping the instance-level own `.name` once the prototypes carry
   it.
-- **SR-1 — clone fidelity beyond the prototype** (HTML §2.7.4 step 18 and §2.7.7 step 22): today
-  `clone_error` copies every own data property (`name`, `cause`, `errors`, script-added ones;
-  `structured_clone.rs:663-690`), where the spec carries `message` only (and an implementation-defined
-  stack), and does not normalise the name. Prototype choice is OD-1; the rest has no owner. **Reported, not
-  homed** (proposed slot `#11-structured-clone-error-record-fidelity`).
-- **SR-2 — DOMException's `[[ErrorData]]`** (§1.5). Reported; a further axis, not taken.
+- **Clone fidelity beyond the prototype** (Rev 1's SR-1; HTML §2.7.4 steps 18.3-18.7 and §2.7.7 steps 22.8,
+  22.10-22.13): `clone_error` copies every own data property (`name`, `cause`, `errors`, script-added ones;
+  its own-property loop), where the spec carries `message` only (and an implementation-defined stack). The
+  prototype half is E1's (§1.6); the rest → `#11-structured-clone-error-record-fidelity` (registered, PM 365).
+- **DOMException's `[[ErrorData]]`** (Rev 1's SR-2; §1.5) → cited by `#11-domexception-serializable`
+  (registered, PM 365, owner DOM); its only consumer is `Error.isError` (SD-2). Not taken by E1.
 - **SD-1 — `InstallErrorCause` missing** (ECMA-262 §20.5.9.1, step 4 of every constructor in §3):
   `error_ctor_impl` ignores `options` (`vm/natives.rs:444-480`), so `new Error('m', { cause: 1 }).cause`
-  is `undefined`. Silent-wrong. Proposed slot `#11-vm-error-install-error-cause`.
+  is `undefined`. Silent-wrong. Slot `#11-vm-error-install-error-cause` (registered, PM 365).
 - **SD-2 — `Error.isError` missing** (ECMA-262 §20.5.2.1; `git grep -n 'isError' 145927c9 -- crates/script/elidex-js/src`
-  → no output). Loud. After E1 its body is the kind check plus SR-2's answer. Proposed slot
-  `#11-vm-error-iserror`.
+  → no output). Loud. After E1 its body is the kind check plus the DOMException answer above. Slot
+  `#11-vm-error-iserror` (registered, PM 365).
 - **SD-3 — AggregateError's step order**: elidex walks the `errors` iterable (`vm/natives.rs:613-621`)
   before ToString(message), where §20.5.7.1.1 does step 3 (message) before step 5 (IteratorToList);
-  observable through side effects. Silent-wrong. Proposed slot `#11-vm-aggregate-error-step-order`.
+  observable through side effects. Silent-wrong. Slot `#11-vm-aggregate-error-step-order` (registered, PM 365).
 - **SD-4 — DOMException structured clone**: DOMException is `[Serializable]` (Web IDL §4.4), but elidex's
   `classify` sends its `Ordinary` to `clone_ordinary`, which copies enumerable own properties (none; the
   state is in `dom_exception_states`) onto `Object.prototype` — read, not probed. Silent-wrong; unchanged by
-  E1. Proposed slot `#11-domexception-serializable`.
+  E1. Slot `#11-domexception-serializable` (registered, PM 365; owner DOM).
 - **SD-5 — `do_new`'s GetPrototypeFromConstructor fallback** (ECMA-262 §10.1.14): when `ctor.prototype` is
   not an Object, or is an accessor, `do_new` uses `None` (`vm/ops.rs:714-717` keeps only a
   `PropertyResult::Data(JsValue::Object)`), where the spec reads with `? Get` (getters run) and falls back to
   the realm's intrinsicDefaultProto. Engine-wide, not error-specific; E2 meets it when it gives each error
-  constructor its own intrinsic default. Proposed slot `#11-vm-get-prototype-from-constructor-fallback`.
+  constructor its own intrinsic default. Slot `#11-vm-get-prototype-from-constructor-fallback` (registered,
+  PM 365).
 - **SuppressedError** (§20.5.8) is not implemented; when it lands it is a §1.1 creator. Note only.
 - **Hygiene note, no slot**: the promotion mechanism has two spellings (§1.2). E1 uses the named one.
 
 ## §6. Re-derivation
 
 Run at `145927c9` (each command is the one that produced the cite; line numbers move, the commands do not).
-After the E1-pre rebase the `vm/host/structured_clone.rs` cites move into its split files; re-derive them with
-the same commands over `vm/host/structured_clone/`.
+The structured-clone functions are cited by name in E1-pre's split files; at `145927c9` they are all in
+`vm/host/structured_clone.rs` (the first structured-clone command), after E1-pre in `vm/host/structured_clone/`
+(the second, run on E1's base).
 
 ```sh
 B=145927c9; S=crates/script/elidex-js/src
@@ -473,7 +551,9 @@ git grep -n 'fn ensure_instance_or_alloc\|fn promote_to\|pub(crate) fn create_da
 git grep -n 'fn vm_error_to_thrown\|kind: ObjectKind::Error' $B -- $S/vm/ops.rs
 git grep -n 'ObjectKind::Error' $B -- crates/
 git grep -n 'error_prototype' $B -- $S ':!crates/script/elidex-js/src/vm/tests'
-git grep -n 'fn classify\|fn clone_error\|fn is_error_like_proto\|CloneKind::Ordinary if' $B -- $S/vm/host/structured_clone.rs
+git grep -n 'fn clone_recursive\|fn classify\|fn clone_error\|fn clone_ordinary\|fn is_error_like_proto\|CloneKind::Ordinary if' $B -- $S/vm/host/structured_clone.rs
+git grep -n 'fn clone_recursive\|fn classify\|fn clone_error\|fn clone_ordinary\|fn is_error_like_proto\|CloneKind::Ordinary if' HEAD -- $S/vm/host/structured_clone/   # on E1's base, after E1-pre
+git grep -n 'fn get_property_value' $B -- $S/vm/shape_ops.rs
 git grep -n 'fn reject_non_json_storable\|fn is_error_like\|if is_error_like\|clone_value' $B -- $S/vm/host/indexeddb/value.rs
 git grep -n 'fn build_aggregate_error' $B -- $S/vm/natives_promise_combinator.rs
 git grep -n 'fn wasm_error_to_js_value\|let instance = ctx.vm.alloc_object' $B -- $S/vm/host/wasm/errors.rs
