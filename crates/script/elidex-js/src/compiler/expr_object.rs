@@ -5,12 +5,14 @@ use crate::ast::*;
 use crate::bytecode::opcode::Op;
 use crate::scope::ScopeAnalysis;
 
-use super::expr::compile_expr;
+use super::expr::{compile_expr, compile_function_value, FunctionCreation};
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
 use super::CompileError;
 
-/// Compile a getter or setter property definition.
+/// Compile a getter or setter property definition.  The value is created
+/// by MethodDefinitionEvaluation (ECMA-262 §15.4.5), which never calls
+/// MakeConstructor, hence [`FunctionCreation::Method`].
 fn compile_accessor(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -21,7 +23,14 @@ fn compile_accessor(
     enumerable: bool,
 ) -> Result<(), CompileError> {
     if let Some(value) = property.value {
-        compile_expr(fc, prog, analysis, func_scopes, value)?;
+        compile_function_value(
+            fc,
+            prog,
+            analysis,
+            func_scopes,
+            value,
+            FunctionCreation::Method,
+        )?;
         let flags: u8 = u8::from(enumerable);
         match &property.key {
             PropertyKey::Identifier(name) => {
@@ -43,6 +52,7 @@ fn compile_accessor(
 }
 
 /// Compile an object literal expression.
+#[allow(clippy::too_many_lines)]
 pub(super) fn compile_object_expr(
     fc: &mut FunctionCompiler,
     prog: &Program,
@@ -70,9 +80,24 @@ pub(super) fn compile_object_expr(
                         compile_expr(fc, prog, analysis, func_scopes, *e)?;
                     }
                 }
-                // Then evaluate value.
+                // Then evaluate value.  A method-shorthand value is
+                // created by DefineMethod (ECMA-262 §15.4.4) — or, for a
+                // generator / async method, MethodDefinitionEvaluation
+                // (§15.4.5) — so it is a `Method`; a `key: function(){}`
+                // value stays an ordinary function expression.
                 if let Some(value) = prop.value {
-                    compile_expr(fc, prog, analysis, func_scopes, value)?;
+                    if prop.flags.method() {
+                        compile_function_value(
+                            fc,
+                            prog,
+                            analysis,
+                            func_scopes,
+                            value,
+                            FunctionCreation::Method,
+                        )?;
+                    } else {
+                        compile_expr(fc, prog, analysis, func_scopes, value)?;
+                    }
                 } else {
                     fc.emit(Op::PushUndefined);
                 }

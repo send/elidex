@@ -13,6 +13,7 @@
 //! - \[C19\] ECMA-262 §13.3.8.1 ArgumentListEvaluation (spread variant)
 //!   — `Op::SuperCallSpread` consumes a pre-built args array.
 
+use super::construct_admission::ConstructEntry;
 use super::value::{CallMode, JsValue, ObjectId, ObjectKind, VmError};
 use super::VmInner;
 
@@ -117,11 +118,14 @@ impl VmInner {
         let home = self.frames[frame_idx]
             .home_class
             .ok_or_else(|| VmError::syntax_error("'super' keyword unexpected here"))?;
-        // Resolve super class = home.[[Prototype]] (§13.3.7.2 GetSuperConstructor).
-        let super_class = self
+        // GetSuperConstructor (ECMA-262 §13.3.7.2): home.[[Prototype]],
+        // an Object or `null`.  The read does not refuse: SuperCall
+        // Evaluation (§13.3.7.1) step 5's IsConstructor, `null` included,
+        // is the admission's in `construct_synchronous`.
+        let super_ctor = self
             .get_object(home)
             .prototype
-            .ok_or_else(|| VmError::type_error("Super constructor null is not a constructor"))?;
+            .map_or(JsValue::Null, JsValue::Object);
         // Propagate the outer frame's new_target unchanged — \[C13\]
         // SuperCall "GetNewTarget" returns the outermost-invoked
         // class regardless of nesting. Derived-ctor frames carry
@@ -137,7 +141,8 @@ impl VmInner {
         let pre_alloc = self.frames[frame_idx].new_instance;
 
         let result = self.construct_synchronous(
-            super_class,
+            super_ctor,
+            ConstructEntry::Super,
             receiver,
             args,
             CallMode::Construct { new_target },
@@ -170,9 +175,12 @@ impl VmInner {
     /// arbitrarily long chains.
     ///
     /// Shared SoT for [[Construct]] BoundFunction unwrapping: called
-    /// by both [`super::VmInner::do_new`] (the user-visible `new`
-    /// path) and [`Self::construct_synchronous`] (the `super(...)` /
-    /// invoke_upgrade path). Keeping the logic in one place ensures
+    /// by the construct admission [`Self::admit_construct`] — which
+    /// both [`super::VmInner::do_new`] (the user-visible `new` path)
+    /// and [`Self::construct_synchronous`] (the `super(...)` /
+    /// invoke_upgrade path) call — and by the predicate
+    /// [`super::construct_admission::is_constructor`], so the depth
+    /// limit is applied by one piece of code. Keeping the logic in one place ensures
     /// `new BoundCtor()` and `class B extends BoundCtor { ... }` /
     /// `super()` behave consistently — D-17b R4 G4-4 fix for the
     /// divergence where `construct_synchronous` rejected BoundFunction
@@ -208,7 +216,8 @@ impl VmInner {
     }
 
     /// Synchronous `[[Construct]]` dispatch (\[C11\]) used by
-    /// `Op::SuperCall` and the upcoming `vm.construct` API (Stage 5).
+    /// `Op::SuperCall` / `Op::SuperCallSpread` and the custom-element
+    /// upgrade.
     /// Threads `mode` through both the native-call path (via the
     /// outer `with_call_mode` boundary that bakes `NativeContext::mode`
     /// for the entry frame) and the JS-call path (via the
@@ -218,20 +227,26 @@ impl VmInner {
     /// OrdinaryCreateFromConstructor completion semantics.
     ///
     /// Always invoked with [`CallMode::Construct`] in current callers
-    /// (`do_new`'s JS branch, `dispatch_super_inner`); the `mode`
+    /// (`dispatch_super_inner` and the custom-element upgrade; `do_new`
+    /// pushes its JS frame inline and does not come here); the `mode`
     /// parameter keeps the signature symmetric with
     /// [`super::VmInner::push_js_call_frame`] and primes the path for
     /// a future native-`Function.construct`-via-this-helper caller.
     ///
-    /// BoundFunction superclasses (`class B extends A.bind(null) {
-    /// ... super() ... }`) are unwrapped via
-    /// [`Self::unwrap_bound_function_chain`] so the inner callable is
-    /// dispatched with the chain's bound args prepended — matches
-    /// `do_new`'s behavior so the two construct paths stay
-    /// consistent.
+    /// `callee` is admitted by [`Self::admit_construct`] before any
+    /// callee effect, keyed by `entry`: `dispatch_super_inner` passes
+    /// [`ConstructEntry::Super`] (its callee is GetSuperConstructor's
+    /// result, possibly `null`), the custom-element upgrade passes
+    /// [`ConstructEntry::New`] (HTML "upgrade an element" constructs C
+    /// directly, the shape of `new`).  The admission unwraps a
+    /// BoundFunction (`class B extends A.bind(null) { ... super() ...
+    /// }`) via [`Self::unwrap_bound_function_chain`], so the inner
+    /// callable is dispatched with the chain's bound args prepended —
+    /// the same as `do_new`.
     pub(crate) fn construct_synchronous(
         &mut self,
-        ctor_id: ObjectId,
+        callee: JsValue,
+        entry: ConstructEntry,
         receiver: JsValue,
         args: &[JsValue],
         mode: CallMode,
@@ -250,10 +265,12 @@ impl VmInner {
             "construct_synchronous called with CallMode::Call; \
              post-call substitution would silently apply Construct semantics"
         );
-        // Unwrap BoundFunction chain before checking constructability —
-        // a BoundFunction targeting a constructable callable is itself
-        // constructable (ECMA-262 §10.4.1.2).
-        let (ctor_id, prepended) = self.unwrap_bound_function_chain(ctor_id)?;
+        // SuperCall Evaluation (ECMA-262 §13.3.7.1) step 5 /
+        // ClassDefinitionEvaluation (§15.7.14) step 14.a.iv.3:
+        // IsConstructor, after the arguments (already evaluated into
+        // `args`) and before any frame push or callee body.  The
+        // admission owns every refusal and unwraps a bound chain.
+        let (ctor_id, prepended) = self.admit_construct(callee, entry)?;
         let combined_args: Vec<JsValue> = if prepended.is_empty() {
             args.to_vec()
         } else {
@@ -264,21 +281,9 @@ impl VmInner {
         };
         let args = combined_args.as_slice();
 
+        // Admitted: a JS function with `[[Construct]]`, or a
+        // constructable native.
         let is_js = matches!(&self.get_object(ctor_id).kind, ObjectKind::Function(_));
-        let is_native_ctor = match &self.get_object(ctor_id).kind {
-            ObjectKind::NativeFunction(nf) => nf.shape.can_construct(),
-            _ => false,
-        };
-        if !is_js && !is_native_ctor {
-            // Tailor the error for non-constructable natives so the
-            // user sees the function's name (matches do_new's
-            // "{name} is not a constructor").
-            if let ObjectKind::NativeFunction(nf) = &self.get_object(ctor_id).kind {
-                let name = self.strings.get_utf8(nf.name);
-                return Err(VmError::type_error(format!("{name} is not a constructor")));
-            }
-            return Err(VmError::type_error("not a constructor"));
-        }
 
         // Thread `mode` through both the JS and native dispatch
         // branches via the outer `with_call_mode` boundary
@@ -308,6 +313,7 @@ impl VmInner {
                         // Construct mode threads `mode` directly; the
                         // class-ctor-call-mode guard never fires when
                         // `mode = CallMode::Construct { .. }`.
+                        let frames_before = vm.frames.len();
                         vm.push_js_call_frame(
                             callee,
                             receiver,
@@ -316,6 +322,18 @@ impl VmInner {
                             pre_alloc_instance,
                             mode,
                         )?;
+                        // The re-entrant `run()` below executes until the
+                        // frame just pushed returns, so a callee whose
+                        // call returns without pushing one would run the
+                        // caller's frame instead.  The admission refuses
+                        // every such kind (generator / async kinds have
+                        // no `[[Construct]]`); this guards against a
+                        // later frameless kind, not a second check.
+                        debug_assert_eq!(
+                            vm.frames.len(),
+                            frames_before + 1,
+                            "construct_synchronous: admitted JS callee pushed no frame"
+                        );
                         vm.run()
                     }
                     None => Err(VmError::internal(
@@ -323,7 +341,6 @@ impl VmInner {
                     )),
                 }
             } else {
-                debug_assert!(is_native_ctor);
                 // Native construct: dispatch directly inside the
                 // boundary so the `NativeContext` built at
                 // `call_dispatch` time bakes the outer `mode`.

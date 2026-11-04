@@ -76,6 +76,15 @@ pub struct CompiledFunction {
     /// class via `home_class.\[\[Prototype\]\]`. `false` for regular
     /// methods + non-class functions (CE-minimal scope, D-17b §3.1).
     pub is_class_ctor: bool,
+    /// Whether MakeConstructor (ECMA-262 §10.2.5) applies to the
+    /// function object created from this code — step 1.c for an
+    /// ECMAScript function, step 2.a for the synthesized default class
+    /// constructor.  The compiler sets it from the creation path
+    /// (`compiler::expr_function::FunctionCreation`); `IsConstructor`
+    /// (§7.2.4) reads it for a JS function and nothing else.  Defaults
+    /// to `false`, so code nobody classified is refused by `new` rather
+    /// than silently constructed.
+    pub has_construct: bool,
     /// Inline cache slots for property access (GetProp/SetProp).
     /// Allocated by the compiler; populated at runtime.
     pub ic_slots: Vec<Option<crate::vm::ic::PropertyIC>>,
@@ -103,6 +112,7 @@ impl CompiledFunction {
             needs_arguments: false,
             has_rest_param: false,
             is_class_ctor: false,
+            has_construct: false,
             ic_slots: Vec::new(),
             call_ic_slots: Vec::new(),
         }

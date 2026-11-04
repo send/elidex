@@ -138,8 +138,7 @@ fn kind(name: &str) -> &'static str {
         .iter()
         .chain(CONTROLS)
         .find(|(n, _)| *n == name)
-        .map(|(_, src)| *src)
-        .unwrap_or_else(|| panic!("unknown kind {name}"))
+        .map_or_else(|| panic!("unknown kind {name}"), |(_, src)| *src)
 }
 
 /// `try { <expr>; 'no throw' } catch (e) { 'TE:' + message | 'other:' … }`.

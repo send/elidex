@@ -196,7 +196,8 @@ fn nested_class_new_after_outer_throw_recovers() {
 }
 
 // ---------------------------------------------------------------------------
-// D-17b R4 G4-2 / G4-3: `extends null` (ECMA-262 §15.7.14 step 6.f).
+// D-17b R4 G4-2 / G4-3: `extends null` (ECMA-262 §15.7.14
+// ClassDefinitionEvaluation step 8.f).
 // `protoParent = null`, `constructorParent = %Function.prototype%`.
 // Default ctor is BASE (no super call); user-written super() resolves
 // to %Function.prototype% and throws TypeError on Construct.
@@ -215,7 +216,7 @@ fn extends_null_default_ctor_is_base() {
 
 #[test]
 fn extends_null_prototype_proto_is_null() {
-    // [C16] step 6.f.iii: protoParent = null →
+    // [C16] step 8.f.i: protoParent = null →
     // `Object.getPrototypeOf(X.prototype) === null`.
     assert!(super::eval_bool(
         "class X extends null {} Object.getPrototypeOf(X.prototype) === null;"
@@ -224,7 +225,7 @@ fn extends_null_prototype_proto_is_null() {
 
 #[test]
 fn extends_null_ctor_proto_is_function_prototype() {
-    // [C16] step 6.f.ii: constructorParent = %Function.prototype% →
+    // [C16] step 8.f.ii: ctorParent = %Function.prototype% →
     // `Object.getPrototypeOf(X) === Function.prototype` (NOT null).
     // The VM doesn't install a `Function` global, so probe
     // %Function.prototype% via a function literal's [[Prototype]].
@@ -249,7 +250,7 @@ fn extends_null_user_super_call_throws() {
 
 // ---------------------------------------------------------------------------
 // D-17b R20 G20-1: dynamic-null class heritage. Per ECMA-262 §15.7.14
-// step 6.f, a heritage value that evaluates to `null` at runtime must
+// ClassDefinitionEvaluation step 8.f, a heritage value that evaluates to `null` at runtime must
 // be accepted (treated as `extends null`'s prototype chain) even
 // though the parser classified the heritage as `Expr` (not the literal
 // `Null` arm). `Op::AssertConstructor` now accepts `JsValue::Null` and
@@ -268,7 +269,7 @@ fn extends_paren_null_does_not_throw_at_class_definition() {
 
 #[test]
 fn extends_dynamic_null_prototype_proto_is_null() {
-    // [C16] step 6.f.i: protoParent = null even via the Expr path.
+    // [C16] step 8.f.i: protoParent = null even via the Expr path.
     assert!(super::eval_bool(
         "let h = null; class X extends (h) {} \
          Object.getPrototypeOf(X.prototype) === null;"
@@ -277,7 +278,7 @@ fn extends_dynamic_null_prototype_proto_is_null() {
 
 #[test]
 fn extends_dynamic_null_ctor_proto_is_function_prototype() {
-    // [C16] step 6.f.ii: constructorParent = %Function.prototype% so
+    // [C16] step 8.f.ii: ctorParent = %Function.prototype% so
     // the splice phase MUST NOT set X.__proto__ to null. Probe via a
     // function literal's [[Prototype]].
     assert!(super::eval_bool(
@@ -316,7 +317,7 @@ fn extends_conditional_null_takes_constructor_path() {
 
 #[test]
 fn extends_non_constructor_throws_at_class_definition() {
-    // ECMA-262 §15.7.14 step 6.f ClassDefinitionEvaluation: if the
+    // ECMA-262 §15.7.14 ClassDefinitionEvaluation step 8.g: if the
     // heritage value is callable but lacks [[Construct]] (Symbol,
     // BigInt, arrow fn, etc.), throw TypeError AT class-definition
     // time — not later at super() dispatch. The previous
@@ -342,9 +343,9 @@ fn extends_bound_constructor_throws_on_undefined_prototype() {
     // TypeError because BoundFunction objects have no `prototype`
     // own property; `Get(Bound, "prototype")` returns undefined,
     // which fails the protoParent Object/Null check (ECMA-262
-    // §15.7.14 step 6.f.ii). The SetPrototype dispatcher surfaces
-    // a spec-aligned "Class extends value is not a constructor or
-    // null" diagnostic.
+    // §15.7.14 ClassDefinitionEvaluation step 8.h.ii). The
+    // SetPrototype dispatcher surfaces a spec-aligned "Class extends
+    // value is not a constructor or null" diagnostic.
     super::eval_throws(
         "class A { constructor(x, y) { this.sum = x + y; } } \
          class B extends A.bind(null, 7) { constructor(y) { super(y); } } \
@@ -354,7 +355,7 @@ fn extends_bound_constructor_throws_on_undefined_prototype() {
 
 #[test]
 fn extends_heritage_expression_evaluated_once() {
-    // ECMA-262 §15.7.14 step 6 ClassDefinitionEvaluation: the
+    // ECMA-262 §15.7.14 ClassDefinitionEvaluation step 8.c: the
     // ClassHeritage expression must be evaluated exactly once. The
     // compiler previously emitted `compile_expr(super_id)` twice —
     // once for `ctor.prototype.__proto__ = super.prototype` and

@@ -115,11 +115,13 @@ fn unwrap_bound_chain(vm: &VmInner, id: ObjectId) -> ObjectId {
 /// and then read the receiver's own `.prototype` data property
 /// to use as the new instance's prototype (so
 /// `(new Sub.of(...)).constructor === Sub` holds).  The full
-/// spec `TypedArrayCreate(C, ⟨len⟩)` would invoke `Construct(C,
-/// ⟨len⟩)` to let `Sub`'s ctor body run — that final step is
-/// deferred to a follow-up PR which threads `new.target`
-/// through; for the common `class Sub extends Uint8Array {}`
-/// (no ctor override) the bypass is observably equivalent.
+/// spec TypedArrayCreateFromConstructor (ECMA-262 §23.2.4.1)
+/// invokes `Construct(C, ⟨len⟩)` at its step 1 to let `Sub`'s
+/// ctor body run — that step is missing here and is owned by
+/// `#11-vm-typed-array-create-construct`, which constructs
+/// through the construct admission; for the common `class Sub
+/// extends Uint8Array {}` (no ctor override) the bypass is
+/// observably equivalent.
 ///
 /// The abstract `%TypedArray%` itself and any other receiver
 /// surface TypeError per §23.2.2.{1,2} step "If IsConstructor(C)
