@@ -13,7 +13,7 @@
 use elidex_form::FormControlState;
 
 use super::event_handlers::handle_key;
-use super::focus::set_focus;
+use super::focus::{blur_current, set_focus};
 use super::ime::handle_ime;
 use super::test_support::{build_test_content_state, probe_body_attr, set_test_clipboard};
 use super::ContentState;
@@ -408,4 +408,204 @@ fn c29_cut_marks_and_fires_input() {
     assert_eq!(log(&s), "input:deleteByCut");
     ua_focus(&mut s, "c");
     assert!(has_change(&s), "cut is a user change ({})", log(&s));
+}
+
+// ---- Commit (3): the mark decides, and the first mark re-baselines --------
+
+/// C1 (M0): a script write to a UA-focused control, then a UA blur; no `change`.
+#[test]
+fn c1_ua_blur_no_change_for_script_written_value() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    eval(&mut s, "document.getElementById('b').value = 'x';");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(log(&s).split(',').any(|t| t == "blur"), "{}", log(&s));
+    assert!(!has_change(&s), "M0: no change ({})", log(&s));
+}
+
+/// C3: C1 with the blur through `blur_current` (the unfocusing steps).
+#[test]
+fn c3_blur_current_no_change_for_script_written_value() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    eval(&mut s, "document.getElementById('b').value = 'x';");
+    clear_log(&mut s);
+    blur_current(&mut s.pipeline);
+    assert!(log(&s).split(',').any(|t| t == "blur"), "{}", log(&s));
+    assert!(!has_change(&s), "M0: no change ({})", log(&s));
+}
+
+/// C6 (M4): script `x`; user Backspace (value back to `""`); blur → `change`.
+fn c6(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "", ""));
+    ua_focus(&mut s, "b");
+    eval(&mut s, "document.getElementById('b').value = 'x';");
+    key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), "");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "M4: change ({})", log(&s));
+}
+
+#[test]
+fn c6_ua_blur_after_script_write_then_user_revert_input() {
+    c6("input");
+}
+
+#[test]
+fn c6_ua_blur_after_script_write_then_user_revert_textarea() {
+    c6("textarea");
+}
+
+/// C9 (M5): ArrowLeft, then a script write, then a UA blur; no `change`.
+#[test]
+fn c9_arrow_key_then_script_write_no_change() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    focus_with_caret_at_end(&mut s);
+    key(&mut s, "ArrowLeft");
+    assert_eq!(cursor(&s, "b"), 1, "the arrow moved the caret");
+    eval(&mut s, "document.getElementById('b').value = 'x';");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(!has_change(&s), "M5: no change ({})", log(&s));
+}
+
+/// C14: C1 on `<textarea>`.
+#[test]
+fn c14_textarea_ua_blur_no_change_for_script_written_value() {
+    let (mut s, _b) = setup(&pair("textarea", "", ""));
+    ua_focus(&mut s, "b");
+    eval(&mut s, "document.getElementById('b').value = 'x';");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(log(&s).split(',').any(|t| t == "blur"), "{}", log(&s));
+    assert!(!has_change(&s), "M0: no change ({})", log(&s));
+}
+
+/// C16: a mark left by VM `blur()` does not survive the VM `focus()` re-seed.
+#[test]
+fn c16_stale_mark_does_not_survive_refocus() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    key(&mut s, "a");
+    eval(
+        &mut s,
+        "const b = document.getElementById('b'); b.blur(); b.focus(); b.value = 'x';",
+    );
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(!has_change(&s), "no change ({})", log(&s));
+}
+
+/// C20 (M9, W1 / W2): the user returns to the script-written value; no second `change`.
+fn c20(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "", ""));
+    ua_focus(&mut s, "b");
+    key(&mut s, "a");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "M9 first blur ({})", log(&s));
+    ua_focus(&mut s, "b");
+    eval(&mut s, "document.getElementById('b').value = 'x';");
+    key(&mut s, "y");
+    key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), "x");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(!has_change(&s), "M9 second blur ({})", log(&s));
+}
+
+#[test]
+fn c20_user_returns_to_script_written_value_input() {
+    c20("input");
+}
+
+#[test]
+fn c20_user_returns_to_script_written_value_textarea() {
+    c20("textarea");
+}
+
+/// The W3–W8 pattern: UA focus; `writer` changes the value to `expected`;
+/// user `z`, Backspace (back to `expected`); UA blur → no `change`.
+fn writer_rebaselines(body: &str, before_focus: &str, writer: &str, expected: &str) {
+    let (mut s, _b) = setup(body);
+    if !before_focus.is_empty() {
+        eval(&mut s, before_focus);
+    }
+    ua_focus(&mut s, "b");
+    eval(&mut s, writer);
+    assert_eq!(value(&s, "b"), expected, "the writer ran: {writer}");
+    key(&mut s, "z");
+    key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), expected);
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(!has_change(&s), "{writer}: no change ({})", log(&s));
+}
+
+/// C21 (W3).
+#[test]
+fn c21_textarea_default_value_write_rebaselines() {
+    writer_rebaselines(
+        "<textarea id=b>p</textarea><input id=c>",
+        "",
+        "document.getElementById('b').defaultValue = 'q';",
+        "q",
+    );
+}
+
+/// C22 (W4).
+#[test]
+fn c22_value_attribute_write_rebaselines() {
+    writer_rebaselines(
+        "<input id=b value=\"p\"><input id=c>",
+        "",
+        "document.getElementById('b').setAttribute('value', 'q');",
+        "q",
+    );
+}
+
+/// C23 (W5).
+#[test]
+fn c23_type_change_sanitize_rebaselines() {
+    writer_rebaselines(
+        "<input id=b value=\" a\"><input id=c>",
+        "",
+        "document.getElementById('b').type = 'url';",
+        "a",
+    );
+}
+
+/// C24 (W6; the accepted Chromium divergence, plan §6 / PM 307).
+#[test]
+fn c24_email_multiple_toggle_rebaselines() {
+    writer_rebaselines(
+        "<input id=b type=email value=\"a@b, c@d\"><input id=c>",
+        "",
+        "document.getElementById('b').setAttribute('multiple', '');",
+        "a@b,c@d",
+    );
+}
+
+/// C25 (W7).
+#[test]
+fn c25_set_range_text_rebaselines() {
+    writer_rebaselines(
+        "<input id=b value=\"p\"><input id=c>",
+        "",
+        "document.getElementById('b').setRangeText('q', 0, 0);",
+        "qp",
+    );
+}
+
+/// C26 (W8).
+#[test]
+fn c26_form_reset_rebaselines() {
+    writer_rebaselines(
+        "<form id=f><input id=b value=\"d\"></form><input id=c>",
+        "document.getElementById('b').value = 'x';",
+        "document.getElementById('f').reset();",
+        "d",
+    );
 }

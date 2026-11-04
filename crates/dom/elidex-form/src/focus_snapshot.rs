@@ -79,26 +79,38 @@ pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
 
 /// Mark `entity`'s snapshot: a user edit changed the value from `before`.
 /// Called only by [`crate::apply_user_edit`]. Without a snapshot it does
-/// nothing (never inserts one); on an already marked snapshot it does nothing.
-pub(crate) fn note_user_value_change(dom: &mut EcsDom, entity: Entity, _before: String) {
+/// nothing (never inserts one).
+///
+/// The **first** mark re-baselines: `initial = before`. While unmarked, the
+/// value has changed only through non-user writes (a user change would have
+/// marked), and each of those re-baselines (the Chromium-measured model, plan
+/// §4.3), so the baseline at the first user change is the value just before
+/// it. Taking it here means no non-user writer has to call anything. Later
+/// changes, user or not, touch neither field.
+pub(crate) fn note_user_value_change(dom: &mut EcsDom, entity: Entity, before: String) {
     if let Ok(mut snap) = dom.world_mut().get::<&mut FocusValueSnapshot>(entity) {
         if !snap.user_changed {
+            snap.initial = before;
             snap.user_changed = true;
         }
     }
 }
 
 /// §6.6.4 focus update steps step 2.1 — consume (read + remove) `entity`'s
-/// snapshot and return whether `change` fires. `false` without a snapshot (not
-/// a tracked text control) or without a `FormControlState`. The only consumer
-/// of the snapshot: every focus sink calls this and only dispatches `change`.
+/// snapshot and return whether `change` fires: the user changed the value
+/// since focus **and** it differs from the baseline (§4.10.5.5: script value
+/// changes alone fire nothing). `false` without a snapshot (not a tracked text
+/// control) or without a `FormControlState`. The only consumer of the
+/// snapshot: every focus sink calls this and only dispatches `change`.
 pub fn take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool {
     let Ok(snap) = dom.world_mut().remove_one::<FocusValueSnapshot>(entity) else {
         return false;
     };
-    dom.world()
-        .get::<&FormControlState>(entity)
-        .is_ok_and(|fcs| fcs.value() != snap.initial)
+    snap.user_changed
+        && dom
+            .world()
+            .get::<&FormControlState>(entity)
+            .is_ok_and(|fcs| fcs.value() != snap.initial)
 }
 
 /// Drop any change-on-blur snapshot from `entity` without reading it.
@@ -214,6 +226,37 @@ mod tests {
         assert!(take_change_on_blur(&mut dom, input));
         assert_eq!(snap(&dom, input), None, "the take removes the snapshot");
         assert!(!take_change_on_blur(&mut dom, input));
+    }
+
+    /// C7 (k): unmarked with value ≠ `initial`, and marked with value =
+    /// `initial` → `false`.
+    #[test]
+    fn c7k_take_needs_mark_and_difference() {
+        let mut dom = EcsDom::new();
+        let script_only = control(&mut dom, FormControlKind::TextInput, "");
+        record_focus_snapshot(&mut dom, script_only);
+        set_value(&mut dom, script_only, "x");
+        assert!(!take_change_on_blur(&mut dom, script_only), "unmarked");
+
+        let reverted = control(&mut dom, FormControlKind::TextInput, "");
+        record_focus_snapshot(&mut dom, reverted);
+        user_append(&mut dom, reverted, "a");
+        set_value(&mut dom, reverted, "");
+        assert!(!take_change_on_blur(&mut dom, reverted), "value = initial");
+    }
+
+    /// C7 (l): a non-user write before the first mark is absorbed into the
+    /// baseline; later marks do not move it.
+    #[test]
+    fn c7l_first_mark_rebaselines_once() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "");
+        record_focus_snapshot(&mut dom, input);
+        set_value(&mut dom, input, "x");
+        user_append(&mut dom, input, "y");
+        assert_eq!(snap(&dom, input), Some(("x".to_string(), true)));
+        user_append(&mut dom, input, "z");
+        assert_eq!(snap(&dom, input), Some(("x".to_string(), true)));
     }
 
     #[test]
