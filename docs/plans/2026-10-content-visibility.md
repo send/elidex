@@ -28,6 +28,22 @@ approval precedes IBP-sandbox's first nested landing (parent `:1415`; IBP-sandbo
 drafted: nothing here amends a surface the umbrella (`docs/plans/2026-08-line-box-decorated-inline-content.md`) ratified;
 additions to the parent are recorded here under the A114 idiom ("recorded, not edited", §8 records).
 
+**Erratum 1** (2026-11-04, after rev 8; PM decisions 242, 245, 246, 278, 281, 282 — the PM's rulings that this memo is
+corrected in place for the 15 findings of a 2026-11-01 `/code-review` run on it, each verified on 2026-11-03 against code
+and webref (PM handoff `layout-cv-misfire-review.md`: 8 confirmed, 7 partial, no false positive)) — design gaps and checks
+that cannot pass as written, corrected **in place**, each site marked "erratum 2026-11-04 (n)" with the finding's number.
+The in-place edit is an **exception**, by those decisions, to the approval scope's rule (`:20-22`) and to the A114 idiom.
+Decision changes: CV-focus has two legs (7; PM 242 (7)); K15 leaves the fixup's position to the being-rendered leg (1;
+PM 246); the `details` tracker's home is CV-details' plan's (12); D3 adds direct text runs (2); `scrollIntoView()` joins
+D12's decided consumers (6); K16's resume outcome is measured, not decided (13); c5 is not a parent-edge addition (15);
+the rest correct input and DoD checks. Not decided here (PM 282): the script-time freshness of the VM's `focus()` against the fixup, and the
+window between CV-focus-1 and A2c — CV-focus's plans'. **Rename (CR-1, PM 278)**: focus-fixup PR (2)
+(`docs/plans/2026-11-focus-fixup-canonical-steps.md` D-4, D-5; unlanded at authoring) deletes `reconcile_focus` for the
+canonical fixup `focus_fixup_steps` (NEW there), so this erratum lands after it (that program's edge e4). The 12 sites of
+`git grep -n reconcile_focus d7d34035 -- docs/plans/2026-10-content-visibility.md`: B23 and §6's API table keep the
+`a9866498` name with a pointer (measurements); FU-5, §1's Focus row, K15 (two), §3's §8.1.7.3 row, CF-R1, §5.3's
+CV-details line, Q-s8 and §11's D12 bullet are renamed; K8's is deleted (1).
+
 **Revision 8** (2026-10-24) — final clerical pass; **USER DECIDED 2026-10-24: no review round after rev 8** — residual
 risks ride the sibling and nested plan-reviews. Folds the terminal re-check of rev 7 (IMP-1, IMP-2, MIN-1–5) by lowering
 altitude, with the user's adjustments (via PM): FU keeps only what its own landing can check — **FU-6** (cell C30, a test
@@ -86,7 +102,7 @@ by slot or row name, not line.
 | B20 | initial-load fragment scroll | `git grep -n 'scroll_offset_for_fragment\|\.fragment()' -- crates/shell` | **absent**: only the two same-document steps call it; HTML §7.4.6.2 *try to scroll to the fragment* is not implemented. An OOP iframe's navigation rebuilds its pipeline (`content/iframe/thread.rs:199` `handle_navigate`) |
 | B21 | script-time style/layout freshness | the open-slot ledger, slot `#11-forced-style-layout-flush-on-script-read` | registered at #388 as "a general engine concern" (*Trigger* "a handler-stale-geometry test OR a forced-flush program"); no forced flush exists; the PM re-pointed it 2026-10-24 (home = the FU umbrella; owner the Layout lane) |
 | B22 | shadow selector matching | `sed -n 25,125p crates/css/elidex-css/src/selector/matching.rs` | `:host` / `:host()` match only as the **subject** compound (`:71-74`, `:116-120`): the descendant and child combinators stop at a `ShadowRoot` (`:33-35`, `:48-50`), so `:host X` never matches; `:not` inside `:host()` reaches `_ => false` (`:122`, via `:348-349`); no `:host-context()` (0 hits). For **every** shadow sheet. `::slotted()` matches through `SlottedMarker` (`:76-80`) |
-| B23 | (rev 5 corrected) the focusing steps | `sed -n 269,312p crates/script/elidex-js/src/vm/host/html_element_proto.rs`; `sed -n 104,114p crates/dom/elidex-dom-api/src/focus/update_steps.rs`; `sed -n 178,186p …/focus/sot.rs` | the focusing steps **are** in `elidex-dom-api`: `focusing_steps` (`update_steps.rs:106`), which reads `is_focusable_area` (`:113`), called by the shell (`content/focus.rs:85`). The VM host `native_html_element_focus` (`html_element_proto.rs:269`) bypasses it, calling `is_focusable` (`:302`); making the VM a thin caller is canonical-focus A2c (slot `#11-vm-host-synthetic-dom-event-dispatch`). `reconcile_focus` (`sot.rs:178`), run at render time, calls `is_focusable` (`:185`). The VM's Hidden classification is `HiddenKind` (`html_element_proto.rs:679`) |
+| B23 | (rev 5 corrected) the focusing steps | `sed -n 269,312p crates/script/elidex-js/src/vm/host/html_element_proto.rs`; `sed -n 104,114p crates/dom/elidex-dom-api/src/focus/update_steps.rs`; `sed -n 178,186p …/focus/sot.rs` | the focusing steps **are** in `elidex-dom-api`: `focusing_steps` (`update_steps.rs:106`), which reads `is_focusable_area` (`:113`), called by the shell (`content/focus.rs:85`). The VM host `native_html_element_focus` (`html_element_proto.rs:269`) bypasses it, calling `is_focusable` (`:302`); making the VM a thin caller is canonical-focus A2c (slot `#11-vm-host-synthetic-dom-event-dispatch`). `reconcile_focus` (`sot.rs:178`), run at render time, calls `is_focusable` (`:185`) (erratum 2026-11-04, CR-1: replaced by `focus_fixup_steps`, focus-fixup PR (2)). The VM's Hidden classification is `HiddenKind` (`html_element_proto.rs:679`) |
 | B24 | the frame style pass's animation phases | `sed -n 632,700p crates/shell/elidex-shell/src/lib.rs` | inside `re_render` (`:559`): old-style snapshot (`:636-640`), style resolution (`:681-688`), transition detection, CSS-animation sync and `apply_active_animations` (`:690-700`); the session flush is `SessionCore::flush` (`elidex-script-session/src/session.rs:114`; `SessionCore` is CLAUDE.md's ScriptSession) |
 | B25 | (rev 5 corrected; P2 context) `slotchange` | `sed -n 10,32p;58,65p;389,410p crates/script/elidex-js/src/vm/host/html_slot_proto.rs`; `sed -n 386,389p crates/core/elidex-ecs/src/dom/shadow.rs` | fires only on explicit `slot.assign()`; HEAD **has** an ordered VM queue, `pending_slot_change_signals` (`signal_slot_change` `:61-63`, drained `:391-408` into the NotifyMutationObservers microtask); named-mode detection is deferred to `#11-shadow-slotchange-named-mode-detection` (`:25-28`, cited in code, not in the ledger); `assignedNodes({flatten: true})` to `#11-shadow-slot-flatten` (`:13`, `:30`; `shadow.rs:389`; unledgered, recorded by the PM) |
 | B26 | K5's pseudo-element outcome | Chrome 156.0.8078.48 headless, 2026-10-24 (driver probe; screenshot) | a `content-visibility: hidden` `div` with `::before`/`::after` paints neither; an `li` (marker outside and inside) paints no marker; each element's own border paints; the controls paint all. One engine: evidence, not spec ground |
@@ -126,8 +142,9 @@ element the property does not apply to; only S1 consults applies-to. Computed `v
 written (B5).
 
 **D3 — Readers read S2 on the entity that owns the item** (a painted display item, a hit candidate, an a11y node, a focus
-candidate), and S1 on an element for content it owns without a child entity: its replaced / widget content and its
-`::marker` (K5). A reader may prune a subtree at an S1 element only where its traversal **is** the flat tree (K6).
+candidate), and S1 on an element for content it owns without a child entity: its direct text runs (a run's owner is
+the element whose style paints it, `InlineFlowRun::Text`'s `entity`; erratum 2026-11-04 (2)), its replaced / widget
+content and its `::marker` (K5). A reader may prune a subtree at an S1 element only where its traversal **is** the flat tree (K6).
 
 **D4 — Paint and hit testing are wired in one nested PR** (CV-render): the spec states them together, they share one
 participant walk (B14), and no landing state shows skipped contents visible-but-unhittable or invisible-but-hittable (K7).
@@ -235,18 +252,21 @@ part is FU-6.)
 - **FU-3 one computed style** (K3, K16) — forced and frame invocations produce identical computed style for any property,
   animated or not (C21, its CV-render acceptance cell: S1 agrees under an animated `content-visibility`);
 - **FU-4 script-time reads are fresh** (K8, K11, K15, K16) — style **and layout** reflect the task's earlier mutations:
-  `focus()`, the reveal's scroll offset after a `beforematch` mutation (C18), `getComputedStyle`'s sampling (C23);
+  `focus()`, the reveal's scroll offset after a `beforematch` mutation (C18), `scrollIntoView()`'s skip check (C13;
+  erratum 2026-11-04 (6)), `getComputedStyle`'s sampling (C23);
 - **FU-5 reachable from engine-independent callers, never from a predicate** (K11, K15) — from `elidex-dom-api` (the
   reveal, `focusing_steps`' path) and the VM, which cannot depend on a shell; no focusability predicate and not
-  `reconcile_focus` (it would recurse, B23) (C29);
+  the render-time fixup `focus_fixup_steps` (it would recurse, B23; erratum 2026-11-04, CR-1) (C29);
 - **FU-6 consumer state carries across invocations** (K16) — a consumer's per-entity state written at the end of
   style-phase invocation N−1 (over N−1's after-change styles) is visible to invocation N's transition-start decision, for
   frame and forced invocations alike, two forced invocations in one task being two (C30, a test consumer).
-The reveal's scroll (K11), `focus()` (K15) and `getComputedStyle` (K16 item 9) are **decided** consumers and the slot's
+The reveal's scroll (K11), `focus()` (K15), `scrollIntoView()`'s skip check (K16 item 5; erratum 2026-11-04 (6)) and
+`getComputedStyle` (K16 item 9) are **decided** consumers and the slot's
 own subject: FU discharges the slot. How FU meets FU-3–6 is FU's (§5.3's FU risks as input). Rejected (rev 3, standing):
 deriving until-found from the attribute (a second derivation, K1); a stale read plus a render-time blur (a deviation).
 
-**CF — canonical-focus** (the canonical-focus lane, driver-less). **CF-1** (an external gate; K8, K15; A2c,
+**CF — canonical-focus** (the canonical-focus lane, driver-less). **CF-1** (an external gate on CV-focus-2, erratum
+2026-11-04 (7); K8, K15; A2c,
 `#11-vm-host-synthetic-dom-event-dispatch`) — the VM's `focus()` runs `focusing_steps` (B23), reaching FU's point and the
 predicates CV-focus wires (C18, through the VM). **CF-2** (K13, K15) — **CV-details' own invariant**, no edge: the
 default summary's keyboard subwidget is a focusable area that sequential navigation reaches and the render-time fixup does
@@ -288,7 +308,7 @@ not blur (C25); coordination with A3's unified predicate is the named risk CF-R1
 | Flat tree; element lifecycle; script-time freshness | consumed from P2 (D11), P1 (D6), FU (D12) as invariants, not built here | S2, the reveal walk and writes, K13's assignment, `details`' steps and activation, `focus()`, the reveal scroll, `getComputedStyle` |
 | Paint + hit test | contents unpainted / pass-through; owner-entity gate; out-of-flow descendants; pseudo-elements | stacking contexts, PR-1c's inline hits, IBP-layout's F4 sites, U2's slot/fallback emissions |
 | A11y | omission (§4.6) | composed-tree walk |
-| Focus | being rendered vs skipped; Hidden / Hidden Until Found split; render-time fixup | `focusing_steps`, `reconcile_focus`, the canonical-focus lane (driver-less) |
+| Focus | being rendered vs skipped; Hidden / Hidden Until Found split; render-time fixup | `focusing_steps`, the render-time fixup `focus_fixup_steps` (erratum 2026-11-04, CR-1), the canonical-focus lane (driver-less) |
 | Navigation + script | reveal fires `beforematch` (script) and mutates before the scroll; same-document and initial-load; two shells | P1, FU |
 | UA shadow tree | declared template, one instantiation function, never script-observable, UA-styled by cascade; the shadow surfaces it needs (U2) | P2's flat tree, P1's activation, serialization, clone, the shadow-lane slots |
 | Further readers (U1) | scrolling operations skip; observers see no intersection / no size change; animations frozen, transitions not started | IBP-observer (F13), `elidex-css-anim`'s tick, transition detection, both shells' scroll |
@@ -312,7 +332,8 @@ style rule last, K9).
   inline. S2 is built once; no hidden-arm alias is built before `auto` (it would be dead) — each reader's arm is
   classified **now** in the table below, which `#11-content-visibility-auto` consumes. No reader derives any of them from
   the `hidden` attribute or reads `content_visibility` directly. From **CV-render** (paint, hit), **CV-a11y**, **CV-focus**
-  — which **adds** a state split to `is_in_hidden_subtree` (B11): the Hidden state stays the attribute test (a
+  — whose leg 1 reads S2 beside `is_in_hidden_subtree`'s attribute test and whose leg 2 **adds** a state split to it
+  (B11; erratum 2026-11-04 (7)): the Hidden state stays the attribute test (a
   `display: none` proxy, IBP-ua-display's rule and `#11-focusable-area-being-rendered`), the Hidden Until Found state is
   read through S2, classified by the one Hidden Until Found classifier (§4); it flips `focus/tests.rs:451-456` and the doc
   at `predicate.rs:197-198`.
@@ -357,8 +378,9 @@ style rule last, K9).
   what lies beneath ("as if `pointer-events: none`"), so the S1 element's own box can be hit (every parent pin's conformant
   value). The gate sits where every hit candidate and display item passes, so a later producer (PR-1c's inline-box hits,
   umbrella `:1810-1811` as the parent cites it at `:1015-1018`; CV-details' slot and fallback emissions) cannot bypass it.
-- **K8 Freshness** — render-time readers (paint, hit, a11y, `reconcile_focus`) read the last style pass, which they run
-  after. Script-time readers (`focus()`, the reveal's post-mutation scroll offset, `getComputedStyle`'s animation sampling)
+- **K8 Freshness** — render-time readers (paint, hit, a11y) read the last style pass, which they run after; the
+  render-time focus fixup does so from CV-focus-1 (K15; erratum 2026-11-04 (1)). Script-time readers (`focus()`, the
+  reveal's post-mutation scroll offset, `scrollIntoView()`'s skip check (erratum 2026-11-04 (6)), `getComputedStyle`'s animation sampling)
   read through FU's point (FU-4) — `focus()` once A2c has put the VM on `focusing_steps`' path (CF-1, §5.2) — so
   `setAttribute('hidden', 'until-found')` then `inner.focus()` in one task is refused, as at HEAD, and `details.open = true` then `inner.focus()` succeeds. A focused node that becomes skipped later is blurred by
   the render-time fixup (K15).
@@ -390,12 +412,18 @@ style rule last, K9).
 - **K14 Pins** — every parent pin (§5.1) flips at **CV-render**, conditional on firing at its exposer's actual base; CV-render
   flips each landed pin's assertion.
 - **K15 Focus** — from **CV-focus**: a node in skipped contents is not a focusable area; the S1 element itself is (it is
-  being rendered, HTML §15.1). At CV-focus's base (after A2c) `focusing_steps` — the VM's `focus()` included (CF-1) —
-  reads `is_focusable_area` (`update_steps.rs:113`) and `reconcile_focus` reads `is_focusable` (B23); CV-focus wires the
-  predicates they read (Q-s8). `focus()` reads through FU's point (FU-4, FU-5), so CV-focus lands **after A2c** (§5.2): at
-  HEAD the VM entry calls `is_focusable` directly (B23) and would read a stale S2 — a regression against HEAD's attribute
-  test. A focused node that becomes skipped is blurred at render time: HTML §8.1.7.3 *update the rendering* step 17 (the
-  focused area is not a focusable area → the focusing steps for the viewport), HEAD's `reconcile_focus`.
+  being rendered, HTML §15.1). `focusing_steps` — the VM's `focus()` included after A2c (CF-1) — reads
+  `is_focusable_area` (`update_steps.rs:113`) and the render-time fixup `focus_fixup_steps` reads `is_focusable` (B23;
+  erratum 2026-11-04, CR-1); CV-focus wires the predicates they read (Q-s8). **Two legs** (erratum 2026-11-04 (7), PM 242
+  (7)): **CV-focus-1** reads S2 beside HEAD's attribute test, which it keeps, so it follows CV-render without A2c;
+  **CV-focus-2** replaces the test's until-found arm by S2 (K1's state split) and lands **after A2c** (§5.2): `focus()`
+  reads through FU's point (FU-4, FU-5), and at HEAD the VM entry calls `is_focusable` directly (B23) and would read a
+  stale S2 — a regression against HEAD's attribute test. A focused node that becomes skipped is blurred at render time:
+  HTML §8.1.7.3 *update the rendering* step 17 (the focused area is not a focusable area → the focusing steps for the
+  viewport), the canonical fixup, which focus-fixup PR (2) runs ungated (slot `#11-focus-fixup-gated-on-session-records`).
+  K15 does not decide the fixup's position (erratum 2026-11-04 (1), PM 246): at HEAD it runs before the frame's style
+  pass; the being-rendered PR (`#11-focusable-area-being-rendered`; CV-focus-1, the first leg whose predicate reads
+  computed style) moves it after style and owns the one-frame `:focus` lag (the focus-fixup program's O1).
 - **K16 Every present reader reads K1's query** (U1) — from **CV-readers**: scrolling operations do not scroll to a node in
   skipped contents ("as if it did not have a layout box", §4.5 item 5); IntersectionObserver reports such a target as never
   intersecting, even when root and target are both skipped (item 1); ResizeObserver reports no size change for it and
@@ -409,7 +437,9 @@ style rule last, K9).
   forced passes in one task are two, so the second starts a real transition (C20; FU's side is FU-6). Not a reader-local per-pass set: P2's
   tree is current at mutation time (P2-1), so a pre-pass S2 reads the new tree with old styles — moving `p` out of a
   hidden ancestor must not start a transition (C22). How the marker is written at every invocation is FU × CV-readers
-  input (FU-R1). Freeze = the tick does not advance skipped entities (no stored freeze state). HEAD's callers (shell
+  input (FU-R1). Whether an animation resumes from where it stopped or catches up is spec-silent (item 9's Note
+  compares a background tab): CV-readers' plan measures Chromium, as K5 (B26), and C16 tells the two apart (erratum
+  2026-11-04 (13)). HEAD's callers (shell
   `animation.rs:87` `detect_and_start_transitions`, `lib.rs:692`; the tick, `content/event_loop.rs:256`) are input (FU-R3).
 - **K17 Standing obligation for absent readers** (U1) — each, when built, reads K1's form per the arm table: `innerText` →
   S2; `checkVisibility` → C's ancestor form; the top layer → C's ancestor form; media → §8's media obligation;
@@ -460,7 +490,7 @@ lives in K1's file).
 | WHATWG HTML §4.11.2 The summary element | activation behavior steps 1–3 | step 1 excludes the default summary (K13) | CV-details | ✓ | yes |
 | WHATWG DOM §2.9 Dispatching events | step 6.5 (*activationTarget*; ancestors 6.9.6.1, 6.9.8.2), step 12.1 (activation behavior) | P1's activation step in every dispatch path (P1-4); `summary` and default-summary behaviours registered on it | CV-details | ✗ | yes |
 | WHATWG HTML §6.6.2 Data model | focusable-area criteria (being rendered); the `details` keyboard subwidget | the Hidden arm → IBP-ua-display / `#11-focusable-area-being-rendered`; the subwidget: K13 (CV-details) | CV-focus, CV-details | ✗ | yes |
-| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 17 (focused area not a focusable area → focusing steps for the viewport) | K15's render-time blur (`reconcile_focus`) | CV-focus | ✓ | no |
+| WHATWG HTML §8.1.7.3 Processing model | *update the rendering* step 17 (focused area not a focusable area → focusing steps for the viewport) | K15's render-time blur (the canonical fixup `focus_fixup_steps`; erratum 2026-11-04, CR-1) | CV-focus | ✓ | no |
 | WHATWG HTML §15.1 Introduction | *being rendered* | the S1 element itself is | CV-focus | ✓ | no |
 | CSS PSEUDO 4 §5.2 Expandable contents of details element: the ::details-content pseudo-element | | → `#11-details-content-pseudo` (O1) | — | ✗ | yes |
 | CSSOM VIEW 1 §6 Extensions to the Element Interface | `scrollIntoView` step 7 (*not available to user-agent features*) | | CV-readers | ✓ | yes |
@@ -509,12 +539,14 @@ CV-details moves it to a queued task.
   built by CV-reveal and consumed by CV-focus, absorbing the VM's `HiddenKind` (B23) and `is_in_hidden_subtree`'s test
   (B11). Input: its crate; the callback's shape against the bind bracket (§5.3).
 - **Paint reader** (CV-render) — *Home/kind*: the gate at the display-list builder's per-owner emission
-  (`elidex-render/src/builder`), reading S2 for an item's owning entity and S1 for an element's replaced/widget content and
-  `::marker` (D3, K5). Input: which of `walk.rs` / `inline.rs` / `inline_flow.rs` / `form.rs` emit per owner (Q-s9).
+  (`elidex-render/src/builder`), reading S2 for an item's owning entity and S1 for an element's direct text runs
+  (erratum 2026-11-04 (2)), replaced/widget content and `::marker` (D3, K5). Input: which of `walk.rs` / `inline.rs` / `inline_flow.rs` / `form.rs` emit per owner (Q-s9).
 - **Hit-test reader** (CV-render) — *Home/kind*: the candidate test in `elidex-layout/src/hit_test.rs` (pass over, continue,
   K7). Input: whether the gate belongs in `collect_sc_participants` (shared with paint, `paint_order.rs:54`) or in each
   consumer — a participant list filtered for both readers would also drop the S1 element's skipped out-of-flow
-  descendants from painting, which K6 requires anyway.
+  descendants from painting, which K6 requires anyway. The content shell's iframe routers (`try_route_click_to_iframe`,
+  `try_route_key_to_iframe`, `content/event_handlers.rs`) forward input into an iframe's document, its replaced content
+  (K5), outside `hit_test.rs`, so they read the iframe's S1 too (erratum 2026-11-04 (3)).
 - **A11y reader** (CV-a11y) — *Home/kind*: `elidex-a11y/src/tree.rs`'s composed walk (`:49`, `:133`), omitting nodes with S2
   (pruning at S1 is valid: the walk is the composed tree, D3).
 - **Focus reader** (CV-focus) — *Home/kind*: the focusability predicates (`is_focusable`, `focus/predicate.rs:205`;
@@ -524,8 +556,10 @@ CV-details moves it to a queued task.
 - **Selection** — D10 (K17's slot; no code).
 - **`details` steps and activation behaviours** (CV-details) — *Home/kind*: `elidex-dom-api` functions (beside
   `element/details_exclusion.rs`) run by P1 (D6): the attribute change and insertion steps, the toggle event
-  **queued** as an element task with the tracker (HTML §4.11.1) — the tracker a component on the `details` entity
-  (`Send + Sync`; the side-store rule); `summary`'s activation behavior; the default summary's UA activation behavior; its
+  **queued** as an element task with the tracker (HTML §4.11.1) — the tracker's home by CLAUDE.md's side-store rule, a
+  component on the `details` entity only if its value is `Send + Sync` **and** not a per-VM identity handle; it holds the
+  queued task, so its form and home are CV-details' plan's, after P1 decides the toggle queue's owner (P1-R2; erratum
+  2026-11-04 (12)); `summary`'s activation behavior; the default summary's UA activation behavior; its
   keyboard subwidget (K13, CF-2; its representation input, §5.3). The VM keeps only dispatch marshalling.
 - **Scrolling-operation reader** (CV-readers) — *Home/kind*: one `elidex-dom-api` "scroll a target into view" resolution,
   called by `ScrollIntoView` (`layout_query.rs:257`) and by the shell fragment scroll (`content/scroll.rs:210`), reading S2
@@ -551,7 +585,7 @@ CV-details moves it to a queued task.
 | **CV-reveal** | the ancestor revealing algorithm's until-found arm, `beforematch`, K10/K11 (writes run through P1; scroll through FU's point); the Hidden Until Found classifier (§4); wired into both shells' same-document fragment navigation and the initial-load *try to scroll to the fragment* (built, every load path, D5) |
 | **CV-render** | S1 (K3, F1), S2 (K4, over P2's `flat_tree_parent`); paint and hit-test readers (D4, K5–K7); flips every landed parent pin (K14) |
 | **CV-a11y** | a11y omission (§4.6) |
-| **CV-focus** | the focus reader (K1's state split, K15; `focus()` through FU's point); after A2c (§5.2) |
+| **CV-focus** (two legs, in order; erratum 2026-11-04 (7)) | the focus reader (K15; `focus()` through FU's point): **CV-focus-1** S2 beside HEAD's attribute test and the fixup moved after style, right after CV-render; **CV-focus-2** K1's state split, after A2c (§5.2) |
 | **CV-readers** | U1: scrolling operations, IntersectionObserver, ResizeObserver, animations/transitions (K16; the skipped-at-last-style-change marker, defined here; script sampling through FU's point) |
 | **CV-details** (node) | the shadow surfaces it consumes (U2; §8's per-slot table); the UA shadow template and instantiation (D7, K12); `details`' assignment rule over P2 (K13); `details`' steps, `summary` and default-summary activation behaviours and keyboard subwidget on P1's mechanisms (D6, K13); the reveal `details` arm (D5); the second slot's style rule, last (K9) |
 
@@ -566,8 +600,9 @@ Not in this list: the sibling programs FU (D12), P1 (D6) and P2 (D8, D11), whose
 base): IBP-sandbox (`<noscript>` witness; its node pins it at N9, IBP-sandbox §5.2), IBP-css-machinery (`[data-k=V i]`),
 IBP-layout (`button` overflow), PR-1b, PR-1c, PR-1d — **all hit-test cells; flip = CV-render**. IBP-sandbox,
 IBP-css-machinery and IBP-layout precede CV-render (E20's chain), so their pins fire whenever their witnesses do; PR-1b–PR-1d
-are unordered with CV-render, so each pins only if CV-render has not landed at its base. CV-render's plan enumerates the
-landed pins by a recorded marker (§7) and flips each assertion to the conformant value (the `div`). Ruled out by the
+are unordered with CV-render, so each pins only if CV-render has not landed at its base. CV-render flips each landed
+pin's assertion to the conformant value (the `div`); a landed pin it misses fails at CV-render, since each asserts
+elidex's pre-flip value (parent `:1002`; erratum 2026-11-04 (8): no pin marker exists). Ruled out by the
 parent: PR-1a, IBP-ua-display.
 
 **Own deferrals per nested PR** (cap 3): every nested PR — 0 expected: the slots each registers or appends to (§8) are
@@ -584,27 +619,27 @@ pre-existing class (A96); a cell one of them fires inside this program is repair
 | c2 | CV-reveal → CV-render | A93 (D5's fragment cells, same-document and initial-load) |
 | c3 | CV-render → CV-a11y, CV-focus | data flow (S1, S2) |
 | c4 | CV-reveal → CV-details; CV-core → CV-details | data flow (the reveal function its `details` arm extends; the property its slot style uses) |
-| c5 | IBP-classify → CV-details | data flow (the `HtmlElementHandler` seam, D7) — **an addition to the parent's edge list** (§8 records) |
+| c5 | IBP-classify → CV-details | data flow (the `HtmlElementHandler` seam, D7) — implied by the parent's E4 → E5 → E20 with D9; a data-flow record, not a parent-edge addition (erratum 2026-11-04 (15)) |
 | c6 | CV-render → CV-readers | data flow (S1, S2) |
 | c7 | IBP-observer → CV-readers | data flow (F13, the observed box the ResizeObserver gate reads) — **an addition to the parent's edge list** (§8 records); U1 |
 | c8 | CV-reveal → CV-readers | data flow (K16×K11: the fragment scroll's skip check sits after the reveal call CV-reveal places) |
 | c11 | CV-render → CV-details | data flow (U2's slot and fallback paint emissions pass K7's gate; S1, S2) |
 | FU | FU (sibling; its consumer landing) → CV-reveal, CV-focus, CV-readers | data flow (FU-3–FU-6: the update point K11's scroll, K15's `focus()` and K16's sampling read through; D12) — **external**, like E20/E22 |
 | P1 | P1 (sibling) → CV-reveal, CV-details | data flow (P1-1–P1-4: steps for every writer — the reveal's `hidden` removal and `open` set from the shell; `details`' steps; the activation step; D6) — **external** |
-| A2c | canonical-focus A2c (`#11-vm-host-synthetic-dom-event-dispatch`; after S5) → CV-focus | data flow (CF-1: the VM's `focus()` on `focusing_steps`' path, so it reaches FU's point and the S2-wired predicates; else a stale-S2 regression, K15) — **external**; A2c's ownership unchanged (the canonical-focus lane, driver-less) |
+| A2c | canonical-focus A2c (`#11-vm-host-synthetic-dom-event-dispatch`; after S5) → CV-focus-2 (erratum 2026-11-04 (7)) | data flow (CF-1: the VM's `focus()` on `focusing_steps`' path, so it reaches FU's point and the S2-wired predicates; else a stale-S2 regression, K15) — **external**; A2c's ownership unchanged (the canonical-focus lane, driver-less) |
 | P2 | P2 (sibling) → CV-reveal, CV-render, CV-details | data flow (P2-1–P2-4: `flat_tree_parent` for the reveal walk and S2; `details`' assignment, K13; D11) — **external** |
 
 Acyclic: the program precedes nothing (item 12); its inputs (IBP-css-machinery, IBP-predicate, IBP-classify, IBP-observer,
 FU, P1, P2, A2c) have no predecessor in it; E26 is a docs artefact. Inside, one topological order is CV-core, CV-reveal,
-CV-render, CV-a11y, CV-focus, CV-readers, CV-details: every edge c1–c8, c11 points forward in it (c9 and c10 are withdrawn
+CV-render, CV-focus-1, CV-a11y, CV-focus-2, CV-readers, CV-details (erratum 2026-11-04 (7)): every edge c1–c8, c11 points forward in it (c9 and c10 are withdrawn
 with CV-flat-tree and CV-flush); CV-details follows CV-render by c11, so K9 holds inside CV-details. CV-focus follows
 CV-core transitively (c1, c3), so its until-found descendants stay excluded at its landing (B11's right cells).
 
 **Ordering cost** (stated for the approval PR body, honestly): every nested PR waits on the IBP chain (E20, E22; D9).
 Beyond it, only CV-core waits on no sibling: CV-reveal waits on FU, P1 and P2, so CV-render (the parent pins' flip, c2)
 and everything after it — CV-a11y, CV-focus, CV-readers, CV-details — sit behind all three sibling programs (owners: P1 the L3 DOM/form lane, paused since 07-27, starting after #527/#501
-land, and P2 the Layout lane — USER DECIDED 2026-10-24 (via PM); FU the Layout lane, D12). CV-focus
-also waits on A2c, which is driver-less and follows S5.
+land, and P2 the Layout lane — USER DECIDED 2026-10-24 (via PM); FU the Layout lane, D12). CV-focus-2
+also waits on A2c, which is driver-less and follows S5 (erratum 2026-11-04 (7)).
 
 ### §5.3 Named risks per sibling and per nested PR (input lines)
 
@@ -631,7 +666,7 @@ also waits on A2c, which is driver-less and follows S5.
   pseudo-element entities (`composed_children(host)` omits them, `shadow.rs:529-537`); whether they render → Chromium.
 - **P2-R6** a UA rule's re-derivation point vs *insert*'s insertion steps (7.7.1) and children changed steps (9), a P1 × P2
   pair; `moveBefore`; rev 4's list (`tree_clone.rs:30`, destroy, `walk.rs:459`, `:582`, `docs/architecture/core.md:22`).
-- **CF-R1** (R5-2) the subwidget read by the base predicate `is_focusable` (`reconcile_focus`'s, B23), not only
+- **CF-R1** (R5-2) the subwidget read by the base predicate `is_focusable` (`focus_fixup_steps`', B23; erratum 2026-11-04, CR-1), not only
   `is_focusable_area`; anchor the `details` element (HTML §6.6.2); A3's unification and sequential navigation.
 
 **Nested-PR risks**:
@@ -646,7 +681,9 @@ also waits on A2c, which is driver-less and follows S5.
   shell-side writers; scroll geometry after mutation through FU's point (K11, FU-4); the classifier's crate.
 - **CV-render**: per-owner gating sites (Q-s9); pseudo-elements (K5); out-of-flow (K6); replaced content vs the element's box
   for `<img hidden="until-found" src=a.png>` (the parent's no-pin note, `:1024-1025`); `builder/mod.rs` is 1002 lines
-  (split before touching), `builder/walk.rs` 836 and `hit_test.rs` 764; the pin flips; FU's S1-agreement cell (C21).
+  (split before touching), `builder/walk.rs` 836 and `hit_test.rs` 764; the pin flips; FU's S1-agreement cell (C21);
+  S2's cost, an ancestor walk per item owner (up to `MAX_ANCESTOR_DEPTH`) in every reader, against pruning at S1 (D3) and
+  an early-out when no S1 element exists (§4's measurement rule; CV-readers alike; erratum 2026-11-04 (14)).
 - **CV-a11y**: the walk's handling of unassigned light children (K4); `a11y/tree.rs` is a `LayoutBox` reader on
   `.claude/tools/layout-box-reader-allowlist.tsv` (C-3c) — the allowlist and its trip-wire are updated with it.
 - **CV-focus**: the predicates (Q-s8) — the canonical-focus A3 unified predicate overlaps it (§9), and A2c moves the VM onto
@@ -661,7 +698,7 @@ also waits on A2c, which is driver-less and follows S5.
   `elidex-script-session` (`event_dispatch/mod.rs:156`), so at or below `elidex-script-session`; the shadow surfaces it
   builds (U2, Q-s2; B22); how P2's writer obtains `details`' rule (P2-R1); the keyboard subwidget (K13) across
   K12 × K13 × K15 — its exposure (`activeElement` and the like through the one script-visible-root query),
-  `reconcile_focus` (CF-R1), sequential navigation (Q-s8); `toggle` from synchronous to queued (an author-visible timing
+  the render-time fixup (CF-R1; erratum 2026-11-04, CR-1), sequential navigation (Q-s8); `toggle` from synchronous to queued (an author-visible timing
   change, toward the spec); the exposure sites moved onto the one query (K12); `focus/predicate.rs`'s
   `is_first_summary_of_details` (`:122`) still holds; `details_set_open` becomes marshalling.
 
@@ -672,9 +709,9 @@ queries over `ComputedStyle` and the tree (D1); "contents are locked" flags prop
 read on demand (D3); Blink's details-element hook run when its UA shadow root is added (a virtual) → a template declared on
 the element-kind plugin seam, instantiated by one function, + a `UserAgentShadowRoot` marker (D7); a per-site "is this root
 closed/UA" check → one "script-visible shadow root" query (D7); the per-element "style attribute set to" rewrite → a
-cascade-derived positive `:host([open])` pair (D7); animation "paused while locked" state → the tick not advancing skipped
-entities, plus a per-entity *skipped at the last style change* marker component (K16); the details' toggle task tracker
-held on the element object → a tracker component on the `details` entity (`Send + Sync`, the side-store rule; §4); a
+cascade-derived positive `:host([open])` pair (D7); animation "paused while locked" state → K16's measured outcome, plus
+a per-entity *skipped at the last style change* marker component (K16; erratum 2026-11-04 (13)); the details' toggle task
+tracker held on the element object → the side-store rule's two conditions (§4; erratum 2026-11-04 (12)); a
 per-element-kind slot-assignment override (a virtual on the element class) → a per-element-kind assignment rule P2's one
 writer reads (*input*: its representation, P2-R1). (The slot-object idioms are P2's; the per-element virtual steps and
 activation are P1's.)
@@ -687,7 +724,7 @@ activation are P1's.)
 | `details` name group | `collect_open_details_by_name` (`element/details_exclusion.rs:61`) | elidex-dom-api |
 | VM shadow accessors | `native_element_get_shadow_root` (`vm/host/element_shadow.rs:86`) | elidex-js |
 | focusing steps / `focus()` entry | `focusing_steps` (`focus/update_steps.rs:106`); `native_html_element_focus` (`vm/host/html_element_proto.rs:269`) | elidex-dom-api; elidex-js |
-| focus predicates, fixup | `is_focusable` (`focus/predicate.rs:205`), `is_focusable_area` (`focus/delegate.rs:133`), `reconcile_focus` (`focus/sot.rs:178`) | elidex-dom-api |
+| focus predicates, fixup | `is_focusable` (`focus/predicate.rs:205`), `is_focusable_area` (`focus/delegate.rs:133`), `reconcile_focus` (`focus/sot.rs:178`; erratum 2026-11-04, CR-1: `focus_fixup_steps` after focus-fixup PR (2)) | elidex-dom-api |
 | session flush | `SessionCore::flush` (`session.rs:114`) | elidex-script-session |
 | observer gathering | `gather_observations` (`intersection/mod.rs:270`, `resize.rs:235`) | elidex-api-observers |
 | transitions / ticking | `detect_and_start_transitions` (`animation.rs:87`, called `lib.rs:692`); `AnimationEngine`'s `tick` (`engine.rs:147`, called `content/event_loop.rs:256`) | elidex-shell; elidex-css-anim |
@@ -712,29 +749,35 @@ Cells (owner):
 - C3 fragment reveal: `beforematch` fired, attribute removed, scroll after — same-document and initial load (conditional on
   §7.4.6.2 step 2.1: a load whose task runs after the parser stops does not reveal), both shells, an iframe document's load
   (CV-reveal); C4 a handler that disconnects or re-hides (K11's four re-checks; CV-reveal).
-- C5 paint: contents unpainted, the element's border painted, `<img hidden=until-found>`'s image unpainted,
+- C5 paint: contents unpainted, the element's border painted, its direct text unpainted (`hello ` in
+  `<div style="content-visibility:hidden">hello <b>x</b></div>`; erratum 2026-11-04 (2)), `<img hidden=until-found>`'s image unpainted,
   `::before`/`::after` and an `li`'s outside and inside `::marker` unpainted (K5, B26); C6 abspos/z-index descendant
   skipped; C7 hit passes through to the S1 element; C8 applies-to: `display: inline`/`contents`/`table`/`table-cell` no
   effect, `inline-block`, `table-caption`, an inline `img` applies; C9 the parent pins flipped (all CV-render).
-- C10 a11y omission (CV-a11y); C11 `<button hidden=until-found tabindex=0>` focusable, its descendants not, render-time blur
-  (CV-focus).
+- C10 a11y omission (CV-a11y); C11 (CV-focus-1) a `<button>` under an author `content-visibility: hidden` ancestor is not
+  focusable, and a focused one is blurred at render time after one VM-native `style` write skips it; (CV-focus-2)
+  `<button hidden=until-found tabindex=0>` focusable, its descendants not (erratum 2026-11-04 (1), (7)).
 - C12 `details` (CV-details; P1-1, P1-2, P1-4): closed contents unpainted; a shell click and a script-dispatched click
   on `summary`, a click on a descendant of an author `summary` and keyboard activation of an author `summary` open it;
   a summary-less `details` opens by clicking its default summary, and a click elsewhere in its
   contents does not toggle it; keyboard activation of the default summary's subwidget toggles it; the default summary is
   exposed as its summary in the a11y tree; `toggle` queued once; name-group exclusivity on `setAttribute`, on insertion and
   on a parsed `<details open name>`, and a parsed `<details open>` queues `toggle` once; fragment into a closed `details`
-  opens it; no `shadowRoot` exposed; clone re-creates; `:host`-as-ancestor rules match in author shadow sheets too.
-- C13 `scrollIntoView()` on a skipped node and a fragment into author `content-visibility: hidden` do not scroll; C14
+  opens it; no `shadowRoot` exposed; clone re-creates; `:host`-as-ancestor rules match in author shadow sheets too; focus
+  once the cascade decides skipping — an element in closed contents is not focusable, C18's `details` half succeeds,
+  closing the `details` around the focused element blurs it at render time (erratum 2026-11-04 (9)).
+- C13 `scrollIntoView()` on a skipped node and a fragment into author `content-visibility: hidden` do not scroll, and
+  `scrollIntoView()` in the task that skipped or un-skipped the node follows that task's style (erratum 2026-11-04 (6)); C14
   IntersectionObserver reports a skipped target non-intersecting; C15 ResizeObserver silent while skipped, delivers on
   un-skip only on a size change; C16 (K16) while skipped a running animation does not advance or end and no animation or
-  transition starts; on un-skip the animation resumes and no transition starts; C22 (K16) moving `p` out of a
+  transition starts; on un-skip the animation resumes (from where it stopped or caught up, per K16's measurement;
+  erratum 2026-11-04 (13)) and no transition starts; C22 (K16) moving `p` out of a
   `content-visibility: hidden` ancestor while changing its `color` in the task starts no transition, under the frame pass
   and under a forced pass; C23 (FU-4) a `getComputedStyle` read of a skipped element in the task that changed its
   animation style samples per the styles at that style change event (§4.5 item 9) (all CV-readers).
 - C18 (FU-4, CF-1) through the VM, `setAttribute('hidden','until-found')` then `inner.focus()` in one task refused,
   `details.open = true` then `inner.focus()` succeeds; a `beforematch` handler's mutation is reflected in the scroll offset
-  (CV-reveal, CV-focus).
+  (CV-reveal, CV-focus; the `details` half vacuous before CV-details, re-checked by C12, erratum 2026-11-04 (9)).
 - C19 a parsed and a cloned `details` get the UA tree before their children are assigned (K12×K13; CV-details).
 - C20 (K16, CV-readers' marker): two forced passes in one task — the element un-skipped by the first, its color changed
   before the second — the second style change starts its transition; C21 (FU-3's CV-render acceptance cell): under an animated
@@ -749,8 +792,9 @@ Cells (owner):
   *move* and entity destroy (`moveBefore` when built), with no style pass between, `flat_tree_parent`
   and S2 reflect the new tree; a host's `::before` entity is reached alike upward and downward. C27 (P2-2's `details` acceptance cell, CV-details):
   `d.append('x'); d.prepend(summary)` with no style pass between puts `summary` in slot 1, `x` in slot 2; likewise a
-  parser-built `details` and a shell-side writer's change. C28 (P2-4, CV-render): `cargo tree -p elidex-ecs -e normal`
-  lists no `elidex-dom-api` while `dom/content_visibility.rs` reads the flat tree. C29 (FU-5): §11's D12 greps. C31 (P2-2, P2):
+  parser-built `details` and a shell-side writer's change. C28 (P2-4, CV-render): `flat_tree_parent` is defined in
+  `elidex-ecs` and `dom/content_visibility.rs` calls it directly, through no injected callback (erratum 2026-11-04 (15):
+  the `cargo tree` form could not fail, `elidex-dom-api` depending on `elidex-ecs`). C29 (FU-5): §11's D12 greps. C31 (P2-2, P2):
   a test-declared UA assignment rule is current after `append`, `prepend`, `remove` and a parser insertion, with no style
   pass and no VM bound.
 (C17 — slot assignment — is P2's, D11.)
@@ -779,7 +823,7 @@ path's *get the parent* / `composedPath` (P2's, D11).
 | `#11-details-content-pseudo` (NEW, O1) | *Gap*: the `::details-content` pseudo-element (css-pseudo-4 §5.2) — HTML §15.5.5 expects `details`' second slot to match it. *Why deferred*: selector machinery elidex lacks (a pseudo-element onto a UA shadow element, the `::part` shape), not skipping; A96. *Trigger*: CV-details has landed **and** (a css-pseudo-4 `::details-content` WPT subset is declared supported, or a pseudo-element onto a UA shadow element is built for another element). *Re-eval*: approval merge + 1 month |
 | `#11-content-visibility-absent-readers` (NEW, U1/K17/D10) | *Gap*: `innerText` (§4.5 item 8), `checkVisibility()` (CSSOM View §6 step 2), user-agent selection producers for document content (D10) and media audio suppression (§4.5 item 12) do not exist (B16, Q-s5). *Obligations*: each, when built, reads K1's query per the arm table — `innerText` and selection producers S2, `checkVisibility` C's ancestor form — never a second derivation; **media**: an element whose own computed value is `hidden` or that is in skipped contents (hidden arm) is not paused on account of being skipped, its audio suppressed without changing `muted` / `volume`; the events it queues are held until it is un-skipped, its state queries stay current; audio need not be suppressed when presented outside the skipped contents (e.g. Picture-in-Picture); an iframe so placed extends this to its document's media. *Why deferred*: no reader to wire. *Trigger*: any of them lands. *Re-eval*: approval merge + 1 month |
 | `#11-dialog-top-layer` (home `m4-12-pr-tags-t2d-interactive-landing.md:81`, and its roadmap rows) | append K17's entry: §4.5 item 11 — an element with a `content-visibility: hidden` flat-tree ancestor placed in the top layer generates no boxes (C's ancestor form). The roadmap's HTMLMediaElement row (`M4-13:#tags-T3-media`) gets a pointer to `#11-content-visibility-absent-readers` only |
-| `#11-focusable-area-being-rendered` (home `boa-vm-cutover-s2-r3-handoff.md:775`, Q-s4; cited at `focus/predicate.rs:202`, `:300`) | append: "S2 and FU's update point remove the 'needs computed style' blocker; CV-focus's plan decides discharge"; the Hidden arm and the CSS residue stay there until then |
+| `#11-focusable-area-being-rendered` (home `boa-vm-cutover-s2-r3-handoff.md:775`, Q-s4; cited at `focus/predicate.rs:202`, `:300`) | append: "S2 and FU's update point remove the 'needs computed style' blocker; CV-focus-1's plan decides discharge" (erratum 2026-11-04 (7): the leg the focus-fixup program's O1 attaches to); the Hidden arm and the CSS residue stay there until then |
 
 **Shadow-lane slots under U2** (current text read 2026-10-20, read-only; each closed or narrowed **at its owning landing**,
 each moved part owned by the program that receives it — P2 for the assignment writer, the Layout lane for CV-details' facets; which facets are real is Q-s2, answered by CV-details' plan-review):
@@ -795,8 +839,9 @@ each moved part owned by the program that receives it — P2 for the assignment 
 
 | Record | Ships with |
 |---|---|
-| **Amendments of the parent's §0.6 item 11 decided content** (recorded, not edited; USER DECIDED 2026-10-20): U1 — the reader list becomes every reader elidex has (K16) plus the standing obligation for absent readers (K17); U2 — the `details` UA shadow tree's scope includes the shadow surfaces it consumes (the per-slot table above). Parent premise errors PE1–PE6 (recorded, not edited); the parent's edge list gains c5 (IBP-classify → CV-details) and c7 (IBP-observer → CV-readers); E20/E22 bind every nested PR (D9); the sibling programs FU, P1, P2 and their edges into this program; the reader→PR table naming the flip for every parent pin (§5.1); the parent's §6 Open row for the home slot read with U1/U2 | **the approval PR** |
+| **Amendments of the parent's §0.6 item 11 decided content** (recorded, not edited; USER DECIDED 2026-10-20): U1 — the reader list becomes every reader elidex has (K16) plus the standing obligation for absent readers (K17); U2 — the `details` UA shadow tree's scope includes the shadow surfaces it consumes (the per-slot table above). Parent premise errors PE1–PE6 (recorded, not edited); the parent's edge list gains c7 (IBP-observer → CV-readers) (c5 withdrawn, erratum 2026-11-04 (15)); E20/E22 bind every nested PR (D9); the sibling programs FU, P1, P2 and their edges into this program; the reader→PR table naming the flip for every parent pin (§5.1); the parent's §6 Open row for the home slot read with U1/U2 | **the approval PR** |
 | Memory — every shared-ledger write (the open-slot ledger, the roadmap, the landings ledger), at approval **and at each nested landing** (slot closures and narrowings), is **transcribed by the PM** from the driver's report (`project_pm-and-lane-driver-structure.md`). At approval: the P1 and P2 slots registered (owners and triggers as above) with P2's absorptions; the home slot's restated trigger and scope (U1, U2); `#11-find-in-page`, `#11-details-content-pseudo` and `#11-content-visibility-absent-readers` (media included) registered; the appends to `#11-css-containment`, `#11-content-visibility-auto` (the arm table), `#11-dialog-top-layer` and `#11-focusable-area-being-rendered`; the HTMLMediaElement row's pointer; the shadow-lane roadmap rows marked "moved to `#11-content-visibility-skip-contents` (CV-details) / P2"; the stale `#11-shadow-composed-event-retargeting` roadmap rows struck. FU's slot re-point is the PM's (already recorded) — FU's consumer edges and its invariants FU-3–FU-6 (rev 8; FU-1/FU-2 withdrawn) are reported for it. The earlier ledger promise "the slotchange slot registered at approval, CV-flat-tree closes it" is superseded by P2's absorption | **the approval PR** |
+| Erratum 2026-11-04, for the PM (ledger writes, as above): `#11-focus-fixup-gated-on-session-records` is K15's citation and holds the verified side note of finding (1) — HEAD's record-gated fixup misses VM-native writes such as `el.hidden = true` — which focus-fixup PR (2) closes; `#11-focusable-area-being-rendered`'s append names CV-focus-1; the parent-edge record drops c5; the ledger's CF-R1 text renamed by the PM (PM 281) | the erratum PR |
 | The parent pins flipped; the home slot's paint/hit facets | CV-render |
 | The home slot's further-reader facets (K16) | CV-readers |
 | The shadow-lane slots closed or narrowed per the table above (Q-s2's answer recorded); the default-summary facet of `#11-ua-sheet-html-rendering-display-fidelity`, if that slot exists | CV-details |
@@ -806,17 +851,18 @@ each moved part owned by the program that receives it — P2 for the assignment 
 
 - **E20** and **E22** before **every** nested PR (D9); **c5** (IBP-classify) before CV-details; **c7** (IBP-observer) before
   CV-readers; the sibling programs — **FU** before CV-reveal, CV-focus, CV-readers; **P1** before CV-reveal, CV-details;
-  **P2** before CV-reveal, CV-render, CV-details (§5.2's cost); **A2c** (canonical-focus, external) before CV-focus;
+  **P2** before CV-reveal, CV-render, CV-details (§5.2's cost); **A2c** (canonical-focus, external) before CV-focus-2
+  (erratum 2026-11-04 (7));
   **E26** (this memo's approval) before IBP-sandbox's first nested landing.
 - **Touch-time splits** (origin/main counts, §0.1): `elidex-render/src/builder/mod.rs` (1002) and
   `elidex-dom-api/src/selection.rs` (1036) are over 1000 — a standalone split precedes any nested PR that touches them;
   `focus/tests.rs` (999) before CV-focus adds a cell. Watch: `content/event_handlers.rs` 966 (P1's activation migration),
   `computed_style/tests.rs` 947 (CV-core), `html_element_proto.rs` 909 (CV-reveal, CV-focus), `app/mod.rs` 897 and
   `content/mod.rs` 858 (CV-reveal's load paths), `builder/inline.rs` 860 and `builder/walk.rs` 836 (CV-render),
-  `elidex-css-anim/src/engine.rs` 809, `hit_test.rs` 764. `elidex-ecs/src/dom/mod.rs` (929 after E1) is not touched (§4's
-  new file).
+  `elidex-css-anim/src/engine.rs` 809, `hit_test.rs` 764. `elidex-ecs/src/dom/mod.rs` (929 after E1) gains only the `mod`
+  line of §4's new file (erratum 2026-11-04 (4)).
 - **Lanes**: the canonical-focus lane (`#11-canonical-focus-update-steps`) is driver-less and has no branch; its planned A2c
-  (CF-1; an edge into CV-focus, §5.2) and A3 (the unified focusability predicate plus sequential navigation, its memory
+  (CF-1; an edge into CV-focus-2, §5.2) and A3 (the unified focusability predicate plus sequential navigation, its memory
   file's A3 section; CF-R1) overlap CV-focus (Q-s8): CV-focus coordinates with them at its cut. IBP-sandbox's nested PRs
   edit the shells' navigation files (`content/navigation.rs`, `app/navigation.rs`) — CV-reveal's plan checks at its cut;
   IBP-observer edits `elidex-api-observers/src/resize.rs` before CV-readers (c7). FU may move the frame pass (`lib.rs`'s
@@ -837,8 +883,9 @@ Moved to the owning nested PR's plan-review, or to a sibling umbrella:
   `#11-slot-fallback-content-rendering` and `#11-shadow-tree-style-isolation` are real? **Q-s10** Every production creation
   path of an HTML element (both parsers, `createElement`, `cloneNode`, fragment parsing, `importNode`/adopt) and how D7's
   instantiation reaches them all.
-- **CV-focus** — **Q-s8** At CV-focus's base (after A2c, CF-1) `focusing_steps`, the VM's `focus()` included, reads
-  `is_focusable_area` (`update_steps.rs:113`); `reconcile_focus` reads `is_focusable` (`predicate.rs:205`); sequential
+- **CV-focus** — **Q-s8** `focusing_steps`, the VM's `focus()` included after A2c (CF-1), reads
+  `is_focusable_area` (`update_steps.rs:113`); `focus_fixup_steps` reads `is_focusable` (`predicate.rs:205`; erratum
+  2026-11-04, CR-1); sequential
   navigation's order builder reads which? CV-focus
   wires S2 into each predicate these reach, coordinated with A3's unification.
 - **CV-render** — **Q-s9** The display-list builder's emission sites and the owning entity each item carries (text runs,
@@ -849,30 +896,36 @@ Moved to the owning nested PR's plan-review, or to a sibling umbrella:
 ## §11. Definition of done (program)
 
 - Every nested PR in §5.1 (seven) has landed in an order consistent with §5.2 (FU's point before CV-reveal, CV-focus,
-  CV-readers; P1 before CV-reveal, CV-details; P2 before CV-reveal, CV-render, CV-details; A2c before CV-focus), each
+  CV-readers; P1 before CV-reveal, CV-details; P2 before CV-reveal, CV-render, CV-details; A2c before CV-focus-2), each
   with its own reviewed plan-memo. A nested PR whose verdict is "may be edge-dense" (CV-reveal, CV-render, CV-readers,
   CV-details) may divide by its own plan; CV-render's division keeps D4 / K7 (paint and hit test together) and K14's
   flip in one child.
 - The shadow-lane slots are closed or narrowed as §8's U2 table records; K17's slots carry the obligation text. (The FU,
   P1 and P2 slots are their programs' to discharge, not this program's.)
 - K1–K17 hold at the last landing; each nested plan-memo states its DoD greps — at least (each run at the landing head):
-  - K1 (focus): `git grep -n -F '!is_focusable(&dom, uf)' -- crates/dom/elidex-dom-api/src/focus` = 0 hits (the
-    until-found cell flipped) and `git grep -n 'in_skipped_contents' -- crates/dom/elidex-dom-api/src/focus` ≥ 1;
-  - K1 (no direct reader): `git grep -l 'content_visibility' -- crates` lists only files under `elidex-plugin`,
-    `elidex-css-contain`, `elidex-css-anim`, `elidex-style` and `elidex-ecs/src/dom/content_visibility.rs`;
-  - K16: `/usr/bin/grep -rlE 'in_skipped_contents|skips_contents' crates` includes a file in each of paint
-    (`elidex-render`), hit test (`elidex-layout`), a11y (`elidex-a11y`), focus (`elidex-dom-api/src/focus`) and the four
-    CV-readers families (the scroll-into-view resolution, `elidex-api-observers/src/intersection`, `…/resize.rs`,
-    the animation reader's S2 call, in the file CV-readers' plan names);
+  - K1 (focus, CV-focus-2): the until-found cell (`focus/tests.rs:451-456` at HEAD) asserts the element focusable — a
+    positive assertion, ≥ 1, not the old one's absence, which a rename or deletion also gives (erratum 2026-11-04 (10));
+  - K1 (no direct reader): `git grep -l -P '\.content_visibility\b(?!\s*=[^=])' -- crates` (field reads: a `mod` line,
+    a `ComputedStyle { .. }` literal and a test's assignment do not match; erratum 2026-11-04 (4), (5)) lists only files
+    under `elidex-plugin`, `elidex-css-contain`, `elidex-css-anim`, `elidex-style` and
+    `elidex-ecs/src/dom/content_visibility.rs`;
+  - K16 and K1 (focus): each reader's plan names its non-test call site (file and function) of `in_skipped_contents` /
+    `skips_contents`, and the DoD reads that function (≥ 1 call) — not a crate-wide file list, which a test-only call
+    satisfies (erratum 2026-11-04 (10)) — for paint (`elidex-render`), hit test (`elidex-layout`), a11y
+    (`elidex-a11y`), focus (`elidex-dom-api/src/focus`) and the four CV-readers families (the scroll-into-view
+    resolution, `elidex-api-observers/src/intersection`, `…/resize.rs`, the animation reader's S2 call);
   - D6 (consumer side): `git grep -n -F 'collect_open_details_by_name(' -- crates/script` = 0 hits (no VM call; the setter
     is marshalling);
-  - D7: `git grep -l -E '"[^"]*content-visibility:' -- crates ':(exclude)**/tests/**' ':(exclude)**/tests*.rs'` (string
-    literals declaring the property) lists only `elidex-style/src/ua.rs` and the UA shadow sheet's file;
+  - D7: a test parses the core UA sheet and the UA shadow sheet and finds their `content-visibility` rules (the
+    until-found rule; the second slot's positive pair), and CV-details' plan names the writers of the second slot, none
+    of which sets a `style` declaration (erratum 2026-11-04 (11): a line-based grep cannot see a declaration inside a
+    multi-line raw string such as `UA_CSS`, `ua.rs:14`);
   - D12 (consumer side): the FU umbrella names the update point's entry `P`; `P` is reachable (a `git grep -n P` hit in
     the file of each call on the path, named by FU's plan) from the `elidex-dom-api` reveal function
     (`run_ancestor_revealing`) and from `focus()`'s path into `focusing_steps`, each ≥ 1; `git grep -n P --
-    crates/dom/elidex-dom-api/src/focus/predicate.rs crates/dom/elidex-dom-api/src/focus/delegate.rs
-    crates/dom/elidex-dom-api/src/focus/sot.rs` = 0 (neither a predicate nor `reconcile_focus` calls it).
+    crates/dom/elidex-dom-api/src/focus/predicate.rs crates/dom/elidex-dom-api/src/focus/delegate.rs` = 0 and
+    `focus_fixup_steps`' body calls no `P` (neither a predicate nor the fixup calls it; erratum 2026-11-04, CR-1: the
+    fixup moves from `sot.rs` into `update_steps.rs`, beside `focusing_steps`, so a file-wide grep cannot tell them apart).
 - Every parent pin found at its exposer's base is flipped (K14); the §8 records have landed.
 - **Checkers** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
   docs/plans/2026-10-content-visibility.md`.
