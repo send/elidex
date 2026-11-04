@@ -147,7 +147,7 @@ title pair and every step comes from `.claude/tools/webref` (`heading`, `dfn`, `
   (NEW): brand-check `this`, no browsing context → `null` (Selection API §4.1 returns `Selection?`), else the Window's
   selection (today's behaviour). `getSelection` on Window is unchanged. `hasFocus`'s step 1 is spec alignment with no
   script-reachable change: no script path focuses an element of a non-bound Document (`set_focus_bit`'s callers gate
-  on bound-document membership, `crates/dom/elidex-dom-api/src/focus/sot.rs:100-104`), so W15 is a guard.
+  on bound-document membership, `crates/dom/elidex-dom-api/src/focus/sot.rs:100-104`), so W15 sets the state from Rust.
 - **D-6 — the no-browsing-context values are the spec's.** `defaultView` `null`, `cookie` `""` / no-op set
   (cookie-averse), `referrer` `""`, `hasFocus()` `false`, `getSelection()` `null`, `hidden` `true` and `visibilityState`
   `"hidden"` (HTML §6.2: "visibility state … initially set to "hidden""; only *update the visibility state* changes it).
@@ -202,8 +202,7 @@ to that answer, not to its own URL — R-10's defect, not a C1-pre step.
 ### §1.1 Browser measurement (before the implementation branch is cut)
 
 Run in the built-in Chromium (and one other engine if available) on a page served over `http://`; record versions and
-fill the two right-hand columns. The rows are informative where the spec decides; a spec-silent row (X7) whose result
-differs from the "C1-pre head" column goes to the PM. **No result is filled here.** Spec column from the cited steps; HEAD column from code reading at `fab44a1d` (not run).
+fill the two right-hand columns. The rows are informative. **No result is filled here.** Spec column from the cited steps; HEAD column from code reading at `fab44a1d` (not run).
 `dp = new DOMParser().parseFromString('<p></p>', 'text/html')`; `tpl = document.createElement('template')`.
 
 | id | expression | spec (derivation) | elidex HEAD | elidex C1-pre head | Chromium | other |
@@ -313,7 +312,9 @@ dom-domimplementation-createhtmldocument`, `body dom clone-a-single-node`, `body
    comments naming them: `node_methods_extras.rs:19-21`, `:197-200`, `dom_parser.rs:32`, `host_data/mod.rs:83`,
    `crates/script/elidex-js/src/vm/host/media_query.rs:124` (cites the set as a precedent; re-pointed), the slot name in
    `node_methods_extras.rs:245-247`. Stale stub / defer markers on touched members, rewritten: `document.rs:44-45`,
-   `:498-499` (`readyState` "PR6" → slot proposal R-4), `:597` ("stubs"), `:1152-1153` ("PR4f C7 stubs", PR6 / PR5b).
+   `:498-499` (`readyState` "PR6" → slot proposal R-4), `:504` ("PR4f C6"), `:597` ("stubs"), `:1152-1153` ("PR4f C7
+   stubs", PR6 / PR5b); the `hidden` / `visibilityState` comments calling a non-bound Document "visible" (`:850-853`,
+   `:859-863`, `:893-894`); the installer comments "no shared `Document.prototype`" (`:996-1003`, `:1038-1044`).
 
 ### §4.2 Per-entity facts (D-4 to D-8)
 
@@ -424,7 +425,7 @@ Line counts `wc -l` at `f9cf8c40`; re-measured at the cut (§9 item 1). Every ro
 |---|---|---|---|
 | `crates/script/elidex-js/src/vm/host/document.rs` | 1197 → ≈ 537 after D-14 (b) | installer → `register_document_prototype`; `readyState` native if it stays here | split by C0 D-14 (b) first (D-10) |
 | `vm/host/document_accessors.rs` (NEW: D-14 (b)) | ≈ 516 | the predicate, class-B natives, `native_document_get_selection` (NEW), `compatMode` | < 1000 |
-| `crates/script/elidex-js/src/vm/globals.rs` | 972 | one registration call | < 1000 (C1-pre0, D-11) unless `vm-p4-rooting-carved` (+33) lands first; then > 1000 and the touch-time split rule applies before C1-pre (§8) |
+| `crates/script/elidex-js/src/vm/globals.rs` | 972 | one registration call | < 1000 (C1-pre0, D-11) unless `vm-p4-rooting-carved` (+33) lands first; then > 1000 and the verdict is the rooting PR's (ledger `#11-vm-operand-rooting-by-construction` touch-time note); its +33 is re-counted after it rebases onto #592 |
 | `crates/script/elidex-js/src/vm/mod.rs` | 2785 | one field | not split (D-11) |
 | `crates/script/elidex-js/src/vm/init.rs` | 858 | one initializer | < 1000 |
 | `crates/script/elidex-js/src/vm/host/elements.rs` | 425 | one arm, comment | < 1000 |
@@ -475,7 +476,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | W10 | red | `Object.getOwnPropertyDescriptor(P, 'readyState').get.call(document.body)`; HEAD with `P = document` | returns a string | `TypeError` "Illegal invocation" |
 | W11 | red (rewrite of `document_methods_install_per_document_entity`) | bind doc1, record `Object.getPrototypeOf(document)` in a global; unbind; bind doc2; `[typeof document.getElementById, Object.getPrototypeOf(document) === saved, document.hasOwnProperty('getElementById')]` | `["function", true, true]` | `["function", true, false]` |
 | W12 | guard (gates) | `'getElementsByTagName' in document`; with `compat-webapi` + BrowserCompat `'cookie' in document`, in an App-mode VM `'cookie' in document` | `true`; `true`; `false` | same |
-| W15 | guard (Rust-set state, D-5) | as W1, with `ElementState::FOCUS` set on the fixture element (Rust) and the tab visible: `document.hasFocus.call(d)` | `true` | `false` |
+| W15 | red (Rust-set state, D-5) | as W1, with `ElementState::FOCUS` set on the fixture element (Rust) and the tab visible: `document.hasFocus.call(d)` | `true` | `false` |
 
 ### §6.2 Mutation guards
 
@@ -527,8 +528,9 @@ are pre-existing or another unit's scope.
 - c-pre: **C1-pre → C1** (semantic: C1's T5, T1's second and third legs and M3's non-URL legs need D-1, D-4 to D-8).
   C1's T1 fourth / fifth legs and M3's `URL` / `documentURI` legs need `#11-document-base-url` instead (R-2, R-10).
 - e-rc2a: **L3's RC-2a → C1-pre** (landing order, PM 371; common function `native_node_clone_node`). RC-2a,
-  mid-implementation, keeps the `install_document_methods_if_cloned_doc` call (its plan `:163-165`, §4.6); C1-pre lands
-  second and deletes the call and the helper (§4.1 item 6) from RC-2a's version of the function (R-12).
+  mid-implementation, keeps the `install_document_methods_if_cloned_doc` call (its plan
+  `docs/plans/2026-11-range-rc2a-clone-created.md` `:163-165`, §4.6, at main's #589 `4fb8c195`); C1-pre lands second and
+  deletes the call and the helper (§4.1 item 6) from RC-2a's version of the function (R-12).
 - e-dbu: **C1-pre ↔ `#11-document-base-url`**, either order (no data edge after PM 339). Common code: the URL and
   `cookie` natives, whose install C1-pre moves to the prototype without changing them: rebase only.
 - VM P4 (driver's check, re-done here): `vm-is-constructor-move` landed as #588 (`4fd85f4e`); its only file in common
@@ -554,7 +556,7 @@ are pre-existing or another unit's scope.
   M3's `URL` / `documentURI` legs rest on `#11-document-base-url`, not C1-pre (PM 339; R-10), so C1's edge c-pre
   text "I gets C1-pre's default about:blank at creation" is withdrawn; §4.1 / §4.8 / §5.3: the VM wrapper work is
   C1-pre's (edge c-pre); R-C5's precedent text per §4.3; Q-S10 answered by §5.1 P-4 / P-11; H-C10 lists both Document
-  spawn sites (§0.3 P-7).
+  spawn sites (§0.3 P-7); C1's PR writes the c-pre edge (C1-pre → C1) and lists C1-pre as its row's prerequisite.
 - **R-3 C0c memo**: if C1-pre lands first, D-13's "installed as an own property" and H-c6 read "installed on
   `Document.prototype` (C1-pre D-1)"; the table entry is unchanged.
 - **R-4 slot proposal `#11-document-readiness-one-source`**: **Defect**: the bound document's `readyState` has two
@@ -568,17 +570,19 @@ are pre-existing or another unit's scope.
 - **R-5 umbrella, applied by C1-pre's PR** (O-1, PM 223 O-1 / 232: one owner per §1.2 row; each PR adds only its own,
   in landing order; the umbrella revision number is assigned at landing): §1.2 gains the row "| **C1-pre** (owner:
   Layout lane; PM 328 / 335 / 339) | slot `#11-bridge-document-post-install`: every Document wrapper is a Document | C0
-  D-14 (b) and RC-2a landed |"; the Order line gains C1-pre before C1; §1.3 gains edge c-pre (C1-pre → C1, semantic
-  precondition, this memo §8).
+  D-14 (b) and RC-2a landed |"; the Order line gains C1-pre before "C1's handling decided". §1.3 is not
+  touched (no C1 node exists yet; edge c-pre goes to C1's PR, R-2).
 - **R-6 ledger `#11-navigator-interface-object-branding` (append)**: "DOM node interface objects (`Node`, `Element`,
-  `Document`, …; `HTMLDocument` alias) are absent: `x instanceof Document` throws `ReferenceError` (C1-pre H-9)."
+  `Document`, …; `HTMLDocument` alias) are absent: `x instanceof Document` throws `ReferenceError` (C1-pre H-9). The
+  trigger widens to DOM-node interface objects."
 - **R-8 ledger `#11-browsing-context-state-ecs-components` (append; B1 §5 req 5,
   `docs/plans/2026-06-agent-scoped-ecsdom-world.md:447-455`, subsumes it and covers `host/navigation.rs`)**:
   "**Defect**: a Document's referrer (HTML §3.1 *the document's referrer*: "can be set when the Document is created")
   is held per-VM (`NavigationState::referrer` `crates/script/elidex-js/src/vm/host/navigation.rs:184`, written only by
   the shell through `Vm::set_navigation_referrer` `crates/script/elidex-js/src/vm/vm_api.rs:186`), not on the Document
   entity. Other Documents read `""`, their spec value; a second Document with a non-empty referrer (iframes, B1) would
-  read the bound one's. Written once, at creation, so a creation-stamped component meets d5."
+  read the bound one's. Written once, at creation, so a creation-stamped component meets d5; deferred because its only
+  non-empty writer is the shell navigation pipeline."
 - **R-9 slot proposal `#11-document-mode`**: **Defect**: a Document's mode (DOM §4.5: no-quirks / quirks /
   limited-quirks) is not stored; `compatMode` answers `"CSS1Compat"` for every Document, including one whose doctype
   puts it in quirks mode, and layout reads no mode. **Why deferred**: neither parser tier computes the mode at
@@ -638,7 +642,7 @@ are pre-existing or another unit's scope.
 2. D-1 to D-8 and D-10 to D-12 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 1 among Document
    members (`native_document_get_url`, R-10).
 3. §1.1 filled before the implementation branch is cut.
-4. §6.1 cells present; every red cell run red on the base with its control green, recorded in the PR
+4. §6.1 cells present; every red cell (W15 included) run red on the base with its control green, recorded in the PR
    description.
 5. §5.2 rewrites done; `git grep -n 'install_document_methods\|document_methods_installed\|bridge-document-post-install' -- crates` → 0.
 6. `cargo test -p elidex-js --all-features` (§6.3) and `mise run ci` green.
@@ -674,6 +678,9 @@ item 5's `.or` fallback, the "ratchet" wording. Changed: W15 to a guard; R-5 to 
 and R-8 to appends; §3 Selection row to ✗; the referrer fact to HTML §3.1; the selection store to `selection_state`.
 Added: D-4's node-navigable clause, D-5's W15 note, D-11's trigger clause (PM 371), D-12's `hasFocus` clause, §4.1
 item 6's stale markers, edge e-rc2a and R-12, R-13, R-14, the rooting-branch note (§8, §5.3), the `vm/tests/mod.rs` row.
+*Rev 2.3* (2026-11-05): plan-review re-check N1–N8 (PM 372); plan-review closed. R-5 leaves §1.3 alone (edge c-pre
+→ R-2); W15 back to red; §4.1 item 6 gains five stale comment sites; R-6 trigger clause; R-8 why-deferred clause; e-rc2a
+path and version; the X7 gate removed from §1.1; §5.3 `vm/globals.rs` row points to the rooting PR.
 
 ## §11. Open questions
 
