@@ -2,9 +2,11 @@
 //! [`FormControlState`].
 //!
 //! Subscribes to [`MutationEvent::AttributeChange`] (per-attr partial
-//! reconciliation of FCS fields) and [`MutationEvent::Insert`]
+//! reconciliation of FCS fields), [`MutationEvent::Insert`]
 //! (FCS-absence-guarded attach for newly-inserted form-control
-//! elements) via the D-31 `ConsumerDispatcher` typed composer (plain
+//! elements) and [`MutationEvent::CloneCreated`] (the HTML §4.10.5 /
+//! §4.10.11 cloning steps over a fresh clone, run at dispatch inside the
+//! cloner) via the D-31 `ConsumerDispatcher` typed composer (plain
 //! `pub fn handle`, per sibling-consumer convention).
 //!
 //! ECS-native first: `FormControlState` is a derived component
@@ -19,7 +21,7 @@
 //! Per-attr arms cite their respective HTML sections (§4.10.5.3.x for
 //! input-common attrs, §4.10.19.x for naming/disabled/autofill).
 
-use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
+use elidex_ecs::{CloneScope, EcsDom, Entity, MutationEvent, TagType};
 
 use crate::value_mode::apply_type_change_value_migration;
 use crate::{
@@ -48,9 +50,18 @@ impl FormControlReconciler {
                 new_value,
                 ..
             } => handle_attribute_change(node, name, new_value, dom),
+            MutationEvent::CloneCreated { root, scope } => handle_clone_created(root, scope, dom),
             _ => {}
         }
     }
+}
+
+/// DOM §4.4 "clone a node" completed: run the form-control cloning steps
+/// (HTML §4.10.5 `<input>` / §4.10.11 `<textarea>`) over the fresh clone, so
+/// each clone's `FormControlState` exists before any insertion (the
+/// insert-time absence guard then skips it).
+fn handle_clone_created(root: Entity, scope: CloneScope, dom: &mut EcsDom) {
+    crate::clone::apply_clone_form_state(dom, root, scope);
 }
 
 /// WHATWG DOM §4.2.3 "insert" runs the insertion steps for `node` **and
@@ -253,7 +264,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
         // functionally equivalent for form association.
         "form" => fcs.form_owner = new_value.map(str::to_string),
 
-        // Boolean attributes (HTML §2.5.2 — presence ⇒ true).
+        // Boolean attributes (HTML §2.3.2 — presence ⇒ true).
         // HTML §4.10.19.5 disabled / §4.10.5.3.4 required /
         // §4.10.5.3.3 readonly / §6.6.7 autofocus /
         // §4.10.5.3.5 multiple.

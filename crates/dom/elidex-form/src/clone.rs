@@ -13,19 +13,23 @@
 //! This module closes that gap. The `elidex-dom-api` cloner tags each `<input>`
 //! / `<textarea>` clone with a transient [`ClonedFrom`] marker (it cannot read
 //! `FormControlState` — the crate dependency runs `elidex-form → elidex-dom-api`,
-//! never the reverse); this consumer, invoked synchronously at clone time from
-//! the VM `cloneNode` shim, resolves each marker and materializes the copy
-//! **before any insertion**, so a detached clone reads correctly too.
+//! never the reverse); this consumer, run synchronously at clone time by
+//! `FormControlReconciler`'s `MutationEvent::CloneCreated` arm (dispatched
+//! inside the cloner, before the clone entry returns), resolves each marker and
+//! materializes the copy **before any insertion**, so a detached clone reads
+//! correctly too.
 
 use elidex_dom_api::ClonedFrom;
-use elidex_ecs::{EcsDom, ElementState, Entity};
+use elidex_ecs::{CloneScope, EcsDom, ElementState, Entity};
 
 use crate::{create_form_control_state, FormControlKind, FormControlState};
 
-/// Run the form-control cloning steps over the freshly cloned subtree rooted at
-/// `clone_root` (WHATWG HTML §4.10.5 / §4.10.11).
+/// Run the form-control cloning steps over the fresh clone rooted at
+/// `clone_root` (WHATWG HTML §4.10.5 / §4.10.11). Called from the
+/// `CloneCreated` arm, on that event's root with its `scope`.
 ///
-/// Walks the clone's shadow-inclusive descendants **plus** every `<template>`'s
+/// Walks the entities the clone created (`EcsDom::for_each_clone_created`,
+/// shared with the custom-element arm) **plus** every `<template>`'s
 /// content fragment (`collect_template_inclusive_descendants`) and, for every
 /// entity the cloner tagged with a [`ClonedFrom`] marker, copies the source's
 /// cloning-step form state onto the clone, then removes the marker.
@@ -38,15 +42,26 @@ use crate::{create_form_control_state, FormControlKind, FormControlState};
 /// The walk must include template contents: the cloner marks `<input>` /
 /// `<textarea>` clones inside a deep-cloned `<template>`'s content too, and a
 /// JS-created control moved into `template.content` keeps its `FormControlState`
-/// (`for_each_shadow_inclusive_descendant` alone does not reach the detached
-/// content fragment) — so a template-only walk would both drop that live value
+/// (the shared clone walk alone does not reach the detached content
+/// fragment) — so a template-only walk would both drop that live value
 /// and leave the marker unswept.
-pub fn apply_clone_form_state(dom: &mut EcsDom, clone_root: Entity) {
+pub(crate) fn apply_clone_form_state(dom: &mut EcsDom, clone_root: Entity, scope: CloneScope) {
     // Two-phase (the walker borrows `&self`, the copy below needs `&mut`):
-    // collect first, mutate after. The frontier includes each `<template>`'s
-    // content fragment so the coverage matches the cloner's marker attach (no
-    // marker left unswept, no encapsulated control's value dropped).
-    let subtree = crate::init::collect_template_inclusive_descendants(dom, clone_root);
+    // collect first, mutate after. First level = the shared clone walk; then
+    // each `<template>` found there contributes its content fragment's
+    // template-inclusive descendants (the fixpoint already follows nested
+    // templates, so the appended entities are not iterated again). The
+    // frontier matches the cloner's marker attach (no marker left unswept, no
+    // encapsulated control's value dropped).
+    let mut subtree: Vec<Entity> = Vec::new();
+    dom.for_each_clone_created(clone_root, scope, &mut |e| subtree.push(e));
+    let first_level = subtree.len();
+    for i in 0..first_level {
+        if let Some(fragment) = dom.template_contents_fragment(subtree[i]) {
+            let contents = crate::init::collect_template_inclusive_descendants(dom, fragment);
+            subtree.extend(contents);
+        }
+    }
 
     for dst in subtree {
         let Some(source) = dom
@@ -182,6 +197,48 @@ mod tests {
     }
 
     #[test]
+    fn self_only_scope_copies_shadow_control_not_light_control() {
+        // `cloneNode(false)` of a clonable shadow host: the shadow child
+        // exists (step 6.7) but no light child does (step 5 did not run). A
+        // light-child `<input>`'s marker is not part of this clone, so it is
+        // left alone (as a later root's or a moved original's would be).
+        let mut dom = EcsDom::new();
+        let src_light = control(&mut dom, "input", &[]);
+        let src_shadow = control(&mut dom, "input", &[]);
+        for (e, v) in [(src_light, "light"), (src_shadow, "shadow")] {
+            let mut st = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            st.value = v.to_string();
+            st.dirty_value = true;
+            st.update_char_count();
+        }
+        let host = dom.create_element("section", Attributes::default());
+        let dst_light = cloned_from(&mut dom, src_light, "input", &[]);
+        let _ = dom.append_child(host, dst_light);
+        let sr = dom
+            .attach_shadow_with_init(
+                host,
+                elidex_ecs::ShadowInit {
+                    clonable: true,
+                    ..elidex_ecs::ShadowInit::default()
+                },
+            )
+            .unwrap();
+        let dst_shadow = cloned_from(&mut dom, src_shadow, "input", &[]);
+        let _ = dom.append_child(sr, dst_shadow);
+
+        apply_clone_form_state(&mut dom, host, CloneScope::SelfOnly);
+
+        let d = dom.world().get::<&FormControlState>(dst_shadow).unwrap();
+        assert_eq!(d.value, "shadow", "shadow-encapsulated control copied");
+        assert!(dom.world().get::<&ClonedFrom>(dst_shadow).is_err());
+        assert!(
+            dom.world().get::<&FormControlState>(dst_light).is_err(),
+            "light child is not part of a SelfOnly clone"
+        );
+        assert!(dom.world().get::<&ClonedFrom>(dst_light).is_ok());
+    }
+
+    #[test]
     fn input_value_and_dirty_flag_copied() {
         let mut dom = EcsDom::new();
         let src = control(&mut dom, "input", &[]);
@@ -192,7 +249,7 @@ mod tests {
             s.update_char_count();
         }
         let dst = cloned_from(&mut dom, src, "input", &[]);
-        apply_clone_form_state(&mut dom, dst);
+        apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
         let d = dom.world().get::<&FormControlState>(dst).unwrap();
         assert_eq!(d.value, "typed");
@@ -212,7 +269,7 @@ mod tests {
             s.indeterminate = true;
         }
         let dst = cloned_from(&mut dom, src, "input", &[("type", "checkbox")]);
-        apply_clone_form_state(&mut dom, dst);
+        apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
         let d = dom.world().get::<&FormControlState>(dst).unwrap();
         assert!(d.checked);
@@ -244,7 +301,7 @@ mod tests {
             "input",
             &[("type", "checkbox"), ("checked", "")],
         );
-        apply_clone_form_state(&mut dom, dst);
+        apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
         let d = dom.world().get::<&FormControlState>(dst).unwrap();
         assert!(!d.checked, "live-unchecked checkedness propagates");
@@ -266,7 +323,7 @@ mod tests {
             s.update_char_count();
         }
         let dst = cloned_from(&mut dom, src, "textarea", &[]);
-        apply_clone_form_state(&mut dom, dst);
+        apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
         let d = dom.world().get::<&FormControlState>(dst).unwrap();
         assert_eq!(d.value, "edited raw");
@@ -282,7 +339,7 @@ mod tests {
         let src = dom.create_element("div", Attributes::default());
         let dst = dom.create_element("div", Attributes::default());
         let _ = dom.world_mut().insert_one(dst, ClonedFrom { source: src });
-        apply_clone_form_state(&mut dom, dst);
+        apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
         assert!(dom.world().get::<&FormControlState>(dst).is_err());
         assert!(dom.world().get::<&ClonedFrom>(dst).is_err());
@@ -294,7 +351,7 @@ mod tests {
         // Source `<input>` that never materialized a FormControlState.
         let src = dom.create_element("input", Attributes::default());
         let dst = cloned_from(&mut dom, src, "input", &[]);
-        apply_clone_form_state(&mut dom, dst);
+        apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
         // No source FCS to propagate → the clone stays FCS-less (the reconciler
         // re-derives the attribute default on eventual insertion, identically).

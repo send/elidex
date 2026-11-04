@@ -47,7 +47,7 @@ impl EcsDom {
     /// heap budget against pathological inputs).
     ///
     /// Used by Custom Elements `customElements.upgrade(root)` (HTML
-    /// §4.13.4 step 8), by `CustomElementReactionConsumer` for the
+    /// §4.13.4 `upgrade(root)` step 1), by `CustomElementReactionConsumer` for the
     /// `Connected` / `Disconnected` per-subtree fan-out, and by
     /// `descendants_shadow_inclusive` in `elidex_dom_api` (which is
     /// now a thin re-export).

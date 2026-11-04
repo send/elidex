@@ -5,8 +5,9 @@
 //! synchronously at clone time so a detached clone reads correctly.
 //!
 //! Slot `#11-clone-cloning-steps-event`. The engine-indep copy lives in
-//! `elidex_form::apply_clone_form_state` (unit-tested there); these drive it
-//! through the real VM `cloneNode` marshalling shim.
+//! `elidex_form::apply_clone_form_state` (unit-tested there), run by
+//! `FormControlReconciler`'s `MutationEvent::CloneCreated` arm; these drive it
+//! through the real VM `cloneNode` native, whose dispatcher fires the event.
 
 #![cfg(feature = "engine")]
 

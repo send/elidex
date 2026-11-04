@@ -53,7 +53,10 @@ pub struct ConsumerDispatcher {
     /// insertion).  HTML §4.10.18.3 form-associated element insertion
     /// steps + WHATWG DOM §4.9 attribute change steps.  Added last in
     /// field order so previous consumers' invariants are preserved
-    /// before form-derived state is updated.
+    /// before form-derived state is updated.  Also runs the HTML §4.10.5 /
+    /// §4.10.11 cloning steps on `MutationEvent::CloneCreated`; that arm
+    /// writes `FormControlState` (and sweeps `ClonedFrom`), which the
+    /// custom-element arm never reads, so the two stay order-independent.
     form_control: FormControlReconciler,
     /// Inline event-handler content attribute detection (`<button
     /// onclick="...">`). Consumer recording uncompiled handler source into the
@@ -83,7 +86,9 @@ pub struct ConsumerDispatcher {
     /// `VmInner::flush_ce_reactions` at script-execution / event-
     /// dispatch / microtask checkpoints. Order-independent — only
     /// pushes to the side-band reaction queue, which no other consumer
-    /// reads.
+    /// reads.  On `MutationEvent::CloneCreated` it also writes
+    /// `CustomElementState.is_value` (async-autonomous null-is rule), which
+    /// no other consumer reads, so it stays order-independent.
     custom_elements: CustomElementReactionConsumer,
 }
 

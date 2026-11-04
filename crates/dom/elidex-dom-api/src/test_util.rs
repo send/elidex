@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent};
+use elidex_ecs::{Attributes, CloneScope, EcsDom, Entity, MutationDispatcher, MutationEvent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, JsObjectRef, SessionCore};
 
@@ -31,6 +31,29 @@ impl MutationDispatcher for AttrChangeCounter {
     fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &mut EcsDom) {
         if matches!(*event, MutationEvent::AttributeChange { .. }) {
             *self.count.lock().unwrap() += 1;
+        }
+    }
+}
+
+/// A [`MutationDispatcher`] that records every
+/// [`MutationEvent::CloneCreated`] as `(root, scope)`, and — at dispatch —
+/// whether the root already had its shadow root and its light children (the
+/// "event fires after the whole copy exists" probe).
+#[derive(Default, Clone)]
+pub(crate) struct CloneCreatedProbe {
+    pub(crate) events: Arc<Mutex<Vec<(Entity, CloneScope)>>>,
+    /// `(root has a shadow root, root has light children)` per event.
+    pub(crate) shape_at_dispatch: Arc<Mutex<Vec<(bool, bool)>>>,
+}
+
+impl MutationDispatcher for CloneCreatedProbe {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
+        if let MutationEvent::CloneCreated { root, scope } = *event {
+            self.events.lock().unwrap().push((root, scope));
+            self.shape_at_dispatch.lock().unwrap().push((
+                dom.get_shadow_root(root).is_some(),
+                !dom.children(root).is_empty(),
+            ));
         }
     }
 }

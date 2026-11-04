@@ -1,6 +1,7 @@
 //! D-15 PR-B `#11-shadow-innerhtml-mixin` — JS-facing tests for
 //! `Element` / `ShadowRoot` `innerHTML`, `outerHTML`, `setHTMLUnsafe`,
-//! `getHTML` (WHATWG HTML §4.4.5 / §4.4.6 / §4.4.7) plus `cloneNode`
+//! `getHTML` (WHATWG HTML §8.5.4 `innerHTML` / §8.5.5 `outerHTML` / §8.5.2
+//! `setHTMLUnsafe` / §8.5.3 `getHTML`) plus `cloneNode`
 //! shadow-tree honouring (DOM §4.4 "clone a node" step 6).
 //!
 //! Shadow-encapsulation invariants (closed-mode opacity, default
@@ -322,7 +323,7 @@ fn shadow_root_inner_html_getter_throws_on_element_receiver() {
 #[test]
 fn element_get_html_default_excludes_shadow_roots() {
     // `getHTML()` with no options behaves like `innerHTML` — shadow
-    // content is skipped per §4.4.6.
+    // content is skipped per HTML §8.5.3.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var sr = host.attachShadow({mode: 'open', serializable: true}); \
@@ -617,12 +618,11 @@ fn clone_node_deep_skips_shadow_tree_when_clonable_false() {
 }
 
 #[test]
-fn clone_node_shallow_clones_clonable_shadow_tree_shallowly() {
-    // Inverted from the pre-fix pin: DOM §4.4 "clone a node" step 6 is
-    // NOT gated on the subtree flag — a shallow clone of a clonable
-    // shadow host still replicates the shadow root; only the shadow
-    // children's own clone depth follows the flag (step 6.7), so the
-    // <p> appears but its descendants would not.
+fn clone_node_shallow_replicates_clonable_shadow_tree() {
+    // DOM §4.4 "clone a node" step 6 is NOT gated on the subtree flag — a
+    // shallow clone of a clonable shadow host still replicates the shadow
+    // root; step 6.7 clones the shadow children with subtree true, so the
+    // <p> appears (with its descendants, were there any).
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var sr = host.attachShadow({mode: 'open', clonable: true}); \

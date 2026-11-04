@@ -19,7 +19,7 @@
 
 use std::collections::VecDeque;
 
-use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
+use elidex_ecs::{Attributes, CloneScope, EcsDom, Entity, TagType};
 
 use crate::reaction::{scrub_entity_reactions, CustomElementReaction};
 use crate::registry::CustomElementRegistry;
@@ -111,24 +111,28 @@ pub fn prepare_upgrade(
 ///   passes `is` through and keeps it.
 /// - step 5.2.2 / 4.4: enqueue a custom element upgrade reaction for
 ///   every copy whose definition lookup is non-null — returned to the
-///   caller, which owns the engine-side reaction queue.
+///   caller (the consumer's `CloneCreated` arm), which owns the
+///   reaction queue.
 ///
 /// Candidacy is resolved via [`prepare_upgrade`] (registry-association
 /// gate + `upgrade_matches_local_name` included), so null-registry
 /// clones and `is` mismatches are skipped by the same rule every other
 /// upgrade path uses.
 ///
-/// MUST only be called on a freshly cloned subtree: every visited
-/// element is a just-created copy, which is what makes the is-value
-/// clear safe (a define()-time walk over pre-existing elements must
-/// NOT clear — those legitimately retain their creation-time `is`).
-pub fn apply_clone_creation_ce_semantics(
+/// MUST only be called on the root of a `CloneCreated` event, with that
+/// event's `scope`, during its dispatch: every visited element (the set
+/// and order of [`elidex_ecs::EcsDom::for_each_clone_created`]) is a
+/// just-created copy, which is what makes the is-value clear safe (a
+/// define()-time walk over pre-existing elements must NOT clear — those
+/// legitimately retain their creation-time `is`).
+pub(crate) fn apply_clone_creation_ce_semantics(
     dom: &mut EcsDom,
     registry: &CustomElementRegistry,
     clone_root: Entity,
+    scope: CloneScope,
 ) -> Vec<Entity> {
     let mut candidates: Vec<Entity> = Vec::new();
-    dom.for_each_shadow_inclusive_descendant(clone_root, &mut |e| {
+    dom.for_each_clone_created(clone_root, scope, &mut |e| {
         if matches!(
             prepare_upgrade(dom, registry, e),
             UpgradeResolution::Proceed { .. }
@@ -388,7 +392,8 @@ mod clone_creation_pass_tests {
             .unwrap();
         let mut dom = EcsDom::new();
         let el = marked(&mut dom, "my-el", Some("other-el"));
-        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        let candidates =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, el, CloneScope::Subtree);
         assert_eq!(candidates, vec![el], "defined copy is an upgrade candidate");
         let state = dom.world().get::<&CustomElementState>(el).unwrap();
         assert_eq!(
@@ -396,6 +401,68 @@ mod clone_creation_pass_tests {
             None,
             "async autonomous creation passes a null is value (§4.9 step 5.2)"
         );
+    }
+
+    fn define_my_el(registry: &mut CustomElementRegistry, name: &str) {
+        registry
+            .define(CustomElementDefinition::new(
+                name.to_string(),
+                1,
+                vec![],
+                None,
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn self_only_scope_visits_shadow_children_not_light_children() {
+        // `cloneNode(false)` of a clonable shadow host: step 5 did not run
+        // (no light children created) but step 6.7 did (the shadow child
+        // exists). A light child custom element in the tree is NOT part of the
+        // clone, so it must not be a candidate; the shadow child is.
+        let mut registry = CustomElementRegistry::new();
+        define_my_el(&mut registry, "my-el");
+        let mut dom = EcsDom::new();
+        let host = dom.create_element("section", Attributes::default());
+        let light = marked(&mut dom, "my-el", None);
+        let _ = dom.append_child(host, light);
+        let sr = dom
+            .attach_shadow_with_init(
+                host,
+                elidex_ecs::ShadowInit {
+                    clonable: true,
+                    ..elidex_ecs::ShadowInit::default()
+                },
+            )
+            .unwrap();
+        let shadow_child = marked(&mut dom, "my-el", None);
+        let _ = dom.append_child(sr, shadow_child);
+        let candidates =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, host, CloneScope::SelfOnly);
+        assert_eq!(candidates, vec![shadow_child]);
+        let subtree =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, host, CloneScope::Subtree);
+        assert!(
+            subtree.contains(&light) && subtree.contains(&shadow_child),
+            "Subtree scope covers light and shadow children"
+        );
+    }
+
+    #[test]
+    fn template_root_contents_yield_no_candidate() {
+        // Umbrella §4.3 condition 6: a `<template>` root's content fragment is
+        // not a shadow-including descendant, so a defined custom element in the
+        // contents gets no upgrade candidate from the clone walk.
+        let mut registry = CustomElementRegistry::new();
+        define_my_el(&mut registry, "my-el");
+        let mut dom = EcsDom::new();
+        let tpl = dom.create_element("template", Attributes::default());
+        let fragment = dom.attach_template_contents(tpl, None);
+        let inner = marked(&mut dom, "my-el", None);
+        let _ = dom.append_child(fragment, inner);
+        let candidates =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, tpl, CloneScope::Subtree);
+        assert!(candidates.is_empty(), "template contents are not walked");
     }
 
     #[test]
@@ -413,7 +480,8 @@ mod clone_creation_pass_tests {
             .unwrap();
         let mut dom = EcsDom::new();
         let el = marked(&mut dom, "button", Some("my-btn"));
-        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        let candidates =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, el, CloneScope::Subtree);
         assert_eq!(candidates, vec![el]);
         let state = dom.world().get::<&CustomElementState>(el).unwrap();
         assert_eq!(state.is_value(), Some("my-btn"), "built-in branch keeps is");
@@ -424,7 +492,8 @@ mod clone_creation_pass_tests {
         let registry = CustomElementRegistry::new();
         let mut dom = EcsDom::new();
         let el = marked(&mut dom, "my-el", Some("other-el"));
-        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        let candidates =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, el, CloneScope::Subtree);
         assert!(candidates.is_empty(), "no definition → no reaction");
         let state = dom.world().get::<&CustomElementState>(el).unwrap();
         assert_eq!(state.is_value(), Some("other-el"));
@@ -449,7 +518,8 @@ mod clone_creation_pass_tests {
             .get::<&mut CustomElementState>(el)
             .unwrap()
             .registry = crate::RegistryAssociation::Null;
-        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        let candidates =
+            apply_clone_creation_ce_semantics(&mut dom, &registry, el, CloneScope::Subtree);
         assert!(candidates.is_empty());
         let state = dom.world().get::<&CustomElementState>(el).unwrap();
         assert_eq!(state.is_value(), Some("other-el"));

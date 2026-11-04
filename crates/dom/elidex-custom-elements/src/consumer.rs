@@ -26,6 +26,13 @@
 //!   the element's definition's `observed_attributes` (HTML §4.13.6
 //!   "attribute change steps" — "for each attribute in element's
 //!   attribute list that is in observedAttributes").
+//! - `Upgrade` enqueued on `MutationEvent::CloneCreated` for every element
+//!   the clone created whose definition lookup is non-null (DOM §4.4
+//!   "clone a node" → "clone a single node"), in the clone's creation
+//!   order; the walk is `EcsDom::for_each_clone_created` and the registry-
+//!   dependent half is [`crate::upgrade`]'s `apply_clone_creation_ce_semantics`.
+//!   It also clears the retained `is` value of async-autonomous copies
+//!   (`CustomElementState.is_value`, which no other consumer reads).
 //! - All three gates ALSO require the element to be Custom
 //!   ([`CEState::Custom`]) — pre-upgrade elements (`Undefined` /
 //!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6.
@@ -41,11 +48,12 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{EcsDom, Entity, MutationEvent};
+use elidex_ecs::{CloneScope, EcsDom, Entity, MutationEvent};
 
 use crate::reaction::CustomElementReaction;
 use crate::registry::CustomElementRegistry;
 use crate::state::{CEState, CustomElementState};
+use crate::upgrade::apply_clone_creation_ce_semantics;
 
 /// Mutation consumer maintaining the custom element reaction queue.
 ///
@@ -71,7 +79,7 @@ impl CustomElementReactionConsumer {
 
     /// Single-method dispatch entry invoked by the binding-crate
     /// `ConsumerDispatcher`. Pattern-matches `Insert` / `Remove` /
-    /// `AttributeChange`; other variants are no-ops.
+    /// `AttributeChange` / `CloneCreated`; other variants are no-ops.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Insert {
@@ -91,6 +99,9 @@ impl CustomElementReactionConsumer {
                 new_value,
                 ..
             } => self.handle_attribute_change(node, name, old_value, new_value, dom),
+            MutationEvent::CloneCreated { root, scope } => {
+                self.handle_clone_created(root, scope, dom);
+            }
             _ => {}
         }
     }
@@ -119,6 +130,21 @@ impl CustomElementReactionConsumer {
         if !enqueued.is_empty() {
             let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
             queue.extend(enqueued);
+        }
+    }
+
+    /// DOM §4.4 "clone a node": the copy now exists. Apply the registry-
+    /// dependent creation semantics (§4.9 step 5.2 null-is rule) to every
+    /// created element and enqueue one `Upgrade` reaction per upgrade
+    /// candidate, in creation order (`for_each_clone_created`'s order).
+    fn handle_clone_created(&mut self, root: Entity, scope: CloneScope, dom: &mut EcsDom) {
+        let candidates = {
+            let registry = self.registry.lock().expect("CE registry mutex poisoned");
+            apply_clone_creation_ce_semantics(dom, &registry, root, scope)
+        };
+        if !candidates.is_empty() {
+            let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
+            queue.extend(candidates.into_iter().map(CustomElementReaction::Upgrade));
         }
     }
 
