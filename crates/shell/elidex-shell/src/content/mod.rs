@@ -824,6 +824,10 @@ mod fragment_nav_tests;
 mod viewport_tests;
 
 #[cfg(test)]
+#[path = "../content_change_on_blur_tests.rs"]
+mod change_on_blur_tests;
+
+#[cfg(test)]
 mod parent_message_gate_tests {
     use super::parent_message_allowed;
 

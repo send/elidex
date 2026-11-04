@@ -229,7 +229,10 @@ fn redundant_focus_does_not_reseed_change_snapshot() {
         .map(|(e, _)| e)
         .expect("the focused text input carries a change-on-blur snapshot");
     assert_eq!(
-        elidex_form::take_focus_snapshot(&mut dom, holder),
+        dom.world()
+            .get::<&elidex_form::FocusValueSnapshot>(holder)
+            .ok()
+            .map(|s| s.initial().to_string()),
         Some("V0".to_string()),
         "redundant focus() must not refresh the snapshot baseline to the edited value"
     );

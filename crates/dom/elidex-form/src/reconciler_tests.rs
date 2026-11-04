@@ -216,7 +216,7 @@ fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
     // the stale text baseline and fires a spurious `change`.
     // `record_focus_snapshot` only re-evaluates at focus time, so the
     // reconciler's type arm clears it mid-focus.
-    use crate::{record_focus_snapshot, take_focus_snapshot};
+    use crate::{record_focus_snapshot, FocusValueSnapshot};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
@@ -225,9 +225,8 @@ fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
     record_focus_snapshot(&mut dom, e);
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
-    assert_eq!(
-        take_focus_snapshot(&mut dom, e),
-        None,
+    assert!(
+        dom.world().get::<&FocusValueSnapshot>(e).is_err(),
         "type flip to a non-text kind must clear the stale focus snapshot"
     );
 }
@@ -237,7 +236,7 @@ fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
     // The complement of e2c: flipping between two text kinds (text → search)
     // keeps the control a text control, so the focus-time baseline must
     // survive — only a non-text destination clears it.
-    use crate::{record_focus_snapshot, take_focus_snapshot};
+    use crate::{record_focus_snapshot, FocusValueSnapshot};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
@@ -247,7 +246,10 @@ fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
     assert!(dom.set_attribute(e, "type", "search").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Search));
     assert_eq!(
-        take_focus_snapshot(&mut dom, e),
+        dom.world()
+            .get::<&FocusValueSnapshot>(e)
+            .ok()
+            .map(|s| s.initial().to_string()),
         Some("typed".to_string()),
         "a text → text flip keeps the change-on-blur baseline"
     );

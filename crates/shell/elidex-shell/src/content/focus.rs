@@ -16,7 +16,7 @@ use elidex_dom_api::focus::{
     FocusEventKind, FocusEventSink, FocusTrigger,
 };
 use elidex_ecs::Entity;
-use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlState};
+use elidex_form::{record_focus_snapshot, take_change_on_blur, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
 use elidex_script_session::DispatchEvent;
 
@@ -171,19 +171,11 @@ fn dispatch_focus_event_with_related(
     pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch "change" on text-control blur when the value differs from the
-/// snapshot taken at focus (HTML §4.10.5.5). Consumes (reads + removes) the
-/// `FocusValueSnapshot`; absence ⇒ not a tracked text control ⇒ no change event.
+/// Dispatch "change" on text-control blur (HTML §6.6.4 focus update steps
+/// step 2.1). The verdict is `elidex_form::take_change_on_blur`'s, which
+/// consumes the `FocusValueSnapshot`; this sink only dispatches.
 fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
-    let Some(initial) = take_focus_snapshot(&mut pipeline.dom, entity) else {
-        return;
-    };
-    let changed = pipeline
-        .dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .is_ok_and(|fcs| fcs.value() != initial);
-    if changed {
+    if take_change_on_blur(&mut pipeline.dom, entity) {
         // "change" does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);
         event.cancelable = false;

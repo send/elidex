@@ -1,24 +1,53 @@
-//! Change-on-blur value snapshot (HTML §4.10.5.5 Common event behaviors).
+//! Change-on-blur provenance snapshot (WHATWG HTML §6.6.4 focus update steps
+//! step 2.1; §4.10.5.5 Common event behaviors).
 //!
-//! The text value a control had when it gained focus, stored **on the focused
-//! element** as an ECS component so the snapshot follows the canonical
-//! `ElementState::FOCUS` bit regardless of which path established focus — the
-//! shell UA `set_focus` reconciler OR the JS VM's `HTMLElement.focus()`. A later
-//! blur reads + removes it and fires `change` if the value differs. Living here
-//! (not in the shell) lets both the shell and the engine `host/` seed it, so a
-//! script `input.focus()` does not silently drop a user's later edit on blur.
+//! Step 2.1 fires `change` at a blurred text control only if "the user has
+//! changed the element's value … while the control was focused without
+//! committing that change (such that it is different to what it was when the
+//! control was first focused)", and §4.10.5.5 says `input` / `change` "are not
+//! fired in response to changes made to the values of form controls by
+//! scripts". The snapshot therefore records two things, stored **on the
+//! focused element** as an ECS component so it follows the canonical
+//! `ElementState::FOCUS` bit whichever path established focus (the shell UA
+//! transition or the VM's `HTMLElement.focus()`):
+//!
+//! - `initial` — the baseline the blur compares against;
+//! - `user_changed` — the provenance mark: a user edit changed the value since
+//!   focus. Only [`crate::apply_user_edit`] sets it; no non-user writer does.
+//!
+//! The blur's verdict is computed in one place, [`take_change_on_blur`]; every
+//! focus sink calls it and only dispatches `change`.
 
 use elidex_ecs::{EcsDom, Entity};
 
 use crate::FormControlState;
 
-/// The focus-time value of a text control, kept on the element for change-on-blur.
-/// Only text controls carry it; auto-cleaned on despawn.
-pub struct FocusValueSnapshot(pub String);
+/// The change-on-blur provenance of a focused text control. Only text controls
+/// carry it; auto-cleaned on despawn. The fields are private: only this module
+/// writes them (seed, mark, take).
+pub struct FocusValueSnapshot {
+    initial: String,
+    user_changed: bool,
+}
 
-/// Record the focus-time value snapshot on `entity` **if** it is a text control,
-/// so a later blur can fire `change` when the value differs. Call whenever a
-/// control gains focus (shell `set_focus` or VM `focus()`).
+impl FocusValueSnapshot {
+    /// The baseline `change` compares the value with at blur.
+    #[must_use]
+    pub fn initial(&self) -> &str {
+        &self.initial
+    }
+
+    /// Whether a user edit changed the value since focus (the provenance mark).
+    #[must_use]
+    pub fn user_changed(&self) -> bool {
+        self.user_changed
+    }
+}
+
+/// Seed the change-on-blur snapshot on `entity` **if** it is a text control:
+/// `initial` = the current value, unmarked. Call whenever a control gains focus
+/// (the shell sink's §6.6.4 step 4.1 or VM `focus()`); a re-seed replaces any
+/// earlier snapshot, mark included.
 ///
 /// When `entity` is **not** a text control, any pre-existing snapshot is
 /// *removed* rather than left in place: the bit can otherwise be cleared without
@@ -33,10 +62,14 @@ pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
         .filter(|fcs| fcs.kind.is_text_control())
         .map(|fcs| fcs.value().to_string());
     match value {
-        Some(value) => {
-            let _ = dom
-                .world_mut()
-                .insert_one(entity, FocusValueSnapshot(value));
+        Some(initial) => {
+            let _ = dom.world_mut().insert_one(
+                entity,
+                FocusValueSnapshot {
+                    initial,
+                    user_changed: false,
+                },
+            );
         }
         None => {
             let _ = dom.world_mut().remove_one::<FocusValueSnapshot>(entity);
@@ -44,13 +77,28 @@ pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
     }
 }
 
-/// Take (read + remove) the focus-time snapshot. `None` when absent (the element
-/// was not a tracked text control) — the caller then fires no `change` event.
-pub fn take_focus_snapshot(dom: &mut EcsDom, entity: Entity) -> Option<String> {
-    dom.world_mut()
-        .remove_one::<FocusValueSnapshot>(entity)
-        .ok()
-        .map(|snapshot| snapshot.0)
+/// Mark `entity`'s snapshot: a user edit changed the value from `before`.
+/// Called only by [`crate::apply_user_edit`]. Without a snapshot it does
+/// nothing (never inserts one); on an already marked snapshot it does nothing.
+pub(crate) fn note_user_value_change(dom: &mut EcsDom, entity: Entity, _before: String) {
+    if let Ok(mut snap) = dom.world_mut().get::<&mut FocusValueSnapshot>(entity) {
+        if !snap.user_changed {
+            snap.user_changed = true;
+        }
+    }
+}
+
+/// §6.6.4 focus update steps step 2.1 — consume (read + remove) `entity`'s
+/// snapshot and return whether `change` fires. `false` without a snapshot (not
+/// a tracked text control) or without a `FormControlState`. The only consumer
+/// of the snapshot: every focus sink calls this and only dispatches `change`.
+pub fn take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool {
+    let Ok(snap) = dom.world_mut().remove_one::<FocusValueSnapshot>(entity) else {
+        return false;
+    };
+    dom.world()
+        .get::<&FormControlState>(entity)
+        .is_ok_and(|fcs| fcs.value() != snap.initial)
 }
 
 /// Drop any change-on-blur snapshot from `entity` without reading it.
@@ -68,7 +116,7 @@ pub fn clear_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FormControlKind, FormControlState};
+    use crate::{apply_user_edit, FormControlKind, FormControlState};
     use elidex_ecs::Attributes;
 
     /// A control state of the given kind + live value.  (`FormControlState`'s
@@ -82,22 +130,90 @@ mod tests {
         state
     }
 
-    #[test]
-    fn record_and_take_round_trip_for_text_control() {
-        let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
-        let _ = dom
-            .world_mut()
-            .insert_one(input, fcs(FormControlKind::TextInput, "initial"));
+    fn control(dom: &mut EcsDom, kind: FormControlKind, value: &str) -> Entity {
+        let e = dom.create_element("input", Attributes::default());
+        let _ = dom.world_mut().insert_one(e, fcs(kind, value));
+        e
+    }
 
+    /// `(initial, user_changed)` of `e`'s snapshot, `None` when absent.
+    fn snap(dom: &EcsDom, e: Entity) -> Option<(String, bool)> {
+        dom.world()
+            .get::<&FocusValueSnapshot>(e)
+            .ok()
+            .map(|s| (s.initial().to_string(), s.user_changed()))
+    }
+
+    fn set_value(dom: &mut EcsDom, e: Entity, value: &str) {
+        dom.world_mut()
+            .get::<&mut FormControlState>(e)
+            .unwrap()
+            .value = value.to_string();
+    }
+
+    /// A user edit that appends `text`.
+    fn user_append(dom: &mut EcsDom, e: Entity, text: &str) {
+        let edit = apply_user_edit(dom, e, |f| f.value.push_str(text)).unwrap();
+        assert!(edit.changed);
+    }
+
+    /// C7 (a): a seed is unmarked with `initial` = the value.
+    #[test]
+    fn c7a_seed_is_unmarked_at_the_value() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "initial");
         record_focus_snapshot(&mut dom, input);
-        assert_eq!(
-            take_focus_snapshot(&mut dom, input),
-            Some("initial".to_string()),
-            "a text control's focus-time value round-trips"
-        );
-        // Drained — a second take yields nothing.
-        assert_eq!(take_focus_snapshot(&mut dom, input), None);
+        assert_eq!(snap(&dom, input), Some(("initial".to_string(), false)));
+    }
+
+    /// C7 (b): a user edit that changes the value marks the snapshot.
+    #[test]
+    fn c7b_user_value_change_marks() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "");
+        record_focus_snapshot(&mut dom, input);
+        user_append(&mut dom, input, "a");
+        assert_eq!(snap(&dom, input).map(|s| s.1), Some(true));
+    }
+
+    /// C7 (c): a user edit on a control without a snapshot inserts none.
+    #[test]
+    fn c7c_user_edit_without_snapshot_inserts_none() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "");
+        user_append(&mut dom, input, "a");
+        assert_eq!(snap(&dom, input), None);
+    }
+
+    /// C7 (d): a re-seed after a mark is unmarked again.
+    #[test]
+    fn c7d_reseed_clears_the_mark() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "");
+        record_focus_snapshot(&mut dom, input);
+        user_append(&mut dom, input, "a");
+        record_focus_snapshot(&mut dom, input);
+        assert_eq!(snap(&dom, input), Some(("a".to_string(), false)));
+    }
+
+    /// C7 (i): `take_change_on_blur` without a snapshot → `false`.
+    #[test]
+    fn c7i_take_without_snapshot_is_false() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "x");
+        assert!(!take_change_on_blur(&mut dom, input));
+    }
+
+    /// C7 (j): marked and value ≠ `initial` → `true`, consumed; a second take → `false`.
+    #[test]
+    fn c7j_take_marked_changed_is_true_once() {
+        let mut dom = EcsDom::new();
+        let input = control(&mut dom, FormControlKind::TextInput, "");
+        record_focus_snapshot(&mut dom, input);
+        user_append(&mut dom, input, "a");
+        assert!(take_change_on_blur(&mut dom, input));
+        assert_eq!(snap(&dom, input), None, "the take removes the snapshot");
+        assert!(!take_change_on_blur(&mut dom, input));
     }
 
     #[test]
@@ -107,24 +223,17 @@ mod tests {
         // changed text → button), else a later blur consumes the stale text
         // baseline and fires a spurious `change`.
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
-        let _ = dom
-            .world_mut()
-            .insert_one(input, fcs(FormControlKind::TextInput, "typed"));
+        let input = control(&mut dom, FormControlKind::TextInput, "typed");
         record_focus_snapshot(&mut dom, input);
-        assert_eq!(
-            take_focus_snapshot(&mut dom, input),
-            Some("typed".to_string())
-        );
+        assert_eq!(snap(&dom, input), Some(("typed".to_string(), false)));
 
-        // Re-seed then flip to a non-text control before re-recording.
-        record_focus_snapshot(&mut dom, input);
+        // Flip to a non-text control before re-recording.
         if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(input) {
             fcs.kind = FormControlKind::Button;
         }
         record_focus_snapshot(&mut dom, input);
         assert_eq!(
-            take_focus_snapshot(&mut dom, input),
+            snap(&dom, input),
             None,
             "re-recording a non-text control clears the stale text snapshot"
         );
@@ -133,16 +242,14 @@ mod tests {
     #[test]
     fn no_snapshot_for_non_text_control() {
         let mut dom = EcsDom::new();
-        let button = dom.create_element("button", Attributes::default());
-        let _ = dom
-            .world_mut()
-            .insert_one(button, fcs(FormControlKind::Button, ""));
-
+        let button = control(&mut dom, FormControlKind::Button, "");
         record_focus_snapshot(&mut dom, button);
         assert_eq!(
-            take_focus_snapshot(&mut dom, button),
+            snap(&dom, button),
             None,
             "non-text controls carry no change-on-blur snapshot"
         );
+        set_value(&mut dom, button, "x");
+        assert!(!take_change_on_blur(&mut dom, button));
     }
 }
