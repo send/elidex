@@ -379,10 +379,10 @@ fn insert_node_empty_document_fragment_no_offset_bump() {
 fn insert_node_same_parent_move_offset_corrected() {
     // Copilot R21: when the inserted node is already an earlier
     // sibling in the same parent, `insert_before` implicitly
-    // detaches it (WHATWG §4.2.3 step 9 "If node has a parent,
-    // then remove node"), shifting `reference_node` left by one
+    // detaches it (Range *insert* step 9 "If node's parent is
+    // non-null, then remove node"), shifting `reference_node` left by one
     // before the actual insertion.  Computing newOffset BEFORE
-    // step 12 missed this shift, so a collapsed Range's end
+    // Range *insert* step 12 (pre-insert) missed this shift, so a collapsed Range's end
     // boundary was set one past the inserted node.
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

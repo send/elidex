@@ -98,7 +98,7 @@ impl CustomElementReactionConsumer {
     fn handle_insert(&mut self, node: Entity, _was_connected: bool, dom: &EcsDom) {
         // Skip when post-insert position is still disconnected
         // (orphan→orphan move): the insertion-steps loop only enqueues
-        // when "parent is connected" per WHATWG DOM §4.2.3 step 7.
+        // when "parent is connected" per WHATWG DOM §4.2.3 insert step 7.7.
         //
         // NOTE: we deliberately do NOT short-circuit on `was_connected`
         // — both Blink and Gecko fire connectedCallback on every

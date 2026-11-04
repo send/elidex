@@ -184,7 +184,7 @@ fn ensure_validity_document_fragment_rejects_text_child() {
     );
 }
 
-// ---- §4.2.3 step 6: NO self-exclusion in the pre-insert algorithm (Codex R1) ----
+// ---- Ensure pre-insert validity steps 9.1 / 11: NO self-exclusion in pre-insert (childrenToExclude = « ») (Codex R1) ----
 // Pre-insert counts ALL element/doctype children INCLUDING the node being inserted
 // (validity runs before the pre-insert self-reference adjustment), so re-appending an
 // existing Document child throws. Only the *replace* algorithm excludes `child`.

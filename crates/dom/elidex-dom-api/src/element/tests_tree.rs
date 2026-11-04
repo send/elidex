@@ -591,7 +591,7 @@ fn append_child_document_node_throws_hierarchy() {
 
 #[test]
 fn append_child_text_into_document_throws_hierarchy() {
-    // §4.2.3 step 5: a Text node may not be inserted under a Document.
+    // §4.2.3 ensure pre-insert validity step 6: a Text node may not be inserted under a Document.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
     let text = dom.create_text("x");
@@ -606,7 +606,7 @@ fn append_child_text_into_document_throws_hierarchy() {
 
 #[test]
 fn append_child_second_element_into_document_throws_hierarchy() {
-    // §4.2.3 step 6 (Element branch): a Document may have at most one element child.
+    // §4.2.3 ensure pre-insert validity step 9.1 (Element branch): a Document may have at most one element child.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
     let root = dom.create_element("html", Attributes::default());
@@ -628,7 +628,7 @@ fn append_child_second_element_into_document_throws_hierarchy() {
 
 #[test]
 fn append_child_existing_document_element_throws_hierarchy() {
-    // §4.2.3 pre-insert step 6 (Element branch) has NO self-exclusion: it tests
+    // §4.2.3 ensure pre-insert validity step 9.1 (Element branch) has NO self-exclusion: it tests
     // "parent has an element child" counting ALL element children INCLUDING the node
     // being inserted, and runs BEFORE the pre-insert self-reference adjustment
     // (pre-insert step 3). So `document.appendChild(document.documentElement)` throws

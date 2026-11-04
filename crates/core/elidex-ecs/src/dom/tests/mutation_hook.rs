@@ -629,8 +629,8 @@ fn insert_before_fires_after_remove_for_old_parent_on_move() {
 
 #[test]
 fn replace_child_fires_after_remove_for_new_child_old_parent() {
-    // WHATWG "replace a child" step 4: "If node's parent is not null,
-    // remove node". This implicit removal must fire `after_remove` on
+    // WHATWG *adopt* step 2: "If node's parent is non-null, then
+    // remove node" (reached through *replace* step 6). This implicit removal must fire `after_remove` on
     // the new_child's old parent, in addition to the
     // remove(old_child) + insert(new_child) pair on `parent`.
     let mut dom = EcsDom::new();

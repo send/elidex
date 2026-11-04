@@ -146,7 +146,7 @@ fn validate_document_element_constraint(
 ) -> Result<(), DomApiError> {
     match node_kind {
         Some(NodeKind::Element) => {
-            // §4.2.3 step 6 Element: "parent has an element child" (pre-insert,
+            // Ensure pre-insert validity step 9.1 (Element): "parent has an element child" (pre-insert,
             // `exclude` = «») / "...that is not child" (replace, `exclude` = «child»).
             // The node being inserted is NOT self-excluded — re-appending the existing
             // documentElement (`document.appendChild(document.documentElement)`)
@@ -225,7 +225,7 @@ fn validate_document_element_constraint(
             }
         }
         Some(NodeKind::DocumentType) => {
-            // §4.2.3 step 6 DocumentType: "parent has a doctype child" (pre-insert) /
+            // Ensure pre-insert validity step 11 (DocumentType): "parent has a doctype child" (pre-insert) /
             // "...that is not child" (replace, via `exclude`). No self-exclusion of the
             // inserted node (mirrors the Element branch) — re-appending an existing
             // doctype throws, same as the documentElement case above.
