@@ -73,7 +73,9 @@ test (PM decision 133, D-T5); the attribute change steps' step 1 namespace test 
 D-T8); the `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`, compat, PM decision 130); the
 foreign-element interfaces other than `body`'s (§8.1 item 4); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 4.3* (2026-11-05): plan-review R1 fixes F1–F16 (PM 377). F1: the `CloneCreated` arm is the
+**Changelog.** *Rev 4.4* (2026-11-05): re-check N1–N7 (PM 380); plan-review closed. T-16c's mutant, cell T-16d,
+U-T6's marked-Creation row, §6.5's run-through; H-T27 confirmed at runtime.
+*Rev 4.3* (2026-11-05): plan-review R1 fixes F1–F16 (PM 377). F1: the `CloneCreated` arm is the
 canonical writer of a clone's handler state; a clone-internal `Insert` writes a subset of it with equal values (D-T10
 *Canonical writer*, row CI-1, cell T-16c).
 *Rev 4.2* (2026-11-05): O-9 closed per PM 367 (wording).
@@ -146,7 +148,7 @@ D-1), `EcsDom::node_document_for_new_nodes` (NEW: C0b D-10), `EcsDom::appropriat
 | H-T24 | The clone path: one production entry, a VM seam with two precedents | `git grep -n -E 'clone_node_with_shadow_honor\(\|"cloneNode"' 4fd85f4e -- crates`; `sed -n 167,240p elidex-js/vm/host/node_methods_extras.rs`; `sed -n 462,530p elidex-js/vm/host/dom_bridge.rs` | the only production element-cloning operation is `Node.prototype.cloneNode`: `native_node_clone_node` (`node_methods_extras.rs:201`) → `invoke_dom_api(ctx, "cloneNode", …)` (`:212`) → the dom-api `CloneNode` handler (`crates/dom/elidex-dom-api/src/node_methods/clone.rs:154`) → `clone_node_with_shadow_honor` (`clone.rs:227`; template contents and clonable shadow trees replicated). After the call the shim runs two clone-time seams before returning to script: custom-element upgrade reactions are **enqueued** (`:221`, `custom_elements/upgrade.rs:128-`, enqueue only) and `elidex_form::apply_clone_form_state` (`:230`), engine-independent. **No script runs** between the handler's return and the shim's return (Q-11): `invoke_dom_api`'s phase after the handler only drains notify records into the microtask-bound record queue (`dom_bridge.rs:32-42`). **On the base** RC-2a moves both seams onto `MutationEvent::CloneCreated` consumers and deletes the VM post-pass (the RC-2a plan §4.4–§4.6); T3 consumes the same event (D-T10) |
 | H-T25 | The VM already marshals the policy into a session processing entry; the uncapped walker reaches every cloned node | `sed -n 603,612p elidex-js/vm/host/event_handler_attrs.rs`; `sed -n 50,57p session/event_handler_processing/mod.rs`; `git show 4fd85f4e:crates/core/elidex-ecs/src/dom/tree/walkers.rs \| sed -n 90,129p`; `sed -n 405,440p crates/dom/elidex-dom-api/src/node_methods/clone.rs` | `marshal_before_handler_write` reads `ctx.vm.spec_level_policy` and calls `elidex_script_session::process_before_handler_write(host.dom(), element, name, policy)` (`:608-610`). `ProcessingTiming` has `Bind`, `Insertion`, `HandlerWrite` (`mod.rs:50-57`). `EcsDom::for_each_uncapped_shadow_inclusive` (`walkers.rs:99`) takes a `TemplateContentsWalk` (`:19`); the bind pass passes `Exclude` (`mod.rs:178`). (Q-12) With `Include` it is uncapped (explicit stack + visited set) and pushes, per node, the template contents fragment, the light children and the shadow root, so it reaches a clone's replicated template contents (`replicate_template_contents`, `clone.rs:405-`, nested templates re-replicated) and clonable shadow trees at any depth. Its visit order — at `4fd85f4e` contents after the template's subtree, the shadow tree right after its host (`walkers.rs:111-128`) — changes for contents under C0c D-19 (contents right after the template). The clone path walks the copy with RC-2a's walk and only each first-level template's contents with this one (D-T10) |
 | H-T26 | No other element-cloning path exists | `git grep -n -i 'importNode' 4fd85f4e -- crates` → none; `sed -n 248,262p` and `sed -n 590,606p crates/dom/elidex-dom-api/src/range/mutation.rs` | `importNode` is not implemented. `Range.cloneContents` is a stub (`clone_contents` returns `None`, slot `#11-range-full-impl`); `extractContents` clones boundary Text only, its partially-contained element clone is deferred (B1.2d-ii plan §11) |
-| H-T27 | (Q-7) A non-bubbling event dispatched at an element runs no handler on the Window | `sed -n 203,221p session/event_dispatch/mod.rs`; `git show 4fd85f4e:crates/core/elidex-ecs/src/dom/mod.rs \| sed -n 425,434p` | `build_propagation_path` follows `get_parent` only, and `create_window_root` spawns the Window with no `TreeRelation` ("does **not** participate in the DOM tree"), so the Window is on no element's propagation path (`dispatch_script_event` uses the same path builder). So a non-bubbling `focus` / `hashchange` at an element never reaches the Window's handler. Static evidence only (no dynamic run): the cells resting on it say so (§5.2, T-6b). The bubbling case is `#11-event-path-window-missing` (not run); no T3 cell depends on it |
+| H-T27 | (Q-7) A non-bubbling event dispatched at an element runs no handler on the Window | `sed -n 203,221p session/event_dispatch/mod.rs`; `git show 4fd85f4e:crates/core/elidex-ecs/src/dom/mod.rs \| sed -n 425,434p` | `build_propagation_path` follows `get_parent` only, and `create_window_root` spawns the Window with no `TreeRelation` ("does **not** participate in the DOM tree"), so the Window is on no element's propagation path (`dispatch_script_event` uses the same path builder). So a non-bubbling `focus` / `hashchange` at an element never reaches the Window's handler. Static evidence only (no dynamic run): the cells resting on it say so (§5.2, T-6b). The bubbling case is `#11-event-path-window-missing`, confirmed at runtime 2026-11-05 (`f9cf8c40`); no T3 cell depends on it (§9 item 1) |
 | H-T28 | (Q-8) A DOMParser frameset document's `body` is the `frameset` | `sed -n 22,29p elidex-js/vm/host/dom_parser.rs`; `crates/dom/elidex-html-parser-strict/tests/data/html5lib/tree-construction/tests2.dat:63-80`; `elidex-js/vm/tests/tests_document_methods.rs:505-` | DOMParser builds through `parse_into_inert_document`; html5lib's expectation for `<!DOCTYPE html><frameset>` puts `frameset` under `html` with no `body`; the body getter returns a `frameset` child (`document_body_returns_frameset_when_no_body_present`). Static evidence only: T-6b says so |
 
 ### §0.3 Premise errors (reported)
@@ -302,8 +304,8 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
     census (§8.3 item 11).
   - **Canonical writer (PM 377).** The cloner appends each copied child as it goes (`tree_clone.rs:419`; `clone.rs:301`,
     `:437` at `rc2a-clone-created`), and `fire_after_insert` skips only a shadow-root node or parent
-    (`tree/mutation.rs:289-290`), so `handle_insert` processes every clone element except the root and a shadow root's
-    children at `ProcessingTiming::Insertion` before `CloneCreated` (the RC-2a plan §2 A × B, C × F; T3 changes neither).
+    (`tree/mutation.rs:289-290`), so `handle_insert` processes **every clone element except the root and a shadow root's
+    direct children** (this population: "CI-1's elements") at `ProcessingTiming::Insertion` before `CloneCreated` (the RC-2a plan §2 A × B, C × F; T3 changes neither).
     For both pieces of handler state, the `EventListeners` entry on D-T1's target and the `HandlerAttrsProcessed` mark,
     the canonical writer is the `CloneCreated` arm at Creation (the spec's attribute change steps). Creation bypasses
     the marked shortcut (`mod.rs:85`, kept for Insertion and HandlerWrite), so it delivers every applicable pair
@@ -313,14 +315,16 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
     C1 H-C7 with C0b's adoption into the same document), which Creation writes again; EW is not delivered (D-T7).
     `set_inline_handler` reuses an existing entry (`mod.rs:266-274`), and no script or other reader of this state runs
     between the two (H-T24; *Placement*). *Not chosen:* keeping the shortcut at Creation and showing per class that the
-    outcome is unchanged; that makes the internal `Insert` the OR writer, a second semantic writer. Cell T-16c runs both.
+    outcome is unchanged; that makes the internal `Insert` the OR writer, a second semantic writer. Cells T-16c (EW, OR)
+    and T-16d (XW) run both.
   - **Order (Q-15).** Two Window writes collide only when two elements of one clone deliver the same Window-delegating
     name with the node document active. The walk visits a node, then its light children (DOM §4.4 *clone a node* step
     5), then its shadow children (step 6.7), so the later writer is the spec's (cell T-16b). Contents come last instead
     of at step 3, which no outcome shows: their node document is I, so step 3 of the target algorithm is null for every
     Window-delegating pair there (H-T21), and an element target is written by its own element only.
   - **What slice b inherits.** The entry point is the one slice b's other creation paths call (S-6 extended). The
-    umbrella's O9 (call-site shape) is decided for the clone path only; slice b decides it for its paths.
+    umbrella's O9 (call-site shape) is decided for the clone path only; slice b decides it for its paths. Since
+    Creation bypasses the marked shortcut, "once" holds only if each caller runs Creation once per fresh element.
   - **Population closed.** Rows EW-12, XW-11, EW-11, EW-19, OR-2 (umbrella §1.5 G5 / K3, and K2's EW half; §8.2 defect
     (2), the clone half of defect (1), (3)'s EW half, (7)'s clone clause). XW's re-raw at the clone's insertion stays
     (X-W, S-5).
@@ -499,7 +503,7 @@ processing). Verdict: **both** (T3 = base = spec), **spec** (T3 = spec ≠ base)
 | EW-16 | EW | AC, set | X2 ≡ P | element | nothing | nothing | spec (R-B) | U-T1 |
 | EW-17 | EW | T-a3 | any | not processed | not processed | — | both (D-8) | C20 (i), U-T6 |
 | EW-18 | EW | AC, set | U | element | Window | Window | spec | U-T1 |
-| EW-19 | EW | clone (of contents, or of a template), then ins→A | I → A | element at creation (CI-1); re-raw onto the element at the insertion | nothing at creation (null); nothing at the insertion | nothing | spec | U-T7 |
+| EW-19 | EW | clone (of contents, or of a template), then ins→A | I → A | element at the clone-internal Insertion (CI-1; the base has no Creation processing); re-raw onto the element at ins→A | nothing at creation (null); nothing at the insertion | nothing | spec | U-T7 |
 | FN-1 | FN: SVG `body` × the reflecting six; SVG `frameset` × any of the 24; MathML `body` / `frameset` × the reflecting six | AC, set | any | element | element | element (H-T22; `MathMLElement includes GlobalEventHandlers`, H-T23) | both | T-9b |
 | FN-1b | FN: `body` / `frameset` outside the HTML, SVG and MathML namespaces × the reflecting six | AC | any | element | nothing (D-T8) | nothing (H-T23) | spec (P-T14) | U-T8 |
 | FN-2 | FN: SVG `body` × a WindowEventHandlers name | AC | any | Window (tag-only) | element | element (H-T22) | spec | T-9 |
@@ -509,10 +513,10 @@ processing). Verdict: **both** (T3 = base = spec), **spec** (T3 = spec ≠ base)
 | FN-6 | FN pairs of FN-1, FN-2 (SVG, and the reflecting six on MathML) | ins→A, ins→P | any | re-raw at every insertion (tag-only X-W; onto the Window for FN-2's pairs) | the ordinary once rule (not Window-delegating at T3) | nothing at insertion | as OR-1 (FN-2's pairs leave the Window: spec there) | U-T6 |
 | OR-1 | OR | every timing except clone | any | element | element where applicable; nothing for a name that is not an event handler content attribute of the element (D-T8) | element, or nothing where step 1 returns | spec for the local-name test; base for a non-null attribute namespace (facet (2), slice b) | U-T1, U-T8 |
 | OR-2 | OR | clone | any | nothing at creation; processed at the first insertion (once) | processed at creation (element; marked); not at the insertion | processed at creation | spec (umbrella G5 / K3; defect (2)) | T-20, C9, C5 (iii), C12 |
-| CI-1 | XW, EW, OR | clone-internal Insertion (a clone element other than the root and a shadow root's children, before `CloneCreated`) | the copy's | XW: the page Window (the target rule ignores the document); EW: element; OR: element, marked | XW, OR: Creation's write, made first here (no-op, D-T10); EW: nothing | no step (Creation's outcome) | both for OR and for XW in A; spec otherwise | T-16c, T-16b |
+| CI-1 | XW, EW, OR | clone-internal Insertion (CI-1's elements, D-T10 *Canonical writer*) | the copy's | XW: the page Window (the target rule ignores the document); EW: element; OR: element, marked | XW, OR: Creation's write, made first here (no-op, D-T10); EW: nothing | no step (Creation's outcome) | both for OR and for XW in A; spec otherwise | T-16c, T-16d, T-16b |
 
-The *Base* cells of XW-11, XW-14, EW-11, EW-12 and OR-2 are the clone root's and a shadow root's children's; every
-other clone element (EW-19's included) is first processed at CI-1. Rows not listed are covered by a listed one: `removeAttribute` follows its row's AC column (clear instead of set, on
+The *Base* cells of XW-11, XW-14, EW-11, EW-12 and OR-2 are those of clone elements outside CI-1's elements (D-T10);
+the rest (EW-19's included) are first processed at CI-1. Rows not listed are covered by a listed one: `removeAttribute` follows its row's AC column (clear instead of set, on
 the same target); a later bind processes nothing for every class (D-5); XW and EW in a non-active document at the bind
 pass do not occur (the bind pass walks only the bound document, umbrella K-5); a fragment-parsed `body` / `frameset`
 (an `html` context) is EW-10's and XW-12's case with the throwaway document in place of P (D-T7); a cloned Document's
@@ -790,7 +794,8 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | T-15b | red + guard (EW-10; kills α) | `dd = parseFromString('<body onscroll="window.hit = 1"></body>','text/html'); b = dd.body; document.documentElement.append(b); r.push(window.onscroll === null, b.onscroll === null)` | `true,false` | `true,true` (α: `false,false`) |
 | T-16 | **red (R-C; EW-12)** | `b = document.createElement('body'); b.setAttribute('onfocus','window.hit = 1'); window.onfocus = fn; c = b.cloneNode(); r.push(window.onfocus === fn, c.onfocus === window.onfocus); el.append(c); r.push(window.onfocus === fn)` | `true,false,true` | `false,true,false` |
 | T-16b | red (Q-15; the walk's order, D-T10) | `h = document.createElement('div'); h.attachShadow({mode: 'open', clonable: true}).append(document.createElement('body')); h.append(document.createElement('body')); h.shadowRoot.firstChild.setAttribute('onfocus','window.w = "shadow"'); h.firstChild.setAttribute('onfocus','window.w = "light"'); window.onfocus = fn; h.cloneNode(true); window.onfocus(); r.push(window.w)` | `undefined` (`fn` ran) | `"shadow"` (shadow-before-light walk: `"light"`) |
-| T-16c | red (CI-1; D-T10 *Canonical writer*: both writers run) | `p = document.createElement('div'); b = document.createElement('body'); b.setAttribute('onfocus','window.hit = 1'); s = document.createElement('span'); s.setAttribute('onclick','window.n = (window.n \|\| 0) + 1'); p.append(b, s); window.onfocus = fn; c = p.cloneNode(true); r.push(window.onfocus !== fn && typeof window.onfocus === 'function'); c.firstChild.dispatchEvent(new Event('focus')); r.push(window.hit === undefined); c.lastChild.dispatchEvent(new Event('click')); r.push(window.n === 1)` | `false,false,true` (EW on the element at the internal Insertion) | `true,true,true` (EW delivered at the internal Insertion too: `true,false,true`) |
+| T-16c | red (CI-1; D-T10 *Canonical writer*: both writers run) | `p = document.createElement('div'); b = document.createElement('body'); b.setAttribute('onfocus','window.hit = 1'); s = document.createElement('span'); s.setAttribute('onclick','window.n = (window.n \|\| 0) + 1'); p.append(b, s); window.onfocus = fn; c = p.cloneNode(true); r.push(window.onfocus !== fn && typeof window.onfocus === 'function'); c.firstChild.dispatchEvent(new Event('focus')); r.push(window.hit === undefined); c.lastChild.dispatchEvent(new Event('click')); r.push(window.n === 1)` | `false,false,true` (EW on the element at the internal Insertion) | `true,true,true` (Creation appends a second entry instead of reusing: `false,true,false`, §6.5) |
+| T-16d | guard (CI-1, XW; D-T10 *Canonical writer*: both writers write the Window, PM 377) | `p = document.createElement('div'); q = document.createElement('div'); b = document.createElement('body'); b.setAttribute('onhashchange','window.n = (window.n \|\| 0) + 1'); q.append(b); p.append(q); window.onhashchange = fn; c = p.cloneNode(true); r.push(window.onhashchange !== fn && typeof window.onhashchange === 'function'); window.dispatchEvent(new Event('hashchange')); r.push(window.n === 1)` | `true,true` (the internal Insertion writes the Window) | `true,true` (Creation appends a second entry instead of reusing: `true,false`, §6.5) |
 | T-17 | **red (R-A; EW-13, EW-14)** | `b = document.createElement('body'); tpl = document.createElement('template'); tpl.content.append(b); b.setAttribute('onfocus','window.hit = 1'); r.push(window.onfocus === null); document.body.append(b); r.push(b.onfocus === null, window.onfocus === null)` | `true,false,true` (raw on `b` in I reads null by N1; the move out re-raws onto `b`, which compiles) | `true,true,true` |
 | T-18 | guard (R-B; XW-9) | `p = document.createElement('div'); dd = parseFromString('<body></body>','text/html'); b = dd.body; p.append(b); b.setAttribute('onhashchange','window.hit = 1'); r.push(typeof window.onhashchange === 'function')` | `true` | `true`; kills a derivation that ignores C0's adoption |
 | T-19 | **red (R-D1; FN-3; D-T11)** | `s = document.createElementNS('http://www.w3.org/2000/svg','body'); s.onhashchange = fn; s.dispatchEvent(new Event('hashchange')); r.push(fnRan === 0, window.onhashchange === null, s instanceof HTMLBodyElement); m = document.createElementNS('http://www.w3.org/1998/Math/MathML','body'); m.onhashchange = fn; r.push(window.onhashchange === null); try { Object.getOwnPropertyDescriptor(HTMLBodyElement.prototype,'onhashchange').get.call(s); r.push(false) } catch (e) { r.push(e instanceof TypeError) }` | `true,false,true,false,false` | `true,true,false,true,true` |
@@ -806,8 +811,8 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | U-T2 | red (bind pass, facet 4; EW-1) | pre-bind page with `<body onload=A>`; `init_fresh` | the Window's `load` entry is raw `A`; the body has no `load` entry. Base: the reverse |
 | U-T3 | red (C8h's store; EW-5) | foreign document's `body`, `setAttribute('onfocus', 'A')` through the consumer | no `focus` entry on the body and none on the Window. Base: raw `A` on the body |
 | U-T4 | guard (D-5 keying) | U12's shape: bound document `d2 = create_document_node()` ≠ `document_root()`; a `body` in `d2` with `onhashchange=A`; `active = {d2, w}` | delivered to `w`; a `document_root()`-keyed step 3 returns `None` |
-| U-T6 | red (D-T7 delivery matrix) | for class ∈ {XW, EW, OR, FN (SVG `body` × a WEH name)} (derived from the two lists and a `div` name) × timing ∈ {Bind, Creation, first Insertion of an unmarked element, later Insertion of a marked element, HandlerWrite}: an element carrying one such attribute plus one ordinary attribute, its target's entry taken (`take_uncompiled`) after the first delivery | XW: delivered at Bind, Creation and every Insertion, never at HandlerWrite. EW: delivered at Bind and Creation only. OR and FN: Creation, or once. Base: EW and FN delivered at every Insertion |
-| U-T7 | red (D-T10 coverage) | built without a dispatcher (as umbrella U7 / U12), so no `Insert` marks it: `process_created_subtree` with `CloneScope::Subtree` over a clone root whose subtree has (i) a parent wider than `MAX_ANCESTOR_DEPTH` (the U11 precedent; independent of depth; the deeper-than-cap chain is RC-2a's deep-tree cell, PM 367), (ii) a clonable shadow root with `<button onclick=A>`, (iii) a `<template>` whose contents hold `<div onclick=A>` and a `<body onfocus=B>`, built with each owner (active, a non-active Document, I); then (ii)'s host with a light child, with `CloneScope::SelfOnly` | every child of (i)'s wide parent and every element of (ii)–(iii) is marked; under `SelfOnly` the shadow tree is marked and the light child is not; ordinary entries raw on their elements; the contents' `<body>` delivers nothing (I, EW-19); a non-active owner's `<body>` delivers nothing (EW-11, XW-14). The production shape (clone-internal `Insert`s, CI-1) is the VM cells': root T-16, T-20, T-20b; shadow-root children T-16b; both writers T-16c |
+| U-T6 | red (D-T7 delivery matrix) | for class ∈ {XW, EW, OR, FN (SVG `body` × a WEH name)} (derived from the two lists and a `div` name) × timing ∈ {Bind, Creation, first Insertion of an unmarked element, later Insertion of a marked element, HandlerWrite, Creation of an element marked by a first Insertion}: an element carrying one such attribute plus one ordinary attribute, its target's entry taken (`take_uncompiled`) after the first delivery | XW: delivered at Bind, Creation and every Insertion, never at HandlerWrite. EW: delivered at Bind and Creation only. OR and FN: Creation, or once. Creation on an already-marked element still delivers: the entry is raw again (§6.5). Base: EW and FN delivered at every Insertion |
+| U-T7 | red (D-T10 coverage) | built without a dispatcher (as umbrella U7 / U12), so no `Insert` marks it: `process_created_subtree` with `CloneScope::Subtree` over a clone root whose subtree has (i) a parent wider than `MAX_ANCESTOR_DEPTH` (the U11 precedent; independent of depth; the deeper-than-cap chain is RC-2a's deep-tree cell, PM 367), (ii) a clonable shadow root with `<button onclick=A>`, (iii) a `<template>` whose contents hold `<div onclick=A>` and a `<body onfocus=B>`, built with each owner (active, a non-active Document, I); then (ii)'s host with a light child, with `CloneScope::SelfOnly` | every child of (i)'s wide parent and every element of (ii)–(iii) is marked; under `SelfOnly` the shadow tree is marked and the light child is not; ordinary entries raw on their elements; the contents' `<body>` delivers nothing (I, EW-19); a non-active owner's `<body>` delivers nothing (EW-11, XW-14). The production shape (clone-internal `Insert`s, CI-1) is the VM cells': root T-16, T-20, T-20b; shadow-root children T-16b; both writers T-16c, T-16d |
 | U-T8 | red (D-T8; FN-1b, FN-4, FN-5, OR-1) | `is_event_handler_content_attribute_of` over every `EVENT_HANDLER_ATTRS` name × element {HTML `body`, HTML `frameset`, HTML `div`, SVG `body`, SVG `rect`, MathML `body`, MathML `mi`, null-namespace `body`}, through the AttributeChange arm and at Creation | HTML: GlobalEventHandlers names everywhere, WindowEventHandlers names on `body` / `frameset` only, Document-only names nowhere; SVG: every name; MathML: GlobalEventHandlers names only; null namespace: none. The base: every name installs |
 
 ### §6.3 End to end (shell)
@@ -828,7 +833,9 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | class test without namespace | T-9, T-9b, U-T1 |
 | an IDL accessor bypassing D-T1 | T-1 (body pair), T-5 / T-7 (normal pair) |
 | unresolvable → `None` | U-T1 (unresolvable row) |
-| X-W not narrowed (EW re-raw'd at insertion, rev 1's form) | T-14, T-15, T-17, T-16c (clone-internal), U-T6 |
+| X-W not narrowed (EW re-raw'd at insertion, rev 1's form) | T-14, T-15, T-17, U-T6 |
+| Creation appends a second entry instead of reusing (`set_inline_handler`'s `find_event_handler`, `mod.rs:266-274`) | T-16c, T-16d |
+| §4.2's `timing != Creation` dropped (the marked shortcut applies at Creation) | U-T6 (Creation of a marked element, OR) |
 | EW under the ordinary once rule (α) | T-15b, U-T6 (first-insertion row) |
 | X-W narrowed too far (XW not re-raw'd) | C8, U2, U-T6 |
 | clone path absent, or skipping a class | T-16, T-20, T-20b, U-T6 (Creation row), U-T7 |
@@ -840,6 +847,21 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | applicability test dropped (every name installs) | T-21, U-T8 |
 | MathML treated as SVG (every name), or WEH names accepted on every HTML element | T-21, U-T8 (MathML `body`, HTML `div` rows) |
 | applicability test skipped at Creation or in the AttributeChange arm | U-T8 (both paths) |
+
+### §6.5 Run-through of the PM 377 cells (PM 380)
+
+A written trace: the session code at `f9cf8c40` (unchanged by RC-2a), the cloner at `rc2a-clone-created`, plus §4.2.
+Shared steps: each copied child is appended as a childless shallow copy (`tree_clone.rs:415-419`), so its `Insert`
+(`tree/mutation.rs:289`) makes `handle_insert` (`event_handler_consumer.rs:441-455`) process that element alone. The
+IDL setter reuses the entry and clears its source (`event_handler_attrs.rs:628-634`). The getter reads the first
+handler entry (`event_listener.rs:194`, `event_handler_attrs.rs:580-596`). Dispatch runs every handler entry, each
+compiled on its own (`event_dispatch/mod.rs:317`, `engine.rs:234`).
+
+| Cell ↔ mutant | Intended (T3) | Mutant | Base (`f9cf8c40` + RC-2a) |
+|---|---|---|---|
+| T-16c ↔ Creation appends a second entry | `true,true,true`: b′'s Insertion skips EW (D-T7), Creation makes the Window's entry raw; b′ has no entry; s′'s Insertion and Creation share one entry (`mod.rs:266-274`), so `n` = 1 | `false,true,false`: the getter reads the first Window entry, which still holds `fn`; s′ has two entries, so `n` = 2 | `false,false,true`: `onfocus` is not Window-scoped (`resolve_handler_target`), so b′ is raw on itself and the Window keeps `fn` |
+| T-16d ↔ Creation appends a second entry | `true,true`: b′'s Insertion (XW, active node document) makes the Window's entry raw, and Creation rewrites it with the same source; one entry, `n` = 1 | `true,false`: the Insertion's reused entry compiles; the appended one also runs, so `n` = 2 | `true,true`: the Insertion is the only writer (guard) |
+| U-T6 marked-Creation row ↔ `timing != Creation` dropped | OR (`div`): `raw(A)`: the shortcut is skipped and `set_uncompiled` runs (`event_listener.rs:207`) | `NoSource`: `mod.rs:85` returns for a marked `div`; for the `body` classes the shortcut never applies (`is_body_or_frameset`, tag-only), so only the OR row turns red | none: no `Creation` timing |
 
 ## §7. Out of scope and slots
 
@@ -990,11 +1012,13 @@ does not restate C0's or C1's content.
 
 1. T3's branch is cut from main after C0a–C0c, RC-2a, C1-pre0, C1-pre and C1 land (PM decision 153); every `4fd85f4e`
    coordinate in §0.2 is re-measured there by its command, D-T4 is re-checked on C0b's landed `node_document`, H-T24 and
-   D-T10 on RC-2a's landed clone path and on `#11-capped-walker-deep-element-processing`'s rule if landed (§8.2), and the memo's coordinates and *Base* columns are updated before
+   D-T10 on RC-2a's landed clone path and on `#11-capped-walker-deep-element-processing`'s rule if landed (§8.2), H-T27 on `#11-event-path-window-missing` if
+   landed (L3 may land it before T3; T3's element dispatches are non-bubbling with non-capture handlers, so a Window on
+   the path changes none of them), and the memo's coordinates and *Base* columns are updated before
    implementation starts; existing tests changed by D-T8 are listed (§5.2).
 2. `/elidex-plan-review` passes on this memo (mandatory, §1.3).
 3. Red-first: T-1–T-9, T-14, T-15, T-15b, T-16, T-16b, T-16c, T-17, T-19, T-20, T-20b, T-21, U-T1–U-T3, U-T6, U-T7, U-T8, T-E1
-   committed failing; the fix makes them and §5.2's rewritten cells green; the guards (T-6b, T-8a, T-9b, T-18, U-T4)
+   committed failing; the fix makes them and §5.2's rewritten cells green; the guards (T-6b, T-8a, T-9b, T-16d, T-18, U-T4)
    are green at the head; the static-marked expectations (§5.2, T-6b) are confirmed by their runs.
 4. `/usr/bin/grep -rn 'resolve_handler_target\|is_body_element' crates` and `/usr/bin/grep -rn 'fn window_entity'
    crates/core/elidex-ecs` → 0 hits (`HostData::window_entity` and the `ScriptEngine` trait method stay);
