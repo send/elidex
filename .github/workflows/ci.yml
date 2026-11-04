@@ -254,7 +254,7 @@ jobs:
   # REVIEW ROUNDS, not with the program").
   # PR #586 (Python-pin PR-0) added a member and measured its run 41602387497:
   # slower leg "3.9" 191 s end to end ("3.x" 168 s); ceil(4 x 3.18 min) = 13,
-  # not above 22, so the value stays (raised only above it, never lowered there).
+  # not above 22, so the value stays 22 (that PR's plan, §7: raise only when N > 22).
   #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no
