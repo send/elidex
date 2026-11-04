@@ -15,7 +15,7 @@ use elidex_form::FormControlState;
 use super::event_handlers::handle_key;
 use super::focus::set_focus;
 use super::ime::handle_ime;
-use super::test_support::{build_test_content_state, probe_body_attr};
+use super::test_support::{build_test_content_state, probe_body_attr, set_test_clipboard};
 use super::ContentState;
 use crate::ipc::{BrowserToContent, ContentToBrowser, ImeKind, LocalChannel, ModifierState};
 
@@ -70,6 +70,15 @@ fn key(state: &mut ContentState, k: &str) {
     handle_key(state, "keydown", k, "", false, ModifierState::default());
 }
 
+/// A user Cmd+`k` (clipboard / select-all chords) at the focused element.
+fn cmd_key(state: &mut ContentState, k: &str) {
+    let mods = ModifierState {
+        meta: true,
+        ..ModifierState::default()
+    };
+    handle_key(state, "keydown", k, "", false, mods);
+}
+
 /// The logged events so far, comma-joined (`""` when none fired).
 fn log(state: &ContentState) -> String {
     probe_body_attr(&state.pipeline, "data-log").unwrap_or_default()
@@ -96,6 +105,10 @@ fn value(state: &ContentState, id: &str) -> String {
 
 fn has_change(state: &ContentState) -> bool {
     log(state).split(',').any(|t| t == "change")
+}
+
+fn has_input(state: &ContentState) -> bool {
+    log(state).split(',').any(|t| t.starts_with("input"))
 }
 
 /// `<b>` (the control under test, `tag`) followed by a plain `<input id=c>`.
@@ -264,4 +277,135 @@ fn c19_second_focus_rebaselines_before_user_edit_input() {
 #[test]
 fn c19_second_focus_rebaselines_before_user_edit_textarea() {
     c19("textarea");
+}
+
+// ---- Commit (2): `input` iff the user changed the value -------------------
+
+/// The caret position of `#id`.
+fn cursor(state: &ContentState, id: &str) -> usize {
+    let e = entity(state, id);
+    state
+        .pipeline
+        .dom
+        .world()
+        .get::<&FormControlState>(e)
+        .map(|f| f.cursor_pos())
+        .expect("form control state")
+}
+
+/// A script `value = "ab"` before focus leaves the caret at the end (the
+/// setter's cursor move), so ArrowLeft has somewhere to go — the setup of the
+/// Chromium-measured N1 / M5 cases. (A collapsed VM `setSelectionRange(1, 1)`
+/// does not move elidex's caret, `cursor_pos`, so it cannot set this up.)
+fn focus_with_caret_at_end(state: &mut ContentState) {
+    eval(state, "document.getElementById('b').value = 'ab';");
+    ua_focus(state, "b");
+    assert_eq!(cursor(state, "b"), 2, "caret at the end");
+}
+
+/// C8 (N1): ArrowLeft moves the caret but leaves the value; no `input`.
+#[test]
+fn c8_arrow_key_fires_no_input() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    focus_with_caret_at_end(&mut s);
+    clear_log(&mut s);
+    key(&mut s, "ArrowLeft");
+    assert_eq!(cursor(&s, "b"), 1, "the arrow moved the caret");
+    assert_eq!(value(&s, "b"), "ab");
+    assert!(!has_input(&s), "no input for a caret move ({})", log(&s));
+}
+
+/// C11: an IME commit into a full `maxlength` control inserts nothing; no `input`.
+#[test]
+fn c11_ime_commit_with_full_maxlength_fires_no_input() {
+    let (mut s, _b) = setup(&pair("input", "maxlength=1", "z"));
+    ua_focus(&mut s, "b");
+    eval(
+        &mut s,
+        "document.getElementById('b').setSelectionRange(1, 1);",
+    );
+    clear_log(&mut s);
+    handle_ime(&mut s, ImeKind::Commit("あ".to_string()));
+    assert_eq!(value(&s, "b"), "z");
+    assert_eq!(log(&s), "compositionend", "compositionend only");
+}
+
+/// C12 (N2): ArrowLeft in a `readonly` control moves the caret; no `input`.
+#[test]
+fn c12_readonly_navigation_fires_no_input() {
+    let (mut s, _b) = setup(&pair("input", "readonly", ""));
+    focus_with_caret_at_end(&mut s);
+    clear_log(&mut s);
+    key(&mut s, "ArrowLeft");
+    assert_eq!(cursor(&s, "b"), 1, "readonly navigation moved the caret");
+    assert_eq!(value(&s, "b"), "ab");
+    assert!(!has_input(&s), "no input ({})", log(&s));
+}
+
+/// C27: paste into a `readonly` control leaves the value; no `input`.
+fn c27(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "readonly", "ab"));
+    set_test_clipboard("q");
+    ua_focus(&mut s, "b");
+    clear_log(&mut s);
+    cmd_key(&mut s, "v");
+    assert_eq!(value(&s, "b"), "ab");
+    assert!(!has_input(&s), "no input ({})", log(&s));
+}
+
+#[test]
+fn c27_paste_into_readonly_fires_no_input_input() {
+    c27("input");
+}
+
+#[test]
+fn c27_paste_into_readonly_fires_no_input_textarea() {
+    c27("textarea");
+}
+
+/// C28: paste into a full `maxlength` control leaves the value; no `input`.
+fn c28(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "maxlength=1", "z"));
+    set_test_clipboard("q");
+    ua_focus(&mut s, "b");
+    eval(
+        &mut s,
+        "document.getElementById('b').setSelectionRange(1, 1);",
+    );
+    clear_log(&mut s);
+    cmd_key(&mut s, "v");
+    assert_eq!(value(&s, "b"), "z");
+    assert!(!has_input(&s), "no input ({})", log(&s));
+}
+
+#[test]
+fn c28_paste_into_full_maxlength_fires_no_input_input() {
+    c28("input");
+}
+
+#[test]
+fn c28_paste_into_full_maxlength_fires_no_input_textarea() {
+    c28("textarea");
+}
+
+/// C29: cut writes the clipboard, fires `input` (`deleteByCut`) and marks.
+#[test]
+fn c29_cut_marks_and_fires_input() {
+    let (mut s, _b) = setup(&pair("input", "", "ab"));
+    set_test_clipboard("");
+    ua_focus(&mut s, "b");
+    eval(
+        &mut s,
+        "document.getElementById('b').setSelectionRange(0, 1);",
+    );
+    clear_log(&mut s);
+    cmd_key(&mut s, "x");
+    assert_eq!(
+        super::test_support::test_clipboard_text().as_deref(),
+        Some("a")
+    );
+    assert_eq!(value(&s, "b"), "b");
+    assert_eq!(log(&s), "input:deleteByCut");
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "cut is a user change ({})", log(&s));
 }

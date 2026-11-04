@@ -111,17 +111,13 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
             }
 
             {
-                // Clear composition and insert the committed text.
+                // Clear composition and insert the committed text, through the
+                // user-edit funnel (`input` iff the value changed).
                 // If there is an active selection, delete it first (F-09).
-                if let Ok(mut fcs) = state
-                    .pipeline
-                    .dom
-                    .world_mut()
-                    .get::<&mut FormControlState>(target)
-                {
+                let edit = elidex_form::apply_user_edit(&mut state.pipeline.dom, target, |fcs| {
                     fcs.composition_text = None;
                     if fcs.selection_start() != fcs.selection_end() {
-                        elidex_form::delete_selection(&mut fcs);
+                        elidex_form::delete_selection(fcs);
                     }
                     // Enforce maxlength on committed text (P13).
                     let insert_text = if let Some(max) = fcs.maxlength {
@@ -137,7 +133,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                     if !insert_text.is_empty() {
                         fcs.insert_at_cursor(&insert_text);
                     }
-                }
+                });
 
                 // Dispatch compositionend event.
                 let mut end_event = DispatchEvent::new_composed("compositionend", target);
@@ -146,8 +142,11 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                     EventPayload::Composition(CompositionEventInit { data: text.clone() });
                 state.pipeline.dispatch_event(&mut end_event);
 
-                // Dispatch input event.
-                dispatch_input_event_typed(state, target, "insertFromComposition", Some(&text));
+                // Dispatch input event — only for a value change (a full
+                // `maxlength` with no selection inserts nothing).
+                if edit.is_some_and(|e| e.changed) {
+                    dispatch_input_event_typed(state, target, "insertFromComposition", Some(&text));
+                }
             }
 
             state.reset_caret_blink();
