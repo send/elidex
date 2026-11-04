@@ -3,9 +3,8 @@
 //! Verifies that every mutation primitive
 //! (`append_child` / `insert_before` / `remove_child` / `replace_child` /
 //! `destroy_entity` / `set_text_data` / `replace_text_data` /
-//! `set_attribute` / `remove_attribute`) fires the correct
-//! [`MutationEvent`] variant (the `fire_*` helpers are in
-//! `mutation_hook_fire_helpers.rs`).
+//! `set_attribute` / `remove_attribute`) fires the correct [`MutationEvent`] variant
+//! (siblings: `mutation_hook_fire_helpers.rs`, `mutation_hook_specialised.rs`).
 //! Uses a mock `MutationDispatcher` impl that records each event into a
 //! `Vec<MockEvent>` (variant-equivalent shape).
 
