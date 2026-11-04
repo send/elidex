@@ -33,7 +33,8 @@ Program order: C0a → C0b-pre1 → **C0b** → C0c (C0a may land any time befor
 spec-order walk and `document.adoptNode` (C0c: D-3 (c), D-6, D-13, D-19); the *replace* record order (C0a); template
 contents' owner `f` (C1); program §7.
 
-**Changelog.** *Rev 3.5* (2026-11-03): C0b-pre2 dropped (PM 300). *Rev 3.4.1* (2026-11-03): mise task and CLAUDE.md edits removed (PM 297). *Rev 3.4* (2026-11-03, with the program memo's rev 3.4): plan-review at `0aaa80d9` and PM 290, §10.1. *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
+**Changelog.** *Rev 3.6* (2026-11-04): C1 plan-review R1 Q-4 erratum (PM 319): `clone_subtree`'s document override is a
+`NewNodeOwner`, like `clone_node_shallow`'s (D-11); H-b3, D-7 (d), §3, §4.4, §4.9, §5.3 follow. *Rev 3.5* (2026-11-03): C0b-pre2 dropped (PM 300). *Rev 3.4.1* (2026-11-03): mise task and CLAUDE.md edits removed (PM 297). *Rev 3.4* (2026-11-03, with the program memo's rev 3.4): plan-review at `0aaa80d9` and PM 290, §10.1. *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
 Ax3 / Ax4, and PM 283; dispositions §10): D-21 and what only it needs (population P-10, U19's relation legs, §5.2's Attr tests,
 the handler hollowing, `AttrData`'s visibility) moved to C0b-pre2 (NEW memo); C0b keeps D-3 (b), U1's Attr variant
 (built through `attr_node` / `set_attr_node`) and U19's node-document legs. The CI/tools prereq is #585; the boundary
@@ -76,7 +77,7 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
 |---|---|---|
 | H-b1 | The tolerant converter creates bottom-up and links after the recursion | `convert_node` (`crates/dom/elidex-html-parser/src/convert.rs:237`) creates the element (`:251`), converts its children under it (`:289`; template contents `:284-286`), and returns; the caller links it (`convert_children` `:74-75`, `convert_fragment_top_level` `:103-104`). The document entry is `convert.rs:19` |
 | H-b2 | The strict builder inserts each element at creation, before its children | `insert_element_named` (`crates/dom/elidex-html-parser-strict/src/tree_builder/insert.rs:61`) and the foreign path (`:108-111`) create and insert; strict template contents are attached after the template's insertion (`shadow.rs:124`, "post-insert" in `attach_template_contents`'s docstring, `crates/core/elidex-ecs/src/dom/mod.rs:553`) |
-| H-b3 | The clone paths | `clone_subtree` (`tree_clone.rs:186`) takes a document override (`:208`) and stamps (`:221`, `:230`, `:417`); `clone_node_shallow(src)` (`:251`) takes none; the dom-api shadow pass hand-stamps the replicated shadow root and the cloned host (`node_methods/clone.rs:283-284`) and each shallow shadow child (`:294-301`, the `!deep` arm) |
+| H-b3 | The clone paths | `clone_subtree` (`tree_clone.rs:186`) takes a document override `doc_override: Option<Entity>` (`:190`; `None` reads `src`'s owner, `:208`, else the clone is an orphan, `:223-227`) and stamps (`:221`, `:230`, `:417`); `clone_node_shallow(src)` (`:251`) takes none; the dom-api shadow pass hand-stamps the replicated shadow root and the cloned host (`node_methods/clone.rs:283-284`) and each shallow shadow child (`:294-301`, the `!deep` arm) |
 | H-b4 | Every CI compile but #585's step has all features on, so a dev-only feature is on for lib targets there; #585's step alone builds lib + bin with default features | at `origin/main` `115a667c`: `.github/workflows/ci.yml:86` `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `:89` nextest and `:92` doc-tests `--all-features`; `:127` doc `--all-features`; `:110-111` "Clippy (default features, no dev-only feature)", `cargo clippy --workspace -- -D warnings` |
 
 ### §0.3 Premise errors (program's, restated for this PR's review)
@@ -121,8 +122,8 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   slot closes at C0c; the paragraph states the fact, not the slot). (b) `owner_doc` (`document_base.rs:173-178`)
   deleted, callers `:313`, `:365`, `:395` read `node_document` (HTML §4.2.3 *set the frozen base URL* step 1, "Let
   document be element's node document"). (c) `href_accessor.rs:50`, `document_props.rs:75` → `node_document(x)`.
-  (d) `focus/delegate.rs:85`, `tree_clone.rs:208`, `node_methods/clone.rs:242` → `node_document`; `teardown.rs:336` is
-  deleted with D-8.
+  (d) `focus/delegate.rs:85` → `node_document`; `tree_clone.rs:208` is deleted and `node_methods/clone.rs:242` calls the
+  entry (D-11, the cloners); `teardown.rs:336` is deleted with D-8.
 - **D-8 — no finishing re-home.** `finish_detached_fragment(root, document)` (its `context` parameter and `:336-337`
   deleted): snapshot `child_list_uncapped(root)`, destroy root, destroy the throwaway, return. Both parser tiers' calls
   drop the `context` argument (strict `tree_builder/mod.rs`, tolerant `lib.rs`).
@@ -139,7 +140,21 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   the appropriate place; for text and comments the adjusted insertion location's parent; for a doctype the parse
   document).
 - **D-11 — the census migrated.** Every member of §4.4's population takes its owner from the entry (or the clone's
-  document). `clone_node_shallow(&mut self, src, document: NewNodeOwner)` (DOM *clone a single node* "given document");
+  document). **The cloners take the document as a `NewNodeOwner`:** `clone_node_shallow(&mut self, src, document:
+  NewNodeOwner)` and `clone_subtree(&mut self, src, pairs, document: NewNodeOwner)` (HEAD's `doc_override:
+  Option<Entity>`, H-b3). Both are the "document" of DOM *clone a node* / *clone a single node* (`webref body dom
+  concept-node-clone`: "an optional document document (default node's node document)", passed unchanged to the
+  children, step 5, and the shadow children, step 6.7). The caller always passes the entry's value for the operation's
+  Document: `clone_node_with_shadow_honor` passes `node_document_for_new_nodes(src)` (the default) and threads that
+  value to the shadow and template passes, or `node_document_for_new_nodes(cloned)` for a Document source (the clone is
+  its own, as `shadow_doc` today, `node_methods/clone.rs:239-243`). HEAD's `None` (derive from `src`, else an orphan)
+  has no successor: production has no derive-from-`src` fallback, and a clone is ownerless only through the entry's
+  `None` (a source without a node document), as for every creator. A Document source still ignores the argument and
+  stamps the clone itself (`tree_clone.rs:230`), as at HEAD. The test
+  callers (`elidex-ecs`'s `dom/tests/clone.rs`, `dom/tests/associated_document.rs`; `elidex-dom-api`'s
+  `live_collection/tests.rs:598`, `:631`) pass `node_document_for_new_nodes(src)`; none needs a fixtures-gated
+  constructor. *Why one type:* one entry decides every owner (program D-11 / D-17); an `Option<Entity>` whose `None`
+  derives an owner decides it outside the entry and is an ownerless production path outside D-17's compile guarantee.
   `attach_shadow_with_init` spawns the shadow root with `node_document_for_new_nodes(host)` (*attach a shadow root*
   step 5); `create_attribute(name, owner)` (callers `CreateAttribute` `char_data/attr.rs:35` → `this`;
   `GetAttributeNode`'s materialization (`char_data/attr.rs:90`) → the element, through the entry); `create_document_type(…, owner)`; the table helpers through
@@ -268,7 +283,7 @@ character* 5; *insert a comment* 4; *adjusted insertion location* 3–5), `creat
 |---|---|---|---|---|---|
 | WHATWG DOM §4.2.3 Mutation algorithms | *insert* 7.1; *replace* 6 | adopt into parent's node document before the link; replace adopts node (a fragment included) | `append_child` `crates/core/elidex-ecs/src/dom/tree/mutation.rs:22`, `insert_before` `:95`, `replace_child` `:138`; session fragment arm `crates/script/elidex-script-session/src/mutation/mod.rs:713` | ✓ | yes |
 | WHATWG DOM §4.5 Interface Document | *adopt* 1, 2, 3, 3.1, 3.3.1, 3.4 | oldDocument; remove; per descendant: node document, attributes, adopting steps (C2 identity) | `EcsDom::adopt` (NEW); `adopt_subtree` `crates/core/elidex-ecs/src/dom/tree/teardown.rs:251` (moves, private) | ✗ (3.2, 3.3.2: program §7; 3.3.3: C0c) | yes |
-| WHATWG DOM §4.4 Interface Node | *node document*; `ownerDocument`; *clone a single node* (given document); *string replace all* 2 | the stored fact; null for a Document; clones and texts given a document | `crates/core/elidex-ecs/src/dom/mod.rs:817`; `crates/dom/elidex-dom-api/src/node_methods/core.rs:279`; `crates/core/elidex-ecs/src/dom/tree_clone.rs:251`; `crates/dom/elidex-dom-api/src/node_methods/text_content.rs:119` | ✓ | yes |
+| WHATWG DOM §4.4 Interface Node | *node document*; `ownerDocument`; *clone a single node* (given document); *string replace all* 2 | the stored fact; null for a Document; clones and texts given a document | `crates/core/elidex-ecs/src/dom/mod.rs:817`; `crates/dom/elidex-dom-api/src/node_methods/core.rs:279`; `crates/core/elidex-ecs/src/dom/tree_clone.rs:186`, `:251`; `crates/dom/elidex-dom-api/src/node_methods/text_content.rs:119` | ✓ | yes |
 | WHATWG DOM §4.2.6 Mixin ParentNode | *convert nodes into a node* 1, 3 | texts and fragment given this's node document | `crates/dom/elidex-dom-api/src/child_node/mod.rs:302` | ✓ | yes |
 | WHATWG DOM §4.9 Interface Element | *attach a shadow root* 5; `insertAdjacentText` 1 | given element's node document | `crates/core/elidex-ecs/src/dom/shadow.rs:171`; `crates/dom/elidex-dom-api/src/element/tree.rs:431-432` | ✓ | yes |
 | WHATWG DOM §4.11 Interface Text | *split a Text node* 5 | new node given node's node document | `crates/dom/elidex-dom-api/src/char_data/split_text.rs:148` | ✓ | yes |
@@ -348,12 +363,12 @@ unmigrated argumentless call fail to compile.
 | `table_mutation/mod.rs:116`, `:127`, `:138`, `:148`, `:355`, `:359` | thead, tfoot, caption, tbody, tr, tbody (table-created) | `None` | the table, via `create_table_element` (NEW, §4.9.1) |
 | `table_mutation/mod.rs:448`; `:512` | section's tr; row's td | `None` | the section (§4.9.5 `insertRow` 2); the row (§4.9.8 `insertCell` 2) |
 | `document.rs:235`, `:264`, `:291`; `char_data/document_props.rs:337`, `:353`, `:377`, `:399` | createElement and kin; a created template's contents (`:264`) | `Some(this)` | `this` (value unchanged); `:264` the template |
-| `node_methods/clone.rs:321`, `:323`, `:422` | deep clone, shallow clone, a cloned template's contents | `doc_override`; none; `clone_doc` | the operation's document (*clone a single node* "given document") |
+| `node_methods/clone.rs:321`, `:323`, `:422` | deep clone, shallow clone, a cloned template's contents | `doc_override`; none; `clone_doc` | the entry on the operation's Document, one `NewNodeOwner` threaded to every pass (D-11, the cloners) |
 | `elidex-custom-elements/src/entity_spawn.rs:57` | CE element | caller's owner: the VM constructor passes `ctx.host().document_entity_opt()` (`crates/script/elidex-js/src/vm/host/custom_elements/html_element.rs:231`) | entry(the document argument) inside `spawn_custom_element_entity`; `None` → no element (D-11) |
 | `elidex-form/src/inert_document.rs:120` | DOMParser `<html>` | `Some(doc)` | `doc` |
 | `elidex-form/src/submit.rs:526`; `elidex-style/src/pseudo.rs:63`; `elidex-layout-table/src/grid.rs:422`, `:467`; `elidex-layout/src/layout/anonymous_table.rs:159` | reset text; pseudo text; anonymous table wrappers | `None` | the element they are created for |
 | `range/mutation.rs:266`, `:303`, `:354`, `:392` (A1–A4) | extract fragment, Text clones | `None` | §4.5 |
-| `tree_clone.rs:251` (`clone_node_shallow`) | shallow clone | none | the operation's document (new parameter) |
+| `tree_clone.rs:186` (`clone_subtree`), `:251` (`clone_node_shallow`) | deep clone; shallow clone | `doc_override` (`None`: `src`'s owner, `:208`, else orphan); none | the caller's `NewNodeOwner` (D-11, the cloners) |
 
 ### §4.5 Range sites
 
@@ -409,7 +424,8 @@ cell comments `crates/script/elidex-js/src/vm/tests/tests_event_handler_scriptin
 (`teardown.rs:276-289`: reason (1) is false after D-10, reason (2) — the strict rollback's reach — stays);
 `finish_detached_fragment`'s re-home and "orphan-detached" paragraphs (`teardown.rs:316-322`); `clone.rs:276-281`,
 `:290-299` ("spawns the replicated shadow root without a node document", "The shallow cloner never stamps");
-`walkers.rs:23` (`adopt_subtree` "so HTML §13.4 fragment adopt moves the contents") and `:94`; `lib.rs:150-159`
+`clone_subtree`'s docstring and comment (`tree_clone.rs:177-184`, `:196-203`: the tree-root fallback and "`None` derives it
+from `src`'s own node document"; D-11); `walkers.rs:23` (`adopt_subtree` "so HTML §13.4 fragment adopt moves the contents") and `:94`; `lib.rs:150-159`
 (tolerant's `owner_doc` comment); the getter's fallback comment (`core.rs:245-278`) and the VM getter's docstring
 (`crates/script/elidex-js/src/vm/host/node_methods_extras.rs:34-40`, "falls back to `EcsDom::document_root`"); `document_props.rs:59`
 ("falls back to the tree-root walk"); `split_text.rs`: §4.10 → §4.11 at `:1`, `:27`, `:34`, `:71`, `:153`, `:194`,
@@ -472,7 +488,7 @@ deleted, its reason recorded.
 | `crates/core/elidex-ecs/src/lib.rs` | 51 | `AssociatedDocument` out of the re-export | < 1000 |
 | `crates/core/elidex-ecs/src/dom/tree/mutation.rs` | 467 | `adopt` (NEW), the walk (moved in), primitives | ≈ 560; < 1000 |
 | `crates/core/elidex-ecs/src/dom/tree/teardown.rs` | 344 | walk out; `begin` / `finish` | < 1000 |
-| `crates/core/elidex-ecs/src/dom/shadow.rs`, `tree_clone.rs` | 549, 425 | shadow-root stamp; shallow clone document; reader | < 1000 |
+| `crates/core/elidex-ecs/src/dom/shadow.rs`, `tree_clone.rs` | 549, 425 | shadow-root stamp; both cloners' `NewNodeOwner` document, `:208`'s derivation deleted (D-11) | < 1000 |
 | `crates/core/elidex-ecs/Cargo.toml` | — | `[features] fixtures` | — |
 | 24 crates' `Cargo.toml` (`[dev-dependencies]`, D-17 (3)'s population) | — | `features = ["fixtures"]` (D-17) | mechanical; no `.rs` file touched for it |
 | `scripts/check-fixture-boundary.sh` (NEW); `.github/workflows/ci.yml` (a step after #585's default-features step; the `rust` filter gains the script's path) | — | the boundary check (D-17 (4)) | new |

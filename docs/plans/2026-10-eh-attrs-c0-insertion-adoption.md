@@ -55,7 +55,8 @@ Range program's planned sites A6–A12 except as §4.5 assigns them; the Selecti
 (§7); `replaceChild(X, X)`'s records (§7); `moveBefore` (not implemented); the unification of the VM's Attr wrapper
 with dom-api Attr entities (`#11-dom-api-attr-entity-model-unification`, §7).
 
-**Changelog.** *Rev 3.9* (2026-11-03, focused re-check after PM 315; with C0c memo rev 3.7.3): D-3's skip pointer covers
+**Changelog.** *Rev 3.9.1* (2026-11-04, with C0b memo rev 3.6, C1 plan-review R1 Q-4 erratum): D-7 (d) and D-11 point at
+C0b D-11 for the cloners' `NewNodeOwner` document. *Rev 3.9* (2026-11-03, focused re-check after PM 315; with C0c memo rev 3.7.3): D-3's skip pointer covers
 (b) as well as (a); I-U and §2.2 A1×A4 say what tree position chooses. *Rev 3.8* (2026-11-03, PM 317 / 318): #583 landed (`12ea5dce`): header coordinates, edge c0h; D-14 (d),
 (e) are L3 RC-0a's (PM 318): header table, D-14, c0-pre-b, H-L3 (2), §9 item 2. *Rev 3.7* (2026-11-03): sweep after PM 315 — D-3 (a) / (c), §2.1 A3, §2.2 A3×A4 and §9 item 6 point at
 C0c memo D-3 (c) / D-6 / DoD 8 instead of restating the pre-3.7 segment rule. *Rev 3.6* (2026-11-03): C0c's plan-review (`76af676a`; dispositions in the C0c memo §10) and PM 306 /
@@ -213,8 +214,9 @@ cells) and cites this text.
   the test `match` in `mutation_hook.rs` gain explicit no-op arms. *Batch equivalence* and the idiom table: C0c memo.
 - **D-7 (C0b) — every node-document derivation reads `node_document`.** (a) N1's clause (b) proxy becomes
   `dom.node_document(target).is_some_and(|d| d != bound_document)`; (b) `owner_doc` deleted; (c) the two
-  `unwrap_or(x)` idioms → `node_document(x)`; (d) `focus/delegate.rs:85`, `tree_clone.rs:208`,
-  `node_methods/clone.rs:242`, `teardown.rs:336` read `node_document` (or are deleted, D-8); (e) `selection.rs` not
+  `unwrap_or(x)` idioms → `node_document(x)`; (d) `focus/delegate.rs:85` reads `node_document`;
+  `tree_clone.rs:208` is deleted and `node_methods/clone.rs:242` calls the entry (C0b memo D-11); `teardown.rs:336` is
+  deleted (D-8); (e) `selection.rs` not
   changed.
 - **D-8 (C0b) — the fragment parse returns nodes already in the context's document; no finishing re-home.**
   `finish_detached_fragment(root, document)` snapshots root's children, destroys root and the throwaway, and returns the
@@ -284,7 +286,7 @@ cells) and cites this text.
   defined by property and enumerated by command (§4.4), not a fixed list: every production call of an `elidex-ecs`
   node creator. Each passes `node_document_for_new_nodes(source)` with `source` = the node the spec creates it "given …
   node document" of (the C0b memo §4.4's `source` column for the `27b50dfe` snapshot), or, for a clone, the operation's document
-  (`clone_node_shallow` gains a `document` parameter, DOM *clone a single node* "given document"; P-2). Shadow roots
+  (both cloners take a `NewNodeOwner` document, DOM *clone a single node* "given document": C0b memo D-11; P-2). Shadow roots
   are stamped from the host (*attach a shadow root* step 5); Attr entities and doctypes gain an owner. The custom-element constructor's owner decision lives in
   `elidex_custom_elements::spawn_custom_element_entity(dom, …, document: Option<Entity>) -> Option<Entity>` (the entry
   over the current global's associated Document); the VM passes the marshalled `document_entity_opt()`, and a `None`
