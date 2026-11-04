@@ -300,7 +300,7 @@ impl VmInner {
         // §20.1.2.21 `Object.prototype` (BUILTIN) + §20.1.3.1
         // `Object.prototype.constructor` (METHOD) + the `Object` global binding,
         // via the shared sibling helper. %Object.prototype% is created by
-        // `register_prototypes` (called at globals.rs `register()` before this).
+        // `register_prototypes` (called by `register_globals` in `globals.rs` before this).
         let obj_proto = self.object_prototype.expect(
             "object_prototype is populated by register_prototypes before register_object_global",
         );
@@ -308,7 +308,8 @@ impl VmInner {
         // `Object.name` = "Object" comes free from `create_native_function_keyed`.
         // `Object.length` is intentionally NOT installed: no built-in ctor in elidex
         // installs `.length` (a uniform gap — a per-ctor `.length` pass is a
-        // separate concern, tracked as a candidate slot in this PR's plan-memo §7),
+        // separate concern, recorded as a finding in #474's plan-memo
+        // `docs/plans/2026-07-vm-object-constructor-repair.md` §7),
         // so adding it only to `Object` would be a strangler.
     }
 

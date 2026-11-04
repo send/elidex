@@ -6,7 +6,9 @@
 //! `globals_install.rs` (shared property-install primitives),
 //! `globals_primitives.rs` (String / Number / Boolean / RegExp / Symbol /
 //! BigInt, `console`), `globals_errors.rs` (Error family),
-//! `globals_async.rs` (Promise, Generator).
+//! `globals_async.rs` (Promise, Generator). Not exhaustive: Date lives under
+//! `natives_date/`, and the host / Web API families `register_globals` calls
+//! live under `vm/host/`.
 
 use super::natives::{
     native_decode_uri, native_decode_uri_component, native_encode_uri, native_encode_uri_component,
@@ -44,8 +46,9 @@ impl VmInner {
     // Flat sequence of intrinsic / host-global `register_*_global()` calls.
     // Splitting into groups buys no clarity — the ordering constraints
     // (Object.prototype before Array global, EventTarget.prototype before
-    // Window, …) are captured in the inline comments.  Sibling
-    // [`Self::register_prototypes`] carries the same allow.
+    // Window, …) are captured in the inline comments.  The
+    // sibling [`Self::register_prototypes`] (in `globals_fundamentals.rs`)
+    // carries the same allow.
     #[allow(clippy::too_many_lines)]
     pub(super) fn register_globals(&mut self) {
         // Allocate the global object (`globalThis` / `window`).  It is a
@@ -826,8 +829,8 @@ impl VmInner {
             // `MediaQueryList` / the `customElements` registry above. Both
             // prototypes chain only on `Object.prototype`; the
             // `DOMParser.parseFromString` Document wrapper needs
-            // `node_prototype` (already installed by `register_prototypes`
-            // before this block). S5-1.
+            // `node_prototype` (set earlier in `register_globals` by
+            // `register_node_prototype`, host/node_proto.rs). S5-1.
             if matches!(self.global_scope_kind, GlobalScopeKind::Window) {
                 self.register_dom_parser_global();
                 self.register_xml_serializer_global();

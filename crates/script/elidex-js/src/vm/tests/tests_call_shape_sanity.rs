@@ -61,10 +61,7 @@ fn symbol_construct_throws_not_a_constructor() {
 #[test]
 fn array_both_modes_work() {
     // Ordinary accepts both [[Call]] and [[Construct]].  Confirms the
-    // default `CallShape::Ordinary` is unchanged by Stage 2.  (Elidex
-    // does not surface `Object` as a callable constructor — see
-    // `vm/globals_fundamentals.rs::register_object_global` — so `Array` stands as
-    // the Ordinary witness.)
+    // default `CallShape::Ordinary` is unchanged by Stage 2.
     assert!(eval_bool(
         "Array().length === 0 && new Array().length === 0",
     ));
