@@ -44,10 +44,8 @@ impl VmInner {
     // -- Global registration -------------------------------------------------
 
     // Flat sequence of intrinsic / host-global `register_*_global()` calls.
-    // Splitting into groups buys no clarity — the ordering constraints
-    // (Object.prototype before Array global, EventTarget.prototype before
-    // Window, …) are captured in the inline comments.  The
-    // sibling [`Self::register_prototypes`] (in `globals_fundamentals.rs`)
+    // Registration structure: `#11-vm-globals-registration-structure`.
+    // The sibling [`Self::register_prototypes`] (in `globals_fundamentals.rs`)
     // carries the same allow.
     #[allow(clippy::too_many_lines)]
     pub(super) fn register_globals(&mut self) {
