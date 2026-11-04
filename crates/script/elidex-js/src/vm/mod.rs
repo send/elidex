@@ -24,6 +24,8 @@ pub(crate) mod gc;
 mod globals;
 mod globals_async;
 mod globals_errors;
+mod globals_fundamentals;
+mod globals_install;
 mod globals_primitives;
 mod host;
 pub mod host_data;
