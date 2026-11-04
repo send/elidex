@@ -60,6 +60,10 @@ re-derived under (i); the `shadow_doc = None` branch stated as the cloner has it
 §4.10 table, §5.1 row, §6 (the flipped test named as the Codex case; (b) as pass 3's pin; new (j), the `<input>`
 shape end-to-end), §9 DoD 1. Line counts, census commands and the #466 reversal are untouched.
 
+**Rev 3.3** (2026-11-04) — the three Rev 3.2 delta re-review MINs: §4.9 rewrite list gains `clone.rs:236-238` and
+`:257-261`; §9 DoD 1 is decided by a PR-head re-run (parameter rename `deep` → `subtree`); the `shadow_doc = None`
+behaviour change is stated (slot `#11-ownerless-node-creation`).
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 Frame
@@ -339,7 +343,12 @@ file is edited.
   (Codex #589; §0.3 item 6). The `!deep` hand stamp `:294-301` is removed: under (i) every shadow child goes through
   `clone_subtree` with `doc_override = shadow_doc`, which stamps the child (`tree_clone.rs:221`) and threads the
   document into its subtree (`:232`); with `shadow_doc = None` the cloner derives the document from the child's own
-  node document (`:208`), as the deep path does today, and the deleted stamp did nothing in that case either. Which
+  node document (`:208`), as the deep path does today, and the deleted stamp did nothing in that case either.
+  The deletion does change behaviour in one shape: a `cloneNode(false)` root whose host has no owner document
+  (`shadow_doc = None`) while its shadow child has its own `AssociatedDocument`. Before, that child got no stamp;
+  after, it gets its own document, as the deep path does today. The spec threads one document, the host's. Hosts
+  without an owner document are the ownerless-node state owned by Layout's slot `#11-ownerless-node-creation`
+  (umbrella §8 / C3), so RC-2a does not decide it and only states the change. Which
   hand stamp each side removes in each landing order is H9's rule (umbrella Appendix H), applied as written; the PR
   body records which state its base was in.
 - **D-6 (Attribute stub; umbrella §5.2a).** RC-2a's diff does not touch `CloneNode`'s `invoke` (`clone.rs:91-167`): the
@@ -514,7 +523,8 @@ In `clone_node_with_shadow_honor` (`clone.rs:227-306`):
 - **D14 (D-5; the rule is stated there, not here).** Two edits in the loop. Pass 4's shadow-child clone becomes
   `clone_recording(dom, child, true, shadow_doc, &mut pairs)` (`:290`; D-5 (i): step 6.7, true at every pair). Pass
   3's call becomes `replicate_template_contents(s, d, dom, subtree, shadow_doc, &mut pairs)` (`:262`) with
-  `let subtree = deep || d != cloned;` computed in the loop (D-5 (ii)); the local has no other use. After the edit
+  `let subtree = deep || d != cloned;` computed in the loop (D-5 (ii)); the local has no other use.
+  `replicate_template_contents`'s parameter is renamed `deep` → `subtree` (the spec's term; §9 DoD 1). After the edit
   `clone_recording`'s shallow arm (`:322-325`) is reached only from the root call (`:229`): pass 4 passes true, and
   `replicate_template_contents` returns before its own `clone_recording` when its flag is false (`:423-425`). The
   `if !deep { … set_associated_document(child_clone, doc) }` block (`:294-301`) is deleted; the derivation is in
@@ -811,7 +821,10 @@ The umbrella's §6 RC-2a rows, applied here: `node_methods/clone.rs:58-64` and `
 closed) and `:29` ("within the *same* synchronous clone operation" stays true); `mutation_event.rs:1`, `:45-106`,
 `:319-322`; `consumer.rs:72-74`; `reconciler.rs:4-8`; `consumer_dispatcher.rs:50-57`, `:78-87`;
 `custom_elements/upgrade.rs:117-127` and `node_methods_extras.rs:187-190`, `:214-234`, `elidex-form/src/clone.rs:16-18`
-(deleted or re-pointed); `node_methods/clone.rs:208-216`, `:288-289` (the D14 rule); plus `clone_shadow.rs:9-14`
+(deleted or re-pointed); `node_methods/clone.rs:208-216`, `:288-289` (the D14 rule), `:236-238` (the shallow branch stamping "the single
+replicated child explicitly": stale once the `:294-301` stamp is deleted and D-5 (ii) leaves no shallow shadow-child
+path), and `:257-261` (the pass-3 comment: "the clone-children flag (`deep`) is set" becomes the pair's own flag
+`subtree`, D-5 (ii)); plus `clone_shadow.rs:9-14`
 (the test file header states the wrong step 6.7 rule) and `propagate_ce_identity`'s doc (`:334-340`). Rev 2 adds
 (R1 F7): `node_methods/clone.rs:176-185` (pass 1's doc: "enqueued by the engine-bound seam
 `elidex_custom_elements::apply_clone_creation_ce_semantics` (Codex PR331 R13/R14)" → the CE arm, in-crate), `:196`
@@ -1164,9 +1177,13 @@ visibility) with the `fire_*` group in
    is red at the pre-fix head with the inverted assertion and green at the PR head (the PR body records both runs).
    The inverted assertion is the root pair's step 6.7 (D-5 (i), §6): the immediate shadow child's light descendant
    exists on a `cloneNode(false)` clone. `git grep -n 'clone_recording(dom, child, ' --
-   crates/dom/elidex-dom-api/src/node_methods/clone.rs` → exactly two lines (at `fab44a1d`: `:290`, `:427`): the
-   pass-4 call, whose third argument is the literal `true`, and `replicate_template_contents`'s own call, which
-   passes its parameter; no line passes `subtree`.
+   crates/dom/elidex-dom-api/src/node_methods/clone.rs` → exactly two lines at the PR head, decided by that
+   re-run: the pass-4 call, whose third argument is the literal `true` (the line contains `, true,`), and the call
+   inside `replicate_template_contents`, which passes that function's own parameter. Line numbers are informational
+   only (as of `fab44a1d`: `:290`, `:427`). Parameter-name decision: `replicate_template_contents`'s parameter is
+   renamed `deep` → `subtree` to match the spec's term, so the criterion is "no `clone_recording(dom, child, …)`
+   line passes the loop local; pass 4 passes `true`", keyed on the pass-4 line containing `, true,` and on no other
+   line containing it, whatever the parameter is named.
 2. One clone path, and no public seam: `git grep -n 'enqueue_subtree_upgrade_reactions\|apply_clone_creation_ce_semantics\|apply_clone_form_state' -- crates`
    shows, outside `crates/dom/elidex-custom-elements/src/upgrade.rs` and `crates/dom/elidex-form/src/clone.rs`
    (each: the `pub(crate)` definition, its in-crate arm call and inline tests), only doc prose that names the arms;
