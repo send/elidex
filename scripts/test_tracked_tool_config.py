@@ -11,6 +11,7 @@ The module is called as `t.f(...)` so unittest.mock.patch.object reaches the mem
 """
 
 import ast
+import importlib.util
 import errno
 import os
 import re
@@ -30,6 +31,10 @@ import tracked_tool_config as t  # noqa: E402
 REPO = os.path.dirname(HERE)
 MODULE_PATH = os.path.join(HERE, "tracked_tool_config.py")
 MEMBER_PATH = os.path.abspath(__file__)
+HELPER = "scripts/python_pin_testing.py"
+_spec = importlib.util.spec_from_file_location("python_pin_testing_under_tool_config", os.path.join(REPO, *HELPER.split("/")))
+H = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(H)
 with open(os.path.join(REPO, ".tool-versions"), "rb") as _f:
     PIN_BYTES = _f.read()  # a malformed live pin reds every fixture world, which is the right answer
 
@@ -512,13 +517,7 @@ class TrackedToolConfig(unittest.TestCase):
         # red: not UTF-8
         self.assertIn("non-UTF-8", self.only(probs({t.ROOT_PIN: b"python 3.15.2\n\xff"}), "1", t.ROOT_PIN))
         # red: N2's texts, through problems
-        reds = (
-            "", "\ufeffpython 3.15.2\n", "python 3.15.2\r\n", "python 3.15.2\ncore:python 3.14.10\n",
-            "# python 3.15.2\n", "\n", "python 3.15.2\n\n", "node 20\n", "python 3.15\n", "python latest\n",
-            "python 3.15.2rc1\n", "python 3.15.2 3.14.10\n", "python\t3.15.2\n", "python  3.15.2\n",
-            "Python 3.15.2\n", "python 03.15.2\n", "python 3.15.2 \n", "python 3.15.2\n# c\n",
-        )
-        for text in reds:
+        for text, _why in H.RED_PIN_TEXTS:
             f = self.only(probs({t.ROOT_PIN: text}), "1", t.ROOT_PIN)
             self.assertIn("not exactly one line", f, text)
             self.assertIn("another tool goes into mise.toml [tools]", f)
@@ -574,7 +573,12 @@ class TrackedToolConfig(unittest.TestCase):
         self.assertEqual(sorted(m[0] for m in WMUTANTS), ["WM%d" % i for i in (1, 2, 3, 4, 5)])
         for control in sorted({m[3] for m in WMUTANTS}):
             getattr(self, "control_" + control)()  # each killing control passes unpatched
-        for mid, target, wrong, control, param in WMUTANTS:
+        self._assert_all_killed(WMUTANTS)
+
+    # -- mutants -------------------------------------------------------------
+
+    def _assert_all_killed(self, table):
+        for mid, target, wrong, control, param in table:
             body = getattr(self, "control_" + control)
             killed = False
             try:
@@ -586,31 +590,18 @@ class TrackedToolConfig(unittest.TestCase):
             except AssertionError:
                 killed = True
             self.assertTrue(killed, "mutant %s survived %s" % (mid, control))
-
-    # -- mutants -------------------------------------------------------------
 
     def test_mutants_are_killed(self):
         self.assertEqual(sorted(m[0] for m in MUTANTS), sorted("M%d" % i for i in (1, 2, 3, 4, 5, 6, 8, 9, 10)))
         for control in sorted({m[3] for m in MUTANTS}):
             getattr(self, "control_" + control)()  # each killing control passes unpatched
-        for mid, target, wrong, control, param in MUTANTS:
-            body = getattr(self, "control_" + control)
-            killed = False
-            try:
-                if param is not None:
-                    body(**{param: wrong})
-                else:
-                    with mock.patch.object(t, target, wrong):
-                        body()
-            except AssertionError:
-                killed = True
-            self.assertTrue(killed, "mutant %s survived %s" % (mid, control))
+        self._assert_all_killed(MUTANTS)
 
 
-def settings_problems(text, parse=tomllib.loads):
+def settings_problems(text):
     """W2: the parsed `settings` table equals the one `ADMITTED_LINES` spells (any other key is red, named)."""
     try:
-        doc = parse(text)
+        doc = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         return ["mise.toml does not parse: %s" % e]
     expected = tomllib.loads("[settings]\n" + "\n".join(t.ADMITTED_LINES) + "\n")["settings"]
@@ -753,7 +744,7 @@ def _first_line_parse(text):
     return tuple(int(x) for x in first.split(" ")[1].split("."))
 
 
-def _text_search_settings(text, parse=None):
+def _text_search_settings(text):
     return [] if all(line in text for line in t.ADMITTED_LINES) else ["lines absent"]
 
 

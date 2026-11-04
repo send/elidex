@@ -246,9 +246,7 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         self.assertTrue(calls, "the refusal never asked the fake mise")
         for call in calls:
             e = call["environ"]
-            self.assertEqual(set(k for k in e if k.startswith("MISE_")), set(H.MISE_VARS))
-            for k in H.MISE_VARS:
-                self.assertTrue(e[k].startswith(tmp_root), (k, e[k], tmp_root))
+            self.assertEqual(H.isolation_problems(e, tmp_root), [])
             self.assertEqual([k for k in e if k.startswith("GIT_")], [])
             self.assertEqual(e["PATH"], env["PATH"])
 

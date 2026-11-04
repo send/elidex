@@ -570,7 +570,7 @@ never an assembled `os.path.join(…, "python_pin_testing.py")`). Contents (all 
 Children run as `[sys.executable, "-c", LAUNCHER, …]` with the helper's environment, without `-I` / `-E` / `-S`, so
 they stay outside the driver's unguarded-child class (body :219–222). The launcher of those children is
 `test_python_pin.py`'s `run_child` (NEW, in the member — the helper launches nothing): `subprocess.run(…,
-timeout=60)`, a `TimeoutExpired` re-raised as `AssertionError` (so a hang is a red control, and a mutant that hangs is
+timeout=60)` (60 s default; `run_pin(child_timeout=…)` passes it on, 15 s for E15's runs), a `TimeoutExpired` re-raised as `AssertionError` (so a hang is a red control, and a mutant that hangs is
 killed); every fixture that writes `hang.pids` registers a cleanup killing each recorded pid (`os.kill(pid, 9)`,
 `ProcessLookupError` ignored), so no run — mutated or not — leaves a survivor. Every caller reaches the helper's
 functions as attributes of the loaded module object (never a name bound from it), which is what NM-I7 patches.
@@ -718,7 +718,7 @@ fake's log holds exactly (a), (b), (c) and one (d) per listed path, in order. **
 wins **and** `mise which` ≠ `sys.executable` **and** a warned variable: all three printed. **N13** warning — E17 /
 E18, on refusal and on admission, exit status unchanged. **N14** `sys.executable` — one fixture without the
 override: item 2 equals the child's real value (C37 (b)). **N15** limits — E14, E15 (fixture timeout 1 s, the test's
-own subprocess timeout 60 s through `run_child`), E16; and E15's **no survivor**: after the refusal returns,
+own subprocess timeout 15 s through `run_child`; 60 s by default elsewhere), E16; and E15's **no survivor**: after the refusal returns,
 `hang.pids` holds exactly two pids (the fake, the group leader, and its `sleep`; absent, one line or a third is red),
 and both are gone within 5 s, polled: gone = `os.kill(pid, 0)` raises `ProcessLookupError`, or on Linux
 `/proc/<pid>/stat`'s state field is `Z` (a zombie no reaper has collected yet, e.g. under a container's pid 1;

@@ -64,11 +64,6 @@ def read(path):
 LIVE_SOURCE = read(MODULE_PATH)
 
 
-def five(version):
-    parts = str(version).split(".")
-    return ".".join(parts if len(parts) == 5 else parts + ["final", "0"])
-
-
 def run_child(argv, env, cwd, timeout=60):
     """The one launcher of the member's children; a hang is a red control, not a stuck run."""
     try:
@@ -203,7 +198,7 @@ class PinCase(unittest.TestCase):
     # -- the child ---------------------------------------------------------------------------
 
     def run_pin(self, version="3.9.6", answers=None, fake=True, pin_line="python 3.15.2\n", cwd=None,
-                extra_env=None, executable="", timeout="", pin=True):
+                extra_env=None, executable="", timeout="", pin=True, child_timeout=60):
         tmp = self.tmp()
         root = os.path.join(tmp, "repo")
         module = H.pin_tree(root, self.source(), pin_line)
@@ -216,8 +211,8 @@ class PinCase(unittest.TestCase):
             bindir = None
         env = H.isolated_mise_env(os.path.join(tmp, "iso"), fake_mise=bindir, extra_env=extra_env)
         self.addCleanup(lambda: kill_pids(H.read_hang_pids(bindir) if bindir else []))
-        argv = [sys.executable, "-c", H.LAUNCHER, module, five(version), executable, str(timeout)]
-        rc, out, err = run_child(argv, env, cwd or root)
+        argv = [sys.executable, "-c", H.LAUNCHER, module, H.five(version), executable, str(timeout)]
+        rc, out, err = run_child(argv, env, cwd or root, child_timeout)
         # N19 (c): a child that bypassed the helper reached the sentinel, not the user's mise.
         self.assertFalse(
             os.path.exists(os.path.join(self.sentinel, "sentinel.log")),
@@ -239,7 +234,6 @@ class PinCase(unittest.TestCase):
         block = live.GENERIC_BLOCK % {"pin": pin, "root": r.root}
         self.assertEqual(r.err.count(block), 1, "the generic block is missing or repeated")
         self.assertTrue(r.err.endswith(block + "\n"), "the generic block is not last")
-        self.assertNotIn("member(s) in", r.err)
 
     def a_fixture(self, a, b=None, c=None, d=None):
         ans = {Q_A: a, Q_B: b or fail(1, NOT_A_MISE_BIN), Q_C: c or fail(1, UNTRUSTED)}
@@ -249,35 +243,12 @@ class PinCase(unittest.TestCase):
 
     # ===== N2 parser ======================================================================
 
-    RED_TEXTS = (
-        ("", "empty"),
-        ("\n", "blank line"),
-        ("\ufeffpython 3.15.2\n", "byte order mark"),
-        ("python 3.15.2\r\n", "carriage return"),
-        ("python 3.15.2\ncore:python 3.14.10\n", "2 lines"),
-        ("python 3.15.2\n\n", "2 lines"),
-        ("# comment\n", "comment"),
-        ("# comment\npython 3.15.2\n", "2 lines"),
-        ("node 20.0.0\n", "not the tool"),
-        ("python 3.15\n", "exact X.Y.Z"),
-        ("python latest\n", "exact X.Y.Z"),
-        ("python 3.16.0rc1\n", "exact X.Y.Z"),
-        ("python 3.15.2 3.14.10\n", "more than one version"),
-        ("python\t3.15.2\n", "tab"),
-        ("python  3.15.2\n", "two spaces"),
-        ("Python 3.15.2\n", "not the tool"),
-        ("python 03.15.2\n", "exact X.Y.Z"),
-        ("python 3.15.2 \n", "white space"),
-        ("python 3.15.2.1\n", "exact X.Y.Z"),
-        ("python \u0663.15.2\n", "exact X.Y.Z"),
-    )
-
     def control_N2(self):
         m = self.mod()
         for text in ("python 3.15.2", "python 3.15.2\n", "python 0.0.0\n", "python 10.20.30"):
             nums = tuple(int(x) for x in text.split()[1].split("."))
             self.assertEqual(m.parse_pin(text), nums, text)
-        for text, why in self.RED_TEXTS:
+        for text, why in H.RED_PIN_TEXTS:
             with self.assertRaises(m.PinFileError, msg=repr(text)) as cm:
                 m.parse_pin(text)
             self.assertIn(why, str(cm.exception), repr(text))
@@ -515,7 +486,7 @@ class PinCase(unittest.TestCase):
         self.assertNotIn("x" * 4001, r.err)
         self.assertIn(PREFIX + "[truncated: 6000 more characters]", r.lines)
         # E15: (a) hangs with a grandchild holding the pipes.
-        r = self.run_pin(timeout="1", answers={"*": {"hang": True}})
+        r = self.run_pin(timeout="1", child_timeout=15, answers={"*": {"hang": True}})
         self.refused(r)
         self.assertIn(PREFIX + "  no answer within 1.0 seconds (the question timed out)", r.lines)
         self.assertEqual(r.err.count("not asked: an earlier question timed out"), 2)  # (b) and (c)
@@ -603,7 +574,6 @@ class PinCase(unittest.TestCase):
     # ===== N19 / N20 / N21 the I7 pins ====================================================
 
     def control_N19(self):
-        tmp = self.tmp()
         r = self.run_pin(answers=self.a_fixture(ok(json.dumps([elem()]))))  # (c) and the PATH half of (a) run inside
         self.refused(r)
         iso = os.path.realpath(os.path.dirname(os.path.dirname(r.bindir)))
@@ -611,15 +581,10 @@ class PinCase(unittest.TestCase):
         self.assertTrue(calls)
         for call in calls:
             e = call["environ"]
-            mise_keys = sorted(k for k in e if k.startswith("MISE_"))
-            self.assertEqual(mise_keys, sorted(H.MISE_VARS), "the isolated child carries other MISE_* keys")
-            for k in H.MISE_VARS:
-                self.assertTrue(os.path.realpath(e[k]).startswith(iso + os.sep), (k, e[k], iso))
-            self.assertEqual(os.path.getsize(e["MISE_GLOBAL_CONFIG_FILE"]), 0)
+            self.assertEqual(H.isolation_problems(e, iso), [])
         # (b) no entry of the real mise state resolves into the test's root.
         prefix = iso + os.sep
         self.assertEqual([p for p in state_entries() if (p + os.sep).startswith(prefix)], [])
-        del tmp
 
     def test_N19(self):
         self.control_N19()

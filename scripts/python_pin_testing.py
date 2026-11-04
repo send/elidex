@@ -15,7 +15,36 @@ import shutil
 import stat
 import sys
 
-MISE_VARS = ("MISE_DATA_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR", "MISE_CONFIG_DIR", "MISE_GLOBAL_CONFIG_FILE")
+MISE_DIRS = (("MISE_DATA_DIR", "data"), ("MISE_CACHE_DIR", "cache"), ("MISE_STATE_DIR", "state"), ("MISE_CONFIG_DIR", "config"))
+MISE_VARS = tuple(n for n, _ in MISE_DIRS) + ("MISE_GLOBAL_CONFIG_FILE",)
+
+# Pin-file texts no reader admits, with the phrase the parser names (N2 parses them, W1 runs them through `problems`).
+RED_PIN_TEXTS = (
+    ("", "empty"),
+    ("\n", "blank line"),
+    ("\ufeffpython 3.15.2\n", "byte order mark"),
+    ("python 3.15.2\r\n", "carriage return"),
+    ("python 3.15.2\ncore:python 3.14.10\n", "2 lines"),
+    ("python 3.15.2\n\n", "2 lines"),
+    ("# comment\n", "comment"),
+    ("# comment\npython 3.15.2\n", "2 lines"),
+    ("node 20.0.0\n", "not the tool"),
+    ("python 3.15\n", "exact X.Y.Z"),
+    ("python latest\n", "exact X.Y.Z"),
+    ("python 3.16.0rc1\n", "exact X.Y.Z"),
+    ("python 3.15.2 3.14.10\n", "more than one version"),
+    ("python\t3.15.2\n", "tab"),
+    ("python  3.15.2\n", "two spaces"),
+    ("Python 3.15.2\n", "not the tool"),
+    ("python 03.15.2\n", "exact X.Y.Z"),
+    ("python 3.15.2 \n", "white space"),
+    ("python 3.15.2.1\n", "exact X.Y.Z"),
+    ("python \u0663.15.2\n", "exact X.Y.Z"),
+    ("# python 3.15.2\n", "comment"),
+    ("python 3.15.2\n# c\n", "2 lines"),
+    ("node 20\n", "not the tool"),
+    ("python 3.15.2rc1\n", "exact X.Y.Z"),
+)
 
 # Run as `<sys.executable> -c LAUNCHER <module path> <version> <executable> <timeout>`: loads the
 # module at argv[1] by path under a fresh name, replaces sys.version_info by a tuple subclass built
@@ -100,7 +129,7 @@ def _executable(path, text):
 def isolated_mise_env(tmp_root, fake_mise=None, extra_env=None):
     env = dict((k, v) for k, v in os.environ.items() if not k.startswith("MISE_"))
     tmp_root = str(tmp_root)
-    for name, sub in (("MISE_DATA_DIR", "data"), ("MISE_CACHE_DIR", "cache"), ("MISE_STATE_DIR", "state"), ("MISE_CONFIG_DIR", "config")):
+    for name, sub in MISE_DIRS:
         os.makedirs(os.path.join(tmp_root, "mise-" + sub), exist_ok=True)
         env[name] = os.path.join(tmp_root, "mise-" + sub)
     env["MISE_GLOBAL_CONFIG_FILE"] = os.path.join(tmp_root, "mise-global.toml")
@@ -112,6 +141,22 @@ def isolated_mise_env(tmp_root, fake_mise=None, extra_env=None):
         env["PATH"] = os.pathsep.join(d for d in outer.split(os.pathsep) if shutil.which("mise", path=d) is None)
     env.update(extra_env or {})
     return env
+
+
+def isolation_problems(environ, root):
+    """What is wrong with a child's MISE_* environment as an isolated one under `root` (pure: launches nothing)."""
+    out = []
+    keys = sorted(k for k in environ if k.startswith("MISE_"))
+    if keys != sorted(MISE_VARS):
+        out.append("MISE_* keys are %r, expected %r" % (keys, sorted(MISE_VARS)))
+    prefix = os.path.realpath(str(root)) + os.sep
+    for k in MISE_VARS:
+        if k in environ and not os.path.realpath(environ[k]).startswith(prefix):
+            out.append("%s=%s is outside %s" % (k, environ[k], root))
+    g = environ.get("MISE_GLOBAL_CONFIG_FILE")
+    if g is not None and (not os.path.exists(g) or os.path.getsize(g) != 0):
+        out.append("MISE_GLOBAL_CONFIG_FILE %s is not an empty file" % g)
+    return out
 
 
 def write_fake_mise(bindir, answers):
@@ -138,7 +183,7 @@ def write_sentinel(bindir, names):
         )
 
 
-def _five(version):
+def five(version):
     parts = str(version).split(".")
     return ".".join(parts if len(parts) == 5 else parts + ["final", "0"])
 
@@ -148,7 +193,7 @@ def write_fake_python3(bindir, version):
     bindir = str(bindir)
     os.makedirs(bindir, exist_ok=True)
     with open(os.path.join(bindir, "fake_python3.py"), "w") as f:
-        f.write(_FAKE_PYTHON3 % {"version": _five(version), "launcher": LAUNCHER})
+        f.write(_FAKE_PYTHON3 % {"version": five(version), "launcher": LAUNCHER})
     _executable(
         os.path.join(bindir, "python3"),
         '#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, os.path.join(bindir, "fake_python3.py")),
