@@ -46,7 +46,11 @@ pub(crate) fn native_ce_define(
     //    Promise resolver objects / generator functions all reject
     //    here (callable ≠ constructable).
     let ctor_id = match args[1] {
-        JsValue::Object(id) if super::super::super::object_kind::is_constructor(ctx.vm, id) => id,
+        JsValue::Object(id)
+            if super::super::super::construct_admission::is_constructor(ctx.vm, id) =>
+        {
+            id
+        }
         _ => {
             return Err(VmError::type_error(
                 "Failed to execute 'define' on 'CustomElementRegistry': \

@@ -143,7 +143,7 @@ fn require_subclass_ctor(
     // walk finds Uint8Array at depth 1 and the receiver's
     // `prototype` data property resolution falls back to the
     // built-in subclass prototype.
-    if !super::super::object_kind::is_constructor(ctx.vm, ctor_id) {
+    if !super::super::construct_admission::is_constructor(ctx.vm, ctor_id) {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
         )));
@@ -284,7 +284,7 @@ pub(super) fn species_constructor_for_typed_array(
             )));
         }
     };
-    if !super::super::object_kind::is_constructor(ctx.vm, s_id) {
+    if !super::super::construct_admission::is_constructor(ctx.vm, s_id) {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'TypedArray': @@species is not a constructor"
         )));

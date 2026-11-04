@@ -995,7 +995,7 @@ impl VmInner {
                     // matches `ClassHeritage::Null`.
                     let value = self.pop()?;
                     let ok = matches!(value, JsValue::Null)
-                        || matches!(value, JsValue::Object(id) if super::object_kind::is_constructor(self, id));
+                        || matches!(value, JsValue::Object(id) if super::construct_admission::is_constructor(self, id));
                     if !ok {
                         let e =
                             VmError::type_error("Class extends value is not a constructor or null");
