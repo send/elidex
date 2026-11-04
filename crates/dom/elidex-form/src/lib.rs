@@ -26,6 +26,8 @@ mod reconciler;
 mod select;
 mod sizing;
 mod submit;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod user_edit;
 mod value_mode;
 

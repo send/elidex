@@ -94,23 +94,52 @@ fn clear_log(state: &mut ContentState) {
     );
 }
 
-fn value(state: &ContentState, id: &str) -> String {
+/// Read `#id`'s [`FormControlState`] through `f`.
+fn with_fcs<T>(state: &ContentState, id: &str, f: impl FnOnce(&FormControlState) -> T) -> T {
     let e = entity(state, id);
-    state
+    let fcs = state
         .pipeline
         .dom
         .world()
         .get::<&FormControlState>(e)
-        .map(|fcs| fcs.value().to_owned())
-        .expect("form control state")
+        .expect("form control state");
+    f(&fcs)
+}
+
+fn value(state: &ContentState, id: &str) -> String {
+    with_fcs(state, id, |f| f.value().to_owned())
+}
+
+/// Whether the log holds an event named `name` (an `input:<inputType>` entry
+/// counts as `input`).
+fn has_event(state: &ContentState, name: &str) -> bool {
+    log(state)
+        .split(',')
+        .any(|t| t.split(':').next() == Some(name))
+}
+
+/// A script `#b.value = v`.
+fn script_set_value(state: &mut ContentState, v: &str) {
+    eval(
+        state,
+        &format!("document.getElementById('b').value = '{v}';"),
+    );
+}
+
+/// A script `#b.setSelectionRange(a, b)`.
+fn select(state: &mut ContentState, a: usize, b: usize) {
+    eval(
+        state,
+        &format!("document.getElementById('b').setSelectionRange({a}, {b});"),
+    );
 }
 
 fn has_change(state: &ContentState) -> bool {
-    log(state).split(',').any(|t| t == "change")
+    has_event(state, "change")
 }
 
 fn has_input(state: &ContentState) -> bool {
-    log(state).split(',').any(|t| t.starts_with("input"))
+    has_event(state, "input")
 }
 
 /// `<b>` (the control under test, `tag`) followed by a plain `<input id=c>`.
@@ -140,7 +169,7 @@ fn c4(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
     key(&mut s, "a");
-    eval(&mut s, "document.getElementById('b').value = 'third';");
+    script_set_value(&mut s, "third");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
     assert!(has_change(&s), "M1: change fires ({})", log(&s));
@@ -161,7 +190,7 @@ fn c5(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
     key(&mut s, "a");
-    eval(&mut s, "document.getElementById('b').value = '';");
+    script_set_value(&mut s, "");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
     assert!(!has_change(&s), "M2: no change ({})", log(&s));
@@ -215,9 +244,9 @@ fn c15_textarea_user_edit_fires_change() {
 fn c17(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     key(&mut s, "a");
-    eval(&mut s, "document.getElementById('b').value = 'y';");
+    script_set_value(&mut s, "y");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
     assert!(has_change(&s), "M6: change ({})", log(&s));
@@ -264,7 +293,7 @@ fn c19(tag: &str) {
     ua_focus(&mut s, "c");
     assert!(has_change(&s), "M8 first blur ({})", log(&s));
     ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     key(&mut s, "b");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
@@ -285,14 +314,7 @@ fn c19_second_focus_rebaselines_before_user_edit_textarea() {
 
 /// The caret position of `#id`.
 fn cursor(state: &ContentState, id: &str) -> usize {
-    let e = entity(state, id);
-    state
-        .pipeline
-        .dom
-        .world()
-        .get::<&FormControlState>(e)
-        .map(|f| f.cursor_pos())
-        .expect("form control state")
+    with_fcs(state, id, FormControlState::cursor_pos)
 }
 
 /// A script `value = "ab"` before focus leaves the caret at the end (the
@@ -301,7 +323,7 @@ fn cursor(state: &ContentState, id: &str) -> usize {
 /// does not move elidex's caret, `cursor_pos`, so it cannot set this up:
 /// `#11-text-control-set-selection-range-caret`.)
 fn focus_with_caret_at_end(state: &mut ContentState) {
-    eval(state, "document.getElementById('b').value = 'ab';");
+    script_set_value(state, "ab");
     ua_focus(state, "b");
     assert_eq!(cursor(state, "b"), 2, "caret at the end");
 }
@@ -323,10 +345,7 @@ fn c8_arrow_key_fires_no_input() {
 fn c11_ime_commit_with_full_maxlength_fires_no_input() {
     let (mut s, _b) = setup(&pair("input", "maxlength=1", "z"));
     ua_focus(&mut s, "b");
-    eval(
-        &mut s,
-        "document.getElementById('b').setSelectionRange(1, 1);",
-    );
+    select(&mut s, 1, 1);
     clear_log(&mut s);
     handle_ime(&mut s, ImeKind::Commit("あ".to_string()));
     assert_eq!(value(&s, "b"), "z");
@@ -371,10 +390,7 @@ fn c28(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "maxlength=1", "z"));
     set_test_clipboard("q");
     ua_focus(&mut s, "b");
-    eval(
-        &mut s,
-        "document.getElementById('b').setSelectionRange(1, 1);",
-    );
+    select(&mut s, 1, 1);
     clear_log(&mut s);
     cmd_key(&mut s, "v");
     assert_eq!(value(&s, "b"), "z");
@@ -397,10 +413,7 @@ fn c29_cut_marks_and_fires_input() {
     let (mut s, _b) = setup(&pair("input", "", "ab"));
     set_test_clipboard("");
     ua_focus(&mut s, "b");
-    eval(
-        &mut s,
-        "document.getElementById('b').setSelectionRange(0, 1);",
-    );
+    select(&mut s, 0, 1);
     clear_log(&mut s);
     cmd_key(&mut s, "x");
     assert_eq!(
@@ -415,16 +428,26 @@ fn c29_cut_marks_and_fires_input() {
 
 // ---- Commit (3): the mark decides, and the first mark re-baselines --------
 
-/// C1 (M0): a script write to a UA-focused control, then a UA blur; no `change`.
-#[test]
-fn c1_ua_blur_no_change_for_script_written_value() {
-    let (mut s, _b) = setup(&pair("input", "", ""));
+/// C1 (M0) / C14: a script write to a UA-focused control, then a UA blur; no `change`.
+fn c1(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(log(&s).split(',').any(|t| t == "blur"), "{}", log(&s));
+    assert!(has_event(&s, "blur"), "{}", log(&s));
     assert!(!has_change(&s), "M0: no change ({})", log(&s));
+}
+
+#[test]
+fn c1_ua_blur_no_change_for_script_written_value() {
+    c1("input");
+}
+
+/// C14: C1 on `<textarea>`.
+#[test]
+fn c14_textarea_ua_blur_no_change_for_script_written_value() {
+    c1("textarea");
 }
 
 /// C3: C1 with the blur through `blur_current` (the unfocusing steps).
@@ -432,10 +455,10 @@ fn c1_ua_blur_no_change_for_script_written_value() {
 fn c3_blur_current_no_change_for_script_written_value() {
     let (mut s, _b) = setup(&pair("input", "", ""));
     ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     clear_log(&mut s);
     blur_current(&mut s.pipeline);
-    assert!(log(&s).split(',').any(|t| t == "blur"), "{}", log(&s));
+    assert!(has_event(&s, "blur"), "{}", log(&s));
     assert!(!has_change(&s), "M0: no change ({})", log(&s));
 }
 
@@ -443,7 +466,7 @@ fn c3_blur_current_no_change_for_script_written_value() {
 fn c6(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     key(&mut s, "Backspace");
     assert_eq!(value(&s, "b"), "");
     clear_log(&mut s);
@@ -468,22 +491,10 @@ fn c9_arrow_key_then_script_write_no_change() {
     focus_with_caret_at_end(&mut s);
     key(&mut s, "ArrowLeft");
     assert_eq!(cursor(&s, "b"), 1, "the arrow moved the caret");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
     assert!(!has_change(&s), "M5: no change ({})", log(&s));
-}
-
-/// C14: C1 on `<textarea>`.
-#[test]
-fn c14_textarea_ua_blur_no_change_for_script_written_value() {
-    let (mut s, _b) = setup(&pair("textarea", "", ""));
-    ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
-    clear_log(&mut s);
-    ua_focus(&mut s, "c");
-    assert!(log(&s).split(',').any(|t| t == "blur"), "{}", log(&s));
-    assert!(!has_change(&s), "M0: no change ({})", log(&s));
 }
 
 /// C16: a mark left by VM `blur()` does not survive the VM `focus()` re-seed.
@@ -510,7 +521,7 @@ fn c20(tag: &str) {
     ua_focus(&mut s, "c");
     assert!(has_change(&s), "M9 first blur ({})", log(&s));
     ua_focus(&mut s, "b");
-    eval(&mut s, "document.getElementById('b').value = 'x';");
+    script_set_value(&mut s, "x");
     key(&mut s, "y");
     key(&mut s, "Backspace");
     assert_eq!(value(&s, "b"), "x");

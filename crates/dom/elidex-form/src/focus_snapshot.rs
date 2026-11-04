@@ -128,39 +128,14 @@ pub fn clear_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{control, snap};
     use crate::{apply_user_edit, FormControlKind, FormControlState};
-    use elidex_ecs::Attributes;
-
-    /// A control state of the given kind + live value.  (`FormControlState`'s
-    /// value-model fields — cursor / selection / char_count — are
-    /// `elidex-form-core`-private, so this builds from `default()` rather
-    /// than a `..Default::default()` functional update.)
-    fn fcs(kind: FormControlKind, value: &str) -> FormControlState {
-        let mut state = FormControlState::default();
-        state.kind = kind;
-        state.value = value.to_string();
-        state
-    }
-
-    fn control(dom: &mut EcsDom, kind: FormControlKind, value: &str) -> Entity {
-        let e = dom.create_element("input", Attributes::default());
-        let _ = dom.world_mut().insert_one(e, fcs(kind, value));
-        e
-    }
-
-    /// `(initial, user_changed)` of `e`'s snapshot, `None` when absent.
-    fn snap(dom: &EcsDom, e: Entity) -> Option<(String, bool)> {
-        dom.world()
-            .get::<&FocusValueSnapshot>(e)
-            .ok()
-            .map(|s| (s.initial().to_string(), s.user_changed()))
-    }
 
     fn set_value(dom: &mut EcsDom, e: Entity, value: &str) {
         dom.world_mut()
             .get::<&mut FormControlState>(e)
             .unwrap()
-            .value = value.to_string();
+            .set_value(value.to_string());
     }
 
     /// A user edit that appends `text`.

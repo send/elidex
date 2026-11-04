@@ -556,22 +556,23 @@ fn handle_key_text(
             .map_or((KeyAction::None, false), |e| (e.result, e.changed));
 
         match action {
-            KeyAction::Consumed if !changed => state.reset_caret_blink(),
             KeyAction::Consumed => {
-                // Determine input type for InputEvent.
-                let input_type = match key {
-                    "Backspace" => "deleteContentBackward",
-                    "Delete" => "deleteContentForward",
-                    "Enter" => "insertLineBreak",
-                    _ if key.chars().count() == 1 => "insertText",
-                    _ => "",
-                };
-                let data = if input_type == "insertText" {
-                    Some(key)
-                } else {
-                    None
-                };
-                dispatch_input_event_typed(state, target, input_type, data);
+                if changed {
+                    // Determine input type for InputEvent.
+                    let input_type = match key {
+                        "Backspace" => "deleteContentBackward",
+                        "Delete" => "deleteContentForward",
+                        "Enter" => "insertLineBreak",
+                        _ if key.chars().count() == 1 => "insertText",
+                        _ => "",
+                    };
+                    let data = if input_type == "insertText" {
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    dispatch_input_event_typed(state, target, input_type, data);
+                }
                 state.reset_caret_blink();
             }
             KeyAction::Submit => {
@@ -723,11 +724,11 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
                 elidex_form::clipboard_cut,
             )
             .map_or((String::new(), false), |e| (e.result, e.changed));
-            if !text.is_empty() {
+            // `clipboard_cut` returns text iff it deleted a non-empty selection,
+            // so `changed` is equivalent to `!text.is_empty()`.
+            if changed {
                 set_clipboard_text(&text);
-                if changed {
-                    dispatch_input_event_typed(state, target, "deleteByCut", None);
-                }
+                dispatch_input_event_typed(state, target, "deleteByCut", None);
                 state.reset_caret_blink();
             }
         }

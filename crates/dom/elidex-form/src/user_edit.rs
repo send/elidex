@@ -61,23 +61,18 @@ pub fn apply_user_edit<R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{clipboard_cut, clipboard_paste, FocusValueSnapshot, FormControlKind};
+    use crate::test_support::{control, snap};
+    use crate::{clipboard_cut, clipboard_paste, FormControlKind};
     use elidex_ecs::Attributes;
 
     fn focused_control(dom: &mut EcsDom, value: &str) -> Entity {
-        let e = dom.create_element("input", Attributes::default());
-        let mut state = FormControlState::default();
-        state.kind = FormControlKind::TextInput;
-        state.set_value(value.to_string());
-        let _ = dom.world_mut().insert_one(e, state);
+        let e = control(dom, FormControlKind::TextInput, value);
         crate::record_focus_snapshot(dom, e);
         e
     }
 
     fn marked(dom: &EcsDom, e: Entity) -> bool {
-        dom.world()
-            .get::<&FocusValueSnapshot>(e)
-            .is_ok_and(|s| s.user_changed())
+        snap(dom, e).is_some_and(|(_, changed)| changed)
     }
 
     /// C7 (e): an edit that leaves the value equal → unchanged, unmarked.
