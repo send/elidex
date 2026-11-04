@@ -48,6 +48,18 @@ inside a dispatch is reachable by install-then-take, which no consumer does and 
 RC-2a-pre also updates `mutation_hook.rs:1-9` and makes `pub(super)` only what the moved tests name — `MockEvent`,
 `install_mock`, not `MockHook` (D-1, §5.1, §7, §9); §7 gives a range, 1002–1012; the split holds across it.
 
+**Rev 3.2** (2026-11-04) — one external finding, Codex #589 (P2, at Rev 3.1's §4.2 D14 bullet): the per-pair local
+`let subtree = deep || d != cloned;` was passed to pass 4's shadow-child clone too, and at the root pair of a
+`cloneNode(false)` it is false, so each immediate shadow child was shallow-cloned and its light descendants never
+created — D14's own case left unfixed, and the deleted `:294-301` stamp lost for that child. "Clone a node" step 6.7
+is unconditional ("subtree set to true"; `webref body dom concept-node-clone`, re-read 2026-11-04). Decision: pass 4
+passes `true` at every pair; the per-pair local stays for pass 3 only. The rule now lives in D-5 (two parts, (i)
+pass 4 and (ii) pass 3) and every other site refers to it: §0.3 item 6 (Rev 3's collapse of the umbrella's row was a
+change, not an exactness), §2 H, §3 (the step 6.7 row and the template row), §4.2 D14 (the `:294-301` deletion
+re-derived under (i); the `shadow_doc = None` branch stated as the cloner has it, not as "neither path stamps"),
+§4.10 table, §5.1 row, §6 (the flipped test named as the Codex case; (b) as pass 3's pin; new (j), the `<input>`
+shape end-to-end), §9 DoD 1. Line counts, census commands and the #466 reversal are untouched.
+
 ## §0. Frame, premises, decisions
 
 ### §0.1 Frame
@@ -244,12 +256,15 @@ file is edited.
 5. The umbrella's `is_value` grep pattern (`git grep -n is_value -- …`) also matches `this_value`: 19 lines at
    `fab44a1d` (18 `this_value` + 1 `is_value`; Rev 2's "17" was miscounted, R2 G13); with `-w` it gives the one line
    the umbrella meant. The fact stands.
-6. The umbrella's D14 structural row says "the subtree flag is per pair … every pair it produces keeps true for passes
-   3 and 4". Checked against the spec: the only pair whose subtree flag can be false is the **root** pair. "Clone a
-   node" step 5 recurses with its own `subtree` (so only when it is true), step 6.7 passes true, and the template
-   cloning steps pass true (step 2) or return (step 1) (`webref body dom concept-node-clone`; `webref body html
-   the-template-element`). So "per pair" reduces to one rule: the operation's flag for the root pair, true for every
-   other pair (§4.2). This is the umbrella's row made exact, not a change to it.
+6. The umbrella's D14 structural row says "the subtree flag is per pair, not per operation: the step 6.7 clone passes
+   true, and every pair it produces keeps true for passes 3 and 4". Checked against the spec (`webref body dom
+   concept-node-clone`; `webref body html the-template-element`), it holds as written, and it is two statements: the
+   step 6.7 clone passes true at **every** pair, the root pair included (step 6 is not a function of the flag the
+   pair's node was cloned with); and the flag a pair's node was cloned with — which governs that node's own step 5
+   children (inside the cloner) and its cloning steps (pass 3) — is the operation's for the root pair and true for
+   every other pair. Rev 3 collapsed the two into "the operation's flag for the root pair, true for every other pair"
+   and applied that one rule to pass 4 as well, which dropped the root pair's step 6.7 — the central D14 case
+   (Codex #589, Rev 3.2). The rule is D-5, in its two parts.
 7. No premise in the brief was found wrong against the code or the umbrella.
 
 ### §0.4 Decisions (this PR)
@@ -306,12 +321,27 @@ file is edited.
   `:300`). Rev 1's reason for rejecting a loud `fire_clone_created` — that `EcsDom` cannot tell a window from "never
   installed" — was true of the `Option` slot and is exactly what the third state supplies; it is one discriminant, not
   a guard type. The honest blind spot of the check is in §4.7.
-- **D-5 (D14's rule).** The subtree flag is the operation's for the root pair and true for every other pair (§0.3
-  item 6). Implemented as one local in the worklist loop, `let subtree = deep || d != cloned;`, used by pass 3
-  (`replicate_template_contents`) and pass 4 (the shadow-child `clone_recording`). The `!deep` hand stamp
-  `:294-301` is removed because `clone_subtree` with `doc_override = shadow_doc` stamps the child (and its subtree)
-  itself (`tree_clone.rs:208-224`). Which hand stamp each side removes in each landing order is H9's rule (umbrella
-  Appendix H), applied as written; the PR body records which state its base was in.
+- **D-5 (D14's rule; the canonical statement — every other site of this memo refers here; Rev 3.2).** Two pass
+  sites, two rules, both read from "clone a node" (`webref body dom concept-node-clone`, 2026-11-04):
+  - **(i) Pass 4, the shadow-child clone (step 6.7): subtree true at every pair, the root pair included.** Step 6
+    runs at every pair the worklist reaches and its step 6.7 says "subtree set to **true**"; it is not a function
+    of the flag that pair's own node was cloned with. The call is `clone_recording(dom, child, true, shadow_doc,
+    &mut pairs)` (`:290`).
+  - **(ii) Pass 3, the template cloning steps (reached through step 3 with the flag the pair's node was cloned
+    with): the pair's own flag** — the operation's `deep` for the root pair (template step 1 returns on false), true
+    for every other pair, because every non-root pair is produced by a clone made with subtree true: step 5 recurses
+    with its own flag, so only when it is true; step 6.7 passes true; template step 2 passes true (`webref body html
+    the-template-element`, steps 1-2). The local is `let subtree = deep || d != cloned;` in the loop, passed only to
+    `replicate_template_contents(s, d, dom, subtree, shadow_doc, &mut pairs)` (`:262`). `d != cloned` identifies the
+    root pair: `cloned` is the root copy and every pair's `d` is a distinct fresh entity.
+  Rev 3.1 passed the one per-pair local to both sites; at the root pair of a `cloneNode(false)` it is false, so each
+  immediate shadow child was shallow-cloned and its light descendants were never created — D14's own case, unfixed
+  (Codex #589; §0.3 item 6). The `!deep` hand stamp `:294-301` is removed: under (i) every shadow child goes through
+  `clone_subtree` with `doc_override = shadow_doc`, which stamps the child (`tree_clone.rs:221`) and threads the
+  document into its subtree (`:232`); with `shadow_doc = None` the cloner derives the document from the child's own
+  node document (`:208`), as the deep path does today, and the deleted stamp did nothing in that case either. Which
+  hand stamp each side removes in each landing order is H9's rule (umbrella Appendix H), applied as written; the PR
+  body records which state its base was in.
 - **D-6 (Attribute stub; umbrella §5.2a).** RC-2a's diff does not touch `CloneNode`'s `invoke` (`clone.rs:91-167`): the
   emitter is inside `clone_node_with_shadow_honor` and the D14 edit is in its worklist loop. So the Attribute clone
   is not folded in; `#11-attr-clone-node` (registered 2026-11-03, PM 316; §8) stays open (owner L3; fold candidate
@@ -367,8 +397,9 @@ position (umbrella E2), **F** detached read (#466 I3), **G** crate boundary (#46
   `EcsDom` helper; the copy stays in `elidex-form`, reached through the dispatcher; the linkage stays the dom-api
   `ClonedFrom` marker. No `elidex-dom-api` → `elidex-form` edge; `elidex-custom-elements` still depends on
   `elidex-ecs` only.
-- **H (D14)**: the root pair takes the operation's `subtree`; every other pair is cloned with true (step 5, step
-  6.7, template step 2); the hand stamps follow H9 (D-5).
+- **H (D14)**: pass 4 clones every shadow child with true, at the root pair too (step 6.7); pass 3 takes the pair's
+  own flag — the operation's for the root pair, true for every other (step 5, step 6.7, template step 2); the hand
+  stamps follow H9. The rule is D-5 (i) / (ii).
 - **I (windows)**: no cloner-entry call runs while the dispatcher is taken out for a window (the parser builds, the
   inert parse, teardown); `fire_clone_created` asserts it in debug builds (D-4, §4.7). Inside a window every read of
   the slot behaves as "no dispatcher" — `destroy_entity` takes its no-dispatcher branch (`teardown.rs:80`),
@@ -402,13 +433,13 @@ Pairs (one line each; pairs not listed do not interact):
 |---|---|---|---|---|---|
 | WHATWG DOM §4.4 Interface Node | clone a node step 3 (run the cloning steps with node, copy, subtree) | input / textarea (form), template (pass 3) | `clone_node_with_shadow_honor` worklist (`node_methods/clone.rs:247-304`); the form arm at dispatch | ✓ | yes |
 | WHATWG DOM §4.4 Interface Node | clone a node step 5 (children, subtree set to subtree) | subtree true / false | `clone_recording` for the root (`clone.rs:229`, `:313-327`) | ✓ | yes |
-| WHATWG DOM §4.4 Interface Node | clone a node steps 6.4 and 6.7 (attach a shadow root with clonable true; clone each shadow child with subtree set to **true**) | clonable host / non-clonable host; root pair / nested pair | pass 4 (`clone.rs:266-303`); D14: the child clone passes true, pass 3 and pass 4 of every non-root pair pass true (D-5) | ✓ | yes |
+| WHATWG DOM §4.4 Interface Node | clone a node steps 6.4 and 6.7 (attach a shadow root with clonable true; clone each shadow child with subtree set to **true**) | clonable host / non-clonable host; root pair / nested pair | pass 4 (`clone.rs:266-303`); D14: the shadow-child clone (`:290`) passes true at every pair, the root pair included (D-5 (i)) | ✓ | yes |
 | WHATWG DOM §4.4 Interface Node | clone a single node step 2.4 (create an element with the source's is value, synchronous false, and registry) | custom-element identity (pass 1): defined / undefined / null registry association | `propagate_ce_identity` (identity, `clone.rs:344-366`) then the CE arm at dispatch (registry half); registry steps 2.1-2.3 unchanged (slot, umbrella §9) | ✓ (steps 2.1-2.3 ✗, slot `#11-document-null-registry-adopt-reset`) | yes |
 | WHATWG DOM §4.9 Interface Element | create an element steps 4.2 / 4.4 (customized built-in: create with state "undefined" and the is value, enqueue an upgrade reaction) and 5.2.1 / 5.2.2 (autonomous, synchronous false: create with state "undefined" and a null is value, enqueue an upgrade reaction) | customized built-in / autonomous / no definition / `is` mismatch | `apply_clone_creation_ce_semantics(dom, registry, root, scope)` (`elidex-custom-elements/src/upgrade.rs:125-156`), called by the CE arm | ✓ | no |
 | WHATWG HTML §4.13.6 Custom element reactions | enqueue a custom element upgrade reaction steps 1-2 | — | the CE arm pushes `CustomElementReaction::Upgrade` per candidate at dispatch (`consumer.rs`, NEW arm) | ✗ (element-queue grouping and the drain point are the registered / proposed engine-wide slots, umbrella E2) | no |
 | WHATWG HTML §4.10.5 The input element | cloning steps (propagate value, dirty value flag, checkedness, dirty checkedness flag, indeterminateness) | each field; dirty checkedness unmodeled | the form arm → `apply_clone_form_state(dom, root, scope)` → `copy_form_state` (`elidex-form/src/clone.rs:74-152`) | ✗ (dirty checkedness: `#11-input-dirty-checkedness-flag`, pre-existing, `clone.rs:122-126`) | yes |
 | WHATWG HTML §4.10.11 The textarea element | cloning steps (propagate raw value and dirty value flag) | both fields | same | ✓ | yes |
-| WHATWG HTML §4.12.3 The template element | cloning steps 1-2 (subtree false → return; else clone the contents' children with subtree true into copy's contents) | root template, shallow / deep; template inside a cloned shadow tree | `replicate_template_contents` (`clone.rs:405-431`) with the per-pair flag (D-5) | ✓ | yes |
+| WHATWG HTML §4.12.3 The template element | cloning steps 1-2 (subtree false → return; else clone the contents' children with subtree true into copy's contents) | root template, shallow / deep; template inside a cloned shadow tree | `replicate_template_contents` (`clone.rs:405-431`) with the pair's own flag — the operation's for the root pair, true for every other (D-5 (ii)) | ✓ | yes |
 | WHATWG HTML §4.13.3 Core concepts | look up a custom element definition step 1 (null registry → null) | template contents (null-registry document) | the walk shape (today's `for_each_shadow_inclusive_descendant` does not enter template contents); interim of umbrella §4.3 condition 6, folded into `#11-document-null-registry-adopt-reset` | ✗ (slot) | no |
 | WHATWG DOM §4.5 Interface Document | a document's custom element registry (null unless stated otherwise) | the inert template document | same interim; not modelled | ✗ (slot) | no |
 | WHATWG DOM §4.8 Interface ShadowRoot | shadow-including descendant (the visit **set**: `Subtree` = the root and its shadow-including descendants minus the ShadowRoot nodes themselves; `SelfOnly` = the root, its ShadowRoot entity and that root's shadow-including descendants minus nested ShadowRoot nodes — §4.3; the walk's **order** is DOM §4.4 "clone a node" creation order, steps 2 → 5 → 6.7: the node, its light children, then its shadow children — not §4.8 "shadow-including tree order", which would take the shadow tree just after the host) | `Subtree` / `SelfOnly` | `EcsDom::for_each_clone_created` (NEW, `walkers.rs`), on `for_each_shadow_inclusive_descendant` (`walkers.rs:54-80`) | ✓ | no |
@@ -480,16 +511,17 @@ In `clone_node_with_shadow_honor` (`clone.rs:227-306`):
 - After the worklist loop and before `Some(cloned)` (`:305`):
   `dom.fire_clone_created(cloned, if deep { CloneScope::Subtree } else { CloneScope::SelfOnly });` (`CloneScope::Subtree` / `CloneScope::SelfOnly` (NEW), §4.1)
   One call, in the entry only; the helpers are unchanged in this respect.
-- **D14 (D-5).** In the loop, `let subtree = deep || d != cloned;` replaces `deep` at the two pass sites: pass 3's
-  `replicate_template_contents(s, d, dom, subtree, shadow_doc, &mut pairs)` (`:262`) and pass 4's shadow-child
-  `clone_recording(dom, child, subtree, shadow_doc, &mut pairs)` (`:290`). Since `d != cloned` holds for every
-  non-root pair, `subtree` is true for every shadow child (step 6.7) and for every template or host inside a shadow
-  tree or inside template contents; for the root pair it is the operation's flag (step 5, template step 1). The
-  `if !deep { … set_associated_document(child_clone, doc) }` block (`:294-301`) is deleted: `clone_recording` with
-  `subtree = true` goes through `clone_subtree`, whose `doc_override = shadow_doc` stamps the child and threads the
-  document into its subtree (`tree_clone.rs:199-224`); when `shadow_doc` is `None` neither path stamps, as today.
-  Which other hand stamps this PR keeps or removes is H9's rule, applied as D-5 says (not restated here). The
-  pass-4 doc (`:208-216`) and the step 6.7 comment (`:288-289`) are rewritten to the spec's rule.
+- **D14 (D-5; the rule is stated there, not here).** Two edits in the loop. Pass 4's shadow-child clone becomes
+  `clone_recording(dom, child, true, shadow_doc, &mut pairs)` (`:290`; D-5 (i): step 6.7, true at every pair). Pass
+  3's call becomes `replicate_template_contents(s, d, dom, subtree, shadow_doc, &mut pairs)` (`:262`) with
+  `let subtree = deep || d != cloned;` computed in the loop (D-5 (ii)); the local has no other use. After the edit
+  `clone_recording`'s shallow arm (`:322-325`) is reached only from the root call (`:229`): pass 4 passes true, and
+  `replicate_template_contents` returns before its own `clone_recording` when its flag is false (`:423-425`). The
+  `if !deep { … set_associated_document(child_clone, doc) }` block (`:294-301`) is deleted; the derivation is in
+  D-5 (every shadow child now goes through `clone_subtree` with `doc_override = shadow_doc`: the stamp at
+  `tree_clone.rs:221`, the threading at `:232`, the `None` fallback at `:208`). Which other hand stamps this PR
+  keeps or removes is H9's rule, applied as D-5 says (not restated here). The pass-4 doc (`:208-216`) and the step
+  6.7 comment (`:288-289`) are rewritten to the spec's rule.
 - The `ClonedFrom` doc (`:24-75`) is rewritten where it names the VM shim: `:33-35` ("from the VM `cloneNode`
   marshalling shim, beside the CE clone-upgrade seam") → the consumer is `FormControlReconciler`'s `CloneCreated`
   arm, run at dispatch before the entry returns; `:48-57` ("Why a persisted marker, not a returned list") → the
@@ -878,7 +910,7 @@ webref cannot confirm is replaced by the name.
 | `destroy_entity`'s slot read (`tree/teardown.rs:80`) | `elidex-ecs` | existing read follows the enum (`Installed(_)`; §4.7 "The readers") |
 | `EcsDom::for_each_clone_created` (NEW) | `elidex-ecs` | NEW, over the existing `for_each_shadow_inclusive_descendant` and `get_shadow_root` |
 | census no-op arm | `elidex-dom-api` `range/live.rs` | existing exhaustive `match` gains an arm (D-8, §5.2) |
-| the fire and D14 | `elidex-dom-api` | existing `clone_node_with_shadow_honor`; existing `clone_recording` / `replicate_template_contents` with the per-pair flag |
+| the fire and D14 | `elidex-dom-api` | existing `clone_node_with_shadow_honor`; existing `clone_recording` (pass 4, with true) / `replicate_template_contents` (pass 3, with the pair's own flag) — D-5 |
 | CE arm | `elidex-custom-elements` | existing `CustomElementReactionConsumer::handle` gains an arm; NEW `handle_clone_created` (the `handle_insert` shape); existing `apply_clone_creation_ce_semantics` (+ `scope`, `pub(crate)`) |
 | form arm | `elidex-form` | existing `FormControlReconciler::handle` gains an arm; NEW free fn `handle_clone_created` beside `handle_insert`; existing `apply_clone_form_state` (+ `scope`, `pub(crate)`), `collect_template_inclusive_descendants` |
 | `cloneNode` native | `elidex-js` `vm/host/` | existing `native_node_clone_node`, post-pass deleted; `enqueue_subtree_upgrade_reactions` deleted |
@@ -895,7 +927,7 @@ measures the four files named below as not touched by RC-2a):
 
 | File | Lines | Change |
 |---|---|---|
-| `crates/dom/elidex-dom-api/src/node_methods/clone.rs` | 458 | the fire; D14 (per-pair flag, `:294-301` deleted); docs (§4.2, §4.9) |
+| `crates/dom/elidex-dom-api/src/node_methods/clone.rs` | 458 | the fire; D14 (D-5: pass 4 with true, pass 3 with the pair's own flag; `:294-301` deleted); docs (§4.2, §4.9) |
 | `crates/core/elidex-ecs/src/dom/mutation_event.rs` | 352 | `CloneCreated`, `CloneScope`; docs |
 | `crates/core/elidex-ecs/src/dom/mod.rs` | 926 | `fire_clone_created` with D-4's assertion; `DispatcherSlot` (the slot, `new()`, the three public slot methods `set` / `clear` / `take`, the private `dispatch_event`, `RestoreDispatcher`; §4.10); re-export; slot doc; `:426` citation |
 | `crates/core/elidex-ecs/src/lib.rs` | 51 | re-export |
@@ -948,7 +980,10 @@ Re-run at the implementation head, and again if C0c lands first (H6).
 
 **Flips (expected value changes).** One: `clone_node_shallow_replicates_own_clonable_shadow_shallowly`
 (`clone_shadow.rs:76-112`) is inverted and renamed `clone_node_shallow_replicates_own_clonable_shadow_deeply`: the
-shadow child's own descendants **are** cloned (step 6.7, subtree true). Its red run at the pre-fix head is D14's
+shadow child's own descendants **are** cloned (step 6.7, subtree true). Its fixture is the Codex #589 shape — a
+`cloneNode(false)` root whose immediate shadow child (`<span>`, `:87`) has a light descendant (the text node, `:88`)
+— so the inverted assertion (`:108-111`) pins D-5 (i) at the root pair; under Rev 3.1's rule it would have stayed
+red. Its red run at the pre-fix head is D14's
 negative control (umbrella §0.4: measured, no green branch). The header comment `:9-14` is rewritten. The second test
 that encodes the reversed rule, `tests_inner_html_mixin.rs:620-635` (§0.2), flips no value: its assertion is true
 under both rules, so it is renamed and its comment rewritten (§4.9) and it stays green throughout.
@@ -980,9 +1015,12 @@ under both rules, so it is renamed and its comment rewritten (§4.9) and it stay
   (the `AttrChangeCounter` shape, `test_util.rs:21-34`).
 - `elidex-dom-api`, `tests/clone_shadow.rs`: (a) one event per entry call: `cloneNode(true)` of a host with a
   clonable shadow root holding a nested clonable host and a `<template>` records exactly one `CloneCreated`, with
-  `root == cloned` and `Subtree`; `cloneNode(false)` records one with `SelfOnly`; (b) **D14 extended**: a
-  `<template>` with contents inside the shadow tree of a `cloneNode(false)` root has its contents cloned (per-pair
-  flag), and a nested clonable host inside that shadow tree has its own shadow children deep-cloned; (c) the stamp
+  `root == cloned` and `Subtree`; `cloneNode(false)` records one with `SelfOnly`; (b) **D14 extended** (the pin of
+  D-5 (ii), as the flipped test is of D-5 (i)): a `<template>` with contents inside the shadow tree of a
+  `cloneNode(false)` root has its contents cloned (a non-root pair, pass 3 with true), and a nested clonable host
+  inside that shadow tree has its own shadow children deep-cloned (pass 4 at a non-root pair); the root pair's pass 3
+  stays pinned by the existing `clone_node_template_shallow_gets_fresh_empty_fragment` (`tests/clone.rs:181-211`,
+  unchanged); (c) the stamp
   guard `clone_node_shallow_shadow_children_carry_owner_document` is extended to the shadow child's grandchild
   (`owner_document == Some(doc)`), and stays green in the C0b-first state too (H9), because it reads
   `owner_document` and expects the source's document; (d) the event fires after the whole copy exists: the probe
@@ -1003,7 +1041,11 @@ under both rules, so it is renamed and its comment rewritten (§4.9) and it stay
   twin is added); (g) a cloned `<template>` whose contents hold a defined custom element enqueues no upgrade for the
   content clone; (h) queue position (E2): `x.cloneNode(true)` followed by `document.body.append(y)` in one script
   runs x's clone constructor before y's `connectedCallback` — an order equal under both queue models (umbrella E2
-  rule), read at the eval checkpoint; (i) the I3 case stays as is (`tests_clone_form_state.rs:48-56`).
+  rule), read at the eval checkpoint; (i) the I3 case stays as is (`tests_clone_form_state.rs:48-56`); (j) the
+  Codex #589 shape through the whole mechanism: a clonable shadow tree holding `<div><input></div>` with a value
+  set on the `<input>`, then `host.cloneNode(false)` — `clone.shadowRoot.firstChild.firstChild` exists (D-5 (i) at
+  the root pair) and its `.value` reads the copy (pass 2's marker on the grandchild's pair, the `SelfOnly` walk
+  through the shadow root, the form arm).
 - `elidex-ecs`, `tests/dispatch_guard.rs` (D-4, §4.7): (w1) a clone fired inside a take-window panics in debug
   (`#[cfg(debug_assertions)]`, `#[should_panic(expected = "dispatcher is taken out")]`); (w2) a take on an unbound
   `EcsDom` opens no window, and the fire stays silent; (w3) a restored dispatcher closes the window and receives
@@ -1120,6 +1162,11 @@ visibility) with the `fire_*` group in
 
 1. D14 negative control: `cargo test -p elidex-dom-api --all-features clone_node_shallow_replicates_own_clonable_shadow`
    is red at the pre-fix head with the inverted assertion and green at the PR head (the PR body records both runs).
+   The inverted assertion is the root pair's step 6.7 (D-5 (i), §6): the immediate shadow child's light descendant
+   exists on a `cloneNode(false)` clone. `git grep -n 'clone_recording(dom, child, ' --
+   crates/dom/elidex-dom-api/src/node_methods/clone.rs` → exactly two lines (at `fab44a1d`: `:290`, `:427`): the
+   pass-4 call, whose third argument is the literal `true`, and `replicate_template_contents`'s own call, which
+   passes its parameter; no line passes `subtree`.
 2. One clone path, and no public seam: `git grep -n 'enqueue_subtree_upgrade_reactions\|apply_clone_creation_ce_semantics\|apply_clone_form_state' -- crates`
    shows, outside `crates/dom/elidex-custom-elements/src/upgrade.rs` and `crates/dom/elidex-form/src/clone.rs`
    (each: the `pub(crate)` definition, its in-crate arm call and inline tests), only doc prose that names the arms;
