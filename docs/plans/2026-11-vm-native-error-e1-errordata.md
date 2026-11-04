@@ -169,8 +169,10 @@ comparison E1 needs on the clone path, step 18.2's `serialized_error_name`, live
 
 **ECS.** E1 reads and writes no ECS component: `ObjectKind`, prototypes and properties are VM heap state.
 One cell depends on ECS-backed state without touching it: T-PROMO-UPGRADE (§4.1) reaches `error_entry` with an
-element wrapper, an `ObjectKind::HostObject { entity_bits }` whose identity is `HostData::wrapper_cache`
-(`entity_bits` → the wrapper's `ObjectId`) and whose upgrade is driven by the element's
+element wrapper, an `ObjectKind::HostObject { entity_bits }` whose identity is `HostData::wrapper_store`, a
+`HashMap<WrapperKey, ObjectId>` (`vm/host_data/mod.rs:138`) that the element's wrapper occupies under
+`WrapperKey::entity(entity, WrapperKind::Node)` (`get_cached_wrapper` / `cache_wrapper`,
+`vm/host_data/engine_feature/object_roots.rs:37` / `:51`, at `f9cf8c40`), and whose upgrade is driven by the element's
 `CustomElementState` component (`elidex-custom-elements`). The fail-safe guard (§1.2) leaves that wrapper's
 kind `HostObject`, so the identity map keeps a branded wrapper and the element's brand-checked accessors keep
 working; overwriting the kind is exactly what would break that (M18).
@@ -247,8 +249,9 @@ hygiene note).
     `error_ctor_impl`'s property definition, which the `Ordinary`-only guard does not touch (on the second call
     the receiver is already `Error`, so the guard leaves it alone, as base leaves an `Ordinary` alone). E1
     pins no cell here (a cell would panic in debug builds). Owners (PM 374): `#11-vm-derived-constructor-this-binding`
-    (the double-`super()` repro, a script-reachable debug panic plus a release duplicate own property, now on
-    its charter) and `#11-vm-native-ctor-receiver-promotion-admission` (the upgrade-path variant with an own
+    (the double-`super()` repro, a script-reachable debug panic plus a release duplicate own property, carried
+    by that slot's live-ledger pointer row, not yet by its canonical slot-ledger row, whose update is the PM's;
+    umbrella §5) and `#11-vm-native-ctor-receiver-promotion-admission` (the upgrade-path variant with an own
     `name` / `message` expando, on its charter). Two variants are unprobed and are E1's first implementation
     step (§4.0).
 
@@ -559,9 +562,10 @@ neither C1, C2 nor B-clone owns, other than receiver admission (M18, pinned and 
 
 Section numbers from `.claude/tools/webref aoid ecma262 <AO>` / `.claude/tools/webref heading ecma262 20.5`
 / `.claude/tools/webref heading ecma262 5.2.4` (Throw) / `.claude/tools/webref dfn html <AO>`; step text from `.claude/tools/webref body <spec> <anchor-or-AO>`.
-Skeleton and breadth verdict: `.claude/tools/webref coverage-map ecma262 20.5.1.1 ecma262 20.5.6.1.1 ecma262 20.5.7.1.1 ecma262 20.1.3.6 ecma262 10.1.13 ecma262 PerformPromiseAny html 2.7.4 html 2.7.7`
-→ (verdict 1, the requested skeleton) "spec=2 (ecma262, html), step=8 entries … ok → single PR scope"
-(verified 2026-11-05, re-run at `f9cf8c40`). The Wasm JS API and
+Skeleton and breadth verdict: `.claude/tools/webref coverage-map ecma262 20.5.1.1 ecma262 20.5.6.1.1 ecma262 20.5.7.1.1 ecma262 20.1.3.6 ecma262 10.1.13 ecma262 PerformPromiseAny ecma262 5.2.4.2 html 2.7.4 html 2.7.7`
+→ (verdict 1, the requested skeleton) "**Breadth (requested)**: spec=2 (ecma262, html), step=9 entries" and
+"**Split decision**: ok → single PR scope" (verified 2026-11-05, re-run at `f9cf8c40`, with §5.2.4.2 Throw, the table's
+row for the engine throw, now among the requested clauses). The Wasm JS API and
 IndexedDB rows are labels the preflight does not resolve (it warns and skips them); their numbers come from
 `.claude/tools/webref heading wasm-js-api-2 5.10` and `.claude/tools/webref dfn IndexedDB-3 clone`.
 **Breadth.** Verdict 2, the plan-review preflight over this table:
@@ -729,7 +733,8 @@ The payload removal has no mutant: the compiler checks every pattern site, and n
 - **Receiver admission of the in-place promotions** (§1.2, §2) → `#11-vm-native-ctor-receiver-promotion-admission`
   (registered, PM 370; pre-existing class, all promote sites; the upgrade-expando variant on its charter, PM
   374); path (b), the double-`super()` debug panic and release duplicate own property →
-  `#11-vm-derived-constructor-this-binding` (VM P4 ledger; on its charter, PM 374). E1 pins its fail-safe
+  `#11-vm-derived-constructor-this-binding` (VM P4 ledger; carried by its live-ledger pointer row, PM 374, and
+  not yet by its canonical slot-ledger row, which is the PM's to update; umbrella §5). E1 pins its fail-safe
   stance on path (a) (T-PROMO-UPGRADE), leaves path (b) as base behaviour without a cell, and takes neither.
   **The receiver-admission slot's trigger fires on E1** ("a PR touching any promote site or the upgrade
   construct path"; E1 adds `promote_to_error`): at E1's landing the slot is re-evaluated, and its trigger is
@@ -774,7 +779,8 @@ Run at `f9cf8c40` (each command is the one that produced the cite; line numbers 
 The structured-clone functions are cited by name; at `f9cf8c40` they are all in `vm/host/structured_clone.rs`
 (the first structured-clone command); after Slice F they are wherever F's clone-algorithm half lands — which
 the layering-seam derivation may move out of `vm/host/` (umbrella §1.2) — so the second command, run on E1's
-base, searches the functions by name across the crate, under no directory.
+base, searches the functions by name under the pathspec `crates/`: every crate in the workspace, not only
+`elidex-js`, and no directory inside one.
 
 ```sh
 B=f9cf8c40; S=crates/script/elidex-js/src
@@ -785,7 +791,7 @@ git grep -n 'fn vm_error_to_thrown\|kind: ObjectKind::Error' $B -- $S/vm/ops.rs
 git grep -n 'ObjectKind::Error' $B -- crates/
 git grep -n 'error_prototype' $B -- $S ':!crates/script/elidex-js/src/vm/tests'
 git grep -n 'fn clone_recursive\|fn classify\|fn clone_error\|fn clone_ordinary\|fn is_error_like_proto\|CloneKind::Ordinary if' $B -- $S/vm/host/structured_clone.rs
-git grep -n 'fn clone_recursive(\|fn classify(\|fn clone_error(\|fn clone_ordinary(\|fn is_error_like_proto(\|CloneKind::Ordinary if' HEAD -- crates/   # on E1's base, after Slice F; repo-wide
+git grep -n 'fn clone_recursive(\|fn classify(\|fn clone_error(\|fn clone_ordinary(\|fn is_error_like_proto(\|CloneKind::Ordinary if' HEAD -- crates/   # on E1's base, after Slice F; every crate under crates/
 git grep -n 'fn get_property_value' $B -- $S/vm/shape_ops.rs
 git grep -n 'fn dispatch_super_inner\|let receiver = self.frames' $B -- $S/vm/dispatch_class.rs
 git grep -n 'fn reject_non_json_storable\|fn is_error_like\|if is_error_like\|clone_value' $B -- $S/vm/host/indexeddb/value.rs
@@ -799,6 +805,8 @@ git grep -n 'isError\|map_constructor' $B -- $S
 git grep -n 'clone_value(' $B -- $S ':!crates/script/elidex-js/src/vm/tests'
 git grep -n 'fn invoke_upgrade\|construct_synchronous(\|step 9.4\|dom_exc_not_supported_error' $B -- $S/vm/host/custom_elements/upgrade.rs
 git grep -n 'fn native_ce_upgrade' $B -- $S/vm/host/custom_elements/lookup.rs
+git grep -n 'wrapper_store: HashMap' $B -- $S/vm/host_data/mod.rs
+git grep -n 'pub fn get_cached_wrapper\|pub fn cache_wrapper\|WrapperKind::Node' $B -- $S/vm/host_data/engine_feature/object_roots.rs
 git grep -n 'error-like\|allocate `Ordinary` with' $B -- $S/vm/host/indexeddb/value.rs
 git grep -n 'The shape kind remains' $B -- $S/vm/natives_promise_combinator.rs
 git grep -n 'Get` (§7.3' $B -- $S/vm/shape_ops.rs

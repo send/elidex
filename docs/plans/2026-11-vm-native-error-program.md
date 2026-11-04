@@ -187,6 +187,12 @@ Program-level: the clauses each PR owns, so the per-PR maps can be checked again
 `.claude/tools/webref dfn IndexedDB-3 clone`, `.claude/tools/webref heading wasm-js-api-2 5.10` and
 `.claude/tools/webref heading webidl 3.14.1`. E1's step-level map is its memo's §3; every clause it owns has a
 row here.
+The plan-review preflight over this table
+(`python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-vm-native-error-program.md`) returns
+"SPLIT-RECOMMENDED (K>=4 or M>=20)" with M = 20 and K = 5 (ecma262, html, webidl, IndexedDB, Wasm JS API). The
+recommendation is already met: the program is split into Slice F, E0, E1 and E2 (§1), each under its own
+plan-review, and K comes from consumer specs (IndexedDB consumes HTML's algorithm, the Wasm JS API row says which
+objects the ECMA-262 rows cover, and the Web IDL row touches nothing; E1 memo §3), not from added subsystems.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
@@ -272,9 +278,13 @@ facts it must not lose.
 - **Registered by PM 370**: `#11-vm-native-ctor-receiver-promotion-admission` — the pre-existing class of
   in-place receiver promotions (every `promote_to_*` site, E1's `promote_to_error` included) reached with a
   receiver that is not a `do_new`-pre-allocated `Ordinary`; E1 takes its fail-safe stance (E1 memo §1.2) and
-  not the class. Its second path's spec answer is `#11-vm-derived-constructor-this-binding`'s (VM P4 ledger),
-  whose charter now carries the double-`super()` debug panic (PM 374; E1 memo §1.2). **Its trigger fires on
-  E1** ("a PR touching any promote site or the upgrade construct path": E1 adds `promote_to_error`), so its
+  not the class. Its second path's spec answer is `#11-vm-derived-constructor-this-binding`'s (VM P4 ledger).
+  The double-`super()` debug panic (PM 374; E1 memo §1.2) is carried by that slot's **live-ledger pointer
+  row** ("**Severity raised (PM 374, VM P4 probe at `f9cf8c40`)**";
+  `/usr/bin/grep -n 'derived-constructor-this-binding. → docs/plans' <the live ledger, path in §1.2>` → `:1243`
+  on 2026-11-05). The canonical row in `docs/plans/2026-07-vm-p4-slot-ledger.md` (`:293`) does not carry it
+  yet (`sed -n 293p docs/plans/2026-07-vm-p4-slot-ledger.md | /usr/bin/grep -c 'shape_add_transition\|panic'`
+  → 0 at `f9cf8c40`), and updating that row is the PM's. **Its trigger fires on E1** ("a PR touching any promote site or the upgrade construct path": E1 adds `promote_to_error`), so its
   disposition is recorded at E1's landing: re-evaluated there, its trigger restated for the promote sites that
   remain after E1 (E1 memo §5).
 - **Ledger agreement** (PM 370; the ledger edits are the PM's): `#11-error-object-builtintag-dual-representation`
@@ -282,43 +292,101 @@ facts it must not lose.
   and Wasm errors; the storage-format redesign is that slot's); the AggregateError and Wasm constructors'
   `[[Prototype]]` = %Error% is E2's (§4).
 - **Landing obligations**:
-  - **The umbrella-9 pointer, in both its forms** (PM 370; forms fixed by PM 374), for axes **A + B only** (C
-    and E0 are not umbrella-9 surface), all in one edit of `docs/plans/2026-07-vm-p4-slice-plan.md`:
+  - **The umbrella-9 pointer, in both its forms, plus its §8 pointer row** (PM 370; forms fixed by PM 374),
+    for axes **A + B only** (C and E0 are not umbrella-9 surface), all in one edit of
+    `docs/plans/2026-07-vm-p4-slice-plan.md` and `docs/plans/2026-07-vm-p4-slot-ledger.md`:
     - **(a) a §5 row** (`| # | Slice | Primary module(s) | Slot | Tier | Deps |`), in the form of rows **R**
-      and **M** (`git grep -n '^| \*\*R\*\* |\|^| \*\*M\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`):
+      and **M** (`git grep -n '^| \*\*R\*\* |\|^| \*\*M\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`),
+      placed immediately after row **M** (`:992` at `f9cf8c40`), before the id-less `Function`/`eval` row:
       - `#`: **NE** (unused in the family: `cat docs/plans/2026-07-vm-p4-*.md | /usr/bin/grep -c '\*\*NE\*\*'`
         → 0 at `f9cf8c40`).
       - `Slice`: opens, in bold as R and M carry it, with "NativeError object structure (axes A + B of
         `#11-vm-native-error-prototypes`) — PROMOTED TO ITS OWN UMBRELLA, not a terminal unit, outside this
-        plan's slice sequence" (the kind literal is R's and M's, character for character), then one sentence: the program, its PRs and
-        their order are `docs/plans/2026-11-vm-native-error-program.md`'s; this row is umbrella 9's surface
-        carved out of its derivation (form (b)).
+        plan's slice sequence" (the kind literal is R's and M's, character for character), then two sentences:
+        the program, its PRs and their order are `docs/plans/2026-11-vm-native-error-program.md`'s, and this
+        row is umbrella 9's surface carved out of its derivation (form (b)); its Tier is its own worst
+        defect's, not umbrella 9's.
       - `Primary module(s)`: **—**, as R and M carry it (the modules are the program memo's §4 census).
       - `Slot`: `` `#11-vm-native-error-prototypes` `` (registered PM 363, so no **new**).
-      - `Tier`: **T3**, umbrella 9's, since the surface is umbrella 9's.
+      - `Tier`: **T1**, from NE's own worst defect: silent-wrong (shared prototypes, so
+        `new RangeError() instanceof TypeError` is true; the live ledger's "Silently wrong"), and the Tier
+        column is the severity taxonomy of `docs/plans/2026-07-vm-p4-es-language-completeness.md` §2.4, not a
+        value inherited from umbrella 9, as R (T2, loud: a parse error) and M (T1) each carry their own.
       - `Deps`: **—** (an umbrella carries no ordering; the program's order is its own memo's §1).
     - **(b) a mention in umbrella 9's row** (`git grep -n '^| \*\*9\*\* |' -- docs/plans/2026-07-vm-p4-slice-plan.md`),
-      in its rule's "**minus any surface another slot already owns**" clause, in the form of the clause's
-      `Atomics` / `Reflect` precedents: the Error intrinsics' A + B surface (ECMA-262 §20.5.3.1, §20.5.5,
-      §20.5.6.2-§20.5.6.3, §20.5.7.2; numbers from `.claude/tools/webref heading ecma262 20.5`) to the
-      promoted umbrella **NE** (`#11-vm-native-error-prototypes`); and, in the same sentence, that
-      `Error.isError` (§20.5.2.1, `#11-vm-error-iserror`) and InstallErrorCause (§20.5.9.1,
-      `#11-vm-error-install-error-cause`) are **not** subtracted — both are registered with owner "VM P4
-      (umbrella 9)" on the live ledger, and the mention is what makes them visible in the row.
+      in the rule's **first** subtraction clause, "**minus any surface another slot already owns**", and not
+      in the later §19-seed sentence: §20.5 is not a §19 seed, and the first clause is the one the whole
+      rule carries. The phrase form is the §19 sentence's `Atomics` / `Reflect` precedents: the Error
+      intrinsics' object structure (ECMA-262 §20.5.3.1, §20.5.5, §20.5.6.2-§20.5.6.3, §20.5.7.2; numbers
+      from `.claude/tools/webref heading ecma262 20.5`) "to the child umbrella
+      `#11-vm-native-error-prototypes`'s derivation mints for it". The same subtraction names the
+      constructor clauses' intrinsicDefaultProto argument, step 2 of §20.5.1.1, §20.5.6.1.1 and §20.5.7.1.1
+      (B's half; step numbers from `.claude/tools/webref body ecma262 sec-error-message` /
+      `sec-nativeerror` / `sec-aggregate-error`), because §3 assigns that argument to E2, so no step is
+      owned by both umbrella 9 and this program. In the same sentence, `Error.isError` (§20.5.2.1,
+      `#11-vm-error-iserror`) and InstallErrorCause (§20.5.9.1, `#11-vm-error-install-error-cause`) are
+      stated as **not** subtracted. Both are registered with owner "VM P4 (umbrella 9)" on the live ledger,
+      and the mention is what makes them visible in the row.
+    - **(c) a §8 pointer row** in `docs/plans/2026-07-vm-p4-slot-ledger.md` (`| Slot | Why deferred | Trigger |
+      Re-eval |`), in the form of R's pointer slot (`git grep -n '^| .#11-vm-explicit-resource-management. |' --
+      docs/plans/2026-07-vm-p4-slot-ledger.md`, `:301` at `f9cf8c40`), placed after `#11-vm-dynamic-import`
+      (`:304`), so it is clear of the in-flight branch's tail row (below):
+      - `Slot`: `` `#11-vm-native-error-prototypes` ``.
+      - `Why deferred`: "**Pointer into §5's row NE**, which declares its own kind and is promoted out of this
+        plan's sequence like Slice M; this cell restates nothing of it (§5: a pointer slot carries no marker
+        of its own)", then: registered on the live ledger (PM 363), and the program, its PRs and their order
+        are `docs/plans/2026-11-vm-native-error-program.md`'s. No marker, so the §8 half does not move.
+      - `Trigger`: none of its own. The program memo's §1 order schedules it, and it closes at E2's landing
+        (below).
+      - `Re-eval`: *at registration: landing + 30 d*. The slot-ledger's Re-eval rule counts a row as
+        registered only when its live-ledger entry has a Re-eval of its own, and this slot's entry has none
+        (`/usr/bin/grep 'vm-native-error-prototypes. — \*\*open' <the live ledger, path in this memo's §1.2> | /usr/bin/grep -ci 're-eval'`
+        → 0).
     - **Population figures the landing re-derives, never carries** (slice-plan census passage, lines at
-      `f9cf8c40`): `:222` the one-liner's `48 33 15` (total / §5 half / §8 half; **NE**'s `Slice` cell carries
-      the umbrella literal, so it enters the count); `:222` "all **64** §5 data rows" and `:224` "**64 at this
-      revision**" (a row is added); `:239` "the split is **33** §5 rows and **15** §8 slots"; and `:222` "The
-      reading returns **54**", re-read on the same line. Each is re-run by the command the passage itself
-      states, on the landing's tree.
-    - **The layout guard**: the row and the mention name this memo as a backticked path only — no relative
-      link from a family memo to a memo outside the family (`docs/plans/test_vm_p4_family_layout.py`).
+      `f9cf8c40`). Each figure names the program that yields it. Before → after values are from the landing
+      simulation (forms (a), (b) and (c) applied to a `git archive f9cf8c40 docs/plans .claude/tools` copy):
+      - `:222` the triple `48 33 15` (total / §5 half / §8 half) → **`49 34 15`**: the checker's
+        `[UMBRELLA-MARK]` line (`python3 .claude/tools/plan-memo-umbrella-check.py
+        docs/plans/2026-07-vm-p4-es-language-completeness.md`, "48 rows … (slice=33, slot=15)" → "49 rows …
+        (slice=34, slot=15)"). **NE**'s `Slice` cell carries the umbrella literal and enters the §5 half. The
+        §8 pointer row carries none, so the §8 half stays 15.
+      - `:222` "The reading returns **54**" → **49**. The reading it names is the same declaring-field reading
+        whose total the triple reports, so today it returns 48 (the `[UMBRELLA-MARK]` total), not 54. The 54
+        is the one-liner's total at `2d56fa40` (`54 37 17`, when §5 and §8 were one file), written at that
+        commit and not re-derived when the triple moved to 48 at `50328183`.
+      - `:222` "move at exactly **four** points" → five: the landing appends its own commit as the fifth point,
+        `49 34 15` (row **NE** entering the §5 half).
+      - `:222` "all **64** §5 data rows" and `:224` "**64 at this revision**" → **65** (a row is added).
+      - `:223` the §8 slot-row figure "**52** in `docs/plans/2026-07-vm-p4-slot-ledger.md`" → **53**
+        (`grep -cE '^[|] .#11-' docs/plans/2026-07-vm-p4-slot-ledger.md`, 52 → 53; a pointer row, so neither
+        kind half moves). The landing extends that clause's history chain with the step.
+      - `:239` "the split is **33** §5 rows and **15** §8 slots" → **34** and **15**, and its §5-side history
+        chain ("… and **33** from the one that disproved row **2a**'s") gains "**34** from the revision that
+        added row **NE**"; its §8-side chain ("**15** ever since") stays true.
+      - Observation only, not this program's to fix, recorded as a fact for whoever re-derives: the passage's
+        one-liner, run on the slice plan alone as the passage words it (`<this file>`), prints `33 33 0` at
+        `f9cf8c40` (→ `34 34 0` in the simulation), because §8's table moved to the slot ledger. It
+        reproduces the checker's triple only when it is given both files.
+      - Simulation, for the record: checker rc 0 before and after (`[CENSUS]` 53 → 54, `[UMBRELLA-CELL]`
+        37 → 38, 0 mechanical findings, seeds 51 → 51, reported naming sites 726 → 730), and `docs/plans/test_vm_p4_family_layout.py` OK
+        (2 tests) before and after.
+    - **The layout guard**: the rows and the mention name this memo as a backticked path only. No relative
+      link goes from a family memo to a memo outside the family (`docs/plans/test_vm_p4_family_layout.py`).
     - **The checker**: `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-07-vm-p4-es-language-completeness.md`
       (CLAUDE.md "VM-P4 umbrella memo の checker 実行"), rc 0 expected.
-    - ⚠ **Overlap**: the in-flight `vm-p4-slice-1a-plan` branch edits the same population figures (its diff
-      touches slice-plan `:219-227`, hunk `@@ -219,9 +219,9 @@` of
-      `git diff f9cf8c40 vm-p4-slice-1a-plan -- docs/plans/2026-07-vm-p4-slice-plan.md`); whichever lands second
-      re-derives them on top of the other.
+    - ⚠ **Overlap**: the in-flight `vm-p4-slice-1a-plan` branch (`d1e9186a`, merge base `145927c9`, whose
+      slice plan and slot ledger equal `f9cf8c40`'s) edits the same passage and the same tables.
+      `git diff f9cf8c40 vm-p4-slice-1a-plan -- docs/plans/2026-07-vm-p4-slice-plan.md` has four hunks:
+      `@@ -219,9 +219,9 @@` rewrites the census lines in place (§5 rows 64 → 69, the §8 slot-row figure
+      52 → 53 for its slot-ledger row `#11-vm-array-index-property-single-store`); `@@ -940,8 +940,13 @@`
+      adds rows **1aa**-**1ae** after **1a** (and edits 1a and 1b), which shifts every later row by 5, so
+      `:970` (R), `:981` (9) and `:992` (M) become `:975` / `:986` / `:997`; `@@ -958,7 +963,7 @@` and
+      `@@ -969,7 +974,7 @@` edit rows **C** and **S** in place. Its slot-ledger diff edits `:287`, `:306-307`
+      and `:325` in place and inserts its row after `:332` (`@@ -332,0 +333 @@` under `-U0`). After both land, the §5 population is **70**, the
+      §8 slot-row count **54**, and the triple is unchanged by the 1a rows (terminal, so `49 34 15`; that
+      branch alone prints `48 33 15`). The `:222` locators keep their line numbers but not their figures.
+      Whichever lands second re-derives every figure above on top of the other, by the named programs and
+      not by adding the two deltas.
   - **`#11-vm-native-ctor-receiver-promotion-admission`'s disposition at E1's landing** (its trigger fires on
     E1, above).
   - Close `#11-vm-json-internalize-non-array-objects` at E0's landing,
