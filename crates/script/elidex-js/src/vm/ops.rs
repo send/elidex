@@ -689,10 +689,10 @@ impl VmInner {
         // function MakeConstructor never applied to, a non-constructor
         // native — and unwraps a bound chain (Bound Function Exotic
         // Objects `[[Construct]]`, §10.4.1.2): `bound_this` is ignored
-        // and the target's `bound_args` are returned for the splice
-        // below.  Shared with `construct_synchronous`, so `new
-        // BoundCtor()` and `super()` over a bound constructor resolve
-        // identically.
+        // and the bound arguments of every link in the chain, outermost
+        // last, are returned for the splice below.  Shared with
+        // `construct_synchronous`, so `new BoundCtor()` and `super()`
+        // over a bound constructor resolve identically.
         let (ctor_id, prepended) =
             self.admit_construct(constructor, super::construct_admission::ConstructEntry::New)?;
         let prepended_len = prepended.len();

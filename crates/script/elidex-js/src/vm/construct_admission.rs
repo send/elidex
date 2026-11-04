@@ -13,10 +13,12 @@
 //!   `construct_synchronous` (`super(...)`, written or in the default
 //!   derived constructor, and the custom-element upgrade).
 //!
-//! The bound-chain walk is `unwrap_bound_function_chain`'s
-//! (`vm/dispatch_class.rs`) — one walk in `vm/` core, which every item
-//! here uses; the TypedArray resolver's walker
-//! (`vm/host/typed_array_static.rs:91`) is
+//! The bound-chain walk is one depth loop in `vm/` core, the private
+//! `walk_bound_chain` in `vm/dispatch_class.rs`.
+//! `unwrap_bound_function_chain` (collects the bound arguments; the
+//! admission uses it) and `bound_chain_target` (the target only; the
+//! predicate uses it) are its two forms.  The TypedArray resolver's
+//! walker (`vm/host/typed_array_static.rs:91`) is
 //! `#11-vm-typed-array-create-construct`'s.
 
 use super::value::{CallShape, JsValue, ObjectId, ObjectKind, StringId, VmError};
@@ -90,8 +92,8 @@ pub(crate) fn classify_construct_target(vm: &VmInner, id: ObjectId) -> Construct
 /// A bound function has one iff its target does (BoundFunctionCreate
 /// §10.4.1.3 step 6), so the chain is unwrapped with
 /// `bound_chain_target` — the target-only form of the walk the
-/// construct entries share (`unwrap_bound_function_chain`) — and the target classified by
-/// [`classify_construct_target`].  A chain past
+/// construct entries share (`unwrap_bound_function_chain`) — and the
+/// target classified by [`classify_construct_target`].  A chain past
 /// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] answers `false`: a predicate
 /// answers rather than throws, and its callers (ClassDefinitionEvaluation
 /// step 8.g, `customElements.define`, the `%TypedArray%` statics) raise

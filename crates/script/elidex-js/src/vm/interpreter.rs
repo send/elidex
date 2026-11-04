@@ -327,9 +327,10 @@ impl VmInner {
                     //     `new X()` and `super()` are in practice rejected
                     //     upstream by the construct admission
                     //     (`VmInner::admit_construct`, called by `do_new` and
-                    //     `construct_synchronous`), before reaching here — but the unconditional throw
-                    //     deliberately also guards any construct-mode entry, so
-                    //     do NOT add a `!mode.is_construct()` guard to it.)
+                    //     `construct_synchronous`), before reaching here —
+                    //     but the unconditional throw deliberately also
+                    //     guards any construct-mode entry, so do NOT add a
+                    //     `!mode.is_construct()` guard to it.)
                     match nf.shape {
                         // WebIDL §3.7.1 (Interface object) creation algorithm
                         // step 1.2 + ECMA-262 §27.2.3.1 step 1: `new`-only ctor

@@ -250,10 +250,10 @@ fn extends_null_user_super_call_throws() {
 
 // ---------------------------------------------------------------------------
 // D-17b R20 G20-1: dynamic-null class heritage. Per ECMA-262 §15.7.14
-// ClassDefinitionEvaluation step 8.f, a heritage value that evaluates to `null` at runtime must
-// be accepted (treated as `extends null`'s prototype chain) even
-// though the parser classified the heritage as `Expr` (not the literal
-// `Null` arm). `Op::AssertConstructor` now accepts `JsValue::Null` and
+// ClassDefinitionEvaluation step 8.f, a heritage value that evaluates
+// to `null` at runtime must be accepted (treated as `extends null`'s
+// prototype chain) even though the parser classified the heritage as
+// `Expr` (not the literal `Null` arm). `Op::AssertConstructor` now accepts `JsValue::Null` and
 // `compile_class`'s Expr arm runtime-branches on null so the splice
 // phase mirrors `ClassHeritage::Null`.
 // ---------------------------------------------------------------------------

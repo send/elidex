@@ -178,11 +178,13 @@ impl VmInner {
     /// by the construct admission [`Self::admit_construct`] — which
     /// both [`super::VmInner::do_new`] (the user-visible `new` path)
     /// and [`Self::construct_synchronous`] (the `super(...)` /
-    /// invoke_upgrade path) call — and by the predicate
+    /// invoke_upgrade path) call — and, through its target-only form
+    /// [`Self::bound_chain_target`], by the predicate
     /// [`super::construct_admission::is_constructor`], so the depth
     /// limit is applied by one piece of code (in `vm/` core; the
     /// TypedArray resolver's walker in `vm/host/typed_array_static.rs`
-    /// is `#11-vm-typed-array-create-construct`'s). Keeping the logic in one place ensures
+    /// is `#11-vm-typed-array-create-construct`'s). Keeping the logic
+    /// in one place ensures
     /// `new BoundCtor()` and `class B extends BoundCtor { ... }` /
     /// `super()` behave consistently — D-17b R4 G4-4 fix for the
     /// divergence where `construct_synchronous` rejected BoundFunction
