@@ -121,7 +121,7 @@ first code commit.
 Only pairs that span two slices. "(1) I5" = plan (1)'s invariant I5.
 
 - **X1 One change-on-blur judgement, in elidex-form, every sink** — (1) I5 × (2) I2 × x1. The substep's condition (the
-  qualifiers of DC2 and H's predicate, `user_changed && value != initial`, plan (1) §4.3) is computed by one
+  qualifiers of DC2 and H's predicate, plan (1) D-1 / §4.3) is computed by one
   elidex-form function (NEW, engine-independent; record PR-1 names it); it consumes the snapshot. Every sink — the shell
   sink (UA, `blur_current`, (2)'s fixup) and A2c's VM sink — calls it and only dispatches `change`; no sink, shell or
   `vm/host`, computes the predicate. Pinned by plan (1)'s `take_change_on_blur` cells and plan (1) MG1 (PM 298); the fixup path
@@ -209,7 +209,7 @@ Records for existing slots: **R-1** → `#11-vm-host-synthetic-dom-event-dispatc
 Records for the slice plans (the driver applies them in their next revisions):
 - **PR-1 → plan (1) rev 2**: "The change-on-blur substep judgement moves out of shell `dispatch_change_on_blur` into
   `elidex_form::take_change_on_blur` (NEW) (single owner `elidex-form`, module `focus_snapshot.rs`). It consumes the
-  `FocusValueSnapshot` and returns whether the substep fires (H's predicate, `user_changed && value != initial`, plan (1) §4.3). Every sink calls it and only
+  `FocusValueSnapshot` and returns whether the substep fires (H's predicate, plan (1) D-1 / §4.3). Every sink calls it and only
   dispatches `change`: the shell sink's `dispatch_change_on_blur` becomes a dispatcher, and A2c's VM sink calls the same
   function. I5 reads 'one judgement, called by every sink' (umbrella X1)."
   Existing text PR-1 rewrites: `crates/dom/elidex-dom-api/src/focus/update_steps.rs:72-76` (the `commit_change_on_blur` doc comment 'the shell takes the snapshot, compares, and dispatches').
