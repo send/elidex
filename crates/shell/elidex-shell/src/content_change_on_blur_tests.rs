@@ -22,7 +22,9 @@ use crate::ipc::{BrowserToContent, ContentToBrowser, ImeKind, LocalChannel, Modi
 type Browser = LocalChannel<BrowserToContent, ContentToBrowser>;
 
 /// The events every logged control reports. `input` carries its `inputType`.
-/// (`listen` takes `t` as a parameter so each listener closes over its own type.)
+/// (`listen` takes `t` as a parameter so each listener closes over its own type: the VM's
+/// `for (const …)` loop shares one binding across iterations, `#11-vm-per-iteration-loop-environment`;
+/// inline the loop body again when that slot lands.)
 const LOGGER: &str = "globalThis.__log = []; \
     function listen(el, t) { \
       el.addEventListener(t, (e) => { \
@@ -296,7 +298,8 @@ fn cursor(state: &ContentState, id: &str) -> usize {
 /// A script `value = "ab"` before focus leaves the caret at the end (the
 /// setter's cursor move), so ArrowLeft has somewhere to go — the setup of the
 /// Chromium-measured N1 / M5 cases. (A collapsed VM `setSelectionRange(1, 1)`
-/// does not move elidex's caret, `cursor_pos`, so it cannot set this up.)
+/// does not move elidex's caret, `cursor_pos`, so it cannot set this up:
+/// `#11-text-control-set-selection-range-caret`.)
 fn focus_with_caret_at_end(state: &mut ContentState) {
     eval(state, "document.getElementById('b').value = 'ab';");
     ua_focus(state, "b");
