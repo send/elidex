@@ -473,29 +473,14 @@ pub fn apply_replace_child(
         Some(next) if next == new_child => dom.next_exposed_sibling(new_child),
         other => other,
     };
-    // Source-removal record context from new_child's adopt, captured pre-write
-    // when new_child is already parented. Self-replace (`replaceChild(X, X)`) is
-    // rejected by `EcsDom::replace_child` below (returns false → empty list), so
-    // it produces no record at all — matching the VM handler's browser-parity
-    // no-op short-circuit; this context is simply discarded in that case.
-    let source = dom.get_parent(new_child).map(|old_parent| {
-        // Source siblings = new_child's exposed prev/next, **stepping over
-        // old_child** (spec removes old_child at step 11, before new_child's adopt
-        // at step 13, so old_child is gone from new_child's sibling chain by adopt
-        // time). The EcsDom primitive detaches new_child BEFORE old_child (reverse
-        // order), so the step-over must be applied here.
-        let prev = match dom.prev_exposed_sibling(new_child) {
-            Some(s) if s == old_child => dom.prev_exposed_sibling(old_child),
-            other => other,
-        };
-        let next = match dom.next_exposed_sibling(new_child) {
-            Some(s) if s == old_child => dom.next_exposed_sibling(old_child),
-            other => other,
-        };
-        // step-12 `isParentConnected` of new_child's OLD parent (the source of
-        // the adopt→remove) — pre-relink, so read here.
-        (old_parent, prev, next, dom.is_connected(old_parent))
-    });
+    // Source-removal record context from new_child's adopt (replace step 6 ->
+    // adopt step 2 -> remove), captured pre-write with `old_child` still in place:
+    // the spec removes `old_child` at step 7, after the adopt. Self-replace
+    // (`replaceChild(X, X)`) is rejected by `EcsDom::replace_child` below (returns
+    // false -> empty list), so it produces no record at all; elidex queues no record
+    // here while the spec queues two (`#11-replace-child-self-records`: Chromium
+    // unmeasured, C0a memo section 7); this context is simply discarded in that case.
+    let source = capture_move_source(dom, new_child);
     if !dom.replace_child(parent, new_child, old_child) {
         return Vec::new();
     }

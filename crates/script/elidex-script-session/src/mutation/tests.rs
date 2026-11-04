@@ -228,7 +228,7 @@ fn apply_replace_child_cross_parent_move_source_plus_coalesced() {
 }
 
 #[test]
-fn apply_replace_child_move_step8_referencechild_adjustment() {
+fn apply_replace_child_move_step3_referencechild_adjustment() {
     // [A,B,C].replaceChild(C, B): newC (C) is oldC (B)'s next sibling.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
@@ -241,12 +241,12 @@ fn apply_replace_child_move_step8_referencechild_adjustment() {
 
     let records = super::apply_replace_child(&mut dom, parent, c, b);
     assert_eq!(records.len(), 2);
-    // Source-removal: C's siblings step over B (removed first) -> prev = A.
+    // Source-removal: adopt (step 6) removes C with B in place -> prev = B.
     assert_eq!(records[0].target, parent);
     assert_eq!(records[0].removed_nodes, vec![c]);
-    assert_eq!(records[0].previous_sibling, Some(a));
+    assert_eq!(records[0].previous_sibling, Some(b));
     assert_eq!(records[0].next_sibling, None);
-    // Coalesced: step-8 next = C's next (None), NOT C itself; prev = B's prev = A.
+    // Coalesced: step-3 next = C's next (None), NOT C itself; prev = B's prev = A.
     let coalesced = &records[1];
     assert_eq!(coalesced.added_nodes, vec![c]);
     assert_eq!(coalesced.removed_nodes, vec![b]);
@@ -256,9 +256,9 @@ fn apply_replace_child_move_step8_referencechild_adjustment() {
 }
 
 #[test]
-fn apply_replace_child_move_prev_may_equal_new_child() {
+fn apply_replace_child_move_step4_prev_may_equal_new_child() {
     // [A,B,C].replaceChild(A, B): coalesced previousSibling == A == newChild
-    // is spec-faithful (replace step 9 has no adjustment).
+    // is spec-faithful (replace step 4 has no adjustment).
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let a = elem(&mut dom, "span");
@@ -270,22 +270,72 @@ fn apply_replace_child_move_prev_may_equal_new_child() {
 
     let records = super::apply_replace_child(&mut dom, parent, a, b);
     assert_eq!(records.len(), 2);
-    // Source-removal: A's siblings step over B -> next = C, prev None.
+    // Source-removal: adopt (step 6) removes A with B in place -> next = B, prev None.
     assert_eq!(records[0].removed_nodes, vec![a]);
     assert_eq!(records[0].previous_sibling, None);
-    assert_eq!(records[0].next_sibling, Some(c));
+    assert_eq!(records[0].next_sibling, Some(b));
     // Coalesced: previousSibling = B's prev = A = newChild (spec-faithful).
     let coalesced = &records[1];
     assert_eq!(coalesced.added_nodes, vec![a]);
     assert_eq!(coalesced.removed_nodes, vec![b]);
     assert_eq!(coalesced.previous_sibling, Some(a));
     assert_eq!(coalesced.next_sibling, Some(c));
+    assert_eq!(dom.children(parent), vec![a, c]);
+}
+
+#[test]
+fn apply_replace_child_move_source_not_adjacent_to_old_child() {
+    // U14b guard: new_child (B) is not adjacent to old_child (A): [A, X, B].
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let a = elem(&mut dom, "span");
+    let x = elem(&mut dom, "span");
+    let b = elem(&mut dom, "span");
+    dom.append_child(parent, a);
+    dom.append_child(parent, x);
+    dom.append_child(parent, b); // [A, X, B]
+
+    let records = super::apply_replace_child(&mut dom, parent, b, a);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].removed_nodes, vec![b]);
+    assert_eq!(records[0].previous_sibling, Some(x));
+    assert_eq!(records[0].next_sibling, None);
+}
+
+#[test]
+fn apply_mutation_replace_child_move_source_sees_old_child() {
+    // U14c: U14 (1) through the deferred flush (`Mutation::ReplaceChild`).
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let a = elem(&mut dom, "span");
+    let b = elem(&mut dom, "span");
+    let c = elem(&mut dom, "span");
+    dom.append_child(parent, a);
+    dom.append_child(parent, b);
+    dom.append_child(parent, c); // [A, B, C]
+
+    let m = Mutation::ReplaceChild {
+        parent,
+        new_child: c,
+        old_child: b,
+    };
+    let records = apply_mutation(&m, &mut dom);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].removed_nodes, vec![c]);
+    assert_eq!(records[0].previous_sibling, Some(b));
+    assert_eq!(records[0].next_sibling, None);
+    assert_eq!(records[1].added_nodes, vec![c]);
+    assert_eq!(records[1].removed_nodes, vec![b]);
+    assert_eq!(records[1].previous_sibling, Some(a));
+    assert_eq!(records[1].next_sibling, None);
+    assert_eq!(dom.children(parent), vec![a, c]);
 }
 
 #[test]
 fn apply_replace_child_self_replace_no_records() {
     // replaceChild(X, X): rejected by EcsDom::replace_child -> no record
-    // (pre-existing browser-parity no-op, unchanged by B1.2a).
+    // (elidex queues no record; the spec queues two -- `#11-replace-child-self-records`,
+    // Chromium unmeasured).
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let x = elem(&mut dom, "span");
