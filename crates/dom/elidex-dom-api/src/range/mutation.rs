@@ -538,7 +538,8 @@ impl Range {
         // re-fanning the children here and emitting one move-record per
         // child.  The step-6 cycle pre-check above already excluded the
         // cycle-reject `apply_*` performs internally
-        // (`mutation/mod.rs:418`/`:506`), so this does not double-reject;
+        // (`apply_append_child` / `apply_insert_before` in the session's
+        // `mutation/child_list.rs`), so this does not double-reject;
         // an empty fragment is a legitimate §4.2.3 step-3 no-op, NOT a
         // failure (distinguished below via `is_empty_fragment`).
         let is_empty_fragment = is_fragment && nodes.is_empty();
