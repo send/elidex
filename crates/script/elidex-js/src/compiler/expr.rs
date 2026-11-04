@@ -18,6 +18,57 @@ use super::expr_member::{
 use super::expr_object::compile_object_expr;
 use super::expr_ops::{binary_op_to_opcode, compile_unary_expr, compile_update_expr};
 
+/// Compile the function expression `expr_id` as a closure value created
+/// by the spec path `creation`, leaving it on the stack.
+///
+/// The one route for every function *value* whose creation path is not
+/// visible from the expression alone: the `ExprKind::Function` arm of
+/// [`compile_expr`] passes [`FunctionCreation::Ordinary`]
+/// (InstantiateOrdinaryFunctionExpression), while object-literal methods
+/// and accessors — parsed as an ordinary `ExprKind::Function` value —
+/// pass [`FunctionCreation::Method`] (DefineMethod /
+/// MethodDefinitionEvaluation).  Records the expression's source-map
+/// entry the way [`compile_expr`] does.
+pub(super) fn compile_function_value(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    expr_id: NodeId<Expr>,
+    creation: FunctionCreation,
+) -> Result<(), CompileError> {
+    let expr = prog.exprs.get(expr_id);
+    fc.source_map.add(fc.pc(), expr.span);
+    let ExprKind::Function(func) = &expr.kind else {
+        return Err(CompileError {
+            message: format!(
+                "compile_function_value: expected a function expression at {:?}",
+                expr.span
+            ),
+        });
+    };
+    compile_function_closure(fc, prog, analysis, func_scopes, func, creation)
+}
+
+/// Compile an already-matched `func` as a closure value created by
+/// `creation`, leaving it on the stack.  The core of
+/// [`compile_function_value`]; [`compile_expr`]'s `ExprKind::Function`
+/// arm calls it directly (it has the `func` and has recorded the
+/// source-map entry).
+fn compile_function_closure(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    func: &Function,
+    creation: FunctionCreation,
+) -> Result<(), CompileError> {
+    let child_func = compile_nested_function(fc, prog, analysis, func_scopes, func, creation)?;
+    let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
+    fc.emit_u16(Op::Closure, idx);
+    Ok(())
+}
+
 /// Compile an expression, leaving its value on the stack.
 #[allow(clippy::too_many_lines)]
 pub fn compile_expr(
@@ -208,9 +259,14 @@ pub fn compile_expr(
         }
 
         ExprKind::Function(func) => {
-            let child_func = compile_nested_function(fc, prog, analysis, func_scopes, func, false)?;
-            let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
-            fc.emit_u16(Op::Closure, idx);
+            compile_function_closure(
+                fc,
+                prog,
+                analysis,
+                func_scopes,
+                func,
+                FunctionCreation::Ordinary,
+            )?;
         }
 
         ExprKind::Arrow(arrow) => {
@@ -292,5 +348,7 @@ fn compile_literal(fc: &mut FunctionCompiler, prog: &Program, lit: &Literal) {
 
 // Re-exports from split modules so that existing call-sites keep working.
 pub(super) use super::expr_class::compile_class;
-pub(super) use super::expr_function::{compile_arrow_function, compile_nested_function};
+pub(super) use super::expr_function::{
+    compile_arrow_function, compile_nested_function, FunctionCreation,
+};
 pub(super) use super::expr_yield_star::compile_yield_star;

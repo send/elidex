@@ -175,10 +175,11 @@ fn exported_function_can_be_called() {
 }
 
 /// Stage 3.2 §5.6 + Plan-memo §2.1 DR-1 — wasm exported functions
-/// cannot be `new`'d.  `do_new` reaches the catch-all "not a
-/// constructor" arm via the `ObjectKind::WasmExportedFunction` brand
-/// (not `NativeFunction`), so the TypeError is structurally
-/// enforced.
+/// cannot be `new`'d.  `new` classifies the
+/// `ObjectKind::WasmExportedFunction` brand (not `NativeFunction`)
+/// as the `NotConstructor` result of `classify_construct_target`,
+/// which `admit_construct` refuses with "not a constructor", so the
+/// TypeError is structurally enforced.
 #[test]
 fn exported_function_is_not_a_constructor() {
     let mut vm = Vm::new();

@@ -2,6 +2,13 @@
 description = "Run cargo check"
 run = "cargo check --workspace --all-targets --all-features"
 
+[tasks.check-default]
+description = "Run default-features clippy -D warnings (lib + bin, no dev-only feature)"
+# The one compiling cargo task of `mise run ci` without `--all-features`; same
+# step as the `check` job's default-features step in .github/workflows/ci.yml,
+# whose comment is the canonical rationale.
+run = "cargo clippy --workspace -- -D warnings"
+
 [tasks.test]
 description = "Run all tests (nextest, no doc-tests)"
 run = "cargo nextest run --workspace --all-features"
@@ -112,7 +119,7 @@ description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
 run = "bash scripts/trip-wires.sh"
 
 [tasks.tools-test]
-description = "Run every tracked Python suite (test_*.py), offline, on the `python3` first on PATH (floor: Python 3.9)."
+description = "Run every tracked suite (test_*.py), offline, on the interpreter first on PATH (floor 3.9)."
 # The procedure (the set, the complement checks, the derived roots, skip-is-red),
 # the offline regime, the interpreter floor and the wrapper contract for
 # command-shaped self-tests all live in the header of `scripts/python-suites.sh` --
@@ -123,7 +130,7 @@ run = "bash scripts/python-suites.sh"
 
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "doc", "deny", "trip-wires", "tools-test", "ci-sweep"]
+depends = ["check", "check-default", "lint", "test-all", "doc", "deny", "trip-wires", "tools-test", "ci-sweep"]
 
 [tasks.bench]
 description = "Run all benchmarks"

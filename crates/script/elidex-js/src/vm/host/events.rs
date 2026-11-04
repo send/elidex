@@ -575,7 +575,7 @@ pub(super) fn install_ctor(
             // install_ctor builds the `ctor.prototype` / `proto_id.constructor`
             // back-edge below, which is structurally meaningless on a
             // CallableOnly function (`new Foo()` would be rejected by
-            // `do_new`'s `can_construct() == false` check).  Reject at
+            // the construct admission, `VmInner::admit_construct`).  Reject at
             // install-time rather than producing a half-formed interface
             // object — if a CallableOnly Interface lands in future, give
             // it a sibling helper with no prototype back-edge.

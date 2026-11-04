@@ -3,8 +3,8 @@
 //! Verifies that every mutation primitive
 //! (`append_child` / `insert_before` / `remove_child` / `replace_child` /
 //! `destroy_entity` / `set_text_data` / `replace_text_data` /
-//! `set_attribute` / `remove_attribute` / `fire_split_text` /
-//! `fire_normalize_merge`) fires the correct [`MutationEvent`] variant.
+//! `set_attribute` / `remove_attribute`) fires the correct [`MutationEvent`] variant
+//! (siblings: `mutation_hook_fire_helpers.rs`, `mutation_hook_specialised.rs`).
 //! Uses a mock `MutationDispatcher` impl that records each event into a
 //! `Vec<MockEvent>` (variant-equivalent shape).
 
@@ -14,7 +14,7 @@ use super::*;
 use crate::dom::{MutationDispatcher, MutationEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum MockEvent {
+pub(super) enum MockEvent {
     Insert {
         node: Entity,
         parent: Entity,
@@ -64,7 +64,7 @@ impl MutationDispatcher for MockHook {
         // attribute tests use a separate fixture.  The Remove arm
         // records (node, parent, removed_index) only — the
         // descendants snapshot is asserted by `DescendantSnapshotHook`
-        // in this same file.
+        // in `mutation_hook_specialised.rs`.
         match *event {
             MutationEvent::Insert {
                 node,
@@ -149,7 +149,7 @@ impl MutationDispatcher for MockHook {
     }
 }
 
-fn install_mock(dom: &mut EcsDom) -> Arc<Mutex<Vec<MockEvent>>> {
+pub(super) fn install_mock(dom: &mut EcsDom) -> Arc<Mutex<Vec<MockEvent>>> {
     let hook = MockHook::default();
     let events = hook.events.clone();
     dom.set_mutation_dispatcher(Box::new(hook));
@@ -884,71 +884,6 @@ fn replace_text_data_bumps_inclusive_descendants_version() {
 }
 
 #[test]
-fn fire_split_text_helper_routes_to_hook() {
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello world");
-    let new_text = dom.create_text("");
-    assert!(dom.append_child(parent, text));
-    assert!(dom.append_child(parent, new_text));
-
-    let events = install_mock(&mut dom);
-    dom.fire_split_text(text, new_text, 5, Some(parent), Some(0));
-
-    let log = events.lock().unwrap().clone();
-    assert_eq!(
-        log,
-        vec![MockEvent::SplitText {
-            node: text,
-            new_node: new_text,
-            offset: 5,
-            parent: Some(parent),
-            node_index: Some(0),
-        }]
-    );
-}
-
-#[test]
-fn fire_normalize_merge_helper_routes_to_hook() {
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "p");
-    let prev = dom.create_text("hello");
-    let merged_child = dom.create_text("world");
-    assert!(dom.append_child(parent, prev));
-    assert!(dom.append_child(parent, merged_child));
-
-    let events = install_mock(&mut dom);
-    // prev_old_len = 5 (len of "hello" before absorbing "world").
-    dom.fire_normalize_merge(merged_child, prev, 5, Some(parent), Some(1));
-
-    let log = events.lock().unwrap().clone();
-    assert_eq!(
-        log,
-        vec![MockEvent::NormalizeMerge {
-            merged_child,
-            prev,
-            prev_old_len: 5,
-            parent: Some(parent),
-            merged_child_index: Some(1),
-        }]
-    );
-}
-
-#[test]
-fn fire_helpers_silent_when_no_hook_installed() {
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hi");
-    let new_text = dom.create_text("");
-    assert!(dom.append_child(parent, text));
-    assert!(dom.append_child(parent, new_text));
-
-    // No hook installed — helpers must be no-ops, not panic.
-    dom.fire_split_text(text, new_text, 1, Some(parent), Some(0));
-    dom.fire_normalize_merge(new_text, text, 2, Some(parent), Some(1));
-}
-
-#[test]
 fn append_child_orphan_does_not_fire_after_remove() {
     // Sanity: an orphan child (no old parent) generates only the
     // after_insert callback; there is no implicit removal to report.
@@ -967,177 +902,5 @@ fn append_child_orphan_does_not_fire_after_remove() {
             parent,
             index: 0
         }]
-    );
-}
-
-// ---------------------------------------------------------------------------
-// after_remove descendants snapshot (PR186 R2 #3 regression)
-// ---------------------------------------------------------------------------
-
-type DescendantSnapshotLog = Vec<(Entity, Vec<Entity>)>;
-
-#[derive(Default, Clone)]
-struct DescendantSnapshotHook {
-    snapshot: Arc<Mutex<DescendantSnapshotLog>>,
-}
-
-impl MutationDispatcher for DescendantSnapshotHook {
-    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &mut crate::EcsDom) {
-        if let MutationEvent::Remove {
-            node, descendants, ..
-        } = *event
-        {
-            self.snapshot
-                .lock()
-                .unwrap()
-                .push((node, descendants.to_vec()));
-        }
-    }
-}
-
-#[test]
-fn destroy_entity_passes_inclusive_descendants_snapshot() {
-    // PR186 R2 #3: `destroy_entity` MUST snapshot the light-tree
-    // inclusive-descendant set BEFORE orphaning children, so a Range
-    // boundary consumer can collapse boundaries on still-live
-    // descendants without depending on intact parent links.
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "div");
-    let target = elem(&mut dom, "section");
-    let child_a = elem(&mut dom, "p");
-    let grandchild = dom.create_text("inner");
-    let child_b = elem(&mut dom, "span");
-    assert!(dom.append_child(parent, target));
-    assert!(dom.append_child(target, child_a));
-    assert!(dom.append_child(child_a, grandchild));
-    assert!(dom.append_child(target, child_b));
-
-    let hook = DescendantSnapshotHook::default();
-    let snapshot_handle = hook.snapshot.clone();
-    dom.set_mutation_dispatcher(Box::new(hook));
-
-    assert!(dom.destroy_entity(target));
-
-    let log = snapshot_handle.lock().unwrap().clone();
-    assert_eq!(log.len(), 1, "exactly one after_remove fires for target");
-    let (recorded_node, descendants) = &log[0];
-    assert_eq!(*recorded_node, target);
-    // Snapshot must include target + every light-tree descendant.
-    // Order within the snapshot is implementation-defined (DFS via
-    // children_iter / explicit stack), but the SET is fixed.
-    let mut sorted = descendants.clone();
-    sorted.sort();
-    let mut expected = vec![target, child_a, grandchild, child_b];
-    expected.sort();
-    assert_eq!(
-        sorted, expected,
-        "snapshot includes target + child_a + grandchild + child_b"
-    );
-}
-
-#[test]
-fn remove_child_passes_inclusive_descendants_snapshot() {
-    // Sanity: plain `remove_child` also passes the snapshot, in case
-    // a hook consumer relies on it uniformly across remove paths.
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "div");
-    let target = elem(&mut dom, "section");
-    let child = elem(&mut dom, "p");
-    assert!(dom.append_child(parent, target));
-    assert!(dom.append_child(target, child));
-
-    let hook = DescendantSnapshotHook::default();
-    let snapshot_handle = hook.snapshot.clone();
-    dom.set_mutation_dispatcher(Box::new(hook));
-
-    assert!(dom.remove_child(parent, target));
-
-    let log = snapshot_handle.lock().unwrap().clone();
-    assert_eq!(log.len(), 1);
-    let (recorded_node, descendants) = &log[0];
-    assert_eq!(*recorded_node, target);
-    let mut sorted = descendants.clone();
-    sorted.sort();
-    let mut expected = vec![target, child];
-    expected.sort();
-    assert_eq!(sorted, expected);
-}
-
-/// A deliberately-misbehaving dispatcher that re-enters the EcsDom
-/// from inside its `dispatch` body — used to test the re-entry
-/// detection `debug_assert!` in [`EcsDom::dispatch_event`].
-struct ReEntryHook;
-
-impl MutationDispatcher for ReEntryHook {
-    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut crate::EcsDom) {
-        // Only re-enter on Insert; avoid infinite recursion if the
-        // assert was disabled (release build).
-        if let MutationEvent::Insert { parent, .. } = *event {
-            let _ = dom.set_attribute(parent, "data-reentry", "1");
-        }
-    }
-}
-
-#[test]
-#[cfg(debug_assertions)]
-#[should_panic(expected = "re-entry contract")]
-fn dispatcher_calling_mutation_primitive_panics_in_debug() {
-    // The `MutationDispatcher::dispatch` docstring forbids consumers
-    // from calling EcsDom mutation primitives recursively.  The
-    // `EcsDom::dispatch_event` debug_assert (re-entry depth counter)
-    // catches violations in debug builds.
-    let mut dom = crate::EcsDom::new();
-    let root = dom.create_document_root();
-    let parent = dom.create_element("div", crate::Attributes::default());
-    let child = dom.create_element("span", crate::Attributes::default());
-    assert!(dom.append_child(root, parent));
-    dom.set_mutation_dispatcher(Box::new(ReEntryHook));
-    // The append_child below fires an Insert event; ReEntryHook
-    // calls set_attribute back, which fires its own dispatch_event
-    // with depth > 0 → debug_assert!.
-    let _ = dom.append_child(parent, child);
-}
-
-/// Records the number of `MutationEvent::AttributeChange` dispatches.
-#[derive(Default, Clone)]
-struct AttrChangeCountHook {
-    count: Arc<Mutex<usize>>,
-}
-
-impl MutationDispatcher for AttrChangeCountHook {
-    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &mut crate::EcsDom) {
-        if matches!(*event, MutationEvent::AttributeChange { .. }) {
-            *self.count.lock().unwrap() += 1;
-        }
-    }
-}
-
-/// Codex #335 R8 F27 / DOM "remove an attribute by name" step 2: an
-/// attribute is removed — and a mutation record queued — only when it is
-/// non-null. `remove_attribute` on an absent attribute must NOT dispatch
-/// `MutationEvent::AttributeChange`, so MutationObserver-style consumers
-/// don't observe phantom removals on no-op `removeAttribute` calls.
-#[test]
-fn remove_absent_attribute_fires_no_mutation_record() {
-    let mut dom = EcsDom::new();
-    let el = dom.create_element("div", crate::Attributes::default());
-    // Seed an attribute BEFORE installing the hook so the set isn't counted.
-    assert!(dom.set_attribute(el, "id", "x").did_set);
-
-    let hook = AttrChangeCountHook::default();
-    let count = hook.count.clone();
-    dom.set_mutation_dispatcher(Box::new(hook));
-
-    // Removing a present attribute fires exactly one record.
-    dom.remove_attribute(el, "id");
-    assert_eq!(*count.lock().unwrap(), 1);
-
-    // Removing an already-absent / never-present attribute fires none.
-    dom.remove_attribute(el, "id");
-    dom.remove_attribute(el, "never-existed");
-    assert_eq!(
-        *count.lock().unwrap(),
-        1,
-        "phantom AttributeChange fired for an absent removeAttribute"
     );
 }

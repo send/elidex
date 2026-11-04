@@ -406,6 +406,7 @@ impl FunctionCompiler {
             needs_arguments: self.needs_arguments,
             has_rest_param: false, // set by caller after compile completes
             is_class_ctor: self.is_class_ctor,
+            has_construct: false, // set by `compile_nested_function` from its `FunctionCreation`
             ic_slots: vec![None; self.ic_slot_count as usize],
             call_ic_slots: vec![None; self.call_ic_slot_count as usize],
         }

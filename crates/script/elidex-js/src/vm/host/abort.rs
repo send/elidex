@@ -174,7 +174,7 @@ impl VmInner {
         // TypeError per the WebIDL §3.7.1 (Interface object) creation
         // algorithm step 1.1.
         // Registered as `CallShape::IllegalConstructor`: the gate in
-        // `do_new` / `call_dispatch` raises the canonical "Failed to
+        // `admit_construct` / `call_dispatch` raises the canonical "Failed to
         // construct 'AbortSignal': Illegal constructor" (shared SoT
         // `VmError::illegal_constructor`) before any body runs. Still a
         // real global so `signal instanceof AbortSignal` and

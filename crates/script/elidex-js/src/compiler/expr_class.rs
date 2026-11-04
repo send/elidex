@@ -12,12 +12,12 @@ use super::CompileError;
 use crate::scope::{ScopeAnalysis, ScopeKind};
 
 use super::expr::compile_expr;
-use super::expr_function::compile_nested_function;
+use super::expr_function::{compile_nested_function, FunctionCreation};
 
 // ── Class compilation ──────────────────────────────────────────────
 
 /// Class-heritage classification (ECMA-262 §15.7.14
-/// ClassDefinitionEvaluation step 6).
+/// ClassDefinitionEvaluation step 8).
 ///
 /// Three syntactic forms, three runtime shapes:
 /// - `None`: no `extends` clause → base class. `ctor.__proto__ =
@@ -80,6 +80,10 @@ fn synthesize_default_class_ctor(
         local_count,
         has_rest_param,
         is_class_ctor: true,
+        // ClassDefinitionEvaluation step 14.b creates the default
+        // constructor by CreateBuiltinFunction and step 17 applies
+        // MakeConstructor (§10.2.5 branch 2.a).
+        has_construct: true,
         is_strict: true,
         ..Default::default()
     }
@@ -117,12 +121,14 @@ pub(super) fn compile_class(
     let heritage = classify_heritage(prog, class.super_class);
     if let Some(ctor_member) = constructor {
         if let ClassMemberKind::Method { function, .. } = &ctor_member.kind {
-            let mut child =
-                compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
-            // User-written constructor: mark for home_class threading
-            // ([C16] ClassDefinitionEvaluation — class ctor frames get
-            // `CallFrame::home_class = closure_obj_id`).
-            child.is_class_ctor = true;
+            let child = compile_nested_function(
+                fc,
+                prog,
+                analysis,
+                func_scopes,
+                function,
+                FunctionCreation::ClassConstructor,
+            )?;
             let idx = fc.add_constant(Constant::Function(Box::new(child)));
             fc.emit_u16(Op::Closure, idx);
         }
@@ -197,14 +203,17 @@ pub(super) fn compile_class(
     match heritage {
         ClassHeritage::None => {} // default proto chain inherited from %Object.prototype%.
         ClassHeritage::Null => {
-            // `extends null` (ECMA-262 §15.7.14 step 6.f): protoParent
-            // = null, constructorParent = %Function.prototype%. The
+            // `extends null` (ECMA-262 §15.7.14 ClassDefinitionEvaluation
+            // step 8.f): protoParent = null (8.f.i), ctorParent =
+            // %Function.prototype% (8.f.ii). The
             // closure's `[[Prototype]]` already defaults to
             // %Function.prototype%, so we only splice
             // `ctor.prototype.[[Prototype]] = null`. A user-written
             // `super()` then resolves to %Function.prototype% via
-            // GetSuperConstructor and throws TypeError on Construct —
-            // spec-mandated.
+            // GetSuperConstructor, and SuperCall evaluation (ECMA-262
+            // §13.3.7.1) step 5 throws TypeError because
+            // IsConstructor(%Function.prototype%) is false — before
+            // Construct (step 6); spec-mandated.
             fc.emit(Op::Dup); //                          [ctor ctor]
             let proto_name = fc.add_name("prototype");
             let ic1 = fc.alloc_ic_slot();
@@ -214,7 +223,7 @@ pub(super) fn compile_class(
             fc.emit(Op::Pop); //                          [ctor]
         }
         ClassHeritage::Expr(super_id) => {
-            // ECMA-262 §15.7.14 step 6 ClassDefinitionEvaluation: the
+            // ECMA-262 §15.7.14 ClassDefinitionEvaluation step 8.c: the
             // ClassHeritage expression is evaluated **exactly once**.
             // Stash the super value in a temp local so both prototype
             // splices below read from it instead of re-emitting (and
@@ -229,9 +238,9 @@ pub(super) fn compile_class(
                                                                       // `[value -- value]`), so an explicit `Pop` is needed to
                                                                       // discard the duplicate.
             fc.emit_u16(Op::SetLocal, super_slot); //                    [ctor super]
-                                                   // ECMA-262 §15.7.14 step 6.f ClassDefinitionEvaluation:
-                                                   // the heritage value must be either `null` (step 6.f.i)
-                                                   // or a constructor (step 6.f.iii). Non-constructable
+                                                   // ECMA-262 §15.7.14 ClassDefinitionEvaluation step 8:
+                                                   // the heritage value must be either `null` (step 8.f)
+                                                   // or a constructor (step 8.g throws). Non-constructable
                                                    // callables (Symbol / BigInt / arrow fn) throw TypeError
                                                    // at class-definition time — NOT later at super()
                                                    // dispatch (D-17b R17 G17-1, null-acceptance added in
@@ -301,8 +310,14 @@ pub(super) fn compile_class(
                     continue;
                 }
 
-                let child =
-                    compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
+                let child = compile_nested_function(
+                    fc,
+                    prog,
+                    analysis,
+                    func_scopes,
+                    function,
+                    FunctionCreation::Method,
+                )?;
                 let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
 
                 if *is_static {
@@ -350,8 +365,14 @@ pub(super) fn compile_class(
                 kind,
                 is_static,
             } => {
-                let child =
-                    compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
+                let child = compile_nested_function(
+                    fc,
+                    prog,
+                    analysis,
+                    func_scopes,
+                    function,
+                    FunctionCreation::Method,
+                )?;
                 let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
                 let name_u16 = prog.interner.get(*name);
 

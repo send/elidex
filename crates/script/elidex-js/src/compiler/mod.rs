@@ -87,7 +87,7 @@ pub fn compile(
                     analysis,
                     &mut func_scopes,
                     func,
-                    true,
+                    expr::FunctionCreation::Ordinary,
                 )?;
                 let idx = fc.add_constant(Constant::Function(Box::new(child_func)));
                 fc.emit_u16(Op::Closure, idx);

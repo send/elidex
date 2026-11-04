@@ -88,9 +88,51 @@ fn find_func_scope_for_span(
     None
 }
 
+/// The spec creation path a function object takes, which decides whether
+/// MakeConstructor (ECMA-262 §10.2.5) applies to it — the compile-time
+/// fact behind [`CompiledFunction::has_construct`].  Every caller of
+/// [`compile_nested_function`] names its path; arrows and async arrows
+/// (InstantiateArrowFunctionExpression §15.3.4,
+/// InstantiateAsyncArrowFunctionExpression §15.9.4) are compiled by
+/// [`compile_arrow_function`] and keep the default `false`.
+///
+/// [`CompiledFunction::has_construct`]: crate::bytecode::compiled::CompiledFunction::has_construct
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FunctionCreation {
+    /// InstantiateOrdinaryFunctionObject (§15.2.4) /
+    /// InstantiateOrdinaryFunctionExpression (§15.2.5), and their
+    /// generator (§15.5.3 / §15.5.4), async generator (§15.6.3 /
+    /// §15.6.4) and async (§15.8.2 / §15.8.3) siblings.  Only the
+    /// ordinary ones call MakeConstructor, so the bit is set exactly
+    /// when the function is neither async nor a generator.
+    Ordinary,
+    /// DefineMethod (§15.4.4) and MethodDefinitionEvaluation (§15.4.5):
+    /// methods, getters, setters, generator / async / async generator
+    /// methods — object literal and class alike.  None calls
+    /// MakeConstructor.
+    Method,
+    /// The written class constructor: ClassDefinitionEvaluation
+    /// (§15.7.14) creates it by DefineMethod at step 15.a and applies
+    /// MakeConstructor at step 17.
+    ClassConstructor,
+}
+
+impl FunctionCreation {
+    /// MakeConstructor applies to the created function object.
+    fn has_construct(self, func: &Function) -> bool {
+        match self {
+            Self::Ordinary => !func.is_async && !func.is_generator,
+            Self::Method => false,
+            Self::ClassConstructor => true,
+        }
+    }
+}
+
 /// Compile a nested `Function` (declaration or expression) into a `CompiledFunction`.
 ///
 /// This is `pub(super)` so that `stmt.rs` can call it for `FunctionDeclaration`.
+/// `creation` names the spec creation path and sets
+/// `CompiledFunction::has_construct` (see [`FunctionCreation`]).
 #[allow(clippy::too_many_lines)]
 pub(super) fn compile_nested_function(
     _parent_fc: &mut FunctionCompiler,
@@ -98,7 +140,7 @@ pub(super) fn compile_nested_function(
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
     func: &Function,
-    _is_declaration: bool,
+    creation: FunctionCreation,
 ) -> Result<crate::bytecode::compiled::CompiledFunction, CompileError> {
     let child_func_idx =
         find_func_scope_for_span(analysis, func_scopes, func.span).ok_or_else(|| CompileError {
@@ -172,7 +214,7 @@ pub(super) fn compile_nested_function(
                     analysis,
                     func_scopes,
                     inner_func,
-                    true,
+                    FunctionCreation::Ordinary,
                 )?;
                 let idx = child_fc.add_constant(crate::bytecode::compiled::Constant::Function(
                     Box::new(hoisted),
@@ -219,6 +261,12 @@ pub(super) fn compile_nested_function(
     let mut compiled = child_fc.finish(&func_scopes[child_func_idx]);
     compiled.param_count = func.params.len() as u16;
     compiled.has_rest_param = func.params.last().is_some_and(|p| p.rest);
+    compiled.has_construct = creation.has_construct(func);
+    // User-written class constructor: marks `home_class` threading
+    // ([C16] ClassDefinitionEvaluation — class ctor frames get
+    // `CallFrame::home_class = closure_obj_id`).  Set here with its
+    // sibling `has_construct`, one site for the creation path.
+    compiled.is_class_ctor = matches!(creation, FunctionCreation::ClassConstructor);
     Ok(compiled)
 }
 
