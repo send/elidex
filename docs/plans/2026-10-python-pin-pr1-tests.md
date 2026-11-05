@@ -42,8 +42,8 @@ plan's §2 matrices name these controls in their *held by* columns; this memo is
 | E25 | `[tasks.tools-test]` gains `dir` / `env` / a future key | red naming it | N7 allowlist |
 | E26 | a resolve `RuntimeError` at `sibling_path` (e), `plan_memo_population.py:54`, `plan_memo_memo.py:761` | propagates (crash = FAIL) under V6 (i) | consent item 2; O4; at (e), `resolve_runtime_error_control` and its mutant (plan §8.1 row 2) |
 | E27 | a mise shim or a `mise` first on the outer `PATH`, or a `BASH_ENV` / `ENV` / `BASH_FUNC_*` in the caller's environment, any pin-file scratch run | none is reached; the run is admitted on the interpreter running the pins | `base_env()` (plan §4.3); N22 |
-| E28 | a `mise` in a `CHILD_PATH` directory (a distribution package in `/usr/bin`) | the pins run; that mise, if reached, is confined to the isolation root, offline, installing nothing | `base_env()`'s isolation (plan §4.3); N22's reachable-mise case |
-| E29 | `python3` exits non-zero before `python_pin.py` runs (a mise shim refusing an untrusted config) | `FAIL pin: python3 failed before scripts/python_pin.py ran (exit N)`, its stderr echoed, no member runs | the exit line (plan §4.2, plan §4.3); the driver pin's F6 case |
+| E28 | a `mise` in a `CHILD_PATH` directory (a distribution package in `/usr/bin`) | the pins run; that mise, if reached, writes only under the isolation root (it may read system or ancestor config), offline, installing nothing | `base_env()`'s isolation (plan §4.3); N22's reachable-mise case |
+| E29 | `python3` exits non-zero before `python_pin.py` runs (a mise shim refusing an untrusted config) | `FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit N)`, its stderr shown, no member runs | the exit line (plan §4.2, plan §4.3); the driver pin's F6 case |
 
 **Behaviour deltas** (C22): (1) the gate on a `python3` of another version: runs on `main`, **refused** after PR-1;
 (2) `mise run tools-test` without the pin installed: runs PATH's `python3` → installs the pin (attested, prebuilt)
@@ -93,20 +93,21 @@ unmutated.
   no `GIT_*` key, and `PATH == E["PATH"]`. For each E2 version: exit ≠ 0, the FAIL line names `pin`, the output names the pin, the
   fake version and `<R>/.tool-versions` with `R = os.path.realpath(<scratch>)` (the driver `cd -P`s, so macOS prints
   `/private/var/…` where `mkdtemp` gave `/var/…`; every path N1 compares is real on both sides), and `member(s) in`
-  is absent. The pin and E2's versions are derived from the `.tool-versions` text (the live file for the pin N1
+  is absent; the first-branch text `FAIL pin: scripts/python_pin.py refused or failed (exit 1; its output is above)`
+  is present and the second branch's absent. The pin and E2's versions are derived from the `.tool-versions` text (the live file for the pin N1
   names; the scratch tree's own copy for the versions, through the helper's `refused_versions`, plan §4.8): the file
   spells no pin, so a bump edits `.tool-versions` alone. **Spelling control**: the scratch `.tool-versions`
   rewritten to the first refused version, the fake reporting it → Step 1 admits and the run is GREEN. Kills
-  DM1–DM6 below.
+  DM1–DM7 below.
 - **N1b**: `PATH` = a scratch directory holding only symlinks to the utilities the driver calls before Step 1
   (`dirname`, `basename`, `readlink`; no `python3`, which `/usr/bin` holds on both platforms), launched as
   `/bin/bash` → `FAIL pin: no python3 on PATH`. **N1c**: a malformed scratch pin → exit ≠ 0, the output names
   `.tool-versions`, no member ran. **The pre-launch case** (F6; E29): a `python3` first on `base_env()`'s `PATH` that
-  prints `mise ERROR untrusted config` and exits 1 → exit ≠ 0, that stderr echoed, `FAIL pin: python3 failed before
-  scripts/python_pin.py ran (exit 1)`, not "is not the pinned interpreter", no member ran.
+  prints `mise ERROR untrusted config` and exits 1 → exit ≠ 0, that stderr shown, `FAIL pin: python3 did not end
+  with scripts/python_pin.py's exit line (exit 1)`, not the first branch's "refused or failed", no member ran.
 - **N22** (I7 (iii)): under `mock.patch.dict(os.environ, …)` — a directory of `write_sentinel`'s `mise` and
   `python3` first on `PATH`, an outer `MISE_PIN_SENTINEL`, and `BASH_ENV`, `ENV` and an exported function
-  `BASH_FUNC_pin_probe%%` that would each write a marker file — four parts (`N22_PARTS`): `scratch_run` (a passing
+  `BASH_FUNC_dirname%%` (a function the driver calls; its body writes the marker, then runs the real `dirname`) that would each write a marker file — four parts (`N22_PARTS`): `scratch_run` (a passing
   `Scratch` run is GREEN), `direct_launch` (a driver launch built as the regime file's `:549–558` is,
   `_launch(["bash", …], env=fixtures.base_env(), …)`, is GREEN), `bash_env` (a passing `Scratch` run is GREEN and
   the marker file is absent), `isolation` (`fixtures.base_env()`'s `MISE_*` keys are exactly the helper's
@@ -129,7 +130,8 @@ unmutated.
   the call replaced by `true` → N1's refusal cases; DM4 Step 1's failure branch without its `exit 1` (the check no
   longer precedes the first suite) → N1's refusal cases (the passing member then runs: exit 0); DM6 DM4's mutation
   over a scratch tree whose extra member fails (`MUTANT_EXTRA_FILES`) → the run is non-zero and names `pin`, so only
-  N1's `member(s) in` assertion kills it; DM5 `python_pin.py`'s `main` comparing against a literal triple (the
+  N1's `member(s) in` assertion kills it; DM7 the exit-line test replaced by `false` (the second branch's text
+  always) → N1's first-branch assertion; DM5 `python_pin.py`'s `main` comparing against a literal triple (the
   derived pin) instead of `read_pin`'s value → N1's spelling control (I1 × I2: editing the pin must move
   acceptance). FM1 (`mock.patch.object` on the fixtures module) `base_env` restored to `660e594c`'s body (outer
   `PATH`, `MISE_*`, `BASH_ENV` kept) → each of N22's four parts kills it alone. The test asserts each killing

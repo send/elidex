@@ -52,7 +52,7 @@ H = _load(HELPER_PATH, "python_pin_testing_under_member")
 # N17: the last run of the refusal on a real non-pin interpreter (plan section 10 step 4).
 # sha256 of scripts/python_pin.py, the date, and "<version> <sys.executable>" of that run.
 REAL_OLD_RUN = {
-    "sha256": "93c869becb58b4a473c3dfe75dd498e787a58b6c6bb420f50f4f9349b71c48cd",
+    "sha256": "72e402dc939b3490a9ce296d8ad946af26338fc00ccdf2bc927d22149e9724c9",
     "date": "2026-11-05",
     "interpreter": "3.9.6 /Applications/Xcode.app/Contents/Developer/usr/bin/python3",
 }

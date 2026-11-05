@@ -929,7 +929,7 @@ CONTROL	CONTROL	a site read across a construct that renders nothing is reported 
 CONTROL	CONTROL	a table with and without edge pipes reads the same	plan_memo_selftest_controls.pipe_shape_control#1ab4886ce0b2a79f
 CONTROL	CONTROL	a §6.1 code span's closer is found by an index of the runs BY LENGTH, not by walking them (0.27 x L^1.5 before)	plan_memo_selftest_work.linear_code_closer_control#cdf777473e91499e
 CONTROL	CONTROL	a §6.6 span crossing a line ending seeds each of its lines at ITS line, not all of them at the opener's	plan_memo_selftest_controls.multiline_span_locator_control#925c97381d36ad9f
-CONTROL	CONTROL	an OSError from resolve() is the unavailable-sibling schema miss, never an exception	plan_memo_selftest_controls.unavailable_sibling_control#47ace22d37f250f6
+CONTROL	CONTROL	an OSError from resolve() is the unavailable-sibling schema miss, never an exception	plan_memo_selftest_controls.unavailable_sibling_control#f5b5f7841e1951e7
 CONTROL	CONTROL	an empty control or mutant registry is a FAIL, never green	plan_memo_selftest_controls.empty_registry_control#1b5b989fabff530b
 CONTROL	CONTROL	an orphan definition exempts its OWN bracket only: `[sib]: child.md "[sib]"` is the documented miss, rc 2, child.md not walked	plan_memo_selftest_controls.orphan_offset_control#c6a8a4beb4015575
 CONTROL	CONTROL	an undecodable sibling is the unavailable-linked-memo schema miss, never an exception	plan_memo_selftest_controls.undecodable_sibling_control#571f728dd29b14b6

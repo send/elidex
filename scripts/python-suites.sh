@@ -167,25 +167,31 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 # python_pin.py ends stderr with `python-pin: exit N` on every non-zero exit; any other last
-# line means python3 failed before it ran (e.g. a mise shim refusing an untrusted config).
-pin_err="$(mktemp "${TMPDIR:-/tmp}/python-suites-pin.XXXXXX")"
+# line means python3 did not get that far (e.g. a mise shim refusing an untrusted config, or a
+# kill). Its stderr is shown live and teed to a temp file; the trap is installed first so an
+# interrupt does not leave the file behind. (bash 3.2: no `wait` on a process substitution.)
+pin_err=""
+tmp=""
+trap 'rm -rf ${tmp:+"$tmp"} ${pin_err:+"$pin_err"}' EXIT
+if ! pin_err="$(mktemp "${TMPDIR:-/tmp}/python-suites-pin.XXXXXX")"; then
+  pin_err=""
+  echo "python-suites: FAIL pin: cannot create a temp file under ${TMPDIR:-/tmp}" >&2
+  exit 1
+fi
 pin_rc=0
-python3 -I -S "$root/scripts/python_pin.py" 2>"$pin_err" || pin_rc=$?
-cat "$pin_err" >&2
+{ python3 -I -S "$root/scripts/python_pin.py" 2>&1 1>&3 3>&- | tee "$pin_err" >&2 || pin_rc="${PIPESTATUS[0]}"; } 3>&1
 pin_last="$(tail -n 1 "$pin_err")"
-rm -f "$pin_err"
 if [ "$pin_rc" -ne 0 ]; then
   if [ "$pin_last" = "python-pin: exit $pin_rc" ]; then
-    echo "python-suites: FAIL pin: python3 is not the pinned interpreter, or the pin file is unreadable (scripts/python_pin.py printed what it observed, above)" >&2
+    echo "python-suites: FAIL pin: scripts/python_pin.py refused or failed (exit $pin_rc; its output is above)" >&2
   else
-    echo "python-suites: FAIL pin: python3 failed before scripts/python_pin.py ran (exit $pin_rc)" >&2
+    echo "python-suites: FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit $pin_rc)" >&2
   fi
   exit 1
 fi
 echo "python-suites: python3 -VV: $(python3 -VV 2>&1 | tr '\n' ' ')"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/python-suites.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/driver" "$tmp/guard"
 
 cat > "$tmp/driver/python_suites.py" <<'PY_DRIVER'

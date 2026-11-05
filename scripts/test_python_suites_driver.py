@@ -179,24 +179,24 @@ REFUSED_VERSIONS = refused_versions(PIN)
 
 # Source mutants over the scratch copies: (id, file, find, replace, killing control). The find text
 # occurs exactly once in the live file it mutates (a stale row is red).
-STEP1_CALL = 'python3 -I -S "$root/scripts/python_pin.py" 2>"$pin_err" || pin_rc=$?'
+STEP1_CALL = 'python3 -I -S "$root/scripts/python_pin.py"'
 FAIL_BRANCH = '  fi\n  exit 1\nfi\n'
 DRIVER_MUTANTS = (
     (
         "DM1",
         "scripts/python-suites.sh",
         STEP1_CALL,
-        "python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:2]) >= (3, 9) else 1)' 2>\"$pin_err\" || pin_rc=$?",
+        "python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:2]) >= (3, 9) else 1)'",
         "refusals",
     ),
     (
         "DM2",
         "scripts/python-suites.sh",
         STEP1_CALL,
-        "python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:3]) == %r else 1)' 2>\"$pin_err\" || pin_rc=$?" % (PIN,),
+        "python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:3]) == %r else 1)'" % (PIN,),
         "refusals",
     ),
-    ("DM3", "scripts/python-suites.sh", STEP1_CALL, "true 2>\"$pin_err\" || pin_rc=$?", "refusals"),
+    ("DM3", "scripts/python-suites.sh", STEP1_CALL, "true", "refusals"),
     (
         "DM4",
         "scripts/python-suites.sh",
@@ -211,6 +211,14 @@ DRIVER_MUTANTS = (
         "scripts/python-suites.sh",
         FAIL_BRANCH,
         "  fi\nfi\n",
+        "refusals",
+    ),
+    # DM7: the first-branch text replaced by the second branch's, always.
+    (
+        "DM7",
+        "scripts/python-suites.sh",
+        'if [ "$pin_last" = "python-pin: exit $pin_rc" ]; then',
+        "if false; then",
         "refusals",
     ),
     (
@@ -244,7 +252,8 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         return b
 
     def step1_env(self, b):
-        """N1's environment, exactly: base_env(), plus the helper's five MISE_* variables, B first on PATH."""
+        """N1's environment, exactly: base_env() minus all its MISE_* (MISE_OFFLINE and MISE_AUTO_INSTALL
+        included), plus the helper's five MISE_* variables, B first on PATH."""
         tmp_root = os.path.realpath(str(self.tmpdir("python-suites-mise-")))
         e = {k: v for k, v in base_env().items() if not k.startswith("MISE_")}
         e.update(kv for kv in H.isolated_mise_env(tmp_root, fake_mise=b).items() if kv[0].startswith("MISE_"))
@@ -269,6 +278,8 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
             code, out = self.launch(s, env)
             self.assertNotEqual(code, 0, out)
             self.assertRed((code, out), "pin")
+            self.assertIn("FAIL pin: scripts/python_pin.py refused or failed (exit 1; its output is above)", out)
+            self.assertNotIn("did not end with", out)
             self.assertIn("pin: %s (%s)" % (PIN_DOTTED, os.path.join(root, ".tool-versions")), out)
             self.assertIn("running: %s %s" % (shown, level), out)
             self.assertNotIn("member(s) in", out)
@@ -326,7 +337,7 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
             "MISE_PIN_SENTINEL": "1",
             "BASH_ENV": str(startup),
             "ENV": str(startup),
-            "BASH_FUNC_pin_probe%%": "() { echo hit > '%s'; }" % marker,
+            "BASH_FUNC_dirname%%": "() { echo hit > '%s'; command dirname \"$@\"; }" % marker,
         }
         with mock.patch.dict(os.environ, patched):
             if "scratch_run" in parts:
@@ -389,12 +400,12 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         code, out = self.launch(s, e)
         self.assertNotEqual(code, 0, out)
         self.assertIn("mise ERROR untrusted config", out)
-        self.assertIn("FAIL pin: python3 failed before scripts/python_pin.py ran (exit 1)", out)
-        self.assertNotIn("is not the pinned interpreter", out)
+        self.assertIn("FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit 1)", out)
+        self.assertNotIn("refused or failed", out)
         self.assertNotIn("member(s) in", out)
 
     def test_DM_FM_mutants_are_killed(self):
-        self.assertEqual([m[0] for m in DRIVER_MUTANTS], ["DM1", "DM2", "DM3", "DM4", "DM6", "DM5"])
+        self.assertEqual([m[0] for m in DRIVER_MUTANTS], ["DM1", "DM2", "DM3", "DM4", "DM6", "DM7", "DM5"])
         # Each killing control passes unmutated.
         live = self.pin_scratch()
         self.refusals(live, only_first=True)
@@ -410,8 +421,8 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
                     self.refusals(s, only_first=True)
                 else:
                     self.spelling(s)
-        # FM1: base_env restored to 660e594c's body; N22's Scratch run, direct launch and
-        # no-MISE_* assertion each kill it alone (the patch is on the module object).
+        # FM1: base_env restored to 660e594c's body; N22's four parts (Scratch run, direct
+        # launch, isolation, bash start-up) each kill it alone (the patch is on the module object).
         for part in self.N22_PARTS:
             with mock.patch.object(fixtures, "base_env", _old_base_env):
                 with self.assertRaises(AssertionError, msg="FM1 survived N22's %s" % part):

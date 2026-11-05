@@ -5,8 +5,7 @@ and the registry that names every control.
 The record-shaped controls (`Case`: one fixture, one measure, one exact
 value) live in the `plan_memo_selftest_cases*.py` modules (gathered by
 `plan_memo_selftest_registry.collect`, through `plan_memo_selftest_cases.cases`);
-this module
-holds the controls a record cannot express -- an injected fault (a raising
+this module holds the controls a record cannot express -- an injected fault (a raising
 `resolve()`, a parser `RuntimeError`), a comparison of two runs (the pipe
 shape, the attribution), the CommonMark conformance corpus -- and `registry()`,
 the ONE name -> (kind, control) table both the runner and the mutation proof
@@ -176,7 +175,7 @@ def control_char_destination_control(M):
 
 
 def _resolve_control(M, name, exc):
-    """(e) of `sibling_path`: `Path.resolve` raises `exc` for `name` (injected); the result, or what `check()` let out."""
+    """(e) of `sibling_path`: `Path.resolve` raises `exc` for `name` (injected); the result or the escape."""
     import plan_memo_sibling
     orig = plan_memo_sibling.pathlib.Path.resolve
 
@@ -196,7 +195,8 @@ def _resolve_control(M, name, exc):
 def unavailable_sibling_control(M):
     """An `OSError` from `resolve()` is the unavailable-sibling schema miss, rc 2 -- not an exception."""
     res = _resolve_control(M, "a" * 4000 + ".md", OSError(36, "File name too long"))
-    ok = not isinstance(res, Exception) and res.rc == 2 and any("linked memo unavailable" in f[3] for f in res.findings)
+    ok = not isinstance(res, Exception) and res.rc == 2
+    ok = ok and any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
     return ok, "OSError -> rc 2 + miss" if ok else "OSError: got %r (must be rc 2 with the miss)" % (res,)
 
 

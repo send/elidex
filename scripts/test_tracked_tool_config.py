@@ -572,11 +572,12 @@ class TrackedToolConfig(unittest.TestCase):
 
     def control_W3(self):
         text = W3_MISE_TOML
-        tracked = [DRIVER, "docs/plans/2026-10-python-pin-umbrella.md"]
-        self.assertEqual(mise_probs(text, tracked), [])
+        self.assertEqual(mise_probs(text, [DRIVER]), [])  # the comment spells no path, so nothing to track
         self.assertEqual(settings_problems(text), [])
-        # the pointer is admitted only while its path is tracked
-        self.only(mise_probs(text, [DRIVER]), "4", "mise.toml", 4)
+        # a pointer spelling the path is admitted only while that path is tracked
+        with_path = text.replace("(docs/plans)", "(docs/plans/2026-10-python-pin-umbrella.md)")
+        self.assertEqual(mise_probs(with_path, [DRIVER, "docs/plans/2026-10-python-pin-umbrella.md"]), [])
+        self.only(mise_probs(with_path, [DRIVER]), "4", "mise.toml", 5)
 
     def test_W3(self):
         self.control_W3()
@@ -634,8 +635,9 @@ def settings_problems(text):
 W3_MISE_TOML = (
     "# Install settings for the interpreter pinned in `.tool-versions`: an attested prebuilt\n"
     "# install or nothing (no source build, no unverified archive). This table sits before every\n"
-    "# task so no later header can capture the lines.\n"
-    "# Rationale and the invariant (I6): docs/plans/2026-10-python-pin-umbrella.md.\n"
+    "# task so no later header can capture the lines. mise reads neither this table nor\n"
+    "# `[bootstrap.packages]` in an untrusted worktree (`mise trust`; `main` already refuses so\n"
+    "# since #535). Rationale and the invariant (I6): the interpreter-pin umbrella plan memo (docs/plans).\n"
     "[settings]\n"
     "python.compile = false\n"
     "python.github_attestations = true\n"

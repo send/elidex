@@ -3,9 +3,9 @@
 `scripts/python-suites.sh` Step 1 runs this file as `python3 -I -S scripts/python_pin.py` before
 anything else. Exit 0: the running interpreter is the pin in the root `.tool-versions`. Exit 1: it is
 not; what was observed is printed to stderr (the facts, then one generic block). Exit 2: the pin
-file itself is unreadable or malformed, so no version can be compared. Every non-zero exit ends its
-stderr with the one line `python-pin: exit N` (N = 1 or 2), so a caller can tell this file's exit
-from a failure of the interpreter before it ran.
+file itself is unreadable or malformed, so no version can be compared. Exit 3: an uncaught
+exception in this module (its traceback is printed). Non-zero runs end with `python-pin: exit N`
+(N = 1, 2 or 3), so a caller can tell this file's exit from a failure of the interpreter before it ran.
 
 Plan of record: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (section 4.2);
 umbrella docs/plans/2026-10-python-pin-umbrella.md (sections 4.1-4.3).

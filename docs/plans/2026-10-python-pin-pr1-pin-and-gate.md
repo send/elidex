@@ -121,7 +121,7 @@ own session leaves the killed group, and an end of the refusal process that rais
 SIGTERM's default action) kills no group, nor does an exception raised inside `Popen` before its pid reaches
 `ask_mise` (§4.2 *Process tree*); unverified, an interpreter whose directory is mise's shims directory (§4.3
 `base_env`); a `git` on the outer `PATH` that is a mise shim, under T5's member (I7 above); the fakes need a
-`sys.executable` usable as a shebang — no white space, at most 127 bytes (§4.8).
+`sys.executable` usable as a shebang — no white space, `#!` plus it within 127 bytes (§4.8).
 
 ### §2.2 The fifteen umbrella pairs, gate half (body :285–309)
 
@@ -324,7 +324,7 @@ It is how a caller tells this module's exit from a failure of `python3` before t
 §4.3). **Exit 3**: the `__main__` guard calls `_guarded_main()` (NEW), which runs `main()` and, on any uncaught
 exception other than `SystemExit`, prints its traceback (`traceback`, imported inside `_guarded_main` only) and
 then the exit line, returning **3** — so an exception inside the module ends with the marker too, and the driver's
-"failed before `scripts/python_pin.py` ran" message fires only when no exit line appears. Pinned by N23 (its exit-3 case); NM15 / NM16 (`return _exit(1)` →
+"did not end with `scripts/python_pin.py`'s exit line" message fires only when no exit line appears. Pinned by N23 (its exit-3 case); NM15 / NM16 (`return _exit(1)` →
 `return 1`, `return _exit(2)` → `return 2`) and NM17 (`sys.exit(_guarded_main())` → `sys.exit(main())`) are its mutants.
 
 **Header (C15, C16 (f)).** A pointer to the bump rule (body §4.1, :331–334, and its rows; C15, rounds :445–447,
@@ -338,13 +338,13 @@ measurement's place as "section 10 step 4 of the plan", and states the exit-line
 ### §4.3 The driver (`scripts/python-suites.sh`)
 
 - **Step 1** (`:156–166` at `660e594c`): after `cd "$root"`, `command -v python3` (else `FAIL pin: no python3 on
-  PATH`), then `python3 -I -S "$root/scripts/python_pin.py"` with its stderr captured to a `mktemp` file under
-  `${TMPDIR:-/tmp}`, echoed to stderr whole, then removed. On a non-zero exit `N`, the last captured line decides
-  the message (the exit line, §4.2): `python-pin: exit N` → `python-suites: FAIL pin: python3 is not the pinned
-  interpreter, or the pin file is unreadable (scripts/python_pin.py printed what it observed, above)`; any other
-  last line → `python-suites: FAIL pin: python3 failed before scripts/python_pin.py ran (exit N)` (e.g. a mise shim
-  refusing an untrusted config; an uncaught exception in the module is not this case — it ends with
-  `python-pin: exit 3`, §4.2, and takes the first branch); both exit 1 before any suite. `-I -S` stay (the admission is the interpreter's property). `python3 -VV` is echoed
+  PATH`), then `python3 -I -S "$root/scripts/python_pin.py"` with its stderr shown live and teed to a `mktemp` file under
+  `${TMPDIR:-/tmp}` (a `mktemp` failure is a `FAIL pin` line), the `EXIT` trap installed before it so an interrupt
+  leaves no file. On a non-zero exit `N`, the last captured line decides
+  the message (the exit line, §4.2): `python-pin: exit N` → `python-suites: FAIL pin: scripts/python_pin.py refused or failed (exit N; its output is
+  above)`; any other last line → `python-suites: FAIL pin: python3 did not end with scripts/python_pin.py's exit line
+  (exit N)` (e.g. a mise shim refusing an untrusted config, or a kill with N > 128; an uncaught exception in the
+  module is not this case — it ends with `python-pin: exit 3`, §4.2, and takes the first branch); both exit 1 before any suite. `-I -S` stay (the admission is the interpreter's property). `python3 -VV` is echoed
   after it. The cwd mise is asked at is `$root`, where the shim resolved this `python3`. No `(3, 9)` remains.
 - **Header** (`:10–12`, `:15–19`, `:129–132`): "Python >= 3.9 standard library" → "the pinned interpreter's standard
   library"; step 1 → the pin (exact, `scripts/python_pin.py`, measured by the `tools` job's one leg, the warning on
@@ -369,7 +369,7 @@ measurement's place as "section 10 step 4 of the plan", and states the exit-line
   its sites and grep) takes its environment from it, and children of a scratch run inherit it, so `python3`
   resolves to the admitted interpreter, and **whatever mise a child does reach** — a `mise` in any `CHILD_PATH`
   directory (a distribution package in `/usr/bin`, or a package manager's `bin` holding both, e.g. Homebrew's) —
-  reads and writes only under that root, offline, and installs nothing; no outer `MISE_*` reaches a child. The
+  writes only under that root (it may still read system or ancestor config), offline, and installs nothing; no outer `MISE_*` reaches a child. The
   variable names are a copy of the helper's `MISE_DIRS` / `MISE_VARS` (§2.3 *`base_env()` × the helper*: the fixtures
   module is a pin file and cannot import the helper, P6); the driver pin asserts the two lists agree (N22).
   *Superseded design*: the earlier draft raised `AssertionError` when `CHILD_PATH` held a `mise`, "raise, not
@@ -419,8 +419,8 @@ read. These sit with the tamper slot `#11-aiii-gate-tamper-hardening` (§8.3's r
   `python.compile = false` and `python.github_attestations = true` — the text of `tracked_tool_config.ADMITTED_LINES`,
   no indentation, no comment on the line — under a comment that spells no `python` outside a tracked path: the install
   is an attested prebuilt or nothing; `mise` reads neither this table nor `[bootstrap.packages]` in an untrusted
-  worktree (`mise trust`; `main` already refuses so since #535 — C36), and the pointer
-  `docs/plans/2026-10-python-pin-umbrella.md` I6;
+  worktree (`mise trust`; `main` already refuses so since #535 — C36), and the pointer "the interpreter-pin umbrella
+  plan memo (docs/plans)" naming I6 (no path in `mise.toml`: D4);
 - `[tasks.tools-test]` `description` (`:122`, PR-0's D4 text) → `"Run every tracked suite (test_*.py), offline, on the
   pinned interpreter (`.tool-versions`; `mise run` installs it if missing)."` and its comment's "the interpreter floor"
   (`:124`) → "the interpreter pin (Step 1)". Neither spells `python` (C21).
@@ -604,7 +604,8 @@ never an assembled `os.path.join(…, "python_pin_testing.py")`). Contents (all 
   per process, written on first use into one `mkdtemp` directory removed at exit (`atexit`); its shebang is
   `sys.executable` itself (no `-I` / `-E` / `-S`, and no `/bin/sh` between the caller's environment and the fake —
   a `/bin/sh` drops `DYLD_*` under SIP and some names under dash, which falsified N20's comparison). A shebang holds
-  one path, so `sys.executable` must have no white space and be at most 127 bytes (the Linux limit), else
+  one path, so `sys.executable` must have no white space and `#!` plus it must fit 127 bytes (the conservative bound: old Linux kernels' 128-byte
+  buffer; 256 since 5.1), else
   `_wrapper` raises `RuntimeError` — a stated limit of the helper. Each `write_fake_*` call puts a **symlink** to
   that script, named `mise` / `python3`, into `bindir`; the script finds its data through the directory of
   `argv[0]` (the symlink's, not its target's). One script per process instead of one per test removes a fresh

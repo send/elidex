@@ -14,8 +14,9 @@ to it named `mise` / `python3` into the caller's bin directory, next to the data
 (found through the directory of `argv[0]`, the symlink's, never its target's). The script's shebang
 is `sys.executable` itself: no `/bin/sh` stands between the caller's environment and the fake, so
 the fake sees the environment its child was given (a `/bin/sh` drops `DYLD_*` under SIP and some
-names under dash). A shebang holds one path: `sys.executable` must have no white space and be at
-most 127 bytes (the Linux limit), else `_wrapper` raises.
+names under dash). A shebang holds one path: `sys.executable` must have no white space and
+`#!` plus it must fit 127 bytes (the conservative bound: old Linux kernels' 128-byte buffer;
+256 since 5.1), else `_wrapper` raises.
 """
 
 import atexit
@@ -152,8 +153,8 @@ def _wrapper(name, body):
     path = os.path.join(_WRAPPER_DIR[0], name)
     if not os.path.exists(path):
         exe = sys.executable
-        if len(exe.encode("utf-8")) > 127 or any(c.isspace() for c in exe):
-            raise RuntimeError("sys.executable %r cannot be a shebang (white space, or over 127 bytes)" % exe)
+        if len(exe.encode("utf-8")) > 125 or any(c.isspace() for c in exe):
+            raise RuntimeError("sys.executable %r cannot be a shebang (white space, or `#!` plus it over 127 bytes)" % exe)
         _executable(path, "#!%s\n%s" % (exe, body))
     return path
 

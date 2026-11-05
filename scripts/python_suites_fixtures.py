@@ -119,9 +119,9 @@ def base_env():
     Invariant I7 (iii) (plan docs/plans/2026-10-python-pin-pr1-pin-and-gate.md, 4.3): a scratch
     driver whose PATH reached a mise shim would run the real mise in a tree holding a copied
     `.tool-versions`. Every launch of a pin file takes its environment from here, and whatever
-    mise a child reaches (a distro package in /usr/bin included) is confined: its data, state,
-    config and cache directories and its global config file are under one temp root, it is
-    offline, and it installs nothing."""
+    mise a child reaches (a distro package in /usr/bin included) WRITES only under one temp
+    root (its data, state, config and cache directories and its global config file; it may
+    still read system or ancestor config), is offline, and installs nothing."""
     env = {
         k: v
         for k, v in os.environ.items()
@@ -134,7 +134,7 @@ def base_env():
         os.makedirs(d, exist_ok=True)
         env[name] = d
     g = os.path.join(root, "mise-global.toml")
-    open(g, "a").close()
+    open(g, "w").close()
     env[MISE_GLOBAL_VAR] = g
     env["MISE_OFFLINE"] = "1"
     env["MISE_AUTO_INSTALL"] = "false"
