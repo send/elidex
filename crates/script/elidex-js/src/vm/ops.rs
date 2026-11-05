@@ -836,18 +836,18 @@ impl VmInner {
                         )
                     });
                 if let Some(id) = existing {
-                    upvalue_ids.push(id);
-                    continue;
+                    id
+                } else {
+                    let id = self.alloc_upvalue(Upvalue {
+                        state: UpvalueState::Open {
+                            frame_base,
+                            slot: desc.index,
+                        },
+                    });
+                    // Track on the current frame so pop_frame can close it.
+                    self.frames.last_mut().unwrap().local_upvalue_ids.push(id);
+                    id
                 }
-                let id = self.alloc_upvalue(Upvalue {
-                    state: UpvalueState::Open {
-                        frame_base,
-                        slot: desc.index,
-                    },
-                });
-                // Track on the current frame so pop_frame can close it.
-                self.frames.last_mut().unwrap().local_upvalue_ids.push(id);
-                id
             } else {
                 // Capture from parent's upvalues.
                 parent_upvalues[desc.index as usize]
