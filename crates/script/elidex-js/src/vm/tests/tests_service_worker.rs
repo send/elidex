@@ -26,7 +26,7 @@ use elidex_storage_core::SqliteConnection;
 
 use super::super::host::cache::CacheBackend;
 use super::super::host_data::HostData;
-use super::super::sw_thread::run_service_worker;
+use super::super::sw_thread::{deadline_passed, run_service_worker};
 use super::super::Vm;
 
 const SCRIPT_URL: &str = "https://example.com/sw.js";
@@ -41,6 +41,29 @@ const SCOPE_URL: &str = "https://example.com/";
 /// a bound there would let machine load turn "settles" into the timed-out
 /// branch (`#11-sw-respond-with-gc-test-wallclock-timeout`).
 const NEVER_SETTLE_PUMP_TIMEOUT: Duration = Duration::from_millis(150);
+
+// ---------------------------------------------------------------------------
+// Drain deadline predicate (`sw_thread::deadline_passed`): pure, so it is
+// tested with fixed instants, not a wall clock.  It is the one check of the
+// production `Some(DEFAULT_IDLE_TIMEOUT)` path, which the harness tests below
+// do not take (they drain with `None`, or a short `Some` that never settles).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn deadline_passed_none_never_passes() {
+    let t = std::time::Instant::now();
+    assert!(!deadline_passed(None, t));
+    assert!(!deadline_passed(None, t + Duration::from_secs(1)));
+}
+
+#[test]
+fn deadline_passed_some_is_now_at_or_after_the_deadline() {
+    let before = std::time::Instant::now();
+    let d = before + elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
+    assert!(!deadline_passed(Some(d), before));
+    assert!(deadline_passed(Some(d), d));
+    assert!(deadline_passed(Some(d), d + Duration::from_millis(1)));
+}
 
 /// A spawned SW thread + the content-side channel driving it.
 struct Harness {

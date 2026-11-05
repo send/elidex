@@ -162,8 +162,9 @@ mod tests {
             1,
             PendingFetch {
                 tab_id: TabId(1),
+                // Past the relay's bound (`DEFAULT_IDLE_TIMEOUT`), whatever its value.
                 initiated_at: Instant::now()
-                    .checked_sub(std::time::Duration::from_mins(1))
+                    .checked_sub(DEFAULT_IDLE_TIMEOUT + std::time::Duration::from_secs(1))
                     .unwrap(),
                 scope: url::Url::parse("https://example.com/").unwrap(),
             },

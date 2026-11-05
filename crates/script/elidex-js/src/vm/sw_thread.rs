@@ -465,7 +465,7 @@ fn pump_response(
 /// Whether a drain `deadline` has passed at `now` (`None` = no deadline:
 /// never).  The one deadline predicate of both pumps; pure, so it is tested
 /// with fixed instants rather than a wall clock.
-fn deadline_passed(deadline: Option<Instant>, now: Instant) -> bool {
+pub(super) fn deadline_passed(deadline: Option<Instant>, now: Instant) -> bool {
     deadline.is_some_and(|d| now >= d)
 }
 
@@ -505,30 +505,5 @@ fn drain_sw_outgoing(vm: &mut Vm, channel: &SwChannel) {
     }
     for msg in std::mem::take(&mut vm.inner.sw_outgoing) {
         let _ = channel.send(msg);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::{Duration, Instant};
-
-    use super::deadline_passed;
-
-    #[test]
-    fn deadline_passed_none_never_passes() {
-        let t = Instant::now();
-        assert!(!deadline_passed(None, t));
-        assert!(!deadline_passed(None, t + Duration::from_secs(1)));
-    }
-
-    #[test]
-    fn deadline_passed_some_is_now_at_or_after_the_deadline() {
-        // The production path (`Some(DEFAULT_IDLE_TIMEOUT)`): before the
-        // deadline the pump keeps draining, at or after it the drain times out.
-        let before = Instant::now();
-        let d = before + Duration::from_secs(30);
-        assert!(!deadline_passed(Some(d), before));
-        assert!(deadline_passed(Some(d), d));
-        assert!(deadline_passed(Some(d), d + Duration::from_millis(1)));
     }
 }
