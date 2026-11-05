@@ -133,11 +133,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
         match control_kind {
             Some(FormControlKind::Radio)
-                if elidex_form::toggle_radio(
-                    &mut state.pipeline.dom,
-                    hit_entity,
-                    &mut state.pipeline.ancestor_cache,
-                ) =>
+                if elidex_form::toggle_radio(&mut state.pipeline.dom, hit_entity) =>
             {
                 dispatch_state_change_events(state, hit_entity);
             }
@@ -603,11 +599,7 @@ fn handle_key_widget(
         }
         Some(FormControlKind::Radio) => {
             if key == " " {
-                if elidex_form::toggle_radio(
-                    &mut state.pipeline.dom,
-                    target,
-                    &mut state.pipeline.ancestor_cache,
-                ) {
+                if elidex_form::toggle_radio(&mut state.pipeline.dom, target) {
                     dispatch_input_event(state, target);
                 }
             } else if key == "ArrowDown" || key == "ArrowRight" {
@@ -647,18 +639,11 @@ fn handle_key_widget(
 
 /// Toggle a radio button via arrow navigation and dispatch input + change events.
 fn toggle_radio_with_events(state: &mut ContentState, current: elidex_ecs::Entity, forward: bool) {
-    if let Some(next) = elidex_form::radio::radio_arrow_navigate(
-        &state.pipeline.dom,
-        current,
-        forward,
-        &mut state.pipeline.ancestor_cache,
-    ) {
+    if let Some(next) =
+        elidex_form::radio::radio_arrow_navigate(&state.pipeline.dom, current, forward)
+    {
         set_focus(&mut state.pipeline, next);
-        if elidex_form::toggle_radio(
-            &mut state.pipeline.dom,
-            next,
-            &mut state.pipeline.ancestor_cache,
-        ) {
+        if elidex_form::toggle_radio(&mut state.pipeline.dom, next) {
             dispatch_state_change_events(state, next);
         }
     }

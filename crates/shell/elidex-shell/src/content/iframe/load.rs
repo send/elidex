@@ -282,7 +282,12 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
             pipeline,
             nav_controller: NavigationController::new(),
             scroll_state: elidex_ecs::ScrollState::default(),
-            needs_render: false,
+            // The build ran the child's initial scripts and produced its first
+            // display list without passing through `crate::re_render`, so the
+            // child's first rendering update (step-17 focus fixup included) is
+            // still owed: a load-time `b.focus(); b.disabled = true;` must be
+            // reset on the next frame, not whenever a later writer sets the flag.
+            needs_render: true,
             cached_display_list: None,
         })),
         // Stamped from the loaded `IframeData` at `register_iframe_entry` (the
