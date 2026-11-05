@@ -34,7 +34,8 @@ pub(in crate::vm) use stringify::{
 /// `stringify_for_structured_shortcut` (postMessage / history.state) and the
 /// Body mixin's `JSON.parse`. Debug and release therefore diverge at 600 vs
 /// 1000 for all of them. The binding constraint is `internalize`: measured
-/// 2026-11-05 on a 2 MiB thread (the smallest stack any production VM thread
+/// 2026-11-05 at `c3965fdc` (re-measure by varying the `chain_reviver` depth in
+/// `tests_json.rs`) on a 2 MiB thread (the smallest stack any production VM thread
 /// gets), its debug frames use about 2.7 KiB/level: 760 levels pass, 770
 /// overflow. `stringify` passed 790 and the parser 800 on the same thread.
 /// 600 = 760 less >= 20% (608), rounded down to a multiple of 50. The
