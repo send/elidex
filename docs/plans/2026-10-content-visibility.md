@@ -35,7 +35,7 @@ that cannot pass as written, corrected **in place**, each site marked "erratum 2
 The in-place edit is an **exception**, by those decisions, to the approval scope's rule (`:20-22`) and to the A114 idiom.
 Decision changes: CV-focus has two legs (7; PM 242 (7)); K15 leaves the fixup's position to the being-rendered leg (1;
 PM 246); the `details` tracker's home is CV-details' plan's (12); D3 adds direct text runs (2); `scrollIntoView()` joins
-D12's decided consumers (6); K16's resume outcome is measured, not decided (13); c5 is not a parent-edge addition (15);
+D12's decided consumers (6); K16's resume residue is CV-readers' plan's, not decided here (13); c5 is not a parent-edge addition (15);
 the rest correct input and DoD checks. Not decided here (PM 282): how the VM's `focus()` stays fresh before A2c —
 CV-focus-1's plan's, under K15's obligation (R1-E3). **Rename (CR-1, PM 278)**: focus-fixup PR (2)
 (`docs/plans/2026-11-focus-fixup-canonical-steps.md` D-4, D-5; landed as #603) deleted `reconcile_focus` for the
@@ -48,6 +48,7 @@ MINs). Decision changes: CV-focus-1's obligation, two cells and fallback edge (E
 `scrollIntoView()`'s caller layer of FU's point (E9); the rest correct input, DoD checks and records. Its re-check's
 fixes (PM 348) are marked "(R1b-*n*)", *n* = 1–10.
 **Re-ground** (2026-11-06, rebased onto `1580af13`, #603 landed): CR-1's sites read as records of the landed rename; K15's slot closed by #603; P2-R3's edge from `#11-event-path-window-missing` and CV-details' `composed_path_for_js` premise, marked "(re-ground)".
+Re-grounded K5 / K16 residue / P2-R5 on spec, PM 431 (B26 kept as [evidence]; sites marked "PM 431" or citing it).
 
 **Revision 8** (2026-10-24) — final clerical pass; **USER DECIDED 2026-10-24: no review round after rev 8** — residual
 risks ride the sibling and nested plan-reviews. Folds the terminal re-check of rev 7 (IMP-1, IMP-2, MIN-1–5) by lowering
@@ -110,7 +111,7 @@ by slot or row name, not line.
 | B23 | (rev 5 corrected) the focusing steps | `sed -n 269,312p crates/script/elidex-js/src/vm/host/html_element_proto.rs`; `sed -n 104,114p crates/dom/elidex-dom-api/src/focus/update_steps.rs`; `sed -n 178,186p …/focus/sot.rs` | the focusing steps **are** in `elidex-dom-api`: `focusing_steps` (`update_steps.rs:106`), which reads `is_focusable_area` (`:113`), called by the shell (`content/focus.rs:85`). The VM host `native_html_element_focus` (`html_element_proto.rs:269`) bypasses it, calling `is_focusable` (`:302`); making the VM a thin caller is canonical-focus A2c (slot `#11-vm-host-synthetic-dom-event-dispatch`). `reconcile_focus` (`sot.rs:178`), run at render time, calls `is_focusable` (`:185`) (erratum 2026-11-04, CR-1: a record — #603 deleted it for `focus_fixup_steps`). The VM's Hidden classification is `HiddenKind` (`html_element_proto.rs:679`) |
 | B24 | the frame style pass's animation phases | `sed -n 632,700p crates/shell/elidex-shell/src/lib.rs` | inside `re_render` (`:559`): old-style snapshot (`:636-640`), style resolution (`:681-688`), transition detection, CSS-animation sync and `apply_active_animations` (`:690-700`); the session flush is `SessionCore::flush` (`elidex-script-session/src/session.rs:114`; `SessionCore` is CLAUDE.md's ScriptSession) |
 | B25 | (rev 5 corrected; P2 context) `slotchange` | `sed -n 10,32p;58,65p;389,410p crates/script/elidex-js/src/vm/host/html_slot_proto.rs`; `sed -n 386,389p crates/core/elidex-ecs/src/dom/shadow.rs` | fires only on explicit `slot.assign()`; HEAD **has** an ordered VM queue, `pending_slot_change_signals` (`signal_slot_change` `:61-63`, drained `:391-408` into the NotifyMutationObservers microtask); named-mode detection is deferred to `#11-shadow-slotchange-named-mode-detection` (`:25-28`, cited in code, not in the ledger); `assignedNodes({flatten: true})` to `#11-shadow-slot-flatten` (`:13`, `:30`; `shadow.rs:389`; unledgered, recorded by the PM) |
-| B26 | K5's pseudo-element outcome | Chrome 156.0.8078.48 headless, 2026-10-24 (driver probe; screenshot) | a `content-visibility: hidden` `div` with `::before`/`::after` paints neither; an `li` (marker outside and inside) paints no marker; each element's own border paints; the controls paint all. One engine: evidence, not spec ground |
+| B26 | [evidence] for K5's pseudo-element reading (not its ground, PM 431) | Chrome 156.0.8078.48 headless, 2026-10-24 (driver probe; screenshot) | a `content-visibility: hidden` `div` with `::before`/`::after` paints neither; an `li` (marker outside and inside) paints no marker; each element's own border paints; the controls paint all. One engine: evidence, not spec ground |
 
 ### §0.3 Premise errors (reported, not edited — the A114 idiom)
 
@@ -373,11 +374,17 @@ style rule last, K9).
   *none*, a child of a slot whose assignment as the flat tree reads it (P2's: named, manual, or a UA element kind's rule
   such as `details`', P2-2) is non-empty to *none* (fallback is not in the flat tree), else the DOM parent; current after
   every trigger (P2-1), so whenever any reader runs. Text nodes are contents.
-- **K5 What "contents" is** — the spec's *contents* is the flat-tree descendants plus the replaced content (B6);
-  pseudo-elements are not flat-tree descendants, so whether they are contents is a spec-silent edge, **decided by
-  measurement** (B26; `feedback_measure-browser-before-deciding-spec-silent-outcomes`): `::before`, `::after` and
-  `::marker` (outside and inside) are **contents** (skipped), consistent with css-contain-2 §3.1's sizing sentence ("not
-  even through pseudo-elements such as ::before, ::after, or ::marker"). Classified once, in S1/S2's definition:
+- **K5 What "contents" is** — the spec's *contents* is the flat-tree descendants plus the replaced content (B6).
+  `::before`, `::after` and `::marker` (outside and inside) are **contents** (skipped). Spec ground: skipping turns on
+  size containment, and css-contain-2 §3.1 (`#size-containment`) counts them as the box's content ("treated as having
+  no content—not even through pseudo-elements such as ::before, ::after, or ::marker"; "The containment box's content
+  (including any pseudo-elements)"); css-pseudo-4 §4 (`#treelike`) makes all three tree-abiding, and §4.1
+  (`#generated-content`) makes `::before`/`::after` child pseudo-elements generating boxes "as if they were immediate
+  children of their originating element". **elidex's reading** where §4's parenthetical lists no pseudo-elements: one
+  meaning of *content* across the module (§3.1's), so a skipped element's own box is the only thing it paints —
+  css-contain-2 §4.2 (`#using-cv-hidden`, non-normative) item 1: a wrapper with no border or background "and its skipped
+  contents are guaranteed to never render anything" — and pseudo-element entities classify with the element children
+  whose flat-tree slot they take (K4). B26 is [evidence], not the ground. Classified once, in S1/S2's definition:
   `::before`/`::after` are child entities (B19) whose flat-tree parent is the originating element (K4), hence S2;
   `::marker` (`ListItemMarker`, B19) through S1 (D3). Also contents: replaced content (F4, the parent's IBP-classify) and
   widget content (elidex paints controls without UA shadow trees, `elidex-render/src/builder/form.rs`). The element's own
@@ -461,8 +468,9 @@ style rule last, K9).
   input (FU-R1). On un-skip, item 9 is normative: "animations and transitions are sampled and then resume advancing on
   their timelines as normal from that point" (while skipped, "Existing animations do not advance in their timeline").
   The residue — whether "from that point" resumes from where it stopped or catches up (its Note compares a background
-  tab) — is ambiguous, not silent: CV-readers' plan measures Chromium for that residue only, as K5 (B26), and C16 tells
-  the two apart (erratum 2026-11-04 (13), (R1-E8)). HEAD's callers (shell
+  tab) — is ambiguous, not silent: CV-readers' plan decides it from css-contain-2 §4.5 (`#cv-notes`) item 9 and its Note
+  as elidex's own choice, its reasoning written there (a measurement only as [evidence]), and C16 tells the two
+  readings apart (erratum 2026-11-04 (13), (R1-E8); re-grounded, PM 431). HEAD's callers (shell
   `animation.rs:87` `detect_and_start_transitions`, `lib.rs:692`; the tick, `content/event_loop.rs:256`) are input (FU-R3).
 - **K17 Standing obligation for absent readers** (U1) — each, when built, reads K1's form per the arm table: `innerText` →
   S2; `checkVisibility` → C's ancestor form; the top layer → C's ancestor form; media → §8's media obligation;
@@ -502,7 +510,7 @@ lives in K1's file). Per CV-focus leg (erratum 2026-11-04 (R1-E5)):
 | CSS CONTAIN 2 §4 Suppressing An Element’s Contents Entirely: the content-visibility property | `hidden`: not accessible to UA features, not selectable, not focusable | focus: CV-focus; selection producers, find-in-page → K17's slots | CV-focus | ✗ | yes |
 | CSS CONTAIN 2 §4.1 Animating and Interpolating content-visibility | discrete; `hidden` ↔ other maps (0,1) to the non-hidden value | | CV-core | ✓ | yes |
 | CSS CONTAIN 2 §3.1 Size Containment | the four "no effect" bullets (applies-to) | ruby arm vacuous at HEAD (PE2) | CV-render | ✓ | yes |
-| CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | the sizing rule only; K5 decided by measurement (B26), consistent with it | CV-render | ✗ | yes |
+| CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | the sizing rule; also K5's ground (pseudo-elements are the box's content) | CV-render | ✗ | yes |
 | CSS CONTAIN 2 §4.5 Restrictions and Clarifications | items 1–12 (each reader's arm: §2's table); item 10's style change event (K16's marker boundary) | 1, 2, 5, 9, 10: CV-readers (U1); 8, 11, 12 (incl. its iframe clause) → K17's slots; 3, 4, 6 `auto`-only (3 in effect: *update content relevancy for a document* step 2 iterates only `auto` elements) → `#11-content-visibility-auto`; 7 (iframe SHOULD) → out | CV-readers | ✗ | yes |
 | CSS TRANSITIONS 1 §3 Starting of transitions | *style change event* (`#style-change-event`; timing not defined by the spec) | every style-phase invocation, frame and forced, is one — elidex's decision (D12, K16) | CV-readers | ✗ | yes |
 | CSS CONTAIN 2 §4.6 Accessibility Implications | `hidden`'s skipped contents omitted | `auto` paragraph → `#11-content-visibility-auto` | CV-a11y | ✓ | yes |
@@ -702,7 +710,11 @@ CV-focus-1, so all of them wait on A2c, which has no driver (R1b-8).
   that slot's PR leaves (re-ground).
 - **P2-R4** (R3/R4) `slotchange` order and one channel from every source (*assign slottables* 2; *insert* 7.5; *remove* 9;
   *move* 15, 23), out-of-bracket writers included; reuse of `pending_slot_change_signals` (B25). **P2-R5** (R4) host
-  pseudo-element entities (`composed_children(host)` omits them, `shadow.rs:529-537`); whether they render → Chromium.
+  pseudo-element entities (`composed_children(host)` omits them, `shadow.rs:529-537`); they render: css-pseudo-4 §4.1
+  (`#generated-content`) generates a `::before`/`::after` box (content not `none`) as an immediate child of the
+  originating element, before/after its "actual content" (§4.1 suppresses them for a replaced originating element, not a host), and
+  css-shadow-1 §4.1 (`#flattening`) replaces only a host's light children by its shadow root's children — so they sit
+  before/after the shadow children (re-grounded, PM 431).
 - **P2-R6** a UA rule's re-derivation point vs *insert*'s insertion steps (7.7.1) and children changed steps (9), a P1 × P2
   pair; `moveBefore`; rev 4's list (`tree_clone.rs:30`, destroy, `walk.rs:459`, `:582`, `docs/architecture/core.md:22`).
 - **CF-R1** (R5-2) the subwidget read by the base predicate `is_focusable` (`focus_fixup_steps`', B23; erratum 2026-11-04, CR-1), not only
@@ -749,13 +761,13 @@ CV-focus-1, so all of them wait on A2c, which has no driver (R1b-8).
 
 ## §6. ECS-native and Layering checks (seed; input)
 
-**OO → ECS**: Blink's `DisplayLockContext` per element (a registry with lock state and update flags) → no state: S1/S2
+**OO → ECS** [contrast]: Blink's `DisplayLockContext` per element (a registry with lock state and update flags) → no state: S1/S2
 queries over `ComputedStyle` and the tree (D1); "contents are locked" flags propagated by a lifecycle → flat-tree ancestry
-read on demand (D3); Blink's details-element hook run when its UA shadow root is added (a virtual) → a template declared on
+read on demand (D3); [contrast] Blink's details-element hook run when its UA shadow root is added (a virtual) → a template declared on
 the element-kind plugin seam, instantiated by one function, + a `UserAgentShadowRoot` marker (D7); a per-site "is this root
 closed/UA" check → one "script-visible shadow root" query (D7); the per-element "style attribute set to" rewrite → a
 cascade-derived positive `:host([open])` pair (D7); animation "paused while locked" state → item 9's outcome, its residue
-measured (K16; R1-E8), plus
+CV-readers' plan's (K16; R1-E8), plus
 a per-entity *skipped at the last style change* marker component (K16; erratum 2026-11-04 (13)); the details' toggle task
 tracker held on the element object → a component on the `details` entity, or per-VM HostData under exception (a) if its
 form holds a VM task handle (CV-details decides the form; §4; erratum 2026-11-04 (12), R1-m); a
@@ -800,7 +812,7 @@ Cells (owner):
   (CV-reveal); C4 a handler that disconnects or re-hides (K11's four re-checks; CV-reveal).
 - C5 paint: contents unpainted, the element's border painted, its direct text unpainted (`hello ` in
   `<div style="content-visibility:hidden">hello <b>x</b></div>`; erratum 2026-11-04 (2)), `<img hidden=until-found>`'s image unpainted,
-  `::before`/`::after` and an `li`'s outside and inside `::marker` unpainted (K5, B26); C6 abspos/z-index descendant
+  `::before`/`::after` and an `li`'s outside and inside `::marker` unpainted (K5); C6 abspos/z-index descendant
   skipped; C7 hit passes through to the S1 element; C8 applies-to: `display: inline`/`contents`/`table`/`table-cell` no
   effect, `inline-block`, `table-caption`, an inline `img` applies; C9 the parent pins flipped (all CV-render).
 - C10 a11y omission (CV-a11y); C11 (CV-focus-1) a `<button>` under an author `content-visibility: hidden` ancestor is not
@@ -822,7 +834,7 @@ Cells (owner):
   IntersectionObserver reports a skipped target non-intersecting; C15 ResizeObserver silent while skipped, delivers on
   un-skip only on a size change; C16 (K16) while skipped a running animation does not advance or end and no animation or
   transition starts; on un-skip the animation is sampled and resumes (item 9; from where it stopped or caught up, per
-  K16's measured residue; erratum 2026-11-04 (13), (R1-E8)) and no transition starts; C22 (K16) moving `p` out of a
+  K16's residue as CV-readers' plan decides it; erratum 2026-11-04 (13), (R1-E8)) and no transition starts; C22 (K16) moving `p` out of a
   `content-visibility: hidden` ancestor while changing its `color` in the task starts no transition, under the frame pass
   and under a forced pass; C23 (FU-4) a `getComputedStyle` read of a skipped element in the task that changed its
   animation style samples per the styles at that style change event (§4.5 item 9) (all CV-readers).
