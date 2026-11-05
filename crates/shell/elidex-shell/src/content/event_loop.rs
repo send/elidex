@@ -84,26 +84,29 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
             // traversal into the timeout as `0` — like a due timer — so an idle turn
             // with a queued traversal returns immediately and step 3 applies it without
             // a poll-interval delay (plan §4.1 Liveness). Same category as the existing
-            // animation/timer timeout inputs.
-            let timeout = if state.traversal_queue.is_empty() {
-                let now_for_timeout = Instant::now();
-                let timer_timeout = state
-                    .pipeline
-                    .runtime
-                    .next_timer_deadline()
-                    .map(|d| d.saturating_duration_since(now_for_timeout));
-                if state.pipeline.animation_engine.has_running() {
-                    let next_frame = *last_frame + FRAME_INTERVAL;
-                    let frame_remaining = next_frame
-                        .saturating_duration_since(now_for_timeout)
-                        .max(Duration::from_millis(1));
-                    timer_timeout.map_or(frame_remaining, |t| frame_remaining.min(t))
+            // animation/timer timeout inputs. A pending in-process child rendering update
+            // (an iframe registered after this turn's `re_render_all_iframes`) folds in the
+            // same way, so step 5 renders it without a poll-interval delay.
+            let timeout =
+                if state.traversal_queue.is_empty() && !iframe::any_iframe_needs_render(state) {
+                    let now_for_timeout = Instant::now();
+                    let timer_timeout = state
+                        .pipeline
+                        .runtime
+                        .next_timer_deadline()
+                        .map(|d| d.saturating_duration_since(now_for_timeout));
+                    if state.pipeline.animation_engine.has_running() {
+                        let next_frame = *last_frame + FRAME_INTERVAL;
+                        let frame_remaining = next_frame
+                            .saturating_duration_since(now_for_timeout)
+                            .max(Duration::from_millis(1));
+                        timer_timeout.map_or(frame_remaining, |t| frame_remaining.min(t))
+                    } else {
+                        timer_timeout.unwrap_or(DEFAULT_POLL_INTERVAL)
+                    }
                 } else {
-                    timer_timeout.unwrap_or(DEFAULT_POLL_INTERVAL)
-                }
-            } else {
-                Duration::ZERO
-            };
+                    Duration::ZERO
+                };
             match state.channel.recv_timeout(timeout) {
                 Ok(m) => Some(m),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -440,6 +443,13 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // leave `needs_render` false and stall until a later render/interaction.
         // PEEK, don't consume — `re_render` stays the single drain point.
         if state.pipeline.runtime.has_pending_scroll() || state.pipeline.has_dirty_canvas() {
+            needs_render = true;
+        }
+
+        // §4.3.8: an in-process child's rendering update runs only inside the parent's
+        // (`re_render_all_iframes`), so a child `needs_render` (child timer, late
+        // registration) schedules the parent render. PEEK — `re_render_all_iframes` clears it.
+        if iframe::any_iframe_needs_render(state) {
             needs_render = true;
         }
 

@@ -15,6 +15,7 @@ use super::test_support::{
 };
 use super::ContentState;
 use elidex_ecs::{ElementState, Entity};
+use elidex_script_session::HostDriver;
 
 fn focused(pipeline: &crate::PipelineResult) -> Option<Entity> {
     elidex_dom_api::focus::current_focus(&pipeline.dom, pipeline.document)
@@ -330,6 +331,77 @@ fn in_process_iframe_load_time_disabled_runs_focus_fixup() {
         event_log(&ip.pipeline),
         "blur,focusout",
         "fired exactly once"
+    );
+}
+
+/// C16-in-process, timer-driven: the child disables its focused `#b` from a
+/// `setTimeout` while the parent stays idle (no parent DOM change); the delay is
+/// non-zero so the child build's own load-time timer drain leaves it pending,
+/// and only the event loop's `tick_iframe_timers` runs it. The child
+/// timer's `needs_render` must schedule the parent's rendering update (the
+/// child's runs only inside it), so the child's step-17 fixup fires
+/// `blur`/`focusout` once and clears its `activeElement` on that turn.
+#[test]
+fn in_process_iframe_timer_disabled_runs_focus_fixup_with_idle_parent() {
+    let (mut state, _browser) = build_test_content_state(
+        concat!(
+            r#"<iframe id=f srcdoc="<button id=b>x</button><script>"#,
+            log_listener_js!(),
+            r#"const b = document.getElementById('b');
+             listen(b, 'blur');
+             listen(b, 'focusout');
+             b.focus();
+             setTimeout(() => { b.disabled = true; }, 20);
+           </script>"></iframe>"#
+        ),
+        "",
+    );
+    let parent_version = state
+        .pipeline
+        .dom
+        .inclusive_descendants_version(state.pipeline.document);
+    {
+        let ip = super::test_support::in_process_entry(&state);
+        assert_eq!(
+            focused(&ip.pipeline),
+            Some(by_id(&ip.pipeline, "b")),
+            "precondition: child b focused"
+        );
+        assert_eq!(event_log(&ip.pipeline), "", "precondition: no blur yet");
+    }
+
+    // Pump turns until the child timer has been drained (bounded).
+    let mut last_frame = std::time::Instant::now();
+    for _ in 0..10 {
+        let pending = super::test_support::in_process_entry(&state)
+            .pipeline
+            .runtime
+            .next_timer_deadline()
+            .is_some();
+        if !pending {
+            break;
+        }
+        assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
+    }
+
+    assert_eq!(
+        state
+            .pipeline
+            .dom
+            .inclusive_descendants_version(state.pipeline.document),
+        parent_version,
+        "the parent stayed idle (no parent-side render trigger)"
+    );
+    let ip = super::test_support::in_process_entry(&state);
+    assert!(
+        ip.pipeline.runtime.next_timer_deadline().is_none(),
+        "the child timer fired"
+    );
+    assert_eq!(focused(&ip.pipeline), None, "child activeElement is body");
+    assert_eq!(
+        event_log(&ip.pipeline),
+        "blur,focusout",
+        "the child's fixup fired blur/focusout exactly once"
     );
 }
 
