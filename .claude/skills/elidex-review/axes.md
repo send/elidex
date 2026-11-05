@@ -33,11 +33,11 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 **Purpose**: 2 つの layering 軸を扱う (Sub-check 1a + 1b、独立判定)。Axis 2 の 2a/2b と同じ shape。
 
-**Reference**: `CLAUDE.md` § "Layering mandate (2026-05-04 incident 由来)" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected) / `memory/reference_elidex-js-core-strict-only.md` (D-17b-r2 由来、core/compat split judgment axis)
+**Reference**: `CLAUDE.md` § "Layering mandate" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected) / `memory/reference_elidex-js-core-strict-only.md` (D-17b-r2 由来、core/compat split judgment axis)
 
 ### Sub-check 1a: Engine vs Host `[both]`
 
-Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "VM host/ は engine-bound 責務のみ" 段落 (DOM algorithm は engine-indep crate 経由)。
+Rule: CLAUDE.md § "Layering mandate" — "VM host/ は engine-bound 責務のみ" 段落 (DOM algorithm は engine-indep crate 経由)。
 
 - `[both]` `vm/host/*.rs` に 10+ LoC の loop / walker / state machine / coercion algorithm を新規追加または拡張 (diff: 該当行、plan: §Body/§Implementation 記述)
 - `[both]` `EcsDom::traverse_descendants` / `find_by_id` / `with_attribute` 等の direct call が marshalling 用途 (entity 取得 / 単純 attribute read / wrapper 生成) を超える
@@ -49,7 +49,7 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "VM host/
 
 ### Sub-check 1b: Core vs Compat `[both]` (design doc §14.1)
 
-Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs compat split" 段落 (elidex-js core = ES2020+ strict-only baseline、LegacySemantics は compat plugin 領域 = core VM 実装 NG)。
+Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-js core = ES2020+ strict-only baseline、LegacySemantics は compat plugin 領域 = core VM 実装 NG)。
 
 - `[both]` core VM (`crates/script/elidex-js/src/vm/` 内、`host/` 除く) で LegacySemantics 機能 (sloppy mode coercion / Annex B / sloppy direct-eval scope injection / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor / RegExp legacy / 文字列HTMLメソッド) を実装 → **CRIT/IMP** (compat plugin 領域に移管 OR drop)
 - `[plan]` plan-memo で **sloppy direct-eval の caller-env scope injection / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の legacy motivation で defer slot 立てる案 → **IMP** (core では不要、compat plugin 着手まで slot 不要)。direct/indirect eval 区別そのものは対象外: spec が strictness を経路ごとに別導出する (ECMA-262 PerformEval: 直接のみ `strictCaller` を継ぐ) ことを motivation とする区別は core が持つ (CLAUDE.md「Core vs compat split」の motivation test) → finding にしない
