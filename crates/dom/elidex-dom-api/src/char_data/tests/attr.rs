@@ -448,3 +448,55 @@ fn remove_attribute_node_on_non_element_errors_without_detaching() {
     let ad = dom.world().get::<&AttrData>(attr).unwrap();
     assert_eq!(ad.owner_element, Some(doc));
 }
+
+// ---- C0b U16 (red-first, §6.5): the Attr entity carries a node document —
+// `CreateAttribute` creates it in `this` (DOM §4.5 `createAttribute`),
+// `GetAttributeNode` in the element's, and an insertion re-homes the cached
+// entity (DOM §4.5 *adopt* step 3.3.1). Base formulation:
+// `get_associated_document` stands for `node_document`. ----
+
+fn attr_entity(result: &JsValue, session: &SessionCore) -> elidex_ecs::Entity {
+    let JsValue::ObjectRef(id) = result else {
+        panic!("expected ObjectRef, got {result:?}");
+    };
+    session
+        .identity_map()
+        .get(JsObjectRef::from_raw(*id))
+        .unwrap()
+        .0
+}
+
+#[test]
+#[ignore = "C0b red-first: base [None, None, None] — create_attribute spawns the Attr ownerless and insertion does not adopt"]
+fn u16_attr_entity_node_document_follows_creation_and_adoption() {
+    let mut dom = EcsDom::new();
+    let d = dom.create_document_root();
+    let x = dom.create_document_node();
+    let mut session = SessionCore::new();
+    let created = CreateAttribute
+        .invoke(x, &[JsValue::String("a".into())], &mut session, &mut dom)
+        .unwrap();
+    let created = attr_entity(&created, &session);
+    let mut attrs = Attributes::default();
+    attrs.set("class", "c");
+    let el = dom.create_element_with_owner("div", attrs, Some(x));
+    let node = GetAttributeNode
+        .invoke(
+            el,
+            &[JsValue::String("class".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    let cached = attr_entity(&node, &session);
+    let in_x = (
+        dom.get_associated_document(created),
+        dom.get_associated_document(cached),
+    );
+    assert!(dom.append_child(d, el));
+    assert_eq!(
+        [in_x.0, in_x.1, dom.get_associated_document(cached)],
+        [Some(x), Some(x), Some(d)],
+        "CreateAttribute on X; GetAttributeNode on an element of X; the element appended under D"
+    );
+}

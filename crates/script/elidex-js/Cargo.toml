@@ -200,6 +200,9 @@ criterion = { workspace = true }
 # regular `elidex-net` dep so production builds don't pull the
 # `test-hooks` feature accidentally.
 elidex-net = { workspace = true, features = ["test-hooks"] }
+# Page fixtures parsed by both parser tiers (C0b T3: an initial-HTML
+# parse leaves nodes the fragment path does not).
+elidex-html-parser = { workspace = true }
 
 # Event-object construction throughput (PR3.6) — measures the per-
 # dispatch cost of `create_event_object` for each EventPayload variant.

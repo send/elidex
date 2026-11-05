@@ -115,6 +115,7 @@ mod tests_indexeddb_events;
 mod tests_indexeddb_value;
 mod tests_inner_html_mixin;
 mod tests_insert_adjacent;
+mod tests_insertion_adoption;
 mod tests_integration_fetch;
 mod tests_integration_pr5b;
 mod tests_intersection_observer;

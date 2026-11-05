@@ -256,3 +256,6 @@ pub(crate) mod test_helpers;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_node_document;

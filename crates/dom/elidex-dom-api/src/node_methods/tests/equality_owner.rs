@@ -314,3 +314,41 @@ fn is_equal_node_false() {
         .unwrap();
     assert_eq!(r, JsValue::Bool(false));
 }
+
+// ---- C0b U15 (red-first, §6.5): the getter has no `document_root()`
+// fallback — an element whose node document was destroyed reads null even
+// with a bound document present (DOM §4.4 `ownerDocument`). ----
+#[test]
+#[ignore = "C0b red-first: base returns the bound document (the getter's document_root() fallback)"]
+fn u15_owner_document_of_element_whose_document_was_destroyed_is_null() {
+    let (mut dom, mut session) = setup();
+    let _bound = dom.create_document_root();
+    let gone = dom.create_document_node();
+    let div = dom.create_element_with_owner("div", Attributes::default(), Some(gone));
+    assert!(dom.destroy_entity(gone));
+    wrap(div, &mut session);
+    let result = OwnerDocument
+        .invoke(div, &[], &mut session, &mut dom)
+        .unwrap();
+    assert!(matches!(result, JsValue::Null), "got {result:?}");
+}
+
+#[test]
+fn u15_control_live_stamp_reads_its_document() {
+    let (mut dom, mut session) = setup();
+    let _bound = dom.create_document_root();
+    let other = dom.create_document_node();
+    let div = dom.create_element_with_owner("div", Attributes::default(), Some(other));
+    wrap(div, &mut session);
+    let result = OwnerDocument
+        .invoke(div, &[], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(id) = result else {
+        panic!("expected ObjectRef, got {result:?}");
+    };
+    let (owner, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(id))
+        .unwrap();
+    assert_eq!(owner, other);
+}

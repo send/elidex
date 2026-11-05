@@ -488,3 +488,24 @@ fn clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope() {
         "SelfOnly: the light child is not visited"
     );
 }
+
+// ── C0b U20 (red-first, §6.5): the CE helper makes the owner decision ────
+// `Some(doc)` → an element in `doc`; `None` (an unbound VM) → no element.
+// Base formulation: HEAD's `(…, owner: Option<Entity>) -> Entity`.
+
+#[test]
+#[ignore = "C0b red-first: base spawns an ownerless element for None (entity count + 1)"]
+fn u20_spawn_with_no_document_spawns_nothing() {
+    let mut dom = EcsDom::new();
+    let before = dom.world().len();
+    let _ = spawn_custom_element_entity(&mut dom, "x-e", "x-e", None);
+    assert_eq!(dom.world().len(), before, "no entity spawned for None");
+}
+
+#[test]
+fn u20_control_spawn_with_document_is_in_that_document() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let e = spawn_custom_element_entity(&mut dom, "x-e", "x-e", Some(doc));
+    assert_eq!(dom.get_associated_document(e), Some(doc));
+}
