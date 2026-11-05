@@ -56,7 +56,7 @@ fn build_match_result(
 }
 
 /// Read the current `lastIndex` from a RegExp object (as raw f64).
-/// §21.2.5.2.1 step 4-5: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
+/// RegExpBuiltinExec step 2: `ℝ(? ToLength(! Get(regexp, "lastIndex")))`.
 /// Walks the prototype chain, invokes accessors, coerces via ToNumber
 /// (strings like "5", booleans, null, undefined), then applies ToLength:
 /// NaN / negative → 0, +Infinity clamped to 2^53 - 1.  Symbols propagate
@@ -85,12 +85,12 @@ fn to_length(n: f64) -> f64 {
 }
 
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
-/// §21.2.5.2.1 step 12: `Set(R, "lastIndex", e, true)` — walks the
-/// prototype chain and invokes the user's setter when installed.  The
-/// previous direct-slot fast path silently clobbered an Accessor slot
-/// with a Data value, deleting any user-installed getter/setter.
-/// Errors (a throwing setter, a non-writable `lastIndex`) propagate: the
-/// spec's `? Set(.., true)` throws TypeError on a failed write.
+/// RegExpBuiltinExec writes `lastIndex` via `? Set(regexp, "lastIndex", v,
+/// true)` at steps 13.a.i.1 (`lastIndex > length`), 13.d.i.1 (sticky match
+/// failure) and 16 (`𝔽(endIndex)` on success).  Goes through the ordinary
+/// `Set` rather than a direct slot write.  A real RegExp's `lastIndex` is a
+/// non-configurable data property, so the only failure is a non-writable
+/// one; the `true` throw flag makes that a propagated TypeError.
 pub(super) fn set_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
@@ -488,10 +488,11 @@ pub(super) fn native_string_replace(
             let replacement = ctx.vm.strings.get(replacement_id).to_vec();
             let subject = ctx.vm.strings.get(sid).to_vec();
 
-            // Reset lastIndex before dispatching; loop only when global.
-            // Sticky (y) is enforced internally by run_regexp via lastIndex.
-            set_regexp_last_index(ctx, re_id, 0)?;
+            // %Symbol.replace% steps 9.a: `? Set(regexp, "lastIndex", +0𝔽,
+            // true)` only when global.  A non-global (incl. sticky) replace
+            // uses the current lastIndex via RegExpBuiltinExec.
             let result: Vec<u16> = if is_global {
+                set_regexp_last_index(ctx, re_id, 0)?;
                 let mut out = Vec::new();
                 let mut last_end = 0;
                 while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
@@ -517,9 +518,8 @@ pub(super) fn native_string_replace(
                     subject
                 }
             };
-            // §21.2.5.10 does not require resetting lastIndex after the
-            // global-replace loop.  (The pre-loop reset at entry is the
-            // spec-mandated `Set(rx, "lastIndex", 0, true)` for step 8.)
+            // %Symbol.replace% does not reset lastIndex after the loop; the
+            // global pre-loop reset above is step 9.a.
             let id = ctx.vm.strings.intern_utf16(&result);
             return Ok(JsValue::String(id));
         }
@@ -674,7 +674,7 @@ pub(super) fn native_string_search(
             ));
         }
     }
-    // §21.1.3.15 steps 4-8: save the raw `lastIndex` property value, set
+    // %Symbol.search% steps 4-8: save the raw `lastIndex` property value, set
     // to 0, run, restore the EXACT same value.  Using `get_regexp_last_index`
     // would ToNumber/ToLength-coerce the saved value (e.g. string "2" →
     // number 2) and lose any side effects the user's getter/setter may
@@ -683,13 +683,23 @@ pub(super) fn native_string_search(
     let saved_value = ctx
         .try_get_property_value(re_id, last_index_key)?
         .unwrap_or(JsValue::Undefined);
-    set_regexp_last_index(ctx, re_id, 0)?;
+    // %Symbol.search% step 5: Set 0 only if previousLastIndex is not +0𝔽.
+    if !super::value::same_value(saved_value, JsValue::Number(0.0)) {
+        set_regexp_last_index(ctx, re_id, 0)?;
+    }
     let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
-    ctx.vm.set_property_val(
-        JsValue::Object(re_id),
-        ctx.vm.well_known.last_index,
-        saved_value,
-    )?;
+    // Steps 7-8: restore only if SameValue(currentLastIndex, previousLastIndex)
+    // is false.
+    let current_value = ctx
+        .try_get_property_value(re_id, last_index_key)?
+        .unwrap_or(JsValue::Undefined);
+    if !super::value::same_value(current_value, saved_value) {
+        ctx.vm.set_property_val(
+            JsValue::Object(re_id),
+            ctx.vm.well_known.last_index,
+            saved_value,
+        )?;
+    }
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }

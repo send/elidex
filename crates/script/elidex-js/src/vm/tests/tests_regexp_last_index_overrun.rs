@@ -116,3 +116,61 @@ fn exec_global_non_writable_last_index_write_throws_type_error() {
         "TypeError"
     );
 }
+
+#[test]
+fn non_global_replace_frozen_regexp_does_not_throw() {
+    // %Symbol.replace% step 9 resets lastIndex only when global; a frozen
+    // non-global regexp is never written (RegExpBuiltinExec step 16 needs g/y).
+    assert_eq!(eval_str_guarded("'a'.replace(Object.freeze(/a/),'b')"), "b");
+}
+
+#[test]
+fn non_global_sticky_replace_uses_current_last_index() {
+    // No pre-reset: sticky match at lastIndex 1 of 'aa' -> "a" + "b"; step 16
+    // writes endIndex 2.
+    assert_eq!(
+        eval_str_guarded("var r=/a/y; r.lastIndex=1; 'aa'.replace(r,'b')+':'+r.lastIndex"),
+        "ab:2"
+    );
+}
+
+#[test]
+fn global_replace_frozen_regexp_throws_type_error() {
+    // Step 9.a `? Set(.., true)` on a non-writable lastIndex.
+    assert_eq!(
+        eval_str_guarded(
+            "try { 'a'.replace(Object.freeze(/a/g),'b'); 'no throw' } catch(e) { e.name }"
+        ),
+        "TypeError"
+    );
+}
+
+#[test]
+fn search_frozen_regexp_with_zero_last_index_skips_set() {
+    // %Symbol.search% step 5: previousLastIndex is +0, so no Set; non-g/y
+    // exec writes nothing; step 8 SameValue(0, 0) skips the restore.
+    assert_eq!(
+        eval_str_guarded("String('a'.search(Object.freeze(/a/)))"),
+        "0"
+    );
+}
+
+#[test]
+fn search_restores_nonzero_last_index() {
+    // Step 5 sets 0, step 8: current 0 differs from 3, so restore 3.
+    assert_eq!(
+        eval_str_guarded("var r=/a/; r.lastIndex=3; 'a'.search(r)+':'+r.lastIndex"),
+        "0:3"
+    );
+}
+
+#[test]
+fn search_frozen_nonzero_last_index_throws_type_error() {
+    // Step 5 `? Set` on a non-writable lastIndex (3 is not +0).
+    assert_eq!(
+        eval_str_guarded(
+            "var r=/a/; r.lastIndex=3; Object.freeze(r); try { 'a'.search(r); 'no throw' } catch(e) { e.name }"
+        ),
+        "TypeError"
+    );
+}

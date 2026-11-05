@@ -36,14 +36,14 @@ pub(super) fn run_regexp(
     };
     let uses_last_index = is_global || is_sticky;
 
-    // RegExpBuiltinExec steps 7 and 13.a: `lastIndex` is `ToLength(Get(..))`
-    // and is NOT clamped to the string length. For a non-g/non-y regexp the
-    // working lastIndex is 0 (step 7). Known deviation: step 2's unconditional
-    // read is not implemented for non-g/y — owned by umbrella 8's
-    // RegExpBuiltinExec child. For g/y, `lastIndex > length` fails the
-    // match, resets the property to 0 and returns null (step 13.a.i); a clamp
-    // here makes a zero-width match at the end repeat forever in the global
-    // replace/match loops. `subject` is a WTF-16 slice, so `length` and
+    // RegExpBuiltinExec step 2: `lastIndex = ToLength(! Get(..))`, NOT
+    // clamped to the string length. Step 7: it is 0 for non-g/non-y. Step
+    // 13.a.i: for g/y, `lastIndex > length` resets the property to 0, and
+    // step 13.a.ii returns null (a clamp would make a zero-width match at
+    // the end repeat forever in the global replace/match loops). Known
+    // deviation: step 2's `? ToLength` coercion (observable via `valueOf` /
+    // a Symbol value) is not performed for non-g/y — owned by umbrella 8's
+    // RegExpBuiltinExec child. `subject` is a WTF-16 slice, so `length` and
     // `lastIndex` are both in UTF-16 code units.
     let start = if uses_last_index {
         let raw = super::natives_string::get_regexp_last_index(ctx, obj_id)?;
