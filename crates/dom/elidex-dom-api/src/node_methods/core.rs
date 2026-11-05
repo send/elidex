@@ -240,16 +240,11 @@ impl DomApiHandler for GetRootNode {
 // 10. OwnerDocument
 // ---------------------------------------------------------------------------
 
-/// `node.ownerDocument` getter (WHATWG DOM §4.4).
-///
-/// Resolution order (each step short-circuits on hit):
-/// 1. Document receiver → `null` (per spec).
-/// 2. Per-entity [`elidex_ecs::AssociatedDocument`] component → that
-///    Document (so `clonedDoc.createElement(…)` reports the clone, not
-///    the singleton).
-/// 3. Tree-root walk: if root is a Document, return it.
-/// 4. Singleton fallback: [`EcsDom::document_root`].
-/// 5. `null` only when no Document has been created in this DOM.
+/// `node.ownerDocument` getter (WHATWG DOM §4.4, `#dom-node-ownerdocument`):
+/// null for a Document, else this's node document
+/// ([`EcsDom::owner_document`], which reads [`EcsDom::node_document`]). A node
+/// without a node document (its document destroyed) reads null; nothing is
+/// derived from the tree position or the bound document.
 pub struct OwnerDocument;
 
 impl DomApiHandler for OwnerDocument {
@@ -264,19 +259,7 @@ impl DomApiHandler for OwnerDocument {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // WHATWG §4.4: Document.ownerDocument === null. `owner_document`
-        // already returns None for that branch (it short-circuits before
-        // touching the AssociatedDocument or tree-root walk).
-        if dom.node_kind(this) == Some(NodeKind::Document) {
-            return Ok(JsValue::Null);
-        }
-        // 1. Per-entity AssociatedDocument lookup (preserves
-        //    `clonedDoc.createElement(...)` reporting the clone).
-        // 2. Fall back to the singleton document_root so orphans created
-        //    via `EcsDom::create_element` without an explicit owner still
-        //    report the bound document — matches the pre-arch-hoist
-        //    VM-side `host_data.document_entity_opt()` fallback.
-        let doc = dom.owner_document(this).or_else(|| dom.document_root());
+        let doc = dom.owner_document(this);
         match doc {
             Some(d) => {
                 let obj_ref = session.get_or_create_wrapper(d, ComponentKind::Document);

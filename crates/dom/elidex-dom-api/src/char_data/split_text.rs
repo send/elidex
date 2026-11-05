@@ -1,4 +1,4 @@
-//! Engine-independent `Text.splitText` algorithm (WHATWG DOM §4.10
+//! Engine-independent `Text.splitText` algorithm (WHATWG DOM §4.11
 //! "split a Text node").
 //!
 //! Hoisted from `vm/host/text_proto.rs::native_text_split_text` so the
@@ -24,14 +24,14 @@
 //! The `insert_before` / `append_child` step fires
 //! `MutationEvent::Insert` for the new sibling — `parent`-side Range
 //! boundaries adjust via the standard insertion-step rule
-//! (off > new_node_idx → +1). Spec §4.10 step 7.2 requires
+//! (off > new_node_idx → +1). Spec §4.11 steps 7.4–7.5 require
 //! `off > entity_idx → +1`, which differs at the single offset
 //! `entity_idx + 1`. The
 //! [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
 //! event that follows the insert is fired with the pre-split parent
 //! and `node_index` so the consumer ([`crate::LiveRangeBridge`], invoked
 //! via `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) tops up that exact slot — the
-//! standard consumer therefore implements §4.10 step 7 in full.
+//! standard consumer therefore implements §4.11 step 7 in full.
 //! Callers that install a CUSTOM dispatcher which ignores the parent /
 //! node_index args inherit the Insert-only behaviour (lag at
 //! `entity_idx + 1`); document the limitation on such dispatchers if
@@ -68,8 +68,8 @@ pub enum SplitTextError {
     InternalInvariant,
 }
 
-/// Engine-independent `Text.splitText(offset)` per WHATWG DOM §4.10
-/// "split a Text node" steps 1-8.
+/// Engine-independent `Text.splitText(offset)` per WHATWG DOM §4.11
+/// "split a Text node" steps 1-9.
 ///
 /// Splits `entity`'s `TextContent` at the UTF-16 `offset_utf16`:
 /// `entity` retains the head `[..offset]`; a new Text node carrying
@@ -85,8 +85,8 @@ pub enum SplitTextError {
 /// 3. Split UTF-16 view at `offset_utf16` → head / tail strings
 ///    (surrogate-pair split lossy-coerces to U+FFFD per the engine
 ///    contract on `EcsDom::set_text_data`).
-/// 4. Allocate `new_node` carrying the tail, inheriting `entity`'s
-///    `AssociatedDocument` via `create_text_with_owner`.
+/// 4. Allocate `new_node` carrying the tail, in `entity`'s node document
+///    (`node_document_for_new_nodes(entity)` → `create_text_with_owner`).
 /// 5. If `entity` has a parent: insert `new_node` as the next sibling.
 ///    Fires [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert).
 /// 6. Fire [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
@@ -146,7 +146,7 @@ pub fn split_text_at_offset(
 
     // Step 5: capture entity's pre-insert parent + index (used by the
     // after_split_text hook for parent-side boundary adjustment per
-    // spec §4.10 step 7.2), then insert new_node as next sibling (or
+    // spec §4.11 steps 7.4–7.5), then insert new_node as next sibling (or
     // append if entity is the last child). Fires
     // `after_insert(new_node, parent, idx+1)`. Skips entirely when
     // entity is orphan — parent-side adjustment is vacuous in that case.
@@ -187,7 +187,7 @@ pub fn split_text_at_offset(
 
     // Step 6: fire after_split_text BEFORE truncate. Boundaries on
     // entity at off > offset migrate to (new_node, off - offset)
-    // (strict-greater per spec §4.10 step 7.2/7.3 — equality boundaries
+    // (strict-greater per spec §4.11 step 7.2/7.3 — equality boundaries
     // stay on the original node); parent-side boundary at exactly
     // `node_index + 1` shifts +1 (the `after_insert` hook fired by
     // step 5 already handled the `off > node_index + 1` cases).
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn split_text_migrates_range_boundary_to_new_node() {
-        // WHATWG §4.10 step 8: boundary on `entity` at off > offset
+        // WHATWG §4.11 steps 7.2–7.3: boundary on `entity` at off > offset
         // migrates to (new_node, off - offset). With the insert →
         // fire_split_text → set_text_data ordering, the
         // migration runs BEFORE set_text_data's after_text_change

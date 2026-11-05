@@ -806,7 +806,7 @@ impl EcsDom {
     /// otherwise (destroyed / non-Document / never set).
     ///
     /// Write-time counterpart to the read-time validation in
-    /// [`owner_document`](Self::owner_document): both layers together
+    /// [`node_document`](Self::node_document): both layers together
     /// guarantee that an [`AssociatedDocument`] component in the
     /// world always points at a real Document as long as it persists.
     /// A `debug_assert!` fires when the caller passes a non-Document
@@ -828,10 +828,8 @@ impl EcsDom {
     /// Returns the [`AssociatedDocument`] component value for an
     /// entity, or `None` if absent.
     ///
-    /// Low-level accessor — callers that need WHATWG-compliant
-    /// `ownerDocument` semantics should use
-    /// [`owner_document`](Self::owner_document), which layers tree-root
-    /// fallback on top.
+    /// The raw component — readers use [`node_document`](Self::node_document),
+    /// which adds the Document self-case and the liveness check.
     #[must_use]
     pub fn get_associated_document(&self, entity: Entity) -> Option<Entity> {
         self.world
@@ -858,57 +856,16 @@ impl EcsDom {
             .is_ok()
     }
 
-    /// Resolve the owner `Document` entity for a node
-    /// (WHATWG §4.4 `Node.ownerDocument`).
-    ///
-    /// Returns `None` when:
-    /// - `entity` is itself a `Document` (per WHATWG, `Document.ownerDocument`
-    ///   is `null`), **or**
-    /// - no [`AssociatedDocument`] is set and the tree root is not a
-    ///   Document (orphan node / detached fragment / Window).
-    ///
-    /// Otherwise, prefers the explicit [`AssociatedDocument`] component
-    /// (set at node-creation time by `create_*_with_owner` and propagated
-    /// through `clone_subtree`) and falls back to the tree-root walk so
-    /// that legacy entities created without the component still resolve
-    /// to the bound document when inserted into the main tree.
+    /// WHATWG DOM §4.4 `ownerDocument` getter (`#dom-node-ownerdocument`):
+    /// `None` if `entity` is a Document, else its node document
+    /// ([`Self::node_document`]) — `None` too for a node without one (its
+    /// document was destroyed, or a test fixture created it ownerless).
     #[must_use]
     pub fn owner_document(&self, entity: Entity) -> Option<Entity> {
-        if !self.contains(entity) {
-            return None;
-        }
         if matches!(self.node_kind(entity), Some(NodeKind::Document)) {
             return None;
         }
-        if let Some(doc) = self.get_associated_document(entity) {
-            // Guard against a dangling pointer OR a wrongly-typed
-            // component — callers expect an actual Document back.
-            // A stale entity (destroyed / recycled as a non-Document)
-            // must not leak through; fall through to the tree-root
-            // walk in that case so `ownerDocument` never hands out a
-            // ghost or off-kind receiver.
-            if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
-                return Some(doc);
-            }
-        }
-        let root = self.find_tree_root(entity);
-        match self.node_kind(root) {
-            Some(NodeKind::Document) => Some(root),
-            // A node whose tree root is a detached `DocumentFragment` inherits
-            // that fragment's node document. Parser-built `<template>` content
-            // (HTML §4.12.3) sets `AssociatedDocument` on the fragment but not
-            // on its parsed descendants (tolerant nodes rely on the tree-root
-            // walk, which dead-ends at the fragment), so without this
-            // `template.content.firstChild.ownerDocument` would be null while
-            // `template.content.ownerDocument` is the document. Same dangling
-            // guard as above (the fragment may carry a stale/destroyed owner —
-            // e.g. a fragment-parse throwaway document — in which case the
-            // `contains` + kind check yields `None` rather than a ghost).
-            Some(NodeKind::DocumentFragment) => self.get_associated_document(root).filter(|&doc| {
-                self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document))
-            }),
-            _ => None,
-        }
+        self.node_document(entity)
     }
 }
 

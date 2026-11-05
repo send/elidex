@@ -572,25 +572,15 @@ pub struct DocTypeData {
     pub system_id: String,
 }
 
-/// WHATWG DOM §4.4 node document pointer — the `Document` entity a
-/// node was created in.
+/// WHATWG DOM §4.4 *node document* (`#concept-node-document`) — the stored
+/// fact for every non-Document node.
 ///
-/// Component-based storage mirrors WHATWG's per-node "node document"
-/// slot: it is set by `document.createElement` / `createTextNode` /
-/// `createComment` / `createDocumentFragment` (and propagated through
-/// `cloneNode`) so that queries like `Node.prototype.ownerDocument`
-/// can report the *creating* document even while the node is still
-/// detached.  The tree-root walk used before this component was
-/// introduced returned the *bound* global document, which is wrong
-/// for nodes created by a secondary Document (e.g. `doc.cloneNode`).
-///
-/// Absence of the component on a given entity is still valid: the
-/// caller is expected to fall back to [`crate::EcsDom::find_tree_root`],
-/// which matches the pre-component behaviour exactly and keeps legacy
-/// fixtures (html5ever-produced trees, layout-only tests) working
-/// without migration.
-///
-/// See [`crate::EcsDom::owner_document`] for the fallback-aware accessor.
+/// Written at creation (every creator takes a [`crate::NewNodeOwner`], so the
+/// component is in the spawn tuple), by the cloners, and by DOM §4.5 *adopt*
+/// ([`crate::EcsDom::adopt`], which every insertion runs); read only through
+/// [`crate::EcsDom::node_document`]. Its absence means the node has no node
+/// document — no position is consulted. Crate-private: no code outside
+/// `elidex-ecs` can write or read it directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AssociatedDocument(pub Entity);
 

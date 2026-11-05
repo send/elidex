@@ -55,9 +55,8 @@ impl DomApiHandler for GetDocumentBaseURI {
 
 /// `Node.prototype.baseURI` getter (WHATWG DOM §4.4 Interface Node).
 /// Resolves to the **node document's** base URL via
-/// [`EcsDom::owner_document`] (which honors per-node
-/// `AssociatedDocument` then falls back to the tree-root walk per
-/// spec); for Document receivers `this` IS the document.
+/// [`EcsDom::node_document`] (a Document is its own node document); a
+/// node without a node document reads `about:blank`.
 pub struct GetNodeBaseURI;
 
 impl DomApiHandler for GetNodeBaseURI {
@@ -72,8 +71,11 @@ impl DomApiHandler for GetNodeBaseURI {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let doc = dom.owner_document(this).unwrap_or(this);
-        let url = crate::element::document_base::document_base_url(dom, doc);
+        let url = dom
+            .node_document(this)
+            .map_or_else(elidex_ecs::about_blank_url, |doc| {
+                crate::element::document_base::document_base_url(dom, doc)
+            });
         Ok(JsValue::String(url.as_str().into()))
     }
 }
