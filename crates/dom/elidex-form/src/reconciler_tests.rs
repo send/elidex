@@ -433,8 +433,18 @@ fn e9c_subtree_walk_skips_foreign_namespace_control() {
     use elidex_ecs::Namespace;
     let mut dom = EcsDom::new();
     let outer = dom.create_element("div", Attributes::default());
-    let svg = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
-    let svg_input = dom.create_element_ns("input", Namespace::Svg, Attributes::default(), None);
+    let svg = dom.create_element_ns(
+        "svg",
+        Namespace::Svg,
+        Attributes::default(),
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
+    let svg_input = dom.create_element_ns(
+        "input",
+        Namespace::Svg,
+        Attributes::default(),
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     assert!(dom.append_child(svg, svg_input));
     assert!(dom.append_child(outer, svg));
     let root = dom.create_element("body", Attributes::default());

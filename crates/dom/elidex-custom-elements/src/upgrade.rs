@@ -466,7 +466,7 @@ mod clone_creation_pass_tests {
         define_my_el(&mut registry, "my-el");
         let mut dom = EcsDom::new();
         let tpl = dom.create_element("template", Attributes::default());
-        let fragment = dom.attach_template_contents(tpl, None);
+        let fragment = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(tpl));
         let inner = marked(&mut dom, "my-el", None);
         let _ = dom.append_child(fragment, inner);
         let candidates =

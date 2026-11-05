@@ -595,7 +595,11 @@ fn clone_subtree_does_not_invalidate_external_collection() {
     let pre_version = coll.cached_version;
 
     let _clone = dom
-        .clone_subtree(source, &mut Vec::new(), None)
+        .clone_subtree(
+            source,
+            &mut Vec::new(),
+            dom.node_document_for_new_nodes(source),
+        )
         .expect("source exists");
 
     // The orphan clone has not been attached anywhere — `target`'s
@@ -628,7 +632,11 @@ fn live_collection_sees_appended_clone_descendants() {
     assert_eq!(coll.length(&dom), 0);
 
     let clone = dom
-        .clone_subtree(source, &mut Vec::new(), None)
+        .clone_subtree(
+            source,
+            &mut Vec::new(),
+            dom.node_document_for_new_nodes(source),
+        )
         .expect("source exists");
     dom.append_child(target, clone);
 

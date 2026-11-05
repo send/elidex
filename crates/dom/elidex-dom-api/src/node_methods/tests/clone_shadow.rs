@@ -312,7 +312,7 @@ fn clone_created_fires_once_per_entry_call_with_scope() {
         dom.attach_shadow_with_init(nested, clonable_init())
             .expect("nested clonable shadow");
         let tpl = dom.create_element("template", Attributes::default());
-        dom.attach_template_contents(tpl, None);
+        dom.attach_template_contents(tpl, elidex_ecs::NewNodeOwner::ownerless_fixture());
         dom.append_child(sr, tpl);
         wrap(host, &mut session);
 
@@ -340,7 +340,7 @@ fn clone_shallow_deep_clones_template_contents_and_nested_host_inside_shadow() {
         .expect("attach clonable shadow");
     // <template> with a child in its contents.
     let tpl = dom.create_element("template", Attributes::default());
-    let frag = dom.attach_template_contents(tpl, None);
+    let frag = dom.attach_template_contents(tpl, elidex_ecs::NewNodeOwner::ownerless_fixture());
     let content_child = dom.create_element("b", Attributes::default());
     dom.append_child(frag, content_child);
     dom.append_child(sr, tpl);

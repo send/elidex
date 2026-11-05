@@ -33,6 +33,7 @@ fn setup_document() -> (EcsDom, Entity, SessionCore) {
         "html",
         "-//W3C//DTD HTML 4.01//EN",
         "http://www.w3.org/TR/html4/strict.dtd",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let html = dom.create_element("html", Attributes::default());
     let head = dom.create_element("head", Attributes::default());

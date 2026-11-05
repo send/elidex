@@ -384,8 +384,18 @@ fn is_equal_node_different_doctype_fields_false() {
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let dt_a = dom.create_document_type("html", "", "");
-    let dt_b = dom.create_document_type("html", "-//W3C//DTD HTML 4.01//EN", "");
+    let dt_a = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
+    let dt_b = dom.create_document_type(
+        "html",
+        "-//W3C//DTD HTML 4.01//EN",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let (mut vm, mut session, mut dom) = (vm, session, dom);
     #[allow(unsafe_code)]
     unsafe {
@@ -410,8 +420,18 @@ fn is_equal_node_matching_doctype_true() {
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let dt_a = dom.create_document_type("html", "pub", "sys");
-    let dt_b = dom.create_document_type("html", "pub", "sys");
+    let dt_a = dom.create_document_type(
+        "html",
+        "pub",
+        "sys",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
+    let dt_b = dom.create_document_type(
+        "html",
+        "pub",
+        "sys",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let (mut vm, mut session, mut dom) = (vm, session, dom);
     #[allow(unsafe_code)]
     unsafe {

@@ -195,6 +195,7 @@ getrandom = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 criterion = { workspace = true }
 # Mock `NetworkHandle` for fetch tests.  Separate from the
 # regular `elidex-net` dep so production builds don't pull the

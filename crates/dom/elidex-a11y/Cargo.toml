@@ -16,5 +16,8 @@ elidex-form.workspace = true
 elidex-plugin.workspace = true
 accesskit.workspace = true
 
+[dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
+
 [lints]
 workspace = true

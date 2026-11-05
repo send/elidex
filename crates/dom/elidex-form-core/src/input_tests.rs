@@ -382,7 +382,12 @@ fn resolve_input_list_rejects_foreign_namespace_datalist() {
     let _ = dom.append_child(container, input);
     let mut attrs = Attributes::default();
     attrs.set("id", "opts");
-    let svg_datalist = dom.create_element_ns("datalist", elidex_ecs::Namespace::Svg, attrs, None);
+    let svg_datalist = dom.create_element_ns(
+        "datalist",
+        elidex_ecs::Namespace::Svg,
+        attrs,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let _ = dom.append_child(container, svg_datalist);
     assert_eq!(resolve_input_list(&dom, input), None);
 }

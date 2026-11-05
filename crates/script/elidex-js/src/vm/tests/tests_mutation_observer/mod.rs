@@ -136,7 +136,12 @@ pub(super) fn setup_with_root_and_svg(
 
     let mut svg_attrs = elidex_ecs::Attributes::default();
     svg_attrs.set("viewBox", "0 0 10 10");
-    let svg = dom.create_element_ns("svg", elidex_ecs::Namespace::Svg, svg_attrs, None);
+    let svg = dom.create_element_ns(
+        "svg",
+        elidex_ecs::Namespace::Svg,
+        svg_attrs,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     assert!(dom.append_child(body, svg));
 
     #[allow(unsafe_code)]

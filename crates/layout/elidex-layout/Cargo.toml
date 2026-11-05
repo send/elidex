@@ -22,6 +22,7 @@ elidex-layout-table.workspace = true
 elidex-layout-multicol.workspace = true
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 criterion.workspace = true
 
 [[bench]]

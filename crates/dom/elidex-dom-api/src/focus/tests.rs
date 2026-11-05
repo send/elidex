@@ -283,7 +283,7 @@ fn tab_index_default_is_html_namespace_only() {
         "button",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_button);
     assert_eq!(
@@ -309,7 +309,12 @@ fn tab_index_default_is_html_namespace_only() {
     );
     // An SVG <a href> also gets no HTML link default (SVG focus is a
     // separate, unmodelled concern).
-    let svg_a = dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+    let svg_a = dom.create_element_ns(
+        "a",
+        elidex_ecs::Namespace::Svg,
+        Attributes::default(),
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let _ = dom.append_child(doc, svg_a);
     dom.set_attribute(svg_a, "href", "#x");
     assert_eq!(
@@ -335,7 +340,7 @@ fn is_focusable_foreign_lookalike_ignores_html_exclusions() {
         "input",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_input);
     dom.set_attribute(svg_input, "type", "hidden");
@@ -358,7 +363,7 @@ fn is_focusable_foreign_lookalike_ignores_html_exclusions() {
         "button",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_button);
     dom.set_attribute(svg_button, "disabled", "");
@@ -634,7 +639,7 @@ fn summary_details_disclosure_widget_is_html_namespace_only() {
         "details",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_details);
     let html_summary = dom.create_element("summary", Attributes::default());
@@ -651,7 +656,7 @@ fn summary_details_disclosure_widget_is_html_namespace_only() {
         "summary",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(html_details, svg_summary);
     assert_eq!(

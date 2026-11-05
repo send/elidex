@@ -138,7 +138,8 @@ fn clone_node_template_deep_clones_content_into_fresh_fragment() {
     // source fragment (no aliasing).
     let (mut dom, mut session) = setup();
     let template = dom.create_element("template", Attributes::default());
-    let src_fragment = dom.attach_template_contents(template, None);
+    let src_fragment =
+        dom.attach_template_contents(template, elidex_ecs::NewNodeOwner::ownerless_fixture());
     let span = dom.create_element("span", Attributes::default());
     let txt = dom.create_text("hi");
     dom.append_child(span, txt);
@@ -184,7 +185,8 @@ fn clone_node_template_shallow_gets_fresh_empty_fragment() {
     // content fragment (every template has one).
     let (mut dom, mut session) = setup();
     let template = dom.create_element("template", Attributes::default());
-    let src_fragment = dom.attach_template_contents(template, None);
+    let src_fragment =
+        dom.attach_template_contents(template, elidex_ecs::NewNodeOwner::ownerless_fixture());
     let span = dom.create_element("span", Attributes::default());
     dom.append_child(src_fragment, span);
     wrap(template, &mut session);
@@ -218,8 +220,12 @@ fn clone_node_template_shallow_preserves_owner_document() {
     // deriving the owner from `dst` would yield a null `content.ownerDocument`.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let template = dom.create_element_with_owner("template", Attributes::default(), Some(doc));
-    let _ = dom.attach_template_contents(template, Some(doc));
+    let template = dom.create_element_with_owner(
+        "template",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
+    let _ = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     wrap(template, &mut session);
 
     let r = CloneNode
@@ -313,7 +319,12 @@ fn clone_node_shadow_root_error() {
 #[test]
 fn clone_node_document_type() {
     let (mut dom, mut session) = setup();
-    let dt = dom.create_document_type("html", "-//W3C", "http://example.com");
+    let dt = dom.create_document_type(
+        "html",
+        "-//W3C",
+        "http://example.com",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     wrap(dt, &mut session);
 
     let r = CloneNode.invoke(dt, &[], &mut session, &mut dom).unwrap();
@@ -433,7 +444,7 @@ fn clone_node_attribute_kind_yields_not_supported_error() {
     // through them would produce a structurally invalid clone
     // (NodeKind=Attribute, AttrData missing).  Refuse early.
     let (mut dom, mut session) = setup();
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     wrap(attr, &mut session);
     let err = CloneNode
         .invoke(attr, &[JsValue::Bool(false)], &mut session, &mut dom)
@@ -577,7 +588,7 @@ fn clone_node_foreign_hyphenated_keeps_namespace_no_ce_state() {
         "my-foo",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     wrap(el, &mut session);
 

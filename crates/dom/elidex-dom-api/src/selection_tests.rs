@@ -7,7 +7,11 @@ use elidex_ecs::Attributes;
 /// always sets the association via `create_element_with_owner`).
 /// Tests without a Document anchor use the raw [`Self::elem`].
 fn elem_in(dom: &mut EcsDom, tag: &str, doc: Entity) -> Entity {
-    dom.create_element_with_owner(tag, Attributes::default(), Some(doc))
+    dom.create_element_with_owner(
+        tag,
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    )
 }
 
 #[allow(dead_code)] // kept for future cross-doc / no-association tests
@@ -63,7 +67,12 @@ fn collapse_sets_caret_directionless() {
 #[test]
 fn collapse_rejects_doctype() {
     let (mut dom, mut reg, doc) = fresh();
-    let doctype = dom.create_document_type("html", "", "");
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let mut sel = SelectionState::new();
     assert_eq!(
         sel.collapse(&mut reg, &dom, doc, doctype, 0),

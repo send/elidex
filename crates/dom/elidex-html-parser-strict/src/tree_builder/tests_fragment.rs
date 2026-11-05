@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use elidex_ecs::{
-    Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace, ShadowRootMode,
+    Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace, NewNodeOwner,
+    ShadowRootMode,
 };
 
 use super::tests::serialize_fragment as serialize_roots;
@@ -520,7 +521,12 @@ fn svg_context_parses_children_as_svg() {
     // foreign-content rules and land in the SVG namespace — not an HTML tree,
     // and not a parse error.
     let mut dom = EcsDom::new();
-    let svg_ctx = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+    let svg_ctx = dom.create_element_ns(
+        "svg",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<circle></circle><rect></rect>",
         svg_ctx,
@@ -542,7 +548,12 @@ fn svg_context_parses_children_as_svg() {
 #[test]
 fn mathml_context_parses_children_as_mathml() {
     let mut dom = EcsDom::new();
-    let math_ctx = dom.create_element_ns("math", Namespace::MathMl, Attributes::default(), None);
+    let math_ctx = dom.create_element_ns(
+        "math",
+        Namespace::MathMl,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<mi></mi>",
         math_ctx,
@@ -567,7 +578,12 @@ fn foreign_context_with_raw_text_local_name_does_not_switch_to_raw_text() {
     // node. (SVG `<title>` would not show this: it is an HTML integration
     // point, so its content is HTML regardless.)
     let mut dom = EcsDom::new();
-    let svg_style = dom.create_element_ns("style", Namespace::Svg, Attributes::default(), None);
+    let svg_style = dom.create_element_ns(
+        "style",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<circle></circle>",
         svg_style,
@@ -589,8 +605,12 @@ fn foreign_template_context_does_not_seed_template_mode() {
     // `template` is a foreign context, so its child parses as SVG foreign
     // content rather than seeding the in-template insertion mode.
     let mut dom = EcsDom::new();
-    let svg_template =
-        dom.create_element_ns("template", Namespace::Svg, Attributes::default(), None);
+    let svg_template = dom.create_element_ns(
+        "template",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<circle></circle>",
         svg_template,
@@ -611,7 +631,12 @@ fn foreign_form_ancestor_does_not_seed_form_pointer() {
     // `form_pointer_from_ancestor_rejects_nested_form`, where an *HTML* form
     // ancestor rejects it).
     let mut dom = EcsDom::new();
-    let svg_form = dom.create_element_ns("form", Namespace::Svg, Attributes::default(), None);
+    let svg_form = dom.create_element_ns(
+        "form",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let ctx = dom.create_element("div", Attributes::default());
     assert!(dom.append_child(svg_form, ctx));
     let result = parse_fragment_strict(

@@ -13,7 +13,12 @@ use super::super::Vm;
 
 fn build_doctype_fixture(dom: &mut EcsDom, public_id: &str, system_id: &str) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let doctype = dom.create_document_type("html", public_id, system_id);
+    let doctype = dom.create_document_type(
+        "html",
+        public_id,
+        system_id,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let html = dom.create_element("html", Attributes::default());
     assert!(dom.append_child(doc, doctype));
     assert!(dom.append_child(doc, html));

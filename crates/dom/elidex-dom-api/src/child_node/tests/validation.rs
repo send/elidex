@@ -78,7 +78,12 @@ fn ensure_validity_document_rejects_text() {
 fn ensure_validity_doctype_under_element_rejected() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
-    let doctype = dom.create_document_type("html", "", "");
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let result = ensure_pre_insertion_validity(parent, doctype, None, &dom);
     assert!(result.is_err());
     assert_eq!(
@@ -91,7 +96,12 @@ fn ensure_validity_doctype_under_element_rejected() {
 fn ensure_validity_doctype_under_document_ok() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let doctype = dom.create_document_type("html", "", "");
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let result = ensure_pre_insertion_validity(doc, doctype, None, &dom);
     assert!(result.is_ok());
 }
@@ -126,7 +136,12 @@ fn ensure_validity_document_allows_first_element() {
 fn ensure_validity_document_rejects_element_before_doctype() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let doctype = dom.create_document_type("html", "", "");
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     dom.append_child(doc, doctype);
     let html = dom.create_element("html", Attributes::default());
     // Inserting element before doctype should fail.
@@ -142,9 +157,19 @@ fn ensure_validity_document_rejects_element_before_doctype() {
 fn ensure_validity_document_rejects_second_doctype() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let dt1 = dom.create_document_type("html", "", "");
+    let dt1 = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     dom.append_child(doc, dt1);
-    let dt2 = dom.create_document_type("html", "", "");
+    let dt2 = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let result = ensure_pre_insertion_validity(doc, dt2, None, &dom);
     assert!(result.is_err());
     assert_eq!(
@@ -159,7 +184,12 @@ fn ensure_validity_document_rejects_doctype_after_element() {
     let doc = dom.create_document_root();
     let html = dom.create_element("html", Attributes::default());
     dom.append_child(doc, html);
-    let doctype = dom.create_document_type("html", "", "");
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     // Appending doctype after element should fail.
     let result = ensure_pre_insertion_validity(doc, doctype, None, &dom);
     assert!(result.is_err());
@@ -212,7 +242,12 @@ fn ensure_validity_document_rejects_existing_doctype_reappend() {
     // step 6 DocumentType "parent has a doctype child" (no self-exclusion).
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let doctype = dom.create_document_type("html", "", "");
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     dom.append_child(doc, doctype);
     let result = ensure_pre_insertion_validity(doc, doctype, None, &dom);
     assert!(result.is_err());

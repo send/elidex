@@ -138,7 +138,11 @@ mod tests {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
         let doc2 = dom.create_document_node();
-        let foreign = dom.create_element_with_owner("div", Attributes::default(), Some(doc2));
+        let foreign = dom.create_element_with_owner(
+            "div",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(doc2),
+        );
         assert!(dom.append_child(doc2, foreign));
         (dom, doc, doc2, foreign)
     }
@@ -194,7 +198,11 @@ mod tests {
         // adopted (DOM §4.2.3 insert step 7 substep 1, "adopt node into
         // parent's node document").
         assert!(dom.remove_child(doc2, foreign));
-        let container = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
+        let container = dom.create_element_with_owner(
+            "div",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(doc),
+        );
         assert!(dom.append_child(doc, container));
         assert!(dom.append_child(container, foreign));
         assert_eq!(
@@ -228,7 +236,11 @@ mod tests {
         // but the effective node document is the foreign tree root, whose
         // browsing context is null → clause (b) SUPPRESSES.
         let (mut dom, doc, doc2, _foreign) = two_doc_fixture();
-        let el = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
+        let el = dom.create_element_with_owner(
+            "div",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(doc),
+        );
         assert!(dom.append_child(doc2, el));
         assert_eq!(
             dom.get_associated_document(el),
@@ -246,7 +258,11 @@ mod tests {
     #[test]
     fn bound_document_element_not_suppressed_connected_or_detached() {
         let (mut dom, doc, _doc2, _foreign) = two_doc_fixture();
-        let el = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
+        let el = dom.create_element_with_owner(
+            "div",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(doc),
+        );
         // Detached, owner = bound document.
         assert!(!scripting_disabled_for_platform_object(
             &dom,

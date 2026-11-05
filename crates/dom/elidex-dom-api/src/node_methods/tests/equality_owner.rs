@@ -324,7 +324,11 @@ fn u15_owner_document_of_element_whose_document_was_destroyed_is_null() {
     let (mut dom, mut session) = setup();
     let _bound = dom.create_document_root();
     let gone = dom.create_document_node();
-    let div = dom.create_element_with_owner("div", Attributes::default(), Some(gone));
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(gone),
+    );
     assert!(dom.destroy_entity(gone));
     wrap(div, &mut session);
     let result = OwnerDocument
@@ -338,7 +342,11 @@ fn u15_control_live_stamp_reads_its_document() {
     let (mut dom, mut session) = setup();
     let _bound = dom.create_document_root();
     let other = dom.create_document_node();
-    let div = dom.create_element_with_owner("div", Attributes::default(), Some(other));
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(other),
+    );
     wrap(div, &mut session);
     let result = OwnerDocument
         .invoke(div, &[], &mut session, &mut dom)

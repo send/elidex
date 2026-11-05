@@ -258,7 +258,9 @@ fn construction_stack_push_to_unknown_name_returns_false() {
 #[test]
 fn spawn_custom_element_entity_attaches_all_components() {
     let mut dom = EcsDom::new();
-    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
+    let doc = dom.create_document_root();
+    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", Some(doc))
+        .expect("spawned for a document");
 
     // Element shape: TagType + Attributes present, NodeKind reads
     // as Element through the `EcsDom::node_kind` accessor (the
@@ -280,7 +282,9 @@ fn spawn_custom_element_entity_disconnected_by_default() {
     // [C1] step 9: sync-constructed element is not connected to any
     // tree until script explicitly inserts it.
     let mut dom = EcsDom::new();
-    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
+    let doc = dom.create_document_root();
+    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", Some(doc))
+        .expect("spawned for a document");
     assert!(!dom.is_connected(e));
 }
 
@@ -506,6 +510,7 @@ fn u20_spawn_with_no_document_spawns_nothing() {
 fn u20_control_spawn_with_document_is_in_that_document() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let e = spawn_custom_element_entity(&mut dom, "x-e", "x-e", Some(doc));
+    let e = spawn_custom_element_entity(&mut dom, "x-e", "x-e", Some(doc))
+        .expect("spawned for a document");
     assert_eq!(dom.get_associated_document(e), Some(doc));
 }

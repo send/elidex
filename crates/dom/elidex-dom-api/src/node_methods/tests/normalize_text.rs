@@ -201,7 +201,12 @@ fn text_content_get_document_null() {
 #[test]
 fn text_content_get_doctype_null() {
     let (mut dom, mut session) = setup();
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
 
     let r = GetTextContentNodeKind
         .invoke(dt, &[], &mut session, &mut dom)

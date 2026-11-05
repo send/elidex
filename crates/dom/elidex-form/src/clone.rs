@@ -264,7 +264,8 @@ mod tests {
             top = parent;
         }
         let template = dom.create_element("template", Attributes::default());
-        let fragment = dom.attach_template_contents(template, None);
+        let fragment =
+            dom.attach_template_contents(template, elidex_ecs::NewNodeOwner::ownerless_fixture());
         assert!(dom.append_child(fragment, top));
 
         apply_clone_form_state(&mut dom, template, CloneScope::Subtree);

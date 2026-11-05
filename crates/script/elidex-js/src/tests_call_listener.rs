@@ -411,7 +411,11 @@ fn call_listener_foreign_document_node_raw_gated_callback_runs() {
     // document, and an element owned by and appended into the second one.
     let doc = dom.create_document_root();
     let doc2 = dom.create_document_node();
-    let foreign = dom.create_element_with_owner("div", Attributes::default(), Some(doc2));
+    let foreign = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc2),
+    );
     assert!(dom.append_child(doc2, foreign));
 
     let (raw_id, callback_id) = {

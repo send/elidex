@@ -265,7 +265,7 @@ mod tests {
             "input",
             elidex_ecs::Namespace::Svg,
             Attributes::default(),
-            None,
+            elidex_ecs::NewNodeOwner::ownerless_fixture(),
         );
         assert!(!create_form_control_state(&mut dom, svg_input));
         assert!(dom.world().get::<&FormControlState>(svg_input).is_err());
@@ -279,7 +279,7 @@ mod tests {
             "input",
             elidex_ecs::Namespace::Svg,
             Attributes::default(),
-            None,
+            elidex_ecs::NewNodeOwner::ownerless_fixture(),
         );
         let html_input = dom.create_element("input", Attributes::default());
         init_form_controls(&mut dom);

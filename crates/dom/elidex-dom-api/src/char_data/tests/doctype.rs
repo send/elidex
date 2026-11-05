@@ -62,7 +62,12 @@ fn get_doctype_legacy_doc_type_data_without_node_kind() {
     // surfaces here rather than only via VM-level integration tests.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     dom.append_child(doc, dt);
     let _ = dom.world_mut().remove_one::<NodeKind>(dt);
     assert!(dom.node_kind(dt).is_none());

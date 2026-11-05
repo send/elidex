@@ -551,7 +551,12 @@ fn rellist_supports_foreign_namespace_throws() {
     // (DOM §7.1), not a tag-name-only match against the HTML set.
     let mut dom = EcsDom::new();
     let mut session = SessionCore::new();
-    let svg_a = dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+    let svg_a = dom.create_element_ns(
+        "a",
+        elidex_ecs::Namespace::Svg,
+        Attributes::default(),
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let err = REL_LIST_SUPPORTS
         .invoke(
             svg_a,

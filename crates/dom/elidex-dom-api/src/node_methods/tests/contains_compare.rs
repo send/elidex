@@ -218,7 +218,7 @@ fn compare_document_position_attr_uses_owner_element() {
     dom.append_child(div, span);
 
     // Create an attr node with owner = div.
-    let attr = dom.create_attribute("class");
+    let attr = dom.create_attribute("class", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom
             .world_mut()
@@ -256,7 +256,7 @@ fn compare_document_position_two_attrs_same_element() {
     let (mut dom, mut session) = setup();
     let div = dom.create_element("div", Attributes::default());
 
-    let attr1 = dom.create_attribute("id");
+    let attr1 = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom
             .world_mut()
@@ -264,7 +264,7 @@ fn compare_document_position_two_attrs_same_element() {
             .unwrap();
         ad.owner_element = Some(div);
     }
-    let attr2 = dom.create_attribute("class");
+    let attr2 = dom.create_attribute("class", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom
             .world_mut()

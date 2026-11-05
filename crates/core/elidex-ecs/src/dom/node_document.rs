@@ -26,6 +26,16 @@ impl NewNodeOwner {
     #[cfg(any(test, feature = "fixtures"))]
     pub(crate) const NONE: Self = Self(None);
 
+    /// An ownerless node, for fixtures outside `elidex-ecs` that call a
+    /// production creator (`create_element_ns`, `create_document_type`,
+    /// `create_attribute`, ...) with no node document. Test-only by
+    /// construction, like the argumentless fixture creators.
+    #[cfg(any(test, feature = "fixtures"))]
+    #[must_use]
+    pub fn ownerless_fixture() -> Self {
+        Self::NONE
+    }
+
     /// The document the new node is stamped with, `None` for an ownerless node.
     #[must_use]
     pub fn document(self) -> Option<Entity> {

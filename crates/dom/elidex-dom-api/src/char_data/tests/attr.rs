@@ -99,7 +99,7 @@ fn get_attribute_node_identity_cache() {
 fn set_attribute_node() {
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
-    let attr = dom.create_attribute("data-x");
+    let attr = dom.create_attribute("data-x", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "42".into();
@@ -128,7 +128,7 @@ fn set_attribute_node_in_use_error() {
     let mut dom = EcsDom::new();
     let div1 = dom.create_element("div", Attributes::default());
     let div2 = dom.create_element("div", Attributes::default());
-    let attr = dom.create_attribute("data-x");
+    let attr = dom.create_attribute("data-x", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "42".into();
@@ -156,7 +156,7 @@ fn remove_attribute_node() {
     let mut attrs = Attributes::default();
     attrs.set("data-x", "42");
     let div = dom.create_element("div", attrs);
-    let attr = dom.create_attribute("data-x");
+    let attr = dom.create_attribute("data-x", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "42".into();
@@ -196,7 +196,7 @@ fn remove_attribute_node_style_invalidates_inline_style_cache() {
     style.set("color", "red");
     dom.world_mut().insert_one(div, style).unwrap();
 
-    let attr = dom.create_attribute("style");
+    let attr = dom.create_attribute("style", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "color: red".into();
@@ -227,7 +227,7 @@ fn remove_attribute_node_style_invalidates_inline_style_cache() {
 #[test]
 fn attr_name() {
     let mut dom = EcsDom::new();
-    let attr = dom.create_attribute("class");
+    let attr = dom.create_attribute("class", elidex_ecs::NewNodeOwner::ownerless_fixture());
     let mut session = SessionCore::new();
     let result = GetAttrName
         .invoke(attr, &[], &mut session, &mut dom)
@@ -238,7 +238,7 @@ fn attr_name() {
 #[test]
 fn attr_value_get_set() {
     let mut dom = EcsDom::new();
-    let attr = dom.create_attribute("class");
+    let attr = dom.create_attribute("class", elidex_ecs::NewNodeOwner::ownerless_fixture());
     let mut session = SessionCore::new();
 
     let result = GetAttrValue
@@ -266,7 +266,7 @@ fn attr_value_syncs_to_owner() {
     let mut attrs = Attributes::default();
     attrs.set("class", "old");
     let div = dom.create_element("div", attrs);
-    let attr = dom.create_attribute("class");
+    let attr = dom.create_attribute("class", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "old".into();
@@ -291,7 +291,7 @@ fn attr_value_syncs_to_owner() {
 fn attr_owner_element() {
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.owner_element = Some(div);
@@ -307,7 +307,7 @@ fn attr_owner_element() {
 #[test]
 fn attr_owner_element_null() {
     let mut dom = EcsDom::new();
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     let mut session = SessionCore::new();
     let result = GetOwnerElement
         .invoke(attr, &[], &mut session, &mut dom)
@@ -318,7 +318,7 @@ fn attr_owner_element_null() {
 #[test]
 fn attr_specified() {
     let mut dom = EcsDom::new();
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     let mut session = SessionCore::new();
     let result = GetAttrSpecified
         .invoke(attr, &[], &mut session, &mut dom)
@@ -373,7 +373,7 @@ fn set_attribute_node_returns_null() {
     let mut session = SessionCore::new();
     session.get_or_create_wrapper(elem, ComponentKind::Element);
 
-    let attr = dom.create_attribute("foo");
+    let attr = dom.create_attribute("foo", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "bar".into();
@@ -403,7 +403,7 @@ fn set_attribute_node_on_non_element_errors_without_owning() {
     // A Document node is a non-Element receiver: `set_attribute` short-
     // circuits to `false` for it.
     let doc = dom.create_document_root();
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "x".into();
@@ -430,7 +430,7 @@ fn set_attribute_node_on_non_element_errors_without_owning() {
 fn remove_attribute_node_on_non_element_errors_without_detaching() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {
         let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
         ad.value = "x".into();
@@ -479,7 +479,7 @@ fn u16_attr_entity_node_document_follows_creation_and_adoption() {
     let created = attr_entity(&created, &session);
     let mut attrs = Attributes::default();
     attrs.set("class", "c");
-    let el = dom.create_element_with_owner("div", attrs, Some(x));
+    let el = dom.create_element_with_owner("div", attrs, dom.node_document_for_new_nodes(x));
     let node = GetAttributeNode
         .invoke(
             el,
