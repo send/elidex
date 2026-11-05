@@ -497,7 +497,7 @@ fn u11_fragment_root_is_created_in_the_throwaway() {
     let root_stamp = dom.get_associated_document(root);
     let root_entry = dom.node_document_for_new_nodes(root).document();
     let throwaway_entry = dom.node_document_for_new_nodes(throwaway).document();
-    let _ = dom.finish_detached_fragment(root, throwaway, docs.d_parent);
+    let _ = dom.finish_detached_fragment(root, throwaway);
     if let Some(saved) = saved {
         let _ = dom.set_mutation_dispatcher(saved);
     }
@@ -516,7 +516,7 @@ fn u11_fragment_root_is_created_in_the_throwaway() {
     let documentless = dom.create_element("div", Attributes::default());
     let (throwaway, root, saved) = dom.begin_detached_fragment(documentless);
     let root_entry = dom.node_document_for_new_nodes(root).document();
-    let _ = dom.finish_detached_fragment(root, throwaway, documentless);
+    let _ = dom.finish_detached_fragment(root, throwaway);
     if let Some(saved) = saved {
         let _ = dom.set_mutation_dispatcher(saved);
     }
@@ -529,7 +529,7 @@ fn u11_control_the_throwaway_is_a_document() {
     let docs = docs(&mut dom);
     let (throwaway, root, saved) = dom.begin_detached_fragment(docs.d_parent);
     let kind = dom.node_kind(throwaway);
-    let _ = dom.finish_detached_fragment(root, throwaway, docs.d_parent);
+    let _ = dom.finish_detached_fragment(root, throwaway);
     if let Some(saved) = saved {
         let _ = dom.set_mutation_dispatcher(saved);
     }

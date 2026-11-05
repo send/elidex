@@ -355,10 +355,10 @@ pub struct SlottedMarker;
 ///
 /// The despawn / adopt traversal
 /// ([`despawn_subtree`](crate::EcsDom::despawn_subtree) /
-/// [`adopt_subtree`](crate::EcsDom::adopt_subtree)) reaches the fragment
-/// out-of-band (like a shadow root) so teardown leaves no orphan and the
-/// DOM §4.5 "adopt" of an HTML §13.4-fragment-parsed subtree re-homes the
-/// contents with the template. `clone a node`
+/// [`adopt`](crate::EcsDom::adopt)'s walk) reaches the fragment
+/// out-of-band (like a shadow root) so teardown leaves no orphan and DOM
+/// §4.5 *adopt* re-homes the contents with the template (its adopting
+/// steps, HTML §4.12.3). `clone a node`
 /// (DOM §4.4 + §4.12.3 cloning steps) relinks a freshly-cloned fragment —
 /// this component is in the deliberate-non-copy row, so a shallow clone
 /// never aliases the source fragment.

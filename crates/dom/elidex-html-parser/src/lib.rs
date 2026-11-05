@@ -152,7 +152,7 @@ pub fn parse_html_fragment(
     // so nothing the build creates holds the throwaway `document`, which would
     // dangle once it is destroyed (Codex PR380 R2).
     convert::convert_fragment_top_level(&children_owner, root, dom, opts);
-    let detached = dom.finish_detached_fragment(root, document, context);
+    let detached = dom.finish_detached_fragment(root, document);
     if let Some(dispatcher) = saved {
         dom.set_mutation_dispatcher(dispatcher);
     }

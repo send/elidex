@@ -106,6 +106,11 @@ pub struct EcsDom {
     /// `FOCUS` component with the entity, so the reset is run once after the
     /// walk instead of per node.
     focus_clear_suppressed: bool,
+    /// Runs of the DOM §4.5 *adopt* walk (C0b §6.2's walk counter): a
+    /// re-stamp with the node's own document changes no component, so a
+    /// counter is the only observation that a link did not walk.
+    #[cfg(any(test, feature = "fixtures"))]
+    adopt_walks: u64,
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
@@ -160,6 +165,8 @@ impl EcsDom {
             fragment_tree: crate::FragmentTree::default(),
             version_propagation_suppressed: false,
             focus_clear_suppressed: false,
+            #[cfg(any(test, feature = "fixtures"))]
+            adopt_walks: 0,
         }
     }
 

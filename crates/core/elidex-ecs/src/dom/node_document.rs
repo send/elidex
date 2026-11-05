@@ -1,7 +1,8 @@
 //! The node document at creation (WHATWG DOM §4.4 *node document*: "set upon
 //! creation"): the one creation entry
 //! [`EcsDom::node_document_for_new_nodes`], the owner token [`NewNodeOwner`]
-//! every production creator takes, and the stamp-only read the entry builds on.
+//! every production creator takes, and the one reader of the stored fact,
+//! [`EcsDom::node_document`].
 
 use hecs::{DynamicBundle, Entity, EntityBuilder};
 
@@ -67,10 +68,17 @@ impl EcsDom {
     }
 
     /// WHATWG DOM §4.4 *node document* (`#concept-node-document`): a Document
-    /// is its own; any other node reads its [`AssociatedDocument`] if that is a
-    /// live Document, else `None`. Reads the stored fact only — no position
-    /// derivation.
-    pub(crate) fn node_document(&self, node: Entity) -> Option<Entity> {
+    /// is its own ("The node document of a document is that document
+    /// itself"); any other node reads its stored node document if that is a
+    /// live Document, else `None`.
+    ///
+    /// The one reader of the fact. It is set upon creation (every creator
+    /// takes a [`NewNodeOwner`]) and changed only by DOM §4.5 *adopt*
+    /// ([`Self::adopt`], which every insertion runs), so it is never derived
+    /// from the node's position: a node in a Document's tree, or under a
+    /// fragment, without a node document reads `None`.
+    #[must_use]
+    pub fn node_document(&self, node: Entity) -> Option<Entity> {
         if !self.contains(node) {
             return None;
         }
@@ -78,7 +86,13 @@ impl EcsDom {
             return Some(node);
         }
         self.get_associated_document(node)
-            .filter(|&doc| self.contains(doc) && self.node_kind(doc) == Some(NodeKind::Document))
+            .filter(|&doc| self.is_live_document(doc))
+    }
+
+    /// Whether `entity` is a live Document (the stored node document's
+    /// liveness check).
+    pub(crate) fn is_live_document(&self, entity: Entity) -> bool {
+        self.contains(entity) && matches!(self.node_kind(entity), Some(NodeKind::Document))
     }
 
     /// Spawn a node bundle with its node document in the spawn tuple (DOM

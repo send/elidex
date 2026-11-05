@@ -248,20 +248,15 @@ impl TreeBuilder {
     /// document + root.
     ///
     /// Delegates to [`EcsDom::finish_detached_fragment`], the single canonical
-    /// adopt/detach/despawn teardown shared with the tolerant backend
+    /// detach/despawn teardown shared with the tolerant backend
     /// (`elidex-html-parser`) so the two never hand-mirror the sequence
-    /// (One-issue-one-way). It re-homes the subtree into the context's owner
-    /// document (DOM §4.5 "adopt") before despawning the throwaway document,
-    /// snapshots root's children uncapped, then orphans them by destroying the
-    /// root (`destroy_entity` clears parent/sibling links, leaving the children
-    /// live) and despawns the now-childless document.
+    /// (One-issue-one-way). It snapshots root's children uncapped, then
+    /// orphans them by destroying the root (`destroy_entity` clears
+    /// parent/sibling links, leaving the children live) and despawns the
+    /// now-childless document. No re-home runs: every node was created with
+    /// the context's node document (HTML §13.4 step 22 is the identity).
     fn take_fragment_children(&mut self, root: Entity) -> Vec<Entity> {
-        let context = self
-            .state
-            .fragment_context
-            .expect("fragment build always has a context element (§13.4)");
-        self.dom
-            .finish_detached_fragment(root, self.document, context)
+        self.dom.finish_detached_fragment(root, self.document)
     }
 
     /// §13.4 "set the state of the tokenization stage": switch the tokenizer's

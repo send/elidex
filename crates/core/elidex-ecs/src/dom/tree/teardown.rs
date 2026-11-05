@@ -1,10 +1,11 @@
-//! Subtree teardown and re-home for [`EcsDom`].
+//! Subtree teardown and the HTML §13.4 fragment-build frame for [`EcsDom`].
 //!
 //! - `destroy_entity` — single-node "hard delete": detach, fire one
 //!   `MutationEvent::Remove`, orphan the children, despawn from the world.
 //! - `despawn_subtree` — raw structural teardown of a whole subtree
 //!   (shadow-including, event-free), reclaiming every entity.
-//! - `adopt_subtree` — WHATWG DOM §4.5 node-document update over a subtree.
+//! - `begin_detached_fragment` / `finish_detached_fragment` — the throwaway
+//!   document of an HTML §13.4 fragment parse.
 //!
 //! These live together because they share the `detach` / `fire_after_remove`
 //! plumbing and the uncapped shadow-inclusive walk
@@ -243,22 +244,6 @@ impl EcsDom {
         true
     }
 
-    /// WHATWG DOM §4.5 "adopt" node-document update: set the `AssociatedDocument`
-    /// of `root` and every shadow-inclusive descendant to `document`. Uncapped in
-    /// depth and breadth, so it re-homes a whole subtree however deep/wide. Used
-    /// by the HTML §13.4 fragment parser to give returned nodes the context's
-    /// node document before the throwaway parse document is despawned — otherwise
-    /// their `ownerDocument` would dangle / resolve to `None`.
-    pub fn adopt_subtree(&mut self, root: Entity, document: Entity) {
-        let mut nodes: Vec<Entity> = Vec::new();
-        self.for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, &mut |e| {
-            nodes.push(e);
-        });
-        for node in nodes {
-            let _ = self.set_associated_document(node, document);
-        }
-    }
-
     /// Set up a WHATWG HTML §13.4 throwaway fragment build — the prologue
     /// companion to [`Self::finish_detached_fragment`], single-sourcing the
     /// setup both fragment backends (strict `elidex-html-parser-strict` +
@@ -289,8 +274,8 @@ impl EcsDom {
     ///
     /// Teardown is **caller-owned** (not folded into a guard) because the two
     /// backends diverge: the success path runs [`Self::finish_detached_fragment`]
-    /// (adopt + detach + despawn), while the strict parse-error path tears the
-    /// throwaway subtree out without adopting/returning anything. Restore the
+    /// (detach + despawn), while the strict parse-error path tears the
+    /// throwaway subtree out without returning anything. Restore the
     /// dispatcher after whichever teardown the caller runs.
     ///
     /// WHATWG HTML §13.4 *HTML fragment parsing algorithm*
@@ -324,29 +309,23 @@ impl EcsDom {
     /// `DocumentFragment` through the insertion target redirection map and
     /// returns that fragment; elidex returns the detached children instead.
     ///
-    /// Before teardown, the whole subtree is re-homed into `context`'s owner
-    /// document ([`Self::adopt_subtree`], DOM §4.5 "adopt") so the returned
-    /// nodes' `ownerDocument` resolves to the context's document rather than
-    /// dangling on the about-to-be-despawned throwaway document. When `context`
-    /// is itself documentless (`owner_document(context) == None`) the adopt is
-    /// skipped and the returned nodes are orphan-detached (no
-    /// `AssociatedDocument`), identical to a `createElement` orphan.
+    /// No re-home runs: every node the build created under root or below took
+    /// the context's node document at its creation (root redirects, see
+    /// [`Self::node_document_for_new_nodes`]), so the algorithm's step 22
+    /// ("Adopt fragment into target's node document") is the identity, as it
+    /// is in the spec, whose step 14 creates the fragment in target's node
+    /// document. A documentless context's nodes are ownerless from creation.
     ///
     /// [`Self::child_list_uncapped`] snapshots the children **before**
     /// `destroy_entity(root)` orphans them (uncapped, so a fragment with very
     /// many top-level nodes does not lose its tail). This is the single
     /// canonical teardown shared by both fragment backends (strict
     /// `elidex-html-parser-strict` + tolerant `elidex-html-parser`) so the two
-    /// never hand-mirror the adopt/detach/despawn sequence.
-    pub fn finish_detached_fragment(
-        &mut self,
-        root: Entity,
-        document: Entity,
-        context: Entity,
-    ) -> Vec<Entity> {
-        if let Some(doc) = self.owner_document(context) {
-            self.adopt_subtree(root, doc);
-        }
+    /// never hand-mirror the detach/despawn sequence.
+    ///
+    /// WHATWG HTML §13.4 *HTML fragment parsing algorithm*
+    /// (`#html-fragment-parsing-algorithm`) steps 22–23.
+    pub fn finish_detached_fragment(&mut self, root: Entity, document: Entity) -> Vec<Entity> {
         let children = self.child_list_uncapped(root);
         let _ = self.destroy_entity(root);
         let _ = self.destroy_entity(document);
