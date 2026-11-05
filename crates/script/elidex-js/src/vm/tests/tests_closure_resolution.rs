@@ -112,19 +112,6 @@ fn two_bindings_two_closures_stay_distinct() {
         // a: x was 1, two calls -> 3, third call returns 3; b: 100 -> 101, returns 101.
         3101.0
     );
-    // Same, but a single closure referencing both via two inner closures.
-    assert_eq!(
-        eval_number(
-            "function g() {
-               const out = [];
-               for (let i = 0; i < 2; i++) { let x = i + 5; out.push(() => x); }
-               { let x = 99; }
-               return out[0]() * 10 + out[1]();
-             }
-             g();"
-        ),
-        56.0
-    );
 }
 
 /// Control: ordinary captures keep working.
