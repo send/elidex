@@ -1,8 +1,10 @@
 # `#11-vm-string-replace-function-replacement` — functional replacement and GetSubstitution for `String.prototype.replace` / `replaceAll` (umbrella split + per-PR plan-memo for S1)
 
 **Slot**: `#11-vm-string-replace-function-replacement` (registered in the live ledger 2026-11-05, PM 414;
-`memory/project_open-defer-slots.md:257`). **Owner**: VM P4. **Home as registered**: slice-plan umbrella
-**9b** (`String` prototype surface). **Baseline**: `efe8d05b`. Every `file:line` below is at `efe8d05b`
+`memory/project_open-defer-slots.md:257`; re-scoped as an umbrella by PM 434). **Owner**: VM P4. **Home as
+registered**: slice-plan umbrella **9b** (`String` prototype surface); PM 434 keeps the non-RegExp half at 9b
+and homes the RegExp half at 8b. **Order (PM 434)**: SD-1 (`#11-vm-regexp-builtin-exec-lastindex-overrun`)
+→ **S1** → 8d → 8c → the 8b `%Symbol.replace%` child (§0.4 OD-1). **Baseline**: `efe8d05b`. Every `file:line` below is at `efe8d05b`
 unless it names another revision; §6 re-derives each one. Paths are relative to
 `crates/script/elidex-js/src/` unless they start with `crates/` or `docs/`.
 
@@ -43,15 +45,17 @@ string and RegExp pattern alike.
 **S1 — not in scope** (each one homed in §5):
 
 - The RegExp branch of `native_string_replace` (`vm/natives_string.rs:477-528`). It keeps today's
-  behaviour, function `ToString` included, until the `%Symbol.replace%` child of umbrella 8b replaces
-  it (§0.4 OD-1). S1 does **not** add a functional branch to it: that would be a second
-  implementation of §22.2.6.11's loop beside the one 8b's child must ship.
+  behaviour, function `ToString` included, until the 8b `%Symbol.replace%` child (minted by PM 434; id
+  assigned by the PM) replaces it (§0.4 OD-1, ratified as (C)). S1 does **not** add a functional branch
+  to it, nor move it onto S1's chokepoint: PM 434 rejected that interim (option (B)), because it would be
+  a second implementation of §22.2.6.11's loop beside the one 8b's child must ship.
 - `replaceAll` step 3 (IsRegExp, the `flags`/`"g"` TypeError, `GetMethod(searchValue,
   %Symbol.replace%)`). It needs `%Symbol.match%` and `%Symbol.replace%` ids that do not exist (8d), and
   writing it on `ObjectKind::RegExp` branding would add the special-casing umbrella 8b exists to remove
   (9b's row says so for this member by name).
-- The RegExpBuiltinExec `lastIndex` overrun hang (§5 SD-1) and the other RegExp-side defects §1.3
-  records.
+- The RegExpBuiltinExec `lastIndex` overrun hang (SD-1, registered by PM 434 as
+  `#11-vm-regexp-builtin-exec-lastindex-overrun`; a separate PR that lands **before** S1, §5) and the
+  other RegExp-side defects §1.3 records (homed in §8).
 
 ### §0.2 Premises re-measured
 
@@ -63,7 +67,7 @@ string and RegExp pattern alike.
 | GetSubstitution with a string replacement is a usable **control** | **wrong**: there is no GetSubstitution in the crate (`git grep -n -i 'substitution' efe8d05b -- crates/script/elidex-js/src` → no output); G01-G06, G08, G10, G11 red. Only templates that GetSubstitution leaves literal pass (G07, G09, G12, S19, S20) | `git grep` above; probe P1 G* |
 | Home = 9b (String prototype surface) | **holds for the non-RegExp half only**; the RegExp-pattern half is §22.2.6.11, which slice-plan row 8b assigns to its `%Symbol.replace%` child (§5) | `docs/plans/2026-07-vm-p4-slice-plan.md:979`, `:983` |
 | a RegExp `@@replace` path may exist | **does not**: `register_regexp_prototype` installs `test` / `exec` / `toString` only (`vm/globals_primitives.rs:194-201`); `WellKnownSymbols` allocates 7 symbols, no `replace` (`vm/well_known.rs:1578-1584`); `typeof Symbol.replace` → `undefined` (O01) | `sed -n 194,201p crates/script/elidex-js/src/vm/globals_primitives.rs` |
-| Priority high, silently wrong | holds; and the most common in-the-wild form, `s.replace(/re/g, fn)`, is in the RegExp half S1 does not fix (OD-1) | — |
+| Priority high, silently wrong | holds; and the most common in-the-wild form, `s.replace(/re/g, fn)`, is in the RegExp half S1 does not fix; it stays broken until the 8b `%Symbol.replace%` child lands (OD-1 = (C), PM 434) | — |
 
 ### §0.3 Premise errors (in the brief and the ledger)
 
@@ -75,25 +79,25 @@ string and RegExp pattern alike.
    from `replaceAll`.
 4. Implicit: "the slot is one unit". By measurement it is an umbrella (§2).
 
-### §0.4 Open decisions — homed, not chosen here
+### §0.4 Decisions — ratified by PM 434
 
-- **OD-1 — when the RegExp half lands, and whether anything interim ships.** The RegExp half is
-  §22.2.6.11 and its canonical home is the `%Symbol.replace%` child of umbrella 8b. That child consumes
-  8d (the id), 8c (`groups`, §22.2.6.11 step 15.j) and 8a (`flags`, step 7) — 8b's row places those
-  edges — and in practice SD-1 (§5), because every global zero-width cell hangs today. The options:
-  **(A)** no interim; the RegExp half waits for 8b's child, which consumes S1's chokepoint unchanged.
-  **(B)** rewrite the open-coded branch's body now onto S1's chokepoint. That ships a second
-  implementation of the §22.2.6.11 loop for 8b's child to delete, and ships `groups` silently absent
-  (8c). It is the strangler state "One issue, one way" forbids. **(C)** = (A), with the PM minting 8b's
-  `%Symbol.replace%` child and ordering its prerequisites (8d → 8c, SD-1 → that child) right after S1.
-  The design lens picks (A) or (C) over (B). Choosing between (A) and (C) is a cross-row ordering
-  decision, so it is the **PM's**. S1 is the same PR under every option.
-- **OD-2 — the file-wide `§21.1.3` → `§22.1.3` citation retag in `vm/natives_string.rs`.** Slice-plan
-  row 9b places it on "whichever child lands first with `vm/natives_string.rs` in its touch set" and
-  then requires 9b's derivation to rule on that device (row K precedent). S1 touches that file but is
-  not a child 9b's derivation minted, so S1 does **not** take the retag. It writes every citation it
-  adds or rewrites correctly (§22.1.3.19 / §22.1.3.20 / §22.1.3.19.1). The ruling stays with 9b's
-  derivation.
+- **OD-1 = (C) (ratified, PM 434) — the RegExp half lands in the 8b `%Symbol.replace%` child, minted
+  now, with no interim.** The RegExp half is §22.2.6.11 and its home is the `%Symbol.replace%` child of
+  umbrella 8b (minted by PM 434; id assigned by the PM). That child consumes 8d (the id), 8c (`groups`,
+  §22.2.6.11 step 15.j) and 8a (`flags`, step 7) — 8b's row places those edges — and consumes S1's
+  chokepoint unchanged. **The order is SD-1 → S1 → 8d → 8c → the 8b `%Symbol.replace%` child** (PM
+  434). **No interim ships**: option (B), rewriting the open-coded RegExp branch onto S1's chokepoint
+  now, is rejected (PM 434). It would ship a second implementation of the §22.2.6.11 loop for 8b's
+  child to delete, with `groups` silently absent (8c) — the strangler state "One issue, one way"
+  forbids. Consequence, stated as a defect: until the 8b child lands, `s.replace(/re/g, fn)` keeps
+  splicing the function's `ToString` text, and RegExp-pattern templates stay unexpanded. S1's own shape
+  is unaffected by the ruling.
+- **OD-2 (ratified, PM 434) — the file-wide `§21.1.3` → `§22.1.3` citation retag in
+  `vm/natives_string.rs` stays with 9b's derivation.** Slice-plan row 9b places it on "whichever child
+  lands first with `vm/natives_string.rs` in its touch set" and then requires 9b's derivation to rule on
+  that device (row K precedent). S1 touches that file but is not a child 9b's derivation minted, so S1
+  does **not** take the retag. It writes every citation it adds or rewrites correctly (§22.1.3.19 /
+  §22.1.3.20 / §22.1.3.19.1).
 
 ## §1. Design
 
@@ -228,6 +232,21 @@ literal templates (G07, G09, G12, S19, S20), the `ToString`-order cases with no 
 (O02, S06, S13), O03 / O04 / O06, and the two class-call controls C01 / C02 (`(class {})()` and
 `[1].map(class {})` throw TypeError). No green cell calls a replacer or expands a `$` form.
 
+**The HANG rows after SD-1.** The Actual column is `efe8d05b`. SD-1 lands before S1 (PM 434), so at
+S1's implementation base none of these nine cells can hang. That changes no S1 cell: every §4.1 cell
+uses a string pattern, and SD-1 touches only RegExpBuiltinExec (`vm/natives_regexp.rs`). What it
+changes is where the nine cells belong (§4.2):
+
+- H01, H04, H05, H06 (plain template or `match`, no `u` flag) and X01 are cells whose only measured
+  defect is the clamp. They are SD-1's acceptance, in SD-1's PR.
+- O10 (`'ab'.replace(/(?:)/g, fn)`) is a function replacement on the RegExp path. With the hang gone it
+  is still red (no functionalReplace on that branch), so it is the 8b `%Symbol.replace%` child's.
+- O07, H02, H03 (`u` flag over a surrogate pair) were never measured past the clamp: H02 hangs on the
+  clamp first. Whether today's `m.end() + 1` advance (`vm/natives_string.rs:505` / `:604`) gives the spec
+  value once SD-1 lands is unknown. It is the AdvanceStringIndex obligation (§22.2.7.3), so the replace
+  cells (O07, H02) belong to the 8b `%Symbol.replace%` child; H03 is `match`, the 8b `%Symbol.match%`
+  child that 8b's derivation mints.
+
 ### §1.4 One canonical form
 
 The three algorithms in §1.2 make the same per-match decision: replacement = functionalReplace ?
@@ -297,7 +316,8 @@ rows. So under CLAUDE.md "Edge-dense work" the slot is an **umbrella**. It is sp
 - **A4 + A5 + A6 and the RegExp form of A1 / A2** → the `%Symbol.replace%` child of umbrella 8b (the
   §22.2.6.11 algorithm), the String-side `GetMethod` child of 8b (step 3 of both methods), 8c
   (`groups`), 8d (ids), and the `replaceAll` child of 9b (its step 3). Each edge is placed in §5. The
-  A4 hang is a separate defect with its own owner (§5 SD-1).
+  A4 hang is a separate defect with its own slot, `#11-vm-regexp-builtin-exec-lastindex-overrun` (SD-1,
+  PM 434), which lands before S1 (§5).
 
 ### §2.1 Coupled invariants of S1 (Pre-condition #3)
 
@@ -371,7 +391,7 @@ S1 shares a chokepoint with.
 | ECMA-262 §22.2.6.11 RegExp.prototype [ %Symbol.replace% ] ( string, replaceValue ) | 15.j | `namedCaptures = Get(result, "groups")` | **→ 8b `%Symbol.replace%` child** (8c) | ✓ | yes |
 | ECMA-262 §7.2.6 IsRegExp ( arg ) | 1-4 | `%Symbol.match%` read before the `[[RegExpMatcher]]` test | **→ 9b `replaceAll` child** (8d id) | ✓ | yes |
 | ECMA-262 §22.2.7.1 RegExpExec ( regexp, string ) | 1-3 | user `exec` vs builtin | **→ 8b `%Symbol.replace%` child** | ✓ | yes |
-| ECMA-262 §22.2.7.2 RegExpBuiltinExec ( regexp, string ) | 2, 13.a | `lastIndex` read unconditionally; `lastIndex > length` → fail (and reset if g/y) | **→ SD-1 slot** (`vm/natives_regexp.rs:46`) | ✓ | yes |
+| ECMA-262 §22.2.7.2 RegExpBuiltinExec ( regexp, string ) | 2, 13.a | `lastIndex` read unconditionally; `lastIndex > length` → fail (and reset if g/y) | **→ SD-1 `#11-vm-regexp-builtin-exec-lastindex-overrun`** (step 13.a; `vm/natives_regexp.rs:46`; lands before S1) and **→ umbrella 8's RegExpBuiltinExec child** (step 2, SD-3) | ✓ | yes |
 | ECMA-262 §22.2.7.3 AdvanceStringIndex ( string, index, unicode ) | 1-5 | unicode advance past a surrogate pair | **→ 8b `%Symbol.replace%` child** (today `vm/natives_string.rs:505`) | ✓ | yes |
 
 **Breadth**: K=1 (ecma262), M=27 rows, of which 18 are S1 touches. The `SPLIT-RECOMMENDED` verdict
@@ -384,9 +404,9 @@ Every value S1 reads is script-controlled: the receiver, the search value, the r
 or template), and whatever the replacer returns. After S1, two places run user code. The replacer runs
 inside `replacement_for_match` with `this` undefined and no VM state held across the call. A
 non-callable replacement and the search value run user `toString` through `to_string_val`, once each,
-in spec order. Pre-existing adjacent exposure that S1 neither adds nor removes: the RegExp branch at
+in spec order. Adjacent exposure that S1 neither adds nor removes: at `efe8d05b` the RegExp branch at
 `vm/natives_string.rs:477-528` reaches the SD-1 hang from any script with a global zero-width regexp.
-S1 reaches no RegExp code.
+SD-1 lands before S1 (PM 434), so at S1's base that exposure is gone. S1 reaches no RegExp code.
 
 ## §4. Tests
 
@@ -423,13 +443,26 @@ wrong value: pinning that would bless the defect.
 
 | Cells | Owner |
 |---|---|
-| F09, F10, F11, F12, F14, F15 (green today; keep as the no-call control), F16, F18, F19, F20, F21, F22, G05, G08, G10, G11 | the `%Symbol.replace%` child of umbrella 8b (§22.2.6.11) |
+| F09, F10, F11, F12, F14, F15 (green today; keep as the no-call control), F16, F18, F19, F20, F21, F22, G05, G08, G10, G11, O10 | the 8b `%Symbol.replace%` child (minted by PM 434; id assigned by the PM; §22.2.6.11) |
 | F13, G06, R08 | that same child, after 8c (`groups`) |
-| O05 | that same child (step 9: global only) |
+| O05 | that same child (step 9: global only; SD-2, §8) |
+| O07, H02 | that same child (AdvanceStringIndex), with the base value re-measured at S1's base (below) |
+| H03 | the 8b `%Symbol.match%` child (8b's derivation mints it), with the base value re-measured at S1's base |
 | O01, O08 | 8d (ids) + 8b's String-side `GetMethod` child |
 | R04, R05, R06 | the `replaceAll` child of umbrella 9b (step 3), after 8d and 8b's `GetMethod` child |
-| O07, O10, H01-H06, X01 | SD-1. ⚠ These **hang** today, so they must stay `#[ignore]` until SD-1 lands, and `cargo test -- --ignored` hangs on them until then. They go in under SD-1's slot rather than here if the plan-review prefers no hanging ignored cell in tree |
-| X02 | umbrella 8's §22.2.7.2 child (step 2) |
+| X02 | umbrella 8's RegExpBuiltinExec child (§22.2.7.2 step 2; SD-3, §8) |
+
+**SD-1's cells are not here.** H01, H04, H05, H06 and X01 are SD-1's acceptance and are written by
+SD-1's PR (`#11-vm-regexp-builtin-exec-lastindex-overrun`), which lands first. S1 does not duplicate
+them.
+
+**No hanging cell.** S1's implementation base contains SD-1's merge (checked with `git merge-base
+--is-ancestor <SD-1 merge> HEAD` before the first S1 commit), so no ignored cell in this file can hang
+under `cargo test -- --ignored`. The earlier question — ignore the hanging cells here, or move them
+under SD-1's slot — no longer arises, and is not left open for plan-review. What remains open is only
+the base value of O07 / H02 / H03: the implementer runs them once at S1's base. A cell that is green
+there is asserted un-ignored (its owner's acceptance then has nothing left to remove for it); a red one
+is ignored with the owner above.
 
 ### §4.3 Mutants
 
@@ -455,15 +488,20 @@ killed-by-cell. A mutant no cell kills is a missing cell, added before the PR le
 - **M14** replaceAll calls every replacer first and `ToString`s the results afterwards.
 - **M15** `get_substitution`'s `$<` arm maps a throwing `Get` to the empty string.
 
-## §5. Relation to rows 8b, 8d, 9b; hand-offs; sibling defects
+## §5. Relation to rows 8b, 8d, 9b; ordering; hand-offs; sibling defects
+
+**Order (PM 434, ratified OD-1 = (C)):** **SD-1 → S1 → 8d → 8c → the 8b `%Symbol.replace%` child**.
+SD-1 (`#11-vm-regexp-builtin-exec-lastindex-overrun`) is a separate PR already in implementation; S1's
+base contains its merge (§4.2). 8d and 8c precede the 8b child because it consumes their ids and
+`groups`. No step in this order ships an interim RegExp-side replacement loop (option (B), rejected).
 
 - **9b** (`docs/plans/2026-07-vm-p4-slice-plan.md:983`, `#11-vm-builtin-prototype-static-sweep`). S1
   discharges the non-RegExp halves of the §22.1.3.19 and §22.1.3.20 members. When 9b's derivation
   runs, it counts those halves as landed and mints the `replaceAll` child for step 3 only. That child
   carries the 8d edge and the child-to-child edge onto 8b's String-side `GetMethod` child, both of
-  which 9b's row already places. The OD-2 retag ruling stays 9b's.
-- **8b** (`:979`, UMBRELLA). Its `%Symbol.replace%` child is the canonical home of the RegExp half
-  (§22.2.6.11). It **consumes S1's `Replacer` / `MatchRecord` / `replacement_for_match` /
+  which 9b's row already places. The OD-2 retag ruling stays 9b's (ratified, PM 434).
+- **8b** (`:979`, UMBRELLA). Its `%Symbol.replace%` child, minted by PM 434 (id assigned by the PM),
+  is the home of the RegExp half (§22.2.6.11). It comes after S1, 8d and 8c in the PM 434 order. It **consumes S1's `Replacer` / `MatchRecord` / `replacement_for_match` /
   `get_substitution` unchanged**, and builds the full `MatchRecord` (captures `ToString`'d unless
   undefined, `namedCaptures` via `ToObject` on the template arm only, per step 15.l.i). Obligations
   S1 hands it: collect every result before any replacer call (F20, F21); `Set(lastIndex, 0)` only when
@@ -476,21 +514,19 @@ killed-by-cell. A mutant no cell kills is a missing cell, added before the PR le
   one where step 3 finds no replacer. Its ids gate 8b's children and 9b's `replaceAll` child, not S1.
 - **8c** (`:980`). `groups` (O09) gates the `namedCaptures` arm reaching JS; until then that arm is
   Rust-pinned (T-SUB-UNIT).
-- **SD-1 — RegExpBuiltinExec `lastIndex` overrun → infinite loop** (new; not this slot's; **needs a
-  slot**). `run_regexp` clamps `lastIndex` to the subject length (`vm/natives_regexp.rs:46`)
+- **SD-1 — RegExpBuiltinExec `lastIndex` overrun → infinite loop** — **registered (PM 434) as
+  `#11-vm-regexp-builtin-exec-lastindex-overrun`** (T1 hang; home umbrella 8, §22.2.7), **lands first**,
+  before S1, as a separate PR already in implementation. Not this slot's. `run_regexp` clamps `lastIndex` to the subject length (`vm/natives_regexp.rs:46`)
   where §22.2.7.2 step 13.a fails the match (resetting `lastIndex` to 0 when global or sticky). With
   the `m.end() + 1` advance at `vm/natives_string.rs:505` / `:604`, every global regexp with a
   zero-width match at the end of the subject loops forever in `replace` and `match`: H01
   `'ab'.replace(/(?:)/g, '-')`, H05 `/x*/g`, H06 `'a'.replace(/$/g, '!')`, H04 `'ab'.match(/(?:)/g)`.
   User `exec` loops are affected too (X01: `/$/g` with `lastIndex = 5` matches at 1 instead of
-  returning null). This is a script-reachable hang of the renderer's main thread. Its home is umbrella
-  8's §22.2.7 clause (RegExpBuiltinExec). It is a prerequisite of 8b's `%Symbol.replace%` child's
-  global cells. Recommended priority: above this slot, because it is loud only as a hang, and the trim
-  idiom `s.replace(/\s*$/g, '')` reaches it. Not probed separately: whether the `u`-flag form also
-  mis-advances once the clamp is fixed (H02 hangs on the clamp first).
-- **SD-2 — non-global `replace` resets `lastIndex`** (O05, `vm/natives_string.rs:495`) → 8b's
-  `%Symbol.replace%` child (listed above). **SD-3 — non-global `exec` never reads `lastIndex`** (X02;
-  §22.2.7.2 step 2 reads it unconditionally) → umbrella 8's §22.2.7.2 child.
+  returning null). This is a script-reachable hang of the renderer's main thread, reachable by the trim
+  idiom `s.replace(/\s*$/g, '')`. Its cells (H01, H04, H05, H06, X01) are its own PR's (§4.2). Not
+  probed separately: whether the `u`-flag form also mis-advances once the clamp is fixed (H02 hangs on
+  the clamp first); §4.2 re-measures O07 / H02 / H03 at S1's base.
+- **SD-2, SD-3** — homed by PM 434; recorded in §8.
 - **Already slotted, observed here**: `#11-vm-function-tostring-source-text` (the placeholder text
   in §0.2); `split` / `search` `ToString` the RegExp (X03, 8b's row evidence).
 - **Not observed as a defect**: a class constructor called from a native throws TypeError (probe C01
@@ -523,3 +559,20 @@ git grep -n -i 'substitution' efe8d05b -- crates/script/elidex-js/src      # no 
 .claude/tools/webref body ecma262 sec-string.prototype.replace     # also sec-string.prototype.replaceall, sec-regexp.prototype-%symbol.replace%, sec-getsubstitution, sec-regexpbuiltinexec
 .claude/tools/webref coverage-map ecma262 22.1.3.19 ecma262 22.1.3.20 ecma262 GetSubstitution ecma262 22.2.6.11 ecma262 StringIndexOf ecma262 IsCallable ecma262 Call ecma262 IsRegExp ecma262 RegExpExec ecma262 AdvanceStringIndex
 ```
+
+## §8. Out of scope, and slots
+
+Homes ruled by PM 434. Pointers only; the defect text is in §5 and §1.3.
+
+- **SD-1** `#11-vm-regexp-builtin-exec-lastindex-overrun` (registered, PM 434; T1 hang; home umbrella 8,
+  §22.2.7): RegExpBuiltinExec step 13.a clamp at `vm/natives_regexp.rs:46`. **Lands before S1**, in its own
+  PR. Cells H01, H04, H05, H06, X01 are its acceptance (§4.2).
+- **SD-2** — non-global `replace` resets `lastIndex` (O05, `vm/natives_string.rs:495`; §22.2.6.11 step 9
+  resets only when global) → **the 8b `%Symbol.replace%` child** (minted by PM 434; id assigned by the PM).
+- **SD-3** — non-global `exec` never reads `lastIndex` (X02; §22.2.7.2 step 2 reads it unconditionally) →
+  **umbrella 8's RegExpBuiltinExec child**.
+- **The RegExp half** (A4, A5, A6 and the RegExp form of A1 / A2) → the 8b `%Symbol.replace%` child, after
+  8d and 8c (OD-1 = (C), PM 434); `replaceAll` step 3 → 9b's `replaceAll` child; step 3 of `replace` → 8b's
+  String-side `GetMethod` child (§5).
+- **The `§21.1.3` → `§22.1.3` retag** of `vm/natives_string.rs` → 9b's derivation (OD-2, ratified, PM 434).
+- **Already slotted, observed here**: `#11-vm-function-tostring-source-text` (§0.2).
