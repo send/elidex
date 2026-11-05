@@ -32,7 +32,7 @@
 //!   "clone a node" → "clone a single node"), in the clone's creation
 //!   order; the walk is `EcsDom::for_each_clone_created` and the registry-
 //!   dependent half is [`crate::upgrade`]'s `apply_clone_creation_ce_semantics`.
-//!   `handle_insert` enqueues `Upgrade` too (DOM "insert" step 7.3.3, "try
+//!   `handle_insert` enqueues `Upgrade` too (DOM "insert" step 7.7.3.3, "try
 //!   to upgrade"), not only the `CloneCreated` path. The clone path also
 //!   clears the retained `is` value of async-autonomous copies
 //!   (`CustomElementState.is_value`, which no other consumer reads).
@@ -116,7 +116,7 @@ impl CustomElementReactionConsumer {
         // Skip when post-insert position is still disconnected
         // (orphan→orphan move): the insertion-steps loop only enqueues
         // when the inclusive descendant is connected per WHATWG DOM §4.2.3
-        // "insert" step 7.2 ("If inclusiveDescendant is not connected, then
+        // "insert" step 7.7.2 ("If inclusiveDescendant is not connected, then
         // continue").
         //
         // NOTE: we deliberately do NOT short-circuit on `was_connected`
