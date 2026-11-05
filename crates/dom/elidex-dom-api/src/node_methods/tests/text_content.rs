@@ -52,7 +52,7 @@ fn textcontent_empty_string_on_empty_element_is_noop() {
     let (mut dom, mut session) = setup();
     let div = dom.create_element("div", Attributes::default());
 
-    // No children, empty value → no-op (and, per §4.2.3 step 7, no record — the
+    // No children, empty value → no-op (and, per §4.2.3 replace all step 7, no record — the
     // VM e2e test asserts the no-record; here we assert it neither panics nor
     // spuriously creates a child).
     SetTextContentNodeKind

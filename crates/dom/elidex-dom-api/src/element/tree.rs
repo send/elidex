@@ -214,20 +214,22 @@ impl DomApiHandler for RemoveChild {
 ///
 /// Error mapping (steps of the §4.2.3 "replace" algorithm):
 /// - `oldChild` is not a child of `parent` → `NotFoundError`
-///   (§4.2.3 step 3; matches Chrome/Firefox/WebKit).
+///   (replace step 1, ensure pre-insert validity step 3; matches Chrome/Firefox/WebKit).
 /// - `newChild` is `parent` itself, an ancestor of `parent`, or any other
 ///   pre-insertion validity violation → `HierarchyRequestError`
-///   (§4.2.3 steps 1-2, 4). Cross-document violations also map here per
+///   (ensure pre-insert validity steps 1–2, 4–9, 11; step 10 is an Assert). Cross-document violations also map here per
 ///   §4.2.3 — `WrongDocumentError` is not a separate `DomApiErrorKind`.
 ///
 /// The replace is delegated to a single `EcsDom::replace_child` op so the
 /// `MutationObserver` integration coalesces the old-child removal + new-child
-/// insertion into **one** record per spec (`#concept-node-replace` step 14),
+/// insertion into **one** record per spec (`#concept-node-replace` step 10),
 /// not the two a naive remove-then-insert composition would produce. A
 /// **move** into the replace slot (an already-parented `newChild`) additionally
 /// emits the source-parent removal record from `newChild`'s adopt (B1.2a, §4.5
-/// step 2, NOT suppressed) — that is a distinct record on a different parent,
-/// not a split of the coalesced one.
+/// step 2, NOT suppressed) — that is a separate record, not a split of the
+/// coalesced one. It targets `newChild`'s old parent: another parent for a
+/// cross-parent move, but the same parent for a same-parent move
+/// (`P=[A,B]; P.replaceChild(B, A)`), where both records target `P`.
 pub struct ReplaceChild;
 
 impl DomApiHandler for ReplaceChild {
@@ -253,22 +255,24 @@ impl DomApiHandler for ReplaceChild {
             .get(JsObjectRef::from_raw(old_ref))
             .ok_or_else(|| not_found_error("oldChild not found"))?;
 
-        // §4.2.3 "replace" validity (steps 1-6, `#concept-node-replace`): parent-kind,
+        // §4.2.3 "replace" validity (step 1, ensure pre-insert validity with
+        // « oldChild » as childrenToExclude, `#concept-node-replace`): parent-kind,
         // host-including-inclusive-ancestor cycle, oldChild-is-child (NotFoundError,
-        // step 3), node-type, Text/doctype placement, and the Document element-child
-        // constraints (step 6 counts EXCLUDING the replaced oldChild — these "differ
-        // from the pre-insert algorithm"). The canonical validator the ChildNode/
-        // ParentNode mixins use; runs BEFORE the self-replace short-circuit so
-        // `replaceChild(orphan, orphan)` throws step-3 NotFoundError (the spec runs
-        // validity steps 1-6 before the step-7..11 self-replace collapse), while a
-        // valid self-replace (x already a child) passes the validator then no-ops.
+        // ensure pre-insert validity step 3), node-type, Text/doctype placement, and
+        // the Document element-child constraints (ensure pre-insert validity steps
+        // 9.1 and 11 exclude « oldChild » — these "differ from the pre-insert algorithm").
+        // The canonical validator the ChildNode/ParentNode mixins use; runs BEFORE
+        // the self-replace short-circuit so `replaceChild(orphan, orphan)` throws
+        // ensure pre-insert validity step 3's NotFoundError (replace step 1 runs
+        // before steps 2–10), while a valid self-replace (x already a child) passes
+        // the validator then no-ops.
         ensure_replace_validity(this, new_entity, old_entity, dom)?;
 
-        // Self-replace (`parent.replaceChild(x, x)` for a child x) is a no-op per
-        // browser parity (Chrome / Firefox / WebKit) — the §4.2.3 step-8
-        // reference-child adjustment makes the insert+remove sequence collapse to
-        // nothing. EcsDom::replace_child rejects `new == old` early (would surface as
-        // HierarchyRequestError), so short-circuit here AFTER the validator.
+        // Self-replace (`parent.replaceChild(x, x)` for a child x): elidex queues no
+        // record for it; the spec queues two (`#11-replace-child-self-records`, C0a
+        // memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
+        // early (would surface as HierarchyRequestError), so short-circuit here
+        // AFTER the validator.
         if new_entity == old_entity {
             return Ok(JsValue::ObjectRef(old_ref));
         }

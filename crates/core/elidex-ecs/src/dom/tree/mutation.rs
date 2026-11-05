@@ -159,14 +159,15 @@ impl EcsDom {
         let new_child_was_connected = self.is_connected(new_child);
         let old_child_was_connected = self.is_connected(old_child);
         // Detach new_child from its current position (fires after_remove on
-        // the implicit old-parent removal, per WHATWG replace algorithm step
-        // "If node has a parent, then remove node").
+        // the implicit old-parent removal, per WHATWG *adopt* step 2 "If node's
+        // parent is non-null, then remove node", reached through *replace* step 6).
         self.detach_with_hook(new_child, parent);
 
         // Capture old_child's index AFTER detach so that — when new_child was
         // an earlier sibling of old_child in the same parent — the index
         // reflects old_child's actual position at the moment of removal
-        // (WHATWG DOM §5.5 "remove a node" step 4).
+        // (the WHATWG DOM *remove* algorithm's live-range pre-remove steps, which
+        // use node's index).
         let old_index = self.index_in_parent(old_child);
 
         // Re-read old_child's siblings AFTER detach (they may have changed
