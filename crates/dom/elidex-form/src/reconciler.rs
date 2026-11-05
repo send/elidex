@@ -157,8 +157,8 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             sanitize_for_type_change(&mut state, old_kind);
         }
         // HTML §4.10.5.5 change-on-blur baseline: a `type` flip to a non-text
-        // kind while the control is focused must drop the focus-time text
-        // snapshot, else the eventual blur consumes the stale baseline and fires
+        // kind while the control is focused must drop the change-on-blur
+        // snapshot (unmarked seed; baseline = value before the first user change, plan D-1), else the eventual blur consumes the stale baseline and fires
         // a spurious `change`. `record_focus_snapshot` only re-evaluates at focus
         // time, so the mid-focus flip needs this clear at the `set_attribute`
         // chokepoint (mirrors the non-text clear inside `record_focus_snapshot`).
