@@ -86,7 +86,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests (nextest, no doc-tests)
-        run: cargo nextest run --workspace --all-features
+        run: cargo nextest run --workspace --all-features --profile ci
 
       - name: Run doc-tests
         run: cargo test --workspace --doc --all-features

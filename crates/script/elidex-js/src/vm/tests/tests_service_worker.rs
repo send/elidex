@@ -37,9 +37,8 @@ const SCOPE_URL: &str = "https://example.com/";
 /// `respond_with_never_settles_times_out_to_passthrough`).  Their verdict IS
 /// the timed-out branch, and a promise that never settles cannot settle
 /// sooner under load, so a short bound only shortens the wait — it cannot
-/// change the verdict.  Every other test passes `None` (drain until settled):
-/// a bound there would let machine load turn "settles" into the timed-out
-/// branch (`#11-sw-respond-with-gc-test-wallclock-timeout`).
+/// change the verdict.  Every other test passes `None` (drain until settled;
+/// rule: `.config/nextest.toml`).
 const NEVER_SETTLE_PUMP_TIMEOUT: Duration = Duration::from_millis(150);
 
 // ---------------------------------------------------------------------------
@@ -116,15 +115,17 @@ impl Harness {
         }
     }
 
+    /// Send to the SW.  ⚠ Still timing-dependent: the SW idle-exits after
+    /// `DEFAULT_IDLE_TIMEOUT` between messages, so a test thread stalled that
+    /// long between a reply and its next send sees a dead SW
+    /// (`#11-test-harness-wallclock-verdicts`).
     fn send(&self, msg: ContentToSw) {
         self.content.send(msg).expect("SW thread alive");
     }
 
     /// Read the next reply, blocking until it arrives; `None` = the SW thread
-    /// exited (channel disconnected).  No wall-clock bound decides a verdict
-    /// (`#11-sw-respond-with-gc-test-wallclock-timeout`: a 5 s ceiling here
-    /// failed under machine load while the SW was still working).  The
-    /// `recv_timeout` slice is a poll cadence, never a verdict.
+    /// exited (channel disconnected).  The `recv_timeout` slice is a poll
+    /// cadence, not a bound (rule + liveness: `.config/nextest.toml`).
     fn next_reply(&self) -> Option<SwToContent> {
         loop {
             match self.content.recv_timeout(Duration::from_millis(100)) {

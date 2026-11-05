@@ -36,13 +36,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
-// `DEFAULT_IDLE_TIMEOUT` is the one home of the SW idle-exit bound *and* the
-// `respondWith` / `waitUntil` drain bound (SW §4.4 ExtendableEvent's "timed out
-// flag" / §4.6.7 `event.respondWith(r)`): this module and the browser-side fetch
-// relay (`elidex-shell` `sw_fetch_relay.rs`) read it, never a copy.  The
-// content-side navigation wait (`elidex-shell` `content/navigation.rs`) is a
-// separate deadline on the same round-trip — their ordering is
-// `#11-sw-fetch-relay-deadline-ordering`.
+// The idle-exit and drain bound; its roles are documented at its definition.
 use elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
 use elidex_api_sw::{ClientSnapshot, ContentToSw, LifecycleEvent, SwResponse, SwToContent};
 use elidex_ecs::EcsDom;
@@ -162,10 +156,11 @@ fn obtain_sw_source(script_url: &url::Url, handle: &NetworkHandle) -> Result<Str
 /// Build the SW realm from already-fetched `source` and drive its event loop
 /// until `Shutdown` / channel disconnect / idle timeout.  Also the unit-test
 /// seam.  `pump_timeout` bounds each `respondWith` / `waitUntil` drain: the
-/// shell passes `Some(DEFAULT_IDLE_TIMEOUT)` (the spec's timed-out flag).
-/// `None` drains until the promise settles — no wall clock in the outcome —
-/// which harness tests use when the expected result is that the promise
-/// settles; they pass a short `Some` only for the never-settle branches.
+/// shell passes `Some(DEFAULT_IDLE_TIMEOUT)` (SW §4.4 ExtendableEvent's
+/// "timed out flag").  `None` drains until the promise settles, for harness
+/// tests whose expected result is that it settles (rule:
+/// `.config/nextest.toml`); they pass a short `Some` only for the
+/// never-settle branches.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_service_worker(
     source: &str,

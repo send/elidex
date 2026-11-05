@@ -58,9 +58,8 @@ fn eval_bool_on(vm: &mut Vm, src: &str) -> bool {
 
 /// Receive the next `WorkerToParent`, blocking until it arrives; `None` = the
 /// worker thread exited (`TryRecvError::Disconnected`) without sending one.
-/// No wall-clock bound decides the verdict (a 5 s deadline here had the same
-/// load-flake shape as `#11-sw-respond-with-gc-test-wallclock-timeout`); the
-/// sleep is a poll cadence, never a verdict.
+/// The sleep is a poll cadence, not a bound (rule + liveness:
+/// `.config/nextest.toml`).
 fn recv_next(handle: &elidex_api_workers::WorkerHandle) -> Option<WorkerToParent> {
     loop {
         match handle.try_recv() {
