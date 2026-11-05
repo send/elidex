@@ -255,6 +255,9 @@ jobs:
   # PR #586 (Python-pin PR-0) added a member and measured its run 41602387497:
   # slower leg "3.9" 191 s end to end ("3.x" 168 s); ceil(4 x 3.18 min) = 13,
   # not above 22, so the value stays 22 (that PR's plan, §7: raise only when N > 22).
+  # PR #601 (Python-pin PR-1) made the job one leg on the pin and measured its run 42015472338:
+  # the one leg 120 s end to end; ceil(4 x 2.0 min) = 8, not above 22, so the value stays 22
+  # (raise-only for the program, PM 353); 22 min is 11x the run, so #510's 2x trigger cannot fire.
   #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no
