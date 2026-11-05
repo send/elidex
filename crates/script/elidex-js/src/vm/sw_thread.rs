@@ -36,10 +36,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
-// `DEFAULT_IDLE_TIMEOUT` is the one home of both the idle-exit bound *and* the
+// `DEFAULT_IDLE_TIMEOUT` is the one home of the SW idle-exit bound *and* the
 // `respondWith` / `waitUntil` drain bound (SW §4.4 ExtendableEvent's "timed out
-// flag" / §4.6.7 `event.respondWith(r)`); this module reads it, never a copy (a
-// copy could drift from the coordinator's `SwHandle` and nothing would go red).
+// flag" / §4.6.7 `event.respondWith(r)`): this module and the browser-side fetch
+// relay (`elidex-shell` `sw_fetch_relay.rs`) read it, never a copy.  The
+// content-side navigation wait (`elidex-shell` `content/navigation.rs`) is a
+// separate deadline on the same round-trip — their ordering is
+// `#11-sw-fetch-relay-deadline-ordering`.
 use elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
 use elidex_api_sw::{ClientSnapshot, ContentToSw, LifecycleEvent, SwResponse, SwToContent};
 use elidex_ecs::EcsDom;
@@ -324,9 +327,10 @@ fn handle_message(
     true
 }
 
-/// Fire an `install` / `activate` `ExtendableEvent` and wait (bounded) for
-/// its `waitUntil` lifetime promises.  Returns `false` iff any rejected or
-/// the bound elapsed (SW §4.4.1).
+/// Fire an `install` / `activate` `ExtendableEvent` and wait for its
+/// `waitUntil` lifetime promises — bounded by `pump_timeout` when `Some`,
+/// until they settle when `None`.  Returns `false` iff any rejected or the
+/// bound elapsed (SW §4.4 ExtendableEvent's "timed out flag").
 fn run_lifecycle(vm: &mut Vm, event_type: &str, pump_timeout: Option<Duration>) -> bool {
     let event_id = event::create_extendable_event(&mut vm.inner, event_type);
     // Root the event object on the VM operand stack across dispatch + pump:
@@ -429,7 +433,7 @@ fn pump_lifetime(vm: &mut VmInner, promises: &[ObjectId], deadline: Option<Insta
         if all_settled {
             return true;
         }
-        if deadline.is_some_and(|d| Instant::now() >= d) {
+        if deadline_passed(deadline, Instant::now()) {
             return false;
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -451,11 +455,18 @@ fn pump_response(
             PromiseStatus::Rejected => return None,
             PromiseStatus::Pending => {}
         }
-        if deadline.is_some_and(|d| Instant::now() >= d) {
+        if deadline_passed(deadline, Instant::now()) {
             return None;
         }
         std::thread::sleep(POLL_INTERVAL);
     }
+}
+
+/// Whether a drain `deadline` has passed at `now` (`None` = no deadline:
+/// never).  The one deadline predicate of both pumps; pure, so it is tested
+/// with fixed instants rather than a wall clock.
+fn deadline_passed(deadline: Option<Instant>, now: Instant) -> bool {
+    deadline.is_some_and(|d| now >= d)
 }
 
 /// One VM advance: drain queued tasks (Cache API `CacheDeliver` settlements,
@@ -494,5 +505,30 @@ fn drain_sw_outgoing(vm: &mut Vm, channel: &SwChannel) {
     }
     for msg in std::mem::take(&mut vm.inner.sw_outgoing) {
         let _ = channel.send(msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::deadline_passed;
+
+    #[test]
+    fn deadline_passed_none_never_passes() {
+        let t = Instant::now();
+        assert!(!deadline_passed(None, t));
+        assert!(!deadline_passed(None, t + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn deadline_passed_some_is_now_at_or_after_the_deadline() {
+        // The production path (`Some(DEFAULT_IDLE_TIMEOUT)`): before the
+        // deadline the pump keeps draining, at or after it the drain times out.
+        let before = Instant::now();
+        let d = before + Duration::from_secs(30);
+        assert!(!deadline_passed(Some(d), before));
+        assert!(deadline_passed(Some(d), d));
+        assert!(deadline_passed(Some(d), d + Duration::from_millis(1)));
     }
 }

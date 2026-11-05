@@ -10,7 +10,8 @@ test-threads = "num-cpus"
 # Measured 2026-11-06: slowest single test 64.8 s in CI (main run 42072724049,
 # windows/ubuntu `elidex-dom-api element::inheritance::tests::caps_walk_at_max_ancestor_depth`),
 # 209.9 s in a local `mise run ci` at load average ~100.  480 s is 7.4x / 2.3x those.
-# `[profile.ci]` inherits this (nextest profiles inherit `[profile.default]`).
+# CI runs this profile (`cargo nextest run` in ci.yml passes no `--profile`);
+# `[profile.ci]` does not override `slow-timeout`.
 slow-timeout = { period = "60s", terminate-after = 8 }
 
 [profile.ci]
