@@ -25,10 +25,11 @@ use crate::util::not_found_error;
 //
 // VM-side per-tag prototype files invoke these via
 // `invoke_dom_api(ctx, "<name>", entity, &args)` in the standard
-// marshalling-only shape.  Algorithms above are the engine-independent
+// marshalling-only shape.  Algorithms in `super` (`mod.rs`) are the engine-independent
 // truth; handlers are thin coercion + dispatch shims.
 // ---------------------------------------------------------------------------
 
+// See `#11-webidl-integer-conversion-canonical` (not WebIDL ConvertToInt).
 fn require_long_arg(args: &[JsValue], index: usize) -> Result<i32, DomApiError> {
     match args.get(index) {
         Some(JsValue::Number(n)) => {
@@ -66,6 +67,7 @@ fn optional_long_arg(args: &[JsValue], index: usize, default: i32) -> Result<i32
     }
 }
 
+// See `#11-table-handlers-dedup` (duplicated helper, copy-pasted handler bodies).
 fn resolve_optional_entity_arg(
     args: &[JsValue],
     index: usize,

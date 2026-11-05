@@ -159,8 +159,8 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   step 5); `create_attribute(name, owner)` (callers `CreateAttribute` `char_data/attr.rs:35` → `this`;
   `GetAttributeNode`'s materialization (`char_data/attr.rs:90`) → the element, through the entry); `create_document_type(…, owner)`; the table helpers through
   `create_table_element(dom, table, local_name)` (NEW, HTML §4.9.1 *create a table element*) for the six
-  table-created sites (`table_mutation/mod.rs:116`, `:127`, `:138`, `:148`, `:355`, `:359`), and the entry with the
-  section (`:448`, §4.9.5 `insertRow` step 2) and the row (`:512`, §4.9.8 `insertCell` step 2) directly (their
+  table-created sites (`create_thead` (`table_mutation/mod.rs:115`), `create_tfoot` (`:126`), `create_caption` (`:137`), `create_tbody` (`:147`), `insert_row_into_table` (`:354`, `:358`)), and the entry with the
+  section (`:448`, §4.9.5 `insertRow` step 2) and the row (`insert_cell_into_row`, `:511`, §4.9.8 `insertCell` step 2) directly (their
   coordinates in `table_mutation/mod.rs` after D-14 (c), which moves only the handlers). **The CE constructor:**
   `elidex_custom_elements::spawn_custom_element_entity(dom, qualified_name, definition_name, document: Option<Entity>)
   -> Option<Entity>` (`entity_spawn.rs:51`) makes the owner decision — `Some(d)` → `create_element_with_owner(…,
@@ -292,9 +292,9 @@ character* 5; *insert a comment* 4; *adjusted insertion location* 3–5), `creat
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 4, 11, 12, 14, 15, 22, 23 | throwaway; root in it; fragment in target's node document; map[root] → fragment; adopt fragment (identity) | `begin_detached_fragment` `teardown.rs:293`, `finish_detached_fragment` `teardown.rs:330`; `FragmentParseRoot` (NEW) | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | *template contents* establishment; *adopting steps* 1–2 | contents created in (C2) the template's node document; adopted with it | `attach_template_contents` `crates/core/elidex-ecs/src/dom/mod.rs:557` (second argument `NewNodeOwner`); the walk's contents edge | ✗ (C1's `f`) | yes |
 | WHATWG HTML §8.5.1 The DOMParser interface | *parse HTML from a string* | the new document owns its nodes | `crates/dom/elidex-form/src/inert_document.rs:120` | ✓ | yes |
-| WHATWG HTML §4.9.1 The table element | *create a table element*; `createTHead` / `createTFoot` / `createCaption` / `createTBody`; `insertRow` 2, 3.1 | given tableElement's node document | `crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs:116`, `:127`, `:138`, `:148`, `:355`, `:359` → `create_table_element` (NEW) | ✓ | yes |
-| WHATWG HTML §4.9.5 The tbody element | `insertRow` 2 | tr given this element's node document | `table_mutation/mod.rs:448` | ✓ | yes |
-| WHATWG HTML §4.9.8 The tr element | `insertCell` 2 | td given this tr element's node document | `table_mutation/mod.rs:512` | ✓ | yes |
+| WHATWG HTML §4.9.1 The table element | *create a table element*; `createTHead` / `createTFoot` / `createCaption` / `createTBody`; `insertRow` 2, 3.1 | given tableElement's node document | `crates/dom/elidex-dom-api/src/element/table_mutation/mod.rs`: `create_thead` (`:115`), `create_tfoot` (`:126`), `create_caption` (`:137`), `create_tbody` (`:147`), `insert_row_into_table` (`:354`, `:358`) → `create_table_element` (NEW) | ✓ | yes |
+| WHATWG HTML §4.9.5 The tbody element | `insertRow` 2 | tr given this element's node document | `insert_row_into_section` (`table_mutation/mod.rs:447`) | ✓ | yes |
+| WHATWG HTML §4.9.8 The tr element | `insertCell` 2 | td given this tr element's node document | `insert_cell_into_row` (`table_mutation/mod.rs:511`) | ✓ | yes |
 | WHATWG HTML §4.2.3 The base element | *set the frozen base URL* 1 | element's node document | `crates/dom/elidex-dom-api/src/element/document_base.rs:173` (callers `:313`, `:365`, `:395`) | ✓ | yes |
 | WHATWG HTML §2.4.3 Document base URLs | *document base URL* | per node document | `crates/dom/elidex-dom-api/src/element/href_accessor.rs:50`; `crates/dom/elidex-dom-api/src/char_data/document_props.rs:75` | ✓ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | *get the current value of the event handler* 3.1 (`#getting-the-current-value-of-the-event-handler`) | "document be element's node document" | clause (b) `crates/script/elidex-script-session/src/scripting.rs:97` | ✓ | yes |
@@ -360,8 +360,8 @@ unmigrated argumentless call fail to compile.
 | `element/tree.rs:431-432`; `node_methods/text_content.rs:119-120` | `insertAdjacentText` / `textContent` text | `owner_document(this)` | `this` |
 | `char_data/split_text.rs:148-149` | split tail | `owner_document(entity)` | the split node |
 | `element/select.rs:326-329`; `cssom_sheet.rs:213-214` | options; `<style>` text | `owner_document(..)` | the select; the sheet's element |
-| `table_mutation/mod.rs:116`, `:127`, `:138`, `:148`, `:355`, `:359` | thead, tfoot, caption, tbody, tr, tbody (table-created) | `None` | the table, via `create_table_element` (NEW, §4.9.1) |
-| `table_mutation/mod.rs:448`; `:512` | section's tr; row's td | `None` | the section (§4.9.5 `insertRow` 2); the row (§4.9.8 `insertCell` 2) |
+| `create_thead` (`table_mutation/mod.rs:115`), `create_tfoot` (`:126`), `create_caption` (`:137`), `create_tbody` (`:147`), `insert_row_into_table` (`:354`, `:358`) | thead, tfoot, caption, tbody, tr, tbody (table-created) | `None` | the table, via `create_table_element` (NEW, §4.9.1) |
+| `insert_row_into_section` (`table_mutation/mod.rs:447`); `insert_cell_into_row` (`:511`) | section's tr; row's td | `None` | the section (§4.9.5 `insertRow` 2); the row (§4.9.8 `insertCell` 2) |
 | `document.rs:235`, `:264`, `:291`; `char_data/document_props.rs:337`, `:353`, `:377`, `:399` | createElement and kin; a created template's contents (`:264`) | `Some(this)` | `this` (value unchanged); `:264` the template |
 | `node_methods/clone.rs:321`, `:323`, `:422` | deep clone, shallow clone, a cloned template's contents | `doc_override`; none; `clone_doc` | the entry on the operation's Document, one `NewNodeOwner` threaded to every pass (D-11, the cloners) |
 | `elidex-custom-elements/src/entity_spawn.rs:57` | CE element | caller's owner: the VM constructor passes `ctx.host().document_entity_opt()` (`crates/script/elidex-js/src/vm/host/custom_elements/html_element.rs:231`) | entry(the document argument) inside `spawn_custom_element_entity`; `None` → no element (D-11) |
