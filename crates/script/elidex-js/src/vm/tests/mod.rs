@@ -149,6 +149,7 @@ mod tests_range_stubs_validation;
 mod tests_readable_stream;
 mod tests_realtime;
 mod tests_realtime_keepalive;
+mod tests_regexp_last_index_overrun;
 mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_resize_observer;
