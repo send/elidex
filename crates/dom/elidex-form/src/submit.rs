@@ -289,7 +289,7 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
 /// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.2:
 /// the submitter's form owner must be `form`.  Delegates to the
 /// canonical §4.10.18.3 form-owner resolution path
-/// ([`resolve_form_owner`](crate::radio::resolve_form_owner)),
+/// (`crate::radio::resolve_form_owner`),
 /// which combines the `form="..."` IDREF lookup with the tree-ancestor
 /// fallback.  The empty-id edge case (`form` has no `id` or `id=""`)
 /// is handled by `find_form_by_id`'s WHATWG DOM §4.2.5 / HTML §3.2.5
