@@ -40,7 +40,7 @@ pub(in crate::vm) use stringify::{
 /// 600 = 760 less >= 20% (608), rounded down to a multiple of 50. The
 /// `parse_reviver_*` cells in `tests_json.rs` (cap - 10 must pass) ratchet
 /// this against frame growth. An iterative `internalize` would remove the
-/// constraint (not done here).
+/// constraint; iterative walks for all three are `#11-vm-json-walkers-iterative`.
 ///
 /// Thread survey: every VM thread in elidex-shell `app/tab.rs`,
 /// `app/sw_coordinator.rs`, `content/iframe/load.rs`, `content/mod.rs` and the
