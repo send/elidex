@@ -36,10 +36,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
-// `DEFAULT_IDLE_TIMEOUT` (30 s) is the one home of both the idle-exit bound
-// *and* the `respondWith` / `waitUntil` drain bound (SW §4.4.1 timed-out flag /
-// §4.6.7); this module reads it, never a copy (a copy could drift from the
-// coordinator's `SwHandle` and nothing would go red).
+// `DEFAULT_IDLE_TIMEOUT` is the one home of both the idle-exit bound *and* the
+// `respondWith` / `waitUntil` drain bound (SW §4.4 ExtendableEvent's "timed out
+// flag" / §4.6.7 `event.respondWith(r)`); this module reads it, never a copy (a
+// copy could drift from the coordinator's `SwHandle` and nothing would go red).
 use elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
 use elidex_api_sw::{ClientSnapshot, ContentToSw, LifecycleEvent, SwResponse, SwToContent};
 use elidex_ecs::EcsDom;

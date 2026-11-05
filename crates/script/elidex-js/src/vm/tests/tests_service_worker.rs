@@ -115,7 +115,7 @@ impl Harness {
     /// The next reply; the only failure is the SW thread exiting without one.
     fn recv(&self) -> SwToContent {
         self.next_reply()
-            .unwrap_or_else(|| panic!("SW thread exited without replying"))
+            .expect("SW thread exited without replying")
     }
 
     /// Read replies until one satisfies `pred`, returning it (skips unrelated
@@ -261,7 +261,7 @@ fn install_wait_until_reject_fails() {
 }
 
 #[test]
-fn install_wait_until_timer_resolve_within_bound_succeeds() {
+fn install_wait_until_timer_resolve_succeeds() {
     // `waitUntil` settled via a real timer (drained by the pump), not a
     // microtask — proves the pump advances timers.
     let h = Harness::spawn(
