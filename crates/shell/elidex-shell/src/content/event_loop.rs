@@ -86,15 +86,20 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
             // a poll-interval delay (plan §4.1 Liveness). Same category as the existing
             // animation/timer timeout inputs. A pending in-process child rendering update
             // (an iframe registered after this turn's `re_render_all_iframes`) folds in the
-            // same way, so step 5 renders it without a poll-interval delay.
+            // same way, and so is an in-process child's earliest timer deadline, so step 5 renders /
+            // ticks it without a poll-interval delay.
             let timeout =
                 if state.traversal_queue.is_empty() && !iframe::any_iframe_needs_render(state) {
                     let now_for_timeout = Instant::now();
-                    let timer_timeout = state
-                        .pipeline
-                        .runtime
-                        .next_timer_deadline()
-                        .map(|d| d.saturating_duration_since(now_for_timeout));
+                    // Parent and in-process child timers share one earliest deadline.
+                    let timer_timeout = [
+                        state.pipeline.runtime.next_timer_deadline(),
+                        iframe::next_iframe_timer_deadline(state),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .map(|d| d.saturating_duration_since(now_for_timeout));
                     if state.pipeline.animation_engine.has_running() {
                         let next_frame = *last_frame + FRAME_INTERVAL;
                         let frame_remaining = next_frame

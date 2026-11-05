@@ -60,6 +60,22 @@ pub(in crate::content) fn any_iframe_needs_render(state: &crate::content::Conten
     )
 }
 
+/// Earliest pending timer deadline across in-process iframes. PEEK only —
+/// [`tick_iframe_timers`] stays the single consumer. Folded into the event
+/// loop's idle-wait timeout so a child timer wakes the parent's wait.
+pub(in crate::content) fn next_iframe_timer_deadline(
+    state: &crate::content::ContentState,
+) -> Option<std::time::Instant> {
+    state
+        .iframes
+        .iter()
+        .filter_map(|(_, entry)| match entry.handle {
+            IframeHandle::InProcess(ref ip) => ip.pipeline.runtime.next_timer_deadline(),
+            IframeHandle::OutOfProcess(_) => None,
+        })
+        .min()
+}
+
 /// Drain timers for in-process (same-origin) iframes.
 ///
 /// Timers always run (for correctness), but layout/render is deferred

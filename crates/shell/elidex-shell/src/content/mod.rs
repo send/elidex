@@ -417,8 +417,8 @@ impl ContentState {
         // `<iframe>` and this pass blurs the child, clearing
         // its JS-observable `activeElement` and dropping `focused_iframe` so key
         // routing stops. A non-focusable iframe is not composited, so its display
-        // list staleness is moot — `blur_iframe_focus` flags `needs_render` for a
-        // later un-hide (Codex S2 R8). (The parent / in-process / OOP step-17
+        // list staleness is moot — `blur_iframe_focus` flags `needs_render`, which the
+        // next turn consumes (`any_iframe_needs_render`; Codex S2 R8). (The parent / in-process / OOP step-17
         // fixup itself shares the one `crate::re_render` chokepoint — see there.)
         event_handlers::reconcile_focused_iframe(self);
 

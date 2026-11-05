@@ -188,7 +188,7 @@ texts are the per-PR plans', with the amendments below. Re-eval dates are propos
 | CP-3 | `#11-number-input-user-edit-path` | L4 (shell), interim owner Layout (PM 312) | number has no user edit path at all | the next PR touching number-input editing | 2026-12-15 | (1) landing |
 | CP-4 | `#11-select-keyboard-change-event` | L4 (shell), interim owner Layout (PM 312) | select's own event, not text controls | next PR touching select interaction | 2026-12-15 | (1) landing |
 | FF-1 | `#11-cross-document-rendering-order` | Layout | multi-document order, not the fixup | the probe in plan (2) FF-1 (§8.1); re-probe at `#11-windowproxy-browsing-context` | 2026-12-15 | (2) landing |
-| FF-2 | `#11-radio-group-same-tree-filter` | L3 | radio semantics, not the fixup | next PR touching radio-group semantics | 2026-12-15 | (2) landing |
+| FF-2 | `#11-radio-group-same-tree-filter` | L3 | radio semantics, not the fixup | implemented by PR (2): `find_radio_group_scoped` (`crates/dom/elidex-form/src/radio.rs`; same tree + non-empty name); ledger row closed by the PM at landing | 2026-12-15 | (2) landing |
 | FF-3 | `#11-ime-composition-end-on-blur` | L3 (proposed) | platform IME wiring; carries X5 (FP-2) | Chromium measurement, or the first PR wiring IME commit / cancel | 2026-12-15 | (2) landing |
 | FF-4 | `#11-form-owner-ecs-component` | L3 | migration is edge-dense, outside (2) (Axis 2 picked (Y), PM 292) | plan (2) §8.1 FF-4 | PM sets at landing | (2) landing |
 | O1 | obligation on `#11-focusable-area-being-rendered` | Layout (CV-focus) | needs computed style in the predicate | the CV erratum names the leg (e5) | 2026-12-15 | (2) landing |

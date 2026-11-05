@@ -405,6 +405,70 @@ fn in_process_iframe_timer_disabled_runs_focus_fixup_with_idle_parent() {
     );
 }
 
+/// Idle-wait half of the S9 fix: a child `needs_render` set after the turn's
+/// `re_render_all_iframes` (late registration; simulated by setting the flag
+/// directly) folds into the idle-wait timeout as zero, so the next `pump_turn`
+/// renders the child without waiting `DEFAULT_POLL_INTERVAL` (100 ms). The
+/// margin is 2x (50 ms bound) over a turn that otherwise only does the render.
+#[test]
+fn in_process_iframe_late_needs_render_skips_idle_wait() {
+    let (mut state, _browser) =
+        build_test_content_state(r#"<iframe id=f srcdoc="<p id=p>x</p>"></iframe>"#, "");
+    let entity = super::test_support::iframe_entity(&state);
+    let mut last_frame = std::time::Instant::now();
+    // Settle: drain whatever the load left pending.
+    for _ in 0..3 {
+        assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
+    }
+    match &mut state.iframes.get_mut(entity).expect("entry").handle {
+        super::iframe::IframeHandle::InProcess(ip) => ip.needs_render = true,
+        super::iframe::IframeHandle::OutOfProcess(_) => panic!("expected in-process"),
+    }
+    let start = std::time::Instant::now();
+    assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
+    let elapsed = start.elapsed();
+    assert!(
+        !super::iframe::any_iframe_needs_render(&state),
+        "the child rendering update ran this turn"
+    );
+    assert!(
+        elapsed < super::DEFAULT_POLL_INTERVAL / 2,
+        "the idle wait must not be taken (elapsed {elapsed:?})"
+    );
+}
+
+/// A child timer deadline folds into the parent's idle-wait timeout: with a 30 ms
+/// child timer and an idle parent, the turn that drains it returns well before
+/// `DEFAULT_POLL_INTERVAL` (100 ms; bound 80 ms).
+#[test]
+fn in_process_iframe_timer_deadline_wakes_idle_wait() {
+    let (mut state, _browser) = build_test_content_state(
+        r#"<iframe id=f srcdoc="<p id=p>x</p><script>setTimeout(() => {}, 30);</script>"></iframe>"#,
+        "",
+    );
+    assert!(
+        super::iframe::next_iframe_timer_deadline(&state).is_some(),
+        "precondition: child timer pending"
+    );
+    let mut last_frame = std::time::Instant::now();
+    let start = std::time::Instant::now();
+    for _ in 0..10 {
+        assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
+        if super::iframe::next_iframe_timer_deadline(&state).is_none() {
+            break;
+        }
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        super::iframe::next_iframe_timer_deadline(&state).is_none(),
+        "the child timer fired"
+    );
+    assert!(
+        elapsed < super::DEFAULT_POLL_INTERVAL * 4 / 5,
+        "the child deadline must bound the idle wait (elapsed {elapsed:?})"
+    );
+}
+
 /// C16: an OOP child's own per-frame `crate::re_render` runs the fixup: its
 /// `blur` listener posts what it saw.
 #[test]
