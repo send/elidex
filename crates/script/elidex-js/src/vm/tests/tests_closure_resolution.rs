@@ -73,6 +73,8 @@ fn nested_fn_sees_lexically_enclosing_binding() {
         ),
         2.0
     );
+    // Control (no same-name shadowing, so green before F2 too): a depth-2
+    // capture through a middle function still resolves.
     assert_eq!(
         eval_number(
             "function outer() {
