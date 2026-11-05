@@ -89,20 +89,18 @@ fn to_length(n: f64) -> f64 {
 /// prototype chain and invokes the user's setter when installed.  The
 /// previous direct-slot fast path silently clobbered an Accessor slot
 /// with a Data value, deleting any user-installed getter/setter.
-/// Setter errors are swallowed here because internal regex dispatch
-/// paths (exec/match/replace internal resets) aren't structured to
-/// propagate yet; `search`'s save/restore uses `set_property_val`
-/// directly to surface errors.
+/// Errors (a throwing setter, a non-writable `lastIndex`) propagate: the
+/// spec's `? Set(.., true)` throws TypeError on a failed write.
 pub(super) fn set_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
     idx: usize,
-) {
+) -> Result<(), VmError> {
     #[allow(clippy::cast_precision_loss)]
     let val = JsValue::Number(idx as f64);
-    let _ = ctx
-        .vm
-        .set_property_val(JsValue::Object(obj_id), ctx.vm.well_known.last_index, val);
+    ctx.vm
+        .set_property_val(JsValue::Object(obj_id), ctx.vm.well_known.last_index, val)?;
+    Ok(())
 }
 
 // -- String.prototype methods -----------------------------------------------
@@ -492,7 +490,7 @@ pub(super) fn native_string_replace(
 
             // Reset lastIndex before dispatching; loop only when global.
             // Sticky (y) is enforced internally by run_regexp via lastIndex.
-            set_regexp_last_index(ctx, re_id, 0);
+            set_regexp_last_index(ctx, re_id, 0)?;
             let result: Vec<u16> = if is_global {
                 let mut out = Vec::new();
                 let mut last_end = 0;
@@ -502,7 +500,7 @@ pub(super) fn native_string_replace(
                     last_end = m.end();
                     // Prevent infinite loop on zero-length match.
                     if m.start() == m.end() {
-                        set_regexp_last_index(ctx, re_id, m.end() + 1);
+                        set_regexp_last_index(ctx, re_id, m.end() + 1)?;
                     }
                 }
                 out.extend_from_slice(&subject[last_end..]);
@@ -593,7 +591,7 @@ pub(super) fn native_string_match(
 
         if is_global {
             // Use run_regexp loop for correct sticky (gy) semantics.
-            set_regexp_last_index(ctx, re_id, 0);
+            set_regexp_last_index(ctx, re_id, 0)?;
             let mut matches = Vec::new();
             while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
                 if matches.len() >= DENSE_ARRAY_LEN_LIMIT {
@@ -601,7 +599,7 @@ pub(super) fn native_string_match(
                 }
                 matches.push(ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]));
                 if m.start() == m.end() {
-                    set_regexp_last_index(ctx, re_id, m.end() + 1);
+                    set_regexp_last_index(ctx, re_id, m.end() + 1)?;
                 }
             }
             (
@@ -685,7 +683,7 @@ pub(super) fn native_string_search(
     let saved_value = ctx
         .try_get_property_value(re_id, last_index_key)?
         .unwrap_or(JsValue::Undefined);
-    set_regexp_last_index(ctx, re_id, 0);
+    set_regexp_last_index(ctx, re_id, 0)?;
     let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
     ctx.vm.set_property_val(
         JsValue::Object(re_id),

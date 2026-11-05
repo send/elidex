@@ -96,3 +96,23 @@ fn exec_non_global_ignores_large_last_index_and_does_not_reset() {
 fn ordinary_global_replace_still_works() {
     assert_eq!(eval_str_guarded("'aaa'.replace(/a/g, 'b')"), "bbb");
 }
+
+#[test]
+fn exec_sticky_empty_pattern_last_index_beyond_length_returns_null_and_resets() {
+    // A clamp to length would let `/$/y` match "" at the end here.
+    assert_eq!(
+        eval_str_guarded("var r=/$/y; r.lastIndex=5; var m=r.exec('a'); String(m)+':'+r.lastIndex"),
+        "null:0"
+    );
+}
+
+#[test]
+fn exec_global_non_writable_last_index_write_throws_type_error() {
+    // `? Set(R, "lastIndex", .., true)` propagates the failed write.
+    assert_eq!(
+        eval_str_guarded(
+            "var r=/$/g; Object.defineProperty(r,'lastIndex',{value:5,writable:false}); try { r.exec('a'); 'no throw' } catch(e) { e.name }"
+        ),
+        "TypeError"
+    );
+}

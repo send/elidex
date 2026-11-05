@@ -36,9 +36,11 @@ pub(super) fn run_regexp(
     };
     let uses_last_index = is_global || is_sticky;
 
-    // RegExpBuiltinExec steps 2, 7 and 13.a: `lastIndex` is `ToLength(Get(..))`
+    // RegExpBuiltinExec steps 7 and 13.a: `lastIndex` is `ToLength(Get(..))`
     // and is NOT clamped to the string length. For a non-g/non-y regexp the
-    // working lastIndex is 0 (step 7). For g/y, `lastIndex > length` fails the
+    // working lastIndex is 0 (step 7). Known deviation: step 2's unconditional
+    // read is not implemented for non-g/y — owned by umbrella 8's
+    // RegExpBuiltinExec child. For g/y, `lastIndex > length` fails the
     // match, resets the property to 0 and returns null (step 13.a.i); a clamp
     // here makes a zero-width match at the end repeat forever in the global
     // replace/match loops. `subject` is a WTF-16 slice, so `length` and
@@ -47,12 +49,13 @@ pub(super) fn run_regexp(
         let raw = super::natives_string::get_regexp_last_index(ctx, obj_id)?;
         #[allow(clippy::cast_precision_loss)]
         if raw > subject.len() as f64 {
-            super::natives_string::set_regexp_last_index(ctx, obj_id, 0);
+            super::natives_string::set_regexp_last_index(ctx, obj_id, 0)?;
             return Ok(None);
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = raw as usize;
-        idx
+        {
+            raw as usize
+        }
     } else {
         0
     };
@@ -74,7 +77,7 @@ pub(super) fn run_regexp(
     // Update lastIndex (UTF-16 code unit index, no conversion needed).
     if uses_last_index {
         let new_idx = found.as_ref().map_or(0, regress::Match::end);
-        super::natives_string::set_regexp_last_index(ctx, obj_id, new_idx);
+        super::natives_string::set_regexp_last_index(ctx, obj_id, new_idx)?;
     }
 
     Ok(found)
