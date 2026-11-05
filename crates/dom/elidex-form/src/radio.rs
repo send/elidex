@@ -66,8 +66,9 @@ pub fn toggle_radio(dom: &mut EcsDom, entity: Entity) -> bool {
         return false;
     };
 
-    // Clicking an already-checked radio leaves it checked (observed browser
-    // behaviour; not stated as spec text).
+    // HTML §4.10.5 The input element, legacy-pre-activation behavior step 2:
+    // the clicked radio's checkedness is set to true, so an already-checked
+    // radio stays checked.
     if was_checked {
         return false;
     }
