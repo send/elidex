@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use super::super::{EcsDom, MAX_ANCESTOR_DEPTH};
+use super::super::{CloneScope, EcsDom, MAX_ANCESTOR_DEPTH};
 use crate::components::{Attributes, NodeKind, ShadowRoot};
 use hecs::Entity;
 
@@ -47,7 +47,7 @@ impl EcsDom {
     /// heap budget against pathological inputs).
     ///
     /// Used by Custom Elements `customElements.upgrade(root)` (HTML
-    /// §4.13.4 step 8), by `CustomElementReactionConsumer` for the
+    /// §4.13.4 `upgrade(root)` step 1), by `CustomElementReactionConsumer` for the
     /// `Connected` / `Disconnected` per-subtree fan-out, and by
     /// `descendants_shadow_inclusive` in `elidex_dom_api` (which is
     /// now a thin re-export).
@@ -129,8 +129,84 @@ impl EcsDom {
         }
     }
 
+    /// Visit the nodes a "clone a node" call created, in creation order
+    /// (WHATWG DOM §4.4 "clone a node": step 2 the node, step 5 its light
+    /// children each in full, step 6.7 its shadow root's children).
+    ///
+    /// - [`CloneScope::Subtree`]: `root`, its light-child subtrees, then its
+    ///   shadow-child subtrees, recursively (the shadow-root entity itself is
+    ///   not visited).
+    /// - [`CloneScope::SelfOnly`]: `root`; then, if it hosts a shadow root `sr`,
+    ///   `sr` and then `sr`'s shadow-inclusive descendants in the order above.
+    ///   The root's light children are never visited.
+    /// - Template contents are not entered under either scope (a `<template>`
+    ///   clone's content fragment is outside tree order, `TemplateContentsWalk`
+    ///   above): an interim carried by this walk's shape, folded into slot
+    ///   `#11-document-null-registry-adopt-reset` (RC-2a plan §3).
+    ///
+    /// This is creation order, not DOM §4.8 "shadow-including tree order" (which
+    /// visits a host's shadow tree before its light children).
+    ///
+    /// Iterative with an explicit work-list (no Rust recursion); breadth uses the
+    /// uncapped [`Self::child_list_uncapped`]. Termination: a `visited` set
+    /// enumerates each entity once, however malformed the links. There is no
+    /// `MAX_ANCESTOR_DEPTH` cap because the cloner (`clone_children_recursive`
+    /// in `tree_clone.rs`) copies with no depth cap, so a capped walk would leave
+    /// clone elements deeper than the cap without the custom-element and form
+    /// processing the spec gives them; the work-list is bounded by the clone's
+    /// own size.
+    // #11-capped-walker-deep-element-processing: the capped `for_each_shadow_inclusive_descendant` and this uncapped walk coexist only until that slot's PR replaces both with one bounding rule.
+    pub fn for_each_clone_created<F>(&self, root: Entity, scope: CloneScope, visit: &mut F)
+    where
+        F: FnMut(Entity),
+    {
+        let mut visited: HashSet<Entity> = HashSet::new();
+        let mut stack: Vec<Entity> = Vec::new();
+        visited.insert(root);
+        visit(root);
+        match scope {
+            CloneScope::Subtree => self.push_clone_children(root, &mut stack),
+            CloneScope::SelfOnly => {
+                if let Some(sr) = self.get_shadow_root(root) {
+                    if visited.insert(sr) {
+                        visit(sr);
+                        // `sr`'s children, as if `sr` were a plain root.
+                        self.push_shadow_children(root, &mut stack);
+                    }
+                }
+            }
+        }
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            visit(node);
+            self.push_clone_children(node, &mut stack);
+        }
+    }
+
+    /// Push `node`'s clone-creation successors so `pop()` yields its light
+    /// children (in order) before its shadow root's children (in order).
+    fn push_clone_children(&self, node: Entity, stack: &mut Vec<Entity>) {
+        self.push_shadow_children(node, stack);
+        self.push_light_children(node, stack);
+    }
+
+    /// Push the children of `node`'s shadow root (if any) so `pop()` yields
+    /// them in order.
+    fn push_shadow_children(&self, node: Entity, stack: &mut Vec<Entity>) {
+        if let Some(sr) = self.get_shadow_root(node) {
+            stack.extend(self.child_list_uncapped(sr).into_iter().rev());
+        }
+    }
+
+    /// Push `node`'s light children so `pop()` yields them in order.
+    fn push_light_children(&self, node: Entity, stack: &mut Vec<Entity>) {
+        stack.extend(self.child_list_uncapped(node).into_iter().rev());
+    }
+
     /// Returns `true` if `entity`'s shadow-including root is a
-    /// `Document` (WHATWG DOM §4.4 "connected"). A `Document` entity
+    /// `Document` (WHATWG DOM §4.2.2 Shadow tree, "connected"). A `Document` entity
     /// itself counts as connected — its shadow-including root IS a
     /// Document (self).
     ///
@@ -246,12 +322,12 @@ impl EcsDom {
     /// [`Self::is_ancestor_or_self`] but stops at the shadow
     /// boundary.  A [`ShadowRoot`] component terminates the walk —
     /// hosts therefore do **not** light-tree-contain their shadow
-    /// descendants, matching WHATWG "descendant" semantics (§4.2.1).
+    /// descendants, matching DOM §1.1 Trees "descendant" semantics.
     /// Queries where the ancestor **is** the shadow root itself
     /// still succeed — `entity == ancestor` is checked before the
     /// boundary test on each iteration.
     ///
-    /// Used by `Node.prototype.contains` (WHATWG §4.4.2) so
+    /// Used by `Node.prototype.contains` (DOM §4.4 Interface Node `contains(other)`) so
     /// `host.contains(nodeInShadowTree)` returns `false` in step
     /// with `childNodes`, `firstChild`, and the rest of the
     /// light-tree navigation surface.

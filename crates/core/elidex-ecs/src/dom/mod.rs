@@ -29,7 +29,7 @@ mod tree_clone;
 
 pub use attribute::AttributeWrite;
 pub use geometry::{FragmentView, ScreenGeometry};
-pub use mutation_event::{MutationDispatcher, MutationEvent};
+pub use mutation_event::{CloneScope, MutationDispatcher, MutationEvent};
 pub(crate) use text_util::splice_utf16;
 pub use tree::TemplateContentsWalk;
 
@@ -45,6 +45,16 @@ use std::borrow::Cow;
 /// Also used by `elidex-css` selector matching to cap descendant walks.
 pub const MAX_ANCESTOR_DEPTH: usize = 10_000;
 
+/// The mutation-dispatcher slot. `Taken` is a dispatcher handed out by
+/// `take_mutation_dispatcher` for a window (despawn / throwaway parse); the
+/// caller's restore is pending. `Absent` is "never installed", "cleared at
+/// unbind", or the slot during a dispatch (`dispatch_depth > 0` says which).
+enum DispatcherSlot {
+    Absent,
+    Installed(Box<dyn MutationDispatcher + Send + Sync>),
+    Taken,
+}
+
 /// ECS-backed DOM storage.
 ///
 /// Each DOM node is an `Entity` in the `hecs::World`, with component data
@@ -59,11 +69,11 @@ pub struct EcsDom {
     /// `append_child` / `insert_before` / `remove_child` /
     /// `replace_child` / `destroy_entity` / `set_text_data` /
     /// `replace_text_data` / `set_attribute` / `attr_remove` /
-    /// `fire_split_text` / `fire_normalize_merge`.  Single dispatcher
+    /// `fire_split_text` / `fire_normalize_merge` / `fire_clone_created`.  Single dispatcher
     /// per [`Self`] — multi-consumer composition is handled by a
     /// typed composer (`elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) impl'ing
     /// [`MutationDispatcher`] with typed consumer fields.
-    dispatcher: Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    dispatcher: DispatcherSlot,
     /// Re-entry detection counter — incremented at the start of every
     /// [`Self::dispatch_event`] invocation, decremented in
     /// [`RestoreDispatcher::drop`].  Used by [`Self::dispatch_event`]
@@ -107,11 +117,13 @@ pub struct EcsDom {
 /// stays in `pending`, and `Drop` writes back through the same borrow
 /// afterwards.  Unwinding drops the guard, so the slot and the counter
 /// are restored on the panic path as well.  The callback can reach
-/// `dispatcher` / `dispatch_depth` itself.  A dispatcher *installed*
-/// from inside a dispatch would be overwritten by the restore; the debug
-/// assertion in `Drop` reports that.  A dispatcher *cleared* or taken
-/// from inside a dispatch cannot be told apart (the slot is already
-/// empty), so the restore silently puts the old one back.
+/// `dispatcher` / `dispatch_depth` itself.  `Drop` always restores the
+/// slot and the counter first, then reports: a dispatcher *installed* from
+/// inside a dispatch (the slot is `Installed` at drop) is displaced by the
+/// restore and trips the debug assertion, after the state is already
+/// consistent.  A dispatcher *cleared* or taken from inside a dispatch
+/// cannot be told apart (the slot is `Absent` either way), so the restore
+/// silently puts the old one back.
 struct RestoreDispatcher<'a> {
     dom: &'a mut EcsDom,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
@@ -119,13 +131,19 @@ struct RestoreDispatcher<'a> {
 
 impl Drop for RestoreDispatcher<'_> {
     fn drop(&mut self) {
-        debug_assert!(
-            self.dom.dispatcher.is_none() || std::thread::panicking(),
-            "a dispatcher was installed inside MutationDispatcher::dispatch; \
-             the take-and-restore would overwrite it"
+        let displaced = std::mem::replace(
+            &mut self.dom.dispatcher,
+            match self.pending.take() {
+                Some(d) => DispatcherSlot::Installed(d),
+                None => DispatcherSlot::Absent,
+            },
         );
-        self.dom.dispatcher = self.pending.take();
         self.dom.dispatch_depth = self.dom.dispatch_depth.saturating_sub(1);
+        debug_assert!(
+            !matches!(displaced, DispatcherSlot::Installed(_)) || std::thread::panicking(),
+            "a dispatcher was installed inside MutationDispatcher::dispatch; \
+             the take-and-restore overwrote it"
+        );
     }
 }
 
@@ -135,7 +153,7 @@ impl EcsDom {
         Self {
             world: World::new(),
             document_root: None,
-            dispatcher: None,
+            dispatcher: DispatcherSlot::Absent,
             dispatch_depth: 0,
             fragment_tree: crate::FragmentTree::default(),
             version_propagation_suppressed: false,
@@ -162,26 +180,44 @@ impl EcsDom {
 
     /// Install the (single) mutation event dispatcher.  Returns the
     /// previously-installed dispatcher (if any) for replace-then-
-    /// retrieve patterns.  Production caller: `Vm::bind` installs a
-    /// `ConsumerDispatcher` composing the mutation consumers.
+    /// retrieve patterns; a window's restore (slot `Taken`) returns `None`.
+    /// Production caller: `Vm::bind` installs a `ConsumerDispatcher`
+    /// composing the mutation consumers.
     pub fn set_mutation_dispatcher(
         &mut self,
         dispatcher: Box<dyn MutationDispatcher + Send + Sync>,
     ) -> Option<Box<dyn MutationDispatcher + Send + Sync>> {
-        self.dispatcher.replace(dispatcher)
+        match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Installed(dispatcher)) {
+            DispatcherSlot::Installed(previous) => Some(previous),
+            DispatcherSlot::Absent | DispatcherSlot::Taken => None,
+        }
     }
 
-    /// Drop the installed dispatcher, if any.
+    /// Drop the installed dispatcher, if any.  Also closes a pending
+    /// take-window (`Taken`): unbind is legitimate at any time.
     pub fn clear_mutation_dispatcher(&mut self) {
-        self.dispatcher = None;
+        self.dispatcher = DispatcherSlot::Absent;
     }
 
     /// Take the installed dispatcher out without dropping it.
-    /// Returns `None` if none was installed.
+    /// Returns `None` if none was installed (or one is already taken).
+    ///
+    /// **Contract**: a take that returned `Some` owes a restore
+    /// ([`Self::set_mutation_dispatcher`] with the box) or a
+    /// [`Self::clear_mutation_dispatcher`].  Until then the slot is
+    /// `Taken`, and a [`Self::fire_clone_created`] in that state asserts in
+    /// debug builds (the event would be dropped).  A take that finds nothing
+    /// returns `None` and opens no window.
     pub fn take_mutation_dispatcher(
         &mut self,
     ) -> Option<Box<dyn MutationDispatcher + Send + Sync>> {
-        self.dispatcher.take()
+        match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Taken) {
+            DispatcherSlot::Installed(d) => Some(d),
+            previous @ (DispatcherSlot::Absent | DispatcherSlot::Taken) => {
+                self.dispatcher = previous;
+                None
+            }
+        }
     }
 
     /// Dispatch one [`MutationEvent`] to the installed dispatcher (if
@@ -204,8 +240,13 @@ impl EcsDom {
              (see `MutationDispatcher::dispatch` docstring).  Queue the \
              work via per-consumer deferred state instead."
         );
-        let Some(dispatcher) = self.dispatcher.take() else {
-            return;
+        let dispatcher = match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Absent) {
+            DispatcherSlot::Installed(d) => d,
+            // Absent / Taken: no dispatcher; the slot is left as it is.
+            other => {
+                self.dispatcher = other;
+                return;
+            }
         };
         self.dispatch_depth = self.dispatch_depth.saturating_add(1);
         let mut guard = RestoreDispatcher {
@@ -247,7 +288,7 @@ impl EcsDom {
     }
 
     /// Fire [`MutationEvent::NormalizeMerge`] from a caller in another
-    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` step 6.4.
+    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` steps 6.1–6.4.
     ///
     /// **Caller ordering contract**: MUST be invoked AFTER `prev` has
     /// absorbed `merged_child`'s data but BEFORE `merged_child` is
@@ -271,6 +312,23 @@ impl EcsDom {
             merged_child_index,
         };
         self.dispatch_event(&event);
+    }
+
+    /// Fire [`MutationEvent::CloneCreated`]: a DOM §4.4 "clone a node" call
+    /// created `root` and (per `scope`) its descendants.
+    ///
+    /// **Caller ordering contract**: MUST be invoked after the whole copy
+    /// exists and before the cloning entry returns.  Debug-asserts that the
+    /// dispatcher slot is not `Taken` (see [`Self::take_mutation_dispatcher`]).
+    pub fn fire_clone_created(&mut self, root: Entity, scope: CloneScope) {
+        debug_assert!(
+            !matches!(self.dispatcher, DispatcherSlot::Taken),
+            "fire_clone_created while the mutation dispatcher is taken out \
+             (take_mutation_dispatcher without its restore or clear): the CloneCreated \
+             event would be dropped and the clone's custom-element upgrade and form-state \
+             passes lost.  Restore the dispatcher before cloning."
+        );
+        self.dispatch_event(&MutationEvent::CloneCreated { root, scope });
     }
 
     /// Provides read-only access to the underlying `hecs::World`.
@@ -403,7 +461,7 @@ impl EcsDom {
     /// For transient / throwaway documents that must not clobber the
     /// persistent [`document_root()`](Self::document_root) cache — e.g. the
     /// WHATWG HTML §13.4 fragment parsing algorithm's throwaway document
-    /// (step 2), which exists only to own the fragment's nodes during the
+    /// (step 4), which exists only to own the fragment's nodes during the
     /// parse and is despawned afterwards. Sharing the spawn with
     /// [`create_document_root`](Self::create_document_root) keeps the
     /// `Document` node shape (`TreeRelation` + base URL) defined in one place.
@@ -423,7 +481,7 @@ impl EcsDom {
         self.document_root
     }
 
-    /// Create a Window root entity (WHATWG HTML §7.2).
+    /// Create a Window root entity (WHATWG HTML §7.2.2).
     ///
     /// The Window entity is **not** a Node and does **not** participate in
     /// the DOM tree: it carries only the [`NodeKind::Window`] component and

@@ -105,7 +105,7 @@ pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
 /// JS-created form control moved into `template.content` keeps its
 /// `FormControlState` (created at `createElement` time), so any FCS-touching
 /// walk that must cover template-encapsulated controls (parse-into-inert-document
-/// FCS attach; the clone form-state copy) has to add the template-content
+/// FCS attach) has to add the template-content
 /// frontier itself. The whole-page parse path instead reaches these via a
 /// whole-world `init_form_controls` query.
 pub(crate) fn collect_template_inclusive_descendants(dom: &EcsDom, root: Entity) -> Vec<Entity> {

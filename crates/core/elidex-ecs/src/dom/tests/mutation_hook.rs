@@ -11,7 +11,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::dom::{MutationDispatcher, MutationEvent};
+use crate::dom::{CloneScope, MutationDispatcher, MutationEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum MockEvent {
@@ -48,6 +48,10 @@ pub(super) enum MockEvent {
         prev_old_len: usize,
         parent: Option<Entity>,
         merged_child_index: Option<usize>,
+    },
+    CloneCreated {
+        root: Entity,
+        scope: CloneScope,
     },
 }
 
@@ -144,6 +148,12 @@ impl MutationDispatcher for MockHook {
             }
             MutationEvent::AttributeChange { .. } => {
                 // Generic MockHook does not record attribute events.
+            }
+            MutationEvent::CloneCreated { root, scope } => {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(MockEvent::CloneCreated { root, scope });
             }
         }
     }
@@ -276,8 +286,8 @@ fn replace_child_fires_remove_then_insert_at_same_index() {
 fn replace_child_with_earlier_sibling_reports_post_shift_index() {
     // When new_child is an earlier sibling of old_child in the same parent,
     // detach(new_child) shifts old_child down by one. The hook MUST report
-    // the post-shift index for the old_child removal (WHATWG DOM §5.5
-    // "remove a node" step 4). The implicit detach of new_child also fires
+    // the post-shift index for the old_child removal (DOM §4.2.3 "remove"
+    // step 3 → live range pre-remove steps (DOM §5.6 Interface Range), step 3). The implicit detach of new_child also fires
     // its own after_remove at new_child's pre-detach index.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
@@ -566,9 +576,10 @@ fn index_in_parent_returns_none_for_orphan() {
 #[test]
 fn append_child_fires_after_remove_for_old_parent_on_move() {
     // Moving a node between parents must fire `after_remove` on the
-    // implicit detach from the old parent (per WHATWG insert algorithm
-    // step "If node has a parent, then remove node") so Range live-
-    // tracking sees the §5.5 step 4-6 adjustment.
+    // implicit detach from the old parent (DOM §4.2.3 "insert" step 7.1
+    // adopts node; DOM §4.5 "adopt" step 2: "If node's parent is non-null,
+    // then remove node") so Range live-tracking sees the live range
+    // pre-remove steps 4–7 adjustment (DOM §5.6 Interface Range).
     let mut dom = EcsDom::new();
     let old_parent = elem(&mut dom, "section");
     let new_parent = elem(&mut dom, "article");
@@ -629,8 +640,9 @@ fn insert_before_fires_after_remove_for_old_parent_on_move() {
 
 #[test]
 fn replace_child_fires_after_remove_for_new_child_old_parent() {
-    // WHATWG *adopt* step 2: "If node's parent is non-null, then
-    // remove node" (reached through *replace* step 6). This implicit removal must fire `after_remove` on
+    // WHATWG DOM §4.2.3 "replace" step 6 adopts node, and DOM §4.5
+    // "adopt" step 2: "If node's parent is non-null, then remove node".
+    // This implicit removal must fire `after_remove` on
     // the new_child's old parent, in addition to the
     // remove(old_child) + insert(new_child) pair on `parent`.
     let mut dom = EcsDom::new();
@@ -671,7 +683,7 @@ fn replace_child_fires_after_remove_for_new_child_old_parent() {
 fn attach_shadow_does_not_fire_hook_events() {
     // Light-tree-only contract: `attach_shadow` plumbs the shadow root
     // into the host's child list (via internal `append_child`), but per
-    // WHATWG §5.5 light-tree consumers (e.g. `LiveRangeRegistry`) must
+    // WHATWG DOM §5.6 Interface Range light-tree consumers (e.g. `LiveRangeRegistry`) must
     // NOT see `after_insert(shadow_root, host, ...)`. Asserting that the
     // event log stays empty here pins the suppression contract in tree.rs.
     use crate::ShadowRootMode;

@@ -411,3 +411,80 @@ fn event_leg_and_record_leg_share_one_classification() {
         other => panic!("legs diverged: {other:?}"),
     }
 }
+
+/// Engine-level pin for the `CloneCreated` arm: exactly ONE `Upgrade` per
+/// created candidate (a duplicated enqueue is hidden at the JS level, where
+/// the second `Upgrade` is a `prepare_upgrade` Skip and the constructor still
+/// runs once), in creation order, and `scope` decides whether the root's light
+/// descendants are candidates at all.
+#[test]
+fn clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope() {
+    use elidex_ecs::{CloneScope, MutationEvent, Namespace};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    let mut dom = EcsDom::new();
+    let root = dom.create_element("x-el", elidex_ecs::Attributes::default());
+    let child = dom.create_element("x-el", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(root, child));
+    for e in [root, child] {
+        dom.world_mut()
+            .insert_one(
+                e,
+                CustomElementState::for_created_element("x-el", None, Namespace::Html).unwrap(),
+            )
+            .unwrap();
+    }
+    let mut registry = CustomElementRegistry::new();
+    registry
+        .define(CustomElementDefinition::new(
+            "x-el".to_string(),
+            1,
+            Vec::new(),
+            None,
+        ))
+        .unwrap();
+    let registry = Arc::new(Mutex::new(registry));
+    let queue: Arc<Mutex<VecDeque<CustomElementReaction>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let mut consumer =
+        CustomElementReactionConsumer::new(Arc::clone(&registry), Arc::clone(&queue));
+
+    let upgrades =
+        |queue: &Arc<Mutex<VecDeque<CustomElementReaction>>>| -> Vec<elidex_ecs::Entity> {
+            queue
+                .lock()
+                .unwrap()
+                .drain(..)
+                .map(|r| match r {
+                    CustomElementReaction::Upgrade(e) => e,
+                    other => panic!("expected only Upgrade reactions, got {other:?}"),
+                })
+                .collect()
+        };
+
+    consumer.handle(
+        &MutationEvent::CloneCreated {
+            root,
+            scope: CloneScope::Subtree,
+        },
+        &mut dom,
+    );
+    assert_eq!(
+        upgrades(&queue),
+        vec![root, child],
+        "Subtree: root, then child, once each"
+    );
+
+    consumer.handle(
+        &MutationEvent::CloneCreated {
+            root,
+            scope: CloneScope::SelfOnly,
+        },
+        &mut dom,
+    );
+    assert_eq!(
+        upgrades(&queue),
+        vec![root],
+        "SelfOnly: the light child is not visited"
+    );
+}

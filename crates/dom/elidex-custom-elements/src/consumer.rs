@@ -24,11 +24,24 @@
 //!   no-ops.
 //! - `AttributeChanged` enqueued only when the attribute name is in
 //!   the element's definition's `observed_attributes` (HTML §4.13.6
-//!   "attribute change steps" — "for each attribute in element's
-//!   attribute list that is in observedAttributes").
-//! - All three gates ALSO require the element to be Custom
+//!   "enqueue a custom element callback reaction" step 5.2: "If
+//!   definition's observed attributes does not contain attributeName,
+//!   then return").
+//! - `Upgrade` enqueued on `MutationEvent::CloneCreated` for every element
+//!   the clone created whose definition lookup is non-null (DOM §4.4
+//!   "clone a node" → "clone a single node"), in the clone's creation
+//!   order; the walk is `EcsDom::for_each_clone_created` and the registry-
+//!   dependent half is [`crate::upgrade`]'s `apply_clone_creation_ce_semantics`.
+//!   `handle_insert` enqueues `Upgrade` too (DOM "insert" step 7.7.3.3, "try
+//!   to upgrade"), not only the `CloneCreated` path. The clone path also
+//!   clears the retained `is` value of async-autonomous copies
+//!   (`CustomElementState.is_value`, which no other consumer reads).
+//! - The first three gates (`Connected` / `Disconnected` /
+//!   `AttributeChanged`) ALSO require the element to be Custom
 //!   ([`CEState::Custom`]) — pre-upgrade elements (`Undefined` /
-//!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6.
+//!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6. The
+//!   `Upgrade` bullet is the exception: it enqueues for elements that are
+//!   neither Custom nor Failed.
 //!
 //! ## Subtree walk for Connected / Disconnected
 //!
@@ -41,11 +54,12 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{EcsDom, Entity, MutationEvent};
+use elidex_ecs::{CloneScope, EcsDom, Entity, MutationEvent};
 
 use crate::reaction::CustomElementReaction;
 use crate::registry::CustomElementRegistry;
 use crate::state::{CEState, CustomElementState};
+use crate::upgrade::apply_clone_creation_ce_semantics;
 
 /// Mutation consumer maintaining the custom element reaction queue.
 ///
@@ -71,7 +85,7 @@ impl CustomElementReactionConsumer {
 
     /// Single-method dispatch entry invoked by the binding-crate
     /// `ConsumerDispatcher`. Pattern-matches `Insert` / `Remove` /
-    /// `AttributeChange`; other variants are no-ops.
+    /// `AttributeChange` / `CloneCreated`; other variants are no-ops.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Insert {
@@ -91,6 +105,9 @@ impl CustomElementReactionConsumer {
                 new_value,
                 ..
             } => self.handle_attribute_change(node, name, old_value, new_value, dom),
+            MutationEvent::CloneCreated { root, scope } => {
+                self.handle_clone_created(root, scope, dom);
+            }
             _ => {}
         }
     }
@@ -98,7 +115,9 @@ impl CustomElementReactionConsumer {
     fn handle_insert(&mut self, node: Entity, _was_connected: bool, dom: &EcsDom) {
         // Skip when post-insert position is still disconnected
         // (orphan→orphan move): the insertion-steps loop only enqueues
-        // when "parent is connected" per WHATWG DOM §4.2.3 insert step 7.7.
+        // when the inclusive descendant is connected per WHATWG DOM §4.2.3
+        // "insert" step 7.7.2 ("If inclusiveDescendant is not connected, then
+        // continue").
         //
         // NOTE: we deliberately do NOT short-circuit on `was_connected`
         // — both Blink and Gecko fire connectedCallback on every
@@ -119,6 +138,33 @@ impl CustomElementReactionConsumer {
         if !enqueued.is_empty() {
             let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
             queue.extend(enqueued);
+        }
+    }
+
+    /// DOM §4.4 "clone a node": the copy now exists. Apply the registry-
+    /// dependent creation semantics (DOM §4.9 "create an element" step 5.2
+    /// null-is rule) to every created element and enqueue one `Upgrade`
+    /// reaction per upgrade candidate, in creation order
+    /// (`for_each_clone_created`'s order).
+    fn handle_clone_created(&mut self, root: Entity, scope: CloneScope, dom: &mut EcsDom) {
+        // Unlike the other arms, both locks recover from poison: this arm
+        // keeps the deleted VM seam's behaviour (`enqueue_subtree_upgrade_reactions`
+        // in `vm/host/custom_elements/upgrade.rs` recovered poisoned guards),
+        // so `cloneNode` of a detached tree does not panic, as in the base.
+        // The other arms' `.expect` policy is unchanged.
+        let candidates = {
+            let registry = self
+                .registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            apply_clone_creation_ce_semantics(dom, &registry, root, scope)
+        };
+        if !candidates.is_empty() {
+            let mut queue = self
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            queue.extend(candidates.into_iter().map(CustomElementReaction::Upgrade));
         }
     }
 
@@ -236,8 +282,9 @@ pub fn classify_disconnected_subtree(
 
 /// Classify an attribute change into an `AttributeChanged` reaction,
 /// gated on `CEState::Custom` + the definition's `observed_attributes`
-/// (HTML §4.13.6 "attribute change steps" — "for each attribute … that
-/// is in observedAttributes"). Returns `None` when the target is not a
+/// (HTML §4.13.6 "enqueue a custom element callback reaction" step 5.2 —
+/// "If definition's observed attributes does not contain attributeName,
+/// then return"). Returns `None` when the target is not a
 /// Custom element or the attribute is not observed.
 #[must_use]
 pub fn classify_attribute_change(

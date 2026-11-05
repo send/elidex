@@ -46,7 +46,6 @@ pub use elidex_form_core::{
 };
 
 pub use ancestor_cache::AncestorCache;
-pub use clone::apply_clone_form_state;
 pub use fieldset::propagate_fieldset_disabled;
 pub use focus_snapshot::{
     clear_focus_snapshot, record_focus_snapshot, take_change_on_blur, FocusValueSnapshot,

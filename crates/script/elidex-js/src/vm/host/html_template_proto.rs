@@ -7,7 +7,7 @@
 //!   template's parsed children.  The fragment is created **eagerly at
 //!   element creation** (slot `#11-template-parser-content`) by the
 //!   shared `EcsDom::attach_template_contents` helper — both parser
-//!   tiers, `createElement('template')`, and the `cloneNode` post-pass
+//!   tiers, `createElement('template')`, and the `cloneNode` clone pass
 //!   route through it — so by the time JS reads `.content` the fragment
 //!   already exists and (for parsed templates) is already populated.
 //!   This getter just returns the linked fragment.  Its stable identity

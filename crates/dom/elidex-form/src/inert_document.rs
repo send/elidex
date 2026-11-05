@@ -159,7 +159,7 @@ pub fn parse_into_inert_document(dom: &mut EcsDom, markup: &str, caller_base_url
     // borrows `&self` but `create_form_control_state` needs `&mut dom`, so the
     // entity ids are buffered first to avoid the borrow conflict.
     // Frontier = the document's descendants PLUS every `<template>`'s content
-    // fragment (shared `collect_template_inclusive_descendants`): template
+    // fragment (the crate-local helper `collect_template_inclusive_descendants`, `init.rs`): template
     // contents are a detached `DocumentFragment` (HTML §4.12.3) that
     // `for_each_shadow_inclusive_descendant` alone misses, so a control inside a
     // `<template>` would otherwise never receive `FormControlState` (Codex R5).

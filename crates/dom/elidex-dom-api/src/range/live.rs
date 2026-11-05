@@ -1,4 +1,4 @@
-//! Live `Range` tracking (WHATWG DOM §5.5 "Live range updates").
+//! Live `Range` tracking (WHATWG DOM §5.6 Interface Range, *live ranges*).
 //!
 //! Wires the [`elidex_ecs::MutationDispatcher`] events fired from
 //! `EcsDom` tree / text-data primitives into the active set of JS-visible
@@ -156,9 +156,10 @@ impl LiveRangeBridge {
                 parent,
                 merged_child_index,
             ),
-            MutationEvent::AttributeChange { .. } => {
+            MutationEvent::AttributeChange { .. } | MutationEvent::CloneCreated { .. } => {
                 // Range live-tracking does not depend on attribute
-                // mutations — Range boundaries are tree-positional.
+                // mutations — Range boundaries are tree-positional.  A clone
+                // creates detached nodes no existing boundary refers to.
             }
         }
     }
@@ -232,18 +233,18 @@ impl LiveRangeBridge {
         // (`after_insert`) has already fired with the new node's
         // post-insert index (`node_index + 1`). `after_insert` shifted
         // every parent-side boundary with `off > node_index + 1` by
-        // +1. The split-text rule (spec §4.10 step 7.2) wants `off >
+        // +1. The split-text rule (DOM §4.11 steps 7.1 + 7.4–7.5) wants `off >
         // node_index` to shift — the only remaining slot is `off ==
         // node_index + 1`, which we top up here.
         //
         // Node-side migration: `off > offset` → `(new_node, off -
-        // offset)`, strict-greater per spec §4.10 step 7.2 / 7.3 —
+        // offset)`, strict-greater per DOM §4.11 step 7.2 / 7.3 —
         // boundaries at exactly `offset` stay on the original node at
         // its new end (PR186 R2 #2). The helper applies that strict
         // bound for the node-side rules; we pass null parent args to
         // skip the helper's parent-side step, because the delta
         // top-up above + the `after_insert` hook already cover
-        // §4.10 step 7's parent-side rule (`off > node_idx → +1`)
+        // §4.11 steps 7.1 + 7.4–7.5 (the parent-side rule) (`off > node_idx → +1`)
         // exhaustively.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
         if let (Some(parent), Some(node_idx)) = (parent, node_index) {
@@ -280,7 +281,7 @@ impl LiveRangeBridge {
         // LiveRangeBridge fires BEFORE the `Normalize` handler's `remove_child`
         // (which itself fires `after_remove` shifting parent-side
         // boundaries with `off > merged_child_index` by `-= 1`). Spec
-        // §4.5 step 6.4 wants the parent-side boundary at exactly
+        // DOM §4.4 `normalize()` steps 6.3–6.4 want the parent-side boundary at exactly
         // `off == merged_child_index` to migrate to `(prev,
         // prev_old_len)` — the merge splice point. The subsequent
         // `after_remove` handles `off > merged_child_index` itself; we

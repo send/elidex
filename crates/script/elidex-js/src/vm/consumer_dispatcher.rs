@@ -36,11 +36,11 @@ use elidex_script_session::EventHandlerAttributeConsumer;
 
 /// Typed composer of the mutation consumers.
 pub struct ConsumerDispatcher {
-    /// Range live-tracking — Range IDL per WHATWG DOM §5.5; boundary-
+    /// Range live-tracking — Range IDL per WHATWG DOM §5.6 Interface Range; boundary-
     /// point adjustment lives in the mutation algorithms themselves
     /// (DOM §4.2.3 remove, §4.10 CharacterData "replace data",
     /// §4.11 Text "split a Text node" step 7, §4.4 Node `normalize()`
-    /// step 6.4).
+    /// steps 6.1–6.4).
     live_range: LiveRangeBridge,
     /// NodeIterator pre-removing-steps (WHATWG DOM §6.1).
     node_iter: NodeIteratorAdjuster,
@@ -53,7 +53,10 @@ pub struct ConsumerDispatcher {
     /// insertion).  HTML §4.10.18.3 form-associated element insertion
     /// steps + WHATWG DOM §4.9 attribute change steps.  Added last in
     /// field order so previous consumers' invariants are preserved
-    /// before form-derived state is updated.
+    /// before form-derived state is updated.  Also runs the HTML §4.10.5 /
+    /// §4.10.11 cloning steps on `MutationEvent::CloneCreated`; that arm
+    /// writes `FormControlState` (and sweeps `ClonedFrom`), which the
+    /// custom-element arm never reads, so the two stay order-independent.
     form_control: FormControlReconciler,
     /// Inline event-handler content attribute detection (`<button
     /// onclick="...">`). Consumer recording uncompiled handler source into the
@@ -69,7 +72,7 @@ pub struct ConsumerDispatcher {
     /// [`EventListeners`]: elidex_script_session::EventListeners
     event_handler_attrs: EventHandlerAttributeConsumer,
     /// Canvas bitmap reset on `<canvas>` `width`/`height` content-attribute
-    /// change (HTML §4.12.5 "set bitmap dimensions" — even a same-value write
+    /// change (HTML §4.12.5.1 "set bitmap dimensions" — even a same-value write
     /// clears the bitmap + resets state). Driven from the `AttributeChange` SoT
     /// (not the IDL setter) so `setAttribute` + parser-baked attributes are
     /// covered. Order-independent — it only touches the `Canvas2dContext`
@@ -83,7 +86,9 @@ pub struct ConsumerDispatcher {
     /// `VmInner::flush_ce_reactions` at script-execution / event-
     /// dispatch / microtask checkpoints. Order-independent — only
     /// pushes to the side-band reaction queue, which no other consumer
-    /// reads.
+    /// reads.  On `MutationEvent::CloneCreated` it also writes
+    /// `CustomElementState.is_value` (async-autonomous null-is rule), which
+    /// no other consumer reads, so it stays order-independent.
     custom_elements: CustomElementReactionConsumer,
 }
 
