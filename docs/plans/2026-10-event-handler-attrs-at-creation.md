@@ -2,8 +2,7 @@
 
 Standalone program, label **`EH-attrs-at-creation`**. Owner: Layout lane. It sits **outside** the IBP-sandbox program and
 is not part of that umbrella's DAG (PM decision 17 (i), restated by PM decision 21). It has two nested PRs, **slice a**
-and **slice b** (§1), and it also owns **T3**, slice b's independent prerequisite PR: slot
-`#11-event-handler-target-determination` was reassigned to this program by PM decision 25 (§1.2, §8.1). IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.5, carried by N1's PR on branch
+and **slice b** (§1), and it also owns **T3**, slice b's prerequisite PR: slot `#11-event-handler-target-determination` was reassigned to this program by PM decision 25 (§1.2, §8.1). From rev 8.4 it also owns **C0** (`#11-cross-document-adopt-on-insert`, PM decision 143; a program of three PRs, PM decision 244) and **C1** (`#11-template-contents-owner-document`, branch A, PM decision 123), and T3 lands after them (PM decision 153; until rev 8.4 T3 was "slice b's independent prerequisite PR"). IBP-sandbox N1 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.5, carried by N1's PR on branch
 `layout-ibp-sandbox-handler-gates` together with this file's rev 8.1 to 8.3) depends on slice a (§1.3 edge x1). §L shows that no landing order can put N1 first.
 
 **Approval scope (rev 5, PM decision 24: decision altitude).** Approving this umbrella **decides**:
@@ -31,7 +30,7 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
+**Changelog.** *Rev 8.4* (2026-11-05; carried by C0a's PR): §1.2 gains the C0 program row and its order line follows PM 153; the header, the T3 and slice b rows, x6, the closing paths, §1.6, G3, §8.1 and §8.2 follow the new order and PM 123; edges x9 and x10 added (PM decisions 123, 153, 159, 223 O-1 as amended by 271, 227 O-1, 244, 271). *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
 MIN-2): the header's N1 pointer is rev 4.5; §1.4 (i), §1.5's K-2 / K-3 bullet, x1 and §8.2's defect (1) and
 classification name NR8 (a)'s population by its value, a callback at the first insertion (an IDL write, or a
 `setAttribute` value compiled by a read or a dispatch before it), not by the IDL write alone; §8.4 item 4 excepts the
@@ -421,11 +420,11 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | nested PR | scope | prerequisites |
 |---|---|---|
 | **slice a** `EH-attrs-at-creation-a` (branch cut from main after the approval PR lands) | D-1 to D-11; K-0 to K-6; X-W; the cells and pins of §6.1–§6.2; the clone-policy row; G1; the G6 docstring | the umbrella-approval PR |
-| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off. Its own plan, plan-review and PR | slice a landed |
-| **slice b** `EH-attrs-at-creation-b` | S-1 to S-7; G2 rest, G5, K2 (§1.5) | T3, N1, C1's handling decided |
+| **C0** `EH-attrs-at-creation-C0` (owner: Layout lane, this program; PM decisions 143, 244), a program of three PRs in order **C0a** `EH-attrs-at-creation-C0a` (*replace* record order) → **C0b** `EH-attrs-at-creation-C0b` (the node document as the stored fact: creation entry, insertion adoption, one reader) → **C0c** `EH-attrs-at-creation-C0c` (`adoptedCallback` and `document.adoptNode`); program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` | slot `#11-cross-document-adopt-on-insert` (DOM §4.2.3 *insert* step 7.1, §4.5 *adopt*); C0b ends the stale node document after a cross-document move (a node moved into another document keeps its old node document, which T3's step 3 would read; edge x9). C0a: landed (#595). C0b: planned. C0c: planned. | IBP-sandbox N1's implementation landed; C0a after D-14 (a); C0b after C0a, D-14 (c), the CI/tools default-features check PR (#585); C0c after C0b and D-14 (b) |
+| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off. Its own plan, plan-review and PR | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
+| **slice b** `EH-attrs-at-creation-b` | S-1 to S-7; G2 rest, G5, K2 (§1.5) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
 
-**Order (PM decisions 21, 23, 25; §L):** approval PR → slice a → { IBP-sandbox N1, T3 } → C1's handling decided →
-slice b. N1 and T3 are independent of each other. The PM decides C1's handling once slice a and N1 have landed (§8.1).
+**Order (PM decisions 21, 23, 25, 123, 153, 244; §L):** approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → C1 → T3 → slice b (PM 153, user decision: N1 implementation → C0 → C1 → T3 → slice b; PM 244: C0 is a program of three PRs).
 
 ### §1.3 Edges
 
@@ -436,17 +435,20 @@ slice b. N1 and T3 are independent of each other. The PM decides C1's handling o
 | x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a DOMParser or fragment-throwaway `<body>` would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b)). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)) |
 | x5 | C1's handling decided (`#11-template-contents-owner-document`) → slice b | decision precondition; in branch A also C1's landing | S-2 (§9 N-4 (c)) |
-| x6 | slice a → T3 | scheduling precondition (PM decision 25) | T3 is started once slice a lands. No code or semantic dependency is claimed. Slice a's X-W window (§1.5) is what T3 then slice b close |
+| x6 | slice a → T3 | scheduling precondition (PM decisions 25, 153) | T3 is started after C1 lands (PM decision 153; until rev 8.4: "once slice a lands"), so x6 holds transitively (slice a → N1 → C0 → C1 → T3). No code or semantic dependency is claimed. Slice a's X-W window (§1.5) is what T3 then slice b close |
+| x9 | C0 → T3 (rev 8.4) | semantic precondition (PM decision 153) | without insertion adoption a node moved into another document keeps its old node document, which T3's step 3 reads; C0b makes the node document a stored fact, kept true at every insertion and read by `EcsDom::node_document` |
+| x10 | N1 → C0 (rev 8.4) | code predecessor (PM decision 153) | C0b rewrites N1's compile-gate clause (b) to read `EcsDom::node_document` (C0 program memo D-7 (a)), so N1's implementation (#580) lands first |
 
-Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it.
+Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
 
 ### §1.4 Slice a is an approved interim, required by dependency (PM decision 23)
 
 CLAUDE.md "One issue, one way" forbids a strangler state, in which a new mechanism coexists with the one it replaces.
 Slice a is such a state for **timing**: it processes post-bind creations at first insertion, where slice b's end state
 processes them at creation. The D-8 restriction exists for the same reason. The PM approves slice a as an interim
-because a dependency requires it. N1 requires K-1 (§L), and slice b requires T3, N1 and C1's handling (x3–x5). So the
-only order that satisfies both is slice a → N1 (with T3) → slice b.
+because a dependency requires it. N1 requires K-1 (§L), and slice b requires T3, N1 and C1's handling (x3–x5), and T3
+is started after C1 lands (x6, x8; PM decision 153). So the only order that satisfies both is slice a → N1 → C0 → C1 → T3 → slice b
+(PM decision 153; until rev 8.4: "slice a → N1 (with T3) → slice b").
 
 - **Kept by slice b:** S-6.
 - **Removed by slice b (the interim's whole surface):** (1) the D-8 restriction and X-W (S-5); (2) processing at
@@ -464,8 +466,7 @@ only order that satisfies both is slice a → N1 (with T3) → slice b.
   DOMParser document read null where HEAD compiled the attribute, the spec's outcome (N1 memo §5.4 NR8 (b), pin C8h).
   **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2; (i) to (iii) are its defects (1), (5) and
   (7) respectively).
-- **Closing path (visible):** slice a lands → T3 (this program's PR, slot `#11-event-handler-target-determination`;
-  N1 lands independently) → C1's handling decided (PM) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2).
+- **Closing path (visible):** slice a lands → N1 → C0 → C1 → T3 (this program's PR, slot `#11-event-handler-target-determination`) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2, x9, x10; rev 8.4, PM decision 153; until rev 8.4: "slice a lands → T3 (…; N1 lands independently) → C1's handling decided (PM) → slice b").
 
 ### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, §1.4; slice b closes them)
 
@@ -502,7 +503,7 @@ and each row is already processed.
 ### §1.6 C1's handling (decided by the PM, not here)
 
 The PM decides, after slice a and N1 land, whether C1 (`#11-template-contents-owner-document`) lands (branch A) or
-not (branch B) (§8.1). This umbrella decides only what each branch requires of slice b: S-2 in both branches, and S-1's
+not (branch B) (§8.1). Rev 8.4: decided, branch A (PM decision 123); C1 is this program's nested PR, after C0 and before T3 (§1.2). This umbrella decides only what each branch requires of slice b: S-2 in both branches, and S-1's
 template-contents extension in branch A. Rev 4's branch-B design (the Insert arm kept as the template-contents
 processing point, K-B, cell B9, and a pre-drafted slot `#11-eh-template-contents-at-creation`) is withdrawn as a
 decision. It survives as input to slice b's plan (§9 N-2, N-3). If branch B is chosen and leaves a residue, slice b's
@@ -817,8 +818,7 @@ scope; any other becomes a slot.
   exposures E-G1 are registered elsewhere (§8.1).
 - **G2, shadow-tree elements never delivered.** **In scope.** Slice a covers pre-bind shadow trees (E7, U8 (iii)).
   Slice b covers the rest (S-1). The shadow-root filter (`mutation.rs:289`) is **not** changed: it serves every consumer.
-- **G3, target step 3 not modelled.** Slot `#11-event-handler-target-determination` facet 1. It is T3, slice b's
-  independent prerequisite PR, owned by this program (PM decision 25; §1.2). Slice a keeps HEAD's path for every
+- **G3, target step 3 not modelled.** Slot `#11-event-handler-target-determination` facet 1. It is T3, slice b's prerequisite PR, owned by this program (PM decision 25; §1.2), after C1 (PM decision 153). Slice a keeps HEAD's path for every
   Window-delegating pair (X-W; C17, C18, C19).
 - **G4, the Window-reflecting body set.** Slot `#11-event-handler-target-determination` facet 4 (trigger: slice a's
   landing). Interaction: E-G1 (i); the six names are Window-delegating pairs under X-W.
@@ -839,7 +839,7 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 ### §8.1 Existing slots cited (ledger state 2026-10-25, after the PM's R2 corrections)
 
 - `#11-event-handler-target-determination`: **re-routed by the PM (decision 25): the owner is this program (Layout
-  lane).** Facet (1) step 3 is **T3**, slice b's independent prerequisite PR (x3), started once slice a lands (x6),
+  lane).** Facet (1) step 3 is **T3**, slice b's prerequisite PR (x3), started after C1 lands (x6; PM decision 153),
   outside the IBP-sandbox DAG, because no IBP-sandbox N-PR touches target determination. Facets (3) and (4) are part
   of T3 as well (x3, rev 8); facet (2) rides with it unless its plan splits it off. Facet (4) is G4, with the trigger "slice a's landing" (E-G1 (i)).
 - `#11-csp-inline-handler-enforcement`: **registered by the PM** (E-G1 (iii)). Root cause: `script-src` is not
@@ -895,11 +895,9 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's
 > handling). N1 itself needs slice a first (§L). **Closes:** at slice b's landing, which removes the restriction, X-W and
 > processing at insertion (§1.4). If §1.6 branch B leaves a template-contents residue, slice b's plan drafts its slot
-> text and the PM registers it when that plan passes plan-review (§1.6). **Closing path:** slice a lands → T3 (this
-> program) → C1's handling decided → slice b. **Trigger:** T3 and N1 landed, and C1's handling decided (the ledger
+> text and the PM registers it when that plan passes plan-review (§1.6). **Closing path:** slice a lands → N1 → C0 → C1 → T3 (this program) → slice b (PM decision 153). **Trigger:** N1, C0, C1 and T3 landed (the ledger
 > records each landing's merge commit in this section's Source line). **Re-eval:**
-> 2026-12-31. **Confidence:** medium. The order is fixed (PM decisions 21, 23, 25) and T3 has an owner, but T3 starts
-> only after slice a lands, and slice b also waits on C1's handling (owner TBD).
+> 2026-12-31. **Confidence:** medium. The order is fixed (PM decisions 21, 23, 25, 153) and T3 has an owner; T3 starts after C1 lands, and C1's handling is decided (branch A, PM decision 123).
 
 ### §8.3 Records for existing slots (for the PM)
 

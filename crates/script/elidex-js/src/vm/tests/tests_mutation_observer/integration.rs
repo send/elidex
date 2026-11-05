@@ -17,7 +17,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::super::value::JsValue;
 use super::super::super::Vm;
-use super::setup_with_root;
+use super::{assert_same_parent_replace_move_records, setup_with_root};
 
 /// Create a detached element of `tag` and expose its wrapper as the JS global
 /// `name`, returning the entity. The element is registered in the identity map
@@ -161,7 +161,7 @@ fn real_remove_child_records_removed_node() {
 
 #[test]
 fn real_replace_child_delivers_single_coalesced_record() {
-    // §4.2.3 "replace" step 14: ONE childList record with both added + removed
+    // §4.2.3 "replace" step 10: ONE childList record with both added + removed
     // (the inner remove/insert run with suppressObservers), NOT two records.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -191,7 +191,7 @@ fn real_replace_child_delivers_single_coalesced_record() {
     assert_eq!(
         vm.eval("records.length").unwrap(),
         JsValue::Number(1.0),
-        "replaceChild must produce exactly ONE record (§4.2.3 step 14)"
+        "replaceChild must produce exactly ONE record (§4.2.3 step 10)"
     );
     assert_eq!(
         vm.eval("records[0].addedNodes[0] === newChild").unwrap(),
@@ -645,4 +645,10 @@ fn real_mutation_without_observer_delivers_nothing() {
         JsValue::Boolean(true)
     );
     vm.unbind();
+}
+
+#[test]
+fn real_replace_child_same_parent_move_source_removal_sees_old_child() {
+    // C0a T17 (D-12): `P = [A, B]; P.replaceChild(B, A)` -- DOM replace step 6 adopts B (removal record, previousSibling = A) before step 7 removes A.
+    assert_same_parent_replace_move_records("P.replaceChild(B, A)");
 }
