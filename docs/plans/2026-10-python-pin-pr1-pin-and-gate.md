@@ -7,8 +7,17 @@
 `…-umbrella-records.md` (R§n) and `…-umbrella-rounds.md` (§12–§14, the C-items). "Body :n" is a line of the umbrella
 body, "rounds :n" of the rounds file, "vm-p4 :n" of the VM P4 companion, "PR-0 :n" of
 `docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md`. E-rows, N / W controls and DM / FM / NM / WM mutants are
-those of the tests memo, `docs/plans/2026-10-python-pin-pr1-tests.md` (§5 / §6). **Base**: `origin/main` at **`660e594c`** (#586 = PR-0).
-Between #581 and the base (`git log --oneline ea12ce7f..660e594c`): #585 `115a667c`, #583, #587 and #586.
+those of the tests memo, `docs/plans/2026-10-python-pin-pr1-tests.md` (§5 / §6). **Base**: `origin/main` at **`17b2a84d`**
+(`git merge-base HEAD origin/main`). This plan was measured at **`660e594c`** (#586 = PR-0), and every "at `660e594c`"
+cite holds at `17b2a84d`: `git diff --stat 660e594c 17b2a84d -- scripts .github mise.toml CLAUDE.md README.md
+CONTRIBUTING.md 'docs/plans/2026-10-python-pin-*' docs/plans/2026-07-citation-hygiene-Aiii-suite-scheduler.md
+docs/plans/2026-08-plan-memo-umbrella-checker.md docs/plans/2026-10-vm-p4-memo-seam-split.md` prints nothing, and
+`… -- 'docs/plans/2026-07-vm-p4-*' .claude/tools` lists `…-es-language-completeness.md`, `…-slice-1a-1b-call-spread-detail.md`,
+`…-slice-plan.md`, `…-slot-ledger.md` and `native-ctor-guard-trip-wire.sh` (#591, #594), of which only the slot
+ledger holds V lines: V19–V21 / V23 are `:58–60`, `:322`, `:323`, `:327` at both revisions (``git grep -n -F -e 'Still
+absent from the SoT ledger' -e 'absent from the live ledger' -e "registration is owed at #506's landing with no date"
+<rev> -- docs/plans/2026-07-vm-p4-slot-ledger.md``; its one added line is a slot row after `:332`).
+Between #581 and `660e594c` (`git log --oneline ea12ce7f..660e594c`): #585 `115a667c`, #583, #587 and #586.
 Outside `crates/**` they moved, against the umbrella's base `ee6c7a1a` (`git diff --stat ee6c7a1a 660e594c --
 .claude scripts .github mise.toml CLAUDE.md README.md CONTRIBUTING.md`): `ci.yml` (#586's timeout record, :255–257),
 `mise.toml` (#585's `check-default` task; #586's reword, now `:122`), `CLAUDE.md` / `README.md` / `CONTRIBUTING.md`
@@ -98,29 +107,25 @@ Body §2's text (:148–234) is the definition; PR-1's share, one line each:
 - **I7**: the population is defined by **where a child's environment comes from**, not by which name it looks up
   (any `PATH` lookup — `git`, `bash` — can resolve to a mise shim): (i) **every launch whose environment comes from
   `scripts/python_pin_testing.py` (NEW)'s `isolated_mise_env` (NEW)** — the fake first or no `mise` (N3's no-mise-call
-  half, N9–N15, N19–N20); (iii) **every launch whose environment derives from `python_suites_fixtures.base_env()`**,
-  which isolates its children from the caller's mise (§4.3, the one statement of what it drops and sets; N22) — at `660e594c`, `git grep -n -F 'base_env()'
-  -- scripts` prints its definition (`python_suites_fixtures.py:81`) and seven launch sites: `Scratch.git` / `run` /
-  `baseline` (`:139`, `:149`, `:160`), `test_python_suites_driver.py:261` (P6's `git ls-files`), and
-  `test_python_suites_regime.py:549` (the direct driver launch, `:549–558`), `:681` and `:690` (G9's two
-  `sys.executable -c pass` launches, `:681–683`, `:690–691`); PR-1 adds N22's, N1's and the pre-launch case's `base_env()` calls (tests memo §6.1;
-  the population is unchanged by `base_env()`'s isolation: it is still every launch whose environment derives from it); (ii) N1,
+  half, N9–N15, N19–N20), and the `git` children of T5's member, whose `_without_git_env()` is that environment minus
+  `GIT_*` under one process-lifetime root (the member is not a pin file, so it loads the helper by path, not
+  `base_env()`, P6); (iii) **every launch whose environment derives from `python_suites_fixtures.base_env()`**,
+  which isolates its children from the caller's mise (§4.3, the one statement of what it drops and sets; N22): the
+  sites are what `git grep -n -F 'base_env()' -- scripts` prints, less the definitions and docstrings it also matches
+  (`def base_env()`, `def _old_base_env()`, N1's docstring) — the regime file's (unchanged by PR-1), the fixtures'
+  `Scratch` launches and every driver-pin launch, N1b's, N1d's and the pre-launch case's included; (ii) N1,
   in both: its environment is `base_env()`'s without its `MISE_*`, with the helper's five `MISE_*` variables and the
-  fakes' directory ahead of its `PATH` (stated exactly in tests memo §6.1). Not in the population: the `git` children of
-  `test_tracked_tool_config.py`, whose environment is its own `_without_git_env()` (`:45–46`, the outer `PATH`); the
-  member is not a pin file and cannot take `base_env()` (P6), so a `git` that is itself a mise shim on the outer
-  `PATH` reaches mise there — in the live root and in L2's scratch tree, which holds a `.tool-versions` from PR-1
-  (§4.5) — a stated limit below.
+  fakes' directory ahead of its `PATH` (stated exactly in tests memo §6.1).
 
 **Stated limits, not guarantees** (C22): same-version-other-source (body §11 T1, T2, the same-version bullet);
 untracked install-setting overrides (body §11, warned while set, never red); the oracle's shape (mise unpinned —
 degrades to item 6, never changes an exit status); the refusal on a real non-pin interpreter, measured once per
 module digest by hand (N17's record, §10); `feature_version` best-effort (N16's limit); on a platform without
-`os.killpg` the oracle's timeout kills mise only, not its descendants, and everywhere a descendant that starts its
-own session leaves the killed group, and an end of the refusal process that raises no Python exception (SIGKILL,
-SIGTERM's default action) kills no group, nor does an exception raised inside `Popen` before its pid reaches
-`ask_mise` (§4.2 *Process tree*); unverified, an interpreter whose directory is mise's shims directory (§4.3
-`base_env`); a `git` on the outer `PATH` that is a mise shim, under T5's member (I7 above); the fakes need a
+`os.killpg` and `signal.pthread_sigmask` (Windows) the oracle's timeout kills mise only, not its descendants, and an
+interrupt inside `Popen` leaves mise running; everywhere, a descendant that starts its own session leaves the killed
+group, and an end of the refusal process that raises no Python exception (SIGKILL, SIGTERM's default action) kills
+no group (§4.2 *Process tree*); measured on macOS only, that an interpreter's directory is not mise's shims
+directory (§4.3 `base_env`); the fakes need a
 `sys.executable` usable as a shebang — no white space, `#!` plus it within 127 bytes (§4.8).
 
 ### §2.2 The fifteen umbrella pairs, gate half (body :285–309)
@@ -129,18 +134,18 @@ SIGTERM's default action) kills no group, nor does an exception raised inside `P
 |---|---|---|---|
 | I1 × I2 | Step 1 compares against the value read from `.tool-versions` at run time | `python_pin.read_pin` (NEW) called by `main` (NEW); no literal in the driver | N1's spelling control (edit the scratch pin to the shim's version → admitted; kills DM5), DM2 for a literal in the driver; NM3 |
 | I1 × I3 | CI reads the pin only through `python-version-file`; a `python-version` input beside it would win | `setup_problems` (NEW) in the readers: the setup step's `with` is exactly that one key | N4's red controls (added input, other file, second step) |
-| I1 × I5 | the reader and the refusal run on the interpreter being refused | `python_pin.py` stdlib-only, `sys` / `os` at top level, `subprocess` / `json` on the refusal path only, 3.9 grammar; index-only reads of `sys.version_info` | N16 (feature_version + the six rejected rows), N17 (digest record), N18 (imports) |
+| I1 × I5 | the reader and the refusal run on the interpreter being refused | `python_pin.py` stdlib-only, `sys` / `os` at top level, `subprocess` / `json` / `signal` on the refusal path only, 3.9 grammar; index-only reads of `sys.version_info` | N16 (feature_version + the six rejected rows), N17 (digest record), N18 (imports) |
 | I1 × I6 | the one spelling names a patch both installers serve prebuilt; mise refuses a source build or an unverified archive | the two `[settings]` lines, W2 over parsed TOML from `tracked_tool_config.ADMITTED_LINES` (one source); clause 1 | W1, W2, W3; a pointer to the bump rule in `python_pin.py`'s header (§4.2 *Header*) |
 | I1 × I7 | tests' scratch trees copy `python_pin.py` and write their own `.tool-versions`; the isolated mise reads only those | `pin_tree` (NEW) in the helper; `Scratch` copies both files | N9, N19 (a) |
 | I2 × I3 | one admitted interpreter ⇒ one leg | the job's `strategy` leaves; `strategy` leaves the job-key allowlist | N4, N6 |
 | I2 × I5 | Step 1 runs before any suite | the driver's Step 1 precedes the heredocs and the first `git` | N1 ("member(s) in" absent on every refusal) |
 | I2 × I6 | no build → red on both callers, never a fallback | setup-python fails the job; `python.compile = false` fails `mise install` | W2 holds that the settings are present (§4.5); that mise refuses is a dated measurement, not a pin (mise is unpinned): R§4.1 *Does the age filter gate an exact install? Does compile-off refuse a source build?* (records :250–257, the variable form), this plan's measurement from the tracked file and its re-run at landing (both §10 step 11) |
 | I2 × I7 | I7 binds the tests' children, never the gate's own admission | Step 1 uses the caller's mise; only children a pin starts are isolated | N1 runs the scratch driver under the helper; the live Step 1 does not |
-| I3 × I5 | the refusal is executed on the one leg by patching `sys.version_info` inside the pin | the helper's `LAUNCHER` (NEW) and `fake_python3` (NEW) | N1, N10 |
+| I3 × I5 | the refusal is executed on the one leg by patching `sys.version_info` inside the pin | the helper's `LAUNCHER` (NEW) and `write_fake_python3` (NEW) | N1, N10 |
 | I3 × I6 | CI provisioning is setup-python's manifest build for the pinned image | `runs-on: ubuntu-24.04` with its reason restated | N4 (`runs-on` exact) |
 | I3 × I7 | CI has no mise, local has one: both run the fake's branch | the fake `mise` first on the child's `PATH`, or none | N19 (a) asserts `shutil.which("mise", path=…)` |
 | I5 × I6 | the refusal prints what provisioning answers (item 5) and the generic actions, `mise install` among them | `ask_mise` (NEW), `refusal_text` (NEW), `GENERIC_BLOCK` (NEW) | N10 (each case's fix row), N11 |
-| I5 × I7 | every oracle answer is reached under the fake | N10–N15 run through `isolated_mise_env` | N19 (a) inside the same fixtures |
+| I5 × I7 | every oracle answer is reached under the fake | N10–N15 run through `isolated_mise_env` | N19 (a), asserted inside every `run_pin` fixture (tests memo §6.3) |
 | I6 × I7 | the isolated data dir holds no install; the warning's variables are dropped unless a fixture sets them | the helper drops every outer `MISE_*` | N13, N19 (a) |
 
 The fifteen rows are body :309's list (`grep -o '^| I[1-7] × I[1-7] |' <this plan> | sort | uniq -c` prints each
@@ -156,7 +161,7 @@ once).
 | the VM P4 removals × I2 | V5 / V6 / V22 are correct only on the pin | removed with Step 1's exact admission in the same PR | the guard and #510's self-test green on the pin; C35's census (§10) |
 | the `mise.toml` reader × Step 1's ordering | the `tomllib` reader is safe only after admission | the reader is a pin module run by a member, i.e. after Step 1 | N7 / N8 (member runs); I1 × I5 binds `python_pin.py` only |
 | PR-1's `mise.toml` writes × PR-0's clause 4 | the `[settings]` lines, the reworded description and the new comment must spell no `python` outside admitted occurrences | exact admitted lines; no word `python` in the new text except tracked paths with `/` | L1 (live), W3 (fixture) |
-| clause 1 × PR-0's seam | PR-0 :293 and :384 let PR-1 edit only `problems`, C3 g1 and C0's two lists; why that seam cannot hold is §4.5 *What the member's fixtures change* | clause 1 is `root_pin_problems` (NEW), its own names; `problems` merges it; the valid-world baseline lives in the member's fixture layer (§4.5) | C0 (§4.5's edits), the review condition per function span (PR-0 :293–295, kept), C3–C5 / L2 green through the baseline |
+| clause 1 × PR-0's seam | PR-0 :293 and :384 let PR-1 edit only `problems`, C3 g1 and C0's two lists; why that seam cannot hold is §4.5 *What the member's fixtures change* | clause 1 is `root_pin_problems` (NEW), its own names; `problems` merges it; the valid-world baseline lives in the member's fixture layer (§4.5) | C0 (tests memo §6.4's edits), the review condition per function span (PR-0 :293–295, kept), C3–C5 / L2 green through the baseline |
 | `python_pin` × the pin layer (P6) | a pin file importing `python_pin` would pull it into `PIN_FILES` | no pin file imports it; `Scratch` copies it by path; `tracked_tool_config` (not a pin file) imports it | P6 unchanged |
 | the I7 helper × G9 | a pin file loads `python_pin_testing.py` by path, outside P6's import scan | the helper launches nothing | N21 (no call in G9's spawner set, read from G9's own source, fail-closed on its shape — tests memo §6.3) |
 | `base_env()` × the helper (one issue, one way) | the fixtures module (a pin file) cannot import the helper (P6), yet both name mise's isolation variables | `base_env()` copies the variable names (`MISE_DIR_VARS`, `MISE_GLOBAL_VAR`), not the helper's code; the driver pin, which loads the helper by path, asserts the two lists agree | N22's `isolation` part |
@@ -189,11 +194,11 @@ into `mise.toml [tools]` (body :401–402).
 
 ### §4.2 `scripts/python_pin.py` (NEW) — the one reader, admission, the refusal
 
-**Shape.** Stdlib only; top-level imports `os` and `sys` and nothing else; `subprocess` and `json` imported inside
-`ask_mise` only (I1 × I5; C16 (d)). Grammar: parses with `ast.parse(…, feature_version=(3, 9))` (N16) and holds
+**Shape.** Stdlib only; top-level imports `os` and `sys` and nothing else; `subprocess`, `json` and `signal` imported inside
+`ask_mise` only (I1 × I5; C16 (d), amended §4.7). Grammar: parses with `ast.parse(…, feature_version=(3, 9))` (N16) and holds
 none of R§11's ten gap constructs, which N16 cannot see (`feature_version` accepts them) — held by N17's digest
 record and §10 step 4's real run on 3.9.6; `%`-formatting, no f-strings; ASCII source (the BOM test spells
-`"﻿"`). `sys.version_info` is read by index (`v[0]`…`v[3]`),
+`"\ufeff"`). `sys.version_info` is read by index (`v[0]`…`v[3]`),
 never by attribute, so a patched tuple and any Python 3 read alike (N3's plain-tuple `refusal_text` call pins it on
 the refusal path, where `LAUNCHER`'s tuple subclass would also answer attributes). No `TestCase`, no `"--self-test"` constant
 (driver step 3 (a) / (b)); a top-level `__main__` guard calling `_guarded_main` (the exit line, below; the driver launches it, §4.3).
@@ -232,14 +237,13 @@ stderr captured separately, through `subprocess.Popen(…, start_new_session=GRO
   group; one `try` holds both `Popen` and `communicate`, and once `Popen` has returned and `proc` is bound, **any**
   exception (`TimeoutExpired`, and a `KeyboardInterrupt`: Ctrl-C signals the terminal's foreground group, which mise's
   new session is not in; any `BaseException`) runs `_reap(proc)` (NEW): `os.killpg(proc.pid, 9)`
-  (9 = SIGKILL on Linux and macOS; `os` is already imported, so `signal` stays out — body :241), then `proc.wait()`,
+  (9 = SIGKILL on Linux and macOS), then `proc.wait()`,
   and closes the pipes **without reading them again**; a `TimeoutExpired` then becomes the fact below, anything else
-  is re-raised. So on any Python exception after `proc` is bound, no member of the group can block the refusal or
-  outlive it. Stated limits (§2.1): a descendant that starts its own session has left the group and is not killed;
-  and an exception raised inside `Popen` after its fork but before it returns (a `KeyboardInterrupt` during its
-  error-pipe read), or between its return and the binding of `proc`, leaves mise running, because no pid reaches
-  `ask_mise` — closing that window would need signals blocked around `Popen`, i.e. the `signal` import the module
-  does not take (the module's comment there says so). Measured
+  is re-raised. SIGINT is blocked (`signal.pthread_sigmask`, where it exists) from before `Popen` until `proc` is
+  bound, so an interrupt arriving while `Popen` runs is delivered only once the group can be reaped. So on any
+  Python exception, no member of the group can block the refusal or outlive it. Stated limits (§2.1): a descendant
+  that starts its own session has left the group and is not killed; without `pthread_sigmask` an interrupt inside
+  `Popen` leaves mise running, because no pid reaches `ask_mise`. Measured
   2026-11-04 on macOS `/usr/bin/python3` 3.9.6 by the command below: `group 1.0 s gone` (the background `sleep` is
   dead), `child 1.0 s alive` (`proc.kill()` without a session leaves it). N15 pins both on the pin (no survivor;
   NM14).
@@ -253,8 +257,8 @@ stderr captured separately, through `subprocess.Popen(…, start_new_session=GRO
   try: os.kill(c,0);print("%s %.1f s alive"%(sys.argv[1],e));os.kill(c,9)
   except ProcessLookupError: print("%s %.1f s gone"%(sys.argv[1],e))' $m; done
   ```
-  Where `os.killpg` does not exist (Windows) `GROUP` is false and the timeout kills mise only — a stated limit (§2.1)
-  on a platform no caller uses: the driver is a `bash` script and the `tools` job runs on `ubuntu-24.04`
+  Where `os.killpg` does not exist (Windows, which also lacks `pthread_sigmask`) `GROUP` is false and the timeout
+  kills mise only — a stated limit (§2.1) on a platform no caller uses: the driver is a `bash` script and the `tools` job runs on `ubuntu-24.04`
   (`ci.yml:272`).
 - **Stderr cap: `STDERR_CAP = 4000`** characters (NEW constant) of mise's stderr decoded `"utf-8", "replace"`,
   verbatim, then `[truncated: <n> more characters]`. mise's untrusted-config error is five lines at mise 2026.10.25
@@ -315,16 +319,19 @@ and the remedy is the file, so neither the oracle nor the generic block — whos
 The driver's Step 1 turns that exit into `FAIL pin` on every run, CI's included, before any suite (so T5's clause 1
 never sees a malformed live pin in CI; W1 reaches its parse branch in-process).
 
-**`main()`** (NEW): print the warning lines; read the pin (exit 2 on error); return 0 if `admitted(sys.version_info,
-pin)`, else ask mise and print the refusal, return 1.
+**`main()`** (NEW): the warning lines are printed on every path (in the refusal, as its item 4); read the pin (exit 2
+on error); if `admitted(sys.version_info, pin)`, the admitted line, return 0; else ask mise and print the refusal,
+return 1.
 
 **The exit line (the one statement of the contract).** Every non-zero exit of the module ends its stderr with exactly
-one line `python-pin: exit N` (N = 1, 2 or 3), printed by `_exit(code)` (NEW) as the last write; exit 0 prints none.
-It is how a caller tells this module's exit from a failure of `python3` before the module ran (the driver's Step 1,
+one line `python-pin: exit N` (N = 1, 2 or 3), printed by `_exit(code)` (NEW) as the last write; exit 0 ends it with
+exactly `python-pin: admitted X.Y.Z` (the pin) and no exit line.
+They are how a caller tells this module's exit from a failure of `python3` before the module ran (the driver's Step 1,
 §4.3). **Exit 3**: the `__main__` guard calls `_guarded_main()` (NEW), which runs `main()` and, on any uncaught
 exception other than `SystemExit`, prints its traceback (`traceback`, imported inside `_guarded_main` only) and
 then the exit line, returning **3** — so an exception inside the module ends with the marker too, and the driver's
-"did not end with `scripts/python_pin.py`'s exit line" message fires only when no exit line appears. Pinned by N23 (its exit-3 case); NM15 / NM16 (`return _exit(1)` →
+"did not end with `scripts/python_pin.py`'s exit line" message fires only when the last line is not the one the exit status calls for. Pinned by N23 (its exit-3 case and the admitted line), end to end through the
+driver by N1e (exit 3) and N1d (exit 0 without the admitted line; DM9 its mutant); NM15 / NM16 (`return _exit(1)` →
 `return 1`, `return _exit(2)` → `return 2`) and NM17 (`sys.exit(_guarded_main())` → `sys.exit(main())`) are its mutants.
 
 **Header (C15, C16 (f)).** A pointer to the bump rule (body §4.1, :331–334, and its rows; C15, rounds :445–447,
@@ -340,10 +347,11 @@ measurement's place as "section 10 step 4 of the plan", and states the exit-line
 - **Step 1** (`:156–166` at `660e594c`): after `cd "$root"`, `command -v python3` (else `FAIL pin: no python3 on
   PATH`), then `python3 -I -S "$root/scripts/python_pin.py"` with its stderr shown live and teed to a `mktemp` file under
   `${TMPDIR:-/tmp}` (a `mktemp` failure is a `FAIL pin` line), the `EXIT` trap installed before it so an interrupt
-  leaves no file. On a non-zero exit `N`, the last captured line decides
-  the message (the exit line, §4.2): `python-pin: exit N` → `python-suites: FAIL pin: scripts/python_pin.py refused or failed (exit N; its output is
+  leaves no file. The last captured line decides the message (the exit line, §4.2). Exit 0 is the pin's only when
+  that line is `python-pin: admitted X.Y.Z`; otherwise it is the second branch below with N = 0. On a non-zero exit `N`: `python-pin: exit N` → `python-suites: FAIL pin: scripts/python_pin.py refused or failed (exit N; its output is
   above)`; any other last line → `python-suites: FAIL pin: python3 did not end with scripts/python_pin.py's exit line
-  (exit N)` (e.g. a mise shim refusing an untrusted config, or a kill with N > 128; an uncaught exception in the
+  (exit N)` (e.g. a mise shim refusing an untrusted config, a kill with N > 128, or a `python3` that exits 0
+  without running the module; an uncaught exception in the
   module is not this case — it ends with `python-pin: exit 3`, §4.2, and takes the first branch); both exit 1 before any suite. `-I -S` stay (the admission is the interpreter's property). `python3 -VV` is echoed
   after it. The cwd mise is asked at is `$root`, where the shim resolved this `python3`. No `(3, 9)` remains.
 - **Header** (`:10–12`, `:15–19`, `:129–132`): "Python >= 3.9 standard library" → "the pinned interpreter's standard
@@ -365,7 +373,10 @@ measurement's place as "section 10 step 4 of the plan", and states the exit-line
   and `ubuntu-24.04` — and sets mise's isolation: `MISE_DATA_DIR`, `MISE_CACHE_DIR`, `MISE_STATE_DIR`,
   `MISE_CONFIG_DIR` (`MISE_DIR_VARS`, NEW) as directories and `MISE_GLOBAL_CONFIG_FILE` (`MISE_GLOBAL_VAR`, NEW) as
   an empty file, all under one root `mise_isolation_root()` (NEW: one `mkdtemp` per process, made at first use,
-  removed at exit by `atexit`), plus `MISE_OFFLINE=1` and `MISE_AUTO_INSTALL=false`. Every launch of I7 (iii) (§2.1,
+  removed at exit by `atexit`; one root for the process lifetime is intentional: every launch shares it, what one
+  launch's mise writes there stays there, and it is removed once), plus `MISE_OFFLINE=1` and `MISE_AUTO_INSTALL=false`.
+  `_launch` runs each child in its own session and, on its timeout or any exception, kills the child's whole process
+  group (`os.killpg(…, 9)`), so a driver's descendants do not outlive it. Every launch of I7 (iii) (§2.1,
   its sites and grep) takes its environment from it, and children of a scratch run inherit it, so `python3`
   resolves to the admitted interpreter, and **whatever mise a child does reach** — a `mise` in any `CHILD_PATH`
   directory (a distribution package in `/usr/bin`, or a package manager's `bin` holding both, e.g. Homebrew's) —
@@ -375,9 +386,12 @@ measurement's place as "section 10 step 4 of the plan", and states the exit-line
   *Superseded design*: the earlier draft raised `AssertionError` when `CHILD_PATH` held a `mise`, "raise, not
   isolate", on the ground that the isolation's one home is the helper, which a pin file does not load — false: the
   driver pin loads the helper by path (`test_python_suites_driver.py`'s `H`), and the raise made the pins
-  unrunnable on any host with a distro mise. Whether `os.path.dirname(sys.executable)` can be mise's shims
-  directory is **unverified**; if it can, a child's `python3` is a shim that runs under the isolation above (it
-  reaches no user state), and N22's `realpath` assertion is vacuous (both sides resolve to the shim's target). The
+  unrunnable on any host with a distro mise. That `os.path.dirname(sys.executable)` is not mise's shims directory is
+  **measured on macOS** (PR-1's `/elidex-review`, 2026-11-05): with the shims directory first on `PATH` and `argv[0]`
+  `python3`, CPython sets `sys.executable` to the real binary's path and no mise runs —
+  `PATH=<shims>:$PATH bash -c 'exec -a python3 <real python3> -c "import sys;print(sys.executable)"'`. **Linux is
+  unmeasured**; were it the shims directory there, a child's `python3` would be a shim running under the isolation
+  above (it reaches no user state), and N22's `realpath` assertion vacuous (both sides resolve to the shim's target). The
   docstring says why (§2.3, scratch × I7). Pinned by N22 (four parts, and its reachable-mise case) and FM1 (tests memo §6.1).
 
 ### §4.4 CI — the `tools` job and the `ci.yml` reader
@@ -385,7 +399,7 @@ measurement's place as "section 10 step 4 of the plan", and states the exit-line
 **`ci.yml`** (`:219–283`): `strategy` goes; `actions/setup-python@v7` takes `with: python-version-file:
 .tool-versions` and nothing else; the job name stays `Python suites` (check names lose the `(3.9)` / `(3.x)` suffix;
 the ruleset has no required check, CLAUDE.md `## CI`); `runs-on: ubuntu-24.04` with the comment "the manifest serves
-builds per image; the pinned patch must have one for ubuntu-24.04 x64 (umbrella §4.1, row 2). Re-check at each bump
+builds per image; the pinned patch must have one for ubuntu-24.04 x64 (umbrella records R§4.1, row 2). Re-check at each bump
 and when ubuntu-24.04 retires." The comment block: the job-boundary property "`actions/setup-python`, on every leg" →
 "…, reading the pin file `.tool-versions`"; the "The legs:" paragraph → one paragraph (one leg, the pin; Step 1
 admits only it); the timeout rule "(the slower leg bounds the job)" → "(the job's one leg)"; the dated records of
@@ -476,32 +490,11 @@ docstring "in PR-0, clauses 2-5" (`:233`) → clauses 1–5.
 with clause 1 merged, every fixture world whose tracked list lacks a root `.tool-versions` gains a clause-1 finding,
 so C3 r1–r4's `only(…)`, C4's `only(…)` and `== []` cases, C5's exact list, L2 and `test_mutants_are_killed`'s
 unpatched pre-run all turn red). T5 stays one predicate, `problems` over clauses 1–5; the **valid world is the
-fixture layer's baseline**. In `scripts/test_tracked_tool_config.py` at `660e594c` PR-1 touches exactly:
-- **NEW** `PIN_BYTES` (the live `<REPO>/.tool-versions` bytes, read at import — a malformed live pin reds every
-  fixture world, which is the right answer) and `pinned(tracked, read)` (NEW): returns `tracked` plus `ROOT_PIN`
-  and a `read` that answers `ROOT_PIN` with `PIN_BYTES` and delegates every other path — so a clause-3 `read` that
-  raises if called (C3 r4) is still never called;
-- `probs` (`:97–100`) is built on `pinned` unless its `files` name `ROOT_PIN` themselves (W1's clause-1 cases);
-  `mise_probs` (`:103–104`) inherits it;
-- the direct calls that bypass `probs` become `t.problems(*pinned(…))`: `:233` (C3 r4), `:297`, `:307`, `:317`,
-  `:319`, `:325` (C4), `:375` (both calls) and `:384` (C5); C5's expect list is unchanged (a valid pin adds no
-  finding);
-- C3 g1 (`:234–235`) is rewritten into W1's green case (the root `.tool-versions` holding the live line is green
-  **and read**);
-- L2's scratch repository (`:437–443`) writes a real `.tool-versions` holding `PIN_BYTES` and adds it with the same
-  `git add -f` line; M1 (`_walk_lister`) still dies there (it lists the untracked files);
-- C0: the comment of `MODULE_IMPORTS` (`:107`, "none can launch a process" — restated: none launches when imported,
-  and from `python_pin` only the parser is taken) and the tuple gaining `python_pin`; the `Import` check (`:143–146`,
-  which admits any `MODULE_IMPORTS` name) rejecting `import python_pin` (it would bind the module, `ask_mise`
-  included); the `ImportFrom` check (`:147–152`) admitting from `python_pin` exactly `PinFileError` and
-  `parse_pin`; the seam assertion (`:171–173`)
-  excluding the clause-1 names (`root_pin_problems`, `_REMEDY_PIN`) beside `problems`, and its comment (`:162`,
-  "minus `problems`") restated "minus `problems` and clause 1's names"; the existence loop
-  (`:175–176`) running over `CONTROLS_2_TO_5 + CONTROLS_1` (tests memo §6.4).
-- the module docstring's "T5 clauses 2-5" (`:1`) → clauses 1–5;
-- `:427` (L1, the live tree) and every other line are unchanged; PR-0's `MUTANTS` table and its exact ID assertion
-  are untouched — PR-1's mutants are a separate table (tests memo §6.5). PR-0's plan `:293` and `:384` get in-place markers
-  (§4.7).
+fixture layer's baseline**. PR-1's edits of `scripts/test_tracked_tool_config.py` — that baseline (`PIN_BYTES`,
+`pinned`, `probs`), the direct calls rewritten onto it, g1, L2, C0's lists and checks, the W controls, the
+`_assert_all_killed` refactor and the member's `git` environment — are listed exactly once, in tests memo §6.4 *The
+member's edits*, the list `git diff 660e594c <head> -- scripts/test_tracked_tool_config.py` is checked against. PR-0's
+plan `:293` and `:384` get in-place markers (§4.7).
 
 ### §4.6 Discovery — found by construct, classes decide the edit (C1, C2, C26, C30; body :494–500)
 
@@ -552,7 +545,9 @@ Every amendment (the rounds file excepted, below) replaces the sentence (or the 
   clause from "and edits only `problems`" to the sentence's end ("… plus C0's two lists (§6: …).") is replaced, and
   `:384`'s "g1 is the one existing control PR-1 edits, and C0 the one existing control whose two lists PR-1 extends
   … and nothing else in C0" is replaced, each by the pointer "superseded: PR-1 also edits the module's statements,
-  the member's fixture layer and C0 as its plan §4.5 lists" and the marker (the reason is §4.5's). Kept, not edited:
+  the member's fixture layer and C0 as its plan §4.5 lists" and the marker (the reason is §4.5's); and `:293`'s next
+  sentence, C0's holding "the module's complete set of top-level names minus `problems`", gains "and clause 1's
+  names" and the marker (C0's seam assertion excludes them, tests memo §6.4). Kept, not edited:
   that sentence's opening (clause 1 as its own function calling nothing of clauses 2–5 but `finding`), and
   `:293–295`'s review condition per function span (as `:58–59` and `:139–140` state it).
   The sweep at `660e594c`: `git grep -n -F "C0's two lists" -- docs/plans scripts` prints PR-0 `:293` and
@@ -560,13 +555,13 @@ Every amendment (the rounds file excepted, below) replaces the sentence (or the 
   `:139` (the kept condition), `:384`, and umbrella / rounds / vm-p4 lines on other subjects (the VM P4 lane's
   lines and checker run, the J1 row, clause 1's placement in the PR-0 split at umbrella `:627`);
   ``git grep -n -F 'minus `problems`' -- scripts docs/plans`` prints `scripts/test_tracked_tool_config.py:162`
-  (§4.5), PR-0 `:293` (the kept review condition's sentence) and PR-0 `:367` (C0 as PR-0 lands it, not a claim
+  (tests memo §6.4), PR-0 `:293` (amended, above) and PR-0 `:367` (C0 as PR-0 lands it, not a claim
   about PR-1: kept); `git grep -n -F 'clauses 2-5' -- scripts docs/plans` prints `scripts/test_tracked_tool_config.py:1`
-  and `scripts/tracked_tool_config.py:1`, `:233` (all §4.5).
+  (tests memo §6.4) and `scripts/tracked_tool_config.py:1`, `:233` (§4.5).
 - **The umbrella** (PM 353; precedent: PR-0 edited the body; C38 decides the landing vehicle, not an edit bar) —
   the statements PR-1 falsifies, each re-read at `660e594c`. The body is 994 lines at the base; if the markers
   take it past 1000, body :752's seam rule applies in PR-1. The rounds file is "append-only" (body :744; PM 355):
-  its two corrections are one appended dated entry at its end (§14 *python-pin PR-1 correction (2026-11-04)*), and each corrected entry keeps its text and gains
+  its three corrections are one appended dated entry at its end (§14 *python-pin PR-1 correction (2026-11-04)*), and each corrected entry keeps its text and gains
   only a one-line "superseded by" pointer to that entry:
   - body :187: the clause "and PR-1's reader asserts both values" → "and PR-1's T5 member
     (`scripts/test_tracked_tool_config.py`, W2) asserts both values over parsed TOML"; marker after "pinned image." (:188);
@@ -582,7 +577,11 @@ Every amendment (the rounds file excepted, below) replaces the sentence (or the 
     test's `PATH` logs any child that bypassed the helper (PR-1 tests memo
     `docs/plans/2026-10-python-pin-pr1-tests.md` §6.5, N19 (c))." and the marker;
   - body :241: "seven constructs that 3.9.6 rejects pass it" → "ten constructs …" (R§11's gap rows, records
-    :559–568); marker after "R§11's accepted rows";
+    :559–568); marker after "R§11's accepted rows"; and "its oracle uses only `subprocess` and `json`" → "only
+    `subprocess`, `json` and `signal`" (SIGINT blocked around `Popen`, §4.2 *Process tree*); marker after "refusal
+    path only";
+  - rounds :454, C16 (d): the entry carries "plus `subprocess` and `json` imported on the refusal path only" →
+    "plus `subprocess`, `json` and `signal` …"; the pointer after (f)'s end names (d) too;
   - rounds :463, C16 (f): the entry carries "the header keeps the bump rule" → "the header keeps the pointer to
     the bump rule (C15)"; the pointer after (f)'s end;
   - rounds :598–599, C38: the entry carries "and lists none of its four files in its edit set;" → "and amends the
@@ -595,11 +594,18 @@ Every amendment (the rounds file excepted, below) replaces the sentence (or the 
 Not a set member (no `test_` prefix), not a T5 member (no component starting `mise` / `rtx`), no `TestCase`, no
 `__main__` guard, **no process launch** (N21: no call in G9's spawner set), stdlib only. Every test loads it by
 path through the one constant `"scripts/python_pin_testing.py"` joined to the repository root (PR-2's named form;
-never an assembled `os.path.join(…, "python_pin_testing.py")`). Contents (all NEW):
+never an assembled `os.path.join(…, "python_pin_testing.py")`). Contents, all NEW (its public top-level names, 17,
+are what `grep -n -E '^(def [a-z]|[A-Z][A-Z0-9_]* = [^@])' scripts/python_pin_testing.py` prints):
+- `MISE_DIRS` (the four directory variables, each with its sub-directory) and `MISE_VARS` (those four plus
+  `MISE_GLOBAL_CONFIG_FILE`): the names `base_env()` copies (N22's `isolation` part asserts the copy).
 - `isolated_mise_env(tmp_root, fake_mise=None, extra_env=None)` — `os.environ` minus every `MISE_*`, plus
   `MISE_DATA_DIR`, `MISE_CACHE_DIR`, `MISE_STATE_DIR`, `MISE_CONFIG_DIR` under `tmp_root` and
   `MISE_GLOBAL_CONFIG_FILE` an empty file there; `PATH` = the fake's directory first (or the outer `PATH` with every
   directory holding a `mise` removed, for the no-mise fixture); no regime key changed; `extra_env` last.
+  `isolation_problems(environ, root)` (pure) — what is wrong with `environ`'s `MISE_*` as that environment under
+  `root`: the keys exactly `MISE_VARS`, each real path under `root`, the global file empty (N19 (a)).
+- `RED_PIN_TEXTS` — the pin-file texts no reader admits, each with the phrase the parser names (N2 parses them, W1
+  runs them through `problems`).
 - **The fakes' scripts** (`_wrapper`, `_shim`): the fake `mise` and the fake `python3` are one Python script each
   per process, written on first use into one `mkdtemp` directory removed at exit (`atexit`); its shebang is
   `sys.executable` itself (no `-I` / `-E` / `-S`, and no `/bin/sh` between the caller's environment and the fake —
@@ -609,20 +615,22 @@ never an assembled `os.path.join(…, "python_pin_testing.py")`). Contents (all 
   `_wrapper` raises `RuntimeError` — a stated limit of the helper. Each `write_fake_*` call puts a **symlink** to
   that script, named `mise` / `python3`, into `bindir`; the script finds its data through the directory of
   `argv[0]` (the symlink's, not its target's). One script per process instead of one per test removes a fresh
-  first exec per run (slow on macOS, and inside E15's 1 s budget, so flaky under load).
+  first exec per run (slow on macOS, so flaky under load).
 - `write_fake_mise(bindir, answers)` — the symlink, and `answers` in `<bindir>/answers.json`; the fake appends
   `{argv, environ}` (its whole environment) to `<bindir>/calls.jsonl`, then answers each argv from `answers` (rc,
   stdout, stderr, or `hang`: start `/bin/sleep 3600` holding the inherited stdout / stderr, write its own pid and
-  the sleep's to `<bindir>/hang.pids`, and wait).
+  the sleep's to `<bindir>/hang.pids`, and wait); `read_calls(bindir)` / `read_hang_pids(bindir)` read the two logs.
 - `write_sentinel(bindir, names)` — for each name (`mise`, `python3`) a `#!/bin/sh` script that appends `$0 $*` to
   `<bindir>/<SENTINEL_LOG>` (`"sentinel.log"`, NEW constant) and exits 1; `read_sentinel(bindir)` (NEW) returns its
   lines (`[]` = nothing reached them): the evidence N19 (c) and N22 own (no user state is read).
 - `LAUNCHER` — a `-c` source string: load the module at `argv[1]` by path under a fresh name, replace
   `sys.version_info` by a tuple subclass with the `major`…`serial` properties built from `argv[2]`, replace
-  `sys.executable` when `argv[3]` is non-empty, set `ORACLE_TIMEOUT_S` when `argv[4]` is non-empty, `sys.exit(main())`.
-- `write_fake_python3(bindir, version)` — the symlink, and the five-part version in `<bindir>/fake_python3.version`;
-  a `python3` on `PATH` for N1: when its arguments name `python_pin.py` it runs that file under `LAUNCHER`'s
-  replacement; `-VV` prints the fake version; anything else `execv`s the real interpreter.
+  `sys.executable` when `argv[3]` is non-empty, set `ORACLE_TIMEOUT_S` when `argv[4]` is non-empty,
+  `sys.exit(_guarded_main())` (so a child's uncaught exception ends with the exit line, as Step 1's does).
+- `write_fake_python3(bindir, version)` — the symlink, and the five-part version (`five(version)`) in
+  `<bindir>/fake_python3.version`; a `python3` on `PATH` for N1: it appends its argv to `<bindir>/python3_argv.jsonl`
+  (`read_python3_argv(bindir)`; N1 asserts Step 1's `-I -S`), then, when its arguments name `python_pin.py`, runs that
+  file under `LAUNCHER`'s replacement; `-VV` prints the fake version; anything else `execv`s the real interpreter.
 - `refused_versions(pin)` (NEW) — E2's versions for a pin triple, derived, never spelled: `Z-1` (when `Z > 0`),
   `Z+1`, `Y-1`'s `.10` (when `Y > 0`), `Y+1`'s `.0`, `3.9.6` (unless it is the pin), and the pin's
   `candidate 1`, each as (spec, shown, level). The driver pin takes the pin from the `.tool-versions` text (the
@@ -634,7 +642,7 @@ never an assembled `os.path.join(…, "python_pin_testing.py")`). Contents (all 
 Children run as `[sys.executable, "-c", LAUNCHER, …]` with the helper's environment, without `-I` / `-E` / `-S`, so
 they stay outside the driver's unguarded-child class (body :219–222). The launcher of those children is
 `test_python_pin.py`'s `run_child` (NEW, in the member — the helper launches nothing): `subprocess.run(…,
-timeout=60)` (60 s default; `run_pin(child_timeout=…)` passes it on, 5 s for E15's run), a `TimeoutExpired` re-raised as `AssertionError` (so a hang is a red control, and a mutant that hangs is
+timeout=60)` (60 s default; `run_pin(child_timeout=…)` passes it on; E15 runs in process, tests memo §6.3), a `TimeoutExpired` re-raised as `AssertionError` (so a hang is a red control, and a mutant that hangs is
 killed); every fixture that writes `hang.pids` registers a cleanup killing each recorded pid (`os.kill(pid, 9)`,
 `ProcessLookupError` ignored; a pid `poll_gone` already saw gone is skipped, since it may have been reused),
 so no run — mutated or not — leaves a survivor. Every caller reaches the helper's
@@ -646,7 +654,7 @@ functions as attributes of the loaded module object (never a name bound from it)
 
 Both sections live in `docs/plans/2026-10-python-pin-pr1-tests.md` ("the tests memo"), under the same numbers:
 §5 the edge matrix (E1–E29) and the behaviour deltas (C22); §6 the tests and controls — §6.1 the driver pin (N1,
-N1b, N1c, the pre-launch case, N22, DM / FM), §6.2 the `ci.yml` / `mise.toml` reader pin (N4–N8), §6.3
+N1b–N1e, the pre-launch case, `PIN_FILE`'s one spelling, N22, DM / FM), §6.2 the `ci.yml` / `mise.toml` reader pin (N4–N8), §6.3
 `scripts/test_python_pin.py` (N2, N3, N9–N21, N23), §6.4 the T5 member (W1–W3), §6.5 the NM / WM mutants. Every
 E-row, N / W control and DM / FM / NM / WM mutant this plan names is defined there; "§5" / "§6.x" in this plan
 mean the tests memo's sections.
@@ -662,7 +670,7 @@ mean the tests memo's sections.
   `scripts/test_python_suites_ci.py`, `scripts/test_python_suites_driver.py` (`python_suites_fixtures.py`:
   `Scratch`'s copies, `base_env()` and `CHILD_PATH`, §4.3);
 - `scripts/tracked_tool_config.py` (clause 1, `problems`, imports, docstring), `scripts/test_tracked_tool_config.py`
-  (W1–W3, WM, and exactly §4.5 *What the member's fixtures change*);
+  (W1–W3, WM, and exactly tests memo §6.4 *The member's edits*);
 - `mise.toml`, `.github/workflows/ci.yml`, `README.md`, `CONTRIBUTING.md`, `CLAUDE.md` (`:54` V14, `:100`);
 - the A-iii memo, PR-0's plan, and the umbrella body and rounds file (§4.7); vm-p4 only on §8.4's contingency;
   the VM P4 lane's V1–V23 files and `.claude/tools/plan_memo_selftest_manifest.txt` (regenerated, §8.1); this plan and its tests memo
@@ -703,8 +711,8 @@ The consent file's lines were given at `432c0190` / `eaa741b5`; each is re-read 
 
 | # | condition (consent file) | where it binds here | re-read at `660e594c` |
 |---|---|---|---|
-| 1 | V1–V23 + manifest OK; V12 / V13 / V15 / V18 keep or update the pointers into #510's memo | **Rule**: V12 (`:73`) and V15 (`:434`) are rewritten within their own lines, so lines 1–663 keep their count and seam-split `:733` ("`@ …umbrella-checker.md:663`") and `:778` stay true; PR-1 checks `git grep -n -F 'main memo line 2716 at' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` prints `:663` after its edits, and if not, updates `:733` in the same commit (consented). V18 rewrites `:1097–1108`; the new lines of the two slot IDs (`git grep -n -F -e '#11-plan-memo-acceptance-falsifiability-check' -e '#11-plan-memo-spec-field-single-home-check' -- <#510's memo>`) go to the PM for the ledger (§8.3). Seam-split `:573` also cites `:1098` and `:1103` (the `190d2adb:…` cites), inside V18's range: it is a census whose checker-plan lines are read at `e44ffce6` (seam-split `:12–13`), so a move of either cite by V18 does not make it false and it is not edited; PR-1 runs `git grep -n -F -e '190d2adb:…:1218' -e '190d2adb:…:2710' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` after V18 (prints `:1098`, `:1103` at `660e594c`) and names any move in the PR body | #510's memo `:1098` / `:1101` hold; seam-split `:733` holds; **drift**: the ledger rows are now `project_open-defer-slots.md:1056` / `:1057`, not `:1014` / `:1015` (`/usr/bin/grep -n` of each slot ID, 2026-11-04; their post-V18 numbers are on the PM's landing list, §8.3) |
-| 2 | V6 = outcome (i); keep `except OSError` with the true reason "defensive, e.g. `getcwd()` failure"; do not carry "3.13 made that an OSError" or "an over-long name"; add the third caller `plan_memo_memo.py:761` | V6: `except OSError:`; `_resolve`'s docstring: non-strict `resolve()` raises no `OSError` for a missing file or a symlink loop on the pin; the arm is defensive (e.g. a `getcwd()` failure); its callers are `sibling_path` (e) (`plan_memo_sibling.py:168`), `plan_memo_population.py:54` and `plan_memo_memo.py:761`, each of which now propagates a `RuntimeError` (E26, O4). `sibling_path`'s (e) sentence (`:151–153`) → "an `OSError` there makes the sibling UNAVAILABLE". V7 find text follows; V8 deleted; V10 / V11 / V15 restated as history. **V9**: the vm-p4 table's edit only — drop the `RuntimeError` arm and its sentence, a deletion (item 3 calls V9 / V10 moot under (i), i.e. no headroom question). **V9's "(an over-long name)"** (`plan_memo_selftest_controls.py:179`): dropped too, with VM P4's consent of 2026-11-04 (PM 353) on its condition that no other cause replaces it; PR-1 names **no cause** (not V6's wording, which is `_resolve`'s reason, stated there once), so the docstring opens "(e) of `sibling_path`: an `OSError` from `resolve()` is the unavailable-sibling schema miss, rc 2 -- not an exception."; the injected `OSError(36, "File name too long")` (`:188`) is a fixture and stays. **The removal's control (CLAUDE.md:54: lexer / population / assertion touched → control + mutant in the same commit)**: `unavailable_sibling_control`'s body is folded into `_resolve_control(M, name, exc)` (NEW: injects `exc` from `Path.resolve` for `name`, returns the result or the exception `check()` let out), which it and `resolve_runtime_error_control` (NEW: an injected `RuntimeError` propagates out of `check()`) call; the mutant "V6 sibling: `_resolve` guards RuntimeError again" (`plan_memo_selftest_mutants_pr510.py`, restoring `except (OSError, RuntimeError)`) is killed by it; the manifest is regenerated (one CONTROL row added, `unavailable_sibling_control`'s digest changed, one MUTANT row). This touches `unavailable_sibling_control`'s body beyond V9's deletion — within V6's consent, reported to the VM P4 lane through the PM (§8.3) | `plan_memo_sibling.py:151–153`, `:174–183`, callers `:168`, `plan_memo_population.py:54`, `plan_memo_memo.py:761` (`git grep -n '_resolve' -- '.claude/tools/*.py'`) |
+| 1 | V1–V23 + manifest OK; V12 / V13 / V15 / V18 keep or update the pointers into #510's memo | **Rule**: V12 (`:73`) and V15 (`:434`) are rewritten within their own lines, so lines 1–663 keep their count and seam-split `:733` ("`@ …umbrella-checker.md:663`") and `:778` stay true; PR-1 checks `git grep -n -F 'main memo line 2716 at' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` prints `:663` after its edits, and if not, updates `:733` in the same commit (consented). V18 rewrites `:1097–1108`; the new lines of the two slot IDs (`git grep -n -F -e '#11-plan-memo-acceptance-falsifiability-check' -e '#11-plan-memo-spec-field-single-home-check' -- <#510's memo>`) go to the PM for the ledger (§8.3). Seam-split `:573` also cites `:1098` and `:1103` (the `190d2adb:…` cites), inside V18's range: it is a census whose checker-plan lines are read at `e44ffce6` (seam-split `:12–13`), so a move of either cite by V18 does not make it false and it is not edited; PR-1 runs `git grep -n -F -e '190d2adb:…:1218' -e '190d2adb:…:2710' -- docs/plans/2026-08-plan-memo-umbrella-checker.md` after V18 (prints `:1098`, `:1103` at `660e594c`) and names any move in the PR body | #510's memo `:1098` / `:1101` hold; seam-split `:733` holds; the ledger rows are cited by slot ID, not by line (vm-p4 :70's rule: the live ledger's lines move): `/usr/bin/grep -n -- '#11-plan-memo-acceptance-falsifiability-check' <ledger>` and `… -- '#11-plan-memo-spec-field-single-home-check' …` (`<ledger>` = the memory dir's `project_open-defer-slots.md`) each print one line; their post-V18 targets are on the PM's landing list, §8.3 |
+| 2 | V6 = outcome (i); keep `except OSError` with the true reason "defensive, e.g. `getcwd()` failure"; do not carry "3.13 made that an OSError" or "an over-long name"; add the third caller `plan_memo_memo.py:761` | V6: `except OSError:`; `_resolve`'s docstring: non-strict `resolve()` raises no `OSError` for a missing file or a symlink loop on the pin; the arm is defensive (e.g. a `getcwd()` failure); its callers are `sibling_path` (e) (`plan_memo_sibling.py:168`), `plan_memo_population.py:54` and `plan_memo_memo.py:761`, each of which now propagates a `RuntimeError` (E26, O4). `sibling_path`'s (e) sentence (`:151–153`) → "an `OSError` there makes the sibling UNAVAILABLE". V7 find text follows; V8 deleted; V10 / V11 / V15 restated as history. **V9**: the vm-p4 table's edit only — drop the `RuntimeError` arm and its sentence, a deletion (item 3 calls V9 / V10 moot under (i), i.e. no headroom question). **V9's "(an over-long name)"** (`plan_memo_selftest_controls.py:179`): dropped too, with VM P4's consent of 2026-11-04 (PM 353) on its condition that no other cause replaces it; PR-1 names **no cause** (not V6's wording, which is `_resolve`'s reason, stated there once), so `unavailable_sibling_control`'s docstring is "An `OSError` from `resolve()` is the unavailable-sibling schema miss, rc 2 -- not an exception." and the "(e) of `sibling_path`" prefix opens `_resolve_control`'s; the injected `OSError(36, "File name too long")` (`:188`) is a fixture and stays. **The removal's control (CLAUDE.md:54: lexer / population / assertion touched → control + mutant in the same commit)**: `unavailable_sibling_control`'s body is folded into `_resolve_control(M, name, exc)` (NEW: injects `exc` from `Path.resolve` for `name`, returns the result or the exception `check()` let out), which it and `resolve_runtime_error_control` (NEW: an injected `RuntimeError` propagates out of `check()`) call; the mutant "V6 sibling: `_resolve` guards RuntimeError again" (`plan_memo_selftest_mutants_pr510.py`, restoring `except (OSError, RuntimeError)`) is killed by it; the manifest is regenerated (one CONTROL row added, `unavailable_sibling_control`'s digest changed, one MUTANT row). This touches `unavailable_sibling_control`'s body beyond V9's deletion — within V6's consent, reported to the VM P4 lane through the PM (§8.3) | `plan_memo_sibling.py:151–153`, `:174–183`, callers `:168`, `plan_memo_population.py:54`, `plan_memo_memo.py:761` (`git grep -n '_resolve' -- '.claude/tools/*.py'`) |
 | 3 | V9 + V10 moot under (i); no prereq split (997 lines; fails at ≥ 1000) | §7's 1000-line rule | `wc -l .claude/tools/plan_memo_selftest_controls.py` → 997 at `660e594c`; 999 after row 2's control (§7) |
 | 4 | V22 as written; the four find / replace strings in codex0927 rewritten in the same commit; `--write-manifest` (MUTANT rows `:2122` / `:2126`) | §4.6 class *a call the pin deprecates*; one commit; `python3 .claude/tools/plan-memo-umbrella-check.py --write-manifest` on the pin | codex0927 `:51`, `:52`, `:56`, `:57` (`git grep -nF 'dest, 1)' -- .claude/tools`); manifest `:2122`, `:2126` (`git grep -n -F -e 'R38 of 2026-09-27 agree' -e 'R38 of 2026-09-27 run' -- .claude/tools/plan_memo_selftest_manifest.txt`) |
 | 5 | P2: `:333` PR-2's proposal; `:799` delete the bullet | PR-2's (§11) | seam-split `:333`, `:799`, `:801` hold |
@@ -757,7 +765,8 @@ landing list holds it).
 
 ## §9 Defer slots
 
-Two (body :865), registered by this plan (ledger rows `:1000` / `:1001` point here from PR-1's landing):
+Two (body :865), registered by this plan; from PR-1's landing their ledger rows point here (by slot ID, not line:
+`/usr/bin/grep -n -- '<slot>' <ledger>`, `<ledger>` as §8.1 row 1):
 - **`#11-toolchain-pin-bump-automation`** — **Defect**: neither `rust-toolchain.toml` nor `.tool-versions` is bumped by
   anything (`grep -n package-ecosystem .github/dependabot.yml` lists `cargo` and `github-actions` only), so a pin can
   fall behind a CPython security release with no alarm. **Why deferred**: the fix is a bot that opens a bump PR (a
@@ -784,11 +793,11 @@ Decision 170's limit is not a slot (body :866–867).
    (expected 0 after V22), in the PR body.
 4. The real old interpreter (body :887–904; R§11 recipe, `type -P` / `whence -p`, `MISE_TRUSTED_CONFIG_PATHS=<W>`):
    the refusal under macOS `/usr/bin/python3` recorded with `<D>` as `xcode-select -p` prints it, the post-check
-   listing of `$ISO/state/tracked-configs`, and `REAL_OLD_RUN` written from that run. The record also shows that the
-   real mise's answers parse: item 5 (a) printed per element and (c) one path per line, with no item 6 for (a) or (c)
-   (§4.2 *Shapes the fakes answer*: the fakes' shapes are mise 2026.10.25's; this run names the mise it asked).
-   Open at the 2026-11-05 record (tests memo §6.3 N17): that run reached no real mise, so this half is re-run at landing on
-   the final `python_pin.py`.
+   listing of `$ISO/state/tracked-configs`, and `REAL_OLD_RUN` written from that run, its `mise` field naming the mise
+   the run reached (or `"none reachable"`). The record also shows that the real mise's answers parse: item 5 (a)
+   printed per element and (c) one path per line, with no item 6 for (a) or (c) (§4.2 *Shapes the fakes answer*: the
+   fakes' shapes are mise 2026.10.25's). The current record (`mise: "none reachable"`, tests memo §6.3 N17) is the
+   interpreter half only; this real-mise half is run at landing on the final `python_pin.py`.
 5. CLAUDE.md:55's checker on `docs/plans/2026-07-vm-p4-es-language-completeness.md` on the pin: exit 0 (C32; consent
    item 7). The manifest regenerated on the pin.
 6. CI: every job green; the `tools` job on its one leg; the timeout derived (§7) and recorded; CI re-run.

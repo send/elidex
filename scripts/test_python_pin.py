@@ -53,7 +53,7 @@ H = _load(HELPER_PATH, "python_pin_testing_under_member")
 # sha256 of scripts/python_pin.py, the date, "<version> <sys.executable>" and the mise the run could
 # reach ("none reachable" or its version) of that run.
 REAL_OLD_RUN = {
-    "sha256": "619c86f5ade25ecf097a0d7752da1192c833953ea38b7dbe77dc02d48c846846",
+    "sha256": "7466b21c660389e956e6094adb62b40cf577e91aa9db2c70f43a75cc4355c95e",
     "date": "2026-11-05",
     "interpreter": "3.9.6 /Applications/Xcode.app/Contents/Developer/usr/bin/python3",
     "mise": "none reachable",

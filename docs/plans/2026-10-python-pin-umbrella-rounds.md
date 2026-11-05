@@ -461,7 +461,7 @@ item here.
   generic block, byte-identical across fixtures — C31);
   every one of these runs through I7's helper (C23); (f) the re-measure rule of §11 is **C24's pin**, not a header
   rule; the header keeps the bump rule and the oracle probe scripts with §0's isolation lines.
-  (f): superseded by §14 *python-pin PR-1 correction (2026-11-04)*.
+  (d), (f): superseded by §14 *python-pin PR-1 correction (2026-11-04)*.
 - **C17 — I5 split (H4)**: PR-1 §0's ownership line names I5's gate half; PR-2 §0's "This slice owns I2
   (entry-point half), I4, I5" becomes "… I5 (entry-point half), and I7 for its tests"; PR-2 §2 lists, from §2
   *Every pair × half* (J1, draft 6), the **entry-point halves** of I1 × I2, I1 × I5, I1 × I7, I2 × I3, I2 × I5,
@@ -699,6 +699,7 @@ item here.
   580, rounds 697, total 2476. No measurement, no mise, no cargo build.
 - **python-pin PR-1 correction (2026-11-04)**: PM decisions 353 and 355; appended, the entries it corrects keep their
   text and gain a one-line pointer to it. C16 (f): "the header keeps the bump rule" reads "the header keeps the
-  pointer to the bump rule (C15)". C38: "and lists none of its four files in its edit set;" reads "and amends the
+  pointer to the bump rule (C15)". C16 (d): "plus `subprocess` and `json` imported on the refusal path only" reads
+  "plus `subprocess`, `json` and `signal` imported on the refusal path only". C38: "and lists none of its four files in its edit set;" reads "and amends the
   body in place and appends to this file where PR-1 falsifies a statement (PM 353; vm-p4 only on PR-1 plan §8.4's
   contingency);".

@@ -290,7 +290,7 @@ The live test's failure message is the joined list; the driver prints a failing 
 
 **Clause 1's place** (D2 reason 2): PR-1 adds clause 1 as its own function (`root_pin_problems`,
 its parser `python_pin.py`'s) that no clause-2–5 function calls and that calls none of them except `finding` —
-superseded: PR-1 also edits the module's statements, the member's fixture layer and C0 as its plan §4.5 lists (amended 2026-11-04 by python-pin PR-1). C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems`; that PR-1's diff
+superseded: PR-1 also edits the module's statements, the member's fixture layer and C0 as its plan §4.5 lists (amended 2026-11-04 by python-pin PR-1). C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems` and clause 1's names (amended 2026-11-04 by python-pin PR-1); that PR-1's diff
 adds no line to, and removes none from, the span (`ast` line range at PR-0's merge sha) of any function named in
 `CLAUSES_2_TO_5` is a condition checked in PR-1's review, per function span.
 

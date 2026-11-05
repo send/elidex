@@ -14,8 +14,8 @@ umbrella docs/plans/2026-10-python-pin-umbrella.md (sections 4.1-4.3).
 Bump rule: stated once, in the umbrella body section 4.1 (the criterion and its rows); this header
 points to it and does not restate it.
 
-Shape: stdlib only; the top-level imports are `os` and `sys` and nothing else (`subprocess` and
-`json` are imported inside `ask_mise`, on the refusal path only); Python 3.9 grammar (the oldest
+Shape: stdlib only; the top-level imports are `os` and `sys` and nothing else (`subprocess`,
+`json` and `signal` are imported inside `ask_mise`, on the refusal path only); Python 3.9 grammar (the oldest
 interpreter this module is refused on is measured, section 10 step 4 of the plan); `%`-formatting;
 `sys.version_info` is read by index, never by attribute.
 
