@@ -2,7 +2,7 @@
 # install or nothing (no source build, no unverified archive). This table sits before every
 # task so no later header can capture the lines. mise reads neither this table nor
 # `[bootstrap.packages]` in an untrusted worktree (`mise trust`; `main` already refuses so
-# since #535). Rationale and the invariant (I6): docs/plans/2026-10-python-pin-umbrella.md.
+# since #535). Rationale and the invariant (I6): the interpreter-pin umbrella plan memo (docs/plans).
 [settings]
 python.compile = false
 python.github_attestations = true
