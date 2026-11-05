@@ -542,8 +542,7 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15); integration i
   *Constraint (umbrella X5):* when blur commits an active composition, the commit goes through
   `elidex_form::apply_user_edit` (NEW) before the change-on-blur substep runs, so a commit that changes the value marks
   the snapshot and fires `input`, and one that changes nothing fires neither.
-  *Trigger:* (1) measure in the built-in Chromium whether blur commits or cancels the composition and which events fire;
-  (2) the first shell PR that wires the platform IME cancel / commit request.
+  *Trigger:* the first shell PR that wires the platform IME cancel / commit request.
 - **FF-4 `#11-form-owner-ecs-component`** (252 (M3) (a), plan-review Axis 2 (PM 292); crates `elidex-form`, `elidex-js` VM
   host, `elidex-shell`). *Defect:* no ECS state holds the form owner; three divergent resolvers recompute it per read —
   `find_form_ancestor` (ignores the `form` attribute) in nine VM prototypes (`html_input_proto.rs:876`,
