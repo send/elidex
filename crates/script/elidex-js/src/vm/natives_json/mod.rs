@@ -19,13 +19,21 @@ pub(in crate::vm) use stringify::{
 /// `JSON.parse`'s parser (`parse_array` / `parse_object`), `JSON.stringify`'s
 /// serializer, and the reviver walk `internalize` (a reviver can install
 /// cyclic or arbitrarily deep graphs after the parser's own cap has passed).
-/// Exceeding it is a catchable `RangeError` ([`depth_exceeded`]), never a
-/// Rust-stack-overflow abort.
+/// Exceeding it is a catchable `RangeError` ([`depth_exceeded`]) rather than a
+/// Rust-stack-overflow abort. This bounds each walker's *own* recursion only.
+/// Recursion through re-entry is not bounded here: a reviver that calls
+/// `JSON.parse` again with itself starts a fresh walk at depth 0. That is
+/// native -> JS -> native recursion, the same class as any recursive callback
+/// into JS (the VM has no call-depth guard), and out of scope for this constant.
 ///
 /// Release matches V8's ~1000 and was verified to hold for all three walkers
 /// (depth 990 passes, 1000+ throws).
 ///
-/// Debug builds use 600. The binding constraint is `internalize`: measured
+/// Debug builds use 600. The value applies to every consumer of the walkers:
+/// the parser, `JSON.stringify`, the reviver walk, and through them
+/// `stringify_for_structured_shortcut` (postMessage / history.state) and the
+/// Body mixin's `JSON.parse`. Debug and release therefore diverge at 600 vs
+/// 1000 for all of them. The binding constraint is `internalize`: measured
 /// 2026-11-05 on a 2 MiB thread (the smallest stack any production VM thread
 /// gets), its debug frames use about 2.7 KiB/level: 760 levels pass, 770
 /// overflow. `stringify` passed 790 and the parser 800 on the same thread.
