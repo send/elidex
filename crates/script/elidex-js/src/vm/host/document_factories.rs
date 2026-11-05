@@ -2,6 +2,13 @@
 //! `createDocumentFragment` natives (WHATWG DOM §4.5 Interface Document
 //! factory methods).  Pure-move split from `document.rs` (C0 D-14 (b));
 //! the method table stays in `document.rs`.
+//!
+//! The handlers anchor the new node's "node document" (WHATWG DOM §4.4)
+//! to the receiver Document so `clonedDoc.create*().ownerDocument ===
+//! clonedDoc`.  Text wrappers chain through `Text.prototype →
+//! CharacterData.prototype → Node.prototype → EventTarget.prototype`;
+//! Comment wrappers through `CharacterData.prototype`; Fragment wrappers
+//! through `Node.prototype`.
 
 #![cfg(feature = "engine")]
 

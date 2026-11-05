@@ -5,6 +5,30 @@
 //! `links` / `baseURI` / `documentURI`.  Pure-move split from
 //! `document.rs` (C0 D-14 (b)); the accessor tables stay in
 //! `document.rs`.
+//!
+//! Where each accessor's logic lives:
+//! - `body` / `head` / `documentElement` — handlers walk the tree
+//!   from the receiver document; return `null` when the structure is
+//!   missing (no synthesised fallback).
+//! - `title` (get/set) — handlers walk `<html>` → `<head>` → `<title>`;
+//!   getter applies WHATWG whitespace normalisation; setter creates
+//!   `<title>` if missing or no-ops if `<head>` is absent.
+//! - `doctype` — handler returns the first `DocumentType` child via
+//!   `EcsDom::node_kind_inferred` (legacy `DocTypeData` fallback
+//!   preserved).
+//! - `URL` / `documentURI` — `VmInner::navigation.current_url`
+//!   (navigation state, not DOM).
+//! - `readyState` — stub returning `"complete"` (the VM has no notion
+//!   of document loading state yet; the shell owns that in PR6).
+//! - `cookie` / `referrer` — `elidex-net::CookieJar` /
+//!   `NavigationState`, kept VM-side because they read browsing-context
+//!   state.
+//! - `forms` / `images` / `links` — VM-side natives construct
+//!   [`elidex_dom_api::LiveCollection`] directly; the walker /
+//!   cache / case-insensitive matching live engine-independent in
+//!   that crate.
+//! - `activeElement` / `hasFocus` — focus state from `HostData`,
+//!   carved out in `#11-focus-management-hoist`.
 
 #![cfg(feature = "engine")]
 
