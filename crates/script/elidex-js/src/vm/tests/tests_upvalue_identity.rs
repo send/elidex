@@ -118,3 +118,17 @@ fn distinct_locals_do_not_share() {
         100.0
     );
 }
+
+#[test]
+fn live_caller_frame_cell_is_not_reused_by_callee() {
+    // Control: while the outer frame's cell for slot N is still Open, a
+    // callee capturing *its own* slot N must get a distinct cell.
+    assert_eq!(
+        eval_number(
+            "const outer = function () { let x = 1; const ox = () => x; \
+               const inner = function () { let y = 2; const iy = () => y; return iy(); }; \
+               return inner() * 10 + ox(); }; outer();"
+        ),
+        21.0
+    );
+}
