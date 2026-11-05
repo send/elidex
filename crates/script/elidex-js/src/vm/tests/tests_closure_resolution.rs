@@ -15,9 +15,8 @@
 //! Known deviation, pinned by `known_deviation_block_body_binding_per_entry`:
 //! a block-body `let` inside a loop is one binding per function entry, not
 //! per iteration, so every closure sees the last value. Owner:
-//! `#11-vm-block-declaration-instantiation` (Slice B: a fresh binding per
-//! Block evaluation), with `#11-vm-per-iteration-loop-environment` (Slice E)
-//! planned to supply the shared mechanism.
+//! `#11-vm-per-iteration-loop-environment` (Slice E; the Block-entry
+//! `CloseLocal` facet moved from Slice B to Slice E, PM 421).
 //!
 //! The cells are observable JS only; they presume nothing about how
 //! captured bindings are represented.
@@ -150,14 +149,13 @@ fn control_ordinary_capture_and_var_hoisting() {
     );
 }
 
-/// KNOWN DEVIATION (pinned so Slice B landing is visible). Spec: Block
+/// KNOWN DEVIATION (pinned so Slice E landing is visible). Spec: Block
 /// Evaluation step 2 ("Let blockEnv be NewDeclarativeEnvironment(oldEnv)",
 /// ECMA-262 §14.2.2) with step 3 BlockDeclarationInstantiation, so every
 /// Block evaluation creates a fresh `x` and the closures see "5,6,7". Today
 /// the binding is per function entry, so every closure sees the last `x` (7).
-/// Owner: `#11-vm-block-declaration-instantiation` (Slice B: a fresh binding
-/// per Block evaluation), with `#11-vm-per-iteration-loop-environment`
-/// (Slice E) planned to supply the shared mechanism.
+/// Owner: `#11-vm-per-iteration-loop-environment` (Slice E; the Block-entry
+/// `CloseLocal` facet moved from Slice B to Slice E, PM 421).
 #[test]
 fn known_deviation_block_body_binding_per_entry() {
     assert_eq!(
