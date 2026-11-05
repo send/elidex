@@ -36,6 +36,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
+// `DEFAULT_IDLE_TIMEOUT` (30 s) is the one home of both the idle-exit bound
+// *and* the `respondWith` / `waitUntil` drain bound (SW §4.4.1 timed-out flag /
+// §4.6.7); this module reads it, never a copy (a copy could drift from the
+// coordinator's `SwHandle` and nothing would go red).
+use elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
 use elidex_api_sw::{ClientSnapshot, ContentToSw, LifecycleEvent, SwResponse, SwToContent};
 use elidex_ecs::EcsDom;
 use elidex_net::broker::NetworkHandle;
@@ -53,11 +58,6 @@ use super::{Vm, VmInner};
 
 /// 16 ms recv-timeout / drain cadence (matches the content thread).
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
-
-/// `SwHandle::DEFAULT_IDLE_TIMEOUT` (30 s, `elidex-api-sw`): the idle-exit
-/// bound *and* the `respondWith` / `waitUntil` drain bound (SW §4.4.1
-/// timed-out flag / §4.6.7).
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Poll cadence while waiting on an in-flight promise (network round-trip).
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
@@ -119,7 +119,7 @@ pub fn sw_thread_main(
         network_handle,
         cache_conn,
         initial_clients,
-        DEFAULT_IDLE_TIMEOUT,
+        Some(DEFAULT_IDLE_TIMEOUT),
         // No parent VM to inherit from; the SW realm runs BrowserCompat until
         // `#11-async-core-storage-cookiestore` lets the embedder supply a mode (F10).
         elidex_plugin::EngineMode::BrowserCompat,
@@ -158,8 +158,11 @@ fn obtain_sw_source(script_url: &url::Url, handle: &NetworkHandle) -> Result<Str
 
 /// Build the SW realm from already-fetched `source` and drive its event loop
 /// until `Shutdown` / channel disconnect / idle timeout.  Also the unit-test
-/// seam (`pump_timeout` is lowered in harness tests so the never-settle
-/// branches don't wait the full 30 s).
+/// seam.  `pump_timeout` bounds each `respondWith` / `waitUntil` drain: the
+/// shell passes `Some(DEFAULT_IDLE_TIMEOUT)` (the spec's timed-out flag).
+/// `None` drains until the promise settles — no wall clock in the outcome —
+/// which harness tests use when the expected result is that the promise
+/// settles; they pass a short `Some` only for the never-settle branches.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_service_worker(
     source: &str,
@@ -169,7 +172,7 @@ pub(crate) fn run_service_worker(
     network_handle: NetworkHandle,
     cache_conn: Arc<Mutex<SqliteConnection>>,
     initial_clients: Vec<ClientSnapshot>,
-    pump_timeout: Duration,
+    pump_timeout: Option<Duration>,
     engine_mode: elidex_plugin::EngineMode,
 ) {
     // Declared before `vm` so they outlive it: the VM's `HostData` holds raw
@@ -266,7 +269,7 @@ fn handle_message(
     vm: &mut Vm,
     channel: &SwChannel,
     msg: ContentToSw,
-    pump_timeout: Duration,
+    pump_timeout: Option<Duration>,
 ) -> bool {
     match msg {
         ContentToSw::Install => {
@@ -324,7 +327,7 @@ fn handle_message(
 /// Fire an `install` / `activate` `ExtendableEvent` and wait (bounded) for
 /// its `waitUntil` lifetime promises.  Returns `false` iff any rejected or
 /// the bound elapsed (SW §4.4.1).
-fn run_lifecycle(vm: &mut Vm, event_type: &str, pump_timeout: Duration) -> bool {
+fn run_lifecycle(vm: &mut Vm, event_type: &str, pump_timeout: Option<Duration>) -> bool {
     let event_id = event::create_extendable_event(&mut vm.inner, event_type);
     // Root the event object on the VM operand stack across dispatch + pump:
     // GC runs during `drain_microtasks`, and the side-store key does not root
@@ -340,7 +343,7 @@ fn run_lifecycle(vm: &mut Vm, event_type: &str, pump_timeout: Duration) -> bool 
         .get(&event_id)
         .map(|s| s.lifetime_promises.clone())
         .unwrap_or_default();
-    let deadline = Instant::now() + pump_timeout;
+    let deadline = pump_timeout.map(|t| Instant::now() + t);
     let success = pump_lifetime(&mut scope, &promises, deadline);
     scope.extendable_event_states.remove(&event_id);
     drop(scope);
@@ -356,7 +359,7 @@ fn run_fetch(
     request: &elidex_api_sw::SwRequest,
     client_id: &str,
     resulting_client_id: &str,
-    pump_timeout: Duration,
+    pump_timeout: Option<Duration>,
 ) -> Option<SwResponse> {
     let request_url = request.url.clone();
     let request_obj = marshal::build_request_from_sw_request(&mut vm.inner, request);
@@ -380,7 +383,7 @@ fn run_fetch(
 
     let result = match (responded, response_promise) {
         (true, Some(promise)) => {
-            let deadline = Instant::now() + pump_timeout;
+            let deadline = pump_timeout.map(|t| Instant::now() + t);
             match pump_response(&mut scope, promise, deadline) {
                 Some(value) => marshal::response_to_sw_response(&scope, value, request_url).ok(),
                 None => None,
@@ -409,9 +412,10 @@ fn run_fetch(
 // ---------------------------------------------------------------------------
 
 /// Drain microtasks + timers + network until **all** `promises` are settled
-/// (returns `true`), any rejects (`false`), or `deadline` passes (`false`).
+/// (returns `true`), any rejects (`false`), or `deadline` passes (`false`;
+/// `None` = no deadline).
 /// An empty list (no `waitUntil`) settles immediately → `true`.
-fn pump_lifetime(vm: &mut VmInner, promises: &[ObjectId], deadline: Instant) -> bool {
+fn pump_lifetime(vm: &mut VmInner, promises: &[ObjectId], deadline: Option<Instant>) -> bool {
     loop {
         pump_once(vm);
         let mut all_settled = true;
@@ -425,7 +429,7 @@ fn pump_lifetime(vm: &mut VmInner, promises: &[ObjectId], deadline: Instant) -> 
         if all_settled {
             return true;
         }
-        if Instant::now() >= deadline {
+        if deadline.is_some_and(|d| Instant::now() >= d) {
             return false;
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -433,8 +437,13 @@ fn pump_lifetime(vm: &mut VmInner, promises: &[ObjectId], deadline: Instant) -> 
 }
 
 /// Drain microtasks + timers + network until `promise` settles, returning the
-/// fulfilled value (`Some`) or `None` on rejection / timeout.
-fn pump_response(vm: &mut VmInner, promise: ObjectId, deadline: Instant) -> Option<JsValue> {
+/// fulfilled value (`Some`) or `None` on rejection / timeout (`deadline:
+/// None` = no deadline).
+fn pump_response(
+    vm: &mut VmInner,
+    promise: ObjectId,
+    deadline: Option<Instant>,
+) -> Option<JsValue> {
     loop {
         pump_once(vm);
         match promise_status(vm, promise) {
@@ -442,7 +451,7 @@ fn pump_response(vm: &mut VmInner, promise: ObjectId, deadline: Instant) -> Opti
             PromiseStatus::Rejected => return None,
             PromiseStatus::Pending => {}
         }
-        if Instant::now() >= deadline {
+        if deadline.is_some_and(|d| Instant::now() >= d) {
             return None;
         }
         std::thread::sleep(POLL_INTERVAL);

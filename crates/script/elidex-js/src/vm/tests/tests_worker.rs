@@ -56,20 +56,21 @@ fn eval_bool_on(vm: &mut Vm, src: &str) -> bool {
     }
 }
 
-/// Receive the first matching `WorkerToParent` within `timeout`, polling the
-/// handle (the worker runs on its own thread).
-fn recv_within(
-    handle: &elidex_api_workers::WorkerHandle,
-    timeout: Duration,
-) -> Option<WorkerToParent> {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
+/// Receive the next `WorkerToParent`, blocking until it arrives; `None` = the
+/// worker thread exited (`TryRecvError::Disconnected`) without sending one.
+/// No wall-clock bound decides the verdict (a 5 s deadline here had the same
+/// load-flake shape as `#11-sw-respond-with-gc-test-wallclock-timeout`); the
+/// sleep is a poll cadence, never a verdict.
+fn recv_next(handle: &elidex_api_workers::WorkerHandle) -> Option<WorkerToParent> {
+    loop {
         match handle.try_recv() {
             Ok(msg) => return Some(msg),
-            Err(_) => std::thread::sleep(Duration::from_millis(5)),
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
         }
     }
-    None
 }
 
 /// Run `f` against a bound dedicated-worker VM. `session` / `dom` are declared
@@ -391,7 +392,7 @@ fn worker_thread_round_trip_echo() {
 
     handle.post_message("\"ping\"".to_string());
 
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"ping pong\""),
         other => panic!("expected echoed PostMessage, got {other:?}"),
     }
@@ -422,7 +423,7 @@ fn worker_thread_inbound_message_origin_is_empty() {
     });
 
     handle.post_message("\"ping\"".to_string());
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"string:empty\""),
         other => panic!("expected origin probe reply, got {other:?}"),
     }
@@ -454,7 +455,7 @@ fn worker_thread_accepts_sibling_network_handle() {
     });
 
     handle.post_message("\"probe\"".to_string());
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"function\""),
         other => panic!("expected `typeof fetch` reply, got {other:?}"),
     }
@@ -480,7 +481,7 @@ fn worker_data_url_non_js_mime_rejected() {
             &ch,
         );
     });
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::Error { .. } | WorkerToParent::Closed) => {}
         other => panic!("expected error/close for non-JS data: MIME, got {other:?}"),
     }
@@ -503,10 +504,7 @@ fn worker_thread_close_sends_closed_and_exits() {
     });
 
     assert!(
-        matches!(
-            recv_within(&handle, Duration::from_secs(5)),
-            Some(WorkerToParent::Closed)
-        ),
+        matches!(recv_next(&handle), Some(WorkerToParent::Closed)),
         "worker should report Closed after close()"
     );
 }

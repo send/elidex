@@ -32,18 +32,14 @@ use super::super::Vm;
 const SCRIPT_URL: &str = "https://example.com/sw.js";
 const SCOPE_URL: &str = "https://example.com/";
 
-/// Drain bound for every test whose promise must SETTLE: the production idle
-/// bound (30 s; `sw_thread` passes its private copy of this value), not a
-/// shorter test value — a short bound would let machine load turn "settles"
-/// into the timed-out branch (`#11-sw-respond-with-gc-test-wallclock-timeout`).
-const SETTLE_PUMP_TIMEOUT: Duration = elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
-
 /// Drain bound for the two NEVER-settle tests
 /// (`install_wait_until_never_settles_times_out`,
 /// `respond_with_never_settles_times_out_to_passthrough`).  Their verdict IS
 /// the timed-out branch, and a promise that never settles cannot settle
 /// sooner under load, so a short bound only shortens the wait — it cannot
-/// change the verdict.  (The full 30 s would add a minute to the suite.)
+/// change the verdict.  Every other test passes `None` (drain until settled):
+/// a bound there would let machine load turn "settles" into the timed-out
+/// branch (`#11-sw-respond-with-gc-test-wallclock-timeout`).
 const NEVER_SETTLE_PUMP_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// A spawned SW thread + the content-side channel driving it.
@@ -54,14 +50,14 @@ struct Harness {
 
 impl Harness {
     fn spawn(source: &str) -> Self {
-        Self::spawn_full(source, Vec::new(), Vec::new(), SETTLE_PUMP_TIMEOUT)
+        Self::spawn_full(source, Vec::new(), Vec::new(), None)
     }
 
     fn spawn_full(
         source: &str,
         clients: Vec<ClientSnapshot>,
         responses: Vec<(url::Url, Result<NetResponse, String>)>,
-        pump_timeout: Duration,
+        pump_timeout: Option<Duration>,
     ) -> Self {
         Self::spawn_shared(source, clients, responses, pump_timeout, shared_conn())
     }
@@ -70,7 +66,7 @@ impl Harness {
         source: &str,
         clients: Vec<ClientSnapshot>,
         responses: Vec<(url::Url, Result<NetResponse, String>)>,
-        pump_timeout: Duration,
+        pump_timeout: Option<Duration>,
         cache_conn: Arc<Mutex<SqliteConnection>>,
     ) -> Self {
         let (sw_ch, content_ch) = channel_pair::<SwToContent, ContentToSw>();
@@ -101,32 +97,43 @@ impl Harness {
         self.content.send(msg).expect("SW thread alive");
     }
 
-    /// Read the next reply, blocking until it arrives.  No wall-clock bound
-    /// decides the verdict (`#11-sw-respond-with-gc-test-wallclock-timeout`: a
-    /// 5 s ceiling here failed under machine load while the SW was still
-    /// working).  The only failure is a disconnect — the SW thread exited
-    /// (panic, early return, or its own idle teardown) without replying.  The
+    /// Read the next reply, blocking until it arrives; `None` = the SW thread
+    /// exited (channel disconnected).  No wall-clock bound decides a verdict
+    /// (`#11-sw-respond-with-gc-test-wallclock-timeout`: a 5 s ceiling here
+    /// failed under machine load while the SW was still working).  The
     /// `recv_timeout` slice is a poll cadence, never a verdict.
-    fn recv(&self) -> SwToContent {
+    fn next_reply(&self) -> Option<SwToContent> {
         loop {
             match self.content.recv_timeout(Duration::from_millis(100)) {
-                Ok(msg) => return msg,
+                Ok(msg) => return Some(msg),
                 Err(e) if e.is_timeout() => {}
-                Err(e) => panic!("SW thread exited without replying ({e})"),
+                Err(_) => return None,
             }
         }
     }
 
+    /// The next reply; the only failure is the SW thread exiting without one.
+    fn recv(&self) -> SwToContent {
+        self.next_reply()
+            .unwrap_or_else(|| panic!("SW thread exited without replying"))
+    }
+
     /// Read replies until one satisfies `pred`, returning it (skips unrelated
     /// outbound messages like `SkipWaiting` that may precede the result).
+    /// Fails, naming what did arrive, when the SW thread exits first or 8
+    /// replies pass without a match.
     fn recv_find(&self, pred: impl Fn(&SwToContent) -> bool) -> SwToContent {
+        let mut seen = Vec::new();
         for _ in 0..8 {
-            let msg = self.recv();
+            let Some(msg) = self.next_reply() else {
+                panic!("no matching SwToContent before the SW thread exited; got {seen:?}");
+            };
             if pred(&msg) {
                 return msg;
             }
+            seen.push(msg);
         }
-        panic!("no matching SwToContent within 8 messages");
+        panic!("no matching SwToContent within 8 messages; got {seen:?}");
     }
 
     fn shutdown(mut self) {
@@ -274,7 +281,7 @@ fn install_wait_until_never_settles_times_out() {
         "self.oninstall = e => e.waitUntil(new Promise(() => {}));",
         Vec::new(),
         Vec::new(),
-        NEVER_SETTLE_PUMP_TIMEOUT,
+        Some(NEVER_SETTLE_PUMP_TIMEOUT),
     );
     h.send(ContentToSw::Install);
     assert!(matches!(
@@ -398,7 +405,7 @@ fn respond_with_fetch_network_path() {
         "self.onfetch = e => e.respondWith(fetch('https://example.com/api'));",
         Vec::new(),
         vec![net_ok("https://example.com/api", "from-network")],
-        SETTLE_PUMP_TIMEOUT,
+        None,
     );
     h.send(fetch_event("https://example.com/page", "c1"));
     match h.recv() {
@@ -459,7 +466,7 @@ fn respond_with_never_settles_times_out_to_passthrough() {
         "self.onfetch = e => e.respondWith(new Promise(() => {}));",
         Vec::new(),
         Vec::new(),
-        NEVER_SETTLE_PUMP_TIMEOUT,
+        Some(NEVER_SETTLE_PUMP_TIMEOUT),
     );
     h.send(fetch_event("https://example.com/x", "c1"));
     assert!(matches!(h.recv(), SwToContent::FetchPassthrough { .. }));
@@ -556,7 +563,7 @@ fn clients_match_all_returns_seeded_snapshot() {
             client("b", "https://example.com/b", ClientType::Window),
         ],
         Vec::new(),
-        SETTLE_PUMP_TIMEOUT,
+        None,
     );
     h.send(fetch_event("https://example.com/x", "a"));
     match h.recv() {
@@ -573,7 +580,7 @@ fn client_list_message_replaces_snapshot() {
             clients.matchAll().then(cs => new Response(cs.map(c => c.id).join(','))));",
         vec![client("old", "https://example.com/o", ClientType::Window)],
         Vec::new(),
-        SETTLE_PUMP_TIMEOUT,
+        None,
     );
     h.send(ContentToSw::ClientList {
         clients: vec![client("new", "https://example.com/n", ClientType::Window)],
@@ -595,7 +602,7 @@ fn clients_get_hit_and_miss() {
                     new Response((a ? a.id : 'none') + '/' + (b ? b.id : 'none')))));",
         vec![client("hit", "https://example.com/h", ClientType::Window)],
         Vec::new(),
-        SETTLE_PUMP_TIMEOUT,
+        None,
     );
     h.send(fetch_event("https://example.com/x", "hit"));
     match h.recv() {
@@ -619,7 +626,7 @@ fn clients_get_returns_same_object_for_same_id() {
                 arr => new Response(String(arr[0] === arr[1]))));",
         vec![client("hit", "https://example.com/h", ClientType::Window)],
         Vec::new(),
-        SETTLE_PUMP_TIMEOUT,
+        None,
     );
     h.send(fetch_event("https://example.com/x", "hit"));
     match h.recv() {
@@ -662,7 +669,7 @@ fn client_post_message_routes_to_client_id() {
             clients.get('target').then(c => { c.postMessage('ping'); return new Response('ok'); }));",
         vec![client("target", "https://example.com/t", ClientType::Window)],
         Vec::new(),
-        SETTLE_PUMP_TIMEOUT,
+        None,
     );
     h.send(fetch_event("https://example.com/x", "target"));
     match h.recv_find(|m| matches!(m, SwToContent::PostMessage { .. })) {
@@ -732,7 +739,7 @@ fn cache_shared_window_put_then_sw_match() {
                 .then(t => new Response(t)));",
         Vec::new(),
         Vec::new(),
-        SETTLE_PUMP_TIMEOUT,
+        None,
         conn,
     );
     h.send(fetch_event("https://example.com/x", "c1"));
