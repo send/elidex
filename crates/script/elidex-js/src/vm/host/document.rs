@@ -1,21 +1,16 @@
-//! Document host globals — `document.getElementById`,
-//! `document.createElement`, `document.createTextNode`, and the
-//! getters for `body` / `head` / `documentElement` / `title` / `URL` /
-//! `readyState` (`body`/`head`/`title` = WHATWG HTML §3.1.7 DOM tree
-//! accessors; `documentElement`/`URL` = WHATWG DOM §4.5 Interface Document;
-//! `readyState` = HTML §3.1.5 Reporting document loading status).
+//! Document host globals — the shared `document_receiver` brand check,
+//! `document.getElementById` / `querySelector` / `querySelectorAll` /
+//! `getElementsBy*`, and the install code + method/accessor tables.
 //!
 //! # Module layout
 //!
 //! The node factories (`createElement` / `createTextNode` /
 //! `createComment` / `createDocumentFragment`) live in
-//! [`super::document_factories`]; the property accessors
-//! (`documentElement` / `head` / `body` / `title` / `URL` / `readyState` /
-//! `compatMode` / `defaultView` / `doctype` / `cookie` / `referrer` /
-//! `forms` / `images` / `activeElement` / `hasFocus` / `hidden` /
-//! `visibilityState` / `links`) in [`super::document_accessors`].  This
-//! file keeps the shared helpers, the id / selector / `getElementsBy*`
-//! lookups, and the install code + method/accessor tables.
+//! [`super::document_factories`]; the property accessors (the full list
+//! is in the [`super::document_accessors`] module doc) live in
+//! [`super::document_accessors`].  This file keeps the shared
+//! `document_receiver`, the id / selector / `getElementsBy*` lookups,
+//! and the install code + method/accessor tables.
 //!
 //! # Scope
 //!
@@ -34,37 +29,14 @@
 //!   `elidex_dom_api::query_selector_all` (the latter because handlers
 //!   cannot return `Vec<Entity>`).  Both reject `:host` /
 //!   `::slotted()` (WHATWG Selectors §1.2).
-//! - `createElement` / `createTextNode` / `createComment` /
-//!   `createDocumentFragment` — handlers anchor the new node's
-//!   "node document" (WHATWG DOM §4.4) to the receiver Document so
-//!   `clonedDoc.create*().ownerDocument === clonedDoc`.  Text
-//!   wrappers chain through `Text.prototype → CharacterData.prototype
-//!   → Node.prototype → EventTarget.prototype`; Comment wrappers
-//!   through `CharacterData.prototype`; Fragment wrappers through
-//!   `Node.prototype`.
-//! - `body` / `head` / `documentElement` — handlers walk the tree
-//!   from the receiver document; return `null` when the structure is
-//!   missing (no synthesised fallback).
-//! - `title` (get/set) — handlers walk `<html>` → `<head>` → `<title>`;
-//!   getter applies WHATWG whitespace normalisation; setter creates
-//!   `<title>` if missing or no-ops if `<head>` is absent.
-//! - `doctype` — handler returns the first `DocumentType` child via
-//!   `EcsDom::node_kind_inferred` (legacy `DocTypeData` fallback
-//!   preserved).
-//! - `URL` / `documentURI` — `VmInner::navigation.current_url`
-//!   (navigation state, not DOM).
-//! - `readyState` — stub returning `"complete"` (the VM has no notion
-//!   of document loading state yet; the shell owns that in PR6).
-//! - `cookie` / `referrer` — `elidex-net::CookieJar` /
-//!   `NavigationState`, kept VM-side because they read browsing-context
-//!   state.
-//! - `forms` / `images` / `links` / `getElementsByTagName` /
-//!   `ClassName` / `Name` — VM-side natives construct
-//!   [`elidex_dom_api::LiveCollection`] directly; the walker /
+//! - `getElementsByTagName` / `ClassName` / `Name` — VM-side natives
+//!   construct [`elidex_dom_api::LiveCollection`] directly; the walker /
 //!   cache / case-insensitive matching live engine-independent in
 //!   that crate.
-//! - `activeElement` / `hasFocus` — focus state from `HostData`,
-//!   carved out in `#11-focus-management-hoist`.
+//!
+//! The create* natives and the property accessors (`title`, `doctype`,
+//! `cookie`, `forms` / `images` / `links`, `activeElement`, ...) are
+//! documented in their own modules (see Module layout above).
 
 #![cfg(feature = "engine")]
 
@@ -77,13 +49,15 @@ use super::dom_bridge::{
 
 use super::document_accessors::{
     native_document_get_active_element, native_document_get_base_uri, native_document_get_body,
-    native_document_get_compat_mode, native_document_get_cookie, native_document_get_default_view,
-    native_document_get_doctype, native_document_get_document_element, native_document_get_forms,
-    native_document_get_head, native_document_get_hidden, native_document_get_images,
-    native_document_get_links, native_document_get_ready_state, native_document_get_referrer,
-    native_document_get_title, native_document_get_url, native_document_get_visibility_state,
-    native_document_has_focus, native_document_set_cookie, native_document_set_title,
+    native_document_get_compat_mode, native_document_get_default_view, native_document_get_doctype,
+    native_document_get_document_element, native_document_get_forms, native_document_get_head,
+    native_document_get_hidden, native_document_get_images, native_document_get_links,
+    native_document_get_ready_state, native_document_get_referrer, native_document_get_title,
+    native_document_get_url, native_document_get_visibility_state, native_document_has_focus,
+    native_document_set_title,
 };
+#[cfg(feature = "compat-webapi")]
+use super::document_accessors::{native_document_get_cookie, native_document_set_cookie};
 use super::document_factories::{
     native_document_create_comment, native_document_create_document_fragment,
     native_document_create_element, native_document_create_text_node,
@@ -119,41 +93,6 @@ pub(super) fn document_receiver(
     super::event_target::require_receiver(ctx, this, "Document", method, |k| {
         k == NodeKind::Document
     })
-}
-
-/// Locate the `<html>` root child of `doc_entity`.  Returns `None`
-/// if the document has no `<html>` child (e.g. empty tree).
-pub(super) fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
-    let dom = ctx.host().dom();
-    dom.first_child_with_tag(doc_entity, "html")
-}
-
-/// Brand-check `this` as a Document and dispatch to a no-arg
-/// `DomApiHandler` by name.
-///
-/// Three outcomes (matching `document_receiver` / `require_receiver`):
-/// - `this` is the bound Document (or any other HostObject whose
-///   `NodeKind` is `Document`, e.g. a cloned doc) → dispatch to
-///   `handler_name`.
-/// - `this` is unbound / non-HostObject → return `fallback` (silent
-///   no-op, matches the rest of the document accessor family).
-/// - `this` is a HostObject of a different `NodeKind` (e.g.
-///   `Document.documentElement.get.call(element)`) → propagates
-///   the WebIDL "Illegal invocation" `TypeError` from
-///   `document_receiver`.  This is **not** swallowed into `fallback`;
-///   re-using this helper without that branding contract produces
-///   a different brand-check shape.
-pub(super) fn invoke_document_accessor(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    method: &str,
-    handler_name: &'static str,
-    fallback: JsValue,
-) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, method)? else {
-        return Ok(fallback);
-    };
-    invoke_dom_api(ctx, handler_name, doc, &[])
 }
 
 // ---------------------------------------------------------------------------

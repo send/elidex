@@ -2,14 +2,51 @@
 //! `title` / `URL` / `readyState` / `compatMode` / `defaultView` /
 //! `doctype` / `cookie` / `referrer` / `forms` / `images` /
 //! `activeElement` / `hasFocus` / `hidden` / `visibilityState` /
-//! `links`.  Pure-move split from `document.rs` (C0 D-14 (b)); the
-//! accessor tables stay in `document.rs`.
+//! `links` / `baseURI` / `documentURI`.  Pure-move split from
+//! `document.rs` (C0 D-14 (b)); the accessor tables stay in
+//! `document.rs`.
 
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, VmError};
-use super::document::{document_receiver, find_html_root_of, invoke_document_accessor};
+use super::document::document_receiver;
 use super::dom_bridge::{invoke_dom_api, wrap_entity_or_null};
+use elidex_ecs::Entity;
+
+/// Locate the `<html>` root child of `doc_entity`.  Returns `None`
+/// if the document has no `<html>` child (e.g. empty tree).
+fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
+    let dom = ctx.host().dom();
+    dom.first_child_with_tag(doc_entity, "html")
+}
+
+/// Brand-check `this` as a Document and dispatch to a no-arg
+/// `DomApiHandler` by name.
+///
+/// Three outcomes (matching `document_receiver` / `require_receiver`):
+/// - `this` is the bound Document (or any other HostObject whose
+///   `NodeKind` is `Document`, e.g. a cloned doc) → dispatch to
+///   `handler_name`.
+/// - `this` is unbound / non-HostObject → return `fallback` (silent
+///   no-op, matches the rest of the document accessor family).
+/// - `this` is a HostObject of a different `NodeKind` (e.g.
+///   `Document.documentElement.get.call(element)`) → propagates
+///   the WebIDL "Illegal invocation" `TypeError` from
+///   `document_receiver`.  This is **not** swallowed into `fallback`;
+///   re-using this helper without that branding contract produces
+///   a different brand-check shape.
+fn invoke_document_accessor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    handler_name: &'static str,
+    fallback: JsValue,
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, method)? else {
+        return Ok(fallback);
+    };
+    invoke_dom_api(ctx, handler_name, doc, &[])
+}
 
 // ---------------------------------------------------------------------------
 // Getters: documentElement / head / body / title / URL / readyState
