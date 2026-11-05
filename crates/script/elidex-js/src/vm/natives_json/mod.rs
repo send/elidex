@@ -30,7 +30,7 @@ pub(in crate::vm) use stringify::{
 /// (depth 990 passes, 1000+ throws).
 ///
 /// Debug builds use 600. The value applies to every consumer of the walkers:
-/// the parser, `JSON.stringify`, the reviver walk, and through them
+/// the parser, `JSON.stringify`, the reviver walk, and through them (among others)
 /// `stringify_for_structured_shortcut` (postMessage / history.state) and the
 /// Body mixin's `JSON.parse`. Debug and release therefore diverge at 600 vs
 /// 1000 for all of them. The binding constraint is `internalize`: measured
