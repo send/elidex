@@ -402,8 +402,10 @@ impl<'a> JsonParser<'a> {
 /// §25.5.2.4 InternalizeJSONProperty — apply reviver function.
 ///
 /// Recursion is bounded by [`MAX_JSON_DEPTH`] (`depth` counts object/array
-/// levels entered) because the reviver runs before the walk descends and can
-/// build cycles (`this.b = o; o.self = o`) the spec walk never terminates on.
+/// levels entered) because an earlier sibling's reviver call (§25.5.2.4
+/// step 6) can replace a later key's value before that key's step 1 `Get`
+/// reads it, building cycles (`this.b = o; o.self = o`) the spec walk never
+/// terminates on.
 /// See [`MAX_JSON_DEPTH`] for the failure mode and the cap's derivation.
 fn internalize(
     ctx: &mut NativeContext<'_>,
