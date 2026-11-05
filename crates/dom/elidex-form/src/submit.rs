@@ -273,7 +273,7 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     None
 }
 
-/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.1:
+/// WHATWG HTML §4.10.3 `requestSubmit(submitter?)` step 2.1:
 /// a non-null submitter must be a submit button — `<button type=submit>`,
 /// `<input type=submit>`, or `<input type=image>` (all classified as
 /// `FormControlKind::SubmitButton` by `from_element`).
