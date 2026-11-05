@@ -435,6 +435,34 @@ def driver_step_index(job):
 TOOLS_RUNS_ON = "ubuntu-24.04"
 
 
+# What a step before the driver may not do: change where `python3` comes from or what the pin says.
+PRE_DRIVER_USES = ("actions/checkout", "actions/setup-python")
+PRE_DRIVER_RUN_MARKERS = (".tool-versions", "GITHUB_PATH", "GITHUB_ENV")
+
+
+def before_driver_problems(steps, di):
+    """Every step before the driver: `uses:` only checkout / setup-python (owner/repo compared
+    case-insensitively), and no `run:` that names the pin file, $GITHUB_PATH or $GITHUB_ENV."""
+    out = []
+    for i, st in enumerate(steps):
+        if i >= di:
+            break
+        if not isinstance(st, YMap):
+            out.append("step %d before the driver is not a mapping" % i)
+            continue
+        uses = st.get("uses")
+        if uses is not None:
+            repo = str(uses).split("@", 1)[0].lower()
+            if repo not in PRE_DRIVER_USES:
+                out.append("step %d before the driver uses %s: only checkout and setup-python may precede it" % (i, uses))
+        run = st.get("run")
+        if run is not None:
+            for marker in PRE_DRIVER_RUN_MARKERS:
+                if marker.lower() in str(run).lower():
+                    out.append("step %d before the driver has a run: naming %s (it may change the pin or the interpreter on PATH)" % (i, marker))
+    return out
+
+
 def setup_problems(job, di):
     """I1 x I3: the one leg reads the pin only through `python-version-file`, on the pinned image.
 
@@ -450,7 +478,7 @@ def setup_problems(job, di):
     found = []
     if isinstance(steps, YSeq):
         found = [
-            i for i, st in enumerate(steps) if isinstance(st, YMap) and str(st.get("uses", "")).startswith("actions/setup-python@")
+            i for i, st in enumerate(steps) if isinstance(st, YMap) and str(st.get("uses", "")).lower().startswith("actions/setup-python@")
         ]
     if not found:
         return problems + ["no actions/setup-python step in the job"]
@@ -460,6 +488,7 @@ def setup_problems(job, di):
         return problems + ["no credited driver step to follow the actions/setup-python step"]
     if found[0] > di:
         return problems + ["the actions/setup-python step does not precede the driver step"]
+    problems += before_driver_problems(steps, di)
     setup = steps[found[0]]
     if set(setup) - SETUP_STEP_KEYS:
         problems.append("the actions/setup-python step has keys outside %s: %s" % (sorted(SETUP_STEP_KEYS), sorted(set(setup) - SETUP_STEP_KEYS)))

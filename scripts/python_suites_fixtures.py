@@ -15,6 +15,7 @@ named members of the unguarded-child class (`UNGUARDED_LAUNCHES`).
 
 from __future__ import annotations
 
+import atexit
 import os
 import posixpath
 import re
@@ -85,25 +86,58 @@ UNGUARDED_LAUNCHES = {
 CHILD_PATH = os.pathsep.join((os.path.dirname(sys.executable), "/usr/bin", "/bin"))
 
 
-def base_env():
-    """The caller's environment without any GIT_* or MISE_* variable, PATH = CHILD_PATH.
+# The mise isolation of every pin-file child (invariant I7 (iii)). The variable names are copied from
+# scripts/python_pin_testing.py (MISE_DIRS / MISE_VARS), which a pin file must not import (P6); the
+# driver pin loads that helper by path and asserts the two lists agree.
+MISE_DIR_VARS = (
+    ("MISE_DATA_DIR", "data"),
+    ("MISE_CACHE_DIR", "cache"),
+    ("MISE_STATE_DIR", "state"),
+    ("MISE_CONFIG_DIR", "config"),
+)
+MISE_GLOBAL_VAR = "MISE_GLOBAL_CONFIG_FILE"
+# Dropped from the caller's environment: a bash start-up file (BASH_ENV / ENV) or an exported
+# function (BASH_FUNC_*) reaches a scratch bash driver and can rewrite PATH past CHILD_PATH.
+DROPPED_PREFIXES = ("GIT_", "MISE_", "BASH_FUNC_")
+DROPPED_NAMES = ("BASH_ENV", "ENV")
 
-    Invariant I7 (iii) (plan docs/plans/2026-10-python-pin-pr1-pin-and-gate.md, 4.3; scratch
-    repositories x I7): after Step 1 exists, a scratch driver whose PATH reached a mise shim would
-    run the real mise in a tree holding a copied `.tool-versions` (state writes; an unisolated
-    oracle on any refusal). Every launch of a pin file takes its environment from here, so none
-    can reach mise: `python3` is the admitted interpreter, no outer MISE_* leaks. Fail-safe: a
-    `mise` in any directory of CHILD_PATH raises, naming it, rather than leave a reachable real
-    mise (the isolation has one home, scripts/python_pin_testing.py, which a pin file does not load)."""
-    for d in CHILD_PATH.split(os.pathsep):
-        hit = shutil.which("mise", path=d)
-        if hit is not None:
-            raise AssertionError(
-                "base_env: %s is reachable from the pins' child PATH (%s); run the pins on an "
-                "interpreter whose directory holds no `mise`" % (hit, CHILD_PATH)
-            )
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "MISE_"))}
+_iso_root = None
+
+
+def mise_isolation_root():
+    """One temp root for the process lifetime (made at first use, removed at exit)."""
+    global _iso_root
+    if _iso_root is None:
+        _iso_root = tempfile.mkdtemp(prefix="python-suites-mise-")
+        atexit.register(shutil.rmtree, _iso_root, True)
+    return _iso_root
+
+
+def base_env():
+    """The caller's environment, isolated: no GIT_* / MISE_* / BASH_FUNC_* / BASH_ENV / ENV, PATH = CHILD_PATH.
+
+    Invariant I7 (iii) (plan docs/plans/2026-10-python-pin-pr1-pin-and-gate.md, 4.3): a scratch
+    driver whose PATH reached a mise shim would run the real mise in a tree holding a copied
+    `.tool-versions`. Every launch of a pin file takes its environment from here, and whatever
+    mise a child reaches (a distro package in /usr/bin included) is confined: its data, state,
+    config and cache directories and its global config file are under one temp root, it is
+    offline, and it installs nothing."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(DROPPED_PREFIXES) and k not in DROPPED_NAMES
+    }
     env["PATH"] = CHILD_PATH
+    root = mise_isolation_root()
+    for name, sub in MISE_DIR_VARS:
+        d = os.path.join(root, "mise-" + sub)
+        os.makedirs(d, exist_ok=True)
+        env[name] = d
+    g = os.path.join(root, "mise-global.toml")
+    open(g, "a").close()
+    env[MISE_GLOBAL_VAR] = g
+    env["MISE_OFFLINE"] = "1"
+    env["MISE_AUTO_INSTALL"] = "false"
     return env
 
 

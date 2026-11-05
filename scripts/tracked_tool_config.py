@@ -242,29 +242,23 @@ def root_pin_problems(tracked, read):
     if ROOT_PIN not in set(tracked):
         return [finding("1", ROOT_PIN, None, "the root pin file is not tracked", None, _REMEDY_PIN)]
     try:
-        data = read(ROOT_PIN)
+        text = read(ROOT_PIN).decode("utf-8")
+        parse_pin(text)
     except Unclassifiable as e:
         return [finding("1", ROOT_PIN, None, "unclassifiable (%s)" % e.kind, None, _REMEDY_PIN)]
-    try:
-        text = data.decode("utf-8")
     except UnicodeDecodeError:
         return [finding("1", ROOT_PIN, None, "unclassifiable (non-UTF-8)", None, _REMEDY_PIN)]
-    try:
-        parse_pin(text)
     except PinFileError as e:
         return [finding("1", ROOT_PIN, None, "not exactly one line `python X.Y.Z`: %s" % e, None, _REMEDY_PIN)]
     return []
 
 
 def problems(tracked, read):
-    """The composition (not a clause): clauses 1-5, sorted by (path, line)."""
-    head = re.compile(r"T5 clause \w+: (.*?)(?::([0-9]+))?: ")
+    """The composition (not a clause): clause 1 first, then clauses 2-5 in path order.
 
-    def key(finding_text):
-        m = head.match(finding_text)
-        return (m.group(1), int(m.group(2)) if m.group(2) else -1)
-
-    return sorted(member_problems(tracked, read) + root_pin_problems(tracked, read), key=key)
+    Concatenated from the two finders' structured lists; no finding text is parsed back."""
+    tracked = list(tracked)  # both finders walk it; an iterator would be spent by the first
+    return root_pin_problems(tracked, read) + member_problems(tracked, read)
 
 
 def _errno_kind(e):

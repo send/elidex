@@ -1,4 +1,4 @@
-"""Set member: the pin's reader, admission and refusal (scripts/python_pin.py), N2-N21 and NM mutants.
+"""Set member: the pin's reader, admission and refusal (scripts/python_pin.py), N2-N23 and NM mutants.
 
 Plan of record: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (sections 4.2, 4.8, 6.3 and 6.5).
 
@@ -45,13 +45,14 @@ def _load(path, name):
     return mod
 
 
-H = _load(os.path.join(REPO, *HELPER.split("/")), "python_pin_testing_under_member")
+HELPER_PATH = os.path.join(REPO, *HELPER.split("/"))
+H = _load(HELPER_PATH, "python_pin_testing_under_member")
 
 # N17: the last run of the refusal on a real non-pin interpreter (plan section 10 step 4).
 # sha256 of scripts/python_pin.py, the date, and "<version> <sys.executable>" of that run.
 REAL_OLD_RUN = {
-    "sha256": "c48e891ac5c7704a430b12ad3c89d955d8d63aa63621174236f545d8a5df8e84",
-    "date": "2026-11-04",
+    "sha256": "5893716f39ca8af370a5f6a9ca56076ee6c8ebcc9dc1bc0bbfbebf02e9c13999",
+    "date": "2026-11-05",
     "interpreter": "3.9.6 /Applications/Xcode.app/Contents/Developer/usr/bin/python3",
 }
 
@@ -87,8 +88,11 @@ def pid_gone(pid):
         return False
 
 
-def kill_pids(pids):
+def kill_pids(pids, gone=()):
+    """SIGKILL the pids; not the ones `poll_gone` saw gone (a pid reused since is someone else's)."""
     for pid in pids:
+        if pid in gone:
+            continue
         try:
             os.kill(pid, 9)
         except OSError:
@@ -156,8 +160,8 @@ def state_entries():
 
 
 class Result:
-    def __init__(self, rc, out, err, root, bindir, env):
-        self.rc, self.out, self.err, self.root, self.bindir, self.env = rc, out, err, root, bindir, env
+    def __init__(self, rc, err, root, bindir, tmp):
+        self.rc, self.err, self.root, self.bindir, self.tmp = rc, err, root, bindir, tmp
         self.lines = err.split("\n")
 
     def calls(self):
@@ -168,12 +172,16 @@ class PinCase(unittest.TestCase):
     def setUp(self):
         self._src = None
         self._mods = 0
+        self._gone = set()
         # N19 (c): a sentinel `mise` / `python3` is first on the test's PATH for the whole case.
         self.sentinel = self.tmp()
         H.write_sentinel(self.sentinel, ("mise", "python3"))
         patcher = mock.patch.dict(os.environ, {"PATH": self.sentinel + os.pathsep + os.environ.get("PATH", "")})
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def reap_at_cleanup(self, bindir):
+        self.addCleanup(lambda: kill_pids(H.read_hang_pids(bindir) if bindir else [], self._gone))
 
     def tmp(self):
         d = os.path.realpath(tempfile.mkdtemp(prefix="python-pin-test-"))
@@ -198,30 +206,28 @@ class PinCase(unittest.TestCase):
     # -- the child ---------------------------------------------------------------------------
 
     def run_pin(self, version="3.9.6", answers=None, fake=True, pin_line="python 3.15.2\n", cwd=None,
-                extra_env=None, executable="", timeout="", pin=True, child_timeout=60):
+                extra_env=None, executable="", timeout="", child_timeout=60):
+        """pin_line None = no pin file."""
         tmp = self.tmp()
         root = os.path.join(tmp, "repo")
         module = H.pin_tree(root, self.source(), pin_line)
-        if not pin:
-            os.remove(os.path.join(root, ".tool-versions"))
         bindir = os.path.join(tmp, "bin")
         if fake:
             H.write_fake_mise(bindir, answers if answers is not None else {"*": fail()})
         else:
             bindir = None
         env = H.isolated_mise_env(os.path.join(tmp, "iso"), fake_mise=bindir, extra_env=extra_env)
-        self.addCleanup(lambda: kill_pids(H.read_hang_pids(bindir) if bindir else []))
+        self.reap_at_cleanup(bindir)
         argv = [sys.executable, "-c", H.LAUNCHER, module, H.five(version), executable, str(timeout)]
-        rc, out, err = run_child(argv, env, cwd or root, child_timeout)
+        rc, _, err = run_child(argv, env, cwd or root, child_timeout)
         # N19 (c): a child that bypassed the helper reached the sentinel, not the user's mise.
-        self.assertFalse(
-            os.path.exists(os.path.join(self.sentinel, "sentinel.log")),
-            "a child reached the sentinel: it bypassed the helper's environment",
+        self.assertEqual(
+            H.read_sentinel(self.sentinel), [], "a child reached the sentinel: it bypassed the helper's environment"
         )
         # N19 (a): the child's PATH reaches the fake mise, or none.
         found = shutil.which("mise", path=env["PATH"])
         self.assertEqual(found, os.path.join(bindir, "mise") if bindir else None)
-        return Result(rc, out, err, os.path.realpath(root), bindir, env)
+        return Result(rc, err, os.path.realpath(root), bindir, tmp)
 
     def refused(self, r, running="3.9.6 final", pin="3.15.2"):
         self.assertEqual(r.rc, 1, r.err)
@@ -233,7 +239,7 @@ class PinCase(unittest.TestCase):
         self.assertIn(PREFIX + "repository root: " + r.root, r.lines)
         block = live.GENERIC_BLOCK % {"pin": pin, "root": r.root}
         self.assertEqual(r.err.count(block), 1, "the generic block is missing or repeated")
-        self.assertTrue(r.err.endswith(block + "\n"), "the generic block is not last")
+        self.assertTrue(r.err.endswith(block + "\n" + PREFIX + "exit 1\n"), "the generic block, then the exit line, are not last")
 
     def a_fixture(self, a, b=None, c=None, d=None):
         ans = {Q_A: a, Q_B: b or fail(1, NOT_A_MISE_BIN), Q_C: c or fail(1, UNTRUSTED)}
@@ -269,7 +275,7 @@ class PinCase(unittest.TestCase):
         pin = m.read_pin(REPO)
         text = read(os.path.join(REPO, ".tool-versions"))
         self.assertEqual(pin, tuple(int(x) for x in text.split()[1].split(".")))
-        self.assertTrue(m.admitted(pin + ("final", 0), pin))
+        self.assertTrue(m.admitted(tuple(sys.version_info), pin))  # this member runs under the pin (the driver's Step 1)
         # A malformed pin file is exit 2 and not the refusal: no oracle, no generic block.
         for line in ("python 3.15\n", "python 3.15.2\r\n", "python 3.15.2\ncore:python 3.14.10\n"):
             r = self.run_pin(version="3.15.2", pin_line=line)
@@ -278,12 +284,9 @@ class PinCase(unittest.TestCase):
             self.assertIn(PREFIX + "the pin file is exactly one line, python X.Y.Z", r.lines)
             self.assertEqual(r.calls(), [])
             self.assertNotIn("REFUSED", r.err)
-        r = self.run_pin(version="3.15.2", pin=False)
+        r = self.run_pin(version="3.15.2", pin_line=None)
         self.assertEqual(r.rc, 2, r.err)
         self.assertIn("no readable file", r.err)
-
-    def test_N2(self):
-        self.control_N2()
 
     # ===== N3 admission ===================================================================
 
@@ -294,6 +297,9 @@ class PinCase(unittest.TestCase):
         for v in ((3, 15, 1, "final", 0), (3, 15, 3, "final", 0), (3, 14, 10, "final", 0), (3, 16, 0, "final", 0),
                   (3, 9, 6, "final", 0), (3, 15, 2, "candidate", 1), (3, 15, 2, "alpha", 1), (2, 15, 2, "final", 0)):
             self.assertFalse(m.admitted(v, pin), v)
+        # The version is read by index: a plain tuple (no attribute access) is refused with its facts.
+        text = m.refusal_text(pin, "/r", (3, 9, 6, "final", 0), "/x/python3", "/c", [], [])
+        self.assertIn(PREFIX + "running: 3.9.6 final", text.split("\n"))
         # Admission never consults mise: on an admitted run the fake logs no call, even though
         # it would answer "3.15.2 installed".
         r = self.run_pin(version="3.15.2", answers={"*": ok("3.15.2 installed\n")})
@@ -304,9 +310,6 @@ class PinCase(unittest.TestCase):
         r = self.run_pin(version="3.15.2.candidate.1", answers={"*": ok("3.15.2 installed\n")})
         self.refused(r, running="3.15.2 candidate")
 
-    def test_N3(self):
-        self.control_N3()
-
     # ===== N9 root ========================================================================
 
     def control_N9(self):
@@ -316,9 +319,6 @@ class PinCase(unittest.TestCase):
         r = self.run_pin(version="3.9.6", cwd=decoy)
         self.refused(r)
         self.assertIn(PREFIX + "cwd: " + decoy, r.lines)
-
-    def test_N9(self):
-        self.control_N9()
 
     # ===== N10 each case's fix, N11 argv, N12 compound ====================================
 
@@ -392,9 +392,6 @@ class PinCase(unittest.TestCase):
         self.assertIn(PREFIX + "  /p/mise.toml", r.lines)
         self.assertIn(PREFIX + "  /p/.tool-versions", r.lines)
 
-    def test_N10(self):
-        self.control_N10()
-
     def control_N11(self):
         paths = ["/p/mise.toml", "/p/.tool-versions", "/home/u/.config/mise/config.toml"]
         r = self.run_pin(answers=self.a_fixture(
@@ -403,9 +400,6 @@ class PinCase(unittest.TestCase):
         self.refused(r)
         self.assertEqual([c["argv"] for c in r.calls()],
                          [Q_A.split(), Q_B.split(), Q_C.split()] + [Q_D(p).split() for p in paths])
-
-    def test_N11(self):
-        self.control_N11()
 
     def control_N12(self):
         local = "/p/mise.local.toml"
@@ -419,9 +413,6 @@ class PinCase(unittest.TestCase):
         self.assertIn(PREFIX + "  /data/installs/python/3.15.2/bin/python3", r.lines)
         self.assertIn(PREFIX + "sys.executable: " + exe, r.lines)
         self.assertEqual([l for l in r.lines if "warning:" in l], [warning("MISE_PYTHON_COMPILE", "1")])
-
-    def test_N12(self):
-        self.control_N12()
 
     # ===== N13 warning ====================================================================
 
@@ -440,9 +431,6 @@ class PinCase(unittest.TestCase):
             self.assertEqual(r.rc, rc, r.err)
             self.assertNotIn("warning:", r.err)
 
-    def test_N13(self):
-        self.control_N13()
-
     # ===== N14 sys.executable =============================================================
 
     def control_N14(self):
@@ -454,21 +442,35 @@ class PinCase(unittest.TestCase):
         self.assertEqual(rc, 0, err)
         self.assertIn(PREFIX + "sys.executable: " + out.strip(), r.lines)
 
-    def test_N14(self):
-        self.control_N14()
-
     # ===== N15 limits =====================================================================
 
-    def poll_gone(self, pids, seconds=5):
+    def poll_gone(self, pids, seconds=2):
         deadline = time.time() + seconds
         while time.time() < deadline:
-            if all(pid_gone(p) for p in pids):
+            self._gone.update(p for p in pids if pid_gone(p))
+            if self._gone.issuperset(pids):
                 return
             time.sleep(0.1)
-        alive = [p for p in pids if not pid_gone(p)]
+        self._gone.update(p for p in pids if pid_gone(p))
+        alive = [p for p in pids if p not in self._gone]
         raise AssertionError("still alive after the refusal returned: %s" % alive)
 
     def control_N15(self):
+        # E16: stderr longer than the cap.
+        r = self.run_pin(answers=self.a_fixture(fail(1, "x" * 10000)))
+        self.refused(r)
+        self.assertIn(PREFIX + "x" * 4000, r.lines)
+        self.assertNotIn("x" * 4001, r.err)
+        self.assertIn(PREFIX + "[truncated: 6000 more characters]", r.lines)
+        # E15: (a) hangs with a grandchild holding the pipes.
+        r = self.run_pin(timeout="1", child_timeout=5, answers={"*": {"hang": True}})
+        self.refused(r)
+        self.assertIn(PREFIX + "  no answer within 1.0 seconds (the question timed out)", r.lines)
+        self.assertEqual(r.err.count("not asked: an earlier question timed out"), 2)  # (b) and (c)
+        self.assertEqual([c["argv"] for c in r.calls()], [Q_A.split()])
+        pids = H.read_hang_pids(r.bindir)
+        self.assertEqual(len(pids), 2, "hang.pids must hold the fake and its sleep: %s" % pids)
+        self.poll_gone(pids)
         # E14: garbage and exit 2; (b)-(c) still asked, (d) not when (c) failed.
         r = self.run_pin(answers=self.a_fixture(ok("not json"), fail(1, NOT_A_MISE_BIN), fail(2, "boom\n")))
         self.refused(r)
@@ -479,31 +481,18 @@ class PinCase(unittest.TestCase):
         r = self.run_pin(answers=self.a_fixture(fail(2, "bad\n")))
         self.refused(r)
         self.assertIn(PREFIX + "bad", r.lines)
-        # E16: stderr longer than the cap.
-        r = self.run_pin(answers=self.a_fixture(fail(1, "x" * 10000)))
+        # Deeply nested JSON (RecursionError in the parser) is "does not parse", not a traceback.
+        r = self.run_pin(answers=self.a_fixture(ok("[" * 100000 + "]" * 100000)))
         self.refused(r)
-        self.assertIn(PREFIX + "x" * 4000, r.lines)
-        self.assertNotIn("x" * 4001, r.err)
-        self.assertIn(PREFIX + "[truncated: 6000 more characters]", r.lines)
-        # E15: (a) hangs with a grandchild holding the pipes.
-        r = self.run_pin(timeout="1", child_timeout=15, answers={"*": {"hang": True}})
-        self.refused(r)
-        self.assertIn(PREFIX + "  no answer within 1.0 seconds (the question timed out)", r.lines)
-        self.assertEqual(r.err.count("not asked: an earlier question timed out"), 2)  # (b) and (c)
-        self.assertEqual([c["argv"] for c in r.calls()], [Q_A.split()])
-        pids = H.read_hang_pids(r.bindir)
-        self.assertEqual(len(pids), 2, "hang.pids must hold the fake and its sleep: %s" % pids)
-        self.poll_gone(pids)
-
-    def test_N15(self):
-        self.control_N15()
+        self.assertIn(PREFIX + "  the output does not parse as a JSON array of objects", r.lines)
+        self.assertNotIn("Traceback", r.err)
 
     def control_N15_sigint(self):
         m = self.mod()
         tmp = self.tmp()
         bindir = os.path.join(tmp, "bin")
         H.write_fake_mise(bindir, {"*": {"hang": True}})
-        self.addCleanup(lambda: kill_pids(H.read_hang_pids(bindir)))
+        self.reap_at_cleanup(bindir)
         env = H.isolated_mise_env(os.path.join(tmp, "iso"), fake_mise=bindir)
         old = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -520,9 +509,6 @@ class PinCase(unittest.TestCase):
         self.assertEqual(len(pids), 2, pids)
         self.poll_gone(pids)
 
-    def test_N15_sigint(self):
-        self.control_N15_sigint()
-
     # ===== N16 grammar, N17 record, N18 imports ===========================================
 
     def control_N16(self):
@@ -531,17 +517,11 @@ class PinCase(unittest.TestCase):
         except SyntaxError as e:
             raise AssertionError("python_pin.py does not parse with 3.9 grammar: %s" % e)
 
-    def test_N16(self):
-        self.control_N16()
-
     def control_N17(self):
         digest = hashlib.sha256(self.source().encode("utf-8")).hexdigest()
         self.assertEqual(digest, REAL_OLD_RUN["sha256"],
                          "python_pin.py changed since its last run on %s (%s, %s): record a new run"
                          % (REAL_OLD_RUN["interpreter"], REAL_OLD_RUN["date"], digest))
-
-    def test_N17(self):
-        self.control_N17()
 
     def control_N18(self):
         tree = ast.parse(self.source())
@@ -568,26 +548,19 @@ class PinCase(unittest.TestCase):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 self.assertNotEqual(node.value, "--self" + "-test")
 
-    def test_N18(self):
-        self.control_N18()
-
     # ===== N19 / N20 / N21 the I7 pins ====================================================
 
     def control_N19(self):
         r = self.run_pin(answers=self.a_fixture(ok(json.dumps([elem()]))))  # (c) and the PATH half of (a) run inside
         self.refused(r)
-        iso = os.path.realpath(os.path.dirname(os.path.dirname(r.bindir)))
         calls = r.calls()
         self.assertTrue(calls)
+        # (a) every call's MISE_* are the helper's, under the helper's root <tmp>/iso.
         for call in calls:
-            e = call["environ"]
-            self.assertEqual(H.isolation_problems(e, iso), [])
-        # (b) no entry of the real mise state resolves into the test's root.
-        prefix = iso + os.sep
+            self.assertEqual(H.isolation_problems(call["environ"], os.path.join(r.tmp, "iso")), [])
+        # (b) no entry of the real mise state resolves into this run's <tmp>.
+        prefix = r.tmp + os.sep
         self.assertEqual([p for p in state_entries() if (p + os.sep).startswith(prefix)], [])
-
-    def test_N19(self):
-        self.control_N19()
 
     def test_NM_I7(self):
         # The helper dropped: the outer environment passes through (and the call is counted).
@@ -613,25 +586,37 @@ class PinCase(unittest.TestCase):
             got = dict((k, v) for k, v in call["environ"].items() if not k.startswith("MISE_") and k not in skip)
             self.assertEqual(got, want)
 
-    def test_N20(self):
-        self.control_N20()
-
     def test_N21(self):
-        with open(os.path.join(REPO, *HELPER.split("/")), encoding="utf-8") as f:
+        with open(HELPER_PATH, encoding="utf-8") as f:
             helper = ast.parse(f.read())
         regime = ast.parse(read(os.path.join(REPO, *REGIME_MEMBER.split("/"))))
         fn = [n for n in ast.walk(regime) if isinstance(n, ast.FunctionDef)
               and n.name == "test_G9_every_launch_goes_through_the_accounting"]
         self.assertEqual(len(fn), 1, "G9's spawner test was not found")
+        # Fail closed: G9's `spawners` is read in exactly the shape this control understands (one
+        # Assign of a set display, one `|=`, no method call on it, no other store) and its prefixes
+        # come from exactly one `startswith(<tuple>)`; any other shape is red, never a smaller set.
         named, prefixes = set(), ()
+        assigns, augs, stores, uses, tuple_calls = [], [], 0, 0, []
         for n in ast.walk(fn[0]):
-            if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "spawners" for t in n.targets) \
-                    and isinstance(n.value, ast.Set):
-                named = set(e.value for e in n.value.elts if isinstance(e, ast.Constant))
+            if isinstance(n, ast.Name) and n.id == "spawners" and isinstance(n.ctx, ast.Store):
+                stores += 1
+            if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "spawners" for t in n.targets):
+                assigns.append(n)
+            if isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name) and n.target.id == "spawners":
+                augs.append(n)
+            if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "spawners":
+                uses += 1
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "startswith" \
                     and n.args and isinstance(n.args[0], ast.Tuple):
-                prefixes = tuple(e.value for e in n.args[0].elts if isinstance(e, ast.Constant))
-        self.assertTrue(named and prefixes, "G9's spawner set has another shape than this control reads")
+                tuple_calls.append(n)
+        shape = "G9's spawner set has another shape than this control reads"
+        self.assertEqual((len(assigns), len(augs), stores, uses, len(tuple_calls)), (1, 1, 2, 0, 1), shape)
+        self.assertTrue(isinstance(assigns[0].value, ast.Set) and len(assigns[0].targets) == 1
+                        and isinstance(augs[0].op, ast.BitOr), shape)
+        named = set(e.value for e in assigns[0].value.elts if isinstance(e, ast.Constant))
+        prefixes = tuple(e.value for e in tuple_calls[0].args[0].elts if isinstance(e, ast.Constant))
+        self.assertTrue(named and prefixes, shape)
         stray = []
         for n in ast.walk(helper):
             if isinstance(n, ast.ClassDef):
@@ -649,12 +634,28 @@ class PinCase(unittest.TestCase):
         self.assertEqual(constants.count(HELPER), 1)
         self.assertFalse([c for c in constants if c == "python_pin_testing" + ".py"])
 
+    # ===== N23 the exit line ==============================================================
+
+    def control_N23(self):
+        # Every non-zero exit ends its stderr with exactly `python-pin: exit N`; exit 0 prints none.
+        r = self.run_pin(answers=self.a_fixture(ok("[]")))
+        self.assertEqual((r.rc, r.lines[-2:]), (1, [PREFIX + "exit 1", ""]), r.err)
+        self.assertEqual(r.err.count(PREFIX + "exit "), 1)
+        r = self.run_pin(version="3.15.2", pin_line="python 3.15\n")
+        self.assertEqual((r.rc, r.lines[-2:]), (2, [PREFIX + "exit 2", ""]), r.err)
+        self.assertEqual(r.err.count(PREFIX + "exit "), 1)
+        r = self.run_pin(version="3.15.2", pin_line=None)
+        self.assertEqual((r.rc, r.lines[-2:]), (2, [PREFIX + "exit 2", ""]), r.err)
+        r = self.run_pin(version="3.15.2")
+        self.assertEqual((r.rc, r.err), (0, ""))
+
     # ===== mutants (plan section 6.5) =====================================================
 
-    def test_mutants_are_killed(self):
+    def test_mutants_are_killed(self):  # sorts after every test_N*: the unmutated passes are recorded by then
         self.assertEqual(sorted(m[0] for m in MUTANTS), sorted(MUTANT_IDS))
         for control in sorted(set(m[3] for m in MUTANTS)):
-            getattr(self, "control_" + control)()  # each killing control passes unmutated
+            if control not in PinCase.passed:  # not recorded by its own test_<id> in this process
+                getattr(self, "control_" + control)()  # each killing control passes unmutated
         for mid, find, replace, control in MUTANTS:
             self.assertEqual(LIVE_SOURCE.count(find), 1, "stale row %s: its find text must occur exactly once" % mid)
             self._src = LIVE_SOURCE.replace(find, replace)
@@ -666,6 +667,20 @@ class PinCase(unittest.TestCase):
             finally:
                 self._src = None
             self.assertTrue(killed, "mutant %s survived %s" % (mid, control))
+
+
+def _control_test(cid):
+    def test(self):
+        getattr(self, "control_" + cid)()
+        PinCase.passed.add(cid)  # the unmutated pass the mutants test relies on
+
+    return test
+
+
+PinCase.passed = set()
+for _cid in ("N2", "N3", "N9", "N10", "N11", "N12", "N13", "N14", "N15", "N15_sigint", "N16", "N17", "N18",
+             "N19", "N20", "N23"):
+    setattr(PinCase, "test_" + _cid, _control_test(_cid))
 
 
 def warning(name, value):
@@ -709,9 +724,11 @@ MUTANTS = (
     ("NM13", "if admitted(sys.version_info, pin):",
      "if (ask_mise(os.getcwd(), ORACLE_TIMEOUT_S), admitted(sys.version_info, pin))[1]:", "N3"),
     ("NM14", "os.killpg(proc.pid, 9)", "proc.kill()", "N15"),
+    ("NM15", "return _exit(1)", "return 1", "N23"),
+    ("NM16", "return _exit(2)", "return 2", "N23"),
 )
 MUTANT_IDS = ["NM%s" % x for x in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11a", "11b", "11c", "11d",
-                                    "11e", "11f", "12", "13", "14")]
+                                    "11e", "11f", "12", "13", "14", "15", "16")]
 
 
 if __name__ == "__main__":

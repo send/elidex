@@ -7,16 +7,28 @@ It holds no `TestCase`, no `__main__` guard and launches no process: callers sta
 test that reaches the oracle talks to its own fake `mise` (or to none) and never to the user's.
 Every caller loads this file by path through the one constant "scripts/python_pin_testing.py"
 joined to the repository root, and calls the functions as attributes of the loaded module.
+
+The fake `mise` and `python3` are one Python script each per process (`_wrapper`), written once
+into a process-lifetime temporary directory; `write_fake_mise` / `write_fake_python3` put a symlink
+to it named `mise` / `python3` into the caller's bin directory, next to the data the script reads
+(found through the directory of `argv[0]`, the symlink's, never its target's). The script's shebang
+is `sys.executable` itself: no `/bin/sh` stands between the caller's environment and the fake, so
+the fake sees the environment its child was given (a `/bin/sh` drops `DYLD_*` under SIP and some
+names under dash). A shebang holds one path: `sys.executable` must have no white space and be at
+most 127 bytes (the Linux limit), else `_wrapper` raises.
 """
 
+import atexit
 import json
 import os
 import shutil
 import stat
 import sys
+import tempfile
 
 MISE_DIRS = (("MISE_DATA_DIR", "data"), ("MISE_CACHE_DIR", "cache"), ("MISE_STATE_DIR", "state"), ("MISE_CONFIG_DIR", "config"))
 MISE_VARS = tuple(n for n, _ in MISE_DIRS) + ("MISE_GLOBAL_CONFIG_FILE",)
+SENTINEL_LOG = "sentinel.log"
 
 # Pin-file texts no reader admits, with the phrase the parser names (N2 parses them, W1 runs them through `problems`).
 RED_PIN_TEXTS = (
@@ -33,6 +45,8 @@ RED_PIN_TEXTS = (
     ("python latest\n", "exact X.Y.Z"),
     ("python 3.16.0rc1\n", "exact X.Y.Z"),
     ("python 3.15.2 3.14.10\n", "more than one version"),
+    ("python 3.15.2 # c\n", "trailing comment"),
+    ("python 3.15.2#c\n", "trailing comment"),
     ("python\t3.15.2\n", "tab"),
     ("python  3.15.2\n", "two spaces"),
     ("Python 3.15.2\n", "not the tool"),
@@ -75,14 +89,13 @@ if sys.argv[4]:
 sys.exit(_mod.main())
 """
 
-_FAKE_MISE = r'''
-import json
+_FAKE_MISE = r'''import json
 import os
 import subprocess
 import sys
 import time
 
-here = os.path.dirname(os.path.abspath(__file__))
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
 argv = sys.argv[1:]
 with open(os.path.join(here, "calls.jsonl"), "a") as f:
     f.write(json.dumps({"argv": argv, "environ": dict(os.environ)}) + "\n")
@@ -103,15 +116,16 @@ sys.stderr.write(answer.get("stderr", ""))
 sys.exit(answer.get("rc", 0))
 '''
 
-_FAKE_PYTHON3 = r'''
-import os
+_FAKE_PYTHON3 = r'''import os
 import sys
 
-VERSION = %(version)r
-LAUNCHER = %(launcher)r
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
+with open(os.path.join(here, "fake_python3.version")) as f:
+    VERSION = f.read().strip()
+LAUNCHER = @LAUNCHER@
 args = sys.argv[1:]
 if "-VV" in args:
-    print("Python %%s (fake)" %% ".".join(VERSION.split(".")[:3]))
+    print("Python %s (fake)" % ".".join(VERSION.split(".")[:3]))
     sys.exit(0)
 for a in args:
     if a.endswith("python_pin.py"):
@@ -124,6 +138,41 @@ def _executable(path, text):
     with open(path, "w") as f:
         f.write(text)
     os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+_WRAPPER_DIR = []
+
+
+def _wrapper(name, body):
+    """The per-process script `name` (shebang = sys.executable, then `body`), written on first use."""
+    if not _WRAPPER_DIR:
+        d = tempfile.mkdtemp(prefix="python-pin-wrappers-")
+        atexit.register(shutil.rmtree, d, True)
+        _WRAPPER_DIR.append(d)
+    path = os.path.join(_WRAPPER_DIR[0], name)
+    if not os.path.exists(path):
+        exe = sys.executable
+        if len(exe.encode("utf-8")) > 127 or any(c.isspace() for c in exe):
+            raise RuntimeError("sys.executable %r cannot be a shebang (white space, or over 127 bytes)" % exe)
+        _executable(path, "#!%s\n%s" % (exe, body))
+    return path
+
+
+def _shim(bindir, name, body):
+    """bindir/name: a symlink to the per-process script `name`."""
+    bindir = str(bindir)
+    os.makedirs(bindir, exist_ok=True)
+    link = os.path.join(bindir, name)
+    if os.path.lexists(link):
+        os.remove(link)
+    os.symlink(_wrapper(name, body), link)
+
+
+def _lines(path):
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return [line.rstrip("\n") for line in f if line.strip()]
 
 
 def isolated_mise_env(tmp_root, fake_mise=None, extra_env=None):
@@ -161,16 +210,9 @@ def isolation_problems(environ, root):
 
 def write_fake_mise(bindir, answers):
     """answers: {" ".join(argv after mise): {"rc", "stdout", "stderr"} or {"hang": True}}; "*" = any other."""
-    bindir = str(bindir)
-    os.makedirs(bindir, exist_ok=True)
-    with open(os.path.join(bindir, "answers.json"), "w") as f:
+    _shim(bindir, "mise", _FAKE_MISE)
+    with open(os.path.join(str(bindir), "answers.json"), "w") as f:
         json.dump(answers, f)
-    with open(os.path.join(bindir, "fake_mise.py"), "w") as f:
-        f.write(_FAKE_MISE)
-    _executable(
-        os.path.join(bindir, "mise"),
-        '#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, os.path.join(bindir, "fake_mise.py")),
-    )
 
 
 def write_sentinel(bindir, names):
@@ -179,8 +221,13 @@ def write_sentinel(bindir, names):
     for name in names:
         _executable(
             os.path.join(bindir, name),
-            '#!/bin/sh\necho "$0 $*" >> "%s"\nexit 1\n' % os.path.join(bindir, "sentinel.log"),
+            '#!/bin/sh\necho "$0 $*" >> "%s"\nexit 1\n' % os.path.join(bindir, SENTINEL_LOG),
         )
+
+
+def read_sentinel(bindir):
+    """The lines the sentinels in `bindir` logged: what was run of them (none = nothing reached them)."""
+    return _lines(os.path.join(str(bindir), SENTINEL_LOG))
 
 
 def five(version):
@@ -190,39 +237,44 @@ def five(version):
 
 def write_fake_python3(bindir, version):
     """version: "3.15.1" (final, serial 0) or the launcher's "3.15.2.candidate.1"."""
-    bindir = str(bindir)
-    os.makedirs(bindir, exist_ok=True)
-    with open(os.path.join(bindir, "fake_python3.py"), "w") as f:
-        f.write(_FAKE_PYTHON3 % {"version": five(version), "launcher": LAUNCHER})
-    _executable(
-        os.path.join(bindir, "python3"),
-        '#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, os.path.join(bindir, "fake_python3.py")),
-    )
+    _shim(bindir, "python3", _FAKE_PYTHON3.replace("@LAUNCHER@", repr(LAUNCHER)))
+    with open(os.path.join(str(bindir), "fake_python3.version"), "w") as f:
+        f.write(five(version))
+
+
+def refused_versions(pin):
+    """E2's versions for a pin (X, Y, Z): the refused neighbours as (spec, shown, level), derived, never spelled."""
+    x, y, z = pin
+    out = []
+    if z > 0:
+        out.append("%d.%d.%d" % (x, y, z - 1))
+    out.append("%d.%d.%d" % (x, y, z + 1))
+    if y > 0:
+        out.append("%d.%d.10" % (x, y - 1))
+    out.append("%d.%d.0" % (x, y + 1))
+    if (x, y, z) != (3, 9, 6):
+        out.append("3.9.6")
+    rows = [(v, v, "final") for v in out]
+    rows.append(("%d.%d.%d.candidate.1" % pin, "%d.%d.%d" % pin, "candidate"))
+    return tuple(rows)
 
 
 def pin_tree(dst, module_source, pin_line):
-    """dst/scripts/python_pin.py (module_source) and dst/.tool-versions (pin_line, written as given)."""
+    """dst/scripts/python_pin.py (module_source) and dst/.tool-versions (pin_line, as given; None = no pin file)."""
     dst = str(dst)
     os.makedirs(os.path.join(dst, "scripts"), exist_ok=True)
     module = os.path.join(dst, "scripts", "python_pin.py")
     with open(module, "w", encoding="utf-8") as f:
         f.write(module_source)
-    with open(os.path.join(dst, ".tool-versions"), "wb") as f:
-        f.write(pin_line if isinstance(pin_line, bytes) else pin_line.encode("utf-8"))
+    if pin_line is not None:
+        with open(os.path.join(dst, ".tool-versions"), "wb") as f:
+            f.write(pin_line.encode("utf-8"))
     return module
 
 
 def read_calls(bindir):
-    path = os.path.join(str(bindir), "calls.jsonl")
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return [json.loads(line) for line in _lines(os.path.join(str(bindir), "calls.jsonl"))]
 
 
 def read_hang_pids(bindir):
-    path = os.path.join(str(bindir), "hang.pids")
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return [int(line) for line in f if line.strip()]
+    return [int(line) for line in _lines(os.path.join(str(bindir), "hang.pids"))]

@@ -19,7 +19,7 @@
 #    level `final`), checked before anything else; any other version is refused,
 #    by name, with the facts `python_pin.py` observed. `python3 -VV` is echoed. The
 #    pin is *measured* by the CI `tools` job's one leg, which reads the same file;
-#    a set `MISE_PYTHON_*` / `MISE_GITHUB_ATTESTATIONS` variable is warned about.
+#    a set `MISE_PYTHON_*` (except `MISE_PYTHON_VERSION`) / `MISE_GITHUB_ATTESTATIONS` variable is warned about.
 # 2. The set is `git ls-files ':(glob)**/test_*.py'` (MEMBER_PATHSPEC) -- tracked files, repo-wide
 #    (the `:(glob)` magic is what makes a top-level `test_x.py` count). An empty
 #    set fails.
@@ -166,8 +166,20 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "python-suites: FAIL pin: no python3 on PATH" >&2
   exit 1
 fi
-if ! python3 -I -S "$root/scripts/python_pin.py"; then
-  echo "python-suites: FAIL pin: python3 is not the pinned interpreter, or the pin file is unreadable (scripts/python_pin.py printed what it observed, above)" >&2
+# python_pin.py ends stderr with `python-pin: exit N` on every non-zero exit; any other last
+# line means python3 failed before it ran (e.g. a mise shim refusing an untrusted config).
+pin_err="$(mktemp "${TMPDIR:-/tmp}/python-suites-pin.XXXXXX")"
+pin_rc=0
+python3 -I -S "$root/scripts/python_pin.py" 2>"$pin_err" || pin_rc=$?
+cat "$pin_err" >&2
+pin_last="$(tail -n 1 "$pin_err")"
+rm -f "$pin_err"
+if [ "$pin_rc" -ne 0 ]; then
+  if [ "$pin_last" = "python-pin: exit $pin_rc" ]; then
+    echo "python-suites: FAIL pin: python3 is not the pinned interpreter, or the pin file is unreadable (scripts/python_pin.py printed what it observed, above)" >&2
+  else
+    echo "python-suites: FAIL pin: python3 failed before scripts/python_pin.py ran (exit $pin_rc)" >&2
+  fi
   exit 1
 fi
 echo "python-suites: python3 -VV: $(python3 -VV 2>&1 | tr '\n' ' ')"

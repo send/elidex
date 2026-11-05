@@ -154,8 +154,33 @@ class TestReaderPins(unittest.TestCase):
         self.assertEqual(self.setup(with_steps(checkout + driver + setup)), ["the actions/setup-python step does not precede the driver step"])
         self.assertEqual(self.setup(with_steps(checkout + driver)), ["no actions/setup-python step in the job"])
         self.assertEqual(self.setup(good.replace("ubuntu-24.04", "ubuntu-latest")), ["runs-on is not exactly ubuntu-24.04"])
+        # F13: the count is case-insensitive on owner/repo.
+        shouting = "      - uses: Actions/Setup-Python@v7\n        with:\n          python-version-file: .tool-versions\n"
+        self.assertEqual(self.setup(with_steps(checkout + setup + shouting + driver)), [second])
+        # F13: every step before the driver is scanned for what could change the pin or the interpreter.
+        def pre(step):
+            return self.setup(with_steps(checkout + step + setup + driver))
+
+        def run(cmd):
+            return "      - run: %s\n" % cmd
+
+        self.assertEqual(pre(run("echo hi")), [])
+        for cmd, marker in (
+            ("echo 'python 3.12.0' > .tool-versions", ".tool-versions"),
+            ("echo /opt/bin >> $GITHUB_PATH", "GITHUB_PATH"),
+            ("echo X=1 >> \"$GITHUB_ENV\"", "GITHUB_ENV"),
+        ):
+            got = pre(run(cmd))
+            self.assertEqual(len(got), 1, got)
+            self.assertIn("naming " + marker, got[0])
+        late = self.setup(with_steps(checkout + setup + run("echo > .tool-versions") + driver))
+        self.assertEqual(len(late), 1, late)
+        got = pre("      - uses: some/other-action@v1\n")
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("only checkout and setup-python may precede", got[0])
+        self.assertEqual(pre("      - uses: Actions/Checkout@v6\n"), [])
         # Through the whole job reader too (the reader is wired into tools_problems).
-        for text in (before, after, good.replace("ubuntu-24.04", "ubuntu-latest")):
+        for text in (before, after, with_steps(checkout + run("echo > .tool-versions") + setup + driver), good.replace("ubuntu-24.04", "ubuntu-latest")):
             self.assertTrue(tools_problems(text), text)
         self.assertEqual(tools_problems(good), [])
 

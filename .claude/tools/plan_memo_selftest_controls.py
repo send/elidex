@@ -175,15 +175,10 @@ def control_char_destination_control(M):
     return res.rc == 0, "rc %d (must be 0, no exception)" % res.rc
 
 
-def unavailable_sibling_control(M):
-    """(e) of `sibling_path`: an `OSError` from `resolve()` is the
-    unavailable-sibling schema miss, rc 2 -- not an exception.  No name
-    provokes it on every platform / version, so it is injected: `Path.resolve`
-    raises for the named file while the control runs.  An
-    exception from `check()` is red here."""
+def _resolve_control(M, name, exc):
+    """(e) of `sibling_path`: `Path.resolve` raises `exc` for `name` (injected); the result, or what `check()` let out."""
     import plan_memo_sibling
     orig = plan_memo_sibling.pathlib.Path.resolve
-    name, exc = "a" * 4000 + ".md", OSError(36, "File name too long")
 
     def resolve(self, *a, **kw):
         if self.name == name:
@@ -191,15 +186,24 @@ def unavailable_sibling_control(M):
         return orig(self, *a, **kw)
     plan_memo_sibling.pathlib.Path.resolve = resolve
     try:
-        res, _ = run_on(M, build(), "See [x](%s)." % name)
+        return run_on(M, build(), "See [x](%s)." % name)[0]
     except Exception as e:       # noqa: BLE001 -- the defect under test
-        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+        return e
     finally:
         plan_memo_sibling.pathlib.Path.resolve = orig
-    miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
-    if res.rc != 2 or not miss:
-        return False, "OSError: rc %d, miss %s (must be rc 2 with the miss)" % (res.rc, miss)
-    return True, "OSError -> rc 2 + miss"
+
+
+def unavailable_sibling_control(M):
+    """An `OSError` from `resolve()` is the unavailable-sibling schema miss, rc 2 -- not an exception."""
+    res = _resolve_control(M, "a" * 4000 + ".md", OSError(36, "File name too long"))
+    ok = not isinstance(res, Exception) and res.rc == 2 and any("linked memo unavailable" in f[3] for f in res.findings)
+    return ok, "OSError -> rc 2 + miss" if ok else "OSError: got %r (must be rc 2 with the miss)" % (res,)
+
+
+def resolve_runtime_error_control(M):
+    """`_resolve` guards `OSError` ONLY: a `RuntimeError` from `resolve()` propagates out of `check()`."""
+    res = _resolve_control(M, "b" * 40 + ".md", RuntimeError("injected resolve defect"))
+    return isinstance(res, RuntimeError) and "injected resolve defect" in str(res), "got %r (must propagate)" % (res,)
 
 
 def undecodable_sibling_control(M):
@@ -980,6 +984,7 @@ def registry(case_rows=None):
     reg["the runner's report channel escapes every C0 control character and DEL, so a run line a control names with one is still greppable"] = ("CONTROL", printable_output_control)
     reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
     reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
+    reg["a RuntimeError from resolve() propagates out of check(), never the unavailable-sibling miss"] = ("CONTROL", resolve_runtime_error_control)
     reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
     reg["a percent-encoded byte that is not UTF-8 names its own file, never the U+FFFD file another spelling names: `child%FF.md` beside a decoy `child\ufffd.md` is rc 2 and the decoy is not scanned"] = ("CONTROL", percent_bytes_control)
     reg["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, never a UnicodeEncodeError from the strict UTF-8 channel"] = ("CONTROL", surrogate_report_control)

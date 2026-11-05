@@ -525,6 +525,19 @@ class TrackedToolConfig(unittest.TestCase):
     def test_W1(self):
         self.control_W1()
 
+    def test_problems_names_a_newline_bearing_member_path(self):
+        # F4: the findings are concatenated, never re-parsed; a newline or ": " in a path is a named finding.
+        for path in ("mise\n.toml", "a: b/mise.toml"):
+            out = probs({path: "python\n"})
+            self.assertEqual(len(out), 1, out)
+            self.assertTrue(out[0].startswith("T5 clause 4: " + path), out)
+        # an iterator input is walked by both finders (F4 addendum): a valid tree is clean
+        tracked, read = pinned(["mise.toml"], memory_read({"mise.toml": b"x = 1\n"}))
+        self.assertEqual(t.problems(iter(tracked), read), [])
+        # clause 1 precedes the members' findings
+        out = probs({t.ROOT_PIN: "python 3.15.2 3.14.10\n", "mise\n.toml": "python\n"})
+        self.assertEqual([f[:12] for f in out], ["T5 clause 1:", "T5 clause 4:"], out)
+
     # -- W2: the install settings over parsed TOML ---------------------------
 
     def control_W2(self, check=None):
@@ -570,14 +583,14 @@ class TrackedToolConfig(unittest.TestCase):
     # -- clause-1 mutants (kept apart from MUTANTS) --------------------------
 
     def test_clause1_mutants_are_killed(self):
-        self.assertEqual(sorted(m[0] for m in WMUTANTS), ["WM%d" % i for i in (1, 2, 3, 4, 5)])
-        for control in sorted({m[3] for m in WMUTANTS}):
-            getattr(self, "control_" + control)()  # each killing control passes unpatched
+        self.assertEqual(sorted(m[0] for m in WMUTANTS), ["WM%d" % i for i in (1, 2, 3, 4, 5, 6)])
         self._assert_all_killed(WMUTANTS)
 
     # -- mutants -------------------------------------------------------------
 
     def _assert_all_killed(self, table):
+        for control in sorted({m[3] for m in table}):
+            getattr(self, "control_" + control)()  # each killing control passes unpatched
         for mid, target, wrong, control, param in table:
             body = getattr(self, "control_" + control)
             killed = False
@@ -593,8 +606,6 @@ class TrackedToolConfig(unittest.TestCase):
 
     def test_mutants_are_killed(self):
         self.assertEqual(sorted(m[0] for m in MUTANTS), sorted("M%d" % i for i in (1, 2, 3, 4, 5, 6, 8, 9, 10)))
-        for control in sorted({m[3] for m in MUTANTS}):
-            getattr(self, "control_" + control)()  # each killing control passes unpatched
         self._assert_all_killed(MUTANTS)
 
 
@@ -748,12 +759,30 @@ def _text_search_settings(text):
     return [] if all(line in text for line in t.ADMITTED_LINES) else ["lines absent"]
 
 
+def _any_table_settings(text):
+    """WM6: admits the text when ANY table of the document equals the admitted one (a block under a task passes)."""
+    expected = tomllib.loads("[settings]\n" + "\n".join(t.ADMITTED_LINES) + "\n")["settings"]
+
+    def tables(node):
+        if isinstance(node, dict):
+            yield node
+            for v in node.values():
+                yield from tables(v)
+
+    try:
+        doc = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return ["does not parse: %s" % e]
+    return [] if any(tbl == expected for tbl in tables(doc)) else ["no table equals the admitted one"]
+
+
 WMUTANTS = (
     ("WM1", "root_pin_problems", _untracked_pin_passes, "W1", None),
     ("WM2", "parse_pin", _first_line_parse, "W1", None),
     ("WM3", "worktree_reader", _following_reader, "W1", None),
     ("WM4", None, _text_search_settings, "W2", "check"),
     ("WM5", "ADMITTED_LINES", t.ADMITTED_LINES + ("python.extra = 1",), "W2", None),
+    ("WM6", None, _any_table_settings, "W2", "check"),
 )
 
 

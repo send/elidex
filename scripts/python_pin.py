@@ -3,7 +3,9 @@
 `scripts/python-suites.sh` Step 1 runs this file as `python3 -I -S scripts/python_pin.py` before
 anything else. Exit 0: the running interpreter is the pin in the root `.tool-versions`. Exit 1: it is
 not; what was observed is printed to stderr (the facts, then one generic block). Exit 2: the pin
-file itself is unreadable or malformed, so no version can be compared.
+file itself is unreadable or malformed, so no version can be compared. Every non-zero exit ends its
+stderr with the one line `python-pin: exit N` (N = 1 or 2), so a caller can tell this file's exit
+from a failure of the interpreter before it ran.
 
 Plan of record: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (section 4.2);
 umbrella docs/plans/2026-10-python-pin-umbrella.md (sections 4.1-4.3).
@@ -13,7 +15,7 @@ points to it and does not restate it.
 
 Shape: stdlib only; the top-level imports are `os` and `sys` and nothing else (`subprocess` and
 `json` are imported inside `ask_mise`, on the refusal path only); Python 3.9 grammar (the oldest
-interpreter this module is refused on is measured, section 11 of the plan); `%`-formatting;
+interpreter this module is refused on is measured, section 10 step 4 of the plan); `%`-formatting;
 `sys.version_info` is read by index, never by attribute.
 
 The oracle probe recipe (umbrella body 0 isolation rule; records R11 T1's environment block), the
@@ -63,7 +65,7 @@ def _why(text):
     """What a text that is not `python X.Y.Z` holds, in words (clause 1's parser, one form)."""
     if text == "":
         return "the file is empty"
-    if text.startswith("﻿"):
+    if text.startswith("\ufeff"):
         return "the file starts with a byte order mark"
     if "\r" in text:
         return "the file holds a carriage return (CRLF line endings)"
@@ -87,6 +89,8 @@ def _why(text):
         return "the line names %r, not the tool `python`: %r" % (head, line)
     if sep == "":
         return "the line has no version: %r" % line
+    if "#" in version:
+        return "the line holds a trailing comment: %r" % line
     if " " in version:
         return "the line holds more than one version: %r" % line
     if version == "latest":
@@ -144,6 +148,20 @@ def warning_lines(environ):
     ]
 
 
+def _reap(proc):
+    """Kill `proc` (its whole group where there is one), wait for it and close its pipes."""
+    if GROUP:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            pass
+    else:
+        proc.kill()
+    proc.wait()
+    proc.stdout.close()
+    proc.stderr.close()
+
+
 def ask_mise(cwd, timeout):
     """Ask mise questions (a)-(d), in this order and no other; diagnostic only, never admits.
 
@@ -159,35 +177,34 @@ def ask_mise(cwd, timeout):
         label = " ".join(argv)
         if stop:
             return {"key": key, "label": label, "kind": "notasked", "why": stop[0]}
+        # Once the process exists, any exit path (a timeout, a KeyboardInterrupt, any BaseException)
+        # kills its group. The residual: an exception raised inside Popen after the fork but before
+        # it returns (a KeyboardInterrupt there), or between its return and the binding of `proc`,
+        # leaves mise running, because no pid reaches this frame; the window is the few bytecodes of
+        # Popen's own error-pipe read, and it is not closed here (it would need signals blocked
+        # around Popen, a `signal` import this module does not take).
+        proc = None
         try:
-            proc = subprocess.Popen(
-                argv,
-                cwd=cwd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=GROUP,
-            )
-        except OSError as e:
-            if isinstance(e, FileNotFoundError):
-                reason = "mise not on PATH (FileNotFoundError)"
-            else:
-                reason = "mise could not be started (%s)" % e
-            stop.append(reason)
-            return {"key": key, "label": label, "kind": "missing", "reason": reason}
-        try:
+            try:
+                proc = subprocess.Popen(
+                    argv,
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=GROUP,
+                )
+            except OSError as e:
+                if isinstance(e, FileNotFoundError):
+                    reason = "mise not on PATH (FileNotFoundError)"
+                else:
+                    reason = "mise could not be started (%s)" % e
+                stop.append(reason)
+                return {"key": key, "label": label, "kind": "missing", "reason": reason}
             out, err = proc.communicate(timeout=timeout)
         except BaseException as e:
-            if GROUP:
-                try:
-                    os.killpg(proc.pid, 9)
-                except OSError:
-                    pass
-            else:
-                proc.kill()
-            proc.wait()
-            proc.stdout.close()
-            proc.stderr.close()
+            if proc is not None:
+                _reap(proc)
             if isinstance(e, subprocess.TimeoutExpired):
                 stop.append("an earlier question timed out")
                 return {"key": key, "label": label, "kind": "timeout", "timeout": timeout}
@@ -201,23 +218,30 @@ def ask_mise(cwd, timeout):
     def shown(value):
         return "(absent)" if value is None else json.dumps(value)
 
-    def parsed(rec, fields):
-        # (a) and (c): a JSON array of objects, else "does not parse".
+    def parsed(rec, build):
+        # (a) and (c): a JSON array of objects, else "does not parse"; `build` makes the one field
+        # the question's printer reads.
         if rec["kind"] != "answer":
             return rec
         try:
             data = json.loads(rec["out"])
-        except ValueError:
+        except (ValueError, RecursionError):
             data = None
         if not isinstance(data, list) or not all(isinstance(x, dict) for x in data):
             return {"key": rec["key"], "label": rec["label"], "kind": "unparsed", "out": rec["out"], "err": rec["err"]}
-        rec["items"] = [dict((k, shown(x.get(k))) for k in fields) for x in data]
-        rec["paths"] = [x["path"] for x in data if isinstance(x.get("path"), str)]
+        rec.update(build(data))
         return rec
 
-    a = parsed(question("a", ["mise", "ls", "--current", "--json", "python"]), ("version", "source", "installed", "install_path"))
+    def items(data):
+        fields = ("version", "source", "installed", "install_path")
+        return {"items": [dict((k, shown(x.get(k))) for k in fields) for x in data]}
+
+    def paths(data):
+        return {"paths": [x["path"] for x in data if isinstance(x.get("path"), str)]}
+
+    a = parsed(question("a", ["mise", "ls", "--current", "--json", "python"]), items)
     b = question("b", ["mise", "which", "python3"])
-    c = parsed(question("c", ["mise", "config", "ls", "--json"]), ("path",))
+    c = parsed(question("c", ["mise", "config", "ls", "--json"]), paths)
     records = [a, b, c]
     if c["kind"] == "answer":
         for path in c["paths"]:
@@ -298,6 +322,12 @@ def _say(text):
     sys.stderr.flush()
 
 
+def _exit(code):
+    """The last stderr line of every non-zero exit; returns `code`."""
+    _say("%sexit %d\n" % (PREFIX, code))
+    return code
+
+
 def main():
     warnings = warning_lines(os.environ)
     root = repo_root()
@@ -309,14 +339,14 @@ def main():
             "%spin file %s: %s\n%sthe pin file is exactly one line, python X.Y.Z\n"
             % (PREFIX, os.path.join(root, PIN_FILE), e, PREFIX)
         )
-        return 2
+        return _exit(2)
     if admitted(sys.version_info, pin):
         _say("".join(w + "\n" for w in warnings))
         return 0
     cwd = os.getcwd()
     records = ask_mise(cwd, ORACLE_TIMEOUT_S)
     _say(refusal_text(pin, root, sys.version_info, sys.executable, cwd, warnings, records))
-    return 1
+    return _exit(1)
 
 
 if __name__ == "__main__":

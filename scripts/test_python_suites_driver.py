@@ -154,51 +154,78 @@ class TestDriverPins(DriverCase, unittest.TestCase):
 # Step 1: exact admission (N1, N1b, N1c), the isolation of the pins' children (N22), and the
 # driver / fixture mutants (DM1-DM5, FM1).
 
-# E2's versions: each is refused (the fake reports a 5-part version only to python_pin.py).
-REFUSED_VERSIONS = (
-    ("3.15.1", "3.15.1", "final"),
-    ("3.15.3", "3.15.3", "final"),
-    ("3.14.10", "3.14.10", "final"),
-    ("3.16.0", "3.16.0", "final"),
-    ("3.9.6", "3.9.6", "final"),
-    ("3.15.2.candidate.1", "3.15.2", "candidate"),
-)
+# The pin and the versions refused beside it, both derived from the `.tool-versions` text (the
+# live file at import; a scratch tree's own copy through `pin_of`): this file spells the pin no
+# second time, and does not import python_pin (P6).
+_PIN_LINE = re.compile(r"python ([0-9]+)\.([0-9]+)\.([0-9]+)\n?")
+
+
+def pin_of(text):
+    m = _PIN_LINE.fullmatch(text)
+    if m is None:
+        raise AssertionError("not a one-line `python X.Y.Z` pin: %r" % text)
+    return tuple(int(g) for g in m.groups())
+
+
+def refused_versions(pin):
+    """E2's versions (the helper's derivation from the pin triple): every neighbour of `pin` is refused."""
+    return H.refused_versions(pin)
+
+
+PIN_TEXT = (REPO / ".tool-versions").read_text(encoding="utf-8")
+PIN = pin_of(PIN_TEXT)
+PIN_DOTTED = "%d.%d.%d" % PIN
+REFUSED_VERSIONS = refused_versions(PIN)
 
 # Source mutants over the scratch copies: (id, file, find, replace, killing control). The find text
 # occurs exactly once in the live file it mutates (a stale row is red).
-STEP1_CALL = 'if ! python3 -I -S "$root/scripts/python_pin.py"; then'
-FAIL_BRANCH = '(scripts/python_pin.py printed what it observed, above)" >&2\n  exit 1\nfi'
+STEP1_CALL = 'python3 -I -S "$root/scripts/python_pin.py" 2>"$pin_err" || pin_rc=$?'
+FAIL_BRANCH = '  fi\n  exit 1\nfi\n'
 DRIVER_MUTANTS = (
     (
         "DM1",
         "scripts/python-suites.sh",
         STEP1_CALL,
-        "if ! python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:2]) >= (3, 9) else 1)'; then",
+        "python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:2]) >= (3, 9) else 1)' 2>\"$pin_err\" || pin_rc=$?",
         "refusals",
     ),
     (
         "DM2",
         "scripts/python-suites.sh",
         STEP1_CALL,
-        "if ! python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:3]) == (3, 15, 2) else 1)'; then",
+        "python3 -I -S -c 'import sys; sys.exit(0 if tuple(sys.version_info[:3]) == %r else 1)' 2>\"$pin_err\" || pin_rc=$?" % (PIN,),
         "refusals",
     ),
-    ("DM3", "scripts/python-suites.sh", STEP1_CALL, "if ! true; then", "refusals"),
+    ("DM3", "scripts/python-suites.sh", STEP1_CALL, "true 2>\"$pin_err\" || pin_rc=$?", "refusals"),
     (
         "DM4",
         "scripts/python-suites.sh",
         FAIL_BRANCH,
-        '(scripts/python_pin.py printed what it observed, above)" >&2\nfi',
+        "  fi\nfi\n",
+        "refusals",
+    ),
+    # DM6: DM4's mutation, over a tree whose suite then fails by itself (see MUTANT_EXTRA_FILES): the
+    # run is non-zero and names the pin, so only the `member(s) in` assertion tells it from a refusal.
+    (
+        "DM6",
+        "scripts/python-suites.sh",
+        FAIL_BRANCH,
+        "  fi\nfi\n",
         "refusals",
     ),
     (
         "DM5",
         "scripts/python_pin.py",
         "if admitted(sys.version_info, pin):",
-        "if admitted(sys.version_info, (3, 15, 2)):",
+        "if admitted(sys.version_info, %r):" % (PIN,),
         "spelling",
     ),
 )
+
+
+MUTANT_EXTRA_FILES = {
+    "DM6": {"z/test_fails.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_fails(self):\n        self.fail('x')\n"},
+}
 
 
 def _old_base_env():
@@ -207,8 +234,8 @@ def _old_base_env():
 
 
 class TestStep1Pins(DriverCase, unittest.TestCase):
-    def pin_scratch(self):
-        return self.scratch({"a/test_ok.py": PASSING})
+    def pin_scratch(self, extra=None):
+        return self.scratch(dict({"a/test_ok.py": PASSING}, **(extra or {})))
 
     def fakes(self, answers=None):
         """A directory B holding the fake python3 and the fake mise (answering `[]`)."""
@@ -219,7 +246,7 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
     def step1_env(self, b):
         """N1's environment, exactly: base_env(), plus the helper's five MISE_* variables, B first on PATH."""
         tmp_root = os.path.realpath(str(self.tmpdir("python-suites-mise-")))
-        e = base_env()
+        e = {k: v for k, v in base_env().items() if not k.startswith("MISE_")}
         e.update(kv for kv in H.isolated_mise_env(tmp_root, fake_mise=b).items() if kv[0].startswith("MISE_"))
         e["PATH"] = str(b) + os.pathsep + e["PATH"]
         return e, tmp_root
@@ -227,8 +254,11 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
     def launch(self, s, env):
         return _launch(["bash", s.dir / "scripts" / "python-suites.sh"], env=env, cwd=s.dir, purpose="driver")
 
-    def refusals(self, s, versions=REFUSED_VERSIONS):
-        """N1's refusal cases on scratch tree `s` (live or mutated)."""
+    def refusals(self, s, versions=None, only_first=False):
+        """N1's refusal cases on scratch tree `s` (live or mutated); versions derived from its pin text."""
+        if versions is None:
+            versions = refused_versions(pin_of((s.dir / ".tool-versions").read_text(encoding="utf-8")))
+            versions = versions[:1] if only_first else versions
         b = self.fakes()
         env, tmp_root = self.step1_env(b)
         root = os.path.realpath(str(s.dir))
@@ -239,7 +269,7 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
             code, out = self.launch(s, env)
             self.assertNotEqual(code, 0, out)
             self.assertRed((code, out), "pin")
-            self.assertIn("pin: 3.15.2 (%s)" % os.path.join(root, ".tool-versions"), out)
+            self.assertIn("pin: %s (%s)" % (PIN_DOTTED, os.path.join(root, ".tool-versions")), out)
             self.assertIn("running: %s %s" % (shown, level), out)
             self.assertNotIn("member(s) in", out)
         calls = H.read_calls(b)
@@ -254,8 +284,9 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         """N1's spelling control: the scratch pin rewritten to the fake's version admits it."""
         b = self.fakes()
         env, _ = self.step1_env(b)
-        H.write_fake_python3(b, "3.15.1")
-        (s.dir / ".tool-versions").write_text("python 3.15.1\n", encoding="utf-8")
+        other = REFUSED_VERSIONS[0][0]
+        H.write_fake_python3(b, other)
+        (s.dir / ".tool-versions").write_text("python %s\n" % other, encoding="utf-8")
         self.assertGreen(self.launch(s, env))
 
     def test_N1_step1_admits_exactly_the_pin(self):
@@ -276,18 +307,27 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
 
     def test_N1c_malformed_pin_stops_the_run(self):
         s = self.pin_scratch()
-        (s.dir / ".tool-versions").write_text("python  3.15.2\n", encoding="utf-8")
+        (s.dir / ".tool-versions").write_text("python  %s\n" % PIN_DOTTED, encoding="utf-8")
         code, out = s.run()
         self.assertRed((code, out), "pin")
         self.assertIn(".tool-versions", out)
         self.assertNotIn("member(s) in", out)
 
-    N22_PARTS = ("scratch_run", "direct_launch", "no_mise_key")
+    N22_PARTS = ("scratch_run", "direct_launch", "isolation", "bash_env")
 
     def control_N22(self, parts=N22_PARTS):
         sentinel = self.tmpdir("python-suites-sentinel-")
         H.write_sentinel(sentinel, ("mise", "python3"))
-        patched = {"PATH": str(sentinel) + os.pathsep + os.environ.get("PATH", ""), "MISE_PIN_SENTINEL": "1"}
+        marker = self.tmpdir("python-suites-bashenv-") / "hit"
+        startup = marker.parent / "startup.sh"
+        startup.write_text("echo hit > '%s'\n" % marker, encoding="utf-8")
+        patched = {
+            "PATH": str(sentinel) + os.pathsep + os.environ.get("PATH", ""),
+            "MISE_PIN_SENTINEL": "1",
+            "BASH_ENV": str(startup),
+            "ENV": str(startup),
+            "BASH_FUNC_pin_probe%%": "() { echo hit > '%s'; }" % marker,
+        }
         with mock.patch.dict(os.environ, patched):
             if "scratch_run" in parts:
                 self.assertGreen(self.pin_scratch().run())
@@ -296,9 +336,25 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
                 self.assertGreen(
                     _launch(["bash", s.dir / "scripts" / "python-suites.sh"], env=fixtures.base_env(), cwd=s.dir, purpose="driver")
                 )
-            if "no_mise_key" in parts:
-                self.assertEqual([k for k in fixtures.base_env() if k.startswith("MISE_")], [])
-            self.assertFalse((sentinel / "sentinel.log").exists(), "a child of the pins reached the sentinel")
+            if "bash_env" in parts:
+                self.assertGreen(self.pin_scratch().run())
+                self.assertFalse(marker.exists(), "a bash start-up file or exported function reached a scratch driver")
+            if "isolation" in parts:
+                e = fixtures.base_env()
+                root = os.path.realpath(fixtures.mise_isolation_root()) + os.sep
+                self.assertEqual(
+                    sorted(k for k in e if k.startswith("MISE_")),
+                    sorted(H.MISE_VARS + ("MISE_OFFLINE", "MISE_AUTO_INSTALL")),
+                )
+                self.assertEqual(
+                    sorted([n for n, _ in fixtures.MISE_DIR_VARS] + [fixtures.MISE_GLOBAL_VAR]), sorted(H.MISE_VARS)
+                )
+                for k in H.MISE_VARS:
+                    self.assertTrue(os.path.realpath(e[k]).startswith(root), (k, e[k]))
+                self.assertEqual(os.path.getsize(e[fixtures.MISE_GLOBAL_VAR]), 0)
+                self.assertEqual((e["MISE_OFFLINE"], e["MISE_AUTO_INSTALL"]), ("1", "false"))
+                self.assertEqual([k for k in e if k in ("BASH_ENV", "ENV") or k.startswith(("GIT_", "BASH_FUNC_"))], [])
+            self.assertEqual(H.read_sentinel(sentinel), [], "a child of the pins reached the sentinel")
             # The constant itself (FM1 leaves it): python3 on CHILD_PATH is the interpreter running the pins.
             self.assertEqual(
                 os.path.realpath(shutil.which("python3", path=fixtures.CHILD_PATH)), os.path.realpath(sys.executable)
@@ -307,31 +363,51 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
     def test_N22_pin_children_cannot_reach_mise(self):
         self.control_N22()
 
-    def test_N22_base_env_refuses_a_reachable_mise(self):
-        # The fail-safe: a `mise` in any directory of CHILD_PATH raises, naming it.
+    def test_N22_a_reachable_mise_is_isolated_not_raised(self):
+        # A `mise` in any directory of CHILD_PATH (a distro package in /usr/bin): base_env does not
+        # raise; whatever that mise reads and writes is confined to the isolation root.
         d = self.tmpdir("python-suites-withmise-")
         H.write_sentinel(d, ("mise",))
         for dirs in ((str(d), "/usr/bin", "/bin"), ("/usr/bin", str(d), "/bin"), ("/usr/bin", "/bin", str(d))):
             with mock.patch.object(fixtures, "CHILD_PATH", os.pathsep.join(dirs)):
-                with self.assertRaises(AssertionError) as cm:
-                    fixtures.base_env()
-            self.assertIn(os.path.join(str(d), "mise"), str(cm.exception))
+                e = fixtures.base_env()
+            self.assertEqual(e["PATH"], os.pathsep.join(dirs))
+            root = os.path.realpath(fixtures.mise_isolation_root()) + os.sep
+            for k in H.MISE_VARS:
+                self.assertTrue(os.path.realpath(e[k]).startswith(root), (k, e[k]))
+            self.assertEqual((e["MISE_OFFLINE"], e["MISE_AUTO_INSTALL"]), ("1", "false"))
+
+    def test_F6_a_python3_failing_before_python_pin_ran_is_not_blamed_on_it(self):
+        # A python3 that exits 1 without python_pin's final stderr marker (a mise shim refusing an untrusted config).
+        s = self.pin_scratch()
+        b = self.tmpdir("python-suites-failpy-")
+        py = b / "python3"
+        py.write_text("#!/bin/sh\necho 'mise ERROR untrusted config' >&2\nexit 1\n", encoding="utf-8")
+        py.chmod(0o755)
+        e = base_env()
+        e["PATH"] = str(b) + os.pathsep + e["PATH"]
+        code, out = self.launch(s, e)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("mise ERROR untrusted config", out)
+        self.assertIn("FAIL pin: python3 failed before scripts/python_pin.py ran (exit 1)", out)
+        self.assertNotIn("is not the pinned interpreter", out)
+        self.assertNotIn("member(s) in", out)
 
     def test_DM_FM_mutants_are_killed(self):
-        self.assertEqual([m[0] for m in DRIVER_MUTANTS], ["DM1", "DM2", "DM3", "DM4", "DM5"])
+        self.assertEqual([m[0] for m in DRIVER_MUTANTS], ["DM1", "DM2", "DM3", "DM4", "DM6", "DM5"])
         # Each killing control passes unmutated.
         live = self.pin_scratch()
-        self.refusals(live, REFUSED_VERSIONS[:1])
+        self.refusals(live, only_first=True)
         self.spelling(live)
         self.control_N22()
         for mid, rel, find, replace, control in DRIVER_MUTANTS:
             text = (REPO / rel).read_text(encoding="utf-8")
             self.assertEqual(text.count(find), 1, "stale row %s: its find text must occur exactly once in %s" % (mid, rel))
-            s = self.pin_scratch()
+            s = self.pin_scratch(MUTANT_EXTRA_FILES.get(mid))
             (s.dir / rel).write_text(text.replace(find, replace), encoding="utf-8")
             with self.assertRaises(AssertionError, msg="%s survived" % mid):
                 if control == "refusals":
-                    self.refusals(s, REFUSED_VERSIONS[:1])
+                    self.refusals(s, only_first=True)
                 else:
                     self.spelling(s)
         # FM1: base_env restored to 660e594c's body; N22's Scratch run, direct launch and
