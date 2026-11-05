@@ -106,6 +106,10 @@ pub(super) mod dataset;
 pub(crate) mod dispatch_target;
 pub(super) mod document;
 #[cfg(feature = "engine")]
+pub(super) mod document_accessors;
+#[cfg(feature = "engine")]
+pub(super) mod document_factories;
+#[cfg(feature = "engine")]
 pub(super) mod document_fragment_proto;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
