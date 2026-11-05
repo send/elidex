@@ -77,3 +77,58 @@ fn probe_vm_native_hidden_ancestor_runs_focus_fixup() {
         "HTML update-the-rendering step 17: focus fixup must drop focus from an element in a hidden subtree"
     );
 }
+
+// ---- Event-observing cells (plan docs/plans/2026-11-focus-fixup-canonical-steps.md §6) ----
+
+/// Logs `change` / `blur` / `focusout` at `#b` into `<body data-log>`, read
+/// back Rust-side with `probe_body_attr` (no extra script bracket).
+/// (`listen` takes `t` as a parameter so each listener closes over its own
+/// type: the VM's `for (const …)` loop shares one binding across iterations,
+/// `#11-vm-per-iteration-loop-environment`.)
+const LOGGER: &str = "globalThis.__log = []; \
+    function listen(el, t) { \
+      el.addEventListener(t, (e) => { \
+        __log.push(t); \
+        document.body.setAttribute('data-log', __log.join(',')); \
+      }); \
+    } \
+    const __b = document.getElementById('b'); \
+    for (const t of ['change', 'blur', 'focusout']) { listen(__b, t); }";
+
+/// `eval_script`, asserting the script completed.
+fn eval(p: &mut crate::PipelineResult, src: &str) {
+    let r = p.eval_script(src);
+    assert!(r.success, "eval failed: {src}: {:?}", r.error);
+}
+
+/// The logged events so far, comma-joined (`""` when none fired).
+fn event_log(p: &crate::PipelineResult) -> String {
+    super::test_support::probe_body_attr(p, "data-log").unwrap_or_default()
+}
+
+/// C19 (pin, PM 260): a UA-focused text `<input>` (snapshot seeded) whose value
+/// only a script changed, then made non-focusable by a VM-native write: the
+/// rendering update's fixup fires `blur` + `focusout` and no `change` (the
+/// provenance PR's predicate, reached through the sink).
+#[test]
+fn focus_fixup_no_change_from_script_alone() {
+    let (mut state, _browser) =
+        build_test_content_state("<!DOCTYPE html><html><body><input id=b></body></html>", "");
+    let p = &mut state.pipeline;
+    let b = p.dom.find_by_id(p.document, "b").expect("#b");
+    eval(p, LOGGER);
+    super::focus::set_focus(p, b);
+    crate::re_render(p);
+    assert_eq!(focused(p), Some(b), "precondition: b is focused");
+    eval(
+        p,
+        "document.getElementById('b').value = 'x'; document.getElementById('b').disabled = true;",
+    );
+    crate::re_render(p);
+    assert_eq!(
+        event_log(p),
+        "blur,focusout",
+        "the fixup blurs the holder; a script-only value change fires no change"
+    );
+    assert_eq!(focused(p), None);
+}
