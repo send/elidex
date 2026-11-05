@@ -10,7 +10,11 @@ fn associated_document_on_create_element_with_owner() {
     // that `owner_document` reports `doc` before insertion.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let div = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert_eq!(dom.get_associated_document(div), Some(doc));
     assert_eq!(dom.owner_document(div), Some(doc));
 }
@@ -19,9 +23,9 @@ fn associated_document_on_create_element_with_owner() {
 fn associated_document_for_text_comment_fragment() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let text = dom.create_text_with_owner("hi", Some(doc));
-    let comment = dom.create_comment_with_owner("c", Some(doc));
-    let frag = dom.create_document_fragment_with_owner(Some(doc));
+    let text = dom.create_text_with_owner("hi", dom.node_document_for_new_nodes(doc));
+    let comment = dom.create_comment_with_owner("c", dom.node_document_for_new_nodes(doc));
+    let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(doc));
     assert_eq!(dom.owner_document(text), Some(doc));
     assert_eq!(dom.owner_document(comment), Some(doc));
     assert_eq!(dom.owner_document(frag), Some(doc));
@@ -37,7 +41,7 @@ fn owner_document_resolves_through_detached_fragment_root() {
     // node-document inheritance; the template path relies on this.)
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let frag = dom.create_document_fragment_with_owner(Some(doc));
+    let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(doc));
     // The child gets NO owner of its own (mirrors a tolerant-parsed node).
     let child = dom.create_element("span", crate::components::Attributes::default());
     let grandchild = dom.create_text("x");
@@ -91,14 +95,22 @@ fn clone_subtree_non_document_propagates_src_owner() {
     // inherits the *source's* node document.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let div = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
-    let span = dom.create_element_with_owner("span", Attributes::default(), Some(doc));
-    let text = dom.create_text_with_owner("hi", Some(doc));
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
+    let text = dom.create_text_with_owner("hi", dom.node_document_for_new_nodes(doc));
     assert!(dom.append_child(div, span));
     assert!(dom.append_child(span, text));
 
     let clone = dom
-        .clone_subtree(div, &mut Vec::new(), None)
+        .clone_subtree(div, &mut Vec::new(), dom.node_document_for_new_nodes(div))
         .expect("clone_subtree");
     assert_eq!(dom.owner_document(clone), Some(doc));
     let cloned_span = dom.children(clone)[0];
@@ -119,13 +131,25 @@ fn clone_subtree_document_self_reference_and_descendants() {
     let mut dom = EcsDom::new();
     let src_doc = dom.create_document_root();
     // documentElement + descendant, both owned by src_doc.
-    let html = dom.create_element_with_owner("html", Attributes::default(), Some(src_doc));
-    let body = dom.create_element_with_owner("body", Attributes::default(), Some(src_doc));
+    let html = dom.create_element_with_owner(
+        "html",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(src_doc),
+    );
+    let body = dom.create_element_with_owner(
+        "body",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(src_doc),
+    );
     assert!(dom.append_child(src_doc, html));
     assert!(dom.append_child(html, body));
 
     let clone_doc = dom
-        .clone_subtree(src_doc, &mut Vec::new(), None)
+        .clone_subtree(
+            src_doc,
+            &mut Vec::new(),
+            dom.node_document_for_new_nodes(src_doc),
+        )
         .expect("clone_subtree");
     // Document.ownerDocument is always null per spec, so the accessor
     // returns None; but the internal AssociatedDocument points at the
@@ -158,7 +182,7 @@ fn create_with_owner_skips_component_when_owner_is_not_a_document() {
     // trip the assertion in debug.  Instead, confirm the RELEASE
     // fallback path by manually attaching a bogus component and
     // verifying `owner_document` refuses to return it.
-    let node = dom.create_element_with_owner("div", Attributes::default(), None);
+    let node = dom.create_element_with_owner("div", Attributes::default(), NewNodeOwner::NONE);
     let _ = dom
         .world_mut()
         .insert_one(node, crate::AssociatedDocument(fake_owner));
@@ -178,7 +202,11 @@ fn owner_document_skips_destroyed_associated_document() {
     let ghost_doc = dom
         .world_mut()
         .spawn((TreeRelation::default(), NodeKind::Document));
-    let div = dom.create_element_with_owner("div", Attributes::default(), Some(ghost_doc));
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(ghost_doc),
+    );
     // Attach to the real document so the fallback walk can find it.
     assert!(dom.append_child(real_doc, div));
     // Now destroy the ghost document.

@@ -27,7 +27,12 @@ fn html_elements_carry_no_namespace_component() {
 #[test]
 fn create_element_ns_svg() {
     let mut dom = EcsDom::new();
-    let svg = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+    let svg = dom.create_element_ns(
+        "svg",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
     assert_eq!(dom.namespace_of(svg), Namespace::Svg);
     assert!(!dom.is_html_namespace(svg));
     assert!(dom.world().get::<&Namespace>(svg).is_ok());
@@ -36,7 +41,12 @@ fn create_element_ns_svg() {
 #[test]
 fn create_element_ns_mathml() {
     let mut dom = EcsDom::new();
-    let math = dom.create_element_ns("math", Namespace::MathMl, Attributes::default(), None);
+    let math = dom.create_element_ns(
+        "math",
+        Namespace::MathMl,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
     assert_eq!(dom.namespace_of(math), Namespace::MathMl);
     assert!(!dom.is_html_namespace(math));
 }
@@ -46,7 +56,12 @@ fn create_element_ns_html_stays_sparse() {
     // Passing `Namespace::Html` to the namespaced constructor must NOT
     // attach a component (the absent-⇒-Html invariant is preserved).
     let mut dom = EcsDom::new();
-    let div = dom.create_element_ns("div", Namespace::Html, Attributes::default(), None);
+    let div = dom.create_element_ns(
+        "div",
+        Namespace::Html,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
     assert!(
         dom.world().get::<&Namespace>(div).is_err(),
         "Html namespace must stay component-free (sparse invariant)"
@@ -106,7 +121,12 @@ fn resolve_attribute_qname_svg_case_preserves() {
     // SVG-namespace element: the local name is preserved verbatim (`viewBox`
     // must NOT collapse to `viewbox`).
     let mut dom = EcsDom::new();
-    let svg = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+    let svg = dom.create_element_ns(
+        "svg",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
     assert_eq!(dom.resolve_attribute_qname(svg, "viewBox"), "viewBox");
     // Borrowed, not owned — case-preserving arm returns the argument as-is.
     assert!(matches!(
@@ -118,7 +138,12 @@ fn resolve_attribute_qname_svg_case_preserves() {
 #[test]
 fn resolve_attribute_qname_mathml_case_preserves() {
     let mut dom = EcsDom::new();
-    let math = dom.create_element_ns("math", Namespace::MathMl, Attributes::default(), None);
+    let math = dom.create_element_ns(
+        "math",
+        Namespace::MathMl,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
     assert_eq!(
         dom.resolve_attribute_qname(math, "definitionURL"),
         "definitionURL"
@@ -147,7 +172,12 @@ fn is_base_element_html_namespace_only() {
     let html_base = elem(&mut dom, "base");
     assert!(dom.is_base_element(html_base));
 
-    let svg_base = dom.create_element_ns("base", Namespace::Svg, Attributes::default(), None);
+    let svg_base = dom.create_element_ns(
+        "base",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
     assert!(
         !dom.is_base_element(svg_base),
         "foreign-namespace <base> is not the document base element"

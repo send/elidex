@@ -288,7 +288,7 @@ fn despawn_subtree_destroys_template_content_fragment() {
     let root = elem(&mut dom, "div");
     let template = elem(&mut dom, "template");
     dom.append_child(root, template);
-    let fragment = dom.attach_template_contents(template, None);
+    let fragment = dom.attach_template_contents(template, NewNodeOwner::NONE);
     let content_child = elem(&mut dom, "span");
     dom.append_child(fragment, content_child);
 
@@ -317,7 +317,7 @@ fn adopt_subtree_rehomes_template_content_fragment() {
     let root = elem(&mut dom, "div");
     let template = elem(&mut dom, "template");
     dom.append_child(root, template);
-    let fragment = dom.attach_template_contents(template, None);
+    let fragment = dom.attach_template_contents(template, NewNodeOwner::NONE);
     let content_child = elem(&mut dom, "span");
     dom.append_child(fragment, content_child);
 
@@ -333,7 +333,8 @@ fn begin_detached_fragment_root_is_child_of_document() {
     // That defect only shows with debug assertions off, so this test catches
     // it under `cargo test --release`, not in the dev profile CI runs.
     let mut dom = EcsDom::new();
-    let (document, root, _) = dom.begin_detached_fragment();
+    let context = elem(&mut dom, "div");
+    let (document, root, _) = dom.begin_detached_fragment(context);
     assert_eq!(dom.get_parent(root), Some(document));
     // The property the link exists for: the strict rollback reclaims root and
     // everything built under it.

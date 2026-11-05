@@ -21,6 +21,7 @@ mod classify;
 pub(crate) mod equality;
 mod geometry;
 mod mutation_event;
+mod node_document;
 pub mod shadow;
 mod text_data;
 mod text_util;
@@ -30,6 +31,7 @@ mod tree_clone;
 pub use attribute::AttributeWrite;
 pub use geometry::{FragmentView, ScreenGeometry};
 pub use mutation_event::{CloneScope, MutationDispatcher, MutationEvent};
+pub use node_document::NewNodeOwner;
 pub(crate) use text_util::splice_utf16;
 pub use tree::TemplateContentsWalk;
 
@@ -379,40 +381,33 @@ impl EcsDom {
         &mut self.world
     }
 
-    /// Create an element node with the given tag and attributes.
+    /// Create an ownerless element node with the given tag and attributes.
     ///
-    /// Shim over [`create_element_with_owner`](Self::create_element_with_owner)
-    /// with `owner = None`.  New callers that know which Document the
-    /// node belongs to should prefer the `_with_owner` variant so that
-    /// [`owner_document`](Self::owner_document) can report the correct
-    /// Document even for detached nodes (WHATWG §4.4 "node document").
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
     pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
-        self.create_element_with_owner(tag, attrs, None)
+        self.create_element_with_owner(tag, attrs, NewNodeOwner::NONE)
     }
 
-    /// Create an element node with an explicit owner `Document` entity.
-    ///
-    /// `owner = Some(doc)` attaches an [`AssociatedDocument`] component so
-    /// that [`owner_document`](Self::owner_document) returns `doc` before
-    /// the node is inserted into any tree.  `owner = None` mirrors legacy
-    /// [`create_element`](Self::create_element) behaviour.
+    /// Create an element node whose node document is `owner` (WHATWG DOM §4.4
+    /// *node document*, set upon creation), stamped in the spawn tuple.
     pub fn create_element_with_owner(
         &mut self,
         tag: impl Into<String>,
         attrs: Attributes,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self.world.spawn((
-            TagType(tag.into()),
-            attrs,
-            TreeRelation::default(),
-            NodeKind::Element,
-        ));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+        self.spawn_node(
+            (
+                TagType(tag.into()),
+                attrs,
+                TreeRelation::default(),
+                NodeKind::Element,
+            ),
+            owner,
+        )
     }
 
     /// Create a foreign-namespace element node (SVG / MathML).
@@ -421,16 +416,16 @@ impl EcsDom {
     /// but tags the element with an explicit [`Namespace`].  The
     /// [`Namespace`] component is attached **only** for non-HTML
     /// namespaces — an absent component means [`Namespace::Html`] by
-    /// construction — so HTML elements created via the plain
-    /// [`create_element`](Self::create_element) stay component-free and
-    /// unchanged.  Used by the strict HTML parser's foreign-content path
+    /// construction — so HTML elements created via
+    /// [`create_element_with_owner`](Self::create_element_with_owner) stay
+    /// component-free and unchanged.  Used by the strict HTML parser's foreign-content path
     /// (WHATWG HTML §13.2.6.5).
     pub fn create_element_ns(
         &mut self,
         tag: impl Into<String>,
         namespace: Namespace,
         attrs: Attributes,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
         let entity = self.create_element_with_owner(tag, attrs, owner);
         if namespace != Namespace::Html {
@@ -543,52 +538,46 @@ impl EcsDom {
         }
     }
 
-    /// Create a text node.
+    /// Create an ownerless text node.
     ///
-    /// Shim over [`create_text_with_owner`](Self::create_text_with_owner)
-    /// with `owner = None`.
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
     pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
-        self.create_text_with_owner(text, None)
+        self.create_text_with_owner(text, NewNodeOwner::NONE)
     }
 
-    /// Create a text node with an explicit owner `Document` entity.
+    /// Create a text node whose node document is `owner` (DOM §4.4).
     pub fn create_text_with_owner(
         &mut self,
         text: impl Into<String>,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self.world.spawn((
-            TextContent(text.into()),
-            TreeRelation::default(),
-            NodeKind::Text,
-        ));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+        self.spawn_node(
+            (
+                TextContent(text.into()),
+                TreeRelation::default(),
+                NodeKind::Text,
+            ),
+            owner,
+        )
     }
 
-    /// Create a document fragment node (WHATWG DOM 4.5).
+    /// Create an ownerless document fragment node.
     ///
-    /// Shim over
-    /// [`create_document_fragment_with_owner`](Self::create_document_fragment_with_owner)
-    /// with `owner = None`.
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
     pub fn create_document_fragment(&mut self) -> Entity {
-        self.create_document_fragment_with_owner(None)
+        self.create_document_fragment_with_owner(NewNodeOwner::NONE)
     }
 
-    /// Create a document fragment node with an explicit owner
-    /// `Document` entity.
-    pub fn create_document_fragment_with_owner(&mut self, owner: Option<Entity>) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self
-            .world
-            .spawn((TreeRelation::default(), NodeKind::DocumentFragment));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+    /// Create a document fragment node whose node document is `owner`
+    /// (DOM §4.4).
+    pub fn create_document_fragment_with_owner(&mut self, owner: NewNodeOwner) -> Entity {
+        self.spawn_node((TreeRelation::default(), NodeKind::DocumentFragment), owner)
     }
 
     /// HTML §4.12.3: give `template` its associated **template contents**
@@ -607,15 +596,14 @@ impl EcsDom {
     /// value is a separate inert *"template contents owner document"* (one per
     /// real document); this ships the **C2 approximation** `owner_doc =
     /// template's own node document` — the faithful inert owner document is
-    /// deferred to slot `#11-template-contents-owner-document`. Callers pass
-    /// the document they know at creation time (strict: post-insert
-    /// `owner_document(template)`; `createElement`: the receiver document;
-    /// tolerant: the conversion's threaded document), so the fragment's
-    /// `ownerDocument` is uniform across tiers.
+    /// deferred to slot `#11-template-contents-owner-document`. Every caller
+    /// passes [`node_document_for_new_nodes(template)`](Self::node_document_for_new_nodes)
+    /// (the clone post-pass: the clone operation's document), so the
+    /// fragment's `ownerDocument` is uniform across tiers.
     pub fn attach_template_contents(
         &mut self,
         template: Entity,
-        owner_doc: Option<Entity>,
+        owner_doc: NewNodeOwner,
     ) -> Entity {
         // Called exactly once per `<template>` creation (both parser tiers,
         // `createElement`, clone post-pass). Re-attaching would orphan the
@@ -644,60 +632,66 @@ impl EcsDom {
             .map(|t| t.fragment)
     }
 
-    /// Create a comment node.
+    /// Create an ownerless comment node.
     ///
-    /// Shim over [`create_comment_with_owner`](Self::create_comment_with_owner)
-    /// with `owner = None`.
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
     pub fn create_comment(&mut self, data: impl Into<String>) -> Entity {
-        self.create_comment_with_owner(data, None)
+        self.create_comment_with_owner(data, NewNodeOwner::NONE)
     }
 
-    /// Create a comment node with an explicit owner `Document` entity.
+    /// Create a comment node whose node document is `owner` (DOM §4.4).
     pub fn create_comment_with_owner(
         &mut self,
         data: impl Into<String>,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self.world.spawn((
-            CommentData(data.into()),
-            TreeRelation::default(),
-            NodeKind::Comment,
-        ));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+        self.spawn_node(
+            (
+                CommentData(data.into()),
+                TreeRelation::default(),
+                NodeKind::Comment,
+            ),
+            owner,
+        )
     }
 
-    /// Create a document type node.
+    /// Create a document type node whose node document is `owner` (WHATWG
+    /// DOM §4.4 *node document*, set upon creation).
     pub fn create_document_type(
         &mut self,
         name: impl Into<String>,
         public_id: impl Into<String>,
         system_id: impl Into<String>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        self.world.spawn((
-            DocTypeData {
-                name: name.into(),
-                public_id: public_id.into(),
-                system_id: system_id.into(),
-            },
-            TreeRelation::default(),
-            NodeKind::DocumentType,
-        ))
+        let data = DocTypeData {
+            name: name.into(),
+            public_id: public_id.into(),
+            system_id: system_id.into(),
+        };
+        self.spawn_node(
+            (data, TreeRelation::default(), NodeKind::DocumentType),
+            owner,
+        )
     }
 
-    /// Create an attribute node (WHATWG DOM 4.9).
-    pub fn create_attribute(&mut self, local_name: impl Into<String>) -> Entity {
-        self.world.spawn((
-            AttrData {
-                local_name: local_name.into(),
-                value: String::new(),
-                owner_element: None,
-            },
-            NodeKind::Attribute,
-        ))
+    /// Create an attribute node whose node document is `owner` (WHATWG DOM
+    /// §4.5 `createAttribute`, `#dom-document-createattribute`: "creating an
+    /// attribute given this").
+    pub fn create_attribute(
+        &mut self,
+        local_name: impl Into<String>,
+        owner: NewNodeOwner,
+    ) -> Entity {
+        let data = AttrData {
+            local_name: local_name.into(),
+            value: String::new(),
+            owner_element: None,
+        };
+        self.spawn_node((data, NodeKind::Attribute), owner)
     }
 
     // ---- Version tracking ----

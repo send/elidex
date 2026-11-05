@@ -26,7 +26,11 @@ struct Docs {
 
 fn docs(dom: &mut EcsDom) -> Docs {
     let d = dom.create_document_root();
-    let d_parent = dom.create_element_with_owner("div", Attributes::default(), Some(d));
+    let d_parent = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(d),
+    );
     assert!(dom.append_child(d, d_parent));
     let x = dom.create_document_node();
     Docs { d, d_parent, x }
@@ -37,8 +41,16 @@ fn docs(dom: &mut EcsDom) -> Docs {
 /// Attr entity in `n`'s `AttrEntityCache` (the state `GetAttributeNode`'s
 /// materialization leaves). Returns `n` and every node the walk must visit.
 fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
-    let n = dom.create_element_with_owner("div", Attributes::default(), Some(x));
-    let child = dom.create_element_with_owner("span", Attributes::default(), Some(x));
+    let n = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(x),
+    );
+    let child = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(x),
+    );
     assert!(dom.append_child(n, child));
     let sr = dom
         .attach_shadow(n, ShadowRootMode::Open)
@@ -46,14 +58,26 @@ fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
     // The base spawns the shadow root unstamped (`shadow.rs:189`); stamp it
     // `X` so the cell starts from "every node in X".
     assert!(dom.set_associated_document(sr, x));
-    let sr_content = dom.create_element_with_owner("b", Attributes::default(), Some(x));
+    let sr_content = dom.create_element_with_owner(
+        "b",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(x),
+    );
     assert!(dom.append_child(sr, sr_content));
-    let tpl = dom.create_element_with_owner("template", Attributes::default(), Some(x));
+    let tpl = dom.create_element_with_owner(
+        "template",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(x),
+    );
     assert!(dom.append_child(n, tpl));
-    let contents = dom.attach_template_contents(tpl, Some(x));
-    let contents_child = dom.create_element_with_owner("i", Attributes::default(), Some(x));
+    let contents = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(x));
+    let contents_child = dom.create_element_with_owner(
+        "i",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(x),
+    );
     assert!(dom.append_child(contents, contents_child));
-    let attr = dom.create_attribute("title");
+    let attr = dom.create_attribute("title", NewNodeOwner::NONE);
     assert!(dom.set_associated_document(attr, x));
     let mut cache = AttrEntityCache::default();
     cache.entries.insert("title".to_string(), attr);
@@ -77,20 +101,32 @@ fn u1_link(dom: &mut EcsDom, docs: &Docs, variant: usize, n: Entity) {
     match variant {
         0 => assert!(dom.append_child(docs.d_parent, n)),
         1 => {
-            let r = dom.create_element_with_owner("p", Attributes::default(), Some(docs.d));
+            let r = dom.create_element_with_owner(
+                "p",
+                Attributes::default(),
+                dom.node_document_for_new_nodes(docs.d),
+            );
             assert!(dom.append_child(docs.d_parent, r));
             assert!(dom.insert_before(docs.d_parent, n, r));
         }
         2 => {
-            let old = dom.create_element_with_owner("p", Attributes::default(), Some(docs.d));
+            let old = dom.create_element_with_owner(
+                "p",
+                Attributes::default(),
+                dom.node_document_for_new_nodes(docs.d),
+            );
             assert!(dom.append_child(docs.d_parent, old));
             assert!(dom.replace_child(docs.d_parent, n, old));
         }
         _ => {
-            let tpl =
-                dom.create_element_with_owner("template", Attributes::default(), Some(docs.d));
+            let tpl = dom.create_element_with_owner(
+                "template",
+                Attributes::default(),
+                dom.node_document_for_new_nodes(docs.d),
+            );
             assert!(dom.append_child(docs.d_parent, tpl));
-            let contents = dom.attach_template_contents(tpl, Some(docs.d));
+            let contents =
+                dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(docs.d));
             assert!(dom.append_child(contents, n));
         }
     }
@@ -162,7 +198,11 @@ fn u2_control_a_stamped_node_reads_its_stamp() {
 fn u3_append_under_ownerless_parent_keeps_the_stamp() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
-    let n = dom.create_element_with_owner("div", Attributes::default(), Some(docs.d));
+    let n = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(docs.d),
+    );
     let ownerless_parent = elem(&mut dom, "section");
     assert!(dom.append_child(ownerless_parent, n));
     assert_eq!(dom.get_associated_document(n), Some(docs.d));
@@ -239,11 +279,23 @@ fn take<T>(m: &Arc<Mutex<Vec<T>>>) -> Vec<T> {
 fn u4_run(replace: bool) -> U4Run {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
-    let x_parent = dom.create_element_with_owner("div", Attributes::default(), Some(docs.x));
-    let n = dom.create_element_with_owner("span", Attributes::default(), Some(docs.x));
+    let x_parent = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(docs.x),
+    );
+    let n = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(docs.x),
+    );
     assert!(dom.append_child(x_parent, n));
     let old = replace.then(|| {
-        let old = dom.create_element_with_owner("p", Attributes::default(), Some(docs.d));
+        let old = dom.create_element_with_owner(
+            "p",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(docs.d),
+        );
         assert!(dom.append_child(docs.d_parent, old));
         old
     });
@@ -339,8 +391,13 @@ fn u4_control_event_sequence() {
 /// Returns (top, deepest, last): a chain `MAX_ANCESTOR_DEPTH + 5` deep under
 /// `top`, and `MAX_ANCESTOR_DEPTH + 5` siblings under `top`.
 fn u6_x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Entity, Entity) {
-    let mk =
-        |dom: &mut EcsDom| dom.create_element_with_owner("div", Attributes::default(), Some(x));
+    let mk = |dom: &mut EcsDom| {
+        dom.create_element_with_owner(
+            "div",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(x),
+        )
+    };
     let deepest = mk(dom);
     let mut chain = deepest;
     for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
@@ -388,7 +445,11 @@ fn u7_node_document_has_no_fallback() {
     let leg1 = dom.get_associated_document(docs.d);
     // Leg 3: a node whose document was destroyed reads None, even in D's tree.
     let gone = dom.create_document_node();
-    let orphaned = dom.create_element_with_owner("i", Attributes::default(), Some(gone));
+    let orphaned = dom.create_element_with_owner(
+        "i",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(gone),
+    );
     assert!(dom.destroy_entity(gone));
     assert!(dom.append_child(docs.d_parent, orphaned));
     let leg3 = dom.owner_document(orphaned);
@@ -397,7 +458,7 @@ fn u7_node_document_has_no_fallback() {
     assert!(dom.append_child(docs.d_parent, unstamped));
     let leg4 = dom.owner_document(unstamped);
     // Leg 5: an unstamped node under a fragment stamped D reads None.
-    let frag = dom.create_document_fragment_with_owner(Some(docs.d));
+    let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(docs.d));
     let in_frag = elem(&mut dom, "s");
     assert!(dom.append_child(frag, in_frag));
     let leg5 = dom.owner_document(in_frag);
@@ -415,28 +476,58 @@ fn u7_control_a_document_has_no_owner_document() {
     assert_eq!(dom.owner_document(docs.d), None, "leg 2");
 }
 
-// ---- U11 (red, HEAD proxy): the fragment-parse root is created in the
-// throwaway (§13.4 step 11); `node_document_for_new_nodes` /
-// `FragmentParseRoot` do not exist on the base (their legs come with them) ----
+// ---- U11 (red): `node_document_for_new_nodes` — a Document → itself; a node
+// → its stamp; the fragment-parse root → the context's document (§13.4 step
+// 15's redirect); the throwaway → the throwaway (root is created in it, step
+// 11); a documentless context → `None`. The legs of nodes created under root
+// during a build are the parser crates' (U8 / U9) ----
 #[test]
-#[ignore = "C0b red-first: the base creates the fragment root ownerless (teardown.rs:303) — it reads None"]
 fn u11_fragment_root_is_created_in_the_throwaway() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
-    let (throwaway, root, saved) = dom.begin_detached_fragment();
-    let read = dom.get_associated_document(root);
+    assert_eq!(
+        dom.node_document_for_new_nodes(docs.d).document(),
+        Some(docs.d)
+    );
+    assert_eq!(
+        dom.node_document_for_new_nodes(docs.d_parent).document(),
+        Some(docs.d)
+    );
+    let (throwaway, root, saved) = dom.begin_detached_fragment(docs.d_parent);
+    let root_stamp = dom.get_associated_document(root);
+    let root_entry = dom.node_document_for_new_nodes(root).document();
+    let throwaway_entry = dom.node_document_for_new_nodes(throwaway).document();
     let _ = dom.finish_detached_fragment(root, throwaway, docs.d_parent);
     if let Some(saved) = saved {
         let _ = dom.set_mutation_dispatcher(saved);
     }
-    assert_eq!(read, Some(throwaway));
+    assert_eq!(
+        root_stamp,
+        Some(throwaway),
+        "root is created in the throwaway"
+    );
+    assert_eq!(
+        root_entry,
+        Some(docs.d),
+        "root redirects to the context's document"
+    );
+    assert_eq!(throwaway_entry, Some(throwaway));
+
+    let documentless = dom.create_element("div", Attributes::default());
+    let (throwaway, root, saved) = dom.begin_detached_fragment(documentless);
+    let root_entry = dom.node_document_for_new_nodes(root).document();
+    let _ = dom.finish_detached_fragment(root, throwaway, documentless);
+    if let Some(saved) = saved {
+        let _ = dom.set_mutation_dispatcher(saved);
+    }
+    assert_eq!(root_entry, None, "documentless context");
 }
 
 #[test]
 fn u11_control_the_throwaway_is_a_document() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
-    let (throwaway, root, saved) = dom.begin_detached_fragment();
+    let (throwaway, root, saved) = dom.begin_detached_fragment(docs.d_parent);
     let kind = dom.node_kind(throwaway);
     let _ = dom.finish_detached_fragment(root, throwaway, docs.d_parent);
     if let Some(saved) = saved {

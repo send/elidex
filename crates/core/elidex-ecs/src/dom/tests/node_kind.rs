@@ -69,7 +69,7 @@ fn create_comment_has_node_kind() {
 #[test]
 fn create_document_type_has_node_kind() {
     let mut dom = EcsDom::new();
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type("html", "", "", NewNodeOwner::NONE);
     assert_eq!(dom.node_kind(dt), Some(NodeKind::DocumentType));
     let data = dom.world().get::<&DocTypeData>(dt).unwrap();
     assert_eq!(data.name, "html");
@@ -78,7 +78,7 @@ fn create_document_type_has_node_kind() {
 #[test]
 fn create_attribute_has_node_kind() {
     let mut dom = EcsDom::new();
-    let a = dom.create_attribute("class");
+    let a = dom.create_attribute("class", NewNodeOwner::NONE);
     assert_eq!(dom.node_kind(a), Some(NodeKind::Attribute));
     let data = dom.world().get::<&AttrData>(a).unwrap();
     assert_eq!(data.local_name, "class");

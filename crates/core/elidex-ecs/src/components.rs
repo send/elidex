@@ -594,6 +594,24 @@ pub struct DocTypeData {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AssociatedDocument(pub Entity);
 
+/// Marks the root of a WHATWG HTML §13.4 fragment build
+/// (*HTML fragment parsing algorithm*, `#html-fragment-parsing-algorithm`):
+/// step 15 sets the parser's *insertion target redirection map*[root] to
+/// (fragment, null), and step 14 creates that fragment in the target's node
+/// document. elidex keeps root as the build container and has no separate
+/// fragment object, so root stands for the redirect target: a node created on
+/// behalf of root, or linked under it, receives `redirect_document`
+/// ([`crate::EcsDom::node_document_for_new_nodes`]).
+///
+/// Transient: inserted by `begin_detached_fragment` and despawned with root by
+/// either teardown. Crate-private so no code outside `elidex-ecs` can write it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct FragmentParseRoot {
+    /// The fragment's node document: the context's node document, or `None`
+    /// for a documentless context.
+    pub(crate) redirect_document: Option<Entity>,
+}
+
 /// Scroll state for elements with `overflow: scroll | auto | hidden`.
 ///
 /// Tracks the current scroll position and content/client dimensions

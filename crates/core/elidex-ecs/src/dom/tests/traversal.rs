@@ -15,7 +15,7 @@ fn root_entities_excludes_detached_template_content_fragment() {
     let doc = dom.create_document_root();
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(doc, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let content_child = elem(&mut dom, "div");
     assert!(dom.append_child(fragment, content_child));
 
@@ -363,7 +363,7 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     assert!(dom.append_child(doc, root));
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(root, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let inside = elem(&mut dom, "button");
     assert!(dom.append_child(fragment, inside));
     let after = elem(&mut dom, "p");

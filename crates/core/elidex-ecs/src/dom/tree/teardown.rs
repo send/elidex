@@ -13,7 +13,7 @@
 
 use super::super::{DispatcherSlot, EcsDom};
 use super::walkers::TemplateContentsWalk;
-use crate::components::{Attributes, ShadowRoot};
+use crate::components::{Attributes, FragmentParseRoot, ShadowRoot};
 use crate::dom::MutationDispatcher;
 use hecs::Entity;
 
@@ -274,25 +274,30 @@ impl EcsDom {
     /// - a **throwaway `Document`** created cache-free (`create_document_node`,
     ///   NOT `create_document_root`) so it never clobbers the caller's persistent
     ///   `document_root` cache.
-    /// - a synthetic `<html>` **root** appended to it (the HTML fragment
-    ///   parsing algorithm's "Append root to document" step; the caller then
-    ///   pushes it as the sole initial entry on the stack of open elements).
-    ///   The parent link is load-bearing twice: (1) nodes the parse creates
-    ///   without an explicit owner (strict HTML elements, text, comments)
-    ///   resolve `owner_document` by walking up to this throwaway Document
-    ///   until [`Self::finish_detached_fragment`] adopts them into the
-    ///   context's document (foreign elements take the context's owner
-    ///   directly); (2) the strict parse-error rollback is
+    /// - a synthetic `<html>` **root** created in the throwaway (step 11) and
+    ///   appended to it (step 12; the caller then pushes it as the sole
+    ///   initial entry on the stack of open elements). The parent link is
+    ///   load-bearing: the strict parse-error rollback is
     ///   `despawn_subtree(document)`, which reaches `root` and everything built
     ///   under it only through this link — without it the subtree leaks.
+    /// - [`FragmentParseRoot`] on root, carrying `context`'s node document
+    ///   (step 15: the insertion target redirection map's entry for root,
+    ///   whose fragment step 14 creates in the target's node document). Every
+    ///   node created on behalf of root or below it takes its node document
+    ///   from [`Self::node_document_for_new_nodes`], so it holds the context's
+    ///   document from its creation, never the throwaway.
     ///
     /// Teardown is **caller-owned** (not folded into a guard) because the two
     /// backends diverge: the success path runs [`Self::finish_detached_fragment`]
     /// (adopt + detach + despawn), while the strict parse-error path tears the
     /// throwaway subtree out without adopting/returning anything. Restore the
     /// dispatcher after whichever teardown the caller runs.
+    ///
+    /// WHATWG HTML §13.4 *HTML fragment parsing algorithm*
+    /// (`#html-fragment-parsing-algorithm`) steps 4, 11, 12, 15.
     pub fn begin_detached_fragment(
         &mut self,
+        context: Entity,
     ) -> (
         Entity,
         Entity,
@@ -300,10 +305,15 @@ impl EcsDom {
     ) {
         let saved_dispatcher = self.take_mutation_dispatcher();
         let document = self.create_document_node();
-        let root = self.create_element("html", Attributes::default());
+        let owner = self.node_document_for_new_nodes(document);
+        let root = self.create_element_with_owner("html", Attributes::default(), owner);
         // Keep the side effect outside `debug_assert!` (compiled out in release).
         let ok = self.append_child(document, root);
         debug_assert!(ok, "appending a fresh root to a fresh document cannot fail");
+        let redirect_document = self.node_document(context);
+        let _ = self
+            .world
+            .insert_one(root, FragmentParseRoot { redirect_document });
         (document, root, saved_dispatcher)
     }
 
