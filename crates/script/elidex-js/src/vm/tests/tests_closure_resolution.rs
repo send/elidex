@@ -6,23 +6,25 @@
 //! Spec, by AO name: ResolveBinding; GetIdentifierReference (the walk
 //! follows `[[OuterEnv]]`, i.e. the lexical parent chain).
 //!
-//! Keying the upvalue chain on the binding's own scope (rather than on the
-//! closure's position) is the right key, but it is unobservable today: each
-//! closure function has its own `upvalue_map` and sits at one fixed
-//! position, so that mutant (M2) is equivalent.
+//! Keying the upvalue chain on the binding's own scope is the right key.
+//! The mutant that keys the chain on the closure's position instead of the
+//! binding's scope is equivalent: each closure function has its own
+//! `upvalue_map` and sits at one fixed position, so the difference is
+//! unobservable today.
 //!
 //! Known deviation, pinned by `known_deviation_block_body_binding_per_entry`:
 //! a block-body `let` inside a loop is one binding per function entry, not
-//! per iteration, so every closure sees the last value. That is owned by
-//! `#11-vm-block-declaration-instantiation` (Slice B), which uses Slice E's
-//! `CloseLocal` (`#11-vm-per-iteration-loop-environment`).
+//! per iteration, so every closure sees the last value. Owner:
+//! `#11-vm-block-declaration-instantiation` (Slice B: a fresh binding per
+//! Block evaluation), with `#11-vm-per-iteration-loop-environment` (Slice E)
+//! planned to supply the shared mechanism.
 //!
 //! The cells are observable JS only; they presume nothing about how
 //! captured bindings are represented.
 
 use super::{eval_number, eval_string};
 
-/// P32: a later sibling block's `let x` must not shadow the outer one.
+/// The sibling-block shadow case: a later sibling block's `let x` must not shadow the outer one.
 #[test]
 fn sibling_shadow_closure_sees_outer() {
     assert_eq!(
@@ -31,7 +33,7 @@ fn sibling_shadow_closure_sees_outer() {
     );
 }
 
-/// P33: a closure created in one block is not affected by a later
+/// The sibling-blocks case: a closure created in one block is not affected by a later
 /// sibling block's same-named binding.
 #[test]
 fn sibling_blocks_closure_sees_own_block() {
@@ -148,12 +150,14 @@ fn control_ordinary_capture_and_var_hoisting() {
     );
 }
 
-/// KNOWN DEVIATION (pinned so Slice B landing is visible). Spec: each loop
-/// iteration's block entry creates a fresh `x`, so the closures see
-/// "5,6,7". Today the binding is per function entry, so every
-/// closure sees the last `x` (7). Owner: `#11-vm-block-declaration-instantiation`
-/// (Slice B) with Slice E's `CloseLocal`
-/// (`#11-vm-per-iteration-loop-environment`).
+/// KNOWN DEVIATION (pinned so Slice B landing is visible). Spec: Block
+/// Evaluation step 2 ("Let blockEnv be NewDeclarativeEnvironment(oldEnv)",
+/// ECMA-262 §14.2.2) with step 3 BlockDeclarationInstantiation, so every
+/// Block evaluation creates a fresh `x` and the closures see "5,6,7". Today
+/// the binding is per function entry, so every closure sees the last `x` (7).
+/// Owner: `#11-vm-block-declaration-instantiation` (Slice B: a fresh binding
+/// per Block evaluation), with `#11-vm-per-iteration-loop-environment`
+/// (Slice E) planned to supply the shared mechanism.
 #[test]
 fn known_deviation_block_body_binding_per_entry() {
     assert_eq!(

@@ -264,6 +264,14 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
 /// preventing references to bindings in sibling or descendant block scopes.
 ///
 /// Walks outward through enclosing functions to find the binding.
+///
+/// Spec basis: this statically mirrors GetIdentifierReference's outward walk
+/// over `[[OuterEnv]]` (ECMA-262 §9.1.2.1). The walk starts from the
+/// closure's lexical position because a closure's `[[Environment]]` is the
+/// LexicalEnvironment running at its creation: InstantiateArrowFunctionExpression
+/// step 2 takes it as `envRecord` and step 5 passes it to OrdinaryFunctionCreate
+/// as the environment argument; the function-expression and declaration paths
+/// do the same.
 pub fn resolve_identifier(
     name: Atom,
     current_func_idx: usize,
@@ -287,8 +295,11 @@ pub fn resolve_identifier(
 
     for &(enc_func_idx, enc_scope_idx) in &enclosing {
         // `enc_scope_idx` is the closure's lexical position in the enclosing
-        // function; resolve from there outward (same walk as step 1), and
-        // key the upvalue chain on the binding's own scope.
+        // function: the closure's `[[Environment]]` is the LexicalEnvironment
+        // running at its creation (OrdinaryFunctionCreate's env argument), so
+        // resolve from there outward over `[[OuterEnv]]` (GetIdentifierReference;
+        // same walk as step 1), and key the upvalue chain on the binding's own
+        // scope.
         if let Some((binding_scope_idx, info)) =
             func_scopes[enc_func_idx].find_local_from_scope(name, enc_scope_idx, analysis)
         {
