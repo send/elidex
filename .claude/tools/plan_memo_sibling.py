@@ -148,14 +148,13 @@ def sibling_path(directory, dest):
           syntax, so `sub%5Cchild.md` is the sibling `sub/child.md` on
           POSIX as on Windows (never the POSIX file named `sub\\child.md`:
           a backslash is a separator everywhere, never a name character)
-          -- then `resolve()` (`_resolve`); an `OSError` or -- on Python
-          3.9-3.12, for a symlink loop -- a `RuntimeError` there makes
+          -- then `resolve()` (`_resolve`); an `OSError` there makes
           the sibling UNAVAILABLE: the joined, unresolved path is
           returned and the population's one I/O chokepoint reports it as
           an unavailable linked memo (exit 2), never a crash, never a
           silent drop.
     """
-    raw = re.split(r"[#?]", dest, 1)[0]
+    raw = re.split(r"[#?]", dest, maxsplit=1)[0]
     if _SCHEME.match(raw):                                       # (a)
         return None
     name = unquote_to_bytes(raw).decode("utf-8", "surrogateescape")  # (b)
@@ -172,14 +171,16 @@ _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
 def _resolve(path):
-    """`path.resolve()`, or `path` itself when resolving raises -- `OSError`
-    (an over-long name) or, on Python 3.9-3.12, `RuntimeError` for a symlink
-    loop (3.13 made that an `OSError`).  The ONE site that guards it; the
-    unresolved path then reaches the population's I/O chokepoint as an
-    unavailable memo."""
+    """`path.resolve()`, or `path` itself when resolving raises `OSError`.  The
+    guard is defensive, e.g. a `getcwd()` failure: non-strict `resolve()` raises
+    no `OSError` for a missing file or a symlink loop on the pinned interpreter,
+    and a `RuntimeError` from it is not guarded -- it propagates to the callers
+    (`sibling_path` (e), `plan_memo_population.py:54`, `plan_memo_memo.py:761`).
+    The ONE site that guards `OSError`; the unresolved path then reaches the
+    population's I/O chokepoint as an unavailable memo."""
     try:
         return path.resolve()
-    except (OSError, RuntimeError):
+    except OSError:
         return path
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
