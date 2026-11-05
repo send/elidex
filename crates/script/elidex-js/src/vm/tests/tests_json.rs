@@ -1,4 +1,5 @@
 use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
+use crate::vm::natives_json::{DEPTH_EXCEEDED_MSG, MAX_JSON_DEPTH};
 use crate::vm::value::JsValue;
 
 // ============================================================================
@@ -572,6 +573,66 @@ fn parse_reviver_array() {
         ),
         2.0
     );
+}
+
+// ----------------------------------------------------------------------------
+// reviver-built graphs: `internalize` recursion is bounded by MAX_JSON_DEPTH
+// ----------------------------------------------------------------------------
+
+/// Run `body` (JS statements ending in an expression that may throw) and
+/// report `"<name>|<message>"` of the caught error, or `"no-throw"`.
+fn caught(body: &str) -> String {
+    eval_string(&format!(
+        "var __r; try {{ {body}; __r = 'no-throw'; }} catch (e) {{ __r = e.name + '|' + e.message; }} __r"
+    ))
+}
+
+fn depth_msg() -> String {
+    format!("RangeError|{DEPTH_EXCEEDED_MSG}")
+}
+
+// Cells run on the libtest thread (2 MiB): see `MAX_JSON_DEPTH`'s docstring for why cap-10 is the ratchet.
+
+/// JS reviver that, on key `a`, installs an acyclic chain of `n` nested
+/// objects as `this.b` (deepest `depth` reached = n + 1, root at depth 0).
+fn chain_reviver(n: usize) -> String {
+    format!(
+        "JSON.parse('{{\"a\":1,\"b\":2}}', function (k, v) {{
+            if (k === 'a') {{
+                var top = {{}}; var cur = top;
+                for (var i = 0; i < {n}; i++) {{ cur.x = {{}}; cur = cur.x; }}
+                this.b = top;
+            }}
+            return v;
+        }})"
+    )
+}
+
+#[test]
+fn parse_reviver_cyclic_graph_throws_range_error() {
+    // T-CYCLE: a reviver that installs a cycle must surface a catchable
+    // RangeError, not abort the process via Rust-stack overflow.
+    assert_eq!(
+        caught(
+            r#"JSON.parse('{"a":1,"b":2}', function (k, v) {
+                if (k === 'a') { const o = {}; o.self = o; this.b = o; }
+                return v;
+            })"#
+        ),
+        depth_msg()
+    );
+}
+
+#[test]
+fn parse_reviver_deep_acyclic_chain_within_cap_ok() {
+    // T-DEEP-OK: just inside the cap must not throw.
+    assert_eq!(caught(&chain_reviver(MAX_JSON_DEPTH - 10)), "no-throw");
+}
+
+#[test]
+fn parse_reviver_deep_acyclic_chain_over_cap_throws() {
+    // T-DEEP-OVER: past the cap.
+    assert_eq!(caught(&chain_reviver(MAX_JSON_DEPTH + 100)), depth_msg());
 }
 
 // ============================================================================
