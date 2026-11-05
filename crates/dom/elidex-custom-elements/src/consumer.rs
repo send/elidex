@@ -142,14 +142,16 @@ impl CustomElementReactionConsumer {
     }
 
     /// DOM §4.4 "clone a node": the copy now exists. Apply the registry-
-    /// dependent creation semantics (§4.9 step 5.2 null-is rule) to every
-    /// created element and enqueue one `Upgrade` reaction per upgrade
-    /// candidate, in creation order (`for_each_clone_created`'s order).
+    /// dependent creation semantics (DOM §4.9 "create an element" step 5.2
+    /// null-is rule) to every created element and enqueue one `Upgrade`
+    /// reaction per upgrade candidate, in creation order
+    /// (`for_each_clone_created`'s order).
     fn handle_clone_created(&mut self, root: Entity, scope: CloneScope, dom: &mut EcsDom) {
-        // Unlike the other arms, both locks recover from poison: this path
-        // replaces the VM seam that did so (`enqueue_subtree_upgrade_reactions`,
-        // see `vm/host/custom_elements/upgrade.rs`), so a re-entrant
-        // `catch_unwind` embedder must not get stuck on a poisoned guard.
+        // Unlike the other arms, both locks recover from poison: this arm
+        // keeps the deleted VM seam's behaviour (`enqueue_subtree_upgrade_reactions`
+        // in `vm/host/custom_elements/upgrade.rs` recovered poisoned guards),
+        // so `cloneNode` of a detached tree does not panic, as in the base.
+        // The other arms' `.expect` policy is unchanged.
         let candidates = {
             let registry = self
                 .registry

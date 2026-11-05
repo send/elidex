@@ -139,6 +139,10 @@ impl EcsDom {
     /// - [`CloneScope::SelfOnly`]: `root`; then, if it hosts a shadow root `sr`,
     ///   `sr` and then `sr`'s shadow-inclusive descendants in the order above.
     ///   The root's light children are never visited.
+    /// - Template contents are not entered under either scope (a `<template>`
+    ///   clone's content fragment is outside tree order, `TemplateContentsWalk`
+    ///   above): an interim carried by this walk's shape, folded into slot
+    ///   `#11-document-null-registry-adopt-reset` (RC-2a plan §3).
     ///
     /// This is creation order, not DOM §4.8 "shadow-including tree order" (which
     /// visits a host's shadow tree before its light children).

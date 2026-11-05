@@ -287,7 +287,7 @@ fn replace_child_with_earlier_sibling_reports_post_shift_index() {
     // When new_child is an earlier sibling of old_child in the same parent,
     // detach(new_child) shifts old_child down by one. The hook MUST report
     // the post-shift index for the old_child removal (DOM §4.2.3 "remove"
-    // step 3 → live range pre-remove steps (DOM §5.5 Interface Range), step 3). The implicit detach of new_child also fires
+    // step 3 → live range pre-remove steps (DOM §5.6 Interface Range), step 3). The implicit detach of new_child also fires
     // its own after_remove at new_child's pre-detach index.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
@@ -579,7 +579,7 @@ fn append_child_fires_after_remove_for_old_parent_on_move() {
     // implicit detach from the old parent (DOM §4.2.3 "insert" step 7.1
     // adopts node; DOM §4.5 "adopt" step 2: "If node's parent is non-null,
     // then remove node") so Range live-tracking sees the live range
-    // pre-remove steps 4–7 adjustment (DOM §5.5 Interface Range).
+    // pre-remove steps 4–7 adjustment (DOM §5.6 Interface Range).
     let mut dom = EcsDom::new();
     let old_parent = elem(&mut dom, "section");
     let new_parent = elem(&mut dom, "article");
@@ -683,7 +683,7 @@ fn replace_child_fires_after_remove_for_new_child_old_parent() {
 fn attach_shadow_does_not_fire_hook_events() {
     // Light-tree-only contract: `attach_shadow` plumbs the shadow root
     // into the host's child list (via internal `append_child`), but per
-    // WHATWG §5.5 light-tree consumers (e.g. `LiveRangeRegistry`) must
+    // WHATWG DOM §5.6 Interface Range light-tree consumers (e.g. `LiveRangeRegistry`) must
     // NOT see `after_insert(shadow_root, host, ...)`. Asserting that the
     // event log stays empty here pins the suppression contract in tree.rs.
     use crate::ShadowRootMode;

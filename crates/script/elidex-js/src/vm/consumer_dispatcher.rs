@@ -36,7 +36,7 @@ use elidex_script_session::EventHandlerAttributeConsumer;
 
 /// Typed composer of the mutation consumers.
 pub struct ConsumerDispatcher {
-    /// Range live-tracking — Range IDL per WHATWG DOM §5.5; boundary-
+    /// Range live-tracking — Range IDL per WHATWG DOM §5.6 Interface Range; boundary-
     /// point adjustment lives in the mutation algorithms themselves
     /// (DOM §4.2.3 remove, §4.10 CharacterData "replace data",
     /// §4.11 Text "split a Text node" step 7, §4.4 Node `normalize()`

@@ -66,7 +66,7 @@ behaviour change is stated (slot `#11-ownerless-node-creation`).
 
 **Rev 3.4** (2026-11-05, implementation PR; PM 367/368, from Layout T3 O-9) — plan change, not clerical: the shared walk has no depth cap. The cloner copies with no depth cap (`tree_clone.rs` `clone_children_recursive`; its breadth is another matter, §4.3), so §4.3's "today's order and cap" would leave clone elements deeper than `MAX_ANCESTOR_DEPTH` without the CE and form arms the spec runs on them. `for_each_clone_created` is its own iterative walk in creation order (step 2 → 5 → 6.7), uncapped, terminated by a visited set; §4.3 and §6 (a deep-tree cell above the old cap) follow. The capped walker and its other callers are unchanged (slot `#11-capped-walker-deep-element-processing`). The form arm's template-contents step (D-3) also walks uncapped (`for_each_uncapped_shadow_inclusive` with `TemplateContentsWalk::Include`) instead of `collect_template_inclusive_descendants`, which is a capped caller left to the slot.
 
-**Rev 3.5** (2026-11-05, implementation-PR erratum at `4fe6d3fb`: the memo follows the code — code-review findings and PM 349 / 367 / 369 / 373 / 392 — no further design change). Every remaining description of the clone walk as capped or as built on `for_each_shadow_inclusive_descendant` follows Rev 3.4 (§2 B, §3, D-3, §4.3, §4.5, §4.8 residual, §4.10); the cloner's bound is stated exactly in §4.3 (depth-uncapped, breadth-capped through `EcsDom::children`; the breadth cap is a pre-existing defect folded into `#11-capped-walker-deep-element-processing`); the form arm is the `CloneCreated` match arm itself, with no `handle_clone_created` free fn, and `collect_template_inclusive_descendants` is off the clone path (§4.5, §4.10, §5.1). The #466-reversal premise "dom-api cannot see `FormControlState`" was false and is replaced by the real constraint in §2 G × F (PM 392 decision 2; the alternative design is slot `#11-form-cloning-steps-in-cloner`, pointer only). §4.4 states the clone arm's poison recovery as the code has it; §4.7 states `RestoreDispatcher::drop`'s restore-then-assert order; §6 names the tests the implementation added beyond the plan; §8 lists the four slots this PR produced (pointers; registered by the PM); §9 DoD 8(b) records the fourth file its grep now hits (a test). Line numbers marked `4fe6d3fb` are at that head; unmarked ones stay at `fab44a1d`.
+**Rev 3.5** (2026-11-05, implementation-PR erratum at `4fe6d3fb`: the memo follows the code — code-review findings and PM 349 / 367 / 369 / 373 / 392 — no further design change). Every remaining description of the clone walk as capped or as built on `for_each_shadow_inclusive_descendant` follows Rev 3.4 (§2 B, §3, D-3, §4.3, §4.5, §4.8 residual, §4.10); the cloner's bound is stated exactly in §4.3 (depth-uncapped, breadth-capped through `EcsDom::children`; the breadth cap is a pre-existing defect folded into `#11-capped-walker-deep-element-processing`); the form arm is the `CloneCreated` match arm itself, with no `handle_clone_created` free fn, and `collect_template_inclusive_descendants` is off the clone path (§4.5, §4.10, §5.1). The #466-reversal premise "dom-api cannot see `FormControlState`" was false and is replaced by the real constraint in §2 G × F (PM 392 decision 2; the alternative design is slot `#11-form-cloning-steps-in-cloner`, pointer only). §4.4 states the clone arm's poison recovery as the code has it; §4.7 states `RestoreDispatcher::drop`'s restore-then-assert order; §6 names the tests the implementation added beyond the plan; §8 lists the four slots this PR produced (pointers; registered by the PM); §9 DoD 8(b) records the fourth file its grep now hits (a test). Line numbers marked `4fe6d3fb` are at that head; unmarked ones stay at `fab44a1d`. `/elidex-review` Stage 5 of the implementation PR (at `79f1ddaa`) corrected, in the memo and the code comments together: DOM §5.5 → §5.6 Interface Range at every Range site (stated once in §4.9), the two `clone.rs` comment sites that still gave the false premise (they now point at the `ClonedFrom` doc; §0.2 "Crate edges" qualifies I1), `dom/mod.rs`'s size figure (984 measured; stated once in D-2, §7 and §9 point there), the clone arm's poison sentence (§4.4), and the template-contents interim's pointer to `#11-document-null-registry-adopt-reset` at its three code sites (§3).
 
 ## §0. Frame, premises, decisions
 
@@ -248,7 +248,8 @@ file is edited.
   `elidex-ecs` and `elidex-plugin` only (`crates/dom/elidex-form-core/Cargo.toml:14-15`; Rev 3.5, the fact §2 G × F
   rests on); `elidex-dom-api`
   on `elidex-ecs` and `elidex-custom-elements` (`crates/dom/elidex-dom-api/Cargo.toml:15`, `:18`), never on
-  `elidex-form`. `#466`'s I1 holds and no edge is added.
+  `elidex-form`. `#466`'s I1 *invariant* (that dependency edge) holds and no edge is added; I1's "what it forces"
+  column ("the cloner cannot read/write `FormControlState` at all") does not — §2 G × F.
 - **#466.** `docs/plans/2026-07-clone-cloning-steps-fcs.md`: I1 `:52`, I2 `:53`, I3 `:54`, I4 `:55`, I5 `:56`; the
   pairs `:60-70`; the conclusion rejecting the #331 sketch's `MutationEvent::Clone { pairs }` `:73-79`. Landed as
   `7bafcb9f` (#466), which closed `#11-clone-cloning-steps-event` (ledger entry, read 2026-11-04).
@@ -301,8 +302,11 @@ file is edited.
   95). The nested-fire assertion test and D-4's window tests go to `dispatch_guard.rs`, the slot's own test file.
 - **D-2 (§7 re-measure; brief item 3).** Of the files RC-2a edits (§5.1, with the `wc -l` command), one would cross
   1000 with RC-2a's addition — `mutation_hook.rs` (971 + 31–41, §7) — and is split first (D-1, RC-2a-pre); every
-  other stays under (`dom/mod.rs` is 926 and gains about 35: the `fire_*` helper with its assertion, the slot enum, a
-  re-export; §4.7). `tests_custom_elements.rs` is 1320 and is therefore not touched (F2). Neither C0b nor C0c has
+  other stays under (`dom/mod.rs`: 926 at the merge-base, **984 measured** at `79f1ddaa` — `wc -l
+  crates/core/elidex-ecs/src/dom/mod.rs`; +58 net, `git diff --stat f9cf8c40 79f1ddaa -- <file>` = 83 insertions,
+  25 deletions), not the "about 35" the plan projected for the `fire_*` helper with its assertion, the slot enum and
+  a re-export: the hunks beyond those are D-4's `take_mutation_dispatcher` / `RestoreDispatcher` docs (§4.7). This is
+  the one statement of the figure — §7 and §9 point here). `tests_custom_elements.rs` is 1320 and is therefore not touched (F2). Neither C0b nor C0c has
   landed. If either lands before RC-2a's implementation starts (both edit `dom/mod.rs`: C0b adds the entry
   `node_document_for_new_nodes` / `NewNodeOwner` and a test-only walk-counter field on `EcsDom` and in `new()`, and
   changes `begin_detached_fragment(context)` / `finish_detached_fragment` in `teardown.rs` and at both parser callers;
@@ -616,9 +620,11 @@ cloner's, not the walk's. That is a pre-existing defect of the cloner, out of th
   push one `CustomElementReaction::Upgrade(entity)` per candidate in order. This is `handle_insert`'s shape
   (`:98-123`) with `&mut EcsDom`, which `handle` already receives. Its poison policy is the deleted shim's, not the other arms' (Rev 3.5): both
   locks recover from poison (`.lock().unwrap_or_else(PoisonError::into_inner)`, `consumer.rs:149-164` at `4fe6d3fb`,
-  as `vm/host/custom_elements/upgrade.rs:138`, `:150` did), where `handle_insert` `expect`s (`:116`, `:120`). The clone
-  path therefore has exactly the shim's failure modes and no new one: a re-entrant `catch_unwind` embedder whose
-  earlier panic poisoned a guard is not stuck on this arm (umbrella §0.3 item 28). The module doc
+  as `vm/host/custom_elements/upgrade.rs:138`, `:150` did), where `handle_insert` `expect`s (`:116`, `:120`). The arm
+  therefore keeps the deleted seam's behaviour and no more: `cloneNode` of a detached tree does not panic on a
+  poisoned guard, as in the base; the other arms' `.expect` policy is unchanged, so an embedder that recovered from a
+  panic with `catch_unwind` still panics on its next connected insert or attribute change (umbrella §0.3 item 28;
+  the comment at `consumer.rs:150-154`, post-Stage-5, says the same). The module doc
   (`:72-74`) and the gating-rules section name the new arm.
 
 ### §4.5 The form arm (`elidex-form`)
@@ -908,17 +914,26 @@ for each) → cite those four;
 `:325` "shadow content is skipped per §4.4.6" (`getHTML()` with no options) → "HTML §8.5.3"; `mutation_hook.rs:279`
 "WHATWG DOM §5.5 'remove a node' step 4" — "remove" is DOM §4.2.3 Mutation algorithms (`webref heading dom 4.2.3`;
 `webref body dom concept-node-remove`), whose step 3 runs the live range pre-remove steps; those steps are *defined*
-in DOM §5.5 Interface Range (`webref dfn dom 'live range pre-remove steps'` → §5.5 `#live-range-pre-remove-steps`),
-so the section number was not the drift — the algorithm name and the step were. `:279` is about the index the hook
+in **DOM §5.6 Interface Range** (`webref dfn dom 'live range pre-remove steps'` → §5.6 `#live-range-pre-remove-steps`;
+`webref heading dom 5.6` = Interface Range, `webref heading dom 5.5` = Interface StaticRange, both read 2026-11-05).
+So the section number *was* a drift beside the algorithm name and the step: Rev 3.1 wrote §5.5 here and at every
+Range site below, and `/elidex-review` Stage 5 (Axis 4) of the implementation PR caught it; this paragraph is the one
+statement of the §5.6 number, and the code comments carry it. `:279` is about the index the hook
 reports, which is pre-remove step 3 "Let index be node's index" (`webref body dom live-range-pre-remove-steps`) →
-"DOM §4.2.3 'remove' step 3 → live range pre-remove steps (DOM §5.5 Interface Range), step 3"; `teardown.rs:102`
+"DOM §4.2.3 'remove' step 3 → live range pre-remove steps (DOM §5.6 Interface Range), step 3"; `teardown.rs:102`
 "WHATWG §5.5 remove step 4" — the same home, a different step: the comment names the `(parent, removed_index)`
 collapse, which is pre-remove steps 4–5 (each live range whose start / end is an inclusive descendant of the node is
-set to (parent, index)) → "DOM §4.2.3 'remove' step 3 → live range pre-remove steps (DOM §5.5 Interface Range),
-steps 4–5" (Rev 3.1 corrects Rev 3's `d5af9447` `:812-816`, which gave both sites step 3 and called §5.5 a drift);
+set to (parent, index)) → "DOM §4.2.3 'remove' step 3 → live range pre-remove steps (DOM §5.6 Interface Range),
+steps 4–5" (Rev 3.1 corrects Rev 3's `d5af9447` `:812-816`, which gave both sites step 3; Rev 3 called §5.5 a
+drift, and on the number it was right);
 `teardown.rs:47` "shadow-tree boundaries are the consumer's responsibility per WHATWG §5.5" —
-resolves to DOM §5.5 Interface Range (the consumer is the live-range registry; `webref heading dom 5.5`) and holds;
-the spec word is added ("DOM §5.5 Interface Range"). Verified and left as they are in `teardown.rs`: the bare
+resolves to DOM §5.6 Interface Range (the consumer is the live-range registry) and holds with the number corrected;
+the spec word is added ("DOM §5.6 Interface Range"). The same correction, for the same reason, at the two other
+bare "§5.5"-meaning-Range sites in files this PR edits: `mutation_hook.rs` `attach_shadow_does_not_fire_hook_events`
+("WHATWG §5.5 light-tree consumers") and `vm/consumer_dispatcher.rs` (`live_range` field doc, "Range IDL per WHATWG
+DOM §5.5"); the StaticRange-numbered Range citations outside this PR's edit set (`git grep -c '§5\.5' -- crates`,
+run 2026-11-05 at `79f1ddaa`, per-file counts in the Stage 5 report) are left for the PM.
+Verified and left as they are in `teardown.rs`: the bare
 `§2.1.4` at `:110`, `:135`, `:215` resolve to HTML §2.1.4 DOM trees, the "HTML element removing steps" step 2
 (`webref dfn html 'removing steps'` → §2.1.4 `#html-element-removing-steps`; `mutation.rs:315` names it in full);
 `:7`, `:245`, `:317` DOM §4.5 Interface Document (`adopt`; `webref heading dom 4.5`); `:248`, `:261`, `:309` HTML
@@ -1148,7 +1163,8 @@ estimate was 1004, and R3's own range, 999–1006, overlaps this one; counted ag
 2's "about 10"). The decision does not depend on where in the range the landed count falls, nor on the range's low
 end slipping under 1000: the split is harmless (a pure move of one scenario, no behaviour change) and the seam is
 real (next paragraph), and CLAUDE.md's touch-time discipline is a cohesion judgment, not a line-count trigger — so
-the split stands at either end. The next largest, `dom/mod.rs`, is 926 and gains about 35 (D-2).
+the split stands at either end. The next largest, `dom/mod.rs`, is 984 as implemented (926 + 58; the measured figure
+is D-2's).
 
 **The split (RC-2a-pre; cohesion, not timing).** The seam is real and named: the `fire_*` helper group
 (`mutation_hook.rs:886-949`, 64 lines — `fire_split_text_helper_routes_to_hook`,
@@ -1221,6 +1237,9 @@ umbrella's §7 rows for RC-2a are thereby discharged at this base.
   restore form D-4 rests on. If C0b lands first: re-measure `dom/mod.rs` and `teardown.rs` at that base (D-2) and
   re-read the two parser call sites for the restore form (`if let Some(d) = saved { set_mutation_dispatcher(d) }`,
   no early return between take and restore; §0.2).
+  In the RC-2a-first order C0b lands second, on a `dom/mod.rs` of 984 lines (D-2's measured figure); if C0b's
+  addition crosses 1000, the split goes at §7's seam (the mutation-dispatcher section → `dom/dispatch.rs`), as a
+  standalone pure-move prerequisite of C0b.
 - **C0c (Layout, unlanded)** on `MutationEvent`: H6; whichever lands second re-runs §5.2 and adds its arm beside
   the other's. C0c also edits `walkers.rs` and the re-exports `dom/mod.rs:32` / `lib.rs:44-47` (its memo at wt-c0-plan
   `05142d8c`, `:53-55`, `:213`, `:267`, `:366`), the files of §4.1 / §4.3 here. If C0c lands first, RC-2a re-measures

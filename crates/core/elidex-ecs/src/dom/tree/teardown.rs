@@ -44,7 +44,7 @@ impl EcsDom {
     /// suppressed explicitly per the light-tree-only contract: although
     /// `attach_shadow` sets `TreeRelation.parent = Some(host)`, shadow
     /// roots are not exposed as DOM children, and shadow-tree boundaries
-    /// are the consumer's responsibility per DOM §5.5 Interface Range.
+    /// are the consumer's responsibility per DOM §5.6 Interface Range.
     ///
     /// Returns `false` if the entity does not exist.
     #[must_use = "returns false if the entity does not exist"]
@@ -100,7 +100,7 @@ impl EcsDom {
         // Without this ordering, a Range boundary on a still-live
         // descendant of `entity` would silently miss the
         // `(parent, removed_index)` collapse required by DOM §4.2.3
-        // "remove" step 3 → live range pre-remove steps (DOM §5.5 Interface
+        // "remove" step 3 → live range pre-remove steps (DOM §5.6 Interface
         // Range), steps 4–5 (Copilot PR186 R2 #3).
         let defer_focus_clear = if let (Some(p), Some((idx, was_connected))) = (parent, fire) {
             self.fire_after_remove(entity, p, idx, was_connected);

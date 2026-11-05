@@ -256,7 +256,8 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         // Form-control cloning steps (HTML §4.10.5 / §4.10.11): record the
         // src→dst link on `<input>` / `<textarea>` clones so the engine-indep
         // `elidex-form` `CloneCreated` consumer can copy the live form
-        // state at clone time (I1 — this crate can't read `FormControlState`).
+        // state at clone time (why the copy is not done here: the
+        // [`ClonedFrom`] doc).
         mark_cloned_form_control(s, d, dom);
         // Pass 3 (HTML §4.12.3 cloning steps): a cloned `<template>` gets its
         // own fresh content fragment, deep-cloned from the source's only when
@@ -382,7 +383,8 @@ fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
 /// mirrors [`propagate_ce_identity`]'s "attach only when it applies" shape, so a
 /// large `cloneNode(true)` does not spray a marker onto every cloned node.
 ///
-/// Only the *tag* is inspected here (this crate cannot see `FormControlState`);
+/// Only the *tag* is inspected here (the value copy is `elidex-form`'s — why:
+/// [`ClonedFrom`]'s doc);
 /// the real work — checking the source actually has form state, honouring the
 /// HTML-namespace gate, and copying the cloning-step fields — is the
 /// `elidex-form` consumer's, which no-ops (and still sweeps the marker) when the

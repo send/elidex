@@ -459,7 +459,9 @@ mod clone_creation_pass_tests {
     fn template_root_contents_yield_no_candidate() {
         // Umbrella §4.3 condition 6: a `<template>` root's content fragment is
         // not a shadow-including descendant, so a defined custom element in the
-        // contents gets no upgrade candidate from the clone walk.
+        // contents gets no upgrade candidate from the clone walk. Interim
+        // (the walk's shape): slot `#11-document-null-registry-adopt-reset`,
+        // RC-2a plan §3.
         let mut registry = CustomElementRegistry::new();
         define_my_el(&mut registry, "my-el");
         let mut dom = EcsDom::new();

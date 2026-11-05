@@ -1,4 +1,4 @@
-//! Live `Range` tracking (WHATWG DOM §5.5 Interface Range, *live ranges*).
+//! Live `Range` tracking (WHATWG DOM §5.6 Interface Range, *live ranges*).
 //!
 //! Wires the [`elidex_ecs::MutationDispatcher`] events fired from
 //! `EcsDom` tree / text-data primitives into the active set of JS-visible

@@ -94,7 +94,9 @@ fn deep_and_shallow_clone_of_custom_element_each_upgrade_once() {
 fn cloned_template_contents_custom_element_enqueues_no_upgrade() {
     // (g) A `<template>`'s content fragment is not a shadow-including
     // descendant of the template: the clone of a defined custom element in the
-    // contents gets no upgrade reaction (original only).
+    // contents gets no upgrade reaction (original only). Interim (the clone
+    // walk's shape): slot `#11-document-null-registry-adopt-reset`, RC-2a
+    // plan §3.
     let out = run_then_read(
         "globalThis.__count = 0; \
          customElements.define('x-tpl', class extends HTMLElement { \
