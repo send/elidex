@@ -13,7 +13,8 @@ every path that nests the Rust interpreter (`run()` re-entered through a native 
 generator resume or a synchronous construct), and every recursive walker in `elidex-js`
 (JSON, structuredClone, `Array.prototype.flat`, the parser / scope analyser / compiler, regexp
 compilation, `AbortSignal.any` propagation), recurses on the host stack with no remaining-stack
-check. On a 2 MiB thread (the size every production VM thread gets, see `MAX_JSON_DEPTH`'s thread
+check. (`AbortSignal.any` propagation is not removed by this program: the W-11 slot removes it
+structurally before PR-1 lands, PM 454; §1.2, §4.) On a 2 MiB thread (the size every production VM thread gets, see `MAX_JSON_DEPTH`'s thread
 survey in `crates/script/elidex-js/src/vm/natives_json/mod.rs`) 28 of 32 measured re-entry classes
 abort the process (§8 M-1).
 
@@ -36,6 +37,9 @@ implemented and no other implementation's number is being reproduced (PM 424).
 | PM 436 R3 | Style / layout / paint recursion is out; new L2 slot `#11-render-pipeline-recursion-depth-abort`. |
 | PM 436 extra | `MAX_FLAT_DEPTH` is replaced by the probe in PR-1; the parser / compiler recursive entries join PR-1's walker set; JSON cells run on an explicit `stack_size` thread. |
 | PM 436 split | PR-1 = primitive + choke points + walkers + regexp front door + PM 424 rewording. PR-2 = the frame cap (`#11-vm-js-frame-depth-limit`). PR-1 measures the hot-path probe cost and the Linux / Windows bounds (or names the CI cell that does). |
+| PM 454 (W-11) | `AbortSignal.any` chain recursion (PR-1's former row W-11) is its **own terminal slot**, not part of PR-1, and it **lands before PR-1**. The fix is DOM "create a dependent abort signal" source flattening (DOM §3.2, step 4.2), which also repairs the GC defect (unreferenced intermediates are collected and the abort never propagates). Owner **L3**; per the Layering mandate the algorithm goes in an engine-independent crate (the `elidex-dom-api` side), not in `vm/host/`. The `abort_statics.rs` "WHATWG §3.1.3.3" → DOM §3.2 citation drift is fixed on that slot's first touch. Slot id: the W-11 slot (registered by PM 454; id assigned by the PM). |
+| PM 454 (weight) | The regexp front door's two-axis weight `groups × REGEXP_GROUP_COST + alts × REGEXP_ALT_COST`, with the cap on `groups` only, is within PM 436 R1 (ratified). |
+| PM 454 (homes) | Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError`) → a child of VM P4 slice-plan umbrella 8 (RegExp completion), owner VM P4. The missing `RegExp` constructor → under umbrella 8, owner VM P4 (registration being checked by the PM). |
 
 ## §1. Scope
 
@@ -60,6 +64,9 @@ implemented and no other implementation's number is being reproduced (PM 424).
 | Removing the Rust recursion of native→JS callbacks altogether (one dispatch loop) | Successor ideal, T3. The guard stays as the safety bound either way | `#11-vm-native-callback-reentry-single-loop` |
 | Iterative JSON walkers | The probe makes the abort impossible; iterative walkers remove the frame-size dependence of `MAX_JSON_DEPTH` | `#11-vm-json-walkers-iterative` |
 | Returning `""` for a cyclic `join` | A compat behaviour; core gives the spec `RangeError` (PM 424) | `#11-vm-array-join-cycle-detection` (compat) |
+| `AbortSignal.any` chain recursion and its GC defect (DOM "create a dependent abort signal" source flattening) | PM 454: own terminal slot, lands **before** PR-1 (§4); the algorithm belongs in an engine-independent crate, not `vm/host/` | the W-11 slot (registered by PM 454; id assigned by the PM) (L3) |
+| Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError` / early error) at the literal / `match` / `search` / structuredClone compile sites | PM 454; PR-1's front door passes `Syntax` through unchanged | child of VM P4 slice-plan umbrella 8 (RegExp completion) (VM P4) |
+| The missing `RegExp` constructor | PM 454; PR-1 covers it through I-7 once it calls the front door | under VM P4 slice-plan umbrella 8 (VM P4; registration being checked by the PM) |
 
 ## §2. Coupled invariants
 
@@ -70,7 +77,8 @@ Five invariants hold at once. Each pair's intersection is stated with the measur
 - **I-2 Fail-safe bound** — the per-thread lower stack bound is the OS-reported one; when it is
   unknown the guard trips early (spurious `RangeError`), never late (abort).
 - **I-3 State integrity** — a probe that fails leaves VM state as if the guarded operation never
-  started (no half-entered frame, no generator marked Running, no half-propagated abort).
+  started (no half-entered frame, no generator marked Running). (Abort propagation carries no
+  probe at all: after the W-11 slot it is depth 1 by construction, PM 454.)
 - **I-4 Semantic caps unchanged** — `MAX_JSON_DEPTH`, `MAX_NESTING_DEPTH`, the regexp nesting cap
   stay the profile-stable semantic answers; the probe fires only where the cap would not save the stack.
 - **I-5 Hot-path cost** — the probe on `with_call_mode` / `resume_generator` / per-walker-level is
@@ -112,16 +120,17 @@ contain. A probe failure is never a spec step; it is the elidex resource limit (
 | ECMA-262 §22.2.3.1 RegExpCreate | pattern parse + compile | (future `RegExp` constructor) | front door (NEW) | ✓ | yes |
 | WHATWG HTML §2.7.4 StructuredSerializeInternal | recursive serialize per property / element | Array / ordinary / Error / RegExp re-compile | `clone_recursive` | ✓ | yes |
 | WHATWG HTML §2.7.11 Structured cloning API | structuredClone(value) | — | `clone_recursive` entry | ✓ | yes |
-| WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal, step 4.2 | input is dependent → its source signals | `native_abort_signal_static_any` / `abort_signal` | ✓ | yes |
 
-**Breadth**: K=3 specs, M=13 entries (verified 2026-11-06 by `preflight.py`'s own row count).
+**Breadth**: K=2 specs, M=12 entries (verified 2026-11-06 by `preflight.py`'s own row count, after PM 454 removed the DOM `AbortSignal` row; the
+row now belongs to the W-11 slot).
 **Split decision**: K<4 and M<20 → single PR by breadth; the program is split for the edge-dense
 reason (§2) and the PM 436 split, not by breadth.
 
 ### §3.1 User-input touch audit
 
 Every touched site takes script-controlled depth: JSON text, object graphs, array nesting, regexp
-pattern text, script source nesting, callback recursion, `AbortSignal.any` chains. Adjacent
+pattern text, script source nesting, callback recursion. (`AbortSignal.any` chains are the W-11
+slot's, PM 454.) Adjacent
 pre-existing code whose exposure changes:
 
 - `ScopeState::enter_recursion` returns `false` past `MAX_NESTING_DEPTH` without recording an
@@ -129,16 +138,24 @@ pre-existing code whose exposure changes:
   `enter_recursion` errors first at the same constant. PR-1 makes the scope probe failure record an
   error (PR-1 §5.2), so the silent skip is never reached through the probe.
 - The literal / `match` / `search` compile sites map a `regress` syntax error to `TypeError`
-  (spec: early error / `SyntaxError`). Unchanged by this program; noted for the RegExp work.
+  (spec: early error / `SyntaxError`). Unchanged by this program; home = a child of VM P4
+  slice-plan umbrella 8 (RegExp completion), owner VM P4 (PM 454).
 
 ## §4. Per-PR split
 
 | PR | Content | Depends on | Unblocks |
 |---|---|---|---|
-| PR-1 | Primitive; choke points; walker probes (JSON ×5 sites — verified 2026-11-06: `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, IndexedDB storable check); `AbortSignal.any` source-signal flattening; regexp front door + 6 compile sites; PM 424 rewording; explicit-thread JSON cells | — | PR-2; the successor T3 slot |
+| W-11 slot (not part of this program's PRs; PM 454) | DOM "create a dependent abort signal" source flattening in an engine-independent crate; GC repair; `abort_statics.rs` citation drift fix | — | PR-1 |
+| PR-1 | Primitive; choke points; walker probes (JSON ×5 sites — verified 2026-11-06: `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, IndexedDB storable check); regexp front door + 6 compile sites; PM 424 rewording; explicit-thread JSON cells | the W-11 slot (landed) | PR-2; the successor T3 slot |
 | PR-2 | Frame cap: `frames.len()` cap mapped to the same `RangeError`, for plain JS→JS recursion (heap `CallFrame`s, no Rust recursion) | PR-1 (shares the error constructor and message) | — |
 
-Edges: PR-2 reuses PR-1's `StackExhausted`→`RangeError` mapping so the two limits produce one
+Edges: **W-11 slot → PR-1 is a hard edge** (PM 454). PR-1 cannot land correctly without it:
+PR-1 puts no probe on `abort_signal` propagation and treats it as cut in the census (PR-1 §5.3), so
+without the slot the `AbortSignal.any` chain stays an unprobed script-reachable Rust recursion
+(guard off today, debug, 2 MiB: a kept chain of 1000 aborts the process, PR-1 §11 M-AB), I-1 does
+not hold, and PR-1 could not close `#11-vm-call-depth-guard`. Adding a probe there instead is not
+an option (it would throw from `controller.abort()` with a half-propagated abort, breaking I-3).
+PR-1's check of the edge is in PR-1 §2 (A-1). PR-2 reuses PR-1's `StackExhausted`→`RangeError` mapping so the two limits produce one
 error shape; PR-2 does not touch the probe. The successor `#11-vm-native-callback-reentry-single-loop`
 removes nested `run()`; after it, the choke-point probes become walker-only, which is a deletion,
 not a redesign.
@@ -147,6 +164,7 @@ not a redesign.
 
 | Slot | State after this program | Home |
 |---|---|---|
+| the W-11 slot (registered by PM 454; id assigned by the PM) | **Closed before PR-1** (its own terminal slot, PM 454) | L3 |
 | `#11-vm-call-depth-guard` | **Closed by PR-1** (the Rust-stack half) | this umbrella |
 | `#11-vm-js-frame-depth-limit` | **Closed by PR-2** | this umbrella |
 | `#11-vm-json-walkers-iterative` | Stays open (T3 engineering ideal). Its premise changes: the abort is gone, the remaining defect is the frame-size dependence of `MAX_JSON_DEPTH` | VM P4 |

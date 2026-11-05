@@ -2,8 +2,9 @@
 
 Status: **plan (pre-implementation)**; `/elidex-plan-review` required before code (edge-dense,
 umbrella §2). Parent: [umbrella](2026-11-vm-stack-safety-guard.md). Closes the Rust-stack half of
-`#11-vm-call-depth-guard`. Base: `4728972c`. Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split
-are ratified (umbrella §0.1) and not re-opened here.
+`#11-vm-call-depth-guard`. Base: `4728972c`. Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split,
+PM 454 are ratified (umbrella §0.1) and not re-opened here. Precondition: the W-11 slot (registered
+by PM 454; id assigned by the PM) has landed (umbrella §4 edge; §2 A-1).
 
 ## §1. Scope
 
@@ -14,12 +15,12 @@ PR-1 delivers, in one PR (the umbrella's base-case slice):
 3. Probes in every unbounded `elidex-js` walker (§5.2): JSON parse / internalize / stringify,
    structuredClone, `flat_into` (replacing `MAX_FLAT_DEPTH`), the parser / scope analyser /
    compiler recursive entries, the IndexedDB storable pre-check.
-4. `AbortSignal.any` source-signal flattening, which removes that recursion structurally (§5.2 row W-11).
-5. The regexp-compile front door and the routing of all six compile sites (§6).
-6. The PM 424 rewording of the `MAX_JSON_DEPTH` docstring (§7).
-7. Cells, mutants, the explicit-thread rule and the hot-path measurement (§8–§10).
+4. The regexp-compile front door and the routing of all six compile sites (§6).
+5. The PM 424 rewording of the `MAX_JSON_DEPTH` docstring (§7).
+6. Cells, mutants, the explicit-thread rule and the hot-path measurement (§8–§10).
 
-Not in PR-1: the frame cap (PR-2), and everything in umbrella §1.2.
+Not in PR-1: the frame cap (PR-2), and everything in umbrella §1.2 — in particular the
+`AbortSignal.any` source-signal flattening, which is the W-11 slot's and lands before PR-1 (PM 454).
 
 ## §2. Coupled invariants
 
@@ -34,6 +35,17 @@ PR-local additions:
 - **I-7 Front door is the only compile path** — no `regress::Regex::new` / `with_flags` outside the
   front-door module. I-7 × I-1 = a future `RegExp` constructor is covered the moment it calls the
   front door, and a trip-wire (§6.4) makes the other path a CI failure.
+
+Assumption from the W-11 edge (PM 454):
+
+- **A-1 Abort fan-out is depth 1** — once the W-11 slot has landed, a dependent signal's source
+  signals are never dependent (DOM §3.2 "create a dependent abort signal", step 4.2 appends the
+  input's source signals, not the input), so `abort_signal`'s fan-out over dependent signals is
+  depth 1 by construction and needs no probe (§5.2 W-11). PR-1 checks A-1 two ways: (a) the PR
+  body records `git merge-base --is-ancestor <W-11 slot landing sha> HEAD` → exit 0; (b) the cell
+  `abort_any_chain_depth_one_precondition` (§8) builds a nested chain that aborts the process if
+  the fan-out were still recursive, so a revert of the slot turns PR-1's suite red. A-1 × I-1 = the
+  cut check (§5.3) treats `abort_signal` as cut on the strength of A-1, not of a probe.
 
 ## §3. Spec coverage map
 
@@ -51,9 +63,9 @@ PR-local additions:
 | ECMA-262 §22.1.3.21 String.prototype.search | RegExpCreate | string / non-RegExp object | `native_string_search` ×2 | ✓ | yes |
 | ECMA-262 §22.2.3.4 Static Semantics: ParsePattern | pattern parse | groups / disjunction | front door `compile_regexp` (NEW) | ✓ | yes |
 | WHATWG HTML §2.7.4 StructuredSerializeInternal | recursion per property / element; RegExp re-compile | Array / ordinary / Error / RegExp | `clone_recursive`, `clone_regexp` | ✓ | yes |
-| WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 4.1 / 4.2 | input not dependent / dependent | `native_abort_signal_static_any` | ✓ | yes |
 
-**Breadth**: K=3 specs, M=13 entries (verified 2026-11-06 by `preflight.py`'s own row count).
+**Breadth**: K=2 specs, M=12 entries (verified 2026-11-06 by `preflight.py`'s own row count, after PM 454 moved the DOM `AbortSignal` row to the
+W-11 slot).
 **Split decision**: K<4 and M<20 → single PR (the umbrella's base-case slice).
 
 ### §3.1 User-input touch audit
@@ -64,10 +76,12 @@ All rows are script-controlled. Adjacent pre-existing code:
   records an error (§5.2 W-8), so it does not inherit the silent skip.
 - The four `natives_string.rs` sites and the literal site map a `regress` syntax error to
   `TypeError` (spec: `SyntaxError` / early error). Unchanged; the front door returns the syntax
-  error to the caller untouched (§6.3).
+  error to the caller untouched (§6.3). Home: a child of VM P4 slice-plan umbrella 8 (RegExp
+  completion), owner VM P4 (PM 454).
 - `AbortSignal.any` chains whose intermediate composites are unreachable lose propagation after a
   GC today (measured: chain of 10 000 with no references kept → `s.aborted === false` after
-  `c.abort()`; §11 M-AB). Flattening (W-11) removes the intermediate links, so it fixes this too.
+  `c.abort()`; §11 M-AB). Not PR-1's: the W-11 slot's flattening removes the intermediate links and
+  fixes this before PR-1 (PM 454).
 
 ## §4. The primitive (NEW)
 
@@ -188,7 +202,7 @@ walker's existing depth check, so cap and probe share one exit (I-3 × I-4).
 | W-8 | Scope `enter_recursion` | `crates/script/elidex-js/src/scope/mod.rs:205` | `MAX_NESTING_DEPTH` | probe failure records `StackExhausted` in the analysis errors before returning `false` |
 | W-9 | Compiler entries `compile_expr` / `compile_stmt` / `compile_destructure_pattern` / `compile_nested_function` | `crates/script/elidex-js/src/compiler/expr.rs:74`, `compiler/stmt.rs:19`, `compiler/stmt_destructure.rs:23`, `compiler/expr_function.rs:137` | parse-depth (indirect) | `ensure_stack(WALKER_RESERVE)?` via `From<StackExhausted> for CompileError` |
 | W-10 | `flat_into` | `crates/script/elidex-js/src/vm/natives_array_hof.rs:327` | `MAX_FLAT_DEPTH` = 100 (**deleted**) | `native_array_flat` passes `+∞` as `usize::MAX` and a finite depth unclamped; `flat(Infinity)` then gives FlattenIntoArray's result, and a cyclic array gives the probe's `RangeError` |
-| W-11 | `abort_signal` composite fan-out | `crates/script/elidex-js/src/vm/host/abort.rs:607` / `abort_statics.rs` `native_abort_signal_static_any` | none | **no probe**: implement DOM "create a dependent abort signal" step 4.2 (a dependent input contributes its source signals, not itself). Composites are then never inputs, so the fan-out is depth 1 by construction. A probe would leave a half-propagated abort and throw from `controller.abort()`, breaking I-3 |
+| W-11 | `abort_signal` composite fan-out | `crates/script/elidex-js/src/vm/host/abort.rs:607` / `abort_statics.rs` `native_abort_signal_static_any` | none | **not touched by PR-1** (PM 454): the W-11 slot implements DOM "create a dependent abort signal" step 4.2 (a dependent input contributes its source signals, not itself) in an engine-independent crate before PR-1. Composites are then never inputs, so the fan-out is depth 1 by construction (A-1, §2). **No probe**: one would leave a half-propagated abort and throw from `controller.abort()`, breaking I-3 |
 | W-12 | `reject_non_json_storable` | `crates/script/elidex-js/src/vm/host/indexeddb/value.rs:242` | none (runs on the structuredClone output, so its depth is whatever the clone allowed) | probe; its per-level frame differs from `clone_recursive`'s, so the clone's probe does not bound it |
 
 ### §5.3 Enumeration method and the classified remainder
@@ -208,6 +222,9 @@ python3 -I S/cutcheck.py <wt> crates/script/elidex-js \
   --probe flat_into --probe reject_non_json_storable --probe abort_signal \
   --probe drain_microtasks --probe parse_class_inner
 ```
+
+`--probe abort_signal` marks a cut point, not a probe site: `abort_signal` is cut on A-1 (§2), i.e.
+on the W-11 slot having landed, and carries no probe.
 
 Result (`S/cutcheck-pr1-v2.log`): 8 residual self-recursions, 2 residual SCCs, each classified:
 
@@ -246,11 +263,15 @@ Verified 2026-11-06 via
 | `crates/script/elidex-js/src/vm/host/structured_clone.rs:585` | structuredClone RegExp re-compile |
 
 There is no `RegExp` constructor global today (`RegExp is not defined` in the prototype runs), so
-"`RegExp(...)`" is not a current site; it is covered by I-7 when it lands. Other crates use the
+"`RegExp(...)`" is not a current site; it is covered by I-7 when it lands. Home: under VM P4
+slice-plan umbrella 8 (RegExp completion), owner VM P4 (PM 454; registration being checked by the PM). Other crates use the
 `regex` crate (`elidex-api-sw` router, `elidex-form-core` validation), which is not `regress` and
 not script-recursive; out of scope.
 
 ### §6.2 Weight model, cap and per-level cost
+
+Ratified (PM 454): the two-axis weight (`groups × REGEXP_GROUP_COST + alts × REGEXP_ALT_COST`, cap
+on `groups` only) is within PM 436 R1.
 
 `regress` recurses on two axes, measured guard off (`S/needbin.sh <bin> <label>` with
 `CODE="String('b'.match(<pattern>).index)"`, 16 KiB resolution):
@@ -298,7 +319,7 @@ content, and the stack ask already bounds it. Release fits ~12 000 alternatives 
 Each of the six sites replaces its `regress::Regex::new` / `with_flags` call with
 `compile_regexp`. `TooDeep` and `Exhausted` become `RangeError` via `From<RegExpCompileError>`
 for `VmError` for those two arms; `Syntax(e)` keeps each site's current message and error class
-(the class question is the RegExp work's, §3.1). The structuredClone site keeps its
+(the class question belongs to a child of VM P4 slice-plan umbrella 8, PM 454; §3.1). The structuredClone site keeps its
 `DataCloneError`-free `TypeError` for `Syntax` and propagates the two `RangeError` arms.
 
 ### §6.4 Trip-wire (I-7)
@@ -348,7 +369,7 @@ are profile-split, so a release-only constant is otherwise never exercised).
 | `parser_class_heritage_chain` | `class extends` × 5000 | `StackExhausted` or `NestingTooDeep`, no abort (aborts today) |
 | `flat_infinity_deep` | `let a = [1]; for (let i = 0; i < 200; i++) a = [a]; a.flat(Infinity)` | `[1]` (FlattenIntoArray; today depth 100 leaves nesting) |
 | `flat_cyclic` | `const a = []; a.push(a); a.flat(Infinity)` | `RangeError` |
-| `abort_any_chain_kept` / `abort_any_chain_unreferenced` | 10 000 chained `AbortSignal.any([s])`, intermediates kept / dropped, then `c.abort()` | `s.aborted === true`, no abort (today: abort at 1000 kept in debug; `false` when dropped) |
+| `abort_any_chain_depth_one_precondition` | on a 2 MiB thread, 10 000 chained `AbortSignal.any([s])` with intermediates kept, then `c.abort()` | `s.aborted === true`, no abort. Checks A-1 (§2): it aborts the process if the fan-out is still recursive (today: abort at 1000 kept in debug, §11 M-AB), so it is red on `4728972c` and green only once the W-11 slot has landed. The unreferenced (GC) cell is the W-11 slot's own |
 | `stack_guard_bound_is_os_reported` | on a 2 MiB thread, first probe | bound source = OS; span ∈ [2 MiB − 64 KiB, 2 MiB]; prints span (the Linux / Windows measurement, umbrella §7) |
 | `stack_guard_unknown_bound_fails_early` | test-only forced-unknown path | first probe at top passes; recursion stops with `RangeError` at ≤ 1 MiB used |
 | `stack_guard_reserve_margin_ratchet` | the `walker_floor_*` and `rt_*` bodies with a test-only reserve of 64 KiB | all `RangeError`, no abort |
@@ -381,7 +402,7 @@ Run on the final head only, debug and release.
 | M-W7b | W-7b | `parser_class_heritage_chain` |
 | M-W8 / M-W9 | W-8, W-9 | **expected to survive** if scope / compiler frames are smaller than the parser's per level (the parser probe then fires first). PR-1 measures per-level stack for the three passes (`S/needbin.sh` on parens N, parse-only vs full compile); if a pass's slope is below the parser's, its probe stays (it bounds a different frame size) and the mutant's survival is recorded with that measurement, not hidden; if above, a cell compiling a pre-parsed program on a thread between the two needs is added |
 | M-W10 | W-10 | `flat_cyclic`; reverting to `MAX_FLAT_DEPTH` kills `flat_infinity_deep` |
-| M-W11 | flattening reverted | `abort_any_chain_kept`, `abort_any_chain_unreferenced` |
+| (no M-W11) | — | W-11 is not a PR-1 change (PM 454); reverting the slot's flattening kills `abort_any_chain_depth_one_precondition` (A-1), which is the check, not a PR-1 mutant |
 | M-W12 | W-12 | `walker_floor_idb_storable` |
 | M-RX1 | front-door `ensure_stack` | `rx_alternation_1e5` (and not `rx_nesting_repro`, which the cap answers: I-6 tells them apart) |
 | M-RX2 | front-door cap | `rx_nesting_repro` changes message to `STACK_EXHAUSTED_MSG` |
@@ -415,7 +436,8 @@ record it in the PR body; a probed row outside the control band on a quiet host 
 
 - **M-AB** `AbortSignal.any` chain, debug, guard off, 2 MiB: kept intermediates, N = 10 / 100 / 1000 /
   3000 → `true` / `true` / abort / abort; dropped intermediates, N = 10 000 → `false`
-  (`S/dbg-census-holes.log` and the follow-up runs in this session).
+  (`S/dbg-census-holes.log` and the follow-up runs in this session). Evidence for the W-11 slot
+  (PM 454) and for the A-1 precondition cell; PR-1 does not change it.
 - Regexp axes: `S/rel-rx-axes.log`, `S/rel-rx-axes2.log`, `S/dbg-rx-axes.log`, `S/rx-shapes-dbg.log`.
 - Class heritage: `S/rel-classext.log`, `S/dbg-census-holes.log`.
 - Cut check: `S/cutcheck-pr1.log` (before W-7b / W-9 additions), `S/cutcheck-pr1-v2.log`.
