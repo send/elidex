@@ -6,6 +6,17 @@
 //! Spec, by AO name: ResolveBinding; GetIdentifierReference (the walk
 //! follows `[[OuterEnv]]`, i.e. the lexical parent chain).
 //!
+//! Keying the upvalue chain on the binding's own scope (rather than on the
+//! closure's position) is the right key, but it is unobservable today: each
+//! closure function has its own `upvalue_map` and sits at one fixed
+//! position, so that mutant (M2) is equivalent.
+//!
+//! Known deviation, pinned by `known_deviation_block_body_binding_per_entry`:
+//! a block-body `let` inside a loop is one binding per function entry, not
+//! per iteration, so every closure sees the last value. That is owned by
+//! `#11-vm-block-declaration-instantiation` (Slice B), which uses Slice E's
+//! `CloseLocal` (`#11-vm-per-iteration-loop-environment`).
+//!
 //! The cells are observable JS only; they presume nothing about how
 //! captured bindings are represented.
 
@@ -132,5 +143,40 @@ fn control_ordinary_capture_and_var_hoisting() {
     assert_eq!(
         eval_number("let top = 3; function h() { return top; } h();"),
         3.0
+    );
+}
+
+/// KNOWN DEVIATION (pinned so Slice B landing is visible). Spec: each loop
+/// iteration's block entry creates a fresh `x`, so the closures see
+/// "5,6,7". Today the binding is per function entry, so every
+/// closure sees the last `x` (7). Owner: `#11-vm-block-declaration-instantiation`
+/// (Slice B) with Slice E's `CloseLocal`
+/// (`#11-vm-per-iteration-loop-environment`).
+#[test]
+fn known_deviation_block_body_binding_per_entry() {
+    assert_eq!(
+        eval_string(
+            "const out = [];
+             for (let i = 0; i < 3; i++) { let x = i + 5; out.push(() => x); }
+             out.map(f => f()).join(',');"
+        ),
+        "7,7,7"
+    );
+}
+
+/// KNOWN DEVIATION (pinned). FunctionDeclarationInstantiation step 30.1:
+/// "NOTE: A separate Environment Record is needed to ensure that closures
+/// created by expressions in the formal parameter list do not have
+/// visibility of declarations in the function body." Spec (step 30.2, a
+/// separate varEnv): `v` is invisible to the default-parameter closure, so
+/// the call throws `ReferenceError: v is not defined`. Today it returns 1.
+/// F2 does not change this: the body var shares the parameter scope, so
+/// position-aware resolution still finds it. Owner:
+/// `#11-vm-parameter-environment-instantiation`.
+#[test]
+fn known_deviation_default_param_closure_sees_body_var() {
+    assert_eq!(
+        eval_number("function g(a = () => v) { var v = 1; return a(); } g();"),
+        1.0
     );
 }
