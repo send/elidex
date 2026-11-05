@@ -406,3 +406,24 @@ pub(super) fn probe_body_attr(pipeline: &crate::PipelineResult, attr: &str) -> O
     let body = pipeline.dom.query_by_tag("body").into_iter().next()?;
     read_attr(pipeline, body, attr)
 }
+
+thread_local! {
+    /// The in-memory clipboard that replaces the system clipboard in test
+    /// builds (`event_handlers::{get,set}_clipboard_text`), so cut / paste cells
+    /// are hermetic: one per test thread. Because it is thread-local it is **not**
+    /// visible to the content loop spawned by `spawn_test_content` /
+    /// `spawn_test_content_sized` (a different thread), so paste cells must use the
+    /// in-thread harness (`build_test_content_state`).
+    static TEST_CLIPBOARD: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Write the test clipboard (the `set_clipboard_text` seam, and test setup).
+pub(super) fn set_test_clipboard(text: &str) {
+    TEST_CLIPBOARD.with(|c| *c.borrow_mut() = Some(text.to_owned()));
+}
+
+/// Read the test clipboard (the `get_clipboard_text` seam).
+pub(super) fn test_clipboard_text() -> Option<String> {
+    TEST_CLIPBOARD.with(|c| c.borrow().clone())
+}

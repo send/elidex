@@ -263,7 +263,7 @@ impl VmInner {
 /// shell UA reconciler `content::focus::set_focus` dispatches those, but only
 /// on its own input paths). The old element's `FocusValueSnapshot` is
 /// deliberately left intact (not consumed) rather than discarded, so that once
-/// the slot lands the deferred dispatch can still observe the focus-time value
+/// the slot lands the deferred dispatch can still read its user-edit baseline
 /// and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
 /// is accepted and ignored (spec polish).
 fn native_html_element_focus(

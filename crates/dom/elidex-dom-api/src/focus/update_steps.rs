@@ -71,9 +71,10 @@ pub trait FocusEventSink {
 
     /// §6.6.4 focus-update step 2.1 — fire `change` if a focused text control's
     /// value was user-edited since focus. **Owns the change-on-blur snapshot
-    /// consume**: the shell takes the snapshot, compares, and dispatches; a
-    /// no-op impl (VM, until its dispatch primitive lands) leaves the snapshot
-    /// intact so the later dispatch can still observe the focus-time value.
+    /// consume**: the sink calls `elidex_form::take_change_on_blur` (the one
+    /// place the verdict is computed) and dispatches `change` iff it returns
+    /// `true`; a no-op impl (VM, until its dispatch primitive lands) leaves the
+    /// snapshot intact so the later dispatch can still observe it.
     fn commit_change_on_blur(&mut self, old: Entity);
 
     /// Seed the engine-bound change-on-blur baseline for the element gaining
@@ -81,12 +82,12 @@ pub trait FocusEventSink {
     /// focus-update step 2.1's "the user has changed the element's value ...
     /// such that it is different to what it was when the control was first
     /// focused". The canonical transition calls it **after** the `focus`/`focusin`
-    /// listeners (step 4.4), so a focus-handler's programmatic `value` write is
-    /// part of the baseline and is not later mistaken for a *user* edit (a
-    /// before-the-event seed would make such a write spuriously fire `change` on
-    /// blur). Runs on **every** engine (the snapshot is `elidex-form` state, not
-    /// event dispatch), so the canonical transition owns the seed *timing* while
-    /// the form-layer call lives behind the sink.
+    /// listeners (step 4.4): the seed is unmarked; the baseline is the value
+    /// before the first user value change (plan D-1). (Seed timing does not decide whether a
+    /// non-user write fires `change`; only the user-edit mark does.) Runs on
+    /// **every** engine (the snapshot is `elidex-form` state, not event dispatch),
+    /// so the canonical transition owns the seed *timing* while the form-layer call
+    /// lives behind the sink.
     fn seed_focus_snapshot(&mut self, new: Entity);
 
     /// §6.6.4 focus-update steps 2.2-2.4 / 4.2-4.4 — fire a `blur`/`focus` event
@@ -230,13 +231,9 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         // that surface lands).
         set_focus_bit(sink.dom(), Some(new));
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
-                                                                // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners,
-                                                                // so a listener's programmatic `value` write is part of the baseline and is
-                                                                // NOT counted as a user edit at the next blur (§6.6.4 step 2.1's change
-                                                                // fires only for values "the user has changed ... since first focused").
-                                                                // Seeding before the focus event (the value at designation) would make a
-                                                                // focus-handler write spuriously fire `change` on blur — matching real
-                                                                // browsers + the pre-A2a shell, which both seed after focus dispatch.
+                                                                // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners:
+                                                                // the seed is unmarked; the baseline is the value before the first user
+                                                                // value change (plan D-1).
                                                                 // Guard: a `focusin` listener may have reentrantly moved focus on, so only
                                                                 // seed if `new` is still the focused element (reentrant-wins).
         if current_focus(sink.dom(), doc) == Some(new) {

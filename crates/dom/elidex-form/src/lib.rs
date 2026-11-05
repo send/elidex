@@ -26,6 +26,9 @@ mod reconciler;
 mod select;
 mod sizing;
 mod submit;
+#[cfg(test)]
+pub(crate) mod test_support;
+mod user_edit;
 mod value_mode;
 
 // --- Re-export the elidex-form-core leaf crate (Slice 0a carve) ---
@@ -46,7 +49,7 @@ pub use ancestor_cache::AncestorCache;
 pub use clone::apply_clone_form_state;
 pub use fieldset::propagate_fieldset_disabled;
 pub use focus_snapshot::{
-    clear_focus_snapshot, record_focus_snapshot, take_focus_snapshot, FocusValueSnapshot,
+    clear_focus_snapshot, record_focus_snapshot, take_change_on_blur, FocusValueSnapshot,
 };
 pub use inert_document::parse_into_inert_document;
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
@@ -67,3 +70,4 @@ pub use submit::{
     find_form_ancestor, is_form_owner, is_submit_button, read_form_attrs, reset_form, FormAttrs,
     FormDataEntry, FormSubmission,
 };
+pub use user_edit::{apply_user_edit, UserEdit};

@@ -547,32 +547,32 @@ fn handle_key_text(
         }
         state.reset_caret_blink();
     } else {
-        let action = state
-            .pipeline
-            .dom
-            .world_mut()
-            .get::<&mut FormControlState>(target)
-            .ok()
-            .map_or(KeyAction::None, |mut fcs| {
-                elidex_form::form_control_key_input_action(&mut fcs, key, code)
-            });
+        // The user-edit funnel: `input` fires iff the key changed the value (a
+        // caret move or readonly navigation is `Consumed` with no change).
+        let (action, changed) =
+            elidex_form::apply_user_edit(&mut state.pipeline.dom, target, |fcs| {
+                elidex_form::form_control_key_input_action(fcs, key, code)
+            })
+            .map_or((KeyAction::None, false), |e| (e.result, e.changed));
 
         match action {
             KeyAction::Consumed => {
-                // Determine input type for InputEvent.
-                let input_type = match key {
-                    "Backspace" => "deleteContentBackward",
-                    "Delete" => "deleteContentForward",
-                    "Enter" => "insertLineBreak",
-                    _ if key.chars().count() == 1 => "insertText",
-                    _ => "",
-                };
-                let data = if input_type == "insertText" {
-                    Some(key)
-                } else {
-                    None
-                };
-                dispatch_input_event_typed(state, target, input_type, data);
+                if changed {
+                    // Determine input type for InputEvent.
+                    let input_type = match key {
+                        "Backspace" => "deleteContentBackward",
+                        "Delete" => "deleteContentForward",
+                        "Enter" => "insertLineBreak",
+                        _ if key.chars().count() == 1 => "insertText",
+                        _ => "",
+                    };
+                    let data = if input_type == "insertText" {
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    dispatch_input_event_typed(state, target, input_type, data);
+                }
                 state.reset_caret_blink();
             }
             KeyAction::Submit => {
@@ -664,7 +664,14 @@ fn toggle_radio_with_events(state: &mut ContentState, current: elidex_ecs::Entit
     }
 }
 
+// Test builds swap the system clipboard for an in-memory one (hermetic cut / paste cells).
+#[cfg(test)]
+use super::test_support::{
+    set_test_clipboard as set_clipboard_text, test_clipboard_text as get_clipboard_text,
+};
+
 /// Set text into the system clipboard.
+#[cfg(not(test))]
 fn set_clipboard_text(text: &str) {
     match arboard::Clipboard::new() {
         Ok(mut clipboard) => {
@@ -677,6 +684,7 @@ fn set_clipboard_text(text: &str) {
 }
 
 /// Get text from the system clipboard.
+#[cfg(not(test))]
 fn get_clipboard_text() -> Option<String> {
     match arboard::Clipboard::new() {
         Ok(mut c) => match c.get_text() {
@@ -710,15 +718,15 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
             }
         }
         "x" | "X" => {
-            let text = state
-                .pipeline
-                .dom
-                .world_mut()
-                .get::<&mut FormControlState>(target)
-                .ok()
-                .map(|mut fcs| elidex_form::clipboard_cut(&mut fcs))
-                .unwrap_or_default();
-            if !text.is_empty() {
+            let (text, changed) = elidex_form::apply_user_edit(
+                &mut state.pipeline.dom,
+                target,
+                elidex_form::clipboard_cut,
+            )
+            .map_or((String::new(), false), |e| (e.result, e.changed));
+            // `clipboard_cut` returns text iff it deleted a non-empty selection,
+            // so `changed` is equivalent to `!text.is_empty()`.
+            if changed {
                 set_clipboard_text(&text);
                 dispatch_input_event_typed(state, target, "deleteByCut", None);
                 state.reset_caret_blink();
@@ -726,15 +734,13 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
         }
         "v" | "V" => {
             if let Some(text) = get_clipboard_text() {
-                if let Ok(mut fcs) = state
-                    .pipeline
-                    .dom
-                    .world_mut()
-                    .get::<&mut FormControlState>(target)
-                {
-                    elidex_form::clipboard_paste(&mut fcs, &text);
+                // A readonly / full-`maxlength` paste changes nothing → no `input`.
+                let edit = elidex_form::apply_user_edit(&mut state.pipeline.dom, target, |fcs| {
+                    elidex_form::clipboard_paste(fcs, &text);
+                });
+                if edit.is_some_and(|e| e.changed) {
+                    dispatch_input_event_typed(state, target, "insertFromPaste", Some(&text));
                 }
-                dispatch_input_event_typed(state, target, "insertFromPaste", Some(&text));
                 state.reset_caret_blink();
             }
         }
