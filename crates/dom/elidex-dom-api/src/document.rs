@@ -232,7 +232,11 @@ impl DomApiHandler for CreateElement {
             }
         }
         let is_template = local_name == "template";
-        let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
+        let entity = dom.create_element_with_owner(
+            local_name,
+            Attributes::default(),
+            dom.node_document_for_new_nodes(this),
+        );
         if let Some(ce_state) = ce_state {
             let _ = dom.world_mut().insert_one(entity, ce_state);
         }
@@ -261,7 +265,7 @@ impl DomApiHandler for CreateElement {
         // owner document (C2 approximation; faithful inert owner document is
         // slot `#11-template-contents-owner-document`).
         if is_template {
-            let _ = dom.attach_template_contents(entity, Some(this));
+            let _ = dom.attach_template_contents(entity, dom.node_document_for_new_nodes(entity));
         }
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
@@ -288,7 +292,7 @@ impl DomApiHandler for CreateTextNode {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let text = require_string_arg(args, 0)?;
-        let entity = dom.create_text_with_owner(text, Some(this));
+        let entity = dom.create_text_with_owner(text, dom.node_document_for_new_nodes(this));
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::TextNode);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

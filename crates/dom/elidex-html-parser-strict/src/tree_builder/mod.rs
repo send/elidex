@@ -177,7 +177,7 @@ impl TreeBuilder {
         // tolerant backend uses the same one. Teardown is run below (Ok =
         // `take_fragment_children` → `finish_detached_fragment`; Err = the
         // partial-subtree despawn), then the dispatcher is restored.
-        let (document, root, saved_dispatcher) = dom.begin_detached_fragment();
+        let (document, root, saved_dispatcher) = dom.begin_detached_fragment(context);
         let mut state = ParseState::new();
         // §13.2.4.5 scripting flag: `ParseState::new()` defaults it enabled
         // (the strict baseline models a scripting-enabled document). An inert
@@ -262,17 +262,6 @@ impl TreeBuilder {
             .expect("fragment build always has a context element (§13.4)");
         self.dom
             .finish_detached_fragment(root, self.document, context)
-    }
-
-    /// The node document that newly created nodes are stamped with: in a §13.4
-    /// fragment parse, the context's node document (`None` if the context has
-    /// none), because the throwaway document is destroyed before the nodes are
-    /// returned; in document parsing, the parse document.
-    pub(super) fn node_document_for_new_nodes(&self) -> Option<Entity> {
-        match self.state.fragment_context {
-            Some(context) => self.dom.owner_document(context),
-            None => Some(self.document),
-        }
     }
 
     /// §13.4 "set the state of the tokenization stage": switch the tokenizer's

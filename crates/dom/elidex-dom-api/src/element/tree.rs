@@ -432,7 +432,7 @@ impl DomApiHandler for InsertAdjacentText {
         match resolve_adjacent_site(this, &position, dom)? {
             AdjacentSite::NoOp => Ok(JsValue::Undefined),
             AdjacentSite::Into { parent, before } => {
-                let owner = dom.owner_document(this);
+                let owner = dom.node_document_for_new_nodes(this);
                 let text_node = dom.create_text_with_owner(data, owner);
                 // §4.2.3 ensure-pre-insertion-validity on the resolved site. The Text
                 // is already allocated (it is the validator's `node`), so on a

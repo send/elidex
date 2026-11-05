@@ -20,7 +20,6 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         &rc_dom.document,
         document,
         &mut dom,
-        Some(document),
         ParseFragmentOptions::default(),
     );
     let errors = rc_dom
@@ -60,18 +59,16 @@ pub(crate) fn convert_children(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
-    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
-        if opts.allow_declarative_shadow
-            && try_attach_declarative_shadow(child, parent, dom, owner_document, opts)
+        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, parent, dom, opts)
         {
             // Template was consumed as declarative shadow root markup;
             // the host entity already received the new shadow tree.
             continue;
         }
-        if let Some(entity) = convert_node(child, dom, owner_document, opts) {
+        if let Some(entity) = convert_node(child, parent, dom, opts) {
             let ok = dom.append_child(parent, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -96,11 +93,10 @@ pub(crate) fn convert_fragment_top_level(
     rc_handle: &Handle,
     root: Entity,
     dom: &mut EcsDom,
-    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
-        if let Some(entity) = convert_node(child, dom, owner_document, opts) {
+        if let Some(entity) = convert_node(child, root, dom, opts) {
             let ok = dom.append_child(root, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -121,7 +117,6 @@ fn try_attach_declarative_shadow(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
-    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) -> bool {
     let NodeData::Element {
@@ -196,7 +191,7 @@ fn try_attach_declarative_shadow(
     // DocumentFragment-like handle), not its direct `children`, per
     // html5ever's RcDom representation.
     if let Some(contents) = template_contents.borrow().clone() {
-        convert_children(&contents, shadow_root, dom, owner_document, opts);
+        convert_children(&contents, shadow_root, dom, opts);
     }
     true
 }
@@ -234,12 +229,21 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
     Some((tag, namespace, attributes))
 }
 
+/// Convert one `RcDom` node, created on behalf of `parent` — its converted
+/// parent, which exists before it (the conversion is bottom-up: the caller
+/// links the returned node after the recursion). HTML §13.2.6.1
+/// (`#creating-and-inserting-nodes`) *create an element for the token* step
+/// 3: the node document is intendedParent's, and for an RcDom conversion the
+/// intended parent is the converted parent (html5ever has already placed each
+/// node); [`EcsDom::node_document_for_new_nodes`] resolves it (the fragment
+/// root redirects to the context's document).
 fn convert_node(
     handle: &Handle,
+    parent: Entity,
     dom: &mut EcsDom,
-    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) -> Option<Entity> {
+    let owner = dom.node_document_for_new_nodes(parent);
     match &handle.data {
         NodeData::Element {
             template_contents, ..
@@ -248,7 +252,7 @@ fn convert_node(
             // `create_element_ns` attaches a `Namespace` component only for
             // non-HTML namespaces (HTML stays component-free), so the foreign
             // guard in `attach_derived` sees the real namespace.
-            let entity = dom.create_element_ns(&tag, namespace, attributes, None);
+            let entity = dom.create_element_ns(&tag, namespace, attributes, owner);
             // Attach derived components at creation time — BEFORE the element
             // is appended anywhere — so the tolerant backend's output always
             // carries `CustomElementState` / `IframeData` whether it feeds
@@ -281,12 +285,13 @@ fn convert_node(
             // `convert_fragment_top_level`, which arrives with no attach attempt
             // at all (hostIsRoot, §13.2.6.4.4).
             if namespace == Namespace::Html && tag == "template" {
-                let fragment = dom.attach_template_contents(entity, owner_document);
+                let contents_owner = dom.node_document_for_new_nodes(entity);
+                let fragment = dom.attach_template_contents(entity, contents_owner);
                 if let Some(contents) = template_contents.borrow().clone() {
-                    convert_children(&contents, fragment, dom, owner_document, opts);
+                    convert_children(&contents, fragment, dom, opts);
                 }
             } else {
-                convert_children(handle, entity, dom, owner_document, opts);
+                convert_children(handle, entity, dom, opts);
             }
             Some(entity)
         }
@@ -302,11 +307,11 @@ fn convert_node(
             if text.is_empty() {
                 return None;
             }
-            Some(dom.create_text(text))
+            Some(dom.create_text_with_owner(text, owner))
         }
         NodeData::Comment { contents } => {
             let data = contents.to_string();
-            Some(dom.create_comment(data))
+            Some(dom.create_comment_with_owner(data, owner))
         }
         NodeData::Doctype {
             name,
@@ -317,6 +322,7 @@ fn convert_node(
                 name.to_string(),
                 public_id.to_string(),
                 system_id.to_string(),
+                owner,
             );
             Some(entity)
         }

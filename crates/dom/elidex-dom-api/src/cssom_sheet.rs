@@ -210,7 +210,7 @@ pub(crate) fn flush_sheet_mutation(
         let node = if serialized.is_empty() {
             None
         } else {
-            let owner = dom.owner_document(sheet_entity);
+            let owner = dom.node_document_for_new_nodes(sheet_entity);
             Some(dom.create_text_with_owner(serialized, owner))
         };
         let _ = apply_replace_all(dom, sheet_entity, node);

@@ -138,14 +138,10 @@ pub fn split_text_at_offset(
     let head = String::from_utf16_lossy(head_units);
     let tail = String::from_utf16_lossy(tail_units);
 
-    // Step 4: allocate new_node with the tail, inheriting
-    // entity's node document so the spec "split node's node document
-    // = original node's node document" invariant holds (§4.4 "node
-    // document"). Use `owner_document` (not the lower-level
-    // `get_associated_document`) so legacy entities relying on the
-    // tree-root Document fallback still inherit the correct owner —
-    // PR186 R4 #2 fix.
-    let owner = dom.owner_document(entity);
+    // Step 4 (= spec *split a Text node* step 5): allocate new_node with
+    // the tail, in entity's node document (DOM §4.11 "a new Text node
+    // whose node document is node's node document").
+    let owner = dom.node_document_for_new_nodes(entity);
     let new_node = dom.create_text_with_owner(tail, owner);
 
     // Step 5: capture entity's pre-insert parent + index (used by the

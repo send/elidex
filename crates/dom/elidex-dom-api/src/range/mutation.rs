@@ -263,7 +263,10 @@ impl Range {
     ///   (`deleteContents` on the same range DOES splice + record).
     #[allow(clippy::too_many_lines)]
     pub fn extract_contents(&mut self, dom: &mut EcsDom) -> (Entity, Vec<MutationRecord>) {
-        let frag = dom.create_document_fragment();
+        // *extract* step 1: a new DocumentFragment whose node document is
+        // range's start node's node document.
+        let owner = dom.node_document_for_new_nodes(self.start_container);
+        let frag = dom.create_document_fragment_with_owner(owner);
         let mut records = Vec::new();
 
         if self.collapsed() {
@@ -300,7 +303,10 @@ impl Range {
                     text,
                 ));
                 if !extracted.is_empty() {
-                    let text_node = dom.create_text(&extracted);
+                    // *extract* step 4.1: a clone of the original start node
+                    // (its node document by *clone a node*'s default).
+                    let owner = dom.node_document_for_new_nodes(self.start_container);
+                    let text_node = dom.create_text_with_owner(&extracted, owner);
                     // Fresh clone appended to the (unobserved) fragment —
                     // childList on the fragment, no observed record.
                     let _ = dom.append_child(frag, text_node);
@@ -351,7 +357,9 @@ impl Range {
                 text,
             ));
             if !tail.is_empty() {
-                let text_node = dom.create_text(&tail);
+                // *extract* step 16.1: a clone of the original start node.
+                let owner = dom.node_document_for_new_nodes(self.start_container);
+                let text_node = dom.create_text_with_owner(&tail, owner);
                 let _ = dom.append_child(frag, text_node);
             }
         }
@@ -389,7 +397,9 @@ impl Range {
                 text,
             ));
             if !head.is_empty() {
-                let text_node = dom.create_text(&head);
+                // *extract* step 19.1: a clone of the original end node.
+                let owner = dom.node_document_for_new_nodes(self.end_container);
+                let text_node = dom.create_text_with_owner(&head, owner);
                 // Fresh clone appended to the (unobserved) fragment.
                 let _ = dom.append_child(frag, text_node);
             }
