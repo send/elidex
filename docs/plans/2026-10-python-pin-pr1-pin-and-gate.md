@@ -107,7 +107,8 @@ Body §2's text (:148–234) is the definition; PR-1's share, one line each:
 - **I7**: the population is defined by **where a child's environment comes from**, not by which name it looks up
   (any `PATH` lookup — `git`, `bash` — can resolve to a mise shim): (i) **every launch whose environment comes from
   `scripts/python_pin_testing.py` (NEW)'s `isolated_mise_env` (NEW)** — the fake first or no `mise` (N3's no-mise-call
-  half, N9–N15, N19–N20), and the `git` children of T5's member, whose `_without_git_env()` is that environment minus
+  half, N9–N15, N19–N20), and the `git` children of T5's member, whose `_without_git_env()` is that environment's MISE_* isolation with the outer `PATH` kept
+  (`keep_path=True`: a directory holding both `mise` and `git` must not lose `git`) minus
   `GIT_*` under one process-lifetime root (the member is not a pin file, so it loads the helper by path, not
   `base_env()`, P6); (iii) **every launch whose environment derives from `python_suites_fixtures.base_env()`**,
   which isolates its children from the caller's mise (§4.3, the one statement of what it drops and sets; N22): the

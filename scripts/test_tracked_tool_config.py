@@ -58,15 +58,18 @@ _ISO_ROOT = []
 
 
 def _without_git_env():
-    """The environment of the member's git children: the helper's isolated one (no MISE_* of the
-    caller, the five isolated ones set, any mise-bearing PATH directory dropped), minus GIT_*, so a
-    mise shim named `git` reached through the outer PATH cannot write the user's mise state. One
-    root for the process lifetime."""
+    """The environment of the member's git children: the helper's isolated MISE_* state (no MISE_* of
+    the caller, the five isolated ones set) with the outer PATH kept (`keep_path=True`: a directory
+    holding both `mise` and `git` must not take `git` away), minus GIT_*, so a mise shim named `git`
+    reached through the outer PATH cannot write the user's mise state. One root for the process
+    lifetime."""
     if not _ISO_ROOT:
         _ISO_ROOT.append(os.path.realpath(tempfile.mkdtemp(prefix="tracked-tool-config-mise-")))
         atexit.register(shutil.rmtree, _ISO_ROOT[0], True)
-    env = H.isolated_mise_env(_ISO_ROOT[0])
-    return {k: v for k, v in env.items() if not k.startswith("GIT_")}
+    env = H.isolated_mise_env(_ISO_ROOT[0], keep_path=True)
+    env = {k: v for k, v in env.items() if not k.startswith("GIT_")}
+    env.update(MISE_OFFLINE="1", MISE_AUTO_INSTALL="false")
+    return env
 
 
 def git_z(root, *args, run=subprocess.run):
@@ -538,6 +541,36 @@ class TrackedToolConfig(unittest.TestCase):
 
     def test_W1(self):
         self.control_W1()
+
+    def control_git_env_keeps_git(self):
+        # a directory holding both a `mise` and a `git` (distro /usr/bin): git must still resolve
+        tmp = tempfile.mkdtemp(prefix="git-env-control-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        both = os.path.join(tmp, "both")
+        os.makedirs(both)
+        for name in ("mise", "git"):
+            with open(os.path.join(both, name), "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(os.path.join(both, name), 0o755)
+        with mock.patch.dict(os.environ, {"PATH": both + os.pathsep + os.environ.get("PATH", ""),
+                                          "MISE_DATA_DIR": "/outer", "GIT_DIR": "/outer"}):
+            env = _without_git_env()
+        self.assertEqual(shutil.which("git", path=env["PATH"]), os.path.join(both, "git"))
+        mise = {k: v for k, v in env.items() if k.startswith("MISE_") and k not in ("MISE_OFFLINE", "MISE_AUTO_INSTALL")}
+        self.assertEqual(H.isolation_problems(mise, _ISO_ROOT[0]), [])
+        self.assertEqual((env["MISE_OFFLINE"], env["MISE_AUTO_INSTALL"]), ("1", "false"))
+        self.assertNotIn("GIT_DIR", env)
+        self.assertNotEqual(env.get("MISE_DATA_DIR"), "/outer")
+
+    def test_git_env_keeps_git(self):
+        self.control_git_env_keeps_git()
+
+    def test_git_env_mutant_is_killed(self):
+        real = H.isolated_mise_env
+        # mutant: the path-dropping env (keep_path ignored)
+        with mock.patch.object(H, "isolated_mise_env", lambda root, **kw: real(root)):
+            with self.assertRaises(AssertionError):
+                self.control_git_env_keeps_git()
 
     def test_problems_names_a_newline_bearing_member_path(self):
         # F4: the findings are concatenated, never re-parsed; a newline or ": " in a path is a named finding.

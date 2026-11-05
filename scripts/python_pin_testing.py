@@ -179,7 +179,10 @@ def _lines(path):
         return [line.rstrip("\n") for line in f if line.strip()]
 
 
-def isolated_mise_env(tmp_root, fake_mise=None, extra_env=None):
+def isolated_mise_env(tmp_root, fake_mise=None, extra_env=None, keep_path=False):
+    """keep_path=True: only the MISE_* state is isolated and PATH stays the caller's (for children that
+    need the tools beside a `mise`, e.g. `git` in the same directory); the default drops every
+    PATH directory holding a `mise` when there is no fake."""
     env = dict((k, v) for k, v in os.environ.items() if not k.startswith("MISE_"))
     tmp_root = str(tmp_root)
     for name, sub in MISE_DIRS:
@@ -190,6 +193,8 @@ def isolated_mise_env(tmp_root, fake_mise=None, extra_env=None):
     outer = os.environ.get("PATH", "")
     if fake_mise is not None:
         env["PATH"] = str(fake_mise) + os.pathsep + outer
+    elif keep_path:
+        env["PATH"] = outer
     else:
         env["PATH"] = os.pathsep.join(d for d in outer.split(os.pathsep) if shutil.which("mise", path=d) is None)
     env.update(extra_env or {})

@@ -264,8 +264,10 @@ unchanged (line numbers at `660e594c`):
 2. imports gain `atexit`, `importlib.util`, `shutil`, `tomllib`;
 3. after `MEMBER_PATH` (`:30`): `HELPER` (plan §4.8's one constant) and `H`, the helper loaded by path; `PIN_BYTES`, the
    live `<REPO>/.tool-versions` bytes read at import (a malformed live pin reds every fixture world, the right answer);
-4. `_without_git_env()` (`:45–46`): the helper's `isolated_mise_env` under one process-lifetime root (`_ISO_ROOT`,
-   removed at exit by `atexit`) minus `GIT_*` — the member's `git` children are in I7 (i) (plan §2.1);
+4. `_without_git_env()` (`:45–46`): the helper's `isolated_mise_env(…, keep_path=True)` (MISE_* isolated, outer `PATH` kept) under one
+   process-lifetime root (`_ISO_ROOT`, removed at exit by `atexit`) minus `GIT_*`, plus `MISE_OFFLINE=1` /
+   `MISE_AUTO_INSTALL=false`; `test_git_env_keeps_git` (a directory holding `mise` and `git` on `PATH`: `git` still
+   resolves, MISE_* isolated) and `test_git_env_mutant_is_killed` (the path-dropping env) — the member's `git` children are in I7 (i) (plan §2.1);
 5. `pinned(tracked, read)` (NEW): `tracked` plus `ROOT_PIN`, and a `read` answering `ROOT_PIN` with `PIN_BYTES` and
    delegating every other path (so C3 r4's `read`, which raises if called, is still never called); `probs`
    (`:97–100`) is built on it unless its `files` name `ROOT_PIN` themselves (W1's clause-1 cases); `mise_probs`
