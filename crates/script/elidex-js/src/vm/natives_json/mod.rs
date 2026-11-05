@@ -24,7 +24,7 @@ pub(in crate::vm) use stringify::{
 /// Recursion through re-entry is not bounded here: a reviver that calls
 /// `JSON.parse` again with itself starts a fresh walk at depth 0. That is
 /// native -> JS -> native recursion, the same class as any recursive callback
-/// into JS (the VM has no call-depth guard), and out of scope for this constant.
+/// into JS (the VM has no call-depth guard: `#11-vm-call-depth-guard`), and out of scope for this constant.
 ///
 /// Release matches V8's ~1000 and was verified to hold for all three walkers
 /// (depth 990 passes, 1000+ throws).
