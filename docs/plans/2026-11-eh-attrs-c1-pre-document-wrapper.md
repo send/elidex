@@ -199,22 +199,21 @@ enumeration of `document` (W2), brand checks (W9, W10), non-bound Documents' `hi
 Document; a generic-path Document (reachable at `fab44a1d` only through a Rust fixture, H-13) goes from `undefined`
 to that answer, not to its own URL — R-10's defect, not a C1-pre step.
 
-### §1.1 Browser measurement (before the implementation branch is cut)
+### §1.1 Expected values
 
-Run in the built-in Chromium (and one other engine if available) on a page served over `http://`; record versions and
-fill the two right-hand columns. The rows are informative. **No result is filled here.** Spec column from the cited steps; HEAD column from code reading at `fab44a1d` (not run).
+Spec column from the cited steps; HEAD column from code reading at `fab44a1d` (not run).
 `dp = new DOMParser().parseFromString('<p></p>', 'text/html')`; `tpl = document.createElement('template')`.
 
-| id | expression | spec (derivation) | elidex HEAD | elidex C1-pre head | Chromium | other |
-|---|---|---|---|---|---|---|
-| X1 | `Object.getOwnPropertyNames(document)` | `["location"]` (§3.7.6 / §3.7.7; `location` is `[LegacyUnforgeable]`) | every installed member | `[]` (`location` absent, §7) | | |
-| X2 | `Object.getPrototypeOf(dp) === Object.getPrototypeOf(document)` | `true` (both Document) | `true` (both `Node.prototype`) | `true` | | |
-| X3 | `Object.getPrototypeOf(document).hasOwnProperty('createElement')` | `true` (HTML §7.2.2: `HTMLDocument` is the Document interface object, so no intermediate prototype) | `false` | `true` | (prediction: `false`, an `HTMLDocument.prototype` in between) | |
-| X4 | `[dp.hidden, dp.visibilityState]` | `[true, "hidden"]` (§6.2 initial value) | `[false, "visible"]` | `[true, "hidden"]` | (prediction: `[true, "hidden"]`) | |
-| X5 | `dp.getSelection()` | `null` (Selection API §4.1; prose not extractable by `webref body` on 2026-11-04, see §3) | a `Selection` | `null` | (prediction: `null`) | |
-| X6 | `[dp.defaultView, dp.cookie, dp.referrer, dp.hasFocus(), dp.readyState, dp.compatMode]` | `[null, "", "", false, "complete", "CSS1Compat"]` | same | same | | |
-| X7 | `dp.activeElement === dp.body` | spec-silent for a Document without a navigable (§6.6.6 step 1 reads "this's node document's focused area") | `true` | `true` (unchanged) | | |
-| X10 | `I = tpl.content.ownerDocument; [typeof I.createElement, I.defaultView, I.hidden, I.getSelection(), I.activeElement]` | `["function", null, true, null, null]` (C1 memo M3; §6.6.6 steps 4–7) | n/a (I is `document`) | C1's head: the spec column | | |
+| id | expression | spec (derivation) | elidex HEAD | elidex C1-pre head |
+|---|---|---|---|---|
+| X1 | `Object.getOwnPropertyNames(document)` | `["location"]` (§3.7.6 / §3.7.7; `location` is `[LegacyUnforgeable]`) | every installed member | `[]` (`location` absent, §7) |
+| X2 | `Object.getPrototypeOf(dp) === Object.getPrototypeOf(document)` | `true` (both Document) | `true` (both `Node.prototype`) | `true` |
+| X3 | `Object.getPrototypeOf(document).hasOwnProperty('createElement')` | `true` (HTML §7.2.2: `HTMLDocument` is the Document interface object, so no intermediate prototype) | `false` | `true` |
+| X4 | `[dp.hidden, dp.visibilityState]` | `[true, "hidden"]` (§6.2 initial value) | `[false, "visible"]` | `[true, "hidden"]` |
+| X5 | `dp.getSelection()` | `null` (Selection API §4.1; prose not extractable by `webref body` on 2026-11-04, see §3) | a `Selection` | `null` |
+| X6 | `[dp.defaultView, dp.cookie, dp.referrer, dp.hasFocus(), dp.readyState, dp.compatMode]` | `[null, "", "", false, "complete", "CSS1Compat"]` | same | same |
+| X7 | `dp.activeElement === dp.body` | spec-silent for a Document without a navigable (§6.6.6 step 1 reads "this's node document's focused area"); current behaviour kept | `true` | `true` (unchanged) |
+| X10 | `I = tpl.content.ownerDocument; [typeof I.createElement, I.defaultView, I.hidden, I.getSelection(), I.activeElement]` | `["function", null, true, null, null]` (C1 memo M3; §6.6.6 steps 4–7) | n/a (I is `document`) | C1's head: the spec column |
 
 ## §2. Coupled invariants
 
@@ -510,7 +509,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | referrer, readiness, mode | R-8 (append), R-4, R-9 (slot proposals) | §5.1 P-11 rows |
 | browsing-context facts as ECS components (the association, the bound document's visibility state and selection) | B1 / `#11-browsing-context-state-ecs-components` (R-11) | the predicate's input is per-VM `HostData::document`; visibility and selection are per-VM |
 | the per-Document custom element registry | `#11-document-null-registry-adopt-reset` | `I.createElement` / `dp.createElement` use the VM's registry |
-| `activeElement` for a Document without a navigable | §1.1 X7 (measurement only) | spec-silent step 1 |
+| `activeElement` for a Document without a navigable | §1.1 X7 (spec-silent; current behaviour kept) | spec-silent step 1 |
 | `document_receiver`'s silent fallback for non-platform receivers | pre-existing elidex policy | Web IDL would throw `TypeError` |
 | multi-realm `Document.prototype` | B1 (H-1 below) | one prototype per VM |
 
@@ -641,14 +640,13 @@ are pre-existing or another unit's scope.
    `vm/host/elements.rs`, `vm/host_data/**`, `vm/tests/mod.rs`.
 2. D-1 to D-8 and D-10 to D-12 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 1 among Document
    members (`native_document_get_url`, R-10).
-3. §1.1 filled before the implementation branch is cut.
-4. §6.1 cells present; every red cell (W15 included) run red on the base with its control green, recorded in the PR
+3. §6.1 cells present; every red cell (W15 included) run red on the base with its control green, recorded in the PR
    description.
-5. §5.2 rewrites done; `git grep -n 'install_document_methods\|document_methods_installed\|bridge-document-post-install' -- crates` → 0.
-6. `cargo test -p elidex-js --all-features` (§6.3) and `mise run ci` green.
-7. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`
+4. §5.2 rewrites done; `git grep -n 'install_document_methods\|document_methods_installed\|bridge-document-post-install' -- crates` → 0.
+5. `cargo test -p elidex-js --all-features` (§6.3) and `mise run ci` green.
+6. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`
    exits 0 (run, not trusted).
-8. The PR applies R-5. The PM has applied R-1, R-2, R-3, R-6, R-8, R-10, R-11 and relayed R-12 (or recorded why
+7. The PR applies R-5. The PM has applied R-1, R-2, R-3, R-6, R-8, R-10, R-11 and relayed R-12 (or recorded why
    not), registered or declined R-4, R-9, R-13 and R-14, and decided O-3.
 
 ## §10. Revision history
@@ -681,6 +679,8 @@ item 6's stale markers, edge e-rc2a and R-12, R-13, R-14, the rooting-branch not
 *Rev 2.3* (2026-11-05): plan-review re-check N1–N8 (PM 372); plan-review closed. R-5 leaves §1.3 alone (edge c-pre
 → R-2); W15 back to red; §4.1 item 6 gains five stale comment sites; R-6 trigger clause; R-8 why-deferred clause; e-rc2a
 path and version; the X7 gate removed from §1.1; §5.3 `vm/globals.rs` row points to the rooting PR.
+*Rev 2.4* (2026-11-06, PM 422): no browser measurement; §1.1's Chromium and other-engine columns and DoD item 3
+deleted (C1-pre implements the spec column; X7 is spec-silent, current behaviour kept).
 
 ## §11. Open questions
 
