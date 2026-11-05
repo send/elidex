@@ -598,16 +598,11 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     // so conditional pruning could leak animation state.
     result.prune_dead_animation_entities();
 
-    // WHATWG HTML "update the rendering" step 17 — the focus fixup: if the
-    // focused area is no longer a focusable area (its or an ancestor's `hidden`
-    // landed, a direct `disabled`, `<input type>` flipped, or it lost the
-    // `tabindex` / `contenteditable` / `href` that made it focusable), run the
-    // focusing steps for the viewport. The canonical §6.6.4 transition fires
-    // `change` (a user-edited text control, judged by the sink), then `blur` and
-    // `focusout` at the holder with a null related target; the spec's Window
-    // `focus` is not fired (single-element model, PR-A3). The spec notes the
-    // fixup "will usually fire blur events, and possibly change events"; removal
-    // is the synchronous, eventless §2.1.4 reset instead.
+    // WHATWG HTML "update the rendering" step 17 — the focus fixup. What it
+    // resets, the events it fires and the single-element model's limits are
+    // documented once on `elidex_dom_api::focus::focus_fixup_steps`; the spec
+    // notes it "will usually fire blur events, and possibly change events",
+    // while removal is the synchronous, eventless §2.1.4 reset instead.
     //
     // Ungated: it runs every rendering update, since VM-native mutations write
     // the `EcsDom` directly and leave the flush record stream empty; an idle

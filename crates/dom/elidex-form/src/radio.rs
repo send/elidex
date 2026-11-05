@@ -10,14 +10,9 @@ use crate::{FormControlKind, FormControlState};
 /// 1. If the control has a `form` attribute, find the form element with that ID.
 /// 2. Otherwise, the nearest ancestor `<form>` element.
 ///
-/// Returns `None` if the control has no form owner.
-/// Public wrapper for form owner resolution, used by `submit.rs`'s form-owner
-/// lookup.
-pub fn resolve_form_owner_public(dom: &EcsDom, entity: Entity) -> Option<Entity> {
-    resolve_form_owner(dom, entity)
-}
-
-fn resolve_form_owner(dom: &EcsDom, entity: Entity) -> Option<Entity> {
+/// Returns `None` if the control has no form owner. Used by `submit.rs`'s
+/// form-owner lookup.
+pub(crate) fn resolve_form_owner(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     // Check for explicit `form` attribute (cross-tree association).
     let form_attr = dom
         .world()

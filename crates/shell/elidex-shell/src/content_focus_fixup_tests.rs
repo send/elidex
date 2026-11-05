@@ -9,28 +9,15 @@
 //! a log mirrored into a `<body>` attribute, read back Rust-side with
 //! `probe_body_attr` (no extra script bracket).
 
-use super::test_support::{build_test_content_state, probe_body_attr};
+use super::test_support::{
+    build_test_content_state, by_id, eval, event_log, log_listener_js, probe_body_attr, user_key,
+    Browser,
+};
 use super::ContentState;
-use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel, ModifierState};
 use elidex_ecs::{ElementState, Entity};
-
-type Browser = LocalChannel<BrowserToContent, ContentToBrowser>;
-
-fn by_id(pipeline: &crate::PipelineResult, id: &str) -> Entity {
-    pipeline
-        .dom
-        .find_by_id(pipeline.document, id)
-        .expect("element with the id exists")
-}
 
 fn focused(pipeline: &crate::PipelineResult) -> Option<Entity> {
     elidex_dom_api::focus::current_focus(&pipeline.dom, pipeline.document)
-}
-
-/// `eval_script`, asserting the script completed.
-fn eval(p: &mut crate::PipelineResult, src: &str) {
-    let r = p.eval_script(src);
-    assert!(r.success, "eval failed: {src}: {:?}", r.error);
 }
 
 /// Loads `html`, installs `logger` (if any), focuses `#b` via script, runs one
@@ -65,49 +52,28 @@ fn ua_focused_on_b(html: &str, logger: &str) -> (ContentState, Browser, Entity) 
     (state, browser, b)
 }
 
-/// A user key press (`keydown`, no modifiers) at the focused element — the
-/// shell user-edit path (the provenance PR's `apply_user_edit` funnel).
-fn user_key(state: &mut ContentState, k: &str) {
-    super::event_handlers::handle_key(state, "keydown", k, "", false, ModifierState::default());
-}
-
 const HIDDEN_FIXTURE: &str = "<div id=d><button id=b>x</button></div>";
 
 /// Logs `change` / `blur` / `focusout` at `#b` into `<body data-log>`.
-/// (`listen` takes `t` as a parameter so each listener closes over its own
-/// type: the VM's `for (const …)` loop shares one binding across iterations,
-/// `#11-vm-per-iteration-loop-environment`.)
-const LOGGER: &str = "globalThis.__log = []; \
-    function listen(el, t) { \
-      el.addEventListener(t, (e) => { \
-        __log.push(t); \
-        document.body.setAttribute('data-log', __log.join(',')); \
-      }); \
-    } \
-    const __b = document.getElementById('b'); \
-    for (const t of ['change', 'blur', 'focusout']) { listen(__b, t); }";
+const LOGGER: &str = concat!(
+    log_listener_js!(),
+    "const __b = document.getElementById('b'); \
+    for (const t of ['change', 'blur', 'focusout']) { listen(__b, t); }"
+);
 
 /// As [`LOGGER`], recording `type:related:active` — `related` is `null` when
 /// the event's `relatedTarget` is null (or absent, for `change`), and `active`
 /// names `document.activeElement` (`body` / `b` / `other`).
-const DETAIL_LOGGER: &str = "globalThis.__log = []; \
-    const __b = document.getElementById('b'); \
+const DETAIL_LOGGER: &str = concat!(
+    log_listener_js!(),
+    "const __b = document.getElementById('b'); \
     function who() { \
       const a = document.activeElement; \
       return a === document.body ? 'body' : a === __b ? 'b' : 'other'; \
     } \
-    function listen(el, t) { \
-      el.addEventListener(t, (e) => { \
-        __log.push(t + ':' + (e.relatedTarget == null ? 'null' : 'set') + ':' + who()); \
-        document.body.setAttribute('data-log', __log.join(',')); \
-      }); \
-    } \
-    for (const t of ['change', 'blur', 'focusout']) { listen(__b, t); }";
-
-/// The logged events so far, comma-joined (`""` when none fired).
-fn event_log(p: &crate::PipelineResult) -> String {
-    probe_body_attr(p, "data-log").unwrap_or_default()
-}
+    const fmt = (t, e) => t + ':' + (e.relatedTarget == null ? 'null' : 'set') + ':' + who(); \
+    for (const t of ['change', 'blur', 'focusout']) { listen(__b, t, fmt); }"
+);
 
 // ---- C1–C4: the fixup runs, ungated ----------------------------------------
 
@@ -314,10 +280,7 @@ fn vm_native_hidden_focused_iframe_blurs_parent_and_child() {
 
     assert_eq!(focused(&state.pipeline), None, "parent focus dropped");
     assert_eq!(state.focused_iframe, None, "focused_iframe cleared");
-    let entry = state.iframes.get(iframe).expect("iframe entry");
-    let super::iframe::IframeHandle::InProcess(ip) = &entry.handle else {
-        unreachable!()
-    };
+    let ip = super::test_support::in_process_entry(&state);
     assert_eq!(focused(&ip.pipeline), None, "child focus dropped");
     assert_eq!(
         event_log(&state.pipeline),
@@ -451,14 +414,11 @@ fn delegates_focus_host_focused_by_vm_survives_fixup() {
 /// provenance PR's predicate, reached through the sink).
 #[test]
 fn focus_fixup_no_change_from_script_alone() {
-    let (mut state, _browser) =
-        build_test_content_state("<!DOCTYPE html><html><body><input id=b></body></html>", "");
+    let (mut state, _browser, _b) = ua_focused_on_b(
+        "<!DOCTYPE html><html><body><input id=b></body></html>",
+        LOGGER,
+    );
     let p = &mut state.pipeline;
-    let b = p.dom.find_by_id(p.document, "b").expect("#b");
-    eval(p, LOGGER);
-    super::focus::set_focus(p, b);
-    crate::re_render(p);
-    assert_eq!(focused(p), Some(b), "precondition: b is focused");
     eval(
         p,
         "document.getElementById('b').value = 'x'; document.getElementById('b').disabled = true;",

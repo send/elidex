@@ -5,7 +5,7 @@ use elidex_ecs::Attributes;
 /// [`focus_fixup_steps`] keeps it (it never resets the focus). Tests that
 /// exercise persistence across the fixup use this rather than a bare `<div>`
 /// (non-focusable, which `focus_fixup_steps` would reset).
-fn focusable_div(dom: &mut EcsDom) -> Entity {
+pub(super) fn focusable_div(dom: &mut EcsDom) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("tabindex".to_string(), "0".to_string());
     dom.create_element("div", attrs)
@@ -137,7 +137,7 @@ fn current_focus_filters_disconnected() {
 
 /// Create `tag` and attach it under `doc` so it is connected (focusable
 /// areas must be connected — `is_focusable` gates on `is_connected`, §6.6.2).
-fn connect_el(dom: &mut EcsDom, doc: Entity, tag: &str) -> Entity {
+pub(super) fn connect_el(dom: &mut EcsDom, doc: Entity, tag: &str) -> Entity {
     let el = dom.create_element(tag, Attributes::default());
     let _ = dom.append_child(doc, el);
     el

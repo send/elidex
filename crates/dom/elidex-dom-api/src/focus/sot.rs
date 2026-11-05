@@ -30,8 +30,7 @@ pub(crate) fn raw_focus_holder(dom: &EcsDom) -> Option<Entity> {
 /// stays consistent with every other focus consumer — crucially the `:focus`
 /// selector, which matches the same bit directly (`elidex-css`
 /// `selector/matching.rs`). A focused element that becomes non-focusable in the
-/// same JS turn (its `hidden` / `disabled` lands, `<input type>` flips, or it
-/// loses the `tabindex` / `contenteditable` / `href` that made it focusable)
+/// same JS turn (what makes it so: see [`focus_fixup_steps`])
 /// **remains** the focused area until the render-time [`focus_fixup_steps`]
 /// moves focus to the viewport: WHATWG HTML "update the rendering" step 17 makes that
 /// focusability fixup **asynchronous** (run at the next rendering update), in

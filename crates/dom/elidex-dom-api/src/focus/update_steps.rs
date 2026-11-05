@@ -24,7 +24,8 @@
 //! shared-`Document` tail popped produces. A move to the **viewport** (the
 //! step-17 [`focus_fixup_steps`], [`unfocusing_steps`] step 8) is not: the new
 //! chain's Document entry keeps its place, and focus update step 4 gives it a
-//! `focus` event at its Window, which this model does not fire (PR-A3).
+//! `focus` event at its Window, which this model does not fire (see
+//! [`focus_fixup_steps`]).
 //!
 //! ## Reentrancy (reentrant-wins)
 //!
@@ -315,14 +316,9 @@ mod tests {
     use super::{
         focus_fixup_steps, focusing_steps, unfocusing_steps, FocusEventKind, FocusEventSink,
     };
+    use crate::focus::tests::{connect_el, focusable_div};
     use crate::focus::{current_focus, raw_focus_holder, set_focus_bit, FocusTrigger};
     use elidex_ecs::{Attributes, EcsDom, Entity};
-
-    fn focusable_div(dom: &mut EcsDom) -> Entity {
-        let mut attrs = Attributes::default();
-        attrs.set("tabindex".to_string(), "0".to_string());
-        dom.create_element("div", attrs)
-    }
 
     #[derive(Default)]
     struct Recorded {
@@ -616,13 +612,6 @@ mod tests {
     }
 
     // ---- C14: the "update the rendering" step-17 focus fixup ----------------
-
-    /// Append a fresh `<tag>` to `parent`.
-    fn connect_el(dom: &mut EcsDom, parent: Entity, tag: &str) -> Entity {
-        let el = dom.create_element(tag, Attributes::default());
-        let _ = dom.append_child(parent, el);
-        el
-    }
 
     /// Run the fixup over `doc` with a fresh [`TestSink`].
     fn run_fixup(dom: &mut EcsDom, doc: Entity) -> Recorded {
