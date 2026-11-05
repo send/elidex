@@ -50,11 +50,13 @@ HELPER_PATH = os.path.join(REPO, *HELPER.split("/"))
 H = _load(HELPER_PATH, "python_pin_testing_under_member")
 
 # N17: the last run of the refusal on a real non-pin interpreter (plan section 10 step 4).
-# sha256 of scripts/python_pin.py, the date, and "<version> <sys.executable>" of that run.
+# sha256 of scripts/python_pin.py, the date, "<version> <sys.executable>" and the mise the run could
+# reach ("none reachable" or its version) of that run.
 REAL_OLD_RUN = {
-    "sha256": "72e402dc939b3490a9ce296d8ad946af26338fc00ccdf2bc927d22149e9724c9",
+    "sha256": "619c86f5ade25ecf097a0d7752da1192c833953ea38b7dbe77dc02d48c846846",
     "date": "2026-11-05",
     "interpreter": "3.9.6 /Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+    "mise": "none reachable",
 }
 
 
@@ -139,9 +141,10 @@ UNTRUSTED = (
 )
 
 
-def state_entries():
-    """The real tracked-configs / trusted-configs targets (read only; absent = empty, never a skip)."""
-    base = os.environ.get("MISE_STATE_DIR")
+def state_entries(base=None):
+    """The tracked-configs / trusted-configs targets of the state dir `base` (default: the real one;
+    read only; absent = empty, never a skip)."""
+    base = base or os.environ.get("MISE_STATE_DIR")
     if not base:
         xdg = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
         base = os.path.join(xdg, "mise")
@@ -225,6 +228,10 @@ class PinCase(unittest.TestCase):
         self.assertEqual(
             H.read_sentinel(self.sentinel), [], "a child reached the sentinel: it bypassed the helper's environment"
         )
+        # N19 (a): the child's MISE_* are the helper's, under <tmp>/iso, in every run.
+        # (the MISE_* a test sets on purpose through extra_env are the test's, not the helper's.)
+        built = dict((k, v) for k, v in env.items() if k not in (extra_env or {}))
+        self.assertEqual(H.isolation_problems(built, os.path.join(tmp, "iso")), [])
         # N19 (a): the child's PATH reaches the fake mise, or none.
         found = shutil.which("mise", path=env["PATH"])
         self.assertEqual(found, os.path.join(bindir, "mise") if bindir else None)
@@ -306,7 +313,7 @@ class PinCase(unittest.TestCase):
         r = self.run_pin(version="3.15.2", answers={"*": ok("3.15.2 installed\n")})
         self.assertEqual(r.rc, 0, r.err)
         self.assertEqual(r.calls(), [])
-        self.assertEqual(r.err, "")
+        self.assertEqual(r.err, PREFIX + "admitted 3.15.2\n")
         # And a version the pin does not admit is refused although mise would say it is installed.
         r = self.run_pin(version="3.15.2.candidate.1", answers={"*": ok("3.15.2 installed\n")})
         self.refused(r, running="3.15.2 candidate")
@@ -425,7 +432,7 @@ class PinCase(unittest.TestCase):
         self.assertEqual([l for l in r.lines if "warning:" in l], expected)
         r = self.run_pin(version="3.15.2", extra_env=env)
         self.assertEqual(r.rc, 0, r.err)
-        self.assertEqual(r.err, "\n".join(expected) + "\n")
+        self.assertEqual(r.err, "\n".join(expected) + "\n" + PREFIX + "admitted 3.15.2\n")
         # E18: a version input is not a warning (the oracle shows it).
         for version, rc in (("3.9.6", 1), ("3.15.2", 0)):
             r = self.run_pin(version=version, extra_env={"MISE_PYTHON_VERSION": "3.14.10"}, answers=self.a_fixture(ok("[]")))
@@ -456,6 +463,15 @@ class PinCase(unittest.TestCase):
         alive = [p for p in pids if p not in self._gone]
         raise AssertionError("still alive after the refusal returned: %s" % alive)
 
+    def wait_for_pids(self, bindir, seconds=30):
+        """Block until hang.pids holds the fake and its sleep (bounded: a start-up that never gets there is red)."""
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if len(H.read_hang_pids(bindir)) >= 2:
+                return
+            time.sleep(0.02)
+        raise AssertionError("hang.pids did not hold two pids within %s s: %s" % (seconds, H.read_hang_pids(bindir)))
+
     def control_N15(self):
         # E16: stderr longer than the cap.
         r = self.run_pin(answers=self.a_fixture(fail(1, "x" * 10000)))
@@ -463,13 +479,31 @@ class PinCase(unittest.TestCase):
         self.assertIn(PREFIX + "x" * 4000, r.lines)
         self.assertNotIn("x" * 4001, r.err)
         self.assertIn(PREFIX + "[truncated: 6000 more characters]", r.lines)
-        # E15: (a) hangs with a grandchild holding the pipes.
-        r = self.run_pin(timeout="1", child_timeout=5, answers={"*": {"hang": True}})
-        self.refused(r)
-        self.assertIn(PREFIX + "  no answer within 1.0 seconds (the question timed out)", r.lines)
-        self.assertEqual(r.err.count("not asked: an earlier question timed out"), 2)  # (b) and (c)
-        self.assertEqual([c["argv"] for c in r.calls()], [Q_A.split()])
-        pids = H.read_hang_pids(r.bindir)
+        # E15: (a) hangs with a grandchild holding the pipes. In process, so that the 1 s timeout is
+        # started (by `communicate`) only once hang.pids holds the fake and its sleep.
+        m = self.mod()
+        tmp = self.tmp()
+        bindir = os.path.join(tmp, "bin")
+        H.write_fake_mise(bindir, {"*": {"hang": True}})
+        self.reap_at_cleanup(bindir)
+        env = H.isolated_mise_env(os.path.join(tmp, "iso"), fake_mise=bindir)
+        original = subprocess.Popen.communicate
+
+        def communicate_when_hung(proc, *args, **kwargs):
+            if kwargs.get("timeout") is None and len(args) < 2:
+                raise AssertionError("communicate() was called without a timeout")
+            self.wait_for_pids(bindir)
+            return original(proc, *args, **kwargs)
+
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(subprocess.Popen, "communicate",
+                                                                             communicate_when_hung):
+            records = m.ask_mise(tmp, 1.0)
+        text = m.refusal_text((3, 15, 2), tmp, (3, 9, 6, "final", 0), sys.executable, tmp, [], records)
+        lines = text.split("\n")
+        self.assertIn(PREFIX + "  no answer within 1.0 seconds (the question timed out)", lines)
+        self.assertEqual(text.count("not asked: an earlier question timed out"), 2)  # (b) and (c)
+        self.assertEqual([c["argv"] for c in H.read_calls(bindir)], [Q_A.split()])
+        pids = H.read_hang_pids(bindir)
         self.assertEqual(len(pids), 2, "hang.pids must hold the fake and its sleep: %s" % pids)
         self.poll_gone(pids)
         # E14: garbage and exit 2; (b)-(c) still asked, (d) not when (c) failed.
@@ -497,15 +531,26 @@ class PinCase(unittest.TestCase):
         env = H.isolated_mise_env(os.path.join(tmp, "iso"), fake_mise=bindir)
         old = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT, signal.default_int_handler)
-        timer = threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGINT))
+        failure = []
+
+        def interrupt_when_hung():
+            try:
+                self.wait_for_pids(bindir)
+            except AssertionError as e:
+                failure.append(e)
+            os.kill(os.getpid(), signal.SIGINT)  # also on failure: the main thread must not hang in communicate
+
+        timer = threading.Thread(target=interrupt_when_hung)
         try:
             with mock.patch.dict(os.environ, env, clear=True):
                 timer.start()
                 with self.assertRaises(KeyboardInterrupt):
                     m.ask_mise(tmp, 60)
         finally:
-            timer.cancel()
+            timer.join()
             signal.signal(signal.SIGINT, old)
+        if failure:
+            raise failure[0]
         pids = H.read_hang_pids(bindir)
         self.assertEqual(len(pids), 2, pids)
         self.poll_gone(pids)
@@ -519,6 +564,7 @@ class PinCase(unittest.TestCase):
             raise AssertionError("python_pin.py does not parse with 3.9 grammar: %s" % e)
 
     def control_N17(self):
+        self.assertTrue(REAL_OLD_RUN.get("mise"), "REAL_OLD_RUN records no mise (a version, or 'none reachable')")
         digest = hashlib.sha256(self.source().encode("utf-8")).hexdigest()
         self.assertEqual(digest, REAL_OLD_RUN["sha256"],
                          "python_pin.py changed since its last run on %s (%s, %s): record a new run"
@@ -541,7 +587,7 @@ class PinCase(unittest.TestCase):
                         inside.setdefault(fn.name, set()).update(a.name for a in n.names)
                     elif isinstance(n, ast.ImportFrom):
                         inside.setdefault(fn.name, set()).add(n.module)
-        self.assertEqual(inside, {"ask_mise": {"json", "subprocess"}, "_guarded_main": {"traceback"}})
+        self.assertEqual(inside, {"ask_mise": {"json", "signal", "subprocess"}, "_guarded_main": {"traceback"}})
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 for base in node.bases:
@@ -556,12 +602,24 @@ class PinCase(unittest.TestCase):
         self.refused(r)
         calls = r.calls()
         self.assertTrue(calls)
-        # (a) every call's MISE_* are the helper's, under the helper's root <tmp>/iso.
+        # (a) every call's MISE_* are the helper's, under the helper's root <tmp>/iso (also asserted in run_pin).
         for call in calls:
             self.assertEqual(H.isolation_problems(call["environ"], os.path.join(r.tmp, "iso")), [])
         # (b) no entry of the real mise state resolves into this run's <tmp>.
-        prefix = r.tmp + os.sep
-        self.assertEqual([p for p in state_entries() if (p + os.sep).startswith(prefix)], [])
+        self.assertEqual(self.entries_into(r.tmp), [])
+        # Control: entries planted in a scratch state dir (a link under tracked-configs, a line in
+        # trusted-configs) that resolve into <tmp> are reported, so (b) cannot be green by reading nothing.
+        scratch = self.tmp()
+        os.makedirs(os.path.join(scratch, "tracked-configs"))
+        os.makedirs(os.path.join(scratch, "trusted-configs"))
+        os.symlink(os.path.join(r.tmp, "mise.toml"), os.path.join(scratch, "tracked-configs", "a"))
+        with open(os.path.join(scratch, "trusted-configs", "b"), "w") as f:
+            f.write(os.path.join(r.tmp, "x", ".tool-versions") + "\n")
+        self.assertEqual(len(self.entries_into(r.tmp, scratch)), 2)
+
+    def entries_into(self, tmp, base=None):
+        prefix = tmp + os.sep
+        return [p for p in state_entries(base) if (p + os.sep).startswith(prefix)]
 
     def test_NM_I7(self):
         # The helper dropped: the outer environment passes through (and the call is counted).
@@ -638,7 +696,7 @@ class PinCase(unittest.TestCase):
     # ===== N23 the exit line ==============================================================
 
     def control_N23(self):
-        # Every non-zero exit ends its stderr with exactly `python-pin: exit N`; exit 0 prints none.
+        # Every non-zero exit ends its stderr with exactly `python-pin: exit N`; exit 0 ends with `python-pin: admitted X.Y.Z` and no exit line.
         r = self.run_pin(answers=self.a_fixture(ok("[]")))
         self.assertEqual((r.rc, r.lines[-2:]), (1, [PREFIX + "exit 1", ""]), r.err)
         self.assertEqual(r.err.count(PREFIX + "exit "), 1)
@@ -648,7 +706,8 @@ class PinCase(unittest.TestCase):
         r = self.run_pin(version="3.15.2", pin_line=None)
         self.assertEqual((r.rc, r.lines[-2:]), (2, [PREFIX + "exit 2", ""]), r.err)
         r = self.run_pin(version="3.15.2")
-        self.assertEqual((r.rc, r.err), (0, ""))
+        self.assertEqual((r.rc, r.err), (0, PREFIX + "admitted 3.15.2\n"))
+        self.assertEqual(r.err.count(PREFIX + "exit "), 0)
         # An uncaught exception in main(): the traceback, then `python-pin: exit 3` last. The module runs
         # as a script (the __main__ path), with read_pin made to raise.
         tmp = self.tmp()

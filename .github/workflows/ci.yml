@@ -264,7 +264,7 @@ jobs:
     name: Python suites
     timeout-minutes: 22
     # Pinned, not `ubuntu-latest`: the manifest serves builds per image; the pinned
-    # patch must have one for ubuntu-24.04 x64 (umbrella section 4.1, row 2).
+    # patch must have one for ubuntu-24.04 x64 (umbrella records R§4.1, row 2).
     # Re-check at each bump and when ubuntu-24.04 retires.
     runs-on: ubuntu-24.04
     steps:

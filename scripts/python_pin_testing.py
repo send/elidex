@@ -64,7 +64,7 @@ RED_PIN_TEXTS = (
 # Run as `<sys.executable> -c LAUNCHER <module path> <version> <executable> <timeout>`: loads the
 # module at argv[1] by path under a fresh name, replaces sys.version_info by a tuple subclass built
 # from argv[2] ("major.minor.micro.releaselevel.serial"), sys.executable when argv[3] is non-empty,
-# sets ORACLE_TIMEOUT_S when argv[4] is non-empty, and exits with main().
+# sets ORACLE_TIMEOUT_S when argv[4] is non-empty, and exits with _guarded_main().
 LAUNCHER = """
 import importlib.util
 import sys
@@ -87,7 +87,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 if sys.argv[4]:
     _mod.ORACLE_TIMEOUT_S = float(sys.argv[4])
-sys.exit(_mod.main())
+sys.exit(_mod._guarded_main())
 """
 
 _FAKE_MISE = r'''import json
@@ -117,7 +117,8 @@ sys.stderr.write(answer.get("stderr", ""))
 sys.exit(answer.get("rc", 0))
 '''
 
-_FAKE_PYTHON3 = r'''import os
+_FAKE_PYTHON3 = r'''import json
+import os
 import sys
 
 here = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -125,6 +126,8 @@ with open(os.path.join(here, "fake_python3.version")) as f:
     VERSION = f.read().strip()
 LAUNCHER = @LAUNCHER@
 args = sys.argv[1:]
+with open(os.path.join(here, "python3_argv.jsonl"), "a") as f:
+    f.write(json.dumps(args) + "\n")
 if "-VV" in args:
     print("Python %s (fake)" % ".".join(VERSION.split(".")[:3]))
     sys.exit(0)
@@ -275,6 +278,11 @@ def pin_tree(dst, module_source, pin_line):
 
 def read_calls(bindir):
     return [json.loads(line) for line in _lines(os.path.join(str(bindir), "calls.jsonl"))]
+
+
+def read_python3_argv(bindir):
+    """The argv (after the program name) of each call of the fake python3 in `bindir`, in order."""
+    return [json.loads(line) for line in _lines(os.path.join(str(bindir), "python3_argv.jsonl"))]
 
 
 def read_hang_pids(bindir):

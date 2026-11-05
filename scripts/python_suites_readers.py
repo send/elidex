@@ -470,7 +470,7 @@ def setup_problems(job, di):
     job (a second one is a second spelling of the interpreter), it precedes the credited driver
     step, its keys are within SETUP_STEP_KEYS, its `with` is a mapping whose key set is exactly
     {python-version-file} and whose value is the plain or quoted scalar `.tool-versions`; and
-    `runs-on` is exactly TOOLS_RUNS_ON (`ubuntu-latest` will not keep serving the pinned patch)."""
+    `runs-on` is exactly TOOLS_RUNS_ON (`ubuntu-latest` moves between images; the manifest serves builds per image)."""
     problems = []
     if job.get("runs-on") != TOOLS_RUNS_ON:
         problems.append("runs-on is not exactly %s" % TOOLS_RUNS_ON)

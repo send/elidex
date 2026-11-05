@@ -1,7 +1,7 @@
 """Driver and complement pins for scripts/python-suites.sh (slice A-iii; python-pin PR-1).
 
 Plan of record: docs/plans/2026-07-citation-hygiene-Aiii-suite-scheduler.md, §6
-(pins Q1-Q13) and §6.1 (Property -> pin); N1 / N1b / N1c / N22 and the DM / FM mutants are the
+(pins Q1-Q13) and §6.1 (Property -> pin); N1 / N1b / N1c / N1d / N22 and the DM / FM mutants are the
 pins of docs/plans/2026-10-python-pin-pr1-tests.md (6.1). Every test method's name starts
 with the §6 / §6.1 row it pins (`test_P4_...` pins row P4). Fixtures: see
 `python_suites_fixtures.py`. Every driver-executing pin builds a scratch git
@@ -152,7 +152,7 @@ class TestDriverPins(DriverCase, unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # Step 1: exact admission (N1, N1b, N1c), the isolation of the pins' children (N22), and the
-# driver / fixture mutants (DM1-DM5, FM1).
+# driver / fixture mutants (DM1-DM9, FM1).
 
 # The pin and the versions refused beside it, both derived from the `.tool-versions` text (the
 # live file at import; a scratch tree's own copy through `pin_of`): this file spells the pin no
@@ -180,6 +180,8 @@ REFUSED_VERSIONS = refused_versions(PIN)
 # Source mutants over the scratch copies: (id, file, find, replace, killing control). The find text
 # occurs exactly once in the live file it mutates (a stale row is red).
 STEP1_CALL = 'python3 -I -S "$root/scripts/python_pin.py"'
+ADMITTED_ARM = '"python-pin: admitted "*) ;;'
+PIN_RAISES = "    path = os.path.join(root, PIN_FILE)\n"
 FAIL_BRANCH = '  fi\n  exit 1\nfi\n'
 DRIVER_MUTANTS = (
     (
@@ -197,6 +199,10 @@ DRIVER_MUTANTS = (
         "refusals",
     ),
     ("DM3", "scripts/python-suites.sh", STEP1_CALL, "true", "refusals"),
+    # DM8: Step 1 without -I -S (the argv the fake python3 recorded is what N1 reads).
+    ("DM8", "scripts/python-suites.sh", STEP1_CALL, 'python3 "$root/scripts/python_pin.py"', "refusals"),
+    # DM9: exit 0 accepted without the admitted line (N1d runs a python3 that exits 0 silently).
+    ("DM9", "scripts/python-suites.sh", ADMITTED_ARM, "*) ;;", "silent"),
     (
         "DM4",
         "scripts/python-suites.sh",
@@ -271,6 +277,7 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         b = self.fakes()
         env, tmp_root = self.step1_env(b)
         root = os.path.realpath(str(s.dir))
+        shown_so_far = []
         for spec, shown, level in versions:
             H.write_fake_python3(b, spec)
             self.assertEqual(shutil.which("python3", path=env["PATH"]), os.path.join(str(b), "python3"))
@@ -283,6 +290,11 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
             self.assertIn("pin: %s (%s)" % (PIN_DOTTED, os.path.join(root, ".tool-versions")), out)
             self.assertIn("running: %s %s" % (shown, level), out)
             self.assertNotIn("member(s) in", out)
+            # Step 1's own invocation (the call naming python_pin.py) carried -I -S before the script.
+            step1 = [a for a in H.read_python3_argv(b) if any(x.endswith("python_pin.py") for x in a)]
+            self.assertEqual(len(step1), len(shown_so_far) + 1, step1)
+            self.assertEqual(step1[-1][:2], ["-I", "-S"], step1[-1])
+            shown_so_far.append(spec)
         calls = H.read_calls(b)
         self.assertTrue(calls, "the refusal never asked the fake mise")
         for call in calls:
@@ -304,6 +316,57 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         s = self.pin_scratch()
         self.refusals(s)
         self.spelling(s)
+
+    def silent_zero(self, s):
+        """N1d's control: a python3 that exits 0 without python_pin's admitted line is Step 1's second-branch failure."""
+        b = self.tmpdir("python-suites-silentpy-")
+        py = b / "python3"
+        py.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        py.chmod(0o755)
+        e = base_env()
+        e["PATH"] = str(b) + os.pathsep + e["PATH"]
+        code, out = self.launch(s, e)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit 0)", out)
+        self.assertNotIn("refused or failed", out)
+        self.assertNotIn("member(s) in", out)
+
+    def test_N1d_exit_zero_without_the_admitted_line_is_not_the_pin(self):
+        self.silent_zero(self.pin_scratch())
+
+    def test_N1e_an_uncaught_exception_in_python_pin_is_exit_3_with_the_exit_line(self):
+        # End to end through the driver's tee and exit-line check: the fake python3 runs the scratch's
+        # python_pin.py (made to raise in read_pin) through the launcher's _guarded_main().
+        s = self.pin_scratch()
+        path = s.dir / "scripts" / "python_pin.py"
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count(PIN_RAISES), 1)
+        path.write_text(text.replace(PIN_RAISES, PIN_RAISES + "    raise RuntimeError('boom')\n"), encoding="utf-8")
+        b = self.fakes()
+        env, _ = self.step1_env(b)
+        H.write_fake_python3(b, PIN_DOTTED)
+        code, out = self.launch(s, env)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("RuntimeError: boom", out)
+        self.assertIn("python-pin: exit 3", out)
+        self.assertIn("FAIL pin: scripts/python_pin.py refused or failed (exit 3; its output is above)", out)
+        self.assertNotIn("did not end with", out)
+        self.assertNotIn("member(s) in", out)
+
+    def test_PIN_FILE_has_one_spelling(self):
+        # python_pin.py's PIN_FILE (read by AST, not imported: P6) is the readers' PIN_FILE.
+        tree = ast.parse((REPO / "scripts" / "python_pin.py").read_text(encoding="utf-8"))
+        values = [
+            n.value.value
+            for n in tree.body
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "PIN_FILE" for t in n.targets)
+            and isinstance(n.value, ast.Constant)
+        ]
+        self.assertEqual(len(values), 1, "python_pin.py has not exactly one literal `PIN_FILE = ...`")
+        import python_suites_readers as readers
+
+        self.assertEqual(values[0], readers.PIN_FILE)
 
     def test_N1b_no_python3_on_path(self):
         s = self.pin_scratch()
@@ -405,11 +468,12 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
         self.assertNotIn("member(s) in", out)
 
     def test_DM_FM_mutants_are_killed(self):
-        self.assertEqual([m[0] for m in DRIVER_MUTANTS], ["DM1", "DM2", "DM3", "DM4", "DM6", "DM7", "DM5"])
+        self.assertEqual([m[0] for m in DRIVER_MUTANTS], ["DM1", "DM2", "DM3", "DM8", "DM9", "DM4", "DM6", "DM7", "DM5"])
         # Each killing control passes unmutated.
         live = self.pin_scratch()
         self.refusals(live, only_first=True)
         self.spelling(live)
+        self.silent_zero(live)
         self.control_N22()
         for mid, rel, find, replace, control in DRIVER_MUTANTS:
             text = (REPO / rel).read_text(encoding="utf-8")
@@ -419,6 +483,8 @@ class TestStep1Pins(DriverCase, unittest.TestCase):
             with self.assertRaises(AssertionError, msg="%s survived" % mid):
                 if control == "refusals":
                     self.refusals(s, only_first=True)
+                elif control == "silent":
+                    self.silent_zero(s)
                 else:
                     self.spelling(s)
         # FM1: base_env restored to 660e594c's body; N22's four parts (Scratch run, direct

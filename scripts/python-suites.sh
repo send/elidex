@@ -166,7 +166,8 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "python-suites: FAIL pin: no python3 on PATH" >&2
   exit 1
 fi
-# python_pin.py ends stderr with `python-pin: exit N` on every non-zero exit; any other last
+# python_pin.py ends stderr with `python-pin: exit N` on every non-zero exit and with
+# `python-pin: admitted X.Y.Z` on exit 0; any other last
 # line means python3 did not get that far (e.g. a mise shim refusing an untrusted config, or a
 # kill). Its stderr is shown live and teed to a temp file; the trap is installed first so an
 # interrupt does not leave the file behind. (bash 3.2: no `wait` on a process substitution.)
@@ -189,6 +190,14 @@ if [ "$pin_rc" -ne 0 ]; then
   fi
   exit 1
 fi
+# Exit 0 is the pin's own only when its last line says so: `python-pin: admitted X.Y.Z`.
+case "$pin_last" in
+  "python-pin: admitted "*) ;;
+  *)
+    echo "python-suites: FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit 0)" >&2
+    exit 1
+    ;;
+esac
 echo "python-suites: python3 -VV: $(python3 -VV 2>&1 | tr '\n' ' ')"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/python-suites.XXXXXX")"

@@ -1,7 +1,8 @@
 """The interpreter pin: its one reader, exact admission and the refusal (python-pin PR-1).
 
 `scripts/python-suites.sh` Step 1 runs this file as `python3 -I -S scripts/python_pin.py` before
-anything else. Exit 0: the running interpreter is the pin in the root `.tool-versions`. Exit 1: it is
+anything else. Exit 0: the running interpreter is the pin in the root `.tool-versions`; the last stderr line is
+`python-pin: admitted X.Y.Z`. Exit 1: it is
 not; what was observed is printed to stderr (the facts, then one generic block). Exit 2: the pin
 file itself is unreadable or malformed, so no version can be compared. Exit 3: an uncaught
 exception in this module (its traceback is printed). Non-zero runs end with `python-pin: exit N`
@@ -169,6 +170,7 @@ def ask_mise(cwd, timeout):
     "exit" (rc, out, err), "unparsed" (out, err), "missing", "timeout", "notasked" (why).
     """
     import json
+    import signal
     import subprocess
 
     stop = []
@@ -178,13 +180,16 @@ def ask_mise(cwd, timeout):
         if stop:
             return {"key": key, "label": label, "kind": "notasked", "why": stop[0]}
         # Once the process exists, any exit path (a timeout, a KeyboardInterrupt, any BaseException)
-        # kills its group. The residual: an exception raised inside Popen after the fork but before
-        # it returns (a KeyboardInterrupt there), or between its return and the binding of `proc`,
-        # leaves mise running, because no pid reaches this frame; the window is the few bytecodes of
-        # Popen's own error-pipe read, and it is not closed here (it would need signals blocked
-        # around Popen, a `signal` import this module does not take).
+        # kills its group. SIGINT is blocked (where `pthread_sigmask` exists) from before Popen until
+        # `proc` is bound, so an interrupt is delivered only when the group can be reaped; the
+        # residual is a platform without `pthread_sigmask`, where an interrupt in Popen's blocking
+        # error-pipe read, until the child execs, leaves mise running because no pid reaches this
+        # frame.
         proc = None
+        masked = hasattr(signal, "pthread_sigmask")
         try:
+            if masked:
+                signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGINT])
             try:
                 proc = subprocess.Popen(
                     argv,
@@ -201,6 +206,9 @@ def ask_mise(cwd, timeout):
                     reason = "mise could not be started (%s)" % e
                 stop.append(reason)
                 return {"key": key, "label": label, "kind": "missing", "reason": reason}
+            finally:
+                if masked:
+                    signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
             out, err = proc.communicate(timeout=timeout)
         except BaseException as e:
             if proc is not None:
@@ -342,6 +350,7 @@ def main():
         return _exit(2)
     if admitted(sys.version_info, pin):
         _say("".join(w + "\n" for w in warnings))
+        _say("%sadmitted %d.%d.%d\n" % (PREFIX, pin[0], pin[1], pin[2]))
         return 0
     cwd = os.getcwd()
     records = ask_mise(cwd, ORACLE_TIMEOUT_S)

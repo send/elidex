@@ -121,7 +121,11 @@ def base_env():
     `.tool-versions`. Every launch of a pin file takes its environment from here, and whatever
     mise a child reaches (a distro package in /usr/bin included) WRITES only under one temp
     root (its data, state, config and cache directories and its global config file; it may
-    still read system or ancestor config), is offline, and installs nothing."""
+    still read system or ancestor config), is offline, and installs nothing.
+
+    The one process-lifetime root is intentional: every launch of the process shares it, so what a
+    mise writes under it outlives no launch's tree and nothing outside it, and the root is removed
+    once, at exit."""
     env = {
         k: v
         for k, v in os.environ.items()
@@ -166,15 +170,26 @@ def _launch(argv, *, env, purpose, cwd=None, timeout=LAUNCH_TIMEOUT):
             "launch %r (purpose %r) changes regime key(s) %s but is not a named "
             "member of the unguarded-child class" % (argv, purpose, changed)
         )
-    proc = subprocess.run(
+    # Its own session, so a timeout kills the whole process group (a driver's descendants included),
+    # not only the child `subprocess.run` would kill.
+    proc = subprocess.Popen(
         [str(a) for a in argv],
         env=env,
         cwd=None if cwd is None else str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=timeout,
+        start_new_session=True,
     )
-    return proc.returncode, proc.stdout.decode("utf-8", "replace")
+    try:
+        stdout, _ = proc.communicate(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            pass
+        proc.communicate()
+        raise
+    return proc.returncode, stdout.decode("utf-8", "replace")
 
 
 # ---------------------------------------------------------------------------

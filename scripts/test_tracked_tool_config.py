@@ -12,10 +12,12 @@ The module is called as `t.f(...)` so unittest.mock.patch.object reaches the mem
 """
 
 import ast
+import atexit
 import importlib.util
 import errno
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -52,8 +54,19 @@ def checked_z_output(argv, returncode, stdout, stderr):
     return [r for r in stdout.decode("utf-8", "surrogateescape").split("\0") if r]
 
 
+_ISO_ROOT = []
+
+
 def _without_git_env():
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    """The environment of the member's git children: the helper's isolated one (no MISE_* of the
+    caller, the five isolated ones set, any mise-bearing PATH directory dropped), minus GIT_*, so a
+    mise shim named `git` reached through the outer PATH cannot write the user's mise state. One
+    root for the process lifetime."""
+    if not _ISO_ROOT:
+        _ISO_ROOT.append(os.path.realpath(tempfile.mkdtemp(prefix="tracked-tool-config-mise-")))
+        atexit.register(shutil.rmtree, _ISO_ROOT[0], True)
+    env = H.isolated_mise_env(_ISO_ROOT[0])
+    return {k: v for k, v in env.items() if not k.startswith("GIT_")}
 
 
 def git_z(root, *args, run=subprocess.run):
