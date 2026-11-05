@@ -133,7 +133,8 @@ impl FocusEventSink for ShellFocusSink<'_> {
         // §6.6.4 step 2.1 — fire `change` if the value was user-edited since
         // focus, consuming the snapshot (a no-op sink — the VM, PR-A2c — leaves it
         // intact). `change` fires while `old` is still the designated focused
-        // area (its FOCUS bit still set — steps 2.2-2.4 clear it afterwards),
+        // area (its FOCUS bit still set; elidex clears it after `change`, a
+        // deviation from the spec's steps 2.2-2.4 text),
         // so a `change` listener still sees `old` as `activeElement` (cell C6).
         dispatch_change_on_blur(self.pipeline, old);
     }

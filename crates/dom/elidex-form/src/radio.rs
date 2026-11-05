@@ -66,7 +66,8 @@ pub fn toggle_radio(dom: &mut EcsDom, entity: Entity) -> bool {
         return false;
     };
 
-    // HTML §4.10.5.1.16: clicking an already-checked radio does nothing.
+    // Clicking an already-checked radio leaves it checked (observed browser
+    // behaviour; not stated as spec text).
     if was_checked {
         return false;
     }
@@ -321,8 +322,11 @@ mod tests {
     #[test]
     fn radios_in_different_forms_independent() {
         let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
         let form1 = dom.create_element("form", Attributes::default());
         let form2 = dom.create_element("form", Attributes::default());
+        let _ = dom.append_child(doc, form1);
+        let _ = dom.append_child(doc, form2);
 
         let r1 = make_radio(&mut dom, "color", false);
         let _ = dom.append_child(form1, r1);
@@ -364,12 +368,15 @@ mod tests {
         // A radio inside a form and a radio without a form should be independent
         // even if they share the same name.
         let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
         let form = dom.create_element("form", Attributes::default());
+        let _ = dom.append_child(doc, form);
 
         let r_in_form = make_radio(&mut dom, "color", false);
         let _ = dom.append_child(form, r_in_form);
 
         let r_formless = make_radio(&mut dom, "color", false);
+        let _ = dom.append_child(doc, r_formless);
 
         assert!(toggle_radio(&mut dom, r_in_form));
         assert!(toggle_radio(&mut dom, r_formless));
@@ -392,8 +399,11 @@ mod tests {
     #[test]
     fn different_name_groups_independent() {
         let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
         let r1 = make_radio(&mut dom, "a", false);
         let r2 = make_radio(&mut dom, "b", false);
+        let _ = dom.append_child(doc, r1);
+        let _ = dom.append_child(doc, r2);
 
         assert!(toggle_radio(&mut dom, r1));
         assert!(toggle_radio(&mut dom, r2));
@@ -485,20 +495,24 @@ mod tests {
     }
 
     #[test]
-    fn cross_tree_form_attribute_different_forms_independent() {
+    fn form_attribute_different_forms_independent() {
         // A radio with form="form1" and a radio inside form2 should be independent.
         let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
 
         let mut form1_attrs = Attributes::default();
         form1_attrs.set("id", "form1");
-        let _form1 = dom.create_element("form", form1_attrs);
+        let form1 = dom.create_element("form", form1_attrs);
+        let _ = dom.append_child(doc, form1);
 
         let mut form2_attrs = Attributes::default();
         form2_attrs.set("id", "form2");
         let form2 = dom.create_element("form", form2_attrs);
+        let _ = dom.append_child(doc, form2);
 
-        // r1 has form="form1" (cross-tree).
+        // r1 has form="form1" but is outside form1 (attribute association).
         let r1 = make_radio_with_form_attr(&mut dom, "color", "form1", false);
+        let _ = dom.append_child(doc, r1);
 
         // r2 is inside form2 (ancestor).
         let r2 = make_radio(&mut dom, "color", false);

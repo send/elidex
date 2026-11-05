@@ -273,7 +273,7 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     None
 }
 
-/// WHATWG HTML §4.10.3 `requestSubmit(submitter?)` step 2.1:
+/// WHATWG HTML §4.10.3 The form element, `requestSubmit(submitter?)` step 1.1:
 /// a non-null submitter must be a submit button — `<button type=submit>`,
 /// `<input type=submit>`, or `<input type=image>` (all classified as
 /// `FormControlKind::SubmitButton` by `from_element`).
@@ -286,7 +286,7 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
         .is_ok_and(|fcs| fcs.kind == FormControlKind::SubmitButton)
 }
 
-/// WHATWG HTML §4.10.3 The form element, `requestSubmit(submitter?)` step 2.2:
+/// WHATWG HTML §4.10.3 The form element, `requestSubmit(submitter?)` step 1.2:
 /// the submitter's form owner must be `form`.  Delegates to the
 /// canonical §4.10.18.3 form-owner resolution path
 /// (`crate::radio::resolve_form_owner`),

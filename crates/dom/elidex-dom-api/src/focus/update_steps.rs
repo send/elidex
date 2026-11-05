@@ -22,7 +22,7 @@
 //! exact: the shell fires `blur`/`focus` only at the elements (never the
 //! `Document`/viewport), which is what an `[element, Document]` chain with the
 //! shared-`Document` tail popped produces. A move to the **viewport** (the
-//! step-17 [`focus_fixup_steps`], [`unfocusing_steps`] step 8) is not: the new
+//! step-17 [`focus_fixup_steps`]) is not: the new
 //! chain's Document entry keeps its place, and focus update step 4 gives it a
 //! `focus` event at its Window, which this model does not fire (see
 //! [`focus_fixup_steps`]).
@@ -172,8 +172,7 @@ pub fn focusing_steps(
 /// Step 8 has two branches — "run the focusing steps for topDocument's
 /// viewport" when the system has focus, else "run the focus update steps given
 /// old chain, an empty list, and null". elidex does not model system focus, so
-/// both are the one viewport transition, `focusing_steps_for_viewport` (the
-/// same function the step-17 fixup, [`focus_fixup_steps`], runs).
+/// `focusing_steps_for_viewport` stands in for both branches.
 pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
     let doc = sink.document();
     if current_focus(sink.dom(), doc) != Some(old_target) {
@@ -184,8 +183,10 @@ pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
 }
 
 /// WHATWG HTML "update the rendering" step 17 — the render-time **focus
-/// fixup**: if the document's focused area is no longer a focusable area, run
-/// the §6.6.4 focusing steps for the document's viewport.
+/// fixup** (HTML §8.1.7.3 "update the rendering" step 17): if the document's
+/// focused area is no longer a focusable area, run the §6.6.4 focusing steps for
+/// the document's viewport. Step 17's second half (setting the navigation API's
+/// focus-changed-during-ongoing-navigation flag to false) is unimplemented.
 ///
 /// §6.6.2 focusability is enforced as a focus-*time* gate on the writers
 /// ([`is_focusable`] at every `focus()` entry), but a connected, focusable
