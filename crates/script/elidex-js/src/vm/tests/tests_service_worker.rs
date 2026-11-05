@@ -115,7 +115,7 @@ impl Harness {
             match self.content.recv_timeout(Duration::from_millis(100)) {
                 Ok(msg) => return msg,
                 Err(e) if e.is_timeout() => {}
-                Err(_) => panic!("SW thread exited without replying"),
+                Err(e) => panic!("SW thread exited without replying ({e})"),
             }
         }
     }
