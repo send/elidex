@@ -1,7 +1,8 @@
 //! Change-on-blur provenance snapshot (WHATWG HTML §6.6.4 focus update steps
 //! step 2.1; §4.10.5.5 Common event behaviors).
 //!
-//! Step 2.1 fires `change` at a blurred text control only if "the user has
+//! Step 2.1 (for `<input>`; `<textarea>` follows it as measured browser
+//! behaviour, plan §3 E1 — the qualifier for the other sites) fires `change` at a blurred text control only if "the user has
 //! changed the element's value … while the control was focused without
 //! committing that change (such that it is different to what it was when the
 //! control was first focused)", and §4.10.5.5 says `input` / `change` "are not
@@ -41,7 +42,7 @@ impl FocusValueSnapshot {
 
 /// Seed the change-on-blur snapshot on `entity` **if** it is a text control:
 /// unmarked (no baseline). Call whenever a control gains focus
-/// (the shell sink's §6.6.4 step 4.1 or VM `focus()`); a re-seed replaces any
+/// (the shell sink's seed, after §6.6.4 focus update steps step 4.4, or VM `focus()`); a re-seed replaces any
 /// earlier snapshot, mark included.
 ///
 /// When `entity` is **not** a text control, any pre-existing snapshot is

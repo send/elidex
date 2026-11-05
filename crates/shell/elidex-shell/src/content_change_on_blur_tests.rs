@@ -1,4 +1,5 @@
-//! Change-on-blur user provenance (HTML §6.6.4 focus update steps step 2.1,
+//! Change-on-blur user provenance (HTML §6.6.4 focus update steps step 2.1
+//! (`<input>` / `<textarea>` qualifier: see `elidex_form`'s `focus_snapshot`),
 //! §4.10.5.5 Common event behaviors): `change` fires at a blurred text control
 //! only for a value the **user** changed since focus, and `input` fires for a
 //! user action only when it changed the value.
@@ -207,6 +208,7 @@ fn c5_ua_blur_after_user_edit_then_script_restore_textarea() {
 }
 
 /// C10: an IME commit fires `compositionend`, `input`, and marks (blur → `change`).
+/// → `#11-ime-commit-event-order-and-input-type`
 #[test]
 fn c10_ime_commit_marks_and_fires_input() {
     let (mut s, _b) = setup(&pair("input", "", ""));

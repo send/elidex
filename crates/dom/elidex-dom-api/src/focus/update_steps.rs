@@ -82,8 +82,8 @@ pub trait FocusEventSink {
     /// focus-update step 2.1's "the user has changed the element's value ...
     /// such that it is different to what it was when the control was first
     /// focused". The canonical transition calls it **after** the `focus`/`focusin`
-    /// listeners (step 4.4): the baseline is the spec's focus-time value, i.e. the
-    /// value once focus handling has run. (Seed timing does not decide whether a
+    /// listeners (step 4.4): the seed is unmarked; the baseline is the value
+    /// before the first user value change (plan D-1). (Seed timing does not decide whether a
     /// non-user write fires `change`; only the user-edit mark does.) Runs on
     /// **every** engine (the snapshot is `elidex-form` state, not event dispatch),
     /// so the canonical transition owns the seed *timing* while the form-layer call
@@ -232,9 +232,8 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         set_focus_bit(sink.dom(), Some(new));
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
                                                                 // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners:
-                                                                // the baseline is the spec's focus-time value (§6.6.4 step 2.1: "different
-                                                                // to what it was when the control was first focused"), i.e. the value once
-                                                                // focus handling has run.
+                                                                // the seed is unmarked; the baseline is the value before the first user
+                                                                // value change (plan D-1).
                                                                 // Guard: a `focusin` listener may have reentrantly moved focus on, so only
                                                                 // seed if `new` is still the focused element (reentrant-wins).
         if current_focus(sink.dom(), doc) == Some(new) {

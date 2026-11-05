@@ -135,6 +135,10 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                     }
                 });
 
+                // Records current behaviour, not a spec contract: UI Events §3.6.6
+                // orders `input` before `compositionend`, and Input Events L2 has
+                // `insertCompositionText` and no `insertFromComposition`.
+                // → `#11-ime-commit-event-order-and-input-type`
                 // Dispatch compositionend event.
                 let mut end_event = DispatchEvent::new_composed("compositionend", target);
                 end_event.cancelable = false;

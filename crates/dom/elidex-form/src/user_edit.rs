@@ -1,9 +1,10 @@
 //! The user-edit funnel (WHATWG HTML §4.10.5.5 Common event behaviors,
-//! §4.10.11 The textarea element): the one place that decides "the user caused
-//! the control's value to change".
+//! §4.10.11 The textarea element): the one place that decides when the user
+//! causes the element's value to change.
 //!
 //! §4.10.5.5: "any time the user causes the element's value to change … fire an
-//! event named `input`", and §6.6.4 focus update steps step 2.1 fires `change`
+//! event named `input`", and §6.6.4 focus update steps step 2.1 (`<input>` /
+//! `<textarea>` qualifier: see `focus_snapshot`) fires `change`
 //! on blur only for a value "the user has changed". Both consumers read the same
 //! predicate, computed here: the value after the edit differs from the value
 //! before it.
@@ -34,9 +35,11 @@ pub struct UserEdit<R> {
 /// edits, cut, paste and IME commit. A future user edit path (drag-and-drop
 /// insert, undo / redo, number spin buttons, IME commit on blur) must call it
 /// too. Nothing enforces this at run time: a path that fires `input` directly
-/// without calling it would never mark the snapshot, so the contract is that
-/// *every* user value writer goes through this funnel, checked by the plan's
-/// DoD 2 / 3 greps (`docs/plans/2026-11-change-on-blur-user-provenance.md` §9).
+/// without calling it would never mark the snapshot. The only check is a
+/// one-time landing check (plan DoD 2 / 3 greps,
+/// `docs/plans/2026-11-change-on-blur-user-provenance.md` §9), not a ratchet;
+/// the structural fix — dispatch consuming the `UserEdit` result — is
+/// `#11-text-edit-primitives-report-change`.
 /// Script and other non-user writers (the `value` / `defaultValue`
 /// setters, attribute reconciliation, `setRangeText`, form reset) must **not**
 /// call it: §4.10.5.5's events "are not fired in response to changes made to
