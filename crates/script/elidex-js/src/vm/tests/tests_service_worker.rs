@@ -32,6 +32,23 @@ use super::super::Vm;
 const SCRIPT_URL: &str = "https://example.com/sw.js";
 const SCOPE_URL: &str = "https://example.com/";
 
+/// Drain bound for every test whose expected result is that its promise
+/// SETTLES: the production bound — `sw_thread`'s spawn passes its
+/// `DEFAULT_IDLE_TIMEOUT`, 30 s, the value of
+/// `elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT` — not a shorter test value.
+/// A short bound would let machine load turn "settles" into the timed-out
+/// passthrough / `success: false` branch: the same class as the harness's old
+/// 5 s receive ceiling (`#11-sw-respond-with-gc-test-wallclock-timeout`).
+const SETTLE_PUMP_TIMEOUT: Duration = elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
+
+/// Drain bound for the two NEVER-settle tests
+/// (`install_wait_until_never_settles_times_out`,
+/// `respond_with_never_settles_times_out_to_passthrough`).  Their verdict IS
+/// the timed-out branch, and a promise that never settles cannot settle
+/// sooner under load, so a short bound only shortens the wait — it cannot
+/// change the verdict.  (The full 30 s would add a minute to the suite.)
+const NEVER_SETTLE_PUMP_TIMEOUT: Duration = Duration::from_millis(150);
+
 /// A spawned SW thread + the content-side channel driving it.
 struct Harness {
     content: LocalChannel<ContentToSw, SwToContent>,
@@ -40,7 +57,7 @@ struct Harness {
 
 impl Harness {
     fn spawn(source: &str) -> Self {
-        Self::spawn_full(source, Vec::new(), Vec::new(), Duration::from_secs(2))
+        Self::spawn_full(source, Vec::new(), Vec::new(), SETTLE_PUMP_TIMEOUT)
     }
 
     fn spawn_full(
@@ -87,11 +104,20 @@ impl Harness {
         self.content.send(msg).expect("SW thread alive");
     }
 
-    /// Read the next reply (5 s ceiling — generous vs the 150 ms test pump).
+    /// Read the next reply, blocking until it arrives.  No wall-clock bound
+    /// decides the verdict (`#11-sw-respond-with-gc-test-wallclock-timeout`: a
+    /// 5 s ceiling here failed under machine load while the SW was still
+    /// working).  The only failure is a disconnect — the SW thread exited
+    /// (panic, early return, or its own idle teardown) without replying.  The
+    /// `recv_timeout` slice is a poll cadence, never a verdict.
     fn recv(&self) -> SwToContent {
-        self.content
-            .recv_timeout(Duration::from_secs(5))
-            .expect("SW reply within 5s")
+        loop {
+            match self.content.recv_timeout(Duration::from_millis(100)) {
+                Ok(msg) => return msg,
+                Err(e) if e.is_timeout() => {}
+                Err(_) => panic!("SW thread exited without replying"),
+            }
+        }
     }
 
     /// Read replies until one satisfies `pred`, returning it (skips unrelated
@@ -251,7 +277,7 @@ fn install_wait_until_never_settles_times_out() {
         "self.oninstall = e => e.waitUntil(new Promise(() => {}));",
         Vec::new(),
         Vec::new(),
-        Duration::from_millis(150),
+        NEVER_SETTLE_PUMP_TIMEOUT,
     );
     h.send(ContentToSw::Install);
     assert!(matches!(
@@ -375,7 +401,7 @@ fn respond_with_fetch_network_path() {
         "self.onfetch = e => e.respondWith(fetch('https://example.com/api'));",
         Vec::new(),
         vec![net_ok("https://example.com/api", "from-network")],
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
     );
     h.send(fetch_event("https://example.com/page", "c1"));
     match h.recv() {
@@ -436,7 +462,7 @@ fn respond_with_never_settles_times_out_to_passthrough() {
         "self.onfetch = e => e.respondWith(new Promise(() => {}));",
         Vec::new(),
         Vec::new(),
-        Duration::from_millis(150),
+        NEVER_SETTLE_PUMP_TIMEOUT,
     );
     h.send(fetch_event("https://example.com/x", "c1"));
     assert!(matches!(h.recv(), SwToContent::FetchPassthrough { .. }));
@@ -533,7 +559,7 @@ fn clients_match_all_returns_seeded_snapshot() {
             client("b", "https://example.com/b", ClientType::Window),
         ],
         Vec::new(),
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
     );
     h.send(fetch_event("https://example.com/x", "a"));
     match h.recv() {
@@ -550,7 +576,7 @@ fn client_list_message_replaces_snapshot() {
             clients.matchAll().then(cs => new Response(cs.map(c => c.id).join(','))));",
         vec![client("old", "https://example.com/o", ClientType::Window)],
         Vec::new(),
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
     );
     h.send(ContentToSw::ClientList {
         clients: vec![client("new", "https://example.com/n", ClientType::Window)],
@@ -572,7 +598,7 @@ fn clients_get_hit_and_miss() {
                     new Response((a ? a.id : 'none') + '/' + (b ? b.id : 'none')))));",
         vec![client("hit", "https://example.com/h", ClientType::Window)],
         Vec::new(),
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
     );
     h.send(fetch_event("https://example.com/x", "hit"));
     match h.recv() {
@@ -596,7 +622,7 @@ fn clients_get_returns_same_object_for_same_id() {
                 arr => new Response(String(arr[0] === arr[1]))));",
         vec![client("hit", "https://example.com/h", ClientType::Window)],
         Vec::new(),
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
     );
     h.send(fetch_event("https://example.com/x", "hit"));
     match h.recv() {
@@ -639,7 +665,7 @@ fn client_post_message_routes_to_client_id() {
             clients.get('target').then(c => { c.postMessage('ping'); return new Response('ok'); }));",
         vec![client("target", "https://example.com/t", ClientType::Window)],
         Vec::new(),
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
     );
     h.send(fetch_event("https://example.com/x", "target"));
     match h.recv_find(|m| matches!(m, SwToContent::PostMessage { .. })) {
@@ -709,7 +735,7 @@ fn cache_shared_window_put_then_sw_match() {
                 .then(t => new Response(t)));",
         Vec::new(),
         Vec::new(),
-        Duration::from_secs(2),
+        SETTLE_PUMP_TIMEOUT,
         conn,
     );
     h.send(fetch_event("https://example.com/x", "c1"));
