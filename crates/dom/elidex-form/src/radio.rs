@@ -2,7 +2,7 @@
 
 use elidex_ecs::{Attributes, EcsDom, ElementState, Entity};
 
-use crate::{AncestorCache, FormControlKind, FormControlState};
+use crate::{FormControlKind, FormControlState};
 
 /// Resolve the effective form owner for an entity.
 ///
@@ -11,7 +11,8 @@ use crate::{AncestorCache, FormControlKind, FormControlState};
 /// 2. Otherwise, the nearest ancestor `<form>` element.
 ///
 /// Returns `None` if the control has no form owner.
-/// Public wrapper for form owner resolution, used by `AncestorCache`.
+/// Public wrapper for form owner resolution, used by `submit.rs`'s form-owner
+/// lookup.
 pub fn resolve_form_owner_public(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     resolve_form_owner(dom, entity)
 }
@@ -56,7 +57,7 @@ fn find_form_by_id(dom: &EcsDom, id: &str) -> Option<Entity> {
 ///
 /// Returns `true` if the radio was toggled (enabled, unchecked → checked).
 /// Uses form-scoped radio groups per WHATWG §4.10.5.1.11.
-pub fn toggle_radio(dom: &mut EcsDom, entity: Entity, cache: &mut AncestorCache) -> bool {
+pub fn toggle_radio(dom: &mut EcsDom, entity: Entity) -> bool {
     let info = dom
         .world()
         .get::<&FormControlState>(entity)
@@ -74,8 +75,8 @@ pub fn toggle_radio(dom: &mut EcsDom, entity: Entity, cache: &mut AncestorCache)
     }
 
     // Uncheck all radios in the same form-scoped group.
-    let form_owner = cache.get_form_owner(entity, dom);
-    let group = find_radio_group_scoped(dom, form_owner, &name, Some(cache));
+    let form_owner = resolve_form_owner(dom, entity);
+    let group = find_radio_group_scoped(dom, form_owner, &name);
     for member in &group {
         if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(*member) {
             fcs.checked = false;
@@ -106,15 +107,9 @@ enum FormFilter {
 
 /// Internal helper: find radio buttons matching name, optionally scoped to a form owner.
 ///
-/// When `cache` is provided, form owner lookups use O(1) cache hits.
-fn find_radio_group_impl(
-    dom: &EcsDom,
-    name: &str,
-    filter: FormFilter,
-    mut cache: Option<&mut AncestorCache>,
-) -> Vec<Entity> {
-    // Collect candidates matching kind + name first to avoid borrow conflicts
-    // when using the mutable cache reference in the form owner filter.
+/// Each candidate's form owner is resolved at read time (`resolve_form_owner`).
+fn find_radio_group_impl(dom: &EcsDom, name: &str, filter: FormFilter) -> Vec<Entity> {
+    // Collect candidates matching kind + name first, then filter by form owner.
     let candidates: Vec<Entity> = dom
         .world()
         .query::<(Entity, &FormControlState)>()
@@ -125,20 +120,10 @@ fn find_radio_group_impl(
 
     let mut group: Vec<Entity> = match filter {
         FormFilter::Any => candidates,
-        FormFilter::Scoped(owner) => {
-            let mut filtered = Vec::new();
-            for e in candidates {
-                let form = if let Some(ref mut c) = cache {
-                    c.get_form_owner(e, dom)
-                } else {
-                    resolve_form_owner(dom, e)
-                };
-                if form == owner {
-                    filtered.push(e);
-                }
-            }
-            filtered
-        }
+        FormFilter::Scoped(owner) => candidates
+            .into_iter()
+            .filter(|&e| resolve_form_owner(dom, e) == owner)
+            .collect(),
     };
     // Sort by tree order (pre-order traversal) for consistent DOM-order traversal.
     group.sort_by(|a, b| dom.tree_order_cmp(*a, *b));
@@ -149,12 +134,8 @@ fn find_radio_group_impl(
 ///
 /// For spec-correct form-scoped grouping, use [`find_radio_group_scoped`].
 #[must_use]
-pub fn find_radio_group(
-    dom: &EcsDom,
-    name: &str,
-    cache: Option<&mut AncestorCache>,
-) -> Vec<Entity> {
-    find_radio_group_impl(dom, name, FormFilter::Any, cache)
+pub fn find_radio_group(dom: &EcsDom, name: &str) -> Vec<Entity> {
+    find_radio_group_impl(dom, name, FormFilter::Any)
 }
 
 /// Find all radio buttons with the given name scoped to the same form owner.
@@ -168,9 +149,8 @@ pub fn find_radio_group_scoped(
     dom: &EcsDom,
     form_owner: Option<Entity>,
     name: &str,
-    cache: Option<&mut AncestorCache>,
 ) -> Vec<Entity> {
-    find_radio_group_impl(dom, name, FormFilter::Scoped(form_owner), cache)
+    find_radio_group_impl(dom, name, FormFilter::Scoped(form_owner))
 }
 
 /// Check if a radio group's `required` constraint is satisfied.
@@ -188,12 +168,7 @@ pub fn is_radio_group_satisfied(group: &[&FormControlState]) -> bool {
 /// Per HTML §4.10.5.1.11: uses form-scoped radio groups.
 /// Returns the entity to focus next, if any.
 #[must_use]
-pub fn radio_arrow_navigate(
-    dom: &EcsDom,
-    current: Entity,
-    forward: bool,
-    cache: &mut AncestorCache,
-) -> Option<Entity> {
+pub fn radio_arrow_navigate(dom: &EcsDom, current: Entity, forward: bool) -> Option<Entity> {
     let name = dom
         .world()
         .get::<&FormControlState>(current)
@@ -201,8 +176,8 @@ pub fn radio_arrow_navigate(
         .filter(|fcs| fcs.kind == FormControlKind::Radio)
         .map(|fcs| fcs.name.clone())?;
 
-    let form_owner = cache.get_form_owner(current, dom);
-    let group = find_radio_group_scoped(dom, form_owner, &name, Some(cache));
+    let form_owner = resolve_form_owner(dom, current);
+    let group = find_radio_group_scoped(dom, form_owner, &name);
     if group.len() <= 1 {
         return None;
     }
@@ -258,7 +233,6 @@ mod tests {
     #[test]
     fn toggle_radio_unchecks_others() {
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let r1 = make_radio(&mut dom, "color", true);
         let r2 = make_radio(&mut dom, "color", false);
         let r3 = make_radio(&mut dom, "color", false);
@@ -268,7 +242,7 @@ mod tests {
             fcs.checked = true;
         }
 
-        assert!(toggle_radio(&mut dom, r2, &mut cache));
+        assert!(toggle_radio(&mut dom, r2));
 
         assert!(!dom.world().get::<&FormControlState>(r1).unwrap().checked);
         assert!(dom.world().get::<&FormControlState>(r2).unwrap().checked);
@@ -278,12 +252,11 @@ mod tests {
     #[test]
     fn toggle_already_checked_does_nothing() {
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let r1 = make_radio(&mut dom, "size", false);
         if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(r1) {
             fcs.checked = true;
         }
-        assert!(!toggle_radio(&mut dom, r1, &mut cache));
+        assert!(!toggle_radio(&mut dom, r1));
     }
 
     #[test]
@@ -293,31 +266,29 @@ mod tests {
         let _r2 = make_radio(&mut dom, "g1", false);
         let _r3 = make_radio(&mut dom, "g2", false);
 
-        let group = find_radio_group(&dom, "g1", None);
+        let group = find_radio_group(&dom, "g1");
         assert_eq!(group.len(), 2);
     }
 
     #[test]
     fn radio_arrow_navigate_wraps() {
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let r1 = make_radio(&mut dom, "nav", false);
         let _r2 = make_radio(&mut dom, "nav", false);
         let r3 = make_radio(&mut dom, "nav", false);
 
         // Forward from last wraps to first.
-        let next = radio_arrow_navigate(&dom, r3, true, &mut cache);
+        let next = radio_arrow_navigate(&dom, r3, true);
         assert!(next.is_some());
 
         // Backward from first wraps to last.
-        let prev = radio_arrow_navigate(&dom, r1, false, &mut cache);
+        let prev = radio_arrow_navigate(&dom, r1, false);
         assert!(prev.is_some());
     }
 
     #[test]
     fn disabled_radio_not_toggled() {
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let mut attrs = Attributes::default();
         attrs.set("type", "radio");
         attrs.set("name", "x");
@@ -327,7 +298,7 @@ mod tests {
         let _ = dom.world_mut().insert_one(entity, state);
         let _ = dom.world_mut().insert_one(entity, ElementState::default());
 
-        assert!(!toggle_radio(&mut dom, entity, &mut cache));
+        assert!(!toggle_radio(&mut dom, entity));
     }
 
     /// A bare `<input type=radio name=g>` state with the given checkedness.
@@ -359,7 +330,6 @@ mod tests {
     #[test]
     fn radios_in_different_forms_independent() {
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let form1 = dom.create_element("form", Attributes::default());
         let form2 = dom.create_element("form", Attributes::default());
 
@@ -370,9 +340,9 @@ mod tests {
         let _ = dom.append_child(form2, r2);
 
         // Toggle r1 in form1.
-        assert!(toggle_radio(&mut dom, r1, &mut cache));
+        assert!(toggle_radio(&mut dom, r1));
         // Toggle r2 in form2 — should NOT uncheck r1 (different form scope).
-        assert!(toggle_radio(&mut dom, r2, &mut cache));
+        assert!(toggle_radio(&mut dom, r2));
 
         assert!(dom.world().get::<&FormControlState>(r1).unwrap().checked);
         assert!(dom.world().get::<&FormControlState>(r2).unwrap().checked);
@@ -382,15 +352,14 @@ mod tests {
     fn formless_radios_share_group() {
         // Radios without a form ancestor share a single "no form" group.
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let r1 = make_radio(&mut dom, "color", false);
         let r2 = make_radio(&mut dom, "color", false);
 
         // Both are formless — toggling r2 should uncheck r1.
-        assert!(toggle_radio(&mut dom, r1, &mut cache));
+        assert!(toggle_radio(&mut dom, r1));
         assert!(dom.world().get::<&FormControlState>(r1).unwrap().checked);
 
-        assert!(toggle_radio(&mut dom, r2, &mut cache));
+        assert!(toggle_radio(&mut dom, r2));
         assert!(!dom.world().get::<&FormControlState>(r1).unwrap().checked);
         assert!(dom.world().get::<&FormControlState>(r2).unwrap().checked);
     }
@@ -400,7 +369,6 @@ mod tests {
         // A radio inside a form and a radio without a form should be independent
         // even if they share the same name.
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let form = dom.create_element("form", Attributes::default());
 
         let r_in_form = make_radio(&mut dom, "color", false);
@@ -408,8 +376,8 @@ mod tests {
 
         let r_formless = make_radio(&mut dom, "color", false);
 
-        assert!(toggle_radio(&mut dom, r_in_form, &mut cache));
-        assert!(toggle_radio(&mut dom, r_formless, &mut cache));
+        assert!(toggle_radio(&mut dom, r_in_form));
+        assert!(toggle_radio(&mut dom, r_formless));
 
         // Both should remain checked (different form scopes).
         assert!(
@@ -429,12 +397,11 @@ mod tests {
     #[test]
     fn different_name_groups_independent() {
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
         let r1 = make_radio(&mut dom, "a", false);
         let r2 = make_radio(&mut dom, "b", false);
 
-        assert!(toggle_radio(&mut dom, r1, &mut cache));
-        assert!(toggle_radio(&mut dom, r2, &mut cache));
+        assert!(toggle_radio(&mut dom, r1));
+        assert!(toggle_radio(&mut dom, r2));
 
         assert!(dom.world().get::<&FormControlState>(r1).unwrap().checked);
         assert!(dom.world().get::<&FormControlState>(r2).unwrap().checked);
@@ -445,7 +412,6 @@ mod tests {
         // Per HTML §4.10.18.3: a radio with form="myform" should be grouped
         // with radios inside that form, even if the radio is not a descendant.
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
 
         // Create a form with id="myform".
         let mut form_attrs = Attributes::default();
@@ -461,10 +427,10 @@ mod tests {
 
         // Both should be in the same radio group.
         // Toggling r1, then r2, should uncheck r1.
-        assert!(toggle_radio(&mut dom, r1, &mut cache));
+        assert!(toggle_radio(&mut dom, r1));
         assert!(dom.world().get::<&FormControlState>(r1).unwrap().checked);
 
-        assert!(toggle_radio(&mut dom, r2, &mut cache));
+        assert!(toggle_radio(&mut dom, r2));
         assert!(!dom.world().get::<&FormControlState>(r1).unwrap().checked);
         assert!(dom.world().get::<&FormControlState>(r2).unwrap().checked);
     }
@@ -473,7 +439,6 @@ mod tests {
     fn cross_tree_form_attribute_different_forms_independent() {
         // A radio with form="form1" and a radio inside form2 should be independent.
         let mut dom = EcsDom::new();
-        let mut cache = AncestorCache::new();
 
         let mut form1_attrs = Attributes::default();
         form1_attrs.set("id", "form1");
@@ -490,8 +455,8 @@ mod tests {
         let r2 = make_radio(&mut dom, "color", false);
         let _ = dom.append_child(form2, r2);
 
-        assert!(toggle_radio(&mut dom, r1, &mut cache));
-        assert!(toggle_radio(&mut dom, r2, &mut cache));
+        assert!(toggle_radio(&mut dom, r1));
+        assert!(toggle_radio(&mut dom, r2));
 
         // Both should remain checked (different form owners).
         assert!(dom.world().get::<&FormControlState>(r1).unwrap().checked);

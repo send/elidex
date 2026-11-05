@@ -251,8 +251,6 @@ pub struct PipelineResult {
     ///
     /// Set by the content thread's caret blink timer. Defaults to `true`.
     pub caret_visible: bool,
-    /// Cached form ancestor lookups (invalidated on DOM mutation).
-    pub ancestor_cache: elidex_form::AncestorCache,
     /// Viewport-level overflow propagated from root/body element.
     pub viewport_overflow: ViewportOverflow,
     /// Viewport scroll offset synced from content thread before re-render.
@@ -550,8 +548,8 @@ impl PipelineResult {
 /// values to `ComputedStyle` before layout.
 ///
 /// The flush record stream is delivered + consumed INTERNALLY (observers + CE via
-/// `deliver_records_and_drain`, ancestor-cache invalidation); it is no longer
-/// returned. The step-17 focus fixup runs every update, independent of it. The
+/// `deliver_records_and_drain`); it is no longer returned. The step-17 focus
+/// fixup runs every update, independent of it. The
 /// shell's former record consumers (focusable-cache invalidation, iframe
 /// add/remove detection) moved to the §4.3.8 version-delta
 /// (`ContentState::last_render_dom_version`), because under the VM flip this flush
@@ -574,7 +572,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     // and `drain_reactions` drains the CE reactions those callbacks produce. CE
     // callbacks may record further mutations, so re-flush (unbound) → bracket
     // until stable, bounded.
-    let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
+    let mutation_records: Vec<elidex_script_session::MutationRecord> =
         result.session.flush(&mut result.dom);
 
     if !mutation_records.is_empty() {
@@ -586,7 +584,6 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
                 break;
             }
             result.deliver_records_and_drain(&follow_up);
-            mutation_records.extend(follow_up);
             if round == MAX_CE_STABILIZATION_ROUNDS - 1 {
                 eprintln!(
                     "[CE] stabilization loop hit max rounds ({MAX_CE_STABILIZATION_ROUNDS}); \
@@ -594,11 +591,6 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
                 );
             }
         }
-    }
-
-    // Invalidate ancestor cache when DOM mutations occurred.
-    if !mutation_records.is_empty() {
-        result.ancestor_cache.invalidate_all();
     }
 
     // Prune animations/transitions for destroyed entities unconditionally.
