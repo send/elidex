@@ -408,8 +408,8 @@ fn in_process_iframe_timer_disabled_runs_focus_fixup_with_idle_parent() {
 /// Idle-wait half of the S9 fix: a child `needs_render` set after the turn's
 /// `re_render_all_iframes` (late registration; simulated by setting the flag
 /// directly) folds into the idle-wait timeout as zero, so the next `pump_turn`
-/// renders the child without waiting `DEFAULT_POLL_INTERVAL` (100 ms). The
-/// margin is 2x (50 ms bound) over a turn that otherwise only does the render.
+/// renders the child without waiting `DEFAULT_POLL_INTERVAL`. Asserts the timeout
+/// computation itself (`idle_wait_timeout`), not wall-clock.
 #[test]
 fn in_process_iframe_late_needs_render_skips_idle_wait() {
     let (mut state, _browser) =
@@ -420,52 +420,55 @@ fn in_process_iframe_late_needs_render_skips_idle_wait() {
     for _ in 0..3 {
         assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
     }
+    let now = std::time::Instant::now();
+    assert_eq!(
+        super::event_loop::idle_wait_timeout(&mut state, last_frame, now),
+        super::DEFAULT_POLL_INTERVAL,
+        "control: nothing pending => the idle poll interval"
+    );
     match &mut state.iframes.get_mut(entity).expect("entry").handle {
         super::iframe::IframeHandle::InProcess(ip) => ip.needs_render = true,
         super::iframe::IframeHandle::OutOfProcess(_) => panic!("expected in-process"),
     }
-    let start = std::time::Instant::now();
+    assert_eq!(
+        super::event_loop::idle_wait_timeout(&mut state, last_frame, now),
+        std::time::Duration::ZERO,
+        "a pending child rendering update must fold in as a zero wait"
+    );
     assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
-    let elapsed = start.elapsed();
     assert!(
         !super::iframe::any_iframe_needs_render(&state),
         "the child rendering update ran this turn"
     );
-    assert!(
-        elapsed < super::DEFAULT_POLL_INTERVAL / 2,
-        "the idle wait must not be taken (elapsed {elapsed:?})"
-    );
 }
 
-/// A child timer deadline folds into the parent's idle-wait timeout: with a 30 ms
-/// child timer and an idle parent, the turn that drains it returns well before
-/// `DEFAULT_POLL_INTERVAL` (100 ms; bound 80 ms).
+/// A child timer deadline folds into the parent's idle-wait timeout (the parent has
+/// no timer of its own): with `now` placed 30 ms before the child's deadline the
+/// timeout is exactly 30 ms, not `DEFAULT_POLL_INTERVAL`. Deterministic: `now` is
+/// derived from the deadline, no wall-clock bound.
 #[test]
 fn in_process_iframe_timer_deadline_wakes_idle_wait() {
     let (mut state, _browser) = build_test_content_state(
-        r#"<iframe id=f srcdoc="<p id=p>x</p><script>setTimeout(() => {}, 30);</script>"></iframe>"#,
+        r#"<iframe id=f srcdoc="<p id=p>x</p><script>setTimeout(() => {}, 10000);</script>"></iframe>"#,
         "",
     );
+    let deadline = super::iframe::next_iframe_timer_deadline(&state)
+        .expect("precondition: child timer pending");
     assert!(
-        super::iframe::next_iframe_timer_deadline(&state).is_some(),
-        "precondition: child timer pending"
-    );
-    let mut last_frame = std::time::Instant::now();
-    let start = std::time::Instant::now();
-    for _ in 0..10 {
-        assert!(super::event_loop::pump_turn(&mut state, &mut last_frame).is_continue());
-        if super::iframe::next_iframe_timer_deadline(&state).is_none() {
-            break;
-        }
-    }
-    let elapsed = start.elapsed();
-    assert!(
-        super::iframe::next_iframe_timer_deadline(&state).is_none(),
-        "the child timer fired"
+        state.pipeline.runtime.next_timer_deadline().is_none(),
+        "precondition: the parent has no timer of its own"
     );
     assert!(
-        elapsed < super::DEFAULT_POLL_INTERVAL * 4 / 5,
-        "the child deadline must bound the idle wait (elapsed {elapsed:?})"
+        !super::iframe::any_iframe_needs_render(&state),
+        "precondition: no pending child render"
+    );
+    let near = std::time::Duration::from_millis(30);
+    let now = deadline.checked_sub(near).expect("instant underflow");
+    assert!(near < super::DEFAULT_POLL_INTERVAL);
+    assert_eq!(
+        super::event_loop::idle_wait_timeout(&mut state, std::time::Instant::now(), now),
+        near,
+        "the child deadline must bound the idle wait"
     );
 }
 
