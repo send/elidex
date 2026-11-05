@@ -817,10 +817,15 @@ impl VmInner {
                 // has exited or been suspended and is re-opened by the
                 // generator resume path, never re-captured here.
                 //
-                // Representation-agnostic: this relies only on "one
-                // observable cell per (frame, slot)", not on the shape of
-                // `UpvalueState`.  The frame's open-upvalue list is small,
-                // so a linear scan is cheaper than maintaining a slot index.
+                // The *rule* ("one observable cell per (frame, slot)") is
+                // representation-agnostic and is what the tests pin; this
+                // lookup is not — it reads `UpvalueState::Open`, so a
+                // replacement of the upvalue representation must rewrite this
+                // site too (alongside `close_upvalues` and generator suspend).
+                // The `frame_base` match guards the invariant that the list
+                // holds only this frame's cells.  The list is bounded by the
+                // number of distinct captured slots, so a linear scan is
+                // cheaper than maintaining a slot index.
                 let existing = self
                     .frames
                     .last()
