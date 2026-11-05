@@ -806,6 +806,39 @@ impl VmInner {
         for desc in &upvalue_descs {
             let uv_id = if desc.is_local {
                 // Capture from parent's locals.
+                //
+                // One binding = one cell: closures created in this frame
+                // over the same local slot must observe a single shared
+                // binding (ECMA-262 §9.1 Environment Records — identity of
+                // the binding is what closures capture), so reuse the
+                // frame's still-Open upvalue for the slot if there is one.
+                // Only Open cells of *this* frame (matching `frame_base`)
+                // qualify; a Closed cell belongs to a binding whose frame
+                // has exited or been suspended and is re-opened by the
+                // generator resume path, never re-captured here.
+                //
+                // Representation-agnostic: this relies only on "one
+                // observable cell per (frame, slot)", not on the shape of
+                // `UpvalueState`.  The frame's open-upvalue list is small,
+                // so a linear scan is cheaper than maintaining a slot index.
+                let existing = self
+                    .frames
+                    .last()
+                    .unwrap()
+                    .local_upvalue_ids
+                    .iter()
+                    .copied()
+                    .find(|id| {
+                        matches!(
+                            self.upvalues[id.0 as usize].state,
+                            UpvalueState::Open { frame_base: fb, slot: s }
+                                if fb == frame_base && s == desc.index
+                        )
+                    });
+                if let Some(id) = existing {
+                    upvalue_ids.push(id);
+                    continue;
+                }
                 let id = self.alloc_upvalue(Upvalue {
                     state: UpvalueState::Open {
                         frame_base,
