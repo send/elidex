@@ -48,7 +48,8 @@ MINs). Decision changes: CV-focus-1's obligation, two cells and fallback edge (E
 `scrollIntoView()`'s caller layer of FU's point (E9); the rest correct input, DoD checks and records. Its re-check's
 fixes (PM 348) are marked "(R1b-*n*)", *n* = 1–10.
 **Re-ground** (2026-11-06, rebased onto `1580af13`, #603 landed): CR-1's sites read as records of the landed rename; K15's slot closed by #603; P2-R3's edge from `#11-event-path-window-missing` and CV-details' `composed_path_for_js` premise, marked "(re-ground)".
-Re-grounded K5 / K16 residue / P2-R5 on spec, PM 431 (B26 kept as [evidence]; sites marked "PM 431" or citing it).
+Re-grounded K5 / K16 residue / P2-R5 on spec, PM 431; the record is commit `516c5bd5`'s diff. **The rule, stated once here**: a browser measurement is [evidence], never a spec ground (B26).
+Focused-review fixes (2026-11-06; the record is this commit's diff): host pseudo order into P2-3/C26; K5 cites; the evidence rule's one home; the P2-R3 edge into §8's PM writes.
 
 **Revision 8** (2026-10-24) — final clerical pass; **USER DECIDED 2026-10-24: no review round after rev 8** — residual
 risks ride the sibling and nested plan-reviews. Folds the terminal re-check of rev 7 (IMP-1, IMP-2, MIN-1–5) by lowering
@@ -111,7 +112,7 @@ by slot or row name, not line.
 | B23 | (rev 5 corrected) the focusing steps | `sed -n 269,312p crates/script/elidex-js/src/vm/host/html_element_proto.rs`; `sed -n 104,114p crates/dom/elidex-dom-api/src/focus/update_steps.rs`; `sed -n 178,186p …/focus/sot.rs` | the focusing steps **are** in `elidex-dom-api`: `focusing_steps` (`update_steps.rs:106`), which reads `is_focusable_area` (`:113`), called by the shell (`content/focus.rs:85`). The VM host `native_html_element_focus` (`html_element_proto.rs:269`) bypasses it, calling `is_focusable` (`:302`); making the VM a thin caller is canonical-focus A2c (slot `#11-vm-host-synthetic-dom-event-dispatch`). `reconcile_focus` (`sot.rs:178`), run at render time, calls `is_focusable` (`:185`) (erratum 2026-11-04, CR-1: a record — #603 deleted it for `focus_fixup_steps`). The VM's Hidden classification is `HiddenKind` (`html_element_proto.rs:679`) |
 | B24 | the frame style pass's animation phases | `sed -n 632,700p crates/shell/elidex-shell/src/lib.rs` | inside `re_render` (`:559`): old-style snapshot (`:636-640`), style resolution (`:681-688`), transition detection, CSS-animation sync and `apply_active_animations` (`:690-700`); the session flush is `SessionCore::flush` (`elidex-script-session/src/session.rs:114`; `SessionCore` is CLAUDE.md's ScriptSession) |
 | B25 | (rev 5 corrected; P2 context) `slotchange` | `sed -n 10,32p;58,65p;389,410p crates/script/elidex-js/src/vm/host/html_slot_proto.rs`; `sed -n 386,389p crates/core/elidex-ecs/src/dom/shadow.rs` | fires only on explicit `slot.assign()`; HEAD **has** an ordered VM queue, `pending_slot_change_signals` (`signal_slot_change` `:61-63`, drained `:391-408` into the NotifyMutationObservers microtask); named-mode detection is deferred to `#11-shadow-slotchange-named-mode-detection` (`:25-28`, cited in code, not in the ledger); `assignedNodes({flatten: true})` to `#11-shadow-slot-flatten` (`:13`, `:30`; `shadow.rs:389`; unledgered, recorded by the PM) |
-| B26 | [evidence] for K5's pseudo-element reading (not its ground, PM 431) | Chrome 156.0.8078.48 headless, 2026-10-24 (driver probe; screenshot) | a `content-visibility: hidden` `div` with `::before`/`::after` paints neither; an `li` (marker outside and inside) paints no marker; each element's own border paints; the controls paint all. One engine: evidence, not spec ground |
+| B26 | [evidence] for K5's pseudo-element reading | Chrome 156.0.8078.48 headless, 2026-10-24 (driver probe; screenshot) | a `content-visibility: hidden` `div` with `::before`/`::after` paints neither; an `li` (marker outside and inside) paints no marker; each element's own border paints; the controls paint all |
 
 ### §0.3 Premise errors (reported, not edited — the A114 idiom)
 
@@ -238,7 +239,7 @@ writer) and the flat tree of css-shadow-1 §4.1 (*find slottables*); this progra
   first `summary` child → slot 1, none → the default summary; every other child node → slot 2; CV-details' fact) is its
   acceptance case (C27);
 - **P2-3 one relation** (K5, K6, D3) — `flat_tree_parent` and `composed_children` describe one flat tree, a host's
-  `::before`/`::after` included (C26);
+  `::before`/`::after` included, in the order `::before`, the children (a host's: its shadow root's), `::after` (C26);
 - **P2-4 S2's home can read it** (K1, K4) — S2's readers query the flat tree from `elidex-ecs`, not `elidex-dom-api` (C28).
 `slotchange`, manual vs computed assignment, the *assigned slot*'s clearing and the event path's *get the parent* /
 `composedPath` are P2's own surfaces; how P2 meets P2-1–4 is P2's (§5.3's P2 risks as input); rev 4's C17 is P2's.
@@ -376,15 +377,16 @@ style rule last, K9).
   every trigger (P2-1), so whenever any reader runs. Text nodes are contents.
 - **K5 What "contents" is** — the spec's *contents* is the flat-tree descendants plus the replaced content (B6).
   `::before`, `::after` and `::marker` (outside and inside) are **contents** (skipped). Spec ground: skipping turns on
-  size containment, and css-contain-2 §3.1 (`#size-containment`) counts them as the box's content ("treated as having
+  size containment, and css-contain-2 §3.1 (`#containment-size`) counts them as the box's content ("treated as having
   no content—not even through pseudo-elements such as ::before, ::after, or ::marker"; "The containment box's content
-  (including any pseudo-elements)"); css-pseudo-4 §4 (`#treelike`) makes all three tree-abiding, and §4.1
-  (`#generated-content`) makes `::before`/`::after` child pseudo-elements generating boxes "as if they were immediate
-  children of their originating element". **elidex's reading** where §4's parenthetical lists no pseudo-elements: one
+  (including any pseudo-elements)"); all three are tree-abiding (css-pseudo-4 §4, `#treelike`): §4.1
+  (`#generated-content`) makes `::before`/`::after` fully styleable (§4's subset) child pseudo-elements generating boxes
+  "as if they were immediate children of their originating element", and §4.2 (`#marker-pseudo`): "::marker is a
+  tree-abiding pseudo-element". **elidex's reading** where §4's parenthetical lists no pseudo-elements: one
   meaning of *content* across the module (§3.1's), so a skipped element's own box is the only thing it paints —
   css-contain-2 §4.2 (`#using-cv-hidden`, non-normative) item 1: a wrapper with no border or background "and its skipped
   contents are guaranteed to never render anything" — and pseudo-element entities classify with the element children
-  whose flat-tree slot they take (K4). B26 is [evidence], not the ground. Classified once, in S1/S2's definition:
+  whose flat-tree slot they take (K4); B26 [evidence]. Classified once, in S1/S2's definition:
   `::before`/`::after` are child entities (B19) whose flat-tree parent is the originating element (K4), hence S2;
   `::marker` (`ListItemMarker`, B19) through S1 (D3). Also contents: replaced content (F4, the parent's IBP-classify) and
   widget content (elidex paints controls without UA shadow trees, `elidex-render/src/builder/form.rs`). The element's own
@@ -469,7 +471,7 @@ style rule last, K9).
   their timelines as normal from that point" (while skipped, "Existing animations do not advance in their timeline").
   The residue — whether "from that point" resumes from where it stopped or catches up (its Note compares a background
   tab) — is ambiguous, not silent: CV-readers' plan decides it from css-contain-2 §4.5 (`#cv-notes`) item 9 and its Note
-  as elidex's own choice, its reasoning written there (a measurement only as [evidence]), and C16 tells the two
+  as elidex's own choice, its reasoning written there (the erratum entry's evidence rule), and C16 tells the two
   readings apart (erratum 2026-11-04 (13), (R1-E8); re-grounded, PM 431). HEAD's callers (shell
   `animation.rs:87` `detect_and_start_transitions`, `lib.rs:692`; the tick, `content/event_loop.rs:256`) are input (FU-R3).
 - **K17 Standing obligation for absent readers** (U1) — each, when built, reads K1's form per the arm table: `innerText` →
@@ -510,7 +512,7 @@ lives in K1's file). Per CV-focus leg (erratum 2026-11-04 (R1-E5)):
 | CSS CONTAIN 2 §4 Suppressing An Element’s Contents Entirely: the content-visibility property | `hidden`: not accessible to UA features, not selectable, not focusable | focus: CV-focus; selection producers, find-in-page → K17's slots | CV-focus | ✗ | yes |
 | CSS CONTAIN 2 §4.1 Animating and Interpolating content-visibility | discrete; `hidden` ↔ other maps (0,1) to the non-hidden value | | CV-core | ✓ | yes |
 | CSS CONTAIN 2 §3.1 Size Containment | the four "no effect" bullets (applies-to) | ruby arm vacuous at HEAD (PE2) | CV-render | ✓ | yes |
-| CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | the sizing rule; also K5's ground (pseudo-elements are the box's content) | CV-render | ✗ | yes |
+| CSS CONTAIN 2 §3.1 Size Containment | "not even through pseudo-elements such as ::before, ::after, or ::marker" | the sizing rule; K5 | CV-render | ✗ | yes |
 | CSS CONTAIN 2 §4.5 Restrictions and Clarifications | items 1–12 (each reader's arm: §2's table); item 10's style change event (K16's marker boundary) | 1, 2, 5, 9, 10: CV-readers (U1); 8, 11, 12 (incl. its iframe clause) → K17's slots; 3, 4, 6 `auto`-only (3 in effect: *update content relevancy for a document* step 2 iterates only `auto` elements) → `#11-content-visibility-auto`; 7 (iframe SHOULD) → out | CV-readers | ✗ | yes |
 | CSS TRANSITIONS 1 §3 Starting of transitions | *style change event* (`#style-change-event`; timing not defined by the spec) | every style-phase invocation, frame and forced, is one — elidex's decision (D12, K16) | CV-readers | ✗ | yes |
 | CSS CONTAIN 2 §4.6 Accessibility Implications | `hidden`'s skipped contents omitted | `auto` paragraph → `#11-content-visibility-auto` | CV-a11y | ✓ | yes |
@@ -706,15 +708,12 @@ CV-focus-1, so all of them wait on A2c, which has no driver (R1b-8).
   (candidate: a component). **P2-R2** (R3/R4) stored *assigned nodes* vs *find slottables* on a manual re-insertion
   (*insert* step 7.4 is named-mode only). **P2-R3** (R3) the *assigned slot* DOM never clears (Node's *get the parent*,
   DOM §4.4) — a deviation to record; the event path's *get the parent* / `composedPath` — edge from L3's
-  `#11-event-path-window-missing` (the path omits the Window, probe-confirmed, PM 378): P2 extends the one *get the parent*
+  `#11-event-path-window-missing`, a hard order edge (§8): P2 extends the one *get the parent*
   that slot's PR leaves (re-ground).
 - **P2-R4** (R3/R4) `slotchange` order and one channel from every source (*assign slottables* 2; *insert* 7.5; *remove* 9;
   *move* 15, 23), out-of-bracket writers included; reuse of `pending_slot_change_signals` (B25). **P2-R5** (R4) host
-  pseudo-element entities (`composed_children(host)` omits them, `shadow.rs:529-537`); they render: css-pseudo-4 §4.1
-  (`#generated-content`) generates a `::before`/`::after` box (content not `none`) as an immediate child of the
-  originating element, before/after its "actual content" (§4.1 suppresses them for a replaced originating element, not a host), and
-  css-shadow-1 §4.1 (`#flattening`) replaces only a host's light children by its shadow root's children — so they sit
-  before/after the shadow children (re-grounded, PM 431).
+  pseudo-element entities (`composed_children(host)` omits them, `shadow.rs:529-537`): order decided at `516c5bd5` on
+  css-pseudo-4 §4.1 (`#generated-content`) + css-shadow-1 §4.1 (`#flattening`); guarded by P2-3/C26.
 - **P2-R6** a UA rule's re-derivation point vs *insert*'s insertion steps (7.7.1) and children changed steps (9), a P1 × P2
   pair; `moveBefore`; rev 4's list (`tree_clone.rs:30`, destroy, `walk.rs:459`, `:582`, `docs/architecture/core.md:22`).
 - **CF-R1** (R5-2) the subwidget read by the base predicate `is_focusable` (`focus_fixup_steps`', B23; erratum 2026-11-04, CR-1), not only
@@ -853,7 +852,7 @@ Cells (owner):
   navigation focuses the default summary's keyboard subwidget and the next rendering update does not blur it.
 - C26 (P2-1, P2-3; CV-render): after *insert*, a slottable's `slot` change, a slot's `name` change, `assign()`, *remove*,
   *move* and entity destroy (`moveBefore` when built), with no style pass between, `flat_tree_parent`
-  and S2 reflect the new tree; a host's `::before` entity is reached alike upward and downward. C27 (P2-2's `details` acceptance cell, CV-details):
+  and S2 reflect the new tree; a host's `::before` entity is reached alike upward and downward, and `composed_children(host)` = `[::before, shadow-root children…, ::after]`. C27 (P2-2's `details` acceptance cell, CV-details):
   `d.append('x'); d.prepend(summary)` with no style pass between puts `summary` in slot 1, `x` in slot 2; likewise a
   parser-built `details` and a shell-side writer's change. C28 (P2-4, CV-render): `flat_tree_parent` is defined in
   `elidex-ecs` and `dom/content_visibility.rs` calls it directly, through no injected callback (erratum 2026-11-04 (15):
@@ -904,7 +903,7 @@ each moved part owned by the program that receives it — P2 for the assignment 
 |---|---|
 | **Amendments of the parent's §0.6 item 11 decided content** (recorded, not edited; USER DECIDED 2026-10-20): U1 — the reader list becomes every reader elidex has (K16) plus the standing obligation for absent readers (K17); U2 — the `details` UA shadow tree's scope includes the shadow surfaces it consumes (the per-slot table above). Parent premise errors PE1–PE6 (recorded, not edited); the parent's edge list gains c7 (IBP-observer → CV-readers) (c5 withdrawn, erratum 2026-11-04 (15)); E20/E22 bind every nested PR (D9); the sibling programs FU, P1, P2 and their edges into this program; the reader→PR table naming the flip for every parent pin (§5.1); the parent's §6 Open row for the home slot read with U1/U2 | **the approval PR** |
 | Memory — every shared-ledger write (the open-slot ledger, the roadmap, the landings ledger), at approval **and at each nested landing** (slot closures and narrowings), is **transcribed by the PM** from the driver's report (`project_pm-and-lane-driver-structure.md`). At approval: the P1 and P2 slots registered (owners and triggers as above) with P2's absorptions; the home slot's restated trigger and scope (U1, U2); `#11-find-in-page`, `#11-details-content-pseudo` and `#11-content-visibility-absent-readers` (media included) registered; the appends to `#11-css-containment`, `#11-content-visibility-auto` (the arm table), `#11-dialog-top-layer` and `#11-focusable-area-being-rendered`; the HTMLMediaElement row's pointer; the shadow-lane roadmap rows marked "moved to `#11-content-visibility-skip-contents` (CV-details) / P2"; the stale `#11-shadow-composed-event-retargeting` roadmap rows struck. FU's slot re-point is the PM's (already recorded) — FU's consumer edges and its invariants FU-3–FU-6 (rev 8; FU-1/FU-2 withdrawn) are reported for it. The earlier ledger promise "the slotchange slot registered at approval, CV-flat-tree closes it" is superseded by P2's absorption | **the approval PR** |
-| Erratum 2026-11-04, for the PM (ledger writes, as above): `#11-focus-fixup-gated-on-session-records` is K15's citation; its ledger text already holds finding (1)'s side note and #603 closed it (with the folded `#11-render-side-effect-version-delta-signal`), so no write (R1-m; re-ground); `#11-focusable-area-being-rendered`'s append names CV-focus-1; the parent-edge record drops c5; the ledger's CF-R1 text renamed by the PM (PM 281) at #603's landing (plan (2) §8, "At landing (PM)"; R1-m; re-ground); stale under this erratum (R1-E2): the home slot's restated trigger ("the seven nested PRs of §5.1" — CV-focus lands as two legs), the canonical-focus APPEND ("CF-1, an external gate on CV-focus … A2c before CV-focus" → CV-focus-2), and the FU slot's decided consumers and edges (add `scrollIntoView()`'s skip check; FU → CV-focus names both legs) | the erratum PR |
+| Erratum 2026-11-04, for the PM (ledger writes, as above): `#11-focus-fixup-gated-on-session-records` is K15's citation; its ledger text already holds finding (1)'s side note and #603 closed it (with the folded `#11-render-side-effect-version-delta-signal`), so no write (R1-m; re-ground); `#11-focusable-area-being-rendered`'s append names CV-focus-1; the parent-edge record drops c5; the ledger's CF-R1 text renamed by the PM (PM 281) at #603's landing (plan (2) §8, "At landing (PM)"; R1-m; re-ground); stale under this erratum (R1-E2): the home slot's restated trigger ("the seven nested PRs of §5.1" — CV-focus lands as two legs), the canonical-focus APPEND ("CF-1, an external gate on CV-focus … A2c before CV-focus" → CV-focus-2), and the FU slot's decided consumers and edges (add `scrollIntoView()`'s skip check; FU → CV-focus names both legs); the hard order edge L3 `#11-event-path-window-missing` → P2 (P2-R3: P2 extends the *get the parent* that slot leaves) | the erratum PR |
 | The parent pins flipped; the home slot's paint/hit facets | CV-render |
 | The home slot's further-reader facets (K16) | CV-readers |
 | The shadow-lane slots closed or narrowed per the table above (Q-s2's answer recorded); the default-summary facet of `#11-ua-sheet-html-rendering-display-fidelity`, if that slot exists | CV-details |
