@@ -36,14 +36,22 @@ pub(super) fn run_regexp(
     };
     let uses_last_index = is_global || is_sticky;
 
-    // §21.2.5.2.1 step 4: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
-    // Delegate to `get_regexp_last_index` so that accessor getters,
-    // prototype-chain lookups, and non-Number coercion are honored
-    // consistently with other call sites.
+    // RegExpBuiltinExec steps 2, 7 and 13.a: `lastIndex` is `ToLength(Get(..))`
+    // and is NOT clamped to the string length. For a non-g/non-y regexp the
+    // working lastIndex is 0 (step 7). For g/y, `lastIndex > length` fails the
+    // match, resets the property to 0 and returns null (step 13.a.i); a clamp
+    // here makes a zero-width match at the end repeat forever in the global
+    // replace/match loops. `subject` is a WTF-16 slice, so `length` and
+    // `lastIndex` are both in UTF-16 code units.
     let start = if uses_last_index {
         let raw = super::natives_string::get_regexp_last_index(ctx, obj_id)?;
+        #[allow(clippy::cast_precision_loss)]
+        if raw > subject.len() as f64 {
+            super::natives_string::set_regexp_last_index(ctx, obj_id, 0);
+            return Ok(None);
+        }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = (raw as usize).min(subject.len());
+        let idx = raw as usize;
         idx
     } else {
         0
