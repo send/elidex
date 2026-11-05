@@ -322,9 +322,8 @@ cells) and cites this text.
   (994; C0b adds `create_table_element` and edits eight sites) — its *DomApiHandler bindings* section (from the section
   rule at `:624` to the end, before `mod tests;`) → `table_mutation/handlers.rs` (NEW); the algorithms stay in `mod.rs`
   (≈ 625 lines). (d) `crates/dom/elidex-dom-api/src/range/live.rs` (1021) and (e)
-  `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` (1143), where C0c adds no-op arms: whichever of L3 RC-0a and
-  C0c's prerequisite landed first was to split them, and RC-0a lands both splits first (PM 318), so they are RC-0a's,
-  not C0c's prerequisites; when C0c's base includes RC-0a, C0c is written on the split files. Each verified as a
+  `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` (1143), where C0c adds no-op arms: RC-0a landed both splits (#587
+  `fab44a1d`; PM 318), so they are RC-0a's, not C0c's prerequisites, and C0c is written on the split files. Each verified as a
   pure move (`git diff --stat`, `cargo test -p <crate>` green).
 - **D-15 ((i), (ii), (iv) on this branch; (iii) in C0b; all made true by C0b) — the IBP documents name
   `node_document`.** (i) The node memo's `effective_node_document` → `node_document`, in place, with the dated amendment
@@ -612,7 +611,7 @@ shadow root) and `tree_clone.rs:379`; the other six spawn `Window`, `Worker` or 
 **Snapshot at `27b50dfe`** (not the population): the C0b memo §4.4, with each member's `source`; C0b re-derives it at
 its base.
 
-### §4.5 L3's Range sites (L3 memo Appendix A at Rev 5 `b6e500e7`)
+### §4.5 L3's Range sites (#583 `12ea5dce`: Appendix A, §2 C3)
 
 | id | site | after C0b | owner, by landing order |
 |---|---|---|---|
