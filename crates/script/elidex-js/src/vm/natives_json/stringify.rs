@@ -12,7 +12,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, StringId, VmError,
 };
-use super::MAX_JSON_DEPTH;
+use super::{depth_exceeded, MAX_JSON_DEPTH};
 
 /// Serialization state for `JSON.stringify`.
 struct JsonSerializer {
@@ -147,7 +147,7 @@ impl JsonSerializer {
         obj_id: ObjectId,
     ) -> Result<bool, VmError> {
         if self.stack.len() >= MAX_JSON_DEPTH {
-            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            return Err(depth_exceeded());
         }
         // Circular reference check.
         if self.stack.contains(&obj_id) {
@@ -226,7 +226,7 @@ impl JsonSerializer {
         obj_id: ObjectId,
     ) -> Result<bool, VmError> {
         if self.stack.len() >= MAX_JSON_DEPTH {
-            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            return Err(depth_exceeded());
         }
         // Circular reference check.
         if self.stack.contains(&obj_id) {

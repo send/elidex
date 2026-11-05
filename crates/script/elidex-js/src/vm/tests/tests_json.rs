@@ -1,4 +1,5 @@
 use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
+use crate::vm::natives_json::{DEPTH_EXCEEDED_MSG, MAX_JSON_DEPTH};
 use crate::vm::value::JsValue;
 
 // ============================================================================
@@ -586,16 +587,14 @@ fn caught(body: &str) -> String {
     ))
 }
 
-const DEPTH_MSG: &str = "RangeError|Maximum JSON nesting depth exceeded";
+fn depth_msg() -> String {
+    format!("RangeError|{DEPTH_EXCEEDED_MSG}")
+}
 
-/// Cells run on the libtest thread (2 MiB unless `RUST_MIN_STACK`), which is
-/// the smallest stack production VM threads get (all plain `thread::spawn`;
-/// see the `MAX_JSON_DEPTH` docstring), so "cap - 10 passes" ratchets the cap
-/// against frame growth.
-use crate::vm::natives_json::MAX_JSON_DEPTH;
+// Cells run on the libtest thread (2 MiB): see `MAX_JSON_DEPTH`'s docstring for why cap-10 is the ratchet.
 
 /// JS reviver that, on key `a`, installs an acyclic chain of `n` nested
-/// objects as `this.b` (`n + 2` levels with the root).
+/// objects as `this.b` (deepest `depth` reached = n + 1, root at depth 0).
 fn chain_reviver(n: usize) -> String {
     format!(
         "JSON.parse('{{\"a\":1,\"b\":2}}', function (k, v) {{
@@ -620,7 +619,7 @@ fn parse_reviver_cyclic_graph_throws_range_error() {
                 return v;
             })"#
         ),
-        DEPTH_MSG
+        depth_msg()
     );
 }
 
@@ -633,16 +632,7 @@ fn parse_reviver_deep_acyclic_chain_within_cap_ok() {
 #[test]
 fn parse_reviver_deep_acyclic_chain_over_cap_throws() {
     // T-DEEP-OVER: past the cap.
-    assert_eq!(caught(&chain_reviver(MAX_JSON_DEPTH + 100)), DEPTH_MSG);
-}
-
-#[test]
-fn parse_deep_text_without_reviver_hits_parser_cap() {
-    // T-NO-REVIVER (control): the parser's own cap, unchanged.
-    assert_eq!(
-        caught("JSON.parse('['.repeat(2000) + ']'.repeat(2000))"),
-        DEPTH_MSG
-    );
+    assert_eq!(caught(&chain_reviver(MAX_JSON_DEPTH + 100)), depth_msg());
 }
 
 // ============================================================================

@@ -11,7 +11,7 @@ use super::super::value::{
     PropertyValue, VmError,
 };
 use super::super::VmInner;
-use super::MAX_JSON_DEPTH;
+use super::{depth_exceeded, MAX_JSON_DEPTH};
 
 /// Recursive-descent JSON parser operating on WTF-16 code units.
 ///
@@ -278,7 +278,7 @@ impl<'a> JsonParser<'a> {
     fn parse_array(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
         self.depth += 1;
         if self.depth > MAX_JSON_DEPTH {
-            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            return Err(depth_exceeded());
         }
         let result = self.parse_array_inner(ctx);
         self.depth -= 1;
@@ -321,7 +321,7 @@ impl<'a> JsonParser<'a> {
     fn parse_object(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
         self.depth += 1;
         if self.depth > MAX_JSON_DEPTH {
-            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            return Err(depth_exceeded());
         }
         let result = self.parse_object_inner(ctx);
         self.depth -= 1;
@@ -402,11 +402,9 @@ impl<'a> JsonParser<'a> {
 /// §25.5.2.4 InternalizeJSONProperty — apply reviver function.
 ///
 /// Recursion is bounded by [`MAX_JSON_DEPTH`] (`depth` counts object/array
-/// levels entered): the reviver runs before the walk descends and may install
-/// arbitrary graphs, including cycles (`this.b = o; o.self = o`), which the
-/// spec walk would never terminate on. Exceeding the bound is a catchable
-/// `RangeError`, the same one the parser and `JSON.stringify` raise, instead of
-/// a Rust-stack-overflow process abort.
+/// levels entered) because the reviver runs before the walk descends and can
+/// build cycles (`this.b = o; o.self = o`) the spec walk never terminates on.
+/// See [`MAX_JSON_DEPTH`] for the failure mode and the cap's derivation.
 fn internalize(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
@@ -417,7 +415,7 @@ fn internalize(
     match val {
         JsValue::Object(obj_id) => {
             if depth >= MAX_JSON_DEPTH {
-                return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+                return Err(depth_exceeded());
             }
             match &ctx.get_object(obj_id).kind {
                 ObjectKind::Array { elements } => {
