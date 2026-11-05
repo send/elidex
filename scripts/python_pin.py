@@ -349,5 +349,18 @@ def main():
     return _exit(1)
 
 
+def _guarded_main():
+    """main(), except that an uncaught exception still ends stderr with the exit line (exit 3)."""
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except BaseException:
+        import traceback
+
+        traceback.print_exc()
+        return _exit(3)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_guarded_main())

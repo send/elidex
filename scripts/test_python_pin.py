@@ -1,6 +1,7 @@
 """Set member: the pin's reader, admission and refusal (scripts/python_pin.py), N2-N23 and NM mutants.
 
-Plan of record: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (sections 4.2, 4.8, 6.3 and 6.5).
+Plan of record: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (sections 4.2, 4.8);
+docs/plans/2026-10-python-pin-pr1-tests.md (sections 6.3, 6.5).
 
 Not a pin file: it imports `python_pin` (pure functions) and loads `scripts/python_pin_testing.py`
 by path; every test that reaches the refusal does so in a child process started with the
@@ -51,7 +52,7 @@ H = _load(HELPER_PATH, "python_pin_testing_under_member")
 # N17: the last run of the refusal on a real non-pin interpreter (plan section 10 step 4).
 # sha256 of scripts/python_pin.py, the date, and "<version> <sys.executable>" of that run.
 REAL_OLD_RUN = {
-    "sha256": "5893716f39ca8af370a5f6a9ca56076ee6c8ebcc9dc1bc0bbfbebf02e9c13999",
+    "sha256": "93c869becb58b4a473c3dfe75dd498e787a58b6c6bb420f50f4f9349b71c48cd",
     "date": "2026-11-05",
     "interpreter": "3.9.6 /Applications/Xcode.app/Contents/Developer/usr/bin/python3",
 }
@@ -540,7 +541,7 @@ class PinCase(unittest.TestCase):
                         inside.setdefault(fn.name, set()).update(a.name for a in n.names)
                     elif isinstance(n, ast.ImportFrom):
                         inside.setdefault(fn.name, set()).add(n.module)
-        self.assertEqual(inside, {"ask_mise": {"json", "subprocess"}})
+        self.assertEqual(inside, {"ask_mise": {"json", "subprocess"}, "_guarded_main": {"traceback"}})
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 for base in node.bases:
@@ -648,8 +649,24 @@ class PinCase(unittest.TestCase):
         self.assertEqual((r.rc, r.lines[-2:]), (2, [PREFIX + "exit 2", ""]), r.err)
         r = self.run_pin(version="3.15.2")
         self.assertEqual((r.rc, r.err), (0, ""))
+        # An uncaught exception in main(): the traceback, then `python-pin: exit 3` last. The module runs
+        # as a script (the __main__ path), with read_pin made to raise.
+        tmp = self.tmp()
+        root = os.path.join(tmp, "repo")
+        raising = self.source().replace(
+            "    path = os.path.join(root, PIN_FILE)\n",
+            "    path = os.path.join(root, PIN_FILE)\n    raise RuntimeError('boom')\n", 1)
+        self.assertNotEqual(raising, self.source())
+        module = H.pin_tree(root, raising, "python 3.15.2\n")
+        env = H.isolated_mise_env(os.path.join(tmp, "iso"), fake_mise=None)
+        rc, _, err = run_child([sys.executable, "-I", "-S", module], env, root)
+        lines = err.split("\n")
+        self.assertEqual((rc, lines[-2:]), (3, [PREFIX + "exit 3", ""]), err)
+        self.assertIn("Traceback (most recent call last)", err)
+        self.assertIn("RuntimeError: boom", err)
+        self.assertEqual(err.count(PREFIX + "exit "), 1)
 
-    # ===== mutants (plan section 6.5) =====================================================
+    # ===== mutants (tests memo section 6.5) ==============================================
 
     def test_mutants_are_killed(self):  # sorts after every test_N*: the unmutated passes are recorded by then
         self.assertEqual(sorted(m[0] for m in MUTANTS), sorted(MUTANT_IDS))
@@ -726,9 +743,10 @@ MUTANTS = (
     ("NM14", "os.killpg(proc.pid, 9)", "proc.kill()", "N15"),
     ("NM15", "return _exit(1)", "return 1", "N23"),
     ("NM16", "return _exit(2)", "return 2", "N23"),
+    ("NM17", "sys.exit(_guarded_main())", "sys.exit(main())", "N23"),
 )
 MUTANT_IDS = ["NM%s" % x for x in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11a", "11b", "11c", "11d",
-                                    "11e", "11f", "12", "13", "14", "15", "16")]
+                                    "11e", "11f", "12", "13", "14", "15", "16", "17")]
 
 
 if __name__ == "__main__":

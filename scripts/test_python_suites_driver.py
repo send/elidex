@@ -2,7 +2,7 @@
 
 Plan of record: docs/plans/2026-07-citation-hygiene-Aiii-suite-scheduler.md, §6
 (pins Q1-Q13) and §6.1 (Property -> pin); N1 / N1b / N1c / N22 and the DM / FM mutants are the
-pins of docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (6.1). Every test method's name starts
+pins of docs/plans/2026-10-python-pin-pr1-tests.md (6.1). Every test method's name starts
 with the §6 / §6.1 row it pins (`test_P4_...` pins row P4). Fixtures: see
 `python_suites_fixtures.py`. Every driver-executing pin builds a scratch git
 repository (never this file) and runs the copied driver there.

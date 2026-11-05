@@ -2,7 +2,7 @@
 
 Reads `.github/workflows/ci.yml` through the text reader and `mise.toml` through the `tomllib`
 reader in `python_suites_readers.py`; fixtures for them are below. N4-N8 are the pins of the
-python-pin PR-1 plan (docs/plans/2026-10-python-pin-pr1-pin-and-gate.md, 6.2): N4 replaces Q7,
+python-pin PR-1 plan (docs/plans/2026-10-python-pin-pr1-tests.md, 6.2): N4 replaces Q7,
 N5 replaces R2, N7 / N8 restate Q4 / M1-M3 over parsed data.
 """
 

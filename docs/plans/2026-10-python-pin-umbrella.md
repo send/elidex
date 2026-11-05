@@ -227,7 +227,7 @@ Seven invariants, I1–I6 and draft 6's I7 (decision 167); the pair table holds 
   helper and then asserts that **no** entry of the real `tracked-configs` / `trusted-configs` (under the outer
   environment's `MISE_STATE_DIR`, else `$XDG_STATE_HOME/mise`, else `~/.local/state/mise`; read only; an absent directory, as in CI, is an empty set and
   the assertion holds — never a `skipTest`, which the driver reads as red) resolves into the test's temporary root — race-free under parallel sessions, which add
-  entries of their own; (c) a mutant that drops the helper is killed by fixture-owned evidence: a sentinel `mise` / `python3` first on the test's `PATH` logs any child that bypassed the helper (PR-1 plan §6.5, N19 (c)). (amended 2026-11-04 by python-pin PR-1) (b) compares **real paths on
+  entries of their own; (c) a mutant that drops the helper is killed by fixture-owned evidence: a sentinel `mise` / `python3` first on the test's `PATH` logs any child that bypassed the helper (PR-1 tests memo `docs/plans/2026-10-python-pin-pr1-tests.md` §6.5, N19 (c)). (amended 2026-11-04 by python-pin PR-1) (b) compares **real paths on
   both sides** — `os.path.realpath` of each entry's link target against `os.path.realpath(tmp_root) + os.sep` —
   because macOS `tempfile.mkdtemp()` returns `/var/folders/…` while mise records `/private/var/folders/…`; a plain
   prefix test never matches, and the mutant would survive locally (R6 M3, measured by R6's A2; `python3 -I -c

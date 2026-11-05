@@ -1,7 +1,8 @@
 """Set member: T5 clauses 1-5 (scripts/tracked_tool_config.py), its listing, controls and mutants.
 
 Plan of record: docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md (sections 4.3 and 6);
-clause 1, W1-W3 and the valid-world baseline: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (4.5, 6.4).
+clause 1, W1-W3 and the valid-world baseline: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (4.5)
+and docs/plans/2026-10-python-pin-pr1-tests.md (6.4).
 
 Outside the pin layer (plan D2): imports neither python_suites_fixtures nor python_suites_readers.
 The file list is this member's own `git ls-files -z`, stdout only (plan D3): stderr is piped
