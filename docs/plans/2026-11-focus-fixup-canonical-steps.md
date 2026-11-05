@@ -144,7 +144,7 @@ the fix to the provenance PR, which lands first.
 | Q1 | NO — no VM-reachable path writes the session's pending buffer | D-7 evidence |
 | Q2 | YES — a microtask checkpoint after each listener (`elidex-script-session/src/event_dispatch/mod.rs:512-513`) and `drain_reactions` after the walk (`:571`); `fire_focus_event` → `dispatch_focus_event_with_related` (`content/focus.rs:136-170`) → `PipelineResult::dispatch_event` (`lib.rs:293`) | C8's premise holds |
 | Q3 | NO / NO — no shell caret display-item probe; no path ends or cancels an IME composition on blur (`content/ime.rs:157-159`, `ImeKind::Enabled \| Disabled` arms are no-ops) | D-13 (C17), I10 restated as a pre-existing gap (§8) |
-| Q4 | Unreachable today — `contentDocument` / `contentWindow` return `null` (`vm/host/html_iframe_proto.rs:300-311`, slot `#11-windowproxy-browsing-context`); `needs_render` setters are load (`make_in_process_entry`, since this PR's /code-review fix), timers (`content/iframe/render.rs:60-68`), blur (`content/event_handlers.rs:770-776`) and event forwarding (`:760`, `:884`, `:945`) | §4.4 S9 |
+| Q4 | A parent script cannot reach the child's DOM — `contentDocument` / `contentWindow` return `null` (`vm/host/html_iframe_proto.rs:300-311`, slot `#11-windowproxy-browsing-context`); `needs_render` setters are load (`make_in_process_entry`), timers (`content/iframe/render.rs:67-80`), blur (`content/event_handlers.rs:770-776`) and event forwarding (`:760`, `:884`, `:945`); the load and timer setters did not schedule the parent's rendering update (fixed here) | §4.4 S9 |
 | Q5 | No focus-inspecting OOP test; harness `run_oop_and_collect_posts` exists | D-12, E6 |
 | Q6 | YES, structurally — all five constructors take the parser's `create_document_root` | unused since rev 5 (D-8 removes the cache) |
 
@@ -220,8 +220,8 @@ Pairs:
   must not include step 17 (CV umbrella FU-5, `docs/plans/2026-10-content-visibility.md:239-241`); no recursion.
 - **I5 × I9** — spec step 16 (ResizeObserver) precedes step 17, so RO callbacks should see the pre-fixup holder; at HEAD
   and after this PR they see the post-fixup one (same as base A/B). Obligation O1.
-- **I6 × I1** — an in-process child runs its fixup only on frames where `needs_render` is set (`iframe/render.rs:37`); a
-  child mutation that does not set it would wait for the next flagged frame — not reachable today (§4.4 row S9, Q4).
+- **I6 × I1** — an in-process child runs its fixup only on frames where `needs_render` is set (`iframe/render.rs:37`);
+  every writer of the flag now also schedules the parent's rendering update, which runs the child's (§4.4 row S9).
 - **I6 × I8** — an `<iframe>` is focusable by its tab-index default; `hidden` on it (or an ancestor) makes it
   non-focusable by the same predicate (C11).
 - **I3 × I6**, **I5 × I6**, **I4 × I7**, **I7 × I1**, **I7 × I2**, **I7 × I3**, **I8 × I9**, **I10 × I6** — none beyond the shared
@@ -261,9 +261,9 @@ it or an ancestor, `disabled`, `type`, `tabindex`, `contenteditable`, `href` rem
 observers (I4). User input: the edited value, judged by `elidex_form::take_change_on_blur` (P10). Radio `name` / `form` attributes and
 tree moves reach `resolve_form_owner` on every lookup (D-8). Every listener runs on the renderer main thread inside the existing `with_bound`
 bracket discipline (`PipelineResult::dispatch_event`, `lib.rs:293`); `crate::re_render` is never entered inside a bracket
-(its `session.flush` would alias, `lib.rs:560-563`), so the dispatch nests nothing. Adjacent pre-existing surface:
-the radio group scan includes radios outside the document tree (`radio.rs:118-123` has no same-tree filter, against
-§4.10.5.1.16 `#radio-button-group`'s "Both a and b are in the same tree") — not widened; FF-2 (§8.1, 252 (M3) (b)). User edits mark the
+(its `session.flush` would alias, `lib.rs:560-563`), so the dispatch nests nothing. The radio group scan
+(`find_radio_group_scoped`, `radio.rs:109`) applies all of §4.10.5.1.16 `#radio-button-group`'s conditions, same tree
+and non-empty `name` included (FF-2, implemented here, §8.1). User edits mark the
 change-on-blur snapshot in the provenance PR's funnel, not here.
 
 ## §4. Mechanism
@@ -338,12 +338,12 @@ Scope: `crate::re_render` (`lib.rs:559-711`), the functions it calls in the same
 | S6 | `lib.rs:677-710` keyframes, `resolve_with_mode`, transitions, animations, layout, display list | none | correct (unconditional) |
 | S7 | `content/mod.rs:367-372` version snapshot → `focusable_cache` (`:406-408`), `rescan_iframes_by_diff` (`:440-444`) | version delta | correct (already moved, the `re_render` doc's claim holds) |
 | S8 | `content/mod.rs:351`, `:423` `reconcile_focused_iframe` | none (reads the FOCUS bit) | correct; comments stale (F5) |
-| S9 | `content/mod.rs:355` → `iframe/render.rs:37` in-process child `re_render` | `needs_render` flag | **adjacent class, not this concept** (a writer-set dirty flag, not session records). **Not reachable today** (Q4): every path that runs child script sets the flag (timers `iframe/render.rs:60-68`, blur `event_handlers.rs:770-776`, event forwarding `:760`, `:884`, `:945`; load time too since this PR's /code-review fix, `make_in_process_entry` registers with `needs_render: true` — an earlier wording missed the load-time scripts), and a parent script cannot reach the child's `EcsDom` (`contentDocument` / `contentWindow` are `null` stubs, `html_iframe_proto.rs:300-311`). Re-check when `#11-windowproxy-browsing-context` lands; no slot (252 (M4)); the re-check pointer goes into that slot (record R-S9, §8.2) |
+| S9 | `content/mod.rs:355` → `iframe/render.rs:37` in-process child `re_render` | `needs_render` flag | **adjacent class, hit (fixed here)** — a writer-set dirty flag, not session records. The child's rendering update runs only inside the parent's, which the event loop ran only when the parent was dirty; two writers set the flag without scheduling it: child timers (`tick_iframe_timers`, `iframe/render.rs:67-80`) and iframes registered after `re_render_all_iframes` (`rescan_iframes_by_diff` / `check_lazy_iframes` → `make_in_process_entry`, `needs_render: true`). The flag is now a scheduling signal of the parent's rendering update: `any_iframe_needs_render` (`iframe/render.rs:57`, a peek) feeds the parent's render decision through one OR (`event_loop.rs:452`) and the idle wait (`:91`); `re_render_all_iframes` stays the single clear point. Cell `in_process_iframe_timer_disabled_runs_focus_fixup_with_idle_parent`. A parent-script writer of the child's DOM does not exist yet (Q4); record R-S9 (§8.2) |
 | S10 | `content/mod.rs:447` `check_lazy_iframes`, `:433` `deliver_layout_observations` | none | correct |
 | S11 | `lib.rs:545-558` `re_render` doc ("ancestor-cache invalidation" listed as an internal record consumer) | — | doc updated with S2 |
 | S12 | `pipeline.rs:147-170` build-time record delivery | flush records | correct (delivery; outside `re_render`, listed for completeness) |
 
-Hits: S2, S3 (fixed here); adjacent S9 (not reachable, §8). No other record-gated DOM consumer.
+Hits: S2, S3, and the adjacent S9 (all fixed here). No other record-gated DOM consumer.
 
 ### §4.5 Change-on-blur provenance — the fixup-path facts (252 (M5), PM 260)
 
@@ -380,28 +380,35 @@ The design is the provenance PR's; the order and its reason are umbrella e1. Wha
 - `lib.rs:545-558` (`re_render` doc, S11) and `lib.rs:608-634` (§4.1).
 - `content_focus_fixup_tests.rs:1-3` module doc: `reconcile_focus` → the canonical fixup.
 
-### §5.2 Touch list with line counts (`wc -l` at `68c17ccf`)
+### §5.2 Touch list with line counts (`wc -l` at `55276f81`; full list = `git diff --stat origin/main...HEAD`)
 
 | File | Lines | Change | Split rule |
 |---|---|---|---|
-| `crates/shell/elidex-shell/src/lib.rs` | 731 | call replaced in place, the cache gate and field deleted, comments | < 1000 |
-| `crates/shell/elidex-shell/src/content/mod.rs` | 865 | comments only (F5) | < 1000 |
-| `crates/shell/elidex-shell/src/content/focus.rs` | 397 | `focus_fixup` (NEW, ~15 lines) | < 1000 |
-| `crates/shell/elidex-shell/src/content_focus_fixup_tests.rs` | 97 | F6 + cells C5–C9, C11, C16–C19 (~+300) | ~400, < 1000 |
-| `crates/dom/elidex-dom-api/src/focus/update_steps.rs` | 550 | two fns (~40), step-8 re-route, relocated + new cells (~+120) | ~710, < 1000 |
-| `crates/dom/elidex-dom-api/src/focus/sot.rs` | 202 | `reconcile_focus` deleted, docs | shrinks |
-| `crates/dom/elidex-dom-api/src/focus/mod.rs` | 57 | module doc | — |
-| `crates/dom/elidex-dom-api/src/focus/tests.rs` | 999 | 3 fns relocated out (~−75); `current_focus_keeps_holder_until_async_fixup` (`:41`) keeps its first half, its fixup half moves | shrinks; **no growth allowed** (any net add crosses 1000 → standalone split first) |
-| `crates/dom/elidex-form/src/ancestor_cache.rs` | 114 | deleted | — |
-| `crates/dom/elidex-form/src/lib.rs` | 69 | module + re-export removed | shrinks |
-| `crates/dom/elidex-form/src/radio.rs` | 500 | `cache` parameters and test constructions removed (§4.2) | shrinks |
-| `crates/shell/elidex-shell/src/pipeline.rs` | 975 | four field initialisers removed | shrinks |
-| `crates/shell/elidex-shell/src/content/event_handlers.rs` | 965 | four cache arguments removed (`reconcile_focused_iframe` unchanged) | shrinks |
+| `crates/shell/elidex-shell/src/lib.rs` | 719 | call replaced in place, the cache gate and field deleted, comments | < 1000 |
+| `crates/shell/elidex-shell/src/content/mod.rs` | 869 | comments (F5) | < 1000 |
+| `crates/shell/elidex-shell/src/content/focus.rs` | 404 | `focus_fixup` (NEW) | < 1000 |
+| `crates/shell/elidex-shell/src/content/event_loop.rs` | 616 | child `needs_render` feeds the render decision and the idle wait (S9) | < 1000 |
+| `crates/shell/elidex-shell/src/content/iframe/render.rs` | 82 | `any_iframe_needs_render` (NEW, S9) | < 1000 |
+| `crates/shell/elidex-shell/src/content/iframe/mod.rs` | 276 | re-export | < 1000 |
+| `crates/shell/elidex-shell/src/content/iframe/load.rs` | 628 | `make_in_process_entry` registers with `needs_render: true` | < 1000 |
+| `crates/shell/elidex-shell/src/content_focus_fixup_tests.rs` | 572 | F6 + cells C5–C9, C11, C16–C19, in-process cells | < 1000 |
+| `crates/shell/elidex-shell/src/content_change_on_blur_tests.rs` | 679 | helpers moved to `content_test_support.rs` | < 1000 |
+| `crates/shell/elidex-shell/src/content_test_support.rs` | 489 | shared helpers + `log_listener_js!` | < 1000 |
+| `crates/dom/elidex-dom-api/src/focus/update_steps.rs` | 773 | two fns, step-8 re-route, relocated + new cells | < 1000 |
+| `crates/dom/elidex-dom-api/src/focus/sot.rs` | 162 | `reconcile_focus` deleted, docs | < 1000 |
+| `crates/dom/elidex-dom-api/src/focus/mod.rs` | 59 | module doc | < 1000 |
+| `crates/dom/elidex-dom-api/src/focus/delegate.rs` | 254 | docs (`reconcile_focus` → `focus_fixup_steps`) | < 1000 |
+| `crates/dom/elidex-dom-api/src/focus/tests.rs` | 920 | 3 fns relocated out; `current_focus_keeps_holder_until_async_fixup` keeps its first half | ≤ 999 (DoD 5) |
+| `crates/dom/elidex-form/src/ancestor_cache.rs` | — | deleted | — |
+| `crates/dom/elidex-form/src/lib.rs` | 69 | module + re-export removed | < 1000 |
+| `crates/dom/elidex-form/src/radio.rs` | 529 | `cache` parameters removed (§4.2); group rule same tree + non-empty `name` (FF-2) with cells | < 1000 |
+| `crates/dom/elidex-form/src/submit.rs` | 546 | `resolve_form_owner` call, §4.10.3 cites | < 1000 |
+| `crates/shell/elidex-shell/src/pipeline.rs` | 971 | four field initialisers removed | < 1000 |
+| `crates/shell/elidex-shell/src/content/event_handlers.rs` | 956 | four cache arguments removed (`reconcile_focused_iframe` unchanged) | < 1000 |
 
 Re-run: `wc -l` on the paths above. `focus/predicate.rs` (329) is read, not edited; `focus/delegate.rs` gets doc lines only (§5.1).
 `elidex-form`'s `focus_snapshot.rs` and the shell's `form_input.rs` are no longer touched (rev 2's D-11 rows went to the
-provenance PR). `content/focus.rs`'s line count is re-measured at the rebased head (the provenance PR edits
-`dispatch_change_on_blur` there).
+provenance PR).
 
 ### §5.3 Named risks
 
@@ -475,9 +482,9 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15); integration i
 - VM `focus()` / `blur()` event dispatch and unfocusing step 6 → A2c, `#11-vm-host-synthetic-dom-event-dispatch`.
 - OOP iframe focus messages → `#11-oop-iframe-focus-lifecycle` (C16 tests only the child's own fixup, not messages).
 - `user validity` at step 2.1.1 → `#11-focus-change-user-validity`.
-- Cross-document rendering order (§3 row 5) → FF-1; radio same-tree filter (§3.1) → FF-2; IME composition end on blur
-  (I10) → FF-3; form owner as ECS state (§4.3) → FF-4; in-process child
-  `needs_render` (S9) → no slot, re-check record R-S9 (§8.2). Owners and re-eval: umbrella §4.
+- Cross-document rendering order (§3 row 5) → FF-1; IME composition end on blur (I10) → FF-3; form owner as ECS state
+  (§4.3) → FF-4; a parent script writing an in-process child's DOM (S9) → record R-S9 (§8.2). Owners and re-eval:
+  umbrella §4. FF-2 (radio same-tree filter, §3.1) is implemented here.
 - **Moved, not deferred:** change-on-blur user-change provenance → slice (1) (umbrella §1.2; the absence of a script-only `change` is guarded on the provenance side (its `take_change_on_blur` cells and MG1; docs/plans/2026-11-change-on-blur-user-provenance.md); C19 pins ordering only).
 
 ## §8. Edges, hand-offs and records
@@ -522,12 +529,10 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15); integration i
   whose RO / rAF / fixup listeners record order into a shell-visible log, compared with the spec order; a difference
   makes the slot a defect with a cell, no difference closes it as unobservable today; (2) re-run the probe when
   `#11-windowproxy-browsing-context` lands (cross-document script access makes more orders observable).
-- **FF-2 `#11-radio-group-same-tree-filter`** (252 (M3) (b); crate `elidex-form`). *Defect:* the radio button
-  group scan (`elidex-form/src/radio.rs:110-123`, `find_radio_group_impl`) selects candidates by kind + `name` and form
-  owner only; §4.10.5.1.16 Radio Button state's *radio button group* (`#radio-button-group`) also requires "Both a and b
-  are in the same tree", so a detached or other-tree radio with the same name and form owner joins the group (checking
-  one unchecks the other).
-  *Trigger:* the next PR touching `radio.rs` or radio-group semantics.
+- **FF-2 `#11-radio-group-same-tree-filter`** (252 (M3) (b); crate `elidex-form`) — **implemented in this PR**:
+  `find_radio_group_scoped` (`radio.rs:109`) requires the same tree (`EcsDom::find_tree_root`) and a non-empty `name`
+  besides kind and form owner (§4.10.5.1.16 Radio Button state, `#radio-button-group`). The PM closes the ledger row at
+  landing.
 - **FF-3 `#11-ime-composition-end-on-blur`** (Q3, I10; crates `elidex-shell` `content/ime.rs` + `elidex-form`). *Search first:* the ledger has no IME composition-end slot — the only IME-related one,
   `#11-textarea-edit-path-newline-normalization` (`memory/project_open-defer-slots.md:123`), is newline folding on the
   paste / IME insert paths, a different defect. *Defect:* when focus leaves a text control during an active composition
@@ -552,9 +557,9 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15); integration i
 
 ### §8.2 Records for existing slots (PM applies at landing)
 
-- **R-S9 → `#11-windowproxy-browsing-context`** (252 (M4), no new slot), text verbatim: "on landing, re-check whether S9
-  (the in-process child iframe gated on needs_render) can be reached; see
-  docs/plans/2026-11-focus-fixup-canonical-steps.md".
+- **R-S9 → `#11-windowproxy-browsing-context`** (252 (M4), no new slot), text verbatim: "on landing, a parent script
+  that mutates an in-process child's DOM (contentDocument / contentWindow) must schedule the child's rendering update
+  (set its needs_render); see docs/plans/2026-11-focus-fixup-canonical-steps.md §4.4 S9".
 - **R-A3 → `#11-canonical-focus-update-steps` (A3)** (252 (M1)): "A3 also fires the focus update steps' events at
   Document entries — `focus` / `blur` at the Window — which the single-element model omits (elidex does not fire the
   Window focus event the spec chain gives). First observable site: the step-17 focus fixup (docs/plans/2026-11-focus-fixup-canonical-steps.md
@@ -581,7 +586,7 @@ Coverage: engine-independent cells in `elidex-dom-api` (C14, C15); integration i
 7. PR body carries §8's records; `#11-focus-fixup-gated-on-session-records` and the folded
    `#11-render-side-effect-version-delta-signal` reported closed to the PM, the folded slot's version-delta remedy
    superseded (§8.2 closure, umbrella FP-1), with O1 appended to `#11-focusable-area-being-rendered`, R-S9 and R-A3
-   (§8.2) and FF-1 to FF-4 (§8.1) handed over (PM transcribes).
+   (§8.2) and FF-1, FF-3, FF-4 (§8.1) handed over, FF-2 reported closed (implemented here) (PM transcribes).
 8. The provenance PR (`docs/plans/2026-11-change-on-blur-user-provenance.md`) is merged on `origin/main`, this branch is
    rebased onto it before D-10's commits, and C19 is red at commit (2) and green from (3) (recorded in the PR body).
 
