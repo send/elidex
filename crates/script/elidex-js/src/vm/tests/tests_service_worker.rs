@@ -32,13 +32,10 @@ use super::super::Vm;
 const SCRIPT_URL: &str = "https://example.com/sw.js";
 const SCOPE_URL: &str = "https://example.com/";
 
-/// Drain bound for every test whose expected result is that its promise
-/// SETTLES: the production bound — `sw_thread`'s spawn passes its
-/// `DEFAULT_IDLE_TIMEOUT`, 30 s, the value of
-/// `elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT` — not a shorter test value.
-/// A short bound would let machine load turn "settles" into the timed-out
-/// passthrough / `success: false` branch: the same class as the harness's old
-/// 5 s receive ceiling (`#11-sw-respond-with-gc-test-wallclock-timeout`).
+/// Drain bound for every test whose promise must SETTLE: the production idle
+/// bound (30 s; `sw_thread` passes its private copy of this value), not a
+/// shorter test value — a short bound would let machine load turn "settles"
+/// into the timed-out branch (`#11-sw-respond-with-gc-test-wallclock-timeout`).
 const SETTLE_PUMP_TIMEOUT: Duration = elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
 
 /// Drain bound for the two NEVER-settle tests
