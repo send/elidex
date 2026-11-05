@@ -498,7 +498,6 @@ fn clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope() {
 // Base formulation: HEAD's `(…, owner: Option<Entity>) -> Entity`.
 
 #[test]
-#[ignore = "C0b red-first: base spawns an ownerless element for None (entity count + 1)"]
 fn u20_spawn_with_no_document_spawns_nothing() {
     let mut dom = EcsDom::new();
     let before = dom.world().len();

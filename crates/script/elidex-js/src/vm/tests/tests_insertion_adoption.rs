@@ -283,7 +283,6 @@ fn t13_control() {
 
 // ---- T20: a shallow clone is created in the operation's document ----
 #[test]
-#[ignore = "C0b red-first: base false — clone_node_shallow leaves the clone unstamped"]
 fn t20_shallow_clone_keeps_the_source_document() {
     assert_eq!(
         cell("r.push(dp.body.cloneNode(false).ownerDocument === dp);"),
@@ -298,7 +297,6 @@ fn t20_control() {
 
 // ---- T21: the table helpers create in the table's node document ----
 #[test]
-#[ignore = "C0b red-first: base all false — the table helpers create ownerless elements"]
 fn t21_table_helpers_create_in_the_tables_document() {
     let got = cell(
         "var t = dp.createElement('table'); \
@@ -318,7 +316,6 @@ fn t21_control() {
 
 // ---- T22: append('s') texts and insertAdjacentText ----
 #[test]
-#[ignore = "C0b red-first: base [false,true] — append('s') creates an ownerless Text (insertAdjacentText already reads owner_document(this))"]
 fn t22_convert_nodes_and_insert_adjacent_text_documents() {
     let got = cell(
         "var x = dp.createElement('div'); x.append('t', dp.createElement('i')); \
@@ -343,7 +340,6 @@ const T23_SETUP: &str =
      var p = q.getElementById('p');";
 
 #[test]
-#[ignore = "C0b red-first: base [false,false,true] — the extract fragment and Text clone are ownerless (getter document_root()); the moved <i> keeps q"]
 fn t23_range_extract_creates_in_the_start_nodes_document() {
     let got = cell(&format!(
         "{T23_SETUP} var rg = document.createRange(); rg.setStart(p.firstChild, 1); rg.setEnd(p, 2); \

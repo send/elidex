@@ -48,14 +48,12 @@ fn unstamped(dom: &EcsDom, document: Entity) -> (usize, Vec<Option<String>>) {
 }
 
 #[test]
-#[ignore = "C0b red-first: base — strict leaves every non-foreign node unstamped (H-4)"]
 fn u8_strict_document_parse_creates_every_node_in_the_document() {
     let parsed = crate::parse_strict(MARKUP).expect("conforming markup");
     assert_eq!(unstamped(&parsed.dom, parsed.document), (0, vec![]));
 }
 
 #[test]
-#[ignore = "C0b red-first: base — the tolerant converter stamps template contents only (H-4)"]
 fn u8_tolerant_document_parse_creates_every_node_in_the_document() {
     let parsed = crate::parse_html(MARKUP);
     assert_eq!(unstamped(&parsed.dom, parsed.document), (0, vec![]));
