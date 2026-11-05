@@ -171,7 +171,7 @@ pub fn focusing_steps(
 /// Step 8 has two branches — "run the focusing steps for topDocument's
 /// viewport" when the system has focus, else "run the focus update steps given
 /// old chain, an empty list, and null". elidex does not model system focus, so
-/// both are the one viewport transition, [`focusing_steps_for_viewport`] (the
+/// both are the one viewport transition, `focusing_steps_for_viewport` (the
 /// same function the step-17 fixup, [`focus_fixup_steps`], runs).
 pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
     let doc = sink.document();

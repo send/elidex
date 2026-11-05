@@ -12,8 +12,8 @@
 //! `&mut PipelineResult` (each owns its own document `EcsDom`).
 
 use elidex_dom_api::focus::{
-    current_focus, focusing_steps, get_the_focusable_area, is_focusable_area, unfocusing_steps,
-    FocusEventKind, FocusEventSink, FocusTrigger,
+    current_focus, focus_fixup_steps, focusing_steps, get_the_focusable_area, is_focusable_area,
+    unfocusing_steps, FocusEventKind, FocusEventSink, FocusTrigger,
 };
 use elidex_ecs::Entity;
 use elidex_form::{record_focus_snapshot, take_change_on_blur, FormControlState};
@@ -99,6 +99,17 @@ pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
         return;
     };
     unfocusing_steps(&mut ShellFocusSink { pipeline }, old);
+}
+
+/// WHATWG HTML "update the rendering" step 17 — the render-time focus fixup for
+/// `pipeline`'s document: if its focused area is no longer a focusable area,
+/// run the focusing steps for the viewport through the shell sink
+/// ([`elidex_dom_api::focus::focus_fixup_steps`]), firing `change` (when the
+/// sink's change-on-blur judgement holds), `blur` and `focusout` at the holder.
+/// Needs only the pipeline, so every `crate::re_render` caller (parent,
+/// in-process and OOP iframes, the legacy `App`) runs the same fixup.
+pub(crate) fn focus_fixup(pipeline: &mut PipelineResult) {
+    focus_fixup_steps(&mut ShellFocusSink { pipeline });
 }
 
 /// The shell's [`FocusEventSink`] — adapts the engine-independent §6.6.4
