@@ -34,7 +34,8 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 /// animation/timer timeout inputs. A pending in-process child rendering update
 /// (an iframe registered after this turn's `re_render_all_iframes`) folds in the
 /// same way, and so is an in-process child's earliest timer deadline, so step 5 renders /
-/// ticks it without a poll-interval delay.
+/// ticks it without a poll-interval delay. Timer deadlines only shorten the wait: the poll
+/// interval is an upper bound because periodic work (caret blink) runs on poll turns.
 pub(super) fn idle_wait_timeout(
     state: &mut ContentState,
     last_frame: Instant,
@@ -57,7 +58,8 @@ pub(super) fn idle_wait_timeout(
                 .max(Duration::from_millis(1));
             timer_timeout.map_or(frame_remaining, |t| frame_remaining.min(t))
         } else {
-            timer_timeout.unwrap_or(DEFAULT_POLL_INTERVAL)
+            // Deadlines only shorten the wait: the poll interval is an upper bound.
+            timer_timeout.map_or(DEFAULT_POLL_INTERVAL, |t| t.min(DEFAULT_POLL_INTERVAL))
         }
     } else {
         Duration::ZERO

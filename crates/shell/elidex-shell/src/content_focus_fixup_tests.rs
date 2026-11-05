@@ -472,6 +472,46 @@ fn in_process_iframe_timer_deadline_wakes_idle_wait() {
     );
 }
 
+/// A far-away timer never extends the idle wait past `DEFAULT_POLL_INTERVAL`
+/// (periodic work such as caret blink runs on poll turns): child timer.
+#[test]
+fn in_process_iframe_far_timer_does_not_extend_idle_wait() {
+    let (mut state, _browser) = build_test_content_state(
+        r#"<iframe id=f srcdoc="<p id=p>x</p><script>setTimeout(() => {}, 60000);</script>"></iframe>"#,
+        "",
+    );
+    let deadline = super::iframe::next_iframe_timer_deadline(&state)
+        .expect("precondition: child timer pending");
+    let now = deadline
+        .checked_sub(std::time::Duration::from_secs(59))
+        .expect("instant underflow");
+    assert_eq!(
+        super::event_loop::idle_wait_timeout(&mut state, std::time::Instant::now(), now),
+        super::DEFAULT_POLL_INTERVAL,
+        "a distant child deadline must not extend the idle wait"
+    );
+}
+
+/// Same cap, parent timer.
+#[test]
+fn parent_far_timer_does_not_extend_idle_wait() {
+    let (mut state, _browser) =
+        build_test_content_state("<p>x</p><script>setTimeout(() => {}, 60000);</script>", "");
+    let deadline = state
+        .pipeline
+        .runtime
+        .next_timer_deadline()
+        .expect("precondition: parent timer pending");
+    let now = deadline
+        .checked_sub(std::time::Duration::from_secs(59))
+        .expect("instant underflow");
+    assert_eq!(
+        super::event_loop::idle_wait_timeout(&mut state, std::time::Instant::now(), now),
+        super::DEFAULT_POLL_INTERVAL,
+        "a distant parent deadline must not extend the idle wait"
+    );
+}
+
 /// C16: an OOP child's own per-frame `crate::re_render` runs the fixup: its
 /// `blur` listener posts what it saw.
 #[test]
