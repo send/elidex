@@ -353,7 +353,8 @@ enforce.
 - **Scope note for the split PR**: this puts tools code (a Python test) into #506, a plan PR. The
   split PR's description says so, and the `/pre-push` run for the split covers it: `mise run
   tools-test` / `mise run ci` run `scripts/python-suites.sh` once, under the first `python3` on `PATH`
-  (its header, step 1). At the split's date the `"3.9"` / `"3.x"` matrix existed only in GitHub's `tools` job, so the 3.9 floor was measured by CI, not by `/pre-push`; the guard used no syntax newer than 3.9. (Amended 2026-11-04 by python-pin PR-1: the `tools` job has one leg, the pin (`.tool-versions`), which `mise run tools-test` / `/pre-push` also run; the sentence is the record of the split's date.) The guard
+  (its header, step 1). At the split's date the `"3.9"` / `"3.x"` matrix existed only in GitHub's `tools` job, so the
+  3.9 floor was measured by CI, not by `/pre-push`; the guard used no syntax newer than 3.9. (Amended 2026-11-04 by python-pin PR-1: the `tools` job has one leg, the pin (`.tool-versions`), which `mise run tools-test` / `/pre-push` also run; the sentence is the record of the split's date.) The guard
   adds suite cost, so the split PR also applies the `tools` job's timeout rule (§3 step 2, last check).
 
 ### §1.6 Rejected (record only): all four tables kept in the entry, no S0
