@@ -132,8 +132,9 @@ impl FocusEventSink for ShellFocusSink<'_> {
     fn commit_change_on_blur(&mut self, old: Entity) {
         // §6.6.4 step 2.1 — fire `change` if the value was user-edited since
         // focus, consuming the snapshot (a no-op sink — the VM, PR-A2c — leaves it
-        // intact). `change` fires while the FOCUS bit is already cleared, so it
-        // runs before the new area is designated, per the losing-side ordering.
+        // intact). `change` fires while `old` is still the designated focused
+        // area (its FOCUS bit still set — steps 2.2-2.4 clear it afterwards),
+        // so a `change` listener still sees `old` as `activeElement` (cell C6).
         dispatch_change_on_blur(self.pipeline, old);
     }
 

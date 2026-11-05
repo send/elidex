@@ -248,7 +248,7 @@ fn focus_fixup_reentrant_focus_wins() {
     assert_eq!(event_log(p), "blur,focusout", "b saw exactly one blur");
 }
 
-// ---- C11, C16: iframes ------------------------------------------------------
+// ---- C11, C16, C16-in-process: iframes ------------------------------------------------------
 
 /// C11: parent VM `iframe.hidden = true` on the focused in-process `<iframe>`:
 /// the parent fixup blurs the `<iframe>` element (with `blur`), and pass 2
@@ -286,6 +286,50 @@ fn vm_native_hidden_focused_iframe_blurs_parent_and_child() {
         event_log(&state.pipeline),
         "blur,focusout",
         "the parent fixup fired blur at the <iframe> element"
+    );
+}
+
+/// C16-in-process (the in-process twin of C16): a same-origin srcdoc child's
+/// load-time script focuses `#b` and then disables it. The child pipeline is
+/// built (scripts, layout, display list) without passing through
+/// `crate::re_render`, so the registration must leave the child's first
+/// rendering update owed. The harness's one rendering update after
+/// `scan_initial_iframes` (`finalize_test_content_state`, the production
+/// order) runs the child's step-17 fixup: its `activeElement` is cleared and
+/// `blur`/`focusout` fired there, exactly once.
+#[test]
+fn in_process_iframe_load_time_disabled_runs_focus_fixup() {
+    let (mut state, _browser) = build_test_content_state(
+        r#"<iframe id=f srcdoc="<button id=b>x</button><script>
+             const b = document.getElementById('b');
+             const log = [];
+             const rec = (e) => {
+               log.push(e.type);
+               document.body.setAttribute('data-log', log.join(','));
+             };
+             b.addEventListener('blur', rec);
+             b.addEventListener('focusout', rec);
+             b.focus();
+             b.disabled = true;
+           </script>"></iframe>"#,
+        "",
+    );
+    {
+        let ip = super::test_support::in_process_entry(&state);
+        assert_eq!(focused(&ip.pipeline), None, "child activeElement cleared");
+        assert_eq!(
+            event_log(&ip.pipeline),
+            "blur,focusout",
+            "the child's own fixup fired blur/focusout on the first frame"
+        );
+    }
+
+    state.re_render();
+    let ip = super::test_support::in_process_entry(&state);
+    assert_eq!(
+        event_log(&ip.pipeline),
+        "blur,focusout",
+        "fired exactly once"
     );
 }
 

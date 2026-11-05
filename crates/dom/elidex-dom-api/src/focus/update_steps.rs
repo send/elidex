@@ -271,6 +271,7 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
                                          // must still proceed to designate `new` (don't cancel the user's pending
                                          // click/Tab move). So return only on a reentrant focus to some *other*
                                          // element, never on a bare clear.
+                                         // Fixup-fired listener interaction → `#11-vm-host-synthetic-dom-event-dispatch`.
         if current_focus(sink.dom(), doc).is_some_and(|c| c != old) {
             return;
         }

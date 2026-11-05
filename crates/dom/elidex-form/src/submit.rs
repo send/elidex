@@ -286,7 +286,7 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
         .is_ok_and(|fcs| fcs.kind == FormControlKind::SubmitButton)
 }
 
-/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.2:
+/// WHATWG HTML §4.10.3 The form element, `requestSubmit(submitter?)` step 2.2:
 /// the submitter's form owner must be `form`.  Delegates to the
 /// canonical §4.10.18.3 form-owner resolution path
 /// (`crate::radio::resolve_form_owner`),

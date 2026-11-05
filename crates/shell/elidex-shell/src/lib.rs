@@ -619,6 +619,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     // (step 16) runs after this, in `ContentState::re_render`; moving the fixup
     // after style/layout is obligation O1 on `#11-focusable-area-being-rendered`
     // (plan docs/plans/2026-11-focus-fixup-canonical-steps.md §8).
+    // Listener JS running mid-render → `#11-fixup-author-js-render-phase`.
     crate::content::focus::focus_fixup(result);
 
     // Phase 1: Save old computed values for entities with AnimStyle (transition detection).
