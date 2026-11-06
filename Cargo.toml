@@ -235,7 +235,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 egui = "0.34"
 egui-wgpu = "0.34"
 egui-winit = "0.34"
-vello = "0.9"
+vello = "0.11"
 wgpu = "29"
 winit = "0.30"
 pollster = "0.4"
