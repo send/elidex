@@ -11,7 +11,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::dom::{AdoptedContents, CloneScope, MutationDispatcher, MutationEvent};
+use crate::dom::{CloneScope, MutationDispatcher, MutationEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum MockEvent {
@@ -52,11 +52,6 @@ pub(super) enum MockEvent {
     CloneCreated {
         root: Entity,
         scope: CloneScope,
-    },
-    Adopt {
-        node: Entity,
-        documents: Option<(Entity, Entity)>,
-        contents: Vec<AdoptedContents>,
     },
 }
 
@@ -151,25 +146,15 @@ impl MutationDispatcher for MockHook {
                     merged_child_index,
                 });
             }
-            MutationEvent::AttributeChange { .. } => {
-                // Generic MockHook does not record attribute events.
+            MutationEvent::AttributeChange { .. } | MutationEvent::Adopt { .. } => {
+                // Generic MockHook does not record attribute events, nor
+                // `Adopt` (`adopt_on_insert.rs`'s `AdoptLog` does).
             }
             MutationEvent::CloneCreated { root, scope } => {
                 self.events
                     .lock()
                     .unwrap()
                     .push(MockEvent::CloneCreated { root, scope });
-            }
-            MutationEvent::Adopt {
-                node,
-                documents,
-                contents,
-            } => {
-                self.events.lock().unwrap().push(MockEvent::Adopt {
-                    node,
-                    documents,
-                    contents: contents.to_vec(),
-                });
             }
         }
     }

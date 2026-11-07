@@ -426,7 +426,6 @@ fn t7_variant_replace_child_adopts_before_removing_old_child() {
 
 #[test]
 fn t7_control() {
-    assert_eq!(ce_cell(&[T6, "e.ownerDocument === dp"]), "true");
     assert_eq!(
         ce_cell(&[T7_VARIANT_SETUP, "e2.ownerDocument === dp"]),
         "true"

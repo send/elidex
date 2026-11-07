@@ -4,7 +4,7 @@
 //! low-level `link_node` / `detach` primitives, and the centralized
 //! insert/remove dispatch helpers.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::super::mutation_event::{AdoptedContents, MutationEvent};
 use super::super::EcsDom;
@@ -339,10 +339,8 @@ impl EcsDom {
             .filter_map(|&n| self.template_contents_fragment(n).map(|f| (f, n)))
             .collect();
         let mut segments = AdoptSegments {
-            root,
-            root_pair,
-            recorded: HashMap::new(),
-            skipped: HashSet::new(),
+            segments: HashMap::from([(root, Segment::Live { pair: root_pair })]),
+            any_skipped: false,
             all_some: root_pair,
         };
         let mut contents: Vec<AdoptedContents> = Vec::new();
@@ -350,30 +348,33 @@ impl EcsDom {
             if let Some(&template) = templates.get(&node) {
                 // The fast path holds while no segment is skipped or `None`:
                 // the template's innermost segment is then a `Some` one.
-                let template_seg = if segments.skipped.is_empty() && segments.all_some {
+                let template_seg = if !segments.any_skipped && segments.all_some {
                     Segment::Live { pair: true }
                 } else {
                     segments.lookup(self, template)
                 };
                 let old = self.node_document(node);
-                let Segment::Live { pair } = template_seg else {
-                    segments.skipped.insert(node);
-                    continue;
+                let pair = match template_seg {
+                    Segment::Live { pair } if old != Some(document) => pair,
+                    _ => {
+                        segments.segments.insert(node, Segment::Skipped);
+                        segments.any_skipped = true;
+                        continue;
+                    }
                 };
-                if old == Some(document) {
-                    segments.skipped.insert(node);
-                    continue;
-                }
                 let documents = old.filter(|_| pair).map(|old| (old, document));
                 segments.all_some &= documents.is_some();
-                segments.recorded.insert(node, documents.is_some());
+                segments.segments.insert(
+                    node,
+                    Segment::Live {
+                        pair: documents.is_some(),
+                    },
+                );
                 contents.push(AdoptedContents {
                     fragment: node,
                     documents,
                 });
-            } else if !segments.skipped.is_empty()
-                && segments.lookup(self, node) == Segment::Skipped
-            {
+            } else if segments.any_skipped && segments.lookup(self, node) == Segment::Skipped {
                 continue;
             }
             let _ = self.set_associated_document(node, document);
@@ -671,40 +672,26 @@ enum Segment {
     Skipped,
 }
 
-/// The adopt walk's segment bookkeeping (D-6's lookup, walk side).
+/// The adopt walk's segment bookkeeping (D-6's lookup, walk side). The
+/// lookup rule is stated once, on [`MutationEvent::Adopt`].
 struct AdoptSegments {
-    root: Entity,
-    root_pair: bool,
-    /// Recorded fragments → whether their pair is `Some`.
-    recorded: HashMap<Entity, bool>,
-    skipped: HashSet<Entity>,
+    /// The walk's root (pre-seeded with its pair) and every contents
+    /// fragment the walk reached, recorded or skipped. The root is never a
+    /// template's contents in the walk, so no fragment overwrites it.
+    segments: HashMap<Entity, Segment>,
+    /// Some fragment was skipped.
+    any_skipped: bool,
     /// No `None` segment yet (root's included).
     all_some: bool,
 }
 
 impl AdoptSegments {
-    /// The innermost segment of `node`: its shadow-including root
-    /// ([`EcsDom::find_tree_root_composed`]). A contents fragment has no
-    /// parent and is not a shadow root, so the climb stops at the nearest
-    /// one; the result is the walk's root, a recorded fragment, or a skipped
-    /// one.
-    ///
-    /// `find_tree_root_composed` stops at `MAX_ANCESTOR_DEPTH` (a stated
-    /// defect, C0c memo §8): past it the climb returns an interior node,
-    /// which matches none of the three, and the node reads as a live `None`
-    /// segment (stamped, no reaction).
+    /// The innermost segment of `node` (see [`MutationEvent::Adopt`]); an
+    /// unrecorded shadow-including root reads as a live `None` segment.
     fn lookup(&self, dom: &EcsDom, node: Entity) -> Segment {
-        let r = dom.find_tree_root_composed(node);
-        if r == self.root {
-            Segment::Live {
-                pair: self.root_pair,
-            }
-        } else if let Some(&pair) = self.recorded.get(&r) {
-            Segment::Live { pair }
-        } else if self.skipped.contains(&r) {
-            Segment::Skipped
-        } else {
-            Segment::Live { pair: false }
-        }
+        self.segments
+            .get(&dom.find_tree_root_composed(node))
+            .copied()
+            .unwrap_or(Segment::Live { pair: false })
     }
 }

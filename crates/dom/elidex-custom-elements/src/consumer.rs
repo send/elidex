@@ -205,14 +205,30 @@ impl CustomElementReactionConsumer {
         contents: &[AdoptedContents],
         dom: &EcsDom,
     ) {
+        // `is_custom` needs a `CustomElementState`: with none in the World the
+        // walk can enqueue nothing.
+        if dom
+            .world()
+            .query::<&CustomElementState>()
+            .iter()
+            .next()
+            .is_none()
+        {
+            return;
+        }
         // A segment whose pair differs from the root's, or a reached
         // fragment without a segment (one the walk skipped), needs the lookup.
         let mut lookup = contents.iter().any(|s| s.documents != documents);
+        // `contents` is in the walk's template order, so while `lookup` is
+        // false the k-th template reached has its fragment at `contents[k]`;
+        // a skipped fragment breaks that correspondence and sets `lookup`.
+        let mut next = 0;
         let mut enqueued = Vec::new();
         dom.for_each_uncapped_shadow_inclusive(node, TemplateContentsWalk::Include, &mut |e| {
             if !lookup {
                 if let Some(fragment) = dom.template_contents_fragment(e) {
-                    lookup = !contents.iter().any(|s| s.fragment == fragment);
+                    lookup = contents.get(next).map(|s| s.fragment) != Some(fragment);
+                    next += 1;
                 }
             }
             if !is_custom(e, dom) {
@@ -380,14 +396,8 @@ pub fn classify_attribute_change(
     })
 }
 
-/// The pair of `entity`'s innermost adopt segment (C0c D-6's lookup): its
-/// shadow-including root ([`EcsDom::find_tree_root_composed`]; a contents
-/// fragment has no parent and is not a shadow root, so the climb stops at the
-/// nearest one). `root` gives the root's `documents`, a segment's `fragment`
-/// that segment's; any other root — a contents fragment the walk skipped, or
-/// an interior node where the `MAX_ANCESTOR_DEPTH` cap of
-/// `find_tree_root_composed` cut the climb short (a stated defect, C0c memo
-/// §8) — reads `None`.
+/// The pair of `entity`'s innermost adopt segment (C0c D-6's lookup, consumer
+/// side); the rule is stated on [`MutationEvent::Adopt`].
 fn adopt_pair(
     dom: &EcsDom,
     entity: Entity,

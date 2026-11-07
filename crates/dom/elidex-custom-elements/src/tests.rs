@@ -601,12 +601,12 @@ fn u13_fixture() -> U13 {
     }
 }
 
-#[test]
-fn u13_adopt_enqueues_contents_before_light_child_each_with_its_pair() {
-    let mut f = u13_fixture();
-    f.dom.adopt(f.tpl, f.d);
-    let adopted: Vec<_> = f
-        .queue
+/// Drain the queue, keeping the `Adopted` reactions as
+/// `(entity, old_document, new_document)`.
+fn take_adopted(
+    queue: &std::sync::Mutex<std::collections::VecDeque<CustomElementReaction>>,
+) -> Vec<(elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity)> {
+    queue
         .lock()
         .unwrap()
         .drain(..)
@@ -618,7 +618,14 @@ fn u13_adopt_enqueues_contents_before_light_child_each_with_its_pair() {
             } => Some((entity, old_document, new_document)),
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+#[test]
+fn u13_adopt_enqueues_contents_before_light_child_each_with_its_pair() {
+    let mut f = u13_fixture();
+    f.dom.adopt(f.tpl, f.d);
+    let adopted = take_adopted(&f.queue);
     assert_eq!(
         adopted,
         vec![(f.c, f.y, f.d), (f.l, f.x, f.d)],
@@ -684,22 +691,8 @@ fn u19_adopted(
     dom.world_mut()
         .insert_one(e, CustomElementState::custom("x-el"))
         .unwrap();
-    f.queue.lock().unwrap().clear();
     f.dom.adopt(t0, target);
-    let adopted = f
-        .queue
-        .lock()
-        .unwrap()
-        .drain(..)
-        .filter_map(|r| match r {
-            CustomElementReaction::Adopted {
-                entity,
-                old_document,
-                new_document,
-            } => Some((entity, old_document, new_document)),
-            _ => None,
-        })
-        .collect();
+    let adopted = take_adopted(&f.queue);
     (adopted, e, docs)
 }
 

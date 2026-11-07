@@ -379,10 +379,14 @@ pub enum MutationEvent<'a> {
     ///
     /// `contents` lists, in walk order, each template contents fragment the
     /// walk re-homed with its own pair (step 3.4; HTML §4.12.3 adopting steps
-    /// 1–2). A node's pair is its innermost segment's: climb from the node to
-    /// its tree root (out of shadow roots through their hosts); `node` → the
-    /// root's `documents`, a segment's `fragment` → that segment's, any
-    /// other fragment (one the walk skipped) → `None`.
+    /// 1–2). A node's pair is its innermost segment's, found from the node's
+    /// shadow-including root (`EcsDom::find_tree_root_composed`: a contents
+    /// fragment has no parent and is not a shadow root, so the climb stops at
+    /// the nearest one): `node` → the root's `documents`; a recorded
+    /// segment's `fragment` → that segment's; anything else → `None`. That
+    /// includes a fragment the walk skipped and an interior node where the
+    /// `MAX_ANCESTOR_DEPTH` cap cut the climb short (a stated defect, C0c
+    /// memo §8).
     Adopt {
         node: Entity,
         documents: Option<(Entity, Entity)>,
