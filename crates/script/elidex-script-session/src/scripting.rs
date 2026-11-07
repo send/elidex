@@ -6,7 +6,7 @@
 //! rather than composing the clauses host-side (Layering mandate: `vm/host/`
 //! is marshalling only; §8.1.3.4 is an HTML algorithm and lives here).
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, NodeKind};
 use elidex_plugin::SandboxingFlagSet;
 
 /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object"
@@ -82,7 +82,7 @@ pub fn scripting_disabled_for_platform_object(
     }
     // A Document is its own node document (`target != bound_document`).
     dom.node_kind_inferred(target)
-        .is_some_and(|kind| kind.is_node())
+        .is_some_and(NodeKind::is_node)
         && dom
             .node_document(target)
             .is_some_and(|node_doc| node_doc != bound_document)
