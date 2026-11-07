@@ -22,6 +22,11 @@ pub enum TemplateContentsWalk {
     /// teardown ([`EcsDom::despawn_subtree`], else the contents orphan) and
     /// re-home ([`EcsDom::adopt`]'s walk, DOM §4.5 *adopt* step 3.4: the
     /// template's adopting steps move the contents with the template).
+    ///
+    /// Order: WHATWG DOM §4.8 Interface ShadowRoot (*shadow-including tree
+    /// order*, `#concept-shadow-including-tree-order`) for the tree; DOM §4.5
+    /// *adopt* step 3.4 and HTML §4.12.3 template *adopting steps* 2 for where
+    /// the contents sit (right after the template).
     Include,
     /// Visit the shadow-including tree only, as the spec's tree order does.
     Exclude,

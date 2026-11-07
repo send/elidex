@@ -524,7 +524,7 @@ fn t15r_null_registry_element_known_defect_extra_adopted() {
 /// `a.ownerElement === x`. The VM's Attr is not a Node (an entity-less
 /// `ObjectKind::Attr` wrapper whose chain lacks `Node.prototype`), so the
 /// native throws `TypeError`. The ECS side already handles an Attr entity:
-/// U20 (`u20_adopt_attr_stamps_only_the_attr`) shows `EcsDom::adopt(attr, D)`
+/// U22 (`u22_adopt_attr_stamps_only_the_attr`) shows `EcsDom::adopt(attr, D)`
 /// stamps only the Attr. `#11-dom-api-attr-entity-model-unification` changes
 /// this cell to the spec value.
 #[test]

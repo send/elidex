@@ -265,11 +265,11 @@ fn u19_segment_under_a_none_segment_is_none() {
     assert_eq!(u19_stamps(&f), [Some(target); 6]);
 }
 
-// ---- U20 (guard; D-13): `adopt(attr, D)` re-homes only the Attr. *Adopt*
+// ---- U22 (guard; D-13): `adopt(attr, D)` re-homes only the Attr. *Adopt*
 // step 2 removes nothing (an Attr has no parent); step 3 stamps the Attr, not
 // its owner element ----
 #[test]
-fn u20_adopt_attr_stamps_only_the_attr() {
+fn u22_adopt_attr_stamps_only_the_attr() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
     let x_owner = dom.node_document_for_new_nodes(docs.x);
