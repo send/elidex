@@ -3,7 +3,9 @@
 # Asserts that `elidex-ecs`'s `fixtures` feature is enabled from
 # `[dev-dependencies]` only (C0b, D-17 (4)). `fixtures` gates the ownerless node
 # creators; a normal or build edge that turned it on would put them in a product
-# build.
+# build. Scope (program memo A8): the workspace's default-features build on the
+# host target; an edge behind a member feature no member enables is outside it
+# (the generic guard is `#11-test-only-feature-boundary-guard`).
 #
 # The population comes from cargo, not from manifest text: the tree below carries
 # normal and build edges (a build-dependency's features are on in a product
@@ -31,4 +33,4 @@ if [[ "$tree" == *'elidex-ecs feature "fixtures"'* ]]; then
   exit 1
 fi
 
-echo 'check-fixture-boundary: ok (`fixtures` is not enabled from any normal or build edge)'
+echo 'check-fixture-boundary: ok (`fixtures` is not enabled from any normal or build edge of the default-features build)'
