@@ -96,8 +96,10 @@ impl EcsDom {
     /// The complete-subtree walk shared by [`Self::despawn_subtree`]
     /// (teardown), [`Self::adopt`]'s walk (re-home), the custom-element
     /// consumer's `Adopt` arm (`elidex-custom-elements`, which observes the
-    /// contents' position) and the event-handler bind pass
-    /// (`elidex-script-session`). Breadth uses the uncapped
+    /// contents' position), the event-handler bind pass
+    /// (`elidex-script-session`) and `elidex-form`'s clone form-state sweep
+    /// (`apply_clone_form_state`, `crates/dom/elidex-form/src/clone.rs`;
+    /// order-insensitive — it only collects marked entities). Breadth uses the uncapped
     /// [`Self::child_list_uncapped`], depth an explicit work-list; a `visited`
     /// set replaces the caps as the corruption/cycle termination guard (each
     /// entity is enumerated once, however malformed the links).

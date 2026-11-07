@@ -334,10 +334,25 @@ impl EcsDom {
             nodes.push(e);
         });
         // The contents fragments the walk reaches, each with its template.
+        // The root is excluded (the contents-cycle guard, see
+        // [`AdoptSegments`]).
         let templates: HashMap<Entity, Entity> = nodes
             .iter()
-            .filter_map(|&n| self.template_contents_fragment(n).map(|f| (f, n)))
+            .filter_map(|&n| {
+                self.template_contents_fragment(n)
+                    .filter(|&f| f != root)
+                    .map(|f| (f, n))
+            })
             .collect();
+        // No template reached: every node is in the root's segment, so stamp
+        // them all with no segment bookkeeping (an empty `collect` does not
+        // allocate).
+        if templates.is_empty() {
+            for node in nodes {
+                self.stamp_node_and_attrs(node, document);
+            }
+            return Vec::new();
+        }
         let mut segments = AdoptSegments {
             segments: HashMap::from([(root, Segment::Live { pair: root_pair })]),
             any_skipped: false,
@@ -377,17 +392,23 @@ impl EcsDom {
             } else if segments.any_skipped && segments.lookup(self, node) == Segment::Skipped {
                 continue;
             }
-            let _ = self.set_associated_document(node, document);
-            let attrs: Vec<Entity> = self
-                .world
-                .get::<&AttrEntityCache>(node)
-                .map(|cache| cache.entries.values().copied().collect())
-                .unwrap_or_default();
-            for attr in attrs {
-                let _ = self.set_associated_document(attr, document);
-            }
+            self.stamp_node_and_attrs(node, document);
         }
         contents
+    }
+
+    /// Stamp `node` and the Attr entities it has materialized with
+    /// `document` (*adopt* steps 3.1 and 3.3.1).
+    fn stamp_node_and_attrs(&mut self, node: Entity, document: Entity) {
+        let _ = self.set_associated_document(node, document);
+        let attrs: Vec<Entity> = self
+            .world
+            .get::<&AttrEntityCache>(node)
+            .map(|cache| cache.entries.values().copied().collect())
+            .unwrap_or_default();
+        for attr in attrs {
+            let _ = self.set_associated_document(attr, document);
+        }
     }
 
     /// How many times the *adopt* walk has run on this DOM (C0b's walk
@@ -676,8 +697,15 @@ enum Segment {
 /// lookup rule is stated once, on [`MutationEvent::Adopt`].
 struct AdoptSegments {
     /// The walk's root (pre-seeded with its pair) and every contents
-    /// fragment the walk reached, recorded or skipped. The root is never a
-    /// template's contents in the walk, so no fragment overwrites it.
+    /// fragment the walk reached, recorded or skipped. The walk excludes its
+    /// root from the fragment→template map, so the root is never a contents
+    /// segment and no fragment overwrites it. This guards against a contents
+    /// cycle (`tpl.content.appendChild(tpl)`), which the pre-insert validator
+    /// accepts today: the template contents' host is not modelled
+    /// (`#11-template-contents-host-link`), so
+    /// `is_host_including_ancestor_or_self` does not climb from a contents
+    /// fragment to its template. Without the guard, adopting such a fragment
+    /// would record the root as its own template's segment.
     segments: HashMap<Entity, Segment>,
     /// Some fragment was skipped.
     any_skipped: bool,

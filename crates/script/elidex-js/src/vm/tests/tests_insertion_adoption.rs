@@ -411,6 +411,15 @@ const T7_VARIANT_SETUP: &str = "globalThis.old = document.createElement('x-a'); 
     dp.body.append(e2);";
 
 /// `Adopted(e2)` (replace step 6) precedes `Disconnected(old)` (step 7).
+///
+/// C0c column, not the spec's: known deviation. elidex invokes reactions from
+/// one flat queue, so they run in enqueue order (e2, e2, old, e2). HTML
+/// §4.13.6 *invoke custom element reactions* dequeues an element and drains
+/// that element's whole reaction queue, so the spec value is
+/// `[["d","n"],["a",false,false],["c",false],["d","o"]]`;
+/// `#11-ce-element-queue-grouping` changes this cell to the spec order. The
+/// order this cell pins, `Adopted(e2)` before `Disconnected(old)`, holds
+/// under both orders.
 #[test]
 fn t7_variant_replace_child_adopts_before_removing_old_child() {
     let got = ce_cell(&[

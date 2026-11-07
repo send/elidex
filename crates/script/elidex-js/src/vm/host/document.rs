@@ -406,7 +406,7 @@ const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = 
 ];
 
 /// Document own-methods installed AFTER the gated live-collection getters (node
-/// factories + focus / selection readers), kept in their original
+/// factories + focus / selection readers + `adoptNode`), kept in their original
 /// `DOCUMENT_METHODS` order — see [`DOCUMENT_METHODS_PRE_LIVE_COLLECTION`].
 const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("createElement", native_document_create_element),

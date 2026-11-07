@@ -33,9 +33,11 @@
 //!
 //! ## Lifetime contract
 //!
-//! [`MutationEvent`] carries borrowed strings (only relevant for
-//! [`MutationEvent::AttributeChange`]); the dispatcher MUST NOT retain
-//! these references past the dispatch call. Borrows are released when
+//! [`MutationEvent`] carries borrows in two variants:
+//! [`MutationEvent::AttributeChange`]'s strings, and
+//! [`MutationEvent::Adopt`]'s `contents` slice, which borrows the adopt
+//! call's local `Vec`. The dispatcher MUST NOT retain these references
+//! past the dispatch call. Borrows are released when
 //! the chokepoint that fired the event returns.
 
 use hecs::Entity;

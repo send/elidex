@@ -912,3 +912,63 @@ fn u19_segment_under_a_none_segment_is_none() {
     );
     assert_eq!(u19_stamps(&f), [Some(target); 6]);
 }
+
+// ---- U20 (guard; D-13): `adopt(attr, D)` re-homes only the Attr. *Adopt*
+// step 2 removes nothing (an Attr has no parent); step 3 stamps the Attr, not
+// its owner element ----
+#[test]
+fn u20_adopt_attr_stamps_only_the_attr() {
+    let mut dom = EcsDom::new();
+    let docs = docs(&mut dom);
+    let x_owner = dom.node_document_for_new_nodes(docs.x);
+    let el = dom.create_element_with_owner("div", Attributes::default(), x_owner);
+    let attr = dom.create_attribute("id", dom.node_document_for_new_nodes(docs.x));
+    dom.world_mut()
+        .get::<&mut AttrData>(attr)
+        .expect("an Attr entity carries AttrData")
+        .owner_element = Some(el);
+    let log = install_adopt_log(&mut dom);
+    dom.adopt(attr, docs.d);
+    assert_eq!(dom.node_document(attr), Some(docs.d));
+    assert_eq!(
+        dom.node_document(el),
+        Some(docs.x),
+        "owner element unchanged"
+    );
+    assert_eq!(
+        take(&log),
+        vec![AdoptRec {
+            node: attr,
+            documents: Some((docs.x, docs.d)),
+            contents: Vec::new(),
+        }]
+    );
+}
+
+// ---- U21 (guard; D-3 (c)): a contents cycle (`tpl` inside its own contents
+// `f`, which the pre-insert validator accepts today,
+// `#11-template-contents-host-link`) — `adopt(f, D)` terminates and records
+// no segment for its own root ----
+#[test]
+fn u21_contents_cycle_root_is_not_a_segment() {
+    let mut dom = EcsDom::new();
+    let docs = docs(&mut dom);
+    let tpl = dom.create_element_with_owner(
+        "template",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(docs.x),
+    );
+    let f = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(docs.x));
+    assert!(dom.append_child(f, tpl), "the primitive allows the cycle");
+    let log = install_adopt_log(&mut dom);
+    dom.adopt(f, docs.d);
+    assert_eq!(
+        take(&log),
+        vec![AdoptRec {
+            node: f,
+            documents: Some((docs.x, docs.d)),
+            contents: Vec::new(),
+        }]
+    );
+    assert_eq!([f, tpl].map(|n| dom.node_document(n)), [Some(docs.d); 2]);
+}
