@@ -249,14 +249,14 @@ impl Range {
     ///
     /// The boundary **Text** splice now emits its `characterData` record
     /// (B1.3-ii, via `apply_replace_data`). Two gaps remain deferred:
-    /// - DOM §5.5 extract steps 18/21 **deep-clone of a *partially*-contained
+    /// - DOM §5.5 extract steps 17/20 **deep-clone of a *partially*-contained
     ///   element ancestor** into the fragment — the boundary element instead
     ///   stays in the live tree and only its contained descendants are removed
     ///   (observed `apply_remove_child` records). Tracked in B1.2d-ii plan §11.
     /// - **Comment / CDATASection** boundary containers: unlike `delete_contents`
     ///   (broadened to all CharacterData in B1.3-ii F5), extract keeps the
     ///   `NodeKind::Text` guards below because the spec clones the boundary node
-    ///   into the fragment (steps 4.1/17.1/20.1) and the clone here uses
+    ///   into the fragment (steps 4.1/16.1/19.1) and the clone here uses
     ///   `create_text_with_owner` — a Comment needs a `create_comment_with_owner`
     ///   clone (non-trivial).
     ///   Deferred to `#11-range-comment-extract-clone` (B1.3-ii plan §8); a
@@ -346,7 +346,7 @@ impl Range {
             let tail = text[start_byte..].to_string();
             let total = crate::char_data::utf16_len(&text);
             let count = total.saturating_sub(self.start_offset);
-            // §5.5 extractContents step 17.4 = replace data on the start
+            // §5.5 extractContents step 16.4 = replace data on the start
             // node → characterData record (oldValue = pre-splice full data).
             records.extend(apply_replace_data(
                 dom,
@@ -368,7 +368,7 @@ impl Range {
         //     (`contained_top_level_nodes` applies the §5.5 omit-nested rule,
         //     shared with `delete_contents`).
         for node in self.contained_top_level_nodes(dom) {
-            // §5.5 extractContents step 19 — MOVE the contained child to the
+            // §5.5 extractContents step 18 — MOVE the contained child to the
             // fragment via a single `apply_append_child` (F2: NOT a
             // remove_child + append_child pair, so the move source is read
             // pre-move). Emits the observed source-removal + unobserved
@@ -386,7 +386,7 @@ impl Range {
                 .unwrap_or_default();
             let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
             let head = text[..end_byte].to_string();
-            // §5.5 extractContents step 20.4 = replace data on the end
+            // §5.5 extractContents step 19.4 = replace data on the end
             // node → characterData record (oldValue = pre-splice full data).
             records.extend(apply_replace_data(
                 dom,
