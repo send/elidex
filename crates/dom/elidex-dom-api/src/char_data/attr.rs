@@ -24,7 +24,7 @@ impl DomApiHandler for CreateAttribute {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
@@ -32,7 +32,9 @@ impl DomApiHandler for CreateAttribute {
         let raw_name = require_string_arg(args, 0)?;
         crate::element::validate_attribute_name(&raw_name)?;
         let name = raw_name.to_ascii_lowercase();
-        let entity = dom.create_attribute(&name);
+        // DOM §4.5 `createAttribute`: "creating an attribute given this".
+        let owner = dom.node_document_for_new_nodes(this);
+        let entity = dom.create_attribute(&name, owner);
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Attribute);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
@@ -87,7 +89,9 @@ impl DomApiHandler for GetAttributeNode {
         }
 
         // Create a standalone Attr entity representing this attribute.
-        let attr_entity = dom.create_attribute(&name);
+        // The Attr shares its element's node document.
+        let owner = dom.node_document_for_new_nodes(this);
+        let attr_entity = dom.create_attribute(&name, owner);
         {
             let mut ad = dom
                 .world_mut()

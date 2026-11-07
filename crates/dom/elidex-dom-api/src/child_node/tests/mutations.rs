@@ -12,7 +12,7 @@ use elidex_script_session::{ComponentKind, DomApiHandler, SessionCore};
 #[test]
 fn before_single() {
     let (mut dom, body, div, span, _p, mut session) = setup();
-    let new_el = dom.create_element("em", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("em", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_el, ComponentKind::Element)
         .to_raw();
@@ -32,11 +32,11 @@ fn before_single() {
 #[test]
 fn before_multiple() {
     let (mut dom, body, div, span, _p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -83,7 +83,7 @@ fn before_string_creates_text() {
 #[test]
 fn before_orphan_noop() {
     let mut dom = EcsDom::new();
-    let orphan = dom.create_element("div", Attributes::default());
+    let orphan = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
 
     let handler = Before;
@@ -100,7 +100,7 @@ fn before_orphan_noop() {
 fn before_self_in_nodes() {
     let (mut dom, body, div, span, _p, mut session) = setup();
     // Insert a new element before span.
-    let new_el = dom.create_element("em", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("em", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_el, ComponentKind::Element)
         .to_raw();
@@ -121,7 +121,7 @@ fn before_self_in_nodes() {
 #[test]
 fn after_single() {
     let (mut dom, body, div, span, p, mut session) = setup();
-    let new_el = dom.create_element("em", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("em", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_el, ComponentKind::Element)
         .to_raw();
@@ -142,11 +142,11 @@ fn after_single() {
 #[test]
 fn after_multiple() {
     let (mut dom, body, div, span, p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -172,8 +172,8 @@ fn after_multiple() {
 #[test]
 fn after_validates_insertion() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
     let mut session = SessionCore::new();
 
@@ -207,7 +207,7 @@ fn remove_attached() {
 #[test]
 fn remove_orphan_noop() {
     let mut dom = EcsDom::new();
-    let orphan = dom.create_element("div", Attributes::default());
+    let orphan = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
 
     let handler = ChildNodeRemove;
@@ -220,7 +220,7 @@ fn remove_orphan_noop() {
 #[test]
 fn replace_with_single() {
     let (mut dom, body, div, span, p, mut session) = setup();
-    let new_el = dom.create_element("em", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("em", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_el, ComponentKind::Element)
         .to_raw();
@@ -237,11 +237,11 @@ fn replace_with_single() {
 #[test]
 fn replace_with_multiple() {
     let (mut dom, body, div, span, p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -276,7 +276,7 @@ fn replace_with_empty_removes() {
 #[test]
 fn prepend_single() {
     let (mut dom, body, div, _span, _p, mut session) = setup();
-    let new_el = dom.create_element("em", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("em", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_el, ComponentKind::Element)
         .to_raw();
@@ -294,11 +294,11 @@ fn prepend_single() {
 #[test]
 fn prepend_multiple() {
     let (mut dom, body, div, _span, _p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -335,7 +335,7 @@ fn prepend_empty() {
 #[test]
 fn append_single() {
     let (mut dom, body, _div, _span, _p, mut session) = setup();
-    let new_el = dom.create_element("em", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("em", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_el, ComponentKind::Element)
         .to_raw();
@@ -353,11 +353,11 @@ fn append_single() {
 #[test]
 fn append_multiple() {
     let (mut dom, body, _div, _span, _p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -383,11 +383,11 @@ fn append_multiple() {
 #[test]
 fn replace_children() {
     let (mut dom, body, _div, _span, _p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -409,9 +409,9 @@ fn replace_children() {
 #[test]
 fn replace_children_validates_before_removing() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     // Cannot insert nodes under a text node.
-    let child = dom.create_element("span", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     let mut session = SessionCore::new();
     let child_ref = session
         .get_or_create_wrapper(child, ComponentKind::Element)
@@ -479,11 +479,11 @@ fn count_document_fragments(dom: &EcsDom) -> usize {
 #[test]
 fn append_multiple_frees_transient_wrapper_fragment() {
     let (mut dom, _body, _div, span, _p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -514,11 +514,11 @@ fn append_multiple_frees_transient_wrapper_fragment() {
 #[test]
 fn replace_children_multiple_frees_transient_wrapper_fragment() {
     let (mut dom, _body, _div, span, _p, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
     let a_ref = session
         .get_or_create_wrapper(a, ComponentKind::Element)
         .to_raw();
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     let b_ref = session
         .get_or_create_wrapper(b, ComponentKind::Element)
         .to_raw();
@@ -551,11 +551,11 @@ fn prepend_on_shadow_host_does_not_leak_shadow_root_as_reference() {
     // returns the internal ShadowRoot, but `prepend` must use the first EXPOSED child
     // (none → append) so the ShadowRoot never becomes the reference child / leaks into
     // the record's `nextSibling`. (Codex PR393 R2.)
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _sr = dom
         .attach_shadow(host, ShadowRootMode::Open)
         .expect("attach_shadow");
-    let x = dom.create_element("x", Attributes::default());
+    let x = dom.create_element_ownerless_fixture("x", Attributes::default());
     let x_ref = session
         .get_or_create_wrapper(x, ComponentKind::Element)
         .to_raw();
@@ -582,12 +582,12 @@ fn prepend_on_shadow_host_does_not_leak_shadow_root_as_reference() {
 fn append_multiarg_rejects_shadow_root_arg_without_corruption() {
     use elidex_ecs::ShadowRootMode;
     let (mut dom, _body, _div, _span, _p, mut session) = setup();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     let sr = dom
         .attach_shadow(host, ShadowRootMode::Open)
         .expect("attach_shadow");
-    let target = dom.create_element("div", Attributes::default());
-    let x = dom.create_element("x", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let x = dom.create_element_ownerless_fixture("x", Attributes::default());
     let x_ref = session
         .get_or_create_wrapper(x, ComponentKind::Element)
         .to_raw();

@@ -117,7 +117,11 @@ pub fn parse_into_inert_document(dom: &mut EcsDom, markup: &str, caller_base_url
     // synthesizes `<head>`/`<body>` and `doc.body`/`doc.head` resolve on real
     // markup.
     let doc = dom.create_document_node();
-    let html_el = dom.create_element_with_owner("html", Attributes::default(), Some(doc));
+    let html_el = dom.create_element_with_owner(
+        "html",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, html_el);
 
     // §11.3 strict-first fragment parse via the engine-indep

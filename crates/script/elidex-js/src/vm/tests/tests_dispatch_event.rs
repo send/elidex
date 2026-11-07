@@ -32,9 +32,9 @@ use super::super::Vm;
 /// and expose `p` as `el`, `body` as `body`, `html` as `html`.
 fn build_simple_tree(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom) {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    let p = dom.create_element("p", {
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("id", "t");
         a

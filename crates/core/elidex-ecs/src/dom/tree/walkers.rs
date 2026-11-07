@@ -20,8 +20,8 @@ pub enum TemplateContentsWalk {
     /// Also visit each template's content fragment and its subtree. Used by
     /// structural walks that must reach every entity a subtree owns:
     /// teardown ([`EcsDom::despawn_subtree`], else the contents orphan) and
-    /// re-home ([`EcsDom::adopt_subtree`], so HTML §13.4 fragment adopt moves
-    /// the contents with the template).
+    /// re-home ([`EcsDom::adopt`]'s walk, DOM §4.5 *adopt* step 3.4: the
+    /// template's adopting steps move the contents with the template).
     Include,
     /// Visit the shadow-including tree only, as the spec's tree order does.
     Exclude,
@@ -91,7 +91,7 @@ impl EcsDom {
     /// visited after the template's own subtree (it is outside tree order).
     ///
     /// The complete-subtree walk shared by [`Self::despawn_subtree`]
-    /// (teardown), [`Self::adopt_subtree`] (re-home) and the event-handler
+    /// (teardown), [`Self::adopt`]'s walk (re-home) and the event-handler
     /// bind pass (`elidex-script-session`). Breadth uses the uncapped
     /// [`Self::child_list_uncapped`], depth an explicit work-list; a `visited`
     /// set replaces the caps as the corruption/cycle termination guard (each

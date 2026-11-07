@@ -125,7 +125,7 @@ mod tests {
         for (k, v) in attrs {
             attr_map.set(k.to_string(), v.to_string());
         }
-        let entity = dom.create_element("input", attr_map);
+        let entity = dom.create_element_ownerless_fixture("input", attr_map);
         assert!(create_form_control_state(&mut dom, entity));
         let displaced = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
             FormControlReconciler,

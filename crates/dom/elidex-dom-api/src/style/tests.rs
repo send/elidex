@@ -3,7 +3,7 @@ use elidex_ecs::Attributes;
 
 fn setup() -> (EcsDom, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let elem = dom.create_element("div", Attributes::default());
+    let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
     let session = SessionCore::new();
     (dom, elem, session)
 }

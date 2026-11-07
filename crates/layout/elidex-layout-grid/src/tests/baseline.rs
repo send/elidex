@@ -8,7 +8,7 @@ fn row_baseline_alignment() {
     // margin-box bottom as the baseline fallback. The taller item defines
     // the row baseline, so the shorter item should be offset downward.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -63,7 +63,7 @@ fn column_baseline_alignment() {
     // Two items with different heights. The justify baseline offset
     // should be applied along the inline axis.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -118,7 +118,7 @@ fn mixed_baseline_and_stretch() {
     // Second item: align-self=Stretch (height:auto). Stretch item fills
     // the row height, baseline item aligns by baseline.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -134,7 +134,7 @@ fn mixed_baseline_and_stretch() {
         .unwrap();
 
     // First item: align-self = Baseline, explicit height 30.
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -149,7 +149,7 @@ fn mixed_baseline_and_stretch() {
         .unwrap();
 
     // Second item: align-self = Stretch, auto height.
-    let c2 = dom.create_element("div", Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c2);
     dom.world_mut()
         .insert_one(
@@ -197,7 +197,7 @@ fn spanning_item_fallback() {
     // Baseline should be computed correctly (fallback to margin-box height
     // since no text content).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -218,7 +218,7 @@ fn spanning_item_fallback() {
         .unwrap();
 
     // Item spanning 2 rows.
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -263,7 +263,7 @@ fn no_baseline_item() {
     // Baseline alignment falls back to margin-box bottom.
     // Layout should complete without panic.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -324,7 +324,7 @@ fn container_baseline_propagation() {
     // Grid with 1 row, 2 columns, align-items: Baseline. Items with heights
     // 30, 50. The grid container's first_baseline should be Some and > 0.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,

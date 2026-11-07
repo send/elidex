@@ -20,6 +20,7 @@ cssparser.workspace = true
 elidex-custom-elements.workspace = true
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 criterion.workspace = true
 
 [[bench]]

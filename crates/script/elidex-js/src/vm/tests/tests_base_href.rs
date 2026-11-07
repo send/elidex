@@ -19,9 +19,14 @@ use super::super::Vm;
 
 fn build_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    // Created in `doc` (the maintainer routes by the node document, C0b).
+    let mut mk = |tag: &str| {
+        let owner = dom.node_document_for_new_nodes(doc);
+        dom.create_element_with_owner(tag, Attributes::default(), owner)
+    };
+    let html = mk("html");
+    let head = mk("head");
+    let body = mk("body");
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(html, body));
@@ -515,7 +520,11 @@ fn pre_bind_base_element_is_picked_up_by_init_pass() {
     // dispatcher exists yet.
     let head = dom.first_child_with_tag(doc, "html").unwrap();
     let head = dom.first_child_with_tag(head, "head").unwrap();
-    let base = dom.create_element("base", Attributes::default());
+    let base = dom.create_element_with_owner(
+        "base",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(
         dom.set_attribute(base, "href", "https://pre-bind.example/")
             .did_set

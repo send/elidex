@@ -433,7 +433,7 @@ mod tests {
     fn border_box_from_layout_box() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, div);
 
         let lb = LayoutBox {
@@ -459,11 +459,11 @@ mod tests {
     fn offset_parent_finds_positioned_ancestor() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         let _ = dom.append_child(root, body);
-        let positioned = dom.create_element("div", Attributes::default());
+        let positioned = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(body, positioned);
-        let child = dom.create_element("span", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(positioned, child);
 
         // Make positioned div have position: relative.
@@ -483,9 +483,9 @@ mod tests {
     fn offset_parent_falls_back_to_body() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         let _ = dom.append_child(root, body);
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(body, child);
 
         // No positioned ancestor — should fall back to body.
@@ -497,7 +497,7 @@ mod tests {
     fn client_top_returns_border_width() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, div);
 
         let lb = LayoutBox {
@@ -533,9 +533,9 @@ mod tests {
     fn get_bounding_client_rect_subtracts_scroll() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let parent = dom.create_element("div", Attributes::default());
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, parent);
-        let child = dom.create_element("span", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(parent, child);
 
         // Give child a layout box at document position (100, 200).
@@ -570,7 +570,7 @@ mod tests {
     fn get_client_rects_returns_single_rect() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, div);
 
         let lb = LayoutBox {
@@ -596,9 +596,9 @@ mod tests {
     fn scroll_into_view_adjusts_scroll_state() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let scroller = dom.create_element("div", Attributes::default());
+        let scroller = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, scroller);
-        let child = dom.create_element("span", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(scroller, child);
 
         // Scroller at (0, 0) with 400x300 border box, child at (50, 200).
@@ -644,9 +644,9 @@ mod tests {
     fn scroll_into_view_block_end() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let scroller = dom.create_element("div", Attributes::default());
+        let scroller = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, scroller);
-        let child = dom.create_element("span", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(scroller, child);
 
         let _ = dom.world_mut().insert_one(
@@ -695,9 +695,9 @@ mod tests {
     fn scroll_into_view_clamped_to_max() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let scroller = dom.create_element("div", Attributes::default());
+        let scroller = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(root, scroller);
-        let child = dom.create_element("span", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(scroller, child);
 
         let _ = dom.world_mut().insert_one(

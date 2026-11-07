@@ -234,10 +234,10 @@ fn table_fixed_layout_explicit_widths() {
         ..Default::default()
     };
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, style);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -247,7 +247,7 @@ fn table_fixed_layout_explicit_widths() {
     );
     dom.append_child(table, tr);
 
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -259,7 +259,7 @@ fn table_fixed_layout_explicit_widths() {
     );
     dom.append_child(tr, td1);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -353,10 +353,10 @@ fn table_fixed_overflow() {
 fn table_colspan_clamped_to_max() {
     // colspan="5000" should be clamped to remaining columns (max 1000 total).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -366,7 +366,7 @@ fn table_colspan_clamped_to_max() {
     );
     let _ = dom.append_child(table, tbody);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -379,7 +379,7 @@ fn table_colspan_clamped_to_max() {
     // One cell with colspan=5000 (exceeds MAX_TABLE_COLS=1000)
     let mut td_attrs = Attributes::default();
     td_attrs.set("colspan", "5000");
-    let td = dom.create_element("td", td_attrs);
+    let td = dom.create_element_ownerless_fixture("td", td_attrs);
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -408,10 +408,10 @@ fn table_colspan_clamped_to_max() {
 fn table_column_limit_overflow() {
     // 10 cells each with colspan=200 → 2000 columns requested, capped at 1000.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -421,7 +421,7 @@ fn table_column_limit_overflow() {
     );
     let _ = dom.append_child(table, tbody);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -434,7 +434,7 @@ fn table_column_limit_overflow() {
     for _ in 0..10 {
         let mut td_attrs = Attributes::default();
         td_attrs.set("colspan", "200");
-        let td = dom.create_element("td", td_attrs);
+        let td = dom.create_element_ownerless_fixture("td", td_attrs);
         dom.world_mut().insert_one(
             td,
             ComputedStyle {
@@ -588,7 +588,7 @@ fn col_width_in_fixed_layout_no_col() {
 fn col_element_width_integrated() {
     // Full integration: table with <col> elements specifying widths.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -600,7 +600,7 @@ fn col_element_width_integrated() {
     );
 
     // <col style="width: 150px">
-    let col1 = dom.create_element("col", Attributes::default());
+    let col1 = dom.create_element_ownerless_fixture("col", Attributes::default());
     dom.world_mut().insert_one(
         col1,
         ComputedStyle {
@@ -612,7 +612,7 @@ fn col_element_width_integrated() {
     dom.append_child(table, col1);
 
     // <col> (no explicit width)
-    let col2 = dom.create_element("col", Attributes::default());
+    let col2 = dom.create_element_ownerless_fixture("col", Attributes::default());
     dom.world_mut().insert_one(
         col2,
         ComputedStyle {
@@ -623,7 +623,7 @@ fn col_element_width_integrated() {
     dom.append_child(table, col2);
 
     // <tr> with 2 cells
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -633,7 +633,7 @@ fn col_element_width_integrated() {
     );
     dom.append_child(table, tr);
 
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -644,7 +644,7 @@ fn col_element_width_integrated() {
     );
     dom.append_child(tr, td1);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {

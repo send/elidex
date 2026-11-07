@@ -7,8 +7,8 @@ fn attr_selector_style_integration() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("type", "text");
-    let input = dom.create_element("input", attrs);
-    let div = dom.create_element("div", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", attrs);
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, input);
     dom.append_child(body, div);
 
@@ -26,8 +26,8 @@ fn attr_selector_style_integration() {
 #[test]
 fn adjacent_sibling_style_integration() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let h1 = dom.create_element("h1", Attributes::default());
-    let p = dom.create_element("p", Attributes::default());
+    let h1 = dom.create_element_ownerless_fixture("h1", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(body, h1);
     dom.append_child(body, p);
 
@@ -42,8 +42,8 @@ fn adjacent_sibling_style_integration() {
 #[test]
 fn first_child_style_integration() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let li1 = dom.create_element("li", Attributes::default());
-    let li2 = dom.create_element("li", Attributes::default());
+    let li1 = dom.create_element_ownerless_fixture("li", Attributes::default());
+    let li2 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(body, li1);
     dom.append_child(body, li2);
 
@@ -63,8 +63,8 @@ fn not_selector_style_integration() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("class", "hidden");
-    let hidden = dom.create_element("div", attrs);
-    let visible = dom.create_element("div", Attributes::default());
+    let hidden = dom.create_element_ownerless_fixture("div", attrs);
+    let visible = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, hidden);
     dom.append_child(body, visible);
 
@@ -81,9 +81,9 @@ fn not_selector_style_integration() {
 #[test]
 fn child_first_child_combined_style_integration() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let ul = dom.create_element("ul", Attributes::default());
-    let li1 = dom.create_element("li", Attributes::default());
-    let li2 = dom.create_element("li", Attributes::default());
+    let ul = dom.create_element_ownerless_fixture("ul", Attributes::default());
+    let li1 = dom.create_element_ownerless_fixture("li", Attributes::default());
+    let li2 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(body, ul);
     dom.append_child(ul, li1);
     dom.append_child(ul, li2);
@@ -103,7 +103,7 @@ fn child_first_child_combined_style_integration() {
 #[test]
 fn pseudo_before_generates_entity() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(body, p);
 
     let css = r#"p::before { content: ">>"; color: red; }"#;
@@ -128,7 +128,7 @@ fn pseudo_before_generates_entity() {
 #[test]
 fn pseudo_after_generates_entity() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(body, p);
 
     let css = r#"p::after { content: "<<"; }"#;
@@ -145,7 +145,7 @@ fn pseudo_after_generates_entity() {
 #[test]
 fn pseudo_content_none_no_entity() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(body, p);
 
     let css = r"p::before { content: none; }";
@@ -164,7 +164,7 @@ fn pseudo_content_attr() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("title", "TitleText");
-    let p = dom.create_element("p", attrs);
+    let p = dom.create_element_ownerless_fixture("p", attrs);
     dom.append_child(body, p);
 
     let css = r"p::before { content: attr(title); }";
@@ -185,7 +185,7 @@ fn pseudo_cascade_later_wins() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("class", "x");
-    let p = dom.create_element("p", attrs);
+    let p = dom.create_element_ownerless_fixture("p", attrs);
     dom.append_child(body, p);
 
     let css = r#".x::before { content: "A"; } .x::before { content: "B"; }"#;
@@ -204,8 +204,8 @@ fn pseudo_cascade_later_wins() {
 #[test]
 fn pseudo_re_resolve_removes_old() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
-    let text = dom.create_text("hello");
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(body, p);
     dom.append_child(p, text);
 
@@ -233,7 +233,7 @@ fn pseudo_re_resolve_removes_old() {
 fn pseudo_does_not_affect_normal_element_matching() {
     // Ensure pseudo-element selectors don't affect normal element styling.
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(body, p);
 
     let css = r#"p::before { content: ">>"; color: red; } p { color: blue; }"#;
@@ -250,7 +250,7 @@ fn link_element_gets_link_state() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("href", "https://example.com");
-    let a = dom.create_element("a", attrs);
+    let a = dom.create_element_ownerless_fixture("a", attrs);
     dom.append_child(body, a);
 
     resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
@@ -269,8 +269,8 @@ fn ua_link_gets_blue_color() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("href", "https://example.com");
-    let a = dom.create_element("a", attrs);
-    let text = dom.create_text("Link");
+    let a = dom.create_element_ownerless_fixture("a", attrs);
+    let text = dom.create_text_ownerless_fixture("Link");
     dom.append_child(body, a);
     dom.append_child(a, text);
 
@@ -285,8 +285,8 @@ fn ua_link_gets_blue_color() {
 fn pseudo_before_after_full_pipeline() {
     // Full pipeline: parse CSS -> resolve styles -> verify pseudo entities.
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
-    let text = dom.create_text("Hello");
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(body, p);
     dom.append_child(p, text);
 
@@ -328,7 +328,7 @@ fn pseudo_before_after_full_pipeline() {
 fn hover_pseudo_class_applies_style() {
     use elidex_ecs::ElementState as DomState;
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let css = "div { color: black; } div:hover { color: red; }";
@@ -352,8 +352,8 @@ fn hover_pseudo_class_applies_style() {
 #[test]
 fn pseudo_content_var_resolution() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let p = dom.create_element("p", Attributes::default());
-    let text = dom.create_text("Hello");
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(body, p);
     dom.append_child(p, text);
 
@@ -376,8 +376,8 @@ fn pseudo_content_var_resolution() {
 fn hover_pseudo_element_combined() {
     use elidex_ecs::ElementState as DomState;
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("Hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(body, div);
     dom.append_child(div, text);
 

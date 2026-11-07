@@ -9,10 +9,10 @@ use elidex_ecs::{Attributes, EcsDom};
 #[test]
 fn adjust_ranges_for_removal_basic() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let c0 = dom.create_element("a", Attributes::default());
-    let c1 = dom.create_element("b", Attributes::default());
-    let c2 = dom.create_element("c", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let c0 = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("b", Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("c", Attributes::default());
     dom.append_child(parent, c0);
     dom.append_child(parent, c1);
     dom.append_child(parent, c2);
@@ -34,8 +34,8 @@ fn adjust_ranges_for_removal_basic() {
 #[test]
 fn adjust_ranges_for_removal_container_is_removed() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_text("hello");
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_text_ownerless_fixture("hello");
     dom.append_child(parent, child);
 
     let mut r = Range::new(child);
@@ -58,10 +58,10 @@ fn adjust_ranges_for_removal_descendant_container_collapses() {
     // container is an inclusive descendant of the removed node must
     // collapse to (parent, index), not just direct-equality containers.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let section = dom.create_element("section", Attributes::default());
-    let p = dom.create_element("p", Attributes::default());
-    let inner_text = dom.create_text("hello");
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let section = dom.create_element_ownerless_fixture("section", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let inner_text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(parent, section);
     dom.append_child(section, p);
     dom.append_child(p, inner_text);
@@ -84,9 +84,9 @@ fn adjust_ranges_for_removal_descendant_container_collapses() {
 #[test]
 fn adjust_ranges_for_insertion_increments_strict_greater() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let c0 = dom.create_element("a", Attributes::default());
-    let c1 = dom.create_element("b", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let c0 = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("b", Attributes::default());
     dom.append_child(parent, c0);
     dom.append_child(parent, c1);
 
@@ -105,8 +105,8 @@ fn adjust_ranges_for_insertion_increments_strict_greater() {
 #[test]
 fn adjust_ranges_for_insertion_leaves_other_containers_alone() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let other = dom.create_element("section", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let other = dom.create_element_ownerless_fixture("section", Attributes::default());
     let mut r = Range::new(parent);
     r.set_start(other, 0);
     r.set_end(other, 5);
@@ -127,7 +127,7 @@ fn adjust_ranges_for_replace_data_collapse_inside_splice() {
     // (offset=1, count=3) with "XYZ"; boundary at off=2 (inside region)
     // → collapses to 1.
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
 
     let mut r = Range::new(t);
     r.set_start(t, 2);
@@ -148,7 +148,7 @@ fn adjust_ranges_for_replace_data_shift_past_splice() {
     // Replace (offset=1, count=3, new_data=5) → boundary at off=5
     // shifts to 7 (delta=+2).
     let mut dom = EcsDom::new();
-    let t = dom.create_text("aaaaa");
+    let t = dom.create_text_ownerless_fixture("aaaaa");
 
     let mut r = Range::new(t);
     r.set_start(t, 5);
@@ -174,7 +174,7 @@ fn adjust_ranges_for_replace_data_shift_past_splice() {
 #[test]
 fn adjust_ranges_for_replace_data_before_splice_unchanged() {
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
 
     let mut r = Range::new(t);
     r.set_start(t, 0);
@@ -189,8 +189,8 @@ fn adjust_ranges_for_replace_data_before_splice_unchanged() {
 #[test]
 fn adjust_ranges_for_replace_data_other_container_unchanged() {
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
-    let other = dom.create_text("world");
+    let t = dom.create_text_ownerless_fixture("hello");
+    let other = dom.create_text_ownerless_fixture("world");
 
     let mut r = Range::new(other);
     r.set_start(other, 3);
@@ -207,9 +207,9 @@ fn adjust_ranges_for_split_text_migrates_past_offset() {
     // WHATWG §4.10 "split text" step 8: boundary on node at off >
     // offset migrates to (new_node, off - offset).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let node = dom.create_text("hello world");
-    let new_node = dom.create_text("");
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let node = dom.create_text_ownerless_fixture("hello world");
+    let new_node = dom.create_text_ownerless_fixture("");
     dom.append_child(parent, node);
     dom.append_child(parent, new_node);
 
@@ -233,12 +233,12 @@ fn adjust_ranges_for_split_text_parent_boundary_increments() {
     // splitText adds one child between node and node_idx+1; parent
     // boundaries at idx > node_idx → +1.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let n0 = dom.create_text("hello");
-    let n1 = dom.create_text("world");
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let n0 = dom.create_text_ownerless_fixture("hello");
+    let n1 = dom.create_text_ownerless_fixture("world");
     dom.append_child(parent, n0);
     dom.append_child(parent, n1);
-    let new_node = dom.create_text("tail");
+    let new_node = dom.create_text_ownerless_fixture("tail");
     dom.append_child(parent, new_node);
 
     // Splitting n0 (at index 0) inserts new_node at index 1; boundary
@@ -257,8 +257,8 @@ fn adjust_ranges_for_split_text_parent_boundary_increments() {
 fn adjust_ranges_for_split_text_orphan_node_skips_parent() {
     // No parent → only the node-side migration runs.
     let mut dom = EcsDom::new();
-    let node = dom.create_text("hello");
-    let new_node = dom.create_text("");
+    let node = dom.create_text_ownerless_fixture("hello");
+    let new_node = dom.create_text_ownerless_fixture("");
 
     let mut r = Range::new(node);
     r.set_start(node, 4);
@@ -275,9 +275,9 @@ fn adjust_ranges_for_normalize_merge_migrates_merged_child() {
     // WHATWG §4.5 step 6.4: boundary on merged_child at off migrates to
     // (prev, prev_old_len + off). prev_old_len = 5 ("hello").
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let prev = dom.create_text("helloworld"); // post-merge state
-    let merged = dom.create_text(""); // post-merge empty, pre-detach
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let prev = dom.create_text_ownerless_fixture("helloworld"); // post-merge state
+    let merged = dom.create_text_ownerless_fixture(""); // post-merge empty, pre-detach
     dom.append_child(parent, prev);
     dom.append_child(parent, merged);
 
@@ -299,9 +299,9 @@ fn adjust_ranges_for_normalize_merge_parent_boundary_at_merged_idx() {
     // Parent boundary AT merged_child's index migrates to (prev,
     // prev_old_len) — the merge splice point.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let prev = dom.create_text("helloworld");
-    let merged = dom.create_text("");
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let prev = dom.create_text_ownerless_fixture("helloworld");
+    let merged = dom.create_text_ownerless_fixture("");
     dom.append_child(parent, prev);
     dom.append_child(parent, merged);
 
@@ -322,10 +322,10 @@ fn adjust_ranges_for_normalize_merge_parent_boundary_past_merged_idx() {
     // Parent boundary AT idx > merged_child_index → decrement (parent
     // loses one child).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let prev = dom.create_text("helloworld");
-    let merged = dom.create_text("");
-    let trailing = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let prev = dom.create_text_ownerless_fixture("helloworld");
+    let merged = dom.create_text_ownerless_fixture("");
+    let trailing = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, prev);
     dom.append_child(parent, merged);
     dom.append_child(parent, trailing);
@@ -343,8 +343,8 @@ fn adjust_ranges_for_normalize_merge_parent_boundary_past_merged_idx() {
 #[test]
 fn adjust_ranges_for_text_change() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("hello");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("hello");
     dom.append_child(root, t);
 
     let mut r = Range::new(t);

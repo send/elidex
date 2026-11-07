@@ -16,6 +16,7 @@ elidex-web-canvas.workspace = true
 elidex-ecs.workspace = true
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 hecs = { workspace = true }
 
 [lints]

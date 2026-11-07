@@ -165,7 +165,7 @@ mod integration_tests {
         if let Some(i) = id {
             attrs.set("id", i);
         }
-        dom.create_element(tag, attrs)
+        dom.create_element_ownerless_fixture(tag, attrs)
     }
 
     #[test]

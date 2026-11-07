@@ -418,8 +418,10 @@ pub(crate) fn find_or_create_anonymous(
         }
     }
 
-    // Create a new anonymous entity.
-    let anon = dom.create_element(tag, Attributes::default());
+    // Create a new anonymous entity, in the node document of the element it
+    // is created for (DOM §4.4 *node document*, set upon creation).
+    let owner = dom.node_document_for_new_nodes(parent);
+    let anon = dom.create_element_with_owner(tag, Attributes::default(), owner);
     let _ = dom.world_mut().insert(anon, (AnonymousTableMarker, style));
     let _ = dom.append_child(parent, anon);
     anon
@@ -464,7 +466,8 @@ pub(crate) fn take_or_create_anonymous(
         let _ = dom.world_mut().insert_one(entity, style);
         entity
     } else {
-        let anon = dom.create_element(tag, Attributes::default());
+        let owner = dom.node_document_for_new_nodes(parent);
+        let anon = dom.create_element_with_owner(tag, Attributes::default(), owner);
         let _ = dom.world_mut().insert(anon, (AnonymousTableMarker, style));
         let _ = dom.append_child(parent, anon);
         anon

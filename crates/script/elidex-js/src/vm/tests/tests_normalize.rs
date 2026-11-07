@@ -136,10 +136,10 @@ fn normalize_on_document_normalises_all_subtrees() {
     let doc = dom.create_document_root();
     // Pre-populate with <html><body>hello world</body></html> split
     // across two adjacent Text siblings so normalize has work to do.
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    let t1 = dom.create_text("hello ");
-    let t2 = dom.create_text("world");
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("hello ");
+    let t2 = dom.create_text_ownerless_fixture("world");
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     assert!(dom.append_child(body, t1));

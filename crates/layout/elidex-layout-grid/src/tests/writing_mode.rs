@@ -11,7 +11,7 @@ use super::*;
 #[test]
 fn horizontal_tb_regression() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -48,7 +48,7 @@ fn horizontal_tb_regression() {
 #[test]
 fn vertical_rl_grid_child_layout() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -86,7 +86,7 @@ fn vertical_rl_grid_child_layout() {
 #[test]
 fn vertical_rl_padding_percent_resolves_against_inline_size() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -145,7 +145,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
 fn vertical_lr_grid_child_layout() {
     // vertical-lr: same as vertical-rl but block direction is left-to-right.
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -183,7 +183,7 @@ fn vertical_rl_two_column_tracks() {
     // Two column tracks in vertical-rl: columns = inline axis = physical Y.
     // Children should be placed in separate column tracks (non-overlapping on Y axis).
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -242,7 +242,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
     // CSS Grid §7.1: column tracks = inline axis, so the area's inline size = column track.
     // Use explicit column track of 500px so the area inline dimension is deterministic.
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -257,7 +257,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
             ..Default::default()
         },
     );
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(grid, child);
     dom.world_mut()
         .insert_one(
@@ -304,7 +304,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
 fn vertical_lr_padding_percent_resolves_against_inline_size() {
     // Same as vertical-rl padding test but for vertical-lr.
     let mut dom = elidex_ecs::EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         grid,
         ComputedStyle {

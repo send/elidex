@@ -185,7 +185,7 @@ mod tests {
         if checked {
             attrs.set("checked", "");
         }
-        let entity = dom.create_element("input", attrs.clone());
+        let entity = dom.create_element_ownerless_fixture("input", attrs.clone());
         let state = FormControlState::from_element("input", &attrs).unwrap();
         let _ = dom.world_mut().insert_one(entity, state);
         let _ = dom.world_mut().insert_one(entity, ElementState::default());
@@ -206,7 +206,7 @@ mod tests {
         if checked {
             attrs.set("checked", "");
         }
-        let entity = dom.create_element("input", attrs.clone());
+        let entity = dom.create_element_ownerless_fixture("input", attrs.clone());
         let state = FormControlState::from_element("input", &attrs).unwrap();
         let _ = dom.world_mut().insert_one(entity, state);
         let _ = dom.world_mut().insert_one(entity, ElementState::default());
@@ -286,7 +286,7 @@ mod tests {
         attrs.set("type", "radio");
         attrs.set("name", "x");
         attrs.set("disabled", "");
-        let entity = dom.create_element("input", attrs.clone());
+        let entity = dom.create_element_ownerless_fixture("input", attrs.clone());
         let state = FormControlState::from_element("input", &attrs).unwrap();
         let _ = dom.world_mut().insert_one(entity, state);
         let _ = dom.world_mut().insert_one(entity, ElementState::default());
@@ -324,8 +324,8 @@ mod tests {
     fn radios_in_different_forms_independent() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let form1 = dom.create_element("form", Attributes::default());
-        let form2 = dom.create_element("form", Attributes::default());
+        let form1 = dom.create_element_ownerless_fixture("form", Attributes::default());
+        let form2 = dom.create_element_ownerless_fixture("form", Attributes::default());
         let _ = dom.append_child(doc, form1);
         let _ = dom.append_child(doc, form2);
 
@@ -370,7 +370,7 @@ mod tests {
         // even if they share the same name.
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let form = dom.create_element("form", Attributes::default());
+        let form = dom.create_element_ownerless_fixture("form", Attributes::default());
         let _ = dom.append_child(doc, form);
 
         let r_in_form = make_radio(&mut dom, "color", false);
@@ -423,7 +423,7 @@ mod tests {
         // Create a form with id="myform".
         let mut form_attrs = Attributes::default();
         form_attrs.set("id", "myform");
-        let form = dom.create_element("form", form_attrs);
+        let form = dom.create_element_ownerless_fixture("form", form_attrs);
         let _ = dom.append_child(doc, form);
 
         // r1 is inside the form (ancestor association).
@@ -454,7 +454,7 @@ mod tests {
         let mut attrs = Attributes::default();
         attrs.set("type", "radio");
         let mut unnamed = || {
-            let e = dom.create_element("input", attrs.clone());
+            let e = dom.create_element_ownerless_fixture("input", attrs.clone());
             let state = FormControlState::from_element("input", &attrs).unwrap();
             let _ = dom.world_mut().insert_one(e, state);
             let _ = dom.world_mut().insert_one(e, ElementState::default());
@@ -503,12 +503,12 @@ mod tests {
 
         let mut form1_attrs = Attributes::default();
         form1_attrs.set("id", "form1");
-        let form1 = dom.create_element("form", form1_attrs);
+        let form1 = dom.create_element_ownerless_fixture("form", form1_attrs);
         let _ = dom.append_child(doc, form1);
 
         let mut form2_attrs = Attributes::default();
         form2_attrs.set("id", "form2");
-        let form2 = dom.create_element("form", form2_attrs);
+        let form2 = dom.create_element_ownerless_fixture("form", form2_attrs);
         let _ = dom.append_child(doc, form2);
 
         // r1 has form="form1" but is outside form1 (attribute association).

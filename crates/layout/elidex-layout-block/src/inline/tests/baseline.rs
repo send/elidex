@@ -42,7 +42,7 @@ fn inline_baseline_with_atomic_box() {
         dom.remove_child(parent, c);
     }
 
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
         width: Dimension::Length(50.0),
@@ -172,7 +172,7 @@ fn nested_block_baseline_propagation() {
     }
     let _ = dom.world_mut().insert_one(parent, style.clone());
 
-    let block_child = dom.create_element("div", Attributes::default());
+    let block_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let block_style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(40.0),
@@ -181,7 +181,7 @@ fn nested_block_baseline_propagation() {
     };
     let _ = dom.world_mut().insert_one(block_child, block_style);
     dom.append_child(parent, block_child);
-    let text = dom.create_text("Nested text");
+    let text = dom.create_text_ownerless_fixture("Nested text");
     dom.append_child(block_child, text);
 
     let children_list = dom.composed_children(parent);
@@ -227,7 +227,7 @@ fn block_without_baseline_none() {
     }
     let _ = dom.world_mut().insert_one(parent, style.clone());
 
-    let block_child = dom.create_element("div", Attributes::default());
+    let block_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let block_style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(20.0),
@@ -278,10 +278,10 @@ fn mixed_block_inline_baseline() {
     }
     let _ = dom.world_mut().insert_one(parent, style.clone());
 
-    let text1 = dom.create_text("Hello");
+    let text1 = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(parent, text1);
 
-    let block_child = dom.create_element("div", Attributes::default());
+    let block_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let block_style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(40.0),
@@ -290,7 +290,7 @@ fn mixed_block_inline_baseline() {
     let _ = dom.world_mut().insert_one(block_child, block_style);
     dom.append_child(parent, block_child);
 
-    let text2 = dom.create_text("World");
+    let text2 = dom.create_text_ownerless_fixture("World");
     dom.append_child(parent, text2);
 
     let children_list = dom.composed_children(parent);

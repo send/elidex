@@ -523,7 +523,9 @@ fn replace_children_with_text(dom: &mut EcsDom, entity: Entity, text: &str) {
         let _ = dom.remove_child(entity, child);
     }
     if !text.is_empty() {
-        let text_node = dom.create_text(text);
+        // DOM §4.4 *node document*: the text is created in `entity`'s.
+        let owner = dom.node_document_for_new_nodes(entity);
+        let text_node = dom.create_text_with_owner(text, owner);
         let _ = dom.append_child(entity, text_node);
     }
 }

@@ -16,5 +16,8 @@ elidex-ecs.workspace = true
 elidex-text.workspace = true
 elidex-form.workspace = true
 
+[dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
+
 [lints]
 workspace = true

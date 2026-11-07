@@ -63,7 +63,7 @@ fn text_node_emits_text_item() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("Hello");
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(div, text);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -89,8 +89,8 @@ fn text_node_emits_text_item() {
 fn nested_elements_painter_order() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let outer = dom.create_element("div", Attributes::default());
-    let inner = dom.create_element("div", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, outer);
     dom.append_child(outer, inner);
 
@@ -156,8 +156,8 @@ fn nested_elements_painter_order() {
 fn display_none_skipped() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let visible = dom.create_element("div", Attributes::default());
-    let hidden = dom.create_element("div", Attributes::default());
+    let visible = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let hidden = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, visible);
     dom.append_child(root, hidden);
 
@@ -253,7 +253,7 @@ fn whitespace_only_text_node_skipped() {
             ..Default::default()
         },
     );
-    let ws = dom.create_text("   \n   ");
+    let ws = dom.create_text_ownerless_fixture("   \n   ");
     dom.append_child(div, ws);
 
     let font_db = elidex_text::FontDatabase::new();

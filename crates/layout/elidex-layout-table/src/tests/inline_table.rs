@@ -7,7 +7,7 @@ use elidex_plugin::Dimension;
 fn inline_table_layout() {
     // Inline-table should produce a valid layout when used within table layout.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -16,7 +16,7 @@ fn inline_table_layout() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -26,7 +26,7 @@ fn inline_table_layout() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {

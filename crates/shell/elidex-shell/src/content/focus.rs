@@ -227,7 +227,7 @@ mod tests {
     use elidex_ecs::{Attributes, EcsDom};
 
     fn text_input(dom: &mut EcsDom, doc: Entity) -> Entity {
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.append_child(doc, input);
         // A default `<input>` becomes a text control via the form subsystem's own
         // constructor (`FormControlState`'s fields are private to `elidex-form`).
@@ -281,7 +281,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
 
-        let host = dom.create_element("div", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, host);
         // A plain `<div>` host is NOT itself focusable — the F1 case that the old
         // `is_focusable` pre-gate would have blurred before reaching the retarget.
@@ -301,7 +301,7 @@ mod tests {
             .expect("attach_shadow on <div>");
         let mut delegate_attrs = Attributes::default();
         delegate_attrs.set("tabindex".to_string(), "0".to_string());
-        let delegate = dom.create_element("div", delegate_attrs);
+        let delegate = dom.create_element_ownerless_fixture("div", delegate_attrs);
         let _ = dom.append_child(sr, delegate);
         assert_eq!(
             focus_target(&dom, host),
@@ -311,7 +311,7 @@ mod tests {
 
         let mut plain_attrs = Attributes::default();
         plain_attrs.set("tabindex".to_string(), "0".to_string());
-        let plain = dom.create_element("div", plain_attrs);
+        let plain = dom.create_element_ownerless_fixture("div", plain_attrs);
         let _ = dom.append_child(doc, plain);
         assert_eq!(
             focus_target(&dom, plain),
@@ -332,7 +332,7 @@ mod tests {
 
         let mut host_attrs = Attributes::default();
         host_attrs.set("tabindex".to_string(), "0".to_string());
-        let host = dom.create_element("div", host_attrs);
+        let host = dom.create_element_ownerless_fixture("div", host_attrs);
         let _ = dom.append_child(doc, host);
         let _sr = dom
             .attach_shadow_with_init(
@@ -369,7 +369,7 @@ mod tests {
         // slot #11-focusable-area-fieldset-inherited-disabled.)
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let host = dom.create_element("div", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, host);
         let sr = dom
             .attach_shadow_with_init(
@@ -381,7 +381,7 @@ mod tests {
                 },
             )
             .expect("attach_shadow on <div>");
-        let delegate = dom.create_element("input", Attributes::default());
+        let delegate = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.append_child(sr, delegate);
         assert!(elidex_form::create_form_control_state(&mut dom, delegate));
         // Sanity: the engine-independent retarget returns the (attr-focusable)

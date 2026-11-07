@@ -508,26 +508,26 @@ mod tests {
     fn extract_inline_scripts_filters_to_inline_classic_js() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         let _ = dom.append_child(doc, body);
 
         // Inline classic script — extracted.
-        let inline = dom.create_element("script", Attributes::default());
-        let text = dom.create_text("var a = 1;");
+        let inline = dom.create_element_ownerless_fixture("script", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("var a = 1;");
         let _ = dom.append_child(inline, text);
         let _ = dom.append_child(body, inline);
 
         // External script — the loader's fetch path, not this entry.
         let mut ext_attrs = Attributes::default();
         ext_attrs.set("src", "app.js");
-        let external = dom.create_element("script", ext_attrs);
+        let external = dom.create_element_ownerless_fixture("script", ext_attrs);
         let _ = dom.append_child(body, external);
 
         // Non-JS type — skipped (HTML §4.12.1 script type classification).
         let mut tmpl_attrs = Attributes::default();
         tmpl_attrs.set("type", "text/template");
-        let template = dom.create_element("script", tmpl_attrs);
-        let tmpl_text = dom.create_text("not js");
+        let template = dom.create_element_ownerless_fixture("script", tmpl_attrs);
+        let tmpl_text = dom.create_text_ownerless_fixture("not js");
         let _ = dom.append_child(template, tmpl_text);
         let _ = dom.append_child(body, template);
 

@@ -105,6 +105,14 @@ pub fn first_section_child(table: Entity, dom: &EcsDom, tag: &str) -> Option<Ent
     dom.children_iter(table).find(|c| tag_eq_ci(dom, *c, tag))
 }
 
+/// HTML §4.9.1 *create a table element* (`#create-a-table-element`): "the
+/// result of creating an element given tableElement's node document,
+/// localName, and the HTML namespace".
+fn create_table_element(dom: &mut EcsDom, table: Entity, local_name: &str) -> Entity {
+    let owner = dom.node_document_for_new_nodes(table);
+    dom.create_element_with_owner(local_name, Attributes::default(), owner)
+}
+
 /// `<table>.createTHead()` — return existing `<thead>` direct child
 /// if any, else create + insert at the spec position.  Always returns
 /// the (possibly newly-created) `<thead>` Entity.
@@ -112,7 +120,7 @@ pub fn create_thead(table: Entity, dom: &mut EcsDom) -> Entity {
     if let Some(existing) = first_section_child(table, dom, "thead") {
         return existing;
     }
-    let new = dom.create_element("thead", Attributes::default());
+    let new = create_table_element(dom, table, "thead");
     insert_section_at_position(table, new, dom, SectionKind::THead);
     new
 }
@@ -123,7 +131,7 @@ pub fn create_tfoot(table: Entity, dom: &mut EcsDom) -> Entity {
     if let Some(existing) = first_section_child(table, dom, "tfoot") {
         return existing;
     }
-    let new = dom.create_element("tfoot", Attributes::default());
+    let new = create_table_element(dom, table, "tfoot");
     insert_section_at_position(table, new, dom, SectionKind::TFoot);
     new
 }
@@ -134,7 +142,7 @@ pub fn create_caption(table: Entity, dom: &mut EcsDom) -> Entity {
     if let Some(existing) = first_section_child(table, dom, "caption") {
         return existing;
     }
-    let new = dom.create_element("caption", Attributes::default());
+    let new = create_table_element(dom, table, "caption");
     insert_section_at_position(table, new, dom, SectionKind::Caption);
     new
 }
@@ -144,7 +152,7 @@ pub fn create_caption(table: Entity, dom: &mut EcsDom) -> Entity {
 /// immediately after the last existing `<tbody>` direct child if
 /// any, else at the end of the table.
 pub fn create_tbody(table: Entity, dom: &mut EcsDom) -> Entity {
-    let new = dom.create_element("tbody", Attributes::default());
+    let new = create_table_element(dom, table, "tbody");
     // Find the last <tbody> direct child; insert after it (i.e.
     // before the next sibling, or append if it's the last child).
     let last_tbody = dom
@@ -351,11 +359,11 @@ pub fn insert_row_into_table(
             "insertRow index {index} out of range (rows.length = {len})"
         )));
     }
-    let new_tr = dom.create_element("tr", Attributes::default());
+    let new_tr = create_table_element(dom, table, "tr");
     // Step 3: empty + no <tbody> → create implicit tbody, append tr to it.
     let has_tbody = dom.children_iter(table).any(|c| tag_eq_ci(dom, c, "tbody"));
     if rows.is_empty() && !has_tbody {
-        let tbody = dom.create_element("tbody", Attributes::default());
+        let tbody = create_table_element(dom, table, "tbody");
         let _ = dom.append_child(table, tbody);
         let _ = dom.append_child(tbody, new_tr);
         return Ok(new_tr);
@@ -444,7 +452,10 @@ pub fn insert_row_into_section(
             "insertRow index {index} out of range (section.rows.length = {len})"
         )));
     }
-    let new_tr = dom.create_element("tr", Attributes::default());
+    // HTML §4.9.5 `insertRow` step 2: a tr element "given this element's
+    // node document".
+    let owner = dom.node_document_for_new_nodes(section);
+    let new_tr = dom.create_element_with_owner("tr", Attributes::default(), owner);
     let append_idx = index == -1 || index == len_i32;
     if append_idx {
         let _ = dom.append_child(section, new_tr);
@@ -508,7 +519,10 @@ pub fn insert_cell_into_row(
             "insertCell index {index} out of range (row.cells.length = {len})"
         )));
     }
-    let new_td = dom.create_element("td", Attributes::default());
+    // HTML §4.9.8 `insertCell` step 2: a td element "given this tr
+    // element's node document".
+    let owner = dom.node_document_for_new_nodes(row);
+    let new_td = dom.create_element_with_owner("td", Attributes::default(), owner);
     let append_idx = index == -1 || index == len_i32;
     if append_idx {
         let _ = dom.append_child(row, new_td);

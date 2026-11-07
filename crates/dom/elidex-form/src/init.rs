@@ -190,7 +190,7 @@ mod tests {
         for (k, v) in attrs {
             attr_map.set(k.to_string(), v.to_string());
         }
-        let entity = dom.create_element(tag, attr_map);
+        let entity = dom.create_element_ownerless_fixture(tag, attr_map);
         (dom, entity)
     }
 
@@ -206,8 +206,8 @@ mod tests {
     #[test]
     fn init_form_controls_textarea_with_text() {
         let mut dom = EcsDom::new();
-        let ta = dom.create_element("textarea", Attributes::default());
-        let text_node = dom.create_text("Hello");
+        let ta = dom.create_element_ownerless_fixture("textarea", Attributes::default());
+        let text_node = dom.create_text_ownerless_fixture("Hello");
         let _ = dom.append_child(ta, text_node);
         init_form_controls(&mut dom);
         let state = dom.world().get::<&FormControlState>(ta).unwrap();
@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn textarea_strips_leading_newline() {
         let mut dom = EcsDom::new();
-        let ta = dom.create_element("textarea", Attributes::default());
-        let text_node = dom.create_text("\nHello");
+        let ta = dom.create_element_ownerless_fixture("textarea", Attributes::default());
+        let text_node = dom.create_text_ownerless_fixture("\nHello");
         let _ = dom.append_child(ta, text_node);
         init_form_controls(&mut dom);
         let state = dom.world().get::<&FormControlState>(ta).unwrap();
@@ -232,8 +232,8 @@ mod tests {
     #[test]
     fn textarea_preserves_non_leading_newline() {
         let mut dom = EcsDom::new();
-        let ta = dom.create_element("textarea", Attributes::default());
-        let text_node = dom.create_text("Hello\nWorld");
+        let ta = dom.create_element_ownerless_fixture("textarea", Attributes::default());
+        let text_node = dom.create_text_ownerless_fixture("Hello\nWorld");
         let _ = dom.append_child(ta, text_node);
         init_form_controls(&mut dom);
         let state = dom.world().get::<&FormControlState>(ta).unwrap();
@@ -265,7 +265,7 @@ mod tests {
             "input",
             elidex_ecs::Namespace::Svg,
             Attributes::default(),
-            None,
+            elidex_ecs::NewNodeOwner::ownerless_fixture(),
         );
         assert!(!create_form_control_state(&mut dom, svg_input));
         assert!(dom.world().get::<&FormControlState>(svg_input).is_err());
@@ -279,9 +279,9 @@ mod tests {
             "input",
             elidex_ecs::Namespace::Svg,
             Attributes::default(),
-            None,
+            elidex_ecs::NewNodeOwner::ownerless_fixture(),
         );
-        let html_input = dom.create_element("input", Attributes::default());
+        let html_input = dom.create_element_ownerless_fixture("input", Attributes::default());
         init_form_controls(&mut dom);
         assert!(
             dom.world().get::<&FormControlState>(svg_input).is_err(),

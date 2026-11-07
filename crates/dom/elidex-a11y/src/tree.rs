@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn single_element() {
         let (mut dom, root) = setup_simple_dom();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(root, div);
 
         let update = build_tree_update(&dom, root, None);
@@ -341,9 +341,9 @@ mod tests {
     #[test]
     fn text_node_creates_text_run() {
         let (mut dom, root) = setup_simple_dom();
-        let p = dom.create_element("p", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(root, p);
-        let text = dom.create_text("Hello world");
+        let text = dom.create_text_ownerless_fixture("Hello world");
         dom.append_child(p, text);
 
         let update = build_tree_update(&dom, root, None);
@@ -355,9 +355,9 @@ mod tests {
     #[test]
     fn heading_has_level() {
         let (mut dom, root) = setup_simple_dom();
-        let h2 = dom.create_element("h2", Attributes::default());
+        let h2 = dom.create_element_ownerless_fixture("h2", Attributes::default());
         dom.append_child(root, h2);
-        let text = dom.create_text("Section Title");
+        let text = dom.create_text_ownerless_fixture("Section Title");
         dom.append_child(h2, text);
 
         let update = build_tree_update(&dom, root, None);
@@ -376,10 +376,10 @@ mod tests {
             let (mut dom, root) = setup_simple_dom();
             let mut attrs = Attributes::default();
             attrs.set(attr_name, attr_value);
-            let hidden = dom.create_element("div", attrs);
+            let hidden = dom.create_element_ownerless_fixture("div", attrs);
             dom.append_child(root, hidden);
 
-            let visible = dom.create_element("p", Attributes::default());
+            let visible = dom.create_element_ownerless_fixture("p", Attributes::default());
             dom.append_child(root, visible);
 
             let update = build_tree_update(&dom, root, None);
@@ -393,7 +393,7 @@ mod tests {
         use elidex_plugin::{ComputedStyle, Display};
 
         let (mut dom, root) = setup_simple_dom();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(root, div);
 
         // Attach a ComputedStyle with display:none.
@@ -403,7 +403,7 @@ mod tests {
         };
         dom.world_mut().insert_one(div, style).unwrap();
 
-        let visible = dom.create_element("p", Attributes::default());
+        let visible = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(root, visible);
 
         let update = build_tree_update(&dom, root, None);
@@ -460,7 +460,7 @@ mod tests {
             for &(k, v) in attr_pairs {
                 attrs.set(k, v);
             }
-            let el = dom.create_element(tag, attrs);
+            let el = dom.create_element_ownerless_fixture(tag, attrs);
             dom.append_child(root, el);
 
             let update = build_tree_update(&dom, root, None);
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn focus_entity_sets_focus() {
         let (mut dom, root) = setup_simple_dom();
-        let btn = dom.create_element("button", Attributes::default());
+        let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
         dom.append_child(root, btn);
 
         let update = build_tree_update(&dom, root, Some(btn));
@@ -575,7 +575,7 @@ mod tests {
         for &(desc, parent_tag, tag, attr_pairs, expected) in cases {
             let (mut dom, root) = setup_simple_dom();
             let parent = if let Some(ptag) = parent_tag {
-                let p = dom.create_element(ptag, Attributes::default());
+                let p = dom.create_element_ownerless_fixture(ptag, Attributes::default());
                 dom.append_child(root, p);
                 p
             } else {
@@ -585,7 +585,7 @@ mod tests {
             for &(k, v) in attr_pairs {
                 attrs.set(k, v);
             }
-            let el = dom.create_element(tag, attrs);
+            let el = dom.create_element_ownerless_fixture(tag, attrs);
             dom.append_child(parent, el);
 
             let update = build_tree_update(&dom, root, None);
@@ -601,12 +601,12 @@ mod tests {
         // <section> host → shadow tree → <header> should see <section> ancestor
         // via composed tree walk, making header GenericContainer.
         let (mut dom, root) = setup_simple_dom();
-        let section = dom.create_element("section", Attributes::default());
+        let section = dom.create_element_ownerless_fixture("section", Attributes::default());
         dom.append_child(root, section);
         let sr = dom
             .attach_shadow(section, elidex_ecs::ShadowRootMode::Open)
             .unwrap();
-        let header = dom.create_element("header", Attributes::default());
+        let header = dom.create_element_ownerless_fixture("header", Attributes::default());
         dom.append_child(sr, header);
 
         let update = build_tree_update(&dom, root, None);
@@ -623,12 +623,12 @@ mod tests {
         // <div> host → shadow tree → <header> — no sectioning ancestor,
         // so header should be Banner.
         let (mut dom, root) = setup_simple_dom();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(root, div);
         let sr = dom
             .attach_shadow(div, elidex_ecs::ShadowRootMode::Open)
             .unwrap();
-        let header = dom.create_element("header", Attributes::default());
+        let header = dom.create_element_ownerless_fixture("header", Attributes::default());
         dom.append_child(sr, header);
 
         let update = build_tree_update(&dom, root, None);

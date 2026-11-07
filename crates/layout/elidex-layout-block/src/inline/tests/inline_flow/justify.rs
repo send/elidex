@@ -272,9 +272,9 @@ fn justify_bakes_between_run_offset() {
     for &c in &dom.composed_children(parent) {
         dom.remove_child(parent, c);
     }
-    let head = dom.create_text("xx ");
+    let head = dom.create_text_ownerless_fixture("xx ");
     dom.append_child(parent, head);
-    let em = dom.create_element("em", Attributes::default());
+    let em = dom.create_element_ownerless_fixture("em", Attributes::default());
     // The em needs a ComputedStyle or `collect_inline_items` skips its subtree.
     let _ = dom.world_mut().insert_one(
         em,
@@ -283,13 +283,13 @@ fn justify_bakes_between_run_offset() {
             ..Default::default()
         },
     );
-    let em_text = dom.create_text("yy");
+    let em_text = dom.create_text_ownerless_fixture("yy");
     dom.append_child(em, em_text);
     dom.append_child(parent, em);
     // A long, unbreakable tail word — wider than the container alone, so it always
     // wraps to its own line, leaving "xx yy" (plus a hung separator) on a justified
     // line 0. The pad over `measure("xx yy")` is the free space that line 0 distributes.
-    let tail = dom.create_text(" wwwwwwwwwwwwwwwwwwww");
+    let tail = dom.create_text_ownerless_fixture(" wwwwwwwwwwwwwwwwwwww");
     dom.append_child(parent, tail);
     let container = measure_width(&font_db, "xx yy") + measure_width(&font_db, "xx");
 

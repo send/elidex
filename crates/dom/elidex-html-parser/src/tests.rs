@@ -329,7 +329,7 @@ fn dsd_both_backends(html: &str) -> (String, String) {
     let run = |strict: bool| {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let context = dom.create_element("div", Attributes::default());
+        let context = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, context);
         let roots = if strict {
             parse_fragment_strict(html, context, &mut dom, DSD_OPEN).expect("strict parses")
@@ -359,7 +359,7 @@ fn fragment_top_level_declarative_shadow_is_plain_template() {
     // plain template whose content holds the <p>, and the context is never
     // mutated.
     let mut dom = EcsDom::new();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.create_document_root();
     let added = parse_html_fragment(
         r#"<template shadowrootmode="open"><p>x</p></template>"#,
@@ -396,7 +396,7 @@ fn fragment_nested_declarative_shadow_attaches_to_inner_host() {
     // declarativeShadowHostElement, so hostIsRoot is false and the shadow
     // attaches there. Here the inner `<div>` hosts the shadow holding <p>.
     let mut dom = EcsDom::new();
-    let context = dom.create_element("body", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("body", Attributes::default());
     let _ = dom.create_document_root();
     let added = parse_html_fragment(
         r#"<div><template shadowrootmode="open"><p>x</p></template></div>"#,
@@ -433,7 +433,7 @@ fn fragment_progressive_top_level_declarative_shadow_strict_native() {
     // The progressive entry (strict first) takes the strict-native path too.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, context);
     let roots = parse_fragment_progressive(html, context, &mut dom, DSD_OPEN);
     assert!(dom.get_shadow_root(context).is_none());
@@ -478,7 +478,7 @@ fn parse_html_fragment_preserves_inter_element_whitespace() {
     // too — the navigation(strict) ↔ innerHTML(tolerant) DOM consistency the
     // unify program targets. (innerHTML uses this fragment entry point.)
     let mut dom = EcsDom::new();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.create_document_root();
     let added = parse_html_fragment(
         "<p>A</p>\n  <p>B</p>",
@@ -540,8 +540,8 @@ fn template_content_custom_element_derived_strict_and_tolerant() {
 
 #[test]
 fn template_content_descendant_owner_document() {
-    // Codex PR380 (P2): a parsed `<template>` content descendant inherits
-    // the fragment's node document (owner_document falls back through the
+    // Codex PR380 (P2): a parsed `<template>` content descendant is created
+    // in the document (C0b: the stored node document, no fallback through the
     // DocumentFragment root), so `content.firstChild.ownerDocument` is the
     // document, matching `content.ownerDocument` — not null.
     let result = parse_html("<template><p>x</p></template>");
@@ -572,10 +572,16 @@ fn fragment_parsed_template_content_owner_is_context_document() {
     // Codex PR380 R2 (P2): fragment-parsed `<template>` content fragments
     // are stamped with the *context's* node document, not the throwaway
     // fragment document (which is destroyed by `finish_detached_fragment`) —
-    // otherwise the content's ownerDocument dangles.
+    // otherwise the content's ownerDocument dangles. The context is created
+    // in `doc` (an ownerless fixture context would only read `doc` through
+    // the append's adoption).
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, context);
     let added = parse_html_fragment(
         "<template><p>x</p></template>",
@@ -613,14 +619,13 @@ fn fragment_parsed_template_content_owner_is_context_document() {
 
 #[test]
 fn fragment_template_content_documentless_context_is_unstamped_in_both_backends() {
-    // A documentless context skips the `finish_detached_fragment` adopt, so a
-    // content fragment stamped with the throwaway fragment document would keep a
-    // dangling `AssociatedDocument`. Both backends must leave it unstamped.
-    // (`get_associated_document` is the raw component: `owner_document` hides a
-    // destroyed document and would pass even with the dangling stamp.)
+    // A documentless context: every node the build creates takes the fragment
+    // root's redirect (`None`), never the throwaway document (C0b D-10; the
+    // stamp itself is crate-private, pinned in `elidex-ecs` by U11), so the
+    // content fragment has no node document in either backend.
     for strict in [true, false] {
         let mut dom = EcsDom::new();
-        let context = dom.create_element("div", Attributes::default());
+        let context = dom.create_element_ownerless_fixture("div", Attributes::default());
         let html = "<template><p>x</p></template>";
         let roots = if strict {
             parse_fragment_strict(html, context, &mut dom, ParseFragmentOptions::default())
@@ -636,7 +641,7 @@ fn fragment_template_content_documentless_context_is_unstamped_in_both_backends(
             .template_contents_fragment(template)
             .expect("content fragment");
         assert_eq!(
-            dom.get_associated_document(fragment),
+            dom.node_document(fragment),
             None,
             "content fragment stamp (strict={strict})"
         );
@@ -657,7 +662,7 @@ fn fragment_returned_custom_element_carries_ce_state() {
     // `elidex-script-session` `apply_set_inner_html` tests.)
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, context);
     let added = parse_html_fragment(
         "<my-widget></my-widget>",
@@ -697,7 +702,7 @@ fn fragment_declarative_shadow_content_gets_derived_components() {
 
     let mut dom = EcsDom::new();
     let _ = dom.create_document_root();
-    let context = dom.create_element("body", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("body", Attributes::default());
     let added = parse_html_fragment(
         r#"<div><template shadowrootmode="open"><my-el style="color: red"></my-el></template></div>"#,
         context,
@@ -742,7 +747,7 @@ fn fragment_progressive_strict_first_then_tolerant_fallback() {
     // nodes through the single `parse_fragment_progressive` entry.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, context);
 
     let clean = parse_fragment_progressive(
@@ -772,11 +777,15 @@ fn fragment_progressive_strict_first_then_tolerant_fallback() {
 #[test]
 fn fragment_progressive_returns_detached_nodes_owned_by_context_document() {
     // Detached-return contract: returned nodes are parentless, their node
-    // document is the context's owner document (via the shared adopt), and
-    // the context itself is unmutated.
+    // document is the context's node document (each was created in it: the
+    // fragment root redirects, C0b D-10), and the context itself is unmutated.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, context);
     let nodes = parse_fragment_progressive(
         "<p>x</p><span>y</span>",
@@ -790,7 +799,7 @@ fn fragment_progressive_returns_detached_nodes_owned_by_context_document() {
         assert_eq!(
             dom.owner_document(n),
             Some(doc),
-            "returned node adopts the context's owner document"
+            "returned node is in the context's node document"
         );
     }
     assert!(
@@ -810,7 +819,7 @@ fn fragment_tolerant_derives_foreign_context_namespace() {
     use elidex_ecs::Namespace;
     let mut dom = EcsDom::new();
     let _ = dom.create_document_root();
-    let context = dom.create_element("svg", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("svg", Attributes::default());
     let _ = dom.world_mut().insert_one(context, Namespace::Svg);
     let nodes = parse_html_fragment(
         "<rect></rect>",

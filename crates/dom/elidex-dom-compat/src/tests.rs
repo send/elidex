@@ -11,11 +11,11 @@ use crate::vendor_prefix::strip_vendor_prefixes;
 // --- Helper functions ---
 
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 fn elem_with_attrs(dom: &mut EcsDom, tag: &str, attrs: Attributes) -> Entity {
-    dom.create_element(tag, attrs)
+    dom.create_element_ownerless_fixture(tag, attrs)
 }
 
 #[allow(unused_must_use)]

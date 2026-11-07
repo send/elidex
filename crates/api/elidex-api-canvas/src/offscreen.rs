@@ -223,7 +223,7 @@ mod tests {
     use elidex_ecs::Attributes;
 
     fn fresh_canvas(dom: &mut EcsDom, w: &str, h: &str) -> Entity {
-        let e = dom.create_element("canvas", Attributes::default());
+        let e = dom.create_element_ownerless_fixture("canvas", Attributes::default());
         dom.set_attribute(e, "width", w);
         dom.set_attribute(e, "height", h);
         e

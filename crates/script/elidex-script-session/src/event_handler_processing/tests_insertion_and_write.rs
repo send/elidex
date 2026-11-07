@@ -181,7 +181,9 @@ fn u6_clone_is_unmarked() {
     let (mut dom, p1, _p2) = live_page(compat());
     let e = elem(&mut dom, "div", &[("onclick", "A")]);
     append(&mut dom, p1, e);
-    let c = dom.clone_node_shallow(e).expect("clone");
+    let c = dom
+        .clone_node_shallow(e, dom.node_document_for_new_nodes(e))
+        .expect("clone");
     assert!(!is_marked(&dom, c), "U6: clone unmarked");
 }
 

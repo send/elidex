@@ -10,7 +10,7 @@ use super::*;
 fn caption_side_block_start_treated_as_top() {
     // caption-side: block-start should place caption before the table rows.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -20,7 +20,7 @@ fn caption_side_block_start_treated_as_top() {
     );
 
     // Add a caption with block-start
-    let caption = dom.create_element("caption", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.world_mut().insert_one(
         caption,
         ComputedStyle {
@@ -33,7 +33,7 @@ fn caption_side_block_start_treated_as_top() {
     dom.append_child(table, caption);
 
     // Add a row with a cell
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -42,7 +42,7 @@ fn caption_side_block_start_treated_as_top() {
         },
     );
     dom.append_child(table, tr);
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -80,7 +80,7 @@ fn caption_side_block_start_treated_as_top() {
 fn caption_side_block_end_treated_as_bottom() {
     // caption-side: block-end should place caption after the table rows.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -90,7 +90,7 @@ fn caption_side_block_end_treated_as_bottom() {
     );
 
     // Add a row first
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -99,7 +99,7 @@ fn caption_side_block_end_treated_as_bottom() {
         },
     );
     dom.append_child(table, tr);
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -111,7 +111,7 @@ fn caption_side_block_end_treated_as_bottom() {
     dom.append_child(tr, td);
 
     // Add a caption with block-end
-    let caption = dom.create_element("caption", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.world_mut().insert_one(
         caption,
         ComputedStyle {
@@ -258,7 +258,7 @@ fn vertical_lr_table_layout() {
 fn vertical_rl_padding_percent_resolves_against_inline_size() {
     // Table padding % in vertical-rl should resolve against containing_inline_size.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -273,7 +273,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
             ..Default::default()
         },
     );
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -282,7 +282,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         },
     );
     dom.append_child(table, tr);
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -324,7 +324,7 @@ fn caption_side_top_in_vertical_rl() {
     // caption-side: top in a vertical-rl table should still place caption
     // before the rows (block-start).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -334,7 +334,7 @@ fn caption_side_top_in_vertical_rl() {
         },
     );
 
-    let caption = dom.create_element("caption", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.world_mut().insert_one(
         caption,
         ComputedStyle {
@@ -346,7 +346,7 @@ fn caption_side_top_in_vertical_rl() {
     );
     dom.append_child(table, caption);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -355,7 +355,7 @@ fn caption_side_top_in_vertical_rl() {
         },
     );
     dom.append_child(table, tr);
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -398,7 +398,7 @@ fn caption_side_top_in_vertical_rl() {
 fn caption_side_block_end_in_vertical_lr() {
     // caption-side: block-end in vertical-lr should place caption after rows.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -408,7 +408,7 @@ fn caption_side_block_end_in_vertical_lr() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -417,7 +417,7 @@ fn caption_side_block_end_in_vertical_lr() {
         },
     );
     dom.append_child(table, tr);
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -428,7 +428,7 @@ fn caption_side_block_end_in_vertical_lr() {
     );
     dom.append_child(tr, td);
 
-    let caption = dom.create_element("caption", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.world_mut().insert_one(
         caption,
         ComputedStyle {

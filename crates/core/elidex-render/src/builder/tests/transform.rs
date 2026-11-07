@@ -162,7 +162,7 @@ fn perspective_propagated_to_children() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
 
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     let _ = dom.append_child(root, parent);
     let _ = dom.world_mut().insert_one(
         parent,
@@ -181,7 +181,7 @@ fn perspective_propagated_to_children() {
         },
     );
 
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     let _ = dom.append_child(parent, child);
     let _ = dom.world_mut().insert_one(
         child,
@@ -217,7 +217,7 @@ fn nested_transforms_emit_push_pop_each() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
 
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     let _ = dom.append_child(root, parent);
     let _ = dom.world_mut().insert_one(
         parent,
@@ -240,7 +240,7 @@ fn nested_transforms_emit_push_pop_each() {
         },
     );
 
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     let _ = dom.append_child(parent, child);
     let _ = dom.world_mut().insert_one(
         child,
@@ -313,7 +313,7 @@ fn parent_perspective_child_no_transform() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
 
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     let _ = dom.append_child(root, parent);
     let _ = dom.world_mut().insert_one(
         parent,
@@ -332,7 +332,7 @@ fn parent_perspective_child_no_transform() {
         },
     );
 
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     let _ = dom.append_child(parent, child);
     let _ = dom.world_mut().insert_one(
         child,

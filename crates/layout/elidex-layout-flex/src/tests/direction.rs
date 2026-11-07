@@ -204,10 +204,10 @@ fn empty_flex_container() {
 #[test]
 fn nested_flex_containers() {
     let mut dom = EcsDom::new();
-    let outer = dom.create_element("div", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(outer, flex_container());
 
-    let inner = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         inner,
         ComputedStyle {
@@ -218,7 +218,7 @@ fn nested_flex_containers() {
     );
     dom.append_child(outer, inner);
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(child, flex_item(100.0, 30.0));
     dom.append_child(inner, child);
 

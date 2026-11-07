@@ -29,8 +29,8 @@ fn transient_only_observer_survives_then_collectible_after_clear() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
-    let child = dom.create_element("span", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, root));
     assert!(dom.append_child(root, child));
     #[allow(unsafe_code)]

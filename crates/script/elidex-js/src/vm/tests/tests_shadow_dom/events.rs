@@ -551,7 +551,8 @@ fn create_element_wrapper_on_unbound_does_not_panic() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let some_entity = dom.create_element("span", elidex_ecs::Attributes::default());
+    let some_entity =
+        dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     vm.unbind();
     // Direct call into `create_element_wrapper` on the unbound VM —
     // pre-fix this panicked at `hd.dom_shared()` because the

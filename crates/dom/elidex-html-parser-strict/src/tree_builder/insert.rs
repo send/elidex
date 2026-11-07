@@ -58,7 +58,11 @@ impl TreeBuilder {
         for (name, value) in attrs {
             attributes.set(name.as_str(), value.as_str());
         }
-        let element = self.dom.create_element(tag, attributes);
+        // §13.2.6.1 *create an element for the token* step 6: the element is
+        // created in targetParent's node document (the fragment-parse root
+        // redirects to the context's).
+        let owner = self.dom.node_document_for_new_nodes(parent);
+        let element = self.dom.create_element_with_owner(tag, attributes, owner);
         self.append(parent, element);
         self.state.open_elements.push(element);
         element
@@ -104,8 +108,9 @@ impl TreeBuilder {
         for (name, value) in attrs {
             attributes.set(name.as_str(), value.as_str());
         }
-        // Owner document: see `node_document_for_new_nodes`.
-        let owner = self.node_document_for_new_nodes();
+        // §13.2.6.1 *insert a foreign element* steps 1–2: created for the
+        // target parent of the appropriate place, in its node document.
+        let owner = self.dom.node_document_for_new_nodes(parent);
         let element = self
             .dom
             .create_element_ns(tag, namespace, attributes, owner);
@@ -130,7 +135,10 @@ impl TreeBuilder {
     /// §13.2.6.1 "insert a comment" — at the appropriate place.
     pub(super) fn insert_comment(&mut self, data: &str) {
         let parent = self.appropriate_place();
-        let comment = self.dom.create_comment(data);
+        // §13.2.6.1 *insert a comment* step 5: given the adjusted insertion
+        // location's parent's (targetParent's) node document.
+        let owner = self.dom.node_document_for_new_nodes(parent);
+        let comment = self.dom.create_comment_with_owner(data, owner);
         self.append(parent, comment);
     }
 
@@ -138,7 +146,9 @@ impl TreeBuilder {
     /// "insert a comment as the last child of the Document object / the first
     /// element in the stack of open elements").
     pub(super) fn insert_comment_to(&mut self, parent: Entity, data: &str) {
-        let comment = self.dom.create_comment(data);
+        // §13.2.6.1 *insert a comment* step 5, the position given explicitly.
+        let owner = self.dom.node_document_for_new_nodes(parent);
+        let comment = self.dom.create_comment_with_owner(data, owner);
         self.append(parent, comment);
     }
 
@@ -152,7 +162,12 @@ impl TreeBuilder {
         let name = dt.name.as_deref().unwrap_or("");
         let public_id = dt.public_id.as_deref().unwrap_or("");
         let system_id = dt.system_id.as_deref().unwrap_or("");
-        let node = self.dom.create_document_type(name, public_id, system_id);
+        // The DocumentType node's node document is the parse document (DOM
+        // §4.4 *node document*, set upon creation).
+        let owner = self.dom.node_document_for_new_nodes(self.document);
+        let node = self
+            .dom
+            .create_document_type(name, public_id, system_id, owner);
         self.append(self.document, node);
     }
 
@@ -207,7 +222,10 @@ impl TreeBuilder {
                 return;
             }
         }
-        let node = self.dom.create_text(text);
+        // §13.2.6.1 *insert a character* step 6: a new Text node given the
+        // adjusted insertion location's parent's (targetParent's) node document.
+        let owner = self.dom.node_document_for_new_nodes(parent);
+        let node = self.dom.create_text_with_owner(text, owner);
         self.append(parent, node);
     }
 
