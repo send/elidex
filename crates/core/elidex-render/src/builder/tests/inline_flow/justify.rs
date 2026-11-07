@@ -22,7 +22,7 @@ fn paint_justified_line(text: &str, jws: f32) -> Vec<f32> {
             ..Default::default()
         },
     );
-    let node = dom.create_text(text);
+    let node = dom.create_text_ownerless_fixture(text);
     let _ = dom.append_child(div, node);
     let flow = InlineFlow::single(
         0,
@@ -109,7 +109,7 @@ fn bidi_reorder_branch_applies_within_run_justify() {
                 ..Default::default()
             },
         );
-        let text = dom.create_text("אאבב גג");
+        let text = dom.create_text_ownerless_fixture("אאבב גג");
         dom.append_child(div, text);
         // Two RTL runs under an LTR base → reorder branch (visual swap). run1 carries
         // an interior space, the within-run justification opportunity.

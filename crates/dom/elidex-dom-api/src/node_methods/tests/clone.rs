@@ -9,8 +9,8 @@ fn clone_node_shallow() {
     let (mut dom, mut session) = setup();
     let mut attrs = Attributes::default();
     attrs.set("class", "test");
-    let div = dom.create_element("div", attrs);
-    let child = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", attrs);
+    let child = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, child);
     wrap(div, &mut session);
 
@@ -39,8 +39,8 @@ fn clone_node_shallow() {
 #[test]
 fn clone_node_deep() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, text);
     wrap(div, &mut session);
 
@@ -73,7 +73,7 @@ fn clone_input_attaches_cloned_from_marker() {
     // The form-control cloning-steps link: a cloned `<input>` carries a
     // `ClonedFrom` pointing at its source, for the `elidex-form` consumer.
     let (mut dom, mut session) = setup();
-    let input = dom.create_element("input", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", Attributes::default());
     wrap(input, &mut session);
     let r = CloneNode
         .invoke(input, &[JsValue::Bool(false)], &mut session, &mut dom)
@@ -86,7 +86,7 @@ fn clone_input_attaches_cloned_from_marker() {
 #[test]
 fn clone_textarea_attaches_cloned_from_marker() {
     let (mut dom, mut session) = setup();
-    let ta = dom.create_element("textarea", Attributes::default());
+    let ta = dom.create_element_ownerless_fixture("textarea", Attributes::default());
     wrap(ta, &mut session);
     let r = CloneNode
         .invoke(ta, &[JsValue::Bool(false)], &mut session, &mut dom)
@@ -100,7 +100,7 @@ fn clone_non_form_control_has_no_cloned_from_marker() {
     // The attach is gated on `<input>` / `<textarea>` — a `<div>` clone is
     // never marked (so a large subtree clone does not churn markers).
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
     let r = CloneNode
         .invoke(div, &[JsValue::Bool(false)], &mut session, &mut dom)
@@ -114,8 +114,8 @@ fn clone_deep_marks_nested_form_control_with_its_own_source() {
     // Deep clone of `<div><input></div>`: the cloned `<input>` descendant is
     // marked, with `source` pointing at the ORIGINAL nested input (not the root).
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let input = dom.create_element("input", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", Attributes::default());
     dom.append_child(div, input);
     wrap(div, &mut session);
     let r = CloneNode
@@ -137,10 +137,11 @@ fn clone_node_template_deep_clones_content_into_fresh_fragment() {
     // fresh content fragment populated with deep-cloned children — never the
     // source fragment (no aliasing).
     let (mut dom, mut session) = setup();
-    let template = dom.create_element("template", Attributes::default());
-    let src_fragment = dom.attach_template_contents(template, None);
-    let span = dom.create_element("span", Attributes::default());
-    let txt = dom.create_text("hi");
+    let template = dom.create_element_ownerless_fixture("template", Attributes::default());
+    let src_fragment =
+        dom.attach_template_contents(template, elidex_ecs::NewNodeOwner::ownerless_fixture());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let txt = dom.create_text_ownerless_fixture("hi");
     dom.append_child(span, txt);
     dom.append_child(src_fragment, span);
     wrap(template, &mut session);
@@ -183,9 +184,10 @@ fn clone_node_template_shallow_gets_fresh_empty_fragment() {
     // clone-children flag is set; a shallow clone still gets its own *empty*
     // content fragment (every template has one).
     let (mut dom, mut session) = setup();
-    let template = dom.create_element("template", Attributes::default());
-    let src_fragment = dom.attach_template_contents(template, None);
-    let span = dom.create_element("span", Attributes::default());
+    let template = dom.create_element_ownerless_fixture("template", Attributes::default());
+    let src_fragment =
+        dom.attach_template_contents(template, elidex_ecs::NewNodeOwner::ownerless_fixture());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(src_fragment, span);
     wrap(template, &mut session);
 
@@ -213,13 +215,17 @@ fn clone_node_template_shallow_gets_fresh_empty_fragment() {
 #[test]
 fn clone_node_template_shallow_preserves_owner_document() {
     // Codex PR380 R2 (P2): `cloneNode(false)` on a document-owned `<template>`
-    // must give the (empty) clone fragment the operation's node document — the
-    // shallow cloner leaves `dst` parentless with no `AssociatedDocument`, so
-    // deriving the owner from `dst` would yield a null `content.ownerDocument`.
+    // must give the (empty) clone fragment the operation's node document: the
+    // contents are created with the operation's `NewNodeOwner` (the one `dst`
+    // was created with, C0b), so `content.ownerDocument` is not null.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let template = dom.create_element_with_owner("template", Attributes::default(), Some(doc));
-    let _ = dom.attach_template_contents(template, Some(doc));
+    let template = dom.create_element_with_owner(
+        "template",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
+    let _ = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     wrap(template, &mut session);
 
     let r = CloneNode
@@ -245,7 +251,7 @@ fn clone_node_template_shallow_preserves_owner_document() {
 #[test]
 fn clone_node_no_identity() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
 
     let r = CloneNode.invoke(div, &[], &mut session, &mut dom).unwrap();
@@ -272,7 +278,7 @@ fn clone_node_copies_inline_style() {
     let (mut dom, mut session) = setup();
     let mut attrs = Attributes::default();
     attrs.set("style", "color: red");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     let mut style = InlineStyle::default();
     style.set("color", "red");
     dom.world_mut().insert_one(div, style).unwrap();
@@ -299,7 +305,7 @@ fn clone_node_copies_inline_style() {
 #[test]
 fn clone_node_shadow_root_error() {
     let (mut dom, mut session) = setup();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     let sr = dom
         .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
@@ -313,7 +319,12 @@ fn clone_node_shadow_root_error() {
 #[test]
 fn clone_node_document_type() {
     let (mut dom, mut session) = setup();
-    let dt = dom.create_document_type("html", "-//W3C", "http://example.com");
+    let dt = dom.create_document_type(
+        "html",
+        "-//W3C",
+        "http://example.com",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     wrap(dt, &mut session);
 
     let r = CloneNode.invoke(dt, &[], &mut session, &mut dom).unwrap();
@@ -339,7 +350,7 @@ fn clone_node_document_type() {
 #[test]
 fn clone_node_component_kind_element() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
 
     let result = CloneNode
@@ -375,7 +386,7 @@ fn clone_node_destroyed_source_yields_not_found_error() {
     // it means the source entity no longer exists, which maps to
     // DOMException("NotFoundError"), not NotSupportedError.
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
     // Despawn the source so the cloner returns None.
     let _ = dom.world_mut().despawn(div);
@@ -392,9 +403,9 @@ fn clone_node_document_fragment_deep_preserves_children() {
     // not DocumentFragment, leaving the kind branch in
     // EcsDom::clone_subtree unpinned at this layer.
     let (mut dom, mut session) = setup();
-    let frag = dom.create_document_fragment();
-    let child = dom.create_element("p", Attributes::default());
-    let grandchild = dom.create_text("hello");
+    let frag = dom.create_document_fragment_ownerless_fixture();
+    let child = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let grandchild = dom.create_text_ownerless_fixture("hello");
     dom.append_child(child, grandchild);
     dom.append_child(frag, child);
     wrap(frag, &mut session);
@@ -433,7 +444,7 @@ fn clone_node_attribute_kind_yields_not_supported_error() {
     // through them would produce a structurally invalid clone
     // (NodeKind=Attribute, AttrData missing).  Refuse early.
     let (mut dom, mut session) = setup();
-    let attr = dom.create_attribute("id");
+    let attr = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     wrap(attr, &mut session);
     let err = CloneNode
         .invoke(attr, &[JsValue::Bool(false)], &mut session, &mut dom)
@@ -473,10 +484,10 @@ fn clone_node_propagates_customized_builtin_identity() {
     // Undefined("my-btn"). The clone must carry the same identity —
     // shallow and on deep descendants.
     let (mut dom, mut session) = setup();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("is", "my-btn");
-    let button = dom.create_element("button", attrs);
+    let button = dom.create_element_ownerless_fixture("button", attrs);
     dom.world_mut()
         .insert_one(button, CustomElementState::undefined("my-btn"))
         .unwrap();
@@ -519,7 +530,7 @@ fn clone_node_resets_failed_state_to_undefined() {
     // pipeline fresh — a Failed source still yields an Undefined
     // clone with the same definition name.
     let (mut dom, mut session) = setup();
-    let el = dom.create_element("my-x", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("my-x", Attributes::default());
     dom.world_mut()
         .insert_one(
             el,
@@ -552,7 +563,7 @@ fn clone_node_is_value_slot_not_rederived_from_attr() {
     let (mut dom, mut session) = setup();
     let mut attrs = Attributes::default();
     attrs.set("is", "my-btn");
-    let button = dom.create_element("button", attrs);
+    let button = dom.create_element_ownerless_fixture("button", attrs);
     wrap(button, &mut session);
 
     let r = CloneNode
@@ -577,7 +588,7 @@ fn clone_node_foreign_hyphenated_keeps_namespace_no_ce_state() {
         "my-foo",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     wrap(el, &mut session);
 
@@ -597,7 +608,7 @@ fn clone_node_copies_iframe_data() {
     let (mut dom, mut session) = setup();
     let mut attrs = Attributes::default();
     attrs.set("src", "x");
-    let iframe = dom.create_element("iframe", attrs.clone());
+    let iframe = dom.create_element_ownerless_fixture("iframe", attrs.clone());
     dom.world_mut()
         .insert_one(iframe, elidex_ecs::IframeData::from_attributes(&attrs))
         .unwrap();
@@ -621,7 +632,7 @@ fn clone_propagates_null_registry_association() {
     // a null-registry custom element clones to a null-registry clone
     // (still excluded from every upgrade path).
     let (mut dom, mut session) = setup();
-    let el = dom.create_element("x-nullclone", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("x-nullclone", Attributes::default());
     dom.world_mut()
         .insert_one(
             el,
@@ -656,7 +667,7 @@ fn clonable_shadow_clone_preserves_null_registry() {
     // with the source root's registry -- a null-registry clonable
     // shadow tree stays null-registry on the clone.
     let (mut dom, mut session) = setup();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     let init = elidex_ecs::ShadowInit {
         clonable: true,
         null_registry: true,
@@ -696,7 +707,7 @@ fn clone_node_rederives_iframe_data_from_cloned_attributes() {
     let (mut dom, mut session) = setup();
     let mut attrs = Attributes::default();
     attrs.set("src", "old.html");
-    let iframe = dom.create_element("iframe", attrs.clone());
+    let iframe = dom.create_element_ownerless_fixture("iframe", attrs.clone());
     dom.world_mut()
         .insert_one(iframe, elidex_ecs::IframeData::from_attributes(&attrs))
         .unwrap();

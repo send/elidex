@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn layout_fragmented_single_fragment_when_content_fits() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -43,7 +43,7 @@ fn layout_fragmented_single_fragment_when_content_fits() {
 #[test]
 fn layout_fragmented_two_fragments_on_overflow() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -53,7 +53,7 @@ fn layout_fragmented_two_fragments_on_overflow() {
     );
     // Add 3 children, each 80px tall. Total = 240px.
     for _ in 0..3 {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(parent, child);
         dom.world_mut().insert_one(
             child,
@@ -101,7 +101,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
     use elidex_plugin::BreakValue;
 
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -109,7 +109,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
             ..Default::default()
         },
     );
-    let child1 = dom.create_element("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.world_mut().insert_one(
         child1,
@@ -120,7 +120,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
             ..Default::default()
         },
     );
-    let child2 = dom.create_element("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,
@@ -156,7 +156,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
 #[test]
 fn layout_fragmented_without_fragmentainer_returns_one() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -209,7 +209,7 @@ fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PagedMediaContext {
 #[test]
 fn paged_single_page_fits_all_content() {
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
     dom.world_mut().insert_one(
         div,
@@ -232,7 +232,7 @@ fn paged_single_page_fits_all_content() {
 #[test]
 fn paged_multi_page_break() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -241,7 +241,7 @@ fn paged_multi_page_break() {
         },
     );
     for _ in 0..3 {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(parent, child);
         dom.world_mut().insert_one(
             child,
@@ -272,7 +272,7 @@ fn paged_selector_first() {
     use elidex_plugin::{PageRule, PageSelector as PS};
 
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -317,7 +317,7 @@ fn paged_blank_page_from_forced_break() {
     use elidex_plugin::BreakValue;
 
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -325,7 +325,7 @@ fn paged_blank_page_from_forced_break() {
             ..Default::default()
         },
     );
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -336,7 +336,7 @@ fn paged_blank_page_from_forced_break() {
             ..Default::default()
         },
     );
-    let child2 = dom.create_element("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,
@@ -380,7 +380,7 @@ fn paged_size_from_rule() {
 #[test]
 fn paged_counter_page_increments() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -389,7 +389,7 @@ fn paged_counter_page_increments() {
         },
     );
     for _ in 0..2 {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(parent, child);
         dom.world_mut().insert_one(
             child,
@@ -413,7 +413,7 @@ fn paged_counter_page_increments() {
 #[test]
 fn paged_two_pass_counter_pages() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -422,7 +422,7 @@ fn paged_two_pass_counter_pages() {
         },
     );
     for _ in 0..3 {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(parent, child);
         dom.world_mut().insert_one(
             child,

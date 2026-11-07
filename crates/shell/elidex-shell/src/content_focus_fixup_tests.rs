@@ -616,7 +616,7 @@ fn delegates_focus_host_focused_by_vm_survives_fixup() {
         .expect("attach shadow");
     let delegate = p
         .dom
-        .create_element("input", elidex_ecs::Attributes::default());
+        .create_element_ownerless_fixture("input", elidex_ecs::Attributes::default());
     let _ = p.dom.append_child(sr, delegate);
     eval(p, LOGGER);
     eval(p, "document.getElementById('b').focus();");

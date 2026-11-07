@@ -603,11 +603,10 @@ fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
 /// `true` when `node`'s owner document is `owner_document`. Used by
 /// Selection's cross-document gates (spec §3.2 collapse step 4 etc.).
 ///
-/// Uses [`EcsDom::owner_document`] (which prefers the explicit
-/// `AssociatedDocument` component) rather than `find_tree_root` so
-/// that detached-but-document-associated nodes (the typical
-/// `document.createElement('div')` then `appendChild` sequence)
-/// match correctly even before they are linked into the main tree.
+/// Uses [`EcsDom::owner_document`] (the stored node document, set at
+/// creation and changed only by DOM *adopt*) rather than `find_tree_root`,
+/// so a detached node created by `document.createElement('div')` matches
+/// before it is linked into the main tree.
 /// A node that IS the Document itself returns `None`; we treat that
 /// as a self-match against `owner_document` so Selection ops on
 /// `document` directly are accepted.

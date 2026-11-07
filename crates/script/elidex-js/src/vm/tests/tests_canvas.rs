@@ -12,8 +12,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc

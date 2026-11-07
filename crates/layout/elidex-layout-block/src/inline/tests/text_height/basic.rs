@@ -7,8 +7,8 @@ use elidex_plugin::WhiteSpace;
 #[test]
 fn empty_text_zero_height() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let text = dom.create_text("");
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("");
     dom.append_child(parent, text);
 
     let font_db = FontDatabase::new();

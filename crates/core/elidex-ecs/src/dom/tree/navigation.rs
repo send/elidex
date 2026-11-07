@@ -276,7 +276,7 @@ impl EcsDom {
     /// cap guards a corrupted/cyclic sibling chain). Use this only where
     /// dropping children is a correctness bug, not a safe approximation: e.g.
     /// complete-subtree teardown ([`Self::despawn_subtree`]) and the WHATWG HTML
-    /// §13.4 step 20 fragment-root return, where a dropped child would be
+    /// §13.4 *HTML fragment parsing algorithm* step 7 (return fragment), where a dropped child would be
     /// orphaned as a live, unreachable remnant. A `visited` set still bounds a
     /// malformed/cyclic sibling chain (the walk stops at the first repeat),
     /// preserving the caps' termination guarantee without their silent

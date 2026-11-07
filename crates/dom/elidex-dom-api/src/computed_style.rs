@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn get_computed_display() {
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let style = ComputedStyle {
             display: Display::Block,
             ..ComputedStyle::default()
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn get_computed_color() {
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let style = ComputedStyle {
             color: CssColor::RED,
             ..ComputedStyle::default()
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn get_computed_color_translucent() {
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let style = ComputedStyle {
             // 50% alpha (u8 128) → "0.5" per CSS Color 4 §16.1.
             background_color: CssColor::new(0, 0, 0, 128),
@@ -140,7 +140,7 @@ mod tests {
         // text-decoration-color default (None = currentcolor) resolves to the
         // element's own `color` used value (CSSOM-1 §9).
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let style = ComputedStyle {
             color: CssColor::BLUE,
             // text_decoration_color stays None (default) = currentcolor.
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn get_computed_custom_property() {
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut style = ComputedStyle::default();
         style
             .custom_properties
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn no_computed_style_errors() {
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut session = SessionCore::new();
         let result = GetComputedStyle.invoke(
             elem,
@@ -201,7 +201,7 @@ mod tests {
         // Selectors 4 §8.2: :visited elements should return
         // unvisited values for color-related properties.
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("a", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("a", Attributes::default());
         let style = ComputedStyle {
             color: CssColor::new(0, 0, 255, 255), // blue
             ..ComputedStyle::default()
@@ -230,7 +230,7 @@ mod tests {
     fn visited_privacy_non_color_unaffected() {
         // Non-color properties are not restricted by :visited privacy.
         let mut dom = EcsDom::new();
-        let elem = dom.create_element("a", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("a", Attributes::default());
         let style = ComputedStyle {
             display: Display::Block,
             ..ComputedStyle::default()

@@ -197,7 +197,7 @@ fn is_element_true() {
 #[test]
 fn is_element_false_text() {
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
     assert!(!dom.is_element(t));
 }
 
@@ -303,7 +303,7 @@ fn set_attribute_non_element_no_version_bump_or_event() {
         "set_attribute on a non-Element (Document) must not bump version"
     );
 
-    let text = dom.create_text("t");
+    let text = dom.create_text_ownerless_fixture("t");
     dom.append_child(doc, text);
     let v_text = dom.inclusive_descendants_version(text);
     let v_doc_after_append = dom.inclusive_descendants_version(doc);
@@ -339,7 +339,7 @@ fn remove_attribute_non_element_no_version_bump_or_event() {
         "remove_attribute on a non-Element (Document) must not bump version"
     );
 
-    let text = dom.create_text("t");
+    let text = dom.create_text_ownerless_fixture("t");
     dom.append_child(doc, text);
     let v_text = dom.inclusive_descendants_version(text);
     let v_doc_after_append = dom.inclusive_descendants_version(doc);

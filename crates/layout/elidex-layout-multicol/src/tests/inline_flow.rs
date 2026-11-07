@@ -118,7 +118,7 @@ fn multicol_spanner_ifc_persists_nonfragmented() {
         ..ComputedStyle::default()
     };
     let _ = dom.world_mut().insert_one(spanner, spanner_style);
-    let spanner_text = dom.create_text("Spanner");
+    let spanner_text = dom.create_text_ownerless_fixture("Spanner");
     dom.append_child(spanner, spanner_text);
 
     let input = make_input(&font_db);

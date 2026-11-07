@@ -475,7 +475,7 @@ mod tests {
     fn focusing_steps_non_focusable_no_fallback_leaves_focus() {
         let mut dom = EcsDom::new();
         let (doc, a, _b) = doc_with_two(&mut dom);
-        let plain = dom.create_element("span", Attributes::default()); // not a focusable area
+        let plain = dom.create_element_ownerless_fixture("span", Attributes::default()); // not a focusable area
         let _ = dom.append_child(doc, plain);
         set_focus_bit(&mut dom, Some(a));
 

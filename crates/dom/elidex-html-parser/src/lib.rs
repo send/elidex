@@ -140,24 +140,19 @@ pub fn parse_html_fragment(
     // `<html>` root (the shared prologue both backends use; mutation dispatch is
     // suppressed for the throwaway build, restored after teardown), then return
     // root's children detached via the shared teardown.
-    let (document, root, saved) = dom.begin_detached_fragment();
+    let (document, root, saved) = dom.begin_detached_fragment(context);
     // The template start tag (§13.2.6.4.4) takes declarativeShadowHostElement to
     // be the current node, not the adjusted current node, and hostIsRoot (the
     // fragment root also has a redirection-map entry) makes a top-level
     // `<template shadowrootmode>` a regular template: `context` is never mutated.
     // `convert_fragment_top_level` therefore never attaches; nested templates
-    // attach to their real parent. Stamp every parsed `<template>` content
-    // fragment with the **context's** node document, not the throwaway
-    // fragment `document`. With a document-bearing context
-    // `finish_detached_fragment` re-homes the content fragments anyway
-    // (`adopt_subtree` walks template contents), so the stamp only matters for a
-    // documentless context: there the adopt is skipped, and a throwaway-document
-    // stamp would dangle once that document is destroyed (Codex PR380 R2). `None`
-    // leaves the fragments owner-less, matching the orphan-detached light nodes
-    // `finish_detached_fragment` returns then.
-    let owner_doc = dom.owner_document(context);
-    convert::convert_fragment_top_level(&children_owner, root, dom, owner_doc, opts);
-    let detached = dom.finish_detached_fragment(root, document, context);
+    // attach to their real parent. Every converted node, template contents
+    // included, takes its node document from the entry over its converted
+    // parent; `root` redirects to the context's node document (*initialize an HTML fragment parser* step 15),
+    // so nothing the build creates holds the throwaway `document`, which would
+    // dangle once it is destroyed (Codex PR380 R2).
+    convert::convert_fragment_top_level(&children_owner, root, dom, opts);
+    let detached = dom.finish_detached_fragment(root, document);
     if let Some(dispatcher) = saved {
         dom.set_mutation_dispatcher(dispatcher);
     }
@@ -256,3 +251,6 @@ pub(crate) mod test_helpers;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_node_document;

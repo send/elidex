@@ -116,7 +116,7 @@ impl DomApiHandler for SetTextContentNodeKind {
                 let node = if text.is_empty() {
                     None
                 } else {
-                    let owner = dom.owner_document(this);
+                    let owner = dom.node_document_for_new_nodes(this);
                     Some(dom.create_text_with_owner(text, owner))
                 };
                 for record in apply_replace_all(dom, this, node) {

@@ -408,8 +408,7 @@ pub fn apply_replace_child(
     // any mutation) and reuse in both the fragment and non-fragment arms.
     let parent_was_connected = dom.is_connected(parent);
     if dom.is_document_fragment(new_child) {
-        // DocumentFragment newChild — §4.2.3 "replace" steps 2–10 with expansion
-        // (the adopt at step 6 comes with C0b's call, D-5).
+        // DocumentFragment newChild — §4.2.3 "replace" steps 2–10 with expansion.
         // §4.2.3 replace step 1 (ensure pre-insert validity step 2; atomic, before
         // removing oldChild): a fragment that is a host-including inclusive
         // ancestor of `parent` is a HierarchyRequestError. See `apply_append_child`.
@@ -431,6 +430,13 @@ pub fn apply_replace_child(
         let reference_child = dom.next_exposed_sibling(old_child);
         // step 4: previousSibling = oldChild's previous sibling (pre-removal).
         let previous_sibling = dom.prev_exposed_sibling(old_child);
+        // *replace* step 6: adopt node (the fragment itself) into parent's node
+        // document. The fragment is parentless (adopt step 2 is a no-op), so
+        // this re-homes the fragment and its children before step 7; the
+        // children's own insertions at step 9 then find them in place.
+        if let Some(document) = dom.node_document(parent) {
+            dom.adopt(new_child, document);
+        }
         // step 7: remove oldChild (suppressObservers — no standalone record).
         if !dom.remove_child(parent, old_child) {
             return Vec::new();

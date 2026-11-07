@@ -17,5 +17,8 @@ elidex-ecs.workspace = true
 # `CustomElementState` component is the only "awaiting upgrade" record.
 hecs.workspace = true
 
+[dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
+
 [lints]
 workspace = true

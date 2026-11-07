@@ -7,7 +7,7 @@ use super::StyledTextSegment;
 /// Normalize line endings. Defensive, not spec-mandated at this layer: HTML parsing
 /// already strips CR (HTML §13.2.3.5), and css-text-3 §4's note says the DOM gives
 /// U+000D no meaning and does not treat it as a segment break. What this catches is
-/// text that reached the DOM another way — a direct `create_text`, say — which is the
+/// text that reached the DOM another way — a direct `create_text_with_owner`, say — which is the
 /// case that note explicitly carves out.
 ///
 /// Converts `\r\n` sequences to `\n` first, then any remaining bare `\r` to `\n`.

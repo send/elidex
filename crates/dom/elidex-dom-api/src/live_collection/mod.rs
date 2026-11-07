@@ -565,8 +565,8 @@ fn matches_tag_ascii_ci_listed(entity: Entity, dom: &EcsDom) -> bool {
 
 /// Case-insensitive tag-name match (ASCII). Mirrors the WHATWG HTML
 /// canonicalisation that `Document.{forms,images,links}` perform — the
-/// HTML parser already lowercases tags, but `EcsDom::create_element` is
-/// also reachable from non-parser paths (e.g. JS `document.createElementNS`),
+/// HTML parser already lowercases tags, but `EcsDom::create_element_with_owner`
+/// is also reachable from non-parser paths (e.g. JS `document.createElementNS`),
 /// so the matcher tolerates uppercase input rather than relying on the
 /// parser's lowercase guarantee.
 fn matches_tag_ascii_ci(entity: Entity, tag: &str, dom: &EcsDom) -> bool {

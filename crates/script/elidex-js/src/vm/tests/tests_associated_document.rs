@@ -18,8 +18,8 @@ use super::super::Vm;
 
 fn build_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -197,9 +197,9 @@ fn cloned_document_set_title_anchors_synthesised_nodes_to_clone() {
     // Need a `<head>` for SetTitle to land — `build_fixture`'s
     // body-only tree makes the setter a no-op.
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(html, body));
@@ -285,9 +285,9 @@ fn cloned_subtree_owner_document_matches_src_subtree() {
 
 #[test]
 fn associated_document_set_by_create_native_observable_via_ecs() {
-    // White-box: after `document.createElement("span")` the ECS
-    // AssociatedDocument component must resolve directly to the bound
-    // document entity without falling back to the tree-root walk.
+    // White-box: after `document.createElement("span")` the element's node
+    // document (`EcsDom::node_document`, the stored fact) is the bound
+    // document while it is still detached.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -307,6 +307,6 @@ fn associated_document_set_by_create_native_observable_via_ecs() {
     vm.unbind();
 
     let entity = elidex_ecs::Entity::from_bits(entity_bits).unwrap();
-    assert_eq!(dom.get_associated_document(entity), Some(doc));
+    assert_eq!(dom.node_document(entity), Some(doc));
     assert_eq!(dom.owner_document(entity), Some(doc));
 }

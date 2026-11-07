@@ -288,7 +288,7 @@ fn despawn_subtree_destroys_template_content_fragment() {
     let root = elem(&mut dom, "div");
     let template = elem(&mut dom, "template");
     dom.append_child(root, template);
-    let fragment = dom.attach_template_contents(template, None);
+    let fragment = dom.attach_template_contents(template, NewNodeOwner::NONE);
     let content_child = elem(&mut dom, "span");
     dom.append_child(fragment, content_child);
 
@@ -307,24 +307,24 @@ fn despawn_subtree_destroys_template_content_fragment() {
 }
 
 #[test]
-fn adopt_subtree_rehomes_template_content_fragment() {
-    // The DOM §4.5 "adopt" of an HTML §13.4-fragment-parsed subtree re-homes
-    // the whole returned subtree into the context's document; the detached
-    // content fragment (and its contents) must follow, else its `ownerDocument`
-    // dangles on the throwaway document.
+fn adopt_rehomes_template_content_fragment() {
+    // DOM §4.5 *adopt* step 3.4 (the template's adopting steps, HTML §4.12.3):
+    // adopting a subtree re-homes the detached content fragment (and its
+    // contents) with the template, else its `ownerDocument` keeps the old
+    // document.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_node();
     let root = elem(&mut dom, "div");
     let template = elem(&mut dom, "template");
     dom.append_child(root, template);
-    let fragment = dom.attach_template_contents(template, None);
+    let fragment = dom.attach_template_contents(template, NewNodeOwner::NONE);
     let content_child = elem(&mut dom, "span");
     dom.append_child(fragment, content_child);
 
-    dom.adopt_subtree(root, doc);
+    dom.adopt(root, doc);
 
-    assert_eq!(dom.get_associated_document(fragment), Some(doc));
-    assert_eq!(dom.get_associated_document(content_child), Some(doc));
+    assert_eq!(dom.node_document(fragment), Some(doc));
+    assert_eq!(dom.node_document(content_child), Some(doc));
 }
 
 #[test]
@@ -333,7 +333,8 @@ fn begin_detached_fragment_root_is_child_of_document() {
     // That defect only shows with debug assertions off, so this test catches
     // it under `cargo test --release`, not in the dev profile CI runs.
     let mut dom = EcsDom::new();
-    let (document, root, _) = dom.begin_detached_fragment();
+    let context = elem(&mut dom, "div");
+    let (document, root, _) = dom.begin_detached_fragment(context);
     assert_eq!(dom.get_parent(root), Some(document));
     // The property the link exists for: the strict rollback reclaims root and
     // everything built under it.

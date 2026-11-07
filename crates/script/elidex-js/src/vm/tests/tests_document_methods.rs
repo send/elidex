@@ -24,11 +24,11 @@ fn build_fixture(
     elidex_ecs::Entity, // title element
 ) {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let title = dom.create_element("title", Attributes::default());
-    let title_text = dom.create_text("Hello World");
-    let body = dom.create_element("body", {
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let title = dom.create_element_ownerless_fixture("title", Attributes::default());
+    let title_text = dom.create_text_ownerless_fixture("Hello World");
+    let body = dom.create_element_ownerless_fixture("body", {
         let mut a = Attributes::default();
         a.set("id", "b");
         a
@@ -56,14 +56,14 @@ fn build_query_fixture(
     elidex_ecs::Entity, // p.box.highlight
 ) {
     let (doc, _html, _head, body, _title) = build_fixture(dom);
-    let div = dom.create_element("div", {
+    let div = dom.create_element_ownerless_fixture("div", {
         let mut a = Attributes::default();
         a.set("id", "target");
         a.set("class", "box");
         a
     });
-    let span = dom.create_element("span", Attributes::default());
-    let p = dom.create_element("p", {
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("class", "box highlight");
         a
@@ -128,7 +128,7 @@ fn document_get_element_by_id_ignores_non_descendant() {
 
     // Create an entity with id="orphan" that is NOT a child of the
     // document tree — getElementById must not find it.
-    let _orphan = dom.create_element("div", {
+    let _orphan = dom.create_element_ownerless_fixture("div", {
         let mut a = Attributes::default();
         a.set("id", "orphan");
         a
@@ -416,10 +416,10 @@ fn document_title_preserves_non_ascii_whitespace_through_bridge() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let title = dom.create_element("title", Attributes::default());
-    let title_text = dom.create_text("a\u{00A0}b\u{3000}c");
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let title = dom.create_element_ownerless_fixture("title", Attributes::default());
+    let title_text = dom.create_text_ownerless_fixture("a\u{00A0}b\u{3000}c");
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(head, title));
@@ -448,9 +448,9 @@ fn document_active_element_picks_first_body_or_frameset_in_document_order() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let frameset = dom.create_element("frameset", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let frameset = dom.create_element_ownerless_fixture("frameset", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, frameset));
     assert!(dom.append_child(html, body));
@@ -484,8 +484,8 @@ fn document_active_element_falls_back_to_frameset_when_no_body() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let frameset = dom.create_element("frameset", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let frameset = dom.create_element_ownerless_fixture("frameset", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, frameset));
 
@@ -512,8 +512,8 @@ fn document_body_returns_frameset_when_no_body_present() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let frameset = dom.create_element("frameset", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let frameset = dom.create_element_ownerless_fixture("frameset", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, frameset));
 
@@ -543,7 +543,7 @@ fn document_element_returns_first_element_child_regardless_of_tag() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let svg = dom.create_element("svg", Attributes::default());
+    let svg = dom.create_element_ownerless_fixture("svg", Attributes::default());
     assert!(dom.append_child(doc, svg));
 
     #[allow(unsafe_code)]
@@ -621,7 +621,7 @@ fn document_methods_install_per_document_entity() {
 
     // Build a second, independent document tree and bind to it.
     let doc2 = dom.create_document_root();
-    let html2 = dom.create_element("html", Attributes::default());
+    let html2 = dom.create_element_ownerless_fixture("html", Attributes::default());
     assert!(dom.append_child(doc2, html2));
     #[allow(unsafe_code)]
     unsafe {

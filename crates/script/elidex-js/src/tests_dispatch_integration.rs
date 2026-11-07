@@ -41,7 +41,7 @@ fn get_bool(engine: &mut ElidexJsEngine, name: &str) -> bool {
 #[test]
 fn listener_fires_on_at_target_phase() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     // Expose the target wrapper as a global so JS can call
@@ -68,7 +68,7 @@ fn listener_fires_on_at_target_phase() {
 #[test]
 fn prevent_default_returns_true_from_dispatch() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("a", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("a", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -93,8 +93,8 @@ fn prevent_default_returns_true_from_dispatch() {
 #[test]
 fn event_bubbles_through_parent() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let outer = dom.create_element("div", Attributes::default());
-    let inner = dom.create_element("span", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(doc, outer));
     assert!(dom.append_child(outer, inner));
 
@@ -131,7 +131,7 @@ fn event_bubbles_through_parent() {
 #[test]
 fn dispatch_drains_same_window_tasks_enqueued_by_listeners() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -168,8 +168,8 @@ fn dispatch_drains_same_window_tasks_enqueued_by_listeners() {
 #[test]
 fn stop_propagation_blocks_bubble_phase() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let outer = dom.create_element("div", Attributes::default());
-    let inner = dom.create_element("span", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(doc, outer));
     assert!(dom.append_child(outer, inner));
 
@@ -206,8 +206,8 @@ fn stop_propagation_blocks_bubble_phase() {
 #[test]
 fn capture_phase_listener_fires_before_target() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let outer = dom.create_element("div", Attributes::default());
-    let inner = dom.create_element("span", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(doc, outer));
     assert!(dom.append_child(outer, inner));
 
@@ -278,7 +278,7 @@ fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     // Build `ctx` ONCE, then bind THROUGH it: the raw `*mut EcsDom` the VM
@@ -358,8 +358,8 @@ fn bound_dispatch_routing_is_stacked_borrows_clean() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let outer = dom.create_element("div", Attributes::default());
-    let inner = dom.create_element("span", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(doc, outer));
     assert!(dom.append_child(outer, inner));
 
@@ -406,7 +406,7 @@ fn bound_dispatch_routing_is_stacked_borrows_clean() {
 #[test]
 fn once_listener_auto_removed_after_first_invocation() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -447,7 +447,7 @@ fn once_signal_listener_prunes_abort_back_ref() {
     // `abort_listener_back_refs` and the per-signal back-ref
     // HashMap.
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -502,7 +502,7 @@ fn once_signal_listener_prunes_abort_back_ref() {
 #[test]
 fn passive_listener_prevent_default_does_not_propagate_to_return() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("div", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -531,7 +531,7 @@ fn passive_listener_prevent_default_does_not_propagate_to_return() {
 #[test]
 fn mouse_event_payload_visible_to_listener() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -566,7 +566,7 @@ fn mouse_event_payload_visible_to_listener() {
 #[test]
 fn keyboard_event_key_property_visible() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
-    let target = dom.create_element("input", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("input", Attributes::default());
     assert!(dom.append_child(doc, target));
 
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {

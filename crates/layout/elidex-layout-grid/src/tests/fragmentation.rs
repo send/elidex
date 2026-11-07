@@ -57,12 +57,12 @@ fn make_grid_dom(
     items: &[ComputedStyle],
 ) -> (EcsDom, elidex_ecs::Entity, Vec<elidex_ecs::Entity>) {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(container, container_style);
 
     let mut entities = Vec::new();
     for item_style in items {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(container, child);
         let _ = dom.world_mut().insert_one(child, item_style.clone());
         entities.push(child);

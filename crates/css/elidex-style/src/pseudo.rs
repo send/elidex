@@ -58,9 +58,11 @@ pub(crate) fn generate_pseudo_entity(
     // Create the entity with empty text — the pre-layout generated-content pass
     // (`generated_content::resolve_generated_content`) is the single resolver of
     // `content` (string / attr() / counter() / counters()) and fills the
-    // `TextContent` in document order. `create_text` gives the entity a
-    // `TreeRelation` (required for `append_child` / `destroy_entity`).
-    let pe_entity = dom.create_text(String::new());
+    // `TextContent` in document order. `create_text_with_owner` gives the
+    // entity a `TreeRelation` (required for `append_child` /
+    // `destroy_entity`) and the originating element's node document.
+    let owner = dom.node_document_for_new_nodes(entity);
+    let pe_entity = dom.create_text_with_owner(String::new(), owner);
     let _ = dom.world_mut().insert_one(pe_entity, style);
     let _ = dom.world_mut().insert_one(pe_entity, PseudoElementMarker);
 

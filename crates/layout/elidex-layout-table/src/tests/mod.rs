@@ -84,12 +84,12 @@ fn create_simple_table(
     table_style: ComputedStyle,
 ) -> (EcsDom, elidex_ecs::Entity, Vec<elidex_ecs::Entity>) {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, table_style);
 
     let mut cells = Vec::new();
     for _ in 0..rows {
-        let tr = dom.create_element("tr", Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -100,7 +100,7 @@ fn create_simple_table(
         dom.append_child(table, tr);
 
         for _ in 0..cols {
-            let td = dom.create_element("td", Attributes::default());
+            let td = dom.create_element_ownerless_fixture("td", Attributes::default());
             dom.world_mut().insert_one(
                 td,
                 ComputedStyle {

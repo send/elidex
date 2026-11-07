@@ -13,6 +13,7 @@ elidex-plugin = { path = "../../core/elidex-plugin" }
 elidex-script-session = { path = "../../script/elidex-script-session" }
 
 [dev-dependencies]
+elidex-ecs = { path = "../../core/elidex-ecs", features = ["fixtures"] }
 hecs = { workspace = true }
 
 [lints]

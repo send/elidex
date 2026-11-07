@@ -8,7 +8,7 @@ use elidex_ecs::Attributes;
 pub(super) fn focusable_div(dom: &mut EcsDom) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("tabindex".to_string(), "0".to_string());
-    dom.create_element("div", attrs)
+    dom.create_element_ownerless_fixture("div", attrs)
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn current_focus_filters_disconnected() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     // Focused but never connected to `doc` (e.g. createElement + .focus()).
-    let orphan = dom.create_element("div", Attributes::default());
+    let orphan = dom.create_element_ownerless_fixture("div", Attributes::default());
     set_focus_bit(&mut dom, Some(orphan));
     assert_eq!(
         current_focus(&dom, doc),
@@ -138,7 +138,11 @@ fn current_focus_filters_disconnected() {
 /// Create `tag` and attach it under `doc` so it is connected (focusable
 /// areas must be connected — `is_focusable` gates on `is_connected`, §6.6.2).
 pub(super) fn connect_el(dom: &mut EcsDom, doc: Entity, tag: &str) -> Entity {
-    let el = dom.create_element(tag, Attributes::default());
+    let el = dom.create_element_with_owner(
+        tag,
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, el);
     el
 }
@@ -193,7 +197,7 @@ fn is_focusable_requires_connectedness() {
     // `<input>` — is not a focusable area.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let orphan = dom.create_element("input", Attributes::default());
+    let orphan = dom.create_element_ownerless_fixture("input", Attributes::default());
     assert!(
         !is_focusable(&dom, orphan),
         "a disconnected <input> is not focusable"
@@ -226,7 +230,7 @@ fn is_focusable_editing_host_not_inherited() {
     // the host via "get the focusable area", §6.6.4 — slot
     // `#11-focusing-steps-fallback-target`, the same path as any other
     // non-focusable target, not a contenteditable special case.)
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.append_child(editor, span);
     assert!(
         !is_focusable(&dom, span),
@@ -260,7 +264,7 @@ fn is_focusable_editing_host_case_insensitive_and_plaintext_only() {
             is_focusable(&dom, editor),
             "an editing host is focusable for contenteditable={value:?}"
         );
-        let span = dom.create_element("span", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(editor, span);
         assert!(
             !is_focusable(&dom, span),
@@ -283,7 +287,7 @@ fn tab_index_default_is_html_namespace_only() {
         "button",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_button);
     assert_eq!(
@@ -309,7 +313,12 @@ fn tab_index_default_is_html_namespace_only() {
     );
     // An SVG <a href> also gets no HTML link default (SVG focus is a
     // separate, unmodelled concern).
-    let svg_a = dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+    let svg_a = dom.create_element_ns(
+        "a",
+        elidex_ecs::Namespace::Svg,
+        Attributes::default(),
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let _ = dom.append_child(doc, svg_a);
     dom.set_attribute(svg_a, "href", "#x");
     assert_eq!(
@@ -335,7 +344,7 @@ fn is_focusable_foreign_lookalike_ignores_html_exclusions() {
         "input",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_input);
     dom.set_attribute(svg_input, "type", "hidden");
@@ -358,7 +367,7 @@ fn is_focusable_foreign_lookalike_ignores_html_exclusions() {
         "button",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_button);
     dom.set_attribute(svg_button, "disabled", "");
@@ -432,7 +441,7 @@ fn is_focusable_excludes_hidden_attribute_subtree() {
     // Ancestor-hidden: a `<button>` inside `<section hidden>`.
     let section = connect_el(&mut dom, doc, "section");
     dom.set_attribute(section, "hidden", "");
-    let inner = dom.create_element("button", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("button", Attributes::default());
     let _ = dom.append_child(section, inner);
     assert!(
         !is_focusable(&dom, inner),
@@ -462,7 +471,7 @@ fn is_in_document_scopes_to_the_named_document() {
 
     // A second Document-rooted tree standing in for a cloned/non-bound doc.
     let clone = dom.create_document_root();
-    let clone_child = dom.create_element("input", Attributes::default());
+    let clone_child = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.append_child(clone, clone_child);
     assert!(
         dom.is_connected(clone_child),
@@ -514,8 +523,8 @@ fn removal_clears_focus_on_descendant() {
     // inclusive-descendant snapshot covers it.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let container = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("input", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.append_child(doc, container);
     let _ = dom.append_child(container, child);
     set_focus_bit(&mut dom, Some(child));
@@ -544,7 +553,7 @@ fn move_clears_focus() {
     let doc = dom.create_document_root();
     let a = connect_el(&mut dom, doc, "div");
     let b = connect_el(&mut dom, doc, "div");
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.append_child(a, el);
     set_focus_bit(&mut dom, Some(el));
     assert_eq!(current_focus(&dom, doc), Some(el));
@@ -561,20 +570,20 @@ fn move_clears_focus() {
 #[test]
 fn tab_index_default_values() {
     let mut dom = EcsDom::new();
-    let button = dom.create_element("button", Attributes::default());
+    let button = dom.create_element_ownerless_fixture("button", Attributes::default());
     assert_eq!(tab_index_default_for(&dom, button), 0);
 
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert_eq!(tab_index_default_for(&dom, div), -1);
 
-    let hidden_input = dom.create_element("input", Attributes::default());
+    let hidden_input = dom.create_element_ownerless_fixture("input", Attributes::default());
     dom.set_attribute(hidden_input, "type", "hidden");
     assert_eq!(tab_index_default_for(&dom, hidden_input), -1);
 
     // `tabIndex` reflects the default tab order independent of disabled
     // state — a disabled <button> still defaults to 0 (focusability is
     // `is_focusable`'s concern, not the tab-index default).
-    let disabled_button = dom.create_element("button", Attributes::default());
+    let disabled_button = dom.create_element_ownerless_fixture("button", Attributes::default());
     dom.set_attribute(disabled_button, "disabled", "");
     assert_eq!(tab_index_default_for(&dom, disabled_button), 0);
 }
@@ -588,7 +597,7 @@ fn first_summary_of_details_is_focusable() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let details = connect_el(&mut dom, doc, "details");
-    let summary = dom.create_element("summary", Attributes::default());
+    let summary = dom.create_element_ownerless_fixture("summary", Attributes::default());
     let _ = dom.append_child(details, summary);
     assert_eq!(
         tab_index_default_for(&dom, summary),
@@ -598,7 +607,7 @@ fn first_summary_of_details_is_focusable() {
     assert!(is_focusable(&dom, summary));
 
     // A second summary in the same details is NOT the UA control.
-    let second = dom.create_element("summary", Attributes::default());
+    let second = dom.create_element_ownerless_fixture("summary", Attributes::default());
     let _ = dom.append_child(details, second);
     assert_eq!(
         tab_index_default_for(&dom, second),
@@ -634,10 +643,10 @@ fn summary_details_disclosure_widget_is_html_namespace_only() {
         "details",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(doc, svg_details);
-    let html_summary = dom.create_element("summary", Attributes::default());
+    let html_summary = dom.create_element_ownerless_fixture("summary", Attributes::default());
     let _ = dom.append_child(svg_details, html_summary);
     assert_eq!(
         tab_index_default_for(&dom, html_summary),
@@ -651,7 +660,7 @@ fn summary_details_disclosure_widget_is_html_namespace_only() {
         "summary",
         elidex_ecs::Namespace::Svg,
         Attributes::default(),
-        None,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     let _ = dom.append_child(html_details, svg_summary);
     assert_eq!(
@@ -662,7 +671,7 @@ fn summary_details_disclosure_widget_is_html_namespace_only() {
 
     // A foreign <summary> sibling preceding the HTML <summary> must not
     // displace it: the HTML summary is still the first HTML summary child.
-    let real_summary = dom.create_element("summary", Attributes::default());
+    let real_summary = dom.create_element_ownerless_fixture("summary", Attributes::default());
     let _ = dom.append_child(html_details, real_summary);
     assert_eq!(
         tab_index_default_for(&dom, real_summary),
@@ -720,10 +729,10 @@ fn removal_clears_focus_in_wide_dom_past_index_cap() {
     // MAX_ANCESTOR_DEPTH + 1 leading siblings so the focused child's
     // `index_in_parent` walk exceeds the cap and returns `None`.
     for _ in 0..=elidex_ecs::MAX_ANCESTOR_DEPTH {
-        let sib = dom.create_element("span", Attributes::default());
+        let sib = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(parent, sib);
     }
-    let focused = dom.create_element("input", Attributes::default());
+    let focused = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.append_child(parent, focused);
     assert_eq!(
         dom.index_in_parent(focused),
@@ -765,8 +774,13 @@ fn shadow_host(dom: &mut EcsDom, doc: Entity, delegates: bool) -> (Entity, Entit
 }
 
 /// Append a `<div tabindex="0">` (a focusable area) under `parent`.
+/// A focusable `<div>` created in `parent`'s node document (the delegate
+/// reads the node document, C0b), appended under `parent`.
 fn focusable_child(dom: &mut EcsDom, parent: Entity) -> Entity {
-    let child = focusable_div(dom);
+    let mut attrs = Attributes::default();
+    attrs.set("tabindex".to_string(), "0".to_string());
+    let child =
+        dom.create_element_with_owner("div", attrs, dom.node_document_for_new_nodes(parent));
     let _ = dom.append_child(parent, child);
     child
 }
@@ -838,7 +852,7 @@ fn autofocus_delegate_wins_over_tree_order() {
     let mut attrs = Attributes::default();
     attrs.set("tabindex".to_string(), "0".to_string());
     attrs.set("autofocus".to_string(), String::new());
-    let autofocus = dom.create_element("div", attrs);
+    let autofocus = dom.create_element_ownerless_fixture("div", attrs);
     let _ = dom.append_child(sr, autofocus);
     assert_eq!(
         get_the_focusable_area(&dom, host, FocusTrigger::Click),
@@ -855,7 +869,7 @@ fn focus_delegate_recurses_into_nested_shadow_host() {
     let doc = dom.create_document_root();
     let (outer, outer_sr) = shadow_host(&mut dom, doc, true);
     // A nested <div> host inside the outer shadow tree, itself delegatesFocus.
-    let inner = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(outer_sr, inner);
     let inner_sr = dom
         .attach_shadow_with_init(
@@ -889,7 +903,7 @@ fn focus_delegate_recurses_into_nested_focusable_shadow_host() {
     // delegatesFocus shadow host, so not a §6.6.2 focusable area.
     let mut inner_attrs = Attributes::default();
     inner_attrs.set("tabindex".to_string(), "0".to_string());
-    let inner = dom.create_element("div", inner_attrs);
+    let inner = dom.create_element_ownerless_fixture("div", inner_attrs);
     let _ = dom.append_child(outer_sr, inner);
     let inner_sr = dom
         .attach_shadow_with_init(

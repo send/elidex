@@ -31,8 +31,8 @@
 //! Per the Layering mandate (`CLAUDE.md` "Layering check —
 //! Engine-indep API mapping" section of the Phase A plan), this crate
 //! depends only on [`elidex_ecs`]. No VM / script-session / DOM-API
-//! coupling. The tree builder calls `EcsDom::create_element`,
-//! `EcsDom::create_text`, `EcsDom::create_comment`,
+//! coupling. The tree builder calls `EcsDom::create_element_with_owner`,
+//! `EcsDom::create_text_with_owner`, `EcsDom::create_comment_with_owner`,
 //! `EcsDom::create_document_root`, `EcsDom::append_child`, and
 //! `EcsDom::attach_shadow_with_init` directly — same API surface as
 //! the existing compat path in `crates/dom/elidex-html-parser/src/convert.rs`.

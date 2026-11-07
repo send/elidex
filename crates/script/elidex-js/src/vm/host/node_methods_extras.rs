@@ -34,10 +34,10 @@ use super::node_proto::require_node_arg;
 /// `Node.prototype.ownerDocument` — WHATWG §4.4.
 ///
 /// Dispatches to the `ownerDocument.get` handler in `elidex-dom-api`,
-/// which honours the per-entity `AssociatedDocument` component (so
-/// `clonedDoc.createElement(...)` reports the clone, not the bound
-/// global) and falls back to `EcsDom::document_root` for orphans whose
-/// tree-root walk does not land on a Document.
+/// which reads the node's stored node document (`EcsDom::node_document`:
+/// set at creation, re-homed by every insertion's adopt) — null for a
+/// Document and for a node without one; there is no bound-document
+/// fallback.
 pub(super) fn native_node_get_owner_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

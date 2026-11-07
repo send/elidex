@@ -126,7 +126,7 @@ mod justify_opportunity_tests {
     // A throwaway entity to stamp on synthetic runs (its value is irrelevant —
     // `justify_opportunity_counts` matches on the variant + reads `text` only).
     fn entity() -> Entity {
-        EcsDom::new().create_text("x")
+        EcsDom::new().create_text_ownerless_fixture("x")
     }
 
     fn text(s: &str) -> InlineFlowRun {

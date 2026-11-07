@@ -7,7 +7,7 @@ fn persists_atomic_inline_as_box_member() {
         return;
     };
     // Append a static inline-block after the text → the run contains an atomic.
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
         width: Dimension::Length(20.0),
@@ -87,7 +87,7 @@ fn vertical_atomic_repositions_with_axis_swap() {
     };
     style.writing_mode = WritingMode::VerticalRl;
     let _ = dom.world_mut().insert_one(parent, style.clone());
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
         width: Dimension::Length(20.0),
@@ -151,7 +151,7 @@ fn atomic_inner_text_inline_flow_shifts_with_box() {
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
         return;
     };
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
         width: Dimension::Length(40.0),
@@ -160,7 +160,7 @@ fn atomic_inner_text_inline_flow_shifts_with_box() {
         ..Default::default()
     };
     let _ = dom.world_mut().insert_one(ib, ib_style);
-    let inner = dom.create_text("hi");
+    let inner = dom.create_text_ownerless_fixture("hi");
     dom.append_child(ib, inner);
     dom.append_child(parent, ib);
 

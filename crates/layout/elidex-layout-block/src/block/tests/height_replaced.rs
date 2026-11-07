@@ -3,9 +3,9 @@ use super::*;
 #[test]
 fn vertical_stacking_two_divs() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child1 = dom.create_element("div", Attributes::default());
-    let child2 = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.append_child(parent, child2);
 
@@ -27,9 +27,9 @@ fn vertical_stacking_two_divs() {
 #[test]
 fn display_none_excluded() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let visible = dom.create_element("div", Attributes::default());
-    let hidden = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let visible = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let hidden = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, visible);
     dom.append_child(parent, hidden);
 
@@ -203,8 +203,8 @@ fn no_image_data_normal_layout() {
 fn percentage_height_with_definite_parent() {
     // Parent height=200, child height=50% -> 100.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,
@@ -241,8 +241,8 @@ fn percentage_height_with_definite_parent() {
 fn percentage_height_without_definite_parent() {
     // Parent height=auto, child height=50% -> falls back to auto (content height).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,
@@ -281,9 +281,9 @@ fn percentage_height_without_definite_parent() {
 fn percentage_height_nested_blocks() {
     // Grandparent height=400, parent height=50% (=200), child height=50% (=100).
     let mut dom = EcsDom::new();
-    let gp = dom.create_element("div", Attributes::default());
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let gp = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(gp, parent);
     dom.append_child(parent, child);
     dom.world_mut().insert_one(

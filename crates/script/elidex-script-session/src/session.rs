@@ -194,7 +194,7 @@ mod tests {
     use elidex_ecs::Attributes;
 
     fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-        dom.create_element(tag, Attributes::default())
+        dom.create_element_ownerless_fixture(tag, Attributes::default())
     }
 
     #[test]

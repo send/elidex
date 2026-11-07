@@ -19,9 +19,9 @@ fn clone_attributes_copies_all_keys() {
 #[test]
 fn clone_character_data_text_to_text() {
     let mut dom = EcsDom::new();
-    let src = dom.create_text("hello");
+    let src = dom.create_text_ownerless_fixture("hello");
     // Pre-allocate dst with blank text to exercise the overwrite path.
-    let dst = dom.create_text("");
+    let dst = dom.create_text_ownerless_fixture("");
     dom.clone_character_data(src, dst);
     let text = dom
         .world()
@@ -33,8 +33,8 @@ fn clone_character_data_text_to_text() {
 #[test]
 fn clone_character_data_comment_to_comment() {
     let mut dom = EcsDom::new();
-    let src = dom.create_comment("note");
-    let dst = dom.create_comment("");
+    let src = dom.create_comment_ownerless_fixture("note");
+    let dst = dom.create_comment_ownerless_fixture("");
     dom.clone_character_data(src, dst);
     let c = dom
         .world()
@@ -49,8 +49,8 @@ fn clone_character_data_mismatched_kinds_noop() {
     // wrong component — e.g., Text → Comment would otherwise leave
     // the Comment entity with both CommentData and TextContent.
     let mut dom = EcsDom::new();
-    let src = dom.create_text("hello");
-    let dst = dom.create_comment("original");
+    let src = dom.create_text_ownerless_fixture("hello");
+    let dst = dom.create_comment_ownerless_fixture("original");
     dom.clone_character_data(src, dst);
     // Destination still has its original CommentData.
     let c = dom.world().get::<&CommentData>(dst).unwrap();
@@ -67,7 +67,7 @@ fn clone_subtree_shallow_root_has_no_parent() {
     let src = elem(&mut dom, "div");
     assert!(dom.append_child(parent, src));
     let clone = dom
-        .clone_subtree(src, &mut Vec::new(), None)
+        .clone_subtree(src, &mut Vec::new(), dom.node_document_for_new_nodes(src))
         .expect("clone_subtree");
     assert!(dom.get_parent(clone).is_none());
     assert!(dom.get_next_sibling(clone).is_none());
@@ -89,7 +89,7 @@ fn clone_subtree_deep_copies_children_order() {
     assert!(dom.append_child(root, c));
 
     let clone = dom
-        .clone_subtree(root, &mut Vec::new(), None)
+        .clone_subtree(root, &mut Vec::new(), dom.node_document_for_new_nodes(root))
         .expect("clone_subtree");
     let kids = dom.children(clone);
     assert_eq!(kids.len(), 3);
@@ -122,7 +122,11 @@ fn clone_subtree_infers_node_kind_from_payload_when_missing() {
     assert!(dom.node_kind(legacy_text).is_none());
 
     let clone = dom
-        .clone_subtree(legacy_text, &mut Vec::new(), None)
+        .clone_subtree(
+            legacy_text,
+            &mut Vec::new(),
+            dom.node_document_for_new_nodes(legacy_text),
+        )
         .expect("clone_subtree");
     // The clone must have inferred `NodeKind::Text` from the payload,
     // and must carry a `TextContent` component.
@@ -147,7 +151,10 @@ fn clone_subtree_on_destroyed_src_returns_none() {
     let mut dom = EcsDom::new();
     let src = elem(&mut dom, "div");
     dom.destroy_entity(src);
-    assert_eq!(dom.clone_subtree(src, &mut Vec::new(), None), None);
+    assert_eq!(
+        dom.clone_subtree(src, &mut Vec::new(), dom.node_document_for_new_nodes(src)),
+        None
+    );
 }
 
 #[test]
@@ -162,7 +169,7 @@ fn clone_subtree_skips_shadow_root() {
     assert!(dom.append_child(host, light));
 
     let clone = dom
-        .clone_subtree(host, &mut Vec::new(), None)
+        .clone_subtree(host, &mut Vec::new(), dom.node_document_for_new_nodes(host))
         .expect("clone_subtree");
     // The clone has no shadow root component itself.
     assert!(dom.get_shadow_root(clone).is_none());
@@ -184,7 +191,7 @@ fn clone_shallow_copies_namespace_inline_style_iframe_data() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("style", "color: red");
-    let src = dom.create_element_ns("my-foo", Namespace::Svg, attrs, None);
+    let src = dom.create_element_ns("my-foo", Namespace::Svg, attrs, NewNodeOwner::NONE);
     let mut style = InlineStyle::default();
     style.set("color", "red");
     dom.world_mut().insert_one(src, style).unwrap();
@@ -195,7 +202,9 @@ fn clone_shallow_copies_namespace_inline_style_iframe_data() {
         .insert_one(src, ElementState::default())
         .unwrap();
 
-    let clone = dom.clone_node_shallow(src).expect("clone_node_shallow");
+    let clone = dom
+        .clone_node_shallow(src, dom.node_document_for_new_nodes(src))
+        .expect("clone_node_shallow");
     // Intrinsic copy: foreign namespace survives the clone ("clone a
     // single node" step 2.4 passes the source namespace).
     assert_eq!(dom.namespace_of(clone), Namespace::Svg);
@@ -222,14 +231,14 @@ fn clone_subtree_pairs_cover_every_node_root_first() {
     let root = elem(&mut dom, "div");
     let child_a = elem(&mut dom, "span");
     let child_b = elem(&mut dom, "p");
-    let grandchild = dom.create_text("hi");
+    let grandchild = dom.create_text_ownerless_fixture("hi");
     assert!(dom.append_child(root, child_a));
     assert!(dom.append_child(root, child_b));
     assert!(dom.append_child(child_b, grandchild));
 
     let mut pairs = Vec::new();
     let clone = dom
-        .clone_subtree(root, &mut pairs, None)
+        .clone_subtree(root, &mut pairs, dom.node_document_for_new_nodes(root))
         .expect("clone_subtree");
     // Completeness: one pair per cloned node, root first.
     assert_eq!(pairs.len(), 4);

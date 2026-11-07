@@ -13,6 +13,8 @@
 //! [`CssomApiHandler`]: elidex_script_session::CssomApiHandler
 
 #[cfg(test)]
+mod creation_owner_tests;
+#[cfg(test)]
 pub(crate) mod test_util;
 
 pub mod char_data;

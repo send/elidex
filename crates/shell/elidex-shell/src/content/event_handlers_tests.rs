@@ -20,14 +20,14 @@ fn collect_focusable_entities_excludes_unresolvable_delegates_focus_host() {
     // A normal focusable element — must be collected (resolves to itself).
     let mut plain_attrs = Attributes::default();
     plain_attrs.set("tabindex".to_string(), "0".to_string());
-    let plain = dom.create_element("div", plain_attrs);
+    let plain = dom.create_element_ownerless_fixture("div", plain_attrs);
     let _ = dom.append_child(doc, plain);
 
     // A `delegatesFocus` host with `tabindex` but an empty shadow tree — its
     // `focus_target` is `None`, so it is excluded.
     let mut host_attrs = Attributes::default();
     host_attrs.set("tabindex".to_string(), "0".to_string());
-    let host = dom.create_element("div", host_attrs);
+    let host = dom.create_element_ownerless_fixture("div", host_attrs);
     let _ = dom.append_child(doc, host);
     let _sr = dom
         .attach_shadow_with_init(
@@ -65,7 +65,7 @@ fn collect_focusable_entities_excludes_delegates_focus_host_with_delegate() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
 
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, host);
     let sr = dom
         .attach_shadow_with_init(
@@ -79,7 +79,7 @@ fn collect_focusable_entities_excludes_delegates_focus_host_with_delegate() {
         .expect("attach_shadow on <div>");
     let mut delegate_attrs = Attributes::default();
     delegate_attrs.set("tabindex".to_string(), "0".to_string());
-    let delegate = dom.create_element("div", delegate_attrs);
+    let delegate = dom.create_element_ownerless_fixture("div", delegate_attrs);
     let _ = dom.append_child(sr, delegate);
 
     let mut result = Vec::new();

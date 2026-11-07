@@ -78,7 +78,7 @@ fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
     // rule ("a write of nothing must not demote a published store") broken at a 4th site.
     // With the guard moved to the write chokepoint this is exact: no write, no demotion.
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let contents = dom.create_element("div", Attributes::default());
+    let contents = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, contents);
     dom.world_mut().insert_one(
         contents,
@@ -126,7 +126,7 @@ fn a_boxless_layout_generation_stamp_leaves_the_phase_alone() {
     // `a_boxless_dispatch_after_publish_leaves_the_phase_alone` above uses 0, so it
     // never enters the stamp and cannot catch this.
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let contents = dom.create_element("div", Attributes::default());
+    let contents = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, contents);
     dom.world_mut().insert_one(
         contents,
@@ -211,7 +211,7 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
     // `EcsDom::set_layout_box`, which invalidates. (A paged attempt that lays out NOTHING is the opposite case and must
     // NOT demote — `a_zero_write_paged_early_return_leaves_the_phase_alone` below.)
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -261,7 +261,7 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
     // screen pass once it lays anything out. Guards the path a future
     // non-interleaved-driver caller of `layout_paged` would take.
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -319,7 +319,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     // falls out of it rather than being an exception to it. This test pins the decision
     // so a future reader of that section cannot "fix" the code back.
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {

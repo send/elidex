@@ -9,8 +9,8 @@ use elidex_text::FontDatabase;
 fn build_block_dom(n: usize) -> EcsDom {
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, html);
     dom.append_child(html, body);
 
@@ -34,7 +34,7 @@ fn build_block_dom(n: usize) -> EcsDom {
     );
 
     for _ in 0..n {
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(body, div);
         let _ = dom.world_mut().insert_one(
             div,
@@ -52,7 +52,7 @@ fn build_block_dom(n: usize) -> EcsDom {
 /// Build a flex container with `n` children, all pre-styled.
 fn build_flex_dom(n: usize) -> EcsDom {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(
         container,
         ComputedStyle {
@@ -62,7 +62,7 @@ fn build_flex_dom(n: usize) -> EcsDom {
     );
 
     for _ in 0..n {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(container, child);
         let _ = dom.world_mut().insert_one(
             child,

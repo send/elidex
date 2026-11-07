@@ -75,16 +75,17 @@ fn collect_upgrade_candidates_is_document_scoped_and_tree_ordered() {
     //       null_reg (my-el, Undefined, Null)  ← null registry
     //       is_span  (span, Undefined "my-el") ← local-name mismatch
     //       builtin  (div,  Undefined "my-div")← customized built-in ✓ #3
-    let wrapper = dom.create_element("section", elidex_ecs::Attributes::default());
-    let e_first = dom.create_element("my-el", elidex_ecs::Attributes::default());
-    let other = dom.create_element("other-el", elidex_ecs::Attributes::default());
-    let e_second = dom.create_element("my-el", elidex_ecs::Attributes::default());
-    let upgraded = dom.create_element("my-el", elidex_ecs::Attributes::default());
-    let null_reg = dom.create_element("my-el", elidex_ecs::Attributes::default());
-    let is_span = dom.create_element("span", elidex_ecs::Attributes::default());
-    let builtin = dom.create_element("div", elidex_ecs::Attributes::default());
+    let wrapper =
+        dom.create_element_ownerless_fixture("section", elidex_ecs::Attributes::default());
+    let e_first = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
+    let other = dom.create_element_ownerless_fixture("other-el", elidex_ecs::Attributes::default());
+    let e_second = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
+    let upgraded = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
+    let null_reg = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
+    let is_span = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
+    let builtin = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     // A detached my-el (never inserted) — spec defers it to insertion.
-    let detached = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let detached = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
 
     assert!(dom.append_child(document, wrapper));
     assert!(dom.append_child(wrapper, e_first));
@@ -185,7 +186,7 @@ fn construction_stack_push_peek_pop() {
     // Empty stack peek = None ([C1] step 9 sync-construct trigger).
     assert!(registry.peek_construction_stack("my-el").is_none());
 
-    let e1 = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let e1 = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
     assert!(registry.push_construction_stack("my-el", e1));
     let top = registry.peek_construction_stack("my-el").unwrap();
     assert_eq!(top, &ConstructionStackEntry::Element(e1));
@@ -202,7 +203,7 @@ fn construction_stack_replace_top_with_marker() {
     let mut dom = EcsDom::new();
     let def = CustomElementDefinition::new("my-el".to_string(), 1, Vec::new(), None);
     registry.define(def).unwrap();
-    let e1 = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let e1 = dom.create_element_ownerless_fixture("my-el", elidex_ecs::Attributes::default());
     registry.push_construction_stack("my-el", e1);
 
     // [C1] step 15: replace returns the element that was at the top.
@@ -229,8 +230,8 @@ fn construction_stack_isolated_per_definition() {
     let def_b = CustomElementDefinition::new("el-b".to_string(), 2, Vec::new(), None);
     registry.define(def_a).unwrap();
     registry.define(def_b).unwrap();
-    let e_a = dom.create_element("el-a", elidex_ecs::Attributes::default());
-    let e_b = dom.create_element("el-b", elidex_ecs::Attributes::default());
+    let e_a = dom.create_element_ownerless_fixture("el-a", elidex_ecs::Attributes::default());
+    let e_b = dom.create_element_ownerless_fixture("el-b", elidex_ecs::Attributes::default());
 
     registry.push_construction_stack("el-a", e_a);
     registry.push_construction_stack("el-b", e_b);
@@ -249,7 +250,8 @@ fn construction_stack_isolated_per_definition() {
 fn construction_stack_push_to_unknown_name_returns_false() {
     let mut registry = CustomElementRegistry::new();
     let mut dom = EcsDom::new();
-    let e = dom.create_element("never-defined", elidex_ecs::Attributes::default());
+    let e =
+        dom.create_element_ownerless_fixture("never-defined", elidex_ecs::Attributes::default());
     assert!(!registry.push_construction_stack("never-defined", e));
 }
 
@@ -258,7 +260,9 @@ fn construction_stack_push_to_unknown_name_returns_false() {
 #[test]
 fn spawn_custom_element_entity_attaches_all_components() {
     let mut dom = EcsDom::new();
-    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
+    let doc = dom.create_document_root();
+    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", Some(doc))
+        .expect("spawned for a document");
 
     // Element shape: TagType + Attributes present, NodeKind reads
     // as Element through the `EcsDom::node_kind` accessor (the
@@ -280,7 +284,9 @@ fn spawn_custom_element_entity_disconnected_by_default() {
     // [C1] step 9: sync-constructed element is not connected to any
     // tree until script explicitly inserts it.
     let mut dom = EcsDom::new();
-    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
+    let doc = dom.create_document_root();
+    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", Some(doc))
+        .expect("spawned for a document");
     assert!(!dom.is_connected(e));
 }
 
@@ -298,7 +304,7 @@ fn spawn_custom_element_entity_disconnected_by_default() {
 fn setup_custom_el() -> (EcsDom, elidex_ecs::Entity, CustomElementRegistry) {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("x-el", elidex_ecs::Attributes::default());
+    let el = dom.create_element_ownerless_fixture("x-el", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, el));
     dom.world_mut()
         .insert_one(el, CustomElementState::custom("x-el"))
@@ -424,8 +430,8 @@ fn clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope() {
     use std::sync::{Arc, Mutex};
 
     let mut dom = EcsDom::new();
-    let root = dom.create_element("x-el", elidex_ecs::Attributes::default());
-    let child = dom.create_element("x-el", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("x-el", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("x-el", elidex_ecs::Attributes::default());
     assert!(dom.append_child(root, child));
     for e in [root, child] {
         dom.world_mut()
@@ -487,4 +493,25 @@ fn clone_created_arm_enqueues_one_upgrade_per_candidate_and_honours_scope() {
         vec![root],
         "SelfOnly: the light child is not visited"
     );
+}
+
+// ── C0b U20 (red-first, §6.5): the CE helper makes the owner decision ────
+// `Some(doc)` → an element in `doc`; `None` (an unbound VM) → no element.
+// Base formulation: HEAD's `(…, owner: Option<Entity>) -> Entity`.
+
+#[test]
+fn u20_spawn_with_no_document_spawns_nothing() {
+    let mut dom = EcsDom::new();
+    let before = dom.world().len();
+    let _ = spawn_custom_element_entity(&mut dom, "x-e", "x-e", None);
+    assert_eq!(dom.world().len(), before, "no entity spawned for None");
+}
+
+#[test]
+fn u20_control_spawn_with_document_is_in_that_document() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let e = spawn_custom_element_entity(&mut dom, "x-e", "x-e", Some(doc))
+        .expect("spawned for a document");
+    assert_eq!(dom.node_document(e), Some(doc));
 }

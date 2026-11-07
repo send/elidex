@@ -136,7 +136,7 @@ fn clone_node_document_methods_operate_on_clone_not_bound_doc() {
     let (mut vm, mut session, mut dom, doc) = setup();
     // Seed the bound doc with a <html> root so the clone has
     // something to search in.
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
 
     #[allow(unsafe_code)]
@@ -174,7 +174,7 @@ fn clone_node_document_wrapper_has_document_methods() {
     let (mut vm, mut session, mut dom, doc) = setup();
     // Seed the bound document with a bit of structure so the deep
     // clone has something to traverse.
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
 
     #[allow(unsafe_code)]

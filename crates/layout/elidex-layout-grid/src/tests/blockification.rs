@@ -16,9 +16,9 @@ fn grid_container() -> ComputedStyle {
 fn grid_item_inline_blockified() {
     let container = grid_container();
     let mut dom = EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(grid, container);
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(grid, child);
     let _ = dom.world_mut().insert_one(
         child,
@@ -57,9 +57,9 @@ fn grid_item_inline_blockified() {
 fn grid_item_inline_flex_to_flex() {
     let container = grid_container();
     let mut dom = EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(grid, container);
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(grid, child);
     let _ = dom.world_mut().insert_one(
         child,

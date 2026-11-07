@@ -62,6 +62,14 @@ pub fn document_base_url(dom: &EcsDom, doc: Entity) -> Url {
         .map_or_else(about_blank_url, |c| c.0.clone())
 }
 
+/// The document base URL of `node`'s node document (HTML §2.4.3);
+/// [`about_blank_url`] for a node without one.
+#[must_use]
+pub(crate) fn node_document_base_url(dom: &EcsDom, node: Entity) -> Url {
+    dom.node_document(node)
+        .map_or_else(about_blank_url, |doc| document_base_url(dom, doc))
+}
+
 /// Walk a subtree and attach [`BaseFrozenUrl`] to each `<base>`
 /// element with an `href` attribute.  Returns `true` iff at least one
 /// `<base>` element was attached — caller uses this to skip the
@@ -154,29 +162,6 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity, fallback: &Url) {
     let _ = dom.world_mut().insert_one(doc, DocumentBaseUrl(new_url));
 }
 
-/// The document `node` belongs to, for routing a base-URL recompute.
-///
-/// Returns `node` itself when it IS a `Document` — the Remove arm
-/// anchors on `parent`, which can be the `DOMParser` document when its
-/// `documentElement`-level subtree is removed, and
-/// [`EcsDom::owner_document`] returns `None` for a `Document` receiver.
-/// Otherwise its `owner_document` (which, for a node connected to a
-/// document's light tree, resolves to that document — the page OR a
-/// `DOMParser` document).
-///
-/// Returns `None` for a node attached to no document, and the caller
-/// then skips maintenance: a `document_root()` fallback here would
-/// mis-route a detached / second-document mutation onto the PAGE
-/// document and clobber its base URL (Codex R5). In practice the
-/// [`in_document_light_tree`] guard already filters detached / shadow
-/// anchors before this is reached, so a `None` is defensive.
-fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
-    if matches!(dom.node_kind_inferred(node), Some(NodeKind::Document)) {
-        return Some(node);
-    }
-    dom.owner_document(node)
-}
-
 /// Initialize the 2-layer base URL state for an ARBITRARY document
 /// entity `doc` from its current subtree — the document-scoped
 /// primitive shared by the bind path ([`BaseUrlMaintainer::
@@ -218,15 +203,15 @@ pub fn initialize_base_url_for_document(dom: &mut EcsDom, doc: Entity, fallback:
 ///   * **detached-fragment** mutations (a `<base>` inside a
 ///     `createDocumentFragment()` / `<template>` content / unattached
 ///     subtree) — there is no document whose base URL to maintain, and
-///     letting them through would route via `owner_doc`'s
-///     `document_root()` fallback and wrongly clobber the PAGE base.
+///     a stray recompute must not reach any document's base.
 ///
 /// Keyed on "is the tree root a `Document`" rather than "is the tree
 /// root THE page `document_root`" so a `DOMParser` document — a second
 /// live light-tree `Document` in the same `EcsDom` — keeps its OWN base
 /// URL maintained as `<base>` elements are inserted / mutated / removed
-/// after `parseFromString`; the arms then route by the mutation's
-/// `owner_doc`, so each document maintains its own base (Codex R5).
+/// after `parseFromString`; the arms then route by the mutation's node
+/// document (`EcsDom::node_document`, HTML §4.2.3 *set the frozen base URL*
+/// step 1), so each document maintains its own base (Codex R5).
 ///
 /// `EcsDom`'s fire-site filter only suppresses events where the
 /// `node` or `parent` IS a `ShadowRoot`; deeper shadow-tree
@@ -310,7 +295,10 @@ impl BaseUrlMaintainer {
                 if !attached {
                     return;
                 }
-                if let Some(doc) = owner_doc(dom, node) {
+                // HTML §4.2.3 *set the frozen base URL* step 1: "Let document
+                // be element's node document" (`None` → no document to
+                // maintain).
+                if let Some(doc) = dom.node_document(node) {
                     recompute_document_base(dom, doc, &fallback);
                 }
             }
@@ -350,19 +338,11 @@ impl BaseUrlMaintainer {
                 if !removed_a_qualifying_base {
                     return;
                 }
-                // Route through `owner_doc(parent)` for symmetry with
-                // the Insert + AttributeChange arms (both use
-                // `owner_doc(node)`).  `parent` is the appropriate
-                // anchor here since `node` has already been detached
-                // — `owner_document(parent)` resolves the same
-                // document the removed subtree previously belonged
-                // to.  Today `owner_doc` and `dom.document_root()`
-                // return the same value (single-`document_root`
-                // per-EcsDom), but keeping the helper consistent
-                // avoids forward-compat drift if multi-document
-                // support lands and `in_document_light_tree` / root
-                // selection semantics shift.
-                if let Some(doc) = owner_doc(dom, parent) {
+                // Route through `parent`'s node document: `node` has
+                // already been detached, and `parent` (a Document is its
+                // own node document) is in the document the removed
+                // subtree belonged to.
+                if let Some(doc) = dom.node_document(parent) {
                     recompute_document_base(dom, doc, &about_blank_url());
                 }
             }
@@ -392,7 +372,10 @@ impl BaseUrlMaintainer {
                         let _ = dom.world_mut().remove_one::<BaseFrozenUrl>(node);
                     }
                 }
-                if let Some(doc) = owner_doc(dom, node) {
+                // HTML §4.2.3 *set the frozen base URL* step 1: "Let document
+                // be element's node document" (`None` → no document to
+                // maintain).
+                if let Some(doc) = dom.node_document(node) {
                     recompute_document_base(dom, doc, &fallback);
                 }
             }
@@ -440,13 +423,13 @@ mod tests {
         use elidex_ecs::{Attributes, EcsDom};
         let mut dom = EcsDom::new();
         let doc_root = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         assert!(dom.append_child(doc_root, body));
 
         // Attach a `<base href>` reachable from the cached root.  The
         // `BaseFrozenUrl` is hand-attached because no dispatcher is
         // installed in this raw-ECS test fixture.
-        let base = dom.create_element("base", Attributes::default());
+        let base = dom.create_element_ownerless_fixture("base", Attributes::default());
         assert!(
             dom.set_attribute(base, "href", "https://outer.example/")
                 .did_set
@@ -459,7 +442,7 @@ mod tests {
 
         // A separate, detached "would-be document" entity with NO base
         // in its (empty) subtree.
-        let alt_doc = dom.create_element("html", Attributes::default());
+        let alt_doc = dom.create_element_ownerless_fixture("html", Attributes::default());
 
         // Walk must originate at `alt_doc` — empty subtree → fallback.
         recompute_document_base(&mut dom, alt_doc, &about_blank_url());
@@ -495,9 +478,9 @@ mod tests {
         // anchors on `parent`, which IS a `Document` when a second live
         // document's (e.g. a `DOMParser` document) `documentElement`-level
         // subtree is removed. `EcsDom::owner_document` returns `None` for a
-        // `Document` receiver, so the old `owner_doc` `.or_else(document_root)`
-        // fallback mis-routed the recompute to the PAGE root — leaving the
-        // second document's `DocumentBaseUrl` stale. `owner_doc` now resolves a
+        // `Document` receiver, so an `.or_else(document_root)` fallback
+        // mis-routed the recompute to the PAGE root — leaving the second
+        // document's `DocumentBaseUrl` stale. `EcsDom::node_document` resolves a
         // `Document` anchor to itself, so the recompute lands on the right
         // document and the page base is untouched.
         use elidex_ecs::{Attributes, EcsDom};
@@ -506,9 +489,9 @@ mod tests {
 
         // A second live Document with a `<base href>` (mirrors a DOMParser doc).
         let doc = dom.create_document_node();
-        let html = dom.create_element("html", Attributes::default());
+        let html = dom.create_element_ownerless_fixture("html", Attributes::default());
         assert!(dom.append_child(doc, html));
-        let base = dom.create_element("base", Attributes::default());
+        let base = dom.create_element_ownerless_fixture("base", Attributes::default());
         assert!(
             dom.set_attribute(base, "href", "https://throwaway.example/x/")
                 .did_set

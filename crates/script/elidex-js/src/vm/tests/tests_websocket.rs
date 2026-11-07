@@ -41,8 +41,8 @@ use super::{assert_eval_bool, assert_eval_number, assert_eval_string};
 /// (the WebSocket constructor demands one for the side-table writes).
 fn build_min_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc

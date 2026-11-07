@@ -134,8 +134,8 @@ mod tests {
 
     /// Append a connected `<style>` with the given CSS text.
     fn append_style(dom: &mut EcsDom, parent: Entity, css: &str) -> Entity {
-        let style = dom.create_element("style", Attributes::default());
-        let text = dom.create_text(css);
+        let style = dom.create_element_ownerless_fixture("style", Attributes::default());
+        let text = dom.create_text_ownerless_fixture(css);
         assert!(dom.append_child(style, text));
         assert!(dom.append_child(parent, style));
         style
@@ -144,7 +144,7 @@ mod tests {
     /// Append a connected `<link rel="stylesheet">` whose sheet has
     /// "loaded" (a `LinkStylesheet` component, as the loader attaches it).
     fn append_loaded_link(dom: &mut EcsDom, parent: Entity, css: &str) -> Entity {
-        let link = dom.create_element("link", Attributes::default());
+        let link = dom.create_element_ownerless_fixture("link", Attributes::default());
         assert!(dom.append_child(parent, link));
         let _ = dom.world_mut().insert_one(
             link,
@@ -288,7 +288,7 @@ mod tests {
         // Edit the first <style>'s text through the instrumented mutation
         // path (a script `textContent` write shape): its subtree version
         // moves, the sibling's does not.
-        let text = dom.create_text("div { color: green } span { color: red }");
+        let text = dom.create_text_ownerless_fixture("div { color: green } span { color: red }");
         assert!(dom.append_child(changed, text));
 
         let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
