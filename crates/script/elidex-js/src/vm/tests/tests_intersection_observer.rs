@@ -18,8 +18,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -225,7 +225,7 @@ fn intersection_observer_deliver_fires_callback_with_full_entry_shape() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -280,7 +280,7 @@ fn intersection_observer_deliver_box_less_target_delivers_initial_zero_once() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -329,7 +329,7 @@ fn intersection_observer_root_margin_expands_root_bounds() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -396,8 +396,8 @@ fn intersection_observer_reobserve_after_disconnect() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let a = dom.create_element("div", elidex_ecs::Attributes::default());
-    let b = dom.create_element("section", elidex_ecs::Attributes::default());
+    let a = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    let b = dom.create_element_ownerless_fixture("section", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, a));
     assert!(dom.append_child(body, b));
 
@@ -447,7 +447,7 @@ fn intersection_observer_disconnect_stops_delivery() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -491,7 +491,7 @@ fn intersection_observer_two_observers_on_same_target_both_fire() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -534,7 +534,7 @@ fn intersection_observer_callback_survives_gc_via_root_chain() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]

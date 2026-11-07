@@ -17,5 +17,10 @@ indexmap = "2"
 url.workspace = true
 elidex-plugin.workspace = true
 
+[features]
+# Test fixtures only: the argumentless (ownerless) node creators. Enabled from
+# `[dev-dependencies]` only — never from a normal or build dependency.
+fixtures = []
+
 [lints]
 workspace = true

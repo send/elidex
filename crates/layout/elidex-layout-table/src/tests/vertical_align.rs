@@ -177,11 +177,11 @@ fn baseline_alignment_within_row() {
 #[test]
 fn rowspan_interaction() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Row 0
-    let tr0 = dom.create_element("tr", Attributes::default());
+    let tr0 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr0,
         ComputedStyle {
@@ -193,7 +193,7 @@ fn rowspan_interaction() {
 
     let mut attrs = Attributes::default();
     attrs.set("rowspan", "2");
-    let td00 = dom.create_element("td", attrs);
+    let td00 = dom.create_element_ownerless_fixture("td", attrs);
     dom.world_mut().insert_one(
         td00,
         ComputedStyle {
@@ -205,7 +205,7 @@ fn rowspan_interaction() {
     );
     dom.append_child(tr0, td00);
 
-    let td01 = dom.create_element("td", Attributes::default());
+    let td01 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td01,
         ComputedStyle {
@@ -217,7 +217,7 @@ fn rowspan_interaction() {
     dom.append_child(tr0, td01);
 
     // Row 1
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -227,7 +227,7 @@ fn rowspan_interaction() {
     );
     dom.append_child(table, tr1);
 
-    let td11 = dom.create_element("td", Attributes::default());
+    let td11 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td11,
         ComputedStyle {
@@ -414,10 +414,10 @@ fn sub_super_treated_as_baseline_in_table() {
 fn baseline_rowspan_cell_does_not_contribute() {
     // CSS 2.1 §17.5.1: rowspan > 1 cells do not contribute to per-row baseline.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr0 = dom.create_element("tr", Attributes::default());
+    let tr0 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr0,
         ComputedStyle {
@@ -430,7 +430,7 @@ fn baseline_rowspan_cell_does_not_contribute() {
     // Cell spanning 2 rows, baseline-aligned.
     let mut attrs = Attributes::default();
     attrs.set("rowspan", "2");
-    let td00 = dom.create_element("td", attrs);
+    let td00 = dom.create_element_ownerless_fixture("td", attrs);
     dom.world_mut().insert_one(
         td00,
         ComputedStyle {
@@ -443,7 +443,7 @@ fn baseline_rowspan_cell_does_not_contribute() {
     dom.append_child(tr0, td00);
 
     // Normal cell in row 0, baseline-aligned.
-    let td01 = dom.create_element("td", Attributes::default());
+    let td01 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td01,
         ComputedStyle {
@@ -455,7 +455,7 @@ fn baseline_rowspan_cell_does_not_contribute() {
     );
     dom.append_child(tr0, td01);
 
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -465,7 +465,7 @@ fn baseline_rowspan_cell_does_not_contribute() {
     );
     dom.append_child(table, tr1);
 
-    let td11 = dom.create_element("td", Attributes::default());
+    let td11 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td11,
         ComputedStyle {

@@ -426,7 +426,7 @@ fn slot_assign_accepts_uppercase_slot_tag() {
     // SVG-style attribute sets) must still validate as `<slot>`.
     let mut dom = elidex_ecs::EcsDom::new();
     let doc = dom.create_document_root();
-    let host = dom.create_element("div", elidex_ecs::Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, host));
     let sr = dom
         .attach_shadow_with_init(
@@ -438,7 +438,8 @@ fn slot_assign_accepts_uppercase_slot_tag() {
             },
         )
         .unwrap();
-    let upper_slot = dom.create_element("SLOT", elidex_ecs::Attributes::default());
+    let upper_slot =
+        dom.create_element_ownerless_fixture("SLOT", elidex_ecs::Attributes::default());
     assert!(dom.append_child(sr, upper_slot));
     // Should NOT return NotASlot — the case-insensitive match
     // accepts "SLOT" as a slot tag.  Validation may still fail

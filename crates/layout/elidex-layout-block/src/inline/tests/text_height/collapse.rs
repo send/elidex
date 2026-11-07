@@ -71,7 +71,7 @@ fn collapse_across_adjacent_text_runs_yields_single_space() {
         dom.remove_child(parent, c);
     }
     for t in ["x", "\n  ", "y"] {
-        let tx = dom.create_text(t);
+        let tx = dom.create_text_ownerless_fixture(t);
         dom.append_child(parent, tx);
     }
     let children = dom.composed_children(parent);
@@ -123,7 +123,7 @@ fn collapse_pre_line_trims_cross_run_space_before_break() {
         dom.remove_child(parent, c);
     }
     for t in ["a ", "\nb"] {
-        let tx = dom.create_text(t);
+        let tx = dom.create_text_ownerless_fixture(t);
         dom.append_child(parent, tx);
     }
     let children = dom.composed_children(parent);
@@ -147,7 +147,7 @@ fn collapse_pre_line_trims_past_empty_intermediate_run() {
         dom.remove_child(parent, c);
     }
     for t in ["a ", "  ", "\nb"] {
-        let tx = dom.create_text(t);
+        let tx = dom.create_text_ownerless_fixture(t);
         dom.append_child(parent, tx);
     }
     let children = dom.composed_children(parent);

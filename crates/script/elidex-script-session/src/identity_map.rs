@@ -109,7 +109,7 @@ mod tests {
     use elidex_ecs::EcsDom;
 
     fn make_entity(dom: &mut EcsDom) -> Entity {
-        dom.create_element("div", elidex_ecs::Attributes::default())
+        dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default())
     }
 
     #[test]

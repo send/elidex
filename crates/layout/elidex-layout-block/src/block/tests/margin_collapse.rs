@@ -8,8 +8,8 @@ fn shift_block_children_moves_inner_inline_flow() {
     // directly, so the `block_only` `LayoutBox` filter must NOT gate it — else the
     // block's converged inner text repaints detached from the box.
     let mut dom = EcsDom::new();
-    let block = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("x");
+    let block = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("x");
     dom.append_child(block, text);
     dom.world_mut().insert_one(
         block,
@@ -76,9 +76,9 @@ fn shift_block_children_moves_inner_inline_flow() {
 #[test]
 fn margin_collapse_adjacent_siblings() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child1 = dom.create_element("div", Attributes::default());
-    let child2 = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.append_child(parent, child2);
 
@@ -112,9 +112,9 @@ fn margin_collapse_adjacent_siblings() {
 #[test]
 fn margin_collapse_negative() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child1 = dom.create_element("div", Attributes::default());
-    let child2 = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.append_child(parent, child2);
 
@@ -149,9 +149,9 @@ fn margin_collapse_negative() {
 #[test]
 fn margin_collapse_mixed() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child1 = dom.create_element("div", Attributes::default());
-    let child2 = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.append_child(parent, child2);
 
@@ -190,8 +190,8 @@ fn parent_child_first_child_margin_collapse() {
     // Parent margin-top=10, first child margin-top=20, no border/padding.
     // Collapsed margin = max(10, 20) = 20.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,
@@ -232,9 +232,9 @@ fn parent_child_margin_collapse_shifts_grandchildren() {
     // Parent margin-top=10, child margin-top=20, grandchild inside child.
     // After collapse, both child and grandchild must shift.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
-    let grandchild = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.append_child(child, grandchild);
     dom.world_mut().insert_one(
@@ -284,8 +284,8 @@ fn parent_child_last_child_margin_collapse() {
     // Parent margin-bottom=5, last child margin-bottom=15, no border/padding,
     // height:auto -> bottom margin collapses.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,
@@ -326,8 +326,8 @@ fn parent_child_last_child_margin_collapse() {
 fn parent_child_no_bottom_collapse_with_explicit_height() {
     // Parent has height: 200px -> bottom margin does NOT collapse (CSS 2.1 $8.3.1).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,
@@ -361,8 +361,8 @@ fn parent_child_no_bottom_collapse_with_explicit_height() {
 fn parent_child_no_collapse_with_border() {
     // Parent has border-top > 0 -> no first-child collapse.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,
@@ -400,8 +400,8 @@ fn parent_child_no_collapse_with_border() {
 fn parent_child_no_collapse_with_padding() {
     // Parent has padding-top > 0 -> no first-child collapse.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         parent,

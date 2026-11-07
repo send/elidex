@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use elidex_ecs::{
-    Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace, ShadowRootMode,
+    Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace, NewNodeOwner,
+    ShadowRootMode,
 };
 
 use super::tests::serialize_fragment as serialize_roots;
@@ -24,7 +25,7 @@ use crate::{parse_fragment_strict, ParseFragmentOptions};
 /// dom and the detached fragment roots. Panics if strict rejects the input.
 fn frag(context_tag: &str, html: &str) -> (EcsDom, Vec<Entity>) {
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element(context_tag, Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture(context_tag, Attributes::default());
     let roots = parse_fragment_strict(html, ctx, &mut dom, ParseFragmentOptions::default())
         .expect("valid fragment should parse");
     (dom, roots)
@@ -100,7 +101,7 @@ fn select_context_rejects_input() {
     // falls back to the tolerant backend) rather than returning a tree with the
     // `<input>` retained.
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("select", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("select", Attributes::default());
     let result = parse_fragment_strict(
         "<input><option>",
         ctx,
@@ -157,7 +158,7 @@ fn noscript_context_scripting_disabled_leaves_data_state() {
     // Same step: scripting mode Disabled → the tokenizer stays in the data
     // state, so `<p>` is parsed as an element.
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("noscript", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("noscript", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: false,
         scripting_disabled: true,
@@ -193,8 +194,8 @@ fn detached_return_does_not_coalesce_with_context_text() {
     // existing children — a fragment-leading text node is a *separate* node,
     // never coalesced into the context's trailing text (Approach A hazard).
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("div", Attributes::default());
-    let pre = dom.create_text("pre");
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let pre = dom.create_text_ownerless_fixture("pre");
     assert!(dom.append_child(ctx, pre));
     let roots = parse_fragment_strict("x", ctx, &mut dom, ParseFragmentOptions::default()).unwrap();
     assert_eq!(roots.len(), 1);
@@ -215,7 +216,7 @@ fn parse_error_rolls_back_with_no_leak_and_pristine_context() {
     // strict rejects. The partial subtree + synthetic root must be torn down
     // so a strict-then-tolerant dispatcher falls back over a pristine dom.
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     let live_before = dom.world().len();
     let ctx_children_before = dom.children(ctx).len();
 
@@ -247,8 +248,8 @@ fn form_pointer_from_ancestor_rejects_nested_form() {
     // element pointer to the ancestor form, so a `<form>` start tag in the
     // fragment is the "misnested-form" parse error.
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
-    let ctx = dom.create_element("div", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(form, ctx));
     let result = parse_fragment_strict(
         "<form></form>",
@@ -279,7 +280,7 @@ fn non_element_context_falls_back_to_in_body() {
     // Reading its tag yields `None` → Data tokenizer state + "in body" reset,
     // and the parse must not panic on the absent `TagType`.
     let mut dom = EcsDom::new();
-    let ctx = dom.create_text("not an element");
+    let ctx = dom.create_text_ownerless_fixture("not an element");
     let roots =
         parse_fragment_strict("<p>x</p>", ctx, &mut dom, ParseFragmentOptions::default()).unwrap();
     assert_eq!(roots.len(), 1);
@@ -319,7 +320,7 @@ fn declarative_shadow_opt_on_attaches_shadow_root() {
     // first element, so attach it to that element. Use a wrapping `<section>`
     // so the host is a returned fragment node we can inspect.
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
         scripting_disabled: false,
@@ -348,14 +349,18 @@ fn declarative_shadow_opt_on_attaches_shadow_root() {
 
 #[test]
 fn foreign_element_owner_survives_fragment_teardown() {
-    // A foreign element is stamped with an `AssociatedDocument`. The §13.4
+    // A foreign element is created with a node document. The §13.4
     // throwaway document is despawned before the nodes are returned, so the
     // owner must NOT be that throwaway (it would dangle, pointing at a dead
     // entity); the fragment uses the context's node document — a live owner
     // that survives teardown.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(doc, ctx));
     let roots = parse_fragment_strict(
         "<svg></svg>",
@@ -371,7 +376,7 @@ fn foreign_element_owner_survives_fragment_teardown() {
         "the <svg> is a foreign (SVG-namespace) element"
     );
     assert_eq!(
-        dom.get_associated_document(roots[0]),
+        dom.node_document(roots[0]),
         Some(doc),
         "the foreign owner is the caller's live document, not the throwaway"
     );
@@ -382,14 +387,19 @@ fn foreign_element_owner_survives_fragment_teardown() {
 }
 
 #[test]
-fn all_fragment_node_types_adopt_the_context_document() {
-    // DOM §4.5 adopt: every returned node — HTML elements, nested text,
-    // comments — owns the context's node document, not the despawned throwaway.
+fn all_fragment_node_types_are_created_in_the_context_document() {
+    // Every returned node — HTML elements, nested text, comments — is created
+    // in the context's node document (the fragment root redirects, C0b D-10;
+    // no finishing adopt), not the despawned throwaway.
     // (foreign elements are covered by the test above; this pins that the fix
     // is general, not foreign-only.)
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(doc, ctx));
     let roots = parse_fragment_strict(
         "<p>x</p><!--c-->",
@@ -430,11 +440,11 @@ fn form_pointer_walk_stops_at_shadow_boundary() {
     // make an otherwise-valid `<form>` in the shadow fragment strict-reject
     // (cf. `form_pointer_from_ancestor_rejects_nested_form` for the light case).
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
-    let host = dom.create_element("div", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(form, host));
     let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(sr, ctx));
 
     let result = parse_fragment_strict(
@@ -459,7 +469,7 @@ fn fragment_parse_preserves_caller_document_root() {
     // throwaway and then leave it dangling after despawn.
     let mut dom = EcsDom::new();
     let real_doc = dom.create_document_root();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(real_doc, ctx));
 
     let _roots =
@@ -486,7 +496,7 @@ fn rollback_despawns_shadow_root_with_no_leak() {
     // directly). `world().len()` returning to its pre-parse value proves the
     // shadow root did not leak.
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
         scripting_disabled: false,
@@ -520,7 +530,12 @@ fn svg_context_parses_children_as_svg() {
     // foreign-content rules and land in the SVG namespace — not an HTML tree,
     // and not a parse error.
     let mut dom = EcsDom::new();
-    let svg_ctx = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+    let svg_ctx = dom.create_element_ns(
+        "svg",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<circle></circle><rect></rect>",
         svg_ctx,
@@ -542,7 +557,12 @@ fn svg_context_parses_children_as_svg() {
 #[test]
 fn mathml_context_parses_children_as_mathml() {
     let mut dom = EcsDom::new();
-    let math_ctx = dom.create_element_ns("math", Namespace::MathMl, Attributes::default(), None);
+    let math_ctx = dom.create_element_ns(
+        "math",
+        Namespace::MathMl,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<mi></mi>",
         math_ctx,
@@ -567,7 +587,12 @@ fn foreign_context_with_raw_text_local_name_does_not_switch_to_raw_text() {
     // node. (SVG `<title>` would not show this: it is an HTML integration
     // point, so its content is HTML regardless.)
     let mut dom = EcsDom::new();
-    let svg_style = dom.create_element_ns("style", Namespace::Svg, Attributes::default(), None);
+    let svg_style = dom.create_element_ns(
+        "style",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<circle></circle>",
         svg_style,
@@ -589,8 +614,12 @@ fn foreign_template_context_does_not_seed_template_mode() {
     // `template` is a foreign context, so its child parses as SVG foreign
     // content rather than seeding the in-template insertion mode.
     let mut dom = EcsDom::new();
-    let svg_template =
-        dom.create_element_ns("template", Namespace::Svg, Attributes::default(), None);
+    let svg_template = dom.create_element_ns(
+        "template",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
     let roots = parse_fragment_strict(
         "<circle></circle>",
         svg_template,
@@ -611,8 +640,13 @@ fn foreign_form_ancestor_does_not_seed_form_pointer() {
     // `form_pointer_from_ancestor_rejects_nested_form`, where an *HTML* form
     // ancestor rejects it).
     let mut dom = EcsDom::new();
-    let svg_form = dom.create_element_ns("form", Namespace::Svg, Attributes::default(), None);
-    let ctx = dom.create_element("div", Attributes::default());
+    let svg_form = dom.create_element_ns(
+        "form",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::ownerless_fixture(),
+    );
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(svg_form, ctx));
     let result = parse_fragment_strict(
         "<form></form>",
@@ -637,7 +671,7 @@ fn top_level_declarative_shadow_is_plain_template() {
     // element in the "Keep" branch. So a top-level template never touches the
     // external context and strict parses it natively (no decline/fallback).
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
         scripting_disabled: false,
@@ -684,7 +718,7 @@ fn fragment_build_suppresses_mutation_dispatch() {
     }
 
     let mut dom = EcsDom::new();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_ownerless_fixture("div", Attributes::default());
     let count = Arc::new(AtomicUsize::new(0));
     dom.set_mutation_dispatcher(Box::new(Recorder {
         count: count.clone(),

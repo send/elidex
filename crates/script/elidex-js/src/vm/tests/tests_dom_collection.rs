@@ -23,8 +23,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -764,8 +764,8 @@ fn cache_persists_across_iter_constructions() {
 
 #[test]
 fn forms_uppercase_tag_seen_via_document_forms() {
-    // The HTML parser lowercases tags, but `EcsDom::create_element`
-    // tolerates uppercase from non-parser paths. The Forms filter
+    // The HTML parser lowercases tags, but the `EcsDom` creators
+    // tolerate uppercase from non-parser paths. The Forms filter
     // must match `<FORM>` via `eq_ignore_ascii_case` so document.forms
     // is parser-input independent.
     let mut vm = Vm::new();
@@ -775,8 +775,8 @@ fn forms_uppercase_tag_seen_via_document_forms() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let upper_form = dom.create_element("FORM", Attributes::default());
-    let lower_form = dom.create_element("form", Attributes::default());
+    let upper_form = dom.create_element_ownerless_fixture("FORM", Attributes::default());
+    let lower_form = dom.create_element_ownerless_fixture("form", Attributes::default());
     assert!(dom.append_child(body, upper_form));
     assert!(dom.append_child(body, lower_form));
 
@@ -811,7 +811,7 @@ fn get_elements_by_tag_name_matches_uppercase_element_via_ascii_ci() {
     // Regression: pre-hoist VM walker matched ASCII case-insensitive,
     // post-hoist API stub had drifted to exact-match — silently
     // dropping `getElementsByTagName('div')` matches against
-    // `EcsDom::create_element("DIV", ...)`. WHATWG DOM §4.2.6.2
+    // `EcsDom::create_element_ownerless_fixture("DIV", ...)`. WHATWG DOM §4.2.6.2
     // mandates ASCII-CI for HTML documents.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -820,9 +820,9 @@ fn get_elements_by_tag_name_matches_uppercase_element_via_ascii_ci() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let upper = dom.create_element("DIV", Attributes::default());
-    let lower = dom.create_element("div", Attributes::default());
-    let mixed = dom.create_element("Div", Attributes::default());
+    let upper = dom.create_element_ownerless_fixture("DIV", Attributes::default());
+    let lower = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let mixed = dom.create_element_ownerless_fixture("Div", Attributes::default());
     assert!(dom.append_child(body, upper));
     assert!(dom.append_child(body, lower));
     assert!(dom.append_child(body, mixed));
@@ -847,8 +847,8 @@ fn images_uppercase_tag_seen_via_document_images() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let upper_img = dom.create_element("IMG", Attributes::default());
-    let mixed_img = dom.create_element("Img", Attributes::default());
+    let upper_img = dom.create_element_ownerless_fixture("IMG", Attributes::default());
+    let mixed_img = dom.create_element_ownerless_fixture("Img", Attributes::default());
     assert!(dom.append_child(body, upper_img));
     assert!(dom.append_child(body, mixed_img));
 
@@ -978,7 +978,7 @@ fn live_collection_post_unbind_silent() {
             "body",
         )
         .unwrap();
-    let fresh_div = fresh_dom.create_element("div", Attributes::default());
+    let fresh_div = fresh_dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(fresh_dom.append_child(fresh_body, fresh_div));
     #[allow(unsafe_code)]
     unsafe {

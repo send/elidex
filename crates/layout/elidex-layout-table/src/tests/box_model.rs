@@ -59,10 +59,10 @@ fn table_padding_border() {
 #[test]
 fn table_cell_padding() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -72,7 +72,7 @@ fn table_cell_padding() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -107,10 +107,10 @@ fn table_cell_padding() {
 #[test]
 fn table_nested_content() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -120,7 +120,7 @@ fn table_nested_content() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -131,7 +131,7 @@ fn table_nested_content() {
     dom.append_child(tr, td);
 
     // Put a block element inside the cell.
-    let inner_div = dom.create_element("div", Attributes::default());
+    let inner_div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         inner_div,
         ComputedStyle {
@@ -162,10 +162,10 @@ fn table_nested_content() {
 #[test]
 fn table_cell_align() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -175,7 +175,7 @@ fn table_cell_align() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -297,10 +297,10 @@ fn table_collapse_border_merge() {
         ..Default::default()
     };
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, style);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -310,7 +310,7 @@ fn table_collapse_border_merge() {
     );
     dom.append_child(table, tr);
 
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -326,7 +326,7 @@ fn table_collapse_border_merge() {
     );
     dom.append_child(tr, td1);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -594,10 +594,10 @@ fn fixed_layout_collapse_aware_sizing() {
         ..Default::default()
     };
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, style.clone());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -608,7 +608,7 @@ fn fixed_layout_collapse_aware_sizing() {
     dom.append_child(table, tr);
 
     // Cell 0: explicit width 200px, with 10px borders on left and right.
-    let td0 = dom.create_element("td", Attributes::default());
+    let td0 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td0,
         ComputedStyle {
@@ -631,7 +631,7 @@ fn fixed_layout_collapse_aware_sizing() {
     dom.append_child(tr, td0);
 
     // Cell 1: auto width.
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -667,10 +667,10 @@ fn fixed_layout_collapse_aware_sizing() {
         ..Default::default()
     };
     let mut dom2 = EcsDom::new();
-    let table2 = dom2.create_element("table", Attributes::default());
+    let table2 = dom2.create_element_ownerless_fixture("table", Attributes::default());
     dom2.world_mut().insert_one(table2, sep_style);
 
-    let tr2 = dom2.create_element("tr", Attributes::default());
+    let tr2 = dom2.create_element_ownerless_fixture("tr", Attributes::default());
     dom2.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -680,7 +680,7 @@ fn fixed_layout_collapse_aware_sizing() {
     );
     dom2.append_child(table2, tr2);
 
-    let td0s = dom2.create_element("td", Attributes::default());
+    let td0s = dom2.create_element_ownerless_fixture("td", Attributes::default());
     dom2.world_mut().insert_one(
         td0s,
         ComputedStyle {
@@ -702,7 +702,7 @@ fn fixed_layout_collapse_aware_sizing() {
     );
     dom2.append_child(tr2, td0s);
 
-    let td1s = dom2.create_element("td", Attributes::default());
+    let td1s = dom2.create_element_ownerless_fixture("td", Attributes::default());
     dom2.world_mut().insert_one(
         td1s,
         ComputedStyle {
@@ -746,10 +746,10 @@ fn separate_model_no_collapse_adjustment() {
         ..Default::default()
     };
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, style);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -759,7 +759,7 @@ fn separate_model_no_collapse_adjustment() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {

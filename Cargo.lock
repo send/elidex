@@ -2058,6 +2058,7 @@ dependencies = [
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-form",
+ "elidex-html-parser",
  "elidex-indexeddb",
  "elidex-net",
  "elidex-plugin",

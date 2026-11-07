@@ -534,7 +534,7 @@ fn abort_after_unbind_cleans_listener_store() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, el);
 
     #[allow(unsafe_code)]
@@ -755,7 +755,7 @@ mod bound_listener_pruning {
         dom: &mut EcsDom,
     ) -> elidex_ecs::Entity {
         let doc = dom.create_document_root();
-        let el = dom.create_element("div", Attributes::default());
+        let el = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, el);
         #[allow(unsafe_code)]
         unsafe {

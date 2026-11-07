@@ -46,7 +46,7 @@ fn height_redistribution_proportional() {
 fn height_redistribution_zero_rows() {
     // All rows have zero content height -> surplus distributed equally.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -57,7 +57,7 @@ fn height_redistribution_zero_rows() {
     );
 
     for _ in 0..2 {
-        let tr = dom.create_element("tr", Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -67,7 +67,7 @@ fn height_redistribution_zero_rows() {
         );
         dom.append_child(table, tr);
 
-        let td = dom.create_element("td", Attributes::default());
+        let td = dom.create_element_ownerless_fixture("td", Attributes::default());
         dom.world_mut().insert_one(
             td,
             ComputedStyle {

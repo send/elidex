@@ -43,7 +43,7 @@ fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
 }
 
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 fn add_block_child(dom: &mut EcsDom, parent: Entity, height: f32) -> Entity {
@@ -103,7 +103,7 @@ fn add_text_block(dom: &mut EcsDom, parent: Entity, text: &str, height: f32) -> 
         ..ComputedStyle::default()
     };
     let _ = dom.world_mut().insert_one(div, style);
-    let tnode = dom.create_text(text);
+    let tnode = dom.create_text_ownerless_fixture(text);
     dom.append_child(div, tnode);
     (div, tnode)
 }

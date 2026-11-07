@@ -10,8 +10,8 @@ use crate::dom::CloneScope;
 fn fire_split_text_helper_routes_to_hook() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello world");
-    let new_text = dom.create_text("");
+    let text = dom.create_text_ownerless_fixture("hello world");
+    let new_text = dom.create_text_ownerless_fixture("");
     assert!(dom.append_child(parent, text));
     assert!(dom.append_child(parent, new_text));
 
@@ -35,8 +35,8 @@ fn fire_split_text_helper_routes_to_hook() {
 fn fire_normalize_merge_helper_routes_to_hook() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let prev = dom.create_text("hello");
-    let merged_child = dom.create_text("world");
+    let prev = dom.create_text_ownerless_fixture("hello");
+    let merged_child = dom.create_text_ownerless_fixture("world");
     assert!(dom.append_child(parent, prev));
     assert!(dom.append_child(parent, merged_child));
 
@@ -86,8 +86,8 @@ fn fire_clone_created_helper_routes_to_hook() {
 fn fire_helpers_silent_when_no_hook_installed() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hi");
-    let new_text = dom.create_text("");
+    let text = dom.create_text_ownerless_fixture("hi");
+    let new_text = dom.create_text_ownerless_fixture("");
     assert!(dom.append_child(parent, text));
     assert!(dom.append_child(parent, new_text));
 

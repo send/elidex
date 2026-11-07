@@ -43,7 +43,7 @@ fn setup_block_element(
 ) -> (elidex_ecs::EcsDom, elidex_ecs::Entity) {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let elem = dom.create_element("div", Attributes::default());
+    let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(root, elem);
     let _ = dom.world_mut().insert_one(elem, style);
     let _ = dom.world_mut().insert_one(elem, layout);

@@ -333,7 +333,7 @@ mod test_support {
         for (name, value) in attrs {
             a.set(*name, *value);
         }
-        dom.create_element(tag, a)
+        dom.create_element_ownerless_fixture(tag, a)
     }
 
     /// Append, asserting the tree operation succeeded.

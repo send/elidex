@@ -1,0 +1,118 @@
+//! The node document at creation (WHATWG DOM §4.4 *node document*: "set upon
+//! creation"): the one creation entry
+//! [`EcsDom::node_document_for_new_nodes`], the owner token [`NewNodeOwner`]
+//! every production creator takes, and the one reader of the stored fact,
+//! [`EcsDom::node_document`].
+
+use hecs::{DynamicBundle, Entity, EntityBuilder};
+
+use super::EcsDom;
+use crate::components::{AssociatedDocument, FragmentParseRoot, NodeKind};
+
+/// The node document a newly created node receives (WHATWG DOM §4.4 *node
+/// document*).
+///
+/// Every production node creator takes one. It has no public constructor:
+/// outside `elidex-ecs` it is obtained only from
+/// [`EcsDom::node_document_for_new_nodes`], so production code cannot ask for
+/// an ownerless node — it names a source, and a node is ownerless only when
+/// that source has no node document. Ownerless creation is test-only by
+/// construction (the argumentless fixture creators, compiled only under
+/// `cfg(any(test, feature = "fixtures"))`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NewNodeOwner(Option<Entity>);
+
+impl NewNodeOwner {
+    /// An ownerless node: the fixture creators' owner.
+    #[cfg(any(test, feature = "fixtures"))]
+    pub(crate) const NONE: Self = Self(None);
+
+    /// An ownerless node, for fixtures outside `elidex-ecs` that call a
+    /// production creator (`create_element_ns`, `create_document_type`,
+    /// `create_attribute`, ...) with no node document. Test-only by
+    /// construction, like the argumentless fixture creators.
+    #[cfg(any(test, feature = "fixtures"))]
+    #[must_use]
+    pub fn ownerless_fixture() -> Self {
+        Self::NONE
+    }
+
+    /// The document the new node is stamped with, `None` for an ownerless node.
+    #[must_use]
+    pub fn document(self) -> Option<Entity> {
+        self.0
+    }
+}
+
+impl EcsDom {
+    /// The node document a node created on behalf of `source`, or inserted
+    /// under `source`, receives (WHATWG DOM §4.4 *node document*, "set upon
+    /// creation"; DOM §4.2.3 *insert* step 7.1's adopt target).
+    ///
+    /// `source`'s node document, except when `source` is the HTML §13.4
+    /// fragment-parse root (*HTML fragment parsing algorithm*,
+    /// `#html-fragment-parsing-algorithm`, step 2: the fragment is created in
+    /// target's node document; *initialize an HTML fragment parser*
+    /// `#initialize-an-html-fragment-parser` step 15: the insertion target
+    /// redirection map's entry for root): root stands for that fragment, so a
+    /// node created on its behalf (text, comments, top-level elements) gets
+    /// the fragment's node document, the context's. This is how HTML §13.2.6.1
+    /// (`#creating-and-inserting-nodes`) resolves *create an element for the
+    /// token* step 6 ("targetParent's node document", `targetParent` from the
+    /// *adjusted insertion location*, step 2), *insert a character* step 6
+    /// and *insert a comment* step 5 (a new node "given targetParent's node
+    /// document").
+    #[must_use]
+    pub fn node_document_for_new_nodes(&self, source: Entity) -> NewNodeOwner {
+        if let Ok(root) = self.world.get::<&FragmentParseRoot>(source) {
+            // Validated like the stamp: a context document despawned while
+            // the fragment is built reads as ownerless, never a dead entity.
+            return NewNodeOwner(
+                root.redirect_document
+                    .filter(|&doc| self.is_live_document(doc)),
+            );
+        }
+        NewNodeOwner(self.node_document(source))
+    }
+
+    /// WHATWG DOM §4.4 *node document* (`#concept-node-document`): a Document
+    /// is its own ("The node document of a document is that document
+    /// itself"); any other node reads its stored node document if that is a
+    /// live Document, else `None`.
+    ///
+    /// The one reader of the fact. It is set upon creation (every creator
+    /// takes a [`NewNodeOwner`]) and changed only by DOM §4.5 *adopt*
+    /// ([`Self::adopt`], which every insertion runs), so it is never derived
+    /// from the node's position: a node in a Document's tree, or under a
+    /// fragment, without a node document reads `None`.
+    #[must_use]
+    pub fn node_document(&self, node: Entity) -> Option<Entity> {
+        // A despawned `node` reads no component (hecs checks the generation),
+        // so it falls through to `None` without a separate `contains`.
+        if matches!(self.node_kind(node), Some(NodeKind::Document)) {
+            return Some(node);
+        }
+        self.get_associated_document(node)
+            .filter(|&doc| self.is_live_document(doc))
+    }
+
+    /// Whether `entity` is a live Document (the stored node document's
+    /// liveness check).
+    pub(crate) fn is_live_document(&self, entity: Entity) -> bool {
+        matches!(self.node_kind(entity), Some(NodeKind::Document))
+    }
+
+    /// Spawn a node bundle with its node document in the spawn tuple (DOM
+    /// §4.4: the node document is set upon creation), so the node lands in its
+    /// final archetype directly. `owner` passes the liveness check of
+    /// [`Self::validate_owner_document`] first.
+    pub(super) fn spawn_node(&mut self, bundle: impl DynamicBundle, owner: NewNodeOwner) -> Entity {
+        let owner = self.validate_owner_document(owner.0);
+        let mut builder = EntityBuilder::new();
+        builder.add_bundle(bundle);
+        if let Some(doc) = owner {
+            builder.add(AssociatedDocument(doc));
+        }
+        self.world.spawn(builder.build())
+    }
+}

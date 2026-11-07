@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn c7h_no_form_control_state_is_none() {
         let mut dom = EcsDom::new();
-        let e = dom.create_element("div", Attributes::default());
+        let e = dom.create_element_ownerless_fixture("div", Attributes::default());
         assert!(apply_user_edit(&mut dom, e, |_| ()).is_none());
     }
 }

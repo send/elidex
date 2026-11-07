@@ -27,14 +27,14 @@ fn block_style() -> ComputedStyle {
 
 fn make_dom_with_block_div(style: ComputedStyle) -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(div, style);
     (dom, div)
 }
 
 /// Create a floated child element and append it to the parent.
 fn make_float_child(dom: &mut EcsDom, parent: Entity, float: Float, w: f32, h: f32) -> Entity {
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -50,7 +50,7 @@ fn make_float_child(dom: &mut EcsDom, parent: Entity, float: Float, w: f32, h: f
 }
 
 fn make_block_child(dom: &mut EcsDom, parent: Entity, height: f32) -> Entity {
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -70,7 +70,7 @@ fn make_block_child_with_break(
     break_before: elidex_plugin::BreakValue,
     break_after: elidex_plugin::BreakValue,
 ) -> Entity {
-    let child = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -105,7 +105,7 @@ fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
 
 fn make_dom_with_image(style: ComputedStyle, img_w: u32, img_h: u32) -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
-    let img = dom.create_element("img", Attributes::default());
+    let img = dom.create_element_ownerless_fixture("img", Attributes::default());
     dom.world_mut().insert_one(img, style);
     dom.world_mut().insert_one(
         img,

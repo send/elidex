@@ -296,9 +296,9 @@ fn paged_fragment_clientrects_single_source_with_flow() {
     // continuation fragment's flow-line `block_start`s equal its clientRects tops
     // (and the first is rebased to the fragmentainer top, 0.0).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
-    let span_text = dom.create_text("aaa bbb ccc ddd");
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let span_text = dom.create_text_ownerless_fixture("aaa bbb ccc ddd");
     dom.append_child(span, span_text);
     dom.append_child(parent, span);
     let font_db = FontDatabase::new();

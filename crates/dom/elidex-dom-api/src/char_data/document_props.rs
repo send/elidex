@@ -55,9 +55,8 @@ impl DomApiHandler for GetDocumentBaseURI {
 
 /// `Node.prototype.baseURI` getter (WHATWG DOM §4.4 Interface Node).
 /// Resolves to the **node document's** base URL via
-/// [`EcsDom::owner_document`] (which honors per-node
-/// `AssociatedDocument` then falls back to the tree-root walk per
-/// spec); for Document receivers `this` IS the document.
+/// [`EcsDom::node_document`] (a Document is its own node document); a
+/// node without a node document reads `about:blank`.
 pub struct GetNodeBaseURI;
 
 impl DomApiHandler for GetNodeBaseURI {
@@ -72,8 +71,7 @@ impl DomApiHandler for GetNodeBaseURI {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let doc = dom.owner_document(this).unwrap_or(this);
-        let url = crate::element::document_base::document_base_url(dom, doc);
+        let url = crate::element::document_base::node_document_base_url(dom, this);
         Ok(JsValue::String(url.as_str().into()))
     }
 }
@@ -334,7 +332,11 @@ impl DomApiHandler for SetTitle {
             // DOM §4.4 "node document") so a setter call on a cloned
             // doc puts the synthesised element under the clone, not
             // the bound document.
-            let t = dom.create_element_with_owner("title", Attributes::default(), Some(this));
+            let t = dom.create_element_with_owner(
+                "title",
+                Attributes::default(),
+                dom.node_document_for_new_nodes(this),
+            );
             let ok = dom.append_child(head, t);
             debug_assert!(ok, "append_child: head verified");
             t
@@ -350,7 +352,8 @@ impl DomApiHandler for SetTitle {
         // Add text node — same owner-anchoring contract as the
         // synthesised <title> above.
         if !title_text.is_empty() {
-            let text_node = dom.create_text_with_owner(&title_text, Some(this));
+            let text_node =
+                dom.create_text_with_owner(&title_text, dom.node_document_for_new_nodes(this));
             let ok = dom.append_child(title_elem, text_node);
             debug_assert!(ok, "append_child: title_elem verified");
         }
@@ -374,7 +377,7 @@ impl DomApiHandler for CreateDocumentFragment {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let entity = dom.create_document_fragment_with_owner(Some(this));
+        let entity = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(this));
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::DocumentFragment);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
@@ -396,7 +399,7 @@ impl DomApiHandler for CreateComment {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let data = require_string_arg(args, 0)?;
-        let entity = dom.create_comment_with_owner(&data, Some(this));
+        let entity = dom.create_comment_with_owner(&data, dom.node_document_for_new_nodes(this));
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Comment);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

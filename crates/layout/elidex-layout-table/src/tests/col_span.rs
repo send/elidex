@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn col_span_default_1() {
     let mut dom = EcsDom::new();
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     assert_eq!(crate::col_span_count(&dom, td), 1);
 }
 
@@ -14,7 +14,7 @@ fn col_span_attribute_2() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("span", "2");
-    let td = dom.create_element("td", attrs);
+    let td = dom.create_element_ownerless_fixture("td", attrs);
     assert_eq!(crate::col_span_count(&dom, td), 2);
 }
 
@@ -23,7 +23,7 @@ fn col_span_clamped() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("span", "9999");
-    let td = dom.create_element("td", attrs);
+    let td = dom.create_element_ownerless_fixture("td", attrs);
     assert_eq!(crate::col_span_count(&dom, td), 1000);
 }
 
@@ -32,6 +32,6 @@ fn col_span_invalid() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("span", "abc");
-    let td = dom.create_element("td", attrs);
+    let td = dom.create_element_ownerless_fixture("td", attrs);
     assert_eq!(crate::col_span_count(&dom, td), 1);
 }

@@ -33,7 +33,7 @@ fn mutation_observer_delivers_child_list_record() {
     .unwrap();
 
     // Simulate a child append.
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     let record = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -204,7 +204,7 @@ fn mutation_observer_subtree_observes_descendant() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let child = dom.create_element("span", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     assert!(dom.append_child(root, child));
 
     vm.eval(
@@ -238,7 +238,7 @@ fn mutation_observer_subtree_off_skips_descendant() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let child = dom.create_element("span", elidex_ecs::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     assert!(dom.append_child(root, child));
 
     vm.eval(
@@ -322,7 +322,7 @@ fn mutation_observer_disconnect_clears_pending() {
     )
     .unwrap();
 
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     let record = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -362,7 +362,7 @@ fn mutation_observer_added_nodes_are_element_wrappers() {
     )
     .unwrap();
 
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     let record = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -399,7 +399,7 @@ fn mutation_observer_delivers_character_data_record() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let text_node = dom.create_text("hello");
+    let text_node = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(root, text_node));
 
     vm.eval(
@@ -466,7 +466,7 @@ fn mutation_observer_records_array_survives_gc() {
     )
     .unwrap();
 
-    let added = dom.create_element("section", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("section", elidex_ecs::Attributes::default());
     let record = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -503,7 +503,7 @@ fn mutation_observer_callback_can_re_observe_other_target() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let other = dom.create_element("aside", elidex_ecs::Attributes::default());
+    let other = dom.create_element_ownerless_fixture("aside", elidex_ecs::Attributes::default());
     assert!(dom.append_child(root, other));
     let other_wrapper = vm.inner.create_element_wrapper(other);
     vm.set_global("other", JsValue::Object(other_wrapper));
@@ -527,7 +527,7 @@ fn mutation_observer_callback_can_re_observe_other_target() {
     )
     .unwrap();
 
-    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     let r1 = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -585,7 +585,7 @@ fn mutation_observer_two_observers_both_receive_record() {
     )
     .unwrap();
 
-    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     let record = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -624,7 +624,7 @@ fn mutation_observer_observe_replaces_existing_options_for_same_target() {
     // ChildList mutation must NOT fire because the second observe
     // replaced childList:true with attributes:true (WHATWG §4.3.1
     // step 7).
-    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     let r1 = SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -666,7 +666,7 @@ fn mutation_observer_observes_multiple_distinct_targets() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let other = dom.create_element("aside", elidex_ecs::Attributes::default());
+    let other = dom.create_element_ownerless_fixture("aside", elidex_ecs::Attributes::default());
     assert!(dom.append_child(root, other));
     let other_wrapper = vm.inner.create_element_wrapper(other);
     vm.set_global("other", JsValue::Object(other_wrapper));
@@ -679,7 +679,7 @@ fn mutation_observer_observes_multiple_distinct_targets() {
     )
     .unwrap();
 
-    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     vm.deliver_mutation_records(&[SessionRecord {
         kind: MutationKind::ChildList,
         target: root,
@@ -727,7 +727,7 @@ fn mutation_observer_callback_throw_does_not_block_sibling_observer() {
     )
     .unwrap();
 
-    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     vm.deliver_mutation_records(&[SessionRecord {
         kind: MutationKind::ChildList,
         target: root,

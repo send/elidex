@@ -16,7 +16,7 @@ pub(crate) fn fcs(kind: FormControlKind, value: &str) -> FormControlState {
 
 /// An `<input>` entity carrying [`fcs`]`(kind, value)`.
 pub(crate) fn control(dom: &mut EcsDom, kind: FormControlKind, value: &str) -> Entity {
-    let e = dom.create_element("input", Attributes::default());
+    let e = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.world_mut().insert_one(e, fcs(kind, value));
     e
 }

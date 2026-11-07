@@ -88,7 +88,7 @@ fn root_propagation_no_html() {
     // Fragment with no <html> element.
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, div);
     let ss = parse_stylesheet("div { overflow: hidden; }", Origin::Author);
     let vp = resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));

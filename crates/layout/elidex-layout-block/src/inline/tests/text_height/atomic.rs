@@ -12,9 +12,9 @@ fn inline_block_participates_in_ifc() {
         dom.remove_child(parent, c);
     }
 
-    let text1 = dom.create_text("Hello ");
+    let text1 = dom.create_text_ownerless_fixture("Hello ");
     dom.append_child(parent, text1);
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
         width: Dimension::Length(50.0),
@@ -24,9 +24,9 @@ fn inline_block_participates_in_ifc() {
     };
     let _ = dom.world_mut().insert_one(ib, ib_style);
     dom.append_child(parent, ib);
-    let ib_text = dom.create_text("X");
+    let ib_text = dom.create_text_ownerless_fixture("X");
     dom.append_child(ib, ib_text);
-    let text2 = dom.create_text(" World");
+    let text2 = dom.create_text_ownerless_fixture(" World");
     dom.append_child(parent, text2);
 
     let children = dom.composed_children(parent);

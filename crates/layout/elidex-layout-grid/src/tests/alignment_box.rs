@@ -4,7 +4,7 @@ use elidex_plugin::{BorderSide, Dimension, EdgeSizes};
 #[test]
 fn grid_gap_between_items() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -55,7 +55,7 @@ fn grid_gap_between_items() {
 #[test]
 fn grid_align_items_center() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -96,7 +96,7 @@ fn grid_align_items_center() {
 #[test]
 fn grid_with_padding_border() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -160,7 +160,7 @@ fn grid_with_padding_border() {
 #[test]
 fn grid_item_margin() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -177,7 +177,7 @@ fn grid_item_margin() {
         )
         .unwrap();
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -217,7 +217,7 @@ fn grid_item_margin() {
 #[test]
 fn grid_box_sizing_border_box() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -272,7 +272,7 @@ fn grid_box_sizing_border_box() {
 fn grid_align_self_stretch_with_center_container() {
     // align-self: stretch should stretch the item even when container has align-items: center.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -290,7 +290,7 @@ fn grid_align_self_stretch_with_center_container() {
         )
         .unwrap();
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -328,7 +328,7 @@ fn grid_align_self_stretch_with_center_container() {
 fn grid_negative_track_size_clamped() {
     // Negative track sizes (from malformed CSS) should be clamped to 0.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -376,7 +376,7 @@ fn grid_negative_track_size_clamped() {
 fn grid_rtl_reverses_column_order() {
     // direction: rtl -> columns placed right-to-left
     let mut dom = EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             grid,

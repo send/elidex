@@ -2,7 +2,7 @@ use super::*;
 use elidex_ecs::{Attributes, CommentData};
 
 pub(super) fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 /// Assert a mutation produced exactly one record and return it (the common
@@ -416,7 +416,7 @@ fn apply_remove_attribute() {
 #[test]
 fn apply_set_text_content() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
 
     let m = Mutation::SetTextContent {
         entity: text,
@@ -585,7 +585,7 @@ fn apply_style_attribute_invalidates_inline_style_cache() {
 
 /// Build a detached `DocumentFragment` holding `children` (in order).
 pub(super) fn fragment_of(dom: &mut EcsDom, children: &[Entity]) -> Entity {
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     for &c in children {
         dom.append_child(frag, c);
     }
@@ -651,7 +651,7 @@ fn append_empty_fragment_no_record() {
     let parent = elem(&mut dom, "div");
     let existing = elem(&mut dom, "span");
     dom.append_child(parent, existing);
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
 
     let records = super::apply_append_child(&mut dom, parent, frag);
     assert!(records.is_empty(), "empty-fragment append yields no record");
@@ -690,7 +690,7 @@ fn insert_before_empty_fragment_no_record() {
     let parent = elem(&mut dom, "div");
     let r = elem(&mut dom, "r");
     dom.append_child(parent, r);
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
 
     let records = super::apply_insert_before(&mut dom, parent, frag, r);
     assert!(records.is_empty());
@@ -784,7 +784,7 @@ fn replace_child_empty_fragment() {
     dom.append_child(parent, x);
     dom.append_child(parent, old);
     dom.append_child(parent, y);
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
 
     let records = super::apply_replace_child(&mut dom, parent, frag, old);
     assert_eq!(
@@ -808,7 +808,7 @@ fn append_fragment_that_is_ancestor_of_parent_rejects_atomically() {
     // (§4.2.1 step 2) — no partial move of the non-cyclic children, empty record
     // list (the handler maps it to a hierarchy error).
     let mut dom = EcsDom::new();
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     let ancestor = elem(&mut dom, "div");
     let other = elem(&mut dom, "span");
     dom.append_child(frag, ancestor);
@@ -833,7 +833,7 @@ fn append_self_fragment_returns_empty() {
     // apply returns empty (the handler then raises a hierarchy error rather than
     // the prior silent success).
     let mut dom = EcsDom::new();
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     let records = super::apply_append_child(&mut dom, frag, frag);
     assert!(records.is_empty());
 }
@@ -870,7 +870,7 @@ fn replace_child_fragment_old_not_child_is_failure() {
 #[test]
 fn apply_replace_data_text_records_old_value() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     let record = super::apply_replace_data(&mut dom, text, 0, 5, "X", "hello".to_string())
         .expect("Text node yields a record");
     assert_eq!(record.kind, MutationKind::CharacterData);
@@ -882,7 +882,7 @@ fn apply_replace_data_text_records_old_value() {
 #[test]
 fn apply_replace_data_comment_records_old_value() {
     let mut dom = EcsDom::new();
-    let comment = dom.create_comment("hello");
+    let comment = dom.create_comment_ownerless_fixture("hello");
     let record = super::apply_replace_data(&mut dom, comment, 0, 5, "X", "hello".to_string())
         .expect("Comment node yields a record");
     assert_eq!(record.kind, MutationKind::CharacterData);
@@ -894,7 +894,7 @@ fn apply_replace_data_comment_records_old_value() {
 #[test]
 fn apply_replace_data_mid_splice() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     let record = super::apply_replace_data(&mut dom, text, 1, 3, "XY", "hello".to_string())
         .expect("Text node yields a record");
     assert_eq!(record.old_value, Some("hello".to_string()));
@@ -904,7 +904,7 @@ fn apply_replace_data_mid_splice() {
 #[test]
 fn apply_replace_data_append_shape() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     // appendData shape: (len, 0, "!").
     let record = super::apply_replace_data(&mut dom, text, 5, 0, "!", "hello".to_string())
         .expect("Text node yields a record");

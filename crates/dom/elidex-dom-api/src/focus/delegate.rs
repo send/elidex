@@ -83,7 +83,7 @@ pub fn get_the_focusable_area(
     // first focusable. (`is_host_including_ancestor_or_self` jumps ShadowRoot→host,
     // so it is the shadow-including inclusive-ancestor walk for elidex's only
     // host-bearing roots.)
-    if let Some(document) = dom.owner_document(target) {
+    if let Some(document) = dom.node_document(target) {
         if let Some(focused) = current_focus(dom, document) {
             if dom.is_host_including_ancestor_or_self(target, focused) {
                 return Some(focused);

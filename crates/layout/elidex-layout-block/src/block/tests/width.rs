@@ -400,8 +400,8 @@ fn vertical_rl_inline_only_swaps_axis() {
     // should become the physical width, and the inline-axis size
     // (height) should be the containing height / inline constraint.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    let text = dom.create_text("Hello");
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(parent, text);
     let style = ComputedStyle {
         display: Display::Block,
@@ -437,8 +437,8 @@ fn vertical_rl_inline_only_swaps_axis() {
 fn vertical_lr_explicit_width_unchanged() {
     // When width is explicitly set, vertical axis swap should not override it.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
-    let text = dom.create_text("Hello");
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(parent, text);
     let style = ComputedStyle {
         display: Display::Block,

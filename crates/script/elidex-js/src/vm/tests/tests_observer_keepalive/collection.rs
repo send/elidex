@@ -99,7 +99,7 @@ fn js_referenced_idle_observer_survives_and_can_observe_later() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, root));
     #[allow(unsafe_code)]
     unsafe {
@@ -121,7 +121,7 @@ fn js_referenced_idle_observer_survives_and_can_observe_later() {
     // A later observe() on the retained observer works + delivers (the row was
     // kept because `instance` was JS-marked, so the binding is still there).
     vm.eval("mo.observe(root, {childList:true});").unwrap();
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     vm.deliver_mutation_records(&[child_list_added(root, added)]);
     assert_eq!(
         vm.eval("calls").unwrap(),

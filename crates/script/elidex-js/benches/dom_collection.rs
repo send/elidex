@@ -90,8 +90,8 @@ fn setup(tree_size: usize) -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>) {
     let mut session = Box::new(SessionCore::new());
     let mut dom = Box::new(EcsDom::new());
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(doc, html);
     dom.append_child(html, body);
 
@@ -104,7 +104,7 @@ fn setup(tree_size: usize) -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>) {
         let tag = if i.is_multiple_of(5) { "span" } else { "div" };
         let mut attrs = Attributes::default();
         attrs.set("class", "x".to_string());
-        let el = dom.create_element(tag, attrs);
+        let el = dom.create_element_ownerless_fixture(tag, attrs);
         dom.append_child(body, el);
     }
 

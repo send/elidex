@@ -36,6 +36,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
+              - 'scripts/check-fixture-boundary.sh'
               - '.rustfmt.toml'
               # No clippy config is tracked (ADR #36: no MSRV during development);
               # one added at the root (either spelling clippy reads) changes what
@@ -109,6 +110,12 @@ jobs:
       # general test-only-feature boundary is `#11-test-only-feature-boundary-guard`.
       - name: Clippy (default features, no dev-only feature)
         run: cargo clippy --workspace -- -D warnings
+
+      # The assertion the comment above names: `fixtures` (the ownerless node
+      # creators) is enabled from [dev-dependencies] only. Its own step, so neither
+      # this nor the Clippy step's exit status masks or skips the other.
+      - name: Fixture boundary (fixtures enabled from dev-dependencies only)
+        run: bash scripts/check-fixture-boundary.sh
 
   doc:
     name: Documentation

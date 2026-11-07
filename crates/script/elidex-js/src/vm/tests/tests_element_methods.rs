@@ -42,27 +42,27 @@ pub(super) fn build_element_fixture(
     Entity, // comment direct child of body
 ) {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", {
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", {
         let mut a = Attributes::default();
         a.set("id", "root");
         a
     });
-    let p = dom.create_element("p", {
+    let p = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("class", "intro");
         a
     });
-    let p_text = dom.create_text("hi");
-    let raw_text = dom.create_text("raw-text");
-    let div = dom.create_element("div", {
+    let p_text = dom.create_text_ownerless_fixture("hi");
+    let raw_text = dom.create_text_ownerless_fixture("raw-text");
+    let div = dom.create_element_ownerless_fixture("div", {
         let mut a = Attributes::default();
         a.set("class", "box");
         a
     });
-    let span = dom.create_element("span", Attributes::default());
-    let comment = dom.create_comment("note");
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let comment = dom.create_comment_ownerless_fixture("note");
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(html, body));
@@ -603,7 +603,7 @@ fn element_is_connected_respects_document_root() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
-    let detached = dom.create_element("aside", Attributes::default());
+    let detached = dom.create_element_ownerless_fixture("aside", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {

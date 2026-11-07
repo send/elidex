@@ -12,9 +12,9 @@ use super::super::Vm;
 
 fn build_html_with_head_body(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(html, body));
@@ -23,15 +23,20 @@ fn build_html_with_head_body(dom: &mut EcsDom) -> elidex_ecs::Entity {
 
 fn build_no_head(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     assert!(dom.append_child(doc, html));
     doc
 }
 
 fn build_doctype_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let doctype = dom.create_document_type("html", "", "");
-    let html = dom.create_element("html", Attributes::default());
+    let doctype = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     assert!(dom.append_child(doc, doctype));
     assert!(dom.append_child(doc, html));
     doc
@@ -176,7 +181,12 @@ fn doctype_finds_legacy_doc_type_data_without_node_kind() {
     // `NodeKind` component to simulate a legacy fixture whose
     // payload predates the component.  The accessor must still
     // surface this entity via the `node_kind_inferred` path.
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     assert!(dom.append_child(doc, dt));
     let _ = dom.world_mut().remove_one::<NodeKind>(dt);
     assert!(dom.node_kind(dt).is_none());

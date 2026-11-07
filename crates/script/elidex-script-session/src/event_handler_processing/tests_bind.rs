@@ -56,7 +56,7 @@ fn u8_world(dom: &mut EcsDom) -> (Entity, Entity, Entity, Entity) {
     append(dom, d2, other);
     let tpl = elem(dom, "template", &[]);
     append(dom, body, tpl);
-    let frag = dom.attach_template_contents(tpl, Some(doc));
+    let frag = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(doc));
     let in_tpl = elem(dom, "div", &[("onclick", "window.hit = 2")]);
     append(dom, frag, in_tpl);
     let host = elem(dom, "div", &[]);
