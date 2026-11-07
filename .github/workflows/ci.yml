@@ -259,6 +259,20 @@ jobs:
   # the one leg 120 s end to end; ceil(4 x 2.0 min) = 8, not above 22, so the value stays 22
   # (raise-only for the program, PM 353); 22 min is 11x the run, so #510's 2x trigger cannot fire.
   #
+  # The ECS-mission ratchet (`.claude/tools/test_ecs_mission_ratchet.py`, a member
+  # like any other) is the repo-side half of CLAUDE.md's supreme directive. The
+  # global write hook denies a NEW untagged mention of an existing browser in a
+  # Write/Edit call, but it cannot see text written any other way (a shell
+  # redirect, a human, a line already in the tree). This member scans every tracked
+  # file with the hook's classifier (a parity test pins the two together) and
+  # compares the untagged hits, keyed by path + normalised line text, with
+  # `.claude/tools/ecs-mission-allowlist.tsv`: a hit not in it is red, and so is a
+  # row that no longer matches (stale) -- so the list can only shrink, as the
+  # rows are remediated. Its seed is the tree when the ratchet landed, each row
+  # carrying its sweep class and, for T/D rows, the slot that remediates it.
+  # Adding a row is the one move the test cannot see; the review grades it
+  # (elidex-review axes.md Axis 2, the authority-source sub-check).
+  #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no
   # required-status-check rule -- so merging still rests on the CLAUDE.md
