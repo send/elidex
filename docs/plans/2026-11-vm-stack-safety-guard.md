@@ -37,7 +37,7 @@ implemented and no other implementation's number is being reproduced (PM 424).
 | PM 436 R3 | Style / layout / paint recursion is out; new L2 slot `#11-render-pipeline-recursion-depth-abort`. |
 | PM 436 extra | `MAX_FLAT_DEPTH` is replaced by the probe in PR-1; the parser / compiler recursive entries join PR-1's walker set; JSON cells run on an explicit `stack_size` thread. |
 | PM 436 split | PR-1 = primitive + choke points + walkers + regexp front door + PM 424 rewording. PR-2 = the frame cap (`#11-vm-js-frame-depth-limit`). PR-1 measures the hot-path probe cost and the Linux / Windows bounds (or names the CI cell that does). |
-| PM 454 (W-11) | `AbortSignal.any` chain recursion (PR-1's former row W-11) is its **own terminal slot**, not part of PR-1, and it **lands before PR-1**. The fix is DOM "create a dependent abort signal" source flattening (DOM §3.2, step 4.2), which also repairs the GC defect (unreferenced intermediates are collected and the abort never propagates). Owner **L3**; per the Layering mandate the algorithm goes in an engine-independent crate (the `elidex-dom-api` side), not in `vm/host/`. The `abort_statics.rs` "WHATWG §3.1.3.3" → DOM §3.2 citation drift is fixed on that slot's first touch. Slot id: the W-11 slot (registered by PM 454; id assigned by the PM). |
+| PM 454 (W-11) | `AbortSignal.any` chain recursion (PR-1's former row W-11) is its **own terminal slot**, not part of PR-1, and it **lands before PR-1**. The fix is DOM "create a dependent abort signal" source flattening (DOM §3.2, step 4.2), which also repairs the GC defect (unreferenced intermediates are collected and the abort never propagates). Owner **L3**; per the Layering mandate the algorithm goes in an engine-independent crate (the `elidex-dom-api` side), not in `vm/host/`. The `abort_statics.rs` "WHATWG §3.1.3.3" → DOM §3.2 citation drift is fixed on that slot's first touch. Slot id: the W-11 slot `#11-abort-signal-any-dependent-flattening` (registered by PM 454). |
 | PM 454 (weight) | The regexp front door's two-axis weight `groups × REGEXP_GROUP_COST + alts × REGEXP_ALT_COST`, with the cap on `groups` only, is within PM 436 R1 (ratified). |
 | PM 454 (homes) | Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError`) → a child of VM P4 slice-plan umbrella 8 (RegExp completion), owner VM P4. The missing `RegExp` constructor → under umbrella 8, owner VM P4 (registration being checked by the PM). |
 
@@ -64,7 +64,7 @@ implemented and no other implementation's number is being reproduced (PM 424).
 | Removing the Rust recursion of native→JS callbacks altogether (one dispatch loop) | Successor ideal, T3. The guard stays as the safety bound either way | `#11-vm-native-callback-reentry-single-loop` |
 | Iterative JSON walkers | The probe makes the abort impossible; iterative walkers remove the frame-size dependence of `MAX_JSON_DEPTH` | `#11-vm-json-walkers-iterative` |
 | Returning `""` for a cyclic `join` | A compat behaviour; core gives the spec `RangeError` (PM 424) | `#11-vm-array-join-cycle-detection` (compat) |
-| `AbortSignal.any` chain recursion and its GC defect (DOM "create a dependent abort signal" source flattening) | PM 454: own terminal slot, lands **before** PR-1 (§4); the algorithm belongs in an engine-independent crate, not `vm/host/` | the W-11 slot (registered by PM 454; id assigned by the PM) (L3) |
+| `AbortSignal.any` chain recursion and its GC defect (DOM "create a dependent abort signal" source flattening) | PM 454: own terminal slot, lands **before** PR-1 (§4); the algorithm belongs in an engine-independent crate, not `vm/host/` | the W-11 slot `#11-abort-signal-any-dependent-flattening` (registered by PM 454) (L3) |
 | Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError` / early error) at the literal / `match` / `search` / structuredClone compile sites | PM 454; PR-1's front door passes `Syntax` through unchanged | child of VM P4 slice-plan umbrella 8 (RegExp completion) (VM P4) |
 | The missing `RegExp` constructor | PM 454; PR-1 covers it through I-7 once it calls the front door | under VM P4 slice-plan umbrella 8 (VM P4; registration being checked by the PM) |
 
@@ -164,7 +164,7 @@ not a redesign.
 
 | Slot | State after this program | Home |
 |---|---|---|
-| the W-11 slot (registered by PM 454; id assigned by the PM) | **Closed before PR-1** (its own terminal slot, PM 454) | L3 |
+| the W-11 slot `#11-abort-signal-any-dependent-flattening` (registered by PM 454) | **Closed before PR-1** (its own terminal slot, PM 454) | L3 |
 | `#11-vm-call-depth-guard` | **Closed by PR-1** (the Rust-stack half) | this umbrella |
 | `#11-vm-js-frame-depth-limit` | **Closed by PR-2** | this umbrella |
 | `#11-vm-json-walkers-iterative` | Stays open (T3 engineering ideal). Its premise changes: the abort is gone, the remaining defect is the frame-size dependence of `MAX_JSON_DEPTH` | VM P4 |

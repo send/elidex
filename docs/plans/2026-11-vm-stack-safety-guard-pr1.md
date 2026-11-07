@@ -3,8 +3,8 @@
 Status: **plan (pre-implementation)**; `/elidex-plan-review` required before code (edge-dense,
 umbrella §2). Parent: [umbrella](2026-11-vm-stack-safety-guard.md). Closes the Rust-stack half of
 `#11-vm-call-depth-guard`. Base: `4728972c`. Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split,
-PM 454 are ratified (umbrella §0.1) and not re-opened here. Precondition: the W-11 slot (registered
-by PM 454; id assigned by the PM) has landed (umbrella §4 edge; §2 A-1).
+PM 454 are ratified (umbrella §0.1) and not re-opened here. Precondition: the W-11 slot `#11-abort-signal-any-dependent-flattening`
+(registered by PM 454) has landed (umbrella §4 edge; §2 A-1).
 
 ## §1. Scope
 
