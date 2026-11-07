@@ -254,7 +254,8 @@ impl TreeBuilder {
     /// orphans them by destroying the root (`destroy_entity` clears
     /// parent/sibling links, leaving the children live) and despawns the
     /// now-childless document. No re-home runs: every node was created with
-    /// the context's node document (HTML §13.4 step 22 is the identity).
+    /// the context's node document (*HTML fragment parsing algorithm* step 6,
+    /// "Adopt fragment into target's node document", is the identity).
     fn take_fragment_children(&mut self, root: Entity) -> Vec<Entity> {
         self.dom.finish_detached_fragment(root, self.document)
     }

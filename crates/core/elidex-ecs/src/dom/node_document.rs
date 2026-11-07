@@ -51,14 +51,17 @@ impl EcsDom {
     ///
     /// `source`'s node document, except when `source` is the HTML §13.4
     /// fragment-parse root (*HTML fragment parsing algorithm*,
-    /// `#html-fragment-parsing-algorithm`, steps 14–15): root stands for the
-    /// insertion target redirection map's fragment, so a node created on its
-    /// behalf (text, comments, top-level elements) gets the fragment's node
-    /// document, the context's. This is how HTML §13.2.6.1
+    /// `#html-fragment-parsing-algorithm`, step 2: the fragment is created in
+    /// target's node document; *initialize an HTML fragment parser*
+    /// `#initialize-an-html-fragment-parser` step 15: the insertion target
+    /// redirection map's entry for root): root stands for that fragment, so a
+    /// node created on its behalf (text, comments, top-level elements) gets
+    /// the fragment's node document, the context's. This is how HTML §13.2.6.1
     /// (`#creating-and-inserting-nodes`) resolves *create an element for the
-    /// token* step 3 ("intendedParent's node document"), *insert a character*
-    /// step 5 and *insert a comment* step 4 ("targetParent's node document"
-    /// of the *adjusted insertion location*, steps 3–5).
+    /// token* step 6 ("targetParent's node document", `targetParent` from the
+    /// *adjusted insertion location*, step 2), *insert a character* step 6
+    /// and *insert a comment* step 5 (a new node "given targetParent's node
+    /// document").
     #[must_use]
     pub fn node_document_for_new_nodes(&self, source: Entity) -> NewNodeOwner {
         if let Ok(root) = self.world.get::<&FragmentParseRoot>(source) {

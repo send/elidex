@@ -236,8 +236,8 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
 /// parent, which exists before it (the conversion is bottom-up: the caller
 /// links the returned node after the recursion). HTML §13.2.6.1
 /// (`#creating-and-inserting-nodes`) *create an element for the token* step
-/// 3: the node document is intendedParent's, and for an RcDom conversion the
-/// intended parent is the converted parent (html5ever has already placed each
+/// 6: the node document is targetParent's, and for an RcDom conversion the
+/// target parent is the converted parent (html5ever has already placed each
 /// node); [`EcsDom::node_document_for_new_nodes`] resolves it (the fragment
 /// root redirects to the context's document). The caller resolves it once
 /// per parent and passes it as `owner`.

@@ -864,7 +864,9 @@ impl EcsDom {
     /// WHATWG DOM §4.4 `ownerDocument` getter (`#dom-node-ownerdocument`):
     /// `None` if `entity` is a Document, else its node document
     /// ([`Self::node_document`]) — `None` too for a node without one (its
-    /// document was destroyed, or a test fixture created it ownerless).
+    /// document was destroyed; it was created ownerless, i.e. on behalf of a
+    /// fragment-parse context or a non-node source that has no node document,
+    /// see [`Self::node_document_for_new_nodes`]; or a test fixture).
     #[must_use]
     pub fn owner_document(&self, entity: Entity) -> Option<Entity> {
         if matches!(self.node_kind(entity), Some(NodeKind::Document)) {

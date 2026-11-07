@@ -586,9 +586,10 @@ pub(crate) struct AssociatedDocument(pub(crate) Entity);
 
 /// Marks the root of a WHATWG HTML §13.4 fragment build
 /// (*HTML fragment parsing algorithm*, `#html-fragment-parsing-algorithm`):
-/// step 15 sets the parser's *insertion target redirection map*[root] to
-/// (fragment, null), and step 14 creates that fragment in the target's node
-/// document. elidex keeps root as the build container and has no separate
+/// *initialize an HTML fragment parser* (`#initialize-an-html-fragment-parser`)
+/// step 15 sets the parser's *insertion target redirection map*[root] to the
+/// insertion location (fragment, null), and the algorithm's step 2 creates
+/// that fragment in the target's node document. elidex keeps root as the build container and has no separate
 /// fragment object, so root stands for the redirect target: a node created on
 /// behalf of root, or linked under it, receives `redirect_document`
 /// ([`crate::EcsDom::node_document_for_new_nodes`]).

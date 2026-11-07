@@ -42,7 +42,8 @@ impl Default for ShadowInit {
 }
 
 /// Error variants for [`EcsDom::attach_shadow_with_init`] per WHATWG
-/// DOM §4.2.14 "attach a shadow root" validation steps.
+/// DOM §4.9 *attach a shadow root* (`#concept-attach-a-shadow-root`)
+/// validation steps.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShadowAttachError {
     /// Host entity doesn't exist or has no `TagType` component.
@@ -70,7 +71,7 @@ pub enum SlotAssignError {
     InvalidNodeKind,
 }
 
-/// Tags allowed as shadow hosts per WHATWG DOM 4.2.14.
+/// Tags allowed as shadow hosts per WHATWG DOM §4.9 *valid shadow host name* (`#valid-shadow-host-name`).
 /// Custom elements (valid custom element names) are also valid shadow hosts.
 pub(super) const VALID_SHADOW_HOST_TAGS: &[&str] = &[
     "article",
@@ -165,8 +166,8 @@ impl EcsDom {
     /// The shadow root's node document is the host's (WHATWG DOM §4.9
     /// *attach a shadow root* step 5, "given element's node document").
     ///
-    /// Returns `Err(ShadowAttachError)` per WHATWG DOM §4.2.14 "attach a
-    /// shadow root" validation:
+    /// Returns `Err(ShadowAttachError)` per WHATWG DOM §4.9 *attach a
+    /// shadow root* validation:
     /// - [`ShadowAttachError::InvalidEntity`]: host doesn't exist or has no `TagType`
     /// - [`ShadowAttachError::InvalidTag`]: tag not in allowlist + not a valid custom element
     /// - [`ShadowAttachError::AlreadyAttached`]: host already has a shadow root

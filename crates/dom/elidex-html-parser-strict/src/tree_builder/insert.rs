@@ -58,8 +58,8 @@ impl TreeBuilder {
         for (name, value) in attrs {
             attributes.set(name.as_str(), value.as_str());
         }
-        // §13.2.6.1 *create an element for the token* step 3: the element is
-        // created in intendedParent's node document (the fragment-parse root
+        // §13.2.6.1 *create an element for the token* step 6: the element is
+        // created in targetParent's node document (the fragment-parse root
         // redirects to the context's).
         let owner = self.dom.node_document_for_new_nodes(parent);
         let element = self.dom.create_element_with_owner(tag, attributes, owner);
@@ -135,8 +135,8 @@ impl TreeBuilder {
     /// §13.2.6.1 "insert a comment" — at the appropriate place.
     pub(super) fn insert_comment(&mut self, data: &str) {
         let parent = self.appropriate_place();
-        // §13.2.6.1 *insert a comment* step 4: given the adjusted insertion
-        // location's parent's node document.
+        // §13.2.6.1 *insert a comment* step 5: given the adjusted insertion
+        // location's parent's (targetParent's) node document.
         let owner = self.dom.node_document_for_new_nodes(parent);
         let comment = self.dom.create_comment_with_owner(data, owner);
         self.append(parent, comment);
@@ -146,7 +146,7 @@ impl TreeBuilder {
     /// "insert a comment as the last child of the Document object / the first
     /// element in the stack of open elements").
     pub(super) fn insert_comment_to(&mut self, parent: Entity, data: &str) {
-        // §13.2.6.1 *insert a comment* step 4, the position given explicitly.
+        // §13.2.6.1 *insert a comment* step 5, the position given explicitly.
         let owner = self.dom.node_document_for_new_nodes(parent);
         let comment = self.dom.create_comment_with_owner(data, owner);
         self.append(parent, comment);
@@ -222,8 +222,8 @@ impl TreeBuilder {
                 return;
             }
         }
-        // §13.2.6.1 *insert a character* step 5: a new Text node given the
-        // adjusted insertion location's parent's node document.
+        // §13.2.6.1 *insert a character* step 6: a new Text node given the
+        // adjusted insertion location's parent's (targetParent's) node document.
         let owner = self.dom.node_document_for_new_nodes(parent);
         let node = self.dom.create_text_with_owner(text, owner);
         self.append(parent, node);

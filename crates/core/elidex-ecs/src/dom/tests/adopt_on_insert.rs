@@ -54,8 +54,8 @@ fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
     let sr = dom
         .attach_shadow(n, ShadowRootMode::Open)
         .expect("div is a valid shadow host");
-    // The shadow root is created in its host's node document (DOM §4.2.2.1
-    // `attachShadow` step: node document = element's node document).
+    // The shadow root is created in its host's node document (DOM §4.9
+    // *attach a shadow root* step 5: created "given element's node document").
     assert_eq!(dom.node_document(sr), Some(x));
     let sr_content = dom.create_element_with_owner(
         "b",
@@ -488,9 +488,9 @@ fn u7_control_a_document_has_no_owner_document() {
 }
 
 // ---- U11 (red): `node_document_for_new_nodes` — a Document → itself; a node
-// → its stamp; the fragment-parse root → the context's document (§13.4 step
-// 15's redirect); the throwaway → the throwaway (root is created in it, step
-// 11); a documentless context → `None`. The legs of nodes created under root
+// → its stamp; the fragment-parse root → the context's document (*initialize
+// an HTML fragment parser* step 15's redirect); the throwaway → the throwaway
+// (root is created in it, step 12); a documentless context → `None`. The legs of nodes created under root
 // during a build are the parser crates' (U8 / U9) ----
 #[test]
 fn u11_fragment_root_is_created_in_the_throwaway() {

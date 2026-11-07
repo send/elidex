@@ -243,7 +243,9 @@ impl DomApiHandler for GetRootNode {
 /// `node.ownerDocument` getter (WHATWG DOM §4.4, `#dom-node-ownerdocument`):
 /// null for a Document, else this's node document
 /// ([`EcsDom::owner_document`], which reads [`EcsDom::node_document`]). A node
-/// without a node document (its document destroyed) reads null; nothing is
+/// without a node document (its document destroyed, or created ownerless:
+/// a fragment parse whose context has none, or creation on behalf of a
+/// non-node source) reads null; nothing is
 /// derived from the tree position or the bound document.
 pub struct OwnerDocument;
 

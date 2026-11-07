@@ -149,7 +149,7 @@ impl TreeBuilder {
         for (name, value) in &token.attrs {
             attributes.set(name.as_str(), value.as_str());
         }
-        // §13.2.6.1 *create an element for the token* step 3: intendedParent
+        // §13.2.6.1 *create an element for the token* step 6: targetParent
         // is the fallback insertion location's parent.
         let owner = self.dom.node_document_for_new_nodes(fallback_parent);
         let template = self

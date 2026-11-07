@@ -148,7 +148,7 @@ pub fn parse_html_fragment(
     // `convert_fragment_top_level` therefore never attaches; nested templates
     // attach to their real parent. Every converted node, template contents
     // included, takes its node document from the entry over its converted
-    // parent; `root` redirects to the context's node document (§13.4 step 15),
+    // parent; `root` redirects to the context's node document (*initialize an HTML fragment parser* step 15),
     // so nothing the build creates holds the throwaway `document`, which would
     // dangle once it is destroyed (Codex PR380 R2).
     convert::convert_fragment_top_level(&children_owner, root, dom, opts);

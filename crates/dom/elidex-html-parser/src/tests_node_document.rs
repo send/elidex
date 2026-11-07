@@ -1,7 +1,7 @@
 //! C0b U8 / U9 (`docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`
 //! §6.2): every node a document parse or a fragment parse creates is created
 //! in its node document (HTML §13.2.6.1 *create an element for the token*
-//! step 3; DOM §4.4 *node document*), so no link walks: the walk counter
+//! step 6; DOM §4.4 *node document*), so no link walks: the walk counter
 //! (`EcsDom::adopt_walk_count`, `fixtures`) is unchanged across the parse.
 //! The end state alone cannot show it (an ownerless node appended under the
 //! document is re-homed silently, U2).

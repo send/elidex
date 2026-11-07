@@ -259,15 +259,17 @@ impl EcsDom {
     /// - a **throwaway `Document`** created cache-free (`create_document_node`,
     ///   NOT `create_document_root`) so it never clobbers the caller's persistent
     ///   `document_root` cache.
-    /// - a synthetic `<html>` **root** created in the throwaway (step 11) and
-    ///   appended to it (step 12; the caller then pushes it as the sole
+    /// - a synthetic `<html>` **root** created in the throwaway (*initialize
+    ///   an HTML fragment parser* step 12) and appended to it (step 13; the
+    ///   caller then pushes it as the sole
     ///   initial entry on the stack of open elements). The parent link is
     ///   load-bearing: the strict parse-error rollback is
     ///   `despawn_subtree(document)`, which reaches `root` and everything built
     ///   under it only through this link — without it the subtree leaks.
     /// - `FragmentParseRoot` on root, carrying `context`'s node document
-    ///   (step 15: the insertion target redirection map's entry for root,
-    ///   whose fragment step 14 creates in the target's node document). Every
+    ///   (*initialize an HTML fragment parser* step 15: the insertion target
+    ///   redirection map's entry for root, whose fragment the *HTML fragment
+    ///   parsing algorithm*'s step 2 creates in the target's node document). Every
     ///   node created on behalf of root or below it takes its node document
     ///   from [`Self::node_document_for_new_nodes`], so it holds the context's
     ///   document from its creation, never the throwaway.
@@ -279,7 +281,8 @@ impl EcsDom {
     /// dispatcher after whichever teardown the caller runs.
     ///
     /// WHATWG HTML §13.4 *HTML fragment parsing algorithm*
-    /// (`#html-fragment-parsing-algorithm`) steps 4, 11, 12, 15.
+    /// (`#html-fragment-parsing-algorithm`) steps 1–3 and *initialize an HTML
+    /// fragment parser* (`#initialize-an-html-fragment-parser`) steps 12, 13, 15.
     pub fn begin_detached_fragment(
         &mut self,
         context: Entity,
@@ -311,9 +314,9 @@ impl EcsDom {
     ///
     /// No re-home runs: every node the build created under root or below took
     /// the context's node document at its creation (root redirects, see
-    /// [`Self::node_document_for_new_nodes`]), so the algorithm's step 22
+    /// [`Self::node_document_for_new_nodes`]), so the algorithm's step 6
     /// ("Adopt fragment into target's node document") is the identity, as it
-    /// is in the spec, whose step 14 creates the fragment in target's node
+    /// is in the spec, whose step 2 creates the fragment in target's node
     /// document. A documentless context's nodes are ownerless from creation.
     ///
     /// [`Self::child_list_uncapped`] snapshots the children **before**
@@ -324,7 +327,7 @@ impl EcsDom {
     /// never hand-mirror the detach/despawn sequence.
     ///
     /// WHATWG HTML §13.4 *HTML fragment parsing algorithm*
-    /// (`#html-fragment-parsing-algorithm`) steps 22–23.
+    /// (`#html-fragment-parsing-algorithm`) steps 6–7.
     pub fn finish_detached_fragment(&mut self, root: Entity, document: Entity) -> Vec<Entity> {
         let children = self.child_list_uncapped(root);
         let _ = self.destroy_entity(root);

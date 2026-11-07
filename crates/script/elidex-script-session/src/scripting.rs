@@ -56,7 +56,9 @@ use elidex_plugin::SandboxingFlagSet;
 /// document after a removal. Clause (b) fires iff that document is not the
 /// bound document; a Document is its own node document.
 ///
-/// A Node without a node document (its document was destroyed): the node
+/// A Node without a node document (its document was destroyed, or it was
+/// created ownerless: a fragment parse whose context has none, or creation
+/// on behalf of a non-node source such as a Window / Worker): the node
 /// clause is false (the settings clause has already been evaluated), as it
 /// was for an unresolvable document before. Caveats: detached-iframe
 /// documents = unreachable in the single-BC model; the `<template>` contents
