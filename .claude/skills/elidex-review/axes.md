@@ -114,15 +114,19 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 | C | 非標準の互換挙動を compat 層に置いている | OK (`[compat]`)。core crate / core の要件に置いていれば T |
 | T | ブラウザの「振る舞い」を core の要件・受け入れ条件・テスト期待値・defer slot の目標にしている。仕様が決める点でブラウザの実測を gate にする (「先に測ってから直す」) のも T | **CRIT** |
 | D | ブラウザの「構造」(パイプライン順・状態の置き場所・registry・プロセスモデル・定数) を設計の根拠にしている | **CRIT** |
+| X | `[contrast]` / `[history]`: elidex の設計を既存ブラウザと対比する、または来歴を記す (根拠にはしていない) | OK (tag 付きで)。中身が根拠になっていれば T / D |
 | N | ブラウザでない (UI の chrome、caret blink、UA 文字列、survey data 等) | — |
 
-- 追加行のブラウザ言及に tag が無い → **IMP** (class が T/D ならその等級)。Write/Edit は hook が止めるが、Bash 経由・hook 導入前の行・plan 本文の引用はここでしか捕まらない
-- `.claude/tools/ecs-mission-allowlist.tsv` への **行の追加**、または `ecs_mission_ratchet.py` の `SELF_FILES` (scan しない file の列) への **path の追加** → **IMP** (allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。T/D 行の追加は CRIT)
+1 件の等級 = max(下の bullet が付ける等級, その class の等級)。
+
+- 追加行のブラウザ言及に tag が無い → **IMP**。tracked file の tag 無し行は Write/Edit なら hook が、それ以外 (Bash 経由・hook 導入前の行) も `tools` job の ratchet が止める。review でしか捕まらないのは、中身と食い違う tag、tracked でない plan 本文の引用、次の bullet の編集
+- ratchet の **捕捉範囲を縮める編集** → **IMP** (T/D 行に関わるなら CRIT)。ratchet 自身には見えない。例: `.claude/tools/ecs-mission-allowlist.tsv` への行の追加、既存行の class / slot 列の書き換え、`ecs_mission_ratchet.py` の `SELF_FILES` (scan しない file の列) への path の追加、分類器の語彙を狭める・例外 (`TOOL_NAMES` / `UA_MARKERS` / N の分岐) を足す。allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。分類器は hook と同時にしか変えない (parity test)
+- **再キーは追加ではない**: 行のキーは (path, 行全文) なので、同じ diff で消えた行と、ブラウザへの言及が同じで path か行の他の部分だけが変わった行の組 (分割・rename・同じ行の別の箇所の編集) は、class と slot を引き継いでいれば等級を付けない (変えれば上の bullet)。ratchet を入れた PR の seed も追加として等級付けしない (分類は sweep と PM の決定による)
 - `[plan]` 仕様が沈黙している判断で、(1)→(2)→(3) の順に何を引いたか (仕様の節 / ECS 原則 / 実測の label) が書かれていない → **IMP**
 
 ### Detect (top-level)
 
-- `[plan]` plan §"ECS-native check" (ECS first principles からの導出: state shape、OO → ECS mapping、既存ブラウザ構造を根拠にしていないこと — 最後の点の等級は 2d) の欠落 → **IMP**
+- `[plan]` plan に ECS-native check (ECS first principles からの導出: state shape、OO → ECS mapping、既存ブラウザ構造を根拠にしていないこと — 最後の点の等級は 2d) が無い → **IMP**。節の名前でなく中身で判定する (見出しが「ECS-native lens」等でも中身があれば足りる)
 
 **Acceptable exceptions**: engine 内部 (boa_engine 等 self-implementation) / legacy code 変更無し
 

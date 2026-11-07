@@ -7,17 +7,17 @@
 # Not scanned by the ratchet: this file (its rows would each be a hit for themselves) and SELF_FILES in ecs_mission_ratchet.py.
 N	-	.plan-z1b-consume-delta.md	- **Per-column CHROME** (box-fragment chrome painted per column) → committed-next (render walks the box
 N	-	.plan-z1b-consume-delta.md	- **per-column CHROME** (background spanning columns) stays G11 single-column (no improvement, **no
-E	-	crates/api/elidex-api-crypto/src/rsa.rs	// ceiling ([`MAX_RSA_GENERATE_MODULUS_BITS`] = 8192, Chrome-faithful) is
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	// ceiling ([`MAX_RSA_GENERATE_MODULUS_BITS`] = 8192, Chrome-faithful) is
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	// demand p / q / dp / dq / qi; Safari rejects "private keys without
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	// in the JWK *format*, but every browser requires them (Chrome/Firefox
 E	-	crates/api/elidex-api-crypto/src/rsa.rs	//! import is a DataError — no browser supports multi-prime RSA (Chrome/Firefox
 E	-	crates/api/elidex-api-crypto/src/rsa.rs	//! read only two primes; Safari rejects it explicitly), so the key shape is
-E	-	crates/api/elidex-api-crypto/src/rsa.rs	/// 8192 is Chrome's generate cap (BoringSSL bounds keygen there: a >8192-bit
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// 8192 is Chrome's generate cap (BoringSSL bounds keygen there: a >8192-bit
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// CRT set is required, like every browser). Multi-prime (`oth`) is a DataError.
-E	-	crates/api/elidex-api-crypto/src/rsa.rs	/// Chrome's own rationale). Tighter than the 16384 *import* ceiling because
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// Chrome's own rationale). Tighter than the 16384 *import* ceiling because
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// JWK *format*, but every browser requires the full set and none recover the
-E	-	crates/api/elidex-api-crypto/src/rsa.rs	/// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
-E	-	crates/api/elidex-api-crypto/src/rsa.rs	/// `RSA_MAX_MODULUS_BITS` (Firefox). WebCrypto §20.8.4 sets **no** import
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `RSA_MAX_MODULUS_BITS` (Firefox). WebCrypto §20.8.4 sets **no** import
 E	-	crates/api/elidex-api-crypto/src/tests/rsa/keygen.rs	// The generate ceiling (`MAX_RSA_GENERATE_MODULUS_BITS` = 8192, Chrome-faithful)
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/roundtrip.rs	// A CRT-less (d-only) private JWK is a DataError: every browser requires the
 N	-	crates/api/elidex-api-sw/src/sync.rs	//! Background Sync (WICG proposal — Chrome/Edge implemented).
@@ -258,8 +258,8 @@ S	-	crates/script/elidex-js/src/vm/tests/tests_websocket.rs	// InvalidAccessErro
 E	-	crates/script/elidex-js/src/vm/value.rs	/// only "throw a TypeError"); the wording matches Chrome's WebIDL
 S	-	crates/script/elidex-js/src/vm/well_known.rs	// §4.3 step "create an entry" and Chromium / Firefox behaviour.
 N	-	crates/script/elidex-script-session/src/lib.rs	//! (`SpiderMonkey`, V8, etc.) and the elidex ECS-based DOM. It includes:
-T	#11-core-browser-parity-deviations	crates/script/elidex-script-session/src/mutation/child_list.rs	// here while the spec queues two (`#11-replace-child-self-records`: Chromium
-T	#11-core-browser-parity-deviations	crates/script/elidex-script-session/src/mutation/tests.rs	// Chromium unmeasured).
+T	#11-replace-child-self-records	crates/script/elidex-script-session/src/mutation/child_list.rs	// here while the spec queues two (`#11-replace-child-self-records`: Chromium
+T	#11-replace-child-self-records	crates/script/elidex-script-session/src/mutation/tests.rs	// Chromium unmeasured).
 N	-	crates/shell/elidex-navigation/src/traversal_queue/coordinator.rs	// (JS traversals + sync updates + direct/chrome/input navigations)
 N	-	crates/shell/elidex-shell/src/app/navigation.rs	// Chrome reload is `Reload`, NOT `Replace` (the old `true`
 N	-	crates/shell/elidex-shell/src/app/render.rs	// Chrome bar (address + nav buttons).

@@ -189,11 +189,13 @@ class Controls(unittest.TestCase):
 
     def test_nul_skipped_non_utf8_scanned(self):
         self.put("bin.dat", b"matches Chrome here\0\n")
+        self.put("late_nul.md", b"x" * 8000 + b"\nmatches Chrome here\0\n")
         self.put("latin1.md", b"caf\xe9\nmatches Chrome here\n")
         self.allow()
         errs = self.check()
         self.assertTrue(any("latin1.md:2: matches Chrome here" in e for e in errs), errs)
         self.assertFalse(any("bin.dat" in e for e in errs), errs)
+        self.assertTrue(any("late_nul.md:2: matches Chrome here" in e for e in errs), errs)
 
     def test_line_numbers_split_on_newline_only(self):
         self.put("a.md", "x\x0cy\u2028z\r\nmatches Chrome here\r\n")

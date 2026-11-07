@@ -12,14 +12,17 @@ compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
 Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
 module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
 construction (class N); scanning them would make every fixture edit an allowlist addition.
-Every other tracked file is scanned unless it holds a NUL byte (binary, as git's own `-I` decides);
-bytes that are not UTF-8 are decoded with U+FFFD replacement, so an encoding slip does not exempt a
-file. A binary without NUL is read as text and can produce a hit.
+Every other tracked file is scanned unless it is binary by git's own rule (a NUL byte in the first
+8000 bytes); bytes that are not UTF-8 are decoded with U+FFFD replacement, so an encoding slip does
+not exempt a file. A binary without such a NUL is read as text and can produce a hit. A tracked
+path that is not a readable regular file in the working tree (deleted, a dangling or directory
+symlink, a gitlink) is skipped: there is no content to classify.
 Line unit: rows are keyed and numbered by '\n'-separated lines (as git and editors count), and a
 line is a hit when any of its str.splitlines() segments is denied, which is the unit the hook
 classifies (so a tag behind a CR, form feed or U+2028 does not cover a mention in another segment).
-Adding an allowlist row, or a path to SELF_FILES, is the move this check cannot see; elidex-review
-axes.md Axis 2 sub-check 2d (authority source) grades both.
+Edits that narrow what the ratchet catches (adding an allowlist row, rewriting a row's class or
+slot, adding a path to SELF_FILES, narrowing the classifier) are invisible to it; elidex-review
+axes.md Axis 2 sub-check 2d (authority source) grades them.
 
 Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
 """
@@ -132,7 +135,7 @@ def iter_texts(repo_root, exclude=()):
                 raw = f.read()
         except OSError:
             continue
-        if b"\0" in raw:
+        if b"\0" in raw[:8000]:
             continue
         text = raw.decode("utf-8", "replace")
         yield path, text
