@@ -550,25 +550,25 @@ fn u13_fixture() -> U13 {
     use std::sync::{Arc, Mutex};
 
     let mut dom = EcsDom::new();
-    let d = dom.create_document_root();
-    let x = dom.create_document_node();
-    let y = dom.create_document_node();
+    let doc_d = dom.create_document_root();
+    let doc_x = dom.create_document_node();
+    let doc_y = dom.create_document_node();
     let tpl = dom.create_element_with_owner(
         "template",
         Attributes::default(),
-        dom.node_document_for_new_nodes(x),
+        dom.node_document_for_new_nodes(doc_x),
     );
     let l = dom.create_element_with_owner(
         "x-el",
         Attributes::default(),
-        dom.node_document_for_new_nodes(x),
+        dom.node_document_for_new_nodes(doc_x),
     );
     assert!(dom.append_child(tpl, l));
-    let contents = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(y));
+    let contents = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(doc_y));
     let c = dom.create_element_with_owner(
         "x-el",
         Attributes::default(),
-        dom.node_document_for_new_nodes(y),
+        dom.node_document_for_new_nodes(doc_y),
     );
     assert!(dom.append_child(contents, c));
     for e in [c, l] {
@@ -595,9 +595,9 @@ fn u13_fixture() -> U13 {
         tpl,
         c,
         l,
-        x,
-        y,
-        d,
+        x: doc_x,
+        y: doc_y,
+        d: doc_d,
     }
 }
 
@@ -631,11 +631,98 @@ fn u13_adopt_enqueues_contents_before_light_child_each_with_its_pair() {
 fn u13_control_c_and_l_are_custom() {
     let f = u13_fixture();
     for e in [f.c, f.l] {
-        let state = f
-            .dom
-            .world()
-            .get::<&CustomElementState>(e)
-            .map(|s| s.state.clone());
+        let state = f.dom.world().get::<&CustomElementState>(e).map(|s| s.state);
         assert!(matches!(state, Ok(CEState::Custom)), "{e:?} is custom");
     }
+}
+
+// ── C0c U19, consumer side: the reactions of the three nested-contents legs ──
+// (the `elidex-ecs` U19 cells pin the segments and stamps). Outer template
+// `t0` in `D0`; its contents `f1` hold `t1`, whose contents `f2` hold the
+// custom `e`.
+
+/// `f1_owner` / `f2_owner`: 0 = the target, 1 = `X`, 2 = `Y`, `None` =
+/// ownerless. Returns the queued `Adopted` reactions after `adopt(t0, target)`
+/// and the document table.
+fn u19_adopted(
+    f1_owner: Option<usize>,
+    f2_owner: usize,
+) -> (
+    Vec<(elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity)>,
+    elidex_ecs::Entity,
+    [elidex_ecs::Entity; 3],
+) {
+    use elidex_ecs::Attributes;
+
+    let mut f = u13_fixture();
+    let target = f.d;
+    let docs = [target, f.x, f.y];
+    let d0 = f.dom.create_document_node();
+    let dom = &mut f.dom;
+    let new_owner = |dom: &mut EcsDom, i: Option<usize>| {
+        if let Some(i) = i {
+            return dom.node_document_for_new_nodes(docs[i]);
+        }
+        let ownerless = dom.create_element_ownerless_fixture("span", Attributes::default());
+        dom.node_document_for_new_nodes(ownerless)
+    };
+    let t0 = dom.create_element_with_owner(
+        "template",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(d0),
+    );
+    let o = new_owner(dom, f1_owner);
+    let f1 = dom.attach_template_contents(t0, o);
+    let o = new_owner(dom, f1_owner);
+    let t1 = dom.create_element_with_owner("template", Attributes::default(), o);
+    assert!(dom.append_child(f1, t1));
+    let o = new_owner(dom, Some(f2_owner));
+    let f2 = dom.attach_template_contents(t1, o);
+    let o = new_owner(dom, Some(f2_owner));
+    let e = dom.create_element_with_owner("x-el", Attributes::default(), o);
+    assert!(dom.append_child(f2, e));
+    dom.world_mut()
+        .insert_one(e, CustomElementState::custom("x-el"))
+        .unwrap();
+    f.queue.lock().unwrap().clear();
+    f.dom.adopt(t0, target);
+    let adopted = f
+        .queue
+        .lock()
+        .unwrap()
+        .drain(..)
+        .filter_map(|r| match r {
+            CustomElementReaction::Adopted {
+                entity,
+                old_document,
+                new_document,
+            } => Some((entity, old_document, new_document)),
+            _ => None,
+        })
+        .collect();
+    (adopted, e, docs)
+}
+
+/// First leg (`f1` in `Y`, `f2` in `X`): `e` gets its innermost segment's
+/// pair `(X, target)`.
+#[test]
+fn u19_consumer_innermost_segment_pair() {
+    let (adopted, e, [target, x, _]) = u19_adopted(Some(2), 1);
+    assert_eq!(adopted, vec![(e, x, target)]);
+}
+
+/// Second leg (`f1` already in the target): both contents are skipped, no
+/// segment, so `e` gets no reaction (not the root's `(D0, target)`).
+#[test]
+fn u19_consumer_skipped_contents_no_reaction() {
+    let (adopted, _, _) = u19_adopted(Some(0), 1);
+    assert_eq!(adopted, Vec::new());
+}
+
+/// Third leg (`f1` ownerless, `f2` in `X`): both segments are `None`, so `e`
+/// gets no reaction (its own pair would give `(X, target)`).
+#[test]
+fn u19_consumer_segment_under_none_no_reaction() {
+    let (adopted, _, _) = u19_adopted(None, 1);
+    assert_eq!(adopted, Vec::new());
 }

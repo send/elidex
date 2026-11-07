@@ -36,8 +36,13 @@
 //!   to upgrade"), not only the `CloneCreated` path. The clone path also
 //!   clears the retained `is` value of async-autonomous copies
 //!   (`CustomElementState.is_value`, which no other consumer reads).
-//! - The first three gates (`Connected` / `Disconnected` /
-//!   `AttributeChanged`) ALSO require the element to be Custom
+//! - `Adopted` enqueued on `MutationEvent::Adopt` for every Custom element
+//!   of the adopted subtree whose pair is `Some` (DOM §4.5 *adopt* step
+//!   3.3.3), each with its innermost contents segment's
+//!   `(oldDocument, document)`, in the adopt walk's order (template contents
+//!   right after their template).
+//! - The first four gates (`Connected` / `Disconnected` /
+//!   `AttributeChanged` / `Adopted`) ALSO require the element to be Custom
 //!   ([`CEState::Custom`]) — pre-upgrade elements (`Undefined` /
 //!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6. The
 //!   `Upgrade` bullet is the exception: it enqueues for elements that are
@@ -54,7 +59,10 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{CloneScope, EcsDom, Entity, MutationEvent};
+use elidex_ecs::{
+    AdoptedContents, CloneScope, EcsDom, Entity, MutationEvent, TemplateContentsWalk,
+    MAX_ANCESTOR_DEPTH,
+};
 
 use crate::reaction::CustomElementReaction;
 use crate::registry::CustomElementRegistry;
@@ -85,7 +93,8 @@ impl CustomElementReactionConsumer {
 
     /// Single-method dispatch entry invoked by the binding-crate
     /// `ConsumerDispatcher`. Pattern-matches `Insert` / `Remove` /
-    /// `AttributeChange` / `CloneCreated`; other variants are no-ops.
+    /// `AttributeChange` / `CloneCreated` / `Adopt`; other variants are
+    /// no-ops.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Insert {
@@ -108,6 +117,11 @@ impl CustomElementReactionConsumer {
             MutationEvent::CloneCreated { root, scope } => {
                 self.handle_clone_created(root, scope, dom);
             }
+            MutationEvent::Adopt {
+                node,
+                documents,
+                contents,
+            } => self.handle_adopt(node, documents, contents, dom),
             _ => {}
         }
     }
@@ -165,6 +179,62 @@ impl CustomElementReactionConsumer {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             queue.extend(candidates.into_iter().map(CustomElementReaction::Upgrade));
+        }
+    }
+
+    /// DOM §4.5 *adopt* step 3.3.3: for each shadow-including inclusive
+    /// descendant that is custom, "enqueue a custom element callback reaction
+    /// with inclusiveDescendant, callback name "adoptedCallback", and
+    /// « oldDocument, document »" (HTML §4.13.6 *enqueue a custom element
+    /// callback reaction*).
+    ///
+    /// One `Adopted` per `CEState::Custom` element whose pair is `Some`, in
+    /// DOM §4.8 *shadow-including tree order* with each template's contents
+    /// right after the template (adopt step 3.4; the walk's `Include` order).
+    /// An element's pair is its innermost segment's (see
+    /// [`MutationEvent::Adopt`]): the root's while every contents fragment
+    /// reached so far is a segment with the root's pair, else the lookup.
+    ///
+    /// Batch equivalence: the spec interleaves the stamp and the enqueue per
+    /// descendant; enqueueing runs no script (reactions run at the next
+    /// drain), so enqueueing after the walk, in the same order, is
+    /// unobservable.
+    fn handle_adopt(
+        &mut self,
+        node: Entity,
+        documents: Option<(Entity, Entity)>,
+        contents: &[AdoptedContents],
+        dom: &EcsDom,
+    ) {
+        // A segment whose pair differs from the root's, or a reached
+        // fragment without a segment (one the walk skipped), needs the lookup.
+        let mut lookup = contents.iter().any(|s| s.documents != documents);
+        let mut enqueued = Vec::new();
+        dom.for_each_uncapped_shadow_inclusive(node, TemplateContentsWalk::Include, &mut |e| {
+            if !lookup {
+                if let Some(fragment) = dom.template_contents_fragment(e) {
+                    lookup = !contents.iter().any(|s| s.fragment == fragment);
+                }
+            }
+            if !is_custom(e, dom) {
+                return;
+            }
+            let pair = if lookup {
+                adopt_pair(dom, e, node, documents, contents)
+            } else {
+                documents
+            };
+            if let Some((old_document, new_document)) = pair {
+                enqueued.push(CustomElementReaction::Adopted {
+                    entity: e,
+                    old_document,
+                    new_document,
+                });
+            }
+        });
+        if !enqueued.is_empty() {
+            let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
+            queue.extend(enqueued);
         }
     }
 
@@ -309,6 +379,32 @@ pub fn classify_attribute_change(
         old_value: old_value.map(str::to_owned),
         new_value: new_value.map(str::to_owned),
     })
+}
+
+/// The pair of `entity`'s innermost adopt segment (C0c D-6's lookup): climb
+/// to its tree root, out of each shadow root through its host, until `root`
+/// (the root's `documents`) or a segment's `fragment` (that segment's); any
+/// other root — a contents fragment the walk skipped, or a climb that the
+/// `MAX_ANCESTOR_DEPTH` cap of `find_tree_root` cut short (a stated defect) —
+/// reads `None`.
+fn adopt_pair(
+    dom: &EcsDom,
+    entity: Entity,
+    root: Entity,
+    documents: Option<(Entity, Entity)>,
+    contents: &[AdoptedContents],
+) -> Option<(Entity, Entity)> {
+    let mut r = dom.find_tree_root(entity);
+    for _ in 0..=MAX_ANCESTOR_DEPTH {
+        if r == root {
+            return documents;
+        }
+        if let Some(segment) = contents.iter().find(|s| s.fragment == r) {
+            return segment.documents;
+        }
+        r = dom.find_tree_root(dom.shadow_host(r)?);
+    }
+    None
 }
 
 /// Returns `true` iff `entity` is a Custom element ready for lifecycle
