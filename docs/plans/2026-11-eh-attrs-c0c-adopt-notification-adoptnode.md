@@ -455,8 +455,8 @@ cap: the climb cut would move. The cause is the same as the stated defect's.
 - the PM adds the recorded regression above to `#11-document-null-registry-adopt-reset`'s defect text at registration
   (PM 311), and D-13's pending-upgrade line to `#11-ce-reactions-method-scope-drain`'s (PM 306);
 - the PM appends the `adoptNode(attr)` facet (D-13, T15 (v)) to `#11-dom-api-attr-entity-model-unification`;
-- the PM appends the stated defect and its walk-cost facet (§8 above) to a slot of the PM's choosing; the candidate family is
-  `#11-capped-walker-deep-element-processing`. The facet: below `MAX_ANCESTOR_DEPTH`, `adoptedCallback` is lost and a node
+- the PM appends the stated defect and its walk-cost facet (§8 above) to
+  `#11-capped-walker-deep-element-processing` (PM 514; L3's capped-walker umbrella covers the same walkers). The facet: below `MAX_ANCESTOR_DEPTH`, `adoptedCallback` is lost and a node
   inside a skipped fragment is wrongly stamped; plus the O(n·depth) climb cost;
 - the PM appends C0c's T7 variant cell to `#11-ce-element-queue-grouping`'s text: `tests_insertion_adoption.rs`, the T7
   variant. Landing that slot turns it red, and it must then be changed to the spec order
