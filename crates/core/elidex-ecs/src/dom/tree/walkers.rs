@@ -420,6 +420,7 @@ impl EcsDom {
 
     /// Like `find_tree_root`, but when reaching a `ShadowRoot`, jumps to
     /// the host and continues upward (composed tree root).
+    /// This is DOM §4.8 *shadow-including root* (`#concept-shadow-including-root`).
     #[must_use]
     pub fn find_tree_root_composed(&self, entity: Entity) -> Entity {
         let mut current = entity;

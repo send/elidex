@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::mutation_event::{AdoptedContents, MutationEvent};
-use super::super::{EcsDom, MAX_ANCESTOR_DEPTH};
+use super::super::EcsDom;
 use super::TemplateContentsWalk;
 use crate::components::AttrEntityCache;
 use crate::{ElementState, NodeKind};
@@ -683,32 +683,28 @@ struct AdoptSegments {
 }
 
 impl AdoptSegments {
-    /// The innermost segment of `node`: climb to its tree root, out of each
-    /// shadow root through its host (`find_tree_root` / `shadow_host`),
-    /// until the walk's root or a reached contents fragment.
+    /// The innermost segment of `node`: its shadow-including root
+    /// ([`EcsDom::find_tree_root_composed`]). A contents fragment has no
+    /// parent and is not a shadow root, so the climb stops at the nearest
+    /// one; the result is the walk's root, a recorded fragment, or a skipped
+    /// one.
     ///
-    /// `find_tree_root` stops at `MAX_ANCESTOR_DEPTH` (a stated defect, C0c
-    /// memo §8): past it the climb reaches neither and the node reads as a
-    /// live `None` segment (stamped, no reaction).
+    /// `find_tree_root_composed` stops at `MAX_ANCESTOR_DEPTH` (a stated
+    /// defect, C0c memo §8): past it the climb returns an interior node,
+    /// which matches none of the three, and the node reads as a live `None`
+    /// segment (stamped, no reaction).
     fn lookup(&self, dom: &EcsDom, node: Entity) -> Segment {
-        let mut r = dom.find_tree_root(node);
-        for _ in 0..=MAX_ANCESTOR_DEPTH {
-            if r == self.root {
-                return Segment::Live {
-                    pair: self.root_pair,
-                };
+        let r = dom.find_tree_root_composed(node);
+        if r == self.root {
+            Segment::Live {
+                pair: self.root_pair,
             }
-            if let Some(&pair) = self.recorded.get(&r) {
-                return Segment::Live { pair };
-            }
-            if self.skipped.contains(&r) {
-                return Segment::Skipped;
-            }
-            match dom.shadow_host(r) {
-                Some(host) => r = dom.find_tree_root(host),
-                None => break,
-            }
+        } else if let Some(&pair) = self.recorded.get(&r) {
+            Segment::Live { pair }
+        } else if self.skipped.contains(&r) {
+            Segment::Skipped
+        } else {
+            Segment::Live { pair: false }
         }
-        Segment::Live { pair: false }
     }
 }

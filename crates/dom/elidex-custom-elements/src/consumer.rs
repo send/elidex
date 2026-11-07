@@ -61,7 +61,6 @@ use std::sync::{Arc, Mutex};
 
 use elidex_ecs::{
     AdoptedContents, CloneScope, EcsDom, Entity, MutationEvent, TemplateContentsWalk,
-    MAX_ANCESTOR_DEPTH,
 };
 
 use crate::reaction::CustomElementReaction;
@@ -381,12 +380,14 @@ pub fn classify_attribute_change(
     })
 }
 
-/// The pair of `entity`'s innermost adopt segment (C0c D-6's lookup): climb
-/// to its tree root, out of each shadow root through its host, until `root`
-/// (the root's `documents`) or a segment's `fragment` (that segment's); any
-/// other root — a contents fragment the walk skipped, or a climb that the
-/// `MAX_ANCESTOR_DEPTH` cap of `find_tree_root` cut short (a stated defect) —
-/// reads `None`.
+/// The pair of `entity`'s innermost adopt segment (C0c D-6's lookup): its
+/// shadow-including root ([`EcsDom::find_tree_root_composed`]; a contents
+/// fragment has no parent and is not a shadow root, so the climb stops at the
+/// nearest one). `root` gives the root's `documents`, a segment's `fragment`
+/// that segment's; any other root — a contents fragment the walk skipped, or
+/// an interior node where the `MAX_ANCESTOR_DEPTH` cap of
+/// `find_tree_root_composed` cut the climb short (a stated defect, C0c memo
+/// §8) — reads `None`.
 fn adopt_pair(
     dom: &EcsDom,
     entity: Entity,
@@ -394,17 +395,14 @@ fn adopt_pair(
     documents: Option<(Entity, Entity)>,
     contents: &[AdoptedContents],
 ) -> Option<(Entity, Entity)> {
-    let mut r = dom.find_tree_root(entity);
-    for _ in 0..=MAX_ANCESTOR_DEPTH {
-        if r == root {
-            return documents;
-        }
-        if let Some(segment) = contents.iter().find(|s| s.fragment == r) {
-            return segment.documents;
-        }
-        r = dom.find_tree_root(dom.shadow_host(r)?);
+    let r = dom.find_tree_root_composed(entity);
+    if r == root {
+        return documents;
     }
-    None
+    contents
+        .iter()
+        .find(|s| s.fragment == r)
+        .and_then(|s| s.documents)
 }
 
 /// Returns `true` iff `entity` is a Custom element ready for lifecycle
