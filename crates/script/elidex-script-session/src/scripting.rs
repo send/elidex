@@ -6,7 +6,7 @@
 //! rather than composing the clauses host-side (Layering mandate: `vm/host/`
 //! is marshalling only; §8.1.3.4 is an HTML algorithm and lives here).
 
-use elidex_ecs::{EcsDom, Entity, NodeKind};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::SandboxingFlagSet;
 
 /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object"
@@ -63,13 +63,10 @@ use elidex_plugin::SandboxingFlagSet;
 /// share the template's node document (no inert document yet), which rides
 /// `#11-template-contents-owner-document`.
 ///
-/// Clause (b) applies to objects implementing `Node` only — Window /
-/// Worker / OffscreenCanvas entities (`is_node() == false`) and non-DOM
-/// entities fall through to the settings-level verdict.
-/// [`EcsDom::node_kind_inferred`] (the brand-check convention) also covers
-/// legacy entities carrying `TagType`/`TextContent` but no `NodeKind`
-/// component, so a NodeKind-less node of a null-BC document is still
-/// gated.
+/// Clause (b) applies to objects implementing `Node` only: a Window /
+/// Worker / OffscreenCanvas or other non-DOM entity has no node document
+/// (only node creators stamp one), so it falls through to the
+/// settings-level verdict.
 #[must_use]
 pub fn scripting_disabled_for_platform_object(
     dom: &EcsDom,
@@ -81,11 +78,8 @@ pub fn scripting_disabled_for_platform_object(
         return true;
     }
     // A Document is its own node document (`target != bound_document`).
-    dom.node_kind_inferred(target)
-        .is_some_and(NodeKind::is_node)
-        && dom
-            .node_document(target)
-            .is_some_and(|node_doc| node_doc != bound_document)
+    dom.node_document(target)
+        .is_some_and(|node_doc| node_doc != bound_document)
 }
 
 #[cfg(test)]
