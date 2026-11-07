@@ -1,7 +1,8 @@
 # VM stack-safety guard — umbrella (`#11-vm-call-depth-guard`)
 
 Status: **plan (pre-implementation), revised after plan-review R1** (findings at
-`H/review/axis1.md` … `axis5.md`, `aggregate.md`). Owner: VM P4 lane. PR-level plan:
+`H/review/axis1.md` … `axis5.md`, `aggregate.md`) **and the driver decisions D-W / D-SC and the
+split verdicts** (PR-1 §4.4, §6.3, §5.1). Owner: VM P4 lane. PR-level plan:
 [PR-1](2026-11-vm-stack-safety-guard-pr1.md).
 
 **Provenance root.** `H` = `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/stackguard-census`
@@ -75,12 +76,16 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 - The primitive (`crate::stack_guard` (NEW), PR-1 §4) and its per-thread bound.
 - The two re-entry choke points: `VmInner::with_call_mode` entry and `VmInner::resume_generator`
   entry (PR-1 §5.1). Every nested `run()` is reached through one of them (§2 I-1).
+- The two JS→wasm entries (CP-3: exported-function call and instantiation, PR-1 §5.1), which hand
+  wasmtime up to `max_wasm_stack` of the same thread's stack: the probe asks `WALKER_RESERVE +
+  MAX_WASM_STACK`, and `max_wasm_stack` is set from that one constant (PR-1 §4.4; measured, §8 M-11).
 - Every unbounded walker in `elidex-js` (PR-1 §5.2, enumerated by the census in §8 M-0 and the
   cut check in §8 M-6, which PR-1 turns into a tracked CI check, PR-1 §5.3).
 - The scope analyser's cap branch, which today skips silently and leaks depth (§3.1): PR-1 makes it
   record an error (PR-1 §5.2 W-8).
-- The regexp-compile front door and the routing of all six `regress` compile sites through it
-  (PR-1 §6).
+- The regexp-compile front door and the routing of the five `regress` compile sites that stay
+  compile sites through it; the sixth (structuredClone's re-compile) becomes a copy of the compiled
+  matcher, which is HTML StructuredSerializeInternal step 13 as written (PR-1 §6.1, §6.3).
 - The frame cap for plain JS→JS recursion, which never touches the Rust stack (PR-2; its relation
   to §15.10.3 is ⟨PM pending: P1⟩, §0).
 - The PM 424 rewording of the `MAX_JSON_DEPTH` docstring.
@@ -95,9 +100,9 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | Iterative JSON walkers | T3 engineering ideal. A4's `MAX_JSON_DEPTH` already prevents each walker's *own* recursion from aborting; PR-1 adds the probe for re-entry. What stays is the frame-size dependence of `MAX_JSON_DEPTH` (debug 600 vs release 1000) | `#11-vm-json-walkers-iterative` |
 | Returning `""` for a cyclic `join` | A compat behaviour; core gives the catchable `RangeError` (PM 424; elidex resource limit, §0.1) | `#11-vm-array-join-cycle-detection` (compat) |
 | `AbortSignal.any` chain recursion and its GC defect (DOM "create a dependent abort signal" source flattening) | PM 454: own terminal slot, lands **before** PR-1 (§4); the algorithm belongs in an engine-independent crate, not `vm/host/` | `#11-abort-signal-any-dependent-flattening` (L3) |
-| Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError` / early error) at the literal / `match` / `search` compile sites | PM 454; PR-1's front door passes `Syntax` through unchanged. (The structuredClone site is **not** in this set: no spec step parses or compiles there, §3.) | child of VM P4 slice-plan umbrella 8 (RegExp completion) (VM P4); slot id ⟨PM pending: P4⟩ — fact for the fork: the live ledger entry of `#11-vm-regexp-constructor-and-flags` carries it as a sub-item ("regex syntax errors surface as TypeError", PM 454 note) |
+| Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError` / early error) at the literal / `match` / `search` compile sites | PM 454; PR-1's front door passes `Syntax` through unchanged. (structuredClone is **not** in this set: after PR-1 it does not compile at all, it copies the matcher, §3.) | child of VM P4 slice-plan umbrella 8 (RegExp completion) (VM P4); slot id ⟨PM pending: P4⟩ — fact for the fork: the live ledger entry of `#11-vm-regexp-constructor-and-flags` carries it as a sub-item ("regex syntax errors surface as TypeError", PM 454 note) |
 | The missing `RegExp` constructor | PM 454; PR-1 covers it through I-7 once it calls the front door | `#11-vm-regexp-constructor-and-flags` (under umbrella 8, VM P4) |
-| Long left-deep expression chains (`a+b+…`, `a.b.c…`, `f()()…`) compiling at any length | Decided in PR-1 §5.4: they must compile; the remedy (iterating the left spine in scope + compiler) is its own slot, not PR-1 | `#11-vm-frontend-left-spine-iterative` (proposed by this revision; registration = PM) (VM P4) |
+| Long left-deep expression chains (`a+b+…`, `a.b.c…`, `f()()…`) compiling at any length | Decided in PR-1 §5.4: they must compile; the remedy (iterating the left spine in scope + compiler) is its own slot, not PR-1 | `#11-vm-frontend-left-spine-iterative` (proposed by this revision; registration ⟨PM pending: P8⟩) (VM P4) |
 | The `eval` / `Function` mapping of `StackExhausted` (compile-time → `RangeError` at the call) | No `eval` / `Function` today; the decision is recorded in PR-1 §4.1 so it is not re-made | `#11-vm-function-constructor-global` (owns `Function` and `eval`, VM P4 ledger) |
 
 ## §2. Coupled invariants
@@ -126,10 +131,10 @@ placement, nothing to measure).
 
 | Pair | Intersection | Pinned by | Basis |
 |---|---|---|---|
-| I-1 × I-2 | Coverage is only as good as the bound: the reserve must exceed the largest **unprobed** stack segment between two probes, on the bound the OS reports. | Minimum reserve with walker probes ~31 KiB debug / ~15 KiB release (16 KiB resolution, `H/logs/dbg-bisect.log`, `H/logs/rel-bisect.log`); 256 KiB chosen (PR-1 §4.3). macOS: a 2 MiB thread reports `requested + 12 KiB` and a C recursion faults 204 B below the reported low, so the reported low is the guard boundary (§8 M-5). Linux / Windows: asserted only, CI cell `stack_guard_bound_is_os_reported` + the 64 KiB ratchet (PR-1 §8). | measured (macOS); asserted (Linux, Windows) |
-| I-1 × I-3 | Each choke-point probe sits before the first VM state mutation of the guarded operation, so the failing path returns `Err` with nothing to unwind. | `with_call_mode`: probe before the `entry_frames` snapshot. `resume_generator`: before the generator is taken / marked Running. Mutants M-CP1 / M-CP2 (PR-1 §9) are planned, **not run**. | structural (placement); mutants to run in PR-1 |
+| I-1 × I-2 | Coverage is only as good as the bound: the reserve must exceed the largest **unprobed** stack segment between two probes, on the bound the OS reports. At CP-3 the segment after the probe is wasm's, so the ask is `WALKER_RESERVE + MAX_WASM_STACK`: an entry that runs to wasmtime's 512 KiB limit needs more than 512 KiB and at most ≈595 KiB (release) / ≈630 KiB (debug) of remaining stack (`H/logs/wasm-entry.log`, §8 M-11). | Minimum reserve with walker probes ~31 KiB debug / ~15 KiB release (16 KiB resolution, `H/logs/dbg-bisect.log`, `H/logs/rel-bisect.log`); 256 KiB chosen (PR-1 §4.3). macOS: a 2 MiB thread reports `requested + 12 KiB` and a C recursion faults 204 B below the reported low, so the reported low is the guard boundary (§8 M-5). Linux / Windows: asserted only, CI cell `stack_guard_bound_is_os_reported` + the 64 KiB ratchet (PR-1 §8). | measured (macOS); asserted (Linux, Windows) |
+| I-1 × I-3 | Each choke-point probe sits before the first VM state mutation of the guarded operation, so the failing path returns `Err` with nothing to unwind; for CP-3 also before the first wasm store / instance mutation. | `with_call_mode`: probe before the `entry_frames` snapshot. `resume_generator`: before the generator is taken / marked Running. CP-3a: before the `HostState` bind and `set_fuel` (the arm's `gc_enabled` toggle is restored on `Err`); CP-3b: before the lazy `vm_wasm_runtime()` init, `Store::new` and the start function (PR-1 §2, §5.1). Mutants M-CP1 / M-CP2 / M-CP3a / M-CP3b (PR-1 §9) are planned, **not run**. | structural (placement); mutants to run in PR-1 |
 | I-1 × I-4 | A cap that the stack cannot reach on the target thread hides a missing probe; a probe that fires before the cap changes the semantic answer. | JSON walkers on a 2 MiB thread, guard OFF, need at cap−10: parse 1184 / 368 KiB, stringify 1472 / 480, internalize 1712 / 368, sc 1696 / 480 (debug / release, `H/logs/dbg-need.log`, `H/logs/rel-need.log`). With the probe ON (256 KiB) cap−10 still passes on 2 MiB in debug, the lowest remaining at a probe being 397 807 B (internalize; `H/logs/cap10-on-dbg.log`). So the cap cells run on 8 MiB (they test the cap), and separate cap−10 cells stay on 2 MiB with the probe on (they ratchet the cap's derivation, PR-1 §8). | measured (macOS, debug + release) |
-| I-1 × I-5 | Probing every walker level and every callback entry is what makes coverage local and auditable; it is affordable only if one probe is a TLS read + SP read + compare. | Release, lean probe vs probe compiled out, min of 7 on a loaded host, CP-1 / CP-2 / W-1…W-6 only (PR-1 §10 lists what is unmeasured). | measured (partial scope, macOS release) |
+| I-1 × I-5 | Probing every walker level and every callback entry is what makes coverage local and auditable; it is affordable only if one probe is a TLS read + SP read + compare. | Release, lean probe vs probe compiled out, min of 7 on a loaded host, CP-1 / CP-2 / W-1…W-6 only (PR-1 §10 lists what is unmeasured, CP-3a's `wasmcall` workload among the acceptance runs). | measured (partial scope, macOS release) |
 | I-2 × I-3 | An unknown bound fails early, which surfaces as a `RangeError` from an operation that has not started; I-3 makes the early failure harmless. | Forced fallback (`SG_FORCE_UNKNOWN`, 2 MiB): `map` / `json` / `generator` stop with a catchable `RangeError` at d = 15 / 13 / 15 debug and 115 / 107 / 137 release, vs 34 / 31 / 36 and 267 / 250 / 320 on the OS bound; bound = first-probe SP − 1 MiB (`H/logs/force-unknown.log`). | measured (macOS) |
 | I-2 × I-4 | The cap must be reachable on the smallest supported thread or the cap cell silently tests the probe instead. | The explicit-thread rule for cap cells (PR-1 §8). | structural |
 | I-2 × I-5 | The bound is computed once per thread (lazy, cached in a `thread_local!` `Cell`), so the OS query is never on the hot path. | One `pthread_*` / `GetCurrentThreadStackLimits` call per thread. | structural |
@@ -164,18 +169,23 @@ elidex's resource limit (PM 424), and the "Step" cell says where it lands relati
 | ECMA-262 §22.2.3.1 RegExpCreate | step 2 RegExpInitialize | pattern parse + compile | front door `compile_regexp` (NEW) | ✓ | yes |
 | ECMA-262 §22.2.3.3 RegExpInitialize | step 14 ParsePattern, step 15 SyntaxError, step 22 CompilePattern | the convergence point of RegExpCreate and the `RegExp` constructor | front door `compile_regexp` (NEW) | ✓ | yes |
 | ECMA-262 §22.2.3.4 Static Semantics: ParsePattern | pattern parse | groups / disjunction | front door weight pass (NEW) | ✓ | yes |
-| WHATWG HTML §2.7.4 StructuredSerializeInternal | step 28.4 per-property recursion; step 13 RegExp (copies `[[RegExpMatcher]]`, no compile) | Array / ordinary / Error / RegExp | `clone_recursive`, `clone_regexp` | ✓ | yes |
-| WHATWG HTML §2.7.7 StructuredDeserialize | step 25.3 per-property recursion; step 12 RegExp (from the copied matcher) | Array / Object / RegExp | `clone_recursive` (fused walk) | ✓ | yes |
+| WHATWG HTML §2.7.4 StructuredSerializeInternal | step 28.4 per-property recursion; step 13 RegExp (copies `[[RegExpMatcher]]`, no compile) | Array / ordinary / Error / RegExp | `clone_recursive`, `clone_regexp` (matcher copy) | ✓ | yes |
+| WHATWG HTML §2.7.7 StructuredDeserialize | step 25.3 per-property recursion; step 12 RegExp (from the copied matcher) | Array / Object / RegExp | `clone_recursive` (fused walk), `clone_regexp` (the copied matcher) | ✓ | yes |
 | WHATWG HTML §2.7.11 Structured cloning API | step 1 StructuredSerializeWithTransfer (§2.7.8), step 2 StructuredDeserializeWithTransfer (§2.7.9) | — | `clone_recursive` entry | ✓ | yes |
 | IndexedDB-3 §5.11 Clone a value | step 3 StructuredSerializeForStorage, step 4 StructuredDeserialize | stored value | `reject_non_json_storable` (W-12) | ✓ | yes |
+| WebAssembly JS API §5.6 Exported Functions | *call an Exported Function* step 8 `func_invoke`; the probe's `RangeError` is elidex's resource limit (step 10's "unless otherwise indicated") | exported function call | CP-3a `call_wasm_exported_function` | ✓ | yes |
+| WebAssembly JS API §5 The WebAssembly Namespace | *instantiate the core of a WebAssembly module* step 2 (start function); step 3 third bullet ("another error type if appropriate") | sync ctor / async `instantiate` | CP-3b `instantiate_module` | ✓ | yes |
 
-**Breadth**: K=3 specs (ECMA-262, WHATWG HTML, IndexedDB-3), M=19 entries (verified 2026-11-08 by
-`preflight.py`: M=19, K=3 with `IndexedDB-3` reported as an unmapped label and its row not
-webref-verified; re-recorded at landing, PR-1 §12 L-9). The R1 revision added §15.10.3, §25.5.2.1 (replacing the §25.5.2
-row), JoinIndexedProperties, RegExpInitialize, ParsePattern, StructuredDeserialize and IndexedDB-3
-§5.11, re-labelled §2.7.11, and moved the rows the program does not touch to §3.2.
-**Split decision**: K<4 and M<20 → single PR by breadth; the program is split for the edge-dense
-reason (§2) and the PM 436 split, not by breadth.
+**Breadth**: K=4 specs (ECMA-262, WHATWG HTML, IndexedDB-3, WebAssembly JS API), M=21 entries
+(verified 2026-11-08 by `preflight.py`: M=21, K=4, with `IndexedDB-3` and `WebAssembly JS API` reported as
+unmapped labels and their rows not webref-verified; the wasm anchors are hand-checked in PR-1 §3;
+re-recorded at landing, PR-1 §12 L-9). The R1 revision added §15.10.3, §25.5.2.1 (replacing the
+§25.5.2 row), JoinIndexedProperties, RegExpInitialize, ParsePattern, StructuredDeserialize and
+IndexedDB-3 §5.11, re-labelled §2.7.11, and moved the rows the program does not touch to §3.2;
+D-W added the two WebAssembly JS API rows.
+**Split decision**: K=4 and M=21 → SPLIT-RECOMMENDED by breadth. The program is already split (the
+edge-dense reason, §2, and the PM 436 split); whether PR-1 itself splits off CP-3 is PR-1 §3's
+⟨driver pending: D-K⟩.
 
 ### §3.1 User-input touch audit
 
@@ -220,7 +230,7 @@ chains are the W-11 slot's, PM 454.) Adjacent pre-existing code whose exposure c
 |---|---|---|---|
 | W-11 slot (not part of this program's PRs; PM 454) | DOM "create a dependent abort signal" source flattening in an engine-independent crate; GC repair; `abort_statics.rs` citation drift fix (all seven cites, PM 458) | — | PR-1 |
 | `interpreter.rs` prereq split (standalone, CLAUDE.md 1000-line rule; PR-1 §5.1) | Move the in-file `mod tests` of `vm/interpreter.rs` out; split the entry half from the dispatch half | — | PR-1 |
-| PR-1 | Primitive; choke points; walker probes (JSON ×5 sites — `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, the scope cap's error exit, IndexedDB storable check); regexp front door + 6 compile sites + trip-wire; PM 424 rewording; explicit-thread JSON cells; the tracked recursion cut check | the W-11 slot (landed); the `interpreter.rs` prereq split; ordering against Slice F / E1 / the layering seam ⟨PM pending: P2⟩ | PR-2; the successor T3 slot |
+| PR-1 | Primitive; choke points (CP-1, CP-2, and CP-3 at the two JS→wasm entries with `max_wasm_stack` set from `MAX_WASM_STACK`); walker probes (JSON ×5 sites — `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, the scope cap's error exit, IndexedDB storable check); regexp front door + 5 compile sites routed + structuredClone's re-compile replaced by a matcher copy + trip-wire; PM 424 rewording; explicit-thread JSON cells; the tracked recursion cut check | the W-11 slot (landed); the `interpreter.rs` prereq split; ordering against Slice F / E1 / the layering seam ⟨PM pending: P2⟩ | PR-2; the successor T3 slot |
 | PR-2 | Frame cap: `frames.len()` cap mapped to the same `RangeError`, for plain JS→JS recursion (heap `CallFrame`s, no Rust recursion); its §15.10.3 relation ⟨PM pending: P1⟩; whether it covers the self-chaining-Promise facet of its slot ⟨PM pending: P6⟩ | PR-1 (shares the error constructor and message) | — |
 
 Edges: **W-11 slot → PR-1 is a hard edge** (PM 454). PR-1 cannot land correctly without it:
@@ -252,7 +262,7 @@ redesign.
 | `#11-vm-array-join-cycle-detection` | Stays open, compat. Its premise is realised by PR-1: a cyclic `join` gives the catchable `RangeError` (elidex resource limit; cell `rt_cyclic_join_range_error`, PR-1 §8; PR-1 §12 L-3) | compat (no lane) |
 | `#11-dom-walkers-iterative-over-ecs-links` | Open (PM 436 R2); depends on PR-1's reserve until it lands (PR-1 §12 L-6) | L3 |
 | `#11-render-pipeline-recursion-depth-abort` | Open (PM 436 R3); one-primitive note in §1.2 | L2 |
-| `#11-vm-frontend-left-spine-iterative` | **Proposed** by this revision (PR-1 §5.4); registration = PM | VM P4 |
+| `#11-vm-frontend-left-spine-iterative` | **Proposed** by this revision (PR-1 §5.4); registration ⟨PM pending: P8⟩ | VM P4 |
 
 ## §6. Security relevance
 
@@ -325,3 +335,9 @@ All under `H` (defined in the header). Thread size 2 MiB unless stated. Prototyp
   wasmtime-internal-fiber` and the same with `--workspace` → "nothing to print"
   (`H/logs/tree-fiber.log`, `H/logs/tree-fiber-ws.log`): the fiber crate is in `Cargo.lock` but
   not compiled (wasmtime's `async` feature is off). Reading of PR-1 §4.4.
+- **M-11 JS→wasm entry near the floor**: `H/scripts/wasm_entry.sh <debug|release> <top|depth> [D] [SG_OFF=1]`
+  (a module whose start function recurses without end, instantiated at callback depth D through
+  `[1].forEach`; prototype guard on at 256 KiB unless `SG_OFF=1`), log `H/logs/wasm-entry.log`:
+  top → `RuntimeError` both profiles; guard on, debug D = 24 / 26 → `RuntimeError`, 28–32 → abort,
+  33 (floor) → `RangeError`; release 200 / 220 → `RuntimeError`, 240–260 → abort, 269 →
+  `RangeError`. Reading and the `MAX_WASM_STACK` sizing: PR-1 §4.4.
