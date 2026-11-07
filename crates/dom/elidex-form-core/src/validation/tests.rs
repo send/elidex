@@ -661,7 +661,7 @@ fn pattern_unicode_false_digit_shorthand() {
 #[test]
 fn candidate_text_input_default() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("input", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("input", Attributes::default());
     let state = text_input("hello", false);
     assert!(is_constraint_validation_candidate(&state, entity, &dom));
 }
@@ -669,7 +669,7 @@ fn candidate_text_input_default() {
 #[test]
 fn candidate_text_input_disabled_barred() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("input", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("input", Attributes::default());
     let mut state = text_input("hello", false);
     state.disabled = true;
     assert!(!is_constraint_validation_candidate(&state, entity, &dom));
@@ -678,7 +678,7 @@ fn candidate_text_input_disabled_barred() {
 #[test]
 fn candidate_hidden_input_barred() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("input", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("input", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "hidden");
     let state = FormControlState::from_element("input", &attrs).unwrap();
@@ -690,7 +690,7 @@ fn candidate_readonly_text_input_barred() {
     // HTML §4.10.20.3: readonly bars constraint validation when
     // the attribute applies to the kind (text/textarea/etc).
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("input", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("input", Attributes::default());
     let mut state = text_input("hello", true);
     state.readonly = true;
     assert!(!is_constraint_validation_candidate(&state, entity, &dom));
@@ -699,7 +699,7 @@ fn candidate_readonly_text_input_barred() {
 #[test]
 fn candidate_readonly_textarea_barred() {
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("textarea", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("textarea", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("required", "");
     let mut state = FormControlState::from_element("textarea", &attrs).unwrap();
@@ -712,7 +712,7 @@ fn candidate_readonly_checkbox_still_candidate() {
     // `readonly` does not apply to checkbox per HTML §4.10.5.1.4,
     // so setting it must not bar the control from validation.
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("input", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("input", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
     attrs.set("required", "");
@@ -725,7 +725,7 @@ fn candidate_readonly_checkbox_still_candidate() {
 fn candidate_readonly_range_still_candidate() {
     // Same: `readonly` doesn't apply to `<input type=range>`.
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("input", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("input", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "range");
     let mut state = FormControlState::from_element("input", &attrs).unwrap();
@@ -738,7 +738,7 @@ fn candidate_button_not_submittable() {
     // Button kinds are not submittable, so they're never candidates
     // regardless of readonly state.
     let mut dom = elidex_ecs::EcsDom::new();
-    let entity = dom.create_element("button", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("button", Attributes::default());
     let attrs = Attributes::default();
     let state = FormControlState::from_element("button", &attrs).unwrap();
     assert!(!is_constraint_validation_candidate(&state, entity, &dom));

@@ -16,7 +16,7 @@ use elidex_script_session::{ComponentKind, DomApiErrorKind, DomApiHandler, Sessi
 /// mint `ObjectRef`s. The select is not attached to any document tree.
 fn setup() -> (EcsDom, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let select = dom.create_element("select", Attributes::default());
+    let select = dom.create_element_ownerless_fixture("select", Attributes::default());
     let mut session = SessionCore::new();
     session.get_or_create_wrapper(select, ComponentKind::Element);
     (dom, select, session)
@@ -24,7 +24,7 @@ fn setup() -> (EcsDom, Entity, SessionCore) {
 
 /// Create an element of `tag`, register a wrapper, return `(entity, ref)`.
 fn elem(dom: &mut EcsDom, session: &mut SessionCore, tag: &str) -> (Entity, u64) {
-    let e = dom.create_element(tag, Attributes::default());
+    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
     let r = session
         .get_or_create_wrapper(e, ComponentKind::Element)
         .to_raw();
@@ -406,10 +406,10 @@ fn options_set_length_shrink_runs_even_above_cap() {
     // the sibling cap), so the flattened Options count exceeds the cap.
     let half = elidex_ecs::MAX_ANCESTOR_DEPTH / 2 + 1; // 5001 each → 10002 total
     for _ in 0..2 {
-        let og = dom.create_element("optgroup", Attributes::default());
+        let og = dom.create_element_ownerless_fixture("optgroup", Attributes::default());
         dom.append_child(select, og);
         for _ in 0..half {
-            let opt = dom.create_element("option", Attributes::default());
+            let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
             dom.append_child(og, opt);
         }
     }

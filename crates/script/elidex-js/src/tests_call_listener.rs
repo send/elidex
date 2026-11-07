@@ -60,7 +60,7 @@ fn first_green_listener_calls_prevent_default() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     let listener_id = ListenerId::from_raw(1);
 
     // Build a cancelable click event targeted at the button.
@@ -99,7 +99,7 @@ fn call_listener_lazy_compiles_inline_handler() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("div", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     // Pre-seed an event-handler listener whose value is an uncompiled
     // inline source (as the inline-attribute consumer would record).
@@ -162,7 +162,7 @@ fn call_listener_skips_inline_handler_when_scripting_disabled() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
 
     // Pre-seed an inline handler exactly as `call_listener_lazy_compiles_inline_handler`
     // does — the only difference is the sandbox flag set below.
@@ -217,7 +217,7 @@ fn passive_listener_prevent_default_is_silently_ignored() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     let listener_id = ListenerId::from_raw(1);
 
     let mut event = DispatchEvent::new("click", target);
@@ -252,7 +252,7 @@ fn stop_propagation_syncs_to_dispatch_flags() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("div", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
     let listener_id = ListenerId::from_raw(1);
 
     let mut event = DispatchEvent::new("click", target);
@@ -281,7 +281,7 @@ fn current_target_is_the_this_binding_for_the_listener() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("button", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("button", Attributes::default());
     let listener_id = ListenerId::from_raw(1);
 
     let mut event = DispatchEvent::new("click", target);
@@ -320,7 +320,7 @@ fn microtask_scheduled_inside_listener_fires_on_next_run_microtasks() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("div", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
     let listener_id = ListenerId::from_raw(1);
 
     let mut event = DispatchEvent::new("click", target);
@@ -377,7 +377,7 @@ fn missing_listener_id_silently_no_ops() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let target = dom.create_element("div", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let mut event = DispatchEvent::new("click", target);
     with_bound_ctx(&mut engine, &mut session, &mut dom, doc, |engine, ctx| {
@@ -411,7 +411,11 @@ fn call_listener_foreign_document_node_raw_gated_callback_runs() {
     // document, and an element owned by and appended into the second one.
     let doc = dom.create_document_root();
     let doc2 = dom.create_document_node();
-    let foreign = dom.create_element_with_owner("div", Attributes::default(), Some(doc2));
+    let foreign = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc2),
+    );
     assert!(dom.append_child(doc2, foreign));
 
     let (raw_id, callback_id) = {

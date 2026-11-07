@@ -41,7 +41,7 @@ fn destroy_entity_passes_inclusive_descendants_snapshot() {
     let parent = elem(&mut dom, "div");
     let target = elem(&mut dom, "section");
     let child_a = elem(&mut dom, "p");
-    let grandchild = dom.create_text("inner");
+    let grandchild = dom.create_text_ownerless_fixture("inner");
     let child_b = elem(&mut dom, "span");
     assert!(dom.append_child(parent, target));
     assert!(dom.append_child(target, child_a));
@@ -124,8 +124,8 @@ fn dispatcher_calling_mutation_primitive_panics_in_debug() {
     // catches violations in debug builds.
     let mut dom = crate::EcsDom::new();
     let root = dom.create_document_root();
-    let parent = dom.create_element("div", crate::Attributes::default());
-    let child = dom.create_element("span", crate::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", crate::Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", crate::Attributes::default());
     assert!(dom.append_child(root, parent));
     dom.set_mutation_dispatcher(Box::new(ReEntryHook));
     // The append_child below fires an Insert event; ReEntryHook
@@ -156,7 +156,7 @@ impl MutationDispatcher for AttrChangeCountHook {
 #[test]
 fn remove_absent_attribute_fires_no_mutation_record() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", crate::Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", crate::Attributes::default());
     // Seed an attribute BEFORE installing the hook so the set isn't counted.
     assert!(dom.set_attribute(el, "id", "x").did_set);
 

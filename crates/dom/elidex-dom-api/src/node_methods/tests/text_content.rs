@@ -10,9 +10,9 @@ use super::*;
 #[test]
 fn textcontent_replaces_children_with_one_text() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let s1 = dom.create_element("span", Attributes::default());
-    let s2 = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let s1 = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let s2 = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(div, s1);
     dom.append_child(div, s2);
 
@@ -31,8 +31,8 @@ fn textcontent_replaces_children_with_one_text() {
 #[test]
 fn textcontent_empty_string_clears_children() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let s1 = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let s1 = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(div, s1);
 
     SetTextContentNodeKind
@@ -50,7 +50,7 @@ fn textcontent_empty_string_clears_children() {
 #[test]
 fn textcontent_empty_string_on_empty_element_is_noop() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     // No children, empty value → no-op (and, per §4.2.3 replace all step 7, no record — the
     // VM e2e test asserts the no-record; here we assert it neither panics nor

@@ -12,7 +12,7 @@ use crate::components::IframeData;
 fn iframe_with_data(dom: &mut EcsDom) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("src", "https://a.example/");
-    let el = dom.create_element("iframe", attrs);
+    let el = dom.create_element_ownerless_fixture("iframe", attrs);
     let derived = {
         let a = dom.world().get::<&Attributes>(el).unwrap();
         IframeData::from_attributes(&a)
@@ -46,7 +46,7 @@ fn set_attribute_syncs_cached_attr_node_value() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("value", "old");
-    let el = dom.create_element("input", attrs);
+    let el = dom.create_element_ownerless_fixture("input", attrs);
 
     // Materialize the `Attr` node as `getAttributeNode("value")` would: an
     // `AttrData` entity + an `AttrEntityCache` mapping on the element.
@@ -99,7 +99,7 @@ fn non_src_iframe_attr_write_rederives_whole_struct() {
 #[test]
 fn set_attribute_does_not_attach_iframe_data_to_non_iframe() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     // Presence-gated: a non-iframe that receives a `src` write must NOT gain
     // an IframeData component.
     dom.set_attribute(el, "src", "https://a.example/");

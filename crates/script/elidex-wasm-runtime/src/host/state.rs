@@ -182,7 +182,7 @@ mod tests {
 
         state.bind(&mut session, &mut dom, doc);
         state.with(|_session, dom| {
-            let _e = dom.create_element("div", elidex_ecs::Attributes::default());
+            let _e = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
         });
         state.unbind();
     }

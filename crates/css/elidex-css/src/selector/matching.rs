@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn disabled_does_not_match_non_form_element() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         // Manually set DISABLED flag on a <div> — should NOT match :disabled.
         let mut es = ElementState::default();
         es.insert(ElementState::DISABLED);
@@ -464,7 +464,7 @@ mod tests {
     #[test]
     fn checked_does_not_match_non_form_element() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::CHECKED);
         let _ = dom.world_mut().insert_one(div, es);
@@ -475,7 +475,7 @@ mod tests {
     #[test]
     fn disabled_matches_form_element() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::DISABLED);
         let _ = dom.world_mut().insert_one(input, es);
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn enabled_matches_non_disabled_form_element() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.world_mut().insert_one(input, ElementState::default());
 
         assert!(match_pseudo_class("enabled", input, &dom));
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn enabled_does_not_match_non_form_element() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(div, ElementState::default());
 
         assert!(!match_pseudo_class("enabled", div, &dom));
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn required_matches_form_element_with_flag() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::REQUIRED);
         let _ = dom.world_mut().insert_one(input, es);
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn optional_matches_form_element_without_required() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.world_mut().insert_one(input, ElementState::default());
         assert!(match_pseudo_class("optional", input, &dom));
     }
@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn valid_invalid_pseudo_classes() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::VALID);
         let _ = dom.world_mut().insert_one(input, es);
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn read_only_read_write_pseudo_classes() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::READ_ONLY);
         let _ = dom.world_mut().insert_one(input, es);
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn disabled_matches_read_only_not_read_write() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::DISABLED);
         let _ = dom.world_mut().insert_one(input, es);
@@ -558,7 +558,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("type", "checkbox");
-        let input = dom.create_element("input", attrs);
+        let input = dom.create_element_ownerless_fixture("input", attrs);
         let mut es = ElementState::default();
         es.insert(ElementState::INDETERMINATE);
         let _ = dom.world_mut().insert_one(input, es);
@@ -570,7 +570,7 @@ mod tests {
         // Per HTML §4.10.18.5: <fieldset> is NOT "actually disableable" —
         // it does not match :enabled or :disabled pseudo-classes.
         let mut dom = EcsDom::new();
-        let fs = dom.create_element("fieldset", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::DISABLED);
         let _ = dom.world_mut().insert_one(fs, es);
@@ -581,7 +581,7 @@ mod tests {
     #[test]
     fn required_does_not_match_non_form() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::REQUIRED);
         let _ = dom.world_mut().insert_one(div, es);
@@ -591,7 +591,7 @@ mod tests {
     #[test]
     fn required_does_not_match_fieldset() {
         let mut dom = EcsDom::new();
-        let fs = dom.create_element("fieldset", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
         let mut es = ElementState::default();
         es.insert(ElementState::REQUIRED);
         let _ = dom.world_mut().insert_one(fs, es);
@@ -603,21 +603,21 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("selected", "");
-        let option = dom.create_element("option", attrs);
+        let option = dom.create_element_ownerless_fixture("option", attrs);
         assert!(match_pseudo_class("checked", option, &dom));
     }
 
     #[test]
     fn checked_does_not_match_option_without_selected() {
         let mut dom = EcsDom::new();
-        let option = dom.create_element("option", Attributes::default());
+        let option = dom.create_element_ownerless_fixture("option", Attributes::default());
         assert!(!match_pseudo_class("checked", option, &dom));
     }
 
     #[test]
     fn read_only_matches_non_form_without_contenteditable() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         assert!(match_pseudo_class("read-only", div, &dom));
     }
 
@@ -626,7 +626,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("contenteditable", "true");
-        let div = dom.create_element("div", attrs);
+        let div = dom.create_element_ownerless_fixture("div", attrs);
         assert!(match_pseudo_class("read-write", div, &dom));
         assert!(!match_pseudo_class("read-only", div, &dom));
     }
@@ -638,7 +638,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("href", "https://example.com");
-        let a = dom.create_element("a", attrs);
+        let a = dom.create_element_ownerless_fixture("a", attrs);
         assert!(!match_pseudo_class("enabled", a, &dom));
     }
 
@@ -646,7 +646,7 @@ mod tests {
     fn enabled_matches_button_without_form() {
         // <button> is :enabled even without a parent <form>.
         let mut dom = EcsDom::new();
-        let btn = dom.create_element("button", Attributes::default());
+        let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
         let _ = dom.world_mut().insert_one(btn, ElementState::default());
         assert!(match_pseudo_class("enabled", btn, &dom));
         assert!(!match_pseudo_class("disabled", btn, &dom));
@@ -658,7 +658,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("contenteditable", "");
-        let div = dom.create_element("div", attrs);
+        let div = dom.create_element_ownerless_fixture("div", attrs);
         assert!(match_pseudo_class("read-write", div, &dom));
     }
 }

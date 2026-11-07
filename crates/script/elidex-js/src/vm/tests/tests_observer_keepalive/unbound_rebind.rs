@@ -24,7 +24,7 @@ fn observing_mutation_observer_survives_unbound_gc_and_resumes_after_rebind() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, root));
     #[allow(unsafe_code)]
     unsafe {
@@ -56,7 +56,7 @@ fn observing_mutation_observer_survives_unbound_gc_and_resumes_after_rebind() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     vm.deliver_mutation_records(&[child_list_added(root, added)]);
     assert_eq!(
         vm.eval("calls").unwrap(),

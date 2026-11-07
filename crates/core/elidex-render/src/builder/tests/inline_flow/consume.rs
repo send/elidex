@@ -21,7 +21,7 @@ fn consumes_inline_flow_per_line() {
         },
     );
     // The text node is the run-start (render's run[0]) and carries the flow.
-    let text = dom.create_text("HelloWorld");
+    let text = dom.create_text_ownerless_fixture("HelloWorld");
     dom.append_child(div, text);
 
     // Simulate layout output: two lines, runs styled by the div.
@@ -96,9 +96,9 @@ fn consumes_atomic_box_member_paints_box() {
     );
     // The text node is the run-start (carries the flow); the inline-block is the
     // atomic member painted by walk().
-    let text = dom.create_text("x");
+    let text = dom.create_text_ownerless_fixture("x");
     dom.append_child(div, text);
-    let ib = dom.create_element("span", elidex_ecs::Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         ib,
         elidex_plugin::ComputedStyle {
@@ -185,7 +185,7 @@ fn falls_back_without_inline_flow() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("HelloWorld");
+    let text = dom.create_text_ownerless_fixture("HelloWorld");
     dom.append_child(div, text);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -219,7 +219,7 @@ fn converged_path_does_not_re_transform() {
                 ..Default::default()
             },
         );
-        let text = dom.create_text("abc");
+        let text = dom.create_text_ownerless_fixture("abc");
         dom.append_child(div, text);
         // Probe: hold the persisted run text constant at "abc" regardless of the
         // div's `text-transform` (real layout would persist "ABC" for Uppercase) so
@@ -283,9 +283,9 @@ fn interspersed_abspos_does_not_double_paint() {
     );
 
     // Inline text — absolutely positioned span — inline text.
-    let text1 = dom.create_text("AAA");
+    let text1 = dom.create_text_ownerless_fixture("AAA");
     dom.append_child(root, text1);
-    let abspos = dom.create_element("span", Attributes::default());
+    let abspos = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         abspos,
         elidex_plugin::ComputedStyle {
@@ -295,7 +295,7 @@ fn interspersed_abspos_does_not_double_paint() {
         },
     );
     dom.append_child(root, abspos);
-    let text2 = dom.create_text("BBB");
+    let text2 = dom.create_text_ownerless_fixture("BBB");
     dom.append_child(root, text2);
 
     // Layout persists one InlineFlow on the run-start (text1) spanning both runs

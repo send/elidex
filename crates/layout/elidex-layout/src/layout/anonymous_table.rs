@@ -156,7 +156,9 @@ fn wrap_run_with_display(
         let _ = dom.insert_before(parent, entity, children[0]);
         entity
     } else {
-        let w = dom.create_element(tag, elidex_ecs::Attributes::default());
+        // In the node document of the element it is created for (DOM §4.4).
+        let owner = dom.node_document_for_new_nodes(parent);
+        let w = dom.create_element_with_owner(tag, elidex_ecs::Attributes::default(), owner);
         let _ = dom
             .world_mut()
             .insert(w, (AnonymousTableMarker, anon_style));

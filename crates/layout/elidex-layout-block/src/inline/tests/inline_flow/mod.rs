@@ -70,9 +70,9 @@ pub(super) fn setup_span_align(
     width: f32,
 ) -> Option<(EcsDom, Entity, Entity, FontDatabase)> {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
-    let span_text = dom.create_text(text);
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let span_text = dom.create_text_ownerless_fixture(text);
     dom.append_child(span, span_text);
     dom.append_child(parent, span);
     let font_db = FontDatabase::new();

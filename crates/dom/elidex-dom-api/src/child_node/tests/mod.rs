@@ -8,10 +8,10 @@ use elidex_script_session::{ComponentKind, SessionCore};
 /// Create a simple DOM: doc > body > [div, span, p]
 fn setup() -> (EcsDom, Entity, Entity, Entity, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let body = dom.create_element("body", Attributes::default());
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
-    let p = dom.create_element("p", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(body, div);
     dom.append_child(body, span);
     dom.append_child(body, p);

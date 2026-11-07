@@ -2,9 +2,10 @@
 //!
 //! Split into cohesive submodules:
 //! - [`mutation`] — relinking mutations (`append_child` / `insert_before` /
-//!   `replace_child` / `remove_child`) and their `MutationEvent` fire sites.
-//! - [`teardown`] — subtree destruction / despawn / re-home (`destroy_entity` /
-//!   `despawn_subtree` / `adopt_subtree`).
+//!   `replace_child` / `remove_child`), DOM §4.5 `adopt`, and their
+//!   `MutationEvent` fire sites.
+//! - [`teardown`] — subtree destruction / despawn (`destroy_entity` /
+//!   `despawn_subtree`) and the HTML §13.4 fragment-build frame.
 //! - [`navigation`] — parent / child / sibling accessors, element-filtered and
 //!   shadow-exposed navigation, tag helpers, and the children iterators.
 //! - [`walkers`] — shadow-inclusive descendant / ancestor walks, connectedness,

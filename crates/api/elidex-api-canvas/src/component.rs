@@ -236,7 +236,7 @@ mod tests {
     use elidex_ecs::Attributes;
 
     fn canvas(dom: &mut EcsDom, w: &str, h: &str) -> Entity {
-        let e = dom.create_element("canvas", Attributes::default());
+        let e = dom.create_element_ownerless_fixture("canvas", Attributes::default());
         dom.set_attribute(e, "width", w);
         dom.set_attribute(e, "height", h);
         e
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn dimensions_default_when_attrs_absent() {
         let mut dom = EcsDom::new();
-        let e = dom.create_element("canvas", Attributes::default());
+        let e = dom.create_element_ownerless_fixture("canvas", Attributes::default());
         assert_eq!(canvas_dimensions(&dom, e), (DEFAULT_WIDTH, DEFAULT_HEIGHT));
     }
 

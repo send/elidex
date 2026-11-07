@@ -72,29 +72,29 @@ fn nodes_equal_per_kind_branches() {
     assert!(!dom.nodes_equal(p_node, div_node));
 
     // Text: same payload -> equal; different -> not equal
-    let t1 = dom.create_text("hello");
-    let t2 = dom.create_text("hello");
-    let t3 = dom.create_text("world");
+    let t1 = dom.create_text_ownerless_fixture("hello");
+    let t2 = dom.create_text_ownerless_fixture("hello");
+    let t3 = dom.create_text_ownerless_fixture("world");
     assert!(dom.nodes_equal(t1, t2));
     assert!(!dom.nodes_equal(t1, t3));
 
     // Comment: same payload -> equal; different -> not equal
-    let c1 = dom.create_comment("note");
-    let c2 = dom.create_comment("note");
-    let c3 = dom.create_comment("other");
+    let c1 = dom.create_comment_ownerless_fixture("note");
+    let c2 = dom.create_comment_ownerless_fixture("note");
+    let c3 = dom.create_comment_ownerless_fixture("other");
     assert!(dom.nodes_equal(c1, c2));
     assert!(!dom.nodes_equal(c1, c3));
 
     // DocumentType: all 3 fields must match
-    let dt1 = dom.create_document_type("html", "", "");
-    let dt2 = dom.create_document_type("html", "", "");
-    let dt3 = dom.create_document_type("html", "PUB", "");
+    let dt1 = dom.create_document_type("html", "", "", NewNodeOwner::NONE);
+    let dt2 = dom.create_document_type("html", "", "", NewNodeOwner::NONE);
+    let dt3 = dom.create_document_type("html", "PUB", "", NewNodeOwner::NONE);
     assert!(dom.nodes_equal(dt1, dt2));
     assert!(!dom.nodes_equal(dt1, dt3));
 
     // DocumentFragment: payload-less, equal when children match
-    let f1 = dom.create_document_fragment();
-    let f2 = dom.create_document_fragment();
+    let f1 = dom.create_document_fragment_ownerless_fixture();
+    let f2 = dom.create_document_fragment_ownerless_fixture();
     assert!(dom.nodes_equal(f1, f2));
 }
 
@@ -104,19 +104,19 @@ fn nodes_equal_attr_payload_distinguishes_local_name_and_value() {
     // equal — local_name and value must contribute to the payload
     // comparison.
     let mut dom = EcsDom::new();
-    let id_x = dom.create_attribute("id");
+    let id_x = dom.create_attribute("id", NewNodeOwner::NONE);
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(id_x) {
         a.value = "x".into();
     }
-    let id_x_clone = dom.create_attribute("id");
+    let id_x_clone = dom.create_attribute("id", NewNodeOwner::NONE);
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(id_x_clone) {
         a.value = "x".into();
     }
-    let id_y = dom.create_attribute("id");
+    let id_y = dom.create_attribute("id", NewNodeOwner::NONE);
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(id_y) {
         a.value = "y".into();
     }
-    let class_x = dom.create_attribute("class");
+    let class_x = dom.create_attribute("class", NewNodeOwner::NONE);
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(class_x) {
         a.value = "x".into();
     }
@@ -158,8 +158,8 @@ fn compare_document_position_attr_same_owner_direction_follows_this_lt_other() {
     // follows this), not PRECEDING.
     let mut dom = EcsDom::new();
     let host = elem(&mut dom, "div");
-    let first = dom.create_attribute("id");
-    let second = dom.create_attribute("class");
+    let first = dom.create_attribute("id", NewNodeOwner::NONE);
+    let second = dom.create_attribute("class", NewNodeOwner::NONE);
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(first) {
         a.owner_element = Some(host);
     }
@@ -316,8 +316,8 @@ fn compare_document_position_disconnected_antisymmetric() {
 fn compare_document_position_attr_same_owner_implementation_specific() {
     let mut dom = EcsDom::new();
     let host = elem(&mut dom, "div");
-    let attr_a = dom.create_attribute("id");
-    let attr_b = dom.create_attribute("class");
+    let attr_a = dom.create_attribute("id", NewNodeOwner::NONE);
+    let attr_b = dom.create_attribute("class", NewNodeOwner::NONE);
     // Wire owner_element so the Attr-vs-Attr same-owner path fires.
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(attr_a) {
         a.owner_element = Some(host);
@@ -346,7 +346,7 @@ fn compare_document_position_attr_uses_owner_element_for_tree_compare() {
     let later_el = elem(&mut dom, "span");
     let _ = dom.append_child(parent, owner_el);
     let _ = dom.append_child(parent, later_el);
-    let attr = dom.create_attribute("data-x");
+    let attr = dom.create_attribute("data-x", NewNodeOwner::NONE);
     if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(attr) {
         a.owner_element = Some(owner_el);
     }
@@ -364,7 +364,7 @@ fn compare_document_position_doctype_orphan_disconnected() {
     // disconnected branch on a non-Element kind so the path covers
     // more than the Element-fixture case.
     let mut dom = EcsDom::new();
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type("html", "", "", NewNodeOwner::NONE);
     let other = elem(&mut dom, "div");
     let cmp = dom.compare_document_position(dt, other);
     assert_eq!(

@@ -219,7 +219,7 @@ mod tests {
     fn ol_with_items(n: usize) -> (EcsDom, Entity, Vec<Entity>) {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let ol = dom.create_element("ol", Attributes::default());
+        let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
         let _ = dom.world_mut().insert_one(
             ol,
             ComputedStyle {
@@ -230,7 +230,7 @@ mod tests {
         let _ = dom.append_child(root, ol);
         let mut lis = Vec::new();
         for _ in 0..n {
-            let li = dom.create_element("li", Attributes::default());
+            let li = dom.create_element_ownerless_fixture("li", Attributes::default());
             let _ = dom.world_mut().insert_one(
                 li,
                 ComputedStyle {
@@ -341,7 +341,7 @@ mod tests {
         let mut lis = Vec::new();
         for _ in 0..2 {
             // Parentless <ol> → a separate root (find_roots fallback scan).
-            let ol = dom.create_element("ol", Attributes::default());
+            let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
             let _ = dom.world_mut().insert_one(
                 ol,
                 ComputedStyle {
@@ -349,7 +349,7 @@ mod tests {
                     ..Default::default()
                 },
             );
-            let li = dom.create_element("li", Attributes::default());
+            let li = dom.create_element_ownerless_fixture("li", Attributes::default());
             let _ = dom.world_mut().insert_one(
                 li,
                 ComputedStyle {
@@ -374,7 +374,7 @@ mod tests {
     fn nested_ol_resets_inner_counter() {
         // <ol><li/><li><ol><li/></ol></li></ol> — inner li restarts at 1.
         let (mut dom, _ol, lis) = ol_with_items(2);
-        let inner_ol = dom.create_element("ol", Attributes::default());
+        let inner_ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
         let _ = dom.world_mut().insert_one(
             inner_ol,
             ComputedStyle {
@@ -383,7 +383,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(lis[1], inner_ol);
-        let inner_li = dom.create_element("li", Attributes::default());
+        let inner_li = dom.create_element_ownerless_fixture("li", Attributes::default());
         let _ = dom.world_mut().insert_one(
             inner_li,
             ComputedStyle {
@@ -408,7 +408,7 @@ mod tests {
     fn p_with_before(items: Vec<ContentItem>, attrs: Attributes) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let p = dom.create_element("p", attrs);
+        let p = dom.create_element_ownerless_fixture("p", attrs);
         let _ = dom.world_mut().insert_one(
             p,
             ComputedStyle {
@@ -418,7 +418,7 @@ mod tests {
         );
         let _ = dom.append_child(root, p);
         // The pseudo entity, as the cascade would spawn it (empty text + marker).
-        let pseudo = dom.create_text(String::new());
+        let pseudo = dom.create_text_ownerless_fixture(String::new());
         let _ = dom.world_mut().insert_one(
             pseudo,
             ComputedStyle {

@@ -103,7 +103,7 @@ mod tests {
     use elidex_ecs::{Attributes, EcsDom};
 
     fn make_details(dom: &mut EcsDom, name: Option<&str>, open: bool) -> Entity {
-        let entity = dom.create_element("details", Attributes::default());
+        let entity = dom.create_element_ownerless_fixture("details", Attributes::default());
         if let Some(n) = name {
             dom.set_attribute(entity, "name", n);
         }
@@ -114,7 +114,7 @@ mod tests {
     }
 
     fn make_div_parent(dom: &mut EcsDom, children: &[Entity]) -> Entity {
-        let parent = dom.create_element("div", Attributes::default());
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
         for &child in children {
             assert!(dom.append_child(parent, child));
         }
@@ -193,7 +193,7 @@ mod tests {
         // A non-`<details>` element with name=g + open attr should NOT
         // participate.  Tag check guards against grouping/section
         // elements that happen to share the attribute names.
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.set_attribute(div, "name", "g");
         dom.set_attribute(div, "open", "");
         let parent = make_div_parent(&mut dom, &[opener, div]);
@@ -227,7 +227,7 @@ mod tests {
         // Wrap opener in 5000 nested divs.
         let mut current = opener;
         for _ in 0..5000 {
-            let outer = dom.create_element("div", Attributes::default());
+            let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
             assert!(dom.append_child(outer, current));
             current = outer;
         }
@@ -245,7 +245,7 @@ mod tests {
         // is recognised.
         let mut dom = EcsDom::new();
         let opener = make_details(&mut dom, Some("g"), false);
-        let upper_tag = dom.create_element("DETAILS", Attributes::default());
+        let upper_tag = dom.create_element_ownerless_fixture("DETAILS", Attributes::default());
         dom.set_attribute(upper_tag, "name", "g");
         dom.set_attribute(upper_tag, "open", "");
         let parent = make_div_parent(&mut dom, &[opener, upper_tag]);

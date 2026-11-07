@@ -103,7 +103,7 @@ mod tests {
     /// `click` event-handler entry.
     fn handler_fixture() -> (EcsDom, Entity, ListenerId) {
         let mut dom = EcsDom::new();
-        let el = dom.create_element("div", Attributes::default());
+        let el = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut listeners = EventListeners::new();
         let id = listeners.add_event_handler("click");
         dom.world_mut().insert_one(el, listeners).unwrap();
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn entity_without_listeners_is_unchanged() {
         let (mut dom, _el, id) = handler_fixture();
-        let bare = dom.create_element("span", Attributes::default());
+        let bare = dom.create_element_ownerless_fixture("span", Attributes::default());
         assert_eq!(
             run(&mut dom, bare, id, true),
             (HandlerReconcile::Unchanged, 0)

@@ -21,7 +21,7 @@ use super::setup_with_root;
 /// `name`, returning the entity (registered in the identity map so the bridge
 /// can resolve it back).
 fn expose_detached(vm: &mut Vm, dom: &mut EcsDom, tag: &str, name: &str) -> elidex_ecs::Entity {
-    let e = dom.create_element(tag, Attributes::default());
+    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
     let wrapper = vm.inner.create_element_wrapper(e);
     vm.set_global(name, JsValue::Object(wrapper));
     e

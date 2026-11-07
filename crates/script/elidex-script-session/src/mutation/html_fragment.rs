@@ -284,7 +284,7 @@ mod tests {
     use elidex_ecs::Attributes;
 
     fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-        dom.create_element(tag, Attributes::default())
+        dom.create_element_ownerless_fixture(tag, Attributes::default())
     }
 
     #[test]
@@ -293,7 +293,7 @@ mod tests {
         let root = dom.create_document_root();
         let e = elem(&mut dom, "div");
         let _ = dom.append_child(root, e);
-        let old_child = dom.create_text("old");
+        let old_child = dom.create_text_ownerless_fixture("old");
         let _ = dom.append_child(e, old_child);
 
         let m = Mutation::SetInnerHtml {
@@ -751,7 +751,7 @@ mod tests {
         // silently regress to e.g. `<div>` context (which would parse
         // table-context fragments incorrectly).
         let mut dom = EcsDom::new();
-        let frag = dom.create_document_fragment();
+        let frag = dom.create_document_fragment_ownerless_fixture();
         let target = elem(&mut dom, "span");
         let _ = dom.append_child(frag, target);
 

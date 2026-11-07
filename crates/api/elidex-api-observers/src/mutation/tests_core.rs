@@ -3,7 +3,7 @@ use elidex_ecs::{Attributes, EcsDom};
 use elidex_script_session::{MutationKind, MutationRecord as SessionRecord};
 
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 #[test]

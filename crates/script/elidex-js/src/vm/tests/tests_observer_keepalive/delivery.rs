@@ -21,7 +21,7 @@ fn observing_mutation_observer_survives_gc_and_delivers() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, root));
     #[allow(unsafe_code)]
     unsafe {
@@ -47,7 +47,7 @@ fn observing_mutation_observer_survives_gc_and_delivers() {
         "an observing observer survives GC (binding row retained)",
     );
 
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     vm.deliver_mutation_records(&[child_list_added(root, added)]);
     assert_eq!(
         vm.eval("calls").unwrap(),
@@ -64,7 +64,7 @@ fn observing_resize_observer_survives_gc_and_delivers() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {
@@ -97,7 +97,7 @@ fn observing_intersection_observer_survives_gc_and_delivers() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {

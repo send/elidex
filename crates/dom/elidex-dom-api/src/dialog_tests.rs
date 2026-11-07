@@ -8,7 +8,7 @@ use elidex_ecs::{Attributes, DialogReturnValue, EcsDom, Entity, IsModalDialog};
 /// attribute directly (bypassing the chokepoint so it does not perturb
 /// any installed `AttributeChange` counter).
 fn dialog(dom: &mut EcsDom, open: bool) -> Entity {
-    let e = dom.create_element("dialog", Attributes::default());
+    let e = dom.create_element_ownerless_fixture("dialog", Attributes::default());
     if open {
         dom.world_mut()
             .get::<&mut Attributes>(e)

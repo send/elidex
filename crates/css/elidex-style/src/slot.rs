@@ -122,7 +122,7 @@ mod tests {
         for (k, v) in attrs {
             a.set(*k, *v);
         }
-        dom.create_element(tag, a)
+        dom.create_element_ownerless_fixture(tag, a)
     }
 
     #[test]
@@ -176,7 +176,7 @@ mod tests {
 
         let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
         let slot = elem(&mut dom, "slot");
-        let fallback = dom.create_text("fallback");
+        let fallback = dom.create_text_ownerless_fixture("fallback");
         let _ = dom.append_child(sr, slot);
         let _ = dom.append_child(slot, fallback);
 
@@ -325,9 +325,9 @@ mod tests {
     fn text_nodes_distributed_to_slot() {
         let mut dom = EcsDom::new();
         let host = elem(&mut dom, "div");
-        let text1 = dom.create_text("hello");
+        let text1 = dom.create_text_ownerless_fixture("hello");
         let child = elem(&mut dom, "span");
-        let text2 = dom.create_text("world");
+        let text2 = dom.create_text_ownerless_fixture("world");
         let _ = dom.append_child(host, text1);
         let _ = dom.append_child(host, child);
         let _ = dom.append_child(host, text2);

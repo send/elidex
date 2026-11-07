@@ -27,17 +27,17 @@ fn append_relpos_span(
     inner: &str,
     tail: &str,
 ) -> (Entity, Entity, Entity) {
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let span_style = ComputedStyle {
         position: Position::Relative,
         font_family: families.to_vec(),
         ..Default::default()
     };
     let _ = dom.world_mut().insert_one(span, span_style);
-    let inner_t = dom.create_text(inner);
+    let inner_t = dom.create_text_ownerless_fixture(inner);
     dom.append_child(span, inner_t);
     dom.append_child(parent, span);
-    let tail_t = dom.create_text(tail);
+    let tail_t = dom.create_text_ownerless_fixture(tail);
     dom.append_child(parent, tail_t);
     (span, inner_t, tail_t)
 }
@@ -180,15 +180,15 @@ fn nested_relpos_in_static_inline_subflow_no_double_paint() {
         return;
     };
     let a_text = dom.composed_children(parent)[0];
-    let em = dom.create_element("em", Attributes::default());
+    let em = dom.create_element_ownerless_fixture("em", Attributes::default());
     let em_style = ComputedStyle {
         font_family: style.font_family.clone(),
         ..Default::default()
     };
     let _ = dom.world_mut().insert_one(em, em_style);
-    let x_text = dom.create_text("x");
+    let x_text = dom.create_text_ownerless_fixture("x");
     dom.append_child(em, x_text);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -197,13 +197,13 @@ fn nested_relpos_in_static_inline_subflow_no_double_paint() {
             ..Default::default()
         },
     );
-    let b_text = dom.create_text("b");
+    let b_text = dom.create_text_ownerless_fixture("b");
     dom.append_child(span, b_text);
     dom.append_child(em, span);
-    let y_text = dom.create_text("y");
+    let y_text = dom.create_text_ownerless_fixture("y");
     dom.append_child(em, y_text);
     dom.append_child(parent, em);
-    let c_text = dom.create_text("c");
+    let c_text = dom.create_text_ownerless_fixture("c");
     dom.append_child(parent, c_text);
 
     let children = dom.composed_children(parent);
@@ -258,7 +258,7 @@ fn static_atomic_inside_relpos_subflow_repositions() {
     for &c in &dom.composed_children(parent) {
         dom.remove_child(parent, c);
     }
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -267,9 +267,9 @@ fn static_atomic_inside_relpos_subflow_repositions() {
             ..Default::default()
         },
     );
-    let a_text = dom.create_text("a");
+    let a_text = dom.create_text_ownerless_fixture("a");
     dom.append_child(span, a_text);
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         ib,
         ComputedStyle {
@@ -281,7 +281,7 @@ fn static_atomic_inside_relpos_subflow_repositions() {
         },
     );
     dom.append_child(span, ib);
-    let b_text = dom.create_text("b");
+    let b_text = dom.create_text_ownerless_fixture("b");
     dom.append_child(span, b_text);
     dom.append_child(parent, span);
 
@@ -409,7 +409,7 @@ fn top_level_key_matches_render_for_leading_display_none() {
     for &c in &dom.composed_children(parent) {
         dom.remove_child(parent, c);
     }
-    let hidden = dom.create_element("span", Attributes::default());
+    let hidden = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         hidden,
         ComputedStyle {
@@ -418,10 +418,10 @@ fn top_level_key_matches_render_for_leading_display_none() {
             ..Default::default()
         },
     );
-    let hx = dom.create_text("x");
+    let hx = dom.create_text_ownerless_fixture("x");
     dom.append_child(hidden, hx);
     dom.append_child(parent, hidden);
-    let visible = dom.create_text("visible");
+    let visible = dom.create_text_ownerless_fixture("visible");
     dom.append_child(parent, visible);
 
     let children = dom.composed_children(parent);
@@ -469,7 +469,7 @@ fn relpos_inline_with_writing_mode_override_gated() {
         return;
     };
     let a_text = dom.composed_children(parent)[0];
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -480,10 +480,10 @@ fn relpos_inline_with_writing_mode_override_gated() {
             ..Default::default()
         },
     );
-    let b_text = dom.create_text("b");
+    let b_text = dom.create_text_ownerless_fixture("b");
     dom.append_child(span, b_text);
     dom.append_child(parent, span);
-    let c_text = dom.create_text("c");
+    let c_text = dom.create_text_ownerless_fixture("c");
     dom.append_child(parent, c_text);
 
     let children = dom.composed_children(parent);
@@ -519,7 +519,7 @@ fn persists_relative_positioned_inline_subflow_vertical() {
     style.writing_mode = WritingMode::VerticalRl;
     let _ = dom.world_mut().insert_one(parent, style.clone());
     let a_text = dom.composed_children(parent)[0];
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -531,7 +531,7 @@ fn persists_relative_positioned_inline_subflow_vertical() {
             ..Default::default()
         },
     );
-    let b_text = dom.create_text("b");
+    let b_text = dom.create_text_ownerless_fixture("b");
     dom.append_child(span, b_text);
     dom.append_child(parent, span);
 
@@ -573,7 +573,7 @@ fn relpos_subflow_key_flattens_display_contents() {
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
         return;
     };
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -582,7 +582,7 @@ fn relpos_subflow_key_flattens_display_contents() {
             ..Default::default()
         },
     );
-    let contents = dom.create_element("span", Attributes::default());
+    let contents = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         contents,
         ComputedStyle {
@@ -591,7 +591,7 @@ fn relpos_subflow_key_flattens_display_contents() {
             ..Default::default()
         },
     );
-    let b_text = dom.create_text("b");
+    let b_text = dom.create_text_ownerless_fixture("b");
     dom.append_child(contents, b_text);
     dom.append_child(span, contents);
     dom.append_child(parent, span);
@@ -627,7 +627,7 @@ fn append_inline_block(
     families: &[String],
     pos: Position,
 ) -> Entity {
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         ib,
         ComputedStyle {
@@ -660,7 +660,7 @@ fn relpos_atomic_persists_and_repositions_not_a_flow_member() {
     };
     let a_text = dom.composed_children(parent)[0];
     let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Relative);
-    let c_text = dom.create_text("c");
+    let c_text = dom.create_text_ownerless_fixture("c");
     dom.append_child(parent, c_text);
 
     let children = dom.composed_children(parent);

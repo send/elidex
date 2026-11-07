@@ -15,7 +15,7 @@ fn root_entities_excludes_detached_template_content_fragment() {
     let doc = dom.create_document_root();
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(doc, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let content_child = elem(&mut dom, "div");
     assert!(dom.append_child(fragment, content_child));
 
@@ -89,7 +89,7 @@ fn traverse_descendants_empty() {
 fn find_by_id_found() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
-    let child = dom.create_element("span", {
+    let child = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "target");
         a
@@ -114,7 +114,7 @@ fn find_by_id_nested() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let mid = elem(&mut dom, "section");
-    let deep = dom.create_element("p", {
+    let deep = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("id", "deep");
         a
@@ -130,7 +130,7 @@ fn find_by_id_ignores_non_descendants() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     // orphan is NOT a descendant of root
-    let _orphan = dom.create_element("span", {
+    let _orphan = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "orphan");
         a
@@ -147,11 +147,11 @@ fn find_by_id_ignores_non_descendants() {
 fn first_and_last_element_child_skip_text() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
-    let text_head = dom.create_text("lead");
+    let text_head = dom.create_text_ownerless_fixture("lead");
     let a = elem(&mut dom, "a");
-    let text_mid = dom.create_text("middle");
+    let text_mid = dom.create_text_ownerless_fixture("middle");
     let b = elem(&mut dom, "b");
-    let text_tail = dom.create_text("trail");
+    let text_tail = dom.create_text_ownerless_fixture("trail");
     assert!(dom.append_child(root, text_head));
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, text_mid));
@@ -170,7 +170,7 @@ fn first_element_child_empty_and_text_only() {
     assert_eq!(dom.last_element_child(empty), None);
 
     let text_only = elem(&mut dom, "p");
-    let t = dom.create_text("x");
+    let t = dom.create_text_ownerless_fixture("x");
     assert!(dom.append_child(text_only, t));
     assert_eq!(dom.first_element_child(text_only), None);
     assert_eq!(dom.last_element_child(text_only), None);
@@ -185,8 +185,8 @@ fn element_siblings_skip_non_elements() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let a = elem(&mut dom, "a");
-    let t1 = dom.create_text("t1");
-    let t2 = dom.create_text("t2");
+    let t1 = dom.create_text_ownerless_fixture("t1");
+    let t2 = dom.create_text_ownerless_fixture("t2");
     let b = elem(&mut dom, "b");
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, t1));
@@ -363,7 +363,7 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     assert!(dom.append_child(doc, root));
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(root, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let inside = elem(&mut dom, "button");
     assert!(dom.append_child(fragment, inside));
     let after = elem(&mut dom, "p");

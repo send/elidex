@@ -27,14 +27,14 @@ fn clonable_init() -> ShadowInit {
 #[test]
 fn clone_node_deep_replicates_descendant_shadow_host() {
     let (mut dom, mut session) = setup();
-    let root = dom.create_element("div", Attributes::default());
-    let host = dom.create_element("section", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("section", Attributes::default());
     dom.append_child(root, host);
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    let text = dom.create_text("shadowed");
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("shadowed");
     dom.append_child(span, text);
     dom.append_child(sr, span);
     wrap(root, &mut session);
@@ -58,8 +58,8 @@ fn clone_node_deep_replicates_descendant_shadow_host() {
 #[test]
 fn clone_node_deep_skips_non_clonable_descendant_shadow() {
     let (mut dom, mut session) = setup();
-    let root = dom.create_element("div", Attributes::default());
-    let host = dom.create_element("section", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("section", Attributes::default());
     dom.append_child(root, host);
     let _sr = dom
         .attach_shadow(host, ShadowRootMode::Open)
@@ -85,15 +85,15 @@ fn clone_node_shallow_replicates_own_clonable_shadow_deeply() {
     // so the shadow child's own descendants are cloned too.  The light
     // children (step 5) stay excluded.  (Codex #589 shape.)
     let (mut dom, mut session) = setup();
-    let host = dom.create_element("section", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("section", Attributes::default());
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    let text = dom.create_text("deep");
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("deep");
     dom.append_child(span, text);
     dom.append_child(sr, span);
-    let light = dom.create_element("p", Attributes::default());
+    let light = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(host, light);
     wrap(host, &mut session);
 
@@ -122,11 +122,11 @@ fn clone_node_propagates_ce_identity_inside_cloned_shadow_tree() {
     // CE elements nested inside a replicated shadow tree get identity
     // propagation through the same pair worklist.
     let (mut dom, mut session) = setup();
-    let host = dom.create_element("section", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("section", Attributes::default());
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let widget = dom.create_element("my-widget", Attributes::default());
+    let widget = dom.create_element_ownerless_fixture("my-widget", Attributes::default());
     dom.world_mut()
         .insert_one(widget, CustomElementState::custom("my-widget"))
         .unwrap();
@@ -157,17 +157,26 @@ fn clone_node_document_deep_threads_clone_doc_into_replicated_shadow() {
     // recursion, shadow children included, step 6.7).
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_with_owner(
+        "html",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(doc, html);
-    let host = dom.create_element("section", Attributes::default());
+    let host = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(html, host);
-    dom.set_associated_document(html, doc);
-    dom.set_associated_document(host, doc);
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, doc);
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(sr, span);
     wrap(doc, &mut session);
 
@@ -191,27 +200,37 @@ fn clone_node_document_deep_threads_clone_doc_into_replicated_shadow() {
 
 #[test]
 fn clone_node_shallow_shadow_children_carry_owner_document() {
-    // The shadow pass (pass 4) threads the host's owner document onto the
-    // replicated shadow children as the cloner's `doc_override`. The shadow
-    // sources belong to a DIFFERENT document (`other`) than the host (`doc`),
-    // so a pass that dropped the override would fall back to
-    // `owner_document(src)` (tree_clone.rs) and stamp `other` — on the shadow
-    // child and, through the recursion, on its descendants.
+    // The shadow pass (pass 4) threads the operation's document (one
+    // `NewNodeOwner`) onto the replicated shadow children. The shadow
+    // sources are created in a DIFFERENT document (`other`) and adopted into
+    // the host's (`doc`) when appended into its shadow root (DOM §4.2.3
+    // insert step 7.1), so the clone — the child and, through the recursion,
+    // its descendants — carries `doc`.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
     let other = dom.create_document_root();
     assert_ne!(doc, other);
-    let host = dom.create_element("section", Attributes::default());
-    dom.set_associated_document(host, doc);
+    let host = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, other);
-    let leaf = dom.create_element("em", Attributes::default());
-    dom.set_associated_document(leaf, other);
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(other),
+    );
+    let leaf = dom.create_element_with_owner(
+        "em",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(other),
+    );
     dom.append_child(span, leaf);
     dom.append_child(sr, span);
+    assert_eq!(dom.node_document(leaf), Some(doc), "adopted on insert");
     wrap(host, &mut session);
 
     let r = CloneNode
@@ -239,7 +258,7 @@ fn clone_node_propagates_is_value_slot() {
     // Codex PR331: the is-value slot (now separate from
     // definition_name) must survive cloning alongside the identity.
     let (mut dom, mut session) = setup();
-    let el = dom.create_element("my-el", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("my-el", Attributes::default());
     dom.world_mut()
         .insert_one(
             el,
@@ -270,13 +289,19 @@ fn clone_node_shallow_shadow_root_carries_owner_document() {
     // `clonedHost.shadowRoot.ownerDocument` null.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let host = dom.create_element("section", Attributes::default());
-    dom.set_associated_document(host, doc);
+    let host = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, doc);
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(sr, span);
     wrap(host, &mut session);
 
@@ -303,16 +328,16 @@ fn clone_created_fires_once_per_entry_call_with_scope() {
     // `SelfOnly` for shallow — however many hosts / templates the copy holds.
     for (deep, want) in [(true, CloneScope::Subtree), (false, CloneScope::SelfOnly)] {
         let (mut dom, mut session) = setup();
-        let host = dom.create_element("section", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("section", Attributes::default());
         let sr = dom
             .attach_shadow_with_init(host, clonable_init())
             .expect("attach clonable shadow");
-        let nested = dom.create_element("article", Attributes::default());
+        let nested = dom.create_element_ownerless_fixture("article", Attributes::default());
         dom.append_child(sr, nested);
         dom.attach_shadow_with_init(nested, clonable_init())
             .expect("nested clonable shadow");
-        let tpl = dom.create_element("template", Attributes::default());
-        dom.attach_template_contents(tpl, None);
+        let tpl = dom.create_element_ownerless_fixture("template", Attributes::default());
+        dom.attach_template_contents(tpl, elidex_ecs::NewNodeOwner::ownerless_fixture());
         dom.append_child(sr, tpl);
         wrap(host, &mut session);
 
@@ -334,24 +359,24 @@ fn clone_shallow_deep_clones_template_contents_and_nested_host_inside_shadow() {
     // cloned (pass 3 with the pair's own flag, true), and a nested clonable
     // host has its own shadow children deep-cloned (pass 4 at a non-root pair).
     let (mut dom, mut session) = setup();
-    let host = dom.create_element("section", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("section", Attributes::default());
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
     // <template> with a child in its contents.
-    let tpl = dom.create_element("template", Attributes::default());
-    let frag = dom.attach_template_contents(tpl, None);
-    let content_child = dom.create_element("b", Attributes::default());
+    let tpl = dom.create_element_ownerless_fixture("template", Attributes::default());
+    let frag = dom.attach_template_contents(tpl, elidex_ecs::NewNodeOwner::ownerless_fixture());
+    let content_child = dom.create_element_ownerless_fixture("b", Attributes::default());
     dom.append_child(frag, content_child);
     dom.append_child(sr, tpl);
     // Nested clonable host whose shadow child has a descendant.
-    let inner_host = dom.create_element("article", Attributes::default());
+    let inner_host = dom.create_element_ownerless_fixture("article", Attributes::default());
     dom.append_child(sr, inner_host);
     let inner_sr = dom
         .attach_shadow_with_init(inner_host, clonable_init())
         .expect("nested clonable shadow");
-    let inner_child = dom.create_element("i", Attributes::default());
-    let inner_text = dom.create_text("t");
+    let inner_child = dom.create_element_ownerless_fixture("i", Attributes::default());
+    let inner_text = dom.create_text_ownerless_fixture("t");
     dom.append_child(inner_child, inner_text);
     dom.append_child(inner_sr, inner_child);
     wrap(host, &mut session);
@@ -390,13 +415,13 @@ fn clone_created_fires_after_the_whole_copy_exists() {
     // `Subtree` its light children; for `SelfOnly` no light children.
     for (deep, want_light) in [(true, true), (false, false)] {
         let (mut dom, mut session) = setup();
-        let host = dom.create_element("section", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("section", Attributes::default());
         dom.attach_shadow_with_init(host, clonable_init())
             .expect("attach clonable shadow");
-        let light = dom.create_element("p", Attributes::default());
+        let light = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(host, light);
         let sr = dom.get_shadow_root(host).expect("shadow root");
-        let shadow_child = dom.create_element("b", Attributes::default());
+        let shadow_child = dom.create_element_ownerless_fixture("b", Attributes::default());
         dom.append_child(sr, shadow_child);
         wrap(host, &mut session);
 

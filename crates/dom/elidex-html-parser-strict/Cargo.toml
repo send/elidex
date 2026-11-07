@@ -19,6 +19,7 @@ phf_codegen = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 serde_json = { workspace = true }
 
 [lints]

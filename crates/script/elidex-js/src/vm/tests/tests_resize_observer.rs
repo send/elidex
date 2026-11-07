@@ -18,8 +18,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -206,7 +206,7 @@ fn resize_observer_deliver_fires_callback_with_entry() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -263,7 +263,7 @@ fn resize_observer_content_rect_uses_element_local_coords() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -322,7 +322,7 @@ fn resize_observer_deliver_box_less_target_delivers_initial_zero_once() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -364,7 +364,7 @@ fn resize_observer_disconnect_stops_delivery() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -410,8 +410,8 @@ fn resize_observer_reobserve_after_disconnect() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let a = dom.create_element("div", elidex_ecs::Attributes::default());
-    let b = dom.create_element("section", elidex_ecs::Attributes::default());
+    let a = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    let b = dom.create_element_ownerless_fixture("section", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, a));
     assert!(dom.append_child(body, b));
 
@@ -463,7 +463,7 @@ fn resize_observer_unobserve_drops_target() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -503,7 +503,7 @@ fn resize_observer_border_box_size_matches_layout() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -547,7 +547,7 @@ fn resize_observer_two_observers_on_same_target_both_fire() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]
@@ -592,7 +592,7 @@ fn resize_observer_callback_survives_gc_via_root_chain() {
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
 
     #[allow(unsafe_code)]

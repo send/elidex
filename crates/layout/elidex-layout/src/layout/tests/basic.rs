@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn layout_tree_assigns_layout_box() {
     let (mut dom, _root, html, body) = build_styled_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
     dom.world_mut().insert_one(
         div,
@@ -29,7 +29,7 @@ fn layout_tree_assigns_layout_box() {
 #[test]
 fn nested_divs_position() {
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
     dom.world_mut().insert_one(
         div,
@@ -65,8 +65,8 @@ fn body_margin_reflected() {
 #[test]
 fn mixed_block_text_content() {
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let div = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("Hello world");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Hello world");
     dom.append_child(body, div);
     dom.append_child(body, text);
 
@@ -97,7 +97,7 @@ fn mixed_block_text_content() {
 #[test]
 fn grid_container_dispatches() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         container,
         ComputedStyle {
@@ -105,7 +105,7 @@ fn grid_container_dispatches() {
             ..Default::default()
         },
     );
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(container, child);
     dom.world_mut().insert_one(
         child,
@@ -126,7 +126,7 @@ fn grid_container_dispatches() {
 #[test]
 fn grid_nested_in_block() {
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, grid);
     dom.world_mut().insert_one(
         grid,
@@ -141,7 +141,7 @@ fn grid_nested_in_block() {
             ..Default::default()
         },
     );
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(grid, c1);
     dom.world_mut().insert_one(
         c1,
@@ -151,7 +151,7 @@ fn grid_nested_in_block() {
             ..Default::default()
         },
     );
-    let c2 = dom.create_element("div", Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(grid, c2);
     dom.world_mut().insert_one(
         c2,
@@ -179,7 +179,7 @@ fn grid_nested_in_block() {
 #[test]
 fn grid_item_is_flex_container() {
     let mut dom = EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -190,7 +190,7 @@ fn grid_item_is_flex_container() {
             ..Default::default()
         },
     );
-    let flex_item = dom.create_element("div", Attributes::default());
+    let flex_item = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(grid, flex_item);
     dom.world_mut().insert_one(
         flex_item,
@@ -199,7 +199,7 @@ fn grid_item_is_flex_container() {
             ..Default::default()
         },
     );
-    let inner = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(flex_item, inner);
     dom.world_mut().insert_one(
         inner,
@@ -225,7 +225,7 @@ fn grid_item_is_flex_container() {
 #[test]
 fn inline_grid_dispatches_to_grid() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         container,
         ComputedStyle {
@@ -239,7 +239,7 @@ fn inline_grid_dispatches_to_grid() {
             ..Default::default()
         },
     );
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(container, c1);
     dom.world_mut().insert_one(
         c1,
@@ -263,7 +263,7 @@ fn inline_grid_dispatches_to_grid() {
 #[test]
 fn viewport_height_enables_root_percentage_height() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         root,
         ComputedStyle {
@@ -287,7 +287,7 @@ fn viewport_height_enables_root_percentage_height() {
 #[test]
 fn table_dispatches_to_table_layout() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -296,7 +296,7 @@ fn table_dispatches_to_table_layout() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -306,7 +306,7 @@ fn table_dispatches_to_table_layout() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -329,7 +329,7 @@ fn table_dispatches_to_table_layout() {
 #[test]
 fn table_nested_in_block() {
     let (mut dom, _root, _html, body) = build_styled_dom();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.append_child(body, table);
     dom.world_mut().insert_one(
         table,
@@ -339,7 +339,7 @@ fn table_nested_in_block() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -349,7 +349,7 @@ fn table_nested_in_block() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -397,7 +397,7 @@ fn table_is_block_level() {
 #[test]
 fn table_item_is_flex_container() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -406,7 +406,7 @@ fn table_item_is_flex_container() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -416,7 +416,7 @@ fn table_item_is_flex_container() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -426,7 +426,7 @@ fn table_item_is_flex_container() {
     );
     dom.append_child(tr, td);
 
-    let flex = dom.create_element("div", Attributes::default());
+    let flex = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         flex,
         ComputedStyle {
@@ -436,7 +436,7 @@ fn table_item_is_flex_container() {
     );
     dom.append_child(td, flex);
 
-    let inner = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         inner,
         ComputedStyle {
@@ -465,7 +465,7 @@ fn table_item_is_flex_container() {
 #[test]
 fn orphan_row_wrapped_in_anonymous_table() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -474,7 +474,7 @@ fn orphan_row_wrapped_in_anonymous_table() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -484,7 +484,7 @@ fn orphan_row_wrapped_in_anonymous_table() {
     );
     dom.append_child(div, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -504,7 +504,7 @@ fn orphan_row_wrapped_in_anonymous_table() {
 #[test]
 fn orphan_row_group_wrapped_in_anonymous_table() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -513,7 +513,7 @@ fn orphan_row_group_wrapped_in_anonymous_table() {
         },
     );
 
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -523,7 +523,7 @@ fn orphan_row_group_wrapped_in_anonymous_table() {
     );
     dom.append_child(div, tbody);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -533,7 +533,7 @@ fn orphan_row_group_wrapped_in_anonymous_table() {
     );
     dom.append_child(tbody, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -557,7 +557,7 @@ fn orphan_row_group_wrapped_in_anonymous_table() {
 #[test]
 fn orphan_row_in_grid_wrapped_in_anonymous_table() {
     let mut dom = EcsDom::new();
-    let grid = dom.create_element("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         grid,
         ComputedStyle {
@@ -566,7 +566,7 @@ fn orphan_row_in_grid_wrapped_in_anonymous_table() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -576,7 +576,7 @@ fn orphan_row_in_grid_wrapped_in_anonymous_table() {
     );
     dom.append_child(grid, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -599,7 +599,7 @@ fn orphan_row_in_grid_wrapped_in_anonymous_table() {
 #[test]
 fn orphan_row_in_flex_wrapped_in_anonymous_table() {
     let mut dom = EcsDom::new();
-    let flex = dom.create_element("div", Attributes::default());
+    let flex = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         flex,
         ComputedStyle {
@@ -608,7 +608,7 @@ fn orphan_row_in_flex_wrapped_in_anonymous_table() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -618,7 +618,7 @@ fn orphan_row_in_flex_wrapped_in_anonymous_table() {
     );
     dom.append_child(flex, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -645,7 +645,7 @@ fn orphan_row_in_flex_wrapped_in_anonymous_table() {
 #[test]
 fn orphan_cell_wrapped_in_anonymous_row_and_table() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -654,7 +654,7 @@ fn orphan_cell_wrapped_in_anonymous_row_and_table() {
         },
     );
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -693,7 +693,7 @@ fn relpos_atomic_inline_reposition_preserves_offset() {
     // offset-preservation crux lives here.
     fn layout_two_inline_blocks(relpos: bool) -> (EcsDom, Entity) {
         let (mut dom, _root, _html, body) = build_styled_dom();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(body, div);
         dom.world_mut().insert_one(
             div,
@@ -704,7 +704,7 @@ fn relpos_atomic_inline_reposition_preserves_offset() {
         );
         // ib1: a sibling static inline-block, so ib2 is not the IFC's first in-flow
         // box and the reposition must move ib2 off the content-origin placement.
-        let ib1 = dom.create_element("span", Attributes::default());
+        let ib1 = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(div, ib1);
         dom.world_mut().insert_one(
             ib1,
@@ -716,7 +716,7 @@ fn relpos_atomic_inline_reposition_preserves_offset() {
             },
         );
         // ib2: the atomic under test — static (baseline) or relative left:10/top:5.
-        let ib2 = dom.create_element("span", Attributes::default());
+        let ib2 = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(div, ib2);
         dom.world_mut().insert_one(
             ib2,
@@ -793,7 +793,7 @@ fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
     use elidex_plugin::ColumnFill;
     let (mut dom, _root, _html, body) = build_styled_dom();
 
-    let table = dom.create_element("div", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, table);
     let _ = dom.world_mut().insert_one(
         table,
@@ -802,7 +802,7 @@ fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
             ..Default::default()
         },
     );
-    let cell = dom.create_element("div", Attributes::default());
+    let cell = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(table, cell);
     let _ = dom.world_mut().insert_one(
         cell,
@@ -812,7 +812,7 @@ fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
         },
     );
     // A multicol in the cell: 2 columns, 50px tall → its spanning div breaks col-0/col-1.
-    let mc = dom.create_element("div", Attributes::default());
+    let mc = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(cell, mc);
     let _ = dom.world_mut().insert_one(
         mc,
@@ -824,7 +824,7 @@ fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
             ..Default::default()
         },
     );
-    let span = dom.create_element("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(mc, span);
     let _ = dom.world_mut().insert_one(
         span,
@@ -834,7 +834,7 @@ fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
         },
     );
     for _ in 0..2 {
-        let part = dom.create_element("div", Attributes::default());
+        let part = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(span, part);
         let _ = dom.world_mut().insert_one(
             part,

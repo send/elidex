@@ -20,7 +20,7 @@ pub fn is_labelable_element(dom: &EcsDom, entity: Entity) -> bool {
     };
     let tag_str = tag.0.as_str();
     // ASCII-case-insensitive: HTML parser already lowers, but
-    // `EcsDom::create_element` is reachable from non-parser callers
+    // `EcsDom::create_element_with_owner` is reachable from non-parser callers
     // (tests, internal builders) and `is_labelable_element` is exposed
     // for those paths, so tolerate uppercase / mixed case.
     let is_input = tag_str.eq_ignore_ascii_case("input");
@@ -163,10 +163,10 @@ mod tests {
         // HTML §4.10.4 restricts `for=` lookup to the same tree as
         // the label.  Build a tiny shared container so both nodes
         // share a tree root.
-        let container = dom.create_element("div", Attributes::default());
+        let container = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut input_attrs = Attributes::default();
         input_attrs.set("id", "name");
-        let input = dom.create_element("input", input_attrs.clone());
+        let input = dom.create_element_ownerless_fixture("input", input_attrs.clone());
         let _ = dom.world_mut().insert_one(
             input,
             FormControlState::from_element("input", &input_attrs).unwrap(),
@@ -175,7 +175,7 @@ mod tests {
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "name");
-        let label = dom.create_element("label", label_attrs);
+        let label = dom.create_element_ownerless_fixture("label", label_attrs);
         let _ = dom.append_child(container, label);
 
         assert_eq!(resolve_label_for(&dom, label), Some(input));
@@ -190,11 +190,11 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut input_attrs = Attributes::default();
         input_attrs.set("id", "name");
-        let _input = dom.create_element("input", input_attrs);
+        let _input = dom.create_element_ownerless_fixture("input", input_attrs);
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "name");
-        let label = dom.create_element("label", label_attrs);
+        let label = dom.create_element_ownerless_fixture("label", label_attrs);
 
         assert_eq!(resolve_label_for(&dom, label), None);
     }
@@ -207,12 +207,12 @@ mod tests {
         // would resolve `<label for="hidden">` to the hidden
         // input; the new strict-labelable predicate must reject.
         let mut dom = EcsDom::new();
-        let container = dom.create_element("div", Attributes::default());
+        let container = dom.create_element_ownerless_fixture("div", Attributes::default());
 
         let mut input_attrs = Attributes::default();
         input_attrs.set("id", "hidden");
         input_attrs.set("type", "hidden");
-        let input = dom.create_element("input", input_attrs.clone());
+        let input = dom.create_element_ownerless_fixture("input", input_attrs.clone());
         let _ = dom.world_mut().insert_one(
             input,
             FormControlState::from_element("input", &input_attrs).unwrap(),
@@ -221,7 +221,7 @@ mod tests {
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "hidden");
-        let label = dom.create_element("label", label_attrs);
+        let label = dom.create_element_ownerless_fixture("label", label_attrs);
         let _ = dom.append_child(container, label);
 
         assert_eq!(resolve_label_for(&dom, label), None);
@@ -234,11 +234,11 @@ mod tests {
         // FormControlState fallback) so a wrapping label with a
         // hidden input as descendant doesn't pick it up.
         let mut dom = EcsDom::new();
-        let label = dom.create_element("label", Attributes::default());
+        let label = dom.create_element_ownerless_fixture("label", Attributes::default());
 
         let mut input_attrs = Attributes::default();
         input_attrs.set("type", "hidden");
-        let hidden = dom.create_element("input", input_attrs.clone());
+        let hidden = dom.create_element_ownerless_fixture("input", input_attrs.clone());
         let _ = dom.world_mut().insert_one(
             hidden,
             FormControlState::from_element("input", &input_attrs).unwrap(),
@@ -248,7 +248,7 @@ mod tests {
         // Append a real labelable later so we can verify the
         // hidden input is skipped, not just absent.
         let textarea_attrs = Attributes::default();
-        let textarea = dom.create_element("textarea", textarea_attrs);
+        let textarea = dom.create_element_ownerless_fixture("textarea", textarea_attrs);
         let _ = dom.append_child(label, textarea);
 
         assert_eq!(find_label_target(&dom, label), Some(textarea));
@@ -267,18 +267,18 @@ mod tests {
         // Root <div id="foo"> — has matching id but not labelable.
         let mut div_attrs = Attributes::default();
         div_attrs.set("id", "foo");
-        let div_root = dom.create_element("div", div_attrs);
+        let div_root = dom.create_element_ownerless_fixture("div", div_attrs);
         // Descendant <input id="foo"> — also has the same id and IS
         // labelable.  Should be returned.
         let mut input_attrs = Attributes::default();
         input_attrs.set("id", "foo");
-        let input = dom.create_element("input", input_attrs);
+        let input = dom.create_element_ownerless_fixture("input", input_attrs);
         let _ = dom.append_child(div_root, input);
 
         // Label sits inside the same tree.
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "foo");
-        let label = dom.create_element("label", label_attrs);
+        let label = dom.create_element_ownerless_fixture("label", label_attrs);
         let _ = dom.append_child(div_root, label);
 
         assert_eq!(resolve_label_for(&dom, label), Some(input));
@@ -294,11 +294,11 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut button_attrs = Attributes::default();
         button_attrs.set("id", "btn");
-        let button = dom.create_element("button", button_attrs);
+        let button = dom.create_element_ownerless_fixture("button", button_attrs);
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "btn");
-        let label = dom.create_element("label", label_attrs);
+        let label = dom.create_element_ownerless_fixture("label", label_attrs);
         let _ = dom.append_child(button, label);
 
         assert_eq!(resolve_label_for(&dom, label), Some(button));
@@ -308,23 +308,23 @@ mod tests {
     fn resolve_label_for_returns_first_in_document_order() {
         // HTML §4.10.4 — pre-order DFS, first labelable match wins.
         let mut dom = EcsDom::new();
-        let container = dom.create_element("div", Attributes::default());
+        let container = dom.create_element_ownerless_fixture("div", Attributes::default());
 
         let mut earlier = Attributes::default();
         earlier.set("id", "x");
-        let first = dom.create_element("input", earlier);
+        let first = dom.create_element_ownerless_fixture("input", earlier);
         let _ = dom.append_child(container, first);
 
         // Sibling later in tree order also has the same id (invalid
         // markup, but the match must pick the first one).
         let mut later = Attributes::default();
         later.set("id", "x");
-        let second = dom.create_element("textarea", later);
+        let second = dom.create_element_ownerless_fixture("textarea", later);
         let _ = dom.append_child(container, second);
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "x");
-        let label = dom.create_element("label", label_attrs);
+        let label = dom.create_element_ownerless_fixture("label", label_attrs);
         let _ = dom.append_child(container, label);
 
         assert_eq!(resolve_label_for(&dom, label), Some(first));
@@ -334,10 +334,10 @@ mod tests {
     fn find_label_target_wrapping() {
         let mut dom = EcsDom::new();
 
-        let label = dom.create_element("label", Attributes::default());
+        let label = dom.create_element_ownerless_fixture("label", Attributes::default());
 
         let input_attrs = Attributes::default();
-        let input = dom.create_element("input", input_attrs.clone());
+        let input = dom.create_element_ownerless_fixture("input", input_attrs.clone());
         let _ = dom.world_mut().insert_one(
             input,
             FormControlState::from_element("input", &input_attrs).unwrap(),
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn no_label_target() {
         let mut dom = EcsDom::new();
-        let label = dom.create_element("label", Attributes::default());
+        let label = dom.create_element_ownerless_fixture("label", Attributes::default());
         assert_eq!(find_label_target(&dom, label), None);
     }
 
@@ -360,7 +360,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("type", "hidden");
-        let input = dom.create_element("input", attrs.clone());
+        let input = dom.create_element_ownerless_fixture("input", attrs.clone());
         let _ = dom.world_mut().insert_one(
             input,
             FormControlState::from_element("input", &attrs).unwrap(),
@@ -375,23 +375,23 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("type", "Hidden"); // ASCII-CI
-        let input = dom.create_element("input", attrs);
+        let input = dom.create_element_ownerless_fixture("input", attrs);
         assert!(!is_labelable_element(&dom, input));
     }
 
     #[test]
     fn is_labelable_element_accepts_text_input_without_state() {
         let mut dom = EcsDom::new();
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         assert!(is_labelable_element(&dom, input));
     }
 
     #[test]
     fn is_labelable_element_accepts_button_select_textarea() {
         let mut dom = EcsDom::new();
-        let button = dom.create_element("button", Attributes::default());
-        let select = dom.create_element("select", Attributes::default());
-        let textarea = dom.create_element("textarea", Attributes::default());
+        let button = dom.create_element_ownerless_fixture("button", Attributes::default());
+        let select = dom.create_element_ownerless_fixture("select", Attributes::default());
+        let textarea = dom.create_element_ownerless_fixture("textarea", Attributes::default());
         assert!(is_labelable_element(&dom, button));
         assert!(is_labelable_element(&dom, select));
         assert!(is_labelable_element(&dom, textarea));
@@ -400,8 +400,8 @@ mod tests {
     #[test]
     fn is_labelable_element_rejects_non_labelable_tags() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let label = dom.create_element("label", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let label = dom.create_element_ownerless_fixture("label", Attributes::default());
         assert!(!is_labelable_element(&dom, div));
         assert!(!is_labelable_element(&dom, label));
     }
@@ -411,9 +411,10 @@ mod tests {
         // Non-parser paths can store tags in mixed case; the matcher
         // tolerates that per the function's documented contract.
         let mut dom = EcsDom::new();
-        let upper_input = dom.create_element("INPUT", Attributes::default());
-        let mixed_button = dom.create_element("BuTToN", Attributes::default());
-        let upper_textarea = dom.create_element("TEXTAREA", Attributes::default());
+        let upper_input = dom.create_element_ownerless_fixture("INPUT", Attributes::default());
+        let mixed_button = dom.create_element_ownerless_fixture("BuTToN", Attributes::default());
+        let upper_textarea =
+            dom.create_element_ownerless_fixture("TEXTAREA", Attributes::default());
         assert!(is_labelable_element(&dom, upper_input));
         assert!(is_labelable_element(&dom, mixed_button));
         assert!(is_labelable_element(&dom, upper_textarea));

@@ -635,7 +635,7 @@ fn setup_with_html_root() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     (vm, session, dom, doc)
 }

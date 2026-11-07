@@ -15,13 +15,13 @@ fn build_pair_in_parent(dom: &mut EcsDom) -> elidex_ecs::Entity {
     // sibling `<span id="sib"/>` to the right, so `beforebegin` /
     // `afterend` have something to land next to.
     let doc = dom.create_document_root();
-    let section = dom.create_element("section", Attributes::default());
-    let target = dom.create_element("div", {
+    let section = dom.create_element_ownerless_fixture("section", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", {
         let mut a = Attributes::default();
         a.set("id", "t");
         a
     });
-    let sib = dom.create_element("span", {
+    let sib = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "sib");
         a
@@ -330,7 +330,7 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
 
     // Pre-allocate an element; keep its Entity around so we can
     // destroy it AFTER the VM wrapper caches it.
-    let stray = dom.create_element("span", Attributes::default());
+    let stray = dom.create_element_ownerless_fixture("span", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {

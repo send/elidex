@@ -1,11 +1,14 @@
 //! Relinking tree mutations for [`EcsDom`] plus their `MutationEvent` fire
 //! sites: `append_child` / `remove_child` / `insert_before` / `replace_child`,
-//! the low-level `link_node` / `detach` primitives, and the centralized
+//! DOM §4.5 *adopt* (the only writer of a node document after creation), the
+//! low-level `link_node` / `detach` primitives, and the centralized
 //! insert/remove dispatch helpers.
 
 use super::super::mutation_event::MutationEvent;
 use super::super::EcsDom;
-use crate::ElementState;
+use super::TemplateContentsWalk;
+use crate::components::AttrEntityCache;
+use crate::{ElementState, NodeKind};
 use hecs::Entity;
 
 impl EcsDom {
@@ -13,7 +16,9 @@ impl EcsDom {
 
     /// Append `child` as the last child of `parent`.
     ///
-    /// If `child` already has a parent, it is first detached.
+    /// `child` is first adopted into `parent`'s node document (DOM §4.2.3
+    /// *insert* step 7.1; see [`Self::adopt`]): removed from its parent, if
+    /// any, then re-homed when the documents differ.
     /// Returns `false` if:
     /// - `parent == child` (self-append),
     /// - either entity has been destroyed,
@@ -37,7 +42,10 @@ impl EcsDom {
         // implicit Remove whose `was_connected` reflects the same
         // pre-mutation state.
         let child_was_connected = self.is_connected(child);
-        self.detach_with_hook(child, parent);
+        // DOM §4.2.3 *insert* step 7.1: adopt `child` into parent's node
+        // document (its removal from the old parent, then the walk), before
+        // the link and every insertion consumer.
+        self.adopt_for_insert(child, parent);
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
         self.link_node(parent, child, last_child, None);
@@ -86,7 +94,8 @@ impl EcsDom {
         true
     }
 
-    /// Insert `new_child` before `ref_child` under `parent`.
+    /// Insert `new_child` before `ref_child` under `parent`, adopting it into
+    /// `parent`'s node document first (DOM §4.2.3 *insert* step 7.1).
     ///
     /// Returns `false` if any entity is destroyed, `ref_child` is not a child
     /// of `parent`, `new_child == parent`, `new_child == ref_child`, or
@@ -109,9 +118,11 @@ impl EcsDom {
         // Pre-mutation connectedness for `was_connected` — same
         // gating rationale as `append_child`.
         let new_child_was_connected = self.is_connected(new_child);
-        // Detach new_child from its current position (fires after_remove
-        // on the implicit old-parent removal, per WHATWG insert algorithm).
-        self.detach_with_hook(new_child, parent);
+        // DOM §4.2.3 *insert* step 7.1: adopt `new_child` into parent's node
+        // document — its removal from the current position (fires
+        // after_remove on the implicit old-parent removal, *adopt* step 2),
+        // then the walk.
+        self.adopt_for_insert(new_child, parent);
 
         // Re-read ref_child's prev_sibling AFTER detach (it may have changed
         // if new_child was an adjacent sibling).
@@ -128,7 +139,9 @@ impl EcsDom {
 
     /// Replace `old_child` with `new_child` under `parent`.
     ///
-    /// `old_child` is detached from the tree. Returns `false` if any entity
+    /// `new_child` is adopted into `parent`'s node document (DOM §4.2.3
+    /// *replace* step 6) before `old_child` is detached from the tree (step
+    /// 7). Returns `false` if any entity
     /// is destroyed, `old_child` is not a child of `parent`, or `new_child`
     /// is an ancestor of `parent` (would create a cycle).
     ///
@@ -153,15 +166,16 @@ impl EcsDom {
 
         // Pre-mutation connectedness for both subjects. `old_child` is
         // connected via `parent` (which is unaffected by the
-        // forthcoming `detach_with_hook(new_child, parent)` — per the
+        // forthcoming removal of `new_child` in `adopt_for_insert` — per the
         // `is_ancestor(new_child, parent)` rejection above, `new_child`
         // cannot be on `old_child`'s ancestor chain).
         let new_child_was_connected = self.is_connected(new_child);
         let old_child_was_connected = self.is_connected(old_child);
-        // Detach new_child from its current position (fires after_remove on
-        // the implicit old-parent removal, per WHATWG *adopt* step 2 "If node's
-        // parent is non-null, then remove node", reached through *replace* step 6).
-        self.detach_with_hook(new_child, parent);
+        // DOM §4.2.3 *replace* step 6: adopt `new_child` into parent's node
+        // document — its removal from the current position (fires
+        // after_remove, *adopt* step 2 "If node's parent is non-null, then
+        // remove node"), then the walk — before step 7 removes `old_child`.
+        self.adopt_for_insert(new_child, parent);
 
         // Capture old_child's index AFTER detach so that — when new_child was
         // an earlier sibling of old_child in the same parent — the index
@@ -203,6 +217,105 @@ impl EcsDom {
         }
 
         true
+    }
+
+    // ---- DOM §4.5 adopt ----
+
+    /// WHATWG DOM §4.5 *adopt* (`#concept-node-adopt`) `node` into `document`.
+    ///
+    /// Step 1: oldDocument = `node`'s node document. Step 2: if `node` has a
+    /// parent, remove it (firing [`MutationEvent::Remove`] on the old parent).
+    /// Step 3, when `document` is not oldDocument, for each
+    /// shadow-including inclusive descendant: 3.1 its node document becomes
+    /// `document`; 3.3.1 so does that of each of its attributes (the Attr
+    /// entities materialized in its [`AttrEntityCache`]); 3.4 the adopting
+    /// steps — a `<template>`'s contents are adopted with it (HTML §4.12.3,
+    /// into the same document here: the walk visits them,
+    /// [`TemplateContentsWalk::Include`]). Steps 3.2 and 3.3.2 (custom element
+    /// registries) are not modelled; 3.3.3 (`adoptedCallback`) is not run.
+    ///
+    /// A node without a node document (oldDocument `None`, no spec
+    /// counterpart) is re-homed silently. A destroyed `node` or a `document`
+    /// that is not a live Document is a no-op.
+    ///
+    /// `node` must be a Node and not a Document: every caller has already
+    /// rejected a Document (DOM *ensure pre-insert validity* step 4 before an
+    /// insertion; `adoptNode`'s step-1 `NotSupportedError` is its caller's),
+    /// and only Nodes carry a node document (a Window / Worker entity is never
+    /// stamped), so this is a debug assertion, not a check.
+    pub fn adopt(&mut self, node: Entity, document: Entity) {
+        debug_assert!(
+            self.node_kind(node)
+                .is_none_or(|kind| kind.is_node() && kind != NodeKind::Document),
+            "adopt: only a non-Document Node can be adopted (callers reject the rest first)"
+        );
+        if !self.contains(node) || !self.is_live_document(document) {
+            return;
+        }
+        self.adopt_into(node, Some(document), None);
+    }
+
+    /// *Adopt* inside the primitives (DOM §4.2.3 *insert* step 7.1, *replace*
+    /// step 6): the target is parent's node document through
+    /// [`Self::node_document_for_new_nodes`] (the HTML §13.4 fragment-parse
+    /// root redirects to the context's document). The removal always runs;
+    /// the walk runs only when the target is `Some` and differs from the
+    /// child's node document, so a parent without a node document leaves the
+    /// child's stamp as it is.
+    fn adopt_for_insert(&mut self, child: Entity, parent: Entity) {
+        let target = self.node_document_for_new_nodes(parent).document();
+        self.adopt_into(child, target, Some(parent));
+    }
+
+    /// *Adopt* steps 1–3 shared by [`Self::adopt`] and the primitives: read
+    /// oldDocument, remove `node` (`new_parent` is the hook's insertion
+    /// target, if any), then walk iff `target` is `Some` and differs.
+    ///
+    /// `target` is a live Document when `Some`, so comparing the raw stamp is
+    /// the same test as comparing `node_document` (a dead stamp differs too);
+    /// removal does not touch the stamp.
+    fn adopt_into(&mut self, node: Entity, target: Option<Entity>, new_parent: Option<Entity>) {
+        self.detach_with_hook(node, new_parent);
+        if let Some(document) = target {
+            if self.get_associated_document(node) != Some(document) {
+                self.adopt_walk(node, document);
+            }
+        }
+    }
+
+    /// *Adopt* step 3 (3.1, 3.3.1, 3.4): stamp `root`, every
+    /// shadow-including descendant and every template's contents, and the
+    /// Attr entities each visited element has materialized. Uncapped in depth
+    /// and breadth.
+    fn adopt_walk(&mut self, root: Entity, document: Entity) {
+        #[cfg(any(test, feature = "fixtures"))]
+        {
+            self.adopt_walks += 1;
+        }
+        let mut nodes: Vec<Entity> = Vec::new();
+        self.for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, &mut |e| {
+            nodes.push(e);
+        });
+        for node in nodes {
+            let _ = self.set_associated_document(node, document);
+            let attrs: Vec<Entity> = self
+                .world
+                .get::<&AttrEntityCache>(node)
+                .map(|cache| cache.entries.values().copied().collect())
+                .unwrap_or_default();
+            for attr in attrs {
+                let _ = self.set_associated_document(attr, document);
+            }
+        }
+    }
+
+    /// How many times the *adopt* walk has run on this DOM (C0b's walk
+    /// counter): a link whose child already carries the target document does
+    /// not walk. Test-only, like the fixture creators.
+    #[cfg(any(test, feature = "fixtures"))]
+    #[must_use]
+    pub fn adopt_walk_count(&self) -> u64 {
+        self.adopt_walks
     }
 
     /// Place `node` into `parent`'s child list between `prev` and `next`.
@@ -430,7 +543,8 @@ impl EcsDom {
     /// `child` has no parent (nothing to detach).
     ///
     /// `new_parent` is the parent the caller is about to re-link `child`
-    /// into. When `old_parent == new_parent` the caller's post-link
+    /// into (`None` for a standalone [`Self::adopt`]). When `old_parent ==
+    /// new_parent` the caller's post-link
     /// `rev_version(new_parent)` already covers the bump, so the
     /// version-tracking call here is skipped to avoid a redundant
     /// ancestor-walk per same-parent move.
@@ -440,7 +554,7 @@ impl EcsDom {
     /// root — shadow roots have a `TreeRelation.parent` set to the host
     /// (via the internal `attach_shadow → append_child` plumbing), but
     /// are not exposed as DOM children.
-    fn detach_with_hook(&mut self, child: Entity, new_parent: Entity) -> bool {
+    fn detach_with_hook(&mut self, child: Entity, new_parent: Option<Entity>) -> bool {
         let Some(old_parent) = self.get_parent(child) else {
             return false;
         };
@@ -452,7 +566,7 @@ impl EcsDom {
         // Only bump the old parent's version when it differs from the
         // new parent. Same-parent moves rely on the caller's
         // post-link `rev_version(new_parent)`.
-        if old_parent != new_parent {
+        if Some(old_parent) != new_parent {
             self.rev_version(old_parent);
         }
         if let Some(idx) = old_index {

@@ -29,7 +29,7 @@ use super::super::Vm;
 /// borrow in the assertions below.
 fn bind_with_div(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, el);
     #[allow(unsafe_code)]
     unsafe {

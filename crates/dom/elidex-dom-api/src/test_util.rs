@@ -68,8 +68,8 @@ impl MutationDispatcher for CloneCreatedProbe {
 /// session so tests can pass them as `ObjectRef` arguments.
 pub(crate) fn setup() -> (EcsDom, Entity, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     let mut session = SessionCore::new();
     // Pre-register entities so we can pass ObjectRef args.
     session.get_or_create_wrapper(parent, ComponentKind::Element);

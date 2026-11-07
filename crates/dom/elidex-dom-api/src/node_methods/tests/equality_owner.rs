@@ -8,7 +8,7 @@ use super::*;
 fn is_connected_true() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(doc, div);
 
     let r = IsConnected
@@ -20,7 +20,7 @@ fn is_connected_true() {
 #[test]
 fn is_connected_false() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let r = IsConnected
         .invoke(div, &[], &mut session, &mut dom)
@@ -32,7 +32,7 @@ fn is_connected_false() {
 fn is_connected_detached() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(doc, div);
     dom.remove_child(doc, div);
 
@@ -50,7 +50,7 @@ fn is_connected_detached() {
 fn get_root_node_connected() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(doc, div);
     wrap(doc, &mut session);
 
@@ -71,8 +71,8 @@ fn get_root_node_connected() {
 #[test]
 fn get_root_node_detached() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(div, child);
 
     let r = GetRootNode
@@ -97,7 +97,7 @@ fn get_root_node_detached() {
 fn get_root_node_non_composed_default() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(doc, div);
     wrap(div, &mut session);
 
@@ -111,12 +111,12 @@ fn get_root_node_non_composed_default() {
 fn get_root_node_composed_true() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(doc, host);
     let sr = dom
         .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
-    let inner = dom.create_element("span", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(sr, inner);
 
     let result = GetRootNode
@@ -138,12 +138,12 @@ fn get_root_node_composed_true() {
 fn get_root_node_non_composed_stops_at_shadow() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(doc, host);
     let sr = dom
         .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
-    let inner = dom.create_element("span", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(sr, inner);
 
     let result = GetRootNode
@@ -169,7 +169,11 @@ fn get_root_node_non_composed_stops_at_shadow() {
 fn owner_document_element() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(doc, div);
     wrap(doc, &mut session);
 
@@ -205,16 +209,27 @@ fn owner_document_doc_null() {
 #[test]
 fn owner_document_orphan() {
     let (mut dom, mut session) = setup();
-    let _doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
-    // div is orphaned (not appended to doc).
+    let doc = dom.create_document_root();
+    wrap(doc, &mut session);
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
+    // div is created in doc and never appended: its node document is doc.
     wrap(div, &mut session);
 
     let result = OwnerDocument
         .invoke(div, &[], &mut session, &mut dom)
         .unwrap();
-    // Should still return the document, not null.
-    assert!(matches!(result, JsValue::ObjectRef(_)));
+    let JsValue::ObjectRef(ref_id) = result else {
+        panic!("expected ObjectRef");
+    };
+    let (owner, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+    assert_eq!(owner, doc);
 }
 
 #[test]
@@ -236,7 +251,7 @@ fn owner_document_null_for_document() {
 #[test]
 fn is_same_node_true() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
 
     let r = IsSameNode
@@ -253,8 +268,8 @@ fn is_same_node_true() {
 #[test]
 fn is_same_node_false() {
     let (mut dom, mut session) = setup();
-    let a = dom.create_element("div", Attributes::default());
-    let b = dom.create_element("div", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(a, &mut session);
     wrap(b, &mut session);
 
@@ -267,7 +282,7 @@ fn is_same_node_false() {
 #[test]
 fn is_same_node_null() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let r = IsSameNode
         .invoke(div, &[JsValue::Null], &mut session, &mut dom)
@@ -284,12 +299,12 @@ fn is_equal_node_true() {
     let (mut dom, mut session) = setup();
     let mut attrs = Attributes::default();
     attrs.set("id", "x");
-    let a = dom.create_element("div", attrs.clone());
-    let t1 = dom.create_text("hello");
+    let a = dom.create_element_ownerless_fixture("div", attrs.clone());
+    let t1 = dom.create_text_ownerless_fixture("hello");
     dom.append_child(a, t1);
 
-    let b = dom.create_element("div", attrs);
-    let t2 = dom.create_text("hello");
+    let b = dom.create_element_ownerless_fixture("div", attrs);
+    let t2 = dom.create_text_ownerless_fixture("hello");
     dom.append_child(b, t2);
 
     wrap(a, &mut session);
@@ -304,8 +319,8 @@ fn is_equal_node_true() {
 #[test]
 fn is_equal_node_false() {
     let (mut dom, mut session) = setup();
-    let a = dom.create_element("div", Attributes::default());
-    let b = dom.create_element("span", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("span", Attributes::default());
     wrap(a, &mut session);
     wrap(b, &mut session);
 
@@ -313,4 +328,49 @@ fn is_equal_node_false() {
         .invoke(a, &[obj_ref_arg(b, &mut session)], &mut session, &mut dom)
         .unwrap();
     assert_eq!(r, JsValue::Bool(false));
+}
+
+// ---- C0b U15 (red-first, §6.5): the getter has no `document_root()`
+// fallback — an element whose node document was destroyed reads null even
+// with a bound document present (DOM §4.4 `ownerDocument`). ----
+#[test]
+fn u15_owner_document_of_element_whose_document_was_destroyed_is_null() {
+    let (mut dom, mut session) = setup();
+    let _bound = dom.create_document_root();
+    let gone = dom.create_document_node();
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(gone),
+    );
+    assert!(dom.destroy_entity(gone));
+    wrap(div, &mut session);
+    let result = OwnerDocument
+        .invoke(div, &[], &mut session, &mut dom)
+        .unwrap();
+    assert!(matches!(result, JsValue::Null), "got {result:?}");
+}
+
+#[test]
+fn u15_control_live_stamp_reads_its_document() {
+    let (mut dom, mut session) = setup();
+    let _bound = dom.create_document_root();
+    let other = dom.create_document_node();
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(other),
+    );
+    wrap(div, &mut session);
+    let result = OwnerDocument
+        .invoke(div, &[], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(id) = result else {
+        panic!("expected ObjectRef, got {result:?}");
+    };
+    let (owner, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(id))
+        .unwrap();
+    assert_eq!(owner, other);
 }

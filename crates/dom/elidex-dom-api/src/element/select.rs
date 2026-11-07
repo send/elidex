@@ -323,7 +323,7 @@ impl DomApiHandler for OptionsSetLength {
             // = all the new options), matching the spec algorithm — NOT one record
             // per option.
             let n = target - current;
-            let owner = dom.owner_document(select);
+            let owner = dom.node_document_for_new_nodes(select);
             let fragment = dom.create_document_fragment_with_owner(owner);
             for _ in 0..n {
                 let opt = dom.create_element_with_owner("option", Attributes::default(), owner);

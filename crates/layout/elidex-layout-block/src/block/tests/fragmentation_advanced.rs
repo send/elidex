@@ -13,7 +13,7 @@ use elidex_plugin::{BoxDecorationBreak, BreakInsideValue, Overflow};
 fn box_decoration_break_slice_first_fragment() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -44,7 +44,7 @@ fn box_decoration_break_slice_first_fragment() {
 fn box_decoration_break_clone_first_fragment() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -78,10 +78,10 @@ fn box_decoration_break_clone_first_fragment() {
 fn margin_collapse_suppressed_at_fragment_start() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    let child1 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child1);
     dom.world_mut().insert_one(
         child1,
@@ -92,7 +92,7 @@ fn margin_collapse_suppressed_at_fragment_start() {
             ..Default::default()
         },
     );
-    let child2 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,
@@ -141,7 +141,7 @@ fn margin_collapse_suppressed_at_fragment_start() {
 fn break_propagation_first_child_break_before() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
@@ -165,7 +165,7 @@ fn break_propagation_first_child_break_before() {
 fn break_propagation_last_child_break_after() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child(&mut dom, parent, 50.0);
@@ -193,7 +193,7 @@ fn break_propagation_last_child_break_after() {
 fn break_inside_avoid_penalizes_candidates() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -260,10 +260,10 @@ fn orphans_widows_monolithic_when_exceeds_total() {
 fn inline_fragmentation_no_fragmentainer_no_break() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    let text = dom.create_text("Hello world");
+    let text = dom.create_text_ownerless_fixture("Hello world");
     dom.append_child(parent, text);
 
     let input = base_input(&font_db);
@@ -283,10 +283,10 @@ fn nested_block_fragmentation_break_token_chain() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
 
-    let outer = dom.create_element("div", elidex_ecs::Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(outer, block_style());
 
-    let inner = dom.create_element("div", elidex_ecs::Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(outer, inner);
     dom.world_mut().insert_one(inner, block_style());
 
@@ -319,14 +319,14 @@ fn three_level_nested_break_propagation() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
 
-    let outer = dom.create_element("div", elidex_ecs::Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(outer, block_style());
 
-    let middle = dom.create_element("div", elidex_ecs::Attributes::default());
+    let middle = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(outer, middle);
     dom.world_mut().insert_one(middle, block_style());
 
-    let inner = dom.create_element("div", elidex_ecs::Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(middle, inner);
     dom.world_mut().insert_one(inner, block_style());
 
@@ -355,7 +355,7 @@ fn three_level_nested_break_propagation() {
 fn forced_break_before_first_child_produces_empty_fragment() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
@@ -388,7 +388,7 @@ fn forced_break_before_first_child_produces_empty_fragment() {
 fn best_break_selects_last_fitting_candidate() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child(&mut dom, parent, 30.0);
@@ -427,12 +427,12 @@ fn best_break_selects_last_fitting_candidate() {
 fn monolithic_non_first_child_breaks_before() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child(&mut dom, parent, 80.0);
 
-    let child2 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,
@@ -480,7 +480,7 @@ fn vertical_rl_block_fragmentation() {
 
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -490,7 +490,7 @@ fn vertical_rl_block_fragmentation() {
         },
     );
 
-    let c1 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, c1);
     dom.world_mut().insert_one(
         c1,
@@ -501,7 +501,7 @@ fn vertical_rl_block_fragmentation() {
             ..Default::default()
         },
     );
-    let c2 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, c2);
     dom.world_mut().insert_one(
         c2,
@@ -537,10 +537,10 @@ fn vertical_rl_block_fragmentation() {
 fn child_index_correct_with_display_none_children() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    let none1 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let none1 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, none1);
     dom.world_mut().insert_one(
         none1,
@@ -550,7 +550,7 @@ fn child_index_correct_with_display_none_children() {
         },
     );
     make_block_child(&mut dom, parent, 80.0);
-    let none2 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let none2 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, none2);
     dom.world_mut().insert_one(
         none2,
@@ -607,7 +607,7 @@ fn child_index_correct_with_display_none_children() {
 fn break_after_avoid_penalizes_candidate() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child_with_break(&mut dom, parent, 30.0, BreakValue::Auto, BreakValue::Avoid);
@@ -646,7 +646,7 @@ fn break_after_avoid_penalizes_candidate() {
 fn propagated_break_after_not_set_for_non_last_child() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Page);
@@ -677,7 +677,7 @@ fn propagated_break_after_not_set_for_non_last_child() {
 fn fragment_height_clamped_to_break_point() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child(&mut dom, parent, 50.0);
@@ -710,11 +710,11 @@ fn fragment_height_clamped_to_break_point() {
 fn monolithic_deferred_when_no_space_remaining() {
     let mut dom = EcsDom::new();
     let font_db = FontDatabase::new();
-    let parent = dom.create_element("div", elidex_ecs::Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
     make_block_child(&mut dom, parent, 100.0);
-    let child2 = dom.create_element("div", elidex_ecs::Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,

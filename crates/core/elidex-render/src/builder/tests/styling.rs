@@ -19,7 +19,7 @@ fn text_align_center_offsets_text() {
             ..Default::default()
         },
     );
-    let txt = dom.create_text("Hi");
+    let txt = dom.create_text_ownerless_fixture("Hi");
     dom.append_child(p, txt);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -56,7 +56,7 @@ fn text_align_right_offsets_text() {
             ..Default::default()
         },
     );
-    let txt = dom.create_text("Hi");
+    let txt = dom.create_text_ownerless_fixture("Hi");
     dom.append_child(p, txt);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -588,7 +588,7 @@ fn text_decoration_underline_emits_solid_rect() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("Hello");
+    let text = dom.create_text_ownerless_fixture("Hello");
     dom.append_child(div, text);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -634,9 +634,9 @@ fn styled_span_color_preserved() {
             ..Default::default()
         },
     );
-    let span = dom.create_element("span", Attributes::default());
-    let t_red = dom.create_text("red");
-    let t_normal = dom.create_text(" normal");
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let t_red = dom.create_text_ownerless_fixture("red");
+    let t_normal = dom.create_text_ownerless_fixture(" normal");
     dom.append_child(p, span);
     dom.append_child(span, t_red);
     dom.append_child(p, t_normal);

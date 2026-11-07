@@ -31,6 +31,7 @@ rayon = { workspace = true, optional = true }
 parallel = ["rayon"]
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 criterion.workspace = true
 
 [[bench]]

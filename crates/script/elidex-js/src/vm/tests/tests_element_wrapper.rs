@@ -32,7 +32,7 @@ fn wrapper_is_identity_cached() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -52,8 +52,8 @@ fn wrapper_is_distinct_per_entity() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let a = dom.create_element("div", Attributes::default());
-    let b = dom.create_element("span", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("span", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -75,7 +75,7 @@ fn element_wrapper_prototype_chain_element_node_event_target() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let html_div_proto = vm.inner.html_div_prototype;
     let html_element_proto = vm.inner.html_element_prototype;
@@ -131,7 +131,7 @@ fn text_wrapper_prototype_is_text_prototype() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
 
     let text_proto = vm.inner.text_prototype;
     let char_data_proto = vm.inner.character_data_prototype;
@@ -163,7 +163,7 @@ fn wrapper_kind_carries_entity_bits() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let expected_bits = el.to_bits().get();
 
     #[allow(unsafe_code)]
@@ -188,7 +188,7 @@ fn wrapper_survives_gc_via_cache_root() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {

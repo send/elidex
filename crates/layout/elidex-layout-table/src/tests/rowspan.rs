@@ -11,10 +11,10 @@ use elidex_plugin::Dimension;
 fn rowspan_zero_spans_remaining_rows_in_group() {
     // rowspan=0 should span remaining rows in the row group, not the entire table.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -27,7 +27,7 @@ fn rowspan_zero_spans_remaining_rows_in_group() {
     // 3 rows in tbody.
     let mut tds = Vec::new();
     for i in 0..3 {
-        let tr = dom.create_element("tr", Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -41,7 +41,7 @@ fn rowspan_zero_spans_remaining_rows_in_group() {
             // First row: cell with rowspan=0 (span all remaining rows in group).
             let mut attrs = Attributes::default();
             attrs.set("rowspan", "0");
-            let td = dom.create_element("td", attrs);
+            let td = dom.create_element_ownerless_fixture("td", attrs);
             dom.world_mut().insert_one(
                 td,
                 ComputedStyle {
@@ -54,7 +54,7 @@ fn rowspan_zero_spans_remaining_rows_in_group() {
         }
 
         // Second column cell.
-        let td2 = dom.create_element("td", Attributes::default());
+        let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
         dom.world_mut().insert_one(
             td2,
             ComputedStyle {
@@ -99,11 +99,11 @@ fn rowspan_zero_with_other_cells() {
     // rowspan=0 in first row, other cells in subsequent rows at same column position
     // should still work (occupancy grid handles it).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // 2 rows, 2 columns. Cell(0,0) has rowspan=0.
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -115,7 +115,7 @@ fn rowspan_zero_with_other_cells() {
 
     let mut attrs0 = Attributes::default();
     attrs0.set("rowspan", "0");
-    let td_span = dom.create_element("td", attrs0);
+    let td_span = dom.create_element_ownerless_fixture("td", attrs0);
     dom.world_mut().insert_one(
         td_span,
         ComputedStyle {
@@ -126,7 +126,7 @@ fn rowspan_zero_with_other_cells() {
     );
     dom.append_child(tr1, td_span);
 
-    let td1b = dom.create_element("td", Attributes::default());
+    let td1b = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1b,
         ComputedStyle {
@@ -137,7 +137,7 @@ fn rowspan_zero_with_other_cells() {
     );
     dom.append_child(tr1, td1b);
 
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -147,7 +147,7 @@ fn rowspan_zero_with_other_cells() {
     );
     dom.append_child(table, tr2);
 
-    let td2b = dom.create_element("td", Attributes::default());
+    let td2b = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2b,
         ComputedStyle {
@@ -184,7 +184,7 @@ fn rowspan_zero_with_other_cells() {
 fn cell_pct_height_resolved_against_explicit_table_height() {
     // Cell with height: 50% should resolve against explicit table height.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -194,7 +194,7 @@ fn cell_pct_height_resolved_against_explicit_table_height() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -204,7 +204,7 @@ fn cell_pct_height_resolved_against_explicit_table_height() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -249,10 +249,10 @@ fn cell_pct_height_resolved_against_explicit_table_height() {
 fn cell_pct_height_ignored_without_explicit_table_height() {
     // Without explicit table height, cell % height should fall back to auto.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -262,7 +262,7 @@ fn cell_pct_height_ignored_without_explicit_table_height() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
