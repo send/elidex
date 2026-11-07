@@ -14,15 +14,20 @@ set -euo pipefail
 # A cargo failure aborts here (set -e); it must never read as "no violation".
 tree="$(cargo tree --workspace -e normal,build,features -i elidex-ecs)"
 
-# Non-vacuity: the inverted tree always has `elidex-ecs` as its root.
-if ! printf '%s\n' "$tree" | /usr/bin/grep -q '^elidex-ecs '; then
-  echo "check-fixture-boundary: cargo tree printed no elidex-ecs root; refusing to pass on empty output" >&2
+# Matched against the variable, not through a pipe: under pipefail, `grep -q`
+# exiting on an early match SIGPIPEs the writer and the pipeline reads as
+# "no match".
+#
+# Non-vacuity: the tree renders feature nodes (`elidex-ecs feature "default"`
+# is always there), so a flag or format change cannot make the check vacuous.
+if [[ "$tree" != *'elidex-ecs feature "default"'* ]]; then
+  echo 'check-fixture-boundary: cargo tree printed no `elidex-ecs feature "default"` node; refusing to pass on output without feature nodes' >&2
   exit 1
 fi
 
-if printf '%s\n' "$tree" | /usr/bin/grep -qF 'elidex-ecs feature "fixtures"'; then
+if [[ "$tree" == *'elidex-ecs feature "fixtures"'* ]]; then
   echo 'check-fixture-boundary: `fixtures` is enabled outside [dev-dependencies] (normal or build edge):' >&2
-  printf '%s\n' "$tree" | /usr/bin/grep -F 'elidex-ecs feature "fixtures"' >&2
+  /usr/bin/grep -F 'elidex-ecs feature "fixtures"' <<<"$tree" >&2 || true
   exit 1
 fi
 

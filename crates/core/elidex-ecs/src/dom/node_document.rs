@@ -62,7 +62,12 @@ impl EcsDom {
     #[must_use]
     pub fn node_document_for_new_nodes(&self, source: Entity) -> NewNodeOwner {
         if let Ok(root) = self.world.get::<&FragmentParseRoot>(source) {
-            return NewNodeOwner(root.redirect_document);
+            // Validated like the stamp: a context document despawned while
+            // the fragment is built reads as ownerless, never a dead entity.
+            return NewNodeOwner(
+                root.redirect_document
+                    .filter(|&doc| self.is_live_document(doc)),
+            );
         }
         NewNodeOwner(self.node_document(source))
     }
