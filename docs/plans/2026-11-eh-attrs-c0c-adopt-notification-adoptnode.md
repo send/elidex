@@ -16,8 +16,7 @@ consumer-less event).
 2. `MutationEvent::Adopt` (NEW) with `AdoptedContents` (NEW), dispatched once per adopt call after the walk and before
    the link (D-6).
 3. The custom-element consumer's `Adopt` arm and the VM flush's `adoptedCallback` invocation (D-6); explicit
-   arms in the exhaustive matches (a no-op in `range/live.rs`, a recording arm in the test recorder `mutation_hook.rs`;
-   *Rev 3.7.5*).
+   arms in the exhaustive matches (a no-op in `range/live.rs`; in the test recorder `mutation_hook.rs`, the recorder's arm is a no-op shared with `AttributeChange` (clippy `match_same_arms` rejects a separate identical arm); the `Adopt` sequence is recorded by `adopt_on_insert.rs`'s `AdoptLog`; *Rev 3.7.5*, corrected at /code-review).
 4. `TemplateContentsWalk::Include` in the spec's order (D-19).
 5. `document.adoptNode(node)` (D-13): VM native → dom-api `AdoptNode` → session `apply_adopt_node` → `EcsDom::adopt`.
 
@@ -33,7 +32,13 @@ handlers push records with `session.push_notify_record` loops (no public `push_r
 `elidex-form/src/clone.rs:67` and states each caller's order-sensitivity; §5 P-c2 is 1 hit at the base and is listed
 by class at the head; §0.1's factories range and where the coordinates now live; `MutationEvent` has eight variants at
 the base (H-c1, D-6, §4.2): `live.rs`'s `Adopt` joins the shared no-op arm, the test recorder records `Adopt`; §6.1's
-cells use `globalThis.<name>`; D-6 Flush: the lifecycle callback is read at reaction time (a pre-existing deviation).
+cells use `globalThis.<name>`; D-6 Flush: the lifecycle callback is read at reaction time (a pre-existing deviation). And at /code-review: §6.1's
+T7 variant column was wrong — C0c gives the flat-queue order, the spec drains each element's queue (HTML §4.13.6), a
+known deviation `#11-ce-element-queue-grouping`, with the pinned `Adopted(e2)`-before-`Disconnected(old)` order holding
+in both; scope item 3, D-6, §4.2 and §5 said the test recorder records `Adopt` — after /simplify its arm is a no-op
+shared with `AttributeChange` (clippy `match_same_arms`) and `adopt_on_insert.rs`'s `AdoptLog` records the sequence;
+D-3 (c) / `AdoptSegments`: the walk excludes its root from the fragment→template map, guarding against a contents cycle
+the pre-insert validator accepts today (`#11-template-contents-host-link`, U21).
 *Rev 3.7.4* (2026-11-03, PM 319): D-6's lookup runs only when needed and its depth cap is a stated
 defect (§8); D-3 (c) gives the None-under-None rationale; H-c6 / D-13 receiver corrected to `document_receiver`; T15 (iv).
 *Rev 3.7.3* (2026-11-03, focused re-check after PM 315; with the program memo's rev 3.9): the skip covers
@@ -100,7 +105,11 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   contents fragment (D-6's lookup) is skipped: the walk writes no stamp to it or to a node whose innermost contents
   fragment is skipped, re-homes none of such a node's Attrs (the guard gates the whole loop, 3.1 and 3.3.1), and
   records no segment for it. C0c is the first place this is reachable (`adoptNode` can put
-  contents in another document than their template's).
+  contents in another document than their template's). The walk excludes its root from the fragment→template map
+  (`AdoptSegments`, at /code-review): a guard against a contents cycle (`tpl.content.appendChild(tpl)`), which the
+  pre-insert validator does not reject today — a pre-existing gap: the template contents' host is not modelled, so
+  `is_host_including_ancestor_or_self` does not climb from a contents fragment to its template
+  (`#11-template-contents-host-link`, homed by the PM). U21 pins it.
 - **D-6 — the event and its consumers.** `MutationEvent::Adopt { node, documents: Option<(Entity, Entity)>, contents:
   &'a [AdoptedContents] }`; `adopt` dispatches it after the walk, before returning to the primitive (so before
   `link_node` and `Insert`), iff `documents` is `Some` (*adopt* step 3's guard; every segment under a `None` pair is
@@ -137,8 +146,7 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   likewise; the others have `_ => {}` (program P-6). *Rev 3.7.5:* at the base `MutationEvent` has eight variants
   (RC-2a's `CloneCreated`); `live.rs:113-164`'s no-op arm is shared by `AttributeChange` / `CloneCreated`, and clippy
   (`match_same_arms`, pedantic, denied in CI) rejects a second identical arm, so `Adopt` joins that arm; the test
-  recorder's match stays in `mutation_hook.rs` after RC-0a's split (`:72-158` at the base) and its `Adopt` arm records
-  the event (`MockEvent::Adopt`) as its other arms do, not a no-op. *Batch equivalence:* the spec interleaves "set node document" and
+  recorder's match stays in `mutation_hook.rs` after RC-0a's split (`:72-158` at the base); the recorder's arm is a no-op shared with `AttributeChange` (clippy `match_same_arms` rejects a separate identical arm); the `Adopt` sequence is recorded by `adopt_on_insert.rs`'s `AdoptLog` (corrected at /code-review). *Batch equivalence:* the spec interleaves "set node document" and
   "enqueue" per descendant; enqueueing runs no script (reactions run at the next drain, H-c3), so re-homing first and
   enqueueing after, in the same order, is unobservable. *Idiom table:* OO engines' per-node-class "moved to new
   document" virtual override (`adoptedCallback` dispatch inside the adopt loop) → one event on the mutation stream and
@@ -244,7 +252,7 @@ Two new script entry points: `adoptedCallback` (author code, through the existin
 | `dom/mod.rs:32`, `lib.rs:44-47` | `MutationEvent` re-exported | + `AdoptedContents` |
 | `walkers.rs:112-118` | contents after the subtree | contents right after the template |
 | `consumer.rs:75-96` | no `Adopt` arm | `handle_adopt` |
-| `range/live.rs:113-163`; `mutation_hook.rs:68-148` | exhaustive without `Adopt` | `live.rs`: `Adopt` joins the shared no-op arm; the recorder: an arm that records it (*Rev 3.7.5*, D-6) |
+| `range/live.rs:113-163`; `mutation_hook.rs:68-148` | exhaustive without `Adopt` | `live.rs`: `Adopt` joins the shared no-op arm; the recorder: the recorder's arm is a no-op shared with `AttributeChange` (clippy `match_same_arms` rejects a separate identical arm); the `Adopt` sequence is recorded by `adopt_on_insert.rs`'s `AdoptLog` (*Rev 3.7.5*, corrected at /code-review, D-6) |
 | `flush.rs:133-138` | no-op | `adoptedCallback(old, new)` |
 | `vm/host/document.rs` (after D-14 (b)) | — | `adoptNode` native and its table entry |
 | dom-api `document.rs`, `registry.rs` | — | `AdoptNode` |
@@ -309,7 +317,7 @@ no-ops" (`consumer.rs:73-74`); `walkers.rs:86-91` (D-19) and `:112-113` ("Pushed
 | `crates/core/elidex-ecs/src/dom/mod.rs` 926, `crates/core/elidex-ecs/src/lib.rs` 51 | as listed | re-export `AdoptedContents` (`:32`, `:44-47`; c0e) | < 1000 (one line each) |
 | `crates/dom/elidex-custom-elements/src/consumer.rs` | 329 | `handle_adopt` | < 1000 |
 | `crates/dom/elidex-dom-api/src/range/live.rs` | 1021 | no-op arm | split by L3 RC-0a (D-14) |
-| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 1143 | no-op arm in the recorder | split by L3 RC-0a (D-14) |
+| `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs` | 1143 | no-op arm in the recorder, shared with `AttributeChange`; `Adopt` recorded by `adopt_on_insert.rs`'s `AdoptLog` | split by L3 RC-0a (D-14) |
 | `crates/script/elidex-js/src/vm/host/custom_elements/flush.rs` | 237 | the arm | < 1000 |
 | `crates/script/elidex-js/src/vm/host/document.rs` | 1197 | **split first (D-14 (b))**; then the native and its `DOCUMENT_METHODS_POST_LIVE_COLLECTION` entry (H-c6) in the remaining file (1197 − 144 − 516 = 537 lines, + ≈ 25; measured: 499 at `062337aa`, 534 at C0c's head) | prereq PR; < 1000 after |
 | `crates/dom/elidex-dom-api/src/document.rs` 665, `registry.rs` 785 | as listed | `AdoptNode` | < 1000 |
@@ -335,7 +343,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | cell | kind | script | base (C0b's head) | C0c = spec |
 |---|---|---|---|---|
 | T6 | red | `log = []; customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { log.push(['a', o === document, n === dp]) } connectedCallback() { log.push(['c', this.ownerDocument === dp]) } disconnectedCallback() { log.push(['d', this.id]) } }); e = document.createElement('x-a'); dp.body.append(e)` ‖ `log` | `[['c', true]]` (C0b adopts; no callback) | `[['a', true, true], ['c', true]]` |
-| T7 | red | after T6: `log = []; document.body.append(e)` ‖ `log`; variant: `old = document.createElement('x-a'); old.id = 'o'; document.body.append(old); e2 = document.createElement('x-a'); e2.id = 'n'; dp.body.append(e2)` ‖ `log = []; document.body.replaceChild(e2, old)` ‖ `log` | `[['d', ''], ['c', false]]`; variant `[['d', 'n'], ['d', 'o'], ['c', false]]` | `[['d', ''], ['a', false, false], ['c', false]]`; variant `[['d', 'n'], ['a', false, false], ['d', 'o'], ['c', false]]` (`Adopted(e2)` before `Disconnected(old)`) |
+| T7 | red | after T6: `log = []; document.body.append(e)` ‖ `log`; variant: `old = document.createElement('x-a'); old.id = 'o'; document.body.append(old); e2 = document.createElement('x-a'); e2.id = 'n'; dp.body.append(e2)` ‖ `log = []; document.body.replaceChild(e2, old)` ‖ `log` | `[['d', ''], ['c', false]]`; variant `[['d', 'n'], ['d', 'o'], ['c', false]]` | `[['d', ''], ['a', false, false], ['c', false]]`; variant: C0c `[['d', 'n'], ['a', false, false], ['d', 'o'], ['c', false]]` (flat queue), spec `[['d', 'n'], ['a', false, false], ['c', false], ['d', 'o']]` (HTML §4.13.6 *invoke custom element reactions* drains each element's queue when it is dequeued) — a known deviation, `#11-ce-element-queue-grouping`; the pinned order, `Adopted(e2)` before `Disconnected(old)`, holds in both (corrected at /code-review) |
 | T14 | guard (K-0) | same-document move: `q = document.createElement('x-a'); document.body.append(q)` ‖ `log = []; document.body.prepend(q)` ‖ `log` | `[['d', ''], ['c', false]]` | the same (no `Adopted`) |
 | T15 | red | (i) `n = dp.getElementById('d'); r = document.adoptNode(n); [r === n, n.ownerDocument === document, n.parentNode]`; (ii) `document.adoptNode(dp)`; `h = document.createElement('div'); h.attachShadow({mode: 'open'}); document.adoptNode(h.shadowRoot)`; (iii) `c = document.createElement('x-a'); c.id = 'c'; dp.body.append(c)` ‖ `log = []; document.adoptNode(c)` ‖ `log` (`c` is created in a registry-bearing document); (iv) `x = document.createElement('div'); document.body.append(x); r = dp.adoptNode(x); [r === x, x.ownerDocument === dp, x.parentNode]` (a non-bound Document's wrapper, `dom_parser.rs:305`) | `TypeError` (H-15) | (i) `[true, true, null]`; (ii) `NotSupportedError`, `HierarchyRequestError`; (iii) `[['d', 'c'], ['a', false, false]]`; (iv) `[true, true, null]` |
 | T15r | known defect (recorded regression, §1, §8; not the spec column) | `k = dp.createElement('x-a'); k.id = 'k'; dp.body.append(k)` ‖ `log = []; document.body.append(k)` ‖ `log` | `[['d', 'k'], ['c', false]]` (`k` wrongly upgraded in `dp`: the `createElement` native upgrades whatever the document, `vm/host/document_factories.rs:96` at `062337aa`) | C0c: `[['d', 'k'], ['a', false, false], ['c', false]]`. Spec (derived from the spec text; DOMParser's null-registry behaviour is not measured in a browser): `k` is not custom in `dp`, so `[['c', false]]` after its upgrade at insertion; `#11-document-null-registry-adopt-reset` changes this cell to that |

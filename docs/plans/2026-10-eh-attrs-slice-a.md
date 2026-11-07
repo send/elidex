@@ -351,6 +351,9 @@ exactly as HEAD does.
   Order is observable for slice a only when two origins deliver the same event type to one target, i.e. two `<body>`
   elements with the same WEH row in one bound tree; the pre-bind parse yields at most one `<body>`. Tree order is
   chosen as the spec-defined order, not for a measured outcome.
+  *Amendment (C0c, #<PR>):* C0c D-19 revises this order: `Include` pushes the contents fragment after the light children
+  and the shadow root, so it is visited right after the template (DOM §4.5 *adopt* step 3.4; HTML §4.12.3 template
+  adopting steps 2). See `docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md` D-19.
 - Termination on a malformed tree stays the `visited` set (K7); breadth uses `child_list_uncapped`
   (`crates/core/elidex-ecs/src/dom/tree/navigation.rs:287`).
 - `despawn_subtree` and `adopt_subtree` snapshot the list before acting. Despawn destroys deepest-first by reversing a
