@@ -79,9 +79,8 @@ impl EcsDom {
     /// fragment, without a node document reads `None`.
     #[must_use]
     pub fn node_document(&self, node: Entity) -> Option<Entity> {
-        if !self.contains(node) {
-            return None;
-        }
+        // A despawned `node` reads no component (hecs checks the generation),
+        // so it falls through to `None` without a separate `contains`.
         if matches!(self.node_kind(node), Some(NodeKind::Document)) {
             return Some(node);
         }
@@ -92,7 +91,7 @@ impl EcsDom {
     /// Whether `entity` is a live Document (the stored node document's
     /// liveness check).
     pub(crate) fn is_live_document(&self, entity: Entity) -> bool {
-        self.contains(entity) && matches!(self.node_kind(entity), Some(NodeKind::Document))
+        matches!(self.node_kind(entity), Some(NodeKind::Document))
     }
 
     /// Spawn a node bundle with its node document in the spawn tuple (DOM

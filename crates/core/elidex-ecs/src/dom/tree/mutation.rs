@@ -268,11 +268,14 @@ impl EcsDom {
     /// *Adopt* steps 1–3 shared by [`Self::adopt`] and the primitives: read
     /// oldDocument, remove `node` (`new_parent` is the hook's insertion
     /// target, if any), then walk iff `target` is `Some` and differs.
+    ///
+    /// `target` is a live Document when `Some`, so comparing the raw stamp is
+    /// the same test as comparing `node_document` (a dead stamp differs too);
+    /// removal does not touch the stamp.
     fn adopt_into(&mut self, node: Entity, target: Option<Entity>, new_parent: Option<Entity>) {
-        let old_document = self.node_document(node);
         self.detach_with_hook(node, new_parent);
         if let Some(document) = target {
-            if old_document != Some(document) {
+            if self.get_associated_document(node) != Some(document) {
                 self.adopt_walk(node, document);
             }
         }

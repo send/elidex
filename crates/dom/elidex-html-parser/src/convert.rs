@@ -4,7 +4,8 @@
 //! walks the tree and builds an ECS DOM.
 
 use elidex_ecs::{
-    Attributes, EcsDom, Entity, Namespace, ShadowInit, ShadowRootMode, SlotAssignmentMode,
+    Attributes, EcsDom, Entity, Namespace, NewNodeOwner, ShadowInit, ShadowRootMode,
+    SlotAssignmentMode,
 };
 use html5ever::ns;
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
@@ -61,6 +62,7 @@ pub(crate) fn convert_children(
     dom: &mut EcsDom,
     opts: ParseFragmentOptions,
 ) {
+    let owner = dom.node_document_for_new_nodes(parent);
     for child in &*rc_handle.children.borrow() {
         if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, parent, dom, opts)
         {
@@ -68,7 +70,7 @@ pub(crate) fn convert_children(
             // the host entity already received the new shadow tree.
             continue;
         }
-        if let Some(entity) = convert_node(child, parent, dom, opts) {
+        if let Some(entity) = convert_node(child, owner, dom, opts) {
             let ok = dom.append_child(parent, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -95,8 +97,9 @@ pub(crate) fn convert_fragment_top_level(
     dom: &mut EcsDom,
     opts: ParseFragmentOptions,
 ) {
+    let owner = dom.node_document_for_new_nodes(root);
     for child in &*rc_handle.children.borrow() {
-        if let Some(entity) = convert_node(child, root, dom, opts) {
+        if let Some(entity) = convert_node(child, owner, dom, opts) {
             let ok = dom.append_child(root, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -229,21 +232,21 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
     Some((tag, namespace, attributes))
 }
 
-/// Convert one `RcDom` node, created on behalf of `parent` — its converted
+/// Convert one `RcDom` node, created on behalf of its converted
 /// parent, which exists before it (the conversion is bottom-up: the caller
 /// links the returned node after the recursion). HTML §13.2.6.1
 /// (`#creating-and-inserting-nodes`) *create an element for the token* step
 /// 3: the node document is intendedParent's, and for an RcDom conversion the
 /// intended parent is the converted parent (html5ever has already placed each
 /// node); [`EcsDom::node_document_for_new_nodes`] resolves it (the fragment
-/// root redirects to the context's document).
+/// root redirects to the context's document). The caller resolves it once
+/// per parent and passes it as `owner`.
 fn convert_node(
     handle: &Handle,
-    parent: Entity,
+    owner: NewNodeOwner,
     dom: &mut EcsDom,
     opts: ParseFragmentOptions,
 ) -> Option<Entity> {
-    let owner = dom.node_document_for_new_nodes(parent);
     match &handle.data {
         NodeData::Element {
             template_contents, ..
