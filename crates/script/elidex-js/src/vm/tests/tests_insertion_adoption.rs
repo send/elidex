@@ -511,6 +511,9 @@ fn t15r_null_registry_element_known_defect_extra_adopted() {
 
 // ---- T16: `adoptNode`'s only record is the removal's (DOM §4.2.3 *remove*
 // step 16) ----
+// The siblings are read by `nodeName`, standing in for `localName`, which
+// returns `null` today (`#11-element-localname-null`); switch to `localName`
+// when that slot lands.
 #[test]
 fn t16_adopt_node_queues_the_removal_record() {
     let got = ce_cell(&[
