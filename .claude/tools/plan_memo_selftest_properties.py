@@ -308,9 +308,9 @@ def _leading_unbounded_repeat(rx):
     pattern is a program, and "what does it try first" is a question about the
     parse rather than about the spelling (`(?P<l>(?:\\*\\*|`)*)` and
     `(?:\\*\\*|`)*` are the same first move under different text).  The module is
-    private and was renamed in 3.11, so both names are tried and a version that
-    has neither makes the control RED rather than silently green -- a predicate
-    that cannot run is not a predicate that passed.
+    private, so a version that does not have it makes the control RED rather
+    than silently green -- a predicate that cannot run is not a predicate that
+    passed.
 
     "SOMETHING ELSE FOLLOWS" is the whole of the difference between a cost and
     a shape.  `re.compile("`+").finditer` also starts with an unbounded repeat
@@ -323,10 +323,7 @@ def _leading_unbounded_repeat(rx):
     sites and nothing else -- `plan_memo_links._LABEL_WS.sub` over
     `[ \\t\\r\\n]+`, and `plan_memo_lexer._BACKTICKS.finditer` over `` `+ ``."""
     try:
-        try:
-            from re import _parser as parser        # CPython 3.11+
-        except ImportError:
-            import sre_parse as parser              # CPython 3.9 / 3.10
+        from re import _parser as parser
         sub = parser.parse(rx.pattern, rx.flags)
         maxrepeat = parser.MAXREPEAT
     except Exception as exc:                        # any failure is "cannot ask", which is red
@@ -458,8 +455,8 @@ def encoding_sweep_control(M):
     `encoding=`; one that does not is red.
 
     WHY IT IS A PROPERTY AND NOT TWO FIXES (PR #510 R26-4).  The checker
-    advertises Python 3.9+ with only the standard library and reads production
-    memos as explicit UTF-8 (`plan_memo_memo.Memo.__init__`), while the SELF-TEST
+    runs on the pinned interpreter (`.tool-versions`), standard library only, and
+    reads production memos as explicit UTF-8 (`plan_memo_memo.Memo.__init__`), while the SELF-TEST
     read its own module sources and wrote its fixtures with the locale default.
     On a host whose preferred encoding is not UTF-8 that raised
     `UnicodeDecodeError` inside `load()` before a single control ran --

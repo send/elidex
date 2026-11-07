@@ -63,7 +63,8 @@ pub enum FocusTrigger {
 /// §6.6.2 criterion 2 — slot `#11-shadow-focus-delegation` — but that is not
 /// relied on here: the criterion-2-aware `is_focusable_area` predicate is applied
 /// only inside the focus-delegate descendant walk, never to the Tab-nav /
-/// `reconcile_focus` predicate, which is PR-A3's sequential-nav axis.)
+/// step-17 fixup (`focus_fixup_steps`) predicate, which is PR-A3's sequential-nav
+/// axis.)
 #[must_use]
 pub fn get_the_focusable_area(
     dom: &EcsDom,
@@ -125,7 +126,7 @@ fn delegates_focus_host(dom: &EcsDom, entity: Entity) -> bool {
 ///   host with no delegate is not a focusable area, so it must not itself receive
 ///   focus.
 ///
-/// **Not** the Tab-nav / `reconcile_focus` predicate, which stay on the C2-blind
+/// **Not** the Tab-nav / step-17 fixup (`focus_fixup_steps`) predicate, which stay on the C2-blind
 /// [`is_focusable`] until PR-A3 unifies the focusability predicate (the
 /// sequential-nav axis — folding C2 there changes the Tab order and needs the
 /// delegate descent, out of A1's scope).

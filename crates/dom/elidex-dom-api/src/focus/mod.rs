@@ -25,21 +25,23 @@
 //!
 //! Engine- and form-independent: this crate has no `elidex-form` dependency, so
 //! the focusable predicate is attribute-based. Event dispatch (the focusing
-//! steps §6.6.4 fire `focusout`/`focusin`/`blur`/`focus`) is engine-bound and
-//! stays with the caller; these helpers only reconcile the `FOCUS` bit.
+//! steps §6.6.4 fire `focusout`/`focusin`/`blur`/`focus`) is engine-bound: the
+//! `sot` helpers only read and write the `FOCUS` bit, and `update_steps` fires
+//! events through the caller's [`FocusEventSink`].
 //!
 //! ## Module layout
 //!
 //! - `predicate` — the §6.6.2/§6.6.3 focusable-area predicates
 //!   ([`is_focusable`] / [`tab_index_default_for`] / [`parse_tab_index_value`]).
 //! - `sot` — the focus source-of-truth: the [`ElementState::FOCUS`] bit's
-//!   read ([`current_focus`]) / write ([`set_focus_bit`] / [`blur`]) models, the
-//!   active-document membership test ([`is_in_document`]), and the asynchronous
-//!   focusability fixup ([`reconcile_focus`]).
+//!   read ([`current_focus`]) / write ([`set_focus_bit`] / [`blur`]) models and
+//!   the active-document membership test ([`is_in_document`]).
 //! - `delegate` — §6.6.4 "get the focusable area" / "focus delegate" (the
 //!   shadow-`delegatesFocus` retarget, PR-A1).
 //! - `update_steps` — the canonical §6.6.4 transition ([`focusing_steps`] /
-//!   [`unfocusing_steps`] + the [`FocusEventSink`] seam), PR-A2a.
+//!   [`unfocusing_steps`] + the [`FocusEventSink`] seam), PR-A2a, and the
+//!   asynchronous "update the rendering" step-17 focusability fixup
+//!   ([`focus_fixup_steps`]).
 
 use elidex_ecs::{EcsDom, ElementState, Entity};
 

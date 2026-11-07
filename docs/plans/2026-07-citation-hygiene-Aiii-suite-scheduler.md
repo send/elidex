@@ -101,8 +101,8 @@ job is ungated (§4.2).
   child outside the **unguarded-child class**, and those children see the regime's environment; a green run
   is the offline measurement **for that coverage**, and the class — with the socket-layer paths T-net does not
   plant — is the stated limit (§4.3, defined once there).
-- **L5 — the interpreter floor is 3.9, measured by the `"3.9"` leg** running the whole set; the script's
-  assertion is the statement (§4.4).
+- **L5 — the interpreter is the pin (`.tool-versions`), measured by the `tools` job's one leg** running the whole
+  set; the driver's Step 1 admits exactly the pin's version and is the statement (§4.4; amended 2026-11-06 by #601, python-pin PR-1).
 - **L6 — the job boundary.** `trip-wires` declares no interpreter; `tools` declares one; a check that needs a
   language runtime goes to the job that declares it (§4.2.1).
 
@@ -111,18 +111,18 @@ job is ungated (§4.2).
 | L1 × L2 | the set and every loud failure belong to the **script**, not to either caller — otherwise they are things one caller can skip |
 | L1 × L3 | with no gate, the CI caller's trigger is unconditional, so the two callers differ only in *where* they run, never in *whether* |
 | L1 × L4 | the offline regime is set by the script, so a local `mise run ci` is no more permissive than CI |
-| L1 × L5 | the floor assertion is the script's, so both callers state it; only the CI caller *measures* it (the local interpreter is whatever is installed) |
+| L1 × L5 | the pin's admission is the script's (Step 1), so both callers run it, and the only measurements are runs on the pin — the CI caller's one leg, locally mise's install; any other interpreter is refused (amended 2026-11-06 by #601, python-pin PR-1) |
 | L1 × L6 | the `tools` job's one driving step is the script (Q6), so a check moving in under L6 enters the script's set — the job has no second invocation site to add it to |
 | L2 × L3 | the set L2 ranges over is a repo fact, not a filter list — and under D2 it is also the set the script **runs**, so L2 holds by construction |
 | L2 × L4 | every member, a wrapper included, runs under the regime, and a wrapper's `sys.executable` child is outside the unguarded-child class because the contract lets the wrapper change only non-regime keys (§4.2); a child in the class (§4.3) is outside the measurement, which is why the contract also says "stays offline" — and a test that skips is red (step 5), so skipping is no way out of the regime |
-| L2 × L5 | every member runs on both legs; a member that needs more than 3.9 is red on the floor leg — a `skipIf` on the version included, because a skipped test is red (step 5) — and step 3 parses every tracked `.py` with the leg's interpreter, so an unparsable file is red too |
+| L2 × L5 | every member runs on the one leg, the pin, and step 3 parses every tracked `.py` with the pin, so an unparsable file is red. A branch or a `skipIf` for an interpreter the pin excludes is **not** red: on the pin it never fires (the test runs, nothing skips), so no run sees it. That none is kept is held by PR-1's removal of every such branch, by python-pin PR-1 plan §4.6's D1 sweep re-run at touch time, and by review — no standing gate (amended 2026-11-06 by #601, python-pin PR-1) |
 | L2 × L6 | a check leaving `trip-wires` under L6 enters through L2's one door (a tracked `test_*.py`, a wrapper if command-shaped), and step 3(b) makes that door mandatory for a `--self-test` command |
 | L3 × L4 | an ungated job runs on every pull request targeting `main`, so a network-dependent suite would fail every unrelated one |
-| L3 × L5 | both legs fire on every such pull request, so the floor is measured on every one, not only those touching `.claude/` |
+| L3 × L5 | the one leg fires on every such pull request, so the pin is measured on every one, not only those touching `.claude/` (amended 2026-11-06 by #601, python-pin PR-1) |
 | L3 × L6 | moving a check across the boundary must not narrow *when* it runs; both jobs are ungated (`trip-wires` by #496, `tools` by Q8), so it does not |
-| L4 × L5 | they meet at `setup-python`: the interpreter is fetched by the setup step, before the script applies the regime — that network use is the action's, not a suite's |
+| L4 × L5 | they meet at `setup-python`: the pin is fetched by the setup step, which consumes `.tool-versions`, before the script applies the regime — that network use is the action's, not a suite's (amended 2026-11-06 by #601, python-pin PR-1) |
 | L4 × L6 | the regime is a property of the `tools` job's script only; a check staying in `trip-wires` does not acquire it and the memo does not claim it does |
-| L5 × L6 | the floor is declared by the job that declares the interpreter; `trip-wires` has no floor because it declares none (L6's first clause) |
+| L5 × L6 | the pin is consumed by the job that declares the interpreter; `trip-wires` measures no interpreter because it declares none (L6's first clause) (amended 2026-11-06 by #601, python-pin PR-1) |
 
 ---
 
@@ -147,19 +147,20 @@ runs the Python suites.**
 `trip-wires.sh`), `set -euo pipefail`; its Python half (loader, counts, complement checks) is a heredoc in
 the same file, so the procedure has one home. `mise.toml` gains `[tasks.tools-test]` running it, added to
 `[tasks.ci].depends`; `ci.yml` gains a `tools` job that is **deliberately ungated** — no `needs:`, no `if:`, no
-path-filter entry — with a two-leg `python-version` matrix consumed by `actions/setup-python` (§4.4). A-iii's
+path-filter entry — with one `actions/setup-python` step consuming `.tool-versions` (§4.4; amended 2026-11-06 by #601, python-pin PR-1). A-iii's
 pins ship beside the driver as three set members, `scripts/test_python_suites_driver.py` (driver + complement
 pins), `scripts/test_python_suites_regime.py` (offline-regime pins and their fixture member sources) and
 `scripts/test_python_suites_ci.py` (reader, `ci.yml` and `mise.toml` pins) (§6), which therefore run on every pull
 request targeting `main`. Two helper modules sit beside them and are **not** set members: `python_suites_fixtures.py`
 (shared fixtures; `DriverCase` is a plain mixin, so it defines no `unittest.TestCase` subclass and no
 `--self-test` constant — complement check (a)/(b) would otherwise fail it) and `python_suites_readers.py` (the
-`ci.yml` / `mise.toml` text readers; no tests, no entry point). The split is the touch-time split of the single
+`ci.yml` text reader and the `mise.toml` `tomllib` reader (amended 2026-11-06 by #601, python-pin PR-1); no tests, no entry point). The split is the touch-time split of the single
 1839-line file the first implementation shipped.
 
 **The procedure (decision D2 — one way for a suite to enter):**
 
-1. **The floor.** Assert `sys.version_info >= (3, 9)` before anything else, and echo `python3 -VV` (§4.4).
+1. **The pin.** Admit exactly the pin's version (`scripts/python_pin.py`, which refuses any other interpreter) before
+   anything else, and echo `python3 -VV` (§4.4; amended 2026-11-06 by #601, python-pin PR-1).
 2. **The set** is `git ls-files ':(glob)**/test_*.py'` — tracked files, repo-wide. The `:(glob)` spelling is
    what makes a top-level `test_x.py` count: plain `'**/test_*.py'` does not match a file at the root (in a
    scratch repository, `git ls-files '**/test_*.py'` vs `git ls-files ':(glob)**/test_*.py'`). An empty set
@@ -198,8 +199,8 @@ request targeting `main`. Two helper modules sit beside them and are **not** set
    **file** — per file, not per root, so a no-test file beside passing siblings is caught (a scheduler's
    residual failure is a member *collected* that runs nothing). **A test counts only if it executed and passed**:
    **any skipped test makes the run red, naming it** (and likewise an expected failure or an unexpected
-   success — neither is a pass). A skip is not a way out of the floor leg (a `skipIf` on the version) or of
-   the offline regime (a skip on a failed connect). At the base no test file skips:
+   success — neither is a pass). A skip is not a way out of the pin (a `skipIf` on the version) or of
+   the offline regime (a skip on a failed connect) (amended 2026-11-06 by #601, python-pin PR-1). At the base no test file skips:
    `git grep -nE 'expectedFailure|SkipTest|skip(If|Unless|Test)?\(|unittest\.skip' origin/main --
    ':(glob)**/test_*.py'` matches nothing.
 
@@ -212,8 +213,8 @@ rather than a unittest module (PR #510's `python3 .claude/tools/plan-memo-umbrel
 reached by the flag **`--self-test`** from a top-level `__main__` guard (the repo's one spelling); the
 command's own file is **not named `test_*.py`** (a member is excluded from 3(b), so its self-test would never
 be required to run) and **defines no `TestCase`** (3(a) would keep it red); the wrapper
-names the command's file by path (step 3(b)); runs the command through `sys.executable` (so the matrix leg's
-interpreter is the one measured), without `-I` / `-E` / `-S`, **in an environment equal to the regime on
+names the command's file by path (step 3(b)); runs the command through `sys.executable` (so the job's one leg's
+interpreter, the pin, is the one measured (amended 2026-11-06 by #601, python-pin PR-1)), without `-I` / `-E` / `-S`, **in an environment equal to the regime on
 every regime key** (§4.3) — it may add or change only non-regime keys, and `PYTHONPATH` only by appending
 after the guard's entry, whether by an `env=` it builds or by mutating its own `os.environ` / `os.putenv`
 before spawning — so the command is outside the unguarded-child class; asserts exit 0 **and** nonzero control
@@ -242,7 +243,7 @@ on #501's branch, whose one `python3` hit is a comment (the same command at `ori
 The rule, as three properties:
 
 - **`trip-wires` declares no interpreter** — it has no setup step.
-- **`tools` declares its interpreter** — `actions/setup-python`, on every leg.
+- **`tools` declares its interpreter** — `actions/setup-python`, on its one leg (amended 2026-11-06 by #601, python-pin PR-1).
 - **A check that needs an interpreter belongs to the job that declares one.**
 
 The `tools` job's comment states these rules **self-contained** — `trip-wires`' no-setup-step property in its
@@ -309,27 +310,24 @@ mode**. A-iii's claim is exact: *the suites run green offline*.
 ⚠ **The umbrella's earlier live-network record** was measured on a branch whose fetching was Slice **B**'s
 catalog fall-through; B ships the offline contract for what B introduces, and A-iii inherits no such dependency.
 
-### §4.4 The interpreter floor — measured by one leg, stated by one assertion
+### §4.4 The interpreter — the pin, measured by one leg, admitted by one step
 
-The floor is **3.9**, and the **only measurement of it is the `"3.9"` matrix leg** running the set (draft
-1's static `ast` pre-check is dropped: it missed newer-runtime APIs, Codex R21, and misread a set union as PEP
-604 — wrong both ways). The script's assertion and the job's `python3 -VV` echo are the *statement*; §4.2 step 3's parse of
-every tracked `.py` is a different property, not a floor instrument.
+The interpreter is **the pin**, `.tool-versions` (`docs/plans/2026-10-python-pin-umbrella.md`), and the **only measurement of it is the
+`tools` job's one leg** running the set (draft 1's static `ast` pre-check is dropped: it missed newer-runtime APIs,
+Codex R21, and misread a set union as PEP 604 — wrong both ways). The driver's Step 1, which admits exactly the
+pin's version, and the job's `python3 -VV` echo are the *statement*; §4.2 step 3's parse of every tracked `.py` is a
+different property, not an interpreter instrument (amended 2026-11-06 by #601, python-pin PR-1).
 
-**The legs.** `"3.9"` and `"3.x"` — the newest the action resolves, so a newest-runtime breakage shows on the
-PR that meets it. The job pins `runs-on: ubuntu-24.04` (not `ubuntu-latest`): the `"3.9"` leg needs an image
-`setup-python` serves 3.9 for, and a floating label would move to an image whose manifest has no 3.9 build
-(Q7 requires the pinned value; re-check when Slice B raises the floor or 24.04 retires). The action's manifest
-lists a 3.9.x build for linux x64 on 22.04 and 24.04 (`gh api repos/actions/python-versions/contents/versions-manifest.json
---jq .content | base64 -d | jq '[.[] | select(.version|startswith("3.9.")) | .files[] | select(.platform=="linux"
-and .arch=="x64") | .platform_version] | unique'`).
+**The leg.** One, the pin: the setup step consumes `.tool-versions` and nothing overrides it. The job pins
+`runs-on: ubuntu-24.04` (not `ubuntu-latest`): the manifest serves builds per image, so the pinned patch must have
+one for ubuntu-24.04 x64 (python-pin PR-1's N4 requires the pinned value; re-check at each bump and when 24.04
+retires) (amended 2026-11-06 by #601, python-pin PR-1).
 
-Both legs go through `setup-python` (§4.2.1). `--mutants`-shaped self-tests run on **both** legs, with no
-per-leg branching (D3): a check that skipped the floor leg would leave the floor unmeasured for exactly the
-heaviest code. Slice B raises the floor when B lands `(?>...)`; the leg's `python-version` moves with it.
-`SKILL.md`'s Step 0 invokes `preflight.py` directly, bypassing the script; at floor 3.9 that leg is
-unaffected, and **it is assigned to Slice B's floor raise** — B names that invocation in its edit set (§6
-UNCHECKED, §13).
+The leg goes through `setup-python` (§4.2.1). `--mutants`-shaped self-tests run on the `tools` job's one leg — the
+pinned interpreter — with no interpreter-conditional branching (D3): the heaviest code runs on every interpreter
+the gate measures, which is exactly one. Slice B has no interpreter edit (§13). `SKILL.md`'s Step 0 invokes
+`preflight.py` directly, bypassing the script; that path is **assigned to PR-2 of the python-pin umbrella** (§6
+UNCHECKED, §13) (amended 2026-11-06 by #601, python-pin PR-1).
 
 ### §4.5 What "enforced" can honestly mean here
 
@@ -359,8 +357,8 @@ git grep -nE 'mise run [a-z]|test-all|trip-wires|つ目の job|cargo-only' origi
   `tools-test` (the Python suites = `scripts/python-suites.sh`).
 - **An enumeration of `mise run ci`'s parts or of the CI jobs** gains `tools-test` / the `tools` job (and
   `trip-wires` where the same enumeration lacks it); a statement of what the ungated jobs buy (red on the PR,
-  not a merge block) extends to `tools`. `CLAUDE.md` `## CI` gains the fifth job's paragraph: ungated, legs
-  `"3.9"` / `"3.x"`, `bash scripts/python-suites.sh` = `mise run tools-test`, §4.2.2's reason, §4.2.1's boundary.
+  not a merge block) extends to `tools`. `CLAUDE.md` `## CI` gains the fifth job's paragraph: ungated, one leg,
+  the pin (`.tool-versions`) (amended 2026-11-06 by #601, python-pin PR-1), `bash scripts/python-suites.sh` = `mise run tools-test`, §4.2.2's reason, §4.2.1's boundary.
 - **A premise A-iii falsifies** is rewritten true, keeping its conclusion where it holds: "`mise run ci` is
   cargo-only" → it runs the Python suites and the trip-wires, which check only what the gate code's own tests
   assert, so the review stages stay the only *review* coverage; "the ungated `trip-wires` job" as a Python
@@ -413,13 +411,14 @@ repository), so the live
 tree's properties are the driver's own checks on every run (§4.2 steps 1–5, §4.3), and the pins prove each of
 those checks can fire.
 
-**The text readers — one property, stated once for the whole of each reader.** Pins that read `ci.yml` or
-`mise.toml` read text (the floor interpreter has neither a YAML parser nor `tomllib`, 3.11+). Property:
-**in the regions the pins read** (`ci.yml`'s workflow-level `on:` block and `tools` job region;
-`mise.toml`'s `[tasks.ci]` and `[tasks.tools-test]`), **any construct the reader does not model reads red,
-naming the line** — the unknown falls to red, never to "absent", because a reader that skipped an unreadable
+**The readers — one property, stated once for the whole of each reader** (amended 2026-11-06 by #601, python-pin PR-1). Pins read `ci.yml` as text
+and `mise.toml` with `tomllib` (since python-pin PR-1; amended 2026-11-06 by #601, python-pin PR-1). Property:
+**in the regions the pins read** (`ci.yml`'s workflow-level `on:` block and `tools` job region), **any
+construct the reader does not model reads red, naming the line** — the unknown falls to red, never to "absent", because a reader that skipped an unreadable
 construct could read a gated job as ungated. The grammar the reader models is the implementation's choice,
-stated in the test; §6.1 rows R1–R9 and M1–M3 are the constructs it must provably handle or refuse.
+stated in the test; §6.1 rows R1–R9 are the constructs it must provably handle or refuse. `mise.toml`'s reader
+is the parser: a file `tomllib` refuses is red, naming its message, and in `[tasks.ci]` / `[tasks.tools-test]`
+any key the pin does not model is red, naming it (python-pin PR-1's N7 / N8; §6.1 M1–M3 retired) (amended 2026-11-06 by #601, python-pin PR-1).
 
 | Pin | What it executes | §5 rows | Red at main? |
 |---|---|---|---|
@@ -430,17 +429,17 @@ stated in the test; §6.1 rows R1–R9 and M1–M3 are the constructs it must pr
 | **Q10** | complement (a), §6.1 P1–P2 | 6 | **yes** |
 | **Q11** | complement (b), §6.1 P3–P7 | 6 | **yes** |
 | **Q12** | skip is red: a member holding one passing test and one `@unittest.skip` test makes the script exit non-zero naming the skipped test (a per-file count alone would read the file as contributing) | 8 | **yes** |
-| **Q4** | `mise.toml`'s `[tasks.ci].depends` contains `"tools-test"`, and `[tasks.tools-test]` runs `bash scripts/python-suites.sh` and has no `sources` / `outputs` key (a task with `sources` is skipped by `mise` when its sources are unchanged, so a suite could go unrun locally) — §6.1 M1–M2 | 3 | **yes** |
-| **Q5** | the floor assertion: the script exits non-zero naming the floor when the `python3` it finds reports a version below 3.9 (fixture: a PATH-shadowing `python3` shim) | — | **yes** |
+| **Q4** | `mise.toml`'s `[tasks.ci].depends` contains `"tools-test"`, and `[tasks.tools-test]` runs `bash scripts/python-suites.sh` and has no `sources` / `outputs` key (a task with `sources` is skipped by `mise` when its sources are unchanged, so a suite could go unrun locally) — over parsed TOML, python-pin PR-1's N7, which also refuses every other key (§6.1 M1–M2 retired) (amended 2026-11-06 by #601, python-pin PR-1) | 3 | **yes** |
+| **Q5** | retired → python-pin PR-1's N1 (the driver refuses a `python3` whose version is not the pin) (amended 2026-11-06 by #601, python-pin PR-1) | — | **yes** |
 | **Q6** | `ci.yml`'s `tools` job region (bounds: §6.1 R9) contains a **`run:` step that executes the driver** — the driver is the command, not text in the region, and is not masked (§6.1 D1). Without it an empty `tools` job satisfies §12(3) (Codex R14/R36/R48) | 1, 2 | **yes** — the job does not exist |
-| **Q7** | the same region runs on `runs-on: ubuntu-24.04` exactly (an image `setup-python` serves 3.9 for; `ubuntu-latest` floats off it) and carries a `python-version:` matrix with legs `"3.9"` and `"3.x"` **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`, before Q6's `run:` step** — a matrix no step consumes runs one interpreter on every leg (Codex R48), and a `setup-python` after the driver step measures nothing (Codex R49) | — | **yes** |
+| **Q7** | retired → python-pin PR-1's N4 (`runs-on: ubuntu-24.04` exactly, and one `actions/setup-python` step, before Q6's `run:` step, whose `with` is exactly `python-version-file: .tool-versions`) (amended 2026-11-06 by #601, python-pin PR-1) | — | **yes** |
 | **Q8** | the `tools` job is **present and ungated**: its region is non-empty and carries no `needs` and no `if` key — deliberately not "not gated on a known output", which would read a job gated on a *new* output as ungated; **negative control**: the same predicate reads the fixture copy of `check`'s gating (`needs: changes` + `if:` on `rust`) as gated (Codex R49). **And the trigger**: the workflow-level `on:` block's `pull_request` **and** `push` each carry no `paths:` / `paths-ignore:` and their `branches` is exactly `[main]` | 1, 2 | **yes** |
-| **Q13** | the text readers' property (§6 above), §6.1 R1–R9 and M1–M3 | — | **yes** — the readers do not exist |
+| **Q13** | the readers' property (§6 above), §6.1 R1–R9 and M1–M3 (M1–M3 retired → python-pin PR-1's N7 / N8, amended 2026-11-06 by #601, python-pin PR-1) | — | **yes** — the readers do not exist |
 | **T-net** | the offline regime, §6.1 G1–G14: each network plant is **green without the regime and red with it**, making the script exit non-zero naming the plant | 7 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, §4.5; the
-interpreter floor on `SKILL.md`'s direct `preflight.py` path, which bypasses the script — **assigned to Slice
-B's floor raise** (§4.4).
+pin on `SKILL.md`'s direct `preflight.py` path — UNCHECKED, assigned to PR-2 of the python-pin umbrella (§4.4;
+amended 2026-11-06 by #601, python-pin PR-1).
 
 ### §6.1 Property → pin
 
@@ -463,17 +462,17 @@ file, test, plant or line. Driver rows run in scratch repos (§6).
 | **P11** | a `test_*` whose body we cannot show runs is red (calling it runs no body): a generator / async generator function on any class, or a coroutine function on a class that is not `IsolatedAsyncioTestCase`; the only exemption is a coroutine function on an `IsolatedAsyncioTestCase` | all 8 cells of function kind (plain / coroutine / generator / async generator) × class (`TestCase` / `IsolatedAsyncioTestCase`), each asserted by name: the 5 red cells (coroutine on `TestCase`; generator and async generator on both) are red naming the test; the 3 runs cells (plain on both; coroutine on `IsolatedAsyncioTestCase`) print a marker from the body and are not named red |
 | **P12** | a failing `subTest` is red naming the subtest | `for i in range(3): with self.subTest(i=i): assertNotEqual(i, 1)` makes the run name `::S.test_x (i=1)` and not `(i=0)` / `(i=2)` |
 | **R1** | keys are recognised in any quoting, and keys differing only in quoting are duplicates | in the `tools` region, `"needs": changes` and `'if': x` each read as exactly `job key 'needs' is not in the tools-job allowlist` / `... 'if' ...`; `tools:` + `"tools":`, `pull_request:` + `"pull_request":` and `timeout-minutes` + `"timeout-minutes"` each raise `ReaderError` (duplicate) |
-| **R2** | the modelled values read correctly | green: `branches: [main]`, `python-version: ["3.9", "3.x"]`, `python-version: ${{ matrix.python-version }}` |
+| **R2** | the modelled values read correctly | retired → python-pin PR-1's N5: green `branches: [main]`, `python-version-file: .tool-versions` (amended 2026-11-06 by #601, python-pin PR-1) |
 | **R3** | value-position constructs not modelled are red | red, in the `tools` region: a value `{a: 1}`, `&x`, `*x` |
 | **R4** | key-position constructs not modelled are red | red: `&a needs: x`, `!!str needs: x`, an explicit key `? needs` |
 | **R5** | merge keys are red | red: `<<: *x` and `<<: {needs: changes}` in the `tools` region |
-| **R6** | a multi-line flow sequence never reads as something else | `branches: [main,` / `  dev]` across two lines is red (never read as `[main]`); a `python-version: [` multi-line list is red (fail closed — no exact multi-line reading is modelled) |
+| **R6** | a multi-line flow sequence never reads as something else | `branches: [main,` / `  dev]` across two lines is red (never read as `[main]`); the `python-version: [` multi-line-list half is retired — its subject left the job (python-pin PR-1 tests memo `docs/plans/2026-10-python-pin-pr1-tests.md` §6.2) (amended 2026-11-06 by #601, python-pin PR-1) |
 | **R7** | comments, including trailing, are not values and not keys | `needs: changes # x` reads as gated; a `# needs: changes` line reads as no key (job ungated); `tools: # c` is still the region's header; `run: bash scripts/python-suites.sh # c` still satisfies D1 |
 | **R8** | block scalars: headers `\|` `>` `\|-` `>-` `\|+` are recognised; the body is text | for each header, a body containing `*.py` and a line `needs: x` is green and reads as no key; an unrecognised header (`\|9x`) is red |
 | **R9** | the `tools` region is bounded by the next job | a fixture whose **next** job carries `needs:`, a driver `run:` and a `setup-python` step: none is credited to `tools` (Q6–Q8); a two-space-indent comment inside `tools` does not end its region |
-| **M1** | `mise.toml` sections the pins read: unmodelled constructs are red | green: `depends = ["check", "tools-test"]`; red: `depends = { a = 1 }`, a multi-line `depends = [` array, a `run` not beginning a quoted string, an empty value (`run =`), a `[tasks.tools-test.env]` header, a `[tasks."tools-test".env]` header and the same with a backslash escape in a quoted part (`"tools\u002dtest"`), and a header part that is not one bare or quoted key (`"tools-test"x`), unbalanced brackets (`[tasks.other]]`), an array of tables under `tasks` (`[[tasks.other]]`, `[[tasks.tools-test]]`), and outside the read sections a `tasks` key in any quoting, dotted or an inline table (`tasks."tools-test".env.X`, `"tasks".x`, `'tasks'.x`, `tasks = { … }`), or an escaped key (`"task\u0073".…`) — keys there are read with the header grammar; green: `[tasks."tools-test.env"]` (a quoted part is one key, dots included); a `depends` containing `"tools-test"` in another section is not credited |
-| **M3** | the body of a multi-line string, and the continuation lines of a multi-line array outside the read sections, are text, not structure | the live `mise.toml` plus another task's `run = """` / `'''` string holding `[ -d target ] || mkdir -p target` or a fake `[tasks.tools-test]` header reads green; an array outside the read sections whose continuation line begins with `[` (`  [ "x" ],`) or holds `"[ -d t ]"` reads green, and the same array never closed is `ReaderError` naming the line that opened it; a `]` with no array open is `ReaderError` naming its own line; an unterminated string, an escaped `\"""` close and a `""""` close are `ReaderError` |
-| **M2** | S4: `[tasks.tools-test]` has no `sources` / `outputs` | red: the fixture section with `sources = ["scripts/**"]`; red: with `outputs = [...]` |
+| **M1** | retired → python-pin PR-1's N8 (amended 2026-11-06 by #601, python-pin PR-1): `mise.toml` sections the pins read: unmodelled constructs are red | green: `depends = ["check", "tools-test"]`; red: `depends = { a = 1 }`, a multi-line `depends = [` array, a `run` not beginning a quoted string, an empty value (`run =`), a `[tasks.tools-test.env]` header, a `[tasks."tools-test".env]` header and the same with a backslash escape in a quoted part (`"tools\u002dtest"`), and a header part that is not one bare or quoted key (`"tools-test"x`), unbalanced brackets (`[tasks.other]]`), an array of tables under `tasks` (`[[tasks.other]]`, `[[tasks.tools-test]]`), and outside the read sections a `tasks` key in any quoting, dotted or an inline table (`tasks."tools-test".env.X`, `"tasks".x`, `'tasks'.x`, `tasks = { … }`), or an escaped key (`"task\u0073".…`) — keys there are read with the header grammar; green: `[tasks."tools-test.env"]` (a quoted part is one key, dots included); a `depends` containing `"tools-test"` in another section is not credited |
+| **M3** | retired → python-pin PR-1's N8 (amended 2026-11-06 by #601, python-pin PR-1): the body of a multi-line string, and the continuation lines of a multi-line array outside the read sections, are text, not structure | the live `mise.toml` plus another task's `run = """` / `'''` string holding `[ -d target ] || mkdir -p target` or a fake `[tasks.tools-test]` header reads green; an array outside the read sections whose continuation line begins with `[` (`  [ "x" ],`) or holds `"[ -d t ]"` reads green, and the same array never closed is `ReaderError` naming the line that opened it; a `]` with no array open is `ReaderError` naming its own line; an unterminated string, an escaped `\"""` close and a `""""` close are `ReaderError` |
+| **M2** | retired → python-pin PR-1's N7 (amended 2026-11-06 by #601, python-pin PR-1): S4: `[tasks.tools-test]` has no `sources` / `outputs` | red: the fixture section with `sources = ["scripts/**"]`; red: with `outputs = [...]` |
 | **D1** | S3: the driver is the command — argv[0], or the argument after `bash` / `sh` — and is not masked; what can mask it or alter its shell / Python is closed by **allowlist**, not by a list of known maskers: the step's keys, the `tools` job's keys, the workflow's top-level keys and the workflow-level `env:` keys must each be in an allowlist of exactly what `ci.yml` has today (`BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PATH`, any `PYTHON*` and any proxy variable are never in it), and any other key is red | green: `run: bash scripts/python-suites.sh`, `run: scripts/python-suites.sh`, `run: mise run tools-test`; **red**: `env: DRIVER: scripts/python-suites.sh` alone, `run: echo scripts/python-suites.sh`, `bash scripts/python-suites.sh \|\| true`, `bash scripts/python-suites.sh; true`, `continue-on-error: true` on that step, and on the job; **allowlist controls** (each red): job `defaults: run: shell: sh`, job `env: PYTHONPATH: x`, an unknown job key (`some-future-key`), a job `needs` / `if`, workflow `env: BASH_ENV: x` (and `ENV`, `SHELLOPTS`, `BASHOPTS`, `PATH`, `PYTHONSTARTUP`, `HTTP_PROXY`, `http_proxy`), workflow `defaults:`, an unknown workflow key; **green**: the real `ci.yml`, and a workflow `env:` of `CARGO_TERM_COLOR` alone |
 | **G1** | socket-layer connection fails in-process | a member doing `http.client.HTTPConnection` and `urllib.request.urlopen` to a `127.0.0.1` listener (an `https://` URL included — red at connect, before TLS) |
 | **G2** | … in a Python child (`webref` included); a relative `TMPDIR` resolves against the caller's cwd | a member's `sys.executable` child doing a raw `socket.socket().connect` to the listener, the member asserting the child's exit 0; the same through an executable with a `#!/usr/bin/env python3` shebang (`webref`'s shape); **relative `TMPDIR`**: the driver launched from `sub/` with `TMPDIR=rel-tmp` — the member's guard entry starts with `<sub>/rel-tmp/`, and a child in another cwd is refused |
@@ -504,7 +503,7 @@ under `scripts/`** (its pins) plus two non-member helper modules. The implementa
 `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.claude/skills/pre-push/SKILL.md`,
 `.claude/skills/elidex-review/SKILL.md`, `.claude/skills/elidex-plan-review/SKILL.md` (§4.6), and this memo.
 
-The `mise` task, the CI job and the floor are recorded in `python-suites.sh`'s header, the `mise.toml` task
+The `mise` task, the CI job and the pin (amended 2026-11-06 by #601, python-pin PR-1) are recorded in `python-suites.sh`'s header, the `mise.toml` task
 comment, the `tools` job comment and §4.6's docs, not in `_webref/DESIGN.md`: that file's core is meant to move
 to a standalone repository, where a section about elidex's `ci.yml` is wrong on arrival.
 
@@ -520,7 +519,7 @@ one way — by being a tracked `test_*.py` (§4.2), which step 3 makes the only 
 `python_suites_readers.py`); `mise.toml` and `ci.yml` gain a task and a job; §4.6's docs gain a
 phrase or a paragraph each. No touched file is near a split (`git show origin/main:<file> | wc -l` for each).
 
-**Wall clock.** The legs run in parallel, so the job's wall clock is the slower leg's. `timeout-minutes` is
+**Wall clock.** The job has one leg, the pinned interpreter; its wall clock is that leg's (amended 2026-11-06 by #601, python-pin PR-1). `timeout-minutes` is
 derived from the implementation PR's own CI run, and the rule is stated in the `tools` job comment (source:
 #501's `trip-wires` comment): *a PR that adds suite cost re-derives the timeout in the same PR* — first of all
 #510's wrapper. `ci.yml` carries the rule and the command to re-derive, **no runtime figure**.
@@ -545,7 +544,7 @@ machine.
 at #514's rework.
 
 **(ii)** §2's six invariants L1–L6 are configuration invariants of one observable (does the job run the
-whole set, offline, on the floor, and is it green), and they intersect — all 15 pairs are mapped in §2: edge-dense, hence
+whole set, offline, on the pin (amended 2026-11-06 by #601, python-pin PR-1), and is it green), and they intersect — all 15 pairs are mapped in §2: edge-dense, hence
 mandatory plan-review. It is nonetheless **one PR** — CLAUDE.md's *Edge-dense work* rule (c): a narrowly-scoped
 slice under an approved umbrella that has passed plan-review is the terminal unit — and splitting would
 separate the script from the job that is its only observable. It is separate from A-i / A-ii because it was
@@ -560,7 +559,7 @@ separate the script from the job that is its only observable. It is separate fro
   (`gh api repos/send/elidex/rulesets --jq '.[] | select(.name=="main-protection") | .id'`, then that ruleset's
   `.bypass_actors`), so adding it leaves it author-bypassable: visibility-plus-friction, not enforcement.
   **Recommendation: register a slot, do not implement** (§11).
-- **Q2 / Q3 — closed (draft 3):** zero-test grain per file (§4.2 step 5); legs `"3.9"` / `"3.x"` (§4.4).
+- **Q2 / Q3 — closed (draft 3):** zero-test grain per file (§4.2 step 5); legs `"3.9"` / `"3.x"` (§4.4) — since python-pin PR-1 one leg, the pin (amended 2026-11-06 by #601, python-pin PR-1).
 
 ---
 
@@ -583,7 +582,8 @@ deferred**: the rule alone is author-bypassable given the bypass actor, so it is
 
 ## §12 Exit criterion
 
-**(1) Green:** `mise run tools-test` and `bash scripts/python-suites.sh`, on both legs.
+**(1) Green:** `mise run tools-test` and `bash scripts/python-suites.sh`, on the pinned interpreter (the `tools`
+job's one leg; locally, mise's install of the pin) (amended 2026-11-06 by #601, python-pin PR-1).
 
 **(2) Red at main:** every §6 pin whose last column says "yes". No second list.
 
@@ -596,7 +596,8 @@ stated limit (the unguarded-child class, §4.3).
 
 **(5) The job runs the driver:** Q6. (3) alone is satisfiable by a job that runs nothing.
 
-**(6) The floor is measured:** Q7 green and the `"3.9"` leg green on the PR page — the one measurement (§4.4).
+**(6) The pin is measured:** N4 green and the `tools` job green on the PR page — the one measurement (§4.4;
+amended 2026-11-06 by #601, python-pin PR-1).
 
 ---
 
@@ -609,7 +610,7 @@ stated limit (the unguarded-child class, §4.3).
 | **[PR #506](https://github.com/send/elidex/pull/506)** (VM P4 umbrella plan) | adds its own `.claude/tools/plan-memo-umbrella-check.py`, which step 3(b) selects | after A-iii; #506 already waits on #510 |
 | **[PR #501](https://github.com/send/elidex/pull/501)** | `ci.yml` (the `trip-wires` comment and timeout), `CLAUDE.md` `## CI`; adds `test_spec_labels.py`, which §4.2 picks up with no edit | either order; the umbrella amendment rides #514's rework (§0) |
 | **[PR #527](https://github.com/send/elidex/pull/527)**, **[#381](https://github.com/send/elidex/pull/381)**, **[#502](https://github.com/send/elidex/pull/502)** | `ci.yml` (#527 also `scripts/trip-wires.sh` and `CLAUDE.md`; the two Dependabot bumps `steps:` only) | whichever lands second adapts textually |
-| **Slices B / C** | after A-iii these are scheduled from their first commit; **B** owns the floor raise and with it `SKILL.md` Step 0's direct `preflight.py` invocation (§4.4) | after |
+| **Slices B / C** | after A-iii these are scheduled from their first commit; **B** has no interpreter edit; `SKILL.md` Step 0's direct `preflight.py` invocation is python-pin PR-2's (§4.4; amended 2026-11-06 by #601, python-pin PR-1) | after |
 
 **After A-iii lands, #510's and #506's `tools` job is red under step 3(b) until a set member names
 `.claude/tools/plan-memo-umbrella-check.py` by path** — the intended forcing function, not a new block.

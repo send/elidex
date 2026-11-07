@@ -14,7 +14,6 @@
 //! radio / submit / select / fieldset push-propagation / value-mode
 //! migration) that need `&mut EcsDom` / `elidex-dom-api` / `elidex-script-session`.
 
-pub mod ancestor_cache;
 mod clone;
 mod fieldset;
 pub mod focus_snapshot;
@@ -45,7 +44,6 @@ pub use elidex_form_core::{
     SelectionDirection, StepError, ValidityState, ValueMode, ValueSetAction, MAX_PATTERN_LENGTH,
 };
 
-pub use ancestor_cache::AncestorCache;
 pub use fieldset::propagate_fieldset_disabled;
 pub use focus_snapshot::{
     clear_focus_snapshot, record_focus_snapshot, take_change_on_blur, FocusValueSnapshot,
@@ -54,8 +52,7 @@ pub use inert_document::parse_into_inert_document;
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};
 pub use radio::{
-    find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
-    toggle_radio,
+    find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate, toggle_radio,
 };
 pub use reconciler::FormControlReconciler;
 pub use select::{

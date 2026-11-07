@@ -9,14 +9,17 @@
 #
 # The Python half (driver, per-root loader, complement checks) and the offline
 # guard are the two heredocs below, so the procedure has one home. They need the
-# Python >= 3.9 standard library and nothing else.
+# pinned interpreter's standard library and nothing else.
 #
 # ----------------------------------------------------------------------------
 # THE PROCEDURE (one way for a suite to enter)
 #
-# 1. The floor. `python3` (first on PATH) must report >= 3.9, checked before
-#    anything else; `python3 -VV` is echoed. The floor is only *measured* by the
-#    CI job's "3.9" leg; this assertion is its statement.
+# 1. The pin. `python3` (first on PATH) must be exactly the interpreter named by the
+#    root `.tool-versions` (read by `scripts/python_pin.py`, the one reader; release
+#    level `final`), checked before anything else; any other version is refused,
+#    by name, with the facts `python_pin.py` observed. `python3 -VV` is echoed. The
+#    pin is *measured* by the CI `tools` job's one leg, which reads the same file;
+#    a set `MISE_PYTHON_*` (except `MISE_PYTHON_VERSION`) / `MISE_GITHUB_ATTESTATIONS` variable is warned about.
 # 2. The set is `git ls-files ':(glob)**/test_*.py'` (MEMBER_PATHSPEC) -- tracked files, repo-wide
 #    (the `:(glob)` magic is what makes a top-level `test_x.py` count). An empty
 #    set fails.
@@ -129,7 +132,9 @@
 # The pins for every clause above live in scripts/test_python_suites_{driver,regime,ci}.py
 # (set members, so they run here too, with the helper modules python_suites_fixtures.py /
 # python_suites_readers.py, which are not members; none ever runs this driver on the live tree --
-# only on scratch repositories).
+# only on scratch repositories). `scripts/test_python_pin.py` (Step 1's reader and refusal)
+# and `scripts/test_tracked_tool_config.py` (T5) are set members outside the pin layer --
+# neither imports a pin file, and no pin file imports them.
 
 set -euo pipefail
 
@@ -153,21 +158,49 @@ root="$(cd -P "$(dirname "$src")/.." && pwd)"
 case ${TMPDIR:-} in "" | /*) ;; *) TMPDIR="$PWD/$TMPDIR" ;; esac
 cd "$root"
 
-# Step 1: the floor, before anything else. Written so any python3 can run it, and
-# run with -I -S: the floor is a property of the interpreter, so no inherited
-# PYTHONPATH or sitecustomize (an enclosing driver's guard included) takes part.
+# Step 1: the pin, before anything else. Run with -I -S: the admission is the
+# interpreter's own property, so no inherited PYTHONPATH or sitecustomize (an
+# enclosing driver's guard included) takes part. The cwd is `$root`, where the
+# shim (if any) resolved this `python3`; `python_pin.py` prints what it observed.
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "python-suites: FAIL floor: no python3 on PATH (the interpreter floor is Python 3.9)" >&2
+  echo "python-suites: FAIL pin: no python3 on PATH" >&2
   exit 1
 fi
-if ! ver="$(python3 -I -S -c 'import sys; v = sys.version_info; sys.stdout.write("%d.%d.%d" % (v[0], v[1], v[2])); sys.exit(0 if tuple(v[:2]) >= (3, 9) else 1)')"; then
-  echo "python-suites: FAIL floor: the interpreter floor is Python 3.9; python3 reports ${ver:-no version}" >&2
+# python_pin.py ends stderr with `python-pin: exit N` on every non-zero exit and with
+# `python-pin: admitted X.Y.Z` on exit 0; any other last
+# line means python3 did not get that far (e.g. a mise shim refusing an untrusted config, or a
+# kill). Its stderr is shown live and teed to a temp file; the trap is installed first so an
+# interrupt does not leave the file behind. (bash 3.2: no `wait` on a process substitution.)
+pin_err=""
+tmp=""
+trap 'rm -rf ${tmp:+"$tmp"} ${pin_err:+"$pin_err"}' EXIT
+if ! pin_err="$(mktemp "${TMPDIR:-/tmp}/python-suites-pin.XXXXXX")"; then
+  pin_err=""
+  echo "python-suites: FAIL pin: cannot create a temp file under ${TMPDIR:-/tmp}" >&2
   exit 1
 fi
+pin_rc=0
+{ python3 -I -S "$root/scripts/python_pin.py" 2>&1 1>&3 3>&- | tee "$pin_err" >&2 || pin_rc="${PIPESTATUS[0]}"; } 3>&1
+pin_last="$(tail -n 1 "$pin_err")"
+if [ "$pin_rc" -ne 0 ]; then
+  if [ "$pin_last" = "python-pin: exit $pin_rc" ]; then
+    echo "python-suites: FAIL pin: scripts/python_pin.py refused or failed (exit $pin_rc; its output is above)" >&2
+  else
+    echo "python-suites: FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit $pin_rc)" >&2
+  fi
+  exit 1
+fi
+# Exit 0 is the pin's own only when its last line says so: `python-pin: admitted X.Y.Z`.
+case "$pin_last" in
+  "python-pin: admitted "*) ;;
+  *)
+    echo "python-suites: FAIL pin: python3 did not end with scripts/python_pin.py's exit line (exit 0)" >&2
+    exit 1
+    ;;
+esac
 echo "python-suites: python3 -VV: $(python3 -VV 2>&1 | tr '\n' ' ')"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/python-suites.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/driver" "$tmp/guard"
 
 cat > "$tmp/driver/python_suites.py" <<'PY_DRIVER'

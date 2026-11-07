@@ -1,22 +1,24 @@
-"""Reader and CI-wiring pins (R1-R9, M1-M3, ...) for scripts/python-suites.sh.
+"""Reader and CI-wiring pins (R1-R9, N4-N8, ...) for scripts/python-suites.sh.
 
-Reads `.github/workflows/ci.yml` and `mise.toml` through the text readers in
-`python_suites_readers.py`; fixtures for them are below.
+Reads `.github/workflows/ci.yml` through the text reader and `mise.toml` through the `tomllib`
+reader in `python_suites_readers.py`; fixtures for them are below. N4-N8 are the pins of the
+python-pin PR-1 plan (docs/plans/2026-10-python-pin-pr1-tests.md, 6.2): N4 replaces Q7,
+N5 replaces R2, N7 / N8 restate Q4 / M1-M3 over parsed data.
 """
 
 from __future__ import annotations
 
+import tomllib
 import unittest
 
 from python_suites_fixtures import REPO
 from python_suites_readers import (
-    MATRIX_EXPR,
     ReaderError,
     Workflow,
     driver_step_index,
     job_key_problems,
     mise_problems,
-    q7_problems,
+    setup_problems,
     tools_problems,
     trigger_problems,
 )
@@ -35,18 +37,17 @@ CHECK_JOB = (
 TOOLS_HEAD = (
     "  tools:\n"
     "    runs-on: ubuntu-24.04\n"
-    "    strategy:\n"
-    "      fail-fast: false\n"
-    "      matrix:\n"
-    '        python-version: ["3.9", "3.x"]\n'
+)
+TOOLS_SETUP = (
+    "      - uses: actions/setup-python@v6\n"
+    "        with:\n"
+    "          python-version-file: .tool-versions\n"
 )
 TOOLS_STEPS = (
     "    steps:\n"
     "      - uses: actions/checkout@v6\n"
-    "      - uses: actions/setup-python@v6\n"
-    "        with:\n"
-    "          python-version: ${{ matrix.python-version }}\n"
-    "      - name: Run the Python suites\n"
+    + TOOLS_SETUP
+    + "      - name: Run the Python suites\n"
     "        run: bash scripts/python-suites.sh\n"
 )
 
@@ -95,9 +96,9 @@ class TestReaderPins(unittest.TestCase):
         assert job is not None
         return job
 
-    def q7(self, text):
+    def setup(self, text):
         job = self.tools_job(text)
-        return q7_problems(job, driver_step_index(job))
+        return setup_problems(job, driver_step_index(job))
 
     # Live files.
 
@@ -118,26 +119,70 @@ class TestReaderPins(unittest.TestCase):
         self.assertIn("no run: step executes the driver", tools_problems(workflow(empty)))
         self.assertEqual(tools_problems(workflow()), [])
 
-    def test_Q7_matrix_consumed_by_setup_python_before_the_driver(self):
+    def test_N4_one_setup_step_reads_only_the_pin_file(self):
         good = workflow()
-        self.assertEqual(self.q7(good), [])
-        unconsumed = good.replace("          python-version: ${{ matrix.python-version }}\n", "          python-version: '3.12'\n")
-        consume = ["the last setup-python before the driver does not consume ${{ matrix.python-version }}"]
-        self.assertEqual(self.q7(unconsumed), consume)
-        after = TOOLS_HEAD + (
-            "    steps:\n"
-            "      - run: bash scripts/python-suites.sh\n"
-            "      - uses: actions/setup-python@v6\n"
-            "        with:\n"
-            "          python-version: ${{ matrix.python-version }}\n"
-        )
-        self.assertEqual(self.q7(workflow(after)), ["no actions/setup-python step before the driver step"])
-        one_leg = good.replace('["3.9", "3.x"]', '["3.x"]')
-        self.assertEqual(self.q7(one_leg), ['python-version legs are not exactly quoted "3.9" and "3.x"'])
-        floating = good.replace("ubuntu-24.04", "ubuntu-latest")
-        self.assertEqual(self.q7(floating), ["runs-on is not exactly ubuntu-24.04"])
-        include = good.replace('        python-version: ["3.9", "3.x"]\n', '        python-version: ["3.9", "3.x"]\n        include:\n          - os: macos-latest\n')
-        self.assertEqual(self.q7(include), ["matrix keys ['include', 'python-version'] are not exactly python-version"])
+        self.assertEqual(self.setup(good), [])
+        setup = TOOLS_SETUP
+        driver = "      - name: Run the Python suites\n        run: bash scripts/python-suites.sh\n"
+
+        def with_steps(steps):
+            return workflow(TOOLS_HEAD + "    steps:\n" + steps)
+
+        checkout = "      - uses: actions/checkout@v6\n"
+        file_key = "          python-version-file: .tool-versions\n"
+        # Each variant is red, with its own message (E20).
+        one_key = ["the actions/setup-python `with` is not exactly the one key python-version-file"]
+        self.assertEqual(self.setup(good.replace(file_key, file_key + "          python-version: '3.12'\n")), one_key)
+        self.assertEqual(self.setup(good.replace(file_key, "          python-version: '3.15.2'\n")), one_key)
+        self.assertEqual(self.setup(good.replace(file_key, file_key + "          check-latest: true\n")), one_key)
+        not_file = ["python-version-file is not exactly the scalar .tool-versions"]
+        self.assertEqual(self.setup(good.replace(".tool-versions\n", ".python-version\n", 1)), not_file)
+        self.assertEqual(self.setup(good.replace(".tool-versions\n", "./.tool-versions\n", 1)), not_file)
+        self.assertEqual(self.setup(good.replace(".tool-versions\n", "${{ matrix.python-version }}\n", 1)), not_file)
+        # Quoting a scalar changes nothing about its value.
+        self.assertEqual(self.setup(good.replace(".tool-versions\n", "'.tool-versions'\n", 1)), [])
+        # A block scalar is another spelling.
+        self.assertEqual(self.setup(good.replace(file_key, "          python-version-file: |\n            .tool-versions\n")), not_file)
+        keys = self.setup(good.replace("      - uses: actions/setup-python@v6\n", "      - uses: actions/setup-python@v6\n        if: always()\n"))
+        self.assertEqual(len(keys), 1, keys)
+        self.assertIn("keys outside", keys[0])
+        second = "2 actions/setup-python steps: exactly one is allowed (a second is a second spelling of the interpreter)"
+        before = with_steps(checkout + setup + setup + driver)
+        after = with_steps(checkout + setup + driver + setup)
+        self.assertEqual(self.setup(before), [second])
+        self.assertEqual(self.setup(after), [second])
+        self.assertEqual(self.setup(with_steps(checkout + driver + setup)), ["the actions/setup-python step does not precede the driver step"])
+        self.assertEqual(self.setup(with_steps(checkout + driver)), ["no actions/setup-python step in the job"])
+        self.assertEqual(self.setup(good.replace("ubuntu-24.04", "ubuntu-latest")), ["runs-on is not exactly ubuntu-24.04"])
+        # F13: the count is case-insensitive on owner/repo.
+        shouting = "      - uses: Actions/Setup-Python@v7\n        with:\n          python-version-file: .tool-versions\n"
+        self.assertEqual(self.setup(with_steps(checkout + setup + shouting + driver)), [second])
+        # F13: every step before the driver is scanned for what could change the pin or the interpreter.
+        def pre(step):
+            return self.setup(with_steps(checkout + step + setup + driver))
+
+        def run(cmd):
+            return "      - run: %s\n" % cmd
+
+        self.assertEqual(pre(run("echo hi")), [])
+        for cmd, marker in (
+            ("echo 'python 3.12.0' > .tool-versions", ".tool-versions"),
+            ("echo /opt/bin >> $GITHUB_PATH", "GITHUB_PATH"),
+            ("echo X=1 >> \"$GITHUB_ENV\"", "GITHUB_ENV"),
+        ):
+            got = pre(run(cmd))
+            self.assertEqual(len(got), 1, got)
+            self.assertIn("naming " + marker, got[0])
+        late = self.setup(with_steps(checkout + setup + run("echo > .tool-versions") + driver))
+        self.assertEqual(len(late), 1, late)
+        got = pre("      - uses: some/other-action@v1\n")
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("only checkout and setup-python may precede", got[0])
+        self.assertEqual(pre("      - uses: Actions/Checkout@v6\n"), [])
+        # Through the whole job reader too (the reader is wired into tools_problems).
+        for text in (before, after, with_steps(checkout + run("echo > .tool-versions") + setup + driver), good.replace("ubuntu-24.04", "ubuntu-latest")):
+            self.assertTrue(tools_problems(text), text)
+        self.assertEqual(tools_problems(good), [])
 
     def test_Q8_present_ungated_and_trigger(self):
         self.assertEqual(job_key_problems(self.tools_job(workflow())), [])
@@ -182,11 +227,17 @@ class TestReaderPins(unittest.TestCase):
         dup_key = workflow(tools_with("    timeout-minutes: 5\n    \"timeout-minutes\": 6\n"))
         self.assertReaderRed(self.tools_job, dup_key, self.line_of(dup_key, '"timeout-minutes":'))
 
-    def test_R2_modelled_values_read_correctly(self):
+    def test_N5_modelled_values_read_correctly(self):
         self.assertEqual(list(Workflow(workflow()).on()["pull_request"]["branches"]), ["main"])
         job = self.tools_job(workflow())
-        self.assertEqual(list(job["strategy"]["matrix"]["python-version"]), ["3.9", "3.x"])
-        self.assertEqual(str(job["steps"][1]["with"]["python-version"]), MATRIX_EXPR)
+        self.assertEqual(str(job["steps"][1]["with"]["python-version-file"]), ".tool-versions")
+        self.assertEqual(list(job["steps"][1]["with"]), ["python-version-file"])
+
+    def test_N6_strategy_is_a_job_key_red(self):
+        planted = "    strategy:\n      matrix:\n        python-version: ['3.15.2']\n"
+        job = self.tools_job(workflow(tools_with(planted)))
+        self.assertEqual(job_key_problems(job), ["job key 'strategy' is not in the tools-job allowlist"])
+        self.assertIn("job key 'strategy' is not in the tools-job allowlist", tools_problems(workflow(tools_with(planted))))
 
     def test_R3_value_position_constructs_are_red(self):
         for line in ("    env: {a: 1}\n", "    timeout-minutes: &x 10\n", "    runs-on: *x\n"):
@@ -207,9 +258,6 @@ class TestReaderPins(unittest.TestCase):
         on = "on:\n  pull_request:\n    branches: [main,\n      dev]\n"
         text = workflow(on=on)
         self.assertReaderRed(lambda t: Workflow(t).on(), text, self.line_of(text, "[main,"))
-        legs = workflow(tools_with().replace('        python-version: ["3.9", "3.x"]\n', '        python-version: [\n          "3.9",\n          "3.x"]\n'))
-        # Fail closed (first-fix 10): never read as anything, not even both legs.
-        self.assertReaderRed(self.tools_job, legs, self.line_of(legs, "python-version: ["))
 
     def test_R7_comments_are_neither_values_nor_keys(self):
         trailing_comment = self.tools_job(workflow(tools_with("    needs: changes # x\n")))
@@ -246,13 +294,13 @@ class TestReaderPins(unittest.TestCase):
             "    steps:\n"
             "      - uses: actions/setup-python@v6\n"
             "        with:\n"
-            "          python-version: ${{ matrix.python-version }}\n"
+            "          python-version-file: .tool-versions\n"
             "      - run: bash scripts/python-suites.sh\n"
         )
         job = self.tools_job(workflow(bare, after=nxt))
         self.assertEqual(job_key_problems(job), [])
         self.assertIsNone(driver_step_index(job))
-        self.assertTrue(q7_problems(job, driver_step_index(job)))
+        self.assertTrue(setup_problems(job, driver_step_index(job)))
         commented = workflow(TOOLS_HEAD + "  # a two-space comment inside tools\n" + TOOLS_STEPS)
         self.assertEqual(tools_problems(commented), [])
 
@@ -310,68 +358,67 @@ class TestReaderPins(unittest.TestCase):
         for top in ("\ndefaults:\n  run:\n    shell: sh\n", "\nsome-future-key: x\n"):
             self.assertReaderRed(tools_problems, workflow(top=top))
 
-    # M-rows.
+    # N7 / N8: `mise.toml` over parsed data.
 
-    def test_M1_mise_unmodelled_constructs_are_red(self):
+    def test_N7_mise_toml_asserted_over_parsed_data(self):
         self.assertEqual(mise_problems(mise_fixture()), [])
-        for ci in ("depends = { a = 1 }", 'depends = [\n  "check",\n  "tools-test",\n]'):
-            text = mise_fixture(ci=ci)
-            self.assertReaderRed(mise_problems, text, self.line_of(text, "depends ="))
-        text = mise_fixture(tt="run = bash scripts/python-suites.sh")
-        self.assertReaderRed(mise_problems, text, self.line_of(text, "run = bash"))
-        self.assertTrue(mise_problems(mise_fixture(tt='run = ["bash scripts/python-suites.sh"]')))
-        elsewhere = mise_fixture(ci='depends = ["check"]', extra='\n[tasks.other]\ndepends = ["tools-test"]\n')
-        self.assertIn('[tasks.ci].depends does not contain "tools-test"', mise_problems(elsewhere))
-        self.assertReaderRed(mise_problems, mise_fixture(extra='\n[tasks.tools-test.env]\nX = "1"\n'))
-        self.assertReaderRed(mise_problems, mise_fixture(extra='\n[tasks."tools-test".env]\nX = "1"\n'))
-        esc = mise_fixture(extra='\n[tasks."tools\\u002dtest".env]\nX = "1"\n')
-        self.assertReaderRed(mise_problems, esc, self.line_of(esc, "u002d"))
-        junk = mise_fixture(extra='\n[tasks."tools-test"x]\nX = "1"\n')
-        self.assertReaderRed(mise_problems, junk, self.line_of(junk, '"x]'))
-        # A quoted part is one key, dots included: this is not a subtable of tools-test.
-        self.assertEqual(mise_problems(mise_fixture(extra='\n[tasks."tools-test.env"]\nX = "1"\n')), [])
-        # Unbalanced brackets (on a header that is not a read section, so no duplicate fires) and
-        # an array of tables under tasks are red.
-        for header in ("[tasks.other]]", "[[tasks.other]]", "[[tasks.tools-test]]"):
-            text = mise_fixture(extra="\n%s\nX = 1\n" % header)
-            self.assertReaderRed(mise_problems, text, self.line_of(text, header))
-        # Keys outside the read sections use the header grammar: a dotted `tasks` key in any
-        # quoting is red, and so is an escaped key.
-        for key in (
-            'tasks."tools-test".env.X = "1"',
-            '"tasks".x = "1"',
-            "'tasks'.x = \"1\"",
-            'tasks = { x = { run = "y" } }',
-            '"task\\u0073".tools-test.env.X = "1"',
+        outside = "[tasks.tools-test] has key %r outside ['description', 'run']"
+        # A denylist of two keys, or a text grep, would pass these.
+        for line, key in (
+            ('sources = ["scripts/**"]', "sources"),
+            ('outputs = ["x"]', "outputs"),
+            ('env = { X = "1" }', "env"),
+            ('dir = "scripts"', "dir"),
+            ('some_future_key = "x"', "some_future_key"),
         ):
-            self.assertReaderRed(mise_problems, key + "\n" + mise_fixture(), 1)
-        text = mise_fixture(tt="run =")
-        self.assertReaderRed(mise_problems, text, text.splitlines().index("run =") + 1)
+            tt = 'run = "bash scripts/python-suites.sh"\n' + line
+            self.assertEqual(mise_problems(mise_fixture(tt=tt)), [outside % key], line)
+        for ci in ('depends = ["check"]', "depends = { a = 1 }", 'depends = "tools-test"', 'depends = [1, "tools-test"]'):
+            self.assertEqual(
+                mise_problems(mise_fixture(ci=ci)),
+                ['[tasks.ci].depends is not a list of strings containing "tools-test"'],
+                ci,
+            )
+        self.assertEqual(
+            mise_problems(mise_fixture(ci='depends = ["tools-test"]\nsome_future_key = 1')),
+            ["[tasks.ci] has key 'some_future_key' outside ['depends', 'description']"],
+        )
+        want_run = ["[tasks.tools-test].run is not the string 'bash scripts/python-suites.sh'"]
+        for tt in ('run = "true"', 'run = ["bash scripts/python-suites.sh"]', 'run = "bash scripts/python-suites.sh --x"', ""):
+            self.assertEqual(mise_problems(mise_fixture(tt=tt)), want_run, tt)
+        array = '[tasks.ci]\ndepends = ["tools-test"]\n\n[[tasks.tools-test]]\nrun = "bash scripts/python-suites.sh"\n'
+        self.assertEqual(mise_problems(array), ["[tasks.tools-test] is not a table"])
+        self.assertEqual(mise_problems("[tasks.ci]\ndepends = [\"tools-test\"]\n"), ["[tasks.tools-test] is not a table"])
+        self.assertEqual(mise_problems("[settings]\nx = 1\n"), ["[tasks] is not a table"])
+        # A syntax error is one problem, naming tomllib's own message.
+        broken = mise_fixture(tt="run =")
+        with self.assertRaises(tomllib.TOMLDecodeError) as cm:
+            tomllib.loads(broken)
+        self.assertEqual(mise_problems(broken), ["mise.toml does not parse: %s" % cm.exception])
 
-    def test_M3_multi_line_string_bodies_are_text(self):
+    def test_N8_the_reader_is_the_parser(self):
         live = (REPO / "mise.toml").read_text(encoding="utf-8")
+        # Text that looks like a section inside a multi-line string creates no section.
         body = '\n[tasks.other]\nrun = """\n[ -d target ] || mkdir -p target\n[tasks.tools-test]\nrun = "x"\n"""\n'
         self.assertEqual(mise_problems(live + body), [])
-        lit = "\n[tasks.other]\nrun = '''\n[ -d target ] || mkdir -p target\n'''\n"
+        lit = "\n[tasks.other]\nrun = \'\'\'\n[tasks.tools-test.env]\n\'\'\'\n"
         self.assertEqual(mise_problems(live + lit), [])
-        for bad in (
-            '\n[tasks.other]\nrun = """\nnever closed\n',
-            '\n[tasks.other]\nrun = """\nescaped close \\"""\n',
-            '\n[tasks.other]\nrun = """\nfour quotes""""\n',
-        ):
-            self.assertReaderRed(mise_problems, live + bad)
-        for cont in ('  [ "x" ],', '  ["a"],', '  "[ -d t ]",'):
-            arr = '\n[tasks.other]\nrun = [\n%s\n  "b",\n]\n[tasks.another]\nrun = "x"\n' % cont
-            self.assertEqual(mise_problems(live + arr), [], cont)
-        # An array never closed is red at the line that opened it.
-        self.assertReaderRed(mise_problems, live + '\n[tasks.other]\nrun = [\n  [ "x" ],\n', len(live.splitlines()) + 3)
-        stray = live + '\n[tasks.other]\nrun = "x" ]\n'
-        self.assertReaderRed(mise_problems, stray, self.line_of(stray, '"x" ]'))
-
-    def test_M2_tools_test_has_no_sources_or_outputs(self):
-        for line in ('sources = ["scripts/**"]', 'outputs = ["x"]'):
-            tt = 'run = "bash scripts/python-suites.sh"\n' + line
-            self.assertTrue(any(line.split()[0] in p for p in mise_problems(mise_fixture(tt=tt))), line)
+        env = "[tasks.tools-test] has key 'env' outside ['description', 'run']"
+        # A subtable, in any quoting, is the unknown key `env`.
+        for header in ("[tasks.tools-test.env]", '[tasks."tools-test".env]', "[tasks.'tools-test'.env]"):
+            self.assertEqual(mise_problems(mise_fixture(extra="\n%s\nX = \"1\"\n" % header)), [env], header)
+        # So is the dotted-key spelling, an inline table, and an escaped key spelling `tasks`.
+        base = 'ci.depends = ["tools-test"]\n%s.tools-test.run = "bash scripts/python-suites.sh"\n'
+        for tasks in ("tasks", '"tasks"', "'tasks'", '"task\\u0073"'):
+            text = (base % tasks).replace("ci.depends", tasks + ".ci.depends", 1) + '%s."tools-test".env.X = "1"\n' % tasks
+            self.assertEqual(mise_problems(text), [env], text)
+        inline = 'tasks = { ci = { depends = ["tools-test"] }, tools-test = { run = "bash scripts/python-suites.sh", env = { X = "1" } } }\n'
+        self.assertEqual(mise_problems(inline), [env])
+        # A quoted part is one key, dots included: this is not a subtable of tools-test.
+        self.assertEqual(mise_problems(mise_fixture(extra='\n[tasks."tools-test.env"]\nX = "1"\n')), [])
+        # The same table defined twice does not parse.
+        dup = mise_fixture(extra='\n[tasks.tools-test]\nrun = "true"\n')
+        self.assertTrue(mise_problems(dup)[0].startswith("mise.toml does not parse:"), dup)
 
 
 if __name__ == "__main__":

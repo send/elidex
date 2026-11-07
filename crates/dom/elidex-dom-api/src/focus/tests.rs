@@ -2,10 +2,10 @@ use super::*;
 use elidex_ecs::Attributes;
 
 /// A `<div tabindex="0">` — a real focusable area, so the asynchronous
-/// [`reconcile_focus`] fixup keeps it (it never GCs the bit). Tests that
-/// exercise persistence across reconcile use this rather than a bare `<div>`
-/// (non-focusable, which `reconcile_focus` would clear).
-fn focusable_div(dom: &mut EcsDom) -> Entity {
+/// [`focus_fixup_steps`] keeps it (it never resets the focus). Tests that
+/// exercise persistence across the fixup use this rather than a bare `<div>`
+/// (non-focusable, which `focus_fixup_steps` would reset).
+pub(super) fn focusable_div(dom: &mut EcsDom) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("tabindex".to_string(), "0".to_string());
     dom.create_element("div", attrs)
@@ -45,7 +45,8 @@ fn current_focus_keeps_holder_until_async_fixup() {
     // rendering" step 17 runs it at the next rendering update, NOT
     // synchronously (only *removal*, §2.1.4, is synchronous). So
     // `document.activeElement` / `:focus` keep reporting the holder until
-    // `reconcile_focus` runs. (Reverted the R4 derive-on-read `is_focusable`
+    // the step-17 fixup runs (its half of this cell is
+    // `update_steps::tests::focus_fixup_steps_is_the_async_fixup`). (Reverted the R4 derive-on-read `is_focusable`
     // filter, which hid it eagerly = non-spec + split `activeElement` from
     // the `:focus` selector — Codex S2 R7.)
     let mut dom = EcsDom::new();
@@ -66,16 +67,6 @@ fn current_focus_keeps_holder_until_async_fixup() {
         "stays the focused area until the async render-time fixup"
     );
     assert_eq!(raw_focus_holder(&dom), Some(el));
-
-    // `reconcile_focus` IS that asynchronous fixup: it GCs the connected-but-
-    // non-focusable bit, resetting the focused area to the viewport.
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(
-        current_focus(&dom, doc),
-        None,
-        "async fixup cleared the focus"
-    );
-    assert_eq!(raw_focus_holder(&dom), None);
 }
 
 #[test]
@@ -146,7 +137,7 @@ fn current_focus_filters_disconnected() {
 
 /// Create `tag` and attach it under `doc` so it is connected (focusable
 /// areas must be connected — `is_focusable` gates on `is_connected`, §6.6.2).
-fn connect_el(dom: &mut EcsDom, doc: Entity, tag: &str) -> Entity {
+pub(super) fn connect_el(dom: &mut EcsDom, doc: Entity, tag: &str) -> Entity {
     let el = dom.create_element(tag, Attributes::default());
     let _ = dom.append_child(doc, el);
     el
@@ -712,76 +703,6 @@ fn tabindex_with_trailing_junk_grants_focusability() {
     assert!(
         is_focusable(&dom, div),
         "tabindex=\"1foo\" parses to 1 (§2.3.4.1) ⇒ focusable"
-    );
-}
-
-#[test]
-fn reconcile_focus_clears_when_focused_element_stops_being_focusable() {
-    // Regression (Codex R12 F1): §6.6.2 is a focus-time gate; a focused
-    // element that LATER becomes non-focusable keeps the FOCUS bit until
-    // reconciled. `reconcile_focus` restores `current_focus ⟹ is_focusable`.
-    // Each arm: focus a focusable element, mutate it non-focusable, reconcile.
-    // hidden on the element itself:
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    let el = connect_el(&mut dom, doc, "button");
-    set_focus_bit(&mut dom, Some(el));
-    assert_eq!(current_focus(&dom, doc), Some(el));
-    dom.set_attribute(el, "hidden", "");
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(current_focus(&dom, doc), None, "hidden clears focus");
-
-    // hidden on an ancestor:
-    let section = connect_el(&mut dom, doc, "section");
-    let inner = dom.create_element("button", Attributes::default());
-    let _ = dom.append_child(section, inner);
-    set_focus_bit(&mut dom, Some(inner));
-    dom.set_attribute(section, "hidden", "");
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(
-        current_focus(&dom, doc),
-        None,
-        "ancestor hidden clears focus"
-    );
-
-    // disabled lands:
-    let btn = connect_el(&mut dom, doc, "button");
-    set_focus_bit(&mut dom, Some(btn));
-    dom.set_attribute(btn, "disabled", "");
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(current_focus(&dom, doc), None, "disabled clears focus");
-
-    // <input type> flips to hidden:
-    let input = connect_el(&mut dom, doc, "input");
-    set_focus_bit(&mut dom, Some(input));
-    dom.set_attribute(input, "type", "hidden");
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(current_focus(&dom, doc), None, "type=hidden clears focus");
-
-    // <a> loses its href (focusable only via the href-gated Link default):
-    let a = connect_el(&mut dom, doc, "a");
-    dom.set_attribute(a, "href", "x");
-    set_focus_bit(&mut dom, Some(a));
-    assert_eq!(current_focus(&dom, doc), Some(a));
-    dom.remove_attribute(a, "href");
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(current_focus(&dom, doc), None, "losing href clears focus");
-}
-
-#[test]
-fn reconcile_focus_keeps_a_still_focusable_element() {
-    // The per-re-render reconcile must not blur a live focus: an unrelated
-    // attribute change leaves the element focusable, so focus is retained.
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    let el = connect_el(&mut dom, doc, "button");
-    set_focus_bit(&mut dom, Some(el));
-    dom.set_attribute(el, "title", "hi");
-    reconcile_focus(&mut dom, doc);
-    assert_eq!(
-        current_focus(&dom, doc),
-        Some(el),
-        "a still-focusable element keeps focus across reconcile"
     );
 }
 

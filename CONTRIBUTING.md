@@ -9,8 +9,9 @@ Thanks for your interest in contributing!
    `rust-toolchain.toml` (moved up to each new stable rather than held at a
    minimum: no MSRV during development — [ADR #36](docs/design/en/28-adr.md)), [mise](https://mise.jdx.dev/),
    [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`),
-   [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and Python 3.9 or newer
-   (`python3` on `PATH`; `mise run tools-test` runs the Python suites with it).
+   [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and Python at the version
+   `.tool-versions` pins (`mise install` installs it; `mise run tools-test` runs the Python suites with it and
+   refuses any other version; the pin moves only under the bump rule in `docs/plans/2026-10-python-pin-umbrella.md` §4.1).
 3. Run `mise run ci` to verify everything works locally.
 
 ## Development Workflow
@@ -54,4 +55,4 @@ rationale in the step's comment in `.github/workflows/ci.yml`):
 - `cargo clippy --workspace -- -D warnings` (default features, lib + bin)
 - `cargo deny check` (licenses and vulnerabilities)
 - `bash scripts/python-suites.sh` (the `tools` job: every tracked `test_*.py`, offline, on
-  Python 3.9 and the newest 3.x)
+  the Python version `.tool-versions` pins)

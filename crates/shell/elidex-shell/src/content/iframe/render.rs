@@ -49,6 +49,33 @@ pub(in crate::content) fn re_render_all_iframes(state: &mut crate::content::Cont
     }
 }
 
+/// Whether any in-process iframe has a pending rendering update
+/// (`needs_render` set). PEEK only — [`re_render_all_iframes`] stays the single
+/// consumer that runs the child update and clears the flag. The child's
+/// rendering update runs only inside the parent's (`ContentState::re_render`),
+/// so the event loop feeds this into the parent's render decision.
+pub(in crate::content) fn any_iframe_needs_render(state: &crate::content::ContentState) -> bool {
+    state.iframes.iter().any(
+        |(_, entry)| matches!(entry.handle, IframeHandle::InProcess(ref ip) if ip.needs_render),
+    )
+}
+
+/// Earliest pending timer deadline across in-process iframes. PEEK only —
+/// [`tick_iframe_timers`] stays the single consumer. Folded into the event
+/// loop's idle-wait timeout so a child timer wakes the parent's wait.
+pub(in crate::content) fn next_iframe_timer_deadline(
+    state: &crate::content::ContentState,
+) -> Option<std::time::Instant> {
+    state
+        .iframes
+        .iter()
+        .filter_map(|(_, entry)| match entry.handle {
+            IframeHandle::InProcess(ref ip) => ip.pipeline.runtime.next_timer_deadline(),
+            IframeHandle::OutOfProcess(_) => None,
+        })
+        .min()
+}
+
 /// Drain timers for in-process (same-origin) iframes.
 ///
 /// Timers always run (for correctness), but layout/render is deferred

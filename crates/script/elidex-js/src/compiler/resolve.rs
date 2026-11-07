@@ -31,7 +31,8 @@ pub struct FunctionScope {
     pub locals: HashMap<(usize, Atom), LocalInfo>,
     /// Upvalue descriptors for this function.
     pub upvalues: Vec<UpvalueInfo>,
-    /// Maps (parent scope index, binding name) → upvalue index (for dedup).
+    /// Maps (scope index the captured binding lives in, binding name) →
+    /// upvalue index (for dedup).
     upvalue_map: HashMap<(usize, Atom), u16>,
     /// Next available local slot.
     pub next_local: u16,
@@ -109,19 +110,6 @@ impl FunctionScope {
         slot
     }
 
-    /// Look up a local by name, searching from the innermost scope
-    /// outward within this function's scope indices.
-    #[must_use]
-    pub fn get_local(&self, name: Atom) -> Option<&LocalInfo> {
-        // Search from innermost to outermost scope within this function.
-        for &scope_idx in self.scope_indices.iter().rev() {
-            if let Some(info) = self.locals.get(&(scope_idx, name)) {
-                return Some(info);
-            }
-        }
-        None
-    }
-
     /// Look up a local by name, searching from a specific scope outward
     /// through parent scopes within this function.
     #[must_use]
@@ -131,13 +119,26 @@ impl FunctionScope {
         scope_idx: usize,
         analysis: &ScopeAnalysis,
     ) -> Option<&LocalInfo> {
+        self.find_local_from_scope(name, scope_idx, analysis)
+            .map(|(_, info)| info)
+    }
+
+    /// As [`Self::get_local_from_scope`], but also returns the index of the
+    /// scope the binding lives in (its own scope, not the starting scope).
+    #[must_use]
+    pub fn find_local_from_scope(
+        &self,
+        name: Atom,
+        scope_idx: usize,
+        analysis: &ScopeAnalysis,
+    ) -> Option<(usize, &LocalInfo)> {
         let mut current = Some(scope_idx);
         while let Some(idx) = current {
             if !self.scope_indices.contains(&idx) {
                 break;
             }
             if let Some(info) = self.locals.get(&(idx, name)) {
-                return Some(info);
+                return Some((idx, info));
             }
             current = analysis.scopes[idx].parent;
         }
@@ -263,6 +264,14 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
 /// preventing references to bindings in sibling or descendant block scopes.
 ///
 /// Walks outward through enclosing functions to find the binding.
+///
+/// Spec basis: this statically mirrors GetIdentifierReference's outward walk
+/// over `[[OuterEnv]]` (ECMA-262 §9.1.2.1). The walk starts from the
+/// closure's lexical position because a closure's `[[Environment]]` is the
+/// LexicalEnvironment running at its creation: InstantiateArrowFunctionExpression
+/// step 2 takes it as `envRecord` and step 5 passes it to OrdinaryFunctionCreate
+/// as the environment argument; the function-expression and declaration paths
+/// do the same.
 pub fn resolve_identifier(
     name: Atom,
     current_func_idx: usize,
@@ -285,12 +294,19 @@ pub fn resolve_identifier(
     let enclosing = find_enclosing_functions(current_func_idx, func_scopes, analysis);
 
     for &(enc_func_idx, enc_scope_idx) in &enclosing {
-        if let Some(info) = func_scopes[enc_func_idx].get_local(name) {
-            // Found in an enclosing function — create upvalue chain.
+        // `enc_scope_idx` is the closure's lexical position in the enclosing
+        // function: the closure's `[[Environment]]` is the LexicalEnvironment
+        // running at its creation (OrdinaryFunctionCreate's env argument), so
+        // resolve from there outward over `[[OuterEnv]]` (GetIdentifierReference;
+        // same walk as step 1), and key the upvalue chain on the binding's own
+        // scope.
+        if let Some((binding_scope_idx, info)) =
+            func_scopes[enc_func_idx].find_local_from_scope(name, enc_scope_idx, analysis)
+        {
             return create_upvalue_chain(
                 name,
                 enc_func_idx,
-                enc_scope_idx,
+                binding_scope_idx,
                 info.slot,
                 info.kind,
                 current_func_idx,
@@ -499,7 +515,9 @@ mod tests {
         // Use the program's interner to find the exact Atom for "x".
         let x_atom = output.program.interner.lookup("x");
         assert!(
-            func_scopes[1].get_local(x_atom).is_some(),
+            func_scopes[1]
+                .get_local_from_scope(x_atom, func_scopes[1].scope_indices[0], &analysis)
+                .is_some(),
             "outer should have local 'x'"
         );
 

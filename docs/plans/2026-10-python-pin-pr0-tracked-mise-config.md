@@ -289,8 +289,8 @@ The live test's failure message is the joined list; the driver prints a failing 
   constants and private helpers, `Unclassifiable`, `worktree_reader`, and the tuple itself).
 
 **Clause 1's place** (D2 reason 2): PR-1 adds clause 1 as its own function (`root_pin_problems`,
-its parser `python_pin.py`'s) that no clause-2–5 function calls and that calls none of them except `finding`, and
-edits only `problems` to merge its findings into the sorted result, plus C0's two lists (§6: it adds its clause-1 names to the names C0 excludes from `CLAUSES_2_TO_5` and, if the module imports `python_pin`, adds it to the import allow-list). C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems`; that PR-1's diff
+its parser `python_pin.py`'s) that no clause-2–5 function calls and that calls none of them except `finding` —
+superseded: PR-1 also edits the module's statements, the member's fixture layer and C0 as its plan §4.5 lists (amended 2026-11-06 by #601, python-pin PR-1). C0 (§6) holds that `CLAUSES_2_TO_5` is the module's complete set of top-level names minus `problems` and clause 1's names (amended 2026-11-06 by #601, python-pin PR-1); that PR-1's diff
 adds no line to, and removes none from, the span (`ast` line range at PR-0's merge sha) of any function named in
 `CLAUSES_2_TO_5` is a condition checked in PR-1's review, per function span.
 
@@ -381,7 +381,7 @@ this plan's.
 - **C3 (red outright)**: r1 E3's seven paths, empty content, each red 3a; r2 E4 each red 3b; r3 E6 each red 3c; r4
   a `.miserc.toml` whose `read` raises if called (clause 3 reads no text). g1 E5: root `.tool-versions` holding
   `python 3.12` is green under `problems` and is never read (the interval, pinned so PR-1's clause 1 is the change
-  that turns it); g1 is the one existing control PR-1 edits, and C0 the one existing control whose two lists PR-1 extends (its clause-1 names; `python_pin` in the import allow-list if imported) and nothing else in C0.
+  that turns it); superseded: PR-1 also edits the module's statements, the member's fixture layer and C0 as its plan §4.5 lists (amended 2026-11-06 by #601, python-pin PR-1).
 - **C4 (content)**: r1 E2 — `main`'s line 122 text in a `mise.toml` fixture is red 4 at its line (the "red at main"
   of the reword); r2 E8's members, each red 4 at the line; r3 E11's red substrings; r4 E12's `mise_helper.py`;
   r5 E13's unclassifiable cases (missing, symlink, symlinked parent directory, unreadable via a patched `open`, gitlink, non-UTF-8 bytes, NUL bytes), each with its kind's remedy, built in

@@ -3,7 +3,16 @@
 fail-fast = true
 # Use all available CPUs for test execution
 test-threads = "num-cpus"
+# Liveness guard — the canonical statement of the harness-wait rule.  No wall
+# clock decides a correctness verdict inside a test: the SW / worker harness
+# waits block until a reply or a disconnect (`#11-sw-respond-with-gc-test-wallclock-timeout`;
+# the harness waits still on a wall clock are `#11-test-harness-wallclock-verdicts`).
+# Liveness is the runner's: a test past 8 x 60 s is killed and NAMED, instead of
+# hanging until the CI job's timeout with no test named.  The bound sits well
+# above the slowest test measured when it was set (figures in the PR that set it).
+# `[profile.ci]` inherits it, and CI runs `--profile ci`.
+slow-timeout = { period = "60s", terminate-after = 8 }
 
 [profile.ci]
-# CI: run all tests even if some fail
+# CI (`cargo nextest run --profile ci` in ci.yml): run all tests even if some fail
 fail-fast = false

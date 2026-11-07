@@ -69,7 +69,7 @@ docs/
 - [mise](https://mise.jdx.dev/) (task runner)
 - [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all` / `ci`
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)
-- Python 3.9+ (`python3` on `PATH`) — used by `mise run tools-test` / `ci` (the CI `tools` job runs the same script)
+- Python at the version `.tool-versions` pins, installed by mise (`mise install` in the repository root; the first use auto-installs it) — used by `mise run tools-test` / `ci`, which refuse any other version (the CI `tools` job runs the same script on the pin); the pin moves only under the bump rule in `docs/plans/2026-10-python-pin-umbrella.md` §4.1
 
 ### Common Tasks
 

@@ -156,7 +156,7 @@ exact header rows, so against any other plan memo it prints `FATAL: no table
 matched schema ...` and exits 2 -- which is why the MEMO run is not a
 trip-wire.  Its self-test runs on every PR in the `tools` job: the wrapper
 `test_plan_memo_umbrella_check.py` runs `--self-test --mutants` through
-`scripts/python-suites.sh` (both matrix legs).
+`scripts/python-suites.sh` (the `tools` job's one leg, the pinned interpreter).
 
 FINDING CODES.  Mechanical (gate the exit status): UMBRELLA-MARK (a),
 UMBRELLA-CELL (b, the `Deps` half only -- the acceptance half has no cell and
@@ -658,7 +658,7 @@ def _utf8_streams():
     `stream_encoding_control` is its partner and reads this function instead.
 
     `getattr` rather than a version test: `reconfigure` is a `TextIOWrapper`
-    method from Python 3.7 (below the 3.9 floor this checker advertises), but a
+    method from Python 3.7 (long before the pinned interpreter), but a
     caller that has replaced `sys.stdout` with something else need not provide
     it, and a checker must not die for want of an output setting."""
     for stream in (sys.stdout, sys.stderr):

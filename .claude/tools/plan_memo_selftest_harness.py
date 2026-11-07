@@ -23,8 +23,9 @@ MECHANISM the controls share:
     a work count does not).
 
 EVERY TEXT I/O CALL HERE NAMES ITS ENCODING (PR #510 R26-4).  The checker
-advertises "Python 3.9+, standard library only" and reads production memos as
-explicit UTF-8 (`plan_memo_memo.Memo.__init__`); the self-test read its own module
+runs on the pinned interpreter (`.tool-versions`), standard library only, and
+reads production memos as explicit UTF-8 (`plan_memo_memo.Memo.__init__`); the
+self-test read its own module
 sources and wrote its fixtures with the LOCALE default instead, so on a host
 whose preferred encoding is not UTF-8 the suite raised `UnicodeDecodeError` in
 `load()` -- before a single control ran -- because these sources hold non-ASCII

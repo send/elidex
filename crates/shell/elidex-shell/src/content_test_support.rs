@@ -427,3 +427,63 @@ pub(super) fn set_test_clipboard(text: &str) {
 pub(super) fn test_clipboard_text() -> Option<String> {
     TEST_CLIPBOARD.with(|c| c.borrow().clone())
 }
+
+/// The browser-side end of a [`build_test_content_state`] pair.
+pub(super) type Browser = LocalChannel<BrowserToContent, ContentToBrowser>;
+
+/// The entity of the element with `id` (panics if absent).
+pub(super) fn by_id(pipeline: &crate::PipelineResult, id: &str) -> elidex_ecs::Entity {
+    pipeline
+        .dom
+        .find_by_id(pipeline.document, id)
+        .unwrap_or_else(|| panic!("no element #{id}"))
+}
+
+/// [`by_id`] over a [`ContentState`]'s pipeline.
+pub(super) fn entity(state: &ContentState, id: &str) -> elidex_ecs::Entity {
+    by_id(&state.pipeline, id)
+}
+
+/// `eval_script`, asserting the script completed.
+pub(super) fn eval(p: &mut crate::PipelineResult, src: &str) {
+    let r = p.eval_script(src);
+    assert!(r.success, "eval failed: {src}: {:?}", r.error);
+}
+
+/// A user key press (`keydown`, no modifiers) at the focused element.
+pub(super) fn user_key(state: &mut ContentState, k: &str) {
+    super::event_handlers::handle_key(
+        state,
+        "keydown",
+        k,
+        "",
+        false,
+        crate::ipc::ModifierState::default(),
+    );
+}
+
+/// The logged events so far, comma-joined (`""` when none fired).
+pub(super) fn event_log(p: &crate::PipelineResult) -> String {
+    probe_body_attr(p, "data-log").unwrap_or_default()
+}
+
+/// The shared JS event-logger prelude: resets `__log` and defines
+/// `listen(el, t, fmt?)`, which appends `fmt(t, e)` (default: `t`) to `__log` and
+/// mirrors it into `<body data-log>`. `listen` takes `t` as a parameter so each
+/// listener closes over its own type: the VM's `for (const …)` loop shares one
+/// binding across iterations, `#11-vm-per-iteration-loop-environment`; inline
+/// the loop body again when that slot lands. A macro so test modules can
+/// `concat!` it into their own `const` logger strings (each keeps only its list
+/// of watched event types).
+macro_rules! log_listener_js {
+    () => {
+        "globalThis.__log = []; \
+    function listen(el, t, fmt) { \
+      el.addEventListener(t, (e) => { \
+        __log.push(fmt ? fmt(t, e) : t); \
+        document.body.setAttribute('data-log', __log.join(',')); \
+      }); \
+    } "
+    };
+}
+pub(super) use log_listener_js;

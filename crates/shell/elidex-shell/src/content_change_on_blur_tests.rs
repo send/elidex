@@ -16,61 +16,37 @@ use elidex_form::FormControlState;
 use super::event_handlers::handle_key;
 use super::focus::{blur_current, set_focus};
 use super::ime::handle_ime;
-use super::test_support::{build_test_content_state, probe_body_attr, set_test_clipboard};
+use super::test_support::{
+    build_test_content_state, entity, eval, event_log, log_listener_js, set_test_clipboard,
+    user_key, Browser,
+};
 use super::ContentState;
-use crate::ipc::{BrowserToContent, ContentToBrowser, ImeKind, LocalChannel, ModifierState};
-
-type Browser = LocalChannel<BrowserToContent, ContentToBrowser>;
+use crate::ipc::{ImeKind, ModifierState};
 
 /// The events every logged control reports. `input` carries its `inputType`.
-/// (`listen` takes `t` as a parameter so each listener closes over its own type: the VM's
-/// `for (const …)` loop shares one binding across iterations, `#11-vm-per-iteration-loop-environment`;
-/// inline the loop body again when that slot lands.)
-const LOGGER: &str = "globalThis.__log = []; \
-    function listen(el, t) { \
-      el.addEventListener(t, (e) => { \
-        __log.push(t === 'input' ? 'input:' + e.inputType : t); \
-        document.body.setAttribute('data-log', __log.join(',')); \
-      }); \
-    } \
+const LOGGER: &str = concat!(
+    log_listener_js!(),
+    "const fmt = (t, e) => (t === 'input' ? 'input:' + e.inputType : t); \
     for (const el of document.querySelectorAll('input, textarea')) { \
       for (const t of ['input', 'change', 'blur', 'focusout', 'compositionend']) { \
-        listen(el, t); \
+        listen(el, t, fmt); \
       } \
-    }";
+    }"
+);
 
 /// Build a content state over `body` (inner HTML of `<body>`) and install the
 /// event logger on every `<input>` / `<textarea>`.
 fn setup(body: &str) -> (ContentState, Browser) {
     let html = format!("<!DOCTYPE html><html><body>{body}</body></html>");
     let (mut state, browser) = build_test_content_state(&html, "");
-    eval(&mut state, LOGGER);
+    eval(&mut state.pipeline, LOGGER);
     (state, browser)
-}
-
-/// `eval_script`, asserting the script completed.
-fn eval(state: &mut ContentState, src: &str) {
-    let r = state.pipeline.eval_script(src);
-    assert!(r.success, "eval failed: {src}: {:?}", r.error);
-}
-
-fn entity(state: &ContentState, id: &str) -> elidex_ecs::Entity {
-    state
-        .pipeline
-        .dom
-        .find_by_id(state.pipeline.document, id)
-        .unwrap_or_else(|| panic!("no element #{id}"))
 }
 
 /// The UA focus path (`set_focus`, the shell sink's canonical transition).
 fn ua_focus(state: &mut ContentState, id: &str) {
     let e = entity(state, id);
     set_focus(&mut state.pipeline, e);
-}
-
-/// A user key press (`keydown`, no modifiers) at the focused element.
-fn key(state: &mut ContentState, k: &str) {
-    handle_key(state, "keydown", k, "", false, ModifierState::default());
 }
 
 /// A user Cmd+`k` (clipboard / select-all chords) at the focused element.
@@ -82,15 +58,10 @@ fn cmd_key(state: &mut ContentState, k: &str) {
     handle_key(state, "keydown", k, "", false, mods);
 }
 
-/// The logged events so far, comma-joined (`""` when none fired).
-fn log(state: &ContentState) -> String {
-    probe_body_attr(&state.pipeline, "data-log").unwrap_or_default()
-}
-
 /// Clear the event log.
 fn clear_log(state: &mut ContentState) {
     eval(
-        state,
+        &mut state.pipeline,
         "__log = []; document.body.setAttribute('data-log', '');",
     );
 }
@@ -114,7 +85,7 @@ fn value(state: &ContentState, id: &str) -> String {
 /// Whether the log holds an event named `name` (an `input:<inputType>` entry
 /// counts as `input`).
 fn has_event(state: &ContentState, name: &str) -> bool {
-    log(state)
+    event_log(&state.pipeline)
         .split(',')
         .any(|t| t.split(':').next() == Some(name))
 }
@@ -122,7 +93,7 @@ fn has_event(state: &ContentState, name: &str) -> bool {
 /// A script `#b.value = v`.
 fn script_set_value(state: &mut ContentState, v: &str) {
     eval(
-        state,
+        &mut state.pipeline,
         &format!("document.getElementById('b').value = '{v}';"),
     );
 }
@@ -130,7 +101,7 @@ fn script_set_value(state: &mut ContentState, v: &str) {
 /// A script `#b.setSelectionRange(a, b)`.
 fn select(state: &mut ContentState, a: usize, b: usize) {
     eval(
-        state,
+        &mut state.pipeline,
         &format!("document.getElementById('b').setSelectionRange({a}, {b});"),
     );
 }
@@ -160,20 +131,27 @@ fn c2_ua_blur_change_for_user_edit() {
     let (mut s, _b) = setup(&pair("input", "", ""));
     ua_focus(&mut s, "b");
     clear_log(&mut s);
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     ua_focus(&mut s, "c");
-    assert_eq!(log(&s), "input:insertText,change,blur,focusout");
+    assert_eq!(
+        event_log(&s.pipeline),
+        "input:insertText,change,blur,focusout"
+    );
 }
 
 /// C4 (M1): user edit, then a script write; `change` fires.
 fn c4(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     script_set_value(&mut s, "third");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M1: change fires ({})", log(&s));
+    assert!(
+        has_change(&s),
+        "M1: change fires ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
@@ -190,11 +168,15 @@ fn c4_ua_blur_after_user_edit_then_script_write_textarea() {
 fn c5(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     script_set_value(&mut s, "");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(!has_change(&s), "M2: no change ({})", log(&s));
+    assert!(
+        !has_change(&s),
+        "M2: no change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
@@ -215,20 +197,27 @@ fn c10_ime_commit_marks_and_fires_input() {
     ua_focus(&mut s, "b");
     clear_log(&mut s);
     handle_ime(&mut s, ImeKind::Commit("あ".to_string()));
-    assert_eq!(log(&s), "compositionend,input:insertFromComposition");
+    assert_eq!(
+        event_log(&s.pipeline),
+        "compositionend,input:insertFromComposition"
+    );
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "IME commit is a user change ({})", log(&s));
+    assert!(
+        has_change(&s),
+        "IME commit is a user change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 /// C13: VM `focus()` seeds; a user edit then a UA blur fires `change`.
 #[test]
 fn c13_vm_focus_then_user_edit_fires_change() {
     let (mut s, _b) = setup(&pair("input", "", ""));
-    eval(&mut s, "document.getElementById('b').focus();");
-    key(&mut s, "a");
+    eval(&mut s.pipeline, "document.getElementById('b').focus();");
+    user_key(&mut s, "a");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "{}", log(&s));
+    assert!(has_change(&s), "{}", event_log(&s.pipeline));
 }
 
 /// C15: C2 on `<textarea>` with Enter.
@@ -237,9 +226,12 @@ fn c15_textarea_user_edit_fires_change() {
     let (mut s, _b) = setup(&pair("textarea", "", ""));
     ua_focus(&mut s, "b");
     clear_log(&mut s);
-    key(&mut s, "Enter");
+    user_key(&mut s, "Enter");
     ua_focus(&mut s, "c");
-    assert_eq!(log(&s), "input:insertLineBreak,change,blur,focusout");
+    assert_eq!(
+        event_log(&s.pipeline),
+        "input:insertLineBreak,change,blur,focusout"
+    );
 }
 
 /// C17 (M6): script `x`; type `a`; script `y`; blur → `change`.
@@ -247,11 +239,11 @@ fn c17(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
     script_set_value(&mut s, "x");
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     script_set_value(&mut s, "y");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M6: change ({})", log(&s));
+    assert!(has_change(&s), "M6: change ({})", event_log(&s.pipeline));
 }
 
 #[test]
@@ -268,12 +260,16 @@ fn c17_script_write_user_edit_script_write_textarea() {
 fn c18(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    key(&mut s, "a");
-    key(&mut s, "Backspace");
+    user_key(&mut s, "a");
+    user_key(&mut s, "Backspace");
     assert_eq!(value(&s, "b"), "");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(!has_change(&s), "M7: no change ({})", log(&s));
+    assert!(
+        !has_change(&s),
+        "M7: no change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
@@ -290,16 +286,20 @@ fn c18_user_edit_then_revert_textarea() {
 fn c19(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M8 first blur ({})", log(&s));
+    assert!(has_change(&s), "M8 first blur ({})", event_log(&s.pipeline));
     ua_focus(&mut s, "b");
     script_set_value(&mut s, "x");
-    key(&mut s, "b");
+    user_key(&mut s, "b");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M8 second blur ({})", log(&s));
+    assert!(
+        has_change(&s),
+        "M8 second blur ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
@@ -336,10 +336,14 @@ fn c8_arrow_key_fires_no_input() {
     let (mut s, _b) = setup(&pair("input", "", ""));
     focus_with_caret_at_end(&mut s);
     clear_log(&mut s);
-    key(&mut s, "ArrowLeft");
+    user_key(&mut s, "ArrowLeft");
     assert_eq!(cursor(&s, "b"), 1, "the arrow moved the caret");
     assert_eq!(value(&s, "b"), "ab");
-    assert!(!has_input(&s), "no input for a caret move ({})", log(&s));
+    assert!(
+        !has_input(&s),
+        "no input for a caret move ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 /// C11: an IME commit into a full `maxlength` control inserts nothing; no `input`.
@@ -351,7 +355,11 @@ fn c11_ime_commit_with_full_maxlength_fires_no_input() {
     clear_log(&mut s);
     handle_ime(&mut s, ImeKind::Commit("あ".to_string()));
     assert_eq!(value(&s, "b"), "z");
-    assert_eq!(log(&s), "compositionend", "compositionend only");
+    assert_eq!(
+        event_log(&s.pipeline),
+        "compositionend",
+        "compositionend only"
+    );
 }
 
 /// C12 (N2): ArrowLeft in a `readonly` control moves the caret; no `input`.
@@ -360,10 +368,10 @@ fn c12_readonly_navigation_fires_no_input() {
     let (mut s, _b) = setup(&pair("input", "readonly", ""));
     focus_with_caret_at_end(&mut s);
     clear_log(&mut s);
-    key(&mut s, "ArrowLeft");
+    user_key(&mut s, "ArrowLeft");
     assert_eq!(cursor(&s, "b"), 1, "readonly navigation moved the caret");
     assert_eq!(value(&s, "b"), "ab");
-    assert!(!has_input(&s), "no input ({})", log(&s));
+    assert!(!has_input(&s), "no input ({})", event_log(&s.pipeline));
 }
 
 /// C27: paste into a `readonly` control leaves the value; no `input`.
@@ -374,7 +382,7 @@ fn c27(tag: &str) {
     clear_log(&mut s);
     cmd_key(&mut s, "v");
     assert_eq!(value(&s, "b"), "ab");
-    assert!(!has_input(&s), "no input ({})", log(&s));
+    assert!(!has_input(&s), "no input ({})", event_log(&s.pipeline));
 }
 
 #[test]
@@ -396,7 +404,7 @@ fn c28(tag: &str) {
     clear_log(&mut s);
     cmd_key(&mut s, "v");
     assert_eq!(value(&s, "b"), "z");
-    assert!(!has_input(&s), "no input ({})", log(&s));
+    assert!(!has_input(&s), "no input ({})", event_log(&s.pipeline));
 }
 
 #[test]
@@ -420,9 +428,13 @@ fn c30_paste_changes_value_fires_input_and_change() {
     clear_log(&mut s);
     cmd_key(&mut s, "v");
     assert_eq!(value(&s, "b"), "hi");
-    assert_eq!(log(&s), "input:insertFromPaste");
+    assert_eq!(event_log(&s.pipeline), "input:insertFromPaste");
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "paste is a user change ({})", log(&s));
+    assert!(
+        has_change(&s),
+        "paste is a user change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 /// C29: cut writes the clipboard, fires `input` (`deleteByCut`) and marks.
@@ -439,9 +451,13 @@ fn c29_cut_marks_and_fires_input() {
         Some("a")
     );
     assert_eq!(value(&s, "b"), "b");
-    assert_eq!(log(&s), "input:deleteByCut");
+    assert_eq!(event_log(&s.pipeline), "input:deleteByCut");
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "cut is a user change ({})", log(&s));
+    assert!(
+        has_change(&s),
+        "cut is a user change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 // ---- Commit (3): the mark decides, and the first mark re-baselines --------
@@ -453,8 +469,12 @@ fn c1(tag: &str) {
     script_set_value(&mut s, "x");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_event(&s, "blur"), "{}", log(&s));
-    assert!(!has_change(&s), "M0: no change ({})", log(&s));
+    assert!(has_event(&s, "blur"), "{}", event_log(&s.pipeline));
+    assert!(
+        !has_change(&s),
+        "M0: no change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
@@ -476,8 +496,12 @@ fn c3_blur_current_no_change_for_script_written_value() {
     script_set_value(&mut s, "x");
     clear_log(&mut s);
     blur_current(&mut s.pipeline);
-    assert!(has_event(&s, "blur"), "{}", log(&s));
-    assert!(!has_change(&s), "M0: no change ({})", log(&s));
+    assert!(has_event(&s, "blur"), "{}", event_log(&s.pipeline));
+    assert!(
+        !has_change(&s),
+        "M0: no change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 /// C6 (M4): script `x`; user Backspace (value back to `""`); blur → `change`.
@@ -485,11 +509,11 @@ fn c6(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
     script_set_value(&mut s, "x");
-    key(&mut s, "Backspace");
+    user_key(&mut s, "Backspace");
     assert_eq!(value(&s, "b"), "");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M4: change ({})", log(&s));
+    assert!(has_change(&s), "M4: change ({})", event_log(&s.pipeline));
 }
 
 #[test]
@@ -507,12 +531,16 @@ fn c6_ua_blur_after_script_write_then_user_revert_textarea() {
 fn c9_arrow_key_then_script_write_no_change() {
     let (mut s, _b) = setup(&pair("input", "", ""));
     focus_with_caret_at_end(&mut s);
-    key(&mut s, "ArrowLeft");
+    user_key(&mut s, "ArrowLeft");
     assert_eq!(cursor(&s, "b"), 1, "the arrow moved the caret");
     script_set_value(&mut s, "x");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(!has_change(&s), "M5: no change ({})", log(&s));
+    assert!(
+        !has_change(&s),
+        "M5: no change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 /// C16: a mark left by VM `blur()` does not survive the VM `focus()` re-seed.
@@ -520,32 +548,36 @@ fn c9_arrow_key_then_script_write_no_change() {
 fn c16_stale_mark_does_not_survive_refocus() {
     let (mut s, _b) = setup(&pair("input", "", ""));
     ua_focus(&mut s, "b");
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     eval(
-        &mut s,
+        &mut s.pipeline,
         "const b = document.getElementById('b'); b.blur(); b.focus(); b.value = 'x';",
     );
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(!has_change(&s), "no change ({})", log(&s));
+    assert!(!has_change(&s), "no change ({})", event_log(&s.pipeline));
 }
 
 /// C20 (M9, W1 / W2): the user returns to the script-written value; no second `change`.
 fn c20(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
-    key(&mut s, "a");
+    user_key(&mut s, "a");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M9 first blur ({})", log(&s));
+    assert!(has_change(&s), "M9 first blur ({})", event_log(&s.pipeline));
     ua_focus(&mut s, "b");
     script_set_value(&mut s, "x");
-    key(&mut s, "y");
-    key(&mut s, "Backspace");
+    user_key(&mut s, "y");
+    user_key(&mut s, "Backspace");
     assert_eq!(value(&s, "b"), "x");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(!has_change(&s), "M9 second blur ({})", log(&s));
+    assert!(
+        !has_change(&s),
+        "M9 second blur ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
@@ -563,17 +595,21 @@ fn c20_user_returns_to_script_written_value_textarea() {
 fn writer_rebaselines(body: &str, before_focus: &str, writer: &str, expected: &str) {
     let (mut s, _b) = setup(body);
     if !before_focus.is_empty() {
-        eval(&mut s, before_focus);
+        eval(&mut s.pipeline, before_focus);
     }
     ua_focus(&mut s, "b");
-    eval(&mut s, writer);
+    eval(&mut s.pipeline, writer);
     assert_eq!(value(&s, "b"), expected, "the writer ran: {writer}");
-    key(&mut s, "z");
-    key(&mut s, "Backspace");
+    user_key(&mut s, "z");
+    user_key(&mut s, "Backspace");
     assert_eq!(value(&s, "b"), expected);
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(!has_change(&s), "{writer}: no change ({})", log(&s));
+    assert!(
+        !has_change(&s),
+        "{writer}: no change ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 /// C21 (W3).
