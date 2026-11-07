@@ -4,7 +4,7 @@
 # slot: '-' or a '#11-<kebab>' slot id. T and D rows must carry a slot.
 # Rows are sorted by (path, text). A row whose line was fixed, moved or tagged is stale: delete it (--prune does).
 # The allowlist only shrinks. A new untagged line is fixed by tagging it or rewording it, never by adding a row.
-# This file is not scanned by the ratchet (its rows would each be a hit for themselves).
+# Not scanned by the ratchet: this file (its rows would each be a hit for themselves) and SELF_FILES in ecs_mission_ratchet.py.
 N	-	.plan-z1b-consume-delta.md	- **Per-column CHROME** (box-fragment chrome painted per column) → committed-next (render walks the box
 N	-	.plan-z1b-consume-delta.md	- **per-column CHROME** (background spanning columns) stays G11 single-column (no improvement, **no
 E	-	crates/api/elidex-api-crypto/src/rsa.rs	// ceiling ([`MAX_RSA_GENERATE_MODULUS_BITS`] = 8192, Chrome-faithful) is

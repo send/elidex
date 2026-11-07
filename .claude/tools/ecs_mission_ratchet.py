@@ -9,14 +9,17 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
 (one row per occurrence). The allowlist only shrinks: there is no command that adds a row.
-The ratchet's own files (SELF_FILES: this module, its test, its fixtures, the allowlist) are not
-scanned: they hold the classifier's vocabulary and deny examples by construction (class N), and
-scanning them would make every fixture edit an allowlist addition.
-Every other tracked file is scanned unless it holds a NUL byte (binary); bytes that are not UTF-8
-are decoded with U+FFFD replacement, so an encoding slip does not exempt a file. Lines are split on
-'\n' only (a trailing '\r' is dropped), so line numbers match git and editors.
-Adding a row is the one move this check cannot see; elidex-review axes.md Axis 2 sub-check 2d
-(authority source) grades it.
+Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
+module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
+construction (class N); scanning them would make every fixture edit an allowlist addition.
+Every other tracked file is scanned unless it holds a NUL byte (binary, as git's own `-I` decides);
+bytes that are not UTF-8 are decoded with U+FFFD replacement, so an encoding slip does not exempt a
+file. A binary without NUL is read as text and can produce a hit.
+Line unit: rows are keyed and numbered by '\n'-separated lines (as git and editors count), and a
+line is a hit when any of its str.splitlines() segments is denied, which is the unit the hook
+classifies (so a tag behind a CR, form feed or U+2028 does not cover a mention in another segment).
+Adding an allowlist row, or a path to SELF_FILES, is the move this check cannot see; elidex-review
+axes.md Axis 2 sub-check 2d (authority source) grades both.
 
 Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
 """
@@ -88,10 +91,27 @@ def normalise(line):
     return " ".join(line.split())
 
 
+def denied(line):
+    """A '\n'-line is a hit when any splitlines() segment (the hook's unit) is denied."""
+    return any(line_denied(seg) == "deny" for seg in line.splitlines())
+
+
+_LOCAL_ENV = None
+
+
+def git_env():
+    """os.environ minus git's repository-locating variables (`git rev-parse --local-env-vars`),
+    so a hook's GIT_DIR / GIT_INDEX_FILE cannot redirect the ratchet to another repo or index."""
+    global _LOCAL_ENV
+    if _LOCAL_ENV is None:
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        _LOCAL_ENV = set(subprocess.run(["git", "rev-parse", "--local-env-vars"], check=True,
+                                        capture_output=True, text=True, env=clean).stdout.split())
+    return {k: v for k, v in os.environ.items() if k not in _LOCAL_ENV}
+
+
 def _git(args, cwd):
-    """git with inherited GIT_* dropped, so a hook's GIT_DIR / GIT_INDEX_FILE cannot redirect it."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    return subprocess.run(["git"] + args, cwd=cwd, check=True, capture_output=True, env=env).stdout
+    return subprocess.run(["git"] + args, cwd=cwd, check=True, capture_output=True, env=git_env()).stdout
 
 
 def tracked_files(repo_root):
@@ -122,14 +142,16 @@ def scan(repo_root, exclude=()):
     hits = []
     for path, text in iter_texts(repo_root, exclude):
         for i, line in enumerate(text.split("\n"), 1):
-            line = line[:-1] if line.endswith("\r") else line
-            if line_denied(line) == "deny":
+            if denied(line):
                 hits.append((path, i, normalise(line)))
     return hits
 
 
 def _rel(repo_root, p):
-    return os.path.relpath(os.path.realpath(p), os.path.realpath(repo_root)).replace(os.sep, "/")
+    """Repo-relative path of p; the directory is resolved (symlinked checkout), the file name is not
+    (a tracked symlink is listed by git under its own name)."""
+    full = os.path.join(os.path.realpath(os.path.dirname(os.path.abspath(p))), os.path.basename(p))
+    return os.path.relpath(full, os.path.realpath(repo_root)).replace(os.sep, "/")
 
 
 def read_allowlist(path):
@@ -165,7 +187,7 @@ def malformed(rows):
             errs.append("allowlist line %d: empty path" % n)
         if not text:
             errs.append("allowlist line %d: empty text" % n)
-        elif text != normalise(text) or line_denied(text) != "deny":
+        elif text != normalise(text) or not denied(text):
             errs.append("allowlist line %d: text is not a normalised deny line under the classifier" % n)
         key = (path, text)
         if prev is not None and key < prev:
@@ -195,8 +217,11 @@ def _diff(repo_root, allowlist_path):
     return rows, new, stale
 
 
-def check(repo_root, allowlist_path, diff=None):
-    rows, new, stale = diff or _diff(repo_root, allowlist_path)
+def check(repo_root, allowlist_path):
+    return errors(*_diff(repo_root, allowlist_path))
+
+
+def errors(rows, new, stale):
     errs = malformed(rows)
     for p, ln, t in new:
         errs.append("new untagged browser mention: %s:%d: %s" % (p, ln, t))
@@ -237,7 +262,7 @@ def main(argv):
         print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
     else:
         diff = _diff(root, DEFAULT_ALLOWLIST)
-    errs = check(root, DEFAULT_ALLOWLIST, diff)
+    errs = errors(*diff)
     if errs:
         print("\n".join(errs))
         return 1

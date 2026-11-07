@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -75,9 +76,8 @@ class Controls(unittest.TestCase):
         self.root = os.path.join(td.name, "repo")
         os.makedirs(self.root)
         self.al = os.path.join(td.name, "allow.tsv")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=env)
-        self.env = env
+        self.env = mod.git_env()
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=self.env)
 
     def put(self, name, data):
         p = os.path.join(self.root, name)
@@ -200,6 +200,21 @@ class Controls(unittest.TestCase):
         self.allow()
         self.assertTrue(any("a.md:2: matches Chrome here" in e for e in self.check()))
 
+    def test_tag_behind_cr_does_not_cover_other_segment(self):
+        self.put("a.md", b"matches Chrome here\rnote [spec]\n")
+        self.allow()
+        self.assertTrue(any("a.md:1: matches Chrome here note [spec]" in e for e in self.check()))
+
+    def test_tracked_symlink_allowlist_excluded_by_own_name(self):
+        target = os.path.join(os.path.dirname(self.root), "outside.tsv")  # untracked target
+        open(target, "w").close()
+        os.symlink(target, os.path.join(self.root, "allow.tsv"))
+        subprocess.run(["git", "add", "allow.tsv"], cwd=self.root, check=True, env=self.env)
+        self.al = os.path.join(self.root, "allow.tsv")
+        self.put("a.md", "matches Chrome here\n")
+        self.allow("N\t-\ta.md\tmatches Chrome here")
+        self.assertEqual(self.check(), [])
+
     def test_self_files_not_scanned(self):
         for rel in mod.SELF_FILES:
             self.put(rel, "matches Chrome here\n")
@@ -218,18 +233,11 @@ class Controls(unittest.TestCase):
     def test_inherited_git_dir_ignored(self):
         self.put("a.md", "matches Chrome here\n")
         self.allow()
-        other = tempfile.mkdtemp()
-        self.addCleanup(lambda: subprocess.run(["rm", "-rf", other]))
-        subprocess.run(["git", "init", "-q", other], check=True, env=self.env)
-        saved = os.environ.get("GIT_DIR")
-        os.environ["GIT_DIR"] = os.path.join(other, ".git")
-        try:
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        subprocess.run(["git", "init", "-q", other.name], check=True, env=self.env)
+        with mock.patch.dict(os.environ, {"GIT_DIR": os.path.join(other.name, ".git")}):
             errs = self.check()
-        finally:
-            if saved is None:
-                del os.environ["GIT_DIR"]
-            else:
-                os.environ["GIT_DIR"] = saved
         self.assertTrue(any("a.md:1: matches Chrome here" in e for e in errs), errs)
 
     def test_allowlist_inside_repo_not_scanned(self):

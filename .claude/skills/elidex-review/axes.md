@@ -117,7 +117,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 | N | ブラウザでない (UI の chrome、caret blink、UA 文字列、survey data 等) | — |
 
 - 追加行のブラウザ言及に tag が無い → **IMP** (class が T/D ならその等級)。Write/Edit は hook が止めるが、Bash 経由・hook 導入前の行・plan 本文の引用はここでしか捕まらない
-- `.claude/tools/ecs-mission-allowlist.tsv` への **行の追加** → **IMP** (allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。T/D 行の追加は CRIT)
+- `.claude/tools/ecs-mission-allowlist.tsv` への **行の追加**、または `ecs_mission_ratchet.py` の `SELF_FILES` (scan しない file の列) への **path の追加** → **IMP** (allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。T/D 行の追加は CRIT)
 - `[plan]` 仕様が沈黙している判断で、(1)→(2)→(3) の順に何を引いたか (仕様の節 / ECS 原則 / 実測の label) が書かれていない → **IMP**
 
 ### Detect (top-level)
