@@ -517,6 +517,26 @@ fn t15r_null_registry_element_known_defect_extra_adopted() {
     assert_eq!(got, r#"[["d","k"],["a",false,false],["c",false]]"#);
 }
 
+// ---- T15 (v) (known defect, memo D-13 / §6.1): `adoptNode(attr)` ----
+/// C0c column, not the spec's. DOM `adoptNode` does not exclude an Attr:
+/// *adopt* step 2 removes nothing (an Attr has no parent) and step 3 re-homes
+/// only the Attr, so the spec returns `a` with `a.ownerDocument === dp` and
+/// `a.ownerElement === x`. The VM's Attr is not a Node (an entity-less
+/// `ObjectKind::Attr` wrapper whose chain lacks `Node.prototype`), so the
+/// native throws `TypeError`. The ECS side already handles an Attr entity:
+/// U20 (`u20_adopt_attr_stamps_only_the_attr`) shows `EcsDom::adopt(attr, D)`
+/// stamps only the Attr. `#11-dom-api-attr-entity-model-unification` changes
+/// this cell to the spec value.
+#[test]
+fn t15v_adopt_node_attr_known_defect_type_error() {
+    let got = ce_cell(&[
+        "globalThis.x = document.createElement('div'); x.id = 'x'; document.body.append(x); \
+         globalThis.a = x.getAttributeNode('id');",
+        "(() => { try { dp.adoptNode(a); return 'no throw'; } catch (e) { return e instanceof TypeError; } })()",
+    ]);
+    assert_eq!(got, "true");
+}
+
 // ---- T16: `adoptNode`'s only record is the removal's (DOM §4.2.3 *remove*
 // step 16) ----
 // The siblings are read by `nodeName`, standing in for `localName`, which

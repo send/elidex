@@ -38,7 +38,7 @@ known deviation `#11-ce-element-queue-grouping`, with the pinned `Adopted(e2)`-b
 in both; scope item 3, D-6, §4.2 and §5 said the test recorder records `Adopt` — after /simplify its arm is a no-op
 shared with `AttributeChange` (clippy `match_same_arms`) and `adopt_on_insert.rs`'s `AdoptLog` records the sequence;
 D-3 (c) / `AdoptSegments`: the walk excludes its root from the fragment→template map, guarding against a contents cycle
-the pre-insert validator accepts today (`#11-template-contents-host-link`, U21).
+the pre-insert validator accepts today (`#11-template-contents-host-link`, U21); D-13 / §6.1 / §8 (second /code-review): an Attr is adoptable per spec but the VM rejects it (T15 (v), a known defect).
 *Rev 3.7.4* (2026-11-03, PM 319): D-6's lookup runs only when needed and its depth cap is a stated
 defect (§8); D-3 (c) gives the None-under-None rationale; H-c6 / D-13 receiver corrected to `document_receiver`; T15 (iv).
 *Rev 3.7.3* (2026-11-03, focused re-check after PM 315; with the program memo's rev 3.9): the skip covers
@@ -173,6 +173,10 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   `mutation/child_list.rs`: if `node` has a parent, capture `source_removal_record(dom, node)` (H-7) pre-write; call
   `dom.adopt(node, document)`; return the record (adopt step 2's *remove* queues it, DOM §4.2.3 *remove* step 16;
   adoption itself queues none).
+  *An Attr* is adoptable per spec, but the VM rejects it: a VM Attr is an entity-less `ObjectKind::Attr` wrapper and not a
+  Node, so the native's unwrap throws `TypeError` (T15 (v)). This is a known defect and a facet of
+  `#11-dom-api-attr-entity-model-unification`, like that slot's D16. C0c adds no workaround. The ECS `adopt` handles an
+  Attr entity (U20).
   *`[CEReactions]`* (`webref idl dom Document`: `[CEReactions] Node adoptNode(Node node)`): the reactions it enqueues
   (`Adopted`, and `Disconnected` from step 2's removal) drain at the next checkpoint like every other `[CEReactions]`
   method's (H-c3); the method-scope drain is the engine-wide gap L3 proposes as `#11-ce-reactions-method-scope-drain`
@@ -346,6 +350,7 @@ eval after the one that enqueues. The cells share T6's definition of `x-a` (one 
 | T7 | red | after T6: `log = []; document.body.append(e)` ‖ `log`; variant: `old = document.createElement('x-a'); old.id = 'o'; document.body.append(old); e2 = document.createElement('x-a'); e2.id = 'n'; dp.body.append(e2)` ‖ `log = []; document.body.replaceChild(e2, old)` ‖ `log` | `[['d', ''], ['c', false]]`; variant `[['d', 'n'], ['d', 'o'], ['c', false]]` | `[['d', ''], ['a', false, false], ['c', false]]`; variant: C0c `[['d', 'n'], ['a', false, false], ['d', 'o'], ['c', false]]` (flat queue), spec `[['d', 'n'], ['a', false, false], ['c', false], ['d', 'o']]` (HTML §4.13.6 *invoke custom element reactions* drains each element's queue when it is dequeued) — a known deviation, `#11-ce-element-queue-grouping`; the pinned order, `Adopted(e2)` before `Disconnected(old)`, holds in both (corrected at /code-review) |
 | T14 | guard (K-0) | same-document move: `q = document.createElement('x-a'); document.body.append(q)` ‖ `log = []; document.body.prepend(q)` ‖ `log` | `[['d', ''], ['c', false]]` | the same (no `Adopted`) |
 | T15 | red | (i) `n = dp.getElementById('d'); r = document.adoptNode(n); [r === n, n.ownerDocument === document, n.parentNode]`; (ii) `document.adoptNode(dp)`; `h = document.createElement('div'); h.attachShadow({mode: 'open'}); document.adoptNode(h.shadowRoot)`; (iii) `c = document.createElement('x-a'); c.id = 'c'; dp.body.append(c)` ‖ `log = []; document.adoptNode(c)` ‖ `log` (`c` is created in a registry-bearing document); (iv) `x = document.createElement('div'); document.body.append(x); r = dp.adoptNode(x); [r === x, x.ownerDocument === dp, x.parentNode]` (a non-bound Document's wrapper, `dom_parser.rs:305`) | `TypeError` (H-15) | (i) `[true, true, null]`; (ii) `NotSupportedError`, `HierarchyRequestError`; (iii) `[['d', 'c'], ['a', false, false]]`; (iv) `[true, true, null]` |
+| T15 (v) | known defect (recorded; not the spec column) | `x = document.createElement('div'); x.id = 'x'; document.body.append(x); a = x.getAttributeNode('id'); r = dp.adoptNode(a)` (in a `try`; the cell reads `e instanceof TypeError`) | `TypeError` (H-15) | C0c: `TypeError` (the VM Attr is not a Node; `#11-dom-api-attr-entity-model-unification` changes this cell). Spec: `[true, true, true]` for `[r === a, a.ownerDocument === dp, a.ownerElement === x]` |
 | T15r | known defect (recorded regression, §1, §8; not the spec column) | `k = dp.createElement('x-a'); k.id = 'k'; dp.body.append(k)` ‖ `log = []; document.body.append(k)` ‖ `log` | `[['d', 'k'], ['c', false]]` (`k` wrongly upgraded in `dp`: the `createElement` native upgrades whatever the document, `vm/host/document_factories.rs:96` at `062337aa`) | C0c: `[['d', 'k'], ['a', false, false], ['c', false]]`. Spec (derived from the spec text; DOMParser's null-registry behaviour is not measured in a browser): `k` is not custom in `dp`, so `[['c', false]]` after its upgrade at insertion; `#11-document-null-registry-adopt-reset` changes this cell to that |
 | T16 | red | `MutationObserver` on `d`'s old parent in `dp`, `{childList: true}`: `document.adoptNode(d); mo.takeRecords()` | `TypeError` | one record: `removedNodes [d]`, target the old parent, siblings pre-removal |
 | T18 | red (per-node pairs; P-4) | `t = dp.createElement('template'); dp.body.append(t); e = document.createElement('x-a'); t.content.append(e); document.adoptNode(t.content)` ‖ `log = []; dp2.body.append(t)` ‖ `log` | `TypeError` | `[['a', true, false]]`: `e`'s pair is its segment's (`old = document`, the contents' node document; `new = dp2` under C2), not the root's (`dp`, `dp2`), which would give `['a', false, false]`; C1 turns `new` into `dp2`'s inert document |
@@ -436,7 +441,8 @@ lost (consumer), and a node inside a skipped fragment is stamped by mistake (wal
   register R-6 (b) `#11-import-node` and (f) `#11-img-adopting-steps-relevant-mutations` at this landing (program §9
   item 4);
 - the PM adds the recorded regression above to `#11-document-null-registry-adopt-reset`'s defect text at registration
-  (PM 311), and D-13's pending-upgrade line to `#11-ce-reactions-method-scope-drain`'s (PM 306).
+  (PM 311), and D-13's pending-upgrade line to `#11-ce-reactions-method-scope-drain`'s (PM 306);
+- the PM appends the `adoptNode(attr)` facet (D-13, T15 (v)) to `#11-dom-api-attr-entity-model-unification`.
 
 ## §9. Definition of done
 
