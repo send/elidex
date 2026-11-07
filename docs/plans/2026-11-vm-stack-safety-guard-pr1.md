@@ -251,14 +251,14 @@ debug aborts at N=300 on 2 MiB (`S/rel-classext.log`, `S/dbg-census-holes.log`).
 
 Verified 2026-11-06 via
 `git grep -nE 'regress::Regex|Regex::(with_flags|new|from_unicode)' -- crates/script/elidex-js/src ':!**/tests/**'`
-— 6 compile sites (verified 2026-11-06), lines `natives_string.rs` 569/584/648/668, `dispatch_helpers.rs` 170, `structured_clone.rs` 585:
+— 6 compile sites (verified 2026-11-08), lines `natives_string.rs` 567/582/646/666, `dispatch_helpers.rs` 170, `structured_clone.rs` 585:
 
 | Site | Path |
 |---|---|
-| `crates/script/elidex-js/src/vm/natives_string.rs:569` | `String.prototype.match`, non-object argument |
-| `crates/script/elidex-js/src/vm/natives_string.rs:584` | `match`, non-RegExp object argument |
-| `crates/script/elidex-js/src/vm/natives_string.rs:648` | `String.prototype.search`, non-object argument |
-| `crates/script/elidex-js/src/vm/natives_string.rs:668` | `search`, non-RegExp object argument |
+| `crates/script/elidex-js/src/vm/natives_string.rs:567` | `String.prototype.match`, non-object argument |
+| `crates/script/elidex-js/src/vm/natives_string.rs:582` | `match`, non-RegExp object argument |
+| `crates/script/elidex-js/src/vm/natives_string.rs:646` | `String.prototype.search`, non-object argument |
+| `crates/script/elidex-js/src/vm/natives_string.rs:666` | `search`, non-RegExp object argument |
 | `crates/script/elidex-js/src/vm/dispatch_helpers.rs:170` | regexp literal (`Constant::RegExp` in `load_constant`) |
 | `crates/script/elidex-js/src/vm/host/structured_clone.rs:585` | structuredClone RegExp re-compile |
 

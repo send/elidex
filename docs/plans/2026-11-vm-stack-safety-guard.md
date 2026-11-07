@@ -115,8 +115,8 @@ contain. A probe failure is never a spec step; it is the elidex resource limit (
 | ECMA-262 §25.5.4.5 SerializeJSONObject | SerializeJSONProperty per key | nested object | `serialize_object` (method of `JsonSerializer`) | ✓ | yes |
 | ECMA-262 §25.5.4.6 SerializeJSONArray | SerializeJSONProperty per index | nested array | `serialize_array` (method of `JsonSerializer`) | ✓ | yes |
 | ECMA-262 §13.2.7.3 Runtime Semantics: Evaluation | RegularExpressionLiteral | pattern compile | `load_constant` `Constant::RegExp` | ✓ | yes |
-| ECMA-262 §22.1.3.13 String.prototype.match | RegExpCreate for a non-RegExp argument | string / non-RegExp object | `native_string_match` (2 sites, verified 2026-11-06: `natives_string.rs` lines 569/584) | ✓ | yes |
-| ECMA-262 §22.1.3.21 String.prototype.search | RegExpCreate for a non-RegExp argument | string / non-RegExp object | `native_string_search` (2 sites, verified 2026-11-06: `natives_string.rs` lines 648/668) | ✓ | yes |
+| ECMA-262 §22.1.3.13 String.prototype.match | RegExpCreate for a non-RegExp argument | string / non-RegExp object | `native_string_match` (2 sites, verified 2026-11-08: `natives_string.rs` lines 567/582) | ✓ | yes |
+| ECMA-262 §22.1.3.21 String.prototype.search | RegExpCreate for a non-RegExp argument | string / non-RegExp object | `native_string_search` (2 sites, verified 2026-11-08: `natives_string.rs` lines 646/666) | ✓ | yes |
 | ECMA-262 §22.2.3.1 RegExpCreate | pattern parse + compile | (future `RegExp` constructor) | front door (NEW) | ✓ | yes |
 | WHATWG HTML §2.7.4 StructuredSerializeInternal | recursive serialize per property / element | Array / ordinary / Error / RegExp re-compile | `clone_recursive` | ✓ | yes |
 | WHATWG HTML §2.7.11 Structured cloning API | structuredClone(value) | — | `clone_recursive` entry | ✓ | yes |
