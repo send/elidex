@@ -804,8 +804,9 @@ impl EcsDom {
 
     // ---- AssociatedDocument (WHATWG §4.4 "node document") ----
 
-    /// Validate an incoming `owner` argument passed to
-    /// `create_*_with_owner`.  Returns the entity unchanged when it
+    /// Validate the node document a spawn path is about to stamp
+    /// (`spawn_node` for the `create_*_with_owner` creators, and the
+    /// cloner).  Returns the entity unchanged when it
     /// still points at a live [`NodeKind::Document`]; returns `None`
     /// otherwise (destroyed / non-Document / never set).
     ///
@@ -823,7 +824,7 @@ impl EcsDom {
         } else {
             debug_assert!(
                 false,
-                "create_*_with_owner passed an owner that is not a live Document entity"
+                "a spawn path was given a node document that is not a live Document entity"
             );
             None
         }

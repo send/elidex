@@ -243,12 +243,9 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     // to every pass: the light tree (the ECS cloner), template contents
     // (pass 3) and shadow subtrees (pass 4). For a Document clone it is the
     // clone itself — deriving from a *source* child would stamp the original
-    // document onto a cloned Document's shadow contents.
-    let document = if matches!(dom.node_kind(src), Some(NodeKind::Document)) {
-        dom.node_document_for_new_nodes(cloned)
-    } else {
-        document
-    };
+    // document onto a cloned Document's shadow contents. Read from the clone,
+    // it is that for a Document and the stamp the cloner just wrote otherwise.
+    let document = dom.node_document_for_new_nodes(cloned);
     // Index-based worklist: passes 3 and 4 append pairs while we iterate
     // (`replicate_template_contents` pushes the content fragment's deep-clone
     // pairs; the shadow-replication block pushes the shadow children's).

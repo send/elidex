@@ -305,8 +305,7 @@ impl Range {
                 ));
                 if !extracted.is_empty() {
                     // *extract* step 4.1: a clone of the original start node
-                    // (its node document by *clone a node*'s default).
-                    let owner = dom.node_document_for_new_nodes(self.start_container);
+                    // (its node document by *clone a node*'s default: `owner`).
                     let text_node = dom.create_text_with_owner(&extracted, owner);
                     // Fresh clone appended to the (unobserved) fragment —
                     // childList on the fragment, no observed record.
@@ -358,8 +357,8 @@ impl Range {
                 text,
             ));
             if !tail.is_empty() {
-                // *extract* step 16.1: a clone of the original start node.
-                let owner = dom.node_document_for_new_nodes(self.start_container);
+                // *extract* step 16.1: a clone of the original start node
+                // (`owner`, as in step 4.1).
                 let text_node = dom.create_text_with_owner(&tail, owner);
                 let _ = dom.append_child(frag, text_node);
             }
