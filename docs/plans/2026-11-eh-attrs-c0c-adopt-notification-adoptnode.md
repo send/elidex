@@ -15,8 +15,9 @@ consumer-less event).
 1. The adopt walk's contents segments and skipped contents fragments (D-3 (c)).
 2. `MutationEvent::Adopt` (NEW) with `AdoptedContents` (NEW), dispatched once per adopt call after the walk and before
    the link (D-6).
-3. The custom-element consumer's `Adopt` arm and the VM flush's `adoptedCallback` invocation (D-6); explicit no-op
-   arms in the exhaustive matches (`range/live.rs`, `mutation_hook.rs`).
+3. The custom-element consumer's `Adopt` arm and the VM flush's `adoptedCallback` invocation (D-6); explicit
+   arms in the exhaustive matches (a no-op in `range/live.rs`, a recording arm in the test recorder `mutation_hook.rs`;
+   *Rev 3.7.5*).
 4. `TemplateContentsWalk::Include` in the spec's order (D-19).
 5. `document.adoptNode(node)` (D-13): VM native → dom-api `AdoptNode` → session `apply_adopt_node` → `EcsDom::adopt`.
 
@@ -24,7 +25,16 @@ consumer-less event).
 (proposed `#11-img-adopting-steps-relevant-mutations`, whose hook this PR provides); the engine-wide reaction drain
 point (`#11-ce-reactions-method-scope-drain`, L3's proposal); C1's `f` values of the segments (C1 D-C5, T25).
 
-**Changelog.** *Rev 3.7.4* (2026-11-03, PM 319): D-6's lookup runs only when needed and its depth cap is a stated
+**Changelog.** *Rev 3.7.5* (2026-11-08, implementation errata; measured at the base `062337aa` and at C0c's head):
+D-6's lookup trigger names the consumer's second case (a reached contents fragment with no segment, i.e. a skipped one)
+and the walk's (a `None` segment, for templates); the lookup is DOM §4.8's *shadow-including root*, computed by the
+existing `EcsDom::find_tree_root_composed` on both sides, and §8's stated defect is restated for it; H-c4 / D-13 step 3:
+handlers push records with `session.push_notify_record` loops (no public `push_records`); §5 P-c1 adds
+`elidex-form/src/clone.rs:67` and states each caller's order-sensitivity; §5 P-c2 is 1 hit at the base and is listed
+by class at the head; §0.1's factories range and where the coordinates now live; `MutationEvent` has eight variants at
+the base (H-c1, D-6, §4.2): `live.rs`'s `Adopt` joins the shared no-op arm, the test recorder records `Adopt`; §6.1's
+cells use `globalThis.<name>`; D-6 Flush: the lifecycle callback is read at reaction time (a pre-existing deviation).
+*Rev 3.7.4* (2026-11-03, PM 319): D-6's lookup runs only when needed and its depth cap is a stated
 defect (§8); D-3 (c) gives the None-under-None rationale; H-c6 / D-13 receiver corrected to `document_receiver`; T15 (iv).
 *Rev 3.7.3* (2026-11-03, focused re-check after PM 315; with the program memo's rev 3.9): the skip covers
 the Attr re-home (D-3 (c), U19, §6.3); U19's legs get distinct documents and an unambiguous order; §2 A1×A4 says what
@@ -50,7 +60,10 @@ added (Ax1 MIN-1); `[CEReactions]` drain point stated (Ax4 MIN).
 
 Coordinates are `27b50dfe` (program §0.1). C0c's base is C0b's head plus D-14 (b), which moves
 `crates/script/elidex-js/src/vm/host/document.rs`'s node factories (`:278-421`) to `vm/host/document_factories.rs`
-(NEW) and its accessors (`:423-938`) to `vm/host/document_accessors.rs` (NEW). L3 RC-2a may have landed (edge c0e);
+(NEW) and its accessors (`:423-938`) to `vm/host/document_accessors.rs` (NEW). *Rev 3.7.5:* the factories range was
+inconsistent from the start: it overlaps the installer (`:285`) and the method table (`:379-398`), which stay in
+`document.rs`. D-14 (b) landed as #599; at the base `062337aa`, `document_factories.rs` is 162 lines,
+`document_accessors.rs` 590 and `document.rs` 499, and the moved coordinates are read there. L3 RC-2a may have landed (edge c0e);
 its files that C0c also edits (`crates/core/elidex-ecs/src/dom/mutation_event.rs`, `dom/tree/walkers.rs`, `dom/mod.rs`,
 `crates/core/elidex-ecs/src/lib.rs`, `crates/dom/elidex-custom-elements/src/consumer.rs`,
 `crates/dom/elidex-dom-api/src/range/live.rs`) are in the re-measure scope (§9 item 1).
@@ -61,10 +74,10 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
 
 | id | claim | evidence (`27b50dfe`) |
 |---|---|---|
-| H-c1 | The CE consumer's dispatch entry | `CustomElementReactionConsumer::handle` (`crates/dom/elidex-custom-elements/src/consumer.rs:75-96`): `Insert`, `Remove`, `AttributeChange`, `_ => {}`; `handle_insert` `:98` |
+| H-c1 | The CE consumer's dispatch entry | `CustomElementReactionConsumer::handle` (`crates/dom/elidex-custom-elements/src/consumer.rs:75-96`): `Insert`, `Remove`, `AttributeChange`, `_ => {}`; `handle_insert` `:98`. At the base `062337aa` (*Rev 3.7.5*): `handle` `:89-113`, arms `Insert`, `Remove`, `AttributeChange`, `CloneCreated` (RC-2a), `_ => {}` |
 | H-c2 | The flush's reaction loop and its callback helper | `flush_ce_reactions` (`crates/script/elidex-js/src/vm/host/custom_elements/flush.rs:39`); the `AttributeChanged` arm calls `invoke_callback(&mut ctx, entity, cb_sid, &args)` (`:131`); the `Adopted` arm is a no-op (`:133-138`) |
 | H-c3 | Where reactions drain | `flush_ce_reactions` is called at script-execution and event checkpoints: `crates/script/elidex-js/src/vm/interpreter.rs:54`, `crates/script/elidex-js/src/engine.rs:165`, `crates/script/elidex-js/src/vm/natives_timer.rs:281`, `crates/script/elidex-js/src/vm/host/custom_elements/define.rs:204` (`git grep -n 'flush_ce_reactions()' -- crates/script`); not at a `[CEReactions]` method's return (L3 memo Rev 5, E2 measurement) |
-| H-c4 | The VM → engine-independent dispatch | `invoke_dom_api` (`crates/script/elidex-js/src/vm/host/dom_bridge.rs:462`) calls a registered dom-api handler, maps a `DomApiError` to its DOMException and allocates the returned node's wrapper (`:516-523`); handlers push session records (`push_records`, e.g. `crates/dom/elidex-dom-api/src/element/tree.rs:285`) |
+| H-c4 | The VM → engine-independent dispatch | `invoke_dom_api` (`crates/script/elidex-js/src/vm/host/dom_bridge.rs:462`) calls a registered dom-api handler, maps a `DomApiError` to its DOMException and allocates the returned node's wrapper (`:516-523`); handlers push session records in a `session.push_notify_record(record)` loop (e.g. `crates/dom/elidex-dom-api/src/element/tree.rs:294-296`; *Rev 3.7.5*: `push_records` is not there, and the only `push_records`, `child_node/mutations.rs:52`, is private to that module) |
 | H-c5 | Custom elements inside template contents exist | P-4 (C1 memo P-C14): an element upgraded in a document and appended into `tpl.content` stays custom (adoption does not un-upgrade), so per-node pairs are load-bearing |
 | H-c6 | Document methods are own properties | no `Document.prototype`: `install_document_methods_for_entity` (`crates/script/elidex-js/src/vm/host/document.rs:285`) installs `DOCUMENT_METHODS_POST_LIVE_COLLECTION` (`:379-398`) on each Document wrapper, install order = own-property order (`:306-323`); callers `:269` (bind), `dom_parser.rs:305`, `node_methods_extras.rs:263`. Unbound VM or non-HostObject `this` → `null`; a non-Document HostObject → `TypeError` "Illegal invocation" (`document_receiver` `:83-88` → `require_receiver`, `event_target.rs:331-363`) |
 
@@ -98,17 +111,34 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   D-19) and enqueues `CustomElementReaction::Adopted { entity, old_document, new_document }`
   for each element in `CEState::Custom` whose pair is `Some` (*adopt* 3.3.3: "enqueue a custom element callback
   reaction with inclusiveDescendant, callback name "adoptedCallback", and « oldDocument, document »"). *An element's
-  pair* is its innermost segment's: `r = find_tree_root(e)` (`walkers.rs:319`), and while `r` is a shadow root,
-  `r = find_tree_root(shadow_host(r))` (`shadow.rs:514`); if `r` is a segment's `fragment`, that segment's `documents`;
-  if `r` is `node`, the root's; else `None` (a skipped fragment has no segment, D-3 (c)). The nearest contents fragment is the innermost segment, so leaving a segment needs no signal and the
+  pair* is its innermost segment's: `r` = `e`'s *shadow-including root* (DOM §4.8, `#concept-shadow-including-root`),
+  computed by the existing `EcsDom::find_tree_root_composed` (`walkers.rs`) on both sides, the walk and the consumer
+  (*Rev 3.7.5*; one issue, one way: C0c's first slice, `553e3b3e`, had two hand-written copies of the climb, one per
+  side); a contents fragment has no parent and is not a shadow root, so the climb stops at the nearest one; if `r` is a
+  segment's `fragment`, that segment's `documents`; if `r` is `node`, the root's; else `None` (a skipped fragment has no
+  segment, D-3 (c)). The nearest contents fragment is the innermost segment, so leaving a segment needs no signal and the
   walker keeps its one visit callback. *Rejected:* an exit callback on the walker (a second shape of the one walk, which
-  D-19 rejects) and a consumer-side segment stack (popping it needs the same ancestor test). The lookup runs only when a fragment is skipped (walk) or a
-  segment's pair differs from the root's (consumer); otherwise every node takes the root's pair. Its depth cap: §8. **Flush:** the
+  D-19 rejects) and a consumer-side segment stack (popping it needs the same ancestor test). The lookup runs only when needed (*Rev 3.7.5*): in the walk,
+  once a fragment is skipped (for every node) or a `None` segment is recorded, the root's included (for templates, so
+  a nested segment reads `None`); in the consumer, from the start when a segment's pair differs from the root's, and
+  otherwise from the point where its walk reaches a contents fragment that has no segment (a skipped one; without this
+  its custom elements would take the root's pair, and U19's second leg would give `Adopted(D0, target)` where it gives
+  none). Otherwise every node takes
+  the root's pair. Its depth cap: §8. **Flush:** the
   `Adopted` arm (`flush.rs:133-138`) resolves the two Document wrappers and calls `invoke_callback(&mut ctx, entity,
-  adopted_callback_sid, &[old, new])` (H-c2), with the same error routing as `connectedCallback`. **Other consumers:**
+  adopted_callback_sid, &[old, new])` (H-c2), with the same error routing as `connectedCallback`. *Rev 3.7.5:* like
+  `connectedCallback` and the other callbacks, `invoke_callback` reads `adoptedCallback` from `constructor.prototype`
+  when the reaction runs (the definition stores no lifecycle callbacks; `well_known.adopted_callback` was already
+  interned). This is a pre-existing deviation, not fixed here: HTML `define()` (`#dom-customelementregistry-define`)
+  reads the lifecycle callbacks once, at definition time (steps 14.3–14.4), and stores them in the definition (step
+  15). **Other consumers:**
   `range/live.rs:113-163` (the one exhaustive production match) gains an explicit no-op `Adopt` arm (live ranges are
   updated by adopt step 2's `Remove`); the test match `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs:68-148`
-  likewise; the others have `_ => {}` (program P-6). *Batch equivalence:* the spec interleaves "set node document" and
+  likewise; the others have `_ => {}` (program P-6). *Rev 3.7.5:* at the base `MutationEvent` has eight variants
+  (RC-2a's `CloneCreated`); `live.rs:113-164`'s no-op arm is shared by `AttributeChange` / `CloneCreated`, and clippy
+  (`match_same_arms`, pedantic, denied in CI) rejects a second identical arm, so `Adopt` joins that arm; the test
+  recorder's match stays in `mutation_hook.rs` after RC-0a's split (`:72-158` at the base) and its `Adopt` arm records
+  the event (`MockEvent::Adopt`) as its other arms do, not a no-op. *Batch equivalence:* the spec interleaves "set node document" and
   "enqueue" per descendant; enqueueing runs no script (reactions run at the next drain, H-c3), so re-homing first and
   enqueueing after, in the same order, is unobservable. *Idiom table:* OO engines' per-node-class "moved to new
   document" virtual override (`adoptedCallback` dispatch inside the adopt loop) → one event on the mutation stream and
@@ -128,7 +158,8 @@ Program H-9, H-12, H-15, H-16 bind this PR. Added:
   `node` (non-Node → `TypeError` per WebIDL) and calls `invoke_dom_api("adoptNode", …)`, which maps errors and
   returns node's wrapper (H-c4). *dom-api*: `AdoptNode` (NEW) in `crates/dom/elidex-dom-api/src/document.rs`,
   registered in `registry.rs`: step 1 a Document → `NotSupportedError`; step 2 a ShadowRoot → `HierarchyRequestError`;
-  step 3 `push_records(session, apply_adopt_node(dom, node, this))`; step 4 return node. A host-linked DocumentFragment
+  step 3 pushes each record of `apply_adopt_node(dom, node, this)` with `session.push_notify_record` (a loop, as the
+  other handlers; *Rev 3.7.5*, H-c4); step 4 return node. A host-linked DocumentFragment
   (template contents) is adoptable: DOM's `adoptNode` has no exclusion (`webref body dom dom-document-adoptnode`, run
   2026-11-03). *Session*: `apply_adopt_node(dom, node, document) -> Vec<MutationRecord>` (NEW) in
   `mutation/child_list.rs`: if `node` has a parent, capture `source_removal_record(dom, node)` (H-7) pre-write; call
@@ -209,11 +240,11 @@ Two new script entry points: `adoptedCallback` (author code, through the existin
 | site | C0b | C0c |
 |---|---|---|
 | `adopt` (`tree/mutation.rs`) | walk, no event | walk + skips + segments (D-3 (c)); `Adopt` iff the root's pair |
-| `mutation_event.rs:107` | seven variants | + `Adopt`, `AdoptedContents` |
+| `mutation_event.rs:107` | seven variants (eight at the base `062337aa`, RC-2a's `CloneCreated`; *Rev 3.7.5*) | + `Adopt`, `AdoptedContents` |
 | `dom/mod.rs:32`, `lib.rs:44-47` | `MutationEvent` re-exported | + `AdoptedContents` |
 | `walkers.rs:112-118` | contents after the subtree | contents right after the template |
 | `consumer.rs:75-96` | no `Adopt` arm | `handle_adopt` |
-| `range/live.rs:113-163`; `mutation_hook.rs:68-148` | exhaustive without `Adopt` | explicit no-op arm |
+| `range/live.rs:113-163`; `mutation_hook.rs:68-148` | exhaustive without `Adopt` | `live.rs`: `Adopt` joins the shared no-op arm; the recorder: an arm that records it (*Rev 3.7.5*, D-6) |
 | `flush.rs:133-138` | no-op | `adoptedCallback(old, new)` |
 | `vm/host/document.rs` (after D-14 (b)) | — | `adoptNode` native and its table entry |
 | dom-api `document.rs`, `registry.rs` | — | `AdoptNode` |
@@ -255,9 +286,20 @@ no-ops" (`consumer.rs:73-74`); `walkers.rs:86-91` (D-19) and `:112-113` ("Pushed
   judged for a non-no-op arm. Re-run at C0c's base; if RC-2a has landed, its `CloneCreated` arms are in the same
   matches (c0e).
 - **P-c1 Include callers**: `git grep -n 'TemplateContentsWalk::Include' -- 'crates/*.rs'` → `teardown.rs:197`, the
-  adopt walk, and (C0c) the consumer; each caller's order-sensitivity stated.
+  adopt walk, and (C0c) the consumer; each caller's order-sensitivity stated. *Rev 3.7.5* (at the base `062337aa`):
+  the production callers are `teardown.rs:199`, `adopt_walk` (`tree/mutation.rs`) and
+  `crates/dom/elidex-form/src/clone.rs:67` (missing above); the other hits are the walker's own branch, tests and doc
+  comments. Teardown: insensitive (it destroys the collected set in reverse, and a fragment still follows its
+  template). Adopt walk: insensitive for the stamps; its segments need only that a fragment follow its template.
+  Form clone: insensitive (it collects the marked entities and copies each one independently). The new
+  `handle_adopt` is the only order-sensitive caller.
 - **P-c2 adoptNode reach**: `/usr/bin/grep -rn 'adoptNode\|adopt_node' crates --include='*.rs'` → 0 at `27b50dfe`
-  (H-15); at C0c's head the native, the handler, the session function, tests.
+  (H-15); at C0c's head the native, the handler, the session function, tests. *Rev 3.7.5:* 1 hit at the base
+  `062337aa`, not 0: C0b's doc comment `crates/core/elidex-ecs/src/dom/tree/mutation.rs:243`. At C0c's head (the same command, `| wc -l`, verified 2026-11-08), 43 hits in
+  8 files, by class: native (`vm/host/document.rs`, 9: the fn, its doc and the table entry); handler + registration
+  (dom-api `document.rs`, 9; `registry.rs:79`); session fn + re-exports (`mutation/child_list.rs`, 3;
+  `mutation/mod.rs:15`; `elidex-script-session/src/lib.rs:55`); tests (`tests_insertion_adoption.rs`, 17;
+  `registry.rs:547`, the registry test's list); doc comments (C0b's `tree/mutation.rs:249`).
 
 | file | lines at `27b50dfe` | change | 1000-line decision |
 |---|---|---|---|
@@ -283,7 +325,9 @@ no-ops" (`consumer.rs:73-74`); `walkers.rs:86-91` (D-19) and `:112-113` ("Pushed
 
 ### §6.1 VM integration (`tests_insertion_adoption.rs`)
 
-`‖` separates evals. Reactions drain at the end of each eval (`interpreter.rs:54`, H-c3), so a cell reads `log` in an
+`‖` separates evals. *Rev 3.7.5:* the cells create their names as `globalThis.<name>` (the logic is unchanged): in
+this VM a top-level `var` does not persist across separate evals (`tests_base_href.rs:463`), and a bare assignment
+to an undeclared name throws `ReferenceError` (strict-only core, `Op::SetGlobal`). Reactions drain at the end of each eval (`interpreter.rs:54`, H-c3), so a cell reads `log` in an
 eval after the one that enqueues. The cells share T6's definition of `x-a` (one `define` per test, HTML `define()` step
 3 rejects a second): `log.push` entries `['a', o === document, n === dp]` (adopted), `['c', this.ownerDocument === dp]`
 (connected), `['d', this.id]` (disconnected; read at the drain, so by id).
@@ -372,9 +416,10 @@ document (e.g. DOMParser) gets an extra `adoptedCallback(dp, document)` when ado
 lands", and is L3's next item after C0c. C0c adds no guard that skips `Adopted` for such elements (it would duplicate
 that slot's fix).
 
-**Stated defect (PM 319).** `find_tree_root` stops at depth `MAX_ANCESTOR_DEPTH` (10 000; `walkers.rs:319-337`,
-`dom/mod.rs:46`), so below it D-6's lookup misses: the element's `adoptedCallback` is lost, and a node inside a skipped
-fragment is stamped by mistake. Same root as `#11-live-range-bridge-wide-sibling-index` (engine-wide
+**Stated defect (PM 319; restated *Rev 3.7.5*).** D-6's lookup is `find_tree_root_composed`, which stops after
+`MAX_ANCESTOR_DEPTH` steps (10 000; `walkers.rs:425-441`, `dom/mod.rs:48`, at C0c's head) and then returns the interior
+node it reached. That node matches no segment and reads `None`, so below that depth the element's `adoptedCallback` is
+lost (consumer), and a node inside a skipped fragment is stamped by mistake (walk: it reads as a live `None` segment). Same root as `#11-live-range-bridge-wide-sibling-index` (engine-wide
 `MAX_ANCESTOR_DEPTH` caps).
 
 **Records carried by C0c's PR.** The umbrella row's "C0c: planned." → "C0c: landed (#<PR>)." with a changelog line
@@ -390,7 +435,8 @@ fragment is stamped by mistake. Same root as `#11-live-range-bridge-wide-sibling
 1. D-14 (b) landed; coordinates re-measured at the base, RC-2a's files included; P-6, P-c1, P-c2 re-run and recorded.
 2. D-3 (c), D-6, D-13, D-19 implemented with §4.8's citations.
 3. §6 cells present; every red cell red on the base (C0b's head) with its control green, recorded in the PR.
-4. P-c2 at the head lists exactly the native, the handler, the session function and tests.
+4. P-c2 at the head lists exactly the native, the handler, the session function and tests (with their re-exports, the
+   registration and doc comments, by class as §5 records it; *Rev 3.7.5*).
 5. §6.4 green; `mise run ci` green.
 6. `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md`
    and on the program memo exit 0 (run).
