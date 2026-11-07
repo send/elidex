@@ -207,6 +207,32 @@ fn owner_document_doc_null() {
 // -----------------------------------------------------------------------
 
 #[test]
+fn owner_document_orphan() {
+    let (mut dom, mut session) = setup();
+    let doc = dom.create_document_root();
+    wrap(doc, &mut session);
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
+    // div is created in doc and never appended: its node document is doc.
+    wrap(div, &mut session);
+
+    let result = OwnerDocument
+        .invoke(div, &[], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(ref_id) = result else {
+        panic!("expected ObjectRef");
+    };
+    let (owner, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+    assert_eq!(owner, doc);
+}
+
+#[test]
 fn owner_document_null_for_document() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();

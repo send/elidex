@@ -387,7 +387,7 @@ fn foreign_element_owner_survives_fragment_teardown() {
 }
 
 #[test]
-fn all_fragment_node_types_adopt_the_context_document() {
+fn all_fragment_node_types_are_created_in_the_context_document() {
     // Every returned node — HTML elements, nested text, comments — is created
     // in the context's node document (the fragment root redirects, C0b D-10;
     // no finishing adopt), not the despawned throwaway.

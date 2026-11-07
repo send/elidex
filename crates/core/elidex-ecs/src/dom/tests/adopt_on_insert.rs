@@ -474,9 +474,13 @@ fn u7_node_document_has_no_fallback() {
         "legs 1 (self), 3 (destroyed document), 4 (tree-root fallback), 5 (fragment-root fallback)"
     );
     assert_eq!(
-        dom.owner_document(orphaned),
-        None,
-        "leg 3 via owner_document"
+        [
+            dom.owner_document(orphaned),
+            dom.owner_document(unstamped),
+            dom.owner_document(in_frag),
+        ],
+        [None, None, None],
+        "legs 3, 4, 5 via owner_document"
     );
 }
 

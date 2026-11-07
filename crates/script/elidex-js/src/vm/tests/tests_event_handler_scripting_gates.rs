@@ -151,7 +151,7 @@ fn compile_gate_does_not_gate_bound_document_targets() {
 // insert step 7.1), its node document, so a raw handler set on it compiles
 // and runs ----
 #[test]
-fn appended_domparser_node_raw_handler_runs_adopt_equivalent() {
+fn appended_domparser_node_raw_handler_runs_adopted() {
     with_page(|vm| {
         let got = run(
             vm,
@@ -168,8 +168,9 @@ fn appended_domparser_node_raw_handler_runs_adopt_equivalent() {
 }
 
 // ---- C8b (ii): a callback value runs wherever it moves — appended into the
-// live document, removed (back to the DOMParser owner), it still runs (nothing
-// gates the call; the value is a callback) ----
+// live document (adopted into it), then removed (its node document stays the
+// live document), it still runs (nothing gates the call; the value is a
+// callback) ----
 #[test]
 fn appended_then_removed_domparser_node_callback_still_runs() {
     with_el(|vm| {

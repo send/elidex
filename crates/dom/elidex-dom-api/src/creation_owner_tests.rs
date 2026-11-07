@@ -6,7 +6,9 @@
 //! compile guarantee is).
 //!
 //! Red-first base formulation (§6.5): `get_associated_document` read `None`
-//! for the table helpers, `cloneNode(false)`, `append('s')` and Range extract.
+//! for `createAttribute`, the table helpers, `cloneNode(false)`, `append('s')`
+//! and Range extract (`splitText` and `textContent` were already stamped).
+//! Control: `createElement` on the DOMParser document reads it.
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
@@ -14,6 +16,7 @@ use elidex_script_session::{DomApiHandler, SessionCore};
 
 use crate::char_data::{CreateAttribute, SplitText};
 use crate::child_node::Append;
+use crate::document::CreateElement;
 use crate::element::table_mutation::{
     RowInsertCell, SectionInsertRow, TableCreateCaption, TableCreateTHead, TableInsertRow,
 };
@@ -136,4 +139,14 @@ fn u12_dom_api_creation_sites_stamp_the_domparser_document() {
         .map(|(name, _)| *name)
         .collect();
     assert_eq!(off, Vec::<&str>::new(), "created nodes not stamped dp");
+}
+
+#[test]
+fn u12_control_create_element_reads_the_domparser_document() {
+    let (mut dom, mut session, dp, _body) = dp_setup();
+    let res = CreateElement
+        .invoke(dp, &[JsValue::String("div".into())], &mut session, &mut dom)
+        .unwrap();
+    let div = entity_of(&res, &session);
+    assert_eq!(dom.node_document(div), Some(dp));
 }
