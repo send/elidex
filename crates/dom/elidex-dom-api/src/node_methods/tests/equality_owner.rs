@@ -319,7 +319,6 @@ fn is_equal_node_false() {
 // fallback — an element whose node document was destroyed reads null even
 // with a bound document present (DOM §4.4 `ownerDocument`). ----
 #[test]
-#[ignore = "C0b red-first: base returns the bound document (the getter's document_root() fallback)"]
 fn u15_owner_document_of_element_whose_document_was_destroyed_is_null() {
     let (mut dom, mut session) = setup();
     let _bound = dom.create_document_root();

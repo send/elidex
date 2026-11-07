@@ -2,17 +2,16 @@
 //! *insert* step 7.1 adopts the node into the parent's node document (DOM
 //! §4.2.3 *insert*; DOM §4.5 *adopt* steps 1–3).
 //!
-//! Red-first (§6.5): every cell is written against the base API —
-//! `get_associated_document` (the raw stamp `node_document` will read) stands
-//! for `node_document`. Red cells are `#[ignore]`d with their base failure in
-//! the reason; each has a green `_control` sibling. The cells that name a NEW
-//! API with no base formulation (U5, U9, U10: the walk counter / `adopt`) are
-//! added with that API.
+//! Red-first (§6.5): the red cells were run on the base in their base
+//! formulation (`get_associated_document` standing for `node_document`), each
+//! with a green `_control` sibling, and are green at C0b's head. The guards
+//! (U3, U5, U9, U10) name C0b's API (the walk counter, `adopt`) and have no
+//! base run.
 
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::components::AttrEntityCache;
+use crate::components::{AssociatedDocument, AttrEntityCache, FragmentParseRoot};
 use crate::dom::MutationDispatcher;
 use crate::dom::MAX_ANCESTOR_DEPTH;
 
@@ -55,9 +54,9 @@ fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
     let sr = dom
         .attach_shadow(n, ShadowRootMode::Open)
         .expect("div is a valid shadow host");
-    // The base spawns the shadow root unstamped (`shadow.rs:189`); stamp it
-    // `X` so the cell starts from "every node in X".
-    assert!(dom.set_associated_document(sr, x));
+    // The shadow root is created in its host's node document (DOM §4.2.2.1
+    // `attachShadow` step: node document = element's node document).
+    assert_eq!(dom.node_document(sr), Some(x));
     let sr_content = dom.create_element_with_owner(
         "b",
         Attributes::default(),
@@ -77,8 +76,7 @@ fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
         dom.node_document_for_new_nodes(x),
     );
     assert!(dom.append_child(contents, contents_child));
-    let attr = dom.create_attribute("title", NewNodeOwner::NONE);
-    assert!(dom.set_associated_document(attr, x));
+    let attr = dom.create_attribute("title", dom.node_document_for_new_nodes(x));
     let mut cache = AttrEntityCache::default();
     cache.entries.insert("title".to_string(), attr);
     assert!(dom.world_mut().insert_one(n, cache).is_ok());
@@ -135,7 +133,6 @@ fn u1_link(dom: &mut EcsDom, docs: &Docs, variant: usize, n: Entity) {
 // ---- U1 (red): every visited node, the contents and the cached Attr entity
 // are stamped `D` after the link (adopt 3.1, 3.3.1, 3.4) ----
 #[test]
-#[ignore = "C0b red-first: the base links without adopting — every node keeps X"]
 fn u1_insertion_adopts_subtree_shadow_contents_and_attr() {
     // Per variant (append, insert_before, replace_child, into D-contents):
     // whether each of n, child, shadow root, its content, template, contents,
@@ -148,7 +145,7 @@ fn u1_insertion_adopts_subtree_shadow_contents_and_attr() {
         u1_link(&mut dom, &docs, variant, n);
         let reads: Vec<bool> = visited
             .iter()
-            .map(|&node| dom.get_associated_document(node) == Some(docs.d))
+            .map(|&node| dom.node_document(node) == Some(docs.d))
             .collect();
         got.push(reads);
     }
@@ -163,7 +160,7 @@ fn u1_control_every_node_reads_x_before_the_link() {
         let (_n, visited) = x_subtree(&mut dom, docs.x);
         for node in visited {
             assert_eq!(
-                dom.get_associated_document(node),
+                dom.node_document(node),
                 Some(docs.x),
                 "variant {variant}: {node:?} starts in X"
             );
@@ -174,13 +171,12 @@ fn u1_control_every_node_reads_x_before_the_link() {
 // ---- U2 (red): an ownerless node appended under `D` is stamped `D` (the
 // silent re-home of a `None` oldDocument) ----
 #[test]
-#[ignore = "C0b red-first: the base leaves the ownerless node unstamped (None)"]
 fn u2_ownerless_node_appended_under_d_is_stamped_d() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
     let n = elem(&mut dom, "div");
     assert!(dom.append_child(docs.d_parent, n));
-    assert_eq!(dom.get_associated_document(n), Some(docs.d));
+    assert_eq!(dom.node_document(n), Some(docs.d));
 }
 
 #[test]
@@ -189,7 +185,7 @@ fn u2_control_a_stamped_node_reads_its_stamp() {
     let docs = docs(&mut dom);
     let m = elem(&mut dom, "div");
     assert!(dom.set_associated_document(m, docs.d));
-    assert_eq!(dom.get_associated_document(m), Some(docs.d));
+    assert_eq!(dom.node_document(m), Some(docs.d));
 }
 
 // ---- U3 (guard): a node stamped `D` appended under an ownerless parent keeps
@@ -205,7 +201,7 @@ fn u3_append_under_ownerless_parent_keeps_the_stamp() {
     );
     let ownerless_parent = elem(&mut dom, "section");
     assert!(dom.append_child(ownerless_parent, n));
-    assert_eq!(dom.get_associated_document(n), Some(docs.d));
+    assert_eq!(dom.node_document(n), Some(docs.d));
 }
 
 // ---- U4 (red): the stamp is written before `Insert` fires, and in
@@ -238,7 +234,7 @@ impl MutationDispatcher for Recorder {
                 self.insert_reads
                     .lock()
                     .unwrap()
-                    .push(dom.get_associated_document(node));
+                    .push(dom.node_document(node));
             }
             MutationEvent::Remove { node, parent, .. } => {
                 self.events
@@ -247,10 +243,7 @@ impl MutationDispatcher for Recorder {
                     .push(Rec::Remove { node, parent });
                 if Some(node) == self.probe_on {
                     if let Some(p) = self.probe {
-                        self.remove_reads
-                            .lock()
-                            .unwrap()
-                            .push(dom.get_associated_document(p));
+                        self.remove_reads.lock().unwrap().push(dom.node_document(p));
                     }
                 }
             }
@@ -326,7 +319,6 @@ fn u4_run(replace: bool) -> U4Run {
 }
 
 #[test]
-#[ignore = "C0b red-first: the base never adopts — the Insert arm (and replace's Remove(old_child) arm) read X"]
 fn u4_stamp_is_written_before_insert_and_before_old_child_removal() {
     let r = u4_run(false);
     assert_eq!(
@@ -416,14 +408,13 @@ fn u6_x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Entity, Entity) {
 }
 
 #[test]
-#[ignore = "C0b red-first: the base never adopts — the deepest and the last child keep X"]
 fn u6_adopt_walk_reaches_past_depth_and_breadth_caps() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
     let (top, deepest, last) = u6_x_subtree(&mut dom, docs.x);
     assert!(dom.append_child(docs.d_parent, top));
-    assert_eq!(dom.get_associated_document(deepest), Some(docs.d));
-    assert_eq!(dom.get_associated_document(last), Some(docs.d));
+    assert_eq!(dom.node_document(deepest), Some(docs.d));
+    assert_eq!(dom.node_document(last), Some(docs.d));
 }
 
 #[test]
@@ -431,41 +422,61 @@ fn u6_control_reads_before_the_append() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
     let (_top, deepest, last) = u6_x_subtree(&mut dom, docs.x);
-    assert_eq!(dom.get_associated_document(deepest), Some(docs.x));
-    assert_eq!(dom.get_associated_document(last), Some(docs.x));
+    assert_eq!(dom.node_document(deepest), Some(docs.x));
+    assert_eq!(dom.node_document(last), Some(docs.x));
 }
 
 // ---- U7 (red): the reader has no fallback ----
+//
+// Legs 3–5 are states the primitives no longer produce (every insertion
+// adopts: a node created in `gone` and appended under `D_parent` reads `D`,
+// and so does an ownerless one, U2), so they are constructed crate-internally:
+// the stamp is written / removed after the link. The reader must still read
+// `None` there, not derive a document from the position.
 #[test]
-#[ignore = "C0b red-first: the base has no Document self-stamp (None) and owner_document falls back to the tree root / fragment root (Some)"]
 fn u7_node_document_has_no_fallback() {
     let mut dom = EcsDom::new();
     let docs = docs(&mut dom);
-    // Leg 1: a Document is its own node document (base: `get_associated_document`).
-    let leg1 = dom.get_associated_document(docs.d);
-    // Leg 3: a node whose document was destroyed reads None, even in D's tree.
+    // Leg 1: a Document is its own node document.
+    let leg1 = dom.node_document(docs.d);
+    // Leg 3: a node in D's tree whose stamped document was destroyed reads
+    // None (no tree-root fallback past a dangling stamp).
     let gone = dom.create_document_node();
     let orphaned = dom.create_element_with_owner(
         "i",
         Attributes::default(),
-        dom.node_document_for_new_nodes(gone),
+        dom.node_document_for_new_nodes(docs.d),
     );
-    assert!(dom.destroy_entity(gone));
     assert!(dom.append_child(docs.d_parent, orphaned));
-    let leg3 = dom.owner_document(orphaned);
+    assert!(dom.set_associated_document(orphaned, gone));
+    assert!(dom.destroy_entity(gone));
+    let leg3 = dom.node_document(orphaned);
     // Leg 4: an unstamped node in a Document's tree reads None.
     let unstamped = elem(&mut dom, "u");
     assert!(dom.append_child(docs.d_parent, unstamped));
-    let leg4 = dom.owner_document(unstamped);
+    assert!(dom
+        .world_mut()
+        .remove_one::<AssociatedDocument>(unstamped)
+        .is_ok());
+    let leg4 = dom.node_document(unstamped);
     // Leg 5: an unstamped node under a fragment stamped D reads None.
     let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(docs.d));
     let in_frag = elem(&mut dom, "s");
     assert!(dom.append_child(frag, in_frag));
-    let leg5 = dom.owner_document(in_frag);
+    assert!(dom
+        .world_mut()
+        .remove_one::<AssociatedDocument>(in_frag)
+        .is_ok());
+    let leg5 = dom.node_document(in_frag);
     assert_eq!(
         [leg1, leg3, leg4, leg5],
         [Some(docs.d), None, None, None],
         "legs 1 (self), 3 (destroyed document), 4 (tree-root fallback), 5 (fragment-root fallback)"
+    );
+    assert_eq!(
+        dom.owner_document(orphaned),
+        None,
+        "leg 3 via owner_document"
     );
 }
 
@@ -494,7 +505,7 @@ fn u11_fragment_root_is_created_in_the_throwaway() {
         Some(docs.d)
     );
     let (throwaway, root, saved) = dom.begin_detached_fragment(docs.d_parent);
-    let root_stamp = dom.get_associated_document(root);
+    let root_stamp = dom.node_document(root);
     let root_entry = dom.node_document_for_new_nodes(root).document();
     let throwaway_entry = dom.node_document_for_new_nodes(throwaway).document();
     let _ = dom.finish_detached_fragment(root, throwaway);
@@ -534,4 +545,100 @@ fn u11_control_the_throwaway_is_a_document() {
         let _ = dom.set_mutation_dispatcher(saved);
     }
     assert_eq!(kind, Some(NodeKind::Document));
+}
+
+// ---- U5 (guard): a same-document move leaves every stamp as it is and runs
+// no walk (adopt step 3 runs only when document is not oldDocument) ----
+#[test]
+fn u5_same_document_move_runs_no_walk() {
+    let mut dom = EcsDom::new();
+    let docs = docs(&mut dom);
+    let (n, visited) = x_subtree(&mut dom, docs.d);
+    assert!(dom.append_child(docs.d_parent, n));
+    let other_parent = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(docs.d),
+    );
+    assert!(dom.append_child(docs.d, other_parent));
+    let before = dom.adopt_walk_count();
+    assert!(dom.append_child(other_parent, n));
+    assert_eq!(
+        dom.adopt_walk_count(),
+        before,
+        "no walk on a same-document move"
+    );
+    for node in visited {
+        assert_eq!(dom.node_document(node), Some(docs.d), "{node:?} keeps D");
+    }
+}
+
+// ---- U9 (guard, the elidex-ecs leg): a fragment build into a context in D
+// walks nothing — every node created under root takes D at creation, so every
+// build link is a compare — and leaves no `FragmentParseRoot` after either
+// teardown (the parser crates' U9 run both tiers) ----
+#[test]
+fn u9_fragment_build_runs_no_walk_and_leaves_no_parse_root() {
+    let fragment_roots = |dom: &EcsDom| dom.world().query::<&FragmentParseRoot>().iter().count();
+    for rollback in [false, true] {
+        let mut dom = EcsDom::new();
+        let docs = docs(&mut dom);
+        let before = dom.adopt_walk_count();
+        let (throwaway, root, saved) = dom.begin_detached_fragment(docs.d_parent);
+        let a = dom.create_element_with_owner(
+            "p",
+            Attributes::default(),
+            dom.node_document_for_new_nodes(root),
+        );
+        assert!(dom.append_child(root, a));
+        let b = dom.create_text_with_owner("t", dom.node_document_for_new_nodes(a));
+        assert!(dom.append_child(a, b));
+        assert_eq!(fragment_roots(&dom), 1, "the build's root carries it");
+        let returned = if rollback {
+            // The strict parse-error path's teardown.
+            let _ = dom.despawn_subtree(throwaway);
+            Vec::new()
+        } else {
+            dom.finish_detached_fragment(root, throwaway)
+        };
+        if let Some(saved) = saved {
+            let _ = dom.set_mutation_dispatcher(saved);
+        }
+        assert_eq!(
+            dom.adopt_walk_count(),
+            before,
+            "rollback={rollback}: no walk"
+        );
+        assert_eq!(fragment_roots(&dom), 0, "rollback={rollback}: root gone");
+        if !rollback {
+            assert_eq!(returned, vec![a]);
+            assert_eq!(dom.node_document(a), Some(docs.d));
+            assert_eq!(dom.node_document(b), Some(docs.d));
+        }
+    }
+}
+
+// ---- U10 (guard): `adopt` of a parentless fragment with children stamps the
+// fragment and its children (C0c adds the event count) ----
+#[test]
+fn u10_adopt_parentless_fragment_stamps_it_and_its_children() {
+    let mut dom = EcsDom::new();
+    let docs = docs(&mut dom);
+    let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(docs.x));
+    let c1 = dom.create_element_with_owner(
+        "i",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(docs.x),
+    );
+    let c2 = dom.create_text_with_owner("t", dom.node_document_for_new_nodes(docs.x));
+    assert!(dom.append_child(frag, c1));
+    assert!(dom.append_child(frag, c2));
+    let before = dom.adopt_walk_count();
+    dom.adopt(frag, docs.d);
+    assert_eq!(dom.adopt_walk_count(), before + 1, "one walk");
+    assert_eq!(
+        [frag, c1, c2].map(|n| dom.node_document(n)),
+        [Some(docs.d); 3]
+    );
+    assert_eq!(dom.children(frag), vec![c1, c2], "the children stay in it");
 }

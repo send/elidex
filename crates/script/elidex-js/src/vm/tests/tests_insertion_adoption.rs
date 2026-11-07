@@ -4,10 +4,10 @@
 //! the node document it is created given (DOM §4.4 *node document*), driven
 //! through real JS.
 //!
-//! Red-first (§6.5): the cells name no NEW API, so they run as written. A red
-//! cell asserts the spec outcome (the memo's *C0b = spec* column) and is
-//! `#[ignore]`d with the base outcome in its reason; its `_control` sibling
-//! reads the moved / created node's `ownerDocument` before the operation and is
+//! Red-first (§6.5): the cells name no NEW API, so they ran on the base as
+//! written. A red cell asserts the spec outcome (the memo's *C0b = spec*
+//! column; red on the base, green at C0b's head); its `_control` sibling reads
+//! the moved / created node's `ownerDocument` before the operation and is
 //! green on the base. T19 is withdrawn (memo §6.1).
 //!
 //! Compiled only under `engine`.
@@ -72,7 +72,6 @@ const T1: &str = "var d = dp.getElementById('d'); var s = d.firstChild; \
      r.push(d.ownerDocument === document, s.ownerDocument === document);";
 
 #[test]
-#[ignore = "C0b red-first: base [false,false] — the append does not adopt (stamp stays dp)"]
 fn t1_domparser_subtree_appended_to_page_is_adopted() {
     assert_eq!(cell(T1), "true,true");
 }
@@ -88,7 +87,6 @@ fn t1_control() {
 
 // ---- T2: a page node appended into a DOMParser document ----
 #[test]
-#[ignore = "C0b red-first: base false — the append does not adopt (stamp stays document)"]
 fn t2_page_node_appended_into_domparser_doc_is_adopted() {
     let got = cell(
         "var x = document.createElement('div'); dp.body.append(x); \
@@ -112,13 +110,11 @@ const T3_CONTROL: &str =
     "var p = document.getElementById('p'); r.push(p.ownerDocument === document);";
 
 #[test]
-#[ignore = "C0b red-first: base [true,false] — the unstamped parse node reads its tree root, then the getter's document_root() after removal"]
 fn t3_strict_removed_parse_node_keeps_its_adopted_document() {
     assert_eq!(parsed_page_cell(true, T3_HTML, T3), "true,true");
 }
 
 #[test]
-#[ignore = "C0b red-first: base [true,false] — the unstamped parse node reads its tree root, then the getter's document_root() after removal"]
 fn t3_tolerant_removed_parse_node_keeps_its_adopted_document() {
     assert_eq!(parsed_page_cell(false, T3_HTML, T3), "true,true");
 }
@@ -131,7 +127,6 @@ fn t3_control_both_tiers() {
 
 // ---- T4: a shadow host moved between DOMParser documents (P-6) ----
 #[test]
-#[ignore = "C0b red-first: base [false,false] — the shadow tree is not walked; the unstamped shadow root falls back to document_root()"]
 fn t4_shadow_tree_adopted_with_its_host() {
     let got = cell(
         "var h = dp.createElement('div'); var sr = h.attachShadow({mode: 'open'}); \
@@ -154,7 +149,6 @@ const T5_SETUP: &str =
      var t = dp3.getElementById('t');";
 
 #[test]
-#[ignore = "C0b red-first: base [false,false] — no adoption, the contents keep dp3"]
 fn t5_template_contents_adopted_with_the_template() {
     let got = cell(&format!(
         "{T5_SETUP} document.body.append(t); \
@@ -174,7 +168,6 @@ const T8_SETUP: &str = "var dp4 = new DOMParser().parseFromString('<div id=q onc
      var d2 = dp4.getElementById('q');";
 
 #[test]
-#[ignore = "C0b red-first: base 'object' — d2 keeps dp4 under a detached page parent, so the gate nulls the getter"]
 fn t8_moved_under_detached_page_node_compiles() {
     let got = cell(&format!(
         "{T8_SETUP} var x = document.createElement('div'); x.append(d2); r.push(typeof d2.onclick);"
@@ -183,7 +176,6 @@ fn t8_moved_under_detached_page_node_compiles() {
 }
 
 #[test]
-#[ignore = "C0b red-first: base 'object' — after removal the stamp still says dp4"]
 fn t9_removed_from_page_compiles() {
     let got = cell(&format!(
         "{T8_SETUP} document.body.append(d2); d2.remove(); r.push(typeof d2.onclick);"
@@ -201,7 +193,6 @@ const T10_SETUP: &str =
     "var y = document.createElement('div'); y.setAttribute('onclick', 'window.hit=1');";
 
 #[test]
-#[ignore = "C0b red-first: base 'function' — y keeps the bound document under a detached DOMParser node"]
 fn t10_page_node_moved_under_domparser_node_is_gated() {
     let got = cell(&format!(
         "{T10_SETUP} var h = dp.createElement('div'); h.append(y); r.push(typeof y.onclick);"
@@ -220,7 +211,6 @@ fn t10_control() {
 // ---- T11: replace-with-fragment adopts the fragment itself (*replace* 6);
 // appending a fragment does not ----
 #[test]
-#[ignore = "C0b red-first: base [false,true] — the replace arm does not adopt the fragment"]
 fn t11_replace_with_fragment_adopts_the_fragment() {
     let got = cell(
         "var f = dp.createDocumentFragment(); f.append(dp.createElement('i')); \
@@ -243,7 +233,6 @@ const T12_SETUP: &str =
     "var x = document.createElement('base'); x.setAttribute('href', 'https://other.test/');";
 
 #[test]
-#[ignore = "C0b red-first: base a.href is 'y' — the maintainer routes to the base element's stale stamp (the page)"]
 fn t12_moved_base_sets_new_documents_base_url() {
     let got = cell(&format!(
         "{T12_SETUP} dp.head.append(x); var a = dp.createElement('a'); a.setAttribute('href', 'y'); \
@@ -265,7 +254,6 @@ const T13_SETUP: &str =
     "var dd = new DOMParser().parseFromString('<body></body>', 'text/html'); var b = dd.body;";
 
 #[test]
-#[ignore = "C0b red-first: base false,false — no adoption on either move"]
 fn t13_cross_document_body_moves() {
     let got = cell(&format!(
         "{T13_SETUP} var p = document.createElement('div'); p.append(b); r.push(b.ownerDocument === document); \

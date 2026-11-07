@@ -452,8 +452,8 @@ fn remove_attribute_node_on_non_element_errors_without_detaching() {
 // ---- C0b U16 (red-first, §6.5): the Attr entity carries a node document —
 // `CreateAttribute` creates it in `this` (DOM §4.5 `createAttribute`),
 // `GetAttributeNode` in the element's, and an insertion re-homes the cached
-// entity (DOM §4.5 *adopt* step 3.3.1). Base formulation:
-// `get_associated_document` stands for `node_document`. ----
+// entity (DOM §4.5 *adopt* step 3.3.1). Base formulation (§6.5):
+// `get_associated_document` stood for `node_document`. ----
 
 fn attr_entity(result: &JsValue, session: &SessionCore) -> elidex_ecs::Entity {
     let JsValue::ObjectRef(id) = result else {
@@ -467,7 +467,6 @@ fn attr_entity(result: &JsValue, session: &SessionCore) -> elidex_ecs::Entity {
 }
 
 #[test]
-#[ignore = "C0b red-first: base [None, None, None] — create_attribute spawns the Attr ownerless and insertion does not adopt"]
 fn u16_attr_entity_node_document_follows_creation_and_adoption() {
     let mut dom = EcsDom::new();
     let d = dom.create_document_root();
