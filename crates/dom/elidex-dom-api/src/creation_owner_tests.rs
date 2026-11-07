@@ -50,68 +50,79 @@ fn el(dom: &mut EcsDom, parent: Entity, tag: &str) -> Entity {
 fn u12_dom_api_creation_sites_stamp_the_domparser_document() {
     let (mut dom, mut session, dp, body) = dp_setup();
     let mut created: Vec<(&str, Entity)> = Vec::new();
-    let s = &mut session;
+    let sess = &mut session;
 
     // createAttribute (DOM §4.5: "creating an attribute given this").
-    let r = CreateAttribute
-        .invoke(dp, &[JsValue::String("a".into())], s, &mut dom)
+    let res = CreateAttribute
+        .invoke(dp, &[JsValue::String("a".into())], sess, &mut dom)
         .unwrap();
-    created.push(("createAttribute", entity_of(&r, s)));
+    created.push(("createAttribute", entity_of(&res, sess)));
 
     // cloneNode(false).
-    let r = CloneNode
-        .invoke(body, &[JsValue::Bool(false)], s, &mut dom)
+    let res = CloneNode
+        .invoke(body, &[JsValue::Bool(false)], sess, &mut dom)
         .unwrap();
-    created.push(("cloneNode(false)", entity_of(&r, s)));
+    created.push(("cloneNode(false)", entity_of(&res, sess)));
 
     // The table helpers.
     let table = el(&mut dom, body, "table");
-    let r = TableCreateTHead.invoke(table, &[], s, &mut dom).unwrap();
-    created.push(("createTHead", entity_of(&r, s)));
-    let r = TableCreateCaption.invoke(table, &[], s, &mut dom).unwrap();
-    created.push(("createCaption", entity_of(&r, s)));
-    let r = TableInsertRow.invoke(table, &[], s, &mut dom).unwrap();
-    let row = entity_of(&r, s);
+    let res = TableCreateTHead.invoke(table, &[], sess, &mut dom).unwrap();
+    created.push(("createTHead", entity_of(&res, sess)));
+    let res = TableCreateCaption
+        .invoke(table, &[], sess, &mut dom)
+        .unwrap();
+    created.push(("createCaption", entity_of(&res, sess)));
+    let res = TableInsertRow.invoke(table, &[], sess, &mut dom).unwrap();
+    let row = entity_of(&res, sess);
     created.push(("table.insertRow", row));
     let tbody = dom.get_parent(row).expect("the row is in a section");
     created.push(("table.insertRow's tbody", tbody));
-    let r = SectionInsertRow.invoke(tbody, &[], s, &mut dom).unwrap();
-    created.push(("section.insertRow", entity_of(&r, s)));
-    let r = RowInsertCell.invoke(row, &[], s, &mut dom).unwrap();
-    created.push(("insertCell", entity_of(&r, s)));
+    let res = SectionInsertRow.invoke(tbody, &[], sess, &mut dom).unwrap();
+    created.push(("section.insertRow", entity_of(&res, sess)));
+    let res = RowInsertCell.invoke(row, &[], sess, &mut dom).unwrap();
+    created.push(("insertCell", entity_of(&res, sess)));
 
     // append('s'): the string is converted to a Text node.
-    let x = el(&mut dom, body, "div");
+    let append_host = el(&mut dom, body, "div");
     Append
-        .invoke(x, &[JsValue::String("s".into())], s, &mut dom)
+        .invoke(append_host, &[JsValue::String("s".into())], sess, &mut dom)
         .unwrap();
-    let text = dom.get_last_child(x).expect("appended text");
+    let text = dom.get_last_child(append_host).expect("appended text");
     created.push(("append('s')", text));
 
     // splitText.
-    let t = dom.create_text_with_owner("ab", dom.node_document_for_new_nodes(x));
-    assert!(dom.append_child(x, t));
-    let r = SplitText
-        .invoke(t, &[JsValue::Number(1.0)], s, &mut dom)
+    let split_source =
+        dom.create_text_with_owner("ab", dom.node_document_for_new_nodes(append_host));
+    assert!(dom.append_child(append_host, split_source));
+    let res = SplitText
+        .invoke(split_source, &[JsValue::Number(1.0)], sess, &mut dom)
         .unwrap();
-    created.push(("splitText", entity_of(&r, s)));
+    created.push(("splitText", entity_of(&res, sess)));
 
     // textContent.
-    let y = el(&mut dom, body, "div");
+    let text_content_host = el(&mut dom, body, "div");
     SetTextContentNodeKind
-        .invoke(y, &[JsValue::String("t".into())], s, &mut dom)
+        .invoke(
+            text_content_host,
+            &[JsValue::String("t".into())],
+            sess,
+            &mut dom,
+        )
         .unwrap();
-    created.push(("textContent", dom.get_first_child(y).expect("text set")));
+    created.push((
+        "textContent",
+        dom.get_first_child(text_content_host).expect("text set"),
+    ));
 
     // Range extract: `<p>ab<i>c</i></p>`, [ab|1, p|2] → the fragment, the
     // cloned partial Text ("b") and the moved `<i>`.
-    let p = el(&mut dom, body, "p");
-    let ab = dom.create_text_with_owner("ab", dom.node_document_for_new_nodes(p));
-    assert!(dom.append_child(p, ab));
-    let _i = el(&mut dom, p, "i");
+    let para = el(&mut dom, body, "p");
+    let ab = dom.create_text_with_owner("ab", dom.node_document_for_new_nodes(para));
+    assert!(dom.append_child(para, ab));
+    let _i = el(&mut dom, para, "i");
     let mut range = Range::new(ab);
     range.set_start(ab, 1);
-    range.set_end(p, 2);
+    range.set_end(para, 2);
     let (frag, _records) = range.extract_contents(&mut dom);
     created.push(("extract fragment", frag));
     created.push((
