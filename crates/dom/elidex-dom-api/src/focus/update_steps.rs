@@ -18,9 +18,14 @@
 //! and its step-1 common-ancestor pop are a cross-frame concern (a document's
 //! focus chain spans nested navigables); A2a specialises the algorithm to the
 //! chain *leaf* — `old`/`new` focusable elements — and defers the chain + pop to
-//! PR-A3. For a single document this is exact: the shell fires `blur`/`focus`
-//! only at the elements (never the `Document`/viewport), which is what an
-//! `[element, Document]` chain with the shared-`Document` tail popped produces.
+//! PR-A3. For an element-to-element move within a single document this is
+//! exact: the shell fires `blur`/`focus` only at the elements (never the
+//! `Document`/viewport), which is what an `[element, Document]` chain with the
+//! shared-`Document` tail popped produces. A move to the **viewport** (the
+//! step-17 [`focus_fixup_steps`]) is not: the new
+//! chain's Document entry keeps its place, and focus update step 4 gives it a
+//! `focus` event at its Window, which this model does not fire (see
+//! [`focus_fixup_steps`]).
 //!
 //! ## Reentrancy (reentrant-wins)
 //!
@@ -34,8 +39,8 @@
 use elidex_ecs::{EcsDom, Entity};
 
 use super::{
-    current_focus, get_the_focusable_area, is_focusable_area, is_in_document, set_focus_bit,
-    FocusTrigger,
+    current_focus, get_the_focusable_area, is_focusable, is_focusable_area, is_in_document,
+    set_focus_bit, FocusTrigger,
 };
 
 /// The §6.6.4 focus events the canonical transition fires through the sink. Only
@@ -163,12 +168,75 @@ pub fn focusing_steps(
 /// Step 1 (a `delegatesFocus` host `old_target` → its focused shadow area) and
 /// step 3 (area / scrollable-region retarget) are unmodelled (PR-A2c); the
 /// single-element model has no multi-entry old chain (PR-A3).
+///
+/// Step 8 has two branches — "run the focusing steps for topDocument's
+/// viewport" when the system has focus, else "run the focus update steps given
+/// old chain, an empty list, and null". elidex does not model system focus, so
+/// `focusing_steps_for_viewport` stands in for both branches.
 pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
     let doc = sink.document();
     if current_focus(sink.dom(), doc) != Some(old_target) {
         return;
     }
-    focus_update_steps(sink, Some(old_target), None);
+    // Step 8.
+    focusing_steps_for_viewport(sink);
+}
+
+/// WHATWG HTML "update the rendering" step 17 — the render-time **focus
+/// fixup** (HTML §8.1.7.3 "update the rendering" step 17): if the document's
+/// focused area is no longer a focusable area, run the §6.6.4 focusing steps for
+/// the document's viewport. Step 17's second half (setting the navigation API's
+/// focus-changed-during-ongoing-navigation flag to false) is unimplemented.
+///
+/// §6.6.2 focusability is enforced as a focus-*time* gate on the writers
+/// ([`is_focusable`] at every `focus()` entry), but a connected, focusable
+/// element can *become* non-focusable while focus is still on it — its `hidden`
+/// attribute lands (on it or an ancestor), `<input type>` flips to `hidden`, a
+/// direct `disabled` lands, or it loses the `tabindex` / `contenteditable` /
+/// `href` that made it focusable (§6.6.2 criteria 1/3/5). Fieldset-inherited
+/// `disabled` is not in this crate's predicate (slot
+/// `#11-focusable-area-fieldset-inherited-disabled`). The spec fixes that up at
+/// the next rendering update, i.e. **asynchronously**, unlike the
+/// **synchronous** fixup for *removal* (§2.1.4 removing steps,
+/// `EcsDom::fire_after_remove`, which fires nothing). Until it runs,
+/// `current_focus` / `activeElement` / the `:focus` selector all still report
+/// the holder.
+///
+/// The transition is the canonical one, so it fires events through `sink`:
+/// step 2.1 `change` (judged by the sink), then `blur` at the holder with a null
+/// related target (the shell sink adds `focusout`). The spec chain's `focus` at
+/// the Window (the new chain's Document entry) is not fired — the
+/// single-element model fires only at elements (PR-A3). The predicate is
+/// [`is_focusable`], the VM `focus()` gate's, so the fixup resets exactly what
+/// that writer would refuse. Runs every rendering update, ungated; an idle frame
+/// fires nothing (no holder, or a focusable one).
+pub fn focus_fixup_steps(sink: &mut dyn FocusEventSink) {
+    let doc = sink.document();
+    let Some(holder) = current_focus(sink.dom(), doc) else {
+        return;
+    };
+    if is_focusable(sink.dom(), holder) {
+        return;
+    }
+    focusing_steps_for_viewport(sink);
+}
+
+/// §6.6.4 **focusing steps** (`#focusing-steps`) with the document's
+/// **viewport** as the new focus target, in the single-element model: steps
+/// 1–4 are vacuous (the viewport is a focusable area, not a navigable
+/// container; `inert` is unmodelled), step 5 returns when the viewport is
+/// already focused (no holder), and steps 6–8 are the focus update steps from
+/// the holder to the viewport — no element is designated. The one
+/// implementation of "focus the viewport": [`unfocusing_steps`] step 8 and the
+/// step-17 [`focus_fixup_steps`] both run it.
+fn focusing_steps_for_viewport(sink: &mut dyn FocusEventSink) {
+    let doc = sink.document();
+    // Step 5 — the viewport is already the focused area.
+    let Some(old) = current_focus(sink.dom(), doc) else {
+        return;
+    };
+    // Steps 6-8 — the transition (single-element model; chain + pop = PR-A3).
+    focus_update_steps(sink, Some(old), None);
 }
 
 /// §6.6.4 **focus update steps** (`#focus-update-steps`), specialised to the
@@ -192,16 +260,19 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
                                          // re-firing them would double-dispatch. (The one non-firing reentrant writer
                                          // is the un-migrated VM `HTMLElement.focus()`, which only sets the FOCUS bit
                                          // and defers event dispatch — slot `#11-vm-host-synthetic-dom-event-dispatch`.
-                                         // It is unreachable on this path in A2a: the live shell runs boa, which
-                                         // exposes no `HTMLElement.focus()`, and the VM is not a shell engine yet.
-                                         // PR-A2c routes the VM writer through this seam, so once that event-dispatch
-                                         // slot lands `old`'s blur is fired before the bail on the VM path too.) But a
+                                         // It reaches this path: the VM is the shell's engine, so a `change`
+                                         // listener — including one fired by the step-17 `focus_fixup_steps` — can
+                                         // call VM `focus()`, which wins without `focus`/`focusin` and leaves `old`
+                                         // without a `blur`. PR-A2c routes the VM writer through this seam, so once
+                                         // that event-dispatch slot lands `old`'s blur is fired before the bail on
+                                         // the VM path too.) But a
                                          // handler that merely *clears* the old focus (removes `old`, so
                                          // `fire_after_remove` clears the bit, or calls the bit-level `blur()`) leaves
                                          // `current_focus` None with no reentrant target — there the outer transition
                                          // must still proceed to designate `new` (don't cancel the user's pending
                                          // click/Tab move). So return only on a reentrant focus to some *other*
                                          // element, never on a bare clear.
+                                         // Fixup-fired listener interaction → `#11-vm-host-synthetic-dom-event-dispatch`.
         if current_focus(sink.dom(), doc).is_some_and(|c| c != old) {
             return;
         }
@@ -244,15 +315,12 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
 
 #[cfg(test)]
 mod tests {
-    use super::{focusing_steps, unfocusing_steps, FocusEventKind, FocusEventSink};
-    use crate::focus::{current_focus, set_focus_bit, FocusTrigger};
+    use super::{
+        focus_fixup_steps, focusing_steps, unfocusing_steps, FocusEventKind, FocusEventSink,
+    };
+    use crate::focus::tests::{connect_el, focusable_div};
+    use crate::focus::{current_focus, raw_focus_holder, set_focus_bit, FocusTrigger};
     use elidex_ecs::{Attributes, EcsDom, Entity};
-
-    fn focusable_div(dom: &mut EcsDom) -> Entity {
-        let mut attrs = Attributes::default();
-        attrs.set("tabindex".to_string(), "0".to_string());
-        dom.create_element("div", attrs)
-    }
 
     #[derive(Default)]
     struct Recorded {
@@ -543,5 +611,163 @@ mod tests {
         assert_eq!(current_focus(&dom, doc), Some(a));
         assert!(rec.events.is_empty());
         assert!(rec.changes.is_empty());
+    }
+
+    // ---- C14: the "update the rendering" step-17 focus fixup ----------------
+
+    /// Run the fixup over `doc` with a fresh [`TestSink`].
+    fn run_fixup(dom: &mut EcsDom, doc: Entity) -> Recorded {
+        let mut sink = TestSink::new(dom, doc);
+        focus_fixup_steps(&mut sink);
+        sink.rec
+    }
+
+    /// Assert the fixup ran the canonical viewport transition from `h`:
+    /// `change` judged at `h` while still designated, then `blur` at `h` with a
+    /// null related target, nothing designated after.
+    fn assert_fixup_transition(dom: &EcsDom, doc: Entity, h: Entity, rec: &Recorded, arm: &str) {
+        assert_eq!(rec.changes, vec![h], "{arm}: step 2.1 judged at the holder");
+        assert_eq!(
+            rec.focus_at_change,
+            Some(h),
+            "{arm}: holder designated at `change`"
+        );
+        assert_eq!(
+            rec.events,
+            vec![(h, FocusEventKind::Blur, None)],
+            "{arm}: blur at the holder, related target null"
+        );
+        assert!(rec.seeds.is_empty(), "{arm}: the viewport seeds nothing");
+        assert_eq!(
+            current_focus(dom, doc),
+            None,
+            "{arm}: focus is the viewport"
+        );
+    }
+
+    /// C14 (a): a holder made non-focusable is reset through the canonical
+    /// transition, on each focusability arm (relocated from
+    /// `reconcile_focus_clears_when_focused_element_stops_being_focusable`).
+    #[test]
+    fn focus_fixup_steps_resets_a_non_focusable_holder_with_events() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        // hidden on the element itself:
+        let el = connect_el(&mut dom, doc, "button");
+        set_focus_bit(&mut dom, Some(el));
+        dom.set_attribute(el, "hidden", "");
+        let rec = run_fixup(&mut dom, doc);
+        assert_fixup_transition(&dom, doc, el, &rec, "hidden");
+
+        // hidden on an ancestor:
+        let section = connect_el(&mut dom, doc, "section");
+        let inner = connect_el(&mut dom, section, "button");
+        set_focus_bit(&mut dom, Some(inner));
+        dom.set_attribute(section, "hidden", "");
+        let rec = run_fixup(&mut dom, doc);
+        assert_fixup_transition(&dom, doc, inner, &rec, "ancestor hidden");
+
+        // a direct disabled lands:
+        let btn = connect_el(&mut dom, doc, "button");
+        set_focus_bit(&mut dom, Some(btn));
+        dom.set_attribute(btn, "disabled", "");
+        let rec = run_fixup(&mut dom, doc);
+        assert_fixup_transition(&dom, doc, btn, &rec, "disabled");
+
+        // <input type> flips to hidden:
+        let input = connect_el(&mut dom, doc, "input");
+        set_focus_bit(&mut dom, Some(input));
+        dom.set_attribute(input, "type", "hidden");
+        let rec = run_fixup(&mut dom, doc);
+        assert_fixup_transition(&dom, doc, input, &rec, "type=hidden");
+
+        // <a> loses its href (focusable only via the href-gated Link default):
+        let a = connect_el(&mut dom, doc, "a");
+        dom.set_attribute(a, "href", "x");
+        set_focus_bit(&mut dom, Some(a));
+        dom.remove_attribute(a, "href");
+        let rec = run_fixup(&mut dom, doc);
+        assert_fixup_transition(&dom, doc, a, &rec, "href removed");
+    }
+
+    /// C14 (b): a still-focusable holder keeps focus and nothing fires
+    /// (relocated from `reconcile_focus_keeps_a_still_focusable_element`).
+    #[test]
+    fn focus_fixup_steps_keeps_a_focusable_holder() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = connect_el(&mut dom, doc, "button");
+        set_focus_bit(&mut dom, Some(el));
+        dom.set_attribute(el, "title", "hi");
+        let rec = run_fixup(&mut dom, doc);
+        assert!(rec.events.is_empty() && rec.changes.is_empty());
+        assert_eq!(current_focus(&dom, doc), Some(el));
+    }
+
+    /// C14 (c): no holder (the viewport is focused) — nothing fires.
+    #[test]
+    fn focus_fixup_steps_without_a_holder_is_a_noop() {
+        let mut dom = EcsDom::new();
+        let (doc, _a, _b) = doc_with_two(&mut dom);
+        let rec = run_fixup(&mut dom, doc);
+        assert!(rec.events.is_empty() && rec.changes.is_empty() && rec.seeds.is_empty());
+        assert_eq!(current_focus(&dom, doc), None);
+    }
+
+    /// C14 (d): a non-focusable bit holder in another document of the same
+    /// `EcsDom` (a `cloneNode` document) is not the bound document's focused
+    /// area — nothing fires and its bit is kept.
+    #[test]
+    fn focus_fixup_steps_ignores_a_holder_outside_the_bound_document() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let other_doc = dom.create_document_root();
+        let other = connect_el(&mut dom, other_doc, "button");
+        set_focus_bit(&mut dom, Some(other));
+        dom.set_attribute(other, "hidden", "");
+        let rec = run_fixup(&mut dom, doc);
+        assert!(rec.events.is_empty() && rec.changes.is_empty());
+        assert_eq!(raw_focus_holder(&dom), Some(other), "the bit is kept");
+    }
+
+    /// C14 (e): a `blur` listener's reentrant `focus()` wins — the outer
+    /// transition designates nothing after it.
+    #[test]
+    fn focus_fixup_steps_reentrant_focus_wins() {
+        let mut dom = EcsDom::new();
+        let (doc, a, c) = doc_with_two(&mut dom);
+        set_focus_bit(&mut dom, Some(a));
+        dom.set_attribute(a, "hidden", "");
+        let rec = {
+            let mut sink = TestSink::new(&mut dom, doc);
+            sink.reentrant_on_blur = Some(c);
+            focus_fixup_steps(&mut sink);
+            sink.rec
+        };
+        assert_eq!(rec.events, vec![(a, FocusEventKind::Blur, None)]);
+        assert!(rec.seeds.is_empty(), "the outer transition seeds nothing");
+        assert_eq!(current_focus(&dom, doc), Some(c));
+    }
+
+    /// The fixup is asynchronous: a same-turn `hidden` leaves the holder the
+    /// focused area until the fixup runs (relocated fixup half of
+    /// `current_focus_keeps_holder_until_async_fixup`).
+    #[test]
+    fn focus_fixup_steps_is_the_async_fixup() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = focusable_div(&mut dom);
+        let _ = dom.append_child(doc, el);
+        set_focus_bit(&mut dom, Some(el));
+        dom.set_attribute(el, "hidden", "");
+        assert_eq!(
+            current_focus(&dom, doc),
+            Some(el),
+            "pending until the fixup"
+        );
+        let _ = run_fixup(&mut dom, doc);
+        assert_eq!(current_focus(&dom, doc), None, "the fixup cleared focus");
+        assert_eq!(raw_focus_holder(&dom), None);
     }
 }
