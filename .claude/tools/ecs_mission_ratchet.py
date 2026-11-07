@@ -9,7 +9,12 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
 (one row per occurrence). The allowlist only shrinks: there is no command that adds a row.
-The allowlist file itself is not scanned (its rows would each be a hit for themselves).
+The ratchet's own files (SELF_FILES: this module, its test, its fixtures, the allowlist) are not
+scanned: they hold the classifier's vocabulary and deny examples by construction (class N), and
+scanning them would make every fixture edit an allowlist addition.
+Every other tracked file is scanned unless it holds a NUL byte (binary); bytes that are not UTF-8
+are decoded with U+FFFD replacement, so an encoding slip does not exempt a file. Lines are split on
+'\n' only (a trailing '\r' is dropped), so line numbers match git and editors.
 Adding a row is the one move this check cannot see; elidex-review axes.md Axis 2 sub-check 2d
 (authority source) grades it.
 
@@ -34,6 +39,8 @@ UA_MARKERS = ("Mozilla/5.0", "User-Agent")
 CLASSES = "SECTDN"
 SLOT = re.compile(r"^#11-[a-z0-9]+(?:-[a-z0-9]+)*$")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ecs-mission-allowlist.tsv")
+SELF_FILES = tuple(".claude/tools/" + n for n in (
+    "ecs_mission_ratchet.py", "test_ecs_mission_ratchet.py", "ecs_mission_fixtures.json"))
 
 REMEDY = (
     "Tag the line per CLAUDE.md 至上命題 bullet 3 ([spec] / [evidence] / [compat] / [contrast] / [history]), "
@@ -81,14 +88,19 @@ def normalise(line):
     return " ".join(line.split())
 
 
+def _git(args, cwd):
+    """git with inherited GIT_* dropped, so a hook's GIT_DIR / GIT_INDEX_FILE cannot redirect it."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(["git"] + args, cwd=cwd, check=True, capture_output=True, env=env).stdout
+
+
 def tracked_files(repo_root):
-    out = subprocess.run(["git", "ls-files", "-z"], cwd=repo_root, check=True,
-                         capture_output=True).stdout
+    out = _git(["ls-files", "-z"], repo_root)
     return sorted(p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p)
 
 
 def iter_texts(repo_root, exclude=()):
-    """Yield (path, text) for every tracked file that reads as UTF-8 without NUL."""
+    """Yield (path, text) for every tracked regular file without a NUL byte."""
     for path in tracked_files(repo_root):
         if path in exclude:
             continue
@@ -98,25 +110,26 @@ def iter_texts(repo_root, exclude=()):
                 continue
             with open(full, "rb") as f:
                 raw = f.read()
-            if b"\0" in raw:
-                continue
-            text = raw.decode("utf-8")
-        except (OSError, UnicodeDecodeError):
+        except OSError:
             continue
+        if b"\0" in raw:
+            continue
+        text = raw.decode("utf-8", "replace")
         yield path, text
 
 
 def scan(repo_root, exclude=()):
     hits = []
     for path, text in iter_texts(repo_root, exclude):
-        for i, line in enumerate(text.splitlines(), 1):
+        for i, line in enumerate(text.split("\n"), 1):
+            line = line[:-1] if line.endswith("\r") else line
             if line_denied(line) == "deny":
                 hits.append((path, i, normalise(line)))
     return hits
 
 
 def _rel(repo_root, p):
-    return os.path.relpath(os.path.abspath(p), os.path.abspath(repo_root)).replace(os.sep, "/")
+    return os.path.relpath(os.path.realpath(p), os.path.realpath(repo_root)).replace(os.sep, "/")
 
 
 def read_allowlist(path):
@@ -162,8 +175,7 @@ def malformed(rows):
 
 
 def _diff(repo_root, allowlist_path):
-    ap = _rel(repo_root, allowlist_path)
-    hits = scan(repo_root, exclude=(ap,))
+    hits = scan(repo_root, exclude=SELF_FILES + (_rel(repo_root, allowlist_path),))
     rows = read_allowlist(allowlist_path)
     tree = collections.defaultdict(list)
     for p, ln, t in hits:
@@ -183,8 +195,8 @@ def _diff(repo_root, allowlist_path):
     return rows, new, stale
 
 
-def check(repo_root, allowlist_path):
-    rows, new, stale = _diff(repo_root, allowlist_path)
+def check(repo_root, allowlist_path, diff=None):
+    rows, new, stale = diff or _diff(repo_root, allowlist_path)
     errs = malformed(rows)
     for p, ln, t in new:
         errs.append("new untagged browser mention: %s:%d: %s" % (p, ln, t))
@@ -197,22 +209,21 @@ def check(repo_root, allowlist_path):
 
 
 def prune(repo_root, allowlist_path):
-    """Rewrite the allowlist dropping only stale rows. Never adds."""
-    _, _, stale = _diff(repo_root, allowlist_path)
+    """Rewrite the allowlist dropping only stale rows. Never adds. -> (dropped, post-prune diff)."""
+    rows, new, stale = _diff(repo_root, allowlist_path)
     drop = {n for n, _ in stale}
     if not drop:
-        return 0
+        return 0, (rows, new, stale)
     with open(allowlist_path, encoding="utf-8") as f:
         lines = f.read().split("\n")
     kept = [l for i, l in enumerate(lines, 1) if i not in drop]
     with open(allowlist_path, "w", encoding="utf-8") as f:
         f.write("\n".join(kept))
-    return len(drop)
+    return len(drop), (read_allowlist(allowlist_path), new, [])
 
 
 def repo_root_of(path):
-    return subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path, check=True,
-                          capture_output=True, text=True).stdout.strip()
+    return _git(["rev-parse", "--show-toplevel"], path).decode("utf-8", "surrogateescape").strip()
 
 
 def main(argv):
@@ -222,13 +233,15 @@ def main(argv):
     do_prune = argv == ["--prune"]
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
     if do_prune:
-        n = prune(root, DEFAULT_ALLOWLIST)
+        n, diff = prune(root, DEFAULT_ALLOWLIST)
         print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
-    errs = check(root, DEFAULT_ALLOWLIST)
+    else:
+        diff = _diff(root, DEFAULT_ALLOWLIST)
+    errs = check(root, DEFAULT_ALLOWLIST, diff)
     if errs:
         print("\n".join(errs))
         return 1
-    n = len(read_allowlist(DEFAULT_ALLOWLIST))
+    n = len(diff[0])
     print("ecs-mission-ratchet: ok (%d allowlisted, 0 new, 0 stale)" % n)
     return 0
 

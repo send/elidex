@@ -175,7 +175,7 @@ class Controls(unittest.TestCase):
                    "N\t-\tz.md\tgone Chrome line",
                    header="# keep me\n")
         before = self.slurp()
-        dropped = mod.prune(self.root, self.al)
+        dropped, _ = mod.prune(self.root, self.al)
         after = self.slurp()
         self.assertEqual(dropped, 2)
         self.assertTrue(after.startswith("# keep me\n"))
@@ -187,11 +187,50 @@ class Controls(unittest.TestCase):
         self.assertTrue(any("new untagged browser mention: a.md:3: matches Servo here" in e for e in errs))
         self.assertFalse(any("stale" in e for e in errs))
 
-    def test_non_utf8_and_nul_skipped(self):
-        self.put("bin.dat", b"\xff\xfe matches Chrome here\n")
-        self.put("nul.dat", b"matches Chrome here\0\n")
+    def test_nul_skipped_non_utf8_scanned(self):
+        self.put("bin.dat", b"matches Chrome here\0\n")
+        self.put("latin1.md", b"caf\xe9\nmatches Chrome here\n")
+        self.allow()
+        errs = self.check()
+        self.assertTrue(any("latin1.md:2: matches Chrome here" in e for e in errs), errs)
+        self.assertFalse(any("bin.dat" in e for e in errs), errs)
+
+    def test_line_numbers_split_on_newline_only(self):
+        self.put("a.md", "x\x0cy\u2028z\r\nmatches Chrome here\r\n")
+        self.allow()
+        self.assertTrue(any("a.md:2: matches Chrome here" in e for e in self.check()))
+
+    def test_self_files_not_scanned(self):
+        for rel in mod.SELF_FILES:
+            self.put(rel, "matches Chrome here\n")
         self.allow()
         self.assertEqual(self.check(), [])
+
+    def test_symlinked_root_still_excludes_allowlist(self):
+        link = self.root + "-link"
+        os.symlink(self.root, link)
+        self.al = os.path.join(link, "allow.tsv")
+        self.put("a.md", "matches Chrome here\n")
+        self.allow("N\t-\ta.md\tmatches Chrome here")
+        subprocess.run(["git", "add", "allow.tsv"], cwd=self.root, check=True, env=self.env)
+        self.assertEqual(mod.check(os.path.realpath(self.root), self.al), [])
+
+    def test_inherited_git_dir_ignored(self):
+        self.put("a.md", "matches Chrome here\n")
+        self.allow()
+        other = tempfile.mkdtemp()
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", other]))
+        subprocess.run(["git", "init", "-q", other], check=True, env=self.env)
+        saved = os.environ.get("GIT_DIR")
+        os.environ["GIT_DIR"] = os.path.join(other, ".git")
+        try:
+            errs = self.check()
+        finally:
+            if saved is None:
+                del os.environ["GIT_DIR"]
+            else:
+                os.environ["GIT_DIR"] = saved
+        self.assertTrue(any("a.md:1: matches Chrome here" in e for e in errs), errs)
 
     def test_allowlist_inside_repo_not_scanned(self):
         self.al = os.path.join(self.root, "allow.tsv")
