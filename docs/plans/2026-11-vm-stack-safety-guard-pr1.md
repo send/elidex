@@ -1,16 +1,23 @@
 # VM stack-safety guard — PR-1 plan (primitive, choke points, walkers, regexp front door)
 
-Status: **plan (pre-implementation), revised after plan-review R1 and the driver decisions D-W
-(wasm entry, §4.4), D-SC (structuredClone matcher copy, §6.3) and the split verdicts (§5.1)**; `/elidex-plan-review`
-required before code (edge-dense, umbrella §2). Parent: [umbrella](2026-11-vm-stack-safety-guard.md).
-Closes the Rust-stack half of `#11-vm-call-depth-guard`. Base: `47b6c934` (anchors below are at
-that commit). Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split, PM 454, PM 476 are
+Status: **plan (pre-implementation), revised after plan-review R1, the driver decisions D-W
+(wasm entry, now PR-1b), D-SC (structuredClone matcher copy, §6.3) and the split verdicts (§5.1),
+and the PM 483 rulings (umbrella §0.1)**; `/elidex-plan-review` required before code (edge-dense,
+umbrella §2). Parent: [umbrella](2026-11-vm-stack-safety-guard.md). Sibling:
+[PR-1b](2026-11-vm-stack-safety-guard-pr1b.md) (the JS→wasm entries, split out by D-K).
+PR-1 does **not** close `#11-vm-call-depth-guard` on its own: the slot closes at PR-1b's landing
+(D-K, PM 483), because until then a JS→wasm entry in the band between the CP-1 floor and
+≈600 KiB remaining still aborts (PR-1b §4). Base: `47b6c934` (anchors below are at
+that commit). Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split, PM 454, PM 476, PM 483 are
 ratified (umbrella §0.1) and not re-opened here. Provenance root `H` is defined in the umbrella
 header; every measurement names its log under `H/logs/`.
 Preconditions: the W-11 slot `#11-abort-signal-any-dependent-flattening` has landed (umbrella §4
-edge; §2 A-1), and the `interpreter.rs` prereq split has landed (§5.1). Ordering against Slice F
-(`#11-vm-structured-clone-file-split`), NativeError E1, and the open umbrella
-`#11-vm-structured-clone-layering-seam`: ⟨PM pending: P2⟩ (facts in §5.5).
+edge; §2 A-1); the `interpreter.rs` prereq split has landed (§5.1); **Slice F**
+(`#11-vm-structured-clone-file-split`) has landed (PM 483 P2: Slice F → PR-1, touch-time split;
+§5.5); for the release CI leg, the CI/tools `ci.yml` PRs `ci-ecs-mission-ratchet` and
+`ci-default-features-check` have landed (PM 483 P5; §8). NativeError E1 is not ordered against
+PR-1 by PM 483 (umbrella §4). The open umbrella `#11-vm-structured-clone-layering-seam` inherits
+PR-1's obligations (§5.5).
 
 **Base-case reason (single PR).** PR-1 is a narrowly scoped per-PR slice under the approved
 umbrella that passes its own plan-review; under CLAUDE.md's edge-dense rule (c) that makes it a
@@ -19,7 +26,8 @@ terminal unit, so it is not re-split for touching the same subsystem as its sibl
 **Relation to S1.** S1 (`elidex-wt-strrepl`, `#11-vm-string-replace-function-replacement`) rewrites
 `natives_string.rs` :466-543, which shifts this plan's `natives_string.rs` anchors. PR-1 re-derives
 every anchor at its own base with the commands given beside each table (§5.1, §6.1), not from the
-numbers written here. The stale `§21.1.3.15` cite at `natives_string.rs:659` (search's lastIndex
+numbers written here. Order (PM 476, restated by PM 483 P7): the guard is plan-reviewed first;
+after S1 lands, PR-1's compile-site anchors (§6.1) are re-derived on PR-1's own base. The stale `§21.1.3.15` cite at `natives_string.rs:659` (search's lastIndex
 comment) is not PR-1's: it belongs to the OD-2 / slice 9b re-tag, and PR-1 leaves it.
 
 ## §1. Scope
@@ -27,8 +35,8 @@ comment) is not PR-1's: it belongs to the OD-2 / slice 9b re-tag, and PR-1 leave
 PR-1 delivers, in one PR:
 
 1. The primitive `crate::stack_guard` (NEW) (§4), with its test-only seams (§4.5).
-2. Probes at the two re-entry choke points and at the two JS→wasm entries (CP-3), and wasmtime's
-   `max_wasm_stack` set from the one constant the CP-3 probe asks for (§4.4, §5.1).
+2. Probes at the two re-entry choke points CP-1 / CP-2 (§5.1). (The JS→wasm entries CP-3 and
+   `MAX_WASM_STACK` are PR-1b's, D-K.)
 3. Probes in every unbounded `elidex-js` walker (§5.2): JSON parse / internalize / stringify,
    structuredClone, `flat_into` (replacing `MAX_FLAT_DEPTH`), the parser / scope analyser /
    compiler recursive entries, the IndexedDB storable pre-check; the scope analyser's cap branch
@@ -37,26 +45,26 @@ PR-1 delivers, in one PR:
    (the sixth, structuredClone's re-compile, becomes a copy of the compiled matcher, §6.3), and the
    I-7 trip-wire (§6).
 5. The PM 424 rewording of the `MAX_JSON_DEPTH` docstring (§7).
-6. Cells, mutants, the explicit-thread rule, the hot-path measurement (§8–§10).
+6. Cells, mutants, the explicit-thread rule, the hot-path measurement (§8–§10), and the release
+   test leg on the three CI OSes (§8; PM 483 P5).
 7. The recursion cut check as a tracked CI check (§5.3) and the in-repo constant re-measurement
    driver (§6.2).
 
-Not in PR-1: the frame cap (PR-2); everything in umbrella §1.2 — in particular the
-`AbortSignal.any` source-signal flattening (the W-11 slot's, lands before PR-1, PM 454) and
-iterating the left spine of long expression chains (§5.4, its own slot; registration
-⟨PM pending: P8⟩).
+Not in PR-1: the JS→wasm entries CP-3a / CP-3b and `MAX_WASM_STACK` (PR-1b, D-K); the frame cap
+(PR-2); everything in umbrella §1.2 — in particular the `AbortSignal.any` source-signal flattening
+(the W-11 slot's, lands before PR-1, PM 454) and iterating the left spine of long expression chains
+(§5.4, `#11-vm-frontend-left-spine-iterative`, registered by PM 483, scheduled immediately after
+PR-1).
 
 ## §2. Coupled invariants
 
 The umbrella §2 table (I-1 coverage, I-2 fail-safe bound, I-3 state integrity, I-4 semantic caps,
-I-5 hot-path cost, and each pair) is this PR's invariant set; PR-1 is where all five are realised.
+I-5 hot-path cost, and each pair) is this PR's invariant set; PR-1 is where all five are realised for the choke points CP-1 / CP-2
+and the walkers. I-1 at the JS→wasm entries is PR-1b's (PR-1b §2); until PR-1b lands, I-1 does not
+hold there (the band of PR-1b §4), which is why PR-1 does not close `#11-vm-call-depth-guard`.
 **I-3, scoped**: it holds for **VM** state (`call`, `call_construct_native`, `run_function`,
-`construct_synchronous`, `dispatch_super_inner` mutate nothing before `with_call_mode`, R1 Axis 2)
-and for the **wasm store / instance** behind CP-3 (§5.1): the probe sits before the lazy
-`vm_wasm_runtime()` initialisation, `Store::new` and the start function (CP-3b), and before the
-`HostState` bind and the `set_fuel` reset (CP-3a). The one VM field written before CP-3a,
-`call_dispatch`'s `gc_enabled = false` in the `WasmExportedFunction` arm (`interpreter.rs:501`), is
-restored by that arm on the `Err` return as on every other return.
+`construct_synchronous`, `dispatch_super_inner` mutate nothing before `with_call_mode`, R1 Axis 2).
+(The wasm store / instance half of I-3 is PR-1b §2's.)
 Two non-VM consequences are accepted and stated:
 
 - *Custom-element upgrade.* `host/custom_elements/upgrade.rs` sets the element's state to
@@ -145,23 +153,19 @@ Pairs of I-6, I-7 and A-1 with every other invariant (18):
 | WHATWG HTML §2.7.7 StructuredDeserialize | step 25.3 recursion per property; step 12 RegExp from the copied matcher | Array / Object / RegExp | `clone_recursive` (fused walk), `clone_regexp` (the copied `regress::Regex`) | ✓ | yes |
 | WHATWG HTML §2.7.11 Structured cloning API | steps 1–2 (§2.7.8 / §2.7.9) | — | `clone_recursive` entry | ✓ | yes |
 | IndexedDB-3 §5.11 Clone a value | steps 3–4 (StructuredSerializeForStorage, StructuredDeserialize) | stored value | `reject_non_json_storable` | ✓ | yes |
-| WebAssembly JS API §5.6 Exported Functions | *call an Exported Function* step 8 `func_invoke` (CP-3a sits after step 7's `ToWebAssemblyValue` coercions, before the store is bound); step 10's exception is elidex's resource limit, not a trap | exported function call | `call_wasm_exported_function` (CP-3a) | ✓ | yes |
-| WebAssembly JS API §5 The WebAssembly Namespace | *instantiate the core of a WebAssembly module* step 2 `module_instantiate` (runs the start function); step 3's third bullet ("another error type if appropriate") is where the `RangeError` lands | sync `Instance` ctor / async `instantiate` (rejection) | `instantiate_module` (CP-3b) | ✓ | yes |
 
-**Breadth**: K=4 specs (ECMA-262, WHATWG HTML, IndexedDB-3, WebAssembly JS API), M=20 entries
-(verified 2026-11-08 by `preflight.py`: M=20, K=4, `IndexedDB-3` and `WebAssembly JS API` unmapped labels whose
-rows are not webref-verified; the two wasm rows' anchors were looked up by hand with
-`webref dfn wasm-js-api-2 'call an Exported Function'` → §5.6 `#call-an-exported-function` and
-`webref dfn wasm-js-api-2 'instantiate the core of a WebAssembly module'` → §5
-`#instantiate-the-core-of-a-webassembly-module`). The R1 revision's changes against the R0 table
-(which, like the umbrella's, said M=12 with different rows): §25.5.2 → §25.5.2.1 ParseJSON; added
-JoinIndexedProperties, RegExpCreate, RegExpInitialize, StructuredDeserialize, §2.7.11 re-labelled,
-IndexedDB-3 §5.11; D-W added the two WebAssembly JS API rows; rows PR-1 does not touch are in
-umbrella §3.2. `preflight.py`'s own figures are recorded again at landing (§12 L-9).
-**Split decision**: K=4 and M=20 → `preflight.py` reports SPLIT-RECOMMENDED (K≥4 or M≥20). Both
-thresholds are crossed by the D-W rows alone (without them K=3, M=18). ⟨driver pending: D-K — split
-CP-3 + `MAX_WASM_STACK` into a PR of its own, or keep PR-1 single with a positive single-PR
-appeal written here⟩
+**Breadth**: K=3 specs (ECMA-262, WHATWG HTML, IndexedDB-3), M=18 entries (`preflight.py` at this
+revision: M=18, K=3, `IndexedDB-3` an unmapped label whose row is not webref-verified). The R1
+revision's changes against the R0 table (which, like the umbrella's, said M=12 with different
+rows): §25.5.2 → §25.5.2.1 ParseJSON; added JoinIndexedProperties, RegExpCreate, RegExpInitialize,
+StructuredDeserialize, §2.7.11 re-labelled, IndexedDB-3 §5.11; rows PR-1 does not touch are in
+umbrella §3.2. D-W's two WebAssembly JS API rows moved to PR-1b §3 with the split.
+`preflight.py`'s own figures are recorded again at landing (§12 L-9).
+**Split decision (D-K = split, PM 483)**: with the wasm rows, K=4 / M=20 crossed both
+SPLIT-RECOMMENDED thresholds, and the D-W rows alone crossed them. They are split into PR-1b:
+a different crate (`elidex-wasm-runtime`'s `Config`), a different spec (WebAssembly JS API), and
+wasmtime's per-store limit is an invariant of its own (PR-1b §2 W-2). After the split K=3 / M=18:
+below both thresholds, so PR-1 is a single PR without a breadth appeal.
 
 ### §3.1 User-input touch audit
 
@@ -173,7 +177,7 @@ All rows are script-controlled. Adjacent pre-existing code (measurements in umbr
 - The four `natives_string.rs` sites and the literal site map a `regress` syntax error to
   `TypeError` (spec: `SyntaxError` / early error). Unchanged; the front door returns the syntax
   error to the caller untouched (§6.3). Home: a child of VM P4 slice-plan umbrella 8 (RegExp
-  completion), owner VM P4 (PM 454; slot id ⟨PM pending: P4⟩).
+  completion), owner VM P4: `#11-vm-regexp-syntax-error-surface` (PM 483).
 - `AbortSignal.any` chains whose intermediate composites are unreachable lose propagation after a
   GC today (chain of 10 000 with no references kept → `s.aborted === false` after `c.abort()`;
   §11 M-AB). Not PR-1's: the W-11 slot's flattening removes the intermediate links before PR-1
@@ -189,8 +193,6 @@ All rows are script-controlled. Adjacent pre-existing code (measurements in umbr
 | `From<StackExhausted> for VmError` / `CompileError`, `From<RegExpCompileError> for VmError` | none beyond the I-6 channel they belong to (they are mappings, not algorithms) |
 | `MAX_REGEXP_DEPTH` (`crate::regexp`) | the semantic-cap role (I-4) and its two users; no spec section (no spec defines it) |
 | `REGEXP_GROUP_COST` / `REGEXP_ALT_COST` | the ratchet cells and the in-repo driver that re-derive them (§6.2) |
-| `elidex_wasm_runtime::MAX_WASM_STACK` | wasmtime's `Config::max_wasm_stack` contract (wasm's own stack use, not the thread's); the CP-3 probe that asks `WALKER_RESERVE + MAX_WASM_STACK`; the measurement that sizes it (§4.4); no spec section (WebAssembly JS API §8 Implementation-defined Limits defines none for stack: "an implementation may run out of resources for valid modules below these limits") |
-| CP-3a / CP-3b site comments | WebAssembly JS API §5.6 *call an Exported Function* step 8 / §5 *instantiate the core of a WebAssembly module* step 3 (where the resource-limit `RangeError` lands), and I-3's placement rule |
 | `clone_regexp` docstring (rewritten, its claims change) | HTML §2.7.4 StructuredSerializeInternal step 13 and §2.7.7 StructuredDeserialize step 12 (the matcher is copied; `lastIndex` is not among the copied slots) |
 
 ### §3.3 Stale cites seen in touched files (recorded, owner named, not fixed here)
@@ -325,54 +327,9 @@ it runs no DOM walker, so it does not cover the headroom the L3 slot relies on (
   green at PR-1's base (if cargo-deny's graph lists the inactive optional fiber crate, that entry is
   replaced by a `wasmtime` feature-set check in the same job, and the PR says which). Adding any
   of them then fails `deny` until the guard is redesigned for it.
-- **wasm** (decision D-W). wasm runs synchronously on the VM thread: `elidex-wasm-runtime` calls
-  wasmtime on the caller's stack in exactly two places reachable from script, `WasmFunc::call`
-  (`handle.rs:220`, an exported-function call) and `WasmRuntime::instantiate` (`runtime.rs:165`,
-  `Linker::instantiate`, which runs the module's start function); no async, no fiber (re-derive:
-  `git grep -nE '\.call\(|\.instantiate\(' -- crates/script/elidex-wasm-runtime/src` → those two
-  plus `host/funcs.rs:62`, the `__alloc` call a host function makes from inside an activation that
-  is already running). wasmtime bounds wasm's own stack use with `max_wasm_stack`, measured from
-  the SP at the store's outermost entry (`wasmtime` 50.0.1 `runtime/func.rs:1535-1583`: a nested
-  entry into the same store keeps the limit already set), and its documentation (`config.rs`,
-  `max_wasm_stack`) states that the thread is not checked: with less than that remaining the
-  process aborts. elidex leaves it at the default today (`runtime.rs:76` sets only `consume_fuel`;
-  the default is `512 * 1024`, `config.rs:295`).
-  **Measured** (`H/scripts/wasm_entry.sh`, `H/logs/wasm-entry.log`; prototype guard on, 256 KiB,
-  2 MiB thread; a module whose start function recurses without end, entered through
-  `new WebAssembly.Instance` at callback depth D): at the top both profiles give a catchable
-  `RuntimeError` (wasmtime's stack-overflow trap); debug D = 24 / 26 (lowest remaining at a probe
-  739 / 630 KiB) → `RuntimeError`, D = 28 / 30 / 32 → **process abort**, D = 33 (the CP-1 floor) →
-  `RangeError` from CP-1; release D = 200 / 220 (731 / 595 KiB) → `RuntimeError`, D = 240 / 250 /
-  260 → **abort**, D = 269 (floor) → `RangeError`. So with PR-1 as planned before D-W, a wasm entry
-  in the band between the CP-1 floor and ≈600 KiB remaining aborts the renderer: I-1 did not hold.
-  **Decision**: PR-1 adds the choke point **CP-3** at both JS→wasm entries (§5.1), asking
-  `ensure_stack(WALKER_RESERVE + MAX_WASM_STACK)`, and sets `max_wasm_stack` explicitly from that
-  constant. **`MAX_WASM_STACK`** (NEW) = `512 * 1024`, `pub const` in `elidex-wasm-runtime`
-  (`lib.rs` re-export; `runtime.rs:76` calls `config.max_wasm_stack(MAX_WASM_STACK)`), imported by
-  `elidex-js` under `feature = "engine"` (the dependency direction that exists; `elidex-js`'s
-  `pub(crate)` `crate::stack_guard` is not exported, and does not need to be). One constant, two
-  readers, so the ask and wasmtime's limit cannot drift apart. **Why 512 KiB**: it is wasmtime's
-  default, so wasm's own recursion depth is what it is today, and the measurement above brackets
-  the real need of an entry that runs to wasmtime's limit at more than 512 KiB and at most
-  ≈ 595 KiB (release) / ≈ 630 KiB (debug) of remaining stack — inside `WALKER_RESERVE + 512 KiB`
-  = 768 KiB, the excess over 512 KiB (entry, trap unwinding, host functions reached from wasm,
-  which wasmtime does not limit) being what `WALKER_RESERVE` is for. **Cost**: a JS→wasm call needs
-  768 KiB free, so on a 2 MiB thread it gets the `RangeError` from callback depth ≈ 23 (debug) /
-  ≈ 195 (release) instead of the CP-1 floor's 33 / 269 (interpolated from the same log's lowest
-  remaining per depth). A smaller constant would buy JS depth by cutting wasm's recursion depth
-  below today's; that is a tuning decision for whoever has a wasm workload that needs it, not a
-  guard decision.
-  **wasm → JS re-entry does not exist today**: `WasmRuntime::instantiate` rejects a non-empty
-  `ImportObject` (`runtime.rs:130`), `instance.rs` `coerce_import_object` builds an empty one for
-  every input, and the only functions wasm can call are the `elidex` host functions
-  (`host/funcs.rs`), which reach the DOM through `DomHandlerRegistry` and hold no VM handle
-  (`elidex-wasm-runtime` does not depend on `elidex-js`). So no JS→wasm→JS→wasm recursion is
-  constructible at PR-1's base, and CP-1 is not on any wasm path yet. When
-  `#11-wasm-user-import-host-fn-builder` lands JS imports, the import trampoline must enter JS
-  through `with_call_mode` (CP-1), and each JS→wasm entry it leads to passes CP-3 again; this is
-  required, not optional, because each `WasmInstance` has its own `Store` (`runtime.rs:144`) and
-  wasmtime sets a fresh `max_wasm_stack` limit at each store's outermost entry, so a nested entry
-  into another instance gets a full 512 KiB of its own (§12 L-13).
+- **wasm** runs synchronously on the VM thread and is the one other consumer of it; its entries
+  (CP-3a / CP-3b), `MAX_WASM_STACK` and the explicit `max_wasm_stack` are PR-1b's (D-K, PR-1b §4).
+  PR-1's part is only the stack-switching ban above, which covers wasmtime's fiber crate too.
 
 ### §4.5 Test-only seams
 
@@ -395,12 +352,9 @@ non-test release build):
 |---|---|---|---|
 | CP-1 | `VmInner::with_call_mode` (`crates/script/elidex-js/src/vm/interpreter.rs:160`) | first statement, before the `entry_frames` / `entry_stack_depth` snapshot | every native→JS call (`call`, `call_construct_native`, `run_function`) and `construct_synchronous` (`crates/script/elidex-js/src/vm/dispatch_class.rs:323`) enter through it; the nested `run()` sites at `interpreter.rs:740` and `dispatch_class.rs:364` are inside it |
 | CP-2 | `VmInner::resume_generator` (`crates/script/elidex-js/src/vm/natives_generator.rs:114`) | first statement, before the generator state is taken and marked Running | the nested `run()` at `natives_generator.rs:276`; reached both from the generator natives (`natives_generator.rs:374/404/432`) and, outside `with_call_mode`, from inline async calls (`push_js_call_frame` → `drive_async_coroutine` → `natives_generator.rs:472`) |
-| CP-3a | `call_wasm_exported_function` (`crates/script/elidex-js/src/vm/host/wasm/exported_func.rs:268`), asking `WALKER_RESERVE + MAX_WASM_STACK` | after the argument coercions (*call an Exported Function* step 7, which may run user JS through CP-1) and the bound-session check, immediately before `host_data.with_session_and_dom(… func.call …)` (`:306`), i.e. before the `HostState` bind and `set_fuel` reset in `WasmFunc::call` | the only caller of `WasmFunc::call` in `elidex-js` (its one caller is `call_dispatch`'s `WasmExportedFunction` arm, `interpreter.rs:511`); every exported function, however obtained (`instance.exports`, a funcref read from a table), is an `ObjectKind::WasmExportedFunction` dispatched there |
-| CP-3b | `instantiate_module` (`crates/script/elidex-js/src/vm/host/wasm/instance.rs:151`), same ask | after `coerce_import_object` (*Read the imports*, `:162`), before `ctx.vm.vm_wasm_runtime()` (`:176`, lazy runtime init) and `runtime.instantiate` (`:180`, new `Store` + start function) | the only caller of `WasmRuntime::instantiate` in `elidex-js`; both the sync `new WebAssembly.Instance` (`instance.rs:69`) and the async `WebAssembly.instantiate` (`namespace.rs:578`, which turns the `Err` into a rejection) go through it |
 
 Enumeration of nested `run()` (re-derive at PR-1's base: `git grep -nE '(self|vm|inner|ctx\.vm)\.run\(' -- crates/script/elidex-js/src/vm ':!**/tests/**'`): 3 sites, lines `dispatch_class.rs:364` / `interpreter.rs:740` / `natives_generator.rs:276`; each is behind CP-1 or CP-2.
 Callers of `with_call_mode` outside tests (`git grep -n 'with_call_mode(' -- crates/script/elidex-js/src/vm`): `interpreter.rs` lines 82/102/1010 and `dispatch_class.rs:323`.
-JS→wasm entries (re-derive: `git grep -nE 'func\.call\(|\.instantiate\(&' -- crates/script/elidex-js/src ':!**/tests/**'`): `exported_func.rs:307` and `instance.rs:180`, i.e. CP-3a and CP-3b; no other crate calls into `elidex-wasm-runtime` (`git grep -ln elidex_wasm_runtime -- crates ':!crates/script/elidex-js' ':!crates/script/elidex-wasm-runtime'` → nothing). Both entries are inside `elidex-js`, so `crate::stack_guard` reaches them; the only `elidex-wasm-runtime` change is the `MAX_WASM_STACK` constant and the `Config` call (§4.4). CP-3 is not a re-entry choke point (no nested `run()`): it guards a foreign stack consumer whose own limit is a fixed size, which is why its ask is that size plus the reserve.
 
 **`interpreter.rs` cohesion verdict (CLAUDE.md 1000-line rule).** 1367 lines: source 1–1043, then an
 in-file `#[cfg(test)] mod tests` (1044–1367, six cells all about `with_call_mode`'s panic safety).
@@ -414,11 +368,13 @@ touch-time watch list (umbrellas 1a and 3, `docs/plans/2026-07-vm-p4-touch-time-
 the prereq PR records the verdict there.
 
 **`vm/object_kind.rs` and `vm/mod.rs` cohesion verdicts (same rule, decided here).** PR-1 touches
-each by one line. (The touch-time split record lists `vm/object_kind.rs` as *not on any watch list*,
+each by one line. Both verdicts below are scoped to **the range PR-1 touches** (one line in each,
+and the touch-time split it would require); they are not a whole-file judgement that no seam
+exists. (The touch-time split record lists `vm/object_kind.rs` as *not on any watch list*,
 with umbrellas 6, 7 and 10 owing it a verdict through their children, and does not list `vm/mod.rs`
 at all, so neither verdict is owned elsewhere; this plan states both.)
 
-- **`vm/object_kind.rs`, 1645 lines: no real cohesion seam → no prereq split.** Shape at
+- **`vm/object_kind.rs`, 1645 lines: no touch-time seam for the range PR-1 touches → no prereq split.** Shape at
   `47b6c934`: module doc and imports 1–52, two small helper enums `DomTokenListSource` /
   `ObserverKind` (53–110), the `ObjectKind` enum itself (113–1579, 106 variants, 1207 of those
   lines `///` docs, 76 `#[cfg]` gates), and one `impl ObjectKind` of two brand predicates
@@ -433,15 +389,17 @@ at all, so neither verdict is owned elsewhere; this plan states both.)
   front door to stop naming `regress`; the alternatives are an exemption for this file in the wire
   (a second file allowed to name the crate, which is the hole I-7 closes) or moving the matcher out
   of the variant into a side-store (an entity-of-the-heap fact moved off its object for a lint).
-- **`vm/mod.rs`, 2785 lines: no real cohesion seam → no prereq split.** Shape at `47b6c934`: the
+- **`vm/mod.rs`, 2785 lines: no touch-time seam for the range PR-1 touches → no prereq split.** Shape at `47b6c934`: the
   submodule declarations and two constants (1–183), the `VmInner` struct definition (184–2773:
   346 fields, 1937 of those lines `///` docs, 287 attributes, no function bodies), and the `Vm`
   wrapper struct (2775–2781) with a trailing comment. A struct definition cannot be divided between files; the only seam is
   grouping `VmInner`'s fields into subsystem sub-structs, which memory
   `vm-inner-substruct-deferral` records as an architectural refactor (split borrows in the GC mark
   phase) rather than a file split, deferred with no slot. That memory's trigger 1 ("`vm/mod.rs`
-  grows past ~1500 LoC") has fired (it was written at 1116 lines); that is a fact for the PM's
-  ledger, not a PR-1 prerequisite, since PR-1 adds no field. **The touch**: one `mod
+  grows past ~1500 LoC") has fired (it was written at 1116 lines). Recorded for the ledger: a
+  separate `VmInner` sub-struct proposal (`vm-inner-substruct-deferral` trigger 1) is owed after
+  this plan's re-review; it is not designed here and is not a PR-1 prerequisite, since PR-1 adds no
+  field. **The touch**: one `mod
   regexp_compile;` line. It is avoidable only by homing the front door outside `vm/` — e.g. as
   a `compile` submodule of `crate::regexp` beside `MAX_REGEXP_DEPTH` — and that is worse: `crate::regexp` is the
   front end's static-semantics module (the lexer's flag parser, the unconnected pattern parser),
@@ -449,17 +407,15 @@ at all, so neither verdict is owned elsewhere; this plan states both.)
   `From<RegExpCompileError> for VmError` would make the front-end module import the VM's error
   type. So the front door stays at `vm/regexp_compile.rs` and the one `mod` line stays.
 
-**host/ touch table.** PR-1 touches four `vm/host/` files. All are engine-bound per the Layering
-mandate: the first two walk VM `ObjectId` graphs, the last two marshal JS values across the
-wasm boundary, and the change adds a stack check (and, in `structured_clone.rs`, replaces a
-re-compile with a copy), no algorithm.
+**host/ touch table.** PR-1 touches two `vm/host/` files (the two `vm/host/wasm/` files are
+PR-1b's, PR-1b §5). Both are engine-bound per the Layering mandate: they walk VM `ObjectId` graphs,
+and the change adds a stack check (and, in `structured_clone.rs`, replaces a re-compile with a
+copy), no algorithm.
 
 | File | Change | Engine-bound reason |
 |---|---|---|
-| `crates/script/elidex-js/src/vm/host/structured_clone.rs` | W-6 probe at `clone_recursive`; `clone_regexp` copies the compiled matcher instead of re-compiling (§6.3) | the clone walks `VmInner` objects; where the algorithm half ends up is the layering seam's (⟨PM pending: P2⟩) |
+| `crates/script/elidex-js/src/vm/host/structured_clone.rs` | W-6 probe at `clone_recursive`; `clone_regexp` copies the compiled matcher instead of re-compiling (§6.3) | the clone walks `VmInner` objects; where the algorithm half ends up is the layering seam's, which inherits W-6's probe and the front-door obligations (§5.5, PM 483) |
 | `crates/script/elidex-js/src/vm/host/indexeddb/value.rs` | W-12 probe at `reject_non_json_storable` | walks the VM value produced by the clone |
-| `crates/script/elidex-js/src/vm/host/wasm/exported_func.rs` | CP-3a probe | a stack check at the JS→wasm boundary; the call itself stays in `elidex-wasm-runtime` |
-| `crates/script/elidex-js/src/vm/host/wasm/instance.rs` | CP-3b probe | same, for instantiation |
 
 No existing remaining-stack API to reuse: `git grep -nE 'remaining_stack|stack_guard|ensure_stack|stacker|pthread_get_stack|GetCurrentThreadStackLimits|pthread_getattr_np' -- crates`
 at `47b6c934` → only `host/custom_elements/upgrade.rs`'s `_stack_guard` (the CE construction-stack
@@ -569,33 +525,61 @@ of same-kind left-associative nodes — `Binary`, `Logical`, `Member`, `Call`, o
 tagged templates — keeping an explicit stack, then emit upward), so chain length costs heap, not
 Rust stack.
 
-**Home: its own slot, `#11-vm-frontend-left-spine-iterative` (proposed; registration
-⟨PM pending: P8⟩), not PR-1.** Reasons: it is a compiler-algorithm change with its own edge matrix (short-circuit jump
+**Home: its own slot, `#11-vm-frontend-left-spine-iterative` (registered by PM 483, owner VM P4,
+scheduled immediately after PR-1), not PR-1.** Reasons: it is a compiler-algorithm change with its own edge matrix (short-circuit jump
 patching for `Logical`, optional-chain short-circuit to the chain end, call argument spread,
 source-map order, assignment targets such as `a.b.c = x`), unrelated to the guard's invariants; and
 PR-1 is correct without it (the probes stay as the safety bound after it, as for the single-loop
-successor). No ordering edge between the two.
+successor). Ordering (PM 483): the slot follows PR-1 immediately; it is not a PR-1 precondition.
 
-**Regression PR-1 ships until that slot lands, stated**: release chains of 1025–1676 terms, which
-compile today, become a compile failure (`NestingTooDeep`). Today those programs already analyse
-nothing after the chain (wrong code, umbrella §3.1), so only a chain that is the last thing in its
-script loses a working result. Debug chains of ~330–382 terms change from compiling to a compile
-failure; above 382 they change from abort to a compile failure. When the slot (⟨PM pending: P8⟩) lands, the
-`frontend_chain_*` cells (§8) move to nested-paren inputs of the same depth, since chains no longer
-reach the probes.
+**Regression PR-1 ships until that slot lands, stated, with its reason** (numbers from umbrella
+§8 M-8: the largest `+` chain that does not abort today is 382 terms in debug and 1676 in release):
 
-### §5.5 Facts for ⟨PM pending: P2⟩
+- **Release, 1025–1676 terms**: compile today, become a compile failure (`NestingTooDeep`, W-8's
+  cap exit). **Reason this is the safe direction**: today the scope pass silently skips everything
+  after such a chain and keeps the leaked depth, so the code after it is miscompiled without any
+  error (a later `let` is unbound, a later function fails with an internal `CompileError`; umbrella
+  §3.1). An explicit compile failure replaces silent wrong code. Only a chain that is the last thing
+  in its script loses a working result. From 1677 terms the change is abort → `NestingTooDeep`.
+- **Debug, ≈330–382 terms**: compile **correctly** today (the scope cap at 1025 is not reached and
+  nothing is miscompiled), and become a compile failure (`StackExhausted`, W-9's probe, not
+  `NestingTooDeep`). The miscompilation reason does **not** apply to this band: it is the cost of
+  the probe being a safety bound, which must fire `WALKER_RESERVE` before the measured abort at
+  383, so on a 2 MiB debug thread the last ≈50 terms below the abort point are given up. From 383
+  terms the change is abort → `StackExhausted`.
 
-`structured_clone.rs` is 1077 lines; Slice F (`#11-vm-structured-clone-file-split`) is its
-prereq split, and the Slice F memo hard-codes the file's length and line ranges, which PR-1's W-6
-probe and `clone_regexp` change would move. NativeError E1 also edits `clone_recursive` (the
-ledger's edge F → E1). The open umbrella `#11-vm-structured-clone-layering-seam` (derivation
-triggered at Slice F's plan-review) may move the clone algorithm out of `elidex-js`; then
-`pub(crate)` `stack_guard` and `regexp_compile` are unreachable from it, §6.4's trip-wire (scoped
-to `crates/**`) still sees it but the front door does not, and the W-6 / `:88` / `:585` anchors
-move. Obligations PR-1 hands to wherever the algorithm lands: a probe per clone level (W-6), the
-RegExp branch as a matcher copy (§6.3; a serializer that crosses a thread, process or storage
-boundary re-compiles on deserialize through the front door instead), and I-6's runtime message.
+When the slot lands, the `frontend_chain_*` cells (§8) move to nested-paren inputs of the same
+depth, since chains no longer reach the probes.
+
+### §5.5 Order against Slice F, and the hand-off to the layering seam (PM 483 P2)
+
+**Ruling: Slice F → PR-1** (touch-time split). `structured_clone.rs` is 1077 lines at `47b6c934`;
+Slice F (`#11-vm-structured-clone-file-split`) is its prereq split and lands first, so PR-1 makes
+its W-6 probe and `clone_regexp` change in the post-split files and re-derives the `:88` / `:585`
+anchors (§5.2, §6.1) on its own base with the commands given there. NativeError E1 also edits
+`clone_recursive` (the ledger's edge F → E1); PM 483 does not order E1 against PR-1, so whichever
+of the two lands second rebases onto the other.
+
+**Hand-off obligations to the seam derivation.** The open umbrella
+`#11-vm-structured-clone-layering-seam` (derivation triggered at Slice F's plan-review) may move the
+clone algorithm out of `elidex-js`, where `pub(crate)` `stack_guard` and `regexp_compile` are
+unreachable. The seam slice must **carry forward**, wherever the algorithm lands:
+
+1. **W-6's probe**: one remaining-stack probe per clone level (the walker has no other bound,
+   PM 421 (b)), with I-6's runtime message (`RangeError`, `STACK_EXHAUSTED_MSG`). If the algorithm
+   leaves `elidex-js`, the primitive moves to a crate both can depend on rather than being
+   duplicated (one primitive, PM 436 R1; the same rule as umbrella §1.2's L2 note).
+2. **The front-door routing**: the in-process RegExp branch stays a matcher copy (§6.3, no
+   compile); a serializer that crosses a thread, process or storage boundary re-compiles on
+   deserialize through `compile_regexp` (§6.3, §12 L-14), and §6.4's trip-wire property (no
+   `regress` path outside the front door) still holds after the move — if the front door cannot be
+   reached from the new home, the seam moves the front door with it, it does not add a second
+   compile path.
+3. **The cut check**: the tracked check (§5.3) keeps `clone_recursive`'s cycle classified as
+   probed; if the walker moves crates, the check's scope (`crates/script/elidex-js`) is widened to
+   the new home in the same slice.
+
+PR-1 records these on the seam's live entry at landing (§12 L-11).
 
 ## §6. Regexp-compile front door (PM 436 R1)
 
@@ -604,6 +588,10 @@ boundary re-compiles on deserialize through the front door instead), and I-6's r
 Re-derive at PR-1's base:
 `git grep -nE 'regress::Regex|Regex::(with_flags|new|from_unicode)' -- crates/script/elidex-js/src ':!**/tests/**'`
 — 6 compile sites at `47b6c934`: `natives_string.rs` 567/582/646/666, `dispatch_helpers.rs` 170, `structured_clone.rs` 585.
+**Anchor order (PM 476 / PM 483 P7)**: guard-first — this plan is reviewed before S1 — and after S1
+lands (it rewrites `natives_string.rs` :466-543) and Slice F lands (it splits `structured_clone.rs`),
+these anchors are re-derived on PR-1's own base by the command above; the numbers here are
+`47b6c934`'s and are not carried into the PR.
 PR-1 routes **5** of them through the front door (the table); the sixth, `structured_clone.rs:585`
 (`clone_regexp`'s re-compile), is not routed but **removed**: `clone_regexp` copies the compiled
 matcher (D-SC, §6.3), so after PR-1 the same command reports no hit outside the front door:
@@ -703,7 +691,7 @@ repo.
 Each of the five sites replaces its `regress::Regex::new` / `with_flags` call with
 `compile_regexp`. `TooDeep` and `Exhausted` become `RangeError` via `From<RegExpCompileError>`
 for `VmError` for those two arms; `Syntax(e)` keeps each site's current message and error class
-(the class question belongs to umbrella 8's child, ⟨PM pending: P4⟩; §3.1).
+(the class question belongs to umbrella 8's child `#11-vm-regexp-syntax-error-surface`, PM 483; §3.1).
 
 - **Literal** (`load_constant`): §13.2.7.3 step 3 is `! RegExpCreate` — the spec says it cannot
   throw, because a bad pattern was already an early error (§13.2.7.1). A cap or probe throw here is
@@ -787,10 +775,12 @@ body on an explicit thread via a helper `on_thread(bytes, f)` (NEW) using
 cells 8 MiB, and the cap−10 derivation ratchet stays on 2 MiB with the probe on. A stack overflow
 aborts the test process, which nextest reports as that test's failure. All cells run in **debug
 and release**: `cargo nextest run -p elidex-js --all-features -E 'test(/tests_stack_guard/)'` and
-the same with `--release`. CI: the `check` job runs the debug leg on all three OSes; which OS ×
-profile legs run the release leg, and its coordination with the CI/tools lane's in-flight work
-(and the CLAUDE.md §CI text and `mise run ci`), is ⟨PM pending: P5⟩ (facts: umbrella §7). Until
-P5 is decided, the release constants are exercised only where someone runs `--release` by hand.
+the same with `--release`. CI: the `check` job runs the debug leg on all three OSes, and **PR-1
+adds the release leg on all three OSes** (PM 483 P5; umbrella §7), on top of the CI/tools lane's
+`ci.yml` PRs `ci-ecs-mission-ratchet` and `ci-default-features-check`, which land first. The
+CLAUDE.md §CI wording for the new step is not PR-1's to choose: it goes to the PM for user approval,
+and PR-1 applies the approved text (§12 L-12). The JS→wasm cells are PR-1b's (PR-1b §6) and join
+this file and both legs when PR-1b lands.
 
 | Cell | Body | Expect |
 |---|---|---|
@@ -820,10 +810,6 @@ P5 is decided, the release constants are exercised only where someone runs `--re
 | `stack_guard_bound_is_os_reported` | on a 2 MiB thread, first probe | bound source = OS; span ∈ [2 MiB − 64 KiB, 2 MiB + 64 KiB] (macOS reports the request + 12 KiB, umbrella §7); prints span (the Linux / Windows measurement) |
 | `stack_guard_unknown_bound_fails_early` | forced-unknown seam (§4.5) | first probe at top passes; recursion stops with `RangeError` at ≤ 1 MiB used |
 | `stack_guard_reserve_margin_ratchet` | the `walker_floor_*` and `rt_*` bodies with the test-only reserve of 64 KiB | all `RangeError`, no abort; this is also the cell that turns a **late** bound (low below the real guard) into a red run |
-| `wasm_start_recursion_traps_at_top` | at the thread's top, `new WebAssembly.Instance(m)` where `m`'s start function recurses without end (`(module (func $f call $f) (start $f))`) | `RuntimeError` (wasmtime's own limit, which `MAX_WASM_STACK` sets), no abort; green today too (`H/logs/wasm-entry.log` `top`). Pins that wasm's limit is below the thread's room at the top |
-| `wasm_instantiate_deep_js_then_wasm` | recurse through `[1].forEach` to each depth D from the top to the CP-1 floor; at D, the same `new WebAssembly.Instance(m)` (CP-3b), and the async `WebAssembly.instantiate(m)` at the same depths (rejection) | at every D: `RuntimeError` (enough room) or `RangeError` / `STACK_EXHAUSTED_MSG` (CP-3b), never an abort. Red on `47b6c934`: aborts for D in the band between the floor and ≈600 KiB remaining (debug 28–32, release 240–260 on the prototype, `H/logs/wasm-entry.log`) |
-| `wasm_call_deep_js_then_wasm` | bound session (the `tests_wasm.rs` harness: `setup_vm_for_binding` + `test_helpers::bind_vm`); an instance exporting `f` that recurses without end; recurse through `[1].forEach` to each depth D up to the floor and call `instance.exports.f()` (CP-3a) | same as above, at every D. Red on `47b6c934` in the same band (same mechanism as CP-3b, whose band is the measured one; the exported-function band is measured when the cell is written) |
-| (no JS→wasm→JS→wasm cell) | — | not constructible at PR-1's base: wasm cannot call JS (§4.4). It is the obligation PR-1 hands `#11-wasm-user-import-host-fn-builder` (§12 L-13), whose acceptance gains that cell |
 | `sc_regexp_copies_matcher` | `const r = /(a)\|b/gi; r.lastIndex = 3; const c = structuredClone(r)` | `c !== r`, `c.source === r.source`, `c.flags === r.flags`, `c.lastIndex === 0`, `c.exec('xa')[1] === 'a'`, and `c` is a RegExp (`Object.prototype.toString.call(c) === '[object RegExp]'`); green today too (the behaviour is unchanged; this pins it across the rewrite) |
 | `sc_regexp_needs_no_compile_room` | at the top, create `r` with `G` nested groups whose front-door weight is above half of what fits (debug G = 150, release G = 600); recurse through `[1].forEach` and at every depth call `structuredClone(r)`, recording the depth of its first failure | the clone never fails at a depth where CP-1 still admitted the callback, except at the floor level itself (where W-6's own probe may answer). With a re-compile through the front door it fails `WALKER_RESERVE + weight` above the floor, i.e. many levels earlier |
 
@@ -867,10 +853,6 @@ Run on the final head only, debug and release. None has been run yet.
 | M-RX4 | one site bypasses the front door | trip-wire §6.4 |
 | M-RX5 | weight = total `|` count (the R0 rule) | `rx_concat_groups_depth_one` |
 | M-CC | one probe removed from a census cycle | the tracked cut check (§5.3), in addition to that probe's cell |
-| M-CP3a | CP-3a | `wasm_call_deep_js_then_wasm` (abort) |
-| M-CP3b | CP-3b | `wasm_instantiate_deep_js_then_wasm` (abort) |
-| M-CP3c | CP-3's ask reduced to `WALKER_RESERVE` (constant dropped from the ask) | `wasm_instantiate_deep_js_then_wasm` and `wasm_call_deep_js_then_wasm` (abort in the band) |
-| M-WS | `config.max_wasm_stack(MAX_WASM_STACK)` replaced by a larger value (e.g. 4 MiB), i.e. wasmtime's limit no longer the constant the probe asks for | `wasm_start_recursion_traps_at_top` (abort at the top of 2 MiB) and the two deep cells |
 | M-SC | `clone_regexp` re-compiles through the front door instead of copying | `sc_regexp_needs_no_compile_room` |
 
 ## §10. Hot-path probe cost
@@ -902,9 +884,8 @@ stubbed to `Ok(())`, same method), recorded in the PR body:
   after the run (both values recorded); ≥ 7 interleaved runs per build.
 - **Workloads**: the five above plus `parse` (compile of a 10⁴-statement generated script, × 5;
   W-7…W-9), `flat` (`flat(Infinity)` over 10⁵ × 3-deep arrays; W-10) and `rxlit` (a regexp literal
-  evaluated 10⁶ times; the front door's weight pass + gate) and `wasmcall` (an exported wasm
-  function of an empty body called 10⁶ times from JS; CP-3a. CP-3b, once per instantiation, is not on
-  a hot path and is not measured). W-12 is measured only if an IndexedDB
+  evaluated 10⁶ times; the front door's weight pass + gate). (`wasmcall`, CP-3a's workload, is
+  PR-1b §8's.) W-12 is measured only if an IndexedDB
   put of 10⁴ records is runnable in the test harness; otherwise it is listed as unmeasured.
 - **Band and verdict**: the noise band is the control row's |Δ min| on that run (floor 1 %). A
   probed row whose Δ min exceeds the band blocks; the PR then states the cost and the PM decides
@@ -925,17 +906,17 @@ stubbed to `Ok(())`, same method), recorded in the PR body:
   (`WALK=<w> CAP=590 <debug cd_probe> walker 1 2097152`, w ∈ parse stringify internalize sc;
   lowest remaining at a probe 898 895 / 604 175 / 397 807 / 371 519 B).
 - Forced fallback: umbrella §8 M-9. Bound source and span: umbrella §8 M-5.
-- JS→wasm entry near the floor (D-W): umbrella §8 M-11, `H/scripts/wasm_entry.sh`, log
-  `H/logs/wasm-entry.log` (numbers in §4.4). Guard off, the same entry aborts from debug D = 30 /
-  release D = 250 (versus `RuntimeError` at 25 / 200).
+- JS→wasm entry near the floor (D-W): moved with CP-3 to PR-1b §9.
 
 ## §12. Landing obligations
 
 What PR-1's implementation PR (or, where marked, the PM / PMO at its landing) must do. This memo
 records them; it edits neither the ledgers nor the slice-plan.
 
-- **L-1. Close `#11-vm-call-depth-guard`** (PM / PMO, live ledger): with PR-1's PR number and squash
-  sha, and a pointer to the tracked cut check (§5.3) as what keeps the closure true.
+- **L-1. `#11-vm-call-depth-guard` is not closed by PR-1** (D-K, PM 483): the live entry gains
+  "Rust-stack choke points CP-1 / CP-2 and the walkers landed in PR-1 (sha); the JS→wasm entries
+  remain open until PR-1b", with a pointer to the tracked cut check (§5.3). The closure is PR-1b's
+  (PR-1b §10 L-1).
 - **L-2. `#11-vm-json-walkers-iterative`'s trigger fires on PR-1** ("the next PR touching a JSON
   walker"). Handling: acknowledged and not taken. PR-1 touches the walkers only to add a probe at
   their existing depth-check site; making them iterative is that slot's own derivation (three
@@ -950,9 +931,16 @@ records them; it edits neither the ledgers nor the slice-plan.
   ~270–470 release" were abort depths; under PR-1 the callback depth ends in a `RangeError` at
   d≈30–42 / 250–409 (256 KiB reserve, umbrella §8 M-1), a figure that now depends on
   `WALKER_RESERVE` as well as frame size. The live entry is updated to say so.
-- **L-5. `#11-vm-js-frame-depth-limit`'s Promise facet**: ⟨PM pending: P6⟩; PR-1 does not change
-  it.
-- **L-6. `#11-dom-walkers-iterative-over-ecs-links` depends on the reserve.** Its live entry gains:
+- **L-5. `#11-vm-js-frame-depth-limit`'s Promise facet** is split out to its own slot
+  `#11-vm-microtask-self-chaining-unbounded` (PM 483): a self-chaining Promise inside one
+  `drain_microtasks` runs each job to completion and pops its frames, so neither PR-1's probes nor
+  PR-2's frame cap can stop it. PR-1 does not change it; the frame-depth slot keeps only the
+  plain-recursion facet (PR-2's).
+- **L-6. `#11-dom-walkers-iterative-over-ecs-links` depends on the reserve** (a soft edge PR-1 → that
+  slot; the slot is not a PR-1 precondition). L3 folds it with the capped-walker slot into one
+  umbrella: start ≈11-11, slice 1 (`elidex-ecs` `tree/walkers.rs` + the capped walker's 8 callers)
+  landing ≈11-14, the whole umbrella ≈end of November (L3 estimate via PM, 11-08) — after PR-1, so
+  this obligation holds during that window. Its live entry gains:
   "until it lands, the DOM walkers' only headroom near the limit is PR-1's `WALKER_RESERVE`
   (256 KiB); `stack_guard_reserve_margin_ratchet` (64 KiB) runs no DOM walker, so a DOM-walker
   frame-size change is not ratcheted".
@@ -964,20 +952,23 @@ records them; it edits neither the ledgers nor the slice-plan.
   `compile_regexp` as its compile path (stack-safety guard PR-1 §6.1)", and the
   `crate::regexp` re-check trigger of §5.3. Then `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-07-vm-p4-es-language-completeness.md`
   (rc 0) and `bash scripts/python-suites.sh` (the VM P4 family guard runs there).
-- **L-9. Breadth record**: `python3 .claude/skills/elidex-plan-review/preflight.py` on both memos at
-  the PR's head, rc and K / M as printed (it does not map the `IndexedDB-3` or `WebAssembly JS API`
-  labels; the hand count in §3 is K=4 / M=20 here and K=4 / M=21 in the umbrella).
-- **L-10. New slot**: `#11-vm-frontend-left-spine-iterative` (§5.4): ⟨PM pending: P8⟩ (proposal:
-  owner VM P4, acceptance = the `frontend_chain_*` cells compile a 10⁴-term chain on 2 MiB in both
-  profiles; or the PM re-homes it).
-- **L-11. Stale cites** (§3.3): the live entry of `#11-vm-structured-clone-layering-seam` gains the
-  list, so the seam's derivation re-cites them.
-- **L-12. CLAUDE.md §CI and `mise run ci`**: updated in the same PR if P5 adds a release step.
-- **L-13. `#11-wasm-user-import-host-fn-builder` inherits a guard obligation** (live entry, PM /
-  PMO): "JS imports called from wasm enter JS through `with_call_mode` (CP-1), and every JS→wasm
-  entry they lead to passes CP-3; acceptance gains a JS→wasm→JS→wasm recursion cell that ends in a
-  `RangeError` on a 2 MiB thread in both profiles (each instance has its own store, so wasmtime's
-  limit restarts at every nested entry; only CP-3 bounds the sum)".
+- **L-9. Breadth record**: `python3 .claude/skills/elidex-plan-review/preflight.py` on the umbrella,
+  this memo and PR-1b at the PR's head, rc and K / M as printed (it does not map the `IndexedDB-3`
+  or `WebAssembly JS API` labels; the hand count is K=3 / M=18 here, K=1 / M=2 in PR-1b and
+  K=4 / M=21 in the umbrella).
+- **L-10. `#11-vm-frontend-left-spine-iterative`** (§5.4): registered by PM 483, owner VM P4,
+  scheduled immediately after PR-1. Its live entry gains the acceptance proposed here (the
+  `frontend_chain_*` cells compile a 10⁴-term chain on 2 MiB in both profiles) and PR-1's stated
+  regression bands (§5.4), which it removes.
+- **L-11. Layering seam** (§3.3, §5.5): the live entry of `#11-vm-structured-clone-layering-seam`
+  gains the stale-cite list, so the seam's derivation re-cites them, and the three hand-off
+  obligations of §5.5 (W-6's probe, the front-door routing, the cut check's scope).
+- **L-12. CLAUDE.md §CI and `mise run ci`**: PR-1 adds the release step (PM 483 P5), so the §CI
+  text describing the `check` job becomes incomplete. The wording change is not made by this memo
+  nor chosen by PR-1: the proposed wording goes to the PM for user approval, and PR-1 applies the
+  approved text in the same PR (`mise run ci`'s list is part of the same proposal). If approval has
+  not come by PR-1's push, that is a blocker for PR-1, not a reason to land the step undocumented.
+- **L-13.** Moved with CP-3 to PR-1b §10 (the `#11-wasm-user-import-host-fn-builder` obligation).
 - **L-14. Boundary-crossing serializers re-compile through the front door** (live entries of
   `#11-worker-structured-serialize`, `#11-history-state-structured-serialize-fidelity`,
   `#11-idb-structured-clone-storage`, PM / PMO): "a RegExp crossing the boundary is deserialized by

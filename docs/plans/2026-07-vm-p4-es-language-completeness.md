@@ -644,7 +644,7 @@ constraint is recorded now rather than discovered in Slice 4a).
 | ECMA-262 §13.3.7.1 Evaluation (`super`) | `SuperCall` step 4 | ArgumentListEvaluation (spread variant) | `Op::SuperCallSpread` — already correct, folded onto helper | ✓ | yes |
 | ECMA-262 §13.2.4.1 ArrayAccumulation | steps 1-4 | `SpreadElement : ... AssignmentExpression` — `GetIterator(…, sync)` + `IteratorStepValue` drain, **no `IteratorClose`** | **[the child of umbrella 1a that removes `op_array_spread`'s `return()`]** `op_array_spread` (dec. 13a removes the non-spec `return()`) | ✓ | yes |
 | ECMA-262 §13.2.4.1 ArrayAccumulation | production | `Elision : ,` / `Elision : Elision ,` — array-literal **holes** | `expr.rs:105-119` — contrast only, NOT shared ([§9](2026-07-vm-p4-open-decisions.md) decision 3) | n/a (out of scope) | yes |
-| ECMA-262 §13.3.6.2 EvaluateCall | step 6 | `PrepareForTailCall()` | — | n/a (no tail calls in elidex) | no |
+| ECMA-262 §13.3.6.2 EvaluateCall | step 6 | `PrepareForTailCall()` | — | not implemented — a spec deviation on core (strict-only, so every tail position call is in scope of ECMA-262 §15.10.3 PrepareForTailCall); home `#11-vm-proper-tail-calls` (VM P4; re-evaluated at stack-safety guard PR-2's plan, PM 483) | yes |
 | ECMA-262 §13.3.5.1.1 EvaluateNew | steps 1-2 | constructExpr evaluation + GetValue | `expr.rs:89` callee compile | ✓ | yes |
 | ECMA-262 §13.3.5.1.1 EvaluateNew | step 3 | `argumentsNode` empty → new empty List | `ArgsForm::Flat(0)` (`new C`) | ✓ | yes |
 
