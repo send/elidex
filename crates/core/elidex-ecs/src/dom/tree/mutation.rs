@@ -250,11 +250,7 @@ impl EcsDom {
         if !self.contains(node) || !self.is_live_document(document) {
             return;
         }
-        let old_document = self.node_document(node);
-        self.detach_with_hook(node, None);
-        if old_document != Some(document) {
-            self.adopt_walk(node, document);
-        }
+        self.adopt_into(node, Some(document), None);
     }
 
     /// *Adopt* inside the primitives (DOM §4.2.3 *insert* step 7.1, *replace*
@@ -266,11 +262,18 @@ impl EcsDom {
     /// child's stamp as it is.
     fn adopt_for_insert(&mut self, child: Entity, parent: Entity) {
         let target = self.node_document_for_new_nodes(parent).document();
-        let old_document = self.node_document(child);
-        self.detach_with_hook(child, Some(parent));
+        self.adopt_into(child, target, Some(parent));
+    }
+
+    /// *Adopt* steps 1–3 shared by [`Self::adopt`] and the primitives: read
+    /// oldDocument, remove `node` (`new_parent` is the hook's insertion
+    /// target, if any), then walk iff `target` is `Some` and differs.
+    fn adopt_into(&mut self, node: Entity, target: Option<Entity>, new_parent: Option<Entity>) {
+        let old_document = self.node_document(node);
+        self.detach_with_hook(node, new_parent);
         if let Some(document) = target {
             if old_document != Some(document) {
-                self.adopt_walk(child, document);
+                self.adopt_walk(node, document);
             }
         }
     }

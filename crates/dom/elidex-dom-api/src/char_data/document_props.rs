@@ -71,11 +71,7 @@ impl DomApiHandler for GetNodeBaseURI {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let url = dom
-            .node_document(this)
-            .map_or_else(elidex_ecs::about_blank_url, |doc| {
-                crate::element::document_base::document_base_url(dom, doc)
-            });
+        let url = crate::element::document_base::node_document_base_url(dom, this);
         Ok(JsValue::String(url.as_str().into()))
     }
 }

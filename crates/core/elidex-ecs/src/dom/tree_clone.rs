@@ -197,13 +197,9 @@ impl EcsDom {
         };
         let root = self.clone_node_shallow_unchecked(src, stamp, &mut builder);
         pairs.push((src, root));
-        let propagate = if is_document {
-            // The copy is a Document: its own node document.
-            self.set_associated_document(root, root);
-            Some(root)
-        } else {
-            stamp
-        };
+        // A Document copy is its own node document (`node_document` reads it
+        // from the kind, no stamp); its descendants are stamped with it.
+        let propagate = if is_document { Some(root) } else { stamp };
         self.clone_children_recursive(src, root, propagate, pairs, &mut builder);
         Some(root)
     }
@@ -231,12 +227,12 @@ impl EcsDom {
         if !self.contains(src) {
             return None;
         }
-        if matches!(self.node_kind(src), Some(NodeKind::Document)) {
-            let copy = self.clone_node_shallow_unchecked(src, None, &mut EntityBuilder::new());
-            self.set_associated_document(copy, copy);
-            return Some(copy);
-        }
-        let stamp = document.document();
+        // A Document copy is its own node document (read from its kind).
+        let stamp = if matches!(self.node_kind(src), Some(NodeKind::Document)) {
+            None
+        } else {
+            document.document()
+        };
         Some(self.clone_node_shallow_unchecked(src, stamp, &mut EntityBuilder::new()))
     }
 

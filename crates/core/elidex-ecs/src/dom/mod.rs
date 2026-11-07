@@ -818,7 +818,7 @@ impl EcsDom {
     /// release builds keep the silent-skip safety net.
     fn validate_owner_document(&self, owner: Option<Entity>) -> Option<Entity> {
         let doc = owner?;
-        if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
+        if self.is_live_document(doc) {
             Some(doc)
         } else {
             debug_assert!(

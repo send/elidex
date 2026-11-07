@@ -48,10 +48,7 @@ fn effective_base_url(dom: &EcsDom, entity: Entity) -> Url {
         return elidex_ecs::about_blank_url();
     }
     // HTML §2.4.3: the document base URL of the element's node document.
-    dom.node_document(entity)
-        .map_or_else(elidex_ecs::about_blank_url, |doc| {
-            crate::element::document_base::document_base_url(dom, doc)
-        })
+    crate::element::document_base::node_document_base_url(dom, entity)
 }
 
 /// Read the `href` content attribute, resolve against the effective

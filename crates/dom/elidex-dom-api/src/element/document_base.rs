@@ -62,6 +62,14 @@ pub fn document_base_url(dom: &EcsDom, doc: Entity) -> Url {
         .map_or_else(about_blank_url, |c| c.0.clone())
 }
 
+/// The document base URL of `node`'s node document (HTML §2.4.3);
+/// [`about_blank_url`] for a node without one.
+#[must_use]
+pub(crate) fn node_document_base_url(dom: &EcsDom, node: Entity) -> Url {
+    dom.node_document(node)
+        .map_or_else(about_blank_url, |doc| document_base_url(dom, doc))
+}
+
 /// Walk a subtree and attach [`BaseFrozenUrl`] to each `<base>`
 /// element with an `href` attribute.  Returns `true` iff at least one
 /// `<base>` element was attached — caller uses this to skip the
