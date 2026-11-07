@@ -265,7 +265,7 @@ impl EcsDom {
     ///   load-bearing: the strict parse-error rollback is
     ///   `despawn_subtree(document)`, which reaches `root` and everything built
     ///   under it only through this link — without it the subtree leaks.
-    /// - [`FragmentParseRoot`] on root, carrying `context`'s node document
+    /// - `FragmentParseRoot` on root, carrying `context`'s node document
     ///   (step 15: the insertion target redirection map's entry for root,
     ///   whose fragment step 14 creates in the target's node document). Every
     ///   node created on behalf of root or below it takes its node document
