@@ -130,11 +130,18 @@ fn invoke_one(vm: &mut VmInner, reaction: CustomElementReaction) -> Result<(), V
             let cb_sid = ctx.vm.well_known.attribute_changed_callback;
             invoke_callback(&mut ctx, entity, cb_sid, &args);
         }
-        CustomElementReaction::Adopted { .. } => {
-            // v1 single-document VM never enqueues Adopted — the slot
-            // is reserved by `#11-custom-elements-adopted-callback`.
-            // Defensive no-op so an externally-injected Adopted does
-            // not panic.
+        CustomElementReaction::Adopted {
+            entity,
+            old_document,
+            new_document,
+        } => {
+            // HTML §4.13.6: `adoptedCallback` « oldDocument, document ».
+            // Each Document resolves to its wrapper as `ownerDocument`
+            // does (the identity cache), so `n === node.ownerDocument`.
+            let old = JsValue::Object(ctx.vm.create_element_wrapper(old_document));
+            let new = JsValue::Object(ctx.vm.create_element_wrapper(new_document));
+            let cb_sid = ctx.vm.well_known.adopted_callback;
+            invoke_callback(&mut ctx, entity, cb_sid, &[old, new]);
         }
     }
     Ok(())
