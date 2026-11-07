@@ -20,8 +20,9 @@ symlink, a gitlink) is skipped: there is no content to classify.
 Line unit: rows are keyed and numbered by '\n'-separated lines (as git and editors count), and a
 line is a hit when any of its str.splitlines() segments is denied, which is the unit the hook
 classifies (so a tag behind a CR, form feed or U+2028 does not cover a mention in another segment).
-Edits that narrow what the ratchet catches (adding an allowlist row, rewriting a row's class or
-slot, adding a path to SELF_FILES, narrowing the classifier) are invisible to it; elidex-review
+Edits that narrow what the ratchet catches (adding an allowlist row, moving a row's class to a
+lighter one or dropping / misdirecting a T/D row's slot, adding a path to SELF_FILES, narrowing the
+classifier) are invisible to it; elidex-review
 axes.md Axis 2 sub-check 2d (authority source) grades them.
 
 Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
@@ -123,7 +124,7 @@ def tracked_files(repo_root):
 
 
 def iter_texts(repo_root, exclude=()):
-    """Yield (path, text) for every tracked regular file without a NUL byte."""
+    """Yield (path, text) for every tracked regular file without a NUL in its first 8000 bytes."""
     for path in tracked_files(repo_root):
         if path in exclude:
             continue

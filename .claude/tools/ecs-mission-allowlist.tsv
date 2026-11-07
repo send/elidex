@@ -4,6 +4,7 @@
 # slot: '-' or a '#11-<kebab>' slot id. T and D rows must carry a slot.
 # Rows are sorted by (path, text). A row whose line was fixed, moved or tagged is stale: delete it (--prune does).
 # The allowlist only shrinks. A new untagged line is fixed by tagging it or rewording it, never by adding a row.
+# An untagged [contrast]/[history] line (axes.md 2d class X) is recorded as N.
 # Not scanned by the ratchet: this file (its rows would each be a hit for themselves) and SELF_FILES in ecs_mission_ratchet.py.
 N	-	.plan-z1b-consume-delta.md	- **Per-column CHROME** (box-fragment chrome painted per column) → committed-next (render walks the box
 N	-	.plan-z1b-consume-delta.md	- **per-column CHROME** (background spanning columns) stays G11 single-column (no improvement, **no
@@ -18,7 +19,7 @@ D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	///
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// JWK *format*, but every browser requires the full set and none recover the
 D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
 D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `RSA_MAX_MODULUS_BITS` (Firefox). WebCrypto §20.8.4 sets **no** import
-E	-	crates/api/elidex-api-crypto/src/tests/rsa/keygen.rs	// The generate ceiling (`MAX_RSA_GENERATE_MODULUS_BITS` = 8192, Chrome-faithful)
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/keygen.rs	// The generate ceiling (`MAX_RSA_GENERATE_MODULUS_BITS` = 8192, Chrome-faithful)
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/roundtrip.rs	// A CRT-less (d-only) private JWK is a DataError: every browser requires the
 N	-	crates/api/elidex-api-sw/src/sync.rs	//! Background Sync (WICG proposal — Chrome/Edge implemented).
 D	#11-design-docs-browser-lineage-rationale	crates/core/elidex-ecs/src/dom/mod.rs	/// This is the Servo-style version cache invalidation mechanism: any tree
@@ -48,7 +49,7 @@ S	-	crates/dom/elidex-dom-api/src/element/href_accessor.rs	/// canonical write p
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numeric_reflect.rs	/// 2^32); this saturating variant matches Chromium / Firefox
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numeric_reflect.rs	/// `long` IDL reflect is i32-clamped, mirroring Chromium / Firefox).
 S	-	crates/dom/elidex-dom-api/src/element/tests_tree.rs	// Browser parity (Chrome / Firefox / WebKit):
-T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/tree.rs	// memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
+T	#11-replace-child-self-records	crates/dom/elidex-dom-api/src/element/tree.rs	// memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
 S	-	crates/dom/elidex-dom-api/src/element/tree.rs	/// (replace step 1, ensure pre-insert validity step 3; matches Chrome/Firefox/WebKit).
 S	-	crates/dom/elidex-dom-api/src/range/live.rs	//! on a shadow-tree node succeeds (Chrome-compat), but mutations
 S	-	crates/dom/elidex-dom-api/src/range/mod.rs	// `(new_node, 0)`. This matches Chrome / Firefox observable

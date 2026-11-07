@@ -119,9 +119,9 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 
 1 件の等級 = max(下の bullet が付ける等級, その class の等級)。
 
-- 追加行のブラウザ言及に tag が無い → **IMP**。tracked file の tag 無し行は Write/Edit なら hook が、それ以外 (Bash 経由・hook 導入前の行) も `tools` job の ratchet が止める。review でしか捕まらないのは、中身と食い違う tag、tracked でない plan 本文の引用、次の bullet の編集
-- ratchet の **捕捉範囲を縮める編集** → **IMP** (T/D 行に関わるなら CRIT)。ratchet 自身には見えない。例: `.claude/tools/ecs-mission-allowlist.tsv` への行の追加、既存行の class / slot 列の書き換え、`ecs_mission_ratchet.py` の `SELF_FILES` (scan しない file の列) への path の追加、分類器の語彙を狭める・例外 (`TOOL_NAMES` / `UA_MARKERS` / N の分岐) を足す。allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。分類器は hook と同時にしか変えない (parity test)
-- **再キーは追加ではない**: 行のキーは (path, 行全文) なので、同じ diff で消えた行と、ブラウザへの言及が同じで path か行の他の部分だけが変わった行の組 (分割・rename・同じ行の別の箇所の編集) は、class と slot を引き継いでいれば等級を付けない (変えれば上の bullet)。ratchet を入れた PR の seed も追加として等級付けしない (分類は sweep と PM の決定による)
+- 追加行のブラウザ言及に tag が無い → **IMP**。新規の tag 無し行は Write/Edit なら hook が止め、それ以外 (Bash 経由等) も `tools` job の ratchet が PR を赤にする (seed 済みの既存行は allowlist で通る。赤は merge を止めない — CLAUDE.md「買えるものの範囲」)。review でしか捕まらないのは、中身と食い違う tag、tracked でない plan 本文の引用、次の bullet の編集
+- ratchet の **捕捉範囲を縮める編集** → **IMP** (T/D 行に関わるなら CRIT)。ratchet 自身には見えない。例: `.claude/tools/ecs-mission-allowlist.tsv` への行の追加、既存行の class を軽い側へ書き換える (T/D → S/E/C/N) か T/D 行の slot を外す・閉じた / 無関係の slot へ移す (重い側への訂正と、より具体的な open slot への移動は等級を付けない)、`ecs_mission_ratchet.py` の `SELF_FILES` (scan しない file の列) への path の追加、分類器の語彙を狭める・例外 (`TOOL_NAMES` / `UA_MARKERS` / N の分岐) を足す。allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。分類器は hook と同時にしか変えない (parity test)
+- **再キーは追加ではない**: 行のキーは (path, 行全文) なので、同じ diff で消えた行と、ブラウザ名を含む文 (節) が同じで path か行の他の部分だけが変わった行の組 (分割・rename・同じ行の別の箇所の編集) は、新しい行を中身で分類し直して引き継いだ class と一致し、slot も引き継いでいれば、追加としての等級を付けない (class が変わるなら上の bullet、中身の class の等級は常に付く)。ratchet を入れた PR の seed も追加として等級付けしない (分類は sweep と PM の決定による)。seed では tag の無い X の行を N として記録している (allowlist の class は S/E/C/T/D/N)
 - `[plan]` 仕様が沈黙している判断で、(1)→(2)→(3) の順に何を引いたか (仕様の節 / ECS 原則 / 実測の label) が書かれていない → **IMP**
 
 ### Detect (top-level)
