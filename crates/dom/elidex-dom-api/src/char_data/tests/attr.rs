@@ -489,13 +489,10 @@ fn u16_attr_entity_node_document_follows_creation_and_adoption() {
         )
         .unwrap();
     let cached = attr_entity(&node, &session);
-    let in_x = (
-        dom.get_associated_document(created),
-        dom.get_associated_document(cached),
-    );
+    let in_x = (dom.node_document(created), dom.node_document(cached));
     assert!(dom.append_child(d, el));
     assert_eq!(
-        [in_x.0, in_x.1, dom.get_associated_document(cached)],
+        [in_x.0, in_x.1, dom.node_document(cached)],
         [Some(x), Some(x), Some(d)],
         "CreateAttribute on X; GetAttributeNode on an element of X; the element appended under D"
     );

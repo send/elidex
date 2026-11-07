@@ -42,7 +42,7 @@ fn tag_of(dom: &EcsDom, n: Entity) -> Option<String> {
 fn unstamped(dom: &EcsDom, document: Entity) -> (usize, Vec<Option<String>>) {
     let off: Vec<Entity> = all_nodes(dom, document)
         .into_iter()
-        .filter(|&n| dom.get_associated_document(n) != Some(document))
+        .filter(|&n| dom.node_document(n) != Some(document))
         .collect();
     (off.len(), off.iter().map(|&n| tag_of(dom, n)).collect())
 }
@@ -66,10 +66,7 @@ fn u8_control_strict_foreign_elements_read_the_document() {
         .into_iter()
         .find(|&n| tag_of(&parsed.dom, n).as_deref() == Some("svg"))
         .expect("svg parsed");
-    assert_eq!(
-        parsed.dom.get_associated_document(svg),
-        Some(parsed.document)
-    );
+    assert_eq!(parsed.dom.node_document(svg), Some(parsed.document));
 }
 
 #[test]
@@ -84,5 +81,5 @@ fn u8_control_tolerant_template_contents_read_the_document() {
         })
         .expect("template parsed");
     let contents = dom.template_contents_fragment(template).unwrap();
-    assert_eq!(dom.get_associated_document(contents), Some(parsed.document));
+    assert_eq!(dom.node_document(contents), Some(parsed.document));
 }

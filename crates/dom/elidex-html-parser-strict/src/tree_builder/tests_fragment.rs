@@ -372,7 +372,7 @@ fn foreign_element_owner_survives_fragment_teardown() {
         "the <svg> is a foreign (SVG-namespace) element"
     );
     assert_eq!(
-        dom.get_associated_document(roots[0]),
+        dom.node_document(roots[0]),
         Some(doc),
         "the foreign owner is the caller's live document, not the throwaway"
     );

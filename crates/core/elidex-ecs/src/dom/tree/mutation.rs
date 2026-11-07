@@ -8,7 +8,7 @@ use super::super::mutation_event::MutationEvent;
 use super::super::EcsDom;
 use super::TemplateContentsWalk;
 use crate::components::AttrEntityCache;
-use crate::ElementState;
+use crate::{ElementState, NodeKind};
 use hecs::Entity;
 
 impl EcsDom {
@@ -237,7 +237,16 @@ impl EcsDom {
     /// A node without a node document (oldDocument `None`, no spec
     /// counterpart) is re-homed silently. A destroyed `node` or a `document`
     /// that is not a live Document is a no-op.
+    ///
+    /// `node` must not be a Document: every caller has already rejected one
+    /// (DOM *ensure pre-insert validity* step 4 before an insertion;
+    /// `adoptNode`'s step-1 `NotSupportedError` is its caller's), so this is
+    /// a debug assertion, not a check.
     pub fn adopt(&mut self, node: Entity, document: Entity) {
+        debug_assert!(
+            !matches!(self.node_kind(node), Some(NodeKind::Document)),
+            "adopt: a Document cannot be adopted (callers reject it first)"
+        );
         if !self.contains(node) || !self.is_live_document(document) {
             return;
         }

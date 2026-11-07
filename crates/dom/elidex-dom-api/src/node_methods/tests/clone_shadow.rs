@@ -157,17 +157,26 @@ fn clone_node_document_deep_threads_clone_doc_into_replicated_shadow() {
     // recursion, shadow children included, step 6.7).
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_with_owner(
+        "html",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(doc, html);
-    let host = dom.create_element("section", Attributes::default());
+    let host = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(html, host);
-    dom.set_associated_document(html, doc);
-    dom.set_associated_document(host, doc);
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, doc);
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(sr, span);
     wrap(doc, &mut session);
 
@@ -191,27 +200,37 @@ fn clone_node_document_deep_threads_clone_doc_into_replicated_shadow() {
 
 #[test]
 fn clone_node_shallow_shadow_children_carry_owner_document() {
-    // The shadow pass (pass 4) threads the host's owner document onto the
-    // replicated shadow children as the cloner's `doc_override`. The shadow
-    // sources belong to a DIFFERENT document (`other`) than the host (`doc`),
-    // so a pass that dropped the override would fall back to
-    // `owner_document(src)` (tree_clone.rs) and stamp `other` — on the shadow
-    // child and, through the recursion, on its descendants.
+    // The shadow pass (pass 4) threads the operation's document (one
+    // `NewNodeOwner`) onto the replicated shadow children. The shadow
+    // sources are created in a DIFFERENT document (`other`) and adopted into
+    // the host's (`doc`) when appended into its shadow root (DOM §4.2.3
+    // insert step 7.1), so the clone — the child and, through the recursion,
+    // its descendants — carries `doc`.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
     let other = dom.create_document_root();
     assert_ne!(doc, other);
-    let host = dom.create_element("section", Attributes::default());
-    dom.set_associated_document(host, doc);
+    let host = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, other);
-    let leaf = dom.create_element("em", Attributes::default());
-    dom.set_associated_document(leaf, other);
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(other),
+    );
+    let leaf = dom.create_element_with_owner(
+        "em",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(other),
+    );
     dom.append_child(span, leaf);
     dom.append_child(sr, span);
+    assert_eq!(dom.node_document(leaf), Some(doc), "adopted on insert");
     wrap(host, &mut session);
 
     let r = CloneNode
@@ -270,13 +289,19 @@ fn clone_node_shallow_shadow_root_carries_owner_document() {
     // `clonedHost.shadowRoot.ownerDocument` null.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let host = dom.create_element("section", Attributes::default());
-    dom.set_associated_document(host, doc);
+    let host = dom.create_element_with_owner(
+        "section",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let sr = dom
         .attach_shadow_with_init(host, clonable_init())
         .expect("attach clonable shadow");
-    let span = dom.create_element("span", Attributes::default());
-    dom.set_associated_document(span, doc);
+    let span = dom.create_element_with_owner(
+        "span",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(sr, span);
     wrap(host, &mut session);
 

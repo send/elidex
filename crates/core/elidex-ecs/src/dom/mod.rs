@@ -831,7 +831,7 @@ impl EcsDom {
     /// The raw component — readers use [`node_document`](Self::node_document),
     /// which adds the Document self-case and the liveness check.
     #[must_use]
-    pub fn get_associated_document(&self, entity: Entity) -> Option<Entity> {
+    pub(crate) fn get_associated_document(&self, entity: Entity) -> Option<Entity> {
         self.world
             .get::<&AssociatedDocument>(entity)
             .ok()
@@ -843,7 +843,7 @@ impl EcsDom {
     ///
     /// Idempotent: inserts when absent, updates in place when present.
     /// Returns `false` if the entity has been destroyed.
-    pub fn set_associated_document(&mut self, entity: Entity, doc: Entity) -> bool {
+    pub(crate) fn set_associated_document(&mut self, entity: Entity, doc: Entity) -> bool {
         if !self.contains(entity) {
             return false;
         }

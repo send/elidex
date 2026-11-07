@@ -511,5 +511,5 @@ fn u20_control_spawn_with_document_is_in_that_document() {
     let doc = dom.create_document_root();
     let e = spawn_custom_element_entity(&mut dom, "x-e", "x-e", Some(doc))
         .expect("spawned for a document");
-    assert_eq!(dom.get_associated_document(e), Some(doc));
+    assert_eq!(dom.node_document(e), Some(doc));
 }

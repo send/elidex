@@ -32,32 +32,25 @@ fn associated_document_for_text_comment_fragment() {
 }
 
 #[test]
-fn owner_document_resolves_through_detached_fragment_root() {
-    // A child appended under a detached `DocumentFragment` (e.g. a
-    // `createDocumentFragment()`'s content, or parsed `<template>` content)
-    // has no `AssociatedDocument` of its own, so its tree root is the
-    // fragment — `owner_document` resolves THROUGH the fragment's own
-    // `AssociatedDocument` rather than dead-ending at `None`. (General DOM
-    // node-document inheritance; the template path relies on this.)
+fn fragment_child_is_adopted_into_the_fragments_node_document() {
+    // A node appended under a `DocumentFragment` is adopted into the
+    // fragment's node document (DOM §4.2.3 insert step 7.1), its subtree
+    // included; nothing is derived from the tree root afterwards.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(doc));
-    // The child gets NO owner of its own (mirrors a tolerant-parsed node).
+    // Ownerless fixture nodes (production cannot create them).
     let child = dom.create_element("span", crate::components::Attributes::default());
     let grandchild = dom.create_text("x");
     assert!(dom.append_child(child, grandchild));
     assert!(dom.append_child(frag, child));
-    assert_eq!(
-        dom.owner_document(child),
-        Some(doc),
-        "fragment child inherits the fragment's node document"
-    );
+    assert_eq!(dom.owner_document(child), Some(doc), "adopted on insert");
     assert_eq!(
         dom.owner_document(grandchild),
         Some(doc),
-        "deep fragment descendant also inherits it"
+        "the adopt walk reaches the descendants"
     );
-    // A fragment with NO owner leaves its descendants owner-less (unchanged).
+    // A fragment with NO node document leaves its descendants without one.
     let orphan_frag = dom.create_document_fragment();
     let orphan_child = dom.create_element("p", crate::components::Attributes::default());
     assert!(dom.append_child(orphan_frag, orphan_child));
@@ -65,16 +58,16 @@ fn owner_document_resolves_through_detached_fragment_root() {
 }
 
 #[test]
-fn owner_document_fallback_without_component() {
-    // Legacy creation paths (no owner argument) leave the component
-    // absent.  `owner_document` then falls back to the tree-root walk:
-    // an entity inserted into the document reports that document,
-    // while a fully detached entity reports None.
+fn ownerless_node_is_adopted_on_insert_and_a_detached_one_has_none() {
+    // A fixture node created without a node document is adopted when it is
+    // inserted into a document's tree; a detached one has none (no
+    // position-based derivation).
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let attached = elem(&mut dom, "div");
+    assert_eq!(dom.node_document(attached), None);
     assert!(dom.append_child(doc, attached));
-    assert_eq!(dom.get_associated_document(attached), None);
+    assert_eq!(dom.node_document(attached), Some(doc));
     assert_eq!(dom.owner_document(attached), Some(doc));
 
     let orphan = elem(&mut dom, "span");
@@ -152,10 +145,8 @@ fn clone_subtree_document_self_reference_and_descendants() {
         )
         .expect("clone_subtree");
     // Document.ownerDocument is always null per spec, so the accessor
-    // returns None; but the internal AssociatedDocument points at the
-    // clone itself (self-ref), which matters when descendants look up
-    // their owner through tree-root walks.
-    assert_eq!(dom.get_associated_document(clone_doc), Some(clone_doc));
+    // returns None; the clone is its own node document.
+    assert_eq!(dom.node_document(clone_doc), Some(clone_doc));
     assert_eq!(dom.owner_document(clone_doc), None);
 
     let kids = dom.children(clone_doc);
@@ -185,18 +176,16 @@ fn create_with_owner_skips_component_when_owner_is_not_a_document() {
     let node = dom.create_element_with_owner("div", Attributes::default(), NewNodeOwner::NONE);
     let _ = dom
         .world_mut()
-        .insert_one(node, crate::AssociatedDocument(fake_owner));
-    // Read-time validation drops the non-Document pointer and falls
-    // through to the tree-root walk (which has no Document either),
-    // yielding None.
+        .insert_one(node, crate::components::AssociatedDocument(fake_owner));
+    // Read-time validation drops the non-Document pointer, yielding None.
     assert_eq!(dom.owner_document(node), None);
 }
 
 #[test]
-fn owner_document_skips_destroyed_associated_document() {
-    // If the associated Document has been destroyed, `owner_document`
-    // must not hand back a ghost Entity — it falls through to the
-    // tree-root walk so callers keep observing real entities only.
+fn owner_document_of_a_destroyed_document_is_none() {
+    // If the node document has been destroyed, `node_document` must not hand
+    // back a ghost Entity, and nothing falls back to the tree root: a node in
+    // a live document's tree whose stored document is gone reads `None`.
     let mut dom = EcsDom::new();
     let real_doc = dom.create_document_root();
     let ghost_doc = dom
@@ -205,11 +194,13 @@ fn owner_document_skips_destroyed_associated_document() {
     let div = dom.create_element_with_owner(
         "div",
         Attributes::default(),
-        dom.node_document_for_new_nodes(ghost_doc),
+        dom.node_document_for_new_nodes(real_doc),
     );
-    // Attach to the real document so the fallback walk can find it.
     assert!(dom.append_child(real_doc, div));
-    // Now destroy the ghost document.
+    // The stored document points at the ghost (a state only a later
+    // destruction produces), then the ghost is destroyed.
+    assert!(dom.set_associated_document(div, ghost_doc));
     dom.destroy_entity(ghost_doc);
-    assert_eq!(dom.owner_document(div), Some(real_doc));
+    assert_eq!(dom.node_document(div), None);
+    assert_eq!(dom.owner_document(div), None);
 }

@@ -285,9 +285,9 @@ fn cloned_subtree_owner_document_matches_src_subtree() {
 
 #[test]
 fn associated_document_set_by_create_native_observable_via_ecs() {
-    // White-box: after `document.createElement("span")` the ECS
-    // AssociatedDocument component must resolve directly to the bound
-    // document entity without falling back to the tree-root walk.
+    // White-box: after `document.createElement("span")` the element's node
+    // document (`EcsDom::node_document`, the stored fact) is the bound
+    // document while it is still detached.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -307,6 +307,6 @@ fn associated_document_set_by_create_native_observable_via_ecs() {
     vm.unbind();
 
     let entity = elidex_ecs::Entity::from_bits(entity_bits).unwrap();
-    assert_eq!(dom.get_associated_document(entity), Some(doc));
+    assert_eq!(dom.node_document(entity), Some(doc));
     assert_eq!(dom.owner_document(entity), Some(doc));
 }

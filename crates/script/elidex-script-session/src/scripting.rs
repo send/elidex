@@ -153,13 +153,11 @@ mod tests {
     }
 
     #[test]
-    fn appended_foreign_node_is_adopt_equivalent_not_suppressed() {
+    fn appended_foreign_node_is_adopted_not_suppressed() {
         let (mut dom, doc, doc2, foreign) = two_doc_fixture();
-        // Move the foreign node into the bound document's tree. elidex's
-        // `append_child` does NOT adopt (`AssociatedDocument` still points
-        // at doc2) — the predicate's tree-root rule must treat it as
-        // adopted (DOM §4.2.3 insert step 7 substep 1, "adopt node into
-        // parent's node document").
+        // Move the foreign node into the bound document's tree: the append
+        // adopts it (DOM §4.2.3 insert step 7.1, "adopt node into parent's
+        // node document"), so its node document is the bound document.
         assert!(dom.remove_child(doc2, foreign));
         let container = dom.create_element_with_owner(
             "div",
@@ -168,20 +166,18 @@ mod tests {
         );
         assert!(dom.append_child(doc, container));
         assert!(dom.append_child(container, foreign));
-        assert_eq!(
-            dom.get_associated_document(foreign),
-            Some(doc2),
-            "fixture: append must NOT have adopted (else this test pins nothing)"
-        );
+        assert_eq!(dom.node_document(foreign), Some(doc), "adopted on insert");
         assert!(!scripting_disabled_for_platform_object(
             &dom,
             foreign,
             doc,
             UNSANDBOXED
         ));
-        // Removed again: back to the stale-owner comparison → suppressed.
+        // Removed again: a removal does not adopt, so the node keeps the
+        // bound document → still not suppressed.
         assert!(dom.remove_child(container, foreign));
-        assert!(scripting_disabled_for_platform_object(
+        assert_eq!(dom.node_document(foreign), Some(doc));
+        assert!(!scripting_disabled_for_platform_object(
             &dom,
             foreign,
             doc,
@@ -191,12 +187,9 @@ mod tests {
 
     #[test]
     fn bound_created_node_appended_into_foreign_doc_is_suppressed() {
-        // Mirror of `appended_foreign_node_is_adopt_equivalent_not_suppressed`:
-        // a node CREATED by the bound document then appended INTO the
-        // foreign (`DOMParser`-like) tree. `append_child` does NOT adopt,
-        // so `AssociatedDocument` still points at the bound document
-        // (stale) — the directional rule would read that and NOT suppress,
-        // but the effective node document is the foreign tree root, whose
+        // Mirror of `appended_foreign_node_is_adopted_not_suppressed`: a node
+        // CREATED by the bound document then appended INTO the foreign
+        // (`DOMParser`-like) tree is adopted into it; that document's
         // browsing context is null → clause (b) SUPPRESSES.
         let (mut dom, doc, doc2, _foreign) = two_doc_fixture();
         let el = dom.create_element_with_owner(
@@ -205,11 +198,7 @@ mod tests {
             dom.node_document_for_new_nodes(doc),
         );
         assert!(dom.append_child(doc2, el));
-        assert_eq!(
-            dom.get_associated_document(el),
-            Some(doc),
-            "fixture: append must NOT have adopted (else this test pins nothing)"
-        );
+        assert_eq!(dom.node_document(el), Some(doc2), "adopted on insert");
         assert!(scripting_disabled_for_platform_object(
             &dom,
             el,
@@ -245,8 +234,9 @@ mod tests {
     #[test]
     fn unresolvable_owner_fails_open() {
         let (mut dom, doc, _doc2, _foreign) = two_doc_fixture();
-        // Legacy-style element: no `AssociatedDocument`, detached — the
-        // owner is unresolvable and the verdict fails open.
+        // A fixture element without a node document (production cannot
+        // create one): the node document is unresolvable and the verdict
+        // fails open.
         let orphan = dom.create_element("div", Attributes::default());
         assert!(!scripting_disabled_for_platform_object(
             &dom,

@@ -613,11 +613,10 @@ fn fragment_parsed_template_content_owner_is_context_document() {
 
 #[test]
 fn fragment_template_content_documentless_context_is_unstamped_in_both_backends() {
-    // A documentless context skips the `finish_detached_fragment` adopt, so a
-    // content fragment stamped with the throwaway fragment document would keep a
-    // dangling `AssociatedDocument`. Both backends must leave it unstamped.
-    // (`get_associated_document` is the raw component: `owner_document` hides a
-    // destroyed document and would pass even with the dangling stamp.)
+    // A documentless context: every node the build creates takes the fragment
+    // root's redirect (`None`), never the throwaway document (C0b D-10; the
+    // stamp itself is crate-private, pinned in `elidex-ecs` by U11), so the
+    // content fragment has no node document in either backend.
     for strict in [true, false] {
         let mut dom = EcsDom::new();
         let context = dom.create_element("div", Attributes::default());
@@ -636,7 +635,7 @@ fn fragment_template_content_documentless_context_is_unstamped_in_both_backends(
             .template_contents_fragment(template)
             .expect("content fragment");
         assert_eq!(
-            dom.get_associated_document(fragment),
+            dom.node_document(fragment),
             None,
             "content fragment stamp (strict={strict})"
         );

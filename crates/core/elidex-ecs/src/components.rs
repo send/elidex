@@ -582,7 +582,7 @@ pub struct DocTypeData {
 /// document — no position is consulted. Crate-private: no code outside
 /// `elidex-ecs` can write or read it directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AssociatedDocument(pub Entity);
+pub(crate) struct AssociatedDocument(pub(crate) Entity);
 
 /// Marks the root of a WHATWG HTML §13.4 fragment build
 /// (*HTML fragment parsing algorithm*, `#html-fragment-parsing-algorithm`):
