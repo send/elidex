@@ -75,8 +75,8 @@ fn owner_document_of_node_in_cloned_document_is_that_clone() {
     // under — for nodes inside a cloned Document, that's the clone,
     // not the bound global document.
     let (mut vm, mut session, mut dom, doc) = setup();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
 
@@ -477,8 +477,8 @@ fn setup_fixture() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     (vm, session, dom, doc)
@@ -748,8 +748,8 @@ fn compare_document_position_same_tree_following_js() {
 fn get_root_node_attached_returns_document() {
     let (mut vm, mut session, mut dom, doc) = setup();
     // Build: doc > html > p
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let p = dom.create_element("p", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let p = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, p));
 

@@ -257,7 +257,8 @@ impl Range {
     ///   (broadened to all CharacterData in B1.3-ii F5), extract keeps the
     ///   `NodeKind::Text` guards below because the spec clones the boundary node
     ///   into the fragment (steps 4.1/17.1/20.1) and the clone here uses
-    ///   `create_text` — a Comment needs a `create_comment` clone (non-trivial).
+    ///   `create_text_with_owner` — a Comment needs a `create_comment_with_owner`
+    ///   clone (non-trivial).
     ///   Deferred to `#11-range-comment-extract-clone` (B1.3-ii plan §8); a
     ///   same-container Comment `extractContents` is a no-op this slice
     ///   (`deleteContents` on the same range DOES splice + record).

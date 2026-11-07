@@ -9,10 +9,10 @@ use elidex_script_session::MutationKind;
 
 fn build_range_tree() -> (EcsDom, Entity, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("Hello");
-    let span = dom.create_element("span", Attributes::default());
-    let t2 = dom.create_text(" World");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("Hello");
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let t2 = dom.create_text_ownerless_fixture(" World");
 
     dom.append_child(root, t1);
     dom.append_child(root, span);
@@ -155,11 +155,11 @@ fn range_extract_contents() {
 #[test]
 fn range_delete_contents_omits_nested_removal_records() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("a");
-    let wrap = dom.create_element("wrap", Attributes::default());
-    let inner = dom.create_element("inner", Attributes::default());
-    let t2 = dom.create_text("b");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("a");
+    let wrap = dom.create_element_ownerless_fixture("wrap", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("inner", Attributes::default());
+    let t2 = dom.create_text_ownerless_fixture("b");
     dom.append_child(root, t1);
     dom.append_child(root, wrap);
     dom.append_child(wrap, inner);
@@ -202,11 +202,11 @@ fn range_delete_contents_omits_nested_removal_records() {
 #[test]
 fn range_delete_contents_excludes_nodes_before_element_start_offset() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let c0 = dom.create_element("a", Attributes::default());
-    let c1 = dom.create_element("b", Attributes::default());
-    let c2 = dom.create_element("c", Attributes::default());
-    let tail = dom.create_text("z");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let c0 = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("b", Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("c", Attributes::default());
+    let tail = dom.create_text_ownerless_fixture("z");
     dom.append_child(root, c0);
     dom.append_child(root, c1);
     dom.append_child(root, c2);
@@ -252,10 +252,10 @@ fn range_delete_contents_excludes_nodes_before_element_start_offset() {
 #[test]
 fn range_insert_node_rejects_shadow_root_before_split() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("hello");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("hello");
     dom.append_child(root, t);
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, host);
     let shadow = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
 
@@ -281,8 +281,8 @@ fn range_to_string_utf16_offsets() {
     // Test that Range offsets are treated as UTF-16 code units.
     // U+1F600 is 4 bytes in UTF-8 but 2 UTF-16 code units.
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("A\u{1F600}B"); // "A<emoji>B" = 3 chars, 4 UTF-16 units
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("A\u{1F600}B"); // "A<emoji>B" = 3 chars, 4 UTF-16 units
     dom.append_child(root, t);
 
     let mut range = Range::new(t);
@@ -301,8 +301,8 @@ fn range_to_string_utf16_offsets() {
 #[test]
 fn range_delete_utf16_offsets() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("A\u{1F600}B");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("A\u{1F600}B");
     dom.append_child(root, t);
 
     let mut range = Range::new(t);
@@ -317,8 +317,8 @@ fn range_delete_utf16_offsets() {
 #[test]
 fn range_select_node_contents_utf16() {
     let mut dom = EcsDom::new();
-    let root = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("A\u{1F600}B");
+    let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("A\u{1F600}B");
     dom.append_child(root, t);
 
     let mut range = Range::new(t);
@@ -335,7 +335,7 @@ fn range_insert_node() {
     range.set_start(t1, 2);
     range.set_end(t1, 2);
 
-    let new_elem = dom.create_element("b", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("b", Attributes::default());
     let outcome = range.insert_node(&mut dom, new_elem);
     let (parent, new_offset, _records) =
         outcome.expect("insert_node into attached text node must succeed");
@@ -357,10 +357,10 @@ fn range_insert_node() {
 fn range_extract_contents_element_children() {
     // Test extracting element nodes (not just text).
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
-    let a = dom.create_element("a", Attributes::default());
-    let b = dom.create_element("b", Attributes::default());
-    let c = dom.create_element("c", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
+    let c = dom.create_element_ownerless_fixture("c", Attributes::default());
     dom.append_child(div, a);
     dom.append_child(div, b);
     dom.append_child(div, c);
@@ -417,8 +417,8 @@ fn range_extract_contents_cross_container() {
 #[test]
 fn comment_delete_contents_adjusts_other_live_ranges() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let comment = dom.create_comment("hello world");
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let comment = dom.create_comment_ownerless_fixture("hello world");
     let _ = dom.append_child(parent, comment);
     let (mut reg, bridge) = LiveRangeRegistry::new_pair();
     dom.set_mutation_dispatcher(make_range_only_test_dispatcher(bridge));

@@ -27,7 +27,7 @@ fn inline_style_overrides_author() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("style", "color: blue");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let css = "div { color: red; }";
@@ -43,7 +43,7 @@ fn author_important_overrides_inline() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("style", "color: blue");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let css = "div { color: red !important; }";
@@ -70,8 +70,8 @@ fn ua_stylesheet_body_margin() {
 #[test]
 fn inherit_keyword() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, div);
     dom.append_child(div, span);
 
@@ -94,8 +94,8 @@ fn initial_keyword() {
 #[test]
 fn unset_keyword() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, div);
     dom.append_child(div, span);
 
@@ -115,7 +115,7 @@ fn mixed_ua_author_inline() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("style", "margin-left: 20px");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let css = "div { margin-top: 10px; }";
@@ -165,9 +165,9 @@ fn currentcolor_background() {
 fn head_display_none() {
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, html);
     dom.append_child(html, head);
     dom.append_child(html, body);
@@ -193,7 +193,7 @@ fn rem_uses_html_font_size() {
 #[test]
 fn multiple_author_stylesheets_ordering() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     // ss1 has extra rules so its source_order for div{color:red} > ss2's source_order.

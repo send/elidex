@@ -27,7 +27,7 @@ fn matches_class() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "active");
-    let el = dom.create_element("div", attrs);
+    let el = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
 
     let handler = Matches;
@@ -136,8 +136,8 @@ fn closest_none() {
 #[test]
 fn closest_skips_text() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, text);
     let mut session = SessionCore::new();
 
@@ -201,11 +201,11 @@ fn closest_stops_at_non_element_parent() {
     let mut dom = EcsDom::new();
     let mut host_attrs = Attributes::default();
     host_attrs.set("id", "host");
-    let host = dom.create_element("div", host_attrs);
+    let host = dom.create_element_ownerless_fixture("div", host_attrs);
     let shadow = dom
         .attach_shadow(host, ShadowRootMode::Open)
         .expect("attach_shadow");
-    let inner = dom.create_element("article", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("article", Attributes::default());
     assert!(dom.append_child(shadow, inner));
     let mut session = SessionCore::new();
 

@@ -9,13 +9,13 @@ fn compat_extra_ua_and_hints_combined() {
     let (mut dom, _root, _html, body) = build_simple_dom();
 
     // Create a <b> element (needs legacy UA for font-weight: bolder)
-    let b = dom.create_element("b", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     dom.append_child(body, b);
 
     // Create an img with bgcolor (needs hint_generator for background-color)
     let mut attrs = Attributes::default();
     attrs.set("bgcolor", "red");
-    let div = dom.create_element("body", attrs);
+    let div = dom.create_element_ownerless_fixture("body", attrs);
     dom.append_child(body, div);
 
     // Extra UA sheet with b { font-weight: bolder; }
@@ -61,7 +61,7 @@ fn compat_extra_ua_and_hints_combined() {
 fn compat_hint_loses_to_author_selector() {
     // Hint (author origin, specificity (0,0,0)) should lose to author rule.
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let author = parse_stylesheet("div { background-color: blue; }", Origin::Author);
@@ -92,11 +92,11 @@ fn compat_hint_loses_to_author_selector() {
 #[test]
 fn a2_host_rule_applied_to_shadow_host() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
     let sr = setup_shadow_with_style(&mut dom, host, ":host { color: red; }");
-    let inner = dom.create_element("span", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(sr, inner);
 
     resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
@@ -108,11 +108,11 @@ fn a2_host_rule_applied_to_shadow_host() {
 #[test]
 fn a2_outer_rule_beats_host_rule() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
     let sr = setup_shadow_with_style(&mut dom, host, ":host { color: red; }");
-    let inner = dom.create_element("span", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(sr, inner);
 
     let outer = parse_stylesheet("div { color: blue; }", Origin::Author);
@@ -125,14 +125,14 @@ fn a2_outer_rule_beats_host_rule() {
 #[test]
 fn a3_slotted_rule_applied_to_slotted_node() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
-    let light_p = dom.create_element("p", Attributes::default());
+    let light_p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(host, light_p);
 
     let sr = setup_shadow_with_style(&mut dom, host, "::slotted(p) { color: red; }");
-    let slot = dom.create_element("slot", Attributes::default());
+    let slot = dom.create_element_ownerless_fixture("slot", Attributes::default());
     dom.append_child(sr, slot);
 
     resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
@@ -144,14 +144,14 @@ fn a3_slotted_rule_applied_to_slotted_node() {
 #[test]
 fn a3_outer_rule_beats_slotted_rule() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
-    let light_p = dom.create_element("p", Attributes::default());
+    let light_p = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(host, light_p);
 
     let sr = setup_shadow_with_style(&mut dom, host, "::slotted(p) { color: red; }");
-    let slot = dom.create_element("slot", Attributes::default());
+    let slot = dom.create_element_ownerless_fixture("slot", Attributes::default());
     dom.append_child(sr, slot);
 
     let outer = parse_stylesheet("p { color: blue; }", Origin::Author);
@@ -164,15 +164,15 @@ fn a3_outer_rule_beats_slotted_rule() {
 #[test]
 fn a1_nested_slot_gets_styled() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
-    let light = dom.create_element("span", Attributes::default());
+    let light = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(host, light);
 
     let sr = setup_shadow_with_style(&mut dom, host, "::slotted(span) { color: green; }");
-    let wrapper = dom.create_element("div", Attributes::default());
-    let slot = dom.create_element("slot", Attributes::default());
+    let wrapper = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let slot = dom.create_element_ownerless_fixture("slot", Attributes::default());
     dom.append_child(sr, wrapper);
     dom.append_child(wrapper, slot);
 
@@ -185,11 +185,11 @@ fn a1_nested_slot_gets_styled() {
 #[test]
 fn shadow_inherited_props_cross_boundary() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
     let sr = setup_shadow_with_style(&mut dom, host, "");
-    let inner = dom.create_element("span", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(sr, inner);
 
     let outer = parse_stylesheet("div { font-size: 24px; }", Origin::Author);
@@ -205,7 +205,7 @@ fn shadow_inherited_props_cross_boundary() {
 #[test]
 fn b2_host_not_matched_outside_shadow_context() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
 
     let _sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
@@ -222,11 +222,11 @@ fn host_function_rule_matches_host() {
     let (mut dom, _root, _html, body) = build_simple_dom();
     let mut attrs = Attributes::default();
     attrs.set("class", "special");
-    let host = dom.create_element("div", attrs);
+    let host = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, host);
 
     let sr = setup_shadow_with_style(&mut dom, host, ":host(.special) { color: red; }");
-    let inner = dom.create_element("span", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(sr, inner);
 
     resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));
@@ -240,15 +240,15 @@ fn nested_shadow_hosts_have_isolated_styles() {
     let (mut dom, _root, _html, body) = build_simple_dom();
 
     // Outer shadow host with :host { color: red }.
-    let outer_host = dom.create_element("div", Attributes::default());
+    let outer_host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, outer_host);
     let outer_sr = setup_shadow_with_style(&mut dom, outer_host, ":host { color: red; }");
 
     // Inner shadow host inside the outer shadow tree.
-    let inner_host = dom.create_element("div", Attributes::default());
+    let inner_host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(outer_sr, inner_host);
     let inner_sr = setup_shadow_with_style(&mut dom, inner_host, ":host { color: blue; }");
-    let leaf = dom.create_element("span", Attributes::default());
+    let leaf = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(inner_sr, leaf);
 
     resolve_styles(&mut dom, &[], Size::new(1920.0, 1080.0));

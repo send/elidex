@@ -633,7 +633,7 @@ fn shadow_host_hides_shadow_root_from_light_tree_traversal() {
     let shadow_root = dom
         .attach_shadow(div, ShadowRootMode::Open)
         .expect("attach_shadow");
-    let shadow_el = dom.create_element("article", Attributes::default());
+    let shadow_el = dom.create_element_ownerless_fixture("article", Attributes::default());
     assert!(dom.append_child(shadow_root, shadow_el));
 
     #[allow(unsafe_code)]
@@ -675,9 +675,9 @@ fn shadow_host_has_child_nodes_false_when_only_shadow_root() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    let host = dom.create_element("section", {
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("section", {
         let mut a = Attributes::default();
         a.set("id", "shadow-host");
         a
@@ -726,7 +726,7 @@ fn contains_stops_at_shadow_boundary() {
     let shadow_root = dom
         .attach_shadow(div, ShadowRootMode::Open)
         .expect("attach_shadow");
-    let shadow_el = dom.create_element("article", Attributes::default());
+    let shadow_el = dom.create_element_ownerless_fixture("article", Attributes::default());
     assert!(dom.append_child(shadow_root, shadow_el));
 
     #[allow(unsafe_code)]
@@ -762,7 +762,7 @@ fn closest_stops_at_shadow_boundary() {
     let shadow_root = dom
         .attach_shadow(div, ShadowRootMode::Open)
         .expect("attach_shadow");
-    let inner = dom.create_element("article", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("article", Attributes::default());
     assert!(dom.append_child(shadow_root, inner));
 
     #[allow(unsafe_code)]

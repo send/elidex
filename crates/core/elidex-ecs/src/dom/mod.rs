@@ -394,7 +394,11 @@ impl EcsDom {
     /// (production creators take a [`NewNodeOwner`] from
     /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
     #[cfg(any(test, feature = "fixtures"))]
-    pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
+    pub fn create_element_ownerless_fixture(
+        &mut self,
+        tag: impl Into<String>,
+        attrs: Attributes,
+    ) -> Entity {
         self.create_element_with_owner(tag, attrs, NewNodeOwner::NONE)
     }
 
@@ -551,7 +555,7 @@ impl EcsDom {
     /// (production creators take a [`NewNodeOwner`] from
     /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
     #[cfg(any(test, feature = "fixtures"))]
-    pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
+    pub fn create_text_ownerless_fixture(&mut self, text: impl Into<String>) -> Entity {
         self.create_text_with_owner(text, NewNodeOwner::NONE)
     }
 
@@ -577,7 +581,7 @@ impl EcsDom {
     /// (production creators take a [`NewNodeOwner`] from
     /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
     #[cfg(any(test, feature = "fixtures"))]
-    pub fn create_document_fragment(&mut self) -> Entity {
+    pub fn create_document_fragment_ownerless_fixture(&mut self) -> Entity {
         self.create_document_fragment_with_owner(NewNodeOwner::NONE)
     }
 
@@ -645,7 +649,7 @@ impl EcsDom {
     /// (production creators take a [`NewNodeOwner`] from
     /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
     #[cfg(any(test, feature = "fixtures"))]
-    pub fn create_comment(&mut self, data: impl Into<String>) -> Entity {
+    pub fn create_comment_ownerless_fixture(&mut self, data: impl Into<String>) -> Entity {
         self.create_comment_with_owner(data, NewNodeOwner::NONE)
     }
 

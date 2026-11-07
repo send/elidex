@@ -13,9 +13,9 @@ fn styled_runs_collect_from_nested_span() {
         dom.remove_child(parent, c);
     }
 
-    let text1 = dom.create_text("Hello ");
+    let text1 = dom.create_text_ownerless_fixture("Hello ");
     dom.append_child(parent, text1);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let span_style = ComputedStyle {
         font_size: 24.0,
         font_family: style.font_family.clone(),
@@ -23,7 +23,7 @@ fn styled_runs_collect_from_nested_span() {
     };
     let _ = dom.world_mut().insert_one(span, span_style);
     dom.append_child(parent, span);
-    let text2 = dom.create_text("World");
+    let text2 = dom.create_text_ownerless_fixture("World");
     dom.append_child(span, text2);
 
     let children = dom.composed_children(parent);
@@ -45,9 +45,9 @@ fn multi_style_line_height_uses_max() {
         dom.remove_child(parent, c);
     }
 
-    let text1 = dom.create_text("A");
+    let text1 = dom.create_text_ownerless_fixture("A");
     dom.append_child(parent, text1);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let big_style = ComputedStyle {
         font_size: 32.0,
         font_family: style.font_family.clone(),
@@ -56,7 +56,7 @@ fn multi_style_line_height_uses_max() {
     let big_line_height = big_style.line_height.resolve_px(big_style.font_size);
     let _ = dom.world_mut().insert_one(span, big_style);
     dom.append_child(parent, span);
-    let text2 = dom.create_text("B");
+    let text2 = dom.create_text_ownerless_fixture("B");
     dom.append_child(span, text2);
 
     let children = dom.composed_children(parent);
@@ -85,9 +85,9 @@ fn display_none_child_skipped_in_runs() {
         dom.remove_child(parent, c);
     }
 
-    let text1 = dom.create_text("visible");
+    let text1 = dom.create_text_ownerless_fixture("visible");
     dom.append_child(parent, text1);
-    let hidden = dom.create_element("span", Attributes::default());
+    let hidden = dom.create_element_ownerless_fixture("span", Attributes::default());
     let hidden_style = ComputedStyle {
         display: Display::None,
         font_family: style.font_family.clone(),
@@ -95,7 +95,7 @@ fn display_none_child_skipped_in_runs() {
     };
     let _ = dom.world_mut().insert_one(hidden, hidden_style);
     dom.append_child(parent, hidden);
-    let text2 = dom.create_text("hidden");
+    let text2 = dom.create_text_ownerless_fixture("hidden");
     dom.append_child(hidden, text2);
 
     let children = dom.composed_children(parent);

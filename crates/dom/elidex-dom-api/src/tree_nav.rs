@@ -509,12 +509,12 @@ mod tests {
     ) {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let html = dom.create_element("html", Attributes::default());
-        let body = dom.create_element("body", Attributes::default());
-        let div = dom.create_element("div", Attributes::default());
-        let span = dom.create_element("span", Attributes::default());
-        let text = dom.create_text("hello");
-        let p = dom.create_element("p", Attributes::default());
+        let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("hello");
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
 
         dom.append_child(doc, html);
         dom.append_child(html, body);
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn parent_node_orphan() {
         let mut dom = EcsDom::new();
-        let orphan = dom.create_element("div", Attributes::default());
+        let orphan = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut session = SessionCore::new();
         let result = GetParentNode
             .invoke(orphan, &[], &mut session, &mut dom)
@@ -731,10 +731,10 @@ mod tests {
     fn first_element_child_skip_text() {
         // Rearrange: div → [text, span, p]
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let text = dom.create_text("hello");
-        let span = dom.create_element("span", Attributes::default());
-        let p = dom.create_element("p", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("hello");
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(div, text);
         dom.append_child(div, span);
         dom.append_child(div, p);
@@ -757,8 +757,8 @@ mod tests {
     #[test]
     fn first_element_child_none() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let text = dom.create_text("only text");
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("only text");
         dom.append_child(div, text);
 
         let mut session = SessionCore::new();
@@ -774,10 +774,10 @@ mod tests {
     fn last_element_child_skip_text() {
         // div → [span, p, text]
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let span = dom.create_element("span", Attributes::default());
-        let p = dom.create_element("p", Attributes::default());
-        let text = dom.create_text("trailing");
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("trailing");
         dom.append_child(div, span);
         dom.append_child(div, p);
         dom.append_child(div, text);
@@ -800,8 +800,8 @@ mod tests {
     #[test]
     fn last_element_child_none() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let text = dom.create_text("only text");
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("only text");
         dom.append_child(div, text);
 
         let mut session = SessionCore::new();

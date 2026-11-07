@@ -53,8 +53,8 @@ const TEST_FAMILIES: &[&str] = &[
 /// with test font families, and a `FontDatabase`. Returns `None` if no font is available.
 fn setup_inline_test(text_content: &str) -> Option<(EcsDom, Entity, ComputedStyle, FontDatabase)> {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("p", Attributes::default());
-    let text = dom.create_text(text_content);
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let text = dom.create_text_ownerless_fixture(text_content);
     dom.append_child(parent, text);
 
     let style = ComputedStyle {

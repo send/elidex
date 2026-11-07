@@ -229,10 +229,10 @@ mod tests {
     fn make_dom_with_style(css: &str) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let head = dom.create_element("head", Attributes::default());
+        let head = dom.create_element_ownerless_fixture("head", Attributes::default());
         let _ = dom.append_child(doc, head);
-        let style = dom.create_element("style", Attributes::default());
-        let text = dom.create_text(css);
+        let style = dom.create_element_ownerless_fixture("style", Attributes::default());
+        let text = dom.create_text_ownerless_fixture(css);
         let _ = dom.append_child(style, text);
         let _ = dom.append_child(head, style);
         (dom, doc)
@@ -241,12 +241,12 @@ mod tests {
     fn make_dom_with_link(href: &str) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let head = dom.create_element("head", Attributes::default());
+        let head = dom.create_element_ownerless_fixture("head", Attributes::default());
         let _ = dom.append_child(doc, head);
         let mut attrs = Attributes::default();
         attrs.set("rel", "stylesheet");
         attrs.set("href", href);
-        let link = dom.create_element("link", attrs);
+        let link = dom.create_element_ownerless_fixture("link", attrs);
         let _ = dom.append_child(head, link);
         (dom, doc)
     }
@@ -273,19 +273,19 @@ mod tests {
     fn extract_mixed_styles() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let head = dom.create_element("head", Attributes::default());
+        let head = dom.create_element_ownerless_fixture("head", Attributes::default());
         let _ = dom.append_child(doc, head);
 
         // <link rel="stylesheet" href="a.css">
         let mut attrs = Attributes::default();
         attrs.set("rel", "stylesheet");
         attrs.set("href", "a.css");
-        let link = dom.create_element("link", attrs);
+        let link = dom.create_element_ownerless_fixture("link", attrs);
         let _ = dom.append_child(head, link);
 
         // <style>p { margin: 0; }</style>
-        let style = dom.create_element("style", Attributes::default());
-        let text = dom.create_text("p { margin: 0; }");
+        let style = dom.create_element_ownerless_fixture("style", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("p { margin: 0; }");
         let _ = dom.append_child(style, text);
         let _ = dom.append_child(head, style);
 
@@ -301,7 +301,7 @@ mod tests {
     fn empty_style_ignored() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let style = dom.create_element("style", Attributes::default());
+        let style = dom.create_element_ownerless_fixture("style", Attributes::default());
         let _ = dom.append_child(doc, style);
         let sources = extract_style_sources(&dom, doc);
         assert!(sources.is_empty());
@@ -313,7 +313,7 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("rel", "stylesheet");
-        let link = dom.create_element("link", attrs);
+        let link = dom.create_element_ownerless_fixture("link", attrs);
         let _ = dom.append_child(doc, link);
         let sources = extract_style_sources(&dom, doc);
         assert!(sources.is_empty());
@@ -326,7 +326,7 @@ mod tests {
         let mut attrs = Attributes::default();
         attrs.set("rel", "icon");
         attrs.set("href", "favicon.ico");
-        let link = dom.create_element("link", attrs);
+        let link = dom.create_element_ownerless_fixture("link", attrs);
         let _ = dom.append_child(doc, link);
         let sources = extract_style_sources(&dom, doc);
         assert!(sources.is_empty());
@@ -336,8 +336,8 @@ mod tests {
     fn extract_inline_script() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let script = dom.create_element("script", Attributes::default());
-        let text = dom.create_text("alert(1)");
+        let script = dom.create_element_ownerless_fixture("script", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("alert(1)");
         let _ = dom.append_child(script, text);
         let _ = dom.append_child(doc, script);
 
@@ -355,7 +355,7 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("src", "app.js");
-        let script = dom.create_element("script", attrs);
+        let script = dom.create_element_ownerless_fixture("script", attrs);
         let _ = dom.append_child(doc, script);
 
         let sources = extract_script_sources(&dom, doc);
@@ -370,19 +370,19 @@ mod tests {
     fn scripts_document_order() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         let _ = dom.append_child(doc, body);
 
         // Inline script first.
-        let s1 = dom.create_element("script", Attributes::default());
-        let t1 = dom.create_text("var a = 1;");
+        let s1 = dom.create_element_ownerless_fixture("script", Attributes::default());
+        let t1 = dom.create_text_ownerless_fixture("var a = 1;");
         let _ = dom.append_child(s1, t1);
         let _ = dom.append_child(body, s1);
 
         // External script second.
         let mut attrs = Attributes::default();
         attrs.set("src", "b.js");
-        let s2 = dom.create_element("script", attrs);
+        let s2 = dom.create_element_ownerless_fixture("script", attrs);
         let _ = dom.append_child(body, s2);
 
         let sources = extract_script_sources(&dom, doc);
@@ -397,7 +397,7 @@ mod tests {
     fn empty_script_ignored() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let script = dom.create_element("script", Attributes::default());
+        let script = dom.create_element_ownerless_fixture("script", Attributes::default());
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
         assert!(sources.is_empty());
@@ -409,8 +409,8 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("type", "module");
-        let script = dom.create_element("script", attrs);
-        let text = dom.create_text("import x from 'y';");
+        let script = dom.create_element_ownerless_fixture("script", attrs);
+        let text = dom.create_text_ownerless_fixture("import x from 'y';");
         let _ = dom.append_child(script, text);
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
@@ -423,8 +423,8 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("type", "text/javascript");
-        let script = dom.create_element("script", attrs);
-        let text = dom.create_text("var x = 1;");
+        let script = dom.create_element_ownerless_fixture("script", attrs);
+        let text = dom.create_text_ownerless_fixture("var x = 1;");
         let _ = dom.append_child(script, text);
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
@@ -437,8 +437,8 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("type", "application/javascript");
-        let script = dom.create_element("script", attrs);
-        let text = dom.create_text("var x = 1;");
+        let script = dom.create_element_ownerless_fixture("script", attrs);
+        let text = dom.create_text_ownerless_fixture("var x = 1;");
         let _ = dom.append_child(script, text);
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
@@ -462,8 +462,8 @@ mod tests {
             let doc = dom.create_document_root();
             let mut attrs = Attributes::default();
             attrs.set("type", alias);
-            let script = dom.create_element("script", attrs);
-            let text = dom.create_text("var x = 1;");
+            let script = dom.create_element_ownerless_fixture("script", attrs);
+            let text = dom.create_text_ownerless_fixture("var x = 1;");
             let _ = dom.append_child(script, text);
             let _ = dom.append_child(doc, script);
             let sources = extract_script_sources(&dom, doc);
@@ -481,8 +481,8 @@ mod tests {
             let doc = dom.create_document_root();
             let mut attrs = Attributes::default();
             attrs.set("type", skipped);
-            let script = dom.create_element("script", attrs);
-            let text = dom.create_text("var x = 1;");
+            let script = dom.create_element_ownerless_fixture("script", attrs);
+            let text = dom.create_text_ownerless_fixture("var x = 1;");
             let _ = dom.append_child(script, text);
             let _ = dom.append_child(doc, script);
             let sources = extract_script_sources(&dom, doc);
@@ -495,8 +495,8 @@ mod tests {
         // No type attribute at all should be treated as JavaScript.
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let script = dom.create_element("script", Attributes::default());
-        let text = dom.create_text("var x = 1;");
+        let script = dom.create_element_ownerless_fixture("script", Attributes::default());
+        let text = dom.create_text_ownerless_fixture("var x = 1;");
         let _ = dom.append_child(script, text);
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
@@ -509,8 +509,8 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("type", "application/json");
-        let script = dom.create_element("script", attrs);
-        let text = dom.create_text(r#"{"key": "value"}"#);
+        let script = dom.create_element_ownerless_fixture("script", attrs);
+        let text = dom.create_text_ownerless_fixture(r#"{"key": "value"}"#);
         let _ = dom.append_child(script, text);
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
@@ -525,7 +525,7 @@ mod tests {
         let mut attrs = Attributes::default();
         attrs.set("rel", "alternate stylesheet");
         attrs.set("href", "alt.css");
-        let link = dom.create_element("link", attrs);
+        let link = dom.create_element_ownerless_fixture("link", attrs);
         let _ = dom.append_child(doc, link);
         let sources = extract_style_sources(&dom, doc);
         assert_eq!(sources.len(), 1);
@@ -542,7 +542,7 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("src", "photo.png");
-        let img = dom.create_element("img", attrs);
+        let img = dom.create_element_ownerless_fixture("img", attrs);
         let _ = dom.append_child(doc, img);
 
         let sources = extract_image_sources(&dom, doc);
@@ -555,7 +555,7 @@ mod tests {
     fn img_without_src_skipped() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let img = dom.create_element("img", Attributes::default());
+        let img = dom.create_element_ownerless_fixture("img", Attributes::default());
         let _ = dom.append_child(doc, img);
 
         let sources = extract_image_sources(&dom, doc);
@@ -568,7 +568,7 @@ mod tests {
         let doc = dom.create_document_root();
         let mut attrs = Attributes::default();
         attrs.set("src", "");
-        let img = dom.create_element("img", attrs);
+        let img = dom.create_element_ownerless_fixture("img", attrs);
         let _ = dom.append_child(doc, img);
 
         let sources = extract_image_sources(&dom, doc);
@@ -579,17 +579,17 @@ mod tests {
     fn multiple_images_document_order() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         let _ = dom.append_child(doc, body);
 
         let mut a1 = Attributes::default();
         a1.set("src", "a.png");
-        let img1 = dom.create_element("img", a1);
+        let img1 = dom.create_element_ownerless_fixture("img", a1);
         let _ = dom.append_child(body, img1);
 
         let mut a2 = Attributes::default();
         a2.set("src", "b.jpg");
-        let img2 = dom.create_element("img", a2);
+        let img2 = dom.create_element_ownerless_fixture("img", a2);
         let _ = dom.append_child(body, img2);
 
         let sources = extract_image_sources(&dom, doc);
@@ -602,11 +602,11 @@ mod tests {
     fn nested_img_in_div() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, div);
         let mut attrs = Attributes::default();
         attrs.set("src", "nested.png");
-        let img = dom.create_element("img", attrs);
+        let img = dom.create_element_ownerless_fixture("img", attrs);
         let _ = dom.append_child(div, img);
 
         let sources = extract_image_sources(&dom, doc);
@@ -618,9 +618,9 @@ mod tests {
     fn non_img_elements_skipped() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, div);
-        let span = dom.create_element("span", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
         let _ = dom.append_child(doc, span);
 
         let sources = extract_image_sources(&dom, doc);

@@ -40,8 +40,9 @@ fn fragment_child_is_adopted_into_the_fragments_node_document() {
     let doc = dom.create_document_root();
     let frag = dom.create_document_fragment_with_owner(dom.node_document_for_new_nodes(doc));
     // Ownerless fixture nodes (production cannot create them).
-    let child = dom.create_element("span", crate::components::Attributes::default());
-    let grandchild = dom.create_text("x");
+    let child =
+        dom.create_element_ownerless_fixture("span", crate::components::Attributes::default());
+    let grandchild = dom.create_text_ownerless_fixture("x");
     assert!(dom.append_child(child, grandchild));
     assert!(dom.append_child(frag, child));
     assert_eq!(dom.owner_document(child), Some(doc), "adopted on insert");
@@ -51,8 +52,9 @@ fn fragment_child_is_adopted_into_the_fragments_node_document() {
         "the adopt walk reaches the descendants"
     );
     // A fragment with NO node document leaves its descendants without one.
-    let orphan_frag = dom.create_document_fragment();
-    let orphan_child = dom.create_element("p", crate::components::Attributes::default());
+    let orphan_frag = dom.create_document_fragment_ownerless_fixture();
+    let orphan_child =
+        dom.create_element_ownerless_fixture("p", crate::components::Attributes::default());
     assert!(dom.append_child(orphan_frag, orphan_child));
     assert_eq!(dom.owner_document(orphan_child), None);
 }
@@ -167,7 +169,7 @@ fn create_with_owner_skips_component_when_owner_is_not_a_document() {
     // debug builds would fire `debug_assert!` (not exercised here so
     // the test runs in both profiles).
     let mut dom = EcsDom::new();
-    let fake_owner = dom.create_element("html", Attributes::default());
+    let fake_owner = dom.create_element_ownerless_fixture("html", Attributes::default());
     // Skip the debug_assert by reaching in via a test-only pattern:
     // we can't directly pass `Some(fake_owner)` because it would
     // trip the assertion in debug.  Instead, confirm the RELEASE

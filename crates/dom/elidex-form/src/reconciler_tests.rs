@@ -27,7 +27,7 @@ fn setup(tag: &str, attrs: &[(&str, &str)]) -> (EcsDom, Entity) {
     for (k, v) in attrs {
         attr_map.set(k.to_string(), v.to_string());
     }
-    let entity = dom.create_element(tag, attr_map);
+    let entity = dom.create_element_ownerless_fixture(tag, attr_map);
     assert!(
         create_form_control_state(&mut dom, entity),
         "create_form_control_state must succeed for tag {tag}"
@@ -144,11 +144,11 @@ fn e5f_value_attribute_write_does_not_corrupt_dirty_textarea_default() {
 #[test]
 fn e6_insert_form_control_without_fcs_attaches_fcs() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type".to_string(), "text".to_string());
     attrs.set("name".to_string(), "q".to_string());
-    let input = dom.create_element("input", attrs);
+    let input = dom.create_element_ownerless_fixture("input", attrs);
     // Install dispatcher BEFORE append_child so the Insert event
     // is observed by the reconciler.
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
@@ -166,8 +166,8 @@ fn e6_insert_form_control_without_fcs_attaches_fcs() {
 #[test]
 fn e7_insert_non_form_control_is_noop() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let div = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
     )));
@@ -179,7 +179,7 @@ fn e7_insert_non_form_control_is_noop() {
 #[test]
 fn e8_attribute_change_on_non_fcs_element_is_noop() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
     )));
@@ -343,7 +343,7 @@ fn e8b_insert_form_control_with_existing_fcs_preserves_dirty_value() {
         assert!(state.dirty_value);
     }
     // Re-parent under a new <div> — fires Insert event again.
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(parent, input));
     // FCS + dirty_value preserved across move.
     with_fcs(&dom, input, |s| {
@@ -361,14 +361,14 @@ fn e9_insert_subtree_attaches_fcs_to_nested_control() {
     let mut dom = EcsDom::new();
     // Build the subtree detached, BEFORE installing the dispatcher, so
     // the only dispatched event is the final root append below.
-    let outer = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("name".to_string(), "q".to_string());
-    let input = dom.create_element("input", attrs);
+    let input = dom.create_element_ownerless_fixture("input", attrs);
     assert!(dom.append_child(span, input));
     assert!(dom.append_child(outer, span));
-    let root = dom.create_element("body", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("body", Attributes::default());
 
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
@@ -389,14 +389,14 @@ fn e9b_subtree_move_preserves_nested_dirty_value() {
     // control already carries FCS + dirty_value must keep it (the
     // per-entity FCS-absence guard skips re-attach).
     let mut dom = EcsDom::new();
-    let outer = dom.create_element("div", Attributes::default());
-    let input = dom.create_element("input", {
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", {
         let mut a = Attributes::default();
         a.set("value".to_string(), "initial".to_string());
         a
     });
     assert!(dom.append_child(outer, input));
-    let root = dom.create_element("body", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("body", Attributes::default());
 
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
@@ -414,7 +414,7 @@ fn e9b_subtree_move_preserves_nested_dirty_value() {
     }
     // Re-parent the whole subtree — Insert fires again on `outer`; the
     // per-entity guard must skip the nested input's re-attach.
-    let section = dom.create_element("section", Attributes::default());
+    let section = dom.create_element_ownerless_fixture("section", Attributes::default());
     assert!(dom.append_child(root, section));
     assert!(dom.append_child(section, outer));
     with_fcs(&dom, input, |s| {
@@ -432,7 +432,7 @@ fn e9c_subtree_walk_skips_foreign_namespace_control() {
     // it.
     use elidex_ecs::Namespace;
     let mut dom = EcsDom::new();
-    let outer = dom.create_element("div", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
     let svg = dom.create_element_ns(
         "svg",
         Namespace::Svg,
@@ -447,7 +447,7 @@ fn e9c_subtree_walk_skips_foreign_namespace_control() {
     );
     assert!(dom.append_child(svg, svg_input));
     assert!(dom.append_child(outer, svg));
-    let root = dom.create_element("body", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("body", Attributes::default());
 
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
@@ -466,16 +466,16 @@ fn e9d_nested_control_subtree_move_preserves_dirty_value() {
     // carries user input must keep it when the whole subtree is moved
     // (the per-entity absence guard skips re-attach during the walk).
     let mut dom = EcsDom::new();
-    let outer = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
-    let input = dom.create_element("input", {
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", {
         let mut a = Attributes::default();
         a.set("value".to_string(), "initial".to_string());
         a
     });
     assert!(dom.append_child(span, input));
     assert!(dom.append_child(outer, span));
-    let root = dom.create_element("body", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("body", Attributes::default());
 
     let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
@@ -493,7 +493,7 @@ fn e9d_nested_control_subtree_move_preserves_dirty_value() {
     }
     // Move the whole subtree — Insert fires on `outer`; the walk reaches
     // the nested input but the per-entity guard skips re-attach.
-    let section = dom.create_element("section", Attributes::default());
+    let section = dom.create_element_ownerless_fixture("section", Attributes::default());
     assert!(dom.append_child(root, section));
     assert!(dom.append_child(section, outer));
     with_fcs(&dom, input, |s| {

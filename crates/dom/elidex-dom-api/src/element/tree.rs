@@ -603,8 +603,8 @@ mod tests {
     #[test]
     fn empty_fragment_valid_placement_is_noop() {
         let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let frag = dom.create_document_fragment();
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let frag = dom.create_document_fragment_ownerless_fixture();
         assert!(is_empty_fragment_noop(&dom, parent, frag));
     }
 
@@ -612,7 +612,7 @@ mod tests {
     fn empty_self_fragment_is_not_noop() {
         // `frag.appendChild(frag)` — inclusive-ancestor of itself → hierarchy error.
         let mut dom = EcsDom::new();
-        let frag = dom.create_document_fragment();
+        let frag = dom.create_document_fragment_ownerless_fixture();
         assert!(!is_empty_fragment_noop(&dom, frag, frag));
     }
 
@@ -621,8 +621,8 @@ mod tests {
         // frag > parent: the (empty after a move, say) fragment is an ancestor of
         // `parent` → hierarchy error, not a no-op.
         let mut dom = EcsDom::new();
-        let frag = dom.create_document_fragment();
-        let parent = dom.create_element("div", Attributes::default());
+        let frag = dom.create_document_fragment_ownerless_fixture();
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(frag, parent);
         assert!(!is_empty_fragment_noop(&dom, parent, frag));
     }
@@ -630,8 +630,8 @@ mod tests {
     #[test]
     fn empty_non_fragment_is_not_noop() {
         let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let elem = dom.create_element("span", Attributes::default());
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let elem = dom.create_element_ownerless_fixture("span", Attributes::default());
         assert!(!is_empty_fragment_noop(&dom, parent, elem));
     }
 }

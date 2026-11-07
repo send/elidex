@@ -378,7 +378,8 @@ mod tests {
         registry.lock().unwrap().define(def).unwrap();
 
         let mut dom = EcsDom::new();
-        let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
+        let entity =
+            dom.create_element_ownerless_fixture("test-el", elidex_ecs::Attributes::default());
 
         // Push BEFORE poisoning — this test pre-dates the R10 G10-2
         // push-side poison tolerance; for the post-poison push case
@@ -434,7 +435,8 @@ mod tests {
         assert!(registry.is_poisoned(), "registry mutex should be poisoned");
 
         let mut dom = EcsDom::new();
-        let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
+        let entity =
+            dom.create_element_ownerless_fixture("test-el", elidex_ecs::Attributes::default());
 
         // `push` MUST recover from poison (no panic) and successfully
         // record the entry. Drop then pops it.

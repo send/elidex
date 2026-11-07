@@ -524,7 +524,7 @@ fn u11_fragment_root_is_created_in_the_throwaway() {
     );
     assert_eq!(throwaway_entry, Some(throwaway));
 
-    let documentless = dom.create_element("div", Attributes::default());
+    let documentless = dom.create_element_ownerless_fixture("div", Attributes::default());
     let (throwaway, root, saved) = dom.begin_detached_fragment(documentless);
     let root_entry = dom.node_document_for_new_nodes(root).document();
     let _ = dom.finish_detached_fragment(root, throwaway);

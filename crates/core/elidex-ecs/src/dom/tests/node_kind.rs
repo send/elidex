@@ -10,7 +10,7 @@ fn create_element_has_node_kind() {
 #[test]
 fn create_text_has_node_kind() {
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
     assert_eq!(dom.node_kind(t), Some(NodeKind::Text));
 }
 
@@ -32,7 +32,7 @@ fn create_shadow_root_has_node_kind() {
 #[test]
 fn create_document_fragment_has_node_kind() {
     let mut dom = EcsDom::new();
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     assert_eq!(dom.node_kind(frag), Some(NodeKind::DocumentFragment));
 }
 
@@ -42,7 +42,7 @@ fn is_document_fragment_excludes_shadow_root() {
     // but is NOT an expandable fragment — `is_document_fragment` must return false
     // for it so the shared apply layer never expands/empties a shadow root.
     let mut dom = EcsDom::new();
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     assert!(
         dom.is_document_fragment(frag),
         "a real fragment is expandable"
@@ -60,7 +60,7 @@ fn is_document_fragment_excludes_shadow_root() {
 #[test]
 fn create_comment_has_node_kind() {
     let mut dom = EcsDom::new();
-    let c = dom.create_comment("test comment");
+    let c = dom.create_comment_ownerless_fixture("test comment");
     assert_eq!(dom.node_kind(c), Some(NodeKind::Comment));
     let data = dom.world().get::<&CommentData>(c).unwrap();
     assert_eq!(data.0, "test comment");

@@ -32,7 +32,7 @@ fn blocks_with_whitespace_between(ws: &str) -> Option<(EcsDom, Entity, FontDatab
     measure_text(&font_db, &params, "x")?;
 
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -44,7 +44,7 @@ fn blocks_with_whitespace_between(ws: &str) -> Option<(EcsDom, Entity, FontDatab
 
     let child1 = make_block_child(&mut dom, parent, 40.0);
     let _ = child1;
-    let ws_text = dom.create_text(ws);
+    let ws_text = dom.create_text_ownerless_fixture(ws);
     dom.append_child(parent, ws_text);
     let child2 = make_block_child(&mut dom, parent, 40.0);
     let _ = child2;

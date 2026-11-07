@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn contains_self() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
     let r = Contains
         .invoke(
@@ -23,8 +23,8 @@ fn contains_self() {
 #[test]
 fn contains_descendant() {
     let (mut dom, mut session) = setup();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
     wrap(parent, &mut session);
     wrap(child, &mut session);
@@ -42,8 +42,8 @@ fn contains_descendant() {
 #[test]
 fn contains_not_ancestor() {
     let (mut dom, mut session) = setup();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
     wrap(parent, &mut session);
     wrap(child, &mut session);
@@ -62,8 +62,8 @@ fn contains_not_ancestor() {
 #[test]
 fn contains_disconnected() {
     let (mut dom, mut session) = setup();
-    let a = dom.create_element("div", Attributes::default());
-    let b = dom.create_element("span", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("span", Attributes::default());
     wrap(a, &mut session);
     wrap(b, &mut session);
     let r = Contains
@@ -75,7 +75,7 @@ fn contains_disconnected() {
 #[test]
 fn contains_null() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let r = Contains
         .invoke(div, &[JsValue::Null], &mut session, &mut dom)
         .unwrap();
@@ -89,7 +89,7 @@ fn contains_null() {
 #[test]
 fn compare_position_same() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     wrap(div, &mut session);
     let r = CompareDocumentPosition
         .invoke(
@@ -106,8 +106,8 @@ fn compare_position_same() {
 fn compare_position_following() {
     let (mut dom, mut session) = setup();
     let root = dom.create_document_root();
-    let a = dom.create_element("a", Attributes::default());
-    let b = dom.create_element("b", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     dom.append_child(root, a);
     dom.append_child(root, b);
     wrap(a, &mut session);
@@ -122,8 +122,8 @@ fn compare_position_following() {
 fn compare_position_preceding() {
     let (mut dom, mut session) = setup();
     let root = dom.create_document_root();
-    let a = dom.create_element("a", Attributes::default());
-    let b = dom.create_element("b", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     dom.append_child(root, a);
     dom.append_child(root, b);
     wrap(a, &mut session);
@@ -137,8 +137,8 @@ fn compare_position_preceding() {
 #[test]
 fn compare_position_contains() {
     let (mut dom, mut session) = setup();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
     wrap(parent, &mut session);
     wrap(child, &mut session);
@@ -162,8 +162,8 @@ fn compare_position_contains() {
 #[test]
 fn compare_position_contained_by() {
     let (mut dom, mut session) = setup();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
     wrap(parent, &mut session);
     wrap(child, &mut session);
@@ -187,8 +187,8 @@ fn compare_position_contained_by() {
 #[test]
 fn compare_position_disconnected() {
     let (mut dom, mut session) = setup();
-    let a = dom.create_element("a", Attributes::default());
-    let b = dom.create_element("b", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     wrap(a, &mut session);
     wrap(b, &mut session);
     let r = CompareDocumentPosition
@@ -212,9 +212,9 @@ fn compare_position_disconnected() {
 fn compare_document_position_attr_uses_owner_element() {
     let (mut dom, mut session) = setup();
     let root = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, div);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(div, span);
 
     // Create an attr node with owner = div.
@@ -254,7 +254,7 @@ fn compare_document_position_attr_uses_owner_element() {
 #[test]
 fn compare_document_position_two_attrs_same_element() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let attr1 = dom.create_attribute("id", elidex_ecs::NewNodeOwner::ownerless_fixture());
     {

@@ -12,7 +12,7 @@ use crate::test_util::setup;
 #[test]
 fn inner_html_serialization() {
     let (mut dom, parent, _, mut session) = setup();
-    let text = dom.create_text("hello <world>");
+    let text = dom.create_text_ownerless_fixture("hello <world>");
     dom.append_child(parent, text);
 
     let handler = GetInnerHtml;
@@ -23,11 +23,11 @@ fn inner_html_serialization() {
 #[test]
 fn inner_html_void_elements() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
-    let br = dom.create_element("br", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let br = dom.create_element_ownerless_fixture("br", Attributes::default());
     let mut img_attrs = Attributes::default();
     img_attrs.set("src", "test.png");
-    let img = dom.create_element("img", img_attrs);
+    let img = dom.create_element_ownerless_fixture("img", img_attrs);
     dom.append_child(div, br);
     dom.append_child(div, img);
 
@@ -44,13 +44,13 @@ fn inner_html_preserves_inter_element_whitespace() {
     // whitespace-only text child is emitted verbatim, not dropped (outerHTML /
     // innerHTML fidelity for indented markup).
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
-    let p1 = dom.create_element("p", Attributes::default());
-    let a = dom.create_text("A");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let p1 = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let a = dom.create_text_ownerless_fixture("A");
     dom.append_child(p1, a);
-    let ws = dom.create_text("\n  ");
-    let p2 = dom.create_element("p", Attributes::default());
-    let b = dom.create_text("B");
+    let ws = dom.create_text_ownerless_fixture("\n  ");
+    let p2 = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let b = dom.create_text_ownerless_fixture("B");
     dom.append_child(p2, b);
     dom.append_child(div, p1);
     dom.append_child(div, ws);
@@ -70,11 +70,11 @@ fn inner_html_preserves_inter_element_whitespace() {
 #[test]
 fn inner_html_nested() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut p_attrs = Attributes::default();
     p_attrs.set("class", "intro");
-    let p = dom.create_element("p", p_attrs);
-    let text = dom.create_text("hi");
+    let p = dom.create_element_ownerless_fixture("p", p_attrs);
+    let text = dom.create_text_ownerless_fixture("hi");
     dom.append_child(div, p);
     dom.append_child(p, text);
 
@@ -94,14 +94,14 @@ fn serialize_inner_html_excludes_shadow_root_subtree() {
     // encapsulation for both open and closed shadows.  This regression
     // test locks the skip introduced in PR `#11-shadow-dom-surface` (D-15).
     let mut dom = EcsDom::new();
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     // Light-DOM child + shadow root with its own content.
-    let light = dom.create_element("span", Attributes::default());
+    let light = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(host, light));
     let shadow = dom
         .attach_shadow(host, ShadowRootMode::Open)
         .expect("attach_shadow on <div> succeeds");
-    let shadow_child = dom.create_element("b", Attributes::default());
+    let shadow_child = dom.create_element_ownerless_fixture("b", Attributes::default());
     assert!(dom.append_child(shadow, shadow_child));
 
     let html = serialize_inner_html(host, &dom);
@@ -127,7 +127,7 @@ fn serialize_emits_is_for_customized_builtin_without_attr() {
     // round-trips. The round-trip itself: element_init re-derives the
     // same component from the emitted attribute.
     let mut dom = EcsDom::new();
-    let button = dom.create_element("button", Attributes::default());
+    let button = dom.create_element_ownerless_fixture("button", Attributes::default());
     dom.world_mut()
         .insert_one(
             button,
@@ -150,7 +150,7 @@ fn serialize_no_double_is_when_attr_present() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("is", "my-btn");
-    let button = dom.create_element("button", attrs);
+    let button = dom.create_element_ownerless_fixture("button", attrs);
     dom.world_mut()
         .insert_one(
             button,
@@ -166,7 +166,7 @@ fn serialize_no_is_for_autonomous_custom_element() {
     // Autonomous CE: definition_name == local name — nothing to
     // compensate (the tag itself carries the identity).
     let mut dom = EcsDom::new();
-    let el = dom.create_element("my-widget", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("my-widget", Attributes::default());
     dom.world_mut()
         .insert_one(
             el,
@@ -182,7 +182,7 @@ fn serialize_escapes_synthetic_is_value() {
     // The is value is an arbitrary author string (step 6.3 imposes no
     // validity) — raw emission would inject markup.
     let mut dom = EcsDom::new();
-    let button = dom.create_element("button", Attributes::default());
+    let button = dom.create_element_ownerless_fixture("button", Attributes::default());
     dom.world_mut()
         .insert_one(
             button,
@@ -208,7 +208,7 @@ fn serialize_emits_is_for_autonomous_element_with_is_value() {
     // non-null is value lives in its own slot and must serialize
     // (DOM §4.9 sets the is value independently of step 6.3).
     let mut dom = EcsDom::new();
-    let el = dom.create_element("my-el", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("my-el", Attributes::default());
     dom.world_mut()
         .insert_one(
             el,
@@ -229,7 +229,7 @@ fn serialize_emits_is_equal_to_local_name() {
     // Codex PR331 R2: an is value equal to the local name is still
     // non-null — HTML §13.3's condition is nullness, not inequality.
     let mut dom = EcsDom::new();
-    let el = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("button", Attributes::default());
     dom.world_mut()
         .insert_one(
             el,

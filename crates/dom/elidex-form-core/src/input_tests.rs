@@ -322,19 +322,19 @@ fn sanitize_no_op_when_kind_unchanged() {
 fn input_with_list(dom: &mut EcsDom, list_value: &str) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("list", list_value);
-    dom.create_element("input", attrs)
+    dom.create_element_ownerless_fixture("input", attrs)
 }
 
 fn datalist_with_id(dom: &mut EcsDom, id_value: &str) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("id", id_value);
-    dom.create_element("datalist", attrs)
+    dom.create_element_ownerless_fixture("datalist", attrs)
 }
 
 #[test]
 fn resolve_input_list_returns_none_when_no_attribute() {
     let mut dom = EcsDom::new();
-    let input = dom.create_element("input", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", Attributes::default());
     assert_eq!(resolve_input_list(&dom, input), None);
 }
 
@@ -348,7 +348,7 @@ fn resolve_input_list_returns_none_when_attribute_empty() {
 #[test]
 fn resolve_input_list_returns_none_when_id_does_not_exist() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "missing");
     let _ = dom.append_child(container, input);
     let other = datalist_with_id(&mut dom, "other");
@@ -361,12 +361,12 @@ fn resolve_input_list_returns_none_when_target_is_not_datalist() {
     // `<div id="opts">` matches the IDREF but is not a `<datalist>`.
     // Spec wording "of type HTMLDataListElement" rejects non-datalist.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "opts");
     let _ = dom.append_child(container, input);
     let mut div_attrs = Attributes::default();
     div_attrs.set("id", "opts");
-    let div = dom.create_element("div", div_attrs);
+    let div = dom.create_element_ownerless_fixture("div", div_attrs);
     let _ = dom.append_child(container, div);
     assert_eq!(resolve_input_list(&dom, input), None);
 }
@@ -377,7 +377,7 @@ fn resolve_input_list_rejects_foreign_namespace_datalist() {
     // `HTMLDataListElement` (HTML §4.10.8), so the `list` attribute does
     // not resolve to it — exercises the `is_html_namespace` guard.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "opts");
     let _ = dom.append_child(container, input);
     let mut attrs = Attributes::default();
@@ -395,7 +395,7 @@ fn resolve_input_list_rejects_foreign_namespace_datalist() {
 #[test]
 fn resolve_input_list_returns_datalist_when_id_matches() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "opts");
     let _ = dom.append_child(container, input);
     let datalist = datalist_with_id(&mut dom, "opts");
@@ -409,7 +409,7 @@ fn resolve_input_list_picks_tree_order_first_when_duplicate_id() {
     // element ... of type HTMLDataListElement".  Pre-order DFS
     // wins.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "opts");
     let _ = dom.append_child(container, input);
     let earlier = datalist_with_id(&mut dom, "opts");
@@ -423,7 +423,7 @@ fn resolve_input_list_picks_tree_order_first_when_duplicate_id() {
 fn resolve_input_list_id_match_is_case_sensitive() {
     // HTML §6.13.2: id attribute is case-sensitive.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "FOO");
     let _ = dom.append_child(container, input);
     let datalist = datalist_with_id(&mut dom, "foo");
@@ -440,7 +440,7 @@ fn resolve_input_list_skips_non_datalist_match_then_finds_datalist() {
     let mut dom = EcsDom::new();
     let mut div_attrs = Attributes::default();
     div_attrs.set("id", "opts");
-    let div_root = dom.create_element("div", div_attrs);
+    let div_root = dom.create_element_ownerless_fixture("div", div_attrs);
     let input = input_with_list(&mut dom, "opts");
     let _ = dom.append_child(div_root, input);
     let datalist = datalist_with_id(&mut dom, "opts");
@@ -456,7 +456,7 @@ fn resolve_input_list_returns_none_when_input_detached() {
     let mut dom = EcsDom::new();
     let input = input_with_list(&mut dom, "opts");
     // Datalist exists in the world but in a different tree.
-    let other_root = dom.create_element("div", Attributes::default());
+    let other_root = dom.create_element_ownerless_fixture("div", Attributes::default());
     let datalist = datalist_with_id(&mut dom, "opts");
     let _ = dom.append_child(other_root, datalist);
     assert_eq!(resolve_input_list(&dom, input), None);
@@ -472,7 +472,7 @@ fn resolve_input_list_returns_none_when_input_self_references() {
     let mut attrs = Attributes::default();
     attrs.set("id", "x");
     attrs.set("list", "x");
-    let input = dom.create_element("input", attrs);
+    let input = dom.create_element_ownerless_fixture("input", attrs);
     assert_eq!(resolve_input_list(&dom, input), None);
 }
 
@@ -482,7 +482,7 @@ fn resolve_input_list_does_not_trim_whitespace() {
     // exact-compare (e.g. `list=" foo "` does NOT match
     // `id="foo"`).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, " foo ");
     let _ = dom.append_child(container, input);
     let datalist = datalist_with_id(&mut dom, "foo");
@@ -496,7 +496,7 @@ fn resolve_input_list_skips_datalist_with_empty_id_then_matches_next() {
     // (empty id ≠ "opts"); the walk continues and finds the next
     // datalist with the matching id.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let input = input_with_list(&mut dom, "opts");
     let _ = dom.append_child(container, input);
     let empty_id = datalist_with_id(&mut dom, "");
@@ -510,11 +510,11 @@ fn resolve_input_list_skips_datalist_with_empty_id_then_matches_next() {
 /// `FormControlState` attached) and a matching `<datalist id="opts">`
 /// in a shared tree; return `(input, datalist)`.
 fn input_with_type_and_list_plus_datalist(dom: &mut EcsDom, input_type: &str) -> (Entity, Entity) {
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut input_attrs = Attributes::default();
     input_attrs.set("type", input_type);
     input_attrs.set("list", "opts");
-    let input = dom.create_element("input", input_attrs);
+    let input = dom.create_element_ownerless_fixture("input", input_attrs);
     let _ = dom.append_child(container, input);
     let datalist = datalist_with_id(dom, "opts");
     let _ = dom.append_child(container, datalist);
@@ -599,11 +599,11 @@ fn resolve_input_list_ignores_stale_form_control_state_when_attr_excludes() {
     // the attribute let a fresh `setAttribute('type', 'hidden')`
     // mutation incorrectly resolve a datalist.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut input_attrs = Attributes::default();
     input_attrs.set("type", "hidden");
     input_attrs.set("list", "opts");
-    let input = dom.create_element("input", input_attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", input_attrs.clone());
     // Attach a state whose `kind` DISAGREES with the attribute
     // (TextInput would be the createElement default before any
     // type-change sync) to prove the attribute wins.

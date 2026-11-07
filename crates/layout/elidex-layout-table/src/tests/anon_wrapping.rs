@@ -16,10 +16,10 @@ fn idempotent_anonymous_row_relayout() {
     // Direct cells should be wrapped in an anonymous row.
     // Calling layout_table twice should NOT create a second anonymous row.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -81,10 +81,10 @@ fn idempotent_anonymous_row_relayout() {
 #[test]
 fn anonymous_row_marker_preserved() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -153,10 +153,10 @@ fn no_anonymous_row_without_direct_cells() {
 fn non_cell_content_wrapped_in_anonymous_cell() {
     // A <span> inside a <tr> should be wrapped in an anonymous table-cell.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -167,7 +167,7 @@ fn non_cell_content_wrapped_in_anonymous_cell() {
     dom.append_child(table, tr);
 
     // Normal cell.
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -179,7 +179,7 @@ fn non_cell_content_wrapped_in_anonymous_cell() {
     dom.append_child(tr, td);
 
     // Non-cell content (will be wrapped in anonymous td).
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -211,10 +211,10 @@ fn non_cell_content_wrapped_in_anonymous_cell() {
 fn mixed_cell_and_non_cell_in_row() {
     // <tr> with [td, div, td] — the div should be wrapped in anonymous cell.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -224,7 +224,7 @@ fn mixed_cell_and_non_cell_in_row() {
     );
     dom.append_child(table, tr);
 
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -235,7 +235,7 @@ fn mixed_cell_and_non_cell_in_row() {
     );
     dom.append_child(tr, td1);
 
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -246,7 +246,7 @@ fn mixed_cell_and_non_cell_in_row() {
     );
     dom.append_child(tr, div);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -279,10 +279,10 @@ fn mixed_cell_and_non_cell_in_row() {
 fn idempotent_non_cell_wrapping() {
     // Re-layout should not create duplicate anonymous cells.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -292,7 +292,7 @@ fn idempotent_non_cell_wrapping() {
     );
     dom.append_child(table, tr);
 
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.world_mut().insert_one(
         span,
         ComputedStyle {
@@ -347,10 +347,10 @@ fn idempotent_non_cell_wrapping() {
 fn row_group_non_row_children_wrapped() {
     // Non-row children inside a <tbody> should be wrapped in anonymous rows.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -361,7 +361,7 @@ fn row_group_non_row_children_wrapped() {
     dom.append_child(table, tbody);
 
     // A cell directly in tbody (should be wrapped in anonymous row).
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -395,10 +395,10 @@ fn row_group_non_row_children_wrapped() {
 fn row_group_mixed_row_and_non_row() {
     // <tbody> with [tr, div, tr] — the div should be wrapped in anonymous row.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -408,7 +408,7 @@ fn row_group_mixed_row_and_non_row() {
     );
     dom.append_child(table, tbody);
 
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -417,7 +417,7 @@ fn row_group_mixed_row_and_non_row() {
         },
     );
     dom.append_child(tbody, tr1);
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -428,7 +428,7 @@ fn row_group_mixed_row_and_non_row() {
     );
     dom.append_child(tr1, td1);
 
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -439,7 +439,7 @@ fn row_group_mixed_row_and_non_row() {
     );
     dom.append_child(tbody, div);
 
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -448,7 +448,7 @@ fn row_group_mixed_row_and_non_row() {
         },
     );
     dom.append_child(tbody, tr2);
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -485,10 +485,10 @@ fn multiple_non_cell_runs_get_separate_anonymous_cells() {
     // <tr> with [span1, td, span2] — two separate non-cell runs.
     // Each should get a distinct anonymous cell, not reuse the same one.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -498,7 +498,7 @@ fn multiple_non_cell_runs_get_separate_anonymous_cells() {
     );
     dom.append_child(table, tr);
 
-    let span1 = dom.create_element("span", Attributes::default());
+    let span1 = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.world_mut().insert_one(
         span1,
         ComputedStyle {
@@ -509,7 +509,7 @@ fn multiple_non_cell_runs_get_separate_anonymous_cells() {
     );
     dom.append_child(tr, span1);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -520,7 +520,7 @@ fn multiple_non_cell_runs_get_separate_anonymous_cells() {
     );
     dom.append_child(tr, td);
 
-    let span2 = dom.create_element("span", Attributes::default());
+    let span2 = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.world_mut().insert_one(
         span2,
         ComputedStyle {
@@ -568,11 +568,11 @@ fn multiple_non_cell_runs_get_separate_anonymous_cells() {
 fn empty_row_group_does_not_break_layout() {
     // A <tbody> with no children should produce empty RowGroupInfo (start_row == end_row).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Empty tbody.
-    let empty_tbody = dom.create_element("tbody", Attributes::default());
+    let empty_tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         empty_tbody,
         ComputedStyle {
@@ -583,7 +583,7 @@ fn empty_row_group_does_not_break_layout() {
     dom.append_child(table, empty_tbody);
 
     // Non-empty tbody.
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -593,7 +593,7 @@ fn empty_row_group_does_not_break_layout() {
     );
     dom.append_child(table, tbody);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -603,7 +603,7 @@ fn empty_row_group_does_not_break_layout() {
     );
     dom.append_child(tbody, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -639,7 +639,7 @@ fn anonymous_row_inherits_parent_style() {
     use elidex_plugin::CssColor;
 
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -650,7 +650,7 @@ fn anonymous_row_inherits_parent_style() {
         },
     );
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {

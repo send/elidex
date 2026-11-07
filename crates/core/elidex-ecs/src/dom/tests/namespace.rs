@@ -15,7 +15,8 @@ fn plain_element_is_html_namespace() {
 #[test]
 fn html_elements_carry_no_namespace_component() {
     // The component is sparse: HTML elements (the default) must NOT carry
-    // a `Namespace` component, so `create_element` is unchanged.
+    // a `Namespace` component, so `create_element_ownerless_fixture` is
+    // unchanged.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
     assert!(
@@ -75,7 +76,7 @@ fn namespace_of_defaults_html_for_non_element() {
     // A non-element entity has no namespace; `namespace_of` returns the
     // `Html` default, but `is_html_namespace` is false (not an element).
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hi");
+    let text = dom.create_text_ownerless_fixture("hi");
     assert_eq!(dom.namespace_of(text), Namespace::Html);
     assert!(!dom.is_html_namespace(text));
 }
@@ -155,7 +156,7 @@ fn resolve_attribute_qname_non_element_borrows() {
     // `is_html_namespace` is false for non-elements, so the resolver takes the
     // case-preserving (Borrowed) arm — defensive, never lowercases.
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hi");
+    let text = dom.create_text_ownerless_fixture("hi");
     assert_eq!(dom.resolve_attribute_qname(text, "FOO"), "FOO");
     assert!(matches!(
         dom.resolve_attribute_qname(text, "FOO"),

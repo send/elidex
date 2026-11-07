@@ -237,7 +237,7 @@ mod tests {
         // A fixture element without a node document (production cannot
         // create one): the node document is unresolvable and the verdict
         // fails open.
-        let orphan = dom.create_element("div", Attributes::default());
+        let orphan = dom.create_element_ownerless_fixture("div", Attributes::default());
         assert!(!scripting_disabled_for_platform_object(
             &dom,
             orphan,

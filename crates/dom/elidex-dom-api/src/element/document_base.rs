@@ -415,13 +415,13 @@ mod tests {
         use elidex_ecs::{Attributes, EcsDom};
         let mut dom = EcsDom::new();
         let doc_root = dom.create_document_root();
-        let body = dom.create_element("body", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         assert!(dom.append_child(doc_root, body));
 
         // Attach a `<base href>` reachable from the cached root.  The
         // `BaseFrozenUrl` is hand-attached because no dispatcher is
         // installed in this raw-ECS test fixture.
-        let base = dom.create_element("base", Attributes::default());
+        let base = dom.create_element_ownerless_fixture("base", Attributes::default());
         assert!(
             dom.set_attribute(base, "href", "https://outer.example/")
                 .did_set
@@ -434,7 +434,7 @@ mod tests {
 
         // A separate, detached "would-be document" entity with NO base
         // in its (empty) subtree.
-        let alt_doc = dom.create_element("html", Attributes::default());
+        let alt_doc = dom.create_element_ownerless_fixture("html", Attributes::default());
 
         // Walk must originate at `alt_doc` — empty subtree → fallback.
         recompute_document_base(&mut dom, alt_doc, &about_blank_url());
@@ -481,9 +481,9 @@ mod tests {
 
         // A second live Document with a `<base href>` (mirrors a DOMParser doc).
         let doc = dom.create_document_node();
-        let html = dom.create_element("html", Attributes::default());
+        let html = dom.create_element_ownerless_fixture("html", Attributes::default());
         assert!(dom.append_child(doc, html));
-        let base = dom.create_element("base", Attributes::default());
+        let base = dom.create_element_ownerless_fixture("base", Attributes::default());
         assert!(
             dom.set_attribute(base, "href", "https://throwaway.example/x/")
                 .did_set

@@ -4,15 +4,15 @@ use elidex_ecs::EcsDom;
 
 fn make_select_dom() -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
 
     for (text, val) in [("Red", "r"), ("Green", "g"), ("Blue", "b")] {
-        let opt = dom.create_element("option", {
+        let opt = dom.create_element_ownerless_fixture("option", {
             let mut a = Attributes::default();
             a.set("value", val);
             a
         });
-        let tn = dom.create_text(text);
+        let tn = dom.create_text_ownerless_fixture(text);
         let _ = dom.append_child(opt, tn);
         let _ = dom.append_child(sel, opt);
     }
@@ -38,17 +38,17 @@ fn init_select_ignores_inter_option_whitespace() {
     // (`has_tag(c, "option")`), so those whitespace nodes are correctly skipped
     // — the option set is unchanged from the whitespace-free tree.
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
-    let lead = dom.create_text("\n  ");
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
+    let lead = dom.create_text_ownerless_fixture("\n  ");
     let _ = dom.append_child(sel, lead);
     for (text, val) in [("Red", "r"), ("Green", "g")] {
         let mut a = Attributes::default();
         a.set("value", val);
-        let opt = dom.create_element("option", a);
-        let tn = dom.create_text(text);
+        let opt = dom.create_element_ownerless_fixture("option", a);
+        let tn = dom.create_text_ownerless_fixture(text);
         let _ = dom.append_child(opt, tn);
         let _ = dom.append_child(sel, opt);
-        let ws = dom.create_text("\n  ");
+        let ws = dom.create_text_ownerless_fixture("\n  ");
         let _ = dom.append_child(sel, ws);
     }
     let mut state = FormControlState::from_element("select", &Attributes::default()).unwrap();
@@ -98,14 +98,14 @@ fn navigate_select_stops_at_start() {
 #[test]
 fn selected_attribute_respected() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
     for (text, selected) in [("A", false), ("B", true), ("C", false)] {
         let mut a = Attributes::default();
         if selected {
             a.set("selected", "");
         }
-        let opt = dom.create_element("option", a);
-        let tn = dom.create_text(text);
+        let opt = dom.create_element_ownerless_fixture("option", a);
+        let tn = dom.create_text_ownerless_fixture(text);
         let _ = dom.append_child(opt, tn);
         let _ = dom.append_child(sel, opt);
     }
@@ -117,12 +117,12 @@ fn selected_attribute_respected() {
 #[test]
 fn optgroup_options() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
     let mut g_attrs = Attributes::default();
     g_attrs.set("label", "Fruits");
-    let grp = dom.create_element("optgroup", g_attrs);
-    let opt = dom.create_element("option", Attributes::default());
-    let tn = dom.create_text("Apple");
+    let grp = dom.create_element_ownerless_fixture("optgroup", g_attrs);
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
+    let tn = dom.create_text_ownerless_fixture("Apple");
     let _ = dom.append_child(opt, tn);
     let _ = dom.append_child(grp, opt);
     let _ = dom.append_child(sel, grp);
@@ -136,21 +136,21 @@ fn optgroup_options() {
 #[test]
 fn disabled_option_skipped_in_navigation() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
-    let opt1 = dom.create_element("option", Attributes::default());
-    let tn1 = dom.create_text("A");
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
+    let opt1 = dom.create_element_ownerless_fixture("option", Attributes::default());
+    let tn1 = dom.create_text_ownerless_fixture("A");
     let _ = dom.append_child(opt1, tn1);
     let _ = dom.append_child(sel, opt1);
 
     let mut da = Attributes::default();
     da.set("disabled", "");
-    let opt2 = dom.create_element("option", da);
-    let tn2 = dom.create_text("B");
+    let opt2 = dom.create_element_ownerless_fixture("option", da);
+    let tn2 = dom.create_text_ownerless_fixture("B");
     let _ = dom.append_child(opt2, tn2);
     let _ = dom.append_child(sel, opt2);
 
-    let opt3 = dom.create_element("option", Attributes::default());
-    let tn3 = dom.create_text("C");
+    let opt3 = dom.create_element_ownerless_fixture("option", Attributes::default());
+    let tn3 = dom.create_text_ownerless_fixture("C");
     let _ = dom.append_child(opt3, tn3);
     let _ = dom.append_child(sel, opt3);
 
@@ -164,9 +164,9 @@ fn disabled_option_skipped_in_navigation() {
 #[test]
 fn option_value_defaults_to_text() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
-    let tn = dom.create_text("Hello");
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
+    let tn = dom.create_text_ownerless_fixture("Hello");
     let _ = dom.append_child(opt, tn);
     let _ = dom.append_child(sel, opt);
 
@@ -178,7 +178,7 @@ fn option_value_defaults_to_text() {
 #[test]
 fn empty_select() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
     let mut state = FormControlState::from_element("select", &Attributes::default()).unwrap();
     init_select_options(&dom, sel, &mut state);
     assert!(state.options.is_empty());
@@ -204,13 +204,13 @@ fn select_negative_index() {
 #[test]
 fn multiple_select_no_auto_select() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", {
+    let sel = dom.create_element_ownerless_fixture("select", {
         let mut a = Attributes::default();
         a.set("multiple", "");
         a
     });
-    let opt = dom.create_element("option", Attributes::default());
-    let tn = dom.create_text("A");
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
+    let tn = dom.create_text_ownerless_fixture("A");
     let _ = dom.append_child(opt, tn);
     let _ = dom.append_child(sel, opt);
 
@@ -225,13 +225,13 @@ fn multiple_select_no_auto_select() {
 #[test]
 fn disabled_optgroup_disables_children() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
     let mut g_attrs = Attributes::default();
     g_attrs.set("label", "G");
     g_attrs.set("disabled", "");
-    let grp = dom.create_element("optgroup", g_attrs);
-    let opt = dom.create_element("option", Attributes::default());
-    let tn = dom.create_text("X");
+    let grp = dom.create_element_ownerless_fixture("optgroup", g_attrs);
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
+    let tn = dom.create_text_ownerless_fixture("X");
     let _ = dom.append_child(opt, tn);
     let _ = dom.append_child(grp, opt);
     let _ = dom.append_child(sel, grp);
@@ -246,7 +246,7 @@ fn is_option_disabled_via_own_attribute() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("disabled", "");
-    let opt = dom.create_element("option", attrs);
+    let opt = dom.create_element_ownerless_fixture("option", attrs);
     assert!(is_option_disabled(&dom, opt));
 }
 
@@ -255,8 +255,8 @@ fn is_option_disabled_via_optgroup_ancestor() {
     let mut dom = EcsDom::new();
     let mut grp_attrs = Attributes::default();
     grp_attrs.set("disabled", "");
-    let grp = dom.create_element("optgroup", grp_attrs);
-    let opt = dom.create_element("option", Attributes::default());
+    let grp = dom.create_element_ownerless_fixture("optgroup", grp_attrs);
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(grp, opt);
     assert!(is_option_disabled(&dom, opt));
 }
@@ -264,8 +264,8 @@ fn is_option_disabled_via_optgroup_ancestor() {
 #[test]
 fn is_option_disabled_returns_false_when_neither_set() {
     let mut dom = EcsDom::new();
-    let grp = dom.create_element("optgroup", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
+    let grp = dom.create_element_ownerless_fixture("optgroup", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(grp, opt);
     assert!(!is_option_disabled(&dom, opt));
 }
@@ -278,7 +278,7 @@ fn is_option_disabled_returns_false_for_non_option_tag() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("disabled", "");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     assert!(!is_option_disabled(&dom, div));
 }
 
@@ -291,8 +291,8 @@ fn is_option_disabled_stops_at_select() {
     let mut dom = EcsDom::new();
     let mut sel_attrs = Attributes::default();
     sel_attrs.set("disabled", "");
-    let sel = dom.create_element("select", sel_attrs);
-    let opt = dom.create_element("option", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", sel_attrs);
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(sel, opt);
     assert!(!is_option_disabled(&dom, opt));
 }
@@ -302,8 +302,8 @@ fn is_option_disabled_stops_at_select() {
 #[test]
 fn find_option_select_direct_parent() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(sel, opt);
     assert_eq!(find_option_select(&dom, opt), Some(sel));
 }
@@ -311,9 +311,9 @@ fn find_option_select_direct_parent() {
 #[test]
 fn find_option_select_via_optgroup() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
-    let grp = dom.create_element("optgroup", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
+    let grp = dom.create_element_ownerless_fixture("optgroup", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(sel, grp);
     let _ = dom.append_child(grp, opt);
     assert_eq!(find_option_select(&dom, opt), Some(sel));
@@ -325,9 +325,9 @@ fn find_option_select_through_arbitrary_wrapper() {
     // introduce wrappers between option and select; the walker
     // climbs through them.
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
-    let wrapper = dom.create_element("div", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
+    let wrapper = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(sel, wrapper);
     let _ = dom.append_child(wrapper, opt);
     assert_eq!(find_option_select(&dom, opt), Some(sel));
@@ -336,7 +336,7 @@ fn find_option_select_through_arbitrary_wrapper() {
 #[test]
 fn find_option_select_returns_none_for_detached() {
     let mut dom = EcsDom::new();
-    let opt = dom.create_element("option", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     assert_eq!(find_option_select(&dom, opt), None);
 }
 
@@ -345,8 +345,8 @@ fn find_option_select_returns_none_when_no_select_ancestor() {
     // Option attached to a non-select container (e.g. a stray
     // `<div>`) — `option.form` should return null.
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(div, opt);
     assert_eq!(find_option_select(&dom, opt), None);
 }
@@ -356,8 +356,8 @@ fn find_option_select_case_insensitive_tag() {
     // JS-driven `document.createElement("SELECT")` keeps the
     // mixed-case tag.  ASCII-CI match should still resolve.
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("SELECT", Attributes::default());
-    let opt = dom.create_element("option", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("SELECT", Attributes::default());
+    let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
     let _ = dom.append_child(sel, opt);
     assert_eq!(find_option_select(&dom, opt), Some(sel));
 }
@@ -367,7 +367,7 @@ fn find_option_select_case_insensitive_tag() {
 #[test]
 fn implicit_default_true_for_default_select() {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
     assert!(select_uses_implicit_default(&dom, sel));
 }
 
@@ -376,7 +376,7 @@ fn implicit_default_false_when_multiple() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("multiple", "");
-    let sel = dom.create_element("select", attrs);
+    let sel = dom.create_element_ownerless_fixture("select", attrs);
     assert!(!select_uses_implicit_default(&dom, sel));
 }
 
@@ -385,7 +385,7 @@ fn implicit_default_false_when_size_gt_one() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("size", "5");
-    let sel = dom.create_element("select", attrs);
+    let sel = dom.create_element_ownerless_fixture("select", attrs);
     assert!(!select_uses_implicit_default(&dom, sel));
 }
 
@@ -394,7 +394,7 @@ fn implicit_default_true_when_size_invalid() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("size", "0");
-    let sel = dom.create_element("select", attrs);
+    let sel = dom.create_element_ownerless_fixture("select", attrs);
     assert!(select_uses_implicit_default(&dom, sel));
 }
 
@@ -429,7 +429,7 @@ impl TestOpt {
 
 fn build_select(sel_attrs: Attributes, opts: &[TestOpt]) -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
-    let sel = dom.create_element("select", sel_attrs);
+    let sel = dom.create_element_ownerless_fixture("select", sel_attrs);
     for o in opts {
         let mut attrs = Attributes::default();
         if o.selected {
@@ -441,10 +441,10 @@ fn build_select(sel_attrs: Attributes, opts: &[TestOpt]) -> (EcsDom, Entity) {
         if let Some(v) = o.value_attr {
             attrs.set("value", v);
         }
-        let opt = dom.create_element("option", attrs);
+        let opt = dom.create_element_ownerless_fixture("option", attrs);
         assert!(dom.append_child(sel, opt));
         if let Some(t) = o.text {
-            let tn = dom.create_text(t);
+            let tn = dom.create_text_ownerless_fixture(t);
             assert!(dom.append_child(opt, tn));
         }
     }

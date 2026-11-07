@@ -131,7 +131,7 @@ fn persists_pseudo_element_flow() {
     for &c in &dom.composed_children(parent) {
         dom.remove_child(parent, c);
     }
-    let pseudo = dom.create_element("span", Attributes::default());
+    let pseudo = dom.create_element_ownerless_fixture("span", Attributes::default());
     let pseudo_style = ComputedStyle {
         font_family: style.font_family.clone(),
         ..Default::default()

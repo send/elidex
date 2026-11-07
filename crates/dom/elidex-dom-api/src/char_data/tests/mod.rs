@@ -14,14 +14,14 @@ use elidex_script_session::{DomApiHandler, SessionCore};
 
 fn setup_text() -> (EcsDom, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("Hello, world!");
+    let text = dom.create_text_ownerless_fixture("Hello, world!");
     let session = SessionCore::new();
     (dom, text, session)
 }
 
 fn setup_comment() -> (EcsDom, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let comment = dom.create_comment("a comment");
+    let comment = dom.create_comment_ownerless_fixture("a comment");
     let session = SessionCore::new();
     (dom, comment, session)
 }
@@ -35,9 +35,9 @@ fn setup_document() -> (EcsDom, Entity, SessionCore) {
         "http://www.w3.org/TR/html4/strict.dtd",
         elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(doc, doctype);
     dom.append_child(doc, html);
     dom.append_child(html, head);

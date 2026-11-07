@@ -19,9 +19,9 @@ fn clone_attributes_copies_all_keys() {
 #[test]
 fn clone_character_data_text_to_text() {
     let mut dom = EcsDom::new();
-    let src = dom.create_text("hello");
+    let src = dom.create_text_ownerless_fixture("hello");
     // Pre-allocate dst with blank text to exercise the overwrite path.
-    let dst = dom.create_text("");
+    let dst = dom.create_text_ownerless_fixture("");
     dom.clone_character_data(src, dst);
     let text = dom
         .world()
@@ -33,8 +33,8 @@ fn clone_character_data_text_to_text() {
 #[test]
 fn clone_character_data_comment_to_comment() {
     let mut dom = EcsDom::new();
-    let src = dom.create_comment("note");
-    let dst = dom.create_comment("");
+    let src = dom.create_comment_ownerless_fixture("note");
+    let dst = dom.create_comment_ownerless_fixture("");
     dom.clone_character_data(src, dst);
     let c = dom
         .world()
@@ -49,8 +49,8 @@ fn clone_character_data_mismatched_kinds_noop() {
     // wrong component — e.g., Text → Comment would otherwise leave
     // the Comment entity with both CommentData and TextContent.
     let mut dom = EcsDom::new();
-    let src = dom.create_text("hello");
-    let dst = dom.create_comment("original");
+    let src = dom.create_text_ownerless_fixture("hello");
+    let dst = dom.create_comment_ownerless_fixture("original");
     dom.clone_character_data(src, dst);
     // Destination still has its original CommentData.
     let c = dom.world().get::<&CommentData>(dst).unwrap();
@@ -231,7 +231,7 @@ fn clone_subtree_pairs_cover_every_node_root_first() {
     let root = elem(&mut dom, "div");
     let child_a = elem(&mut dom, "span");
     let child_b = elem(&mut dom, "p");
-    let grandchild = dom.create_text("hi");
+    let grandchild = dom.create_text_ownerless_fixture("hi");
     assert!(dom.append_child(root, child_a));
     assert!(dom.append_child(root, child_b));
     assert!(dom.append_child(child_b, grandchild));

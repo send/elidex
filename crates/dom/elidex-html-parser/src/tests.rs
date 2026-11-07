@@ -329,7 +329,7 @@ fn dsd_both_backends(html: &str) -> (String, String) {
     let run = |strict: bool| {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let context = dom.create_element("div", Attributes::default());
+        let context = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, context);
         let roots = if strict {
             parse_fragment_strict(html, context, &mut dom, DSD_OPEN).expect("strict parses")
@@ -359,7 +359,7 @@ fn fragment_top_level_declarative_shadow_is_plain_template() {
     // plain template whose content holds the <p>, and the context is never
     // mutated.
     let mut dom = EcsDom::new();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.create_document_root();
     let added = parse_html_fragment(
         r#"<template shadowrootmode="open"><p>x</p></template>"#,
@@ -396,7 +396,7 @@ fn fragment_nested_declarative_shadow_attaches_to_inner_host() {
     // declarativeShadowHostElement, so hostIsRoot is false and the shadow
     // attaches there. Here the inner `<div>` hosts the shadow holding <p>.
     let mut dom = EcsDom::new();
-    let context = dom.create_element("body", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("body", Attributes::default());
     let _ = dom.create_document_root();
     let added = parse_html_fragment(
         r#"<div><template shadowrootmode="open"><p>x</p></template></div>"#,
@@ -433,7 +433,7 @@ fn fragment_progressive_top_level_declarative_shadow_strict_native() {
     // The progressive entry (strict first) takes the strict-native path too.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, context);
     let roots = parse_fragment_progressive(html, context, &mut dom, DSD_OPEN);
     assert!(dom.get_shadow_root(context).is_none());
@@ -478,7 +478,7 @@ fn parse_html_fragment_preserves_inter_element_whitespace() {
     // too — the navigation(strict) ↔ innerHTML(tolerant) DOM consistency the
     // unify program targets. (innerHTML uses this fragment entry point.)
     let mut dom = EcsDom::new();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.create_document_root();
     let added = parse_html_fragment(
         "<p>A</p>\n  <p>B</p>",
@@ -625,7 +625,7 @@ fn fragment_template_content_documentless_context_is_unstamped_in_both_backends(
     // content fragment has no node document in either backend.
     for strict in [true, false] {
         let mut dom = EcsDom::new();
-        let context = dom.create_element("div", Attributes::default());
+        let context = dom.create_element_ownerless_fixture("div", Attributes::default());
         let html = "<template><p>x</p></template>";
         let roots = if strict {
             parse_fragment_strict(html, context, &mut dom, ParseFragmentOptions::default())
@@ -662,7 +662,7 @@ fn fragment_returned_custom_element_carries_ce_state() {
     // `elidex-script-session` `apply_set_inner_html` tests.)
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, context);
     let added = parse_html_fragment(
         "<my-widget></my-widget>",
@@ -702,7 +702,7 @@ fn fragment_declarative_shadow_content_gets_derived_components() {
 
     let mut dom = EcsDom::new();
     let _ = dom.create_document_root();
-    let context = dom.create_element("body", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("body", Attributes::default());
     let added = parse_html_fragment(
         r#"<div><template shadowrootmode="open"><my-el style="color: red"></my-el></template></div>"#,
         context,
@@ -747,7 +747,7 @@ fn fragment_progressive_strict_first_then_tolerant_fallback() {
     // nodes through the single `parse_fragment_progressive` entry.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(doc, context);
 
     let clean = parse_fragment_progressive(
@@ -819,7 +819,7 @@ fn fragment_tolerant_derives_foreign_context_namespace() {
     use elidex_ecs::Namespace;
     let mut dom = EcsDom::new();
     let _ = dom.create_document_root();
-    let context = dom.create_element("svg", Attributes::default());
+    let context = dom.create_element_ownerless_fixture("svg", Attributes::default());
     let _ = dom.world_mut().insert_one(context, Namespace::Svg);
     let nodes = parse_html_fragment(
         "<rect></rect>",

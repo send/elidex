@@ -67,7 +67,7 @@ fn make_grid_child(
     parent: elidex_ecs::Entity,
     height: f32,
 ) -> elidex_ecs::Entity {
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, child);
     dom.world_mut()
         .insert_one(

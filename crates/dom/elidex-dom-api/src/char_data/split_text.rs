@@ -231,8 +231,8 @@ mod tests {
 
     fn build_tree() -> (EcsDom, Entity, Entity) {
         let mut dom = EcsDom::new();
-        let parent = dom.create_element("p", Attributes::default());
-        let t = dom.create_text("hello world");
+        let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+        let t = dom.create_text_ownerless_fixture("hello world");
         let _ = dom.append_child(parent, t);
         (dom, parent, t)
     }
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn rejects_non_text() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let err = split_text_at_offset(div, 0, &mut dom).unwrap_err();
         assert_eq!(err, SplitTextError::NotTextNode);
     }
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn orphan_text_node_split_skips_insert_and_returns_new_node() {
         let mut dom = EcsDom::new();
-        let t = dom.create_text("hello world");
+        let t = dom.create_text_ownerless_fixture("hello world");
         let (new_node, records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         let tc_t = dom.world().get::<&elidex_ecs::TextContent>(t).unwrap();
@@ -416,8 +416,8 @@ mod tests {
     fn split_last_exposed_child_of_shadow_host_excludes_shadow_root_from_record() {
         use elidex_ecs::ShadowRootMode;
         let mut dom = EcsDom::new();
-        let host = dom.create_element("div", Attributes::default());
-        let t = dom.create_text("hello world");
+        let host = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let t = dom.create_text_ownerless_fixture("hello world");
         let _ = dom.append_child(host, t);
         dom.attach_shadow(host, ShadowRootMode::Open)
             .expect("div is a valid shadow host");

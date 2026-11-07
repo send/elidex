@@ -1230,12 +1230,12 @@ mod tests {
     /// Build: root(div) -> [span, text("hello"), p -> [text("world")], comment]
     fn build_tree() -> (EcsDom, Entity, Entity, Entity, Entity, Entity, Entity) {
         let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let span = dom.create_element("span", Attributes::default());
-        let text1 = dom.create_text("hello");
-        let p = dom.create_element("p", Attributes::default());
-        let text2 = dom.create_text("world");
-        let comment = dom.create_comment("a comment");
+        let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let text1 = dom.create_text_ownerless_fixture("hello");
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+        let text2 = dom.create_text_ownerless_fixture("world");
+        let comment = dom.create_comment_ownerless_fixture("a comment");
 
         dom.append_child(root, span);
         dom.append_child(root, text1);
@@ -1386,11 +1386,11 @@ mod tests {
     #[test]
     fn step_with_filter_reject_prunes_subtree() {
         let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let section = dom.create_element("section", Attributes::default());
-        let p = dom.create_element("p", Attributes::default());
-        let em = dom.create_element("em", Attributes::default());
-        let aside = dom.create_element("aside", Attributes::default());
+        let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let section = dom.create_element_ownerless_fixture("section", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+        let em = dom.create_element_ownerless_fixture("em", Attributes::default());
+        let aside = dom.create_element_ownerless_fixture("aside", Attributes::default());
         dom.append_child(root, section);
         dom.append_child(section, p);
         dom.append_child(section, em);
@@ -1416,9 +1416,9 @@ mod tests {
     #[test]
     fn step_with_filter_skip_descends_into_subtree() {
         let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let section = dom.create_element("section", Attributes::default());
-        let p = dom.create_element("p", Attributes::default());
+        let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let section = dom.create_element_ownerless_fixture("section", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(root, section);
         dom.append_child(section, p);
 
@@ -1436,8 +1436,8 @@ mod tests {
     #[test]
     fn step_with_filter_accept_returns_immediately() {
         let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let span = dom.create_element("span", Attributes::default());
+        let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(root, span);
 
         let mut walker = TreeWalker::new(root, SHOW_ELEMENT);
@@ -1456,11 +1456,11 @@ mod tests {
         use elidex_ecs::TextContent;
 
         let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let p = dom.create_element("p", Attributes::default());
-        let t1 = dom.create_text("hello");
-        let t2 = dom.create_text(" ");
-        let t3 = dom.create_text("world");
+        let root = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
+        let t1 = dom.create_text_ownerless_fixture("hello");
+        let t2 = dom.create_text_ownerless_fixture(" ");
+        let t3 = dom.create_text_ownerless_fixture("world");
 
         dom.append_child(root, p);
         dom.append_child(p, t1);

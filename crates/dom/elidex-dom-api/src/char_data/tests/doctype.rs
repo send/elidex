@@ -44,7 +44,7 @@ fn get_doctype_system_id() {
 fn get_doctype_none() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
     let mut session = SessionCore::new();
     let result = GetDoctype.invoke(doc, &[], &mut session, &mut dom).unwrap();

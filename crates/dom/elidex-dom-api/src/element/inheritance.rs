@@ -83,7 +83,7 @@ mod tests {
             if let Some(value) = state {
                 attrs.set("contenteditable", *value);
             }
-            let e = dom.create_element("div", attrs);
+            let e = dom.create_element_ownerless_fixture("div", attrs);
             if let Some(p) = parent {
                 assert!(dom.append_child(p, e));
             }

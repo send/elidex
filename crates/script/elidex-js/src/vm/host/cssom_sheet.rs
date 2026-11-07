@@ -774,7 +774,7 @@ pub(super) fn native_html_style_get_sheet(
     };
     // ASCII case-insensitive tag match per WHATWG DOM §4.2.6.2.
     // Mirrors `first_child_with_tag`'s `eq_ignore_ascii_case` pattern
-    // — accepts raw `create_element("STYLE", ...)` callers and any
+    // — accepts raw `create_element_with_owner("STYLE", ..)` callers and any
     // future XML / mixed-case path.
     let is_style = hd.dom().with_tag_name(entity, |t| {
         t.is_some_and(|t| t.eq_ignore_ascii_case("style"))

@@ -50,7 +50,7 @@ fn core_properties_installed_and_typed() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("button", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -91,7 +91,7 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("a", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("a", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -171,7 +171,7 @@ fn four_methods_installed_on_event_prototype() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -217,7 +217,7 @@ fn mouse_payload_installs_coords_and_modifier_keys() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -256,7 +256,7 @@ fn keyboard_payload_installs_key_code_and_repeat() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -290,8 +290,8 @@ fn focus_payload_resolves_related_target_to_wrapper() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
-    let related = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
+    let related = dom.create_element_ownerless_fixture("button", Attributes::default());
     let related_bits = related.to_bits().get();
 
     #[allow(unsafe_code)]
@@ -337,7 +337,7 @@ fn event_object_kind_carries_flag_seed() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -389,7 +389,7 @@ fn timestamp_is_monotonic_and_shares_origin_with_performance_now() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -451,7 +451,7 @@ fn two_mouse_events_share_one_shape() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("button", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -490,7 +490,7 @@ fn different_payload_variants_use_different_shapes() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -536,7 +536,7 @@ fn scroll_and_none_share_core_shape() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {

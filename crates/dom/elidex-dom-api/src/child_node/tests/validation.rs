@@ -7,8 +7,8 @@ use elidex_script_session::DomApiErrorKind;
 #[test]
 fn ensure_validity_invalid_parent() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
-    let child = dom.create_element("span", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("hello");
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
 
     let result = ensure_pre_insertion_validity(text, child, None, &dom);
     assert!(result.is_err());
@@ -21,8 +21,8 @@ fn ensure_validity_invalid_parent() {
 #[test]
 fn ensure_validity_ancestor_cycle() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
 
     // Trying to insert parent under child should be rejected.
@@ -37,9 +37,9 @@ fn ensure_validity_ancestor_cycle() {
 #[test]
 fn ensure_validity_ref_child_not_child_of_parent() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let node = dom.create_element("span", Attributes::default());
-    let unrelated = dom.create_element("p", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let node = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let unrelated = dom.create_element_ownerless_fixture("p", Attributes::default());
 
     let result = ensure_pre_insertion_validity(parent, node, Some(unrelated), &dom);
     assert!(result.is_err());
@@ -49,9 +49,9 @@ fn ensure_validity_ref_child_not_child_of_parent() {
 #[test]
 fn ensure_validity_valid_insertion() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let node = dom.create_element("span", Attributes::default());
-    let existing = dom.create_element("p", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let node = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let existing = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(parent, existing);
 
     let result = ensure_pre_insertion_validity(parent, node, Some(existing), &dom);
@@ -62,7 +62,7 @@ fn ensure_validity_valid_insertion() {
 fn ensure_validity_document_rejects_text() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
 
     let result = ensure_pre_insertion_validity(doc, text, None, &dom);
     assert!(result.is_err());
@@ -77,7 +77,7 @@ fn ensure_validity_document_rejects_text() {
 #[test]
 fn ensure_validity_doctype_under_element_rejected() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     let doctype = dom.create_document_type(
         "html",
         "",
@@ -112,9 +112,9 @@ fn ensure_validity_doctype_under_document_ok() {
 fn ensure_validity_document_rejects_second_element() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
-    let second = dom.create_element("body", Attributes::default());
+    let second = dom.create_element_ownerless_fixture("body", Attributes::default());
     let result = ensure_pre_insertion_validity(doc, second, None, &dom);
     assert!(result.is_err());
     assert_eq!(
@@ -127,7 +127,7 @@ fn ensure_validity_document_rejects_second_element() {
 fn ensure_validity_document_allows_first_element() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     let result = ensure_pre_insertion_validity(doc, html, None, &dom);
     assert!(result.is_ok());
 }
@@ -143,7 +143,7 @@ fn ensure_validity_document_rejects_element_before_doctype() {
         elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
     dom.append_child(doc, doctype);
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     // Inserting element before doctype should fail.
     let result = ensure_pre_insertion_validity(doc, html, Some(doctype), &dom);
     assert!(result.is_err());
@@ -182,7 +182,7 @@ fn ensure_validity_document_rejects_second_doctype() {
 fn ensure_validity_document_rejects_doctype_after_element() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
     let doctype = dom.create_document_type(
         "html",
@@ -203,8 +203,8 @@ fn ensure_validity_document_rejects_doctype_after_element() {
 fn ensure_validity_document_fragment_rejects_text_child() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let frag = dom.create_document_fragment();
-    let text = dom.create_text("hello");
+    let frag = dom.create_document_fragment_ownerless_fixture();
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(frag, text);
     let result = ensure_pre_insertion_validity(doc, frag, None, &dom);
     assert!(result.is_err());
@@ -226,7 +226,7 @@ fn ensure_validity_document_rejects_existing_element_reappend() {
     // element child" → HierarchyRequestError (no self-exclusion).
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
     let result = ensure_pre_insertion_validity(doc, html, None, &dom);
     assert!(result.is_err());
@@ -262,9 +262,9 @@ fn ensure_validity_document_rejects_existing_doctype_reappend() {
 #[test]
 fn replace_validity_ok() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let old = dom.create_element("span", Attributes::default());
-    let new_el = dom.create_element("p", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let old = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let new_el = dom.create_element_ownerless_fixture("p", Attributes::default());
     dom.append_child(parent, old);
     let result = ensure_replace_validity(parent, new_el, old, &dom);
     assert!(result.is_ok());
@@ -273,8 +273,8 @@ fn replace_validity_ok() {
 #[test]
 fn replace_validity_cycle_rejected() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(parent, child);
     // Trying to replace child with parent (ancestor) should be rejected.
     let result = ensure_replace_validity(parent, parent, child, &dom);
@@ -288,9 +288,9 @@ fn replace_validity_cycle_rejected() {
 #[test]
 fn replace_validity_child_not_found() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let node = dom.create_element("span", Attributes::default());
-    let unrelated = dom.create_element("p", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let node = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let unrelated = dom.create_element_ownerless_fixture("p", Attributes::default());
     let result = ensure_replace_validity(parent, node, unrelated, &dom);
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().kind, DomApiErrorKind::NotFoundError);
@@ -306,9 +306,9 @@ fn replace_validity_document_element_swap_ok() {
     // (child-exclusion). Guards against the `c != node` removal regressing replace.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let old_html = dom.create_element("html", Attributes::default());
+    let old_html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, old_html);
-    let new_html = dom.create_element("html", Attributes::default());
+    let new_html = dom.create_element_ownerless_fixture("html", Attributes::default());
     let result = ensure_replace_validity(doc, new_html, old_html, &dom);
     assert!(result.is_ok());
 }

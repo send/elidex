@@ -72,16 +72,16 @@ fn nodes_equal_per_kind_branches() {
     assert!(!dom.nodes_equal(p_node, div_node));
 
     // Text: same payload -> equal; different -> not equal
-    let t1 = dom.create_text("hello");
-    let t2 = dom.create_text("hello");
-    let t3 = dom.create_text("world");
+    let t1 = dom.create_text_ownerless_fixture("hello");
+    let t2 = dom.create_text_ownerless_fixture("hello");
+    let t3 = dom.create_text_ownerless_fixture("world");
     assert!(dom.nodes_equal(t1, t2));
     assert!(!dom.nodes_equal(t1, t3));
 
     // Comment: same payload -> equal; different -> not equal
-    let c1 = dom.create_comment("note");
-    let c2 = dom.create_comment("note");
-    let c3 = dom.create_comment("other");
+    let c1 = dom.create_comment_ownerless_fixture("note");
+    let c2 = dom.create_comment_ownerless_fixture("note");
+    let c3 = dom.create_comment_ownerless_fixture("other");
     assert!(dom.nodes_equal(c1, c2));
     assert!(!dom.nodes_equal(c1, c3));
 
@@ -93,8 +93,8 @@ fn nodes_equal_per_kind_branches() {
     assert!(!dom.nodes_equal(dt1, dt3));
 
     // DocumentFragment: payload-less, equal when children match
-    let f1 = dom.create_document_fragment();
-    let f2 = dom.create_document_fragment();
+    let f1 = dom.create_document_fragment_ownerless_fixture();
+    let f2 = dom.create_document_fragment_ownerless_fixture();
     assert!(dom.nodes_equal(f1, f2));
 }
 

@@ -16,7 +16,7 @@ fn elem_in(dom: &mut EcsDom, tag: &str, doc: Entity) -> Entity {
 
 #[allow(dead_code)] // kept for future cross-doc / no-association tests
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 fn fresh() -> (EcsDom, LiveRangeRegistry, Entity) {

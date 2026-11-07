@@ -166,7 +166,7 @@ fn mouse_payload_slot_order_locked() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("button", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -216,7 +216,7 @@ fn keyboard_payload_slot_order_locked() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -264,7 +264,7 @@ fn wheel_payload_slot_order_locked() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -314,8 +314,8 @@ fn focus_payload_slot_order_locked() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
-    let related = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
+    let related = dom.create_element_ownerless_fixture("button", Attributes::default());
     let related_bits = related.to_bits().get();
 
     #[allow(unsafe_code)]
@@ -351,7 +351,7 @@ fn input_payload_slot_order_locked() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -386,7 +386,7 @@ fn composition_payload_slot_order_locked() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     #[allow(unsafe_code)]
     unsafe {
@@ -430,7 +430,7 @@ fn mouse_ua_and_ctor_share_own_property_names() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("button", Attributes::default());
 
     let ua_names = ua_event_property_names(
         &mut vm,
@@ -453,7 +453,7 @@ fn keyboard_ua_and_ctor_share_own_property_names() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     let ua_names = ua_event_property_names(
         &mut vm,
@@ -476,7 +476,7 @@ fn wheel_ua_and_ctor_share_own_property_names() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let ua_names = ua_event_property_names(
         &mut vm,
@@ -499,7 +499,7 @@ fn focus_ua_and_ctor_share_own_property_names() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     let ua_names = ua_event_property_names(
         &mut vm,
@@ -522,7 +522,7 @@ fn input_ua_and_ctor_share_own_property_names() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     let ua_names = ua_event_property_names(
         &mut vm,
@@ -545,7 +545,7 @@ fn composition_ua_and_ctor_share_own_property_names() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = dom.create_element("input", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("input", Attributes::default());
 
     let ua_names = ua_event_property_names(
         &mut vm,

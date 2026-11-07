@@ -12,9 +12,9 @@ use super::super::Vm;
 
 fn build_html_with_head_body(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(html, body));
@@ -23,7 +23,7 @@ fn build_html_with_head_body(dom: &mut EcsDom) -> elidex_ecs::Entity {
 
 fn build_no_head(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     assert!(dom.append_child(doc, html));
     doc
 }
@@ -36,7 +36,7 @@ fn build_doctype_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
         "",
         elidex_ecs::NewNodeOwner::ownerless_fixture(),
     );
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     assert!(dom.append_child(doc, doctype));
     assert!(dom.append_child(doc, html));
     doc

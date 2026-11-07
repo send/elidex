@@ -809,7 +809,7 @@ fn walk_styles(entity: Entity, dom: &EcsDom, mut visit: impl FnMut(Entity)) {
 
 fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity)) {
     // ASCII case-insensitive tag match per WHATWG DOM §4.2.6.2 — `<STYLE>`
-    // (mixed-case via raw `create_element`) is a valid HTML style element
+    // (mixed-case via raw `create_element_with_owner`) is a valid HTML style element
     // and must surface in `document.styleSheets`.
     let is_style = dom.with_tag_name(entity, |t| {
         t.is_some_and(|t| t.eq_ignore_ascii_case("style"))

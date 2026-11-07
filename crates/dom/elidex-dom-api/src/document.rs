@@ -333,21 +333,21 @@ mod tests {
     fn setup_dom() -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let html = dom.create_element("html", Attributes::default());
-        let body = dom.create_element("body", Attributes::default());
+        let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         dom.append_child(doc, html);
         dom.append_child(html, body);
 
         let mut div_attrs = Attributes::default();
         div_attrs.set("id", "target");
         div_attrs.set("class", "box");
-        let div = dom.create_element("div", div_attrs);
+        let div = dom.create_element_ownerless_fixture("div", div_attrs);
         dom.append_child(body, div);
 
-        let span = dom.create_element("span", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(div, span);
 
-        let p = dom.create_element("p", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(body, p);
 
         (dom, doc)

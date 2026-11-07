@@ -33,7 +33,7 @@ impl MutationDispatcher for PanicHook {
 #[test]
 fn dispatch_event_restores_dispatcher_and_depth() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let hook = CountHook::default();
     let count = hook.count.clone();
     dom.set_mutation_dispatcher(Box::new(hook));
@@ -57,7 +57,7 @@ fn dispatch_event_restores_dispatcher_and_depth() {
 #[test]
 fn dispatch_event_restores_dispatcher_and_depth_after_panic() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.set_mutation_dispatcher(Box::new(PanicHook));
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -78,7 +78,7 @@ fn dispatch_event_restores_dispatcher_and_depth_after_panic() {
 #[should_panic(expected = "dispatcher is taken out")]
 fn fire_clone_created_asserts_while_dispatcher_is_taken() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.set_mutation_dispatcher(Box::new(CountHook::default()));
     let _window = dom.take_mutation_dispatcher();
     dom.fire_clone_created(el, CloneScope::Subtree);
@@ -89,7 +89,7 @@ fn fire_clone_created_asserts_while_dispatcher_is_taken() {
 #[test]
 fn fire_clone_created_is_silent_after_empty_take() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.fire_clone_created(el, CloneScope::Subtree);
     assert!(dom.take_mutation_dispatcher().is_none());
     dom.fire_clone_created(el, CloneScope::Subtree);
@@ -100,7 +100,7 @@ fn fire_clone_created_is_silent_after_empty_take() {
 #[test]
 fn fire_clone_created_dispatches_after_take_and_restore() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let hook = CountHook::default();
     let count = hook.count.clone();
     dom.set_mutation_dispatcher(Box::new(hook));
@@ -115,7 +115,7 @@ fn fire_clone_created_dispatches_after_take_and_restore() {
 #[test]
 fn clear_closes_a_taken_window() {
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.set_mutation_dispatcher(Box::new(CountHook::default()));
     let _window = dom.take_mutation_dispatcher();
     dom.clear_mutation_dispatcher();
@@ -139,7 +139,7 @@ fn fire_clone_created_from_inside_dispatch_hits_reentry_assertion() {
         }
     }
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.set_mutation_dispatcher(Box::new(Reenter(el)));
     dom.fire_clone_created(el, CloneScope::Subtree);
 }
@@ -161,7 +161,7 @@ fn installing_inside_dispatch_asserts_after_restoring_state() {
         }
     }
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let count = Arc::new(Mutex::new(0));
     dom.set_mutation_dispatcher(Box::new(Installer {
         count: count.clone(),

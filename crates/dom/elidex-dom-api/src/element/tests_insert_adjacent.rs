@@ -17,10 +17,10 @@ use crate::test_util::setup;
 #[test]
 fn insert_adjacent_element_beforebegin() {
     let (mut dom, parent, _child, mut session) = setup();
-    let root = dom.create_element("body", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, parent);
 
-    let new_elem = dom.create_element("p", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("p", Attributes::default());
     session.get_or_create_wrapper(new_elem, ComponentKind::Element);
     let new_ref = session
         .get_or_create_wrapper(new_elem, ComponentKind::Element)
@@ -47,7 +47,7 @@ fn insert_adjacent_element_afterbegin() {
     let (mut dom, parent, child, mut session) = setup();
     dom.append_child(parent, child);
 
-    let new_elem = dom.create_element("p", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("p", Attributes::default());
     session.get_or_create_wrapper(new_elem, ComponentKind::Element);
     let new_ref = session
         .get_or_create_wrapper(new_elem, ComponentKind::Element)
@@ -74,7 +74,7 @@ fn insert_adjacent_element_beforeend() {
     let (mut dom, parent, child, mut session) = setup();
     dom.append_child(parent, child);
 
-    let new_elem = dom.create_element("p", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("p", Attributes::default());
     session.get_or_create_wrapper(new_elem, ComponentKind::Element);
     let new_ref = session
         .get_or_create_wrapper(new_elem, ComponentKind::Element)
@@ -99,10 +99,10 @@ fn insert_adjacent_element_beforeend() {
 #[test]
 fn insert_adjacent_element_afterend() {
     let (mut dom, parent, _, mut session) = setup();
-    let root = dom.create_element("body", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, parent);
 
-    let new_elem = dom.create_element("p", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("p", Attributes::default());
     session.get_or_create_wrapper(new_elem, ComponentKind::Element);
     let new_ref = session
         .get_or_create_wrapper(new_elem, ComponentKind::Element)
@@ -148,7 +148,7 @@ fn insert_adjacent_element_case_insensitive() {
     let (mut dom, parent, child, mut session) = setup();
     dom.append_child(parent, child);
 
-    let new_elem = dom.create_element("p", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("p", Attributes::default());
     session.get_or_create_wrapper(new_elem, ComponentKind::Element);
     let new_ref = session
         .get_or_create_wrapper(new_elem, ComponentKind::Element)
@@ -199,7 +199,7 @@ fn insert_adjacent_element_no_parent_returns_null_not_error() {
     // The handler wrongly threw before B1.2b-2 (boa-reachable). `parent` from
     // `setup()` has no parent of its own.
     let (mut dom, parent, _child, mut session) = setup();
-    let new_elem = dom.create_element("p", Attributes::default());
+    let new_elem = dom.create_element_ownerless_fixture("p", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_elem, ComponentKind::Element)
         .to_raw();
@@ -227,7 +227,7 @@ fn insert_adjacent_element_rejects_non_element_arg_at_canonical_layer() {
     // protection on the boa/wasm path (the VM additionally brand-checks the arg);
     // before B1.2b-2 the handler had no kind check and would insert the Text.
     let (mut dom, parent, _child, mut session) = setup();
-    let text = dom.create_text("t");
+    let text = dom.create_text_ownerless_fixture("t");
     let text_ref = session
         .get_or_create_wrapper(text, ComponentKind::TextNode)
         .to_raw();
@@ -287,7 +287,7 @@ fn insert_adjacent_text_into_document_throws_and_leaks_no_orphan() {
     use elidex_ecs::TextContent;
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
-    let root = dom.create_element("html", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, root);
     let before = dom.world().query::<&TextContent>().iter().count();
     let err = InsertAdjacentText

@@ -158,7 +158,7 @@ mod tests {
 
     fn make_dom_with_text() -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             parent,
             ComputedStyle {
@@ -166,7 +166,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let text = dom.create_text("hello world");
+        let text = dom.create_text_ownerless_fixture("hello world");
         let _ = dom.append_child(parent, text);
         (dom, parent)
     }
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn flex_row_nowrap_intrinsic() {
         let mut dom = EcsDom::new();
-        let flex = dom.create_element("div", Attributes::default());
+        let flex = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             flex,
             ComputedStyle {
@@ -193,7 +193,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let c1 = dom.create_element("div", Attributes::default());
+        let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c1,
             ComputedStyle {
@@ -203,7 +203,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(flex, c1);
-        let c2 = dom.create_element("div", Attributes::default());
+        let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c2,
             ComputedStyle {
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn flex_row_wrap_intrinsic() {
         let mut dom = EcsDom::new();
-        let flex = dom.create_element("div", Attributes::default());
+        let flex = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             flex,
             ComputedStyle {
@@ -234,7 +234,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let c1 = dom.create_element("div", Attributes::default());
+        let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c1,
             ComputedStyle {
@@ -244,7 +244,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(flex, c1);
-        let c2 = dom.create_element("div", Attributes::default());
+        let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c2,
             ComputedStyle {
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn nested_block_intrinsic() {
         let mut dom = EcsDom::new();
-        let outer = dom.create_element("div", Attributes::default());
+        let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             outer,
             ComputedStyle {
@@ -273,7 +273,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let inner = dom.create_element("div", Attributes::default());
+        let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             inner,
             ComputedStyle {
@@ -318,7 +318,7 @@ mod tests {
     /// Helper: create a table with one row and cells with optional colspan.
     fn make_table_with_colspan(cells: &[(usize, f32)]) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
-        let table = dom.create_element("table", Attributes::default());
+        let table = dom.create_element_ownerless_fixture("table", Attributes::default());
         let _ = dom.world_mut().insert_one(
             table,
             ComputedStyle {
@@ -326,7 +326,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let tr = dom.create_element("tr", Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
         let _ = dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -340,7 +340,7 @@ mod tests {
             if colspan > 1 {
                 attrs.set("colspan", colspan.to_string());
             }
-            let td = dom.create_element("td", attrs);
+            let td = dom.create_element_ownerless_fixture("td", attrs);
             let _ = dom.world_mut().insert_one(
                 td,
                 ComputedStyle {
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn block_vertical_rl_intrinsic() {
         let mut dom = EcsDom::new();
-        let block = dom.create_element("div", Attributes::default());
+        let block = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             block,
             ComputedStyle {
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn flex_row_vertical_rl_intrinsic() {
         let mut dom = EcsDom::new();
-        let flex = dom.create_element("div", Attributes::default());
+        let flex = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             flex,
             ComputedStyle {
@@ -417,7 +417,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let c1 = dom.create_element("div", Attributes::default());
+        let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c1,
             ComputedStyle {
@@ -428,7 +428,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(flex, c1);
-        let c2 = dom.create_element("div", Attributes::default());
+        let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c2,
             ComputedStyle {
@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn flex_column_vertical_rl_intrinsic() {
         let mut dom = EcsDom::new();
-        let flex = dom.create_element("div", Attributes::default());
+        let flex = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             flex,
             ComputedStyle {
@@ -460,7 +460,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let c1 = dom.create_element("div", Attributes::default());
+        let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c1,
             ComputedStyle {
@@ -471,7 +471,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(flex, c1);
-        let c2 = dom.create_element("div", Attributes::default());
+        let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             c2,
             ComputedStyle {
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn table_vertical_rl_intrinsic() {
         let mut dom = EcsDom::new();
-        let table = dom.create_element("table", Attributes::default());
+        let table = dom.create_element_ownerless_fixture("table", Attributes::default());
         let _ = dom.world_mut().insert_one(
             table,
             ComputedStyle {
@@ -503,7 +503,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let tr = dom.create_element("tr", Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
         let _ = dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -512,7 +512,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(table, tr);
-        let td1 = dom.create_element("td", Attributes::default());
+        let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
         let _ = dom.world_mut().insert_one(
             td1,
             ComputedStyle {
@@ -523,7 +523,7 @@ mod tests {
             },
         );
         let _ = dom.append_child(tr, td1);
-        let td2 = dom.create_element("td", Attributes::default());
+        let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
         let _ = dom.world_mut().insert_one(
             td2,
             ComputedStyle {
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn horizontal_tb_regression_intrinsic() {
         let mut dom = EcsDom::new();
-        let block = dom.create_element("div", Attributes::default());
+        let block = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             block,
             ComputedStyle {
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn explicit_height_vertical_rl() {
         let mut dom = EcsDom::new();
-        let el = dom.create_element("div", Attributes::default());
+        let el = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             el,
             ComputedStyle {

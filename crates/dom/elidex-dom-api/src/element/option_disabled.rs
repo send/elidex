@@ -81,7 +81,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("disabled", "");
-        let opt = dom.create_element("option", attrs);
+        let opt = dom.create_element_ownerless_fixture("option", attrs);
         assert!(is_option_disabled(&dom, opt));
     }
 
@@ -90,8 +90,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut grp_attrs = Attributes::default();
         grp_attrs.set("disabled", "");
-        let grp = dom.create_element("optgroup", grp_attrs);
-        let opt = dom.create_element("option", Attributes::default());
+        let grp = dom.create_element_ownerless_fixture("optgroup", grp_attrs);
+        let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
         assert!(dom.append_child(grp, opt));
         assert!(is_option_disabled(&dom, opt));
     }
@@ -99,8 +99,8 @@ mod tests {
     #[test]
     fn returns_false_when_neither_set() {
         let mut dom = EcsDom::new();
-        let grp = dom.create_element("optgroup", Attributes::default());
-        let opt = dom.create_element("option", Attributes::default());
+        let grp = dom.create_element_ownerless_fixture("optgroup", Attributes::default());
+        let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
         assert!(dom.append_child(grp, opt));
         assert!(!is_option_disabled(&dom, opt));
     }
@@ -113,7 +113,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut attrs = Attributes::default();
         attrs.set("disabled", "");
-        let div = dom.create_element("div", attrs);
+        let div = dom.create_element_ownerless_fixture("div", attrs);
         assert!(!is_option_disabled(&dom, div));
     }
 
@@ -124,8 +124,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut sel_attrs = Attributes::default();
         sel_attrs.set("disabled", "");
-        let sel = dom.create_element("select", sel_attrs);
-        let opt = dom.create_element("option", Attributes::default());
+        let sel = dom.create_element_ownerless_fixture("select", sel_attrs);
+        let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
         assert!(dom.append_child(sel, opt));
         assert!(!is_option_disabled(&dom, opt));
     }
@@ -136,12 +136,12 @@ mod tests {
         // mutation can introduce arbitrary wrappers; the walker must
         // still climb past them and find the disabled optgroup.
         let mut dom = EcsDom::new();
-        let sel = dom.create_element("select", Attributes::default());
+        let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
         let mut grp_attrs = Attributes::default();
         grp_attrs.set("disabled", "");
-        let grp = dom.create_element("optgroup", grp_attrs);
-        let wrapper = dom.create_element("div", Attributes::default());
-        let opt = dom.create_element("option", Attributes::default());
+        let grp = dom.create_element_ownerless_fixture("optgroup", grp_attrs);
+        let wrapper = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let opt = dom.create_element_ownerless_fixture("option", Attributes::default());
         assert!(dom.append_child(sel, grp));
         assert!(dom.append_child(grp, wrapper));
         assert!(dom.append_child(wrapper, opt));

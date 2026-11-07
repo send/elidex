@@ -312,8 +312,8 @@ mod tests {
         // candidate, but a customized built-in upgrades only when its local
         // name matches the definition's `extends` base (HTML §4.13.1.4).
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let button = dom.create_element("button", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let button = dom.create_element_ownerless_fixture("button", Attributes::default());
         mark(&mut dom, div, "plastic-button");
         mark(&mut dom, button, "plastic-button");
 
@@ -340,8 +340,8 @@ mod tests {
     #[test]
     fn autonomous_upgrades_only_matching_tag() {
         let mut dom = EcsDom::new();
-        let widget = dom.create_element("my-widget", Attributes::default());
-        let div = dom.create_element("div", Attributes::default());
+        let widget = dom.create_element_ownerless_fixture("my-widget", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         mark(&mut dom, widget, "my-widget");
         mark(&mut dom, div, "my-widget");
 
@@ -372,7 +372,7 @@ mod clone_creation_pass_tests {
     use crate::registry::CustomElementDefinition;
 
     fn marked(dom: &mut EcsDom, tag: &str, is: Option<&str>) -> Entity {
-        let el = dom.create_element(tag, Attributes::default());
+        let el = dom.create_element_ownerless_fixture(tag, Attributes::default());
         dom.world_mut()
             .insert_one(
                 el,
@@ -430,7 +430,7 @@ mod clone_creation_pass_tests {
         let mut registry = CustomElementRegistry::new();
         define_my_el(&mut registry, "my-el");
         let mut dom = EcsDom::new();
-        let host = dom.create_element("section", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("section", Attributes::default());
         let light = marked(&mut dom, "my-el", None);
         let _ = dom.append_child(host, light);
         let sr = dom
@@ -465,7 +465,7 @@ mod clone_creation_pass_tests {
         let mut registry = CustomElementRegistry::new();
         define_my_el(&mut registry, "my-el");
         let mut dom = EcsDom::new();
-        let tpl = dom.create_element("template", Attributes::default());
+        let tpl = dom.create_element_ownerless_fixture("template", Attributes::default());
         let fragment = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(tpl));
         let inner = marked(&mut dom, "my-el", None);
         let _ = dom.append_child(fragment, inner);
@@ -542,7 +542,7 @@ mod sync_is_clear_tests {
 
     fn dom_with_marked_element(tag: &str, is: &str) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
-        let el = dom.create_element(tag, Attributes::default());
+        let el = dom.create_element_ownerless_fixture(tag, Attributes::default());
         dom.world_mut()
             .insert_one(
                 el,
