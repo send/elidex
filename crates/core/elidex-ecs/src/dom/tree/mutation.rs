@@ -238,14 +238,16 @@ impl EcsDom {
     /// counterpart) is re-homed silently. A destroyed `node` or a `document`
     /// that is not a live Document is a no-op.
     ///
-    /// `node` must not be a Document: every caller has already rejected one
-    /// (DOM *ensure pre-insert validity* step 4 before an insertion;
-    /// `adoptNode`'s step-1 `NotSupportedError` is its caller's), so this is
-    /// a debug assertion, not a check.
+    /// `node` must be a Node and not a Document: every caller has already
+    /// rejected a Document (DOM *ensure pre-insert validity* step 4 before an
+    /// insertion; `adoptNode`'s step-1 `NotSupportedError` is its caller's),
+    /// and only Nodes carry a node document (a Window / Worker entity is never
+    /// stamped), so this is a debug assertion, not a check.
     pub fn adopt(&mut self, node: Entity, document: Entity) {
         debug_assert!(
-            !matches!(self.node_kind(node), Some(NodeKind::Document)),
-            "adopt: a Document cannot be adopted (callers reject it first)"
+            self.node_kind(node)
+                .is_none_or(|kind| kind.is_node() && kind != NodeKind::Document),
+            "adopt: only a non-Document Node can be adopted (callers reject the rest first)"
         );
         if !self.contains(node) || !self.is_live_document(document) {
             return;

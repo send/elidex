@@ -199,8 +199,10 @@ fn owner_document_of_a_destroyed_document_is_none() {
         dom.node_document_for_new_nodes(real_doc),
     );
     assert!(dom.append_child(real_doc, div));
-    // The stored document points at the ghost (a state only a later
-    // destruction produces), then the ghost is destroyed.
+    // The stored document points at the ghost, then the ghost is destroyed.
+    // Insertion adopts, so the primitives never leave a connected node
+    // stamped with another document: the state is constructed in-crate (as
+    // U7 leg 3) to pin the reader's liveness filter with no tree-root fallback.
     assert!(dom.set_associated_document(div, ghost_doc));
     dom.destroy_entity(ghost_doc);
     assert_eq!(dom.node_document(div), None);
