@@ -2,21 +2,22 @@
 
 Status: **plan (pre-implementation), revised after plan-review R1, the driver decisions D-W
 (wasm entry, now PR-1b), D-SC (structuredClone matcher copy, §6.3) and the split verdicts (§5.1),
-and the PM 483 rulings (umbrella §0.1)**; `/elidex-plan-review` required before code (edge-dense,
+and the PM 483 and PM 490 rulings (umbrella §0.1)**; `/elidex-plan-review` required before code (edge-dense,
 umbrella §2). Parent: [umbrella](2026-11-vm-stack-safety-guard.md). Sibling:
 [PR-1b](2026-11-vm-stack-safety-guard-pr1b.md) (the JS→wasm entries, split out by D-K).
 PR-1 does **not** close `#11-vm-call-depth-guard` on its own: the slot closes at PR-1b's landing
 (D-K, PM 483), because until then a JS→wasm entry in the band between the CP-1 floor and
 ≈600 KiB remaining still aborts (PR-1b §4). Base: `47b6c934` (anchors below are at
-that commit). Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split, PM 454, PM 476, PM 483 are
+that commit). Rulings PM 421 (a)/(b), PM 424, PM 436 R1/R2/R3/extra/split, PM 454, PM 476, PM 483, PM 490 are
 ratified (umbrella §0.1) and not re-opened here. Provenance root `H` is defined in the umbrella
 header; every measurement names its log under `H/logs/`.
 Preconditions: the W-11 slot `#11-abort-signal-any-dependent-flattening` has landed (umbrella §4
 edge; §2 A-1); the `interpreter.rs` prereq split has landed (§5.1); **Slice F**
 (`#11-vm-structured-clone-file-split`) has landed (PM 483 P2: Slice F → PR-1, touch-time split;
-§5.5); for the release CI leg, the CI/tools `ci.yml` PRs `ci-ecs-mission-ratchet` and
-`ci-default-features-check` have landed (PM 483 P5; §8). NativeError E1 is not ordered against
-PR-1 by PM 483 (umbrella §4). The open umbrella `#11-vm-structured-clone-layering-seam` inherits
+§5.5); for the release CI leg, the CI/tools `ci.yml` PRs `ci-ecs-mission-ratchet` (#609, the
+CI/tools ECS-mission PR) and `ci-default-features-check` have landed (PM 483 P5, PM 490; §8). No
+CLAUDE.md change is a precondition (PM 490). NativeError E1 is not ordered against PR-1: no content
+dependency, whichever lands second rebases (PM 490; umbrella §4). The open umbrella `#11-vm-structured-clone-layering-seam` inherits
 PR-1's obligations (§5.5).
 
 **Base-case reason (single PR).** PR-1 is a narrowly scoped per-PR slice under the approved
@@ -45,8 +46,9 @@ PR-1 delivers, in one PR:
    (the sixth, structuredClone's re-compile, becomes a copy of the compiled matcher, §6.3), and the
    I-7 trip-wire (§6).
 5. The PM 424 rewording of the `MAX_JSON_DEPTH` docstring (§7).
-6. Cells, mutants, the explicit-thread rule, the hot-path measurement (§8–§10), and the release
-   test leg on the three CI OSes (§8; PM 483 P5).
+6. Cells, mutants, the explicit-thread rule, the hot-path measurement (§8–§10), the release
+   test leg on the three CI OSes with its description in the `check` job's comment, and the local
+   mise task `test-stack-guard-release` (NEW) (§8; PM 483 P5, PM 490).
 7. The recursion cut check as a tracked CI check (§5.3) and the in-repo constant re-measurement
    driver (§6.2).
 
@@ -557,8 +559,9 @@ depth, since chains no longer reach the probes.
 Slice F (`#11-vm-structured-clone-file-split`) is its prereq split and lands first, so PR-1 makes
 its W-6 probe and `clone_regexp` change in the post-split files and re-derives the `:88` / `:585`
 anchors (§5.2, §6.1) on its own base with the commands given there. NativeError E1 also edits
-`clone_recursive` (the ledger's edge F → E1); PM 483 does not order E1 against PR-1, so whichever
-of the two lands second rebases onto the other.
+`clone_recursive` (the ledger's edge F → E1); PM 483 does not order E1 against PR-1, and the two
+have no content dependency, so whichever of the two lands second rebases onto the other (ratified,
+PM 490).
 
 **Hand-off obligations to the seam derivation.** The open umbrella
 `#11-vm-structured-clone-layering-seam` (derivation triggered at Slice F's plan-review) may move the
@@ -777,10 +780,27 @@ aborts the test process, which nextest reports as that test's failure. All cells
 and release**: `cargo nextest run -p elidex-js --all-features -E 'test(/tests_stack_guard/)'` and
 the same with `--release`. CI: the `check` job runs the debug leg on all three OSes, and **PR-1
 adds the release leg on all three OSes** (PM 483 P5; umbrella §7), on top of the CI/tools lane's
-`ci.yml` PRs `ci-ecs-mission-ratchet` and `ci-default-features-check`, which land first. The
-CLAUDE.md §CI wording for the new step is not PR-1's to choose: it goes to the PM for user approval,
-and PR-1 applies the approved text (§12 L-12). The JS→wasm cells are PR-1b's (PR-1b §6) and join
-this file and both legs when PR-1b lands.
+`ci.yml` PRs `ci-ecs-mission-ratchet` (#609) and `ci-default-features-check`, which land first.
+PR-1 describes the new step, and why it exists (the release-only constants of this file were
+measured on macOS aarch64 only), in the comment of the `check` job in `.github/workflows/ci.yml`;
+after #609 that comment is the canon for the job, and CLAUDE.md is not changed (PM 490; §12 L-12).
+The JS→wasm cells are PR-1b's (PR-1b §6) and join this file and both legs when PR-1b lands.
+
+**Local release run (PM 490).** `mise run ci` does **not** gain the release leg. PR-1 adds a
+separate task to `mise.toml`:
+
+- `test-stack-guard-release` (NEW): `cargo nextest run -p elidex-js --all-features --release -E
+  'test(/tests_stack_guard/)'`, not in `[tasks.ci]`'s `depends`. Its `mise.toml` comment gives the
+  two reasons below (after #609, each task's comment is where its reason lives).
+- **PR-1's pre-push procedure** runs `mise run ci` as usual, and then `mise run
+  test-stack-guard-release` **once**, locally, on one OS (the authoring host). The result
+  (pass / fail, judged by grepping the log for nextest's failure summary, not by the exit code of a
+  pipe) is recorded in the PR body. The release cells of PR-1b are picked up by the same task,
+  because they live in `tests_stack_guard.rs`.
+- **Reasons** the leg is not in `mise run ci`: a release build creates `target/release` in each
+  worktree and uses disk (143 G was freed on 11-07), and `mise run ci` runs in every worktree before
+  every push; the three-OS release check is the CI `check` job's gate, so the local run is a single
+  smoke run, not the gate.
 
 | Cell | Body | Expect |
 |---|---|---|
@@ -932,7 +952,8 @@ records them; it edits neither the ledgers nor the slice-plan.
   d≈30–42 / 250–409 (256 KiB reserve, umbrella §8 M-1), a figure that now depends on
   `WALKER_RESERVE` as well as frame size. The live entry is updated to say so.
 - **L-5. `#11-vm-js-frame-depth-limit`'s Promise facet** is split out to its own slot
-  `#11-vm-microtask-self-chaining-unbounded` (PM 483): a self-chaining Promise inside one
+  `#11-vm-microtask-self-chaining-unbounded` (PM 483; owner VM P4, re-eval = guard PR-2's plan,
+  PM 490): a self-chaining Promise inside one
   `drain_microtasks` runs each job to completion and pops its frames, so neither PR-1's probes nor
   PR-2's frame cap can stop it. PR-1 does not change it; the frame-depth slot keeps only the
   plain-recursion facet (PR-2's).
@@ -963,11 +984,14 @@ records them; it edits neither the ledgers nor the slice-plan.
 - **L-11. Layering seam** (§3.3, §5.5): the live entry of `#11-vm-structured-clone-layering-seam`
   gains the stale-cite list, so the seam's derivation re-cites them, and the three hand-off
   obligations of §5.5 (W-6's probe, the front-door routing, the cut check's scope).
-- **L-12. CLAUDE.md §CI and `mise run ci`**: PR-1 adds the release step (PM 483 P5), so the §CI
-  text describing the `check` job becomes incomplete. The wording change is not made by this memo
-  nor chosen by PR-1: the proposed wording goes to the PM for user approval, and PR-1 applies the
-  approved text in the same PR (`mise run ci`'s list is part of the same proposal). If approval has
-  not come by PR-1's push, that is a blocker for PR-1, not a reason to land the step undocumented.
+- **L-12. Where the release step is documented** (PM 490): in the comment of the `check` job in
+  `.github/workflows/ci.yml`, written by PR-1 in the same commit as the step. CLAUDE.md is not
+  changed: #609 (`ci-ecs-mission-ratchet`) replaces CLAUDE.md §CI with "the canon is
+  `.github/workflows/ci.yml`; each job's comment is authoritative" (user-approved rewrite, 11-06),
+  and PR-1 lands after it. `mise run ci` is unchanged; the local release run is the separate task
+  `test-stack-guard-release` (NEW, §8), whose reason is its `mise.toml` comment. The PR body
+  records `git merge-base --is-ancestor <#609 squash sha> HEAD` → exit 0; a non-zero result is the
+  existing `ci-ecs-mission-ratchet` → PR-1 edge unmet, not a new condition.
 - **L-13.** Moved with CP-3 to PR-1b §10 (the `#11-wasm-user-import-host-fn-builder` obligation).
 - **L-14. Boundary-crossing serializers re-compile through the front door** (live entries of
   `#11-worker-structured-serialize`, `#11-history-state-structured-serialize-fidelity`,

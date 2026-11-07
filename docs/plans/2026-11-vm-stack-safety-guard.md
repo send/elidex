@@ -2,7 +2,8 @@
 
 Status: **plan (pre-implementation), revised after plan-review R1** (findings at
 `H/review/axis1.md` … `axis5.md`, `aggregate.md`) **and the driver decisions D-W / D-SC and the
-split verdicts** (PR-1 §6.3, §5.1; PR-1b §4), **and the PM 483 rulings** (§0.1). Owner: VM P4 lane.
+split verdicts** (PR-1 §6.3, §5.1; PR-1b §4), **and the PM 483 and PM 490 rulings** (§0.1). Owner:
+VM P4 lane.
 PR-level plans: [PR-1](2026-11-vm-stack-safety-guard-pr1.md),
 [PR-1b](2026-11-vm-stack-safety-guard-pr1b.md).
 
@@ -73,7 +74,8 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | PM 454 (weight) | The regexp front door's two-axis weight `groups × REGEXP_GROUP_COST + alts × REGEXP_ALT_COST`, with the cap on `groups` only, is within PM 436 R1 (ratified). (R1 revision: `alts` is now the alternatives on the costliest path, not the pattern's total `|` count — PR-1 §6.2; the two-axis form and the groups-only cap are unchanged.) |
 | PM 454 (homes) | Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError`) → a child of VM P4 slice-plan umbrella 8 (RegExp completion), owner VM P4. The missing `RegExp` constructor → under umbrella 8, owner VM P4; the live ledger homes it in `#11-vm-regexp-constructor-and-flags` (PM 454 note on that entry). |
 | PM 476 | S1 (`#11-vm-string-replace-function-replacement`) stays a single PR; the guard is plan-reviewed first. After S1 lands, PR-1's compile-site anchors are re-derived on PR-1's own base (PM 483 P7, PR-1 §6.1). |
-| PM 483 | P1: PrepareForTailCall is a normative requirement on strict-only core; not implementing it is a spec deviation homed in `#11-vm-proper-tail-calls` (VM P4, re-eval = PR-2's plan); §0. P2: Slice F → PR-1 (touch-time split); W-6's probe and the front-door obligations are hand-offs to the `#11-vm-structured-clone-layering-seam` derivation (PR-1 §5.5). P4: regexp `SyntaxError`-as-`TypeError` home = `#11-vm-regexp-syntax-error-surface` (child of umbrella 8, VM P4). P5: a release test leg on all three CI OSes, ordered after the CI/tools lane's `ci.yml` PRs `ci-ecs-mission-ratchet` and `ci-default-features-check`; the CLAUDE.md §CI wording goes to the PM for user approval (§7). P6: the self-chaining-Promise facet is its own slot `#11-vm-microtask-self-chaining-unbounded`. P8: `#11-vm-frontend-left-spine-iterative` registered (VM P4, immediately after PR-1). D-K: CP-3 and `MAX_WASM_STACK` split into PR-1b; `#11-vm-call-depth-guard` closes at PR-1b's landing. |
+| PM 483 | P1: PrepareForTailCall is a normative requirement on strict-only core; not implementing it is a spec deviation homed in `#11-vm-proper-tail-calls` (VM P4, re-eval = PR-2's plan); §0. P2: Slice F → PR-1 (touch-time split); W-6's probe and the front-door obligations are hand-offs to the `#11-vm-structured-clone-layering-seam` derivation (PR-1 §5.5). P4: regexp `SyntaxError`-as-`TypeError` home = `#11-vm-regexp-syntax-error-surface` (child of umbrella 8, VM P4). P5: a release test leg on all three CI OSes, ordered after the CI/tools lane's `ci.yml` PRs `ci-ecs-mission-ratchet` and `ci-default-features-check`; the CLAUDE.md §CI wording goes to the PM for user approval (§7) — that last clause is superseded by PM 490 (CLAUDE.md is not changed). P6: the self-chaining-Promise facet is its own slot `#11-vm-microtask-self-chaining-unbounded`. P8: `#11-vm-frontend-left-spine-iterative` registered (VM P4, immediately after PR-1). D-K: CP-3 and `MAX_WASM_STACK` split into PR-1b; `#11-vm-call-depth-guard` closes at PR-1b's landing. |
+| PM 490 | (1) Owner of `#11-vm-microtask-self-chaining-unbounded` = VM P4 (re-eval = guard PR-2's plan). (2) NativeError E1 vs PR-1: no content dependency; whichever lands second rebases onto the other (ratified). (3) CLAUDE.md is not changed by PR-1: #609 (`ci-ecs-mission-ratchet`, the CI/tools ECS-mission PR) replaces CLAUDE.md §CI with "the canon is `.github/workflows/ci.yml`; each job's comment is authoritative" (user-approved rewrite, 11-06), and PR-1 lands after the CI/tools PRs, so PR-1 describes the release leg in the comment of the `check` job in `ci.yml`. PR-1 no longer waits on any wording approval. (4) `mise run ci` gets no release leg. PR-1 adds a separate mise task `test-stack-guard-release` (NEW), and its pre-push procedure runs that task once, locally, on one OS (§7; PR-1 §8). (5) Ratified as written: P8's band wording (PR-1 §5.4), and P2's added "cut check scope" obligation (PR-1 §5.5 item 3; it stays a review target). |
 
 ## §1. Scope
 
@@ -110,7 +112,7 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | The missing `RegExp` constructor | PM 454; PR-1 covers it through I-7 once it calls the front door | `#11-vm-regexp-constructor-and-flags` (under umbrella 8, VM P4) |
 | Long left-deep expression chains (`a+b+…`, `a.b.c…`, `f()()…`) compiling at any length | Decided in PR-1 §5.4: they must compile; the remedy (iterating the left spine in scope + compiler) is its own slot, not PR-1 | `#11-vm-frontend-left-spine-iterative` (registered, PM 483; VM P4, scheduled immediately after PR-1) |
 | Proper tail calls (ECMA-262 §15.10.3 PrepareForTailCall) | A normative requirement on strict-only core, not implemented: a spec deviation (PM 483, §0). The guard does not implement it; PR-2's frame cap states its relation (§0) | `#11-vm-proper-tail-calls` (VM P4; re-eval at PR-2's plan) |
-| A self-chaining Promise inside one `drain_microtasks` (unbounded) | Each job runs to completion and pops its frames, so neither a probe nor a `frames.len()` cap bounds it (PM 483) | `#11-vm-microtask-self-chaining-unbounded` (split from `#11-vm-js-frame-depth-limit`) |
+| A self-chaining Promise inside one `drain_microtasks` (unbounded) | Each job runs to completion and pops its frames, so neither a probe nor a `frames.len()` cap bounds it (PM 483) | `#11-vm-microtask-self-chaining-unbounded` (split from `#11-vm-js-frame-depth-limit`; owner VM P4, re-eval at guard PR-2's plan, PM 490) |
 | The `eval` / `Function` mapping of `StackExhausted` (compile-time → `RangeError` at the call) | No `eval` / `Function` today; the decision is recorded in PR-1 §4.1 so it is not re-made | `#11-vm-function-constructor-global` (owns `Function` and `eval`, VM P4 ledger) |
 
 ## §2. Coupled invariants
@@ -243,8 +245,8 @@ chains are the W-11 slot's, PM 454.) Adjacent pre-existing code whose exposure c
 | W-11 slot (not part of this program's PRs; PM 454) | DOM "create a dependent abort signal" source flattening in an engine-independent crate; GC repair; `abort_statics.rs` citation drift fix (all seven cites, PM 458) | — | PR-1 |
 | `interpreter.rs` prereq split (standalone, CLAUDE.md 1000-line rule; PR-1 §5.1) | Move the in-file `mod tests` of `vm/interpreter.rs` out; split the entry half from the dispatch half | — | PR-1 |
 | Slice F (`#11-vm-structured-clone-file-split`, standalone, touch-time split; PM 483 P2) | Split `structured_clone.rs` (1077 lines) before PR-1 touches it | — | PR-1 |
-| CI/tools `ci.yml` PRs `ci-ecs-mission-ratchet`, `ci-default-features-check` (CI/tools lane; not this program's) | Their own `ci.yml` changes; the release test leg is added on top of them (PM 483 P5, §7) | — | PR-1 (the release leg only) |
-| PR-1 | Primitive; choke points CP-1, CP-2; walker probes (JSON ×5 sites — `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, the scope cap's error exit, IndexedDB storable check); regexp front door + 5 compile sites routed + structuredClone's re-compile replaced by a matcher copy + trip-wire; PM 424 rewording; explicit-thread JSON cells; the tracked recursion cut check; the release test leg on the three CI OSes (§7) | the W-11 slot (landed); the `interpreter.rs` prereq split; Slice F (landed, PM 483); the two CI/tools `ci.yml` PRs (landed, for the release leg) | PR-1b; PR-2; `#11-vm-frontend-left-spine-iterative`; the successor T3 slot |
+| CI/tools `ci.yml` PRs `ci-ecs-mission-ratchet` (#609, the CI/tools ECS-mission PR) and `ci-default-features-check` (CI/tools lane; not this program's) | Their own `ci.yml` changes; #609 also makes `ci.yml`'s job comments the canon in place of CLAUDE.md §CI (PM 490). The release test leg and its description in the `check` job's comment are added on top of them (PM 483 P5, PM 490, §7) | — | PR-1 (the release leg only) |
+| PR-1 | Primitive; choke points CP-1, CP-2; walker probes (JSON ×5 sites — `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, the scope cap's error exit, IndexedDB storable check); regexp front door + 5 compile sites routed + structuredClone's re-compile replaced by a matcher copy + trip-wire; PM 424 rewording; explicit-thread JSON cells; the tracked recursion cut check; the release test leg on the three CI OSes, described in the `check` job's comment, and the mise task `test-stack-guard-release` (NEW) (§7) | the W-11 slot (landed); the `interpreter.rs` prereq split; Slice F (landed, PM 483); the two CI/tools `ci.yml` PRs (landed, for the release leg) | PR-1b; PR-2; `#11-vm-frontend-left-spine-iterative`; the successor T3 slot |
 | PR-1b | CP-3a / CP-3b at the two JS→wasm entries asking `WALKER_RESERVE + MAX_WASM_STACK`; `elidex_wasm_runtime::MAX_WASM_STACK` (NEW) and the explicit `max_wasm_stack`; the wasm cells and mutants (PR-1b) | PR-1 (the primitive, `WALKER_RESERVE`, `tests_stack_guard.rs`, the release leg) | closes `#11-vm-call-depth-guard` |
 | PR-2 | Frame cap: `frames.len()` cap mapped to the same `RangeError`, for plain JS→JS recursion (heap `CallFrame`s, no Rust recursion). Relation to `#11-vm-proper-tail-calls` (PM 483): after PTC lands, tail frames are not counted by the cap; until then a tail-position `f(1e6)` throwing `RangeError` is a known deviation, recorded in PR-2's plan. The self-chaining-Promise facet is **not** PR-2's (`#11-vm-microtask-self-chaining-unbounded`, PM 483) | PR-1 (shares the error constructor and message) | — |
 
@@ -265,17 +267,19 @@ landing condition is unchanged: after this slot lands.
 **Slice F → PR-1** (PM 483 P2, touch-time split): the split moves the `structured_clone.rs` anchors
 (W-6 `:88`, the `clone_regexp` re-compile `:585`), so PR-1 re-derives them on its own base. The
 ledger edge F → NativeError E1 stands; PM 483 orders F before PR-1 and does not order E1 against
-PR-1 (both edit `clone_recursive` after F; whichever lands second rebases onto the other). The
+PR-1. E1 and PR-1 have no content dependency (both edit `clone_recursive` after F); whichever lands
+second rebases onto the other (ratified, PM 490). The
 layering seam's derivation inherits PR-1's obligations (PR-1 §5.5).
 
 **PR-1 → PR-1b** (D-K): PR-1b uses PR-1's primitive, reserve and cell file. Between the two
 landings the JS→wasm entry band of PR-1b §4 (an entry between the CP-1 floor and ≈600 KiB remaining
 aborts) is still open, which is why `#11-vm-call-depth-guard` closes at PR-1b, not PR-1.
 
-**CI/tools `ci.yml` PRs → PR-1** (PM 483 P5): the release leg is the first release-profile CI
+**CI/tools `ci.yml` PRs → PR-1** (PM 483 P5, PM 490): the release leg is the first release-profile CI
 step of the program and PR-1 is the first guard PR whose cells carry release-only constants
 (`MAX_JSON_DEPTH` 1000, `REGEXP_*_COST` release), so PR-1 carries it, on top of the two `ci.yml`
-PRs (§7).
+PRs (§7). The edge is about `ci.yml` only; no CLAUDE.md wording is involved (PM 490): after #609
+the description of a `check` job step lives in that job's comment, which PR-1 writes.
 
 PR-2 reuses PR-1's `StackExhausted`→`RangeError` mapping so the two limits produce one error shape;
 PR-2 does not touch the probe. The successor `#11-vm-native-callback-reentry-single-loop` removes
@@ -289,7 +293,7 @@ redesign.
 | `#11-abort-signal-any-dependent-flattening` | **Closed before PR-1** (its own terminal slot, PM 454) | L3 |
 | `#11-vm-call-depth-guard` | **Closed by PR-1b** (D-K, PM 483), with PR-1b's sha (PR-1b §10 L-1); PR-1 alone does not close it (the JS→wasm band, §4). Its closure rests on I-1, whose coverage claim is only as complete as the census; PR-1's tracked cut check (PR-1 §5.3) is what keeps it true after landing, and the census's declared blind spots stay open with an owner (PR-1 §5.3) | this umbrella |
 | `#11-vm-js-frame-depth-limit` | PR-2 closes it (the plain-recursion facet). Its second facet, "a self-chaining Promise is unbounded inside one `drain_microtasks`", which a `frames.len()` cap does not bound (each job runs to completion and pops its frames), is split out to `#11-vm-microtask-self-chaining-unbounded` (PM 483) | this umbrella |
-| `#11-vm-microtask-self-chaining-unbounded` | **New** (PM 483), split from `#11-vm-js-frame-depth-limit`. Open; not bounded by anything in this program | as registered by PM 483 |
+| `#11-vm-microtask-self-chaining-unbounded` | **New** (PM 483), split from `#11-vm-js-frame-depth-limit`. Open; not bounded by anything in this program. Re-evaluated at guard PR-2's plan (PM 490) | Owner VM P4 (PM 490) |
 | `#11-vm-proper-tail-calls` | Open (PM 483): PrepareForTailCall not implemented on strict-only core, a spec deviation. Re-evaluated at PR-2's plan; after it lands, tail frames are not counted by PR-2's cap | VM P4 |
 | `#11-vm-regexp-syntax-error-surface` | Open (PM 483), child of umbrella 8: regexp syntax errors surface as `TypeError` at the literal / `match` / `search` sites. PR-1's front door passes `Syntax` through unchanged | VM P4 |
 | `#11-vm-json-walkers-iterative` | Stays open (T3 engineering ideal; A4's cap already prevents the walker-own abort). Its trigger "the next PR touching a JSON walker" fires on PR-1; the handling is PR-1 §12 L-2 | VM P4 |
@@ -326,11 +330,19 @@ all three CI OSes** (`cargo nextest run -p elidex-js --all-features --release -E
 'test(/tests_stack_guard/)'` in the `check` job), ordered **after** the CI/tools lane's `ci.yml`
 PRs `ci-ecs-mission-ratchet` and `ci-default-features-check`. Carrier: **PR-1**, the first guard
 PR whose cells carry release-only constants, with the edge from those two PRs (§4); PR-1b's wasm
-cells join the same leg by living in `tests_stack_guard.rs`. CLAUDE.md §CI describes the `check`
-job's steps, so the new step makes that text incomplete: the wording change is **not** made in
-this memo or by PR-1 on its own — it goes to the PM for user approval, and PR-1 applies the text
-the user approves (PR-1 §12 L-12). Whether `mise run ci` gains the release leg is part of the same
-proposal.
+cells join the same leg by living in `tests_stack_guard.rs`.
+
+**Where the leg is described (PM 490).** CLAUDE.md is not changed. #609 (`ci-ecs-mission-ratchet`,
+the CI/tools ECS-mission PR) replaces CLAUDE.md §CI with "the canon is `.github/workflows/ci.yml`;
+each job's comment is authoritative" (user-approved rewrite, 11-06), and PR-1 lands after the
+CI/tools PRs. So PR-1 describes the release leg, and why it exists, in the comment of the `check`
+job in `ci.yml` (PR-1 §8, §12 L-12).
+
+**Local runs (PM 490).** `mise run ci` gets no release leg. PR-1 adds a separate mise task
+`test-stack-guard-release` (NEW) that runs the same release stack-guard cells, and PR-1's pre-push
+procedure runs it once, locally, on one OS (PR-1 §8). Reasons: a release build creates
+`target/release` in each worktree and uses disk (143 G was freed on 11-07); and the three-OS release
+check is the CI gate, not the local one.
 
 ## §8. Measurements (provenance)
 

@@ -175,7 +175,9 @@ Outside `elidex-js`: `crates/script/elidex-wasm-runtime/src/lib.rs` (re-export o
 ## §6. Cells
 
 Added to PR-1's `crates/script/elidex-js/src/vm/tests/tests_stack_guard.rs` (NEW: PR-1), same `on_thread`
-rule, same debug and release legs (PR-1 §8).
+rule, same debug and release CI legs (PR-1 §8). Locally the release cells run through PR-1's mise
+task `test-stack-guard-release` (NEW: PR-1), once in PR-1b's pre-push procedure, as in PR-1 §8
+(PM 490); `mise run ci` has no release leg.
 
 | Cell | Body | Expect |
 |---|---|---|
