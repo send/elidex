@@ -71,8 +71,8 @@ T	#11-core-browser-parity-deviations	crates/dom/elidex-form-core/src/sanitize.rs
 E	-	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
 E	-	crates/layout/elidex-layout-table/src/lib.rs	/// which matches Chromium behavior.
 S	-	crates/net/elidex-net/src/cookie_jar.rs	// SameSite=None requires Secure (Chrome 80+, Firefox 69+)
-E	-	crates/net/elidex-net/src/cookie_jar.rs	/// Maximum cookies per domain (Chromium uses 180).
-E	-	crates/net/elidex-net/src/preflight/mod.rs	/// (Chromium 7200s, Firefox 86400s). We pick **7200s** to match
+D	#11-core-browser-parity-deviations	crates/net/elidex-net/src/cookie_jar.rs	/// Maximum cookies per domain (Chromium uses 180).
+D	#11-core-browser-parity-deviations	crates/net/elidex-net/src/preflight/mod.rs	/// (Chromium 7200s, Firefox 86400s). We pick **7200s** to match
 E	-	crates/script/elidex-js/src/parser/control_flow.rs	// V8: resolve Atom to string for user-facing error message
 E	-	crates/script/elidex-js/src/parser/expr_tests_validation.rs	// ── V8: Break/continue label display ──
 E	-	crates/script/elidex-js/src/vm/coerce.rs	/// Error messages mirror V8's
@@ -203,7 +203,7 @@ N	-	crates/script/elidex-js/src/vm/host/worker_scope.rs	("product", "Gecko"),
 S	-	crates/script/elidex-js/src/vm/host_data/mod.rs	/// identity is preserved per spec §2 / Chrome behaviour.
 E	-	crates/script/elidex-js/src/vm/host_data/mod.rs	/// in-memory and lost on `Vm::unbind`, matching Chrome's
 E	-	crates/script/elidex-js/src/vm/natives_bigint.rs	/// [`super::coerce::to_index_u64`] with the V8-shape error prefix
-E	-	crates/script/elidex-js/src/vm/natives_json/mod.rs	/// Release matches V8's ~1000 and was verified to hold for all three walkers
+D	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_json/mod.rs	/// Release matches V8's ~1000 and was verified to hold for all three walkers
 E	-	crates/script/elidex-js/src/vm/natives_number.rs	// V8's "integer → radix-N" + optional fraction ".xxxx" approximation.
 S	-	crates/script/elidex-js/src/vm/natives_number.rs	// which spec does not special-case — we follow V8 and treat it
 E	-	crates/script/elidex-js/src/vm/natives_number.rs	/// Format a finite number in `radix` (2..=36). Mirrors V8's behavior:

@@ -46,7 +46,13 @@
     "Chromiumのセキュリティモデルに着想を得る",
     "スタイル解決はServoの実証済みアプローチに倣う",
     "最大4回、Chromiumと同一",
-    "全部のブラウザでV8準拠"
+    "全部のブラウザでV8準拠",
+    "// User-Agent sniffing は不要; matches Chrome behaviour",
+    "set the User-Agent header like Chrome does",
+    "Mozilla/5.0 prefix is legacy; matches Chrome",
+    "UA is \"Mozilla/5.0 (X11) Chrome/120\" which matches Chrome here",
+    "User-Agent: Mozilla/5.0 (X11) Chrome/120 — same as Firefox does",
+    "User-Agent: sniffing mirrors Chrome"
   ],
   "pass": [
     "paint the box chrome",
@@ -66,7 +72,14 @@
     "MyChromeHelper を呼ぶ",
     "chrome_like な UI",
     "Chromebook で確認",
-    "x_V8 と V8_x と Chrome1"
+    "x_V8 と V8_x と Chrome1",
+    "\"Mozilla/5.0 (X11) Chrome/120\"",
+    "'Mozilla/5.0 (X11; Linux) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'",
+    "const UA = \"Mozilla/5.0 (X11) Chrome/120\";",
+    "User-Agent: Mozilla/5.0 (X11) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+    "User-Agent: Chrome/120",
+    "\"User-Agent\": \"Mozilla/5.0 (X11) Gecko/20100101 Firefox/120.0\"",
+    "Mozilla/5.0 (X11) Chrome/120"
   ],
   "tags": [
     "[spec]",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Whole-tree ratchet for the ECS-mission browser-mention rule (CI `tools` job).
 
-The classifier below (BROWSER, GENERIC, TAG, TOOL_NAMES, UA_MARKERS, is_browser_hit,
+The classifier below (BROWSER, GENERIC, TAG, TOOL_NAMES, UA_STRIP, is_browser_hit,
 line_denied) mirrors ~/.claude/hooks/ecs-mission-guard.py in behaviour (same patterns and branches;
 the text need not be identical). The two change together;
 test_ecs_mission_ratchet.py compares them when the hook file is present.
@@ -24,6 +24,8 @@ Edits that narrow what the ratchet catches (adding an allowlist row, moving a ro
 lighter one or dropping / misdirecting a T/D row's slot, adding a path to SELF_FILES, narrowing the
 classifier) are invisible to it; elidex-review
 axes.md Axis 2 sub-check 2d (authority source) grades them.
+Slot ids are checked for shape only (`#11-<kebab>`); that each one exists in the defer ledger is
+checked by the PM's periodic ledger check, not here (an in-repo registry would duplicate the ledger).
 
 Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
 """
@@ -41,7 +43,16 @@ GENERIC = re.compile(
     re.I)
 TAG = re.compile(r"\[(?:spec|evidence|compat|contrast|history)\]", re.I)
 TOOL_NAMES = ("mcp__claude-in-chrome", "claude-in-chrome", "Claude-in-Chrome", "ChromeDriver", "chromedriver")
-UA_MARKERS = ("Mozilla/5.0", "User-Agent")
+# UA strings are stripped from a line (like TOOL_NAMES) before it is checked; the rest is still checked:
+# a quoted value starting with Mozilla/5.0, an unquoted Mozilla/5.0 plus its run of UA tokens, and the
+# header name User-Agent plus a following ":" and UA-token run. Anything not recognised stays and is checked.
+_UA_TOK = r"(?:[A-Za-z][A-Za-z0-9_.+-]*/[0-9][A-Za-z0-9_.+-]*|\([^()]*\))"
+_UA_RUN = r"(?:\s+" + _UA_TOK + r")*"
+UA_STRIP = (
+    re.compile(r"([\"'`])\s*Mozilla/5\.0.*?\1"),
+    re.compile(r"Mozilla/5\.0" + _UA_RUN),
+    re.compile(r"User-Agent(?:\s*:\s*" + _UA_TOK + _UA_RUN + r")?", re.I),
+)
 
 CLASSES = "SECTDN"
 SLOT = re.compile(r"^#11-[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -65,23 +76,23 @@ def is_browser_hit(m, line):
     if low == "chrome":
         if w in ("Chrome", "CHROME"):
             return True
-        return bool(re.match(r"[/\d]|chromium", line[e:], re.I))
+        return nxt == "/"  # lowercase: only chrome/<ver>; the boundary rejects a following letter/digit/_
     if low == "blink":
         return w != "blink"
     if low == "webkit":
         if prev == "-" and nxt == "-":
             return False
         if w == "webkit" or w == "Webkit":
-            return False if (prev == "-" or nxt == "_") else True
+            return prev != "-"  # -webkit-* vendor prefix (a following "_" is rejected by the boundary)
         return True
     return True
 
 
 def line_denied(line):
     """Return 'deny' | 'tagged' | None."""
-    if any(u in line for u in UA_MARKERS):
-        return None
     clean = line
+    for rx in UA_STRIP:
+        clean = rx.sub(" ", clean)
     for t in TOOL_NAMES:
         clean = clean.replace(t, " ")
     if not (any(is_browser_hit(m, clean) for m in BROWSER.finditer(clean)) or GENERIC.search(clean)):
