@@ -3,8 +3,8 @@
 Per-PR plan for the slot `#11-event-path-window-missing` (ledger row registered 2026-11-05, PM 377; direction PM 378:
 one DOM *get the parent* function whose Document arm returns the Document's relevant global object except for `load`,
 not a Window special case beside the walk). Owner L3, the unit after RC-2a (#596 `17b2a84d`). Written against
-`origin/main` = `1580af13` (#603, focus-fixup PR 2); every coordinate below is from that commit (the Rev 3.2 re-pin
-names the eight cited files #603 changed; every other cited file is byte-identical to `4728972c`).
+`origin/main` = `47b6c934` (#606); every coordinate below is from that commit (H-0 is the provenance: the cited files
+each re-pin changed — 11 of #603's 21 at Rev 3.2, two of #604–#606's ten at Rev 3.3 — with the re-runnable command).
 **PM decision 132 is kept** (Layout T3 D-T3: the active document and its Window are browsing-context state, marshalled
 per call, not a component; their component form is B1's, `#11-browsing-context-state-ecs-components`). This memo adds
 no component and no store.
@@ -26,31 +26,66 @@ override flag*, closed-tree hiding in `composedPath()` (P2's, D11), `relatedTarg
 assignment on the path (P2), the at-target two-pass order — §7.
 
 **Changelog.**
+- *Rev 3.3* (2026-11-07): the Rev 3.2 attestation MINs (M-1..M-6) and the re-pin onto `47b6c934` (#606). **M-1**:
+  the Rev 3.2 provenance ("eight cited files"; "every other cited file is byte-identical to `4728972c`") was false —
+  #603's 21 files (verified 2026-11-07, H-0) contain **11** this memo cites; the three missed are
+  `content/event_handlers.rs` (H-22's `:878/:941`, which were `:893/:956` at `4728972c`), `content_focus_fixup_tests.rs` and
+  `content_change_on_blur_tests.rs` (§5.1); the coordinates were right. The provenance is now §0.2 **H-0** (NEW),
+  with the re-runnable command and both pin pairs, re-run at DoD item 1. **M-2**: DoD item 4's comment category —
+  the filter's stated example was false (the two comment mentions of `build_propagation_path`, `focus/sot.rs:77` /
+  `app/events.rs:195`, have no `(` and are outside the `build_propagation_path(` grep; the filter drops **0** lines
+  at the base, measured); "first three greps count them" → **four** (the `dispatch_event(` grep counts the doc
+  `mod.rs:57`); the `ActiveDocument {` grep and every grep after the first four take the filter (a doc quoting
+  `ActiveDocument { document, window }` is dropped, not a construction). **M-3**: D-2 / §8 / the Rev 3.2 changelog
+  said a T3 deviation is "caught by DoD item 1's re-measure", but DoD item 1 re-runs §0.2 and §0.2 had neither grep
+  — **H-23** (NEW) holds both greps with the expected result per landing order (at `47b6c934` both → 0: this PR lands
+  first) and the escalation ("T3 landed without routing `Vm::bind` through `HostData::active_document()` → stop,
+  raise to the PM before implementation"); D-2, §8, DoD items 1 and 4 point at H-23. **M-4**:
+  `#11-visibilitychange-bubbles-flag` **exists** (ledger, registered PM 455; Owner L3; Re-eval 2026-12-15; coordinate
+  `message_dispatch.rs:317`, ruled correct PM 466) — §7's row says so (owner / re-eval the row's; trigger and
+  acceptance are additions), DoD item 10 counts three proposals and five existing rows. **M-5**: H-21 / D-6 (iii):
+  `respondWith(r)` is Service Workers **§4.6.7** and its step 2 reads the dispatch flag **directly** ("If event's
+  dispatch flag is unset, throw an "InvalidStateError" DOMException"), not through §4.4 *active*; *active* is §4.4
+  `ExtendableEvent`'s dfn, read by *add lifetime promise* step 2 = §4.4.1 `event.waitUntil(f)` — every Service
+  Workers citation in H-21 / D-6 (iii) re-looked up (webref `heading` / `dfn` / `body service-workers`, 2026-11-07) and
+  the §4.3 row for the deletion's doc gains them. **M-6**: re-pin — `origin/main` moved by #604 (`228764b6`, the CV
+  umbrella erratum), #605 (`b86671a5`), #606 (`47b6c934`); `git diff --name-only 1580af13 47b6c934 -- crates docs`
+  → ten files, two cited (H-0): `vm/tests/mod.rs` (+1 `mod` line at `:151`, #605; `:34` / `:52` unchanged; 205 →
+  206) and `content-visibility.md` (878 → 1003 lines: D11 `:204-222` → `:229-247`, `:473` → `:544`, `:627-628` →
+  `:709-712`, `:660` → `:750-752`, `:762` → `:868`; D-1, §3, §7, §8, DoD item 4). #604 re-grounded CV-details on
+  main (`:50`; `:751-752` mark the `composed_path_for_js` premise "(re-ground)" on this PR's replacement path
+  builder; P2-R3 `:710-712` names this slot as P2's hard order edge) — Rev 3's F5 hand-off is **done**; §8 and DoD
+  item 10 say so, and DoD item 4's docs grep expects the three CV lines. H-14 re-run at `47b6c934`: 82 branches →
+  27 with commits, the one addition `origin/vm-regexp-lastindex-overrun` (#605, landed); every other classification
+  unchanged. H-4 / H-6 / H-16 / H-18 / H-21 / H-1 re-run (unchanged); the §5.1 complement over #604–#606 → 0 lines.
 - *Rev 3.2* (2026-11-06): the Rev 3.1 attestation (seven findings N-1..N-7; the PM 455 rulings in the PM handoff
   `evpath-r31-findings.md`). **Re-pin**: `origin/main` moved to `1580af13` (#603, focus-fixup PR 2); the branch is
   rebased. `git diff --stat 4728972c 1580af13 -- crates docs/architecture` → 21 files (verified 2026-11-06), of
-  which this memo cites eight:
+  which this memo cites eight [**11** — Rev 3.3 M-1, H-0]:
   shell `lib.rs` (`PipelineResult::dispatch_event` `:293-302` → `:291-300`, the bracket `:299-301` → `:297-299`,
   the `script_dispatch_event` call `:300` → `:298`, `ScriptContext::new` `:294` → `:292`, `teardown_document` `:468` →
   `:466`; 730 → 719 lines), `pipeline.rs` (every cited line is at or before `:533` and unchanged; 975 → 971),
   `content/mod.rs` (`:738/749/753-772` unchanged; the `#[path]` convention `:790-829` → `:787-832`, S-1..S-3's pair
   goes after `:832`; 865 → 869), `content/focus.rs` (`change` `:182` → `:195`), `content_test_support.rs`
   (`:377/405` unchanged), dom-api `focus/sot.rs` (`:78` → `:77`), and `content/iframe/mod.rs` / `content/event_loop.rs`
-  (newly cited, H-22). Every other cited file is outside the 21, so its `4728972c` measurement is its `1580af13` one.
+  (newly cited, H-22). Every other cited file is outside the 21 [false for three of them — Rev 3.3 M-1, H-0], so
+  its `4728972c` measurement is its `1580af13` one.
   Re-run at `1580af13` (verified 2026-11-06): H-4 (50 lines / 17 files), H-6 (35), H-18 (17), H-20's six shell
   lines — unchanged. H-14:
   `layout-focus-fixup-canonical` is landed (#603). §5.1 gains the complement over #603's added test lines (no new
   member). **N-1** (IMP; PM 455): the cross-lane agreement — T3's memo routes its `Vm::bind` construction of
   `ActiveDocument` (T3 `:447-448`, `:538`, `:919`) through `HostData::active_document()` — is stated in D-2, §2 I-2
   and §8; Rev 3.1's "rewrite T3's helper body" fallback is withdrawn (this PR does not rewrite T3's landed code; a T3
-  landing without the method is raised to the PM at DoD item 1); DoD item 4 gains the struct-literal grep
+  landing without the method is raised to the PM at DoD item 1 [the greps: H-23, Rev 3.3 M-3]); DoD item 4 gains
+  the struct-literal grep
   (`ActiveDocument {` outside tests → exactly one, inside the constructor, in both orders) and DoD item 5's T3-first
   case is restated. **N-2** (IMP; PM 455): H-22 (b) had the OOP `message` direction reversed — the Document-targeted
   site is the parent → OOP-child *receive* (`iframe/thread.rs:185-196`, the `BrowserToIframe::PostMessage` arm
   `:82-84`, no production sender), while the iframe → parent `message` already fires at the parent's Window
   (`thread.rs:116` → `iframe/mod.rs:123` → `event_loop.rs:303-305` → `content/mod.rs:764`); restated in H-22 and §7,
   homed on the existing `#11-windowproxy-browsing-context` as an acceptance hand-off; the proposed slot is now
-  `#11-visibilitychange-bubbles-flag` for (a) alone; §0.3's "`message_dispatch.rs:320` is the iframe→parent `message`"
+  `#11-visibilitychange-bubbles-flag` for (a) alone [registered PM 455 — Rev 3.3 M-4]; §0.3's
+  "`message_dispatch.rs:320` is the iframe→parent `message`"
   (it is `visibilitychange` at the Document) is corrected with it. **N-3**: DoD item 10 lists §7's four proposals and
   four acceptance additions. **N-4**: DoD item 4's line numbers are the base's, re-measured at item 1, comment lines
   have a stated category (excluded by a filter, listed), and H-14 lists `lib.rs` as a touched file (the live
@@ -148,19 +183,21 @@ assignment on the path (P2), the at-target two-pass order — §7.
 
 ### §0.1 Coordinate frame
 
-Coordinates are `1580af13`. At the implementation base (§9 item 1) every coordinate is re-measured with the commands in
-§0.2; the counts are re-derived, not carried. The ledger row's own coordinates (`pipeline.rs:470/516`,
+Coordinates are `47b6c934`. At the implementation base (§9 item 1) every coordinate is re-measured with the commands in
+§0.2; the counts are re-derived, not carried (the cited files each re-pin moved are listed in H-0; H-23 decides the
+landing order). The ledger row's own coordinates (`pipeline.rs:470/516`,
 `content/mod.rs:738/762`) are re-stated in §0.3 where they drifted. Sibling plans not on main are cited at the commits
 named in §8 and were read from their branches (`git show <branch>:docs/plans/<memo>`).
 
-### §0.2 Premises (re-measured at `1580af13`)
+### §0.2 Premises (re-measured at `47b6c934`)
 
 | id | claim | evidence (command → result) |
 |---|---|---|
+| H-0 | **Provenance of the re-pins**: the files this memo cites that each re-pin changed; every other cited file is byte-identical across that re-pin, so its measurement carries | Rev 3.2 (`4728972c` → `1580af13`, #603): `git diff --name-only 4728972c 1580af13 -- crates docs/architecture` → 21 files (verified 2026-11-07); each is grepped in this memo by the spelling the memo uses, `/usr/bin/grep -c -F '<spelling>' docs/plans/2026-11-event-path-window.md` (`/usr/bin/grep`, not ugrep's `grep`, which can print 0 silently) — **11 cited** (each ≥ 1): `focus/sot.rs`, `content/event_handlers.rs`, `content/event_loop.rs`, `content/focus.rs`, `iframe/mod.rs`, `content/mod.rs`, `content_change_on_blur_tests.rs`, `content_focus_fixup_tests.rs`, `content_test_support.rs`, `elidex-shell/src/lib.rs`, `elidex-shell/src/pipeline.rs`; **10 not cited** (each 0): `focus/delegate.rs`, `focus/mod.rs`, `focus/tests.rs`, `update_steps.rs`, `ancestor_cache.rs`, `elidex-form/src/lib.rs`, `radio.rs`, `submit.rs`, `iframe/load.rs`, `iframe/render.rs`. (Rev 3.2 said "eight" and missed `content/event_handlers.rs` — H-22's `:878/:941` were `:893/:956` at `4728972c` — `content_focus_fixup_tests.rs` and `content_change_on_blur_tests.rs`, §5.1; the coordinates were right.) Rev 3.3 (`1580af13` → `47b6c934`, #604–#606): `git diff --name-only 1580af13 47b6c934 -- crates docs` → 10 files (verified 2026-11-07); **2 cited**: `vm/tests/mod.rs` (+1 `mod` line at `:151`, #605; `:34` / `:52` unchanged; 205 → 206 lines) and `content-visibility.md` (#604; 878 → 1003 lines; the cited lines re-mapped in D-1, §3, §7, §8, DoD item 4); **8 not cited** (each 0): `handle.rs`, `natives_regexp.rs`, `natives_string.rs`, `sw_thread.rs`, `tests_regexp_last_index_overrun.rs`, `tests_service_worker.rs`, `tests_worker.rs`, `sw_fetch_relay.rs`; `docs/architecture/script.md` unchanged. Re-run at DoD item 1 with the next pin pair (verified 2026-11-07) |
 | H-1 | `build_propagation_path` is the only builder of a **node**-targeted path | `git grep -n 'build_propagation_path' -- crates docs` → 13 lines outside this memo: the definition `event_dispatch/mod.rs:203`; production calls `:262` (`build_dispatch_plan`), `:373` (`dispatch_event`, the callback form), `:456` (`script_dispatch_event_core`), `crates/script/elidex-js/src/vm/host/event_target_dispatch.rs:120` (the VM `dispatchEvent` walk; its import `:20`); tests `event_dispatch/tests.rs:38/51/60`; the re-export `crates/script/elidex-script-session/src/lib.rs:34`; comments only at `crates/dom/elidex-dom-api/src/focus/sot.rs:77` and `crates/shell/elidex-shell/src/app/events.rs:195`; `docs/architecture/script.md:11` |
 | H-2 | A second *get the parent* provider exists for non-entity targets | `git grep -n 'fn vm_event_parent\|fn build_vm_dispatch_plan' -- crates` → `crates/script/elidex-js/src/vm/host/event_target_dispatch_vm.rs:51` / `:155` (`IDBRequest → IDBTransaction → IDBDatabase`, else null; `ObjectId`-keyed, no entity). Not a path for any node; see D-1 (c) |
 | H-3 | The Window entity is a non-Node with no `TreeRelation`, created once per `Vm` at the first bind | `crates/core/elidex-ecs/src/dom/mod.rs:491` (`create_window_root`: `spawn((NodeKind::Window,))`); `crates/script/elidex-js/src/vm/vm_api.rs:221-253` (first bind allocates, later binds reuse `HostData::window_entity`, and the bind caches `window_entity → global_object` in the wrapper cache) |
-| H-4 | The Window has three readers today; **none is touched by this PR** | `git grep -n 'window_entity' -- crates ':!crates/script/elidex-js/src/vm/tests'` → 50 lines in 17 files (`\| cut -d: -f1 \| sort \| uniq -c`, verified 2026-11-06 at `1580af13`). (i) `EcsDom`'s `window_entity` (`dom/mod.rs:504`, a linear scan for *the* `NodeKind::Window`), read by `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:251` (`resolve_handler_target`) and its tests `tests_insertion_and_write.rs:60/101/235` — T3 deletes it (D-8); (ii) `HostData::window_entity` (`crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:492`; the field `host_data/mod.rs:105`), read by `vm_api.rs:232`, `crates/script/elidex-js/src/vm/globals.rs:60` (comment), `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:448/471`, `crates/script/elidex-js/src/vm/host/history_events.rs:76/224`, `events_ui.rs:58`, `lifecycle.rs:88/399`, `document_accessors.rs:215`; (iii) the **`HostDriver`** trait's `window_entity` (`crates/script/elidex-script-session/src/engine.rs:565`; impl `crates/script/elidex-js/src/engine.rs:694` = `HostData::window_entity`), read by the shell at `crates/shell/elidex-shell/src/pipeline.rs:470/516`, `crates/shell/elidex-shell/src/content/mod.rs:738/762`, `crates/shell/elidex-shell/src/content/message_dispatch.rs:267`. (ii) is the one home of the fact; (iii) is its session-side marshalling, kept by T3 (its DoD item 4, which calls it "the `ScriptEngine` trait method" — an erratum, §8). It is **not** a `ScriptEngine` item: `ScriptEngine` (`engine.rs:57-120`) has `eval` / `call_listener` / `remove_listener` / `run_microtasks` / `drain_reactions` / `drain_timers` and the defaulted `bound_dom_mut`; `HostDriver` (`:151-722`) is not a supertrait and is not object-safe (`with_bound` is generic, `:216`) |
+| H-4 | The Window has three readers today; **none is touched by this PR** | `git grep -n 'window_entity' -- crates ':!crates/script/elidex-js/src/vm/tests'` → 50 lines in 17 files (`\| cut -d: -f1 \| sort \| uniq -c`, verified 2026-11-07 at `47b6c934`). (i) `EcsDom`'s `window_entity` (`dom/mod.rs:504`, a linear scan for *the* `NodeKind::Window`), read by `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:251` (`resolve_handler_target`) and its tests `tests_insertion_and_write.rs:60/101/235` — T3 deletes it (D-8); (ii) `HostData::window_entity` (`crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:492`; the field `host_data/mod.rs:105`), read by `vm_api.rs:232`, `crates/script/elidex-js/src/vm/globals.rs:60` (comment), `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:448/471`, `crates/script/elidex-js/src/vm/host/history_events.rs:76/224`, `events_ui.rs:58`, `lifecycle.rs:88/399`, `document_accessors.rs:215`; (iii) the **`HostDriver`** trait's `window_entity` (`crates/script/elidex-script-session/src/engine.rs:565`; impl `crates/script/elidex-js/src/engine.rs:694` = `HostData::window_entity`), read by the shell at `crates/shell/elidex-shell/src/pipeline.rs:470/516`, `crates/shell/elidex-shell/src/content/mod.rs:738/762`, `crates/shell/elidex-shell/src/content/message_dispatch.rs:267`. (ii) is the one home of the fact; (iii) is its session-side marshalling, kept by T3 (its DoD item 4, which calls it "the `ScriptEngine` trait method" — an erratum, §8). It is **not** a `ScriptEngine` item: `ScriptEngine` (`engine.rs:57-120`) has `eval` / `call_listener` / `remove_listener` / `run_microtasks` / `drain_reactions` / `drain_timers` and the defaulted `bound_dom_mut`; `HostDriver` (`:151-722`) is not a supertrait and is not object-safe (`with_bound` is generic, `:216`) |
 | H-5 | The bound document is one per `Vm`, set at bind and cleared at unbind; one `EcsDom` can hold several Document entities and only the bound one has a browsing context; one Window per `Vm`, never cleared | `bind.rs:115` (`document_entity = Some(document)`), `:121` (`None` at unbind), `:465` (`document()`), `:474-480` (`document_entity_opt()`: `None` when unbound). `git grep -n 'create_document_node()' -- crates \| grep -v tests` → `dom/mod.rs:453` (the root), `dom/tree/teardown.rs:302` (the fragment throwaway), `crates/dom/elidex-dom-api/src/element/document_base.rs:508`, `crates/dom/elidex-form/src/inert_document.rs:119` (DOMParser), `crates/script/elidex-script-session/src/scripting.rs:140`. **Single-world caveat (T3 H-T15)**: `HostData::window_entity` is set once (`bind.rs:504-508` asserts on a second set) and not cleared on unbind (`bind.rs:118-125` clears `document_entity` only); a `Vm` rebound to a different `EcsDom` would keep the old World's Window — a caller contract (`host_data/mod.rs:80-97`, "Callers must not rebind a `HostData` to a different `EcsDom` world"), kept by every production bind (H-19). C1-pre D-4 states the fact as the VM's one predicate (`document_has_browsing_context(ctx, doc)` = "`doc` is the bound document", `HostData::document`); T3 D-T3 states it as `ActiveDocument { document, window }` (§8) |
 | H-6 | Every shell UA dispatch is bracketed and reaches the session builder with the bound document as `ctx.document`; the bracket closure holds `&mut ElidexJsEngine` | `git grep -n 'pipeline\.dispatch_event(\|dispatch_event_bracketed(\|result\.dispatch_event(' -- crates/shell/elidex-shell/src \| grep -v '_tests.rs\|fn dispatch_event_bracketed'` → 35 sites; all go through `PipelineResult::dispatch_event` (`crates/shell/elidex-shell/src/lib.rs:291-300`) or `dispatch_event_bracketed` (`pipeline.rs:121-136`); both build `ScriptContext::new(session, dom, document)` once and run `script_dispatch_event(engine, event, ctx)` under `with_bound(&mut ctx, |engine, ctx| …)` (`lib.rs:297-299`, `pipeline.rs:133-135`), where `engine: &mut ElidexJsEngine` (`HostDriver::with_bound`'s `f: FnOnce(&mut Self, …)`, `engine.rs:216-220`; impl `crates/script/elidex-js/src/engine.rs:419-437`); the bracket's `bind` passes `ctx.document` to `Vm::bind` (`crates/script/elidex-js/src/engine.rs:377-398`), so while bound `ctx.document == HostData::document` by construction |
 | H-7 | The VM-side UA fires share the VM walk | `git grep -n 'dispatch_script_event(' -- crates/script/elidex-js/src \| grep -v 'fn dispatch_script_event\|//'` → 11 call sites: `event_target.rs:727` (`dispatchEvent`), `event_target_dispatch.rs:623/736/821/898`, `history_events.rs:187` (at the Window), `pending_tasks.rs:461` (`postMessage`), `service_worker/event.rs:211`, `worker.rs:278`, `worker_scope.rs:333`, `dom_selection_proto.rs:740` (`selectionchange` at the Document) — all under `crates/script/elidex-js/src/vm/host/`. The walk builds its plan through `build_dispatch_plan` (`event_target_dispatch.rs:119`) and reads `HostData` through `ctx.host()` (`:118`) |
@@ -170,15 +207,16 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
 | H-11 | `currentTarget` / `composedPath()` entries are wrappers from the identity cache; the Window's cache entry is the global object | `crates/script/elidex-js/src/vm/host/elements.rs:74` (`create_element_wrapper`: cache hit first); `vm_api.rs:239-253` (bind caches `window_entity → global_object`); `crates/script/elidex-js/src/engine.rs:203` (`call_listener` wraps `event.target` / `current_target` through it); `event_target_dispatch.rs:139-149` (the `composedPath()` Array), `:320-326` (`walk_phase` writes `currentTarget` per item) |
 | H-12 | The tree predicates are total on a non-tree entity | `crates/core/elidex-ecs/src/dom/tree/mod.rs:63` (`read_rel` → `Default` when no `TreeRelation`), `:39` (`is_ancestor` walks `get_parent`, so a Window descendant query is `false`); `crates/core/elidex-ecs/src/dom/tree/walkers.rs:395` (`find_tree_root` of the Window is the Window) |
 | H-13 | The three dispatch loops gate at-target and bubble on the stop-propagation flags and run the target's listeners in one pass | `mod.rs:364` (`dispatch_event`, callback form), `:434` (`script_dispatch_event_core`), `event_target_dispatch.rs:42` (`dispatch_script_event`): capture / at-target / bubble each test `propagation_stopped \|\| immediate_propagation_stopped`; the at-target entries are `collect_listeners(…, None)` (`mod.rs:285`) = every listener on the target in registration order (`crates/script/elidex-script-session/src/event_listener.rs:318` `iter_matching`), capture and non-capture mixed; the host items of a shadow-internal target are capture / bubble entries (phase CAPTURING / BUBBLING). DOM §2.9 steps 6.13–6.14 run the target's capture listeners in the capture pass and its non-capture listeners in the bubble pass, both at AT_TARGET, and every item with a non-null shadow-adjusted target the same way — pre-existing, §7. The callback form and `_core` differ only in what `_core` adds per listener (`:493-519`: the `once` removal before the call, `run_microtasks` after it, `remove_listener` after a `once` call) and in `apply_retarget` at the at-target item (`:480`, `retarget(target, target)` = `target`); the plan, the phase order and the gates are the same |
-| H-14 | Unlanded branches touching a file this PR touches or reads: **four classes of trivial overlap, none on a line this PR edits** | `FILES` = every path in §5 (touched) plus the read list (§5, "Read, not touched"); `for b in $(git branch -a --format='%(refname:short)' \| grep -v HEAD); do git log --format='%h %s' $b --not origin/main --numstat -- $FILES; done` over 77 branches → 26 with commits. **Landed, pre-squash history** (`gh pr list --state all --head <b>`): `origin/rc2a-clone-created` (#596), `origin/rc0a-clone-mutation-hook-test-split` (#587), `origin/vm-construct-isconstructor-check` (#591), `origin/vm-engine-drop-bound` (#584: `engine.rs`, `bind.rs`, `tests_dispatch_integration.rs`, `tests_engine_common.rs`, `vm_api.rs`, `dispatch_target.rs`), `vm-globals-split-c1-pre0` (#592), `vm-host-document-split` (#599), `layout-change-on-blur-provenance` (#597), `vm-closure-resolution-lexical` (#602, landed at `4728972c`: its one `mod` line at `vm/tests/mod.rs:34` is on main), `layout-focus-fixup-canonical` (#603, landed at `1580af13` = this revision's base: shell `lib.rs`, `pipeline.rs`, `content/mod.rs` (its test `mod` is the `#[path]` pair `:831-832`), `content/focus.rs`, `content_test_support.rs`, dom-api `focus/*` — the cited lines re-pinned, Rev 3.2 changelog), `ci-default-features-check` (#585, merge only). **Merge-only** (no own change): `k2-wire-fgit-scrub-complement`, `vm-p4-slice-1a-plan`. **Live, on files this PR touches** (`git diff origin/main...<b> -- <file> \| grep '^@@'`): (a) `vm/tests/mod.rs`, one `mod` line each (hunk positions from the three-dot diff, i.e. against each branch's merge base) — `layout-dom-c0b-node-document-fact` (`:114`), `vm-p4-rooting-carved` (`:120`, `:137`), `vm-upvalue-identity-dedup` (`:178`), `vm-p4-backup` / `vm-p4-plan` (no PR); this PR's `mod` line goes beside `:52` — disjoint hunks; (b) `content/mod.rs`, the two live focus-fixup branches (`layout-focus-fixup-ungated` and `layout-probe-hidden-focus-fixup`, `@@ -823,6 +823,10 @@` each, no PR: each appends a test `mod`) — this PR appends one too (§5), an adjacent-line textual conflict, resolved by keeping both; (c) `event_target_dispatch.rs`, `domform-submittable-category` (no PR; doc-comment lines `:741`, `:826-830`) — this PR edits `:117-122`, disjoint; (d) shell `lib.rs` (a touched file, §5 — Rev 3.1 filed it under the read list, corrected): `layout-focus-fixup-ungated` (`@@ -550,7 @@`, `@@ -606,14 @@`, `@@ -622,16 @@`) — this PR edits `:291-300`, disjoint. **Live, on files this PR only reads**: `layout-split-ecs-dom-factory-seam-abandoned` on `dom/mod.rs` (abandoned by name); `vm-p4-rooting-carved` / `domform-submittable-category` on `globals.rs`. Plans on unlanded branches that name this slot: T3 (H-T27, §8), C1-pre (`:123`, a passing mention). **Rev 3.1 re-run** (the same loop) for the three files that joined the touched set — `vm/test_helpers.rs`, `content_eh_attrs_bind_tests.rs`, `vm/tests/tests_dispatch_event.rs` → one branch, `layout-dom-c0b-node-document-fact` on `test_helpers.rs` (`@@ -84,7 @@`, `@@ -115,9 @@`; this PR edits `:211/:227`, disjoint); the other two files: none |
+| H-14 | Unlanded branches touching a file this PR touches or reads: **four classes of trivial overlap, none on a line this PR edits** | `FILES` = every path in §5 (touched) plus the read list (§5, "Read, not touched"); `for b in $(git branch -a --format='%(refname:short)' \| grep -v HEAD); do git log --format='%h %s' $b --not origin/main --numstat -- $FILES; done` over 82 branches → 27 with commits (Rev 3.3 re-run at `47b6c934`, 2026-11-07; Rev 3.2: 77 → 26). **Landed, pre-squash history** (`gh pr list --state all --head <b>`): `origin/rc2a-clone-created` (#596), `origin/rc0a-clone-mutation-hook-test-split` (#587), `origin/vm-construct-isconstructor-check` (#591), `origin/vm-engine-drop-bound` (#584: `engine.rs`, `bind.rs`, `tests_dispatch_integration.rs`, `tests_engine_common.rs`, `vm_api.rs`, `dispatch_target.rs`), `vm-globals-split-c1-pre0` (#592), `vm-host-document-split` (#599), `layout-change-on-blur-provenance` (#597), `vm-closure-resolution-lexical` (#602, landed at `4728972c`: its one `mod` line at `vm/tests/mod.rs:34` is on main), `layout-focus-fixup-canonical` (#603, landed at `1580af13`, the Rev 3.2 base: shell `lib.rs`, `pipeline.rs`, `content/mod.rs` (its test `mod` is the `#[path]` pair `:831-832`), `content/focus.rs`, `content_test_support.rs`, dom-api `focus/*` — the cited lines re-pinned, Rev 3.2 changelog), `origin/vm-regexp-lastindex-overrun` (#605, landed at `b86671a5`: its `mod` line `vm/tests/mod.rs:151` is on main), `ci-default-features-check` (#585, merge only). **Merge-only** (no own change): `k2-wire-fgit-scrub-complement`, `vm-p4-slice-1a-plan`. **Live, on files this PR touches** (`git diff origin/main...<b> -- <file> \| grep '^@@'`): (a) `vm/tests/mod.rs`, one `mod` line each (hunk positions from the three-dot diff, i.e. against each branch's merge base) — `layout-dom-c0b-node-document-fact` (`:114`), `vm-p4-rooting-carved` (`:120`, `:137`), `vm-upvalue-identity-dedup` (`:178`), `vm-p4-backup` / `vm-p4-plan` (no PR); this PR's `mod` line goes beside `:52` — disjoint hunks; (b) `content/mod.rs`, the two live focus-fixup branches (`layout-focus-fixup-ungated` and `layout-probe-hidden-focus-fixup`, `@@ -823,6 +823,10 @@` each, no PR: each appends a test `mod`) — this PR appends one too (§5), an adjacent-line textual conflict, resolved by keeping both; (c) `event_target_dispatch.rs`, `domform-submittable-category` (no PR; doc-comment lines `:741`, `:826-830`) — this PR edits `:117-122`, disjoint; (d) shell `lib.rs` (a touched file, §5 — Rev 3.1 filed it under the read list, corrected): `layout-focus-fixup-ungated` (`@@ -550,7 @@`, `@@ -606,14 @@`, `@@ -622,16 @@`) — this PR edits `:291-300`, disjoint. **Live, on files this PR only reads**: `layout-split-ecs-dom-factory-seam-abandoned` on `dom/mod.rs` (abandoned by name); `vm-p4-rooting-carved` / `domform-submittable-category` on `globals.rs`. Plans on unlanded branches that name this slot: T3 (H-T27, §8), C1-pre (`:123`, a passing mention). **Rev 3.1 re-run** (the same loop) for the three files that joined the touched set — `vm/test_helpers.rs`, `content_eh_attrs_bind_tests.rs`, `vm/tests/tests_dispatch_event.rs` → one branch, `layout-dom-c0b-node-document-fact` on `test_helpers.rs` (`@@ -84,7 @@`, `@@ -115,9 @@`; this PR edits `:211/:227`, disjoint); the other two files: none. **Rev 3.3 re-run** (the same loop at `47b6c934`, the base): the one addition is `origin/vm-regexp-lastindex-overrun` (landed, above); every other branch's classification and hunk positions are as stated; #604 (`docs/plans` only) and #606 (no file in `FILES`) add nothing |
 | H-15 | `relatedTarget` is marshalled raw, never retargeted | `crates/core/elidex-plugin/src/event_types.rs:119` (`related_target: Option<u64>` entity bits); `crates/script/elidex-js/src/vm/host/event_shapes.rs:450` (bits → wrapper, no `retarget`). Touch events do not exist. §7 |
 | H-16 | The session's callback-form loop `dispatch_event` has test callers only: 16 | `git grep -n -E '(^\|[^_a-z.])dispatch_event\(' -- crates \| grep -v 'MutationEvent\|self\.dispatch_event(&event)\|pipeline\.dispatch_event\|result\.dispatch_event'` → 19 lines: the definition `mod.rs:364`, its doc mention `:57`, the shell's unrelated `PipelineResult::dispatch_event` (`lib.rs:291`), and **16** calls in `event_dispatch/tests.rs` (`:75`, `:94`, `:115`, `:137`, `:156`, `:173`, `:190`, `:211`, `:233`, `:276`, `:296`, `:331`, `:360`, `:378`, `:400`, `:418`; one per test, 16 of the file's 22 tests — the other six are the three `propagation_path_*` tests `:35-62`, the two `composed_path_for_js` tests `:427-461` and `custom_event_defaults_composed_false` `:471`). The `grep -v MutationEvent` drops `crates/core/elidex-ecs/src/dom/mod.rs:235` (`fn dispatch_event(&mut self, event: &MutationEvent<'_>)`, the ECS mutation dispatcher, unrelated). Deleted by D-6; **15** of the 16 tests migrate (D-9) and one, `dispatch_flag_set_during_dispatch` (`:409-424`, the call `:418`), is deleted with its subject, the `dispatch_flag` field (D-6 (iii)). Prose mentions of the deleted form outside `mod.rs:57`: the module doc `mod.rs:3-5` and the shell comment `content_eh_attrs_bind_tests.rs:348-349` (both rewritten, D-6 (ii)) |
-| H-21 | **`DispatchEvent::dispatch_flag` has no production reader once `composed_path_for_js` is gone; every implemented reader of the spec's flag is in the VM, on one field** | `git grep -n -w 'dispatch_flag' -- crates` → 20 lines at `1580af13`: the field `mod.rs:82` and its doc `:80`, the constructor inits `:109/:144`, the only production read `:157` (inside `composed_path_for_js`, D-6 (i)), the writes `:374/:421` (the callback form, D-6 (ii)), `:460/:553` (`_core`), `event_target_dispatch.rs:112`, `natives_promise.rs:523` (+ its comment `:509`), the test helper `vm/test_helpers.rs:227` (+ doc `:211`), and test reads in `event_dispatch/tests.rs:415/419/423` (`dispatch_flag_set_during_dispatch`) and `:431/:436/:457` (the two `composed_path_for_js` tests). The spec's readers of the flag (webref `body`, 2026-11-06): DOM §2.7 `dispatchEvent(event)` step 1 ("If event's dispatch flag is set, or if its initialized flag is not set, then throw an `InvalidStateError`"); DOM §2.2 `initEvent()` step 1 ("If this's dispatch flag is set, then return"); Service Workers §4.4 *active* ("timed out flag unset and either pending promises count > 0 or dispatch flag set"), read by *add lifetime promise* step 2 (`waitUntil`) and `respondWith(r)` step 2 ("If event's dispatch flag is unset, throw an `InvalidStateError`"). In the VM every implemented one reads the `dispatched_events` field of `Vm` (`vm/mod.rs:1392`, a `HashSet<ObjectId>` bracketed around the walk) on the JS `Event` object: `dispatchEvent` at `vm/host/event_target.rs:707` (the `contains` check; tested by `tests_indexeddb_events.rs:239`), `waitUntil` at `vm/host/service_worker/event.rs:250`, `respondWith` at `:291`; `initEvent` is not implemented (`vm/host/events.rs:47`, the module doc's deferred list), so its step 1 has no reader at HEAD. The `DispatchEvent` struct is built fresh per dispatch (`event_target_dispatch.rs:107`, `new_untrusted`) and borrowed `&mut` for the whole `_core` loop, so its copy of the flag can observe no re-entry; it is a second home with no reader (D-6 (iii)) |
+| H-21 | **`DispatchEvent::dispatch_flag` has no production reader once `composed_path_for_js` is gone; every implemented reader of the spec's flag is in the VM, on one field** | `git grep -n -w 'dispatch_flag' -- crates` → 20 lines at `47b6c934`: the field `mod.rs:82` and its doc `:80`, the constructor inits `:109/:144`, the only production read `:157` (inside `composed_path_for_js`, D-6 (i)), the writes `:374/:421` (the callback form, D-6 (ii)), `:460/:553` (`_core`), `event_target_dispatch.rs:112`, `natives_promise.rs:523` (+ its comment `:509`), the test helper `vm/test_helpers.rs:227` (+ doc `:211`), and test reads in `event_dispatch/tests.rs:415/419/423` (`dispatch_flag_set_during_dispatch`) and `:431/:436/:457` (the two `composed_path_for_js` tests). The spec's readers of the flag (webref `body`, 2026-11-06; the Service Workers items re-looked up with `heading` / `dfn` / `body service-workers`, 2026-11-07): DOM §2.7 `dispatchEvent(event)` step 1 ("If event's dispatch flag is set, or if its initialized flag is not set, then throw an `InvalidStateError`"); DOM §2.2 `initEvent()` step 1 ("If this's dispatch flag is set, then return"); Service Workers §4.4 `ExtendableEvent`'s *active* (`#extendableevent-active`: "active when its timed out flag is unset and either its pending promises count is greater than zero or its dispatch flag is set"), read by *add lifetime promise* step 2 (`#extendableevent-add-lifetime-promise`: "If event is not active, throw an "InvalidStateError" DOMException") = §4.4.1 `event.waitUntil(f)` ("The waitUntil(f) method steps are to add lifetime promise f to this"); and Service Workers §4.6.7 `event.respondWith(r)` step 2, a **direct** reader of the flag, not one through *active* (`#fetch-event-respondwith`: "If event's dispatch flag is unset, throw an "InvalidStateError" DOMException"). In the VM every implemented one reads the `dispatched_events` field of `Vm` (`vm/mod.rs:1392`, a `HashSet<ObjectId>` bracketed around the walk) on the JS `Event` object: `dispatchEvent` at `vm/host/event_target.rs:707` (the `contains` check; tested by `tests_indexeddb_events.rs:239`), `waitUntil` at `vm/host/service_worker/event.rs:250`, `respondWith` at `:291` (both `ctx.vm.dispatched_events.contains(&id)`); `initEvent` is not implemented (`vm/host/events.rs:47`, the module doc's deferred list), so its step 1 has no reader at HEAD. The `DispatchEvent` struct is built fresh per dispatch (`event_target_dispatch.rs:107`, `new_untrusted`) and borrowed `&mut` for the whole `_core` loop, so its copy of the flag can observe no re-entry; it is a second home with no reader (D-6 (iii)) |
 | H-22 | Two shell UA dispatches target the **Document** with `bubbles = false`, so after D-1 their path is `[Window, document]` and only a Window **capture** listener newly observes them; both carry a pre-existing spec deviation that is not the path's (the second is unreachable today) | `git grep -n 'DispatchEvent::new' -- crates/shell/elidex-shell/src \| grep -v '_tests.rs\|/tests'` → 32 sites; the Document-targeted ones are `pipeline.rs:448` (`DOMContentLoaded`, bubbles — S-3), `:489` (`readystatechange`, pre-script, H-20), (a) `content/message_dispatch.rs:313-317` (`visibilitychange`, `bubbles = false` at `:317`; HTML §6.2 *update the visibility state* step 7 fires it "with its bubbles attribute initialized to true" — a flag deviation, §7) and (b) `content/iframe/thread.rs:185-196` (`dispatch_message_in_pipeline`: the **parent → OOP-child** `message`, received by the child thread from `BrowserToIframe::PostMessage` (`:82-84`) and fired at the child's Document `pipeline.document` (`:187`), `bubbles = false`; HTML §9.3.3 *window post message steps* step 8.7 fires it "at targetWindow" — a target deviation, §7, **unreachable today**: `git grep -n 'BrowserToIframe::' -- crates/shell \| grep -v _tests.rs` → the production senders are `MouseClick` (`content/event_handlers.rs:878`), `KeyEvent` (`:941`) and `Shutdown` (`iframe/lifecycle.rs:180`); `PostMessage` and `Navigate` have none). The **iframe → parent** `message` is already at the Window: `IframeToBrowser::PostMessage` (`thread.rs:116`) → `drain_parent_messages` (`iframe/mod.rs:123`, the arm `:133`) → `dispatch_message_event` (`event_loop.rs:303-305`; `content/mod.rs:753-772`, the target `window_entity()` `:762-764`), the same site the in-process iframe uses. Rev 3.1 stated (b) in the reverse direction. Neither (a) nor (b) has a test with a Window listener (§5.1) |
 | H-17 | `ScriptEngine` has one implementor and no mock; `HostDriver` has one implementor | `git grep -n 'impl.*ScriptEngine for\|impl.*HostDriver for' -- crates` → `crates/script/elidex-js/src/engine.rs:175` and `:373` only. The VM-side real-engine dispatch fixture is `crates/script/elidex-js/src/tests_dispatch_integration.rs` (`fresh_unbound` `:28`, `with_bound_ctx` from `tests_engine_common.rs:15-26`) |
-| H-18 | Callers of the two session entry points | `git grep -n 'script_dispatch_event(' -- crates \| grep -v '//'` → 17 lines (verified 2026-11-06 at `1580af13`): the definition `mod.rs:565`; calls at shell `lib.rs:298`, `pipeline.rs:134`, and 14 in `tests_dispatch_integration.rs` (`:62`, `:84`, `:118`, `:155`, `:196`, `:232`, `:308`, `:390`, `:425`, `:427`, `:475`, `:522`, `:559`, `:590`; 12 inside `with_bound_ctx` closures, `:308` and `:390` after an explicit `HostDriver::bind`). `git grep -n 'script_dispatch_event_core(' -- crates \| grep -v '//'` → the definition `mod.rs:434` and one caller, `:570` (its doc `:429` names `drain_queued_events`, which does not exist in `crates` — a stale sentence, rewritten in this PR). Every other mention is a comment or doc (`engine.rs:266/315/387`, `bind.rs:169`, `natives_promise.rs:383/468/513/555`, `tests_promise_rejection_event.rs:395`, session `engine.rs:63`, shell docs) or the `lib.rs:35` re-export |
+| H-18 | Callers of the two session entry points | `git grep -n 'script_dispatch_event(' -- crates \| grep -v '//'` → 17 lines (verified 2026-11-07 at `47b6c934`): the definition `mod.rs:565`; calls at shell `lib.rs:298`, `pipeline.rs:134`, and 14 in `tests_dispatch_integration.rs` (`:62`, `:84`, `:118`, `:155`, `:196`, `:232`, `:308`, `:390`, `:425`, `:427`, `:475`, `:522`, `:559`, `:590`; 12 inside `with_bound_ctx` closures, `:308` and `:390` after an explicit `HostDriver::bind`). `git grep -n 'script_dispatch_event_core(' -- crates \| grep -v '//'` → the definition `mod.rs:434` and one caller, `:570` (its doc `:429` names `drain_queued_events`, which does not exist in `crates` — a stale sentence, rewritten in this PR). Every other mention is a comment or doc (`engine.rs:266/315/387`, `bind.rs:169`, `natives_promise.rs:383/468/513/555`, `tests_promise_rejection_event.rs:395`, session `engine.rs:63`, shell docs) or the `lib.rs:35` re-export |
 | H-19 | **"Has a browsing context" ≈ "is the bound document" — measured**: at every path build the two coincide; the only gap is the inter-bracket window, where nothing dispatches | (a) One Document per `Vm` lifetime: the shell never reassigns a pipeline's document (`git grep -n '\.document = ' -- crates/shell/elidex-shell/src \| grep -v _tests.rs` → none) and has no `document.open()` native (`git grep -n -i 'document_open' -- crates/script/elidex-js/src/vm/host` → none); the `document_methods_installed` comment's "unbind doc1 → bind doc2" (`host_data/mod.rs:110-116`) names no production caller (T3 H-T15 measured the same). (b) Navigation and iframes build a new `EcsDom` + `ElidexJsEngine` per document (`pipeline.rs:220-226`; `app/navigation.rs:295`, `content/navigation.rs:216` → `load_document` → a new pipeline) and run `teardown_document()` on the outgoing one (`lib.rs:466`; callers `app/navigation.rs:322`, `content/navigation.rs:223`, `content/message_dispatch.rs:102`, `content/iframe/lifecycle.rs:177/665/667`) — elidex's *destroy a document* moment (HTML §7.5.10 step 6: "Set document's browsing context to null"); the Document entity dies with its World. (c) No bfcache: `git grep -n -i 'bfcache' -- crates` → one hit, the `PageTransitionEvent` field doc `event_types.rs:202`; no restore path. (d) Between `unbind` and the next `bind` the page document is unbound while, in the spec, it still has its browsing context — but every dispatch runs inside a bracket (H-6, H-7), so no path is built in that window. So at HEAD the spec's "Document with a non-null browsing context" and elidex's "the bound document" pick the same entity at every `get_the_parent` call; D-8's "agree by construction" is softened to this measured equivalence |
 | H-20 | **Inside the brackets the pre-bind population is empty** | `Vm::bind` allocates the Window at the first bind (`vm_api.rs:228-235`), and `document_entity_opt()` is `Some` while bound (`bind.rs:474-480`), so inside any bracket `HostData::active_document()` is `Some`. The shell's `window_entity().unwrap_or(document)` fallbacks (`pipeline.rs:470/516`, `content/mod.rs:738/762`, `message_dispatch.rs:267`) read *outside* the bracket and take the fallback only if the engine has never bound; `window_entity` is never cleared (H-5), so "never bound" also means "no script has run" = no Window listener exists. If the fallback is taken, the dispatch then runs inside a bracket with `active = Some`, and the `document`-targeted event's path is `[Window, document]` for `storage` / `message` / `beforeunload` / `unload` / `resize` (arm (a)) and `[document]` for `load` (arm (a), the `load` test) — with no Window listener to observe it. `DOMContentLoaded` (`pipeline.rs:448-450`) fires inside a bracket after the scripts ran, so S-3 is a real observation |
+| H-23 | **T3's landing state at the base** (the cross-lane agreement, D-2 / §8): the two greps that decide the landing order, re-run at DoD item 1 before implementation | `git grep -n 'fn active_document' -- crates` → **0** at `47b6c934`; `git grep -n -E 'ActiveDocument \{' -- crates ':!*/tests/*' ':!*tests*.rs' ':!*test_*.rs'` → **0** (T3 is not on main: this PR lands first and adds the type, the constructor, the trait item and its impl — DoD item 4's three `fn` and one construction). **If T3 landed first**, the expected result is exactly: `fn active_document` → **one**, `HostData::active_document` in `host_data/engine_feature/bind.rs` (this PR then adds the `HostDriver` item and its impl, making DoD item 4's three); `ActiveDocument \{` → the definition line in `event_handler_processing/mod.rs` and **one** construction, inside that method; and `git grep -n 'active_document()' -- crates/script/elidex-js/src/vm/vm_api.rs` → ≥ 1 (T3's `Vm::bind` site calls the method). **Any other result** — `ActiveDocument` defined with no `fn active_document`, a second construction (a struct literal in `vm_api.rs` or in a `ctx`-taking helper), a definition elsewhere — is a T3 landing that did not route `Vm::bind` through `HostData::active_document()`: **stop and raise it to the PM before implementation** (PM 455's agreement is Layout's to keep; this PR does not rewrite T3's landed code, D-2); nothing is patched here |
 
 ### §0.3 Premise errors in the ledger row / briefs
 
@@ -209,7 +247,7 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
   flag*; its Rev 1 reason ("needs the Window→Document direction") was false, since the firing site has `document` —
   D-5 and §7 give the corrected reason.
 - The brief's "(uses at ~:262 / :373 / :456)" and "`create_window_root` sets no `TreeRelation`" are exact at
-  `1580af13` (H-1, H-3).
+  `47b6c934` (H-1, H-3).
 
 ### §0.4 Decisions
 
@@ -220,8 +258,8 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
   browsing context, and its relevant global object is that Window); else `None` (no browsing context: the DOMParser,
   inert, throwaway and any other unbound Document, H-5); (b) **ShadowRoot** (DOM §4.8): `None` if `!event.composed`
   and `node` is the root of the original target (`dom.find_tree_root(event.target)`), else `host`; (c) **Node** (DOM
-  §4.4): `dom.get_parent(node)` — the *assigned slot* arm is CV P2's (`docs/plans/2026-10-content-visibility.md:473`,
-  `:627-628`), and the function is shaped so that P2 adds it as one `if let` in this arm; (d) **default** (Window,
+  §4.4): `dom.get_parent(node)` — the *assigned slot* arm is CV P2's (`docs/plans/2026-10-content-visibility.md:544`,
+  `:709-712`), and the function is shaped so that P2 adds it as one `if let` in this arm; (d) **default** (Window,
   Worker, MessagePort, Selection, any other non-Node entity): `None`. `build_propagation_path(dom, event, active)` is
   its only production caller and takes the `&DispatchEvent` (the ShadowRoot arm needs `target` and `composed`, the
   Document arm `event_type`); it keeps the `MAX_ANCESTOR_DEPTH` bound. The `VmObject` provider `vm_event_parent` (H-2)
@@ -250,8 +288,9 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
   The PM informs Layout; this memo makes no edit to T3's memo, and this PR does not rewrite T3's landed code (Rev
   3.1's "rewrite the helper's body" fallback is withdrawn). So in either order there is one struct literal
   `ActiveDocument { .. }` outside tests, inside this method (DoD item 4); a T3 landing without the method is a
-  deviation from the agreement, caught by DoD item 1's re-measure and raised to the PM before implementation, not
-  patched here. A `ctx`-taking helper cannot be the constructor: `ElidexJsEngine::active_document(&self)` (the
+  deviation from the agreement, caught by H-23's two greps (their expected result per landing order; re-run at DoD
+  item 1) and raised to the PM before implementation, not patched here. A `ctx`-taking helper cannot be the
+  constructor: `ElidexJsEngine::active_document(&self)` (the
   `HostDriver` impl below) has no `NativeContext`, so it would need a second field-reading site, which breaks I-2.
   **One trait item**: `HostDriver::active_document(&self) -> Option<ActiveDocument>` (NEW,
   `crates/script/elidex-script-session/src/engine.rs`, beside `window_entity` `:565`), implemented once
@@ -294,7 +333,7 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
   rule), and commit 2 is reviewable on its own (`cargo test` green with no test change).
 - **D-4 — the event path stays `Vec<Entity>`.** DOM §2.2's *event path item* fields (seven: invocation target,
   invocation-target-in-shadow-tree, shadow-adjusted target, relatedTarget, touch target list, root-of-closed-tree,
-  slot-in-closed-tree) are, at `1580af13`, functions of (invocation target, original target, event):
+  slot-in-closed-tree) are, at `47b6c934`, functions of (invocation target, original target, event):
   *shadow-adjusted target* = `apply_retarget` per item (`mod.rs:625`; the Window item's is null by DOM §2.9 step
   6.9.6.2, and `retarget(target, Window)` yields the outermost light-tree host because a Window is not a node — DOM
   §4.8 *retarget* step 1 third bullet is false for a non-node B, so step 2 repeats to the host; H-12);
@@ -330,7 +369,9 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
   (iii) **`DispatchEvent::dispatch_flag`** (`mod.rs:75-82`), the same dead-state class once (i) is gone: its only
   production reader was `composed_path_for_js` (`:157`), and the spec's readers — DOM §2.7 `dispatchEvent` step 1
   (the `InvalidStateError` on a re-entrant dispatch), DOM §2.2 `initEvent` step 1 (not implemented, `events.rs:47`),
-  and Service Workers' `waitUntil` / `respondWith` (`service_worker/event.rs:250/291`) — read it on the JS `Event`
+  Service Workers §4.4.1 `waitUntil(f)` (through §4.4 `ExtendableEvent`'s *active*, *add lifetime promise* step 2)
+  and §4.6.7 `respondWith(r)` step 2 (a direct read of the flag; H-21) (`service_worker/event.rs:250/291`) — read it
+  on the JS `Event`
   object, where every implemented one is the `dispatched_events` field of `Vm` (H-21), where it must: the Rust struct
   is rebuilt per dispatch and borrowed `&mut` for the whole loop, so a copy of the flag on it can never observe a
   re-entry. Two homes of one flag, every reader on one of them → the unread one goes (R3-10,
@@ -376,7 +417,7 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
   arrives with commit 3, §4). Behaviour-preserving: the plan, the phase order, the gates and the
   retarget are the same in both loops (H-13); what `_core` adds per listener is a no-op on the mock (`run_microtasks`)
   or invisible to these tests (`once` removal — no migrated test registers `once`: `grep -n 'once' tests.rs` → one
-  comment line, `:404`, at `1580af13`, and the `add_listener` helper `:22-32` takes no `once`). The red-before-fix
+  comment line, `:404`, at `47b6c934`, and the `add_listener` helper `:22-32` takes no `once`). The red-before-fix
   controls are named in §6.
 
 ## §1. Shape and verdict
@@ -449,7 +490,7 @@ Pairs (every pair of the seven; "—" = independent, stated once):
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | WHATWG DOM §2.7 Interface EventTarget | *get the parent*, default | non-Node entity (Window, Worker, MessagePort, Selection) → null | `get_the_parent` arm (d) (NEW) | ✓ | yes |
-| WHATWG DOM §4.4 Interface Node | *get the parent* | (i) assigned → assigned slot (CV P2, `content-visibility.md:473`); (ii) otherwise parent | arm (c): (ii) now, (i) P2's | ✗ (P2) | yes |
+| WHATWG DOM §4.4 Interface Node | *get the parent* | (i) assigned → assigned slot (CV P2, `content-visibility.md:544`); (ii) otherwise parent | arm (c): (ii) now, (i) P2's | ✗ (P2) | yes |
 | WHATWG DOM §4.5 Interface Document | *get the parent* | (i) type is `load` → null; (ii) no browsing context → null; (iii) relevant global object | arm (a): (i) string compare, (ii) `active.document != node` or `active` is `None`, (iii) `active.window` | ✓ | yes |
 | WHATWG DOM §4.8 Interface ShadowRoot | *get the parent* | (i) composed unset and root of path[0]'s invocation target → null; (ii) host | arm (b) (HEAD stops at any shadow root when non-composed; equal until P2) | ✓ | yes |
 | WHATWG DOM §4.8 Interface ShadowRoot | *retarget* steps 1–2 | step 1: (i) A not a node; (ii) A's root not a shadow root; (iii) B a node and A's root a shadow-including inclusive ancestor of B → return A; step 2: A ← A's root's host, repeat | `retarget` `mod.rs:583` — B = Window makes (iii) false (H-12); its docstring `:575` re-cited to this section (D-6) | ✓ | yes |
@@ -632,7 +673,7 @@ Every § below was looked up with `.claude/tools/webref heading` / `body` on 202
 | `build_propagation_path` (rewritten) | DOM §2.9 steps 6.3 (append the target), 6.8 (first *get the parent*), 6.9.9 (next parent) | §2.9 *Dispatching events* |
 | `DispatchPlan::path` (NEW field) | DOM §2.2 *path* (a list of event path items), built per §2.9 step 6 | §2.2 *Interface Event* (`dfn dom path` → `#event-path`) |
 | `composed_path` field doc (`mod.rs:57-74`, rewritten; `:75-82` is deleted with `dispatch_flag`, D-6 (iii)) | DOM §2.2 *event path item*: the seven fields; §2.2 `composedPath()` step 3 (empty path → empty list) | §2.2 *Interface Event* (the current doc says "DOM §2.9 specifies per-entry metadata" and lists five fields; the struct is §2.2's and has seven) |
-| `dispatch_flag` deletion (D-6 (iii), the commit message / H-21) | DOM §2.7 `dispatchEvent(event)` step 1 (dispatch flag set → `InvalidStateError`); §2.9 *dispatch* steps 1 and 10 (set / unset) | §2.7 *Interface EventTarget*; §2.9 *Dispatching events* (`body dom dom-eventtarget-dispatchevent` / `concept-event-dispatch`, 2026-11-06) |
+| `dispatch_flag` deletion (D-6 (iii), the commit message / H-21) | DOM §2.7 `dispatchEvent(event)` step 1 (dispatch flag set → `InvalidStateError`); §2.9 *dispatch* steps 1 and 10 (set / unset); Service Workers §4.4 (*active*), §4.4.1 (`waitUntil(f)`), §4.6.7 (`respondWith(r)` step 2) | §2.7 *Interface EventTarget*; §2.9 *Dispatching events* (`body dom dom-eventtarget-dispatchevent` / `concept-event-dispatch`, 2026-11-06); Service Workers §4.4 *ExtendableEvent*, §4.4.1 *event.waitUntil(f)*, §4.6.7 *event.respondWith(r)* (`heading service-workers 4.4` / `4.6.7`, `dfn` / `body` for `extendableevent-active`, `extendableevent-add-lifetime-promise`, `wait-until-method`, `fetch-event-respondwith`, 2026-11-07) |
 | `retarget` docstring (`mod.rs:575`, corrected) | DOM §4.8 *retarget* | §4.8 *Interface ShadowRoot* (was "§2.5" = *Constructing events*) |
 | `HostData::active_document` (NEW) | HTML §7.3.2 (a Document's *browsing context*), §8.1.3.3.4 (*relevant global object*) | §7.3.2 *Browsing contexts*; §8.1.3.3.4 *Relevant* |
 | `HostDriver::active_document` (NEW) | DOM §4.5 *get the parent*; HTML §7.3.2 / §8.1.3.3.4 as above | as above |
@@ -642,7 +683,7 @@ Every § below was looked up with `.claude/tools/webref heading` / `body` on 202
 
 ## §5. Populations
 
-`wc -l` at `1580af13` (re-run at the base). The 1000-line audit: no touched file is above 1000 or crosses it;
+`wc -l` at `47b6c934` (re-run at the base). The 1000-line audit: no touched file is above 1000 or crosses it;
 `event_target_dispatch.rs` 902 shrinks by two lines (D-3, D-6 (iii)) and grows by the `active` read;
 `natives_promise.rs` 961 loses one line and a comment line (D-6 (iii)) and has its comment rewritten; `pipeline.rs`
 971 gains three lines inside one function and no new unit (no seam, no split); `dom/mod.rs` (984) is not touched.
@@ -662,7 +703,7 @@ Every § below was looked up with `.claude/tools/webref heading` / `body` on 202
 | `crates/script/elidex-js/src/vm/natives_promise.rs` | 961 | `:509-516` comment rewritten (D-1; the `dispatch_flag` mention dropped), −`:523` (D-6 (iii)) |
 | `crates/script/elidex-js/src/vm/test_helpers.rs` | 324 | `make_event`: doc `:211` and −`:227` (`ev.dispatch_flag = true`, D-6 (iii)); H-14 for this file: one live branch, `layout-dom-c0b-node-document-fact` (hunks `@@ -84,7 @@` / `@@ -115,9 @@`, disjoint) |
 | `crates/script/elidex-js/src/tests_dispatch_integration.rs` | 597 | the 14 `script_dispatch_event` calls (H-18) pass `engine.active_document()` |
-| `crates/script/elidex-js/src/vm/tests/mod.rs` | 205 | `mod tests_event_path_window;` beside `:52` (`tests_dispatch_event`) |
+| `crates/script/elidex-js/src/vm/tests/mod.rs` | 206 | `mod tests_event_path_window;` beside `:52` (`tests_dispatch_event`; #605's `mod` line is `:151`) |
 | `crates/script/elidex-js/src/vm/tests/tests_event_path_window.rs` (NEW) | — | T-1..T-10 |
 | `crates/script/elidex-js/src/vm/tests/tests_dispatch_event.rs` | 742 | `composed_path_returns_path_during_dispatch` (`:327-338`): `assert_eq!(out, 4.0)` at `:337` → `5.0`, the comment `:336` → `[p, body, html, doc, window]`, and the test also asserts the last `composedPath()` entry `=== window` (§5.1; the one existing test the Window item changes). No branch touches the file (H-14 re-run for it) |
 | `crates/shell/elidex-shell/src/lib.rs` | 719 | `:297-299` (`PipelineResult::dispatch_event`, `:291-300`): the `active` read + argument |
@@ -706,7 +747,9 @@ complement over #603's additions — `git diff 4728972c 1580af13 -- crates | gre
 (NEW, 21 tests) and the `el.addEventListener(t, …)` probe moved from `content_change_on_blur_tests.rs` into the
 harness (`content_test_support.rs:482`); no Window or Document listener, no path or `composedPath()` assertion — the
 reading under which `content_change_on_blur_tests.rs` was outside the population at `4728972c`. The population and
-both counts are unchanged. Commands (each over `-- crates`; the raw hit count before reading follows each):
+both counts are unchanged. **Re-pin at `47b6c934` (Rev 3.3)**: the same complement over #604–#606's additions (`git
+diff 1580af13 47b6c934 -- crates | grep '^+' | grep -E '<the same pattern>'`) → 0 lines (verified 2026-11-07); the
+population and both counts are unchanged. Commands (each over `-- crates`; the raw hit count before reading follows each):
 `git grep -n -E 'composedPath|composed_path|propagation_path|build_dispatch_plan|\.capture\b|\.bubble\b'` (148);
 `git grep -n -E 'eventPhase|event_phase|currentTarget|current_target'` (152);
 `git grep -n -E "window\.addEventListener|globalThis\.addEventListener|window\.on[a-z]+ *=|add_listener\(window|add_listener\(w\b|EventListeners"` (236)
@@ -768,7 +811,7 @@ arm (a) `None`), and two **Document-targeted** UA dispatches outside §0.3's enu
 
 ## §6. Tests
 
-Each test names its kind: **red** = fails at `1580af13` and passes after; **guard** = passes before and after, and
+Each test names its kind: **red** = fails at `47b6c934` and passes after; **guard** = passes before and after, and
 names the mutant it kills.
 
 ### §6.1 VM end-to-end (`tests_event_path_window.rs`; the `tests_dispatch_event.rs` harness: `bind_vm` from `vm/test_helpers.rs:49`, `build_simple_tree` `:33`)
@@ -877,8 +920,8 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
   whose `relatedTarget` is inside a closed tree reads the host from outside, and a parent outside the target's root
   that equals the retargeted relatedTarget is not on the path (the path's last item is the one before it); a parent
   in the target's root, or the Window, is appended regardless (6.9.6). **Re-eval**: 2026-12-31.
-- **Slot assignment on the path** → P2 (`#11-shadow-slot-assignment-flat-tree`): CV `content-visibility.md:473`,
-  `:627-628` — the Node arm's assigned-slot branch, `slotInClosedTree`, and the ShadowRoot arm's path-root test
+- **Slot assignment on the path** → P2 (`#11-shadow-slot-assignment-flat-tree`): CV `content-visibility.md:544`,
+  `:709-712` — the Node arm's assigned-slot branch, `slotInClosedTree`, and the ShadowRoot arm's path-root test
   becoming load-bearing. **Owner / trigger / acceptance / re-eval**: P2's.
 - **At-target order, the shadow-host items, and the two loops** → `#11-dispatch-at-target-two-pass` (proposed).
   *Defect* (H-13): the target's capture and non-capture listeners run in one registration-ordered pass; DOM §2.9 steps
@@ -906,14 +949,15 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
   rewrite stops the file from claiming its hand-set path matches a regular Document dispatch (it no longer does: the
   regular one carries the Window item). **Acceptance** (added for the existing row): the listener runs with
   `e.currentTarget === window` and `e.composedPath()` = `[window]`. Owner and re-eval (2026-11-30) unchanged.
-- **`visibilitychange` bubbles (H-22 (a))** → `#11-visibilitychange-bubbles-flag` (proposed). *Defect*:
-  `message_dispatch.rs:313-317` fires `visibilitychange` at the Document with `bubbles = false` (`:317`); HTML §6.2
-  *update the visibility state* step 7 fires it "with its bubbles attribute initialized to true", so after this PR a
-  Window capture listener sees it and a Window bubble listener does not (spec: both). *Why not here*: the firing
-  site's flag, not the path (D-5's reasoning). **Owner**: the shell lane (the PM assigns; the site is
-  `content/message_dispatch.rs`). **Trigger**: the first Window `visibilitychange` listener in a site or test.
-  **Acceptance**: `window.addEventListener('visibilitychange', f)` (non-capture) runs on a visibility change, with
-  `e.bubbles === true`. **Re-eval**: 2026-12-31.
+- **`visibilitychange` bubbles (H-22 (a))** → `#11-visibilitychange-bubbles-flag` (exists: registered PM 455 from
+  this memo's Rev 3.2; Owner L3; Re-eval 2026-12-15; its coordinate `message_dispatch.rs:317` ruled correct, PM 466).
+  *Defect*: `message_dispatch.rs:313-317` fires `visibilitychange` at the Document with `bubbles = false` (`:317`);
+  HTML §6.2 *update the visibility state* step 7 fires it "with its bubbles attribute initialized to true", so after
+  this PR a Window capture listener sees it and a Window bubble listener does not (spec: both). *Why not here*: the
+  firing site's flag, not the path (D-5's reasoning). **Owner**: L3 (the row's). **Trigger** (added for the existing
+  row): the first Window `visibilitychange` listener in a site or test. **Acceptance** (added for the existing row):
+  `window.addEventListener('visibilitychange', f)` (non-capture) runs on a visibility change, with
+  `e.bubbles === true`. **Re-eval**: 2026-12-15 (the row's).
 - **The OOP child's `message` target (H-22 (b))** → `#11-windowproxy-browsing-context` (exists; a hand-off, no new
   slot — PM 455). *Defect*: the parent → OOP-child receive site `dispatch_message_in_pipeline`
   (`iframe/thread.rs:185-196`, the `BrowserToIframe::PostMessage` arm `:82-84`) fires the child's `message` at the
@@ -973,18 +1017,22 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
   not a node's document; Rev 1's D-3 readers of `owner_document` are gone). A node adopted by C0c into a non-bound
   Document dispatches to a path ending at that Document (arm (a) `None`) — consistent with T3's step 3 for the same
   node. The branch's one-line `vm/tests/mod.rs` add is a disjoint hunk (H-14). No ordering constraint.
-- **CV P2 (Layout; `docs/plans/2026-10-content-visibility.md:204-222` D11, `:473`, `:627-628`, `:762`; slot
+- **CV P2 (Layout; `docs/plans/2026-10-content-visibility.md:229-247` D11, `:544`, `:709-712`, `:868`; slot
   `#11-shadow-slot-assignment-flat-tree`)** — P2 adds the assigned-slot `if let` to arm (c) and nothing else to the
   function; the ShadowRoot arm's path-root test (b) is already the spec's form, so P2 does not revisit it.
   `composedPath()`'s closed-tree hiding is P2's own surface (D11): this memo deletes the dead filter (D-6) and hands the
   surface over (§7). Hand-off: this memo's `get_the_parent` is the one function P2 extends; P2's memo cites it by
-  symbol.
-- **CV-details (`content-visibility.md:660`)** — the CV-details open item chooses the crate of its "script-visible
+  symbol — on main since #604 (`228764b6`): P2-R3 (`:710-712`) names this slot as "a hard order edge (§8): P2 extends
+  the one *get the parent* that slot's PR leaves (re-ground)".
+- **CV-details (`content-visibility.md:750-752`)** — the CV-details open item chose the crate of its "script-visible
   shadow root" query by the rule "a home in `elidex-dom-api` cycles with `composed_path_for_js` in
   `elidex-script-session` (`event_dispatch/mod.rs:156`), so at or below `elidex-script-session`". D-6 deletes
-  `composed_path_for_js`, so that premise is gone; the constraint it stood for may or may not survive (the query's
-  other readers are P2's and CV-details' to re-derive). Hand-off to Layout at landing (DoD item 10): the sentence's
-  premise is void; the crate choice is re-derived without it.
+  `composed_path_for_js`, so that premise goes. **Done on main (#604, `228764b6`)**: the sentence now carries "(L3's
+  `#11-event-path-window-missing` PR deletes `composed_path_for_js`: this premise is re-grounded on its replacement
+  path builder when it lands; re-ground)" (`:751-752`) and the Re-ground record (`:50`) names it; Layout re-derives
+  the crate choice against the replacement builder at that landing (the query's other readers are P2's and
+  CV-details' own). Nothing is left to hand over: Rev 3's F5 hand-off is closed, and DoD item 10 cites the three
+  lines as the record (DoD item 4's docs grep expects them).
 - **EH-attrs slice-a (`docs/plans/2026-10-eh-attrs-slice-a.md:597`, landed #563)** — its session fixtures call
   `create_window_root()`; the signature is unchanged by this PR (Rev 1's change is gone).
 - **IBP handler gates (`docs/plans/2026-10-ibp-sandbox-handler-gates.md:905`, landed #580)** — its C8e row reads a
@@ -994,13 +1042,18 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
   on disjoint lines; the two live focus-fixup branches' test-`mod` appends at the end of `content/mod.rs`, adjacent to
   this PR's; `domform-submittable-category`'s doc lines in `event_target_dispatch.rs`, disjoint;
   `layout-focus-fixup-ungated`'s `lib.rs` hunks at `:550` and below, disjoint from `:291-300`); none of them is an
-  open PR (`layout-focus-fixup-canonical` landed as #603 at `1580af13`, the base). Rebase order is free.
+  open PR (`layout-focus-fixup-canonical` landed as #603 at `1580af13`, `vm-regexp-lastindex-overrun` as #605 at
+  `b86671a5`; the base is `47b6c934`). Rebase order is free.
 - **Memory / ledger** — the slot row's "`build_propagation_path` is the only path builder" is corrected per §0.3 at
   landing; `docs/architecture/script.md:11-12` is rewritten in this PR.
 
 ## §9. Definition of done
 
-1. Base re-measure: every command in §0.2 re-run at the base; counts and lines updated in this memo (rev bump).
+1. Base re-measure: every command in §0.2 re-run at the base; counts and lines updated in this memo (rev bump). Two
+   rows decide something: H-0's provenance is re-run with the new pin pair (the cited files that moved are the ones
+   to re-read), and **H-23's two greps decide the landing order** — the result must be one of H-23's two expected
+   ones; any other result means T3 landed without routing `Vm::bind` through `HostData::active_document()`: stop and
+   raise it to the PM before implementation (D-2, §8); no patching here.
 2. Commit 1 (D-6 deletions including `dispatch_flag`, D-9 mock and helper move, the 15-test migration) green on its
    own: `cargo test -p elidex-script-session -p elidex-js --all-features`, the 15 migrated tests' assertions
    unchanged (`git diff` of `tests.rs` shows only the call shape, the fixture lines, the helper import and the two
@@ -1010,44 +1063,51 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
    `mise run ci` before push; `/elidex-review`; `/external-review` after push.
 4. Greps, each exact on a correct implementation (the expected result is the whole result, not a subset). Line
    numbers are the base's as re-measured at item 1 (the expectation is the symbol and the file; a number that moved
-   under a landed branch is re-stated there, not a failure). Comment lines have one category: the first three greps
-   count them (the deleted names must not survive even in a doc); the symbol greps exclude them with
-   `| grep -v -E ':[[:space:]]*//'` (drops `//`, `///`, `//!` lines — at `1580af13` it drops the two comment mentions
-   of `build_propagation_path`, `focus/sot.rs:77` and `app/events.rs:195`), so a doc mention of `get_the_parent` or
-   `build_propagation_path` in `event_dispatch/mod.rs`, `focus/sot.rs`, `app/events.rs` or a new doc is allowed and
-   not counted. `git grep -n 'composed_path_for_js' -- crates` → 0; `git grep -n 'composed_path_for_js' -- docs
-   ':!docs/plans/2026-11-event-path-window.md'` → one line, `docs/plans/2026-10-content-visibility.md:660` (Layout's,
-   DoD item 10; this memo's own mentions are excluded by the pathspec); `git grep -n -w 'dispatch_flag' -- crates`
+   under a landed branch is re-stated there, not a failure). Comment lines have one category: the **first four**
+   greps count them (the deleted names must not survive even in a doc; at `47b6c934` the `dispatch_event(` grep's 19
+   lines include the doc `mod.rs:57`, which goes with the function); every later grep in this item excludes them
+   with `<filter>` = `| grep -v -E ':[[:space:]]*//'` (drops `//`, `///`, `//!` lines). At `47b6c934` the filter
+   drops nothing from any of them (measured): the two comment mentions of `build_propagation_path`
+   (`focus/sot.rs:77`, `app/events.rs:195`) have no `(` and are outside the `build_propagation_path(` grep already,
+   and no line names `get_the_parent` or `ActiveDocument` (H-23); its work is at the head, where the rewritten docs
+   (`mod.rs:1-5`, `:57-74`, `script.md:11-12`, the new items' docs) may name a symbol with its parentheses or braces.
+   So a doc mention of `get_the_parent`, `build_propagation_path` or `ActiveDocument { document, window }` in
+   `event_dispatch/mod.rs`, `focus/sot.rs`, `app/events.rs`, `bind.rs`, `engine.rs` or a new doc is allowed and not
+   counted. `git grep -n 'composed_path_for_js' -- crates` → 0; `git grep -n 'composed_path_for_js' -- docs
+   ':!docs/plans/2026-11-event-path-window.md'` → three lines, `docs/plans/2026-10-content-visibility.md:50`, `:750`,
+   `:752` (#604's record that the premise is retired and re-grounded on this PR's builder, §8; they stay; this
+   memo's own mentions are excluded by the pathspec); `git grep -n -w 'dispatch_flag' -- crates`
    → 0 (`-w`: the VM test names `…_dispatch_flag_against_…` and `…_dispatch_flags` are not whole-word matches; H-21);
    `git grep -n -E '(^|[^_a-z.])dispatch_event\(' -- crates | grep -v MutationEvent` → exactly one line,
-   `crates/shell/elidex-shell/src/lib.rs:291` at `1580af13` (`PipelineResult::dispatch_event`'s definition; the
+   `crates/shell/elidex-shell/src/lib.rs:291` at `47b6c934` (`PipelineResult::dispatch_event`'s definition; the
    `grep -v` drops the ECS `MutationEvent` dispatcher `dom/mod.rs:235`, H-16; no session definition, no doc mention,
    no `tests.rs` call — comment lines count here); `git grep -n 'build_propagation_path(' -- crates | <filter>` → the
    definition, one production call (in `build_dispatch_plan`; none in `event_target_dispatch.rs`, D-3), the three
    `tests.rs` calls and U-2 / U-3 / U-7; `git grep -n 'get_the_parent' -- crates | <filter>` → the definition, its one
    caller (`build_propagation_path`), the `lib.rs` re-export, `tests_get_the_parent.rs` (its `use` and calls) and
-   its `mod` line; `git grep -n 'struct ActiveDocument' -- crates` → exactly one; `git grep -n -E 'ActiveDocument \{'
-   -- crates ':!*/tests/*' ':!*tests*.rs' ':!*test_*.rs'` (the pathspecs exclude `vm/tests/`, `tests*.rs` and
-   `test_*.rs`, where U-1 / U-9 and T3's tests build the value) → the definition line (`pub struct ActiveDocument {`)
-   and **exactly one construction**, the `.map(|(document, window)| ActiveDocument { document, window })` inside
-   `HostData::active_document` (`bind.rs`) — in both landing orders (the cross-lane agreement, D-2 / §8: T3's
-   `Vm::bind` construction and its helper call the method); any other hit is listed with its kind and must be a
-   reader (a destructuring pattern), never a construction; `git grep -n 'fn active_document' -- crates` → **three** in
-   either landing order (the `HostData` constructor, the `HostDriver` item, its impl; T3's helper is the first of
-   them, D-2); `git grep -n 'impl.*ScriptEngine for' -- crates` → `ElidexJsEngine` and the test-only
-   `RecordingEngine`.
+   its `mod` line; `git grep -n 'struct ActiveDocument' -- crates | <filter>` → exactly one; `git grep -n -E
+   'ActiveDocument \{' -- crates ':!*/tests/*' ':!*tests*.rs' ':!*test_*.rs' | <filter>` (the pathspecs exclude
+   `vm/tests/`, `tests*.rs` and `test_*.rs`, where U-1 / U-9 and T3's tests build the value; the filter drops a doc
+   line quoting `ActiveDocument { document, window }`, which is not a construction — its category) → the definition
+   line (`pub struct ActiveDocument {`) and **exactly one construction**, the `.map(|(document, window)|
+   ActiveDocument { document, window })` inside `HostData::active_document` (`bind.rs`) — in both landing orders
+   (the cross-lane agreement, D-2 / §8; H-23 at item 1 says which order holds and stops on any other state); any
+   other hit is listed with its kind and must be a reader (a destructuring pattern), never a construction; `git grep
+   -n 'fn active_document' -- crates | <filter>` → **three** in either landing order (the `HostData` constructor, the
+   `HostDriver` item, its impl; T3's helper is the first of them, D-2); `git grep -n 'impl.*ScriptEngine for' --
+   crates | <filter>` → `ElidexJsEngine` and the test-only `RecordingEngine`.
 5. **The `window_entity` readers are unchanged** — the population is the command, compared base to head with line
    numbers dropped: `git grep -n 'window_entity' <rev> -- crates ':!crates/script/elidex-js/src/vm/tests' | sed -E
    's/^[^:]*:([^:]*):[0-9]+:/\1:/'` for `<rev>` = `origin/main` and `HEAD` (the first field is the rev); `diff` of
    the two outputs shows **only additions**, all inside `HostData::active_document`'s body and doc (`bind.rs`) and the
    `HostDriver::active_document` doc (`engine.rs`, if it names the field); no addition in `event_dispatch/`, the shell,
-   or `event_target_dispatch.rs`; no deletion. Baseline at `1580af13`: 50 lines / 17 files (H-4, verified 2026-11-06).
+   or `event_target_dispatch.rs`; no deletion. Baseline at `47b6c934`: 50 lines / 17 files (H-4, verified 2026-11-07).
    If T3 landed first, its deletions (`dom/mod.rs:504`, `event_handler_processing/mod.rs:251`,
    `tests_insertion_and_write.rs:60/101/235`) are already absent from the base and `HostData::active_document` is
    on it (the cross-lane agreement, D-2 / §8); the expectation is then: **no `window_entity` reader is added** — the
    diff is empty, or shows only the `HostDriver::active_document` doc line in `engine.rs` (the same allowance as
    the this-first case); no addition in `bind.rs`, nothing else. `git grep -n 'window_entity()' -- crates/shell` →
-   the same six lines as at `1580af13` (`pipeline.rs:470/504/516`, `content/mod.rs:738/762`,
+   the same six lines as at `47b6c934` (`pipeline.rs:470/504/516`, `content/mod.rs:738/762`,
    `message_dispatch.rs:267`; `:504` is a doc comment; the shell bracket sites add no `window_entity` read).
    `git diff --stat origin/main -- crates/core/elidex-ecs
    crates/script/elidex-js/src/vm/host/event_handler_attrs.rs crates/script/elidex-script-session/src/event_handler_processing/mod.rs`
@@ -1066,13 +1126,15 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
 8. `wc -l` of every touched file ≤ 1000 (§5).
 9. `docs/architecture/script.md:11-12` describes `build_propagation_path(dom, event, active)`, the Window item, and
    `HostDriver::active_document`.
-10. The landing memo corrects the ledger row (§8) and hands §7's texts to the PM: four proposals
+10. The landing memo corrects the ledger row (§8) and hands §7's texts to the PM: three proposals
     (`#11-window-load-legacy-target-override`, `#11-related-target-retargeting`, `#11-dispatch-at-target-two-pass`,
-    `#11-visibilitychange-bubbles-flag`, each with its re-eval date), the acceptance additions to four existing rows
+    each with its re-eval date), the acceptance additions to five existing rows
     (`#11-unhandledrejection-dispatch-target`, `#11-capped-walker-deep-element-processing`,
-    `#11-browsing-context-state-ecs-components`, `#11-windowproxy-browsing-context`), the fired-trigger disposition
-    for `#11-unhandledrejection-dispatch-target`, and the **CV-details hand-off to Layout** (§8:
-    `content-visibility.md:660`'s crate-choice premise is void after D-6).
+    `#11-browsing-context-state-ecs-components`, `#11-windowproxy-browsing-context`,
+    `#11-visibilitychange-bubbles-flag` — its trigger and acceptance), and the fired-trigger disposition for
+    `#11-unhandledrejection-dispatch-target`. The CV-details hand-off to Layout (Rev 3 F5) is **done on main** (#604
+    `228764b6`: `content-visibility.md:50`, `:751-752` mark the `composed_path_for_js` premise "(re-ground)" on this
+    PR's replacement builder, §8) — nothing to hand; the landing memo cites those lines as the record.
 11. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
     docs/plans/2026-11-event-path-window.md` exits 0.
 12. The citation table (§4.3) is applied: each listed doc carries the listed §, and `git grep -n 'DOM §2.5' --
