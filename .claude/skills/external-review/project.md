@@ -14,11 +14,11 @@ SKILL.md "Why single-pass" names the repo's local Claude pre-push gate generical
 
 `cargo fmt --all && mise run ci`
 
-Per CLAUDE.md "Push 前: mise run ci". cargo task は (default features の `check-default` を除き) `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (CLAUDE.md "Workflow" 参照)。
+Per CLAUDE.md "Push 前: mise run ci". cargo task は (default features の `check-default` を除き) `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (`mise.toml` の各 task 参照)。
 
 ## layering
 
-Reference: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)". Used by SKILL.md Step 4 (downward-drift screen).
+Reference: CLAUDE.md § "Layering mandate". Used by SKILL.md Step 4 (downward-drift screen).
 
 ### paths
 

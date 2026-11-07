@@ -265,6 +265,12 @@ jobs:
   # PR #601 (Python-pin PR-1) made the job one leg on the pin and measured its run 42015472338:
   # the one leg 120 s end to end; ceil(4 x 2.0 min) = 8, not above 22, so the value stays 22
   # (raise-only for the program, PM 353); 22 min is 11x the run, so #510's 2x trigger cannot fire.
+  # PR #609 (ECS-mission ratchet) added a member and measured its run 42417959074: the one leg
+  # 121 s end to end; ceil(4 x 2.02 min) = 9, not above 22, so the value stays 22.
+  #
+  # Members are found, not listed; e.g. `.claude/tools/test_ecs_mission_ratchet.py`
+  # (the whole-tree half of CLAUDE.md's supreme directive) is one like any other --
+  # what it checks and what it cannot see are in `ecs_mission_ratchet.py`'s docstring.
   #
   # What this does and does not buy: a failing suite is RED on the PR. It does not
   # block the merge -- the `main-protection` ruleset carries no
