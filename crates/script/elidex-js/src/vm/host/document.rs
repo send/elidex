@@ -240,6 +240,38 @@ pub(super) fn native_document_get_elements_by_name(
 }
 
 // ---------------------------------------------------------------------------
+// adoptNode
+// ---------------------------------------------------------------------------
+
+/// `document.adoptNode(node)` — DOM §4.5 (`#dom-document-adoptnode`),
+/// `[CEReactions]` (HTML §4.13.6, `#cereactions`). Marshalling only: the
+/// receiver brand check, WebIDL's `Node` conversion of the argument (a
+/// non-Node → `TypeError`), then the `adoptNode` handler
+/// (`elidex_dom_api::AdoptNode`: steps 1–4, the Document /
+/// shadow-root rejections, the adopt and its DOM §4.2.3 *remove* step 16
+/// record), whose `DomApiError` the bridge maps to its DOMException.
+pub(super) fn native_document_adopt_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let Some(doc) = document_receiver(ctx, this, "adoptNode")? else {
+        return Ok(JsValue::Null);
+    };
+    let node_arg = args.first().copied();
+    super::node_proto::require_node_arg_required(ctx, node_arg, "Document", "adoptNode")?;
+    invoke_dom_api(
+        ctx,
+        "adoptNode",
+        doc,
+        &[node_arg.unwrap_or(JsValue::Undefined)],
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Installation — add the own-properties to the document wrapper at bind time.
 // ---------------------------------------------------------------------------
 
@@ -395,6 +427,9 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
     // Window-side binding; both resolve to the same singleton
     // wrapper held in `HostData::selection_instance`.
     ("getSelection", super::window::native_window_get_selection),
+    // DOM §4.5 `adoptNode(node)`; appended so the existing names keep
+    // their own-property order.
+    ("adoptNode", native_document_adopt_node),
 ];
 
 /// Seam-1c of the A1 Web-API core/compat gate: the `Document` live-collection

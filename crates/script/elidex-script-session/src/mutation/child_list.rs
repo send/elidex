@@ -1,6 +1,6 @@
 //! WHATWG DOM childList mutation family: `appendChild` / `insertBefore` /
 //! `removeChild` / `replaceChild` / "replace all" and their move
-//! source-removal record helpers.
+//! source-removal record helpers; `adoptNode`'s source-removal record.
 
 use elidex_ecs::{EcsDom, Entity};
 
@@ -376,6 +376,23 @@ pub fn apply_remove_child(
         parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     })
+}
+
+/// DOM §4.5 `adoptNode(node)` step 3 (`#dom-document-adoptnode`): *adopt*
+/// `node` into `document` through [`EcsDom::adopt`] and return the records
+/// it queues — the source-parent removal record when `node` is parented
+/// (adopt step 2 runs *remove*, whose step 16 queues it, DOM §4.2.3
+/// `#concept-node-remove`; not suppressed), else none. Adoption itself queues
+/// no record: the node-document change is not a mutation record.
+///
+/// Steps 1–2 (a Document → `NotSupportedError`, a shadow root →
+/// `HierarchyRequestError`) are the caller's (`elidex-dom-api`'s
+/// `AdoptNode`); `node` reaching here is neither.
+pub fn apply_adopt_node(dom: &mut EcsDom, node: Entity, document: Entity) -> Vec<MutationRecord> {
+    // Captured before the write: the removal destroys the siblings.
+    let record = source_removal_record(dom, node);
+    dom.adopt(node, document);
+    record.into_iter().collect()
 }
 
 /// Replace `old_child` with `new_child` under `parent` through the `EcsDom`
