@@ -119,9 +119,12 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 - 追加行のブラウザ言及に tag が無い → **IMP** (class が T/D ならその等級)。Write/Edit は hook が止めるが、Bash 経由・hook 導入前の行・plan 本文の引用はここでしか捕まらない
 - `.claude/tools/ecs-mission-allowlist.tsv` への **行の追加** → **IMP** (allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。T/D 行の追加は CRIT)
 - `[plan]` 仕様が沈黙している判断で、(1)→(2)→(3) の順に何を引いたか (仕様の節 / ECS 原則 / 実測の label) が書かれていない → **IMP**
-- `[plan]` plan §"ECS-native check" (ECS first principles からの導出: state shape、OO → ECS mapping、既存ブラウザ構造を根拠にしていないこと) の欠落 → **IMP**
 
-**Acceptable exceptions** (2a/2b): engine 内部 (boa_engine 等 self-implementation) / legacy code 変更無し
+### Detect (top-level)
+
+- `[plan]` plan §"ECS-native check" (ECS first principles からの導出: state shape、OO → ECS mapping、既存ブラウザ構造を根拠にしていないこと — 最後の点の等級は 2d) の欠落 → **IMP**
+
+**Acceptable exceptions**: engine 内部 (boa_engine 等 self-implementation) / legacy code 変更無し
 
 ### Output format
 

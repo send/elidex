@@ -2,13 +2,16 @@
 """Whole-tree ratchet for the ECS-mission browser-mention rule (CI `tools` job).
 
 The classifier below (BROWSER, GENERIC, TAG, TOOL_NAMES, UA_MARKERS, is_browser_hit,
-line_denied) mirrors ~/.claude/hooks/ecs-mission-guard.py. The two change together;
+line_denied) mirrors ~/.claude/hooks/ecs-mission-guard.py in behaviour (same patterns and branches;
+the text need not be identical). The two change together;
 test_ecs_mission_ratchet.py compares them when the hook file is present.
 
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
 (one row per occurrence). The allowlist only shrinks: there is no command that adds a row.
 The allowlist file itself is not scanned (its rows would each be a hit for themselves).
+Adding a row is the one move this check cannot see; elidex-review axes.md Axis 2 sub-check 2d
+(authority source) grades it.
 
 Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
 """
@@ -117,7 +120,7 @@ def _rel(repo_root, p):
 
 
 def read_allowlist(path):
-    """-> list of (tsv_lineno, raw_line, fields) for every non-comment non-blank line."""
+    """-> list of (tsv_lineno, fields) for every non-comment non-blank line."""
     rows = []
     try:
         with open(path, encoding="utf-8") as f:
@@ -127,14 +130,14 @@ def read_allowlist(path):
     for i, raw in enumerate(lines, 1):
         if raw.startswith("#") or not raw.strip():
             continue
-        rows.append((i, raw, raw.split("\t")))
+        rows.append((i, raw.split("\t")))
     return rows
 
 
 def malformed(rows):
     errs = []
     prev = None
-    for n, _raw, f in rows:
+    for n, f in rows:
         if len(f) != 4:
             errs.append("allowlist line %d: malformed row (need 4 TAB-separated columns, got %d)" % (n, len(f)))
             continue
@@ -166,7 +169,7 @@ def _diff(repo_root, allowlist_path):
     for p, ln, t in hits:
         tree[(p, t)].append(ln)
     al = collections.defaultdict(list)
-    for n, _raw, f in rows:
+    for n, f in rows:
         if len(f) == 4:
             al[(f[2], f[3])].append(n)
     new = []
@@ -174,15 +177,14 @@ def _diff(repo_root, allowlist_path):
     for key in sorted(set(tree) | set(al)):
         t, a = tree.get(key, []), al.get(key, [])
         if len(t) > len(a):
-            for ln in t[len(a):]:
-                new.append((key[0], ln, key[1]))
+            new.extend((key[0], ln, key[1]) for ln in t[len(a):])
         elif len(a) > len(t):
             stale.extend((n, key) for n in a[len(t):])
-    return hits, rows, new, stale
+    return rows, new, stale
 
 
 def check(repo_root, allowlist_path):
-    _, rows, new, stale = _diff(repo_root, allowlist_path)
+    rows, new, stale = _diff(repo_root, allowlist_path)
     errs = malformed(rows)
     for p, ln, t in new:
         errs.append("new untagged browser mention: %s:%d: %s" % (p, ln, t))
@@ -196,7 +198,7 @@ def check(repo_root, allowlist_path):
 
 def prune(repo_root, allowlist_path):
     """Rewrite the allowlist dropping only stale rows. Never adds."""
-    _, _, _, stale = _diff(repo_root, allowlist_path)
+    _, _, stale = _diff(repo_root, allowlist_path)
     drop = {n for n, _ in stale}
     if not drop:
         return 0

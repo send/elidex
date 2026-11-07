@@ -22,15 +22,16 @@ mod = load(os.path.join(HERE, "ecs_mission_ratchet.py"), "ecs_mission_ratchet_un
 with open(os.path.join(HERE, "ecs_mission_fixtures.json"), encoding="utf-8") as _f:
     FX = json.load(_f)
 HOOK_PATH = os.environ.get("ECS_GUARD_HOOK") or os.path.expanduser("~/.claude/hooks/ecs-mission-guard.py")
-REPO = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=HERE, check=True,
-                      capture_output=True, text=True).stdout.strip()
-ALLOWLIST = os.path.join(HERE, "ecs-mission-allowlist.tsv")
+REPO = mod.repo_root_of(HERE)
+ALLOWLIST = mod.DEFAULT_ALLOWLIST
+
+
+def tagged_pairs():
+    return [(l, t) for l in FX["deny"] for t in FX["tags"]]
 
 
 def fixture_lines():
-    out = list(FX["deny"]) + list(FX["pass"])
-    out += [l + " " + t for l in FX["deny"] for t in FX["tags"]]
-    return out
+    return list(FX["deny"]) + list(FX["pass"]) + [l + " " + t for l, t in tagged_pairs()]
 
 
 class Fixtures(unittest.TestCase):
@@ -40,10 +41,9 @@ class Fixtures(unittest.TestCase):
                 self.assertEqual(mod.line_denied(l), "deny")
 
     def test_tagged(self):
-        for l in FX["deny"]:
-            for t in FX["tags"]:
-                with self.subTest(line=l, tag=t):
-                    self.assertEqual(mod.line_denied(l + " " + t), "tagged")
+        for l, t in tagged_pairs():
+            with self.subTest(line=l, tag=t):
+                self.assertEqual(mod.line_denied(l + " " + t), "tagged")
 
     def test_pass(self):
         for l in FX["pass"]:
@@ -57,20 +57,9 @@ class HookParity(unittest.TestCase):
             print("ecs-mission hook parity: hook not present (%s); fixtures only, hook comparison not available" % HOOK_PATH)
             return
         hook = load(HOOK_PATH, "ecs_guard_hook_under_test")
-        n = 0
-        mism = []
-
-        def cmp(l):
-            nonlocal n
-            n += 1
-            if hook.line_denied(l) != mod.line_denied(l):
-                mism.append(l)
-        for l in fixture_lines():
-            cmp(l)
-        for _, text in mod.iter_texts(REPO):
-            for l in text.splitlines():
-                cmp(l)
-        print("ecs-mission hook parity: hook present: %d lines compared, %d mismatches" % (n, len(mism)))
+        lines = fixture_lines() + [l for _, text in mod.iter_texts(REPO) for l in text.splitlines()]
+        mism = [l for l in lines if hook.line_denied(l) != mod.line_denied(l)]
+        print("ecs-mission hook parity: hook present: %d lines compared, %d mismatches" % (len(lines), len(mism)))
         self.assertEqual(mism[:5], [])
 
 
