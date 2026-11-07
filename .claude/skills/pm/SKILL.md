@@ -205,7 +205,7 @@ gh pr checks <N> -R send/elidex
       ```
       control が 1 でなければ go を出さない。hit した条件ごとに充足の証拠 (PM 番号 / sha) を記録し、
       証拠が無ければ go を出さない
-- [ ] PR body に、追加行のブラウザ名の分類表がある (無い・タグ無しの行がある → push 前の gate へ戻す)
+- [ ] PR body に `ratchet: ok (N allowlisted, 0 new, 0 stale)` の行がある（`python3 .claude/tools/ecs_mission_ratchet.py` を PR の head で走らせた結果。new が 1 以上 → push 前の gate へ戻す）。タグの使い方の妥当性は /elidex-review の Axis 2 authority-source sub-check (2d) が見る (PM 497)
 - [ ] review loop がその PR の合意した終わり方で終わっている
 - [ ] 着地時に台帳へ写す文面 (`<path>:<lines>`) か landing リストが用意されている
 
@@ -290,7 +290,7 @@ head が動いていたら merge せず聞き直す。
 - **人間への確認はすべて PM へ** (repo `CLAUDE.md` の文言承認を含む。lane が user に直接聞くのは PM 名が
   `ListAgents` に無い時だけ)。PM 名は MEMORY Active state 冒頭
 - merge の分担 (§4)、着地時の文面は `<path>:<lines>` で渡す
-- PR body にブラウザ名の分類表、push gate は `EXIT=0` かつ `ERROR task failed` 無し
+- PR body に `ratchet: ok (… 0 new …)` の 1 行、push gate は `EXIT=0` かつ `ERROR task failed` 無し
 - handoff は lane SSoT 冒頭に (`drive-scope.md` の 10 項目)
 - review の段、比例性 trigger、今日の自己 cap と disk の下限、連絡先、memory の書き先 (`$MEM` の絶対パス)
 - user の状態に書く probe は隔離する: mise なら `MISE_DATA_DIR` / `MISE_CACHE_DIR` / `MISE_STATE_DIR` /
