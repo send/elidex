@@ -349,14 +349,18 @@ fn declarative_shadow_opt_on_attaches_shadow_root() {
 
 #[test]
 fn foreign_element_owner_survives_fragment_teardown() {
-    // A foreign element is stamped with an `AssociatedDocument`. The §13.4
+    // A foreign element is created with a node document. The §13.4
     // throwaway document is despawned before the nodes are returned, so the
     // owner must NOT be that throwaway (it would dangle, pointing at a dead
     // entity); the fragment uses the context's node document — a live owner
     // that survives teardown.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(doc, ctx));
     let roots = parse_fragment_strict(
         "<svg></svg>",
@@ -384,13 +388,18 @@ fn foreign_element_owner_survives_fragment_teardown() {
 
 #[test]
 fn all_fragment_node_types_adopt_the_context_document() {
-    // DOM §4.5 adopt: every returned node — HTML elements, nested text,
-    // comments — owns the context's node document, not the despawned throwaway.
+    // Every returned node — HTML elements, nested text, comments — is created
+    // in the context's node document (the fragment root redirects, C0b D-10;
+    // no finishing adopt), not the despawned throwaway.
     // (foreign elements are covered by the test above; this pins that the fix
     // is general, not foreign-only.)
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let ctx = dom.create_element("div", Attributes::default());
+    let ctx = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(doc, ctx));
     let roots = parse_fragment_strict(
         "<p>x</p><!--c-->",

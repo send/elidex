@@ -540,8 +540,8 @@ fn template_content_custom_element_derived_strict_and_tolerant() {
 
 #[test]
 fn template_content_descendant_owner_document() {
-    // Codex PR380 (P2): a parsed `<template>` content descendant inherits
-    // the fragment's node document (owner_document falls back through the
+    // Codex PR380 (P2): a parsed `<template>` content descendant is created
+    // in the document (C0b: the stored node document, no fallback through the
     // DocumentFragment root), so `content.firstChild.ownerDocument` is the
     // document, matching `content.ownerDocument` — not null.
     let result = parse_html("<template><p>x</p></template>");
@@ -572,10 +572,16 @@ fn fragment_parsed_template_content_owner_is_context_document() {
     // Codex PR380 R2 (P2): fragment-parsed `<template>` content fragments
     // are stamped with the *context's* node document, not the throwaway
     // fragment document (which is destroyed by `finish_detached_fragment`) —
-    // otherwise the content's ownerDocument dangles.
+    // otherwise the content's ownerDocument dangles. The context is created
+    // in `doc` (an ownerless fixture context would only read `doc` through
+    // the append's adoption).
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, context);
     let added = parse_html_fragment(
         "<template><p>x</p></template>",
@@ -771,11 +777,15 @@ fn fragment_progressive_strict_first_then_tolerant_fallback() {
 #[test]
 fn fragment_progressive_returns_detached_nodes_owned_by_context_document() {
     // Detached-return contract: returned nodes are parentless, their node
-    // document is the context's owner document (via the shared adopt), and
-    // the context itself is unmutated.
+    // document is the context's node document (each was created in it: the
+    // fragment root redirects, C0b D-10), and the context itself is unmutated.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let context = dom.create_element("div", Attributes::default());
+    let context = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, context);
     let nodes = parse_fragment_progressive(
         "<p>x</p><span>y</span>",
@@ -789,7 +799,7 @@ fn fragment_progressive_returns_detached_nodes_owned_by_context_document() {
         assert_eq!(
             dom.owner_document(n),
             Some(doc),
-            "returned node adopts the context's owner document"
+            "returned node is in the context's node document"
         );
     }
     assert!(

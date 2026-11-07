@@ -215,9 +215,9 @@ fn clone_node_template_shallow_gets_fresh_empty_fragment() {
 #[test]
 fn clone_node_template_shallow_preserves_owner_document() {
     // Codex PR380 R2 (P2): `cloneNode(false)` on a document-owned `<template>`
-    // must give the (empty) clone fragment the operation's node document — the
-    // shallow cloner leaves `dst` parentless with no `AssociatedDocument`, so
-    // deriving the owner from `dst` would yield a null `content.ownerDocument`.
+    // must give the (empty) clone fragment the operation's node document: the
+    // contents are created with the operation's `NewNodeOwner` (the one `dst`
+    // was created with, C0b), so `content.ownerDocument` is not null.
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
     let template = dom.create_element_with_owner(

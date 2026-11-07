@@ -93,7 +93,13 @@ fn build_root_tree(
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    // Created in `doc`: the Selection same-document check reads the node
+    // document (C0b), and production cannot create an ownerless node.
+    let root = dom.create_element_with_owner(
+        "div",
+        elidex_ecs::Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(body, root));
     (doc, body, root)
 }

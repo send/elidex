@@ -138,7 +138,11 @@ fn current_focus_filters_disconnected() {
 /// Create `tag` and attach it under `doc` so it is connected (focusable
 /// areas must be connected — `is_focusable` gates on `is_connected`, §6.6.2).
 pub(super) fn connect_el(dom: &mut EcsDom, doc: Entity, tag: &str) -> Entity {
-    let el = dom.create_element(tag, Attributes::default());
+    let el = dom.create_element_with_owner(
+        tag,
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     let _ = dom.append_child(doc, el);
     el
 }
@@ -770,8 +774,13 @@ fn shadow_host(dom: &mut EcsDom, doc: Entity, delegates: bool) -> (Entity, Entit
 }
 
 /// Append a `<div tabindex="0">` (a focusable area) under `parent`.
+/// A focusable `<div>` created in `parent`'s node document (the delegate
+/// reads the node document, C0b), appended under `parent`.
 fn focusable_child(dom: &mut EcsDom, parent: Entity) -> Entity {
-    let child = focusable_div(dom);
+    let mut attrs = Attributes::default();
+    attrs.set("tabindex".to_string(), "0".to_string());
+    let child =
+        dom.create_element_with_owner("div", attrs, dom.node_document_for_new_nodes(parent));
     let _ = dom.append_child(parent, child);
     child
 }

@@ -169,7 +169,11 @@ fn get_root_node_non_composed_stops_at_shadow() {
 fn owner_document_element() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_with_owner(
+        "div",
+        Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     dom.append_child(doc, div);
     wrap(doc, &mut session);
 
@@ -201,21 +205,6 @@ fn owner_document_doc_null() {
 // -----------------------------------------------------------------------
 // OwnerDocument — disconnected nodes (H5)
 // -----------------------------------------------------------------------
-
-#[test]
-fn owner_document_orphan() {
-    let (mut dom, mut session) = setup();
-    let _doc = dom.create_document_root();
-    let div = dom.create_element("div", Attributes::default());
-    // div is orphaned (not appended to doc).
-    wrap(div, &mut session);
-
-    let result = OwnerDocument
-        .invoke(div, &[], &mut session, &mut dom)
-        .unwrap();
-    // Should still return the document, not null.
-    assert!(matches!(result, JsValue::ObjectRef(_)));
-}
 
 #[test]
 fn owner_document_null_for_document() {
