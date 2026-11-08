@@ -19,7 +19,7 @@ W-11 and precondition-cell text is unchanged between the two commits. The comman
 `R='abort_any_chain_depth_one_precondition|abort-signal-any|L-7|(?<![\w-])A-1(?![\w-])'; for P in docs/plans/2026-11-vm-stack-safety-guard.md docs/plans/2026-11-vm-stack-safety-guard-pr1.md; do diff <(git show d6ce4e97:$P | grep -P "$R") <(git show 4557c99b:$P | grep -P "$R"); done`
 (positive control: `git show 4557c99b:docs/plans/2026-11-vm-stack-safety-guard-pr1.md | grep -cP "$R"` → 21; the
 umbrella → 5) → only the umbrella's Edges prose and a PR-1 §1 sentence differ, neither a requirement. The same
-`diff` from `4557c99b` to `b7f03821` (the guard branch's commit this memo cites for P0, below; branch tip `02386ec9`)
+`diff` from `4557c99b` to `b7f03821` (the guard branch's commit this memo cites for P0, below; branch tip `d7ec4761`)
 leaves PR-A's requirements unchanged, at new lines: `b7f03821` A-1 is PR-1 `:82`, the precondition cell `:828`, L-7
 `:952` (re-worded, same check: `git grep -n '§3\.1\.3' -- crates/script/elidex-js/src/vm/host/abort_statics.rs` → 0
 lines), umbrella W-11 `:254`. What they require is listed in §9 and met in §4. PM 502 put a new slice **P0** (the
@@ -35,6 +35,8 @@ at the end.
 **Rev 2.1** (2026-11-08) — Rev 2 attestation fixes (IMP N-1, N-2, N-3, N-4, N-7; MIN N-5, N-6, N-8, F1, F4, F5, F6,
 F7, M10, M11), the driver's scope ruling on the citation family (PR-A keeps 23 lines, hands 26 to the DOM-events
 renumber sweep, §9.2), the PR body's defect statement (§9.1); changelog at the end.
+**Rev 2.2** (2026-11-08) — Rev 2.1 attestation fixes (PM 538: deletion or replacement only) and their attestation's
+MINs; changelog at the end.
 
 ## §0. Frame, premises, decisions
 
@@ -205,14 +207,14 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
    9 files + these 2; each count is the `wc -l` of the grep named beside it, verified 2026-11-08); the per-line
    old → new table is D-8.
 
-   **The EventTarget-only lines (handed off, §9.2).** The same file and its siblings carry the DOM-events chapter's
+   **The handed-off lines (§9.2).** The same file and its siblings carry the DOM-events chapter's
    renumber drift beyond the 2 signal-option lines of the file PR-A edits: `§2.6 step N` for add-an-event-listener /
    addEventListener steps, `§2.7.7` for removeEventListener steps, `§2.6` for the event listener's `once` /
    `passive` fields, and `§2.7.x` sub-sections that do not exist (`webref heading dom 2.7` → no subsections) — 26 lines
    in 7 files, listed with their commands in §9.2. Their owner is the DOM-events renumber sweep (memory
    `project_dom-events-section-renumber-sweep`, whose method is to "sweep ALL DOM §2.x event citations in live
    crates"); they are not PR-A's (driver ruling on the Rev 2 attestation's SCOPE item, which narrows PM 504 Q-2's
-   "whole family" to the `AbortSignal` subject). Scope controls measured for that list (2026-11-08, at `69fbe61f`):
+   "whole family" to the 23 lines above). Scope controls measured for that list (2026-11-08, at `69fbe61f`):
    the DOM-prefixed `§2.6` shape `git grep -nP '(DOM|WHATWG) §2\.6(?![.\d])|(DOM|WHATWG) §2\.6\.\d' -- crates` → 9
    lines in 3 files; `git grep -nP '§2\.6\.3|§2\.7\.7' -- crates` → 10 lines in 2 files; their union → **17** lines
    in 4 files (`:110` and `:168` are in both); the unprefixed `§2.6` form in the three DOM-subject files
@@ -267,7 +269,7 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
   umbrella flagged as the design question.
 - "all seven `§3.1.3`-family cites in `abort_statics.rs`" — **the `§3.1.x` family is 21 wrong lines in 9 files; with
   the two signal-option lines of `event_target.rs` (`§2.6.3`) PR-A's family is 23 lines in 10 files** (item 9, census
-  re-run 2026-11-08). The EventTarget-only lines of the same drift (26 lines, 7 files) are handed to the DOM-events
+  re-run 2026-11-08). The other lines of the same drift (26 lines, 7 files) are handed to the DOM-events
   renumber sweep (§9.2; Rev 2's "44 lines / 13 files, all in PR-A" was narrowed on the Rev 2 attestation).
 - "webref places 'create a dependent abort signal' at DOM §3.2" — **true**.
 - Not in the brief, found by measurement: the "signal abort" step-4-before-step-5 ordering (item 5, third repro) and
@@ -876,8 +878,8 @@ VM cells (`tests_abort_dependent.rs` (NEW); red at `69fbe61f` where marked):
   `c.signal.aborted === true`. Mutant: `?` on the first
   `run_abort_steps` (or inside the loop) → `d1`'s and `d2`'s listeners do not run → red. **This seam is
   temporary by plan**: P0a rebases on PR-A, deletes `fail_next_abort_dispatch` and re-arms this cell with
-  `InjectAt::SimpleEventDispatch(n)`, same assertion (P0a §4.4, `p0a.md:165-173`; P0 §7 L-12, `p0.md:334`); if
-  PR-A lands after P0a, it uses `SimpleEventDispatch` from the start (§9 Edges).
+  `InjectAt::SimpleEventDispatch(n)`, same assertion (P0a §4.4, `p0a.md:165-173`; P0 §7 L-12, `p0.md:334`; inverted
+  order: §9 Edges).
 
 Rewritten in place (`tests_abort_statics.rs`): `any_duplicate_input_fires_composite_only_once` (`:304-321`) keeps its
 assertion and gains "one source"; `any_composite_map_cleaned_after_input_aborts` (`:324-340`) → asserts
@@ -953,7 +955,7 @@ goes); `event_target.rs` 734 → 734 (comment edits); `tests_abort.rs` (950) is 
 **Edges.**
 
 - **VM stack-safety guard PR-1 (VM P4; memos at `4557c99b` on `vm-stack-safety-plan`, tip `ce603c74` when Rev 2 was
-  written, now `02386ec9`; unlanded) — hard edge, PR-A before PR-1.** What PR-1 requires of this slot and how PR-A
+  written, now `d7ec4761`; unlanded) — hard edge, PR-A before PR-1.** What PR-1 requires of this slot and how PR-A
   meets it: (1) A-1 (PR-1 §2, `:104`; `:82` at `b7f03821`) "a dependent signal's source signals are never dependent
   … the fan-out is depth 1 by construction" — §4.2; (2) PR-1 §5.3 treats `abort_signal` as a cut point with no
   probe — §4.2 (no Rust recursion on the path; JS re-entry is CP-1's); (3) PR-1's cell
@@ -966,8 +968,9 @@ goes); `event_target.rs` 734 → 734 (comment edits); `tests_abort.rs` (950) is 
   for PR-1, which lands second. The umbrella's "its own design may take longer than its one-line remedy suggests" is
   answered by D-1 / D-2 (a trait, not a move of the state).
 - **The P0 program (PM 502; umbrella `docs/plans/2026-11-vm-stack-safety-guard-p0.md` and slice P0a
-  `docs/plans/2026-11-vm-stack-safety-guard-p0a.md`, both cited at `b7f03821`, owner VM P4) — PR-A first, P0a
-  rebases on it.** P0 §1 Edges (`p0.md:113-118`): "L3's `#11-abort-signal-any-dependent-flattening` PR → P0a and →
+  `docs/plans/2026-11-vm-stack-safety-guard-p0a.md`, both cited at `b7f03821` (P0a §4.4's order: `d7ec4761`), owner VM
+  P4) — PR-A first, P0a rebases on it.** P0 §1 Edges (`p0.md:113-118`):
+  "L3's `#11-abort-signal-any-dependent-flattening` PR → P0a and →
   P0b-L3: P0a's allowlist carries the row of the flattened `AbortSignal` abort loop and P0a moves that PR's test
   seam onto its own injection (P0a §4.4, §5.4), so P0a is rebased on L3's PR". So the order is: **PR-A lands → P0a
   rebases on it, deletes `fail_next_abort_dispatch` and re-arms cell (o) with `InjectAt::SimpleEventDispatch(n)`
@@ -978,10 +981,11 @@ goes); `event_target.rs` 734 → 734 (comment edits); `tests_abort.rs` (950) is 
   adds the field (cell (o) needs it, and no P0a injection exists at PR-A's base) and does not try to anticipate
   P0a's API. P0a also carries the allowlist row for PR-A's abort loop (P0a §5.4, `p0a.md:292-315`), keyed on the
   post-PR-A names it reads at its base (P0a §10 item 4, `p0a.md:434-436`) — the names PR-A's PR body gives (§9.1).
-  If the order ever inverts (P0a first), P0a §4.4 at `d7ec4761` (`:189-190` there) says PR-A uses
-  `SimpleEventDispatch` from the start, with no seam of its own; that is a plan change for PR-A, not an
-  implementation choice. P0b-L3 (L3's slice of P0) is after P0a and after PR-A (P0 §1 schedule, `p0.md:122-130`)
-  and has its own plan.
+  If the order ever inverts (P0a first), P0a §4.4 / §5.4's inverted-order arms at `d7ec4761` (`:189-190`,
+  `:464-465` there) apply to PR-A: seam ("PR-A arms `InjectAt::SimpleEventDispatch(n)` from the start and adds no
+  field") and row ("P0a ships no row and L3's PR adds it if the check asks for it"); that is a plan change for
+  PR-A, not an implementation choice. P0b-L3 (L3's slice of P0) is after P0a and after PR-A (P0 §1 schedule,
+  `p0.md:122-130`) and has its own plan.
 - **L3's other work** (`#11-event-path-window-missing` plan, the walker umbrella): no shared file (those edit
   `HostDriver` / event-path and ECS walkers; PR-A edits none of them). Order per PM 485: #607 → **this slot** →
   stale-entity → walker umbrella.
@@ -1014,7 +1018,7 @@ names of the abort loop and of cell (o), and the `fail_next_abort_dispatch` fiel
 ("§2.6.3 step 3" → §2.7 "add an event listener" step 2) are among that note's "add-listener algorithm" sites and are
 fixed in PR-A; the note's remaining sites in this area — the 26 lines of §9.2, and `event_target.rs:131` "§2.7 step
 8" (handleEvent; the number resolves, the step is not re-derived here) — stay the note's. Update the note at PR-A's
-landing: replace its site list with §9.2's commands.
+landing: replace its add-listener site list with §9.2's commands, keeping `event_target.rs:131`.
 
 ### §9.1 PR body (what PR-A's description must say)
 
@@ -1037,8 +1041,8 @@ The PR body carries, besides DoD 1, 7, 9 and 11's records:
 - **For P0a's census** (P0a §5.4 row and §10 item 4): the post-PR-A call chain `abort_signal` → `run_abort_steps` →
   `dispatch_vm_simple_event`, with file:line at the PR head; the contract "run all, keep the first `Err`, return it
   after the loop"; cell (o)'s name `abort_err_does_not_skip_dependents` and its seam
-  `VmInner::fail_next_abort_dispatch` — **P0a moves it onto `InjectAt::SimpleEventDispatch(n)`; if PR-A lands after
-  P0a, it uses `SimpleEventDispatch` from the start** (§9 Edges).
+  `VmInner::fail_next_abort_dispatch` — **P0a moves it onto `InjectAt::SimpleEventDispatch(n)`** (inverted order:
+  §9 Edges).
 - **The callers of `abort_signal`** at the PR head (DoD 4), with their lines.
 
 ### §9.2 Hand-off to the DOM-events renumber sweep (26 lines, not PR-A's)
@@ -1120,9 +1124,9 @@ Every command is re-runnable at the PR head.
    the module (checked by reading the hits; all three fields are private, so a write outside the module does not
    compile — D-2).
 4. No recursion — the body of `abort_signal` calls no `abort_signal`:
-   `awk 'f{print FILENAME":"NR": "$0} f&&/^}/{f=0} /^(pub\(super\) )?fn (abort_signal|run_abort_steps)\(/{f=1}' crates/script/elidex-js/src/vm/host/abort.rs | grep -P '(?<![A-Za-z_])abort_signal\('`
+   `awk 'f{print FILENAME":"NR": "$0} f&&/^}/{f=0} /^[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?fn[[:space:]]+(abort_signal|run_abort_steps)[<(]/{f=1}' crates/script/elidex-js/src/vm/host/abort.rs | grep -P '(?<![A-Za-z_])abort_signal\('`
    → **no output** (positive control at `69fbe61f`: `git show 69fbe61f:crates/script/elidex-js/src/vm/host/abort.rs
-   | awk 'f{print NR": "$0} f&&/^}/{f=0} /^(pub\(super\) )?fn (abort_signal|run_abort_steps)\(/{f=1}' | grep -P '(?<![A-Za-z_])abort_signal\('`
+   | awk 'f{print NR": "$0} f&&/^}/{f=0} /^[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?fn[[:space:]]+(abort_signal|run_abort_steps)[<(]/{f=1}' | grep -P '(?<![A-Za-z_])abort_signal\('`
    → 1 line, `610: abort_signal(ctx, composite_id, reason)?;`; the `awk` range is the bodies, `:523-658` there).
    (Rev 2's `git grep -nE '^\s*abort_signal\(ctx'` prints nothing even at `69fbe61f` — `\s` under `-E` — and had no
    function range.) The callers, `git grep -nP '(?<![A-Za-z_])abort_signal\(' -- crates` at `69fbe61f` (5 call
@@ -1148,7 +1152,7 @@ Every command is re-runnable at the PR head.
    `:168`); `git grep -nP 'Fetch §5\.1' -- crates/script/elidex-js/src/vm/host/abort.rs` → **no output** (control: 1
    — the `step 13` is on the next line, so the check is the section alone);
    `git grep -nP '(?<!HTML )§8\.1\.8\.1' -- crates/script/elidex-js/src/vm/host/abort.rs` → **no output** (control:
-   2). The EventTarget-only shapes are **not** checked here — they are §9.2's, and §9.2 (a)'s command still prints
+   2). The handed-off shapes are **not** checked here — they are §9.2's, and §9.2 (a)'s command still prints
    21 lines at the PR head, which is the expected state.
 7. Hygiene: `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (501 allowlisted, 0 new, 0 stale)` — the count is
    unchanged because the line PR-A rewrites is not counted today (D-8); the PR body records the output and quotes
@@ -1156,7 +1160,8 @@ Every command is re-runnable at the PR head.
 8. `cargo test -p elidex-dom-api -p elidex-js --all-features` green (the cells of §6 present); `mise run ci` green
    before push; `cargo fmt --all` before each commit.
 9. The PR body records the base sha, the guard memos' commits it was checked against (PR-1 / umbrella `4557c99b`;
-   P0 / P0a `b7f03821`), §9.1's contents, and the squash sha is handed to VM P4 and the PM (hand-offs).
+   P0 / P0a `b7f03821`, P0a §4.4's order `d7ec4761`), §9.1's contents, and the squash sha is handed to VM P4 and the
+   PM (hand-offs).
 10. `/elidex-plan-review` on this memo before implementation (mandatory, §1); `/elidex-review` before push.
 11. Overlap check at the head, recorded in the PR body: `for b in $(git branch -a --format='%(refname:short)' | grep
     -v HEAD); do o=$(comm -12 <(git diff --name-only origin/main...HEAD | sort) <(git diff --name-only
@@ -1174,8 +1179,8 @@ None. Rev 1's four questions were ruled by **PM 504** (2026-11-08) and the rulin
 - Q-1 → this memo is the umbrella and PR-A's plan (header, D-7; no separate umbrella file).
 - Q-2 → the citation family is fixed in PR-A (D-8). Rev 2 read "the whole family" as 44 lines / 13 files; on the
   Rev 2 attestation the driver narrowed it to the `AbortSignal` subject — 23 lines / 10 files in PR-A, 26
-  EventTarget-only lines handed to the DOM-events renumber sweep (§0.2 item 9, §9.2). The "ledger's literal scope"
-  branch stays removed.
+  lines handed off to the DOM-events renumber sweep (§0.2 item 9, §9.2). The "ledger's literal scope" branch
+  stays removed.
 - Q-3 → D-3 (`reason: Option<JsValue>`) is in PR-A. The "include or defer" branch is removed.
 - Q-4 → the two abort-algorithm stores are slot `#11-abort-algorithms-single-set` (registered PM 504, owner L3),
   **out of PR-A** (§8). The third defect found by measurement (dependents not aborted inside the source's `'abort'`
@@ -1284,4 +1289,7 @@ required before the parent slot closes. No question is open on the spec reading:
 - Also re-measured while editing: L2's C0c landed (#611 `0a5a77ba`) — §9 Edges and DoD 11 updated; D-3's 20-line
   breakdown corrected (`tests_abort_statics.rs:77` is a Rust comment: 13 / 3 / 4, not 13 / 2 / 5); the PR-1 and
   umbrella requirement lines located at `b7f03821` (A-1 `:82`, cell `:828`, L-7 `:952`, W-11 `:254`).
-- **Rev 2.2** (PM 538, Rev 2.1 attestation): IMP-1, MIN-2 to MIN-9 fixed by deletion or replacement only, nothing added; PM 540: P0a §4.4 at `d7ec4761`, seam order.
+
+## Rev 2.2 changelog (Rev 2.1 attestation, 2026-11-08; one line per item)
+
+- **Rev 2.2** (PM 538, Rev 2.1 attestation): IMP-1, MIN-2 to MIN-9 fixed by deletion or replacement only, nothing added; PM 540: P0a §4.4 at `d7ec4761`, seam order; its attestation's M-A to M-G likewise.
