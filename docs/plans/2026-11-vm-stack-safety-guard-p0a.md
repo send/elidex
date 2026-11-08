@@ -4,9 +4,9 @@ Status: **plan (pre-implementation)**, per-PR slice of the [P0 umbrella](2026-11
 (PM 509); `/elidex-plan-review` required before code. Owner: VM P4. Base: `ce603c74`; every code anchor
 below is at that commit. Provenance root `H` and the census prototype are as in the P0 umbrella header;
 the prototype is `H/scripts/err_consumer_census_proto.py` (+ `H/scripts/err_census_classify.py`,
-`H/scripts/err_write_before_call_proto.py`), its logs `H/logs/err-census-p0.log`,
-`H/logs/err-census-p0-shell.log`, `H/logs/err-census-p0-classified.tsv`,
-`H/logs/err-write-before-call-p0.log`. The prototype is not the deliverable: P0a ships the tracked check
+`H/scripts/err_write_before_call_proto.py`, `H/scripts/err_boundary_census_proto.py`), its logs
+`H/logs/err-census-p0.log`, `H/logs/err-census-p0-shell.log`, `H/logs/err-census-p0-classified.tsv`,
+`H/logs/err-write-before-call-p0.log`, `H/logs/err-boundary-census-p0.log`. The prototype is not the deliverable: P0a ships the tracked check
 of §5, and the prototype's numbers are re-derived by that check at P0a's base.
 
 The contract C-1…C-5 is the P0 umbrella §4 (canonical); this memo does not restate it. Edges, schedule
@@ -16,8 +16,8 @@ and the other slices: P0 umbrella §1.
 
 P0a implements the VM half of the P0 contract: the error identity (§4.1), the escape rule (§4.2), the
 placement of the four choke-point checks (§4.3), the test-only injection the consumer slices use (§4.4),
-the tracked census check and its allowlist with the `# pending` section (§5), and the VM-owned fixes
-D-13, B-1, B-2 (§6). Each later P0b slice only removes its rows from `# pending` (P0 umbrella §0.4).
+the engine boundary's failure kind (§4.5, PM 533 (a)), the tracked census check and its allowlist with
+the `# pending` section (§5), and the fixes D-13, B-1, B-2, D-14 and BC-1…BC-3 (§6). Each later P0b slice only removes its rows from `# pending` (P0 umbrella §0.4).
 
 ## §1. Scope
 
@@ -29,7 +29,15 @@ D-13, B-1, B-2 (§6). Each later P0b slice only removes its rows from `# pending
 `stringify_for_structured_shortcut` and `dispatch_vm_simple_event` (§4.4), with the removal of L3's
 `fail_next_abort_dispatch` seam and the move of its cell onto that hook (§4.4; L3's files, site list via PM,
 P0 umbrella §7 L-12); the tracked check (§5.1); cells in
-`crates/script/elidex-js/src/vm/tests/tests_resource_limit.rs` (NEW).
+`crates/script/elidex-js/src/vm/tests/tests_resource_limit.rs` (NEW). For §4.5: in
+`crates/script/elidex-script-session/src/`, `outcome.rs` (NEW), `engine.rs` (`ScriptEngine`, `EvalResult`),
+`event_dispatch/mod.rs` (`script_dispatch_event_core`), `event_listener.rs` (`remove_with_position`,
+`reinsert`), `lib.rs` (re-export); `crates/script/elidex-js/src/engine.rs` (`eval`, `call_listener`,
+`drain_timers`); `crates/dom/elidex-dom-api/src/traversal.rs` (`FilterError`) and its `elidex-js` users
+(`vm/host/node_filter_dispatch.rs`, `tree_walker_proto.rs`, `node_iterator_proto.rs`); the shell's
+`EvalResult` readers (`lib.rs`, `pipeline.rs`, `content/event_loop.rs`, `content/iframe/render.rs`,
+`content/iframe/thread.rs`) and the tests that read `EvalResult`'s `success` field or call `call_listener`. The
+session-crate and `elidex-dom-api` files are not VM P4's; the PM routes the notice (P0 umbrella §7 L-14).
 
 **Out.** The consumer fixes D-1…D-12 (P0b-VM-1, P0b-VM-2, P0b-L3; P0 umbrella §1); `native_import_scripts`'s kind
 mapping (D-11, P0b-VM-1) although §4.1 item 3 states the rule; the deviations of P0 umbrella §6.
@@ -38,7 +46,8 @@ mapping (D-11, P0b-VM-1) although §4.1 item 3 states the rule; the deviations o
 
 Elements: **ID** (error kinds, predicates, `Vm::eval` boundary; §4.1), **ER** (escape rule; §4.2),
 **B** (B-1 / B-2 routing; §6.2), **CP** (choke-point placement; §4.3), **INJ** (test-only injection;
-§4.4), **CEN** (census rules; §5.2), **PEND** (`# pending` section and planned-producer list; §5.3, §5.4).
+§4.4), **CEN** (census rules; §5.2), **PEND** (`# pending` section and planned-producer list; §5.3, §5.4),
+**OUT** (the boundary's `ScriptFailure` and the D-14 revert; §4.5).
 
 | Pair | Intersection | Pinned by | Basis |
 |---|---|---|---|
@@ -56,6 +65,11 @@ Elements: **ID** (error kinds, predicates, `Vm::eval` boundary; §4.1), **ER** (
 | INJ × CEN | the boundary hooks in `compile_script` / `parse_json_str` / `stringify_for_structured_shortcut` are `#[cfg(test)]` statements; the lexer excludes `#[cfg(test)]`-attributed items **and statements**, so a hook does not make its function a derived producer (else `compile_script`, a planned producer, would be red "remove it" before PR-1) | control `census_cfg_test_hook_not_producer` | check |
 | CEN × PEND | a D row is red outside `# pending`; a pending row outside the frozen ceiling is red, so the section only shrinks; rule 8's 120 members are all P, so the ceiling is unchanged | controls `census_rejects_definitive_row`, `census_pending_row_outside_ceiling` | check |
 | CEN (rule 8) × ER | rule 8 sees a `?` that is correct for the trigger but skips the loop's other subjects; ER is unaffected (the `?` propagates the kind) | control `census_loop_question_mark_member` | check |
+| OUT × ID | `NotStarted` ⇔ `is_resource_limit()`; one mapping function, so no boundary can classify on its own | `rl_eval_result_outcome_kind` | cell |
+| OUT × ER | a `NotStarted` never passed a started frame (the escape rule rewrites any later one to `ThrowValue` → `Threw`), so the revert is exact: nothing ran | `rl_ua_dispatch_once_listener_survives_entry_failure` (the listener's body has not run) | cell |
+| OUT × INJ | the UA dispatch path is reached through `script_dispatch_event` with `Entry(Call, n)`; no new injection point | same cell | cell |
+| OUT × CEN | rule 11 makes `ScriptFailure`-bearing types kind-bearing, so the fixed boundaries leave the population; rule 7 keeps D-14's write a W row | controls `census_kind_bearing_type_without_failure`, `census_w_across_boundary` | check |
+| OUT × PEND | D-14 is fixed here, so it never enters `# pending`; the ceiling stays 15 | §5.4 | structural |
 | INJ × L3 seam | one test-failure mechanism: `SimpleEventDispatch(n)` replaces L3's `fail_next_abort_dispatch`, and as a `#[cfg(test)]` statement it does not make `dispatch_vm_simple_event` a producer | cell (o) after the move; control `census_cfg_test_hook_not_producer` | cell + check |
 
 ## §3. Spec coverage map
@@ -65,9 +79,11 @@ No spec defines a resource limit (P0 umbrella §3). The rows are the clauses thi
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | ECMA-262 §17 Error Handling and Language Extensions | paragraph 1 (errors reported when the construct is evaluated), paragraph 3 (no other kinds of errors as early errors) | a resource limit is neither an early error nor a specified error; it surfaces where the construct is evaluated; B-1 / B-2 errors become catchable where evaluated | `VmErrorKind::ResourceLimit` (NEW), `CompileErrorKind::ResourceLimit` (NEW), `Op::PushConst`, `op_define_computed_accessor` | ✓ | yes |
-| WHATWG HTML §8.1.4.3 Creating scripts | *create a classic script* steps 10–11 (ParseScript; a list of errors becomes the error to rethrow) | a compile-time resource limit is not a parse error | `Vm::eval` mapping (`interpreter.rs:36`) | ✓ | yes |
+| WHATWG HTML §8.1.4.3 Creating scripts | *create a classic script* steps 10–11 (ParseScript; a list of errors becomes the error to rethrow) | a compile-time resource limit is not a parse error | `Vm::eval` mapping (`interpreter.rs:36`); `EvalResult::outcome` (BC-1) | ✓ | yes |
+| WHATWG DOM §2.9 Dispatching events | *inner invoke* step 2 (listeners whose removed is false), 2.5 (once: remove before the call), 2.13 (call; on a throw, report and continue) | `NotStarted`: revert 2.5 (re-entry subject, C-4); `Threw`: 2.5 stands, 2.13.1 report | `script_dispatch_event_core` (D-14), `call_listener` | ✓ | yes |
+| WHATWG DOM §6 Traversal | *filter* step 6 (on a throw: unset the active flag, rethrow) | every failure propagates, nothing written; the kind crosses as `FilterError::Script` (NEW: P0a) | `FilterAction::accept` (BC-3) | ✓ | yes |
 
-**Breadth**: K=2 specs (ECMA-262, WHATWG HTML), M=2 entries (verified 2026-11-08 by `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo: rc 0, K=2, M=2, "ok (single PR scope)"). Below the split thresholds.
+**Breadth**: K=3 specs (ECMA-262, WHATWG HTML, WHATWG DOM), M=4 entries (verified 2026-11-08 by `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo: rc 0, K=3, M=4, "ok (single PR scope)"). Below the split thresholds.
 
 ### §3.1 User-input touch audit
 
@@ -162,15 +178,98 @@ hook is a `#[cfg(test)]`-attributed statement (§2 INJ × CEN). They are the onl
 consumer cell in any slice that needs another is a design change to this section. The P0b slices use them
 as they are.
 
-**One test-failure seam (one issue, one way; ratified PM 513).** L3's `#11-abort-signal-any-dependent-flattening`
-PR (around 11-10; P0 umbrella §1) adds a `#[cfg(test)]` `fail_next_abort_dispatch` for its cell (o): the
-next abort dispatch fails, so the cell can show that every dependent's abort steps still run. That is a
-second test-failure mechanism beside this one. P0a rebases on L3's PR (edge, P0 umbrella §1) and moves it
-here: `SimpleEventDispatch(n)` is the general form, P0a deletes `fail_next_abort_dispatch` and rewrites cell
-(o) to arm `InjectAt::SimpleEventDispatch(n)` with `n` from `resource_limit::count`, same assertion. Its
-error is C-1's kind, which is also the only `Err` that can reach this call once P0's error exists (§5.4).
-L3's contract is unchanged. If L3's PR lands after P0a, it uses `SimpleEventDispatch` from the start and
-adds no seam of its own.
+**One test-failure seam (one issue, one way; ratified PM 513; canonical home of the seam's order, PM
+538).** L3's `#11-abort-signal-any-dependent-flattening` PR (PR-A, around 11-10; its plan Rev 2.1 §6 (o) and
+§9 Edges) ships a test-only field `VmInner::fail_next_abort_dispatch: bool` for its cell (o): when set, the
+next abort dispatch returns `Err` in place of the `dispatch_vm_simple_event` call and the field is cleared,
+so the cell can show that every dependent's abort steps still run. That is a second test-failure mechanism
+beside this one, temporary by plan. **Expected order (PR-A first, then P0a rebased on it):** P0a deletes
+`fail_next_abort_dispatch` and rewrites cell (o) to arm `InjectAt::SimpleEventDispatch(n)` (the general form,
+at the same call) with `n` from `resource_limit::count`, same assertion; its error is C-1's kind, which is
+also the only `Err` that can reach this call once P0's error exists (§5.4). **Inverted order (P0a first):**
+there is no seam to move; PR-A arms `InjectAt::SimpleEventDispatch(n)` from the start and adds no field.
+Either way L3's contract is unchanged, and after both PRs exactly one seam exists. P0 umbrella §1 points
+here.
+
+### §4.5 The engine boundary keeps the kind (PM 533 (a))
+
+**Defect (R3 Axis 1 IMP-1, verified at `02386ec9`).** `script_dispatch_event_core`
+(`crates/script/elidex-script-session/src/event_dispatch/mod.rs:493-518`) removes a `once` entry from the
+`EventListeners` component (`:499`) and then calls `ScriptEngine::call_listener` (`:503`), which returns
+`()`; the VM's implementation drops the call's result (`crates/script/elidex-js/src/engine.rs:275`,
+`let _ = g.call(..)`). The engine-independent crate holds the subject but cannot see the kind, so it cannot
+apply C-4: a once listener whose call never started is consumed (C-2 (c)). This is **D-14** (§6.3).
+
+**The type.** `elidex_script_session::ScriptFailure` (NEW: P0a, `crates/script/elidex-script-session/src/outcome.rs`,
+re-exported at the crate root):
+
+| Variant | Meaning (engine-independent) | Produced when (engine side) |
+|---|---|---|
+| `Threw` | the step started and ended with an exception (including a parse error reported by the step) | the engine's error is not `is_resource_limit()` |
+| `NotStarted` | the step did not start; nothing of it ran (C-1) | `VmError::is_resource_limit()` / `CompileError::is_resource_limit()` |
+
+It is the failure half only: each boundary keeps its own success type (`()`, `NodeFilterResult`, a compile
+verdict) and returns `Result<T, ScriptFailure>`. It carries no value: a JS value cannot cross into an
+engine-independent crate, so the engine surfaces the error itself (C-3: report, throw or rejection) and the
+crate across the boundary uses only the kind, to apply C-2 / C-4 to the subjects it holds. **Home**:
+`elidex-script-session`, the sole Script↔ECS boundary (CLAUDE.md, Design philosophy); every crate that
+names it already depends on it (`elidex-dom-api` → `elidex-script-session`; the shell; `elidex-js`).
+Not `elidex-plugin` (no plugin trait carries a script outcome) and not a VM type (the Layering mandate keeps
+the caller engine-independent). The mapping `VmError` → `ScriptFailure` is one function on the engine side
+(`VmError::script_failure` (NEW: P0a), `vm/error.rs`), keyed on `is_resource_limit()`, the only test (P0
+umbrella §4 "Applying it").
+
+**Enumeration (every method of a trait declared outside `elidex-js` and implemented in it; census B1, §5.4).**
+
+| Boundary (declaration; impl) | Today | P0a |
+|---|---|---|
+| `ScriptEngine::call_listener` (session `engine.rs:78`; impl `elidex-js/src/engine.rs:203`) | `()`; the impl drops the result (`:275`); the caller writes before the call | `-> Result<(), ScriptFailure>`, `#[must_use]`; D-14 (§6.3) |
+| `ScriptEngine::eval` (`:59`; impl `:176`) | `EvalResult { success: bool, error: Option<String> }`: the kind becomes a string | `EvalResult { outcome: Result<(), ScriptFailure>, error: Option<String> }`; `success` is removed, no shim; BC-1 |
+| `ScriptEngine::drain_timers` (`:101`; impl `:332`) | `Vec<EvalResult>` | each `EvalResult` carries the outcome (BC-1's type); BC-2 |
+| `FilterAction::accept` (`crates/dom/elidex-dom-api/src/traversal.rs:401`; impl `vm/host/node_filter_dispatch.rs:51`) | `Err(FilterError::Throw)`; the kind travels out of band in `JsFilter`'s `pending_error` field | `FilterError::Throw` → `FilterError::Script(ScriptFailure)` (NEW: P0a); the value stays in `pending_error`; BC-3 |
+| `ScriptEngine`: `run_microtasks`, `drain_reactions`; `HostDriver`: `deliver_mutation_records`, `deliver_resize_observations`, `deliver_intersection_observations`, `tick_network`, `deliver_sw_client_update`, `deliver_idb_versionchange`, `drain_worker_messages`, `deliver_history_step_events`, `deliver_media_query_changes`, `deliver_visual_viewport_events`, `set_history_state` (13) | `()` | unchanged; class R "drain" (§5.4): the method has no step of its own, each item's failure is consumed on that item's own channel inside the engine at a site that is its own Err-population row, and no caller holds a subject across the call (rule 7, W across) |
+| `HostDriver::bind`, `unbind`, `teardown_document`, `seed_sw_client`, `take_pending_storage_changes`, `sw_controller_scope`, `storage_origin_key`, `install_network_handle`, `install_idb_backend` (9) | `()` / a value | unchanged; class N "name-graph collision" (rule 10): no script runs; the name graph reaches a producer only through a colliding name (`new`, `to_string`, `bind`) |
+| `HostDriver::with_bound` | `R`, the closure's value | unchanged; class P "pass-through": it returns the closure's own value |
+| `ScriptEngine`'s `remove_listener`, `bound_dom_mut`; the other 32 `HostDriver` methods; `MutationDispatcher::dispatch` (`Send + Sync`, no VM) | — | not members (no producer) |
+
+No other implementor exists in non-test code (`git grep -nE 'impl(<[^>]*>)? (\w+::)*(ScriptEngine|HostDriver) for' -- crates`
+→ `elidex-js/src/engine.rs:175`, `:373` only, verified 2026-11-08). Test implementors and test callers adapt
+in P0a's PR (the tests of `elidex-js` that read `EvalResult`'s `success` field or ignore `call_listener`; the mock
+`ScriptEngine` that `#11-event-path-window-missing` plans in `event_dispatch/test_support.rs`, whichever of
+the two PRs lands second, §10 item 5).
+
+**The engine side.** `call_listener` matches the call's result: `Ok` → `Ok(())`; an error → it is reported
+(the stderr stand-in of P0 umbrella §4 C-3, as `observer_common.rs` does; DOM §2.9 *inner invoke* step
+2.13.1 for a throw) and `Err(e.script_failure())` is returned. A listener id that no longer resolves stays
+`Ok(())` (step 2, "whose removed is false"). `eval` and `drain_timers` build `outcome` from the same mapping.
+After P0b-L3, a failure of `ensure_event_handler_current` (`engine.rs:234`) returns its kind the same way
+without calling the listener (hand-off §4).
+
+**The engine-independent side (C-4, the once answer).** A `once` listener whose call returned
+`Err(ScriptFailure::NotStarted)` is a re-entry subject (P0 umbrella §4 C-4: a listener still in the list,
+DOM §2.9 *inner invoke* step 2 "whose removed is false"; a later dispatch is the spec's re-attempt). C-4
+requires the subject as it was before the trigger, so `script_dispatch_event_core`:
+
+1. takes the entry out with `EventListeners::remove_with_position` (NEW: P0a; it returns the entry and its
+   index) at step 2.5, as today's removal;
+2. on `NotStarted`, puts it back with `EventListeners::reinsert` (NEW: P0a) **at that index**, with the
+   same options and `removed` false, **before** the step's microtask checkpoint (`run_microtasks`, `:513`),
+   the first point after the failed call where script can run, so no script observes the removal;
+3. skips the engine-side `remove_listener` (`:517`), so the callable and its `AbortSignal` back-ref stay;
+4. does not invoke it again in this dispatch (the contract retries nothing, P0 umbrella §4) and continues
+   with the next listener, as step 2.13 does after a reported exception.
+
+On `Threw`, step 2.5 stands (the step started): the entry stays removed and `remove_listener` runs, as
+today. A non-`once` listener has nothing to revert. Nothing ran, so the index is exact (no script mutated
+the list between removal and reinsertion; a debug assertion checks the entry is absent at reinsertion).
+The two methods are the one revert API of the program: P0b-L3's D-5 (`invoke_listeners_shared`, the VM
+dispatch loop) uses them unchanged (hand-off §4).
+
+**Rejected (PM 533).** (b) Removing the `once` entry after the call: DOM §2.9 *inner invoke* removes before
+the call (step 2.5 before step 2.13), and a listener that re-dispatches the same event during its own call
+must not run twice. (c) A top-only N row for `call_listener`: the collapsing boundary is the defect itself;
+a row that watches it leaves the defect in place and would go silently live on the first nested path into
+the session dispatch.
 
 ## §5. The tracked check
 
@@ -190,8 +289,10 @@ adds no seam of its own.
 
 ### §5.2 Rules
 
-1. Population per P0 umbrella §5.1, recomputed from the code on every run; test files and `#[cfg(test)]`
-   code are excluded by the lexer (§5.1), not by a list.
+1. Populations per P0 umbrella §5.1 (Err, boundary, W), recomputed from the code on every run; test files
+   and `#[cfg(test)]` code are excluded by the lexer (§5.1), not by a list. The crates scanned are derived:
+   `elidex-js`, every workspace crate whose Cargo.toml depends on it (the shell), and every crate whose
+   non-test source names a kind-bearing type (rule 11) or declares a trait that `elidex-js` implements.
 2. Auto-recognised shapes are narrow: `?`; `.map_err(f)?` where `f` is `vm_error_to_thrown` or a `From` /
    `Into` conversion; `return` / tail in a carrier function; an arm (or an `if let Err(e) = ..`
    block) whose whole body is `self.throw_error(e, ..)?` or `return Err(e)` or `Err(e)`. Anything else is a member.
@@ -210,7 +311,9 @@ adds no seam of its own.
    `dispatch_class.rs:47`, `:73`) and are rows of class P "throw-routed" (verified 2026-11-08 by the
    prototype filtered to `run` and by reading each callee).
 7. W population: every function of P0 umbrella §5.1's W population has a row (class D pending, or
-   admissible with a reason).
+   admissible with a reason). The callee set is the carriers **and the boundary members** (rule 9), and the
+   function may sit in any scanned crate (W across the boundary): `script_dispatch_event_core`'s write at
+   `:499` before `call_listener` is how D-14 is seen.
 8. **Loop rule (fail-safe; ratified PM 513).** A carrier call propagated by `?` (or `.map_err(..)?`, or a
    binding later propagated so) whose position lies inside a `for` / `while` / `while let` / `loop` body of
    the enclosing function is a **member**, not auto-propagation: the `?` is correct for the trigger but may
@@ -218,6 +321,25 @@ adds no seam of its own.
    would otherwise accept unseen. The rule does not try to tell "several subjects" from "elements of one
    operation"; every such `?` is a member, and the row's class says which it is (§5.4). `run()` is
    excluded (rule 6 already makes its `?` uses members).
+9. **Boundary population (PM 533 (2); fail-safe).** Members, each needing a row:
+   (B1) every method of an `impl Trait for T` in `elidex-js` non-test code whose trait is not declared in
+   `elidex-js`, when its body reaches a producer in the name graph closed over **every** function (not only
+   carrier-typed ones: a boundary method returns `()`) and its return type is not kind-bearing (rule 11);
+   (B2) every `pub` function of `elidex-js` with those two properties that a dependent crate calls by name;
+   (B3) every call from `elidex-js` to a function of another crate that takes a closure or a function
+   pointer (`dyn Fn*`, `impl Fn*`, `fn(..)`, a generic bounded by `Fn*`): the name graph does not follow a
+   closure across the call, so the call is a member whatever its body reaches. Fail-safe: an `impl` header
+   the lexer cannot parse, a trait it cannot resolve, a return type that is a bare generic parameter, and a
+   B3 callee name it cannot resolve through the file's `use` items are members. A B3 row of class N is red
+   when the closure literal at the call reaches a producer, or when the argument is not a literal.
+10. **Collision rows.** A row of class N whose reason is "name-graph collision" names the colliding edge
+    (caller, callee name); the check removes that edge and recomputes reachability, and the row is red if
+    the member still reaches a producer without it (another path exists); the row is stale (rule 3) when
+    the member reaches no producer even with the edge.
+11. **Kind-bearing types.** A return type is kind-bearing when it is `Result<_, E>` with `E` a carrier
+    error type (P0 umbrella §5.1), or a type in the check's `KIND_BEARING` list (`ScriptFailure`,
+    `EvalResult`, `FilterError` after §4.5). A listed type whose definition does not name `ScriptFailure`
+    is red, so the list cannot bless a type that dropped the kind.
 
 ### §5.3 Producers and the planned list
 
@@ -252,6 +374,31 @@ the bound-callee loop of `call_dispatch`). Total at P0a's base: 322 rows. W popu
 `python3 -I H/scripts/err_write_before_call_proto.py <wt> crates/script/elidex-js`, log
 `H/logs/err-write-before-call-p0.log`). P0a's PR body records the tracked check's own counts at its head.
 
+**Boundary population (rule 9; PM 533 (2)).** Prototype at `02386ec9` (code identical to `ce603c74`:
+`git diff --stat ce603c74 02386ec9 -- crates` is empty), verified 2026-11-08 via
+`python3 -I H/scripts/err_boundary_census_proto.py <wt>`, log `H/logs/err-boundary-census-p0.log`. The
+producer closure over every function reaches 3244 of 4307 names (the name graph over-approximates through
+colliding names; rule 10 is the answer). By section, hand-classified:
+
+| Section | Scanned | Members | By class |
+|---|---|---|---|
+| B1 foreign-trait methods (`ScriptEngine` 7, `HostDriver` 53, `FilterAction` 1, `MutationDispatcher` 1) | 62 | 27 | **D 1** (D-14, `call_listener`); **boundary collapse 3** (BC-1 `eval`, BC-2 `drain_timers`, BC-3 `FilterAction::accept`), all fixed here; R 13 (drains, §4.5); N 9 (collision); P 1 (`with_bound`) |
+| B2 `pub` `elidex-js` fns called by the shell (the only dependent crate) | 8 calls | 2 new | 6 are the shell's calls of B1 `HostDriver` methods by name (no new row); N 2: `finish` (collision with `finish` in `compiler/function.rs`, `app/render.rs:296`), `sw_thread_main` (`app/sw_coordinator.rs:214`, a fresh thread's top, rule 5's thread-entry cut) |
+| B3 closure / fn-pointer parameters called from `elidex-js` | 21 calls | 21 | N 21: Rust-only closures (`with_range` 7, `with_range_mut` 3, `reconcile_event_handler`'s scripting gate 1, `for_each_shadow_inclusive_descendant` 1 in `custom_elements/lookup.rs:159`, `ws_keepalive` / `es_keepalive` 2, the WebCrypto RNG of `sign` / `generate_key` 2), and 5 name collisions with `sign` (the BigInt `.sign()` in `coerce.rs:23`, `coerce_ops.rs` 58 / 64 / 70, `pools.rs:142`); `range_proto.rs:361` passes a parameter, not a literal, and is reviewed (it borrows the range registry and cannot reach the VM) |
+| W across the boundary (rule 7) | 80 calls, from another crate, of a B1 / B2 member's name (8 of them are `finish` collisions) | 3 with a write before the call | **D 1** (`script_dispatch_event_core` → `call_listener`, the write at `:499`: D-14); P 1 (the same write before `run_microtasks` at `:513`: after §4.5 it is the spec's step-2.5 removal of a started call, or already reverted); N 1 (`layout_inline_context_fragmented` → `finish`, the B2 collision) |
+
+New definitive sites: **D-14 only**, fixed in this slice. The boundary collapses BC-1…BC-3 are fixed in this
+slice. No new site goes to `# pending`.
+
+Rows at P0a's landing, boundary side: 49 (B1: R 13, N 9, P 1; B2: N 2; B3: N 21; W across: P 2, N 1).
+BC-1…BC-3 and `call_listener` are no longer B1 members (their return types are kind-bearing, rule 11);
+D-14's W row stays, now admissible: P "the step-2.5 removal is reverted on `NotStarted` (C-4, §4.5)". Err side, the deltas
+that §4.5 causes: `engine.rs:275` moves from S to R (it reports and returns the kind);
+`script_dispatch_event_core`'s use of `call_listener`'s result becomes a member of class R ("reported by
+the engine; C-4 revert here", §4.5); the `elidex-js` uses of the traversal results that now carry
+`FilterError::Script` become members where they are not `?`. The exact counts are the tracked check's at
+P0a's head (L-a2), not these.
+
 Admissible rows (paths under `crates/script/elidex-js/src/` unless stated; lines at `ce603c74`):
 
 - **R (32):** `engine.rs` 191 / 344; `vm/host/body_mixin.rs:289`; `vm/host/cache/natives.rs` 96 / 121 /
@@ -262,10 +409,13 @@ Admissible rows (paths under `crates/script/elidex-js/src/` unless stated; lines
   non-re-entry); `vm/host/service_worker/container.rs` 109 / 218; `vm/host/wasm/namespace.rs:578`;
   `vm/natives_generator.rs:472` (wrapper rejection; residual P0 umbrella §6 item 5); `vm/natives_promise.rs` 648 /
   689 / 747; `vm/natives_timer.rs:370`.
-- **S (4):** `engine.rs:275` (`call_listener`'s `let _ =`, the shell's UA dispatch, top-only);
-  `vm/coerce.rs:246` (`to_display_string`, console display); `vm/host/custom_elements/flush.rs:70`
+- **S (3):** `vm/coerce.rs:246` (`to_display_string`, console display); `vm/host/custom_elements/flush.rs:70`
   (`invoke_one` reports inside); `vm/natives_promise.rs:591` (unhandled-rejection listener, top-only).
-  Home: P0 umbrella §6 item 2.
+  Home: P0 umbrella §6 item 2. **Correction (PM 533 item 3):** the census at `ce603c74` listed
+  `engine.rs:275` (`call_listener`'s `let _ =`) here as "dropped, nothing written, top-only". That was
+  false: the session crate removed the `once` entry before the call (`event_dispatch/mod.rs:499`), so the
+  site is D-14's engine half (§6.3), and "top-only" is the rejected argument (c) of §4.5. After §4.5 the
+  site is a match that reports and returns the kind: class R.
 - **E (10):** `vm/dispatch_iter.rs` 52 / 309; `vm/ops.rs:60`; `vm/host/typed_array_static.rs` 743 / 801;
   `vm/natives_array_hof.rs:485`; `vm/webidl_sequence.rs` 141 / 149; `vm/host/url_search_params.rs:318`;
   `vm/host/structured_clone.rs:1064`. A `return` method called at the same depth as the failed step fails
@@ -314,7 +464,8 @@ Admissible rows (paths under `crates/script/elidex-js/src/` unless stated; lines
   names as they stand at P0a's base (§10 item 4). If L3's PR lands after P0a, P0a ships no row and L3's PR
   adds it if the check asks for it.
 
-**`# pending` (15 rows; this key set is the frozen ceiling of §5.2 rule 4).** Keys (path, function,
+**`# pending` (15 rows; this key set is the frozen ceiling of §5.2 rule 4; restated after PM 533 (2):
+unchanged, because the one new D, D-14, is fixed in this slice like D-13).** Keys (path, function,
 callee, shape):
 
 | Rows | Key | Fixing slice |
@@ -346,15 +497,26 @@ call); `census_rejects_stale_row`; `census_rejects_definitive_row` (a D row outs
 `run()`); `census_w_function_without_row`; `census_cfg_test_hook_not_producer` (a fixture whose only
 producer edge is a `#[cfg(test)]` statement must not derive a producer; red when it does);
 `census_loop_question_mark_member` (a fixture with `for x in xs { carrier(x)?; }` and no row → red; the same
-`?` outside the loop → auto). `--mutants`
+`?` outside the loop → auto); for the boundary (rules 7, 9–11): `census_boundary_unit_return_member` (a
+fixture `impl ForeignTrait for T` whose method returns `()` and calls a producer, no row → red);
+`census_boundary_kind_bearing_auto` (the same method returning `Result<(), ScriptFailure>` → not a member);
+`census_boundary_unparsed_impl_member` (an `impl` header the lexer cannot parse → member);
+`census_boundary_closure_param_member` (a call passing a closure to another crate's `impl FnMut` parameter,
+no row → red; with a class-N row and a closure literal that calls a producer → red);
+`census_w_across_boundary` (a fixture in another crate that writes `get::<&mut EventListeners>` and then
+calls a boundary member, no row → red); `census_collision_row_other_path` (an N-collision row whose member
+still reaches a producer once the named edge is cut → red); `census_kind_bearing_type_without_failure` (a
+`KIND_BEARING` entry whose definition does not name `ScriptFailure` → red). `--mutants`
 runs the check with each rule disabled and asserts the matching control turns green, so a rule that
 stops working is seen (the plan-memo-umbrella-check precedent).
 
 ### §5.6 Stated limits and their home
 
 The check does not see: calls through function pointers, trait objects and closures passed across
-functions (the `NativeFn` table, `fire_vm_message_event`'s closure argument is seen only because its body is
-in the caller); writes performed inside a callee before the carrier call (D-1's `take_uncompiled` sat in
+functions **inside one crate** (the `NativeFn` table, `fire_vm_message_event`'s closure argument is seen only
+because its body is in the caller); across crates, foreign-trait impls and closure parameters are the
+boundary population (rule 9, PM 533 (2)), and a trait object of a foreign trait is covered through its
+impls; writes performed inside a callee before the carrier call (D-1's `take_uncompiled` sat in
 `reconcile_event_handler`, another crate); macros; a straight-line `?` that returns before a fan-out over
 other subjects (the `:592` shape of §5.4; rule 8 covers a `?` inside the fan-out's loop, not one before
 it); durable writes to a side table (the `abort_signal_states` latch) rather than an ECS component, which
@@ -382,6 +544,19 @@ Fix: `Op::PushConst` matches `load_constant`'s result, and `op_define_computed_a
 `make_property_key`'s, and each sends an error through `throw_error`, like every other fallible op in
 `run()`.
 
+### §6.3 D-14 and BC-1…BC-3: the engine boundary (PM 533 (a))
+
+| Id | Site | What the error becomes today | Class | Governing step |
+|---|---|---|---|---|
+| D-14 | `ScriptEngine::call_listener` (impl `engine.rs:203`, result dropped at `:275`) × its caller `script_dispatch_event_core` (session `event_dispatch/mod.rs:499` removal, `:503` call, `:517` `remove_listener`) | dropped; the once entry removed before the call stays removed, and its callable is dropped | D-state (W across the boundary, rule 7) | DOM §2.9 *inner invoke* steps 2.5, 2.13 |
+| BC-1 | `ScriptEngine::eval` (impl `engine.rs:176`) | a string in `EvalResult`'s `error` field; the kind is gone at the boundary | boundary collapse; no consumer needs the kind today (the shell's are event-loop top, N) | HTML §8.1.4.3 steps 10–11 (via D-13) |
+| BC-2 | `ScriptEngine::drain_timers` (impl `engine.rs:332`) | same, per timer | same | — |
+| BC-3 | `FilterAction::accept` (impl `node_filter_dispatch.rs:51`) | `FilterError::Throw`; the kind is in `pending_error` | same; the traversal algorithms propagate with `?` and write nothing (DOM §6 *filter* step 6: unset the active flag, rethrow) | DOM §6 *filter* step 6 |
+
+Fix: §4.5. D-14 is fixed here (the trait change is P0a's, PM 533 (a)), so it is never pending; BC-1…BC-3
+become kind-bearing and leave the boundary population. The S row `engine.rs:275` of the census at
+`ce603c74` was D-14's engine half, not a drop with nothing written (§5.4 correction).
+
 ## §7. Cells (written first)
 
 New file `crates/script/elidex-js/src/vm/tests/tests_resource_limit.rs` (NEW). Each cell arms §4.4's
@@ -398,6 +573,10 @@ injection with an `n` taken from `resource_limit::count` on a dry run of the sam
 | `rl_escape_rule_materializes_in_started_frame` | `function f() { [1].forEach(x => x) }`; from Rust `vm.call(f)` with `Entry(Call, 2)`, then with `Entry(Call, 1)` | `n = 2`: `Err` kind `ThrowValue` (a `RangeError` object), not `ResourceLimit`; `n = 1`: kind `ResourceLimit` |
 | `rl_vm_eval_compile_resource_limit_kind` | inject `Compile(1)`; `vm.eval("1")`; also through the `ScriptEngine` `eval` of `ElidexJsEngine` | kind `ResourceLimit`; the `EvalResult` message starts with `RangeError` |
 | `rl_regexp_literal_error_is_catchable` | `try { /a{2,1}/ } catch (e) { r = e.name }` (a pattern `regress` 0.11.1 rejects; §10 item 1) | `r` is set (today the error leaves `run()` uncaught) |
+| `rl_ua_dispatch_once_listener_survives_entry_failure` | through `script_dispatch_event` (the session loop): listeners A (`once`), B (`once`), C on one target; inject `Entry(Call, 1)` for A; dispatch three times | first: A not run, B and C run, A's error reported; second: A runs, then C (A in its original position); third: C only |
+| `rl_ua_dispatch_once_listener_threw_is_removed` | A (`once`) throws | A is gone after the dispatch and its callable is dropped (DOM §2.9 step 2.5 stands for a started call) |
+| `rl_eval_result_outcome_kind` | through `ScriptEngine::eval`: inject `Compile(1)`; then a script that throws; then `drain_timers` with `Entry(Call, 1)` at the timer callback | `outcome == Err(NotStarted)`; `Err(Threw)`; the timer's `EvalResult` carries `Err(NotStarted)` |
+| `rl_tree_walker_filter_entry_failure_kind` | `document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, { acceptNode() { return 1 } })`; inject `Entry(Call, 1)` at the filter's call; `nextNode()`; then `nextNode()` | first throws `RangeError` and `currentNode` is unchanged; second returns the first element (the active flag was unset) |
 | `rl_computed_accessor_key_error_is_catchable` | `try { ({ get [{ toString() { throw 1 } }]() {} }) } catch (e) { r = e }`; and with `Entry(Call, 1)` on the `toString` | `r === 1`; with the injection, `r` is a `RangeError` |
 
 ## §8. Mutants (run on the final head, debug)
@@ -413,6 +592,11 @@ injection with an `n` taken from `resource_limit::count` on a dry run of the sam
 | M-P-CP2 | CP-2 check after the generator is marked Running | `rl_cp2_generator_resumable_after_entry_failure` |
 | M-P-CP3a / M-P-CP3b | CP-3 checks after the `HostState` bind / after `Store::new` and the start function | `rl_cp3a_*` / `rl_cp3b_*` if observable; a survivor is recorded as equivalent with the reason (§10 item 2) |
 | M-EV | `Vm::eval` maps to `CompileError` | `rl_vm_eval_compile_resource_limit_kind` |
+| M-D14a | no reinsert on `NotStarted` | `rl_ua_dispatch_once_listener_survives_entry_failure` |
+| M-D14b | reinsert after `run_microtasks` | **equivalent** today: the checkpoint after a call that never started finds an empty queue (the previous listener's checkpoint drained it, and nothing ran since); recorded, the order of §4.5 item 2 stays |
+| M-D14c | reinsert at the end of the list | `rl_ua_dispatch_once_listener_survives_entry_failure` (second dispatch: C before A) |
+| M-D14d | `remove_listener` still called on `NotStarted` | same (A's callable is gone; the second dispatch cannot run it) |
+| M-OUT | `script_failure` always `Threw` | `rl_eval_result_outcome_kind`, `rl_ua_dispatch_once_listener_survives_entry_failure` |
 | M-CC | each §5.2 rule (and the ceiling, the `#[cfg(test)]` statement exclusion) disabled | the matching control (§5.5) |
 
 ## §9. Landing obligations
@@ -424,7 +608,7 @@ The ledger and notice rows this slice triggers are rows of the P0 program's land
 PM 513 (d)): L-2, L-3, L-4, L-5, L-6, L-7 (census limits, formerly L-a1) and L-12 (L3 notice). Slice-local:
 
 - **L-a2. Counts and ceiling**: P0a's PR body records the tracked check's counts per class at its head
-  (rule 8's members separately) and the 15 `# pending` keys of §5.4.
+  (rule 8's members and the boundary population, rule 9, separately) and the 15 `# pending` keys of §5.4.
 
 ## §10. Unverified facts (each decided at implementation, before its cell is written)
 
@@ -434,6 +618,15 @@ PM 513 (d)): L-2, L-3, L-4, L-5, L-6, L-7 (census limits, formerly L-a1) and L-1
 4. The post-L3 function and callee names of the `AbortSignal` abort loop (§5.4) and of cell (o), read at
    P0a's base once L3's `#11-abort-signal-any-dependent-flattening` PR has landed (its plan Rev 2 is
    `a8c4179e`, Rev 2.1 due 11-09; neither is on this branch), and whether the tracked check lists the call.
+5. The test-only mock `ScriptEngine` that `#11-event-path-window-missing` plans
+   (`docs/plans/2026-11-event-path-window.md` on main, `event_dispatch/test_support.rs`, NEW there) and that
+   umbrella's edits to `script_dispatch_event_core`: whichever PR lands second adapts to the other (the
+   mock implements `call_listener -> Result<(), ScriptFailure>`; the revert of §4.5 stays per listener).
+   P0a's PR body records which order happened (P0 umbrella §1).
+6. Whether the stderr report of a `Threw` listener (§4.5, engine side) is observable in a cell; if not, it
+   is recorded as not pinned (the report channel is `#11-embedder-diagnostic-channel`'s).
 
 webref lookups behind §3 (2026-11-08): `body ecma262 sec-error-handling-and-language-extensions`;
-`dfn html 'create a classic script'` → §8.1.4.3.
+`dfn html 'create a classic script'` → §8.1.4.3; `dfn dom 'inner invoke'` → §2.9 (steps read by `body dom
+concept-event-listener-inner-invoke`); `dfn dom 'remove an event listener'` → §2.7 (step 2 sets removed);
+`dfn dom 'filter'` → §6 `#concept-node-filter` (step 6 read by `body dom concept-node-filter`).
