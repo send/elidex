@@ -15,7 +15,7 @@ fn root_entities_excludes_detached_template_content_fragment() {
     let doc = dom.create_document_root();
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(doc, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let content_child = elem(&mut dom, "div");
     assert!(dom.append_child(fragment, content_child));
 
@@ -89,7 +89,7 @@ fn traverse_descendants_empty() {
 fn find_by_id_found() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
-    let child = dom.create_element("span", {
+    let child = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "target");
         a
@@ -114,7 +114,7 @@ fn find_by_id_nested() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let mid = elem(&mut dom, "section");
-    let deep = dom.create_element("p", {
+    let deep = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("id", "deep");
         a
@@ -130,7 +130,7 @@ fn find_by_id_ignores_non_descendants() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     // orphan is NOT a descendant of root
-    let _orphan = dom.create_element("span", {
+    let _orphan = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "orphan");
         a
@@ -147,11 +147,11 @@ fn find_by_id_ignores_non_descendants() {
 fn first_and_last_element_child_skip_text() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
-    let text_head = dom.create_text("lead");
+    let text_head = dom.create_text_ownerless_fixture("lead");
     let a = elem(&mut dom, "a");
-    let text_mid = dom.create_text("middle");
+    let text_mid = dom.create_text_ownerless_fixture("middle");
     let b = elem(&mut dom, "b");
-    let text_tail = dom.create_text("trail");
+    let text_tail = dom.create_text_ownerless_fixture("trail");
     assert!(dom.append_child(root, text_head));
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, text_mid));
@@ -170,7 +170,7 @@ fn first_element_child_empty_and_text_only() {
     assert_eq!(dom.last_element_child(empty), None);
 
     let text_only = elem(&mut dom, "p");
-    let t = dom.create_text("x");
+    let t = dom.create_text_ownerless_fixture("x");
     assert!(dom.append_child(text_only, t));
     assert_eq!(dom.first_element_child(text_only), None);
     assert_eq!(dom.last_element_child(text_only), None);
@@ -185,8 +185,8 @@ fn element_siblings_skip_non_elements() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let a = elem(&mut dom, "a");
-    let t1 = dom.create_text("t1");
-    let t2 = dom.create_text("t2");
+    let t1 = dom.create_text_ownerless_fixture("t1");
+    let t2 = dom.create_text_ownerless_fixture("t2");
     let b = elem(&mut dom, "b");
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, t1));
@@ -363,7 +363,7 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     assert!(dom.append_child(doc, root));
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(root, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let inside = elem(&mut dom, "button");
     assert!(dom.append_child(fragment, inside));
     let after = elem(&mut dom, "p");
@@ -384,6 +384,80 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     let pos = |e: Entity| included.iter().position(|x| *x == e).expect("visited");
     assert!(pos(template) < pos(fragment) && pos(fragment) < pos(inside));
     assert_eq!(included.len(), 5);
+}
+
+/// C0c U18 fixture: `root` > (`tpl` [light `a`; contents `frag` > `inner`],
+/// `host` [shadow `sr` > `s1`; light `l`]).
+struct U18 {
+    dom: EcsDom,
+    root: Entity,
+    tpl: Entity,
+    a: Entity,
+    frag: Entity,
+    inner: Entity,
+    host: Entity,
+    sr: Entity,
+    s1: Entity,
+    l: Entity,
+}
+
+fn u18_fixture() -> U18 {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let root = elem(&mut dom, "div");
+    let tpl = elem(&mut dom, "template");
+    assert!(dom.append_child(root, tpl));
+    let a = elem(&mut dom, "a");
+    assert!(dom.append_child(tpl, a));
+    let frag = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(doc));
+    let inner = elem(&mut dom, "i");
+    assert!(dom.append_child(frag, inner));
+    let host = elem(&mut dom, "div");
+    assert!(dom.append_child(root, host));
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("div is a valid shadow host");
+    let s1 = elem(&mut dom, "b");
+    assert!(dom.append_child(sr, s1));
+    let l = elem(&mut dom, "p");
+    assert!(dom.append_child(host, l));
+    U18 {
+        dom,
+        root,
+        tpl,
+        a,
+        frag,
+        inner,
+        host,
+        sr,
+        s1,
+        l,
+    }
+}
+
+/// C0c U18 (red on the base; D-19): with `Include`, a template's contents
+/// come right after the template (DOM §4.5 *adopt* step 3.4 runs the
+/// template's adopting steps, HTML §4.12.3 step 2, inside the
+/// per-descendant loop), before its light children.
+#[test]
+fn u18_include_visits_contents_right_after_the_template() {
+    let f = u18_fixture();
+    assert_eq!(
+        uncapped_walk(&f.dom, f.root, TemplateContentsWalk::Include),
+        vec![f.root, f.tpl, f.frag, f.inner, f.a, f.host, f.sr, f.s1, f.l]
+    );
+}
+
+/// U18's control (green on the base; not changed by D-19): the host's
+/// shadow tree comes right after the host, before its light children.
+#[test]
+fn u18_control_shadow_tree_right_after_the_host() {
+    let f = u18_fixture();
+    let walk = uncapped_walk(&f.dom, f.root, TemplateContentsWalk::Include);
+    let pos = |e: Entity| walk.iter().position(|x| *x == e).expect("visited");
+    assert_eq!(pos(f.sr), pos(f.host) + 1);
+    assert_eq!(pos(f.s1), pos(f.host) + 2);
+    assert_eq!(pos(f.l), pos(f.host) + 3);
 }
 
 #[test]

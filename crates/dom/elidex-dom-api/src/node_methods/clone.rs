@@ -15,7 +15,9 @@
 //! clonable-shadow-root replication.
 
 use elidex_custom_elements::CustomElementState;
-use elidex_ecs::{CloneScope, EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot};
+use elidex_ecs::{
+    CloneScope, EcsDom, Entity, NewNodeOwner, NodeKind, ShadowHost, ShadowInit, ShadowRoot,
+};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
@@ -232,19 +234,18 @@ impl DomApiHandler for CloneNode {
 #[must_use = "returns None when src does not exist"]
 pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -> Option<Entity> {
     let mut pairs: Vec<(Entity, Entity)> = Vec::new();
-    let cloned = clone_recording(dom, src, deep, None, &mut pairs)?;
-    // The *node document* threaded through the spec recursion: a
-    // Document clone becomes its own node document; everything else
-    // keeps the source's.  The ECS cloner applies this to light-tree
-    // descendants — the shadow-replication pass below threads the
-    // SAME document into shadow subtrees via the cloner's
-    // `doc_override` (deriving from the *source* child would stamp
-    // the original document onto a cloned Document's shadow contents).
-    let shadow_doc: Option<Entity> = if matches!(dom.node_kind(src), Some(NodeKind::Document)) {
-        Some(cloned)
-    } else {
-        dom.owner_document(src)
-    };
+    // DOM §4.4 *clone a node*'s document (default: node's node document,
+    // `#concept-node-clone`). A Document source ignores it (its copy is its
+    // own node document).
+    let document = dom.node_document_for_new_nodes(src);
+    let cloned = clone_recording(dom, src, deep, document, &mut pairs)?;
+    // The one document threaded through the spec recursion (steps 5, 6.7)
+    // to every pass: the light tree (the ECS cloner), template contents
+    // (pass 3) and shadow subtrees (pass 4). For a Document clone it is the
+    // clone itself — deriving from a *source* child would stamp the original
+    // document onto a cloned Document's shadow contents. Read from the clone,
+    // it is that for a Document and the stamp the cloner just wrote otherwise.
+    let document = dom.node_document_for_new_nodes(cloned);
     // Index-based worklist: passes 3 and 4 append pairs while we iterate
     // (`replicate_template_contents` pushes the content fragment's deep-clone
     // pairs; the shadow-replication block pushes the shadow children's).
@@ -268,7 +269,7 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         // pairs onto this same worklist, so templates nested inside template
         // content converge here too.
         let subtree = deep || d != cloned;
-        replicate_template_contents(s, d, dom, subtree, shadow_doc, &mut pairs);
+        replicate_template_contents(s, d, dom, subtree, document, &mut pairs);
         // Pass 4 (DOM §4.4 "clone a node" step 6): a clonable shadow host's
         // shadow root is replicated onto the clone. Pushes the shadow children's
         // pairs onto this same worklist, so nested shadow trees converge here.
@@ -282,23 +283,16 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         let Ok(cloned_shadow) = dom.attach_shadow_with_init(d, init) else {
             continue;
         };
-        // The spec threads ONE document through the whole clone
-        // recursion, shadow trees included — `attach_shadow_with_init`
-        // spawns the replicated shadow root without a node document,
-        // and the shallow cloner stamps neither it nor the cloned
-        // host, so `clonedHost.shadowRoot.ownerDocument` would
-        // otherwise diverge from its own children.
-        if let Some(doc) = shadow_doc {
-            dom.set_associated_document(cloned_shadow, doc);
-            dom.set_associated_document(d, doc);
-        }
+        // The replicated shadow root takes its host's node document at
+        // attach (*attach a shadow root* step 5), and the cloned host
+        // carries the operation's document from the cloner, so the shadow
+        // tree shares the one threaded document.
         let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
         for child in source_shadow_children {
             // Step 6.7: shadow children clone with subtree **true** (the
             // spec's literal, at every pair), threading the operation's
-            // document through `clone_subtree`'s `doc_override`.
-            let Some(child_clone) = clone_recording(dom, child, true, shadow_doc, &mut pairs)
-            else {
+            // document.
+            let Some(child_clone) = clone_recording(dom, child, true, document, &mut pairs) else {
                 continue;
             };
             let _ = dom.append_child(cloned_shadow, child_clone);
@@ -324,13 +318,13 @@ fn clone_recording(
     dom: &mut EcsDom,
     node: Entity,
     deep: bool,
-    doc_override: Option<Entity>,
+    document: NewNodeOwner,
     pairs: &mut Vec<(Entity, Entity)>,
 ) -> Option<Entity> {
     if deep {
-        dom.clone_subtree(node, pairs, doc_override)
+        dom.clone_subtree(node, pairs, document)
     } else {
-        let cloned = dom.clone_node_shallow(node)?;
+        let cloned = dom.clone_node_shallow(node, document)?;
         pairs.push((node, cloned));
         Some(cloned)
     }
@@ -420,18 +414,16 @@ fn replicate_template_contents(
     dst: Entity,
     dom: &mut EcsDom,
     subtree: bool,
-    clone_doc: Option<Entity>,
+    clone_doc: NewNodeOwner,
     pairs: &mut Vec<(Entity, Entity)>,
 ) {
     let Some(src_fragment) = dom.template_contents_fragment(src) else {
         return;
     };
     // The clone's content fragment's node document is the *operation's* node
-    // document (`clone_doc` — the source's owner document, or the clone itself
-    // for a Document clone), NOT `owner_document(dst)`: a shallow
-    // `cloneNode(false)` leaves `dst` parentless with no `AssociatedDocument`
-    // (the shallow cloner stamps none), so deriving from `dst` would yield
-    // `None` and leave the content fragment document-less (Codex PR380 R2).
+    // document (`clone_doc` — the source's, or the clone itself for a
+    // Document clone), the one value threaded to every pass (C2 owner-doc
+    // approximation).
     let new_fragment = dom.attach_template_contents(dst, clone_doc);
     if !subtree {
         return;

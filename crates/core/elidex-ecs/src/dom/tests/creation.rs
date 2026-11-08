@@ -12,7 +12,7 @@ fn create_element() {
 #[test]
 fn create_text_node() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("Hello, world!");
+    let text = dom.create_text_ownerless_fixture("Hello, world!");
     let content = dom.world().get::<&TextContent>(text).unwrap();
     assert_eq!(content.0, "Hello, world!");
 }
@@ -33,7 +33,7 @@ fn query_by_tag_multiple() {
 fn text_node_as_child() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("Hello");
+    let text = dom.create_text_ownerless_fixture("Hello");
 
     dom.append_child(parent, text);
 
@@ -106,7 +106,7 @@ fn ecs_dom_set_attribute_on_destroyed_entity_returns_false() {
 fn ecs_dom_with_attribute_present_missing_and_no_component() {
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     // Element with no attributes yet → None for any key.
     assert_eq!(dom.with_attribute(el, "id", |v| v.map(str::to_owned)), None);
     // After set, with_attribute borrows the same value get_attribute clones.
@@ -130,7 +130,7 @@ fn ecs_dom_with_attribute_present_missing_and_no_component() {
 fn ecs_dom_has_attribute_matches_get_attribute_is_some() {
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
-    let text = dom.create_text("hi");
+    let text = dom.create_text_ownerless_fixture("hi");
     assert!(!dom.has_attribute(el, "id"));
     assert!(!dom.has_attribute(text, "id"));
     assert!(dom.set_attribute(el, "id", "main").did_set);
@@ -146,7 +146,7 @@ fn ecs_dom_has_attribute_matches_get_attribute_is_some() {
 fn ecs_dom_with_tag_name_element_text_and_consistency() {
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
-    let text = dom.create_text("hi");
+    let text = dom.create_text_ownerless_fixture("hi");
     // Element returns its tag verbatim.
     assert_eq!(
         dom.with_tag_name(el, |t| t.map(str::to_owned)),

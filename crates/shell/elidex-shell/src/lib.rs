@@ -251,8 +251,6 @@ pub struct PipelineResult {
     ///
     /// Set by the content thread's caret blink timer. Defaults to `true`.
     pub caret_visible: bool,
-    /// Cached form ancestor lookups (invalidated on DOM mutation).
-    pub ancestor_cache: elidex_form::AncestorCache,
     /// Viewport-level overflow propagated from root/body element.
     pub viewport_overflow: ViewportOverflow,
     /// Viewport scroll offset synced from content thread before re-render.
@@ -550,9 +548,10 @@ impl PipelineResult {
 /// values to `ComputedStyle` before layout.
 ///
 /// The flush record stream is delivered + consumed INTERNALLY (observers + CE via
-/// `deliver_records_and_drain`, ancestor-cache invalidation, focus reconciliation);
-/// it is no longer returned. The shell's former record consumers (focusable-cache
-/// invalidation, iframe add/remove detection) moved to the §4.3.8 version-delta
+/// `deliver_records_and_drain`); it is no longer returned. The step-17 focus
+/// fixup runs every update, independent of it. The
+/// shell's former record consumers (focusable-cache invalidation, iframe
+/// add/remove detection) moved to the §4.3.8 version-delta
 /// (`ContentState::last_render_dom_version`), because under the VM flip this flush
 /// is usually EMPTY — VM-native mutations write the `EcsDom` directly and never
 /// enter `SessionCore::pending`, so a record stream would starve those consumers.
@@ -573,7 +572,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     // and `drain_reactions` drains the CE reactions those callbacks produce. CE
     // callbacks may record further mutations, so re-flush (unbound) → bracket
     // until stable, bounded.
-    let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
+    let mutation_records: Vec<elidex_script_session::MutationRecord> =
         result.session.flush(&mut result.dom);
 
     if !mutation_records.is_empty() {
@@ -585,7 +584,6 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
                 break;
             }
             result.deliver_records_and_drain(&follow_up);
-            mutation_records.extend(follow_up);
             if round == MAX_CE_STABILIZATION_ROUNDS - 1 {
                 eprintln!(
                     "[CE] stabilization loop hit max rounds ({MAX_CE_STABILIZATION_ROUNDS}); \
@@ -595,43 +593,34 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
         }
     }
 
-    // Invalidate ancestor cache when DOM mutations occurred.
-    if !mutation_records.is_empty() {
-        result.ancestor_cache.invalidate_all();
-    }
-
     // Prune animations/transitions for destroyed entities unconditionally.
     // JS event handlers may destroy entities without generating style mutations,
     // so conditional pruning could leak animation state.
     result.prune_dead_animation_entities();
 
-    // Maintain the focus invariant `current_focus ⟹ is_focusable` (WHATWG HTML
-    // §6.6.2): a DOM mutation this frame may have made the focused element
-    // non-focusable (its `hidden`/`disabled` landed, `<input type>` flipped to a
-    // non-focusable kind, or it lost the `tabindex`/`contenteditable`/`href` that
-    // made it focusable) with focus still on it. Silently reset focus (no events,
-    // like the §2.1.4 removal reset). Gated on "any mutation occurred" rather than
-    // a focusability-attribute allow-list so every focusability-affecting change is
-    // caught without a hand-maintained, drift-prone trigger list. Lives at this
-    // single `re_render` chokepoint so the parent document, in-process iframes
+    // WHATWG HTML "update the rendering" step 17 — the focus fixup. What it
+    // resets, the events it fires and the single-element model's limits are
+    // documented once on `elidex_dom_api::focus::focus_fixup_steps`; the spec
+    // notes it "will usually fire blur events, and possibly change events",
+    // while removal is the synchronous, eventless §2.1.4 reset instead.
+    //
+    // Ungated: it runs every rendering update, since VM-native mutations write
+    // the `EcsDom` directly and leave the flush record stream empty; an idle
+    // frame fires nothing (no holder, or a focusable one). Every pipeline
+    // funnels through this function, so the parent document, in-process iframes
     // (`content::iframe::render::re_render_all_iframes`) and OOP iframes
-    // (`content::iframe::thread::iframe_thread_main`) all reconcile — every
-    // pipeline funnels through this one function. Runs BEFORE style resolution /
-    // layout / display-list build (not after) so the cleared `FOCUS` bit is
-    // reflected in `:focus` styling, form-control caret state and the display
-    // list this same frame — otherwise the render builder (which reads
-    // `ElementState::FOCUS`) would paint stale `:focus` for a frame after
-    // `activeElement` was already cleared, with nothing scheduling a repair. This
-    // is the asynchronous "update the rendering" step-17 focus fixup, so it runs
-    // AFTER observer delivery (this frame's `deliver_records_and_drain` above):
-    // a `MutationObserver` callback — delivered at the earlier microtask
-    // checkpoint (VM-native records) or via that preceding
-    // `deliver_records_and_drain` (external records) — legitimately observes the
-    // pre-fixup holder as `activeElement`, matching `elidex_dom_api::focus` SoT
-    // (`focus/sot.rs`) and HTML "update the rendering" step 17.
-    if !mutation_records.is_empty() {
-        elidex_dom_api::focus::reconcile_focus(&mut result.dom, result.document);
-    }
+    // (`content::iframe::thread::iframe_thread_main`) each run their own fixup.
+    //
+    // Position: after this frame's observer delivery above, so a
+    // `MutationObserver` callback for the frame's earlier mutations sees the
+    // pre-fixup holder as `activeElement`; before style resolution, layout and
+    // display-list build, so the listeners' writes and the cleared `FOCUS` bit
+    // (`:focus`, caret) show this frame. Not spec order: ResizeObserver delivery
+    // (step 16) runs after this, in `ContentState::re_render`; moving the fixup
+    // after style/layout is obligation O1 on `#11-focusable-area-being-rendered`
+    // (plan docs/plans/2026-11-focus-fixup-canonical-steps.md §8).
+    // Listener JS running mid-render → `#11-fixup-author-js-render-phase`.
+    crate::content::focus::focus_fixup(result);
 
     // Phase 1: Save old computed values for entities with AnimStyle (transition detection).
     // Also snapshot entities without AnimStyle but with ComputedStyle, so that

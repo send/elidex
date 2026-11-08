@@ -184,10 +184,10 @@ mod tests {
             for &(k, v) in &attrs_list {
                 attrs.set(k, v);
             }
-            let el = dom.create_element(tag, attrs);
+            let el = dom.create_element_ownerless_fixture(tag, attrs);
             dom.append_child(root, el);
             if let Some(text) = child_text {
-                let text_node = dom.create_text(text);
+                let text_node = dom.create_text_ownerless_fixture(text);
                 dom.append_child(el, text_node);
             }
 
@@ -207,15 +207,15 @@ mod tests {
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("id", "ref");
-        let label_el = dom.create_element("span", label_attrs);
+        let label_el = dom.create_element_ownerless_fixture("span", label_attrs);
         dom.append_child(root, label_el);
-        let label_text = dom.create_text("Referenced name");
+        let label_text = dom.create_text_ownerless_fixture("Referenced name");
         dom.append_child(label_el, label_text);
 
         let mut attrs = Attributes::default();
         attrs.set("aria-labelledby", "ref");
         attrs.set("aria-label", "Direct label");
-        let el = dom.create_element("button", attrs);
+        let el = dom.create_element_ownerless_fixture("button", attrs);
         dom.append_child(root, el);
 
         assert_eq!(
@@ -232,14 +232,14 @@ mod tests {
 
         let mut label_attrs = Attributes::default();
         label_attrs.set("id", "lbl");
-        let label_el = dom.create_element("span", label_attrs);
+        let label_el = dom.create_element_ownerless_fixture("span", label_attrs);
         dom.append_child(root, label_el);
-        let label_text = dom.create_text("Username");
+        let label_text = dom.create_text_ownerless_fixture("Username");
         dom.append_child(label_el, label_text);
 
         let mut input_attrs = Attributes::default();
         input_attrs.set("aria-labelledby", "lbl");
-        let input = dom.create_element("input", input_attrs);
+        let input = dom.create_element_ownerless_fixture("input", input_attrs);
         dom.append_child(root, input);
 
         assert_eq!(
@@ -253,15 +253,15 @@ mod tests {
     fn text_content_separates_element_children() {
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let btn = dom.create_element("button", Attributes::default());
+        let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
         dom.append_child(root, btn);
-        let span1 = dom.create_element("span", Attributes::default());
+        let span1 = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(btn, span1);
-        let t1 = dom.create_text("Hello");
+        let t1 = dom.create_text_ownerless_fixture("Hello");
         dom.append_child(span1, t1);
-        let span2 = dom.create_element("span", Attributes::default());
+        let span2 = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(btn, span2);
-        let t2 = dom.create_text("World");
+        let t2 = dom.create_text_ownerless_fixture("World");
         dom.append_child(span2, t2);
 
         assert_eq!(
@@ -279,18 +279,18 @@ mod tests {
         // whitespace-free tree.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
-        let btn = dom.create_element("button", Attributes::default());
+        let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
         dom.append_child(root, btn);
-        let span1 = dom.create_element("span", Attributes::default());
+        let span1 = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(btn, span1);
-        let t1 = dom.create_text("A");
+        let t1 = dom.create_text_ownerless_fixture("A");
         dom.append_child(span1, t1);
         // Indentation whitespace text node between the two spans.
-        let ws = dom.create_text("\n  ");
+        let ws = dom.create_text_ownerless_fixture("\n  ");
         dom.append_child(btn, ws);
-        let span2 = dom.create_element("span", Attributes::default());
+        let span2 = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(btn, span2);
-        let t2 = dom.create_text("B");
+        let t2 = dom.create_text_ownerless_fixture("B");
         dom.append_child(span2, t2);
 
         assert_eq!(

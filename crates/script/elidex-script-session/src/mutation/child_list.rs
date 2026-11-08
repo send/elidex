@@ -1,6 +1,6 @@
 //! WHATWG DOM childList mutation family: `appendChild` / `insertBefore` /
 //! `removeChild` / `replaceChild` / "replace all" and their move
-//! source-removal record helpers.
+//! source-removal record helpers; `adoptNode`'s source-removal record.
 
 use elidex_ecs::{EcsDom, Entity};
 
@@ -378,6 +378,23 @@ pub fn apply_remove_child(
     })
 }
 
+/// DOM §4.5 `adoptNode(node)` step 3 (`#dom-document-adoptnode`): *adopt*
+/// `node` into `document` through [`EcsDom::adopt`] and return the records
+/// it queues — the source-parent removal record when `node` is parented
+/// (adopt step 2 runs *remove*, whose step 16 queues it, DOM §4.2.3
+/// `#concept-node-remove`; not suppressed), else none. Adoption itself queues
+/// no record: the node-document change is not a mutation record.
+///
+/// Steps 1–2 (a Document → `NotSupportedError`, a shadow root →
+/// `HierarchyRequestError`) are the caller's (`elidex-dom-api`'s
+/// `AdoptNode`); `node` reaching here is neither.
+pub fn apply_adopt_node(dom: &mut EcsDom, node: Entity, document: Entity) -> Vec<MutationRecord> {
+    // Captured before the write: the removal destroys the siblings.
+    let record = source_removal_record(dom, node);
+    dom.adopt(node, document);
+    record.into_iter().collect()
+}
+
 /// Replace `old_child` with `new_child` under `parent` through the `EcsDom`
 /// chokepoint and build the §4.2.3 "replace" childList record list — empty on
 /// failure, the **single coalesced** record for a fresh `new_child`, and **two**
@@ -408,8 +425,7 @@ pub fn apply_replace_child(
     // any mutation) and reuse in both the fragment and non-fragment arms.
     let parent_was_connected = dom.is_connected(parent);
     if dom.is_document_fragment(new_child) {
-        // DocumentFragment newChild — §4.2.3 "replace" steps 2–10 with expansion
-        // (the adopt at step 6 comes with C0b's call, D-5).
+        // DocumentFragment newChild — §4.2.3 "replace" steps 2–10 with expansion.
         // §4.2.3 replace step 1 (ensure pre-insert validity step 2; atomic, before
         // removing oldChild): a fragment that is a host-including inclusive
         // ancestor of `parent` is a HierarchyRequestError. See `apply_append_child`.
@@ -431,6 +447,13 @@ pub fn apply_replace_child(
         let reference_child = dom.next_exposed_sibling(old_child);
         // step 4: previousSibling = oldChild's previous sibling (pre-removal).
         let previous_sibling = dom.prev_exposed_sibling(old_child);
+        // *replace* step 6: adopt node (the fragment itself) into parent's node
+        // document. The fragment is parentless (adopt step 2 is a no-op), so
+        // this re-homes the fragment and its children before step 7; the
+        // children's own insertions at step 9 then find them in place.
+        if let Some(document) = dom.node_document(parent) {
+            dom.adopt(new_child, document);
+        }
         // step 7: remove oldChild (suppressObservers — no standalone record).
         if !dom.remove_child(parent, old_child) {
             return Vec::new();

@@ -24,7 +24,7 @@ use super::{assert_same_parent_replace_move_records, setup_with_root};
 /// (via `create_element_wrapper`) so a `DomApiHandler` can resolve its
 /// `ObjectRef` back to the entity.
 fn expose_detached(vm: &mut Vm, dom: &mut EcsDom, tag: &str, name: &str) -> elidex_ecs::Entity {
-    let e = dom.create_element(tag, Attributes::default());
+    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
     let wrapper = vm.inner.create_element_wrapper(e);
     vm.set_global(name, JsValue::Object(wrapper));
     e
@@ -96,7 +96,7 @@ fn real_insert_before_records_added_and_next_sibling() {
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
     // `existing` is appended in Rust (no record) so it is the reference child.
-    let existing = dom.create_element("b", Attributes::default());
+    let existing = dom.create_element_ownerless_fixture("b", Attributes::default());
     assert!(dom.append_child(root, existing));
     let existing_wrapper = vm.inner.create_element_wrapper(existing);
     vm.set_global("existing", JsValue::Object(existing_wrapper));
@@ -129,7 +129,7 @@ fn real_remove_child_records_removed_node() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let kid = dom.create_element("span", Attributes::default());
+    let kid = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(root, kid));
     let kid_wrapper = vm.inner.create_element_wrapper(kid);
     vm.set_global("kid", JsValue::Object(kid_wrapper));
@@ -167,7 +167,7 @@ fn real_replace_child_delivers_single_coalesced_record() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let old = dom.create_element("b", Attributes::default());
+    let old = dom.create_element_ownerless_fixture("b", Attributes::default());
     assert!(dom.append_child(root, old));
     let old_wrapper = vm.inner.create_element_wrapper(old);
     vm.set_global("oldChild", JsValue::Object(old_wrapper));
@@ -238,7 +238,7 @@ fn real_subtree_observer_receives_descendant_child_mutation() {
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
     // `mid` is a child of root; the observer is on root with subtree:true.
-    let mid = dom.create_element("div", Attributes::default());
+    let mid = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(dom.append_child(root, mid));
     let mid_wrapper = vm.inner.create_element_wrapper(mid);
     vm.set_global("mid", JsValue::Object(mid_wrapper));
@@ -274,8 +274,8 @@ fn real_same_parent_move_delivers_two_records_source_then_dest() {
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
     // Two children appended in Rust (no records); `a` is first, `b` is last.
-    let a = dom.create_element("a", Attributes::default());
-    let b = dom.create_element("b", Attributes::default());
+    let a = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let b = dom.create_element_ownerless_fixture("b", Attributes::default());
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, b));
     let a_wrapper = vm.inner.create_element_wrapper(a);
@@ -346,9 +346,9 @@ fn real_cross_parent_move_routes_removal_to_source_insertion_to_dest() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let src = dom.create_element("div", Attributes::default());
-    let dst = dom.create_element("div", Attributes::default());
-    let kid = dom.create_element("span", Attributes::default());
+    let src = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let dst = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let kid = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(root, src));
     assert!(dom.append_child(root, dst));
     assert!(dom.append_child(src, kid)); // src = [kid], dst = []
@@ -402,9 +402,9 @@ fn real_replace_child_move_delivers_source_removal_and_coalesced() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
-    let src = dom.create_element("div", Attributes::default());
-    let oldc = dom.create_element("b", Attributes::default());
-    let newc = dom.create_element("i", Attributes::default());
+    let src = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let oldc = dom.create_element_ownerless_fixture("b", Attributes::default());
+    let newc = dom.create_element_ownerless_fixture("i", Attributes::default());
     assert!(dom.append_child(root, src));
     assert!(dom.append_child(root, oldc)); // root = [src, oldc]
     assert!(dom.append_child(src, newc)); // src = [newc]
@@ -528,7 +528,7 @@ fn real_document_fragment_replace_child_delivers_coalesced_expansion() {
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
     // `old` appended in Rust (no record) so it is the replacement target.
-    let old = dom.create_element("b", Attributes::default());
+    let old = dom.create_element_ownerless_fixture("b", Attributes::default());
     assert!(dom.append_child(root, old));
     let old_wrapper = vm.inner.create_element_wrapper(old);
     vm.set_global("old", JsValue::Object(old_wrapper));

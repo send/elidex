@@ -15,8 +15,8 @@ mod shorthand;
 fn build_simple_dom() -> (EcsDom, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, html);
     dom.append_child(html, body);
     (dom, root, html, body)
@@ -33,7 +33,7 @@ fn get_style(dom: &EcsDom, entity: Entity) -> ComputedStyle {
 /// Resolve styles for a single `div` child of `body`.
 fn resolve_single(css: &str) -> (EcsDom, Entity, ComputedStyle) {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
     let ss = parse_stylesheet(css, Origin::Author);
     resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
@@ -51,7 +51,7 @@ fn media_medium_threads_through_resolve() {
 
     let resolve_with_medium = |medium: Medium| -> ComputedStyle {
         let (mut dom, _root, _html, body) = build_simple_dom();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(body, div);
         let ss = parse_stylesheet(css, Origin::Author);
         resolve_styles_with_compat(
@@ -81,8 +81,8 @@ fn media_medium_threads_through_resolve() {
 /// Resolve styles with a `div` > `span` hierarchy.
 fn resolve_with_child(css: &str) -> (EcsDom, Entity, Entity, ComputedStyle, ComputedStyle) {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, div);
     dom.append_child(div, span);
     let ss = parse_stylesheet(css, Origin::Author);
@@ -95,8 +95,8 @@ fn resolve_with_child(css: &str) -> (EcsDom, Entity, Entity, ComputedStyle, Comp
 /// Helper: create shadow tree with <style> text and return shadow root.
 fn setup_shadow_with_style(dom: &mut EcsDom, host: Entity, css: &str) -> Entity {
     let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
-    let style_el = dom.create_element("style", Attributes::default());
-    let style_text = dom.create_text(css);
+    let style_el = dom.create_element_ownerless_fixture("style", Attributes::default());
+    let style_text = dom.create_text_ownerless_fixture(css);
     dom.append_child(sr, style_el);
     dom.append_child(style_el, style_text);
     sr

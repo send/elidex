@@ -45,12 +45,12 @@ fn create_table_with_height(
     cell_height: f32,
 ) -> (EcsDom, elidex_ecs::Entity, Vec<elidex_ecs::Entity>) {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     let mut cells = Vec::new();
     for _ in 0..rows {
-        let tr = dom.create_element("tr", elidex_ecs::Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -61,7 +61,7 @@ fn create_table_with_height(
         dom.append_child(table, tr);
 
         for _ in 0..cols {
-            let td = dom.create_element("td", elidex_ecs::Attributes::default());
+            let td = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
             dom.world_mut().insert_one(
                 td,
                 ComputedStyle {
@@ -227,11 +227,11 @@ fn resume_from_break_token() {
 fn thead_repeated_in_continuation() {
     // Table with thead + body rows. Verify break token stores thead_entity.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Create thead.
-    let thead = dom.create_element("thead", elidex_ecs::Attributes::default());
+    let thead = dom.create_element_ownerless_fixture("thead", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         thead,
         ComputedStyle {
@@ -240,7 +240,7 @@ fn thead_repeated_in_continuation() {
         },
     );
     dom.append_child(table, thead);
-    let thead_row = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let thead_row = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         thead_row,
         ComputedStyle {
@@ -249,7 +249,7 @@ fn thead_repeated_in_continuation() {
         },
     );
     dom.append_child(thead, thead_row);
-    let thead_cell = dom.create_element("th", elidex_ecs::Attributes::default());
+    let thead_cell = dom.create_element_ownerless_fixture("th", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         thead_cell,
         ComputedStyle {
@@ -262,7 +262,7 @@ fn thead_repeated_in_continuation() {
 
     // Create body rows.
     for _ in 0..4 {
-        let tr = dom.create_element("tr", elidex_ecs::Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -271,7 +271,7 @@ fn thead_repeated_in_continuation() {
             },
         );
         dom.append_child(table, tr);
-        let td = dom.create_element("td", elidex_ecs::Attributes::default());
+        let td = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             td,
             ComputedStyle {
@@ -317,12 +317,12 @@ fn thead_repeated_in_continuation() {
 #[test]
 fn tfoot_repeated_in_continuation() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Create body rows.
     for _ in 0..4 {
-        let tr = dom.create_element("tr", elidex_ecs::Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -331,7 +331,7 @@ fn tfoot_repeated_in_continuation() {
             },
         );
         dom.append_child(table, tr);
-        let td = dom.create_element("td", elidex_ecs::Attributes::default());
+        let td = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             td,
             ComputedStyle {
@@ -344,7 +344,7 @@ fn tfoot_repeated_in_continuation() {
     }
 
     // Create tfoot.
-    let tfoot = dom.create_element("tfoot", elidex_ecs::Attributes::default());
+    let tfoot = dom.create_element_ownerless_fixture("tfoot", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tfoot,
         ComputedStyle {
@@ -353,7 +353,7 @@ fn tfoot_repeated_in_continuation() {
         },
     );
     dom.append_child(table, tfoot);
-    let tfoot_row = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tfoot_row = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tfoot_row,
         ComputedStyle {
@@ -362,7 +362,7 @@ fn tfoot_repeated_in_continuation() {
         },
     );
     dom.append_child(tfoot, tfoot_row);
-    let tfoot_cell = dom.create_element("td", elidex_ecs::Attributes::default());
+    let tfoot_cell = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tfoot_cell,
         ComputedStyle {
@@ -457,10 +457,10 @@ fn caption_only_in_first_fragment() {
 #[test]
 fn forced_break_before_row() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let tr1 = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -469,7 +469,7 @@ fn forced_break_before_row() {
         },
     );
     dom.append_child(table, tr1);
-    let td1 = dom.create_element("td", elidex_ecs::Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -481,7 +481,7 @@ fn forced_break_before_row() {
     dom.append_child(tr1, td1);
 
     // Second row has forced break-before.
-    let tr2 = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -491,7 +491,7 @@ fn forced_break_before_row() {
         },
     );
     dom.append_child(table, tr2);
-    let td2 = dom.create_element("td", elidex_ecs::Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -536,11 +536,11 @@ fn forced_break_before_row() {
 #[test]
 fn forced_break_after_row() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // First row has forced break-after.
-    let tr1 = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -550,7 +550,7 @@ fn forced_break_after_row() {
         },
     );
     dom.append_child(table, tr1);
-    let td1 = dom.create_element("td", elidex_ecs::Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -561,7 +561,7 @@ fn forced_break_after_row() {
     );
     dom.append_child(tr1, td1);
 
-    let tr2 = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -570,7 +570,7 @@ fn forced_break_after_row() {
         },
     );
     dom.append_child(table, tr2);
-    let td2 = dom.create_element("td", elidex_ecs::Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -617,11 +617,11 @@ fn break_inside_avoid() {
     // Row 1 has break-after: avoid-column. This should penalize the
     // candidate between row 1 and row 2.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     for i in 0..3 {
-        let tr = dom.create_element("tr", elidex_ecs::Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
         let mut row_style = ComputedStyle {
             display: Display::TableRow,
             ..Default::default()
@@ -631,7 +631,7 @@ fn break_inside_avoid() {
         }
         dom.world_mut().insert_one(tr, row_style);
         dom.append_child(table, tr);
-        let td = dom.create_element("td", elidex_ecs::Attributes::default());
+        let td = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             td,
             ComputedStyle {
@@ -681,11 +681,11 @@ fn thead_tfoot_reduce_available_space() {
     // space for body rows. This test creates a table with thead (20px) +
     // tfoot (20px) + 4 body rows (30px each).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // thead
-    let thead = dom.create_element("thead", elidex_ecs::Attributes::default());
+    let thead = dom.create_element_ownerless_fixture("thead", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         thead,
         ComputedStyle {
@@ -694,7 +694,7 @@ fn thead_tfoot_reduce_available_space() {
         },
     );
     dom.append_child(table, thead);
-    let thead_row = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let thead_row = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         thead_row,
         ComputedStyle {
@@ -703,7 +703,7 @@ fn thead_tfoot_reduce_available_space() {
         },
     );
     dom.append_child(thead, thead_row);
-    let thead_cell = dom.create_element("th", elidex_ecs::Attributes::default());
+    let thead_cell = dom.create_element_ownerless_fixture("th", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         thead_cell,
         ComputedStyle {
@@ -716,7 +716,7 @@ fn thead_tfoot_reduce_available_space() {
 
     // body rows
     for _ in 0..4 {
-        let tr = dom.create_element("tr", elidex_ecs::Attributes::default());
+        let tr = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             tr,
             ComputedStyle {
@@ -725,7 +725,7 @@ fn thead_tfoot_reduce_available_space() {
             },
         );
         dom.append_child(table, tr);
-        let td = dom.create_element("td", elidex_ecs::Attributes::default());
+        let td = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
         dom.world_mut().insert_one(
             td,
             ComputedStyle {
@@ -738,7 +738,7 @@ fn thead_tfoot_reduce_available_space() {
     }
 
     // tfoot
-    let tfoot = dom.create_element("tfoot", elidex_ecs::Attributes::default());
+    let tfoot = dom.create_element_ownerless_fixture("tfoot", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tfoot,
         ComputedStyle {
@@ -747,7 +747,7 @@ fn thead_tfoot_reduce_available_space() {
         },
     );
     dom.append_child(table, tfoot);
-    let tfoot_row = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tfoot_row = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tfoot_row,
         ComputedStyle {
@@ -756,7 +756,7 @@ fn thead_tfoot_reduce_available_space() {
         },
     );
     dom.append_child(tfoot, tfoot_row);
-    let tfoot_cell = dom.create_element("td", elidex_ecs::Attributes::default());
+    let tfoot_cell = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tfoot_cell,
         ComputedStyle {
@@ -806,11 +806,11 @@ fn thead_tfoot_reduce_available_space() {
 #[test]
 fn propagated_break_values() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", elidex_ecs::Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // First row has break-before: page
-    let tr1 = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -820,7 +820,7 @@ fn propagated_break_values() {
         },
     );
     dom.append_child(table, tr1);
-    let td1 = dom.create_element("td", elidex_ecs::Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -832,7 +832,7 @@ fn propagated_break_values() {
     dom.append_child(tr1, td1);
 
     // Last row has break-after: page
-    let tr2 = dom.create_element("tr", elidex_ecs::Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -842,7 +842,7 @@ fn propagated_break_values() {
         },
     );
     dom.append_child(table, tr2);
-    let td2 = dom.create_element("td", elidex_ecs::Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {

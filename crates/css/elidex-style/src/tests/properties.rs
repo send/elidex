@@ -68,7 +68,7 @@ fn font_weight_inheritance() {
 #[test]
 fn line_height_normal() {
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     // No line-height set -> default Normal.
@@ -156,7 +156,7 @@ fn sendsh_style_integration() {
     // Simulates send.sh's CSS pattern: :root defines theme variables,
     // body uses them via var().
     let (mut dom, _root, _html, body) = build_simple_dom();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let css = r"

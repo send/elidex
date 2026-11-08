@@ -39,8 +39,8 @@ use super::super::Vm;
 
 pub(super) fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -93,7 +93,13 @@ fn build_root_tree(
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    // Created in `doc`: the Selection same-document check reads the node
+    // document (C0b), and production cannot create an ownerless node.
+    let root = dom.create_element_with_owner(
+        "div",
+        elidex_ecs::Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(body, root));
     (doc, body, root)
 }
@@ -136,7 +142,12 @@ pub(super) fn setup_with_root_and_svg(
 
     let mut svg_attrs = elidex_ecs::Attributes::default();
     svg_attrs.set("viewBox", "0 0 10 10");
-    let svg = dom.create_element_ns("svg", elidex_ecs::Namespace::Svg, svg_attrs, None);
+    let svg = dom.create_element_ns(
+        "svg",
+        elidex_ecs::Namespace::Svg,
+        svg_attrs,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     assert!(dom.append_child(body, svg));
 
     #[allow(unsafe_code)]

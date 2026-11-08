@@ -192,7 +192,7 @@ mod tests {
     use elidex_plugin::{ComputedStyle, Position};
 
     fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-        dom.create_element(tag, Attributes::default())
+        dom.create_element_ownerless_fixture(tag, Attributes::default())
     }
 
     fn set_positioned(dom: &mut EcsDom, entity: Entity, pos: Position, z: Option<i32>) {

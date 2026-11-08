@@ -202,7 +202,7 @@ fn mutation_observer_methods_after_unbind_then_rebind_to_same_dom() {
     vm.set_global("root", JsValue::Object(wrapper));
 
     vm.eval("mo.observe(root, {childList:true});").unwrap();
-    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("p", elidex_ecs::Attributes::default());
     vm.deliver_mutation_records(&[SessionRecord {
         kind: MutationKind::ChildList,
         target: root,

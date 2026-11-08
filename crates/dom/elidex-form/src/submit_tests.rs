@@ -20,11 +20,11 @@ fn navigate(sub: Option<FormSubmission>) -> (String, String, String, Vec<FormDat
 }
 
 fn make_form_with_input(dom: &mut EcsDom, name: &str, value: &str) -> (Entity, Entity) {
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("name", name);
     attrs.set("value", value);
-    let input = dom.create_element("input", attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
@@ -41,9 +41,9 @@ fn find_form_ancestor_direct_parent() {
 #[test]
 fn find_form_ancestor_nested() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
-    let div = dom.create_element("div", Attributes::default());
-    let input = dom.create_element("input", {
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", {
         let mut a = Attributes::default();
         a.set("name", "q");
         a
@@ -63,7 +63,7 @@ fn find_form_ancestor_nested() {
 #[test]
 fn no_form_ancestor() {
     let mut dom = EcsDom::new();
-    let input = dom.create_element("input", Attributes::default());
+    let input = dom.create_element_ownerless_fixture("input", Attributes::default());
     assert_eq!(find_form_ancestor(&dom, input), None);
 }
 
@@ -85,12 +85,12 @@ fn collect_form_data_basic() {
 #[test]
 fn collect_form_data_file_does_not_submit_value_attribute() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "file");
     attrs.set("name", "f");
     attrs.set("value", "secret");
-    let input = dom.create_element("input", attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     assert_eq!(fcs.kind, FormControlKind::File);
     let _ = dom.world_mut().insert_one(input, fcs);
@@ -112,11 +112,11 @@ fn collect_form_data_file_does_not_submit_value_attribute() {
 #[test]
 fn collect_form_data_skips_disabled() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("name", "q");
     attrs.set("disabled", "");
-    let input = dom.create_element("input", attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
@@ -127,9 +127,9 @@ fn collect_form_data_skips_disabled() {
 #[test]
 fn collect_form_data_skips_unnamed() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let attrs = Attributes::default();
-    let input = dom.create_element("input", attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
@@ -140,11 +140,11 @@ fn collect_form_data_skips_unnamed() {
 #[test]
 fn checkbox_only_submitted_when_checked() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
     attrs.set("name", "agree");
-    let cb = dom.create_element("input", attrs.clone());
+    let cb = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(cb, fcs);
     let _ = dom.append_child(form, cb);
@@ -171,12 +171,12 @@ fn checkbox_submits_value_content_attribute_not_stale_live_value() {
     // the content attribute — so submission must follow the content
     // attribute to stay consistent with the IDL `value` getter.
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
     attrs.set("name", "c");
     attrs.set("value", "secret"); // the `value` content attribute
-    let cb = dom.create_element("input", attrs.clone());
+    let cb = dom.create_element_ownerless_fixture("input", attrs.clone());
     let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
     fcs.checked = true;
     // Diverge the live value from the content attribute (the dirty-frozen
@@ -199,12 +199,12 @@ fn checkbox_present_empty_value_attribute_submits_empty_not_on() {
     // *specified* attribute, so it submits "" — NOT the "on" fallback
     // (which applies only when the attribute is absent).
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
     attrs.set("name", "c");
     attrs.set("value", ""); // explicitly present, empty
-    let cb = dom.create_element("input", attrs.clone());
+    let cb = dom.create_element_ownerless_fixture("input", attrs.clone());
     let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
     fcs.checked = true;
     let _ = dom.world_mut().insert_one(cb, fcs);
@@ -241,14 +241,14 @@ fn submit_button_submitter_submits_value_attribute_not_label() {
     // value attribute.  The label must not leak into the submitted value.
     let build = |value_attr: Option<&str>| -> String {
         let mut dom = EcsDom::new();
-        let form = dom.create_element("form", Attributes::default());
+        let form = dom.create_element_ownerless_fixture("form", Attributes::default());
         let mut attrs = Attributes::default();
         attrs.set("type", "submit");
         attrs.set("name", "btn");
         if let Some(v) = value_attr {
             attrs.set("value", v);
         }
-        let btn = dom.create_element("input", attrs.clone());
+        let btn = dom.create_element_ownerless_fixture("input", attrs.clone());
         let fcs = FormControlState::from_element("input", &attrs).unwrap();
         // `from_element` substitutes the "Submit" display label into the
         // live value when the value attribute is empty/absent.
@@ -288,12 +288,12 @@ fn reset_form_restores_defaults() {
 #[test]
 fn radio_submitted_when_checked() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "radio");
     attrs.set("name", "color");
     attrs.set("value", "red");
-    let r = dom.create_element("input", attrs.clone());
+    let r = dom.create_element_ownerless_fixture("input", attrs.clone());
     let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
     fcs.checked = true;
     let _ = dom.world_mut().insert_one(r, fcs);
@@ -306,11 +306,11 @@ fn radio_submitted_when_checked() {
 #[test]
 fn buttons_not_submitted() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "submit");
     attrs.set("name", "btn");
-    let btn = dom.create_element("input", attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(btn, fcs);
     let _ = dom.append_child(form, btn);
@@ -321,12 +321,12 @@ fn buttons_not_submitted() {
 #[test]
 fn password_submitted() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "password");
     attrs.set("name", "pw");
     attrs.set("value", "secret");
-    let input = dom.create_element("input", attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
@@ -338,12 +338,12 @@ fn password_submitted() {
 #[test]
 fn reset_restores_default_checked() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
     attrs.set("name", "x");
     attrs.set("checked", "");
-    let cb = dom.create_element("input", attrs.clone());
+    let cb = dom.create_element_ownerless_fixture("input", attrs.clone());
     let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
     // Uncheck it (user action).
     fcs.checked = false;
@@ -357,11 +357,11 @@ fn reset_restores_default_checked() {
 #[test]
 fn reset_clears_checked() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
     attrs.set("name", "x");
-    let cb = dom.create_element("input", attrs.clone());
+    let cb = dom.create_element_ownerless_fixture("input", attrs.clone());
     let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
     fcs.checked = true;
     let _ = dom.world_mut().insert_one(cb, fcs);
@@ -403,7 +403,7 @@ fn encode_form_urlencoded_empty() {
 #[test]
 fn read_form_attrs_defaults() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let attrs = read_form_attrs(&dom, form);
     assert!(attrs.action.is_empty());
     assert_eq!(attrs.method, "get");
@@ -416,7 +416,7 @@ fn read_form_attrs_custom() {
     let mut attrs = Attributes::default();
     attrs.set("action", "/submit");
     attrs.set("method", "POST");
-    let form = dom.create_element("form", attrs);
+    let form = dom.create_element_ownerless_fixture("form", attrs);
     let fa = read_form_attrs(&dom, form);
     assert_eq!(fa.action, "/submit");
     assert_eq!(fa.method, "post");
@@ -428,11 +428,11 @@ fn build_form_submission_collects_data() {
     let mut form_attrs = Attributes::default();
     form_attrs.set("action", "/search");
     form_attrs.set("method", "GET");
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     let mut input_attrs = Attributes::default();
     input_attrs.set("name", "q");
     input_attrs.set("value", "test");
-    let input = dom.create_element("input", input_attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", input_attrs.clone());
     let fcs = FormControlState::from_element("input", &input_attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
@@ -445,12 +445,12 @@ fn build_form_submission_collects_data() {
 #[test]
 fn hidden_input_is_submittable() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("type", "hidden");
     attrs.set("name", "csrf");
     attrs.set("value", "token123");
-    let input = dom.create_element("input", attrs.clone());
+    let input = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
@@ -491,8 +491,8 @@ fn select_multiple_submits_all_selected() {
     ];
     state.value = "r".to_string();
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
-    let sel = dom.create_element("select", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
+    let sel = dom.create_element_ownerless_fixture("select", Attributes::default());
     let _ = dom.world_mut().insert_one(sel, state);
     let _ = dom.append_child(form, sel);
     let data = collect_form_data(&dom, form);
@@ -504,12 +504,12 @@ fn select_multiple_submits_all_selected() {
 #[test]
 fn submitter_entry_included() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut btn_attrs = Attributes::default();
     btn_attrs.set("type", "submit");
     btn_attrs.set("name", "action");
     btn_attrs.set("value", "save");
-    let btn = dom.create_element("input", btn_attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", btn_attrs.clone());
     let fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     let _ = dom.world_mut().insert_one(btn, fcs);
     let _ = dom.append_child(form, btn);
@@ -538,10 +538,10 @@ fn dialog_form(
     btn_formmethod: Option<&str>,
     btn_value: Option<&str>,
 ) -> (Entity, Entity, Entity) {
-    let dlg = dom.create_element("dialog", Attributes::default());
+    let dlg = dom.create_element_ownerless_fixture("dialog", Attributes::default());
     let mut form_attrs = Attributes::default();
     form_attrs.set("method", form_method);
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     let _ = dom.append_child(dlg, form);
     let mut btn_attrs = Attributes::default();
     btn_attrs.set("type", "submit");
@@ -552,7 +552,7 @@ fn dialog_form(
     if let Some(v) = btn_value {
         btn_attrs.set("value", v);
     }
-    let btn = dom.create_element("input", btn_attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", btn_attrs.clone());
     let fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     let _ = dom.world_mut().insert_one(btn, fcs);
     let _ = dom.append_child(form, btn);
@@ -584,7 +584,7 @@ fn dialog_method_with_no_ancestor_dialog_returns_none() {
     // <form method=dialog> NOT inside any <dialog>.
     let mut form_attrs = Attributes::default();
     form_attrs.set("method", "dialog");
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     let btn = make_submit_button(&mut dom, form);
     assert!(
         build_form_submission(&dom, form, Some(btn)).is_none(),
@@ -626,7 +626,7 @@ fn invalid_form_method_defaults_to_get() {
     let mut dom = EcsDom::new();
     let mut form_attrs = Attributes::default();
     form_attrs.set("method", "frobnicate");
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     let (_, method, _, _) = navigate(build_form_submission(&dom, form, None));
     assert_eq!(method, "get", "§attr-fs-method: invalid method → GET");
 }
@@ -637,11 +637,11 @@ fn formaction_override_on_submit_button() {
     let mut form_attrs = Attributes::default();
     form_attrs.set("action", "/form");
     form_attrs.set("method", "post");
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     let mut btn_attrs = Attributes::default();
     btn_attrs.set("type", "submit");
     btn_attrs.set("formaction", "/override");
-    let btn = dom.create_element("input", btn_attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", btn_attrs.clone());
     let fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     let _ = dom.world_mut().insert_one(btn, fcs);
     let _ = dom.append_child(form, btn);
@@ -666,7 +666,7 @@ fn percent_encode_asterisk() {
 fn make_submit_button(dom: &mut EcsDom, parent: Entity) -> Entity {
     let mut attrs = Attributes::default();
     attrs.set("type", "submit");
-    let btn = dom.create_element("input", attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", attrs.clone());
     let fcs = FormControlState::from_element("input", &attrs).unwrap();
     let _ = dom.world_mut().insert_one(btn, fcs);
     let _ = dom.append_child(parent, btn);
@@ -676,7 +676,7 @@ fn make_submit_button(dom: &mut EcsDom, parent: Entity) -> Entity {
 #[test]
 fn is_submit_button_input_type_submit() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let btn = make_submit_button(&mut dom, form);
     assert!(is_submit_button(&dom, btn));
 }
@@ -691,14 +691,14 @@ fn is_submit_button_input_type_text_false() {
 #[test]
 fn is_submit_button_no_form_control_state_false() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     assert!(!is_submit_button(&dom, div));
 }
 
 #[test]
 fn is_form_owner_tree_descendant() {
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let btn = make_submit_button(&mut dom, form);
     assert!(is_form_owner(&dom, btn, form));
 }
@@ -706,8 +706,8 @@ fn is_form_owner_tree_descendant() {
 #[test]
 fn is_form_owner_wrong_form_false() {
     let mut dom = EcsDom::new();
-    let form_a = dom.create_element("form", Attributes::default());
-    let form_b = dom.create_element("form", Attributes::default());
+    let form_a = dom.create_element_ownerless_fixture("form", Attributes::default());
+    let form_b = dom.create_element_ownerless_fixture("form", Attributes::default());
     let btn = make_submit_button(&mut dom, form_a);
     assert!(!is_form_owner(&dom, btn, form_b));
 }
@@ -718,12 +718,12 @@ fn is_form_owner_cross_tree_via_form_attr() {
     let mut dom = EcsDom::new();
     let mut form_attrs = Attributes::default();
     form_attrs.set("id", "login");
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     // Submit button OUTSIDE the form, with form="login" attribute.
     let mut btn_attrs = Attributes::default();
     btn_attrs.set("type", "submit");
     btn_attrs.set("form", "login");
-    let btn = dom.create_element("input", btn_attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", btn_attrs.clone());
     let mut fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     fcs.form_owner = Some("login".to_string());
     let _ = dom.world_mut().insert_one(btn, fcs);
@@ -735,11 +735,11 @@ fn is_form_owner_cross_tree_via_form_attr() {
 fn is_form_owner_cross_tree_form_has_no_id_false() {
     // Edge case: form attribute path (b) unreachable when form has no id.
     let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     let mut btn_attrs = Attributes::default();
     btn_attrs.set("type", "submit");
     btn_attrs.set("form", "login");
-    let btn = dom.create_element("input", btn_attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", btn_attrs.clone());
     let mut fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     fcs.form_owner = Some("login".to_string());
     let _ = dom.world_mut().insert_one(btn, fcs);
@@ -753,11 +753,11 @@ fn is_form_owner_cross_tree_empty_id_false() {
     let mut dom = EcsDom::new();
     let mut form_attrs = Attributes::default();
     form_attrs.set("id", "");
-    let form = dom.create_element("form", form_attrs);
+    let form = dom.create_element_ownerless_fixture("form", form_attrs);
     let mut btn_attrs = Attributes::default();
     btn_attrs.set("type", "submit");
     btn_attrs.set("form", "");
-    let btn = dom.create_element("input", btn_attrs.clone());
+    let btn = dom.create_element_ownerless_fixture("input", btn_attrs.clone());
     let mut fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     fcs.form_owner = Some(String::new());
     let _ = dom.world_mut().insert_one(btn, fcs);

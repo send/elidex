@@ -6,7 +6,7 @@
 use super::*;
 
 fn make_table(dom: &mut EcsDom) -> Entity {
-    dom.create_element("table", Attributes::default())
+    dom.create_element_ownerless_fixture("table", Attributes::default())
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn delete_thead_noop_when_absent() {
 fn set_thead_with_div_throws() {
     let mut dom = EcsDom::new();
     let table = make_table(&mut dom);
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let res = set_thead(table, &mut dom, Some(div));
     assert!(matches!(
         res,
@@ -86,7 +86,7 @@ fn set_thead_replaces_existing() {
     let mut dom = EcsDom::new();
     let table = make_table(&mut dom);
     let old = create_thead(table, &mut dom);
-    let new = dom.create_element("thead", Attributes::default());
+    let new = dom.create_element_ownerless_fixture("thead", Attributes::default());
     set_thead(table, &mut dom, Some(new)).unwrap();
     let theads: Vec<Entity> = dom
         .children_iter(table)
@@ -157,9 +157,9 @@ fn row_index_walks_thead_tbody_tfoot() {
     let thead = create_thead(table, &mut dom);
     let tbody = create_tbody(table, &mut dom);
     let tfoot = create_tfoot(table, &mut dom);
-    let h_tr = dom.create_element("tr", Attributes::default());
-    let b_tr = dom.create_element("tr", Attributes::default());
-    let f_tr = dom.create_element("tr", Attributes::default());
+    let h_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let b_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let f_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     let _ = dom.append_child(thead, h_tr);
     let _ = dom.append_child(tbody, b_tr);
     let _ = dom.append_child(tfoot, f_tr);
@@ -171,9 +171,9 @@ fn row_index_walks_thead_tbody_tfoot() {
 #[test]
 fn section_row_index_within_section() {
     let mut dom = EcsDom::new();
-    let tbody = dom.create_element("tbody", Attributes::default());
-    let tr1 = dom.create_element("tr", Attributes::default());
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     let _ = dom.append_child(tbody, tr1);
     let _ = dom.append_child(tbody, tr2);
     assert_eq!(section_row_index(tr1, &dom), 0);
@@ -183,9 +183,9 @@ fn section_row_index_within_section() {
 #[test]
 fn cell_index_basic() {
     let mut dom = EcsDom::new();
-    let tr = dom.create_element("tr", Attributes::default());
-    let td = dom.create_element("td", Attributes::default());
-    let th = dom.create_element("th", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
+    let th = dom.create_element_ownerless_fixture("th", Attributes::default());
     let _ = dom.append_child(tr, td);
     let _ = dom.append_child(tr, th);
     assert_eq!(cell_index(td, &dom), 0);
@@ -195,14 +195,14 @@ fn cell_index_basic() {
 #[test]
 fn cell_index_detached() {
     let mut dom = EcsDom::new();
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     assert_eq!(cell_index(td, &dom), -1);
 }
 
 #[test]
 fn insert_cell_into_row_basic() {
     let mut dom = EcsDom::new();
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     let td = insert_cell_into_row(tr, &mut dom, -1).unwrap();
     assert_eq!(cell_index(td, &dom), 0);
 }
@@ -210,7 +210,7 @@ fn insert_cell_into_row_basic() {
 #[test]
 fn delete_cell_oob() {
     let mut dom = EcsDom::new();
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     let res = delete_cell_from_row(tr, &mut dom, 0);
     assert!(matches!(
         res,

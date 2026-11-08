@@ -15,11 +15,11 @@ fn list_marker_uses_counter_state() {
     // Decimal markers should show "1." and "2." via CounterState.
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ol = dom.create_element("ol", Attributes::default());
+    let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(root, ol);
-    let li1 = dom.create_element("li", Attributes::default());
+    let li1 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li1);
-    let li2 = dom.create_element("li", Attributes::default());
+    let li2 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li2);
 
     dom.world_mut().insert_one(
@@ -89,13 +89,13 @@ fn nested_ol_counter_reset() {
     // Inner ol resets counter, inner li should be "1" not "2".
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let outer_ol = dom.create_element("ol", Attributes::default());
+    let outer_ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(root, outer_ol);
-    let outer_li = dom.create_element("li", Attributes::default());
+    let outer_li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(outer_ol, outer_li);
-    let inner_ol = dom.create_element("ol", Attributes::default());
+    let inner_ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(outer_li, inner_ol);
-    let inner_li = dom.create_element("li", Attributes::default());
+    let inner_li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(inner_ol, inner_li);
 
     // Outer ol: resets list-item to 0.
@@ -205,9 +205,9 @@ fn counter_in_content_property() {
     // </div>
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, container);
-    let h2 = dom.create_element("h2", Attributes::default());
+    let h2 = dom.create_element_ownerless_fixture("h2", Attributes::default());
     dom.append_child(container, h2);
 
     // Container resets chapter counter.
@@ -249,7 +249,7 @@ fn counter_in_content_property() {
     );
 
     // Create ::before pseudo-element with counter(chapter) content.
-    let before = dom.create_text("[placeholder]");
+    let before = dom.create_text_ownerless_fixture("[placeholder]");
     dom.append_child(h2, before);
     dom.world_mut().insert_one(before, PseudoElementMarker);
     dom.world_mut().insert_one(
@@ -298,13 +298,13 @@ fn counters_concatenation() {
     // A ::before with counters(section, ".") should produce "1.1".
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let outer = dom.create_element("div", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, outer);
-    let h2_outer = dom.create_element("h2", Attributes::default());
+    let h2_outer = dom.create_element_ownerless_fixture("h2", Attributes::default());
     dom.append_child(outer, h2_outer);
-    let inner = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(outer, inner);
-    let h2_inner = dom.create_element("h2", Attributes::default());
+    let h2_inner = dom.create_element_ownerless_fixture("h2", Attributes::default());
     dom.append_child(inner, h2_inner);
 
     // Outer resets section.
@@ -383,7 +383,7 @@ fn counters_concatenation() {
     );
 
     // ::before on inner h2 with counters(section, ".").
-    let before = dom.create_text("[placeholder]");
+    let before = dom.create_text_ownerless_fixture("[placeholder]");
     dom.append_child(h2_inner, before);
     dom.world_mut().insert_one(before, PseudoElementMarker);
     dom.world_mut().insert_one(
@@ -422,9 +422,9 @@ fn start_attribute_on_ol() {
     // Counter reset to 4 (start - 1), first li increments to 5.
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ol = dom.create_element("ol", Attributes::default());
+    let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(root, ol);
-    let li = dom.create_element("li", Attributes::default());
+    let li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li);
 
     // ol resets list-item to 4 (start=5, reset to start-1).
@@ -494,11 +494,11 @@ fn custom_counter_increment() {
     // Counter incremented by 2 each time.
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, container);
-    let item1 = dom.create_element("div", Attributes::default());
+    let item1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(container, item1);
-    let item2 = dom.create_element("div", Attributes::default());
+    let item2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(container, item2);
 
     dom.world_mut().insert_one(
@@ -540,7 +540,7 @@ fn custom_counter_increment() {
     }
 
     // Add a ::before to item2 to verify counter value is 4 (not 2).
-    let before = dom.create_text("[placeholder]");
+    let before = dom.create_text_ownerless_fixture("[placeholder]");
     dom.append_child(item2, before);
     dom.world_mut().insert_one(before, PseudoElementMarker);
     dom.world_mut().insert_one(
@@ -577,13 +577,13 @@ fn display_none_li_emits_no_marker() {
     // this; here we only assert the painted marker count).
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ol = dom.create_element("ol", Attributes::default());
+    let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(root, ol);
-    let li1 = dom.create_element("li", Attributes::default());
+    let li1 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li1);
-    let li2_hidden = dom.create_element("li", Attributes::default());
+    let li2_hidden = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li2_hidden);
-    let li3 = dom.create_element("li", Attributes::default());
+    let li3 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li3);
 
     dom.world_mut().insert_one(

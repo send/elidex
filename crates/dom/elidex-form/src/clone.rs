@@ -187,7 +187,7 @@ mod tests {
     /// Build an entity with the given tag + attributes and an attached
     /// `FormControlState` (as the reconciler / parse-time walk would).
     fn control(dom: &mut EcsDom, tag: &str, attrs: &[(&str, &str)]) -> Entity {
-        let e = dom.create_element(tag, attrs_map(attrs));
+        let e = dom.create_element_ownerless_fixture(tag, attrs_map(attrs));
         assert!(create_form_control_state(dom, e), "expected a form control");
         e
     }
@@ -196,7 +196,7 @@ mod tests {
     /// attributes (the clone-policy copies `Attributes`) and a `ClonedFrom`
     /// marker — but *no* `FormControlState` yet (the clone-policy non-copy).
     fn cloned_from(dom: &mut EcsDom, src: Entity, tag: &str, attrs: &[(&str, &str)]) -> Entity {
-        let dst = dom.create_element(tag, attrs_map(attrs));
+        let dst = dom.create_element_ownerless_fixture(tag, attrs_map(attrs));
         let _ = dom.world_mut().insert_one(dst, ClonedFrom { source: src });
         dst
     }
@@ -216,7 +216,7 @@ mod tests {
             st.dirty_value = true;
             st.update_char_count();
         }
-        let host = dom.create_element("section", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("section", Attributes::default());
         let dst_light = cloned_from(&mut dom, src_light, "input", &[]);
         let _ = dom.append_child(host, dst_light);
         let sr = dom
@@ -259,12 +259,13 @@ mod tests {
         // Chain built bottom-up (O(1) appends) ending in the input.
         let mut top = dst_input;
         for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
-            let parent = dom.create_element("div", Attributes::default());
+            let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
             assert!(dom.append_child(parent, top));
             top = parent;
         }
-        let template = dom.create_element("template", Attributes::default());
-        let fragment = dom.attach_template_contents(template, None);
+        let template = dom.create_element_ownerless_fixture("template", Attributes::default());
+        let fragment =
+            dom.attach_template_contents(template, elidex_ecs::NewNodeOwner::ownerless_fixture());
         assert!(dom.append_child(fragment, top));
 
         apply_clone_form_state(&mut dom, template, CloneScope::Subtree);
@@ -373,8 +374,8 @@ mod tests {
         let mut dom = EcsDom::new();
         // A `<div>` carrying a (hypothetical) marker: the copy must not spawn a
         // spurious FormControlState, and the marker is swept.
-        let src = dom.create_element("div", Attributes::default());
-        let dst = dom.create_element("div", Attributes::default());
+        let src = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let dst = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(dst, ClonedFrom { source: src });
         apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 
@@ -386,7 +387,7 @@ mod tests {
     fn source_without_form_state_yields_no_clone_state() {
         let mut dom = EcsDom::new();
         // Source `<input>` that never materialized a FormControlState.
-        let src = dom.create_element("input", Attributes::default());
+        let src = dom.create_element_ownerless_fixture("input", Attributes::default());
         let dst = cloned_from(&mut dom, src, "input", &[]);
         apply_clone_form_state(&mut dom, dst, CloneScope::Subtree);
 

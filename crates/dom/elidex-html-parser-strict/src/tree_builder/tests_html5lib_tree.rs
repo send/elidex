@@ -179,7 +179,8 @@ fn run_suite(name: &str, raw: &str) -> (usize, usize, usize, Vec<String>) {
             None => TreeBuilder::build(&case.input).map(|tree| serialize_document(&tree)),
             Some(ctx_tag) => {
                 let mut dom = EcsDom::new();
-                let ctx = dom.create_element(ctx_tag.as_str(), Attributes::default());
+                let ctx =
+                    dom.create_element_ownerless_fixture(ctx_tag.as_str(), Attributes::default());
                 parse_fragment_strict(&case.input, ctx, &mut dom, ParseFragmentOptions::default())
                     .map(|roots| serialize_fragment(&dom, &roots))
             }

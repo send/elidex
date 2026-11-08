@@ -21,7 +21,7 @@ fn disconnected_mutation_observer_is_collected() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, root));
     #[allow(unsafe_code)]
     unsafe {
@@ -53,7 +53,7 @@ fn unobserved_resize_observer_is_collected() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {
@@ -83,7 +83,7 @@ fn unobserved_intersection_observer_is_collected() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {
@@ -117,7 +117,7 @@ fn despawn_of_sole_target_makes_mutation_observer_collectible() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {
@@ -153,7 +153,7 @@ fn despawn_of_sole_target_makes_resize_observer_collectible() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {
@@ -183,7 +183,7 @@ fn despawn_of_sole_target_makes_intersection_observer_collectible() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
     #[allow(unsafe_code)]
     unsafe {

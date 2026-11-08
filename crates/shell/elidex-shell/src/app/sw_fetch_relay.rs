@@ -9,10 +9,8 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use super::tab::TabId;
+use elidex_api_sw::handle::DEFAULT_IDLE_TIMEOUT;
 use elidex_api_sw::{ContentToSw, SwHandle, SwResponse};
-
-/// Timeout for pending SW fetch requests (30 seconds, matching SW idle timeout).
-const SW_FETCH_TIMEOUT_SECS: u64 = 30;
 
 /// A pending fetch awaiting a SW response.
 struct PendingFetch {
@@ -96,7 +94,9 @@ impl SwFetchRelay {
     /// These should be resolved with a passthrough (None response).
     pub fn check_timeouts(&mut self) -> Vec<(TabId, u64)> {
         let now = Instant::now();
-        let timeout = std::time::Duration::from_secs(SW_FETCH_TIMEOUT_SECS);
+        // The SW idle / drain bound, read from its one home (no copy); its
+        // ordering against the SW's own drain is `#11-sw-fetch-relay-deadline-ordering`.
+        let timeout = DEFAULT_IDLE_TIMEOUT;
         let mut timed_out = Vec::new();
 
         self.pending.retain(|&fetch_id, pending| {
@@ -162,8 +162,9 @@ mod tests {
             1,
             PendingFetch {
                 tab_id: TabId(1),
+                // Past the relay's bound (`DEFAULT_IDLE_TIMEOUT`), whatever its value.
                 initiated_at: Instant::now()
-                    .checked_sub(std::time::Duration::from_mins(1))
+                    .checked_sub(DEFAULT_IDLE_TIMEOUT + std::time::Duration::from_secs(1))
                     .unwrap(),
                 scope: url::Url::parse("https://example.com/").unwrap(),
             },

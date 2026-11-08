@@ -708,8 +708,8 @@ fn re_render_registers_dynamically_added_keyframes() {
         .unwrap_or(result.document);
     let style = result
         .dom
-        .create_element("style", elidex_ecs::Attributes::default());
-    let text = result.dom.create_text(
+        .create_element_ownerless_fixture("style", elidex_ecs::Attributes::default());
+    let text = result.dom.create_text_ownerless_fixture(
         "@keyframes foo { from { opacity: 0; } to { opacity: 1; } } \
          #box { animation-name: foo; animation-duration: 1s; }",
     );

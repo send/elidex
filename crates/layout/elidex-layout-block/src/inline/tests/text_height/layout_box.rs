@@ -14,16 +14,16 @@ fn inline_span_gets_layout_box() {
         dom.remove_child(parent, c);
     }
 
-    let text1 = dom.create_text("Hello ");
+    let text1 = dom.create_text_ownerless_fixture("Hello ");
     dom.append_child(parent, text1);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let span_style = ComputedStyle {
         font_family: style.font_family.clone(),
         ..Default::default()
     };
     let _ = dom.world_mut().insert_one(span, span_style);
     dom.append_child(parent, span);
-    let text2 = dom.create_text("World");
+    let text2 = dom.create_text_ownerless_fixture("World");
     dom.append_child(span, text2);
 
     let children = dom.composed_children(parent);
@@ -82,14 +82,14 @@ fn whitespace_only_inline_span_gets_no_layout_box() {
     for &c in &children {
         dom.remove_child(parent, c);
     }
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let span_style = ComputedStyle {
         font_family: style.font_family.clone(),
         ..Default::default()
     };
     let _ = dom.world_mut().insert_one(span, span_style);
     dom.append_child(parent, span);
-    let ws = dom.create_text("   ");
+    let ws = dom.create_text_ownerless_fixture("   ");
     dom.append_child(span, ws);
 
     let children = dom.composed_children(parent);
@@ -121,7 +121,7 @@ fn multi_line_inline_box_unions_fragment_bounds() {
     for &c in &children {
         dom.remove_child(parent, c);
     }
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let span_style = ComputedStyle {
         white_space: WhiteSpace::Pre,
         font_family: style.font_family.clone(),
@@ -129,7 +129,7 @@ fn multi_line_inline_box_unions_fragment_bounds() {
     };
     let _ = dom.world_mut().insert_one(span, span_style);
     dom.append_child(parent, span);
-    let text = dom.create_text("WIDE\nx");
+    let text = dom.create_text_ownerless_fixture("WIDE\nx");
     dom.append_child(span, text);
 
     let children = dom.composed_children(parent);

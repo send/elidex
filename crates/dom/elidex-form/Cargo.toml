@@ -21,5 +21,8 @@ elidex-dom-api.workspace = true
 elidex-script-session.workspace = true
 url.workspace = true
 
+[dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
+
 [lints]
 workspace = true

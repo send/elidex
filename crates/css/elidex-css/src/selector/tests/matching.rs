@@ -36,7 +36,7 @@ fn id_matching_is_case_sensitive() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("id", "main");
-    let e = dom.create_element("div", attrs);
+    let e = dom.create_element_ownerless_fixture("div", attrs);
     let sel = parse_sel("#Main").unwrap();
     assert!(!sel.matches(e, &dom));
 }
@@ -75,8 +75,8 @@ fn match_child_direct_only() {
 fn match_root_pseudo_class() {
     let mut dom = EcsDom::new();
     let doc_root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(doc_root, html);
     dom.append_child(html, body);
 
@@ -89,8 +89,8 @@ fn match_root_pseudo_class() {
 fn root_requires_document_parent() {
     // An html element without a proper document root parent should not match :root.
     let mut dom = EcsDom::new();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(html, body);
     // html has no parent at all -- :root requires parent to be non-element.
     let sel = parse_sel(":root").unwrap();
@@ -267,7 +267,7 @@ fn match_first_child_with_text_node_before() {
     // first element child (text nodes are not elements).
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
-    let text = dom.create_text("some text");
+    let text = dom.create_text_ownerless_fixture("some text");
     let span = elem(&mut dom, "span");
     dom.append_child(parent, text);
     dom.append_child(parent, span);
@@ -327,7 +327,7 @@ fn match_empty_with_text_child() {
     // :empty should NOT match if there's a non-whitespace text node child.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, text);
 
     let sel = parse_sel(":empty").unwrap();
@@ -341,7 +341,7 @@ fn match_empty_with_whitespace_only_text() {
     // common indentation case once inter-element whitespace is retained.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
-    let ws = dom.create_text("\n  ");
+    let ws = dom.create_text_ownerless_fixture("\n  ");
     dom.append_child(div, ws);
 
     let sel = parse_sel(":empty").unwrap();
@@ -355,7 +355,7 @@ fn match_empty_excludes_nbsp() {
     // `<div>&nbsp;</div>`).
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
-    let nbsp = dom.create_text("\u{00A0}");
+    let nbsp = dom.create_text_ownerless_fixture("\u{00A0}");
     dom.append_child(div, nbsp);
 
     let sel = parse_sel(":empty").unwrap();
@@ -368,7 +368,7 @@ fn match_empty_with_only_comment() {
     // whose only child is a comment IS :empty.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
-    let comment = dom.create_comment("c");
+    let comment = dom.create_comment_ownerless_fixture("c");
     dom.append_child(div, comment);
 
     let sel = parse_sel(":empty").unwrap();
@@ -380,11 +380,11 @@ fn match_empty_mixed_whitespace_and_comment() {
     // Whitespace text + comment together still leave the element :empty.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
-    let ws1 = dom.create_text("  ");
+    let ws1 = dom.create_text_ownerless_fixture("  ");
     dom.append_child(div, ws1);
-    let comment = dom.create_comment("c");
+    let comment = dom.create_comment_ownerless_fixture("c");
     dom.append_child(div, comment);
-    let ws2 = dom.create_text("\n");
+    let ws2 = dom.create_text_ownerless_fixture("\n");
     dom.append_child(div, ws2);
 
     let sel = parse_sel(":empty").unwrap();
@@ -424,7 +424,7 @@ fn adjacent_sibling_skips_text_nodes() {
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
     let h1 = elem(&mut dom, "h1");
-    let text = dom.create_text("between");
+    let text = dom.create_text_ownerless_fixture("between");
     let p = elem(&mut dom, "p");
     dom.append_child(div, h1);
     dom.append_child(div, text);
@@ -542,7 +542,7 @@ fn host_function_matches_with_class() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "active");
-    let host = dom.create_element("div", attrs);
+    let host = dom.create_element_ownerless_fixture("div", attrs);
     dom.attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
 
@@ -661,7 +661,7 @@ fn not_host_function_matches_host_without_class() {
     // Host with .active should NOT match :not(:host(.active)).
     let mut attrs = Attributes::default();
     attrs.set("class", "active");
-    let host2 = dom.create_element("div", attrs);
+    let host2 = dom.create_element_ownerless_fixture("div", attrs);
     dom.attach_shadow(host2, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
     assert!(!sel.matches(host2, &dom));
@@ -684,7 +684,7 @@ fn read_write_matches_div_with_contenteditable() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("contenteditable", "true");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     let read_write = parse_sel(":read-write").unwrap();
     let read_only = parse_sel(":read-only").unwrap();
     assert!(read_write.matches(div, &dom));
@@ -697,7 +697,7 @@ fn checked_matches_option_with_selected() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("selected", "");
-    let option = dom.create_element("option", attrs);
+    let option = dom.create_element_ownerless_fixture("option", attrs);
     let sel = parse_sel(":checked").unwrap();
     assert!(sel.matches(option, &dom));
 }
@@ -714,7 +714,7 @@ fn checked_does_not_match_option_without_selected() {
 fn required_does_not_match_fieldset() {
     // :required excludes <fieldset> per HTML spec §4.10.15.2.4.
     let mut dom = EcsDom::new();
-    let fs = dom.create_element("fieldset", Attributes::default());
+    let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let mut es = ElementState::default();
     es.insert(ElementState::REQUIRED);
     let _ = dom.world_mut().insert_one(fs, es);
@@ -726,7 +726,7 @@ fn required_does_not_match_fieldset() {
 fn optional_does_not_match_fieldset() {
     // :optional excludes <fieldset> per HTML spec §4.10.15.2.4.
     let mut dom = EcsDom::new();
-    let fs = dom.create_element("fieldset", Attributes::default());
+    let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
     let sel = parse_sel(":optional").unwrap();
     assert!(!sel.matches(fs, &dom));
@@ -736,7 +736,7 @@ fn optional_does_not_match_fieldset() {
 fn required_does_not_match_button() {
     // :required only applies to input/select/textarea, not <button>.
     let mut dom = EcsDom::new();
-    let btn = dom.create_element("button", Attributes::default());
+    let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let mut es = ElementState::default();
     es.insert(ElementState::REQUIRED);
     let _ = dom.world_mut().insert_one(btn, es);
@@ -748,11 +748,11 @@ fn required_does_not_match_button() {
 fn read_write_inherited_contenteditable() {
     // :read-write should match descendants of contenteditable elements.
     let mut dom = EcsDom::new();
-    let doc = dom.create_element("html", Attributes::default());
+    let doc = dom.create_element_ownerless_fixture("html", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("contenteditable", "true");
-    let parent = dom.create_element("div", attrs);
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", attrs);
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(doc, parent));
     assert!(dom.append_child(parent, child));
     let sel = parse_sel(":read-write").unwrap();
@@ -766,7 +766,7 @@ fn read_write_inherited_contenteditable() {
 fn valid_matches_output_element() {
     // <output> is always valid per HTML §4.10.18.7.
     let mut dom = EcsDom::new();
-    let output = dom.create_element("output", Attributes::default());
+    let output = dom.create_element_ownerless_fixture("output", Attributes::default());
     let sel_valid = parse_sel(":valid").unwrap();
     let sel_invalid = parse_sel(":invalid").unwrap();
     assert!(sel_valid.matches(output, &dom));
@@ -777,7 +777,7 @@ fn valid_matches_output_element() {
 fn optional_does_not_match_button() {
     // :optional only applies to input/select/textarea, not <button>.
     let mut dom = EcsDom::new();
-    let btn = dom.create_element("button", Attributes::default());
+    let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let _ = dom.world_mut().insert_one(btn, ElementState::default());
     let sel = parse_sel(":optional").unwrap();
     assert!(!sel.matches(btn, &dom));
@@ -788,7 +788,7 @@ fn enabled_disabled_does_not_match_fieldset() {
     // Per HTML §4.10.18.5: <fieldset> is NOT in the set of "actually disableable"
     // elements. :enabled/:disabled do not match <fieldset>.
     let mut dom = EcsDom::new();
-    let fs = dom.create_element("fieldset", Attributes::default());
+    let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
     let sel_enabled = parse_sel(":enabled").unwrap();
     let sel_disabled = parse_sel(":disabled").unwrap();
@@ -808,7 +808,7 @@ fn checked_does_not_match_non_checkbox_radio() {
     // :checked only matches <input type=checkbox|radio> and <option selected>,
     // not arbitrary form elements with CHECKED flag.
     let mut dom = EcsDom::new();
-    let btn = dom.create_element("button", Attributes::default());
+    let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let mut es = ElementState::default();
     es.insert(ElementState::CHECKED);
     let _ = dom.world_mut().insert_one(btn, es);
@@ -816,7 +816,7 @@ fn checked_does_not_match_non_checkbox_radio() {
     assert!(!sel.matches(btn, &dom));
 
     // <input type=text> with CHECKED also should not match.
-    let text_input = dom.create_element("input", Attributes::default());
+    let text_input = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.world_mut().insert_one(text_input, es);
     assert!(!sel.matches(text_input, &dom));
 }
@@ -826,7 +826,7 @@ fn checked_matches_checkbox_input() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
-    let cb = dom.create_element("input", attrs);
+    let cb = dom.create_element_ownerless_fixture("input", attrs);
     let mut es = ElementState::default();
     es.insert(ElementState::CHECKED);
     let _ = dom.world_mut().insert_one(cb, es);
@@ -838,7 +838,7 @@ fn checked_matches_checkbox_input() {
 fn indeterminate_does_not_match_non_candidate() {
     // :indeterminate only matches checkbox, radio, and progress per HTML §4.10.18.3.
     let mut dom = EcsDom::new();
-    let btn = dom.create_element("button", Attributes::default());
+    let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let mut es = ElementState::default();
     es.insert(ElementState::INDETERMINATE);
     let _ = dom.world_mut().insert_one(btn, es);
@@ -846,7 +846,7 @@ fn indeterminate_does_not_match_non_candidate() {
     assert!(!sel.matches(btn, &dom));
 
     // <input type=text> with INDETERMINATE should not match.
-    let text_input = dom.create_element("input", Attributes::default());
+    let text_input = dom.create_element_ownerless_fixture("input", Attributes::default());
     let _ = dom.world_mut().insert_one(text_input, es);
     assert!(!sel.matches(text_input, &dom));
 }
@@ -856,7 +856,7 @@ fn indeterminate_matches_checkbox() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("type", "checkbox");
-    let cb = dom.create_element("input", attrs);
+    let cb = dom.create_element_ownerless_fixture("input", attrs);
     let mut es = ElementState::default();
     es.insert(ElementState::INDETERMINATE);
     let _ = dom.world_mut().insert_one(cb, es);
@@ -867,7 +867,7 @@ fn indeterminate_matches_checkbox() {
 #[test]
 fn indeterminate_matches_progress() {
     let mut dom = EcsDom::new();
-    let progress = dom.create_element("progress", Attributes::default());
+    let progress = dom.create_element_ownerless_fixture("progress", Attributes::default());
     let mut es = ElementState::default();
     es.insert(ElementState::INDETERMINATE);
     let _ = dom.world_mut().insert_one(progress, es);

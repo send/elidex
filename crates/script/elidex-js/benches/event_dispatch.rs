@@ -47,7 +47,7 @@ fn setup() -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>, ObjectId, Entity) {
     let mut session = Box::new(SessionCore::new());
     let mut dom = Box::new(EcsDom::new());
     let doc = dom.create_document_root();
-    let el = dom.create_element("button", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("button", Attributes::default());
 
     vm.install_host_data(HostData::new());
     #[allow(unsafe_code)]

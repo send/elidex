@@ -1,13 +1,15 @@
-//! Document-level DOM API handlers: querySelector, getElementById, createElement, createTextNode.
+//! Document-level DOM API handlers: querySelector, getElementById, createElement, createTextNode,
+//! adoptNode.
 
 use elidex_css::{parse_selector_from_str, Selector};
-use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, NodeKind, TagType};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
+    apply_adopt_node, ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef,
+    SessionCore,
 };
 
-use crate::util::require_string_arg;
+use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
 
 // ---------------------------------------------------------------------------
 // querySelector
@@ -232,7 +234,11 @@ impl DomApiHandler for CreateElement {
             }
         }
         let is_template = local_name == "template";
-        let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
+        let entity = dom.create_element_with_owner(
+            local_name,
+            Attributes::default(),
+            dom.node_document_for_new_nodes(this),
+        );
         if let Some(ce_state) = ce_state {
             let _ = dom.world_mut().insert_one(entity, ce_state);
         }
@@ -261,7 +267,7 @@ impl DomApiHandler for CreateElement {
         // owner document (C2 approximation; faithful inert owner document is
         // slot `#11-template-contents-owner-document`).
         if is_template {
-            let _ = dom.attach_template_contents(entity, Some(this));
+            let _ = dom.attach_template_contents(entity, dom.node_document_for_new_nodes(entity));
         }
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
@@ -288,9 +294,66 @@ impl DomApiHandler for CreateTextNode {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let text = require_string_arg(args, 0)?;
-        let entity = dom.create_text_with_owner(text, Some(this));
+        let entity = dom.create_text_with_owner(text, dom.node_document_for_new_nodes(this));
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::TextNode);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// adoptNode
+// ---------------------------------------------------------------------------
+
+/// `document.adoptNode(node)` — DOM §4.5 (`#dom-document-adoptnode`) steps
+/// 1–4: a Document → `NotSupportedError`; a shadow root →
+/// `HierarchyRequestError`; *adopt* `node` into `this`; return `node`.
+///
+/// Any other node is adoptable, a host-linked DocumentFragment (a
+/// template's contents) included: the method has no exclusion for it. The
+/// only record is the source-parent removal's when `node` is parented
+/// (DOM §4.2.3 *remove* step 16, `#concept-node-remove`; through
+/// [`apply_adopt_node`]). `[CEReactions]` (HTML §4.13.6, `#cereactions`):
+/// the `Adopted` / `Disconnected` reactions the adopt enqueues drain at the
+/// engine's next reaction checkpoint.
+pub struct AdoptNode;
+
+impl DomApiHandler for AdoptNode {
+    fn method_name(&self) -> &str {
+        "adoptNode"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let node_ref = require_object_ref_arg(args, 0)?;
+        let (node, _) = session
+            .identity_map()
+            .get(JsObjectRef::from_raw(node_ref))
+            .ok_or_else(|| not_found_error("node not found"))?;
+        // Step 1.
+        if dom.node_kind(node) == Some(NodeKind::Document) {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::NotSupportedError,
+                message: "adoptNode: a document cannot be adopted".into(),
+            });
+        }
+        // Step 2.
+        if dom.is_shadow_root(node) {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::HierarchyRequestError,
+                message: "adoptNode: a shadow root cannot be adopted".into(),
+            });
+        }
+        // Step 3.
+        for record in apply_adopt_node(dom, node, this) {
+            session.push_notify_record(record);
+        }
+        // Step 4.
+        Ok(JsValue::ObjectRef(node_ref))
     }
 }
 
@@ -329,21 +392,21 @@ mod tests {
     fn setup_dom() -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let html = dom.create_element("html", Attributes::default());
-        let body = dom.create_element("body", Attributes::default());
+        let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+        let body = dom.create_element_ownerless_fixture("body", Attributes::default());
         dom.append_child(doc, html);
         dom.append_child(html, body);
 
         let mut div_attrs = Attributes::default();
         div_attrs.set("id", "target");
         div_attrs.set("class", "box");
-        let div = dom.create_element("div", div_attrs);
+        let div = dom.create_element_ownerless_fixture("div", div_attrs);
         dom.append_child(body, div);
 
-        let span = dom.create_element("span", Attributes::default());
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
         dom.append_child(div, span);
 
-        let p = dom.create_element("p", Attributes::default());
+        let p = dom.create_element_ownerless_fixture("p", Attributes::default());
         dom.append_child(body, p);
 
         (dom, doc)

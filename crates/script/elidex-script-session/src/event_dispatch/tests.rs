@@ -2,7 +2,7 @@ use super::*;
 use elidex_ecs::Attributes;
 
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 /// Setup a shadow DOM: root > host > shadow root > shadow child.

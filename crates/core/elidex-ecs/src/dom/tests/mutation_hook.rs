@@ -146,8 +146,9 @@ impl MutationDispatcher for MockHook {
                     merged_child_index,
                 });
             }
-            MutationEvent::AttributeChange { .. } => {
-                // Generic MockHook does not record attribute events.
+            MutationEvent::AttributeChange { .. } | MutationEvent::Adopt { .. } => {
+                // Generic MockHook does not record attribute events, nor
+                // `Adopt` (`adopt_notification.rs`'s `AdoptLog` does).
             }
             MutationEvent::CloneCreated { root, scope } => {
                 self.events
@@ -371,7 +372,7 @@ fn destroy_entity_with_no_parent_does_not_fire() {
 fn set_text_data_fires_after_text_change() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -402,7 +403,7 @@ fn set_text_data_on_non_text_entity_returns_none_and_does_not_fire() {
 fn set_text_data_utf16_length_counts_surrogate_pair_as_two() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("a");
+    let text = dom.create_text_ownerless_fixture("a");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -424,7 +425,7 @@ fn set_text_data_utf16_length_counts_surrogate_pair_as_two() {
 fn set_text_data_empty_string() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -519,7 +520,7 @@ fn set_text_data_bumps_inclusive_descendants_version() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(doc, parent));
     assert!(dom.append_child(parent, text));
 
@@ -800,7 +801,7 @@ fn append_child_after_attach_shadow_reports_light_tree_index() {
 fn replace_text_data_fires_after_replace_data_with_offset_count_replacement_len() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -831,7 +832,7 @@ fn replace_text_data_clamps_count_silently() {
     // offset > len) is the caller's responsibility.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("abcde");
+    let text = dom.create_text_ownerless_fixture("abcde");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -875,7 +876,7 @@ fn replace_text_data_bumps_inclusive_descendants_version() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(doc, parent));
     assert!(dom.append_child(parent, text));
 

@@ -308,8 +308,7 @@ impl ContentState {
     /// `ResizeObserver`, `IntersectionObserver`) per WHATWG spec ordering:
     /// mutations first, then resize, then intersection.
     ///
-    /// Invalidates `focusable_cache` when mutations affect DOM structure or
-    /// focusability-related attributes (childList, tabindex, disabled, etc.).
+    /// Invalidates `focusable_cache` on any document-tree version change.
     fn re_render(&mut self) {
         self.pipeline.sync_dirty_canvases();
         self.pipeline.caret_visible = self.caret_visible;
@@ -345,9 +344,9 @@ impl ContentState {
         // flags it `needs_render` here, before `re_render_all_iframes` rebuilds
         // the child display list — otherwise the visible iframe's blur lands a
         // frame late (Codex S2 R5). The complementary ASYNCHRONOUS case (the
-        // iframe element made non-focusable by a *buffered* mutation, e.g.
-        // `iframe.hidden = true`) can only be reconciled after `crate::re_render`
-        // flushes + GCs the bit — see pass 2 below.
+        // iframe element made non-focusable by any mutation, VM-native included,
+        // e.g. `iframe.hidden = true`) is reconciled only by the ungated step-17
+        // focus fixup inside `crate::re_render` — see pass 2 below.
         event_handlers::reconcile_focused_iframe(self);
 
         // Re-render in-process iframes before the parent so child display
@@ -408,18 +407,19 @@ impl ContentState {
         }
 
         // Reconcile the focused-iframe side field — pass 2 of 2, the ASYNCHRONOUS
-        // case, AFTER `crate::re_render`'s focusability GC. When a parent mutation
-        // makes the focused `<iframe>` non-focusable (e.g. `iframe.hidden = true`),
-        // that buffered attribute is only flushed + reconciled (the parent's
-        // `current_focus ⟹ is_focusable` GC, WHATWG HTML "update the rendering"
-        // step 17) INSIDE `crate::re_render` above — after pass 1 ran with the bit
-        // still set. By now the GC has cleared the bit, so `current_focus` no
-        // longer points at the `<iframe>` and this pass blurs the child, clearing
+        // case, AFTER `crate::re_render`'s step-17 focus fixup. When a parent
+        // mutation makes the focused `<iframe>` non-focusable (e.g.
+        // `iframe.hidden = true`), the fixup (WHATWG HTML "update the rendering"
+        // step 17) runs INSIDE `crate::re_render` above — after pass 1 ran with the
+        // bit still set — and moves the parent's focus to the viewport through the
+        // canonical transition, which also fired `blur` at the `<iframe>` element.
+        // By now the bit is cleared, so `current_focus` no longer points at the
+        // `<iframe>` and this pass blurs the child, clearing
         // its JS-observable `activeElement` and dropping `focused_iframe` so key
         // routing stops. A non-focusable iframe is not composited, so its display
-        // list staleness is moot — `blur_iframe_focus` flags `needs_render` for a
-        // later un-hide (Codex S2 R8). (The parent / in-process / OOP focusability
-        // GC itself shares the one `crate::re_render` chokepoint — see there.)
+        // list staleness is moot — `blur_iframe_focus` flags `needs_render`, which the
+        // next turn consumes (`any_iframe_needs_render`; Codex S2 R8). (The parent / in-process / OOP step-17
+        // fixup itself shares the one `crate::re_render` chokepoint — see there.)
         event_handlers::reconcile_focused_iframe(self);
 
         // `MutationObserver` + CE delivery for the flushed records is now internal
@@ -826,6 +826,10 @@ mod viewport_tests;
 #[cfg(test)]
 #[path = "../content_change_on_blur_tests.rs"]
 mod change_on_blur_tests;
+
+#[cfg(test)]
+#[path = "../content_focus_fixup_tests.rs"]
+mod focus_fixup_tests;
 
 #[cfg(test)]
 mod parent_message_gate_tests {

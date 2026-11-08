@@ -42,7 +42,8 @@ impl Default for ShadowInit {
 }
 
 /// Error variants for [`EcsDom::attach_shadow_with_init`] per WHATWG
-/// DOM §4.2.14 "attach a shadow root" validation steps.
+/// DOM §4.9 *attach a shadow root* (`#concept-attach-a-shadow-root`)
+/// validation steps.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShadowAttachError {
     /// Host entity doesn't exist or has no `TagType` component.
@@ -70,7 +71,7 @@ pub enum SlotAssignError {
     InvalidNodeKind,
 }
 
-/// Tags allowed as shadow hosts per WHATWG DOM 4.2.14.
+/// Tags allowed as shadow hosts per WHATWG DOM §4.9 *valid shadow host name* (`#valid-shadow-host-name`).
 /// Custom elements (valid custom element names) are also valid shadow hosts.
 pub(super) const VALID_SHADOW_HOST_TAGS: &[&str] = &[
     "article",
@@ -162,9 +163,11 @@ impl EcsDom {
     ///
     /// Creates a new shadow root entity as a child of `host` and marks
     /// `host` with a `ShadowHost` component. Returns the shadow root entity.
+    /// The shadow root's node document is the host's (WHATWG DOM §4.9
+    /// *attach a shadow root* step 5, "given element's node document").
     ///
-    /// Returns `Err(ShadowAttachError)` per WHATWG DOM §4.2.14 "attach a
-    /// shadow root" validation:
+    /// Returns `Err(ShadowAttachError)` per WHATWG DOM §4.9 *attach a
+    /// shadow root* validation:
     /// - [`ShadowAttachError::InvalidEntity`]: host doesn't exist or has no `TagType`
     /// - [`ShadowAttachError::InvalidTag`]: tag not in allowlist + not a valid custom element
     /// - [`ShadowAttachError::AlreadyAttached`]: host already has a shadow root
@@ -186,7 +189,10 @@ impl EcsDom {
             return Err(ShadowAttachError::AlreadyAttached);
         }
 
-        let shadow_root_entity = self.world.spawn((
+        // *Attach a shadow root* step 5: the shadow root is created "given
+        // element's node document" (WHATWG DOM §4.9).
+        let owner = self.node_document_for_new_nodes(host);
+        let shadow_root = (
             ShadowRoot {
                 mode: init.mode,
                 host,
@@ -198,7 +204,8 @@ impl EcsDom {
             },
             TreeRelation::default(),
             NodeKind::DocumentFragment,
-        ));
+        );
+        let shadow_root_entity = self.spawn_node(shadow_root, owner);
 
         if !self.append_child(host, shadow_root_entity) {
             let _ = self.world.despawn(shadow_root_entity);

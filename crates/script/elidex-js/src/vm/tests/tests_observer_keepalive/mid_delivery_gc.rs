@@ -29,9 +29,9 @@ fn mid_delivery_gc_keeps_mutation_observer_alive_and_still_delivers() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     assert!(dom.append_child(target, added));
     #[allow(unsafe_code)]
     unsafe {
@@ -152,8 +152,8 @@ fn mid_delivery_gc_keeps_gathered_resize_peer_and_still_delivers() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target_a = dom.create_element("div", elidex_ecs::Attributes::default());
-    let target_b = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target_a = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    let target_b = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target_a));
     assert!(dom.append_child(body, target_b));
     #[allow(unsafe_code)]

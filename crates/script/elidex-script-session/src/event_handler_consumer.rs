@@ -13,7 +13,7 @@
 //!   is installed (pre-bind nodes never produced a [`MutationEvent`]).
 //! - **Insert (Arm 2 — [`MutationEvent::Insert`])**: parser / `innerHTML` /
 //!   `outerHTML` / `setHTMLUnsafe` bake attributes into the `Attributes`
-//!   component at `create_element` time and do **not** fire
+//!   component at `create_element_with_owner` time and do **not** fire
 //!   `AttributeChange`. WHATWG HTML defines no event-handler
 //!   *insertion steps* (the hook that WHATWG DOM §4.2.3 Mutation algorithms'
 //!   *insert* runs); the Insert arm is an
@@ -512,7 +512,7 @@ mod spec_level_tests {
 
         fn wires_onstorage(policy: elidex_plugin::SpecLevelPolicy) -> bool {
             let mut dom = EcsDom::new();
-            let el = dom.create_element("div", Attributes::default());
+            let el = dom.create_element_ownerless_fixture("div", Attributes::default());
             let mut consumer = EventHandlerAttributeConsumer::with_policy(policy);
             consumer.handle(
                 &MutationEvent::AttributeChange {

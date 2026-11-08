@@ -27,13 +27,13 @@ pub fn about_blank_url() -> url::Url {
 }
 
 pub use components::{
-    AnonymousTableMarker, AssociatedDocument, AttrData, AttrEntityCache, Attributes,
-    BackgroundImages, BaseFrozenUrl, ColumnFlowSlice, CommentData, DialogReturnValue, DocTypeData,
-    DocumentBaseUrl, ElementState, IframeData, ImageData, InlineFlow, InlineFlowLine,
-    InlineFlowRun, InlineFragment, InlineStyle, IsModalDialog, LinkStylesheet, ListItemMarker,
-    LoadingAttribute, Namespace, NodeKind, OutputDefaultValue, OutputValueOverride,
-    PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode, SlotAssignment,
-    SlotAssignmentMode, SlottedMarker, TagType, TemplateContents, TextContent,
+    AnonymousTableMarker, AttrData, AttrEntityCache, Attributes, BackgroundImages, BaseFrozenUrl,
+    ColumnFlowSlice, CommentData, DialogReturnValue, DocTypeData, DocumentBaseUrl, ElementState,
+    IframeData, ImageData, InlineFlow, InlineFlowLine, InlineFlowRun, InlineFragment, InlineStyle,
+    IsModalDialog, LinkStylesheet, ListItemMarker, LoadingAttribute, Namespace, NodeKind,
+    OutputDefaultValue, OutputValueOverride, PseudoElementMarker, ScrollState, ShadowHost,
+    ShadowRoot, ShadowRootMode, SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType,
+    TemplateContents, TextContent,
 };
 pub use dom::equality::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,
@@ -42,8 +42,8 @@ pub use dom::equality::{
 };
 pub use dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
 pub use dom::{
-    AttributeWrite, CloneScope, EcsDom, FragmentView, MutationDispatcher, MutationEvent,
-    ScreenGeometry, TemplateContentsWalk, MAX_ANCESTOR_DEPTH,
+    AdoptedContents, AttributeWrite, CloneScope, EcsDom, FragmentView, MutationDispatcher,
+    MutationEvent, NewNodeOwner, ScreenGeometry, TemplateContentsWalk, MAX_ANCESTOR_DEPTH,
 };
 pub use fragment_tree::{BoxFragment, FragmentContent, FragmentId, FragmentNode, FragmentTree};
 

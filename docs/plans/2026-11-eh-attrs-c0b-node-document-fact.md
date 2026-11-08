@@ -33,7 +33,7 @@ Program order: C0a → C0b-pre1 → **C0b** → C0c (C0a may land any time befor
 spec-order walk and `document.adoptNode` (C0c: D-3 (c), D-6, D-13, D-19); the *replace* record order (C0a); template
 contents' owner `f` (C1); program §7.
 
-**Changelog.** *Rev 3.6.1* (2026-11-04, C1 re-check MIN-4): §4.8 `clone_subtree` row; D-11's "as at HEAD" narrowed to `clone_subtree`. *Rev 3.6* (2026-11-04): C1 plan-review R1 Q-4 erratum (PM 319): `clone_subtree`'s document override is a
+**Changelog.** *Rev 3.7* (2026-11-07, implementation errata; measured at the base `47b6c934` and at C0b's head; PM 461): HTML §13.4 / §13.2.6.1 step numbers re-looked-up in webref (root, append and redirect are now *initialize an HTML fragment parser* steps 12, 13, 15; the fragment is the parsing algorithm's step 2, adopt and return steps 6–7; *create an element for the token* 6, *insert a character* 6, *insert a comment* 5) in D-10's prose and the citation table; base values T22 `[false, true]`, T23 `[false, false, true]`, T12 `'y'` (cells corrected); §5.2's list omits `tests_base_href` (2), `range_ops` (1), `tests_node_common` (1) and `c6_domparser_element_delivered_at_insert`, and errs on two items: no `destroy.rs` fragment-teardown test exists at the base, and `clone_shadow.rs` has 8 stamp calls, not 7; DoD 3's and D-1's head P-3 population is named by symbol (line refs drifted twice during the slice); DoD 3 is met by the rename (D-17 (3)'s fixture creators are `*_ownerless_fixture`); U12 at the base is red, with `createAttribute` also red and `splitText` / `textContent` green at base (rows of the same assertion, not controls), consistent with §6.5's base list; U12's control (`createElement` on the DOMParser document) is its own test; U17 (a)'s compiling form is `cargo clippy --all-targets --all-features` (the dev-only `fixtures` reaches the lib only with the test targets, as CI's clippy step runs it); edge c0g: RC-2a (#596) is in C0b's base and the `clone.rs` `:282-285` hand stamp is gone at head (no `set_associated_document` call in `node_methods/clone.rs`); U17 and the fixture-boundary script recorded in the PR (D-17 (4)); D-11 erratum: it said `clone_subtree` stamps the clone itself "as at HEAD", but /simplify `e806ed6b` removed that self-stamp, since `node_document` reads a Document from its kind and `create_document_node` writes no self-stamp either, so the copy of a Document source is its own node document with no stamp. *Rev 3.6.1* (2026-11-04, C1 re-check MIN-4): §4.8 `clone_subtree` row; D-11's "as at HEAD" narrowed to `clone_subtree`. *Rev 3.6* (2026-11-04): C1 plan-review R1 Q-4 erratum (PM 319): `clone_subtree`'s document override is a
 `NewNodeOwner`, like `clone_node_shallow`'s (D-11); H-b3, D-7 (d), §3, §4.4, §4.9, §5.3 follow. *Rev 3.5* (2026-11-03): C0b-pre2 dropped (PM 300). *Rev 3.4.1* (2026-11-03): mise task and CLAUDE.md edits removed (PM 297). *Rev 3.4* (2026-11-03, with the program memo's rev 3.4): plan-review at `0aaa80d9` and PM 290, §10.1. *Rev 3.3* (2026-11-03, with the program memo's rev 3.3; this memo's plan-review at `15e99049`, Ax2 /
 Ax3 / Ax4, and PM 283; dispositions §10): D-21 and what only it needs (population P-10, U19's relation legs, §5.2's Attr tests,
 the handler hollowing, `AttrData`'s visibility) moved to C0b-pre2 (NEW memo); C0b keeps D-3 (b), U1's Attr variant
@@ -103,7 +103,7 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
 
 - **D-1 — `node_document`, one reader.** As program D-1. `owner_document`'s body becomes `None` for a Document, else
   `node_document`; its docstring is rewritten (P-10). The getter (`node_methods/core.rs:279`) becomes
-  `owner_document(this)` mapped to a wrapper or null. P-3's population at C0b's head: `core.rs:279` and `selection.rs:618`.
+  `owner_document(this)` mapped to a wrapper or null. P-3's population at C0b's head: the `OwnerDocument` getter (`node_methods/core.rs`) and `same_document` (`selection.rs`).
 - **D-2 — `EcsDom::adopt` (NEW), no event.** Steps 1, 2 (`detach_with_hook`, firing `Remove`), 3 (the walk if
   `document` ≠ oldDocument). `pub` (callers outside `elidex-ecs`: the session's fragment arm; C0c's `apply_adopt_node`).
   The silent re-home of a `None` oldDocument is the documented direction rule.
@@ -132,8 +132,8 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   `if let Ok(r) = world.get::<&FragmentParseRoot>(source) { return NewNodeOwner(r.redirect_document) }` else
   `NewNodeOwner(self.node_document(source))`. `FragmentParseRoot { redirect_document: Option<Entity> }` (NEW) in
   `components.rs`. `begin_detached_fragment(&mut self, context: Entity)`: throwaway; `root =
-  create_element_with_owner("html", …, node_document_for_new_nodes(throwaway))` (= the throwaway, §13.4 step 11);
-  `append_child(throwaway, root)` (step 12; a compare: same document); insert `FragmentParseRoot { redirect_document:
+  create_element_with_owner("html", …, node_document_for_new_nodes(throwaway))` (= the throwaway, §13.4 *initialize an HTML fragment parser* step 12);
+  `append_child(throwaway, root)` (step 13; a compare: same document); insert `FragmentParseRoot { redirect_document:
   node_document(context) }` on root (step 15). The strict `TreeBuilder`'s method `node_document_for_new_nodes`
   (`tree_builder/mod.rs:271`) is deleted; its callers (`insert.rs:108`, `shadow.rs:124`) and every other strict
   creation pass `self.dom.node_document_for_new_nodes(intended_parent)` (§13.2.6.1: for elements the target parent of
@@ -150,7 +150,7 @@ The program's H-1 to H-6, H-11, H-13, H-16 to H-25 bind this PR (program §0.2).
   its own, as `shadow_doc` today, `node_methods/clone.rs:239-243`). HEAD's `None` (derive from `src`, else an orphan)
   has no successor: production has no derive-from-`src` fallback, and a clone is ownerless only through the entry's
   `None` (a source without a node document), as for every creator. A Document source still ignores the argument, and
-  `clone_subtree` stamps the clone itself (`tree_clone.rs:230`), as at HEAD. The test
+  the copy is its own node document, read from its kind, with no stamp. The test
   callers (`elidex-ecs`'s `dom/tests/clone.rs`, `dom/tests/associated_document.rs`; `elidex-dom-api`'s
   `live_collection/tests.rs:598`, `:631`) pass `node_document_for_new_nodes(src)`; none needs a fixtures-gated
   constructor. *Why one type:* one entry decides every owner (program D-11 / D-17); an `Option<Entity>` whose `None`
@@ -388,15 +388,15 @@ document to `spawn_custom_element_entity`, which makes the owner decision (progr
 |---|---|
 | `node_document` (NEW) | DOM §4.4 *node document* (`#concept-node-document`) |
 | `owner_document` (doc rewrite) | DOM §4.4 `ownerDocument` getter (`#dom-node-ownerdocument`) |
-| `node_document_for_new_nodes` (NEW home) | DOM §4.4 *node document* ("set upon creation"); DOM §4.2.3 *insert* step 7.1 (the primitives' adopt target); HTML §13.2.6.1 (`#creating-and-inserting-nodes`) *create an element for the token* step 3, *insert a character* step 5, *insert a comment* step 4, *adjusted insertion location* steps 3–5; HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 14–15: root represents the redirect target (program D-10) |
+| `node_document_for_new_nodes` (NEW home) | DOM §4.4 *node document* ("set upon creation"); DOM §4.2.3 *insert* step 7.1 (the primitives' adopt target); HTML §13.2.6.1 (`#creating-and-inserting-nodes`) *create an element for the token* step 6 (targetParent from step 2, the *adjusted insertion location*), *insert a character* step 6, *insert a comment* step 5; HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) step 2 and *initialize an HTML fragment parser* step 15: root represents the redirect target (program D-10) |
 | `NewNodeOwner` (NEW) | DOM §4.4 *node document*; the program's D-17 (why ownerless is test-only) |
 | `spawn_custom_element_entity` (doc) | DOM §4.4 *node document* (set upon creation); HTML §3.2.3 *HTML element constructors* step 9.2 (`#html-element-constructors`); the `None` arm is elidex-only (D-11) |
-| `FragmentParseRoot` (NEW) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) step 15 (*insertion target redirection map*[root] = (fragment, null)), step 14 (fragment in target's node document) |
+| `FragmentParseRoot` (NEW) | HTML §13.4 *HTML fragment parsing algorithm* (*initialize an HTML fragment parser* step 15: *insertion target redirection map*[root] = (fragment, null); *HTML fragment parsing algorithm* step 2: fragment in target's node document) |
 | `adopt` (NEW) | DOM §4.5 *adopt* steps 1–3 (3.2, 3.3.2 not modelled; 3.3.3 C0c), named |
 | `append_child` / `insert_before` / `replace_child` (doc) | DOM §4.2.3 *insert* step 7.1; *replace* step 6 |
 | session fragment arm (doc) | DOM §4.2.3 *replace* step 6 |
 | `begin_detached_fragment` (doc rewrite) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 4, 11, 12, 15 |
-| `finish_detached_fragment` (doc rewrite) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 22–23 (identity: step 14 created the fragment in target's node document) |
+| `finish_detached_fragment` (doc rewrite) | HTML §13.4 *HTML fragment parsing algorithm* (`#html-fragment-parsing-algorithm`) steps 6–7 (identity: step 2 created the fragment in target's node document) |
 | `attach_template_contents` (doc) | HTML §4.12.3 *template contents* (`#template-contents`; C2: the template's node document) |
 | `create_attribute` (doc) | DOM §4.5 `createAttribute` ("creating an attribute given this"; `#dom-document-createattribute`) |
 | `create_document_type` (doc) | DOM §4.4 *node document* (set upon creation) |
@@ -532,13 +532,13 @@ id=s></span></div>', 'text/html')`; `dp2` a second one.
 | T9 | red (needs N1) | `document.body.append(d2); d2.remove(); typeof d2.onclick` | `'object'` | `'function'` |
 | T10 | red (needs N1) | `y = document.createElement('div'); y.setAttribute('onclick','window.hit=1'); h = dp.createElement('div'); h.append(y); typeof y.onclick` | `'function'` | `'object'` |
 | T11 | red | `f = dp.createDocumentFragment(); f.append(dp.createElement('i')); c = document.createElement('u'); document.body.append(c); document.body.replaceChild(f, c); f.ownerDocument === document`; variant `document.body.append(f2)` → `f2.ownerDocument === dp` | `[false, true]` | `[true, true]` |
-| T12 | red | `x = document.createElement('base'); x.setAttribute('href','https://other.test/'); dp.head.append(x); a = dp.createElement('a'); a.setAttribute('href','y'); dp.body.append(a); a.href` | not `'https://other.test/y'` (P-7; exact value recorded red-first) | `'https://other.test/y'` |
+| T12 | red | `x = document.createElement('base'); x.setAttribute('href','https://other.test/'); dp.head.append(x); a = dp.createElement('a'); a.setAttribute('href','y'); dp.body.append(a); a.href` | not `'https://other.test/y'` (P-7; measured at the base: `'y'`) | `'https://other.test/y'` |
 | T13 | red (R-B, PM 153) | `p = document.createElement('div'); dd = new DOMParser().parseFromString('<body></body>','text/html'); b = dd.body; p.append(b); b.ownerDocument === document`; `b2 = document.createElement('body'); dd.documentElement.append(b2); b2.remove(); b2.ownerDocument === dd` | `false`, `false` | `true`, `true` (T3 memo's XW-9 / XW-10 / EW-15 / EW-16 facts) |
 | T19 | withdrawn (rev 3) | the VM has no Attr entity and no `ownerDocument` on Attr (H-17) | — | moved to U1 (Attr variant) and U16 |
 | T20 | red | `dp.body.cloneNode(false).ownerDocument === dp` | `false` | `true` |
 | T21 | red | `t = dp.createElement('table'); [t.createTHead(), t.insertRow(), t.createCaption(), t.tBodies[0].insertRow(), t.rows[0].insertCell()].map(n => n.ownerDocument === dp)` | all `false` | all `true` (§4.9.1; §4.9.5; §4.9.8) |
-| T22 | red | `x = dp.createElement('div'); x.append('t', dp.createElement('i')); x.insertAdjacentText('beforeend','u'); [x.firstChild.ownerDocument === dp, x.lastChild.ownerDocument === dp]` | `[false, false]` | `[true, true]` |
-| T23 | red (Range; both landing orders vs L3 RC-2b) | `q = new DOMParser().parseFromString('<p id=p>ab<i>c</i></p>','text/html'); p = q.getElementById('p'); r = document.createRange(); r.setStart(p.firstChild, 1); r.setEnd(p, 2); f = r.extractContents(); [f.ownerDocument === q, f.firstChild.ownerDocument === q, f.lastChild.ownerDocument === q]`; **cloneContents leg** (present iff RC-2b is in C0b's base): `r2 = document.createRange(); r2.selectNodeContents(q.getElementById('p')); g = r2.cloneContents(); [g.ownerDocument === q, g.firstChild.ownerDocument === q]` | extract: `[false, false, false]` (ownerless fragment and Text clone → getter `document_root()`); clone leg: as RC-2b left it | all `true` (*extract* 1, 16.1, 18; *clone the contents* 1, 14.1). If RC-2b lands after C0b, RC-2b adds the clone leg to this cell (H-L3) |
+| T22 | red | `x = dp.createElement('div'); x.append('t', dp.createElement('i')); x.insertAdjacentText('beforeend','u'); [x.firstChild.ownerDocument === dp, x.lastChild.ownerDocument === dp]` | `[false, true]` (measured at the base; *Rev 3.7*) | `[true, true]` |
+| T23 | red (Range; both landing orders vs L3 RC-2b) | `q = new DOMParser().parseFromString('<p id=p>ab<i>c</i></p>','text/html'); p = q.getElementById('p'); r = document.createRange(); r.setStart(p.firstChild, 1); r.setEnd(p, 2); f = r.extractContents(); [f.ownerDocument === q, f.firstChild.ownerDocument === q, f.lastChild.ownerDocument === q]`; **cloneContents leg** (present iff RC-2b is in C0b's base): `r2 = document.createRange(); r2.selectNodeContents(q.getElementById('p')); g = r2.cloneContents(); [g.ownerDocument === q, g.firstChild.ownerDocument === q]` | extract: `[false, false, true]` (measured at the base, the moved `<i>` stays `q`; *Rev 3.7*; ownerless fragment and Text clone → getter `document_root()`); clone leg: as RC-2b left it | all `true` (*extract* 1, 16.1, 18; *clone the contents* 1, 14.1). If RC-2b lands after C0b, RC-2b adds the clone leg to this cell (H-L3) |
 
 ### §6.2 Unit (`crates/core/elidex-ecs/src/dom/tests/adopt_on_insert.rs`, NEW, unless stated)
 
@@ -565,7 +565,7 @@ walk: re-stamping a node with its own document changes no component, so a counte
 | U12 | red (dom-api) | a DOMParser document's tree after `CreateAttribute`, `cloneNode(false)`, the table helpers, `append('s')`, `splitText`, `textContent`, Range extract (and cloneContents if present) — every created node stamped. A value check, **not** the census (D-17 is) | all stamped |
 | U15 | red (dom-api) | `ownerDocument.get` on an element whose document was destroyed (stamp dangling), with a bound document present | `JsValue::Null` (base: the bound document) |
 | U16 | red (dom-api, H-17) | `CreateAttribute` on Document `X` → the Attr entity's `node_document == X`; `GetAttributeNode` on an element of `X` → the cached entity stamped `X`; append the element under `D` → the cached entity stamped `D` | as stated (the dom-api Attr path is not reached from the VM; `#11-dom-api-attr-entity-model-unification`) |
-| U17 | control (D-17) | in a scratch clone: (a) add `dom.create_element("x", Default::default())` to a non-test fn of `elidex-dom-api` → the CI/tools default-features Clippy step fails (while `cargo clippy --all-features` compiles it: why the step exists); (b) add `features = ["fixtures"]` to `elidex-dom-api`'s normal `elidex-ecs` dependency → `bash scripts/check-fixture-boundary.sh` fails; (c) revert → green | recorded in the PR |
+| U17 | control (D-17) | in a scratch clone: (a) add `dom.create_element("x", Default::default())` to a non-test fn of `elidex-dom-api` → the CI/tools default-features Clippy step fails (while `cargo clippy --all-targets --all-features` compiles it: why the step exists); (b) add `features = ["fixtures"]` to `elidex-dom-api`'s normal `elidex-ecs` dependency → `bash scripts/check-fixture-boundary.sh` fails; (c) revert → green | recorded in the PR |
 | U20 | red (`elidex-custom-elements` unit, D-11) | `spawn_custom_element_entity(dom, "x-e", "x-e", Some(doc))` → `node_document == doc`; with `None` → `None` and no entity spawned (entity count unchanged) | base: `None` spawns an ownerless element |
 
 ### §6.3 Mutation guards
@@ -658,7 +658,7 @@ date of `#11-dom-api-attr-entity-model-unification` (2026-10-31) has passed.
    `source`.
 2. Pre-implementation run: the fallbacks deleted alone on the base, §6.4's commands, every red test recorded with its
    reason.
-3. At C0b's head: the census commands re-run and recorded; P-3 = `core.rs:279`, `selection.rs:618`; P-4 first command =
+3. At C0b's head: the census commands re-run and recorded; P-3 = the `OwnerDocument` getter (`node_methods/core.rs`) and `same_document` (`selection.rs`) (base `:279` / `:618`; by symbol, *Rev 3.7*); DoD 3 is met by the rename (D-17 (3)'s fixture creators are `*_ownerless_fixture`, PM 461); P-4 first command =
    the definition and `node_proto.rs` only, second = 0; P-5 = 0 and 0; P-9 as stated; the four argumentless creators
    absent from `EcsDom` (`/usr/bin/grep -n 'pub fn create_element(&mut self, tag' crates/core/elidex-ecs/src/dom/mod.rs`
    → 0).

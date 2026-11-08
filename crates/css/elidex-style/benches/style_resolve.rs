@@ -10,8 +10,8 @@ use elidex_style::resolve_styles;
 fn build_flat_dom(n: usize) -> (EcsDom, String) {
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, html);
     dom.append_child(html, body);
 
@@ -19,7 +19,7 @@ fn build_flat_dom(n: usize) -> (EcsDom, String) {
     for i in 0..n {
         let mut attrs = Attributes::default();
         attrs.set("class", format!("item-{i}"));
-        let div = dom.create_element("div", attrs);
+        let div = dom.create_element_ownerless_fixture("div", attrs);
         dom.append_child(body, div);
         let _ = writeln!(
             css,
@@ -38,12 +38,12 @@ fn build_flat_dom(n: usize) -> (EcsDom, String) {
 fn build_deep_dom(depth: usize) -> (EcsDom, String) {
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(root, html);
 
     let mut parent = html;
     for _ in 0..depth {
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(parent, div);
         parent = div;
     }

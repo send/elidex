@@ -4,7 +4,7 @@ use super::*;
 fn grid_explicit_placement() {
     // grid-column: 2 / 4 places item in columns 1-2 (0-based).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -20,7 +20,7 @@ fn grid_explicit_placement() {
         )
         .unwrap();
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -58,7 +58,7 @@ fn grid_explicit_placement() {
 fn grid_span_placement() {
     // grid-column: span 2 -> item spans 2 columns.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -74,7 +74,7 @@ fn grid_span_placement() {
         )
         .unwrap();
 
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -116,7 +116,7 @@ fn grid_span_placement() {
 fn grid_auto_placement_row() {
     // Default flow is row -- items fill columns left to right, then wrap to next row.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -164,7 +164,7 @@ fn grid_auto_placement_row() {
 fn grid_auto_placement_column() {
     // column flow -- items fill rows top to bottom, then wrap to next column.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -217,7 +217,7 @@ fn grid_auto_placement_column() {
 fn grid_dense_placement() {
     // Dense packing should fill gaps.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -235,7 +235,7 @@ fn grid_dense_placement() {
         .unwrap();
 
     // Item 1: spans 2 columns.
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -250,7 +250,7 @@ fn grid_dense_placement() {
         .unwrap();
 
     // Item 2: spans 2 columns (wraps to next row, leaving a gap at (0,2)).
-    let c2 = dom.create_element("div", Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c2);
     dom.world_mut()
         .insert_one(
@@ -290,7 +290,7 @@ fn grid_dense_placement() {
 fn grid_order_property() {
     // The order property should affect visual placement order.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -307,7 +307,7 @@ fn grid_order_property() {
         .unwrap();
 
     // Create items with reversed order.
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -321,7 +321,7 @@ fn grid_order_property() {
         )
         .unwrap();
 
-    let c2 = dom.create_element("div", Attributes::default());
+    let c2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c2);
     dom.world_mut()
         .insert_one(
@@ -335,7 +335,7 @@ fn grid_order_property() {
         )
         .unwrap();
 
-    let c3 = dom.create_element("div", Attributes::default());
+    let c3 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c3);
     dom.world_mut()
         .insert_one(
@@ -376,7 +376,7 @@ fn grid_negative_line_number() {
     // grid-column-start: -1 means the last grid line (after all explicit columns).
     // With 3 explicit columns, line -1 = line 4 (0-based index 3).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -393,7 +393,7 @@ fn grid_negative_line_number() {
         .unwrap();
 
     // Place item at last column using negative line number.
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -433,7 +433,7 @@ fn grid_negative_line_number() {
 fn grid_negative_line_start_end() {
     // grid-column: -3 / -1 -> spans the last 2 explicit columns.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -449,7 +449,7 @@ fn grid_negative_line_start_end() {
         )
         .unwrap();
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -490,7 +490,7 @@ fn grid_extreme_line_number_capped() {
     // Extreme grid line numbers should be capped to prevent OOM.
     // grid-column-start: 1000000 should be capped to MAX_GRID_INDEX (10000).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -504,7 +504,7 @@ fn grid_extreme_line_number_capped() {
         )
         .unwrap();
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -548,7 +548,7 @@ fn grid_extreme_line_number_capped() {
 fn grid_extreme_span_capped() {
     // Extreme span values should be capped to prevent OOM.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -562,7 +562,7 @@ fn grid_extreme_span_capped() {
         )
         .unwrap();
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, child);
     dom.world_mut()
         .insert_one(
@@ -606,7 +606,7 @@ fn auto_placement_cursor_advances_past_semi_definite() {
     // CSS Grid §8.5: In sparse mode, auto-placed items should not backfill
     // before semi-definite items placed in Phase 2.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -624,7 +624,7 @@ fn auto_placement_cursor_advances_past_semi_definite() {
         .unwrap();
 
     // Item 1: semi-definite — placed in column 2 (0-based index 1).
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(

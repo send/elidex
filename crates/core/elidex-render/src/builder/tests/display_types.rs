@@ -20,10 +20,10 @@ fn inline_elements_text_collected() {
             ..Default::default()
         },
     );
-    let t1 = dom.create_text("Hello ");
-    let strong = dom.create_element("strong", Attributes::default());
-    let t2 = dom.create_text("world");
-    let t3 = dom.create_text("!");
+    let t1 = dom.create_text_ownerless_fixture("Hello ");
+    let strong = dom.create_element_ownerless_fixture("strong", Attributes::default());
+    let t2 = dom.create_text_ownerless_fixture("world");
+    let t3 = dom.create_text_ownerless_fixture("!");
     dom.append_child(p, t1);
     dom.append_child(p, strong);
     dom.append_child(strong, t2);
@@ -77,10 +77,10 @@ fn styled_segments_x_consecutive() {
             ..Default::default()
         },
     );
-    let s1 = dom.create_element("span", Attributes::default());
-    let s2 = dom.create_element("span", Attributes::default());
-    let t1 = dom.create_text("A");
-    let t2 = dom.create_text("B");
+    let s1 = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let s2 = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("A");
+    let t2 = dom.create_text_ownerless_fixture("B");
     dom.append_child(p, s1);
     dom.append_child(s1, t1);
     dom.append_child(p, s2);
@@ -134,9 +134,9 @@ fn display_none_inline_skipped() {
             ..Default::default()
         },
     );
-    let span = dom.create_element("span", Attributes::default());
-    let t1 = dom.create_text("visible ");
-    let t2 = dom.create_text("hidden");
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("visible ");
+    let t2 = dom.create_text_ownerless_fixture("hidden");
     dom.append_child(p, t1);
     dom.append_child(p, span);
     dom.append_child(span, t2);
@@ -219,9 +219,9 @@ fn overflow_visible_no_clip() {
 fn nested_overflow_hidden_balanced_clips() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let outer = dom.create_element("div", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(root, outer);
-    let inner = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(outer, inner);
 
     for (entity, w, h) in [(outer, 200.0, 100.0), (inner, 100.0, 50.0)] {
@@ -268,9 +268,9 @@ fn nested_overflow_hidden_balanced_clips() {
 fn list_item_disc_emits_marker() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ul = dom.create_element("ul", Attributes::default());
+    let ul = dom.create_element_ownerless_fixture("ul", Attributes::default());
     dom.append_child(root, ul);
-    let li = dom.create_element("li", Attributes::default());
+    let li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ul, li);
 
     dom.world_mut().insert_one(
@@ -320,9 +320,9 @@ fn list_item_disc_emits_marker() {
 fn list_item_square_emits_solid_rect_marker() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ul = dom.create_element("ul", Attributes::default());
+    let ul = dom.create_element_ownerless_fixture("ul", Attributes::default());
     dom.append_child(root, ul);
-    let li = dom.create_element("li", Attributes::default());
+    let li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ul, li);
 
     dom.world_mut().insert_one(
@@ -379,9 +379,9 @@ fn list_item_square_emits_solid_rect_marker() {
 fn list_item_none_no_marker() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ul = dom.create_element("ul", Attributes::default());
+    let ul = dom.create_element_ownerless_fixture("ul", Attributes::default());
     dom.append_child(root, ul);
-    let li = dom.create_element("li", Attributes::default());
+    let li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ul, li);
 
     dom.world_mut().insert_one(
@@ -430,9 +430,9 @@ fn list_item_none_no_marker() {
 fn list_item_circle_emits_stroked_marker() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ul = dom.create_element("ul", Attributes::default());
+    let ul = dom.create_element_ownerless_fixture("ul", Attributes::default());
     dom.append_child(root, ul);
-    let li = dom.create_element("li", Attributes::default());
+    let li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ul, li);
 
     dom.world_mut().insert_one(
@@ -495,9 +495,9 @@ fn list_item_circle_emits_stroked_marker() {
 fn list_item_decimal_emits_text_marker() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ol = dom.create_element("ol", Attributes::default());
+    let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(root, ol);
-    let li = dom.create_element("li", Attributes::default());
+    let li = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li);
 
     dom.world_mut().insert_one(
@@ -570,11 +570,11 @@ fn list_item_decimal_emits_text_marker() {
 fn list_item_counter_increments() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
-    let ol = dom.create_element("ol", Attributes::default());
+    let ol = dom.create_element_ownerless_fixture("ol", Attributes::default());
     dom.append_child(root, ol);
-    let li1 = dom.create_element("li", Attributes::default());
+    let li1 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li1);
-    let li2 = dom.create_element("li", Attributes::default());
+    let li2 = dom.create_element_ownerless_fixture("li", Attributes::default());
     dom.append_child(ol, li2);
 
     dom.world_mut().insert_one(

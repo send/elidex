@@ -21,7 +21,7 @@ fn get_data_comment() {
 #[test]
 fn get_data_element_error() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
     let result = GetData.invoke(div, &[], &mut session, &mut dom);
     assert!(result.is_err());
@@ -72,7 +72,7 @@ fn get_length() {
 fn get_length_utf16_surrogate() {
     let mut dom = EcsDom::new();
     // U+1F44D is 1 Unicode code point but 2 UTF-16 code units
-    let text = dom.create_text("A\u{1F44D}B");
+    let text = dom.create_text_ownerless_fixture("A\u{1F44D}B");
     let mut session = SessionCore::new();
     let result = GetLength.invoke(text, &[], &mut session, &mut dom).unwrap();
     // 'A' = 1, thumbs up = 2, 'B' = 1 -> 4 UTF-16 code units
@@ -82,7 +82,7 @@ fn get_length_utf16_surrogate() {
 #[test]
 fn substring_data_utf16_surrogate() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("A\u{1F44D}B");
+    let text = dom.create_text_ownerless_fixture("A\u{1F44D}B");
     let mut session = SessionCore::new();
     // substringData(1, 2) should extract the emoji (2 UTF-16 code units)
     let result = SubstringData
@@ -99,7 +99,7 @@ fn substring_data_utf16_surrogate() {
 #[test]
 fn split_text_utf16_surrogate() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("A\u{1F44D}B");
+    let text = dom.create_text_ownerless_fixture("A\u{1F44D}B");
     let mut session = SessionCore::new();
     // splitText(3) -- after 'A' (1) + emoji (2) = offset 3
     SplitText
@@ -112,7 +112,7 @@ fn split_text_utf16_surrogate() {
 #[test]
 fn split_text_offset_zero() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     let mut session = SessionCore::new();
     SplitText
         .invoke(text, &[JsValue::Number(0.0)], &mut session, &mut dom)
@@ -124,7 +124,7 @@ fn split_text_offset_zero() {
 #[test]
 fn split_text_offset_at_length() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     let mut session = SessionCore::new();
     SplitText
         .invoke(text, &[JsValue::Number(5.0)], &mut session, &mut dom)
@@ -136,7 +136,7 @@ fn split_text_offset_at_length() {
 #[test]
 fn insert_data_utf16_surrogate() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("A\u{1F44D}B");
+    let text = dom.create_text_ownerless_fixture("A\u{1F44D}B");
     let mut session = SessionCore::new();
     InsertData
         .invoke(
@@ -153,7 +153,7 @@ fn insert_data_utf16_surrogate() {
 #[test]
 fn delete_data_utf16_surrogate() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("A\u{1F44D}B");
+    let text = dom.create_text_ownerless_fixture("A\u{1F44D}B");
     let mut session = SessionCore::new();
     DeleteData
         .invoke(
@@ -170,7 +170,7 @@ fn delete_data_utf16_surrogate() {
 #[test]
 fn replace_data_utf16_surrogate() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("A\u{1F44D}B");
+    let text = dom.create_text_ownerless_fixture("A\u{1F44D}B");
     let mut session = SessionCore::new();
     ReplaceData
         .invoke(
@@ -394,8 +394,8 @@ fn replace_data_out_of_bounds() {
 #[test]
 fn split_text_valid() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("HelloWorld");
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("HelloWorld");
     dom.append_child(parent, text);
     let mut session = SessionCore::new();
     session.get_or_create_wrapper(text, ComponentKind::Element);
@@ -420,7 +420,7 @@ fn split_text_valid() {
 #[test]
 fn split_text_out_of_bounds() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("Hello");
+    let text = dom.create_text_ownerless_fixture("Hello");
     let mut session = SessionCore::new();
     let result = SplitText.invoke(text, &[JsValue::Number(100.0)], &mut session, &mut dom);
     assert!(result.is_err());
@@ -429,9 +429,9 @@ fn split_text_out_of_bounds() {
 #[test]
 fn split_text_inserts_after() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let text1 = dom.create_text("AB");
-    let text2 = dom.create_text("CD");
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text1 = dom.create_text_ownerless_fixture("AB");
+    let text2 = dom.create_text_ownerless_fixture("CD");
     dom.append_child(parent, text1);
     dom.append_child(parent, text2);
     let mut session = SessionCore::new();
@@ -459,7 +459,7 @@ fn split_text_inserts_after() {
 #[test]
 fn split_text_on_element_error() {
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
     let result = SplitText.invoke(div, &[JsValue::Number(0.0)], &mut session, &mut dom);
     assert!(result.is_err());
@@ -473,7 +473,7 @@ fn split_text_on_element_error() {
 #[test]
 fn set_data_rev_version() {
     let (mut dom, text, mut session) = setup_text();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, text);
     let v1 = dom.inclusive_descendants_version(text);
     SetData
@@ -491,7 +491,7 @@ fn set_data_rev_version() {
 #[test]
 fn append_data_rev_version() {
     let (mut dom, text, mut session) = setup_text();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, text);
     let v1 = dom.inclusive_descendants_version(text);
     AppendData
@@ -523,7 +523,7 @@ fn index_size_error_kind() {
 #[test]
 fn split_text_still_works() {
     let (mut dom, text, mut session) = setup_text();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, text);
     session.get_or_create_wrapper(text, ComponentKind::Element);
 

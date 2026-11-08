@@ -15,6 +15,7 @@ named members of the unguarded-child class (`UNGUARDED_LAUNCHES`).
 
 from __future__ import annotations
 
+import atexit
 import os
 import posixpath
 import re
@@ -78,9 +79,70 @@ UNGUARDED_LAUNCHES = {
 }
 
 
+# The directories a pin-file child resolves programs from: the admitted interpreter's directory
+# first (so `python3` is the interpreter running the pins, never a mise shim), then the two
+# directories that hold `bash`, `git` and the POSIX utilities the scratch driver calls on both
+# macOS and ubuntu-24.04.
+CHILD_PATH = os.pathsep.join((os.path.dirname(sys.executable), "/usr/bin", "/bin"))
+
+
+# The mise isolation of every pin-file child (invariant I7 (iii)). The variable names are copied from
+# scripts/python_pin_testing.py (MISE_DIRS / MISE_VARS), which a pin file must not import (P6); the
+# driver pin loads that helper by path and asserts the two lists agree.
+MISE_DIR_VARS = (
+    ("MISE_DATA_DIR", "data"),
+    ("MISE_CACHE_DIR", "cache"),
+    ("MISE_STATE_DIR", "state"),
+    ("MISE_CONFIG_DIR", "config"),
+)
+MISE_GLOBAL_VAR = "MISE_GLOBAL_CONFIG_FILE"
+# Dropped from the caller's environment: a bash start-up file (BASH_ENV / ENV) or an exported
+# function (BASH_FUNC_*) reaches a scratch bash driver and can rewrite PATH past CHILD_PATH.
+DROPPED_PREFIXES = ("GIT_", "MISE_", "BASH_FUNC_")
+DROPPED_NAMES = ("BASH_ENV", "ENV")
+
+_iso_root = None
+
+
+def mise_isolation_root():
+    """One temp root for the process lifetime (made at first use, removed at exit)."""
+    global _iso_root
+    if _iso_root is None:
+        _iso_root = tempfile.mkdtemp(prefix="python-suites-mise-")
+        atexit.register(shutil.rmtree, _iso_root, True)
+    return _iso_root
+
+
 def base_env():
-    """The caller's environment without any GIT_* variable."""
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    """The caller's environment, isolated: no GIT_* / MISE_* / BASH_FUNC_* / BASH_ENV / ENV, PATH = CHILD_PATH.
+
+    Invariant I7 (iii) (plan docs/plans/2026-10-python-pin-pr1-pin-and-gate.md, 4.3): a scratch
+    driver whose PATH reached a mise shim would run the real mise in a tree holding a copied
+    `.tool-versions`. Every launch of a pin file takes its environment from here, and whatever
+    mise a child reaches (a distro package in /usr/bin included) WRITES only under one temp
+    root (its data, state, config and cache directories and its global config file; it may
+    still read system or ancestor config), is offline, and installs nothing.
+
+    The one process-lifetime root is intentional: every launch of the process shares it, so what a
+    mise writes under it outlives no launch's tree and nothing outside it, and the root is removed
+    once, at exit."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(DROPPED_PREFIXES) and k not in DROPPED_NAMES
+    }
+    env["PATH"] = CHILD_PATH
+    root = mise_isolation_root()
+    for name, sub in MISE_DIR_VARS:
+        d = os.path.join(root, "mise-" + sub)
+        os.makedirs(d, exist_ok=True)
+        env[name] = d
+    g = os.path.join(root, "mise-global.toml")
+    open(g, "w").close()
+    env[MISE_GLOBAL_VAR] = g
+    env["MISE_OFFLINE"] = "1"
+    env["MISE_AUTO_INSTALL"] = "false"
+    return env
 
 
 def regime_changes(env, ref=None):
@@ -108,15 +170,26 @@ def _launch(argv, *, env, purpose, cwd=None, timeout=LAUNCH_TIMEOUT):
             "launch %r (purpose %r) changes regime key(s) %s but is not a named "
             "member of the unguarded-child class" % (argv, purpose, changed)
         )
-    proc = subprocess.run(
+    # Its own session, so a timeout kills the whole process group (a driver's descendants included),
+    # not only the child `subprocess.run` would kill.
+    proc = subprocess.Popen(
         [str(a) for a in argv],
         env=env,
         cwd=None if cwd is None else str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=timeout,
+        start_new_session=True,
     )
-    return proc.returncode, proc.stdout.decode("utf-8", "replace")
+    try:
+        stdout, _ = proc.communicate(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            pass
+        proc.communicate()
+        raise
+    return proc.returncode, stdout.decode("utf-8", "replace")
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +201,10 @@ class Scratch:
         self.dir = case.tmpdir("python-suites-pin-")
         (self.dir / "scripts").mkdir()
         shutil.copy(str(DRIVER), str(self.dir / "scripts" / "python-suites.sh"))
+        # The driver's Step 1 reads the pin and runs its reader from its own tree (scratch
+        # repositories x I1): each scratch tree holds the live pin and the live reader.
+        shutil.copy(str(REPO / ".tool-versions"), str(self.dir / ".tool-versions"))
+        shutil.copy(str(REPO / "scripts" / "python_pin.py"), str(self.dir / "scripts" / "python_pin.py"))
         for rel, body in files.items():
             p = self.dir / rel
             p.parent.mkdir(parents=True, exist_ok=True)

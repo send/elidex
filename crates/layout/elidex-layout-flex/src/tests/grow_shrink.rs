@@ -87,11 +87,11 @@ fn grown_item_child_uses_flex_resolved_width() {
     // Verify that a flex item's child sees the flex-resolved width
     // (after grow), not the original style width.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(container, flex_container());
 
     // Single item: width 100, flex-grow 1 in 600px container -> grows to 600.
-    let item = dom.create_element("div", Attributes::default());
+    let item = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         item,
         ComputedStyle {
@@ -105,7 +105,7 @@ fn grown_item_child_uses_flex_resolved_width() {
     dom.append_child(container, item);
 
     // Child with auto width should fill the parent's grown width.
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         child,
         ComputedStyle {
@@ -147,10 +147,10 @@ fn margin_item_child_not_double_offset() {
     // Verify that a flex item with non-zero margins does NOT double-offset
     // its children (margin-box vs border-box position).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(container, flex_container());
 
-    let item = dom.create_element("div", Attributes::default());
+    let item = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         item,
         ComputedStyle {
@@ -164,7 +164,7 @@ fn margin_item_child_not_double_offset() {
     );
     dom.append_child(container, item);
 
-    let grandchild = dom.create_element("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         grandchild,
         ComputedStyle {
@@ -208,10 +208,10 @@ fn descendant_positioned_at_container_offset() {
     // Verify that flex item descendants get correct absolute coordinates
     // when the container itself is at a non-zero offset.
     let mut dom = EcsDom::new();
-    let outer = dom.create_element("div", Attributes::default());
+    let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(outer, flex_container());
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(child, flex_item(200.0, 50.0));
     dom.append_child(outer, child);
 

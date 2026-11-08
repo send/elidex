@@ -18,9 +18,9 @@ fn mixed_block_inline_anonymous_box() {
 
     let _ = dom.world_mut().insert_one(parent, style.clone());
 
-    let text1 = dom.create_text("Hello ");
+    let text1 = dom.create_text_ownerless_fixture("Hello ");
     dom.append_child(parent, text1);
-    let block = dom.create_element("p", Attributes::default());
+    let block = dom.create_element_ownerless_fixture("p", Attributes::default());
     let block_style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(40.0),
@@ -29,7 +29,7 @@ fn mixed_block_inline_anonymous_box() {
     };
     let _ = dom.world_mut().insert_one(block, block_style);
     dom.append_child(parent, block);
-    let text2 = dom.create_text(" World");
+    let text2 = dom.create_text_ownerless_fixture(" World");
     dom.append_child(parent, text2);
 
     let children_list = dom.composed_children(parent);
@@ -81,7 +81,7 @@ fn block_only_children_no_anonymous_boxes() {
     }
     let _ = dom.world_mut().insert_one(parent, style.clone());
 
-    let block1 = dom.create_element("div", Attributes::default());
+    let block1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let block_style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(20.0),
@@ -90,7 +90,7 @@ fn block_only_children_no_anonymous_boxes() {
     let _ = dom.world_mut().insert_one(block1, block_style.clone());
     dom.append_child(parent, block1);
 
-    let block2 = dom.create_element("div", Attributes::default());
+    let block2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.world_mut().insert_one(block2, block_style);
     dom.append_child(parent, block2);
 
@@ -136,17 +136,17 @@ fn display_none_skipped_in_block_context() {
     }
     let _ = dom.world_mut().insert_one(parent, style.clone());
 
-    let hidden = dom.create_element("span", Attributes::default());
+    let hidden = dom.create_element_ownerless_fixture("span", Attributes::default());
     let hidden_style = ComputedStyle {
         display: Display::None,
         ..Default::default()
     };
     let _ = dom.world_mut().insert_one(hidden, hidden_style);
     dom.append_child(parent, hidden);
-    let hidden_text = dom.create_text("invisible");
+    let hidden_text = dom.create_text_ownerless_fixture("invisible");
     dom.append_child(hidden, hidden_text);
 
-    let block = dom.create_element("div", Attributes::default());
+    let block = dom.create_element_ownerless_fixture("div", Attributes::default());
     let block_style = ComputedStyle {
         display: Display::Block,
         height: Dimension::Length(30.0),
@@ -196,9 +196,9 @@ fn atomic_inline_skipped_in_styled_runs() {
         dom.remove_child(parent, c);
     }
 
-    let text1 = dom.create_text("Hello ");
+    let text1 = dom.create_text_ownerless_fixture("Hello ");
     dom.append_child(parent, text1);
-    let ib = dom.create_element("span", Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
         font_family: style.font_family.clone(),
@@ -206,9 +206,9 @@ fn atomic_inline_skipped_in_styled_runs() {
     };
     let _ = dom.world_mut().insert_one(ib, ib_style);
     dom.append_child(parent, ib);
-    let ib_text = dom.create_text("IB");
+    let ib_text = dom.create_text_ownerless_fixture("IB");
     dom.append_child(ib, ib_text);
-    let text2 = dom.create_text(" World");
+    let text2 = dom.create_text_ownerless_fixture(" World");
     dom.append_child(parent, text2);
 
     let children = dom.composed_children(parent);

@@ -11,7 +11,7 @@ fn make_vertical_dom(
     child_heights: &[f32],
 ) -> (EcsDom, Entity, Vec<Entity>) {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -22,7 +22,7 @@ fn make_vertical_dom(
     );
     let mut children = Vec::new();
     for (w, h) in child_widths.iter().zip(child_heights.iter()) {
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(parent, child);
         dom.world_mut().insert_one(
             child,
@@ -72,10 +72,10 @@ fn horizontal_tb_margin_collapse_still_works() {
     // Verify that margin collapse still functions correctly in horizontal-tb
     // after switching to containing_inline_size.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    let child1 = dom.create_element("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.world_mut().insert_one(
         child1,
@@ -87,7 +87,7 @@ fn horizontal_tb_margin_collapse_still_works() {
         },
     );
 
-    let child2 = dom.create_element("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,
@@ -198,7 +198,7 @@ fn vertical_rl_auto_sizes() {
     // - auto height (inline-size) fills available inline space
     // - auto width (block-size) = content-determined (0 with no children)
     let mut dom = EcsDom::new();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         div,
         ComputedStyle {
@@ -231,7 +231,7 @@ fn vertical_rl_padding_pct_resolves_against_inline_size() {
     // When containing_inline_size is set from the parent's writing mode,
     // the child's padding % resolves against it.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -241,7 +241,7 @@ fn vertical_rl_padding_pct_resolves_against_inline_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -283,7 +283,7 @@ fn vertical_rl_with_definite_parent_height_inline_size() {
     // When a vertical parent has a definite height, child's containing_inline_size
     // should be the parent's definite height (since inline axis = vertical).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -294,7 +294,7 @@ fn vertical_rl_with_definite_parent_height_inline_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -332,7 +332,7 @@ fn vertical_rl_with_definite_parent_height_inline_size() {
 fn vertical_lr_padding_pct_resolves_against_inline_size() {
     // Same as vertical-rl test but with vertical-lr.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -343,7 +343,7 @@ fn vertical_lr_padding_pct_resolves_against_inline_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -380,7 +380,7 @@ fn vertical_lr_padding_pct_resolves_against_inline_size() {
 fn vertical_margin_pct_resolves_against_inline_size() {
     // Margin % should also resolve against inline size in vertical modes.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -391,7 +391,7 @@ fn vertical_margin_pct_resolves_against_inline_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -423,7 +423,7 @@ fn vertical_margin_pct_resolves_against_inline_size() {
 fn horizontal_tb_padding_pct_resolves_against_width() {
     // Regression: horizontal-tb padding % still resolves against width.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -433,7 +433,7 @@ fn horizontal_tb_padding_pct_resolves_against_width() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -470,7 +470,7 @@ fn vertical_mode_child_inherits_writing_mode_for_inline_size() {
     // the child's containing_inline_size should be set from the parent's
     // writing mode (compute_inline_containing uses parent's wm).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -481,7 +481,7 @@ fn vertical_mode_child_inherits_writing_mode_for_inline_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -494,7 +494,7 @@ fn vertical_mode_child_inherits_writing_mode_for_inline_size() {
         },
     );
 
-    let grandchild = dom.create_element("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(child, grandchild);
     dom.world_mut().insert_one(
         grandchild,
@@ -536,7 +536,7 @@ fn mixed_writing_mode_horizontal_parent_vertical_child() {
     // The parent computes child's containing_inline_size using the PARENT's
     // writing mode (horizontal-tb), so it equals containing_width.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -546,7 +546,7 @@ fn mixed_writing_mode_horizontal_parent_vertical_child() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -590,7 +590,7 @@ fn float_in_vertical_mode_uses_inline_size_for_margins() {
     // Floated child in a vertical-rl parent should use containing_inline_size
     // for margin % resolution.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -601,7 +601,7 @@ fn float_in_vertical_mode_uses_inline_size_for_margins() {
         },
     );
 
-    let floated = dom.create_element("div", Attributes::default());
+    let floated = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, floated);
     dom.world_mut().insert_one(
         floated,
@@ -659,7 +659,7 @@ fn vertical_rl_margin_collapse_between_siblings() {
     // In vertical-rl: block-start = right, block-end = left.
     // So we use margin_left (block-end) on child1 and margin_right (block-start) on child2.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -669,7 +669,7 @@ fn vertical_rl_margin_collapse_between_siblings() {
         },
     );
 
-    let child1 = dom.create_element("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child1);
     dom.world_mut().insert_one(
         child1,
@@ -683,7 +683,7 @@ fn vertical_rl_margin_collapse_between_siblings() {
         },
     );
 
-    let child2 = dom.create_element("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
         child2,
@@ -721,7 +721,7 @@ fn vertical_rl_min_max_block_size() {
     // In vertical-rl: block-size = physical width.
     // min-width and max-width constrain the block-size.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -731,7 +731,7 @@ fn vertical_rl_min_max_block_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -763,7 +763,7 @@ fn vertical_rl_min_inline_size() {
     // In vertical-rl: inline-size = physical height.
     // min-height constrains the inline-size.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -774,7 +774,7 @@ fn vertical_rl_min_inline_size() {
         },
     );
 
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, child);
     dom.world_mut().insert_one(
         child,
@@ -811,7 +811,7 @@ fn vertical_rl_float_clearance() {
     // This test verifies that float + clear at least produce non-overlapping layout
     // in vertical mode (the cleared element is placed after the float in block direction).
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -822,7 +822,7 @@ fn vertical_rl_float_clearance() {
         },
     );
 
-    let floated = dom.create_element("div", Attributes::default());
+    let floated = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, floated);
     dom.world_mut().insert_one(
         floated,
@@ -836,7 +836,7 @@ fn vertical_rl_float_clearance() {
         },
     );
 
-    let cleared = dom.create_element("div", Attributes::default());
+    let cleared = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, cleared);
     dom.world_mut().insert_one(
         cleared,

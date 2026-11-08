@@ -75,7 +75,7 @@ fn make_consumable_midbreak(
 
     // The converged InlineFlow on the run-start text child: one line per column at
     // the column's baked inline-start (x≈0 and x≈150).
-    let node = dom.create_text("ab cd");
+    let node = dom.create_text_ownerless_fixture("ab cd");
     let _ = dom.append_child(div, node);
     let flow = InlineFlow::single(
         0,
@@ -204,7 +204,7 @@ fn single_box_overflow_hidden_unchanged_one_clip() {
             ..Default::default()
         },
     );
-    let node = dom.create_text("hi");
+    let node = dom.create_text_ownerless_fixture("hi");
     let _ = dom.append_child(div, node);
     let font_db = elidex_text::FontDatabase::new();
     let dl = build_display_list(&dom, &font_db);
@@ -257,7 +257,7 @@ fn bordered_midbreak_border_rects(decoration: BoxDecorationBreak) -> usize {
         .push_box(div, 0, bordered_col_fragment(0.0), true);
     dom.fragment_tree_mut()
         .push_box(div, 1, bordered_col_fragment(150.0), true);
-    let node = dom.create_text("ab");
+    let node = dom.create_text_ownerless_fixture("ab");
     let _ = dom.append_child(div, node);
     let flow = InlineFlow::single(
         0,

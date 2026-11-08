@@ -20,8 +20,13 @@ pub enum TemplateContentsWalk {
     /// Also visit each template's content fragment and its subtree. Used by
     /// structural walks that must reach every entity a subtree owns:
     /// teardown ([`EcsDom::despawn_subtree`], else the contents orphan) and
-    /// re-home ([`EcsDom::adopt_subtree`], so HTML §13.4 fragment adopt moves
-    /// the contents with the template).
+    /// re-home ([`EcsDom::adopt`]'s walk, DOM §4.5 *adopt* step 3.4: the
+    /// template's adopting steps move the contents with the template).
+    ///
+    /// Order: WHATWG DOM §4.8 Interface ShadowRoot (*shadow-including tree
+    /// order*, `#concept-shadow-including-tree-order`) for the tree; DOM §4.5
+    /// *adopt* step 3.4 and HTML §4.12.3 template *adopting steps* 2 for where
+    /// the contents sit (right after the template).
     Include,
     /// Visit the shadow-including tree only, as the spec's tree order does.
     Exclude,
@@ -88,11 +93,18 @@ impl EcsDom {
     /// tree is visited right after the host and before its light children
     /// (the shadow-root entity itself is visited too). With
     /// [`TemplateContentsWalk::Include`], each template's content fragment is
-    /// visited after the template's own subtree (it is outside tree order).
+    /// visited right after the template (DOM §4.5 *adopt* step 3.4 runs the
+    /// template's adopting steps, whose step 2 adopts the contents, HTML
+    /// §4.12.3, inside the per-descendant loop), before the template's
+    /// shadow tree and light children; the contents are outside tree order.
     ///
     /// The complete-subtree walk shared by [`Self::despawn_subtree`]
-    /// (teardown), [`Self::adopt_subtree`] (re-home) and the event-handler
-    /// bind pass (`elidex-script-session`). Breadth uses the uncapped
+    /// (teardown), [`Self::adopt`]'s walk (re-home), the custom-element
+    /// consumer's `Adopt` arm (`elidex-custom-elements`, which observes the
+    /// contents' position), the event-handler bind pass
+    /// (`elidex-script-session`) and `elidex-form`'s clone form-state sweep
+    /// (`apply_clone_form_state`, `crates/dom/elidex-form/src/clone.rs`;
+    /// order-insensitive — it only collects marked entities). Breadth uses the uncapped
     /// [`Self::child_list_uncapped`], depth an explicit work-list; a `visited`
     /// set replaces the caps as the corruption/cycle termination guard (each
     /// entity is enumerated once, however malformed the links).
@@ -109,22 +121,23 @@ impl EcsDom {
                 continue;
             }
             visit(node);
-            // Pushed first, so popped last: the content fragment is visited
-            // after the template's whole subtree.
-            if template_contents == TemplateContentsWalk::Include {
-                if let Some(fragment) = self.template_contents_fragment(node) {
-                    stack.push(fragment);
-                }
-            }
             // Light children in reverse, so `pop()` returns them in order.
             for child in self.child_list_uncapped(node).into_iter().rev() {
                 stack.push(child);
             }
             // The shadow-root entity is attached out-of-band (not a light
-            // child). Pushed last, so popped next: the shadow tree comes
-            // right after the host, before its light children.
+            // child). Pushed after the light children, so popped before
+            // them: the shadow tree comes right after the host.
             if let Some(sr) = self.get_shadow_root(node) {
                 stack.push(sr);
+            }
+            // Pushed last, so popped next: the content fragment (and its
+            // subtree) is visited right after the template (DOM §4.5
+            // *adopt* step 3.4; HTML §4.12.3 adopting steps 2).
+            if template_contents == TemplateContentsWalk::Include {
+                if let Some(fragment) = self.template_contents_fragment(node) {
+                    stack.push(fragment);
+                }
             }
         }
     }
@@ -414,6 +427,7 @@ impl EcsDom {
 
     /// Like `find_tree_root`, but when reaching a `ShadowRoot`, jumps to
     /// the host and continues upward (composed tree root).
+    /// This is DOM §4.8 *shadow-including root* (`#concept-shadow-including-root`).
     #[must_use]
     pub fn find_tree_root_composed(&self, entity: Entity) -> Entity {
         let mut current = entity;

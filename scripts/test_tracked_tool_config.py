@@ -1,6 +1,8 @@
-"""Set member: T5 clauses 2-5 (scripts/tracked_tool_config.py), its listing, controls and mutants.
+"""Set member: T5 clauses 1-5 (scripts/tracked_tool_config.py), its listing, controls and mutants.
 
-Plan of record: docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md (sections 4.3 and 6).
+Plan of record: docs/plans/2026-10-python-pin-pr0-tracked-mise-config.md (sections 4.3 and 6);
+clause 1, W1-W3 and the valid-world baseline: docs/plans/2026-10-python-pin-pr1-pin-and-gate.md (4.5)
+and docs/plans/2026-10-python-pin-pr1-tests.md (6.4).
 
 Outside the pin layer (plan D2): imports neither python_suites_fixtures nor python_suites_readers.
 The file list is this member's own `git ls-files -z`, stdout only (plan D3): stderr is piped
@@ -10,12 +12,16 @@ The module is called as `t.f(...)` so unittest.mock.patch.object reaches the mem
 """
 
 import ast
+import atexit
+import importlib.util
 import errno
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 
@@ -28,6 +34,12 @@ import tracked_tool_config as t  # noqa: E402
 REPO = os.path.dirname(HERE)
 MODULE_PATH = os.path.join(HERE, "tracked_tool_config.py")
 MEMBER_PATH = os.path.abspath(__file__)
+HELPER = "scripts/python_pin_testing.py"
+_spec = importlib.util.spec_from_file_location("python_pin_testing_under_tool_config", os.path.join(REPO, *HELPER.split("/")))
+H = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(H)
+with open(os.path.join(REPO, ".tool-versions"), "rb") as _f:
+    PIN_BYTES = _f.read()  # a malformed live pin reds every fixture world, which is the right answer
 
 
 # ----------------------------------------------------------------------------
@@ -42,8 +54,22 @@ def checked_z_output(argv, returncode, stdout, stderr):
     return [r for r in stdout.decode("utf-8", "surrogateescape").split("\0") if r]
 
 
+_ISO_ROOT = []
+
+
 def _without_git_env():
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    """The environment of the member's git children: the helper's isolated MISE_* state (no MISE_* of
+    the caller, the five isolated ones set) with the outer PATH kept (`keep_path=True`: a directory
+    holding both `mise` and `git` must not take `git` away), minus GIT_*, so a mise shim named `git`
+    reached through the outer PATH cannot write the user's mise state. One root for the process
+    lifetime."""
+    if not _ISO_ROOT:
+        _ISO_ROOT.append(os.path.realpath(tempfile.mkdtemp(prefix="tracked-tool-config-mise-")))
+        atexit.register(shutil.rmtree, _ISO_ROOT[0], True)
+    env = H.isolated_mise_env(_ISO_ROOT[0], keep_path=True)
+    env = {k: v for k, v in env.items() if not k.startswith("GIT_")}
+    env.update(MISE_OFFLINE="1", MISE_AUTO_INSTALL="false")
+    return env
 
 
 def git_z(root, *args, run=subprocess.run):
@@ -94,19 +120,43 @@ def memory_read(files):
     return read
 
 
+def pinned(tracked, read):
+    """The valid world: `tracked` plus the root pin file, and a `read` that answers it with the live bytes."""
+    tracked = list(tracked)
+    if t.ROOT_PIN not in tracked:
+        tracked.append(t.ROOT_PIN)
+
+    def read_pinned(path):
+        if path == t.ROOT_PIN:
+            return PIN_BYTES
+        return read(path)
+
+    return tracked, read_pinned
+
+
 def probs(files, extra=()):
-    """problems() over in-memory files {path: text-or-bytes}; `extra` = more tracked paths."""
+    """problems() over in-memory files {path: text-or-bytes}; `extra` = more tracked paths.
+
+    Built on `pinned` unless `files` name the root pin file themselves (W1's clause-1 cases).
+    """
     data = {p: (v.encode("utf-8") if isinstance(v, str) else v) for p, v in files.items()}
-    return t.problems(list(data) + list(extra), memory_read(data))
+    tracked, read = list(data) + list(extra), memory_read(data)
+    if t.ROOT_PIN not in data:
+        tracked, read = pinned(tracked, read)
+    return t.problems(tracked, read)
 
 
 def mise_probs(text, tracked=()):
     return probs({"mise.toml": text}, extra=tracked)
 
 
-# The only modules tracked_tool_config.py may import (no alias): none can launch a process.
-MODULE_IMPORTS = ("errno", "os", "re", "stat", "string")
+# The only modules tracked_tool_config.py may import (no alias): none launches when imported, and
+# from `python_pin` (which also holds `ask_mise`, a launcher) only the parser names are taken.
+MODULE_IMPORTS = ("errno", "os", "re", "stat", "string", "python_pin")
+PIN_IMPORTS = ("PinFileError", "parse_pin")
 CONTROLS_2_TO_5 = ("C2", "C3", "C4", "C5", "L1", "L2", "mutants_are_killed")
+CONTROLS_1 = ("W1", "W2", "W3", "clause1_mutants_are_killed")
+CLAUSE_1_NAMES = ("root_pin_problems", "_REMEDY_PIN")
 
 
 def _prefix(clause, path, line=None):
@@ -144,10 +194,13 @@ class TrackedToolConfig(unittest.TestCase):
                 for a in n.names:
                     self.assertIsNone(a.asname, "import alias %s" % a.name)
                     self.assertIn(a.name, MODULE_IMPORTS, "import outside the allow-list: %s" % a.name)
+                    self.assertNotEqual(a.name, "python_pin", "import python_pin binds the module, ask_mise included")
             if isinstance(n, ast.ImportFrom):
                 self.assertIn(n.module, MODULE_IMPORTS, "import outside the allow-list: %s" % n.module)
                 for a in n.names:
                     self.assertIsNone(a.asname, "import alias %s" % a.name)
+                    if n.module == "python_pin":
+                        self.assertIn(a.name, PIN_IMPORTS, "python_pin name outside the parser: %s" % a.name)
                     if n.module == "os":
                         self.assertFalse(a.name.startswith(launchers), "os launch import %s" % a.name)
             if isinstance(n, ast.Attribute):
@@ -159,7 +212,7 @@ class TrackedToolConfig(unittest.TestCase):
             self.assertFalse(isinstance(n, ast.Name) and n.id in ("TestCase", "__name__"), "TestCase / __main__ guard")
             self.assertFalse(isinstance(n, ast.Attribute) and n.attr == "TestCase")
             self.assertFalse(isinstance(n, ast.Constant) and n.value == "--self-test")
-        # the seam: CLAUSES_2_TO_5 is the module's complete set of top-level names minus `problems`
+        # the seam: CLAUSES_2_TO_5 is the module's complete set of top-level names minus `problems` and clause 1's names
         defined = set()
         for n in mod.body:
             if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
@@ -168,11 +221,12 @@ class TrackedToolConfig(unittest.TestCase):
                 targets = n.targets if isinstance(n, ast.Assign) else [n.target]
                 for tg in targets:
                     defined.update(x.id for x in ast.walk(tg) if isinstance(x, ast.Name))
-        self.assertIn("problems", defined)
-        self.assertNotIn("problems", t.CLAUSES_2_TO_5)
-        self.assertEqual(set(t.CLAUSES_2_TO_5), defined - {"problems"})
+        outside = {"problems"} | set(CLAUSE_1_NAMES)
+        self.assertTrue(outside <= defined, outside - defined)
+        self.assertFalse(outside & set(t.CLAUSES_2_TO_5))
+        self.assertEqual(set(t.CLAUSES_2_TO_5), defined - outside)
         self.assertEqual(len(t.CLAUSES_2_TO_5), len(set(t.CLAUSES_2_TO_5)))
-        for cid in CONTROLS_2_TO_5:
+        for cid in CONTROLS_2_TO_5 + CONTROLS_1:
             self.assertTrue(callable(getattr(type(self), "test_" + cid, None)), "no test_" + cid)
 
     def test_C0(self):
@@ -230,9 +284,19 @@ class TrackedToolConfig(unittest.TestCase):
         def boom(path):
             raise AssertionError("clause 3 read %s" % path)
 
-        self.only(t.problems([".miserc.toml"], boom), "3a", ".miserc.toml")  # r4
-        # g1: the root .tool-versions is skipped (clause 1 is PR-1's) and never read
-        self.assertEqual(t.problems([".tool-versions"], boom), [])
+        self.only(t.problems(*pinned([".miserc.toml"], boom)), "3a", ".miserc.toml")  # r4
+        # g1: W1's green case -- the root .tool-versions holding the live line is green and read
+        self.pin_green_and_read(PIN_BYTES)
+
+    def pin_green_and_read(self, data):
+        seen = []
+
+        def read(path):
+            seen.append(path)
+            return data
+
+        self.assertEqual(t.problems([t.ROOT_PIN], read), [])
+        self.assertEqual(seen, [t.ROOT_PIN], "the root pin file was not read")
 
     def test_C3(self):
         self.control_C3()
@@ -294,7 +358,7 @@ class TrackedToolConfig(unittest.TestCase):
                 ("mise.bad.toml", "non-UTF-8", "track the file itself as UTF-8 text"),
             )
             for p, kind, remedy in cases:
-                f = self.only(t.problems([p], read), "4", p)
+                f = self.only(t.problems(*pinned([p], read)), "4", p)
                 self.assertIn("unclassifiable (%s)" % kind, f)
                 self.assertIn(remedy, f)
             # unreadable: any OSError from the read maps to its own kind (open patched; a chmod is
@@ -304,7 +368,7 @@ class TrackedToolConfig(unittest.TestCase):
                 (IsADirectoryError(errno.EISDIR, "is a directory"), "EISDIR"),
             ):
                 with mock.patch("builtins.open", side_effect=exc):
-                    f = self.only(t.problems(["mise.ok.toml"], read), "4", "mise.ok.toml")
+                    f = self.only(t.problems(*pinned(["mise.ok.toml"], read)), "4", "mise.ok.toml")
                 self.assertIn("unclassifiable (unreadable: %s)" % name, f)
                 self.assertIn("track the file itself as UTF-8 text", f)
         # a symlinked parent component: the file itself is a regular file, the path is not
@@ -314,15 +378,15 @@ class TrackedToolConfig(unittest.TestCase):
                 f.write("x = 1\n")
             os.symlink("real", os.path.join(d, "link"))
             read = t.worktree_reader(d)
-            f = self.only(t.problems(["link/mise.toml"], read), "4", "link/mise.toml")
+            f = self.only(t.problems(*pinned(["link/mise.toml"], read)), "4", "link/mise.toml")
             self.assertIn("unclassifiable (symlink)", f)
-            self.assertEqual(t.problems(["real/mise.toml"], read), [])
+            self.assertEqual(t.problems(*pinned(["real/mise.toml"], read)), [])
         # content holding NUL (BOM-less UTF-16 decodes as UTF-8) is non-text
         f = self.only(probs({"mise.toml": "x = 1\n".encode("utf-16-le")}), "4", "mise.toml")
         self.assertIn("unclassifiable (contains NUL)", f)
         self.assertIn("track the file itself as UTF-8 text", f)
         bad = "mise\udcff.toml"
-        f = self.only(t.problems([bad], memory_read({})), "4", "mise\\udcff.toml")
+        f = self.only(t.problems(*pinned([bad], memory_read({}))), "4", "mise\\udcff.toml")
         self.assertIn("unclassifiable (non-UTF-8)", f)
         # r6, r7
         self.only(mise_probs("python.compile = true\n"), "4", "mise.toml", 1)
@@ -372,7 +436,7 @@ class TrackedToolConfig(unittest.TestCase):
         }
         tracked = list(files) + ["mise.missing.toml"]
         read = memory_read({p: v.encode("utf-8") for p, v in files.items()})
-        self.assertEqual(t.problems(list(reversed(tracked)), read), t.problems(tracked, read))
+        self.assertEqual(t.problems(*pinned(list(reversed(tracked)), read)), t.problems(*pinned(tracked, read)))
         expect = (
             ("3a", ".miserc.toml", None, "rc file"),
             ("3c", ".python-version", None, "another tool goes into mise.toml [tools]"),
@@ -381,7 +445,7 @@ class TrackedToolConfig(unittest.TestCase):
             ("4", "mise.toml", 10, "reword"),
             ("4", "sub/mise.toml", 1, "reword"),
         )
-        out = t.problems(tracked, read)
+        out = t.problems(*pinned(tracked, read))
         self.assertEqual(len(out), len(expect), out)
         for got, (clause, path, line, remedy) in zip(out, expect):
             prefix = _prefix(clause, path, line)
@@ -439,19 +503,143 @@ class TrackedToolConfig(unittest.TestCase):
             for name in (".miserc.toml", "mise.local.toml", ".python-version"):
                 with open(os.path.join(d, name), "w") as f:
                     f.write("python 3.12\n")
-            _setup(d, "git", "-c", "core.excludesFile=", "add", "-f", ".miserc.toml")
+            with open(os.path.join(d, t.ROOT_PIN), "wb") as f:
+                f.write(PIN_BYTES)
+            _setup(d, "git", "-c", "core.excludesFile=", "add", "-f", ".miserc.toml", t.ROOT_PIN)
             self.only(t.problems(lister(d), t.worktree_reader(d)), "3a", ".miserc.toml")
 
     def test_L2(self):
         self.control_L2()
 
+    # -- W1: clause 1 --------------------------------------------------------
+
+    def control_W1(self):
+        # green: the live line with and without the final newline, and the root file is read
+        self.pin_green_and_read(PIN_BYTES)
+        self.pin_green_and_read(PIN_BYTES.rstrip(b"\n"))
+        # red: not tracked (the file is readable, so only the tracking is wrong)
+        found = t.problems(*pinned(["mise.toml"], memory_read({"mise.toml": b"x = 1\n"})))
+        self.assertEqual(found, [])
+        untracked = t.problems(["mise.toml"], lambda path: PIN_BYTES if path == t.ROOT_PIN else b"x = 1\n")
+        self.assertIn("the root pin file is not tracked", self.only(untracked, "1", t.ROOT_PIN))
+        # red: tracked but absent
+        self.assertIn("unclassifiable (missing)", self.only(t.problems([t.ROOT_PIN], memory_read({})), "1", t.ROOT_PIN))
+        # red: a symlink (its target holds a valid pin, so a reader that follows it reads green)
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "pin.txt"), "wb") as f:
+                f.write(PIN_BYTES)
+            os.symlink("pin.txt", os.path.join(d, t.ROOT_PIN))
+            f = self.only(t.problems([t.ROOT_PIN], t.worktree_reader(d)), "1", t.ROOT_PIN)
+            self.assertIn("unclassifiable (symlink)", f)
+        # red: not UTF-8
+        self.assertIn("non-UTF-8", self.only(probs({t.ROOT_PIN: b"python 3.15.2\n\xff"}), "1", t.ROOT_PIN))
+        # red: N2's texts, through problems
+        for text, _why in H.RED_PIN_TEXTS:
+            f = self.only(probs({t.ROOT_PIN: text}), "1", t.ROOT_PIN)
+            self.assertIn("not exactly one line", f, text)
+            self.assertIn("another tool goes into mise.toml [tools]", f)
+
+    def test_W1(self):
+        self.control_W1()
+
+    def control_git_env_keeps_git(self):
+        # a directory holding both a `mise` and a `git` (distro /usr/bin): git must still resolve
+        tmp = tempfile.mkdtemp(prefix="git-env-control-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        both = os.path.join(tmp, "both")
+        os.makedirs(both)
+        for name in ("mise", "git"):
+            with open(os.path.join(both, name), "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(os.path.join(both, name), 0o755)
+        with mock.patch.dict(os.environ, {"PATH": both + os.pathsep + os.environ.get("PATH", ""),
+                                          "MISE_DATA_DIR": "/outer", "GIT_DIR": "/outer"}):
+            env = _without_git_env()
+        self.assertEqual(shutil.which("git", path=env["PATH"]), os.path.join(both, "git"))
+        mise = {k: v for k, v in env.items() if k.startswith("MISE_") and k not in ("MISE_OFFLINE", "MISE_AUTO_INSTALL")}
+        self.assertEqual(H.isolation_problems(mise, _ISO_ROOT[0]), [])
+        self.assertEqual((env["MISE_OFFLINE"], env["MISE_AUTO_INSTALL"]), ("1", "false"))
+        self.assertNotIn("GIT_DIR", env)
+        self.assertNotEqual(env.get("MISE_DATA_DIR"), "/outer")
+
+    def test_git_env_keeps_git(self):
+        self.control_git_env_keeps_git()
+
+    def test_git_env_mutant_is_killed(self):
+        real = H.isolated_mise_env
+        # mutant: the path-dropping env (keep_path ignored)
+        with mock.patch.object(H, "isolated_mise_env", lambda root, **kw: real(root)):
+            with self.assertRaises(AssertionError):
+                self.control_git_env_keeps_git()
+
+    def test_problems_names_a_newline_bearing_member_path(self):
+        # F4: the findings are concatenated, never re-parsed; a newline or ": " in a path is a named finding.
+        for path in ("mise\n.toml", "a: b/mise.toml"):
+            out = probs({path: "python\n"})
+            self.assertEqual(len(out), 1, out)
+            self.assertTrue(out[0].startswith("T5 clause 4: " + path), out)
+        # an iterator input is walked by both finders (F4 addendum): a valid tree is clean
+        tracked, read = pinned(["mise.toml"], memory_read({"mise.toml": b"x = 1\n"}))
+        self.assertEqual(t.problems(iter(tracked), read), [])
+        # clause 1 precedes the members' findings
+        out = probs({t.ROOT_PIN: "python 3.15.2 3.14.10\n", "mise\n.toml": "python\n"})
+        self.assertEqual([f[:12] for f in out], ["T5 clause 1:", "T5 clause 4:"], out)
+
+    # -- W2: the install settings over parsed TOML ---------------------------
+
+    def control_W2(self, check=None):
+        check = check or settings_problems
+        with open(os.path.join(REPO, "mise.toml"), "rb") as f:
+            live = f.read().decode("utf-8")
+        self.assertEqual(check(live), [], "the live mise.toml's [settings] is not the admitted table")
+        lines = "\n".join(t.ADMITTED_LINES) + "\n"
+        self.assertEqual(check("[settings]\n" + lines), [])
+        self.assertEqual(check("[settings.python]\ncompile = false\ngithub_attestations = true\n"), [])  # E22: parse-equal
+        reds = {
+            "absent table": '[tasks.check]\nrun = "x"\n',
+            "E21 lines under a task": "[tasks.x]\n" + lines,
+            "E21 lines before the table, then another": lines.replace(" = ", "=") + "[tasks.x]\n",
+            "E23 compile flipped": "[settings]\npython.compile = true\npython.github_attestations = true\n",
+            "E23 attestations flipped": "[settings]\npython.compile = false\npython.github_attestations = false\n",
+            "extra settings.python key": "[settings]\n" + lines + "python.extra = 1\n",
+            "missing settings.python key": "[settings]\npython.compile = false\n",
+            "E24 extra settings key": "[settings]\n" + lines + "experimental = true\n",
+            "settings not a table": "settings = 1\n",
+            "TOML error": "[settings\n",
+        }
+        for name, text in reds.items():
+            self.assertTrue(check(text), name)
+        self.assertTrue(any("experimental" in m for m in check(reds["E24 extra settings key"])))
+
+    def test_W2(self):
+        self.control_W2()
+
+    # -- W3: PR-1's writes x clause 4 ----------------------------------------
+
+    def control_W3(self):
+        text = W3_MISE_TOML
+        self.assertEqual(mise_probs(text, [DRIVER]), [])  # the comment spells no path, so nothing to track
+        self.assertEqual(settings_problems(text), [])
+        # a pointer spelling the path is admitted only while that path is tracked
+        with_path = text.replace("(docs/plans)", "(docs/plans/2026-10-python-pin-umbrella.md)")
+        self.assertEqual(mise_probs(with_path, [DRIVER, "docs/plans/2026-10-python-pin-umbrella.md"]), [])
+        self.only(mise_probs(with_path, [DRIVER]), "4", "mise.toml", 5)
+
+    def test_W3(self):
+        self.control_W3()
+
+    # -- clause-1 mutants (kept apart from MUTANTS) --------------------------
+
+    def test_clause1_mutants_are_killed(self):
+        self.assertEqual(sorted(m[0] for m in WMUTANTS), ["WM%d" % i for i in (1, 2, 3, 4, 5, 6)])
+        self._assert_all_killed(WMUTANTS)
+
     # -- mutants -------------------------------------------------------------
 
-    def test_mutants_are_killed(self):
-        self.assertEqual(sorted(m[0] for m in MUTANTS), sorted("M%d" % i for i in (1, 2, 3, 4, 5, 6, 8, 9, 10)))
-        for control in sorted({m[3] for m in MUTANTS}):
+    def _assert_all_killed(self, table):
+        for control in sorted({m[3] for m in table}):
             getattr(self, "control_" + control)()  # each killing control passes unpatched
-        for mid, target, wrong, control, param in MUTANTS:
+        for mid, target, wrong, control, param in table:
             body = getattr(self, "control_" + control)
             killed = False
             try:
@@ -463,6 +651,49 @@ class TrackedToolConfig(unittest.TestCase):
             except AssertionError:
                 killed = True
             self.assertTrue(killed, "mutant %s survived %s" % (mid, control))
+
+    def test_mutants_are_killed(self):
+        self.assertEqual(sorted(m[0] for m in MUTANTS), sorted("M%d" % i for i in (1, 2, 3, 4, 5, 6, 8, 9, 10)))
+        self._assert_all_killed(MUTANTS)
+
+
+def settings_problems(text):
+    """W2: the parsed `settings` table equals the one `ADMITTED_LINES` spells (any other key is red, named)."""
+    try:
+        doc = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return ["mise.toml does not parse: %s" % e]
+    expected = tomllib.loads("[settings]\n" + "\n".join(t.ADMITTED_LINES) + "\n")["settings"]
+    got = doc.get("settings")
+    if got == expected:
+        return []
+    if not isinstance(got, dict):
+        return ["`settings` is not a table (expected %r)" % (expected,)]
+    out = []
+    for key in sorted(set(got) | set(expected)):
+        if got.get(key) != expected.get(key):
+            out.append("settings.%s is %r, expected %r" % (key, got.get(key), expected.get(key)))
+    return out
+
+
+# The post-PR-1 shape of the mise.toml pieces clause 4 reads: the [settings] block, its comment,
+# the pointer to the umbrella, and the reworded task description / comment (live file: L1).
+W3_MISE_TOML = (
+    "# Install settings for the interpreter pinned in `.tool-versions`: an attested prebuilt\n"
+    "# install or nothing (no source build, no unverified archive). This table sits before every\n"
+    "# task so no later header can capture the lines. mise reads neither this table nor\n"
+    "# `[bootstrap.packages]` in an untrusted worktree (`mise trust`; `main` already refuses so\n"
+    "# since #535). Rationale and the invariant (I6): the interpreter-pin umbrella plan memo (docs/plans).\n"
+    "[settings]\n"
+    "python.compile = false\n"
+    "python.github_attestations = true\n"
+    "\n"
+    "[tasks.tools-test]\n"
+    'description = "Run every tracked suite (test_*.py), offline, on the pinned interpreter '
+    '(`.tool-versions`; `mise run` installs it if missing)."\n'
+    "# the interpreter pin (Step 1) and the wrapper contract live in scripts/python-suites.sh\n"
+    'run = "bash scripts/python-suites.sh"\n'
+)
 
 
 # Wrong implementations. Each is a plausible shortcut, not a strawman.
@@ -548,6 +779,59 @@ MUTANTS = (
     ("M8", None, _merged_stderr, "C1", "check"),
     ("M9", None, _replace_decode, "C1", "check"),
     ("M10", None, _git_z_merging_stderr, "C6", "launch"),
+)
+
+
+# Clause 1's mutants: (ID, target on the module or None, wrong implementation, killing control, parameter or None)
+
+
+def _untracked_pin_passes(tracked, read):
+    try:
+        data = read(t.ROOT_PIN)
+    except t.Unclassifiable as e:
+        return [t.finding("1", t.ROOT_PIN, None, "unclassifiable (%s)" % e.kind, None, t._REMEDY_PIN)]
+    try:
+        t.parse_pin(data.decode("utf-8"))
+    except (t.PinFileError, UnicodeDecodeError) as e:
+        return [t.finding("1", t.ROOT_PIN, None, "bad: %s" % e, None, t._REMEDY_PIN)]
+    return []
+
+
+def _first_line_parse(text):
+    first = text.split("\n")[0]
+    if not re.fullmatch(r"python [0-9]+\.[0-9]+\.[0-9]+", first):
+        raise t.PinFileError("first line")
+    return tuple(int(x) for x in first.split(" ")[1].split("."))
+
+
+def _text_search_settings(text):
+    return [] if all(line in text for line in t.ADMITTED_LINES) else ["lines absent"]
+
+
+def _any_table_settings(text):
+    """WM6: admits the text when ANY table of the document equals the admitted one (a block under a task passes)."""
+    expected = tomllib.loads("[settings]\n" + "\n".join(t.ADMITTED_LINES) + "\n")["settings"]
+
+    def tables(node):
+        if isinstance(node, dict):
+            yield node
+            for v in node.values():
+                yield from tables(v)
+
+    try:
+        doc = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return ["does not parse: %s" % e]
+    return [] if any(tbl == expected for tbl in tables(doc)) else ["no table equals the admitted one"]
+
+
+WMUTANTS = (
+    ("WM1", "root_pin_problems", _untracked_pin_passes, "W1", None),
+    ("WM2", "parse_pin", _first_line_parse, "W1", None),
+    ("WM3", "worktree_reader", _following_reader, "W1", None),
+    ("WM4", None, _text_search_settings, "W2", "check"),
+    ("WM5", "ADMITTED_LINES", t.ADMITTED_LINES + ("python.extra = 1",), "W2", None),
+    ("WM6", None, _any_table_settings, "W2", "check"),
 )
 
 

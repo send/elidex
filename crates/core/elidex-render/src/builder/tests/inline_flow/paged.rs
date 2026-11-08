@@ -20,7 +20,7 @@ fn paged_consume_paints_only_matching_generation() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("PageOnePageTwo");
+    let text = dom.create_text_ownerless_fixture("PageOnePageTwo");
     dom.append_child(div, text);
 
     // The run-start carries two fragments — one per page it spans.

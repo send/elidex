@@ -28,7 +28,7 @@ fn string_global(vm: &mut Vm, expr: &str) -> String {
 /// Append a fresh element child of `root` in Rust (no record) and expose its
 /// wrapper as the JS global `name`.
 fn seed_child(vm: &mut Vm, dom: &mut EcsDom, root: elidex_ecs::Entity, tag: &str, name: &str) {
-    let e = dom.create_element(tag, Attributes::default());
+    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
     assert!(dom.append_child(root, e));
     let wrapper = vm.inner.create_element_wrapper(e);
     vm.set_global(name, JsValue::Object(wrapper));

@@ -9,7 +9,7 @@ impl TreeBuilder {
     ///
     /// Shared by `</template>` closing (§13.2.6.4.4 / .16), table-section /
     /// caption / cell closing, the declarative-shadow `</template>` path, and
-    /// the §13.4 HTML fragment parsing algorithm (step 16).
+    /// §13.4 *initialize an HTML fragment parser* (`#initialize-an-html-fragment-parser`) step 18.
     ///
     /// Step 3 fragment-case substitution: when the walk reaches the bottom of
     /// the stack (`last == true`) and the parser was created for fragment
