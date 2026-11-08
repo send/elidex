@@ -137,6 +137,39 @@ impl EcsDom {
         self.is_element(entity) && self.namespace_of(entity) == Namespace::Html
     }
 
+    /// The element's *local name* (WHATWG DOM §4.9 `localName`): the
+    /// [`TagType`] value verbatim (case as stored — SVG / MathML names keep
+    /// their case).  `None` for non-elements.
+    ///
+    /// elidex creates no prefixed element, so the local name equals the
+    /// qualified name (`#11-vm-create-element-ns-missing`).
+    #[must_use]
+    pub fn local_name(&self, entity: Entity) -> Option<String> {
+        self.with_tag_name(entity, |t| t.map(str::to_owned))
+    }
+
+    /// The element's *HTML-uppercased qualified name* (WHATWG DOM §4.9
+    /// `tagName`, §4.4 `nodeName` for an element): ASCII-uppercased when
+    /// [`Self::is_html_namespace`], otherwise the qualified name verbatim
+    /// (SVG `foreignObject` stays `foreignObject`).  `None` for non-elements.
+    ///
+    /// The single canonical site for this uppercase rule; the gate's
+    /// completeness note is on [`Self::resolve_attribute_qname`] ("Gate
+    /// completeness") — a future `is_html_document` conjunct is added here.
+    #[must_use]
+    pub fn html_uppercased_qualified_name(&self, entity: Entity) -> Option<String> {
+        let html = self.is_html_namespace(entity);
+        self.with_tag_name(entity, |t| {
+            t.map(|n| {
+                if html {
+                    n.to_ascii_uppercase()
+                } else {
+                    n.to_owned()
+                }
+            })
+        })
+    }
+
     /// Effective `NodeKind` — returns the explicit component when
     /// present, otherwise infers from payload components for legacy
     /// entities that predate the `NodeKind` component (same rules as

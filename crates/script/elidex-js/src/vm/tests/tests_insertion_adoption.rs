@@ -539,9 +539,6 @@ fn t15v_adopt_node_attr_known_defect_type_error() {
 
 // ---- T16: `adoptNode`'s only record is the removal's (DOM §4.2.3 *remove*
 // step 16) ----
-// The siblings are read by `nodeName`, standing in for `localName`, which
-// returns `null` today (`#11-element-localname-null`); switch to `localName`
-// when that slot lands.
 #[test]
 fn t16_adopt_node_queues_the_removal_record() {
     let got = ce_cell(&[
@@ -550,10 +547,10 @@ fn t16_adopt_node_queues_the_removal_record() {
          globalThis.mo = new MutationObserver(() => {}); mo.observe(p, {childList: true}); \
          document.adoptNode(d); globalThis.recs = mo.takeRecords();",
         "recs.map(x => [x.type, x.target === p, x.removedNodes.length, x.removedNodes[0] === d, \
-         x.addedNodes.length, x.previousSibling && x.previousSibling.nodeName, \
-         x.nextSibling && x.nextSibling.nodeName])",
+         x.addedNodes.length, x.previousSibling && x.previousSibling.localName, \
+         x.nextSibling && x.nextSibling.localName])",
     ]);
-    assert_eq!(got, r#"[["childList",true,1,true,0,"I","B"]]"#);
+    assert_eq!(got, r#"[["childList",true,1,true,0,"i","b"]]"#);
 }
 
 // ---- T18 (per-node pairs; P-4): contents adopted apart from their template ----

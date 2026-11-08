@@ -3,7 +3,7 @@
 //! plus node info accessors (tagName, nodeName, nodeType, nodeValue,
 //! childElementCount, hasChildNodes).
 
-use elidex_ecs::{CommentData, DocTypeData, EcsDom, Entity, NodeKind, TagType, TextContent};
+use elidex_ecs::{CommentData, DocTypeData, EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, DomApiError, DomApiHandler, SessionCore};
 
@@ -297,7 +297,7 @@ impl DomApiHandler for GetPrevElementSibling {
 // tagName
 // ---------------------------------------------------------------------------
 
-/// `element.tagName` getter — returns the uppercase tag name.
+/// `element.tagName` getter — returns the HTML-uppercased qualified name (case kept for foreign elements).
 pub struct GetTagName;
 
 impl DomApiHandler for GetTagName {
@@ -312,11 +312,9 @@ impl DomApiHandler for GetTagName {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        if let Ok(tag) = dom.world().get::<&TagType>(this) {
-            Ok(JsValue::String(tag.0.to_ascii_uppercase()))
-        } else {
-            Ok(JsValue::Null)
-        }
+        Ok(dom
+            .html_uppercased_qualified_name(this)
+            .map_or(JsValue::Null, JsValue::String))
     }
 }
 
@@ -341,13 +339,7 @@ impl DomApiHandler for GetNodeName {
     ) -> Result<JsValue, DomApiError> {
         let kind = dom.node_kind(this);
         let name = match kind {
-            Some(NodeKind::Element) => {
-                if let Ok(tag) = dom.world().get::<&TagType>(this) {
-                    tag.0.to_ascii_uppercase()
-                } else {
-                    String::new()
-                }
-            }
+            Some(NodeKind::Element) => dom.html_uppercased_qualified_name(this).unwrap_or_default(),
             Some(NodeKind::Text) => "#text".to_string(),
             Some(NodeKind::Document) => "#document".to_string(),
             Some(NodeKind::Comment) => "#comment".to_string(),
@@ -858,6 +850,18 @@ mod tests {
         let (mut dom, _doc, _html, _body, div, _span, _text, _p, mut session) = setup();
         let result = GetTagName.invoke(div, &[], &mut session, &mut dom).unwrap();
         assert_eq!(result, JsValue::String("DIV".into()));
+    }
+
+    #[test]
+    fn tag_name_and_node_name_keep_case_for_foreign_element() {
+        use elidex_ecs::{Attributes, Namespace};
+        let (mut dom, _doc, _html, _body, _div, _span, _text, _p, mut session) = setup();
+        let fo = dom.create_element_ownerless_fixture("foreignObject", Attributes::default());
+        dom.world_mut().insert_one(fo, Namespace::Svg).unwrap();
+        let tag = GetTagName.invoke(fo, &[], &mut session, &mut dom).unwrap();
+        assert_eq!(tag, JsValue::String("foreignObject".into()));
+        let node = GetNodeName.invoke(fo, &[], &mut session, &mut dom).unwrap();
+        assert_eq!(node, JsValue::String("foreignObject".into()));
     }
 
     // --- nodeName ---

@@ -62,6 +62,7 @@ mod tests_dom_rect;
 mod tests_element_attributes;
 mod tests_element_methods;
 mod tests_element_mutation;
+mod tests_element_names;
 mod tests_element_subtree_collection;
 mod tests_element_subtree_query;
 mod tests_element_wrapper;

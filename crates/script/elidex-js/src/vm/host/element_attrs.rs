@@ -37,14 +37,9 @@ pub(super) fn native_element_get_tag_name(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    // WHATWG DOM §4.9 tagName: HTML elements are uppercase.  Every
-    // document we bind is treated as HTML in Phase 2.  Uppercase the
-    // tag inside the borrow so the eventual `intern` only sees the
-    // already-uppercased copy.
-    let upper = ctx
-        .host()
-        .dom()
-        .with_tag_name(entity, |t| t.map(str::to_ascii_uppercase));
+    // WHATWG DOM §4.9 tagName: the HTML-uppercased qualified name
+    // (namespace-gated; foreign elements keep their case).
+    let upper = ctx.host().dom().html_uppercased_qualified_name(entity);
     match upper {
         Some(s) => {
             let sid = ctx.vm.strings.intern(&s);
@@ -52,6 +47,52 @@ pub(super) fn native_element_get_tag_name(
         }
         None => Ok(JsValue::String(ctx.vm.well_known.empty)),
     }
+}
+
+/// `Element.prototype.localName` getter (WHATWG DOM §4.9): the tag name
+/// verbatim.  Same non-element shape as `tagName` (empty string).
+pub(super) fn native_element_get_local_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let name = ctx.host().dom().local_name(entity);
+    match name {
+        Some(s) => Ok(JsValue::String(ctx.vm.strings.intern(&s))),
+        None => Ok(JsValue::String(ctx.vm.well_known.empty)),
+    }
+}
+
+/// `Element.prototype.namespaceURI` getter (WHATWG DOM §4.9): the element's
+/// namespace URI; `null` for a non-element receiver.
+pub(super) fn native_element_get_namespace_uri(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let dom = ctx.host().dom();
+    if !dom.is_element(entity) {
+        return Ok(JsValue::Null);
+    }
+    let uri = dom.namespace_of(entity).uri();
+    Ok(JsValue::String(ctx.vm.strings.intern(uri)))
+}
+
+/// `Element.prototype.prefix` getter (WHATWG DOM §4.9): always `null`,
+/// because no element-creation path produces a prefix
+/// (`#11-vm-create-element-ns-missing`).
+pub(super) fn native_element_get_prefix(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Null)
 }
 
 /// Read attribute `name` on `entity` as a String, or `None` if absent.

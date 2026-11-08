@@ -56,6 +56,7 @@ use super::element_attrs::{
     native_element_get_attribute, native_element_get_attribute_names,
     native_element_get_attribute_node, native_element_get_attributes,
     native_element_get_class_list, native_element_get_class_name, native_element_get_id,
+    native_element_get_local_name, native_element_get_namespace_uri, native_element_get_prefix,
     native_element_get_tag_name, native_element_has_attribute, native_element_remove_attribute,
     native_element_remove_attribute_node, native_element_set_attribute,
     native_element_set_attribute_node, native_element_set_class_name, native_element_set_id,
@@ -209,6 +210,28 @@ impl VmInner {
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
+
+        // `localName` / `namespaceURI` / `prefix` — read-only accessors
+        // (WHATWG DOM §4.9).
+        for (name_sid, getter) in [
+            (
+                self.well_known.local_name,
+                native_element_get_local_name as NativeFn,
+            ),
+            (
+                self.well_known.namespace_uri,
+                native_element_get_namespace_uri,
+            ),
+            (self.well_known.prefix, native_element_get_prefix),
+        ] {
+            self.install_accessor_pair(
+                proto_id,
+                name_sid,
+                getter,
+                None,
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
 
         // `id` / `className` — read/write accessors (WHATWG §3.5).
         // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for

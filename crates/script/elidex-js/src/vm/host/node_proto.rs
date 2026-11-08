@@ -494,7 +494,7 @@ fn native_node_get_node_name(
     };
     let kind = {
         let dom = ctx.host().dom();
-        let upper = dom.with_tag_name(entity, |t| t.map(str::to_ascii_uppercase));
+        let upper = dom.html_uppercased_qualified_name(entity);
         if let Some(s) = upper {
             NodeNameKind::Upper(s)
         } else {

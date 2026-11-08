@@ -184,3 +184,28 @@ fn is_base_element_html_namespace_only() {
         "foreign-namespace <base> is not the document base element"
     );
 }
+
+#[test]
+fn local_name_and_html_uppercased_qualified_name() {
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    let fo = dom.create_element_ns(
+        "foreignObject",
+        Namespace::Svg,
+        Attributes::default(),
+        NewNodeOwner::NONE,
+    );
+    let text = dom.create_text_ownerless_fixture("t");
+    assert_eq!(dom.local_name(div).as_deref(), Some("div"));
+    assert_eq!(
+        dom.html_uppercased_qualified_name(div).as_deref(),
+        Some("DIV")
+    );
+    assert_eq!(dom.local_name(fo).as_deref(), Some("foreignObject"));
+    assert_eq!(
+        dom.html_uppercased_qualified_name(fo).as_deref(),
+        Some("foreignObject")
+    );
+    assert_eq!(dom.local_name(text), None);
+    assert_eq!(dom.html_uppercased_qualified_name(text), None);
+}
