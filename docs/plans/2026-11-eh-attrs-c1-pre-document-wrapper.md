@@ -213,7 +213,7 @@ API row, a single member (`getSelection`), and M's rows are the spec homes of th
 would separate a member from its prototype rather than shrink scope.
 
 **K-0 lens (no step worse than HEAD).** Every changed outcome moves from HEAD's value to the spec's: own-property
-enumeration of `document` (W2), brand checks (W9, W10), non-bound Documents' `hidden` / `visibilityState` /
+enumeration of `document` (W2), brand checks (W10), non-bound Documents' `hidden` / `visibilityState` /
 `getSelection` (W6), and every member of a generic-path Document (`ownerDocument` or the adopted-reaction flush;
 reachable at `43e350c7` only through a Rust fixture, H-13; W1, W22). `URL` / `documentURI` keep HEAD's answer (the
 page's current URL) for every Document; a generic-path Document goes from `undefined`
@@ -261,7 +261,7 @@ Spec column from the cited steps; HEAD column from code reading at `fab44a1d`, r
 | B2×B4 | yes | Two Documents have two wrappers whose answers differ (`dp.body !== document.body`; W1) |
 | B2×B5 | yes | The wrapper cache is the only per-entity VM state left for Documents once `document_methods_installed` is gone (W11) |
 | B2×B6 | yes | `p.ownerDocument === p.ownerDocument`; `dp.documentElement.parentNode === dp` (W4) |
-| B3×B4 | yes | `readyState` / `getSelection` gain the brand check the rest have (W9, W10); `URL` / `documentURI` do not (R-10) |
+| B3×B4 | yes | `readyState` / `getSelection` gain the brand check the rest have (W10 for `readyState`; `getSelection`'s has no cell; W9 guards the existing one); `URL` / `documentURI` do not (R-10) |
 | B3×B5 | yes | Gates are evaluated once at registration; the policy is fixed at VM construction (H-10), so the gated set equals today's per-wrapper set (W12) |
 | B3×B6 | yes | C0c appended `adoptNode` to `DOCUMENT_METHODS_POST_LIVE_COLLECTION` (landed, #611); under D-1 it moves to the prototype with the rest (D-2, W3; edge e-c0c) |
 | B4×B5 | yes | The predicate reads `HostData::document` at call time; after a rebind the old document reads "no browsing context" (unchanged from HEAD's copies) |
@@ -489,8 +489,8 @@ Line counts `wc -l` at `43e350c7`; re-measured at the cut (§9 item 1). Every ro
 - **R-1 own-property enumeration of `document`** → empty (X1, W2).
 - **R-2 non-bound Documents' visibility and selection** → `hidden` `true`, `visibilityState` `"hidden"`,
   `getSelection()` `null` for DOMParser and cloned Documents (W6).
-- **R-3 brand checks** → the `readyState` getter called on a non-Document platform object throws `TypeError` (W9,
-  W10); the `URL` / `documentURI` getters do not (R-10).
+- **R-3 brand checks** → the `readyState` getter called on a non-Document platform object throws `TypeError` (W10; W9
+  guards the existing check on the moved getters); the `URL` / `documentURI` getters do not (R-10).
 - **R-4 a Document wrapper allocated while unbound** would keep `Node.prototype` (B1×B2; D-3).
 - **R-5 registration order** — a missing `register_document_prototype` panics at the first Document wrap (loud;
   §4.1 items 3, 5).
@@ -516,7 +516,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | W6 | red (D-6) | `[dp.hidden, dp.visibilityState, dp.getSelection()]`; the same for `document.cloneNode()` | `[false, "visible", Selection]` | `[true, "hidden", null]` |
 | W7 | guard | `[dp.defaultView, dp.cookie, (dp.cookie = 'a=b', dp.cookie), dp.referrer, dp.hasFocus(), dp.readyState, dp.compatMode]` | `[null, "", "", "", false, "complete", "CSS1Compat"]` | same |
 | W8 | guard (bound document unchanged) | `[document.defaultView === globalThis, document.hidden, document.visibilityState, document.getSelection() === getSelection(), document.compatMode, document.readyState]` | `[true, false, "visible", true, "CSS1Compat", "complete"]` | same |
-| W9 | red | `Object.getOwnPropertyDescriptor(P, 'body').get.call(document.body)` with `P = Object.getPrototypeOf(document)` (HEAD: `P = document`) — message | HEAD's message (run on the base) | `TypeError` "Illegal invocation" |
+| W9 | guard (brand check kept on the prototype) | `Object.getOwnPropertyDescriptor(P, 'body').get.call(document.body)` with `P = Object.getPrototypeOf(document)` (HEAD: `P = document`) — message | `TypeError` "Illegal invocation" (run on the base: "Failed to execute 'body' on 'Document': Illegal invocation") | `TypeError` "Illegal invocation" |
 | W10 | red | `Object.getOwnPropertyDescriptor(P, 'readyState').get.call(document.body)`; HEAD with `P = document` | returns a string | `TypeError` "Illegal invocation" |
 | W11 | red (rewrite of `document_methods_install_per_document_entity`) | bind doc1, record `Object.getPrototypeOf(document)` in a global; unbind; bind doc2; `[typeof document.getElementById, Object.getPrototypeOf(document) === saved, document.hasOwnProperty('getElementById')]` | `["function", true, true]` | `["function", true, false]` |
 | W12 | guard (gates) | `'getElementsByTagName' in document`; with `compat-webapi` + BrowserCompat `'cookie' in document`, in an App-mode VM `'cookie' in document` | `true`; `true`; `false` | same |
@@ -752,7 +752,8 @@ Edge e-rc2a's RC-2a plan cite re-pinned to `:167-169`. R-10: `:270` calls `initi
 calls `recompute_document_base` (`:189`); the direct callers are `:302`, `:346`, `:379`. D-6 names both §6.2 writers
 (*set the initial visibility state* from *initialize the navigable* step 6, HTML §7.3.1, and *update the visibility
 state*); §3 gains the lookups. W22's legs `r.length` and `a === r[0][1]` (same value on the base and
-after C1-pre) moved into the Control tuple, so the main tuple holds only legs that can differ.
+after C1-pre) moved into the Control tuple, so the main tuple holds only legs that can differ. W9 relabelled from red to a guard (driver decision: it is green on the base,
+the HEAD column already predicted the same `TypeError`); §1 K-0 lens, §2.2 B3×B4 and R-3 cite W10 only for the new brand check.
 
 ## §11. Open questions
 
