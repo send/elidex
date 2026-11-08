@@ -7,7 +7,7 @@ count below was read at that commit; the command that produced each count is pri
 
 **Slots**: `#11-elidex-js-default-features-build-broken` (owner CI/tools; this umbrella is its program) and
 `#11-elidex-js-no-default-features-support` (the "is the no-engine build a supported surface" question; answered by
-PM 520, §5; §8 proposes what happens to the slot). `#11-test-only-feature-boundary-guard` is coupled
+PM 520, §5; re-homed to VM P4 by PM 531, §8). `#11-test-only-feature-boundary-guard` is coupled
 (§4.2, PR-M2).
 
 **What this memo is**: the umbrella of an edge-dense program (PM 494/498 decision 1): the decisions on the four axes
@@ -378,7 +378,7 @@ holds):
 - **Q1** C0 itself (above).
 - **Q2** (PM) Where PR-A1 (F1-b shape, §6) sits in the VM P4 lane's queue (guard memo, S1, call-depth guard, …), and
   whether any in-flight VM P4 branch touches the four files of PR-A1.
-- **Q3** — retired: F1 is decided (PM 520), so the merge it proposed is superseded by §8's proposal for that slot.
+- **Q3** — retired: F1 is decided (PM 520), so the merge it proposed is superseded by PM 531 (§8).
 - **Q4** (scout) Does the Layout lane's C0 program (`pending-at-landing/c0-program.md`, C0c in flight) cite
   `scripts/check-fixture-boundary.sh` or ci.yml `:111-118` in a way PR-M1/M2 must update?
 - **Q5** — retired: it served F1-a's condition only, and F1-a was not taken (§5).
@@ -393,12 +393,9 @@ holds):
 
 - `#11-elidex-js-default-features-build-broken` — discharged when PR-M1 lands (the gate) with every PR-A landed (the
   code). Its "Update (PM 498)" line is wrong on the error locations (§9); the ledger needs the correction.
-- `#11-elidex-js-no-default-features-support` — the F1 question, answered by PM 520 (§5); its text is also stale
-  ("No crate depends on `elidex-js`", "Cargo.toml:20 'No such embedder wires elidex-js yet'"). **Proposal to PM**
-  (not decided here): close it as answered by PM 520, recording the answer (F1-c; F1-b interim) in its closing line;
-  the interim build fix is already `#11-elidex-js-default-features-build-broken`'s, and the split is tracked by the
-  VM P4 lane's own umbrella, not by a slot of this program. If PM prefers the split's record to live in this slot,
-  it is re-homed to the VM P4 lane as owner rather than merged into the CI/tools slot.
+- `#11-elidex-js-no-default-features-support` — stays open, re-homed to the VM P4 lane, its defect restated as the
+  language-core/host boundary being held only by `cfg` annotations that are themselves broken, and closed when the
+  crate-split umbrella lands (PM 531; the ledger rewrite is PMO's).
 - `#11-test-only-feature-boundary-guard` — discharged by PR-M2 (§4.2); its attach point moves from the retired #585
   step to the matrix.
 - No new slot: PR-T is in this program, not deferred.
