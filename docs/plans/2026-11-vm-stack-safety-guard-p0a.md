@@ -25,12 +25,14 @@ D-13, B-1, B-2 (§6). Each later P0b slice only removes its rows from `# pending
 `vm/resource_limit.rs` (NEW), `vm/interpreter.rs` (CP-1 hook, `Vm::eval` mapping),
 `vm/natives_generator.rs` (CP-2 hook), `vm/host/wasm/exported_func.rs` and `vm/host/wasm/instance.rs`
 (CP-3a / CP-3b hooks and the named conversion), `vm/ops.rs` (escape rule), `vm/dispatch.rs` and
-`vm/dispatch_objects.rs` (B-1, B-2 routing); the injection hooks in `compile_script`, `parse_json_str` and
-`stringify_for_structured_shortcut` (§4.4); the tracked check (§5.1); cells in
+`vm/dispatch_objects.rs` (B-1, B-2 routing); the injection hooks in `compile_script`, `parse_json_str`,
+`stringify_for_structured_shortcut` and `dispatch_vm_simple_event` (§4.4), with the removal of L3's
+`fail_next_abort_dispatch` seam and the move of its cell onto that hook (§4.4; L3's files, site list via PM,
+P0 umbrella §7 L-12); the tracked check (§5.1); cells in
 `crates/script/elidex-js/src/vm/tests/tests_resource_limit.rs` (NEW).
 
-**Out.** The consumer fixes D-1…D-12 (P0b-VM, P0b-L3; P0 umbrella §1); `native_import_scripts`'s kind
-mapping (D-11, P0b-VM) although §4.1 item 3 states the rule; the deviations of P0 umbrella §6.
+**Out.** The consumer fixes D-1…D-12 (P0b-VM-1, P0b-VM-2, P0b-L3; P0 umbrella §1); `native_import_scripts`'s kind
+mapping (D-11, P0b-VM-1) although §4.1 item 3 states the rule; the deviations of P0 umbrella §6.
 
 ## §2. Coupled invariants
 
@@ -52,7 +54,9 @@ Elements: **ID** (error kinds, predicates, `Vm::eval` boundary; §4.1), **ER** (
 | CP × INJ | at P0a the body of `check_entry` is the injection only; `resource_limit::count` counts checks per kind, from which every placement cell takes its `n` | `rl_cp1_*`, `rl_cp2_*`, `rl_cp3*` | cell |
 | CP × CEN | the four enclosing functions of CP-1…CP-3b are the derived producers at P0a; carriers are closed over them | §5.3 | check |
 | INJ × CEN | the boundary hooks in `compile_script` / `parse_json_str` / `stringify_for_structured_shortcut` are `#[cfg(test)]` statements; the lexer excludes `#[cfg(test)]`-attributed items **and statements**, so a hook does not make its function a derived producer (else `compile_script`, a planned producer, would be red "remove it" before PR-1) | control `census_cfg_test_hook_not_producer` | check |
-| CEN × PEND | a D row is red outside `# pending`; a pending row outside the frozen ceiling is red, so the section only shrinks | controls `census_rejects_definitive_row`, `census_pending_row_outside_ceiling` | check |
+| CEN × PEND | a D row is red outside `# pending`; a pending row outside the frozen ceiling is red, so the section only shrinks; rule 8's 120 members are all P, so the ceiling is unchanged | controls `census_rejects_definitive_row`, `census_pending_row_outside_ceiling` | check |
+| CEN (rule 8) × ER | rule 8 sees a `?` that is correct for the trigger but skips the loop's other subjects; ER is unaffected (the `?` propagates the kind) | control `census_loop_question_mark_member` | check |
+| INJ × L3 seam | one test-failure mechanism: `SimpleEventDispatch(n)` replaces L3's `fail_next_abort_dispatch`, and as a `#[cfg(test)]` statement it does not make `dispatch_vm_simple_event` a producer | cell (o) after the move; control `census_cfg_test_hook_not_producer` | cell + check |
 
 ## §3. Spec coverage map
 
@@ -86,7 +90,7 @@ throws escapes `run()` today.
    `CompileError::is_resource_limit` (NEW). Every current construction site is `Syntax`.
 3. Boundaries keep the kind: `Vm::eval` (`interpreter.rs:36`) maps `CompileErrorKind::ResourceLimit` to
    `VmError::resource_limit()` and `Syntax` to today's `VmErrorKind::CompileError` (D-13, §6.1). The same
-   rule binds `native_import_scripts` (`worker_scope.rs:481`), implemented by P0b-VM as D-11.
+   rule binds `native_import_scripts` (`worker_scope.rs:481`), implemented by P0b-VM-1 as D-11.
 4. **Compile-channel aggregation (rule here, implementation in PR-1).** `compile_script` reports
    `CompileErrorKind::ResourceLimit` when any parse or scope error is a probe failure, whatever else the
    lists hold: a parse that hit the probe is not a verdict about the source. PR-1 adds
@@ -99,7 +103,7 @@ The compile-time channel has one consumer of the front end's error lists: `compi
 143/149 and the definitions `lib.rs:91/104`). `compile_script` itself has 3 production callers
 (`git grep -n 'compile_script(' -- crates` minus tests: `interpreter.rs:36`,
 `event_handler_attrs.rs:677`, `worker_scope.rs:481`), all three in the census (D-13 here; D-1 P0b-L3;
-D-11 P0b-VM).
+D-11 P0b-VM-1).
 
 ### §4.2 The escape rule
 
@@ -147,15 +151,26 @@ admissible there.
 
 `resource_limit::inject` (NEW: test-only) arms a thread-local: `InjectAt::Entry(EntryKind, n)` makes
 the n-th `check_entry` of that kind on this thread return `VmError::resource_limit()`;
-`InjectAt::Compile(n)`, `InjectAt::JsonParse(n)` and `InjectAt::JsonStringify(n)` do the same at the entry
-of `compile_script`, `parse_json_str` and `stringify_for_structured_shortcut`. `resource_limit::count`
+`InjectAt::Compile(n)`, `InjectAt::JsonParse(n)`, `InjectAt::JsonStringify(n)` and
+`InjectAt::SimpleEventDispatch(n)` do the same at the entry of `compile_script`, `parse_json_str`,
+`stringify_for_structured_shortcut` and `dispatch_vm_simple_event` (`event_target_dispatch_vm.rs:653`). `resource_limit::count`
 (NEW: test-only) records how many checks of a kind a body performs, so a cell derives its `n` from a
-dry run instead of guessing. The three boundary points are not production probe sites: they let a cell
+dry run instead of guessing. The four boundary points are not production probe sites: they let a cell
 deliver C-1's kind to a consumer through the consumer's real call path before PR-1's walker and front-end
 probes exist, and they stay after PR-1 so the consumer cells do not depend on stack sizes. Each boundary
 hook is a `#[cfg(test)]`-attributed statement (§2 INJ × CEN). They are the only injection points; a
-consumer cell in any slice that needs another is a design change to this section. P0b-VM and P0b-L3 use
-them as they are.
+consumer cell in any slice that needs another is a design change to this section. The P0b slices use them
+as they are.
+
+**One test-failure seam (one issue, one way; ratified PM 513).** L3's `#11-abort-signal-any-dependent-flattening`
+PR (around 11-10; P0 umbrella §1) adds a `#[cfg(test)]` `fail_next_abort_dispatch` for its cell (o): the
+next abort dispatch fails, so the cell can show that every dependent's abort steps still run. That is a
+second test-failure mechanism beside this one. P0a rebases on L3's PR (edge, P0 umbrella §1) and moves it
+here: `SimpleEventDispatch(n)` is the general form, P0a deletes `fail_next_abort_dispatch` and rewrites cell
+(o) to arm `InjectAt::SimpleEventDispatch(n)` with `n` from `resource_limit::count`, same assertion. Its
+error is C-1's kind, which is also the only `Err` that can reach this call once P0's error exists (§5.4).
+L3's contract is unchanged. If L3's PR lands after P0a, it uses `SimpleEventDispatch` from the start and
+adds no seam of its own.
 
 ## §5. The tracked check
 
@@ -182,7 +197,7 @@ them as they are.
    block) whose whole body is `self.throw_error(e, ..)?` or `return Err(e)` or `Err(e)`. Anything else is a member.
 3. A member without a row is red; a row without a member is red (the allowlist cannot drift either way).
 4. Admissible classes: P, T, R, S, E, N, X (P0 umbrella §5.2). A D row is red, except in the `# pending`
-   section, whose rows name their fixing slice (`P0b-VM` / `P0b-L3`) and lie inside the frozen ceiling
+   section, whose rows name their fixing slice (`P0b-VM-1` / `P0b-VM-2` / `P0b-L3`) and lie inside the frozen ceiling
    (§5.4); PR-1's precondition is an empty section (P0 umbrella §7 L-1).
 5. A row of class N that claims top-only is red if the reverse call graph reaches it from a native
    function (signature `(ctx: &mut NativeContext<'_>, this: JsValue, args: &[JsValue])`); edges into a
@@ -196,6 +211,13 @@ them as they are.
    prototype filtered to `run` and by reading each callee).
 7. W population: every function of P0 umbrella §5.1's W population has a row (class D pending, or
    admissible with a reason).
+8. **Loop rule (fail-safe; ratified PM 513).** A carrier call propagated by `?` (or `.map_err(..)?`, or a
+   binding later propagated so) whose position lies inside a `for` / `while` / `while let` / `loop` body of
+   the enclosing function is a **member**, not auto-propagation: the `?` is correct for the trigger but may
+   leave the loop's remaining subjects unprocessed, the shape of P0 umbrella §5.1's C-2 (c) that rule 2
+   would otherwise accept unseen. The rule does not try to tell "several subjects" from "elements of one
+   operation"; every such `?` is a member, and the row's class says which it is (§5.4). `run()` is
+   excluded (rule 6 already makes its `?` uses members).
 
 ### §5.3 Producers and the planned list
 
@@ -217,7 +239,16 @@ producer; 1575 uses propagate by `?` and 188 by return / tail, auto-recognised; 
 `elidex-js` and 6 in the shell (`H/logs/err-census-p0-shell.log`, seeds `eval drain_timers eval_script`),
 202 rows, each hand-classified (`H/scripts/err_census_classify.py`, output
 `H/logs/err-census-p0-classified.tsv`: P 80, T 44, R 32, S 4, E 10, N 8 + 6 shell, X 4, D 14 rows at 13
-sites). W population: 5 functions (verified 2026-11-08 via
+sites). **Rule 8 adds 120 members** (verified 2026-11-08 via `LOOPQ=1 python3 -I
+H/scripts/err_loop_question_proto.py <wt> crates/script/elidex-js`, the prototype with rule 8 added, log
+`H/logs/err-loop-question-p0a.log`: 99 `for`, 9 `while let`, 5 `loop`, 4 `for` inside `while`, 3 `while`),
+all hand-classified **P** (`H/logs/err-loop-question-p0a-classified.tsv`), **none D**, so the `# pending`
+ceiling is unchanged. Three reasons: *loop-spec-abrupt* (82: the governing algorithm itself stops at the
+first abrupt completion inside the iteration, e.g. the Array / TypedArray HOFs, `Object.assign`,
+`Math.max`, `importScripts` step 6), *loop-conversion* (17: argument or init conversion before any durable
+write, e.g. `classList.add`, `slot.assign`, the ChildNode mixins, the `*Init` parsers), *loop-graph* (21:
+one trigger, one result, recursion over one value graph such as `clone_*`, `internalize`, `flat_into`, or
+the bound-callee loop of `call_dispatch`). Total at P0a's base: 322 rows. W population: 5 functions (verified 2026-11-08 via
 `python3 -I H/scripts/err_write_before_call_proto.py <wt> crates/script/elidex-js`, log
 `H/logs/err-write-before-call-p0.log`). P0a's PR body records the tracked check's own counts at its head.
 
@@ -250,36 +281,38 @@ Admissible rows (paths under `crates/script/elidex-js/src/` unless stated; lines
 - **X (4):** `engine.rs` 63 / 78 (embedder-test helpers); `vm/host/subtle_crypto/differential.rs` 32 / 36
   (`#[cfg(test)] mod differential;`, `subtle_crypto/mod.rs:62-63`; the tracked check excludes such files,
   §5.2 rule 1).
-- **P (80) and T (44):** listed in `H/logs/err-census-p0-classified.tsv`; T = `vm/dispatch.rs` (40),
+- **P (80 + 120 by rule 8) and T (44):** listed in `H/logs/err-census-p0-classified.tsv` and
+  `H/logs/err-loop-question-p0a-classified.tsv`; T = `vm/dispatch.rs` (40),
   `dispatch_objects.rs` 48 / 80, `dispatch_class.rs:110`, `dispatch_helpers.rs:383`. D-13's row
   (`vm/interpreter.rs` `eval` → `compile_script`) is P "kind-preserving `map_err`" after §6.1.
 - **W, admissible (3):** `custom_elements/creation.rs:238` (the `is_value` reset is derived from the
   registry, not from the upgrade's outcome); `html_input_value.rs:353` (a Number to string, no script);
   `natives_promise.rs:591` (top-only).
 
-- **`AbortSignal` abort steps (PM, 11-08; L3's `#11-abort-signal-any-dependent-flattening`).** On the
-  abort path the only call that returns `Err` is `dispatch_vm_simple_event`
-  (`event_target_dispatch_vm.rs:653`); listener exceptions are reported inside dispatch, so an `Err` that
-  escapes is an engine failure, which includes C-1's kind. *At `ce603c74`:* `abort_signal`
-  (`vm/host/abort.rs:522`) uses `?` on it at `:592` and on its own recursion over the composites at
-  `:610`; both are `?` in a carrier function, auto-recognised (§5.2 rule 2), so there is **no row** (the
-  prototype lists none). By C-2 (c) the shape is nonetheless definitive for the other subjects: an `Err`
-  at `:592` returns after the signal is latched aborted and before the composite fan-out and the fetch
-  fan-out, so the dependents are never aborted and a later `abort()` is a no-op (the latch); an `Err` at
-  `:610` returns after `any_composite_map.remove` (`:607`), so the remaining composites are never aborted
-  and the fetch observers never rejected. The census cannot see this (§5.6, "a `?` that skips the rest of
-  a fan-out"). L3's PR fixes it: DOM §3.2 *signal abort* (`dfn dom 'signal abort'`, for AbortSignal) step 4 fixes every dependent's reason, then steps 5–6
-  run for all of them unconditionally; the loop runs `run_abort_steps` for every entry, keeps the first
-  `Err`, and returns it after the loop, with no `?` inside the loop. *After L3's PR:* that call site is a
-  member (its result is stored, not propagated in place) of class **P**, reason "deferred propagation:
-  the first `Err` is returned after every dependent's abort steps ran (DOM *signal abort* steps 4–6);
-  later `Err`s of the same trigger are not surfaced separately, one surfacing per trigger suffices (C-3)".
-  **Which PR writes the row:** L3's PR is expected first (P0 umbrella §1 edge L3 abort-flattening → P0a);
-  P0a is rebased on it and its allowlist carries the post-L3 row, keyed on the function and callee names
-  as they stand at P0a's base (§10 item 4). If L3's PR lands after P0a instead, P0a ships no row (the
-  head shape is auto) and L3's PR adds the P row with its loop change, the census being red without it.
-  L3's `#[cfg(test)]` `fail_next_abort_dispatch` (cell (o)) is excluded from producer derivation by the
-  lexer (§2 INJ × CEN) whatever error it builds.
+- **`AbortSignal` abort steps (PM, 11-08; L3's `#11-abort-signal-any-dependent-flattening`; corrected per
+  L3's attestation N-6, verified against the code).** *At `ce603c74`:* `abort_signal`
+  (`vm/host/abort.rs:522-658`) has two `?`: on `dispatch_vm_simple_event` at `:592`, and on its own
+  recursion over the composites at `:610`, inside the `for` loop. Neither can fail today:
+  `dispatch_vm_simple_event` → `fire_vm_event` → `fire_vm_event_unchecked` → `dispatch_vm_event`
+  (`event_target_dispatch_vm.rs:271-347`, no `?` in its body), whose only return is `Ok` (listener exceptions are absorbed
+  inside dispatch), and those two `?` are `abort_signal`'s only error sources, so `:610` can fail only if
+  `:592` can. The name graph agrees: `abort_signal` reaches no producer, so it is not in the population and
+  rule 8 does not fire on `:610` (it is not among the 120). The shape is **latent definitive**: once P0's
+  error can surface through this dispatch (a check or probe on the dispatch path, e.g. a PR-1 walker probe
+  in event construction), an `Err` at `:592` would return after the latch and before the composite and
+  fetch fan-outs, and one at `:610` after `any_composite_map.remove` (`:607`), so the remaining dependents
+  would never abort (C-2 (c)). No input reaches it today. *After L3's PR:* DOM §3.2 *signal abort*
+  (`dfn dom 'signal abort'`, for AbortSignal) step 4 fixes every dependent's reason and steps 5–6 run for all
+  of them; the loop runs `run_abort_steps` for every entry, keeps the first `Err`, and returns it after the
+  loop, with no `?` inside the loop (L3's contract, unchanged). If the call is then in the population, it is
+  a member (its result is stored, not propagated in place) of class **P**, reason "deferred propagation:
+  the first `Err` is returned after every dependent's abort steps ran (DOM *signal abort* steps 4–6); later
+  `Err`s of the same trigger are not surfaced separately, one surfacing per trigger suffices (C-3)". Rule 8
+  stays the fail-safe for the class: a `?` put back inside that loop is a member the moment the call joins
+  the population. **Which PR writes the row:** L3's PR is expected first (edge, P0 umbrella §1); P0a is
+  rebased on it and its allowlist carries the post-L3 row if the tracked check lists the call, keyed on the
+  names as they stand at P0a's base (§10 item 4). If L3's PR lands after P0a, P0a ships no row and L3's PR
+  adds it if the check asks for it.
 
 **`# pending` (15 rows; this key set is the frozen ceiling of §5.2 rule 4).** Keys (path, function,
 callee, shape):
@@ -293,13 +326,13 @@ callee, shape):
 | D-5 | `vm/host/event_target_dispatch.rs`, `invoke_listeners_shared`, `call_value`, `.is_err` | P0b-L3 |
 | W | `vm/host/custom_elements/upgrade.rs`, `invoke_upgrade` (W population) | P0b-L3 |
 | W | `vm/host/event_target_dispatch.rs`, `invoke_listeners_shared` (W population) | P0b-L3 |
-| D-6 | `vm/host/structured_serialize.rs`, `structured_serialize_for_storage`, `stringify_for_structured_shortcut`, match | P0b-VM |
-| D-7 | `vm/host/structured_serialize.rs`, `structured_deserialize`, `parse_json_str`, `.unwrap_or` | P0b-VM |
-| D-8 | `vm/host/indexeddb/value.rs`, `json_to_js`, `parse_json_str`, `.unwrap_or` | P0b-VM |
-| D-9 | `vm/host/service_worker/deliver.rs`, `fire_message`, `parse_json_str`, `.unwrap_or` | P0b-VM |
-| D-10 | `vm/host/worker_scope.rs`, `serialize_message`, `stringify_for_structured_shortcut`, match | P0b-VM |
-| D-11 | `vm/host/worker_scope.rs`, `native_import_scripts`, `compile_script`, `map_err` | P0b-VM |
-| D-12 (2) | `vm/host/subtle_crypto/ops.rs`, `normalize_wrap_with_fallback`, `marshal_normalize`, match (`:66`) and other (`:68`) | P0b-VM |
+| D-6 | `vm/host/structured_serialize.rs`, `structured_serialize_for_storage`, `stringify_for_structured_shortcut`, match | P0b-VM-1 |
+| D-7 | `vm/host/structured_serialize.rs`, `structured_deserialize`, `parse_json_str`, `.unwrap_or` | P0b-VM-1 |
+| D-8 | `vm/host/indexeddb/value.rs`, `json_to_js`, `parse_json_str`, `.unwrap_or` | P0b-VM-2 |
+| D-9 | `vm/host/service_worker/deliver.rs`, `fire_message`, `parse_json_str`, `.unwrap_or` | P0b-VM-2 |
+| D-10 | `vm/host/worker_scope.rs`, `serialize_message`, `stringify_for_structured_shortcut`, match | P0b-VM-1 |
+| D-11 | `vm/host/worker_scope.rs`, `native_import_scripts`, `compile_script`, `map_err` | P0b-VM-1 |
+| D-12 (2) | `vm/host/subtle_crypto/ops.rs`, `normalize_wrap_with_fallback`, `marshal_normalize`, match (`:66`) and other (`:68`) | P0b-VM-2 |
 
 Each P0b slice deletes its rows here and, where its site stays a member after the fix, adds the
 admissible row its memo names; no slice adds a pending row (the ceiling).
@@ -311,7 +344,9 @@ call); `census_rejects_stale_row`; `census_rejects_definitive_row` (a D row outs
 `census_pending_row_outside_ceiling`; `census_planned_producer_already_derived`;
 `census_top_only_reachable_from_native`; `census_run_question_mark_on_carrier` (a new `?` on a carrier in
 `run()`); `census_w_function_without_row`; `census_cfg_test_hook_not_producer` (a fixture whose only
-producer edge is a `#[cfg(test)]` statement must not derive a producer; red when it does). `--mutants`
+producer edge is a `#[cfg(test)]` statement must not derive a producer; red when it does);
+`census_loop_question_mark_member` (a fixture with `for x in xs { carrier(x)?; }` and no row → red; the same
+`?` outside the loop → auto). `--mutants`
 runs the check with each rule disabled and asserts the matching control turns green, so a rule that
 stops working is seen (the plan-memo-umbrella-check precedent).
 
@@ -320,11 +355,11 @@ stops working is seen (the plan-memo-umbrella-check precedent).
 The check does not see: calls through function pointers, trait objects and closures passed across
 functions (the `NativeFn` table, `fire_vm_message_event`'s closure argument is seen only because its body is
 in the caller); writes performed inside a callee before the carrier call (D-1's `take_uncompiled` sat in
-`reconcile_event_handler`, another crate); macros; a `?` inside a loop over several subjects, which propagates correctly for the trigger but
-leaves the remaining subjects unprocessed (the `abort_signal` precedent at `ce603c74`, §5.4); durable
-writes to a side table (the `abort_signal_states` latch) rather than an ECS component, which the W
-population's three kinds do not include. Owner VM P4; re-evaluated with PR-1's cut-check limits
-when `#11-vm-native-callback-reentry-single-loop` is designed; ledger home §9 L-a1.
+`reconcile_event_handler`, another crate); macros; a straight-line `?` that returns before a fan-out over
+other subjects (the `:592` shape of §5.4; rule 8 covers a `?` inside the fan-out's loop, not one before
+it); durable writes to a side table (the `abort_signal_states` latch) rather than an ECS component, which
+the W population's three kinds do not include. Owner VM P4; re-evaluated with PR-1's cut-check limits when
+`#11-vm-native-callback-reentry-single-loop` is designed; ledger row P0 umbrella §7 L-7.
 
 ## §6. Fixes
 
@@ -385,19 +420,20 @@ injection with an `n` taken from `resource_limit::count` on a dry run of the sam
 What P0a's PR (or, where marked, the PM / PMO at landing) does. This memo edits no ledger. Program-level
 obligations (PR-1 precondition, breadth record, slots) are P0 umbrella §7.
 
-- **L-a1. Census limits (PM / PMO)**: §5.6's limits join PR-1 §5.3's on the
-  `#11-vm-native-callback-reentry-single-loop` entry, with re-eval 2026-12-31.
+The ledger and notice rows this slice triggers are rows of the P0 program's landing list (P0 umbrella §7,
+PM 513 (d)): L-2, L-3, L-4, L-5, L-6, L-7 (census limits, formerly L-a1) and L-12 (L3 notice). Slice-local:
+
 - **L-a2. Counts and ceiling**: P0a's PR body records the tracked check's counts per class at its head
-  and the 15 `# pending` keys of §5.4.
+  (rule 8's members separately) and the 15 `# pending` keys of §5.4.
 
 ## §10. Unverified facts (each decided at implementation, before its cell is written)
 
 1. The `regress` 0.11.1 pattern for `rl_regexp_literal_error_is_catchable`.
 2. Whether M-P-CP3a / M-P-CP3b are observable.
 3. Every N row claiming top-only is re-checked by §5.2 rule 5 at P0a's base.
-4. The post-L3 function and callee names of the `AbortSignal` abort loop (§5.4), read at P0a's base
-   once L3's `#11-abort-signal-any-dependent-flattening` PR has landed (its plan Rev 2 is `a8c4179e`, not
-   on this branch).
+4. The post-L3 function and callee names of the `AbortSignal` abort loop (§5.4) and of cell (o), read at
+   P0a's base once L3's `#11-abort-signal-any-dependent-flattening` PR has landed (its plan Rev 2 is
+   `a8c4179e`, Rev 2.1 due 11-09; neither is on this branch), and whether the tracked check lists the call.
 
 webref lookups behind §3 (2026-11-08): `body ecma262 sec-error-handling-and-language-extensions`;
 `dfn html 'create a classic script'` → §8.1.4.3.
