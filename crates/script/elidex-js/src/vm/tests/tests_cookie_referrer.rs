@@ -549,7 +549,7 @@ fn cookie_getter_call_with_plain_object_returns_empty_string() {
     // is read.
     let v = vm
         .eval(
-            "var get = Object.getOwnPropertyDescriptor(document, 'cookie').get;
+            "var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').get;
              get.call({});",
         )
         .unwrap();
@@ -584,7 +584,7 @@ fn cookie_setter_call_with_plain_object_does_not_mutate_jar() {
     };
 
     vm.eval(
-        "var set = Object.getOwnPropertyDescriptor(document, 'cookie').set;
+        "var set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').set;
          set.call({}, 'malicious=1');",
     )
     .unwrap();
@@ -630,7 +630,7 @@ fn cookie_getter_on_cloned_document_returns_empty_string() {
     let v = vm
         .eval(
             "var clone = document.cloneNode(true);
-             var get = Object.getOwnPropertyDescriptor(document, 'cookie').get;
+             var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').get;
              get.call(clone);",
         )
         .unwrap();
@@ -666,7 +666,7 @@ fn cookie_setter_on_cloned_document_does_not_mutate_jar() {
 
     vm.eval(
         "var clone = document.cloneNode(true);
-         var set = Object.getOwnPropertyDescriptor(document, 'cookie').set;
+         var set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').set;
          set.call(clone, 'leak=1');",
     )
     .unwrap();
@@ -703,7 +703,7 @@ fn referrer_getter_on_cloned_document_returns_empty_string() {
     let v = vm
         .eval(
             "var clone = document.cloneNode(true);
-             var get = Object.getOwnPropertyDescriptor(document, 'referrer').get;
+             var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'referrer').get;
              get.call(clone);",
         )
         .unwrap();
@@ -740,7 +740,7 @@ fn referrer_getter_call_with_plain_object_returns_empty_string() {
 
     let v = vm
         .eval(
-            "var get = Object.getOwnPropertyDescriptor(document, 'referrer').get;
+            "var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'referrer').get;
              get.call({});",
         )
         .unwrap();

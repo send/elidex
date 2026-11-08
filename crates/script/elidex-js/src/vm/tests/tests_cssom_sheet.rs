@@ -709,7 +709,7 @@ fn document_style_sheets_non_host_receiver_returns_null() {
     // (`head` / `body` / etc.) that already follow this convention.
     let out = run_with_css(
         "div {}",
-        "var getter = Object.getOwnPropertyDescriptor(document, 'styleSheets').get; \
+        "var getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'styleSheets').get; \
          try { var r = getter.call({}); (r === null) ? 'null' : 'not-null'; } \
          catch (e) { 'threw: ' + e.name; }",
     );

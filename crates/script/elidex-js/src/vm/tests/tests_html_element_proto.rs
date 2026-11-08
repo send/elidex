@@ -369,8 +369,8 @@ fn hidden_visibility_getters_brand_check_receiver() {
     // Codex R1 F2: the page-visibility getters must not leak the bound tab's
     // state to a non-Document receiver (`get.call({})`).
     let out = run(
-        "var hg = Object.getOwnPropertyDescriptor(document, 'hidden').get; \
-         var vg = Object.getOwnPropertyDescriptor(document, 'visibilityState').get; \
+        "var hg = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'hidden').get; \
+         var vg = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'visibilityState').get; \
          (hg.call({}) === false && vg.call({}) === 'visible' \
             && hg.call(document) === false && vg.call(document) === 'visible') \
            ? 'ok' : ('fail:' + hg.call({}) + ',' + vg.call({}));",

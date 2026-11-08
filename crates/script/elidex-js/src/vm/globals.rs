@@ -534,6 +534,10 @@ impl VmInner {
             GlobalScopeKind::Window => {
                 self.register_window_prototype();
                 self.get_object_mut(self.global_object).prototype = self.window_prototype;
+                // `Document.prototype` — the one prototype every Document
+                // entity's wrapper gets (chosen in `create_element_wrapper`).
+                // A worker VM binds no document.
+                self.register_document_prototype();
                 // `navigator.serviceWorker` client surface (WHATWG SW §3.4;
                 // D-19 PR-3) — builds the ServiceWorkerContainer singleton that
                 // `register_navigator_global` exposes, so it MUST run first.

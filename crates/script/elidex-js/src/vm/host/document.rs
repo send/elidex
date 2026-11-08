@@ -40,8 +40,8 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
-use super::super::Vm;
+use super::super::shape;
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::dom_bridge::{
     coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
     query_selector_all_snapshot, wrap_entities_as_array,
@@ -272,69 +272,39 @@ pub(super) fn native_document_adopt_node(
 }
 
 // ---------------------------------------------------------------------------
-// Installation — add the own-properties to the document wrapper at bind time.
+// Installation — the one `Document.prototype` (WebIDL §3.7.3, §3.7.6, §3.7.7).
 // ---------------------------------------------------------------------------
 
-impl Vm {
-    /// Re-install the document-only own-properties each bind cycle.
-    /// Called by `install_document_global` after the HostObject
-    /// wrapper has been refreshed.
-    ///
-    /// We re-install rather than once-at-VM-init because the
-    /// document wrapper is cached per-Entity in
-    /// `HostData::wrapper_cache` — successive binds with the same
-    /// document entity return the same wrapper ObjectId, so
-    /// properties survive without any work, but the first bind
-    /// *must* populate it.  The "already installed" check below
-    /// keeps rebind cycles O(1).
-    pub(in crate::vm) fn install_document_methods_if_needed(&mut self, doc_wrapper: ObjectId) {
-        // The bound document is the default target; cloned Document
-        // entities are installed separately via
-        // `VmInner::install_document_methods_for_entity` (invoked from
-        // `native_node_clone_node` after allocating the clone's
-        // wrapper).
-        let doc_entity = self
-            .host_data()
-            .expect("install_document_methods_if_needed requires HostData")
-            .document();
-        self.inner
-            .install_document_methods_for_entity(doc_entity, doc_wrapper);
-    }
-}
-
 impl super::super::VmInner {
-    /// Populate the document-specific own-property suite onto
-    /// `doc_wrapper`, keyed by `doc_entity` so repeated bind / clone
-    /// cycles skip the install.  Used by both
-    /// [`Vm::install_document_methods_if_needed`](super::super::Vm::install_document_methods_if_needed)
-    /// (bound document, each bind) and
-    /// `native_node_clone_node` (cloned Document entities).
+    /// Allocate `Document.prototype` (`[[Prototype]]` = `Node.prototype`,
+    /// WebIDL §3.7.3 step 3) and install the whole Document member suite on
+    /// it, once per Window VM.  `create_element_wrapper` chooses it for every
+    /// wrapper of a `NodeKind::Document` entity (`PrototypeKind::Document`),
+    /// so no path — the bound global, DOMParser, `cloneNode`,
+    /// `ownerDocument`, the adopted-reaction flush — installs anything
+    /// per wrapper.  Must run after `register_node_prototype`.
     ///
-    /// The per-entity idempotency set is load-bearing: a single VM
-    /// can host multiple Document entities over its lifetime (bound
-    /// document + clones), each with a distinct wrapper ObjectId, and
-    /// every one of them needs the install exactly once.
-    pub(in crate::vm) fn install_document_methods_for_entity(
-        &mut self,
-        doc_entity: elidex_ecs::Entity,
-        doc_wrapper: ObjectId,
-    ) {
-        let already_installed = self
-            .host_data
-            .as_deref()
-            .is_some_and(|hd| hd.document_methods_installed.contains(&doc_entity));
-        if already_installed {
-            return;
-        }
-        // The document own-methods install in three ordered slices so the gated
-        // live-collection getters land at their ORIGINAL ordinal position (between
-        // `querySelectorAll` and `createElement`). elidex installs document methods
-        // as the wrapper's OWN properties (no shared `Document.prototype`) and
-        // `install_methods` appends shape entries in call order, so install order IS
-        // the `Object.getOwnPropertyNames(document)` order — a single *trailing*
-        // gated install would reorder the live-collection names after `getSelection`,
-        // an observable enumeration-order change A1's no-behavior-change contract
-        // must not make (Codex R9).
+    /// The members install in three ordered slices so the gated
+    /// live-collection getters land at their original ordinal position
+    /// (between `querySelectorAll` and `createElement`): `install_methods`
+    /// appends shape entries in call order, so install order IS the
+    /// `Object.getOwnPropertyNames(Object.getPrototypeOf(document))` order,
+    /// and a single trailing gated install would reorder the
+    /// live-collection names after `getSelection` (an observable
+    /// enumeration-order change; Codex R9).  The gates read
+    /// `spec_level_policy`, fixed at VM construction, so the gated set
+    /// equals the set a per-wrapper install would have produced.
+    pub(in crate::vm) fn register_document_prototype(&mut self) {
+        let node_proto = self
+            .node_prototype
+            .expect("register_document_prototype before register_node_prototype");
+        let doc_wrapper = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(node_proto),
+            extensible: true,
+        });
+        self.document_prototype = Some(doc_wrapper);
         self.install_methods(doc_wrapper, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
         // Seam-1c (A1 core/compat gate): the live-collection getters route through
         // the general `installs_dom(level)` predicate reading the family's SINGLE
@@ -373,9 +343,6 @@ impl super::super::VmInner {
         // Document mixes in GlobalEventHandlers +
         // DocumentAndElementEventHandlers + the Document-specific
         // partial (`onreadystatechange` / `onvisibilitychange`).
-        // Installed per-entity on the wrapper (no shared
-        // `Document.prototype` in elidex), gated by the same
-        // idempotency set.
         self.install_event_handler_attrs(
             doc_wrapper,
             &[
@@ -384,21 +351,18 @@ impl super::super::VmInner {
                 elidex_script_session::HandlerScope::DocumentOnly,
             ],
         );
-        if let Some(hd) = self.host_data.as_deref_mut() {
-            hd.document_methods_installed.insert(doc_entity);
-        }
     }
 }
 
 // Method + accessor tables are file-scope constants so they are not
-// rebuilt on every bind and so the `install_document_methods_if_needed`
+// rebuilt on every bind and so `register_document_prototype`'s
 // body reads top-down.
 /// Document own-methods installed BEFORE the gated live-collection getters, kept
 /// in their original `DOCUMENT_METHODS` order (id + selector lookups). Split from
 /// [`DOCUMENT_METHODS_POST_LIVE_COLLECTION`] so the gated
 /// [`DOCUMENT_LIVE_COLLECTION_METHODS`] install lands at its original ordinal
 /// position — own-property enumeration order = install order (see the install
-/// comment in `install_document_methods_for_entity`; Codex R9).
+/// comment in `register_document_prototype`; Codex R9).
 const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
     ("querySelector", native_document_query_selector),

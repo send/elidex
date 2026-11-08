@@ -238,6 +238,10 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 #[cfg(feature = "engine")]
+                self.document_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
                 self.shadow_root_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,

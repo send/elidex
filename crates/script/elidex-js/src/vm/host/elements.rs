@@ -92,7 +92,10 @@ impl VmInner {
         //                         (→ CharacterData.prototype → Node.prototype).
         // - Comment / PI / CDATA → `CharacterData.prototype`
         //                         (→ Node.prototype).
-        // - Document / DocumentFragment / DocumentType / unbound
+        // - Document            → `Document.prototype`
+        //                         (→ Node.prototype), the one place a
+        //                         Document wrapper's shape is decided.
+        // - DocumentFragment / DocumentType / unbound
         //                       → `Node.prototype` directly.
         //
         // Pre-bind / unbound wrapper allocation falls through to the
@@ -151,6 +154,9 @@ impl VmInner {
                 .or(self.document_fragment_prototype)
                 .or(self.node_prototype)
                 .expect("create_element_wrapper called before register_shadow_root_prototype"),
+            super::super::host_data::PrototypeKind::Document => self
+                .document_prototype
+                .expect("create_element_wrapper called before register_document_prototype"),
             super::super::host_data::PrototypeKind::OtherNode => self
                 .node_prototype
                 .expect("create_element_wrapper called before register_node_prototype"),

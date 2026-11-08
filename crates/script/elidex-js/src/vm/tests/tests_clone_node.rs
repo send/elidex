@@ -239,9 +239,8 @@ fn clone_node_allocates_distinct_entity() {
 
 #[test]
 fn cloned_element_does_not_acquire_document_methods() {
-    // Pin install_document_methods_if_cloned_doc gate: cloning a
-    // non-Document must NOT install document-only methods on the
-    // resulting wrapper.  Reaching `createElement` on an Element
+    // Cloning a non-Document must NOT give the resulting wrapper the
+    // document-only methods (they live on `Document.prototype`).  Reaching `createElement` on an Element
     // clone should be undefined (not a function), which `typeof`
     // reports as "undefined".
     let (mut vm, mut session, mut dom, doc) = setup();
@@ -264,8 +263,8 @@ fn cloned_element_does_not_acquire_document_methods() {
 
 #[test]
 fn cloned_document_clone_node_owner_propagates() {
-    // Chained cloneNode must keep installing document methods on
-    // each cloned wrapper — pin that c2.createElement still resolves
+    // Chained cloneNode: each cloned wrapper is a Document
+    // (`Document.prototype`) — pin that c2.createElement still resolves
     // and reports c2 as ownerDocument.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
@@ -277,7 +276,7 @@ fn cloned_document_clone_node_owner_propagates() {
             "var c1 = document.cloneNode(true);\n\
              var c2 = c1.cloneNode(true);\n\
              // c2 must itself be a Document with a working createElement
-             // (proves install_document_methods_if_cloned_doc fired on c2).
+             // (proves c2's wrapper has Document.prototype).
              typeof c2.createElement === 'function' && \
              c2.createElement('p').ownerDocument === c2;",
         )

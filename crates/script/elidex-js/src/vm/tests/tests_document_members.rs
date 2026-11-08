@@ -122,7 +122,7 @@ fn compat_mode_on_plain_object_returns_empty_not_css1_compat() {
     // so the getter does not leak a plausible answer for an
     // invalid receiver.
     let out = run(
-        "var getCompat = Object.getOwnPropertyDescriptor(document, 'compatMode').get; \
+        "var getCompat = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'compatMode').get; \
          getCompat.call({}) + ':' + typeof getCompat.call({});",
         build_html_with_head_body,
     );
