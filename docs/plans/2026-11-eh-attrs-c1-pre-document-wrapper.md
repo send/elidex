@@ -165,7 +165,10 @@ title pair and every step comes from `.claude/tools/webref` (`heading`, `dfn`, `
   `focus_fixup_steps` through `focusing_steps_for_viewport`, which passes no target).
 - **D-6 — the no-browsing-context values are the spec's.** `defaultView` `null`, `cookie` `""` / no-op set
   (cookie-averse), `referrer` `""`, `hasFocus()` `false`, `getSelection()` `null`, `hidden` `true` and `visibilityState`
-  `"hidden"` (HTML §6.2: "visibility state … initially set to "hidden""; only *update the visibility state* changes it).
+  `"hidden"` (HTML §6.2: "visibility state … initially set to "hidden""; two §6.2 algorithms change it, *set the initial
+  visibility state*, which *initialize the navigable* (HTML §7.3.1) step 6 calls only for a navigable's document, and
+  *update the visibility state*; neither runs for a Document without a browsing context, so its value stays the
+  initial "hidden").
   Three of these change an observable value of today's DOMParser and cloned Documents (`hidden`, `visibilityState`,
   `getSelection`; cell W6).
 - **D-7 — `compatMode` reads the dom-api handler.** The VM native routes through `invoke_document_accessor(..,
@@ -289,7 +292,11 @@ dom-domimplementation-createhtmldocument`, `body dom clone-a-single-node`, `body
 `#dom-document-getselection`), `heading html 6.2`, `heading selection-api 4.1`, `heading dom 4.5`; step text from
 `body html dom-document-hidden` ("return true if this's visibility state is "hidden", otherwise false"), `body html
 dom-document-visibilitystate` ("return this's visibility state"), `body html visibility-state` ("initially set to
-"hidden""), `idl selection-api Document` (`Selection? getSelection()`); `body selection-api
+"hidden""); rev 2.5.1's, for D-6: `dfn html "set the initial visibility state"` (→ §6.2 Page visibility,
+`#set-the-initial-visibility-state`), `dfn html "update the visibility state"` (→ §6.2, `#update-the-visibility-state`),
+`dfn html "initialize the navigable"` (→ §7.3.1 Navigables, `#initialize-the-navigable`), `heading html 7.3.1`, `body
+html set-the-initial-visibility-state` (step 1 "Set document's visibility state to visibilityState"), `body html
+initialize-the-navigable` (step 6 "Set the initial visibility state of documentState's document to …"); `idl selection-api Document` (`Selection? getSelection()`); `body selection-api
 dom-document-getselection` and `body selection-api extensions-to-document-interface` failed again ("anchor … not
 encountered"), so W22's `getSelection` leg, like X5, rests on the IDL and the dfn. For the flush: `dfn dom adopt` (→
 §4.5 Interface Document, `#concept-node-adopt`), `body dom concept-node-adopt` (step 3.3.3: enqueue
@@ -501,7 +508,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 
 | cell | kind | script | HEAD | C1-pre = spec |
 |---|---|---|---|---|
-| W1 | red (fixture) | `d = p.ownerDocument;` then separately `typeof d.createElement`, `d.defaultView === null`, `Object.getPrototypeOf(d) === Object.getPrototypeOf(document)`, `d.createElement('i').ownerDocument === d`, `d.body` | `"undefined"`, `false`, `false`, throws `TypeError`, `undefined` | `"function"`, `true`, `true`, `true`, `null` |
+| W1 | red (fixture) | `d = p.ownerDocument;` then separately `typeof d.createElement`, `d.defaultView === null`, `'createElement' in Object.getPrototypeOf(d)`, `d.createElement('i').ownerDocument === d`, `d.body` | `"undefined"`, `false`, `false`, throws `TypeError`, `undefined` | `"function"`, `true`, `true`, `true`, `null` |
 | W2 | red | `[Object.getOwnPropertyNames(document).length, 'createElement' in Object.getPrototypeOf(document)]` | `[N > 0, false]` | `[0, true]` |
 | W3 | red (order transfer) | `Object.getOwnPropertyNames(Object.getPrototypeOf(document))` equals the list `Object.getOwnPropertyNames(document)` printed on the base (pinned as a literal; on a base at or after `0a5a77ba` it has `adoptNode` right after `getSelection`, `document.rs:429-432`) | `Node.prototype`'s names | the pinned list |
 | W4 | guard | `p.ownerDocument === p.ownerDocument`; `dp.documentElement.parentNode === dp`; `document.documentElement.parentNode === document` | all `true` | all `true` |
@@ -514,7 +521,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | W11 | red (rewrite of `document_methods_install_per_document_entity`) | bind doc1, record `Object.getPrototypeOf(document)` in a global; unbind; bind doc2; `[typeof document.getElementById, Object.getPrototypeOf(document) === saved, document.hasOwnProperty('getElementById')]` | `["function", true, true]` | `["function", true, false]` |
 | W12 | guard (gates) | `'getElementsByTagName' in document`; with `compat-webapi` + BrowserCompat `'cookie' in document`, in an App-mode VM `'cookie' in document` | `true`; `true`; `false` | same |
 | W15 | red (Rust-set state, D-5) | as W1, with `ElementState::FOCUS` set on the fixture element (Rust) and the tab visible: `document.hasFocus.call(d)` | `true` | `false` |
-| W22 | red (fixture, C0c's flush; H-13) | W1's fixture (its Document entity, here D, and its element `p`); nothing wraps D before the script. `r = []; customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { r.push([o, n]); } }); x = document.createElement('x-a'); p.appendChild(x); document.adoptNode(x);` — two *adopt*s, (`document`, D) then (D, `document`); the flush allocates D's first wrapper as the first callback's newDocument. Then, in a second `eval`, with `a = r[1][0]` (the second callback's oldDocument): `[r.length, a === r[0][1], typeof a.createElement, Object.getPrototypeOf(a) === Object.getPrototypeOf(document), a.hidden, a.visibilityState, typeof a.getSelection == 'function' ? a.getSelection() : 'absent']`. **Control** (green on both): `[r[1][1] === document, typeof r[1][1].createElement]` | `[2, true, "undefined", false, undefined, undefined, "absent"]` (by code reading at `43e350c7`, not run); control `[true, "function"]` | `[2, true, "function", true, true, "hidden", null]` (HTML §6.2 `hidden` / `visibilityState` getters with the initial "hidden"; Selection API §4.1 `Selection?`; D-6); control same |
+| W22 | red (fixture, C0c's flush; H-13) | W1's fixture (its Document entity, here D, and its element `p`); nothing wraps D before the script. `r = []; customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { r.push([o, n]); } }); x = document.createElement('x-a'); p.appendChild(x); document.adoptNode(x);` — two *adopt*s, (`document`, D) then (D, `document`); the flush allocates D's first wrapper as the first callback's newDocument. Then, in a second `eval`, with `a = r[1][0]` (the second callback's oldDocument): `[r.length, a === r[0][1], typeof a.createElement, 'createElement' in Object.getPrototypeOf(a), a.hidden, a.visibilityState, typeof a.getSelection == 'function' ? a.getSelection() : 'absent']`. **Control** (green on both): `[r[1][1] === document, typeof r[1][1].createElement]` | `[2, true, "undefined", false, undefined, undefined, "absent"]` (by code reading at `43e350c7`, not run); control `[true, "function"]` | `[2, true, "function", true, true, "hidden", null]` (HTML §6.2 `hidden` / `visibilityState` getters with the initial "hidden"; Selection API §4.1 `Selection?`; D-6); control same |
 
 ### §6.2 Mutation guards
 
@@ -567,7 +574,7 @@ are pre-existing or another unit's scope.
   C1's T1 fourth / fifth legs and M3's `URL` / `documentURI` legs need `#11-document-base-url` instead (R-2, R-10).
 - e-rc2a: **L3's RC-2a → C1-pre** (landing order, PM 371; common function `native_node_clone_node`). RC-2a landed as
   #596 `17b2a84d` with the `install_document_methods_if_cloned_doc` call kept (`node_methods_extras.rs:218`), as its
-  plan `docs/plans/2026-11-range-rc2a-clone-created.md` `:163-165`, §4.6, said; C1-pre lands second and
+  plan `docs/plans/2026-11-range-rc2a-clone-created.md` `:167-169`, §4.6, said; C1-pre lands second and
   deletes the call and the helper (§4.1 item 6) from RC-2a's version of the function (R-12).
 - e-dbu: **C1-pre ↔ `#11-document-base-url`**, either order (no data edge after PM 339). Common code: the URL and
   `cookie` natives, whose install C1-pre moves to the prototype without changing them: rebase only.
@@ -648,8 +655,9 @@ are pre-existing or another unit's scope.
   "If document has a descendant base element that has an href attribute, then return the frozen base URL of the first
   such base element in tree order", step 2 the base URL override, step 3 the *fallback base URL*), which
   `BaseUrlMaintainer` overwrites with a `<base>`'s frozen URL (`recompute_document_base`
-  `crates/dom/elidex-dom-api/src/element/document_base.rs:134-163`, insert `:162`; callers the bind initializer `:270`
-  and the Insert / Remove / AttributeChange arms `:302`, `:346`, `:379`, each passing `about_blank_url()` as the
+  `crates/dom/elidex-dom-api/src/element/document_base.rs:134-163`, insert `:162`; called by
+  `initialize_base_url_for_document` (`:189`, itself called by the bind initializer `:270`) and directly by the Insert /
+  Remove / AttributeChange arms `:302`, `:346`, `:379`, each passing `about_blank_url()` as the
   fallback, DOMParser alone its caller URL, `crates/dom/elidex-form/src/inert_document.rs:200`). It is not
   the document's URL (DOM §4.5): the two differ whenever a `<base href>` exists (`document.URL` the page,
   `document.baseURI` the `<base>`'s frozen URL) or an about base URL applies (*fallback base URL* step 1 "If document's
@@ -736,6 +744,14 @@ node-document rows (C0b's `NewNodeOwner`, `adoptNode`), R-10's input (`document_
 e-14b / e-rc2a and R-12 (D-14 (b) and RC-2a landed). D-5's `set_focus_bit` gate re-checked: holds (#603's paths only
 clear the bit). §3 gains rev 2.5's lookups; §5.3's line counts re-measured; the P-5 / P-11 commands cover the three
 `document*.rs` files.
+*Rev 2.5.1* (2026-11-08, PM 534): focused re-check MINs, decisions unchanged. W1's third leg and W22's fourth leg
+`Object.getPrototypeOf(x) === Object.getPrototypeOf(document)` did not discriminate (true at HEAD: a Document entity
+resolves to `PrototypeKind::OtherNode`, `Node.prototype`, like the bound document); replaced by `'createElement' in
+Object.getPrototypeOf(x)` (`false` at HEAD, `true` at C1-pre); W22 stays red by code reading through its other legs.
+Edge e-rc2a's RC-2a plan cite re-pinned to `:167-169`. R-10: `:270` calls `initialize_base_url_for_document`, which
+calls `recompute_document_base` (`:189`); the direct callers are `:302`, `:346`, `:379`. D-6 names both §6.2 writers
+(*set the initial visibility state* from *initialize the navigable* step 6, HTML §7.3.1, and *update the visibility
+state*); §3 gains the lookups.
 
 ## §11. Open questions
 
