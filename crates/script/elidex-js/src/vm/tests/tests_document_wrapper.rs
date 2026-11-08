@@ -186,6 +186,24 @@ fn w5_domparser_and_clone_share_the_prototype() {
     });
 }
 
+#[test]
+fn w6_non_bound_documents_have_no_browsing_context_visibility_and_selection() {
+    with_page(|vm| {
+        vm.eval(DP).unwrap();
+        let got = eval_str(
+            vm,
+            "var c = document.cloneNode(); \
+             L(function () { return dp.hidden; }, \
+               function () { return dp.visibilityState; }, \
+               function () { return dp.getSelection(); }, \
+               function () { return c.hidden; }, \
+               function () { return c.visibilityState; }, \
+               function () { return c.getSelection(); });",
+        );
+        assert_eq!(got, "true|\"hidden\"|null|true|\"hidden\"|null");
+    });
+}
+
 #[cfg(feature = "compat-webapi")]
 #[test]
 fn w7_domparser_document_no_browsing_context_values_guard() {
@@ -237,6 +255,23 @@ fn w9_accessor_brand_check_rejects_a_non_document() {
             "var P = Object.getOwnPropertyDescriptor(document, 'body') ? document \
                       : Object.getPrototypeOf(document); \
              E(function () { return Object.getOwnPropertyDescriptor(P, 'body').get.call(document.body); });",
+        );
+        assert!(
+            got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
+            "got {got:?}"
+        );
+    });
+}
+
+#[test]
+fn w10_ready_state_getter_brand_check() {
+    with_page(|vm| {
+        vm.eval(ERR).unwrap();
+        let got = eval_str(
+            vm,
+            "var P = Object.getOwnPropertyDescriptor(document, 'readyState') ? document \
+                      : Object.getPrototypeOf(document); \
+             E(function () { return Object.getOwnPropertyDescriptor(P, 'readyState').get.call(document.body); });",
         );
         assert!(
             got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
@@ -302,4 +337,46 @@ fn w12_gates_guard() {
     let got = eval_str(&mut vm, "L(function () { return 'cookie' in document; });");
     assert_eq!(got, "false");
     vm.unbind();
+}
+
+#[test]
+fn w15_has_focus_requires_a_browsing_context() {
+    with_second_document(true, |vm| {
+        vm.eval("globalThis.d = p.ownerDocument;").unwrap();
+        let got = eval_str(vm, "L(function () { return document.hasFocus.call(d); });");
+        assert_eq!(got, "false");
+    });
+}
+
+#[test]
+fn w22_adopted_reaction_flush_wraps_a_document() {
+    with_second_document(false, |vm| {
+        vm.eval(
+            "globalThis.r = []; \
+             customElements.define('x-a', class extends HTMLElement { \
+               adoptedCallback(o, n) { r.push([o, n]); } }); \
+             var x = document.createElement('x-a'); \
+             p.appendChild(x); \
+             document.adoptNode(x);",
+        )
+        .unwrap();
+        let control = eval_str(
+            vm,
+            "L(function () { return r.length; }, \
+               function () { return r[1][0] === r[0][1]; }, \
+               function () { return r[1][1] === document; }, \
+               function () { return typeof r[1][1].createElement; });",
+        );
+        assert_eq!(control, "2|true|true|\"function\"");
+        let got = eval_str(
+            vm,
+            "var a = r[1][0]; \
+             L(function () { return typeof a.createElement; }, \
+               function () { return 'createElement' in Object.getPrototypeOf(a); }, \
+               function () { return a.hidden; }, \
+               function () { return a.visibilityState; }, \
+               function () { return typeof a.getSelection == 'function' ? a.getSelection() : 'absent'; });",
+        );
+        assert_eq!(got, "\"function\"|true|true|\"hidden\"|null");
+    });
 }

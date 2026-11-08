@@ -37,6 +37,19 @@ use super::document::document_receiver;
 use super::dom_bridge::{invoke_dom_api, wrap_entity_or_null};
 use elidex_ecs::Entity;
 
+/// Whether `doc` has a browsing context (HTML §7.3.2): in this VM a Document's
+/// node navigable is non-null exactly when it is the bound document
+/// (`HostData::document`).  The one place the VM's single browsing-context
+/// ↔ Document association is read; its storage stays per-VM until B1
+/// (`#11-browsing-context-state-ecs-components`).
+pub(super) fn document_has_browsing_context(ctx: &NativeContext<'_>, doc: Entity) -> bool {
+    ctx.vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document)
+        == Some(doc)
+}
+
 /// Locate the `<html>` root child of `doc_entity`.  Returns `None`
 /// if the document has no `<html>` child (e.g. empty tree).
 fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
@@ -143,12 +156,16 @@ pub(super) fn native_document_get_base_uri(
 
 pub(super) fn native_document_get_ready_state(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Phase 2: scripts run after parse completes (eval is synchronous
-    // from the shell's perspective), so `complete` is honest.  The
-    // shell wires real lifecycle transitions in PR6.
+    // Brand check, then HEAD's constant for every Document: "complete" is the
+    // spec default for a Document without a browsing context (HTML §3.1.5)
+    // and today's answer for the bound one (its readiness has a second source,
+    // slot proposal `#11-document-readiness-one-source`).
+    if document_receiver(ctx, this, "readyState")?.is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
     Ok(JsValue::String(ctx.vm.well_known.complete))
 }
 
@@ -181,26 +198,19 @@ pub(super) fn native_document_set_title(
     )
 }
 
-/// `document.compatMode` — WHATWG §4.5 accessor.
-/// Fixed `"CSS1Compat"` (standards mode); `BackCompat` (quirks mode)
-/// requires a quirks-aware parser pass that elidex does not yet have.
+/// `document.compatMode` — WHATWG §4.5 accessor, routed to the engine-independent
+/// `GetCompatMode` handler (the mode is not modelled, so every Document is
+/// `"CSS1Compat"`; slot proposal `#11-document-mode`).  A brand-bypass receiver
+/// (unbound / non-HostObject) answers the empty string rather than leaking a
+/// plausible "CSS1Compat" from a detached call site; a wrong-kind receiver
+/// throws `TypeError`.
 pub(super) fn native_document_get_compat_mode(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `document_receiver` returns `Ok(None)` for unbound VMs and
-    // non-HostObject receivers (silent no-op policy, matches every
-    // other document accessor — `body` returns null, `title` returns
-    // "", etc.).  Fall through to the empty string in that case so
-    // `Object.getOwnPropertyDescriptor(...).get.call({})` does not
-    // leak a plausible "CSS1Compat" string from a detached call
-    // site.  Wrong-NodeKind receivers still throw TypeError via the
-    // `?` — unchanged brand-check contract.
-    if document_receiver(ctx, this, "compatMode")?.is_none() {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    }
-    Ok(JsValue::String(ctx.vm.well_known.css1_compat))
+    let empty = JsValue::String(ctx.vm.well_known.empty);
+    invoke_document_accessor(ctx, this, "compatMode", "document.compatMode.get", empty)
 }
 
 /// `document.defaultView` — WHATWG §4.5.  Returns the Window
@@ -224,12 +234,7 @@ pub(super) fn native_document_get_default_view(
     };
     // Only the bound document has a Window.  Non-bound (cloned)
     // documents are detached from any browsing context.
-    let bound_doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .map(super::super::host_data::HostData::document);
-    if bound_doc != Some(doc) {
+    if !document_has_browsing_context(ctx, doc) {
         return Ok(JsValue::Null);
     }
     Ok(JsValue::Object(ctx.vm.global_object))
@@ -274,12 +279,7 @@ pub(super) fn native_document_get_cookie(
     let Some(doc) = document_receiver(ctx, this, "cookie")? else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let bound_doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .map(super::super::host_data::HostData::document);
-    if bound_doc != Some(doc) {
+    if !document_has_browsing_context(ctx, doc) {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
     // `host_if_bound` borrows `ctx` mutably, but
@@ -319,12 +319,7 @@ pub(super) fn native_document_set_cookie(
     let Some(doc) = document_receiver(ctx, this, "cookie")? else {
         return Ok(JsValue::Undefined);
     };
-    let bound_doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .map(super::super::host_data::HostData::document);
-    if bound_doc != Some(doc) {
+    if !document_has_browsing_context(ctx, doc) {
         return Ok(JsValue::Undefined);
     }
     // Resolve the jar BEFORE coercing the assigned value: the
@@ -366,12 +361,7 @@ pub(super) fn native_document_get_referrer(
     let Some(doc) = document_receiver(ctx, this, "referrer")? else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let bound_doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .map(super::super::host_data::HostData::document);
-    if bound_doc != Some(doc) {
+    if !document_has_browsing_context(ctx, doc) {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
     let Some(url) = ctx.vm.navigation.referrer.as_ref() else {
@@ -484,7 +474,11 @@ pub(super) fn native_document_has_focus(
     let Some(doc) = document_receiver(ctx, this, "hasFocus")? else {
         return Ok(JsValue::Boolean(false));
     };
-    // A hidden top-level browsing context has no system focus.
+    // HTML §6.6.4 has-focus steps 1-2: no node navigable -> false; then a
+    // hidden top-level browsing context has no system focus.
+    if !document_has_browsing_context(ctx, doc) {
+        return Ok(JsValue::Boolean(false));
+    }
     if ctx
         .vm
         .host_data
@@ -508,21 +502,16 @@ pub(super) fn native_document_get_hidden(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Two-stage guard (matching `cookie` / `referrer` / `defaultView`): page
-    // visibility is a browsing-context fact of the *bound* document, so both a
-    // brand-bypass (`get.call({})`) AND a detached/cloned `Document` receiver
-    // must fall back to the default (visible) rather than leak the bound tab's
-    // state.
+    // Two-stage guard (matching `cookie` / `referrer` / `defaultView`): a
+    // brand-bypass (`get.call({})`) falls back to the default (visible); a
+    // Document without a browsing context answers its initial visibility state,
+    // "hidden" (HTML §6.2 *set the initial visibility state* runs only for a
+    // navigable's document), never the bound tab's state.
     let Some(doc) = document_receiver(ctx, this, "hidden")? else {
         return Ok(JsValue::Boolean(false));
     };
-    let bound_doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .map(super::super::host_data::HostData::document);
-    if bound_doc != Some(doc) {
-        return Ok(JsValue::Boolean(false));
+    if !document_has_browsing_context(ctx, doc) {
+        return Ok(JsValue::Boolean(true));
     }
     let hidden = ctx
         .vm
@@ -542,18 +531,14 @@ pub(super) fn native_document_get_visibility_state(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Two-stage guard (see `native_document_get_hidden`): a non-bound or
-    // detached/cloned `Document` receiver defaults to "visible".
+    // Two-stage guard (see `native_document_get_hidden`): a Document without a
+    // browsing context answers the initial "hidden"; a brand-bypass receiver
+    // defaults to "visible".
     let Some(doc) = document_receiver(ctx, this, "visibilityState")? else {
         return Ok(JsValue::String(ctx.vm.well_known.visible));
     };
-    let bound_doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .map(super::super::host_data::HostData::document);
-    if bound_doc != Some(doc) {
-        return Ok(JsValue::String(ctx.vm.well_known.visible));
+    if !document_has_browsing_context(ctx, doc) {
+        return Ok(JsValue::String(ctx.vm.well_known.hidden));
     }
     let hidden = ctx
         .vm
@@ -587,4 +572,21 @@ pub(super) fn native_document_get_links(
         elidex_dom_api::CollectionKind::HtmlCollection,
     ));
     Ok(JsValue::Object(id))
+}
+
+/// `document.getSelection()` (Selection API §4.1 `Selection? getSelection()`):
+/// brand-check `this`; a Document without a browsing context has no selection
+/// (`null`); otherwise the Window's selection.
+pub(super) fn native_document_get_selection(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "getSelection")? else {
+        return Ok(JsValue::Null);
+    };
+    if !document_has_browsing_context(ctx, doc) {
+        return Ok(JsValue::Null);
+    }
+    super::window::native_window_get_selection(ctx, JsValue::Undefined, args)
 }

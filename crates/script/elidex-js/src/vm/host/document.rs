@@ -52,9 +52,9 @@ use super::document_accessors::{
     native_document_get_compat_mode, native_document_get_default_view, native_document_get_doctype,
     native_document_get_document_element, native_document_get_forms, native_document_get_head,
     native_document_get_hidden, native_document_get_images, native_document_get_links,
-    native_document_get_ready_state, native_document_get_referrer, native_document_get_title,
-    native_document_get_url, native_document_get_visibility_state, native_document_has_focus,
-    native_document_set_title,
+    native_document_get_ready_state, native_document_get_referrer, native_document_get_selection,
+    native_document_get_title, native_document_get_url, native_document_get_visibility_state,
+    native_document_has_focus, native_document_set_title,
 };
 #[cfg(feature = "compat-webapi")]
 use super::document_accessors::{native_document_get_cookie, native_document_set_cookie};
@@ -390,7 +390,7 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
     // Selection API §2: `getSelection()` on Document mirrors the
     // Window-side binding; both resolve to the same singleton
     // wrapper held in `HostData::selection_instance`.
-    ("getSelection", super::window::native_window_get_selection),
+    ("getSelection", native_document_get_selection),
     // DOM §4.5 `adoptNode(node)`; appended so the existing names keep
     // their own-property order.
     ("adoptNode", native_document_adopt_node),
