@@ -20,7 +20,7 @@ W-11 and precondition-cell text is unchanged between the two commits. The comman
 (positive control: `git show 4557c99b:docs/plans/2026-11-vm-stack-safety-guard-pr1.md | grep -cP "$R"` → 21; the
 umbrella → 5) → only the umbrella's Edges prose and a PR-1 §1 sentence differ, neither a requirement. The same
 `diff` from `4557c99b` to `b7f03821` (the guard branch's commit this memo cites for P0, below; branch tip `02386ec9`)
-shows the requirement lines moved, not changed: at `b7f03821` A-1 is PR-1 `:82`, the precondition cell `:828`, L-7
+leaves PR-A's requirements unchanged, at new lines: `b7f03821` A-1 is PR-1 `:82`, the precondition cell `:828`, L-7
 `:952` (re-worded, same check: `git grep -n '§3\.1\.3' -- crates/script/elidex-js/src/vm/host/abort_statics.rs` → 0
 lines), umbrella W-11 `:254`. What they require is listed in §9 and met in §4. PM 502 put a new slice **P0** (the
 resource-limit `Err` contract + an `Err`-consumer census, owner VM P4) before PR-1; P0 is now a program — umbrella
@@ -206,7 +206,7 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
    old → new table is D-8.
 
    **The EventTarget-only lines (handed off, §9.2).** The same file and its siblings carry the DOM-events chapter's
-   renumber drift with an `EventTarget` subject (no signal): `§2.6 step N` for add-an-event-listener /
+   renumber drift beyond the 2 signal-option lines of the file PR-A edits: `§2.6 step N` for add-an-event-listener /
    addEventListener steps, `§2.7.7` for removeEventListener steps, `§2.6` for the event listener's `once` /
    `passive` fields, and `§2.7.x` sub-sections that do not exist (`webref heading dom 2.7` → no subsections) — 26 lines
    in 7 files, listed with their commands in §9.2. Their owner is the DOM-events renumber sweep (memory
@@ -844,26 +844,23 @@ VM cells (`tests_abort_dependent.rs` (NEW); red at `69fbe61f` where marked):
   `ctx.vm.force_gc_before_next_alloc = true` and returns). Setup: `globalThis.t = AbortSignal.timeout(0)` (rooted by
   `pending_timeout_signals`, `keepalive.rs:272-275`); `AbortSignal.any([t])` with the result **dropped** (no
   reference, no listener), its `ObjectId` `dep` read natively as the one row `abort_signal_states` gained;
-  `t.addEventListener('abort', () => { __armGc(); ({}); globalThis.fresh = new AbortController();
-  fresh.signal.addEventListener('abort', () => { globalThis.misfire = true; }); })`. The native call runs with
+  `t.addEventListener('abort', () => { __armGc(); ({}); globalThis.g = __gcFired();
+  globalThis.fresh = new AbortController(); fresh.signal.addEventListener('abort', () => {
+  globalThis.misfire = true; }); })`. The native call runs with
   the gate's `gc_enabled = false`; the object literal is the first allocation after it with `gc_enabled = true`
   (the timer path's regime, §0.2 item 7), so the forced collection runs there — after planning, inside the plan
   loop. Advance the clock and `vm.inner.drain_timers(now)`. **Preconditions** (asserted, both builds): the flag was
-  consumed inside the listener (a second test native `__gcFired()` returns `!force_gc_before_next_alloc`, read just
-  after `({})`; the `tests_member_compound_assign_gc.rs:59` style); `dep` was planned (natively, before the drain,
+  consumed inside the listener (`g === true`; test native `__gcFired()` returns `!force_gc_before_next_alloc`; the
+  `tests_member_compound_assign_gc.rs:59` style); `dep` was planned (natively, before the drain,
   `links(t).dependent_signals() == [dep]`). **Kill assertion** (independent of where the freed slot goes): after the
   drain, `abort_signal_states` has a row at `dep` whose reason is the same value as `t.reason` (`same_value`) — a
   recycled occupant's row is `None` and a swept row is absent, so the mutant is red whatever the free list does;
   plus `misfire === undefined`, `fresh.signal.aborted === false`, `t.aborted === true`. **Mutant**: drop the pushes
   onto the scope's stack in `abort_signal` → `dep` is swept by the forced collection inside `t`'s listener and
-  `run_abort_steps(dep)` runs against a missing row or a new occupant → the kill assertion is red. **The mutant
-  run's recycling precondition**: the free list is LIFO (`free_objects.pop()`, `inner.rs:121-123`), so which new
-  object takes `dep`'s slot depends on the sweep's push order and the listener's allocation order; the mutation
-  proof records `fresh.signal`'s `ObjectId` and requires it to equal `dep` (the misfire path: `'abort'` fired at
-  the new occupant, `misfire === true`) — if it does not, the listener's allocation sequence (the number of
-  allocations before `new AbortController()`) is adjusted until it does, and the cell's comment records the
-  sequence. Variants in the same file: the dependent kept in a global (control: green with or without the root),
-  and two dropped dependents of one `t` (the plan has two otherwise-unrooted handles).
+  `run_abort_steps(dep)` runs against a missing row or a new occupant → the kill assertion is red. The mutation
+  proof records the listener's allocation order. Variants in the same file: the dependent kept in a global
+  (control: green with or without the root), and two dropped dependents of one `t` (the plan has two
+  otherwise-unrooted handles).
 - (o) `abort_err_does_not_skip_dependents` — the `Err` contract (D-4), driven through `internal_abort_signal`
   directly (`abort.rs:681-688`; the timer path's entry, without the timer): `drain_timers` cannot carry it, since
   it does not return a timeout fire's `Err` — the `AbortSignal.timeout` fire is excluded from its results
@@ -875,8 +872,8 @@ VM cells (`tests_abort_dependent.rs` (NEW); red at `69fbe61f` where marked):
   `dispatch_vm_simple_event` call and cleared when it fires — the position P0a's `InjectAt::SimpleEventDispatch`
   takes (P0a §4.4). An injection seam is the only way to produce this `Err` today: `dispatch_vm_simple_event`
   never returns `Err` at `69fbe61f` (D-4). Call `internal_abort_signal(&mut vm.inner, c_signal_id,
-  JsValue::Undefined)` → returns `Err`; `d1.aborted && d2.aborted`; both dependents' listeners ran; the source's
-  own listeners did not (its fire was the one that failed); `c.signal.aborted === true`. Mutant: `?` on the first
+  JsValue::Undefined)` → returns `Err`; `d1.aborted && d2.aborted`; both dependents' listeners ran;
+  `c.signal.aborted === true`. Mutant: `?` on the first
   `run_abort_steps` (or inside the loop) → `d1`'s and `d2`'s listeners do not run → red. **This seam is
   temporary by plan**: P0a rebases on PR-A, deletes `fail_next_abort_dispatch` and re-arms this cell with
   `InjectAt::SimpleEventDispatch(n)`, same assertion (P0a §4.4, `p0a.md:165-173`; P0 §7 L-12, `p0.md:334`); PR-A
@@ -981,9 +978,9 @@ goes); `event_target.rs` 734 → 734 (comment edits); `tests_abort.rs` (950) is 
   adds the field (cell (o) needs it, and no P0a injection exists at PR-A's base) and does not try to anticipate
   P0a's API. P0a also carries the allowlist row for PR-A's abort loop (P0a §5.4, `p0a.md:292-315`), keyed on the
   post-PR-A names it reads at its base (P0a §10 item 4, `p0a.md:434-436`) — the names PR-A's PR body gives (§9.1).
-  If the order ever inverts (P0a first), P0 §1 says PR-A uses `SimpleEventDispatch` from the start and adds no seam
-  of its own; that is a plan change for PR-A, not an implementation choice. P0b-L3 (L3's slice of P0) is after P0a
-  and after PR-A (P0 §1 schedule, `p0.md:122-130`) and has its own plan.
+  If the order ever inverts (P0a first), P0a §4.4 (`p0a.md:172-173`) says PR-A uses `SimpleEventDispatch` from the
+  start, with no seam of its own; that is a plan change for PR-A, not an implementation choice. P0b-L3 (L3's
+  slice of P0) is after P0a and after PR-A (P0 §1 schedule, `p0.md:122-130`) and has its own plan.
 - **L3's other work** (`#11-event-path-window-missing` plan, the walker umbrella): no shared file (those edit
   `HostDriver` / event-path and ECS walkers; PR-A edits none of them). Order per PM 485: #607 → **this slot** →
   stale-entity → walker umbrella.
@@ -1016,7 +1013,7 @@ names of the abort loop and of cell (o), and the `fail_next_abort_dispatch` fiel
 ("§2.6.3 step 3" → §2.7 "add an event listener" step 2) are among that note's "add-listener algorithm" sites and are
 fixed in PR-A; the note's remaining sites in this area — the 26 lines of §9.2, and `event_target.rs:131` "§2.7 step
 8" (handleEvent; the number resolves, the step is not re-derived here) — stay the note's. Update the note at PR-A's
-landing: remove `:110` / `:168`, add the five §9.2 (b) lines it did not list.
+landing: replace its site list with §9.2's commands.
 
 ### §9.1 PR body (what PR-A's description must say)
 
@@ -1049,9 +1046,9 @@ Owner: memory `project_dom-events-section-renumber-sweep` (its method: "sweep AL
 crates"). Lines at `69fbe61f`; the commands are the hand-off — re-run them at the sweep's base.
 
 **(a) EventTarget-only lines of the files PR-A's census covered (21 lines, 4 files).** Command:
-`git grep -nP '§2\.6(?![.\d])|§2\.6\.\d|§2\.7\.7' -- crates/script/elidex-js/src/vm/host/event_target.rs crates/script/elidex-js/src/vm/tests/tests_remove_event_listener.rs crates/script/elidex-js/src/vm/tests/tests_add_event_listener.rs crates/script/elidex-script-session/src/event_listener.rs | grep -vP 'event_target\.rs:(110|168):'`
+`git grep -nP '§2\.6(?![.\d])|§2\.6\.\d|§2\.7\.7' -- crates/script/elidex-js/src/vm/host/event_target.rs crates/script/elidex-js/src/vm/tests/tests_remove_event_listener.rs crates/script/elidex-js/src/vm/tests/tests_add_event_listener.rs crates/script/elidex-script-session/src/event_listener.rs | grep -vP '§2\.6\.3'`
 → 21 lines (positive control: the same command without the final `grep -v` → 23, and `| grep -cP
-'event_target\.rs:(110|168):'` on it → 2, the two lines PR-A keeps). `event_target.rs` ×14 (`:20`, `:93`, `:101`,
+'§2\.6\.3'` on it → 2, the two lines PR-A keeps). `event_target.rs` ×14 (`:20`, `:93`, `:101`,
 `:113`, `:184`, `:377`, `:445`, `:474`, `:540`, `:550`, `:557`, `:571`, `:592`, `:599`),
 `crates/script/elidex-js/src/vm/tests/tests_remove_event_listener.rs` ×2 (`:162`, `:202`),
 `crates/script/elidex-js/src/vm/tests/tests_add_event_listener.rs` ×3 (`:122`, `:151`, `:177`),
@@ -1122,10 +1119,10 @@ Every command is re-runnable at the PR head.
    the module (checked by reading the hits; all three fields are private, so a write outside the module does not
    compile — D-2).
 4. No recursion — the body of `abort_signal` calls no `abort_signal`:
-   `awk '/^pub\(super\) fn abort_signal\(/{f=1} f{print FILENAME":"NR": "$0} f&&/^}/{exit}' crates/script/elidex-js/src/vm/host/abort.rs | grep -P '(?<![A-Za-z_])abort_signal\(ctx'`
+   `awk 'f{print FILENAME":"NR": "$0} f&&/^}/{f=0} /^(pub\(super\) )?fn (abort_signal|run_abort_steps)\(/{f=1}' crates/script/elidex-js/src/vm/host/abort.rs | grep -P '(?<![A-Za-z_])abort_signal\('`
    → **no output** (positive control at `69fbe61f`: `git show 69fbe61f:crates/script/elidex-js/src/vm/host/abort.rs
-   | awk '/^pub\(super\) fn abort_signal\(/{f=1} f{print NR": "$0} f&&/^}/{exit}' | grep -P '(?<![A-Za-z_])abort_signal\(ctx'`
-   → 1 line, `610: abort_signal(ctx, composite_id, reason)?;`; the `awk` range is the function, `:522-658` there).
+   | awk 'f{print NR": "$0} f&&/^}/{f=0} /^(pub\(super\) )?fn (abort_signal|run_abort_steps)\(/{f=1}' | grep -P '(?<![A-Za-z_])abort_signal\('`
+   → 1 line, `610: abort_signal(ctx, composite_id, reason)?;`; the `awk` range is the bodies, `:523-658` there).
    (Rev 2's `git grep -nE '^\s*abort_signal\(ctx'` prints nothing even at `69fbe61f` — `\s` under `-E` — and had no
    function range.) The callers, `git grep -nP '(?<![A-Za-z_])abort_signal\(' -- crates` at `69fbe61f` (5 call
    lines + the definition `abort.rs:522` + a doc mention `fetch/mod.rs:294`): `native_abort_controller_abort`
@@ -1151,7 +1148,7 @@ Every command is re-runnable at the PR head.
    — the `step 13` is on the next line, so the check is the section alone);
    `git grep -nP '(?<!HTML )§8\.1\.8\.1' -- crates/script/elidex-js/src/vm/host/abort.rs` → **no output** (control:
    2). The EventTarget-only shapes are **not** checked here — they are §9.2's, and §9.2 (a)'s command still prints
-   21 lines at the PR head (line numbers may shift by D-3's edit), which is the expected state.
+   21 lines at the PR head, which is the expected state.
 7. Hygiene: `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (501 allowlisted, 0 new, 0 stale)` — the count is
    unchanged because the line PR-A rewrites is not counted today (D-8); the PR body records the output and quotes
    `abort.rs:512` before and after.
@@ -1264,7 +1261,7 @@ required before the parent slot closes. No question is open on the spec reading:
 - N-6 (MIN) — D-4: `dispatch_vm_simple_event` never returns `Err` at `69fbe61f` (`dispatch_vm_event` `:271-347` has
   only `Ok`; listener exceptions are swallowed, `event_target_dispatch.rs:485-497`); the `Err` path is latent, the
   contract stays, the P0 hand-off now points at P0a §5.4 (`b7f03821`), which already records it.
-- N-8 (MIN) — header: the requirement-diff command written out with `-P` and a positive control (no ``).
+- N-8 (MIN) — header: the requirement-diff command written out with `-P` and a positive control (no `\b`).
 - F1 (MIN) — `internal_abort_signal` anchor → `abort.rs:681-688`.
 - F4 (MIN) — the bare `§2.6` control: 19 files, the other 15 (§0.2 item 9).
 - F5 (MIN) — §9.2 (a): `event_target.rs:377`'s doc covers add **and** remove — both method steps' step 1.
@@ -1286,3 +1283,4 @@ required before the parent slot closes. No question is open on the spec reading:
 - Also re-measured while editing: L2's C0c landed (#611 `0a5a77ba`) — §9 Edges and DoD 11 updated; D-3's 20-line
   breakdown corrected (`tests_abort_statics.rs:77` is a Rust comment: 13 / 3 / 4, not 13 / 2 / 5); the PR-1 and
   umbrella requirement lines located at `b7f03821` (A-1 `:82`, cell `:828`, L-7 `:952`, W-11 `:254`).
+- **Rev 2.2** (PM 538, Rev 2.1 attestation): IMP-1, MIN-2 to MIN-9 fixed by deletion or replacement only, nothing added.
