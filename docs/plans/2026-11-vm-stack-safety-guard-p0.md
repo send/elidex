@@ -318,6 +318,8 @@ slices' landing sections point here) and is copied mechanically by the PMO from 
 merge commit** of the PR named in each row: one row = target, exact sentence, source. The P0 PRs edit no
 ledger. Rows marked *PR* are done by that PR itself; rows marked *PM* are notices.
 
+This table "at `b7f03821`" is registered in the landing list `vm-p0-program.md` (PM 517); the `<path>:<lines>` source cells are exact at `b7f03821`.
+
 | Row | When | Executor | Target (kind) | Exact sentence to append | Source |
 |---|---|---|---|---|---|
 | L-1 | PR-1's PR | PR | PR-1's PR body | "P0a, P0b-VM-1, P0b-VM-2 and P0b-L3 landed (`git merge-base --is-ancestor <sha> HEAD` → 0 for each); the census `# pending` section is empty." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:119-120` |

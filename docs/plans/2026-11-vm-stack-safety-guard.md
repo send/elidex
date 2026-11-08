@@ -2,7 +2,7 @@
 
 Status: **plan (pre-implementation), revised after plan-review R1 and R2** (findings at `H/review/` and
 `H/review-r2/`, `axis1.md` … `axis5.md`, `aggregate.md`), the driver decisions D-W / D-SC and the split
-verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 513). Owner: VM P4 lane.
+verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 517). Owner: VM P4 lane.
 PR-level plans: the [P0 program](2026-11-vm-stack-safety-guard-p0.md) (its slices P0a, P0b-VM-1, P0b-VM-2,
 P0b-L3), [PR-1](2026-11-vm-stack-safety-guard-pr1.md), [PR-1b](2026-11-vm-stack-safety-guard-pr1b.md).
 
@@ -48,7 +48,7 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
   `function f(n) { return n ? f(n - 1) : 0 } f(1e6)` becomes a `RangeError` where §15.10.3 requires
   constant resource use. **Ruling (PM 483)**: core is strict-only, so PrepareForTailCall is a
   normative requirement on core, and not implementing it is a **spec deviation**, homed in the open
-  slot `#11-vm-proper-tail-calls` (owner VM P4; re-evaluated at PR-2's plan). The VM P4 coverage map's
+  slot `#11-vm-proper-tail-calls` (owner VM P4; re-evaluated at PR-2's plan; Re-eval-date 2026-12-15, PM 517). The VM P4 coverage map's
   former "n/a (no tail calls in elidex)" (`docs/plans/2026-07-vm-p4-es-language-completeness.md`, row
   ECMA-262 §13.3.6.2 EvaluateCall step 6) now points at that slot. Today the tail call runs without
   bound until heap OOM (ledger `#11-vm-js-frame-depth-limit`: 1e7 frames reach 4 GB), so §15.10.3 is
@@ -80,6 +80,7 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | PM 509 | P0 split into an umbrella and per-PR slices; owners, C-4 reading, D-P0-2 (P0 umbrella §0.4). |
 | PM 510 | The IteratorClose slot id is `#11-vm-iteratorclose-precedence-convention`. |
 | PM 513 | P0b-VM split into P0b-VM-1 / P0b-VM-2; `history_events.rs` is an L4 file; the SW delivery queue is recorded on `#11-sw-client-postmessage-inbound`; the P0 ledger rows form one landing list (P0 umbrella §7); the loop-`?` census rule and the single test-failure seam ratified (P0 umbrella §0.4). |
+| PM 517 | (1) `#11-wasm-entry-depth-band` registered, owner VM P4 (PR-1b §10 L-4). (2) `#11-wasm-user-import-host-fn-builder`: owner VM P4, trigger wasm→JS user imports accepted, Re-eval-date 2027-01-31 (PR-1b §10 L-2). (3) `#11-wasm-instantiate-sync-deviation` registered, owner VM P4 (PR-1b §10 L-5). (4) `#11-vm-inner-substruct-decomposition` registered, owner VM P4 (PR-1 §12 L-17). (5) The `interpreter.rs` prereq split is a standalone VM P4 split PR before PR-1; queue Slice F → `interpreter.rs` split → PR-1 (§4, its one home). (6) Re-eval-date 2026-12-15 (the date of guard PR-2's plan) for `#11-vm-proper-tail-calls` and `#11-vm-microtask-self-chaining-unbounded` (§5). (7) PR-1 does not wait for the CI/tools per-profile build matrix; whichever of the two `ci.yml` PRs lands second rebases (§4). (8) The `TypeError` sub-item of `#11-vm-regexp-constructor-and-flags` is struck by the PM; its home is `#11-vm-regexp-syntax-error-surface`, and the owner text belongs to 9b's replaceAll child (PM 471) (§3.1). (9) The P0 §7 landing table at `b7f03821` is registered in the landing list `vm-p0-program.md` (P0 umbrella §7). |
 
 ## §1. Scope
 
@@ -115,11 +116,11 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | Iterative JSON walkers | T3 engineering ideal. A4's `MAX_JSON_DEPTH` already prevents each walker's *own* recursion from aborting; PR-1 adds the probe for re-entry. What stays is the frame-size dependence of `MAX_JSON_DEPTH` (debug 600 vs release 1000) | `#11-vm-json-walkers-iterative` |
 | Returning `""` for a cyclic `join` | A compat behaviour; core gives the catchable `RangeError` (PM 424; elidex resource limit, §0.1) | `#11-vm-array-join-cycle-detection` (compat) |
 | `AbortSignal.any` chain recursion and its GC defect (DOM "create a dependent abort signal" source flattening) | PM 454: own terminal slot, lands **before** PR-1 (§4); the algorithm belongs in an engine-independent crate, not `vm/host/` | `#11-abort-signal-any-dependent-flattening` (L3) |
-| Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError` / early error) at the literal / `match` / `search` compile sites | PM 454; PR-1's front door passes `Syntax` through unchanged. (structuredClone is **not** in this set: after PR-1 it does not compile at all, it copies the matcher, §3.) | `#11-vm-regexp-syntax-error-surface` (child of VM P4 slice-plan umbrella 8, RegExp completion; owner VM P4; PM 483). Until now carried as a sub-item of `#11-vm-regexp-constructor-and-flags`'s live entry ("regex syntax errors surface as TypeError", PM 454 note) |
+| Regexp syntax errors surfacing as `TypeError` (spec: `SyntaxError` / early error) at the literal / `match` / `search` compile sites | PM 454; PR-1's front door passes `Syntax` through unchanged. (structuredClone is **not** in this set: after PR-1 it does not compile at all, it copies the matcher, §3.) | `#11-vm-regexp-syntax-error-surface` (child of VM P4 slice-plan umbrella 8, RegExp completion; owner VM P4; PM 483). The `TypeError` sub-item of `#11-vm-regexp-constructor-and-flags`'s live entry ("regex syntax errors surface as TypeError", PM 454 note) is struck by the PM (PM 517); the owner text belongs to 9b's replaceAll child (PM 471) |
 | The missing `RegExp` constructor | PM 454; PR-1 covers it through I-7 once it calls the front door | `#11-vm-regexp-constructor-and-flags` (under umbrella 8, VM P4) |
 | Long left-deep expression chains (`a+b+…`, `a.b.c…`, `f()()…`) compiling at any length | Decided in PR-1 §5.4: they must compile; the remedy (iterating the left spine in scope + compiler) is its own slot, not PR-1 | `#11-vm-frontend-left-spine-iterative` (registered, PM 483; VM P4, scheduled immediately after PR-1) |
-| Proper tail calls (ECMA-262 §15.10.3 PrepareForTailCall) | §0 | `#11-vm-proper-tail-calls` (VM P4; re-eval at PR-2's plan) |
-| A self-chaining Promise inside one `drain_microtasks` (unbounded) | Each job runs to completion and pops its frames, so neither a probe nor a `frames.len()` cap bounds it (PM 483) | `#11-vm-microtask-self-chaining-unbounded` (split from `#11-vm-js-frame-depth-limit`; owner VM P4, re-eval at guard PR-2's plan, PM 490) |
+| Proper tail calls (ECMA-262 §15.10.3 PrepareForTailCall) | §0 | `#11-vm-proper-tail-calls` (VM P4; re-eval at PR-2's plan, Re-eval-date 2026-12-15, PM 517) |
+| A self-chaining Promise inside one `drain_microtasks` (unbounded) | Each job runs to completion and pops its frames, so neither a probe nor a `frames.len()` cap bounds it (PM 483) | `#11-vm-microtask-self-chaining-unbounded` (split from `#11-vm-js-frame-depth-limit`; owner VM P4, re-eval at guard PR-2's plan, PM 490; Re-eval-date 2026-12-15, PM 517) |
 | The `eval` / `Function` mapping of `StackExhausted` (compile-time → `RangeError` at the call) | No `eval` / `Function` today; the decision is recorded in PR-1 §4.1 so it is not re-made | `#11-vm-function-constructor-global` (owns `Function` and `eval`, VM P4 ledger) |
 
 ## §2. Coupled invariants
@@ -252,7 +253,7 @@ chains are the W-11 slot's, PM 454.) Adjacent pre-existing code whose exposure c
 |---|---|---|---|
 | P0 program (P0a, P0b-VM-1, P0b-VM-2, P0b-L3; PM 502, 509, 513) | the resource-limit `Err` contract, its census, choke-point placement, the definitive-consumer fixes; slices, edges and schedule: P0 umbrella §1 | P0a: the W-11 slot's PR | PR-1 (empty census `# pending`) |
 | W-11 slot (not part of this program's PRs; PM 454) | DOM "create a dependent abort signal" source flattening in an engine-independent crate; GC repair; `abort_statics.rs` citation drift fix (all seven cites, PM 458) | — | PR-1 |
-| `interpreter.rs` prereq split (standalone, CLAUDE.md 1000-line rule; PR-1 §5.1) | Move the in-file `mod tests` of `vm/interpreter.rs` out; split the entry half from the dispatch half | — | PR-1 |
+| `interpreter.rs` prereq split (a standalone VM P4 split PR before PR-1, CLAUDE.md 1000-line touch-time rule, not mixed into a feature PR; PR-1 §5.1; PM 517) | Move the in-file `mod tests` of `vm/interpreter.rs` out; split the entry half from the dispatch half | Slice F (queue: Slice F → `interpreter.rs` split → PR-1, PM 517) | PR-1 |
 | Slice F (`#11-vm-structured-clone-file-split`, standalone, touch-time split; PM 483 P2) | Split `structured_clone.rs` (1077 lines) before PR-1 touches it | — | PR-1 |
 | CI/tools `ci.yml` PRs (CI/tools lane; edge below) | their own `ci.yml` changes | — | PR-1 (the release leg only) |
 | PR-1 | Primitive; choke points CP-1, CP-2; walker probes (JSON ×5 sites — `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, the scope cap's error exit, IndexedDB storable check); regexp front door + 5 compile sites routed + structuredClone's re-compile replaced by a matcher copy + trip-wire; PM 424 rewording; explicit-thread JSON cells; the tracked recursion cut check; the release test leg on the three CI OSes, described in the `check` job's comment, and the mise task `test-stack-guard-release` (NEW) (§7) | the P0 program; the W-11 slot; the `interpreter.rs` prereq split; Slice F (PM 483); the CI/tools `ci.yml` PRs (for the release leg) | PR-1b; PR-2; `#11-vm-frontend-left-spine-iterative`; the successor T3 slot |
@@ -291,8 +292,9 @@ release-only constants (`MAX_JSON_DEPTH` 1000, `REGEXP_*_COST` release), so PR-1
 `ci-ecs-mission-ratchet` and `ci-default-features-check`. **Satisfied**: `ci-ecs-mission-ratchet` = #609
 `69fbe61f`, `ci-default-features-check` = #585 `115a667c`, both on origin/main and merged into this
 branch. After #609 the description of a `check` job step lives in that job's comment, which PR-1 writes;
-no CLAUDE.md wording is involved (PM 490). **Open, PM**: the CI/tools per-profile build matrix (PM 498)
-may restructure the same `check` job; its ordering against PR-1 is the CI/tools lane's answer, pending.
+no CLAUDE.md wording is involved (PM 490). The CI/tools per-profile build matrix (PM 498) is a different job
+from the release leg, so PR-1 does not wait for it: the release leg is in the `check` job's comment plus a
+separate mise task, and both PRs touch `ci.yml`, so whichever lands second rebases (PM 517).
 
 PR-2 reuses PR-1's `StackExhausted`→`RangeError` mapping so the two limits produce one error shape;
 PR-2 does not touch the probe. The successor `#11-vm-native-callback-reentry-single-loop` removes
@@ -306,8 +308,8 @@ redesign.
 | `#11-abort-signal-any-dependent-flattening` | **Closed before PR-1** (its own terminal slot, PM 454) | L3 |
 | `#11-vm-call-depth-guard` | **Closed by PR-1b** (D-K, PM 483), with PR-1b's sha (PR-1b §10 L-1); PR-1 alone does not close it (the JS→wasm band, §4). Its closure rests on I-1, whose coverage claim is only as complete as the census; PR-1's tracked cut check (PR-1 §5.3) is what keeps it true after landing, and the census's declared blind spots stay open with an owner (PR-1 §5.3) | this umbrella |
 | `#11-vm-js-frame-depth-limit` | PR-2 closes it (the plain-recursion facet). Its second facet, "a self-chaining Promise is unbounded inside one `drain_microtasks`", which a `frames.len()` cap does not bound (each job runs to completion and pops its frames), is split out to `#11-vm-microtask-self-chaining-unbounded` (PM 483) | this umbrella |
-| `#11-vm-microtask-self-chaining-unbounded` | **New** (PM 483), split from `#11-vm-js-frame-depth-limit`. Open; not bounded by anything in this program. Re-evaluated at guard PR-2's plan (PM 490) | Owner VM P4 (PM 490) |
-| `#11-vm-proper-tail-calls` | Open (§0) | VM P4 |
+| `#11-vm-microtask-self-chaining-unbounded` | **New** (PM 483), split from `#11-vm-js-frame-depth-limit`. Open; not bounded by anything in this program. Re-evaluated at guard PR-2's plan (PM 490); Re-eval-date 2026-12-15 (PM 517) | Owner VM P4 (PM 490) |
+| `#11-vm-proper-tail-calls` | Open (§0); Re-eval-date 2026-12-15 (PM 517) | VM P4 |
 | `#11-vm-regexp-syntax-error-surface` | Open (PM 483), child of umbrella 8: regexp syntax errors surface as `TypeError` at the literal / `match` / `search` sites. PR-1's front door passes `Syntax` through unchanged | VM P4 |
 | `#11-vm-json-walkers-iterative` | Stays open (T3 engineering ideal; A4's cap already prevents the walker-own abort). Its trigger "the next PR touching a JSON walker" fires on PR-1; the handling is PR-1 §12 L-2 | VM P4 |
 | `#11-vm-native-callback-reentry-single-loop` | Stays open, successor (T3). Its depth figures change meaning under PR-1 (PR-1 §12 L-4) | VM P4 |
@@ -318,7 +320,7 @@ redesign.
 | P0 program's slots (`#11-worker-toplevel-error-closes-worker`, `#11-vm-iteratorclose-precedence-convention`, `#11-embedder-diagnostic-channel`, `#11-vm-async-resume-failure-skips-finally`, `#11-sw-client-postmessage-inbound`) | the homes of the deviations the census found; P0 umbrella §6 (one home), ledger rows P0 umbrella §7 | VM P4 / per slot |
 | `#11-vm-regexp-v-flag-dropped` | **Open** (PM 502): `regress_flags_from_str` drops `v`. Obligation on umbrella 8's `v` child: cap and probe nested classes before `v` is honoured (PR-1 §6.2, S-3) | VM P4 (umbrella 8) |
 | `#11-structured-clone-accessor-get` | Open; its entry names `#11-vm-call-depth-guard` (the getter adds a native→JS re-entry). Covered: the getter passes CP-1, each level W-6; pointer at the closure (PR-1b §10 L-1) | VM P4 |
-| `#11-wasm-entry-depth-band` (proposed) | **Slot request** (PR-1b §4.3, §10 L-4): a JS→wasm entry with 256–768 KiB left gets `RangeError` even when wasm would use little stack | PM to decide |
+| `#11-wasm-entry-depth-band` | **Registered** (PM 517; PR-1b §4.3, §10 L-4): a JS→wasm entry with 256–768 KiB left gets `RangeError` even when wasm would use little stack. Catchable, never aborts | VM P4 |
 
 ## §6. Security relevance
 

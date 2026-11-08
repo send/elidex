@@ -11,7 +11,7 @@ of umbrella §0.1 are ratified and not re-opened here. Provenance root `H` is de
 every measurement names its log under `H/logs/`.
 **Preconditions** (edges and their state: umbrella §4, the one home): the W-11 slot
 `#11-abort-signal-any-dependent-flattening` (§2 A-1); the P0 program with an empty census `# pending`
-section (P0 umbrella §7 L-1); the `interpreter.rs` prereq split (§5.1); Slice F (§5.5); the CI/tools
+section (P0 umbrella §7 L-1); the `interpreter.rs` prereq split (§5.1; queue and ordering: umbrella §4, PM 517); Slice F (§5.5); the CI/tools
 `ci.yml` PRs, for the release leg (satisfied). NativeError E1 is not ordered against PR-1 (PM 490).
 
 **Base-case reason (single PR).** PR-1 is a narrowly scoped per-PR slice under the approved
@@ -983,5 +983,5 @@ ledger.
   primitive `crate::stack_guard`, moved to a crate both can depend on (umbrella §1.2)";
   `#11-vm-function-constructor-global` "`StackExhausted` from the compile `eval` / `Function` perform maps
   to a `RangeError` thrown at the call (stack-safety PR-1 §4.1)".
-- **L-17** (PM). Slot request: the `VmInner` sub-struct proposal (memory `vm-inner-substruct-deferral`,
-  trigger 1 fired: `vm/mod.rs` 2785 lines, §5.1). The PM registers a slot or rules it stays deferred.
+- **L-17** (PM). Slot `#11-vm-inner-substruct-decomposition` (registered PM 517; owner VM P4): the `VmInner`
+  sub-struct proposal (memory `vm-inner-substruct-deferral`, trigger 1 fired: `vm/mod.rs` 2785 lines, §5.1).

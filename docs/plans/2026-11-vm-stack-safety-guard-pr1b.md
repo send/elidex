@@ -209,7 +209,7 @@ less than `WALKER_RESERVE + MAX_WASM_STACK` (768 KiB) and more than the CP-1 flo
 remaining stack gets `RangeError` even when wasm would use little stack. Reason: the guard cannot bound
 wasm's stack use below `MAX_WASM_STACK` at an entry, so the safety bound must reserve all of it. Direction:
 fail-early (a catchable `RangeError`, never an abort). Pinned by `wasm_trivial_call_band` (§6). The
-structural remedy is a slot request to the PM (§10 L-4).
+structural remedy is the registered slot `#11-wasm-entry-depth-band` (§10 L-4).
 
 ## §5. Call sites
 
@@ -300,19 +300,19 @@ Every row is done by the PM / PMO at landing unless marked *PR* (PM 452: the led
   the JS side and CP-3 at each JS→wasm entry; with the per-agent store (WebAssembly JS API §4.1) the
   outermost entry's wasmtime limit also bounds every nested wasm frame, with today's per-instance store
   only CP-3 does; every overflow on the path is a `RangeError` (wasm's by §7.1). Stack-safety PR-1b §2
-  W-2." **PM item**: that entry is a bare list item with no owner, trigger or Re-eval (A5 R2); the PM gives
-  it one, or names the slot that carries the sentence.
+  W-2." Ruled (PM 517): owner VM P4; trigger: wasm→JS user imports are accepted (the slot carries this L-2
+  obligation); Re-eval-date 2027-01-31.
 - **L-3. `#11-dom-walkers-iterative-over-ecs-links`** (PMO, via PM to L3): "wasm host functions
   (`get_text_content`, `query_selector`) run these walkers inside `WALKER_RESERVE` after wasm's own
   512 KiB, as the JS floor does (stack-safety PR-1b §4.1)".
-- **L-4. Slot request (PM)**: the entry band of §4.3. Proposed id `#11-wasm-entry-depth-band`, defect "a
+- **L-4. `#11-wasm-entry-depth-band`** (registered, PM 517; owner VM P4): the entry band of §4.3. Defect "a
   JS→wasm entry with 256–768 KiB of stack left gets `RangeError` even when wasm would use little stack
   (callback depth ≈23–32 debug, ≈195–268 release on a 2 MiB thread)", remedy candidates of §4.3 (a
   per-entry wasm limit, which wasmtime 50.0.1 lacks; wasm on its own stack, which needs the guard redesigned
-  for stack switching), trigger: a wasmtime release with a per-store stack-limit API, or a wasm workload
-  that hits the band. Owner and Re-eval: PM.
-- **L-5. Slot request (PM)**: the synchronous `WebAssembly.instantiate` deviation of §3 (*asynchronously
-  instantiate a WebAssembly module* step 6.1 queues a task). The PM names the existing wasm slot that owns
-  it or registers one.
+  for stack switching), trigger: wasmtime gains a per-store or per-entry stack limit, or a report lands in
+  the band. The band is catchable (`RangeError`) and never aborts.
+- **L-5. `#11-wasm-instantiate-sync-deviation`** (registered, PM 517; owner VM P4): the synchronous
+  `WebAssembly.instantiate` deviation of §3 (*asynchronously instantiate a WebAssembly module* step 6.1
+  queues a task).
 - **L-6. Breadth record** (*PR*): `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo at
   the PR's head, rc and K / M as printed (the label is unmapped; hand count K=1 / M=3).
