@@ -876,8 +876,8 @@ VM cells (`tests_abort_dependent.rs` (NEW); red at `69fbe61f` where marked):
   `c.signal.aborted === true`. Mutant: `?` on the first
   `run_abort_steps` (or inside the loop) → `d1`'s and `d2`'s listeners do not run → red. **This seam is
   temporary by plan**: P0a rebases on PR-A, deletes `fail_next_abort_dispatch` and re-arms this cell with
-  `InjectAt::SimpleEventDispatch(n)`, same assertion (P0a §4.4, `p0a.md:165-173`; P0 §7 L-12, `p0.md:334`); PR-A
-  keeps the field until then (§9 Edges).
+  `InjectAt::SimpleEventDispatch(n)`, same assertion (P0a §4.4, `p0a.md:165-173`; P0 §7 L-12, `p0.md:334`); if
+  PR-A lands after P0a, it uses `SimpleEventDispatch` from the start (§9 Edges).
 
 Rewritten in place (`tests_abort_statics.rs`): `any_duplicate_input_fires_composite_only_once` (`:304-321`) keeps its
 assertion and gains "one source"; `any_composite_map_cleaned_after_input_aborts` (`:324-340`) → asserts
@@ -978,9 +978,10 @@ goes); `event_target.rs` 734 → 734 (comment edits); `tests_abort.rs` (950) is 
   adds the field (cell (o) needs it, and no P0a injection exists at PR-A's base) and does not try to anticipate
   P0a's API. P0a also carries the allowlist row for PR-A's abort loop (P0a §5.4, `p0a.md:292-315`), keyed on the
   post-PR-A names it reads at its base (P0a §10 item 4, `p0a.md:434-436`) — the names PR-A's PR body gives (§9.1).
-  If the order ever inverts (P0a first), P0a §4.4 (`p0a.md:172-173`) says PR-A uses `SimpleEventDispatch` from the
-  start, with no seam of its own; that is a plan change for PR-A, not an implementation choice. P0b-L3 (L3's
-  slice of P0) is after P0a and after PR-A (P0 §1 schedule, `p0.md:122-130`) and has its own plan.
+  If the order ever inverts (P0a first), P0a §4.4 at `d7ec4761` (`:189-190` there) says PR-A uses
+  `SimpleEventDispatch` from the start, with no seam of its own; that is a plan change for PR-A, not an
+  implementation choice. P0b-L3 (L3's slice of P0) is after P0a and after PR-A (P0 §1 schedule, `p0.md:122-130`)
+  and has its own plan.
 - **L3's other work** (`#11-event-path-window-missing` plan, the walker umbrella): no shared file (those edit
   `HostDriver` / event-path and ECS walkers; PR-A edits none of them). Order per PM 485: #607 → **this slot** →
   stale-entity → walker umbrella.
@@ -1036,8 +1037,8 @@ The PR body carries, besides DoD 1, 7, 9 and 11's records:
 - **For P0a's census** (P0a §5.4 row and §10 item 4): the post-PR-A call chain `abort_signal` → `run_abort_steps` →
   `dispatch_vm_simple_event`, with file:line at the PR head; the contract "run all, keep the first `Err`, return it
   after the loop"; cell (o)'s name `abort_err_does_not_skip_dependents` and its seam
-  `VmInner::fail_next_abort_dispatch` — **kept in PR-A; P0a moves it onto `InjectAt::SimpleEventDispatch`** (§9
-  Edges).
+  `VmInner::fail_next_abort_dispatch` — **P0a moves it onto `InjectAt::SimpleEventDispatch(n)`; if PR-A lands after
+  P0a, it uses `SimpleEventDispatch` from the start** (§9 Edges).
 - **The callers of `abort_signal`** at the PR head (DoD 4), with their lines.
 
 ### §9.2 Hand-off to the DOM-events renumber sweep (26 lines, not PR-A's)
@@ -1283,4 +1284,4 @@ required before the parent slot closes. No question is open on the spec reading:
 - Also re-measured while editing: L2's C0c landed (#611 `0a5a77ba`) — §9 Edges and DoD 11 updated; D-3's 20-line
   breakdown corrected (`tests_abort_statics.rs:77` is a Rust comment: 13 / 3 / 4, not 13 / 2 / 5); the PR-1 and
   umbrella requirement lines located at `b7f03821` (A-1 `:82`, cell `:828`, L-7 `:952`, W-11 `:254`).
-- **Rev 2.2** (PM 538, Rev 2.1 attestation): IMP-1, MIN-2 to MIN-9 fixed by deletion or replacement only, nothing added.
+- **Rev 2.2** (PM 538, Rev 2.1 attestation): IMP-1, MIN-2 to MIN-9 fixed by deletion or replacement only, nothing added; PM 540: P0a §4.4 at `d7ec4761`, seam order.
