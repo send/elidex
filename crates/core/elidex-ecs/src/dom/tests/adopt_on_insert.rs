@@ -17,13 +17,13 @@ use crate::dom::MAX_ANCESTOR_DEPTH;
 
 /// `D` (the receiving document) with a `<div>` parent in its tree, and a
 /// second document `X`.
-struct Docs {
-    d: Entity,
-    d_parent: Entity,
-    x: Entity,
+pub(super) struct Docs {
+    pub(super) d: Entity,
+    pub(super) d_parent: Entity,
+    pub(super) x: Entity,
 }
 
-fn docs(dom: &mut EcsDom) -> Docs {
+pub(super) fn docs(dom: &mut EcsDom) -> Docs {
     let d = dom.create_document_root();
     let d_parent = dom.create_element_with_owner(
         "div",
@@ -39,7 +39,7 @@ fn docs(dom: &mut EcsDom) -> Docs {
 /// with content, a `<template>` with contents (and a contents child), and one
 /// Attr entity in `n`'s `AttrEntityCache` (the state `GetAttributeNode`'s
 /// materialization leaves). Returns `n` and every node the walk must visit.
-fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
+pub(super) fn x_subtree(dom: &mut EcsDom, x: Entity) -> (Entity, Vec<Entity>) {
     let n = dom.create_element_with_owner(
         "div",
         Attributes::default(),
@@ -210,6 +210,7 @@ fn u3_append_under_ownerless_parent_keeps_the_stamp() {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Rec {
     Remove { node: Entity, parent: Entity },
+    Adopt { node: Entity },
     Insert { node: Entity, parent: Entity },
 }
 
@@ -247,6 +248,9 @@ impl MutationDispatcher for Recorder {
                     }
                 }
             }
+            MutationEvent::Adopt { node, .. } => {
+                self.events.lock().unwrap().push(Rec::Adopt { node });
+            }
             _ => {}
         }
     }
@@ -263,7 +267,7 @@ struct U4Run {
     old: Option<Entity>,
 }
 
-fn take<T>(m: &Arc<Mutex<Vec<T>>>) -> Vec<T> {
+pub(super) fn take<T>(m: &Arc<Mutex<Vec<T>>>) -> Vec<T> {
     std::mem::take(&mut *m.lock().unwrap())
 }
 
@@ -339,8 +343,12 @@ fn u4_stamp_is_written_before_insert_and_before_old_child_removal() {
     );
 }
 
+// C0c U4 (red; A2×A4): `Adopt` comes between the old parent's `Remove` and
+// the `Insert`; in `replace_child`, `Adopt(new_child)` precedes
+// `Remove(old_child)` (DOM §4.2.3 *replace* steps 6–7). Base proxy (C0b's
+// head, no `Adopt` variant): `Remove`, then `Insert`, nothing between.
 #[test]
-fn u4_control_event_sequence() {
+fn u4_event_sequence_adopt_between_remove_and_insert() {
     let r = u4_run(false);
     assert_eq!(
         r.events,
@@ -349,6 +357,7 @@ fn u4_control_event_sequence() {
                 node: r.n,
                 parent: r.x_parent
             },
+            Rec::Adopt { node: r.n },
             Rec::Insert {
                 node: r.n,
                 parent: r.d_parent
@@ -364,6 +373,7 @@ fn u4_control_event_sequence() {
                 node: r.n,
                 parent: r.x_parent
             },
+            Rec::Adopt { node: r.n },
             Rec::Remove {
                 node: old,
                 parent: r.d_parent
@@ -623,7 +633,7 @@ fn u9_fragment_build_runs_no_walk_and_leaves_no_parse_root() {
 }
 
 // ---- U10 (guard): `adopt` of a parentless fragment with children stamps the
-// fragment and its children (C0c adds the event count) ----
+// fragment and its children (C0c adds the event: `u10_adopt_fires_one_event`) ----
 #[test]
 fn u10_adopt_parentless_fragment_stamps_it_and_its_children() {
     let mut dom = EcsDom::new();
