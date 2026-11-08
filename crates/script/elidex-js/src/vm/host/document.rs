@@ -357,11 +357,11 @@ impl super::super::VmInner {
 // Method + accessor tables are file-scope constants so they are not
 // rebuilt on every bind and so `register_document_prototype`'s
 // body reads top-down.
-/// Document own-methods installed BEFORE the gated live-collection getters, kept
+/// `Document.prototype` methods installed BEFORE the gated live-collection getters, kept
 /// in their original `DOCUMENT_METHODS` order (id + selector lookups). Split from
 /// [`DOCUMENT_METHODS_POST_LIVE_COLLECTION`] so the gated
 /// [`DOCUMENT_LIVE_COLLECTION_METHODS`] install lands at its original ordinal
-/// position — own-property enumeration order = install order (see the install
+/// position — property enumeration order = install order (see the install
 /// comment in `register_document_prototype`; Codex R9).
 const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
@@ -369,7 +369,7 @@ const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = 
     ("querySelectorAll", native_document_query_selector_all),
 ];
 
-/// Document own-methods installed AFTER the gated live-collection getters (node
+/// `Document.prototype` methods installed AFTER the gated live-collection getters (node
 /// factories + focus / selection readers + `adoptNode`), kept in their original
 /// `DOCUMENT_METHODS` order — see [`DOCUMENT_METHODS_PRE_LIVE_COLLECTION`].
 const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
@@ -392,7 +392,7 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
     // wrapper held in `HostData::selection_instance`.
     ("getSelection", native_document_get_selection),
     // DOM §4.5 `adoptNode(node)`; appended so the existing names keep
-    // their own-property order.
+    // their enumeration order.
     ("adoptNode", native_document_adopt_node),
 ];
 
@@ -450,8 +450,7 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("compatMode", native_document_get_compat_mode),
     ("defaultView", native_document_get_default_view),
     ("doctype", native_document_get_doctype),
-    // PR4f C7 stubs / snapshots — see native-fn docstrings for defer
-    // targets (PR6 / PR5b).
+    // `referrer` / `forms` / `images` / `links` — see the native-fn docstrings.
     ("referrer", native_document_get_referrer),
     ("forms", native_document_get_forms),
     ("images", native_document_get_images),

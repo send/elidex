@@ -18,8 +18,12 @@
 //!   preserved).
 //! - `URL` / `documentURI` — `VmInner::navigation.current_url`
 //!   (navigation state, not DOM).
-//! - `readyState` — stub returning `"complete"` (the VM has no notion
-//!   of document loading state yet; the shell owns that in PR6).
+//! - `readyState` — brand-checked, answers `"complete"` for every Document
+//!   (slot proposal `#11-document-readiness-one-source`: the bound
+//!   document's readiness has a second, unused source).
+//! - Browsing-context facts (`defaultView`, `cookie`, `referrer`, `hidden`,
+//!   `visibilityState`, `hasFocus`, `getSelection`) consult
+//!   [`document_has_browsing_context`].
 //! - `cookie` / `referrer` — `elidex-net::CookieJar` /
 //!   `NavigationState`, kept VM-side because they read browsing-context
 //!   state.
@@ -170,7 +174,7 @@ pub(super) fn native_document_get_ready_state(
 }
 
 // ---------------------------------------------------------------------------
-// title setter / compatMode / defaultView / doctype (PR4f C6)
+// title setter / compatMode / defaultView / doctype
 // ---------------------------------------------------------------------------
 
 /// `document.title = x` — WHATWG §4.5.  For HTML documents:
@@ -251,7 +255,7 @@ pub(super) fn native_document_get_doctype(
 }
 
 // ---------------------------------------------------------------------------
-// cookie / referrer (stubs) + forms / images / links (snapshot arrays)
+// cookie / referrer + forms / images / links (snapshot arrays)
 // ---------------------------------------------------------------------------
 
 /// `document.cookie` getter (WHATWG HTML §3.1.4).  Delegates to
