@@ -52,11 +52,11 @@ pub use event_queue::{EventQueue, QueuedEvent};
 pub use host_effects::{IdbVersionChangeRequest, ParentMessage, StorageChange};
 pub use identity_map::IdentityMap;
 pub use mutation::{
-    apply_append_child, apply_insert_before, apply_mutation, apply_remove_attribute,
-    apply_remove_child, apply_replace_all, apply_replace_child, apply_replace_data,
-    apply_set_attribute, apply_set_inner_html, apply_set_outer_html, attribute_record,
-    character_data_record, convert_arg_source_records, Mutation, MutationKind, MutationRecord,
-    OuterHtmlError, SetInnerHtmlOptions,
+    apply_adopt_node, apply_append_child, apply_insert_before, apply_mutation,
+    apply_remove_attribute, apply_remove_child, apply_replace_all, apply_replace_child,
+    apply_replace_data, apply_set_attribute, apply_set_inner_html, apply_set_outer_html,
+    attribute_record, character_data_record, convert_arg_source_records, Mutation, MutationKind,
+    MutationRecord, OuterHtmlError, SetInnerHtmlOptions,
 };
 pub use navigation::{
     window_open_disposition, HistoryAction, HistoryStepEvents, NamedFrameNavigation,

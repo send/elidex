@@ -30,7 +30,7 @@ mod tree_clone;
 
 pub use attribute::AttributeWrite;
 pub use geometry::{FragmentView, ScreenGeometry};
-pub use mutation_event::{CloneScope, MutationDispatcher, MutationEvent};
+pub use mutation_event::{AdoptedContents, CloneScope, MutationDispatcher, MutationEvent};
 pub use node_document::NewNodeOwner;
 pub(crate) use text_util::splice_utf16;
 pub use tree::TemplateContentsWalk;

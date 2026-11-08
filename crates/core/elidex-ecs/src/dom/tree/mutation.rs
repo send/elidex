@@ -4,7 +4,9 @@
 //! low-level `link_node` / `detach` primitives, and the centralized
 //! insert/remove dispatch helpers.
 
-use super::super::mutation_event::MutationEvent;
+use std::collections::HashMap;
+
+use super::super::mutation_event::{AdoptedContents, MutationEvent};
 use super::super::EcsDom;
 use super::TemplateContentsWalk;
 use crate::components::AttrEntityCache;
@@ -231,8 +233,12 @@ impl EcsDom {
     /// entities materialized in its [`AttrEntityCache`]); 3.4 the adopting
     /// steps — a `<template>`'s contents are adopted with it (HTML §4.12.3,
     /// into the same document here: the walk visits them,
-    /// [`TemplateContentsWalk::Include`]). Steps 3.2 and 3.3.2 (custom element
-    /// registries) are not modelled; 3.3.3 (`adoptedCallback`) is not run.
+    /// [`TemplateContentsWalk::Include`], each fragment a nested adopt with
+    /// its own pair, or skipped when its documents already agree). Steps 3.2
+    /// and 3.3.2 (custom element registries) are not modelled; for 3.3.3
+    /// (`adoptedCallback`) the walk fires one [`MutationEvent::Adopt`]
+    /// carrying the root's pair and the contents segments, which the
+    /// custom-element consumer turns into the reactions.
     ///
     /// A node without a node document (oldDocument `None`, no spec
     /// counterpart) is re-homed silently. A destroyed `node` or a `document`
@@ -269,25 +275,56 @@ impl EcsDom {
 
     /// *Adopt* steps 1–3 shared by [`Self::adopt`] and the primitives: read
     /// oldDocument, remove `node` (`new_parent` is the hook's insertion
-    /// target, if any), then walk iff `target` is `Some` and differs.
+    /// target, if any), then walk iff `target` is `Some` and differs, and
+    /// fire [`MutationEvent::Adopt`] iff the root's pair is `Some` — after
+    /// the walk and before returning to the primitive, so before its link
+    /// and [`MutationEvent::Insert`].
     ///
     /// `target` is a live Document when `Some`, so comparing the raw stamp is
     /// the same test as comparing `node_document` (a dead stamp differs too);
-    /// removal does not touch the stamp.
+    /// removal does not touch the stamp. The root's pair is
+    /// `(node_document(node), document)`: a node without a live node document
+    /// is re-homed silently (no event; every segment under it is `None`).
     fn adopt_into(&mut self, node: Entity, target: Option<Entity>, new_parent: Option<Entity>) {
         self.detach_with_hook(node, new_parent);
-        if let Some(document) = target {
-            if self.get_associated_document(node) != Some(document) {
-                self.adopt_walk(node, document);
-            }
+        let Some(document) = target else {
+            return;
+        };
+        if self.get_associated_document(node) == Some(document) {
+            return;
+        }
+        let documents = self.node_document(node).map(|old| (old, document));
+        let contents = self.adopt_walk(node, document, documents.is_some());
+        if documents.is_some() {
+            self.dispatch_event(&MutationEvent::Adopt {
+                node,
+                documents,
+                contents: &contents,
+            });
         }
     }
 
     /// *Adopt* step 3 (3.1, 3.3.1, 3.4): stamp `root`, every
     /// shadow-including descendant and every template's contents, and the
     /// Attr entities each visited element has materialized. Uncapped in depth
-    /// and breadth.
-    fn adopt_walk(&mut self, root: Entity, document: Entity) {
+    /// and breadth. Returns the contents segments in walk order.
+    ///
+    /// Each contents fragment the walk reaches is the root of a nested
+    /// *adopt* (HTML §4.12.3 template adopting steps 2): its `old` is its own
+    /// node document, read here before the walk writes it, and `new` is
+    /// `document` (C2). The fragment is **skipped** — no stamp on it or on
+    /// any node whose innermost contents fragment is skipped, no Attr
+    /// re-home, no segment — when `old == new` (the nested adopt's step 3
+    /// guard) or its template's innermost contents fragment is skipped.
+    /// Otherwise it records a segment whose pair is `None` when `old` is
+    /// `None` or the template lies in a `None` segment (`root_pair` false
+    /// for the root's own segment).
+    fn adopt_walk(
+        &mut self,
+        root: Entity,
+        document: Entity,
+        root_pair: bool,
+    ) -> Vec<AdoptedContents> {
         #[cfg(any(test, feature = "fixtures"))]
         {
             self.adopt_walks += 1;
@@ -296,16 +333,81 @@ impl EcsDom {
         self.for_each_uncapped_shadow_inclusive(root, TemplateContentsWalk::Include, &mut |e| {
             nodes.push(e);
         });
-        for node in nodes {
-            let _ = self.set_associated_document(node, document);
-            let attrs: Vec<Entity> = self
-                .world
-                .get::<&AttrEntityCache>(node)
-                .map(|cache| cache.entries.values().copied().collect())
-                .unwrap_or_default();
-            for attr in attrs {
-                let _ = self.set_associated_document(attr, document);
+        // The contents fragments the walk reaches, each with its template.
+        // The root is excluded (the contents-cycle guard, see
+        // [`AdoptSegments`]).
+        let templates: HashMap<Entity, Entity> = nodes
+            .iter()
+            .filter_map(|&n| {
+                self.template_contents_fragment(n)
+                    .filter(|&f| f != root)
+                    .map(|f| (f, n))
+            })
+            .collect();
+        // No template reached: every node is in the root's segment, so stamp
+        // them all with no segment bookkeeping (an empty `collect` does not
+        // allocate).
+        if templates.is_empty() {
+            for node in nodes {
+                self.stamp_node_and_attrs(node, document);
             }
+            return Vec::new();
+        }
+        let mut segments = AdoptSegments {
+            segments: HashMap::from([(root, Segment::Live { pair: root_pair })]),
+            any_skipped: false,
+            all_some: root_pair,
+        };
+        let mut contents: Vec<AdoptedContents> = Vec::new();
+        for node in nodes {
+            if let Some(&template) = templates.get(&node) {
+                // The fast path holds while no segment is skipped or `None`:
+                // the template's innermost segment is then a `Some` one.
+                let template_seg = if !segments.any_skipped && segments.all_some {
+                    Segment::Live { pair: true }
+                } else {
+                    segments.lookup(self, template)
+                };
+                let old = self.node_document(node);
+                let pair = match template_seg {
+                    Segment::Live { pair } if old != Some(document) => pair,
+                    _ => {
+                        segments.segments.insert(node, Segment::Skipped);
+                        segments.any_skipped = true;
+                        continue;
+                    }
+                };
+                let documents = old.filter(|_| pair).map(|old| (old, document));
+                segments.all_some &= documents.is_some();
+                segments.segments.insert(
+                    node,
+                    Segment::Live {
+                        pair: documents.is_some(),
+                    },
+                );
+                contents.push(AdoptedContents {
+                    fragment: node,
+                    documents,
+                });
+            } else if segments.any_skipped && segments.lookup(self, node) == Segment::Skipped {
+                continue;
+            }
+            self.stamp_node_and_attrs(node, document);
+        }
+        contents
+    }
+
+    /// Stamp `node` and the Attr entities it has materialized with
+    /// `document` (*adopt* steps 3.1 and 3.3.1).
+    fn stamp_node_and_attrs(&mut self, node: Entity, document: Entity) {
+        let _ = self.set_associated_document(node, document);
+        let attrs: Vec<Entity> = self
+            .world
+            .get::<&AttrEntityCache>(node)
+            .map(|cache| cache.entries.values().copied().collect())
+            .unwrap_or_default();
+        for attr in attrs {
+            let _ = self.set_associated_document(attr, document);
         }
     }
 
@@ -578,5 +680,46 @@ impl EcsDom {
             self.clear_focus_if_disconnected();
         }
         true
+    }
+}
+
+/// A node's innermost adopt segment, as the walk sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Segment {
+    /// The root's segment or a recorded one; `pair` is whether its pair is
+    /// `Some`.
+    Live { pair: bool },
+    /// A skipped contents fragment: its nodes are left as they are.
+    Skipped,
+}
+
+/// The adopt walk's segment bookkeeping (D-6's lookup, walk side). The
+/// lookup rule is stated once, on [`MutationEvent::Adopt`].
+struct AdoptSegments {
+    /// The walk's root (pre-seeded with its pair) and every contents
+    /// fragment the walk reached, recorded or skipped. The walk excludes its
+    /// root from the fragment→template map, so the root is never a contents
+    /// segment and no fragment overwrites it. This guards against a contents
+    /// cycle (`tpl.content.appendChild(tpl)`), which the pre-insert validator
+    /// accepts today: the template contents' host is not modelled
+    /// (`#11-template-contents-host-link`), so
+    /// `is_host_including_ancestor_or_self` does not climb from a contents
+    /// fragment to its template. Without the guard, adopting such a fragment
+    /// would record the root as its own template's segment.
+    segments: HashMap<Entity, Segment>,
+    /// Some fragment was skipped.
+    any_skipped: bool,
+    /// No `None` segment yet (root's included).
+    all_some: bool,
+}
+
+impl AdoptSegments {
+    /// The innermost segment of `node` (see [`MutationEvent::Adopt`]); an
+    /// unrecorded shadow-including root reads as a live `None` segment.
+    fn lookup(&self, dom: &EcsDom, node: Entity) -> Segment {
+        self.segments
+            .get(&dom.find_tree_root_composed(node))
+            .copied()
+            .unwrap_or(Segment::Live { pair: false })
     }
 }

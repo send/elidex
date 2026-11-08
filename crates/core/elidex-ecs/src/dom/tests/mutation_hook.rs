@@ -146,8 +146,9 @@ impl MutationDispatcher for MockHook {
                     merged_child_index,
                 });
             }
-            MutationEvent::AttributeChange { .. } => {
-                // Generic MockHook does not record attribute events.
+            MutationEvent::AttributeChange { .. } | MutationEvent::Adopt { .. } => {
+                // Generic MockHook does not record attribute events, nor
+                // `Adopt` (`adopt_notification.rs`'s `AdoptLog` does).
             }
             MutationEvent::CloneCreated { root, scope } => {
                 self.events

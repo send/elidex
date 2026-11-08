@@ -12,8 +12,8 @@ use elidex_ecs::{EcsDom, Entity, TextContent};
 
 mod child_list;
 pub use child_list::{
-    apply_append_child, apply_insert_before, apply_remove_child, apply_replace_all,
-    apply_replace_child, convert_arg_source_records,
+    apply_adopt_node, apply_append_child, apply_insert_before, apply_remove_child,
+    apply_replace_all, apply_replace_child, convert_arg_source_records,
 };
 mod html_fragment;
 use html_fragment::apply_insert_adjacent_html;
