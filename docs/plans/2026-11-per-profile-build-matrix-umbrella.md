@@ -1,4 +1,4 @@
-# Umbrella U0 — per-feature-profile build matrix (draft 5.4, 2026-11-09)
+# Umbrella U0 — per-feature-profile build matrix (draft 6, 2026-11-09)
 
 ## §0 Status
 
@@ -10,7 +10,9 @@ count below was read at that commit; the command that produced each count is pri
 PM 520, §5; re-homed to VM P4 by PM 531, §8). `#11-test-only-feature-boundary-guard` is coupled (§4.2: PR-M2a
 narrows it to remedy (iv), PR-M2b closes it, PM 545). `#11-private-intra-doc-links-unchecked` (CI/tools) is resolved
 by PR-M1 (PM 559, §8). `#11-host-data-full-decomposition` is coupled to PR-A1 (§6 PR-A1 hand-off, PM 564).
-`#11-vm-typed-array-family-layering-and-gate` (VM P4) is affected: a premise of it ends when PR-A1 lands (§8).
+`#11-vm-inbound-host-call-membership-test` (VM P4) supplies the test PR-A1 classifies its (a)/(b) fixes against
+(§6 PR-A1 hand-off, PM 585). `#11-vm-typed-array-family-layering-and-gate` (VM P4) is affected: a premise of it
+ends when PR-A1 lands (§8).
 
 **What this memo is**: the umbrella of an edge-dense program — PM 498 ("umbrella U0（designer）+ PR ごとの plan、
 実装前に /elidex-plan-review"): the decisions on the four axes PM 501 fixed ("4 軸 = (i)…(iv)"), the coupled
@@ -101,7 +103,8 @@ Eight invariants; the pair table holds all 28 pairs.
   declared profile — and (b) the member's declared `test-only` list; it is passed in the flag form a profile is
   (I1×I3). The set is derived from those rows' own resolves, read by the reader contract (I3×I4), so nothing new
   is declared and the declaration is still read in one place (I1). Why it exists: the rustdoc column documents only the row's member
-  (`--no-deps`, §4.3) under that row's flags, so without it two kinds of code would have no rustdoc reader once the
+  (`--no-deps`: "Do not build documentation for dependencies", Cargo Book §4.2.6 #option-cargo-doc---no-deps; §4.3)
+  under that row's flags, so without it two kinds of code would have no rustdoc reader once the
   `doc` job is retired (I6) — code gated on a feature of the member that only another member's row turns on (a; at
   the base, both `web-storage` features, §4.1), and code gated on a test-only feature, which no row turns on because
   test-only features are never product (b; I5). The clippy column needs no such row: a row's clippy lints the
@@ -208,7 +211,7 @@ Eight invariants; the pair table holds all 28 pairs.
 | I2×I6 | The workspace-union configuration is not a row (§4.2 says what that gives up). |
 | I2×I7 | Row count after de-duplication (doc rows included) × three legs drives the timeout; a PR adding members or profiles re-derives it (§4.3). |
 | I2×I8 | The census (C0, §7) is the population evaluated on the base before PR-M1; PR-M1's own three-OS run is the land-green evidence. |
-| I3×I4 | **The reader contract** (PM 575; every check that reads a row's resolve — I2's doc-row derivation, I4, I5 — reads it by this cell and does not restate it). (1) *Whose resolve*: each row's resolve is read from that row's own invocation (`-p <member>` with the row's feature flags, normal and build edges, no dev edge, I3×I5); reading the workspace resolve (`cargo metadata`'s `resolve` is "for the entire workspace", §4.3.5 #json-format) would re-hide what unification hides. (2) *What is read*: the **resolved feature set of each package** in that resolve — for every package, the features Cargo reports as activated for it — and a check's population is that set, never the feature nodes a traversal of the forward `cargo tree -e features` graph renders. In the forward graph, a feature that the root member's own `[features]` turns on through a `?/` value is not rendered as a feature node (measured, §4.1: on the browser row `elidex-storage-core/web-storage` and `elidex-script-session/web-storage` are active and have no node, and so does a `?/` value added to the App row's `engine`), so a check defined on the display shape is green on exactly that case — the false green PM 575 rules out. A per-package view (for example `cargo tree -f '{p} {f}'`, §4.1) is one way to read it; which invocation and format the deriver uses is PR-M1's and PR-M2a's plans' (PM 564). (3) *Fail-closed*: a cargo failure, a reading in which the row's own member does not appear (non-vacuity; what `scripts/check-fixture-boundary.sh:23-28` does today with a feature node), or a line the reader cannot parse is red (I5). |
+| I3×I4 | **The reader contract** (PM 575; every check that reads a row's resolve — I2's doc-row derivation, I4, I5 — reads it by this cell and does not restate it). (1) *Whose resolve*: each row's resolve is read from that row's own invocation (`-p <member>` with the row's feature flags, normal and build edges, no dev edge, I3×I5); reading the workspace resolve (`cargo metadata`'s `resolve` is "for the entire workspace", §4.3.5 #json-format) would re-hide what unification hides. (2) *What is read*: the **resolved feature set of each package** in that resolve — for every package, the features Cargo reports as activated for it — and a check's population is that set, never the feature nodes a traversal of the forward `cargo tree -e features` graph renders. In the forward graph, a feature that the root member's own `[features]` turns on through a `?/` value is not rendered as a feature node (measured, §4.1: on the browser row `elidex-storage-core/web-storage` and `elidex-script-session/web-storage` are active and have no node, and so does a `?/` value added to the App row's `engine`), so a check defined on the display shape is green on exactly that case — the false green PM 575 rules out. A per-package view (for example `cargo tree -f '{p} {f}'`, §4.1) is one way to read it; which invocation and format the reader uses is PR-M1's plan's (PM 564). **One reader** (PM 583): PR-M1 adds it, because its doc-row derivation is the first check that reads a row's resolve, and carries its control (§6); PR-M2a (I5) and PR-M2b (I4) reuse it and add none. (3) *Fail-closed*: a cargo failure, a reading in which the row's own member does not appear (non-vacuity; what `scripts/check-fixture-boundary.sh:23-28` does today with a feature node), or a line the reader cannot parse is red (I5). |
 | I3×I5 | Same reader (I3×I4's contract). Edge kinds are explicit: `cargo tree`'s default is `normal,build,dev` (§4.3.8 #option-cargo-tree---edges), and `-e features` alone adds the other kinds; measured on the pinned 1.99.1: `cargo tree -p elidex-js --features engine,compat-webapi -e features` is byte-identical to `-e normal,build,dev,features` and contains an `elidex-ecs feature "fixtures"` node (dev edge), `-e normal,build,features` contains none; in the per-package view the same holds (`cargo tree -p elidex-js --features engine,compat-webapi -e normal,build,dev -f '{p} {f}' --prefix none` lists `elidex-ecs` with `fixtures`, `-e normal,build` with no feature; 2026-11-09, `69fbe61f` code) — so a row that read dev edges would be falsely red on every member with a `fixtures` dev-dependency. The fixture script already uses `-e normal,build,features` (`scripts/check-fixture-boundary.sh:17`). The same fact is why I5 reads the compile columns' resolve only and does not apply to the test columns (I5). |
 | I3×I6 | The `--all-features` steps are not rows: they turn every dev-only feature of the workspace union on for every target. PR-T's test columns are per row: one member, the row's flags, and only the dev edges that member's own test targets declare. |
 | I3×I7 | Serial invocations share one target dir; that Cargo keys artifacts on the feature set (so rows do not rebuild or contaminate each other) is not stated in the Cargo Book (§3.9 Build Cache does not mention features); PR-M1 measures it on its run for the compile columns (a second row with a different feature set leaves the first row's artifacts fresh). A test column changes the dependencies' feature sets (dev edges, I3), so it can rebuild what the compile columns built; PR-T measures the reuse for the test columns on its own run, as PR-M1 does for its columns. A separate job gets its own rust-cache key, so its feature sets do not evict `check`'s. |
@@ -253,21 +256,21 @@ holds an anchor id, "Branch" the behaviour the design relies on.
 | Cargo Book §4.3.5 cargo metadata | #json-format | `packages[].metadata`, `packages[].features`, `workspace_members`; `resolve` is the whole workspace's | I1, I5 classification, I3×I4 | ✓ | no |
 | Cargo Book §4.2.6 cargo doc | #target-selection | with no target selection, documents "all binary and library targets of the selected package" | §4.3 rustdoc column (same targets as the clippy column) | ✓ | no |
 | Cargo Book §4.2.6 cargo doc | #option-cargo-doc---document-private-items | "Include non-public items in the documentation" | §0, I3, §4.3 rustdoc column (PM 559) | ✓ | no |
+| Cargo Book §4.2.6 cargo doc | #option-cargo-doc---no-deps | "Do not build documentation for dependencies" | I2 (why doc rows exist), §7 Q10 | ✓ | no |
 | Cargo Book §4.3.8 cargo tree | #feature-unification | "doesn't guarantee the exact equivalence to what Cargo is going to build"; `-e normal,build` is "pretty close" to `cargo build` | I5 (what it can assert), I3 (compile is authoritative) | ✓ | no |
 | Cargo Book §4.3.8 cargo tree | #option-cargo-tree---edges | default kinds `normal,build,dev`; `features` alone adds the others | I3×I5 flags | ✓ | no |
 | Cargo Book §4.3.8 cargo tree | #option-cargo-tree---target | default is the host platform | I2×I5 (per-leg hosts) | ✓ | no |
 | ECMA-262 §4.2 Hosts and Implementations | #sec-hosts-and-implementations | host-defined facilities are deferred to an external source; "Implementations that are not hosts may also provide definitions for host-defined facilities" | §5 reasons (the spec clause of PM 520's quote) | ✗ | no |
 | WHATWG HTML §8.1.6 JavaScript specification host hooks | #javascript-specification-host-hooks | HTML is the host that defines those hooks | §5 reasons (the spec clause of PM 520's quote) | ✗ | no |
-| WHATWG DOM §2.7 Interface EventTarget | #add-an-event-listener | step 5 appends the listener to the event target's event listener list; `dispatchEvent()` returns "the result of dispatching" | PR-T expected values (the no-engine `EventTarget` stubs) | ✗ | no |
-| WHATWG DOM §2.9 Dispatching events | #concept-event-dispatch | dispatch returns false only if the event's canceled flag is set | PR-T expected values (`dispatchEvent`) | ✗ | no |
-| ECMA-262 §27.5.1.9 HostPromiseRejectionTracker | #sec-host-promise-rejection-tracker | host-defined; "The default implementation of HostPromiseRejectionTracker is to return unused" | PR-T expected value (the no-engine unhandled-rejection fallback) | ✗ | no |
 
-**Breadth**: K=4 sources (preflight count), M=22 rows. The spec rows are ✗ for full enumeration on purpose. The
+**Breadth**: K=3 sources (preflight count), M=20 rows. The spec rows are ✗ for full enumeration on purpose. The
 ECMA-262 §4.2 and HTML §8.1.6 rows are the sections behind the spec clause of PM 520's reasons, quoted in §5 (the
-host-hook structure exists; the spec is silent on a host-less build), and nothing here implements a hook. The DOM
-rows and the HostPromiseRejectionTracker row are the authorities PR-T's expected values are written against
-(PM 564); PR-T writes no algorithm, it asserts these steps' observable results. Preflight's split recommendation
-(K ≥ 4 or M ≥ 20) is what this umbrella already is: each PR below has its own plan and plan-review (§6, PM 498).
+host-hook structure exists; the spec is silent on a host-less build), and nothing here implements a hook. PR-T's
+expected values come from the spec that governs each test's subject, or from elidex's core/compat principle where
+the spec is silent (§6 PR-T); the program writes no web-platform algorithm, so this map holds no such row (the DOM
+and HostPromiseRejectionTracker rows of draft 5 served the no-engine `EventTarget` expectations, which PM 583
+removed with their premise, §8). Preflight's split recommendation (M ≥ 20, from the 18 Cargo Book rows) is what
+this umbrella already is: each PR below has its own plan and plan-review (§6, PM 498).
 
 **Repo rules that govern (no § number)**: CLAUDE.md 至上命題 (authority order), Design philosophy (core/compat
 layering, plugin-first, ScriptSession as the sole Script↔ECS boundary, Concurrency by ownership and phases —
@@ -282,10 +285,15 @@ PM 542 (rustdoc column, per-profile doc-tests), PM 543 / PM 545 (PR-A1′ accept
 the guard slot's narrowing), PM 547 / PM 559 (§5's form), PM 558 (pre-matrix three-OS evidence), PM 559 / PM 560 /
 PM 561 (the rustdoc column's private items, the `doc` job, the PR-D… prereq), PM 562 (PR-T0…, PR-A3′, the test
 columns), PM 564 (no per-PR design in U0; PR-T's expected values), PM 569 (rustdoc coverage of test-only code in
-the matrix, PR-A2's stop rule and deadline, `#11-no-engine-eventtarget-stubs-nonconforming`), PM 573 (the
-`test-only` declaration is PR-M1's; one doc row per member), PM 575 (the reader contract: per-package resolved
-feature sets, I3×I4), PM 578 (contract (2) relative to the base; the no-engine `EventTarget` slot's Layering
-constraint; the Layering check's criterion and API fields).
+the matrix, PR-A2's stop rule and deadline), PM 573 (the `test-only` declaration is PR-M1's; one doc row per
+member), PM 575 (the reader contract: per-package resolved feature sets, I3×I4), PM 578 (contract (2) relative to
+the base; the Layering check's API field), PM 583 (the no-engine `EventTarget` slot folded into
+`#11-elidex-js-no-default-features-support`, its constraints withdrawn with their premise; the reader is
+PR-M1's), PM 584 (`elidex-plugin` stays optional), PM 585 (PR-A1's (a)/(b) classification against
+`#11-vm-inbound-host-call-membership-test`; the private-intra-doc slot's Re-eval re-pointed; the Python-pin
+umbrella's `doc` parenthetical superseded); VM P4's design invariant I-5 (Layering; the boundary is the `engine`
+gate plus the host-binding dependency, and the inbound membership test is settled once, by that slot,
+`docs/plans/2026-07-vm-p4-design-invariants.md:102-120`).
 
 
 ### §3.1 User-input touch audit
@@ -335,25 +343,31 @@ code fixes PR-A* make (whose own plans run this audit).
        (the inverted graph renders it: 1 `elidex-storage-core feature "web-storage"` line, plus 3
        `elidex-script-session feature "web-storage"` lines on the inverted paths, since that feature enables it too);
     3. `cargo tree <flags> -e normal,build -f '{p} {f}' | grep elidex-storage-core` → every `elidex-storage-core
-       v0.1.0 (…)` line ends `web-storage` (the per-package view; the command's first hit is the `elidex-js` line,
-       whose `{f}` lists the implicit feature `elidex-storage-core`);
-    4. the control PR-M2a records (§6), on the App row's flags `-p elidex-js --no-default-features --features
-       engine`: add the line `"elidex-storage-core?/web-storage",` as the first value of `engine` in
-       `crates/script/elidex-js/Cargo.toml`; (1) on those flags → `0`, (3) → every `elidex-storage-core` line ends
-       `web-storage` (unmutated: with no feature); then `git checkout -- crates/script/elidex-js/Cargo.toml` and
-       `git status --porcelain` → empty.
+       v0.1.0 (…)` line's `{f}` field is `web-storage` — 5 lines, of which 4 end `web-storage (*)`, cargo's mark
+       for a package already printed (the per-package view; the command's first hit is the `elidex-js` line, whose
+       `{f}` lists the implicit feature `elidex-storage-core`);
+    4. the reader-contract control PR-M1 records (§6; PR-M2a's I5 control is the same case), on the App row's flags
+       `-p elidex-js --no-default-features --features engine`: add the line `"elidex-storage-core?/web-storage",` as
+       the first value of `engine` in `crates/script/elidex-js/Cargo.toml`; (1) on those flags → `0`, (3) → every
+       `elidex-storage-core` line's `{f}` field is `web-storage` (unmutated: no feature); then
+       `git checkout -- crates/script/elidex-js/Cargo.toml` and `git status --porcelain` → empty.
 
     Cause: both `web-storage` features are turned on by the root member's own `?/` values,
     `"elidex-storage-core?/web-storage"` and `"elidex-script-session?/web-storage"`
     (`crates/script/elidex-js/Cargo.toml:36-37`, in `compat-webapi`). The second is hidden the same way: (1) with
     `'elidex-script-session feature "web-storage"'` → `0`, (3) with `elidex-script-session` → its `elidex-script-session
-    v0.1.0 (…)` lines end `web-storage`. Both are App's declared absences (I5), so a check defined on the forward graph's nodes would read
-    both as absent on any row whose own `[features]` reached them — step 4, PR-M2a's `?/` control, is this case.
+    v0.1.0 (…)` lines' `{f}` field is `web-storage` (likewise 1 line plus 4 marked `(*)`). Both are App's declared
+    absences (I5), so a check defined on the forward graph's nodes would read both as absent on any row whose own
+    `[features]` reached them — step 4, the `?/` control (PR-M1's for the reader, PR-M2a's for I5), is this case.
 - **Derivation**: at run time, by one tracked entry point that reads `cargo metadata --format-version 1`
   (`workspace_members`, `packages[].metadata.elidex`, `packages[].features`), emits the rows, and runs them serially.
   No row list is ever checked in (ci.yml carries no per-row YAML). **Implementation home**: PR-M1's plan's choice,
   under these requirements: it reads *this* declaration (I1), one member per invocation (I3), the same entry point
-  locally and in CI (I7), and it needs only the runtimes the job declares (the job-boundary rule, `ci.yml:236-245`).
+  locally and in CI (I7), it needs only the runtimes the job declares (the job-boundary rule, `ci.yml:236-245`), and
+  what PR-M1 writes into the root `mise.toml` (its task, the retired tasks' removal) keeps Python-pin PR-0's T5
+  clause 4 green: a tracked mise file spells `python` only where clause 4 admits it — the two `ADMITTED_LINES` of
+  the root `mise.toml` (clause 4 (b), `scripts/tracked_tool_config.py:28-31`) or inside a tracked path containing
+  `/` (clause 4 (a), `admits_occurrence`); the `tools` job runs it.
   **Entry-point constraint**: the entry point lives inside the `rust` path filter (ci.yml and mise.toml already are,
   `ci.yml:46-47`; so is anything under `crates/**`). An entry point anywhere else (a `scripts/*.sh`, a runner
   config) is registered in the `rust` filter in the same PR, as `scripts/check-fixture-boundary.sh` is
@@ -464,37 +478,46 @@ one member (a doc row, the rustdoc only), whose
 ### §4.4 Axis (iv) — cross-lane ordering
 
 1. **F1 decided** (PM 520, §5): F1-b is the interim, so PR-A1 has the F1-b shape and elidex-js declares three rows.
-2. **Census C0** (§7) on the then-current base — names every red row and every I4/I5 violation, with owners.
+2. **Census C0** (§7) on the then-current base — names every red row and every I4/I5 violation, with owners. An
+   I4/I5 violation other than `parallel`'s (PR-A2's, step 6) is fixed by a PR-A3… under the same owner rule (§6).
 3. **Row-fixing PRs**: **PR-A1** (VM P4 lane) and any **PR-A3…** the census finds, each with the owner §6's PR-A3…
    rule gives it (PM 545 P1), in any order among themselves. A site one of them returns to PM is applied by the PR
    PM names: the returning PR itself, or **PR-A1′** / **PR-A3′** (exists only if PM names a PR other than the
    returning one; owner named by PM), which lands before the returning PR: its acceptance is relative and does not
    need the returning PR's rows green (§6, PM 543). Either way the returning PR does not land before the ruling is
-   applied (PM 531), and the deadline of §6's PR-A3′ row bounds the wait.
+   applied (PM 531), and the deadline of the returning PR's §6 row (PR-A1's or PR-A3…'s) bounds the wait.
 4. **PR-M1** (CI/tools) — reviewed and ready *before* PR-A1 lands; lands in a PM-held landing window directly after
    the latest of (a) the last row-fixing PR of step 3, (b) the last **PR-D…** (the private-doc prereq, §6, PM 560
    (a); deadline = when PR-M1's implementation is ready, PM 561) and (c) **Python-pin PR-2**: PR-M1 edits ci.yml,
    so by decision 150 (3) it lands after Python-pin PR-2 (PM 536: "PM 494 は decision 150 (3)…を上書きしていない";
-   `docs/plans/2026-10-python-pin-umbrella.md:599-602`). It lands after a fresh three-OS run on the new head.
+   `docs/plans/2026-10-python-pin-umbrella.md:599-602`; that passage's parenthetical "`--document-private-items`
+   in `doc`" is superseded by PM 559 — the flag is in the matrix's rustdoc column and the `doc` job is retired —
+   and that memo is not edited, PM 585). It lands after a fresh three-OS run on the new head.
    Reason for the window: the VM P4 lane lands into `elidex-js` weekly, and the default configuration has been red
    for six months with no gate (§1); every day between PR-A1 and PR-M1 is a day it can go red again unseen. PR-A1
    does not wait for PR-2 (PM 558 (2)): if PR-2 has not landed when PR-A1 is ready, PR-A1 lands and that gap is
    accepted until PR-M1. The rows' three-OS evidence before PR-M1 comes from a temporary step that is not in the
-   merge (§6, PM 558 (1)). When PR-M1 is ready and PR-2 has not landed, or a PR-D… or a returned site has not
-   landed, the driver raises it to PM with the reason (PM 536).
-5. **PR-M2a** (CI/tools; I5), after PR-M1. It needs nothing else: I5 is green at the base by measurement (I5×I8).
+   merge (§6, PM 558 (1)). When PR-M1 is ready and PR-2, PR-A1, a PR-A3…, a PR-D… or a returned site's applying PR
+   has not landed, the driver raises it to PM with the reason (PM 536); PM's ruling names a date, and that date
+   bounds PR-M1's wait (§6's deadlines, which apply this rule row by row). The one PR-D… share that cannot exist
+   before PR-A1 — the `elidex-js` `default` row's rustdoc warnings, measurable only once PR-A1 makes the row compile —
+   is dated from PR-A1's landing instead (§6 PR-D…).
+5. **PR-M2a** (CI/tools; I5), after PR-M1. It needs nothing else: I5 is green at the base by measurement (I5×I8),
+   unless C0 names an I5 violation, whose PR-A3… (step 2) it then also follows.
 6. **PR-A2** (CI/tools, PM 543), after C0. Its connect branch declares a `parallel` profile in PR-M1's table, so
    that branch lands after PR-M1 with its row green (I8); a shape branch (remove, or always on) is ruled by PM and
    applied by **PR-A2′** (owner and PR named by PM; exists only if PM rules a shape change). Stop rule and deadline
    (§6, PM 569): when PR-M2b's implementation is ready, the driver raises to PM a PR-A2 not yet landed or a returned
    shape still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-M2b's
    wait (step 7) and so PR-T's (step 9).
-7. **PR-M2b** (CI/tools; I4), after PR-M2a (I4 reads each row's resolve through the reader PR-M2a adds for I5,
-   under I3×I4's contract, I4×I7) and after PR-A2 or PR-A2′, by the date step 6 bounds. Until it lands, `#11-test-only-feature-boundary-guard`
+7. **PR-M2b** (CI/tools; I4), after PR-M2a (I4 reads each row's resolve through the reader PR-M1 adds and I5
+   reuses, under I3×I4's contract, I4×I7; PM 583) and after PR-A2 or PR-A2′, by the date step 6 bounds. Until it lands, `#11-test-only-feature-boundary-guard`
    stays open, narrowed to (iv), with its Re-eval date (§8).
-8. **PR-T0…** (fix-first, §6), after PR-T's Q7 census, which PR-T's plan runs first; it needs no PR of steps 4–7
-   (its three-OS evidence is the temporary step, §6). A behaviour site one of them returns to PM is applied by
-   **PR-T0′** (named by PM), as in step 3.
+8. **PR-T0…** (fix-first, §6), after PR-T's Q7 census, which PR-T's plan runs first, on a base where step 3's PRs
+   have landed (a row that does not compile has no test census) and on three OS; it needs no PR of steps 4–7 (its
+   three-OS evidence is the temporary step, §6). A test found red after the census is a further PR-T0… under the
+   same rule. A behaviour site one of them returns to PM is applied by **PR-T0′** (named by PM), as in step 3. The
+   deadline of §6's PR-T0… row bounds PR-T's wait on all of them.
 9. **PR-T** (§6), after PR-M2b — PM 501 (iv)'s order, "F1 → C0 → PR-A* → PR-M1 → PR-M2 → PR-T" (PM 559) — and
    after every PR-T0… and PR-T0′. Its wait on PR-A2 is bounded through PR-M2b (step 6).
 
@@ -528,6 +551,17 @@ patterns), plus the ledger, which that command does not reach. Each, with who ac
 - The owner of the A2 Web-Storage demotion (PR-M2a encodes their absence guarantee — Q9).
 - Every lane with a PR-D… share (L3, VM P4, Layout, and CI/tools for the driverless files): its doc-only PR before
   PR-M1 (§6; PM relays the list, PM 561).
+- The `doc` job and its local mirrors, retired by PR-M1 (§4.3), widen the population: `git grep -n -e 'doc-full'
+  -e 'doc-changed' -e 'mise run doc' -e '`doc` job' -e 'doc job' -e 'cargo doc --workspace' -e 'tasks\.doc'
+  69fbe61f -- docs/plans` → 9 lines in 6 memos (`git grep -c` with the same patterns). The form-core memos
+  (`2026-07-form-core-crate-carve-slice-0a.md`, 3 lines; `2026-07-form-derived-state-reconciliation.md`, 1; the carve
+  has landed, `crates/dom/elidex-form-core`) cite the `doc` job as a check their slice had to pass, and the
+  citation-hygiene memos (`2026-07-citation-hygiene-Aiii-suite-scheduler.md`,
+  `2026-09-citation-hygiene-k2-fgit-hermetic-cr-sweep.md`, 1 each) name `doc-changed.sh` as part of the base they
+  describe: not edited. `2026-07-session-history-slice-A-content-phase-separation.md:302`'s "doc-changed" is another
+  word (document-changed snapshots). `2026-07-session-history-slice-B-app-phase-separation.md:954`, `:960` notes that
+  the `doc` job omits `--document-private-items`, which PR-M1 makes historical; whether to annotate it is the owning
+  lane's, told by the same relay as the rest of this list.
 
 ### §4.5 Naming
 
@@ -586,18 +620,18 @@ parser-only consumer appears") had fired: `elidex-shell` depends on `elidex-js` 
 
 | PR | Owner | Scope | Acceptance | After |
 |---|---|---|---|---|
-| **PR-A1** | VM P4 lane (PM 520 (1); the PR-A1 hand-off below) | F1-b shape only (§5): fix the leaks so `elidex-js`'s `default` (`default = []`) row is green in both compile columns, without adding a diagnostic to `app` or `browser`, on three OS. Fix kinds, contracts and the Layering check: the PR-A1 hand-off below; the destination and the unit of each fix, and so PR-A1's file list beyond the files carrying §9's diagnostics, are PR-A1's plan's (PM 564). `vm/gc/collect.rs` is 2074 lines (`wc -l`): its split is already assigned to VM P4's umbrella 7b (`docs/plans/2026-07-vm-p4-touch-time-split-record.md:84`); PR-A1's plan takes that record's decision, not a second one. | Relative to the slot (PM 336): each diagnostic named in §9 is gone, each one newly surfaced is named in the PR body and gone; every elidex-js row (`default` / `app` / `browser`) exits 0 in the clippy column, and in the rustdoc column has no warning outside the PR-D… population (below) — the `default` row's rustdoc warnings, which become measurable once PR-A1 makes it compile, are listed in the PR body and handed to the owning lane's PR-D… (PM 561); all on three OS by the pre-matrix evidence (below); each fix is listed with its kind (a)/(b)/(c). A returned-to-PM site does not land open: PR-A1 lands only after PM has ruled on each such site and the ruling is applied — in PR-A1 if PM names it (listed as (c)), otherwise in PR-A1′, which lands first — so no row is skipped (PM 531; I2, I8). | F1 (decided, PM 520); PR-A1′ if it exists (PM 543) |
-| **PR-A1′** | Named by PM | Exists only if PM rules a site PR-A1 returned to be a non-optional-dependency fix (a shape change) and names a PR other than PR-A1 to apply it. Applies that ruling. | Relative, so it can land before PR-A1 (PM 336, PM 543): the returned site's diagnostic is gone, and the `app` and `browser` rows gain no diagnostic in either compile column, on three OS by the pre-matrix evidence (below). "Gain" is measured against the PR's own base: those rows' rustdoc columns are not clean at `69fbe61f` (the PR-D… population; its one row-only entry, `vm/host/document.rs:477`, is in the `app` row), and the warnings PR-D… owns do not count here. The `default` row may stay red, only on diagnostics PR-A1 names. | PM's ruling |
+| **PR-A1** | VM P4 lane (PM 520 (1); the PR-A1 hand-off below) | F1-b shape only (§5): fix the leaks so `elidex-js`'s `default` (`default = []`) row is green in both compile columns, without adding a diagnostic to `app` or `browser`, on three OS. Fix kinds, contracts and the Layering check: the PR-A1 hand-off below; the destination and the unit of each fix, and so PR-A1's file list beyond the files carrying §9's diagnostics, are PR-A1's plan's (PM 564). `vm/gc/collect.rs` is 2074 lines (`wc -l`): its split is already assigned to VM P4's umbrella 7b (`docs/plans/2026-07-vm-p4-touch-time-split-record.md:84`); PR-A1's plan takes that record's decision, not a second one. | Relative to the slot (PM 336): each diagnostic named in §9 is gone, each one newly surfaced is named in the PR body and gone; every elidex-js row (`default` / `app` / `browser`) exits 0 in the clippy column, and in the rustdoc column has no warning outside the PR-D… population (below) — the `default` row's rustdoc warnings, which become measurable once PR-A1 makes it compile, are listed in the PR body with their files, on three OS, and handed to the owning lane's PR-D… (PM 561; that share's date, §6 PR-D…); all on three OS by the pre-matrix evidence (below); each fix is listed with its kind (a)/(b)/(c). A returned-to-PM site does not land open: PR-A1 lands only after PM has ruled on each such site and the ruling is applied — in PR-A1 if PM names it (listed as (c)), otherwise in PR-A1′, which lands first — so no row is skipped (PM 531; I2, I8). **Deadline**: when PR-M1's implementation is ready (§4.4 step 4), the driver raises to PM PR-A1 if it has not landed, and every site it returned still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-M1's wait — PR-M1 never lands over a red row (I8). | F1 (decided, PM 520); PR-A1′ if it exists (PM 543) |
+| **PR-A1′** | Named by PM | Exists only if PM rules a site PR-A1 returned to be a non-optional-dependency fix (a shape change) and names a PR other than PR-A1 to apply it. Applies that ruling. | Relative, so it can land before PR-A1 (PM 336, PM 543): the returned site's diagnostic is gone, and the `app` and `browser` rows gain no diagnostic in either compile column, on three OS by the pre-matrix evidence (below). "Gain" is measured against the PR's own base: those rows' rustdoc columns are not clean at `69fbe61f` (the PR-D… population; its one row-only entry, `vm/host/document.rs:477`, is in the `app` row), and the warnings PR-D… owns do not count here. The `default` row may stay red, only on diagnostics PR-A1 names. | PM's ruling; landed by the date that ruling sets (PR-A1's deadline) |
 | **PR-A2** | CI/tools (PM 543: `elidex-style` is L1's file and L1 has no driver; the lane that owns the matrix owns the rows it finds red) | `parallel` is enabled by no member: either declare a profile and make it green (connect), or change the feature's shape — remove it, or make it always on — which is PM's ruling, applied by PR-A2′. Conditions (PM 543): (1) the plan first measures `parallel`'s consumers (which crate or profile would enable it), what it gates (the `rayon` use sites) and what its red is (a gate leak, or the feature's shape); (2) a gate-only fix is CI/tools' call; entering a shape branch, the plan writes the derivation by the authority order (spec, then elidex principles — parallelism touches Concurrency by ownership and phases, "shared rayon pool") and returns to PM; (3) the plan's `elidex-style` site list is recorded via PM. **Stop rule** (PM 569; PR-A3…'s shape): a site that needs anything but a gate fix — a shape change of `parallel` (remove, or always on) included — is not fixed in PR-A2: the plan names it, writes condition (2)'s derivation and returns it to PM, and the rest of the PR proceeds. | Decidable at PR-A2's own head (PM 336), since I4's mechanism lands later (PR-M2b): on that head, `parallel` and `rayon` are each active in the resolve of some declared row, read by the reader contract (I3×I4) — I4's computation for this one member, done by hand, output recorded in the PR body; on the connect branch, the `parallel` row is green in both compile columns on three OS (I8). A returned site does not land open: PR-A2 lands only after PM has ruled on it and the ruling is applied — in PR-A2 if PM names it, otherwise in PR-A2′, which then carries this acceptance. **Deadline** (PM 569): when PR-M2b's implementation is ready (§4.4 step 6), the driver raises to PM a PR-A2 not yet landed, or a returned site still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-M2b's wait and, through it, PR-T's — PR-M2b never lands with I4 red (I8). | C0; connect branch also PR-M1 (it writes PR-M1's table) |
 | **PR-A2′** | Named by PM | Exists only if PM rules a shape change of `parallel`. Applies that ruling. | The ruling applied; on the PR's own head, every remaining `elidex-style` feature passes PR-A2's hand computation of I4; the member's rows green. | PM's ruling; landed by the date that ruling sets (PR-A2's deadline) |
-| **PR-A3…** | Per row of C0's list (PM 545 P1): the lane owning the module, if that lane has a driver (L3 / Layout / VM P4 files stay with their lane); CI/tools if it has none — gate fixes only, a site needing another fix kind returns to PM, and the site list is recorded via PM | One PR per owner. Fix kinds (a)/(b)/(c) and contracts (1)–(2) of the PR-A1 hand-off, read in the member's own terms; (a)'s destination is the place the Layering mandate, or the crate's own existing feature/non-feature seam, assigns in that crate, chosen by the PR's own plan. **Stop rule**: a site that needs a fix kind its owner may not apply — for CI/tools anything but a gate fix, for every owner (c) — is not fixed: it is named in the PR body and returned to PM, and the rest of the PR proceeds. | Same form as PR-A1: relative to C0's named diagnostics, both compile columns, three OS by the pre-matrix evidence (below), each fix listed with its kind. A returned-to-PM site does not land open: the PR-A3… lands only after PM has ruled on it and the ruling is applied — in that PR-A3… if PM names it, otherwise in PR-A3′, which lands first. **Deadline**: when PR-M1's implementation is ready (§4.4 step 4), the driver raises to PM every returned site still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-M1's wait for the row — PR-M1 never lands over a red row (I8). | C0 |
-| **PR-A3′, PR-T0′** | Named by PM | Exist only if PM rules a site that a PR-A3… (→ PR-A3′) or a PR-T0… (→ PR-T0′) returned and names a PR other than the returning one to apply it. Apply that ruling — for PR-T0′, a behaviour fix of a subject or of a test (PM 562). PR-A1′'s shape. | Relative, so it can land before the returning PR (PM 336, PM 543): the returned site's diagnostic, or its failing test, is gone in its row, and the member's other rows gain no diagnostic in any column the PR runs, on three OS by the pre-matrix evidence (below). | PM's ruling; landed by the date that ruling sets (PR-A3…'s deadline) |
-| **PR-D…** (private-doc prereq) | One per lane, by file (PM 560 (a), PM 561; PM 545 P1's rule): L3 136, VM P4 81, Layout 2, CI/tools 58 — CI/tools takes the files of lanes with no driver, doc-comment fixes only, and sends any behaviour judgment to PM | Fix-only: one standalone, doc-comment-only PR per lane that makes the private-item rustdoc warnings in the lane's files go away (population below), so that PR-M1's rustdoc column lands with `--document-private-items` on (PM 560 (a)). L3's `vm/host/document.rs` share lands after Layout's C1-pre (PM 561). | The lane's entries of the population, re-measured on the PR's own base, are gone; the diff touches doc comments only (`///`, `//!`); a site whose fix is not a doc-comment edit is named in the PR body and returned to PM, not fixed here. | none; deadline = when PR-M1's implementation is ready (PM 561); a PR-D… not landed then is raised to PM (§4.4 step 4) |
-| **PR-M1** | CI/tools | Declaration (I1) for the base, the `test-only` lists included (`elidex-ecs` `fixtures`, `elidex-net` `test-hooks`; §4.1, I6×I8, PM 573); the deriver (entry point inside the `rust` filter, §4.1); job `feature-profiles` on three OS, each row run in the two compile columns, `clippy -D warnings` and `rustdoc --document-private-items -D warnings` (I3, PM 542 (1), PM 559), and each member's doc row in the rustdoc column (I2, PM 569, PM 573), which resolves `#11-private-intra-doc-links-unchecked` (§8); `mise run check-profiles`; retire #585's step and `check-default`, and the `doc` job and its local mirrors (mise `doc` / `doc-full`, `scripts/doc-changed.sh`) (I6, §4.3; PM 559), and replace them at every instruction-file site that names them — at `69fbe61f` (`git grep -n 'check-default'`; `git grep -n -e 'default-features clippy' -e 'clippy --workspace -- -D warnings' -- ':!docs/plans'`; `git grep -n -e 'doc-full' -e 'mise run doc' -e 'doc-changed' -e 'cargo doc --workspace' -- ':!docs/plans' ':!crates'`): `.claude/skills/pre-push/SKILL.md:28`, `:30`, `:34` (`:34`'s serial fallback would otherwise call deleted tasks and skip the rows), `.claude/skills/external-review/project.md:17`, `.claude/skills/external-converge/project.md:13`, `README.md:85`, `CONTRIBUTING.md:46`, `:54`, `:55`, and the comment at `scripts/trip-wires.sh:12-13` that cites `[tasks.doc]`'s delegation as its precedent, re-grepped on PR-M1's own base. Each of these lists what CI or `mise run ci` runs (CONTRIBUTING.md's `## CI` list is `:50-58`), so deleting the entry would leave the list incomplete: each names `check-profiles` / `feature-profiles` in its place — the #585 precedent (PM 262 "[1] 3 more instruction-file places"; PM 265 fixed them in the same PR); rewrite the fixture step's comment and the profile prose in the three Cargo.toml comments into pointers (incl. the stale `crates/script/elidex-js/Cargo.toml:20-22`, §9); timeout derived from its run, both columns included. CLAUDE.md needs no edit: its `## CI` lists no jobs (CLAUDE.md:93-95) and it names no `check-default`. | Every row green in both compile columns, and every doc row green in the rustdoc column, on the PR's own three-OS run; the run produced ≥ 1 row per workspace member and one doc row per member, run or reported as de-duplicated (I2); three controls, each a scratch commit recorded in the PR body and not merged: one that breaks one profile only (e.g. an ungated engine-only import) turns exactly that row's clippy column red while `check` stays green, and one that adds, to a private item's doc comment, an intra-doc link to an item one profile compiles out turns exactly that row's rustdoc column red while every other row's rustdoc column stays green; and one that adds, to the doc comment of an item gated on a test-only feature and to that of an item gated on a feature only another member's row turns on (e.g. `elidex-storage-core/web-storage`), an intra-doc link to an item that exists in no configuration turns exactly those two members' doc rows red while every other row stays green (each member's own rows compile those items out, so its doc row is their only rustdoc reader); the greps above return no live instruction site naming a retired step, job or task; the merged deriver has no mode that skips a row or reports a red row as green (C0's report-only setting is never merged, §7), and a de-duplicated row is reported with the row whose result it shares (I2×I3). | every row-fixing PR (PR-A1, PR-A1′, PR-A3…, PR-A3′); every PR-D… (PM 560 (a)); Python-pin PR-2 (PM 536) |
-| **PR-M2a** | CI/tools (consult: Layout lane for the fixture script, A2 owner for the absence) | I5: per-profile absence declarations (App: both `web-storage` features), reading the `test-only` declarations PR-M1 made (PM 573); the classification and the forbidden / unknown checks per row, reading each row's resolve by the reader contract (I3×I4); absorb and delete `scripts/check-fixture-boundary.sh` (+ step, filter line); discharge remedies (i)–(iii) of `#11-test-only-feature-boundary-guard`, which stays open narrowed to (iv) (§4.2, §8; PM 545 P2). | Controls, each recorded: a normal edge enabling `fixtures` → red; `elidex-storage-core/web-storage` reached in the App row → red, and `elidex-script-session/web-storage` likewise; the same feature reached in the App row through the root member's own `[features]` `?/` value (e.g. `"elidex-storage-core?/web-storage"` added to `engine`) → red — a reader that traverses the forward graph's feature nodes is green on this case (§4.1's reproduction; PM 575), so it is the control of the reader contract; an undeclared implicit optional-dependency feature enabled from a normal edge (the slot's `foo-test-support`) → red; a reading in which the row's member does not appear → red (I3×I4 (3)); the `fixtures` dev edges of the base → green. Timeout re-derived. | PR-M1 |
+| **PR-A3…** | Per row of C0's list (PM 545 P1): the lane owning the module, if that lane has a driver (L3 / Layout / VM P4 files stay with their lane); CI/tools if it has none — gate fixes only, a site needing another fix kind returns to PM, and the site list is recorded via PM | One PR per owner. Fix kinds (a)/(b)/(c) and contracts (1)–(2) of the PR-A1 hand-off, read in the member's own terms — for an `elidex-js` site, (a) or (b) is classified against the same membership test as PR-A1's (PM 585); (a)'s destination is the place the Layering mandate, or the crate's own existing feature/non-feature seam, assigns in that crate, chosen by the PR's own plan. **Stop rule**: a site that needs a fix kind its owner may not apply — for CI/tools anything but a gate fix, for every owner (c) — is not fixed: it is named in the PR body and returned to PM, and the rest of the PR proceeds. | Same form as PR-A1: relative to C0's named diagnostics, both compile columns, three OS by the pre-matrix evidence (below), each fix listed with its kind. A returned-to-PM site does not land open: the PR-A3… lands only after PM has ruled on it and the ruling is applied — in that PR-A3… if PM names it, otherwise in PR-A3′, which lands first. **Deadline**: when PR-M1's implementation is ready (§4.4 step 4), the driver raises to PM every PR-A3… not landed and every returned site still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-M1's wait for the row — PR-M1 never lands over a red row (I8). A PR-A3… that fixes an I4/I5 violation C0 named (§4.4 step 2) has the same deadline with the PR whose check it is (PR-M2a for I5, PR-M2b for I4) in place of PR-M1, and its acceptance is the violation gone in the row's resolve, read by the reader contract (I3×I4). | C0 |
+| **PR-A3′, PR-T0′** | Named by PM | Exist only if PM rules a site that a PR-A3… (→ PR-A3′) or a PR-T0… (→ PR-T0′) returned and names a PR other than the returning one to apply it. Apply that ruling — for PR-T0′, a behaviour fix of a subject or of a test (PM 562). PR-A1′'s shape. | Relative, so it can land before the returning PR (PM 336, PM 543): the returned site's diagnostic, or its failing test, is gone in its row, and the member's other rows gain no diagnostic in any column the PR runs, on three OS by the pre-matrix evidence (below). | PM's ruling; landed by the date that ruling sets (PR-A3…'s deadline; for PR-T0′, PR-T0…'s) |
+| **PR-D…** (private-doc prereq) | One per lane, by file (PM 560 (a), PM 561; PM 545 P1's rule): L3 136, VM P4 81, Layout 2, CI/tools 58 — CI/tools takes the files of lanes with no driver, doc-comment fixes only, and sends any behaviour judgment to PM | Fix-only: one standalone, doc-comment-only PR per lane that makes the private-item rustdoc warnings in the lane's files go away (population below), so that PR-M1's rustdoc column lands with `--document-private-items` on (PM 560 (a)). L3's `vm/host/document.rs` share lands after Layout's C1-pre (PM 561). | The lane's entries of the population, re-measured on the PR's own base, are gone; the diff touches doc comments only (`///`, `//!`) and changes no code fence's info string (so it adds no `ignore` / `no_run`, PR-T's rule); a site whose fix is not a doc-comment edit is named in the PR body and returned to PM, not fixed here. | none; deadline = when PR-M1's implementation is ready (PM 561); a PR-D… not landed then is raised to PM (§4.4 step 4). Except the share of `elidex-js`'s `default` row, which exists only after PR-A1 (its warnings are listed in PR-A1's body, on three OS): After PR-A1; when PR-A1 lands, the driver raises it to PM, whose ruling names the PR and a date, and that date bounds PR-M1's wait for it |
+| **PR-M1** | CI/tools | Declaration (I1) for the base, the `test-only` lists included (`elidex-ecs` `fixtures`, `elidex-net` `test-hooks`; §4.1, I6×I8, PM 573); the deriver (entry point inside the `rust` filter, §4.1); job `feature-profiles` on three OS, each row run in the two compile columns, `clippy -D warnings` and `rustdoc --document-private-items -D warnings` (I3, PM 542 (1), PM 559), and each member's doc row in the rustdoc column (I2, PM 569, PM 573), which resolves `#11-private-intra-doc-links-unchecked` (§8); `mise run check-profiles`; retire #585's step and `check-default`, and the `doc` job and its local mirrors (mise `doc` / `doc-full`, `scripts/doc-changed.sh`) (I6, §4.3; PM 559), and replace them at every instruction-file site that names them — at `69fbe61f` (`git grep -n 'check-default'`; `git grep -n -e 'default-features clippy' -e 'clippy --workspace -- -D warnings' -- ':!docs/plans'`; `git grep -n -e 'doc-full' -e 'mise run doc' -e 'doc-changed' -e 'cargo doc --workspace' -e 'tasks\.doc' -e 'doc steps' -- ':!docs/plans' ':!crates'`): `.claude/skills/pre-push/SKILL.md:28`, `:30`, `:34` (`:34`'s serial fallback would otherwise call deleted tasks and skip the rows), `.claude/skills/external-review/project.md:17`, `.claude/skills/external-converge/project.md:13`, `README.md:85`, `CONTRIBUTING.md:43` (the `## CI` paragraph's "clippy / test / doc steps run with `--all-features`", false once rustdoc runs per row), `:46`, `:54`, `:55`, the comment at `scripts/trip-wires.sh:12-13` and the one at `mise.toml:124-125` (`[tasks.trip-wires]`), which both cite `[tasks.doc]`'s delegation as their precedent, re-grepped on PR-M1's own base. Each of these lists what CI or `mise run ci` runs (CONTRIBUTING.md's `## CI` list is `:50-58`), so deleting the entry would leave the list incomplete: each names `check-profiles` / `feature-profiles` in its place — the #585 precedent (PM 262 "[1] 3 more instruction-file places"; PM 265 fixed them in the same PR); rewrite the fixture step's comment and the profile prose in the three Cargo.toml comments into pointers (incl. the stale `crates/script/elidex-js/Cargo.toml:20-22`, §9); timeout derived from its run, both columns included; the reader of the rows' resolves (I3×I4; PM 583), which its doc-row derivation needs and PR-M2a / PR-M2b reuse. CLAUDE.md needs no edit: its `## CI` lists no jobs (CLAUDE.md:93-95) and it names no `check-default`. | Every row green in both compile columns, and every doc row green in the rustdoc column, on the PR's own three-OS run; the run produced ≥ 1 row per workspace member and one doc row per member, run or reported as de-duplicated (I2); four controls, each a scratch commit recorded in the PR body and not merged: one that breaks one profile only (e.g. an ungated engine-only import) turns exactly that row's clippy column red while `check` stays green, and one that adds, to a private item's doc comment, an intra-doc link to an item one profile compiles out turns exactly that row's rustdoc column red while every other row's rustdoc column stays green; and one that adds, to the doc comment of an item gated on a test-only feature and to that of an item gated on a feature only another member's row turns on (e.g. `elidex-storage-core/web-storage`), an intra-doc link to an item that exists in no configuration turns exactly those two members' doc rows red while every other row stays green (each member's own rows compile those items out, so its doc row is their only rustdoc reader); and the reader contract's control (§4.1, step 4; PM 575, PM 583): a `?/` value added to a row's own `[features]` (e.g. `"elidex-storage-core?/web-storage"` as a value of `elidex-js`'s `engine`) makes the reader report that feature active for that package in that row — a reader that traverses the forward graph's feature nodes does not, so this is the case that tells the two apart; the greps above return no live instruction site naming a retired step, job or task; the merged deriver has no mode that skips a row or reports a red row as green (C0's report-only setting is never merged, §7), and a de-duplicated row is reported with the row whose result it shares (I2×I3). | every row-fixing PR (PR-A1, PR-A1′, PR-A3…, PR-A3′); every PR-D… (PM 560 (a)); Python-pin PR-2 (PM 536) |
+| **PR-M2a** | CI/tools (consult: Layout lane for the fixture script, A2 owner for the absence) | I5: per-profile absence declarations (App: both `web-storage` features), reading the `test-only` declarations PR-M1 made (PM 573); the classification and the forbidden / unknown checks per row, reading each row's resolve through PR-M1's reader (I3×I4; PM 583); absorb and delete `scripts/check-fixture-boundary.sh` (+ step, filter line); discharge remedies (i)–(iii) of `#11-test-only-feature-boundary-guard`, which stays open narrowed to (iv) (§4.2, §8; PM 545 P2). | Controls, each recorded: a normal edge enabling `fixtures` → red; `elidex-storage-core/web-storage` reached in the App row → red, and `elidex-script-session/web-storage` likewise; the same feature reached in the App row through the root member's own `[features]` `?/` value (e.g. `"elidex-storage-core?/web-storage"` added to `engine`) → red — I5's half of the case whose reader half is PR-M1's control (§4.1's reproduction; PM 575, PM 583); an undeclared implicit optional-dependency feature enabled from a normal edge (the slot's `foo-test-support`) → red; a reading in which the row's member does not appear → red (I3×I4 (3)); the `fixtures` dev edges of the base → green. Timeout re-derived. | PR-M1 |
 | **PR-M2b** | CI/tools | I4 completeness per row; closes `#11-test-only-feature-boundary-guard` (its remaining remedy (iv), PM 545 P2). | Controls, each recorded: a feature no row activates → red (incl. an implicit one); the browser row covering both `web-storage` features while App forbids them → green. Timeout re-derived. | PR-M2a, PR-A2 or PR-A2′ |
-| **PR-T0…** (fix-first) | By file, PR-A3…'s owner rule (PM 545 P1): the owning lane if it has a driver; CI/tools if not — test-gate fixes only, any behaviour fix returns to PM (PM 562) | Every test PR-T's Q7 census finds red in a row that compiles the test's subject, in one of two cases: (1) the test compiles there and fails — a behaviour defect, of the subject or of the test, judged against PR-T's expected-value rule; (2) the subject compiles there but the test does not (it names an item the profile compiles out — e.g. a `#[cfg(test)]` helper that takes an engine-only type, Q7): the test is gated in place or rewritten to name only what its configuration compiles (kind (b), applied to test code), never excluded, because its subject is in the profile. A test whose subject the row compiles out is not here: PR-T excludes it under its exclusion rule. One PR per owner; stop rule as PR-A3…'s. | Each test the census names compiles and passes in its row on three OS by the pre-matrix evidence (below); each fix is listed with its case (1)/(2) and, for (1), whether the subject or the test was wrong and by which authority. A returned site does not land open: it is applied in PR-T0′, under PR-A3…'s deadline rule with PR-T in place of PR-M1. | PR-T's Q7 census |
-| **PR-T** | CI/tools (the test columns in the job and the entry point); test gating and exclusions per file by PR-A3…'s owner rule (PM 545 P1) | Defect: a non-full profile's own behaviour is executed by no test in that profile — in the `default` row the no-engine `EventTarget` method stubs (`vm/host/event_target.rs:82`, `:529`, `:633`) and the unhandled-rejection fallback (`vm/natives_promise.rs:632`); in the `app` row the compat ceiling with `compat-webapi` off (`vm/init.rs:184-185`). Run each declared row's tests and doc-tests under that row's flags — the two test columns (I3; per-profile doc-tests are PR-T's, PM 542 (1)); its plan first runs the test-target census (Q7). **Expected values come from the governing spec, never from the configuration's current behaviour** (PM 564): `addEventListener` / `removeEventListener` from DOM §2.7 Interface EventTarget ("add an event listener" step 5 appends the listener to the event listener list; `.claude/tools/webref dfn dom 'add an event listener'`), `dispatchEvent` from its method steps, which return "the result of dispatching" — false only if the event's canceled flag is set (DOM §2.9 Dispatching events, step 13) — and the unhandled-rejection path from ECMA-262 HostPromiseRejectionTracker (host-defined; "The default implementation of HostPromiseRejectionTracker is to return unused", so a host-less configuration owes script no observable report, and the fallback's stderr line is not asserted). The no-engine `EventTarget` stubs do not meet DOM §2.7 (`addEventListener` records nothing; `dispatchEvent` returns `false` for an event nobody canceled): that defect is `#11-no-engine-eventtarget-stubs-nonconforming` (VM P4, §8). PR-T names it; its tests stay red against the stubs until a PR-T0′ applies PM's ruling — within the slot's constraint (§8): a non-optional dependency (kind (c)) or the no-engine configuration not exposing `EventTarget`, decided in the crate-split plan, never dispatch re-implemented in `vm/host/` — and are never made green by asserting the stubs. A test that fails in a profile goes to PR-T0…. | Every declared row's test targets compile and pass, and its doc-tests pass, under the row's flags on three OS, run by the same entry point (per row one `cargo nextest run -p <member>` and one `cargo test -p <member> --doc`); per row, the executed-test count is > 0 for every member whose `--all-features` run has tests, and every test target of the member is either built in the row or named as excluded, so a silently skipped target is red (non-vacuity). **Exclusion paths**: a test may be excluded from a profile only when its subject is compiled out of that profile, by a `cfg` on the test or by a `[[test]]` target's `required-features` (Cargo skips such a target without a diagnostic, Cargo Book §3.1.1 #the-required-features-field; 0 `[[test]]` targets use it at `69fbe61f`, `git grep -n -B3 'required-features' 69fbe61f -- '*Cargo.toml'` shows only two `[[bench]]`s), each named in the PR body with its mechanism and the cfg that removes its subject. A doc-test fence's `ignore` / `no_run` is not a per-profile exclusion — it removes the example from every configuration — so PR-T and PR-T0… add none (base: 10 `ignore`, 0 `no_run`; `` git grep -n -P '```[a-z_0-9,]*ignore' 69fbe61f -- crates | wc -l ``, and the same with `no_run`). No test is skipped by name; the Q7 census is in the PR body. Timeout re-derived; the test columns' artifact reuse measured (I3×I7). | PR-M2b (PM 501 (iv), PM 559); every PR-T0… and PR-T0′ |
+| **PR-T0…** (fix-first) | By file, PR-A3…'s owner rule (PM 545 P1): the owning lane if it has a driver; CI/tools if not — test-gate fixes only, any behaviour fix returns to PM (PM 562) | Every test PR-T's Q7 census finds red in a row that compiles the test's subject, in one of two cases: (1) the test compiles there and fails — a behaviour defect, of the subject or of the test, judged against PR-T's expected-value rule; (2) the subject compiles there but the test does not (it names an item the profile compiles out — e.g. a `#[cfg(test)]` helper that takes an engine-only type, Q7): the test is gated in place or rewritten to name only what its configuration compiles (kind (b), applied to test code), never excluded, because its subject is in the profile. A test whose subject the row compiles out is not here: PR-T excludes it under its exclusion rule. One PR per owner; stop rule as PR-A3…'s. | Each test the census names compiles and passes in its row on three OS by the pre-matrix evidence (below); each fix is listed with its case (1)/(2) and, for (1), whether the subject or the test was wrong and by which authority. A returned site does not land open: it is applied in PR-T0′. **Deadline** (PR-A3…'s shape, with PR-T in place of PR-M1): when PR-T's implementation is ready, the driver raises to PM every PR-T0… not landed and every returned site still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-T's wait. | PR-T's Q7 census, taken after the row-fixing PRs (§4.4 step 8) |
+| **PR-T** | CI/tools (the test columns in the job and the entry point); test gating and exclusions per file by PR-A3…'s owner rule (PM 545 P1) | Defect: a non-full profile's own behaviour is executed by no test in that profile — e.g. in the `app` row the compat ceiling with `compat-webapi` off (`vm/init.rs:184-185`). Run each declared row's tests and doc-tests under that row's flags — the two test columns (I3; per-profile doc-tests are PR-T's, PM 542 (1)); its plan first runs the test-target census (Q7). **Expected values come from the governing authority, never from the configuration's current behaviour** (PM 564), in the order CLAUDE.md's 至上命題 sets: the spec that governs the test's subject; where that spec is silent, elidex's principles — for a configuration's compat ceiling (whether `Legacy` is installed without `compat-webapi`), the core/compat layering of CLAUDE.md's Design philosophy. The no-engine `EventTarget` stubs (`vm/host/event_target.rs:82`, `:529`, `:633`) are not a subject: no script-reachable object in the `default` row chains to that prototype (§8.2), so they are dead code, booked on `#11-elidex-js-no-default-features-support` (PM 583, §8). Nor is the no-engine unhandled-rejection fallback (`vm/natives_promise.rs:632`) (PM 583). A test that fails in a profile goes to PR-T0…. | Every declared row's test targets compile and pass, and its doc-tests pass, under the row's flags on three OS, run by the same entry point (per row one `cargo nextest run -p <member>` and one `cargo test -p <member> --doc`); per row, the executed-test count is > 0 for every member whose `--all-features` run has tests, and every test target of the member is either built in the row or named as excluded, so a silently skipped target is red (non-vacuity). **Exclusion paths**: a test may be excluded from a profile only when its subject is compiled out of that profile, by a `cfg` on the test or by a `[[test]]` target's `required-features` (Cargo Book §3.1.1 #the-required-features-field: "the target will be skipped"; 0 `[[test]]` targets use it at `69fbe61f`, `git grep -n -B3 'required-features' 69fbe61f -- '*Cargo.toml'` shows only two `[[bench]]`s), each named in the PR body with its mechanism and the cfg that removes its subject. A doc-test fence's `ignore` / `no_run` is not a per-profile exclusion — it removes the example from every configuration — so no PR of the program adds one (base: 10 `ignore`, 0 `no_run`; `` git grep -n -P '```[a-z_0-9,]*ignore' 69fbe61f -- crates | wc -l ``, and the same with `no_run`); nor a `#[ignore]` or a `#[cfg_attr(<cfg>, ignore)]` on a test, which skips it in a configuration that compiles its subject (base: 0 each; `git grep -n -E '#\[ignore' 69fbe61f -- crates | wc -l`, `git grep -n -E 'cfg_attr\([^)]*ignore' 69fbe61f -- crates | wc -l`). No test is skipped by name; the Q7 census is in the PR body. Timeout re-derived; the test columns' artifact reuse measured (I3×I7). | PR-M2b (PM 501 (iv), PM 559); every PR-T0… and PR-T0′ |
 
 **Pre-matrix three-OS evidence (PM 558 (1)).** Every PR above that must show rows on three OS before the
 `feature-profiles` job exists (PR-A1, PR-A1′, PR-A3…, PR-A3′, PR-T0…, PR-T0′) gets that evidence the same way: a
@@ -618,8 +652,8 @@ Re-run: `run.sh` then `agg.py` in `elidex-pm-trial/handoff/ci-tools-u0/r2-run/r3
 `tail -n +3 list-lanes.tsv | cut -f3 | sed 's/ (.*//' | sort | uniq -c` → the four owner counts;
 `tail -n +3 list-lanes.tsv | cut -f1 | cut -d/ -f3 | sort -u | wc -l` → 20. Not measured: `elidex-js`'s `default`
 row, where rustdoc stops at E0432 `elidex_plugin::EngineMode` (`vm/init.rs:11`, the §9 diagnostic;
-`cargo doc -p elidex-js --no-deps --document-private-items`) — re-measured after PR-A1, and each increment is split
-by the same owner rule (PM 561); and Linux / Windows, whose `cfg(target_os)` items C0's rustdoc column reaches —
+`cargo doc -p elidex-js --no-deps --document-private-items`) — to be measured on three OS by PR-A1's pre-matrix
+evidence run, and each increment is split by the same owner rule (PM 561) and dated from PR-A1's landing (the PR-D… row); and Linux / Windows, whose `cfg(target_os)` items C0's rustdoc column reaches —
 sites found there are split the same way. The four doc rows that are not de-duplicated (I2, §4.1) add nothing to
 it: measured separately on the same code and toolchain, `cargo doc -p elidex-ecs --no-deps --document-private-items
 --features fixtures --message-format=json` reports 12 distinct (file, line, message) warnings, the same with
@@ -640,9 +674,9 @@ implementation (PM 498, PM 564).
 - **Fix kinds.** Each fix is one of:
   - **(a) Relocate** engine-bound code to the existing engine/non-engine seam of the layer that owns its state, or,
     for an algorithm, to the engine-independent crate where the Layering mandate puts it;
-  - **(b) Gate in place**, where the code is right to keep in the core and only what it names is wrong (code outside
-    a gate names an optional-dependency item, or a `cfg(not(feature = "engine"))` branch does): each branch then
-    names only items its own configuration compiles with;
+  - **(b) Gate in place**, where the code is right to keep in the core (by the membership test below) and only what
+    it names is wrong (code outside a gate names an optional-dependency item, or a `cfg(not(feature = "engine"))`
+    branch does): each branch then names only items its own configuration compiles with;
   - **(c) Non-optional dependency**: a shape change, decided neither in PR-A1 nor in this umbrella. PR-A1's plan
     names the site and returns it to PM (PM 520); PM's ruling is applied in PR-A1 if PM names it, otherwise in
     PR-A1′.
@@ -652,13 +686,19 @@ implementation (PM 498, PM 564).
   2. leaves the code no worse than the base (One issue, one way; PM 578): no fix adds a new home for a cleanup
      concern, and no fix splits one concern across a boundary the base does not have. Consolidating homes that
      already exist is `#11-host-data-full-decomposition`'s job, not PR-A1's (contract (3)). A fact about the base,
-     not a design for PR-A1: at `69fbe61f`, `HostData`'s unbind cleanup already has two homes — `Vm::unbind` in
-     `crates/script/elidex-js/src/vm/lifecycle.rs` (the ungated `:30-67` block, and the sites at `:147`, `:298`,
-     `:326` and `:474` inside its `#[cfg(feature = "engine")]` block at `:90`, `:474` also `compat-webapi`-gated at
-     `:473`) and `HostData::unbind` at `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:118`
+     not a design for PR-A1, with a home counted as a function and a concern by what it clears and who owns that
+     state: at `69fbe61f` the unbind cleanup has two homes, carrying four concerns. `Vm::unbind` in
+     `crates/script/elidex-js/src/vm/lifecycle.rs` clears, in its ungated `:30-67` block, the `EcsDom`'s
+     mutation-dispatcher hook (`:34`), the bound world's transient MutationObserver registrations, which are
+     `MutationObservedBy` ECS components (`:45`, through `elidex_api_observers::mutation::clear_all_transient_observers`,
+     `crates/api/elidex-api-observers/src/mutation/mod.rs:625-636`, `:666`), and `HostData`'s per-bind fields
+     (`:46-61`), plus `HostData` sites at `:147`, `:298`, `:326` and `:474` inside its `#[cfg(feature = "engine")]` block at
+     `:90` (`:474` also `compat-webapi`-gated at `:473`); `HostData::unbind` at
+     `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:118-127` nulls the session and DOM pointers and
+     the document entity and bumps the bind epoch — binding state, not a cache
      (`git grep -n -e 'fn unbind' -e 'cfg(feature' 69fbe61f -- crates/script/elidex-js/src/vm/lifecycle.rs
      crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs`, then `git show
-     69fbe61f:crates/script/elidex-js/src/vm/lifecycle.rs | sed -n '30,67p;147p;298p;326p;474p'`). The earlier
+     69fbe61f:crates/script/elidex-js/src/vm/lifecycle.rs | sed -n '30,68p;147p;298p;326p;474p'`). The earlier
      wording of this contract rested on R2/R3's premise that the base has one home, which was never verified;
   3. is coupled to `#11-host-data-full-decomposition` (ledger). That slot books decomposing `HostData` into
      per-subsystem sub-structs as an edge-dense design change of its own PR(s), with the bind/unbind lifecycle among
@@ -668,10 +708,15 @@ implementation (PM 498, PM 564).
      as its own PR(s), not bundled.
 - **Layering check.** PR-A1's plan carries one line per fix: its kind and, for (a), its destination. It also
   records:
-  - for engine-bound code that is not an algorithm, the criterion by which the plan chose (a) or (b) (R4 A1-MIN-1);
-  - which existing engine-independent API was checked for the fix (named, or the crate to extend if none); a fix
-    may carry a combination of kinds — e.g. (a) together with (b) or (c) at its call site — listed as such
-    (R4 A1-MIN-2).
+  - for engine-bound code that is not an algorithm, its classification as (a) or (b) against the membership test of
+    `#11-vm-inbound-host-call-membership-test` (VM P4; `docs/plans/2026-07-vm-p4-slot-ledger.md:311`), the test
+    VM P4's design invariant I-5 settles once, project-wide (`docs/plans/2026-07-vm-p4-design-invariants.md:102-120`).
+    PR-A1 adopts no criterion of its own. If the slot is undecided when PR-A1's plan is written, that plan raises
+    it to PM; PR-A1 does not wait for the slot (PM 585);
+  - for a fix that relocates an algorithm ((a)'s second half), which existing engine-independent API was checked
+    (named, or the crate to extend if none) (PM 578 (iii), PM 585);
+  - a fix that carries a combination of kinds — e.g. (a) together with (b) or (c) at its call site — listed as
+    such (PM 578 (iii)).
 - **The known (c) candidate**: `elidex_plugin::EngineMode` (`vm/init.rs:11`, the §9 E0432; `elidex-plugin` is
   optional, `crates/script/elidex-js/Cargo.toml:80`). PR-A1's plan classifies it, and PM rules if the plan returns it.
 - **What PM routes to VM P4 with it**: the typed-array slot's premise (§8), Q2 (§7), and the rustdoc warnings in
@@ -687,10 +732,11 @@ the slice.
 **C0** (measurement, not a PR; permitted by PM 501, "空き 50G を切ったら止める" — it stops when free disk falls under
 50 GB): on the base PR-M1 will be cut from, every row of §4.1's declaration, on macOS locally and on Linux/Windows
 through a draft CI run of PR-M1's branch, both compile columns (§4.3, the rustdoc column with
-`--document-private-items`) and each doc row's rustdoc column (I2); plus I4/I5 over each row's resolve.
+`--document-private-items`) and each doc row's rustdoc column (I2); plus I4/I5 over each row's resolve, read by the reader contract (I3×I4)
+by hand, as PR-A2's acceptance computes I4 (the checks are not merged before PR-M2a / PR-M2b).
 Report-only is a setting of that unmerged draft run (e.g. `continue-on-error` on a scratch commit), never a flag of
 the tracked deriver. Output: the
-red rows with their diagnostics → the PR-A3… list, each row with its owning lane and whether that lane has a driver
+red rows with their diagnostics, and the I4/I5 violations other than `parallel`'s → the PR-A3… list, each row with its owning lane and whether that lane has a driver
 at the time; the list goes to PM (PM 545 P1), which settles each PR-A3…'s owner by §6's rule. Rustdoc warnings
 beyond the PR-D… population go to the owning lane's PR-D… by the same rule. Until C0 runs, the clippy column has
 been measured only on elidex-js's three rows (§9) — **1 of 54 members** — and the rustdoc column on every row but
@@ -701,8 +747,11 @@ holds):
 
 - **Q1** C0 itself (above).
 - **Q2** (PM) Where PR-A1 (F1-b shape, §6) sits in the VM P4 lane's queue (guard memo, S1, call-depth guard, …), and
-  whether any in-flight VM P4 branch touches PR-A1's files: the four that carry §9's diagnostics and PR-A1's plan's
-  destination files, which that plan names (§6, PR-A1 hand-off).
+  whether any in-flight branch of any lane touches PR-A1's files: the four that carry §9's diagnostics and PR-A1's
+  plan's destination files, which that plan names (§6, PR-A1 hand-off). One is known: Layout's C1-pre
+  (`layout-c1-pre-document-wrapper`) changes `vm/init.rs`, `vm/gc/collect.rs` and `vm/host_data/mod.rs`
+  (`git diff --name-only $(git merge-base layout-c1-pre-document-wrapper origin/main) layout-c1-pre-document-wrapper`,
+  2026-11-09), so PR-A1's base, and the base facts of contract (2) and of §8.2, may move when it lands.
 - **Q3** — retired: F1 is decided (PM 520), so the merge it proposed is superseded by PM 531 (§8).
 - **Q4** — answered: the Layout lane's landing list
   (`elidex-pm-trial/handoff/pending-at-landing/c0-program.md`) has 0 hits for `fixture`, `ci.yml`, `clippy`,
@@ -714,7 +763,8 @@ holds):
 - **Q7** (scout) Does `cargo test -p elidex-js --no-run` compile, and does `cargo test -p elidex-js --doc` pass, with
   each declared feature list? (PR-T; its red tests are PR-T0…'s. The `#[cfg(test)]` `Vm::new_with_mode` takes
   `EngineMode`, `vm/init.rs:47-49`, so whether the `default` row's tests compile depends on how PR-A1 classifies
-  `EngineMode`, and a test left naming it is PR-T0…'s case (2).)
+  `EngineMode`, and a test left naming it is PR-T0…'s case (2). So the census that sets PR-T0…'s population is
+  taken on a base where the row-fixing PRs have landed, on three OS, §4.4 step 8.)
 - **Q8** (PR-M1) Row cost per OS leg on the census base.
 - **Q9** (PM) Who owns the A2 absence guarantee today (`docs/plans/2026-06-web-api-compat-a2-storage-demotion-plan.md`
   §4 (C), `:261`) and is encoding it as a declared absence acceptable to them?
@@ -738,46 +788,49 @@ holds):
   landed (the code). Its ledger "Update (PM 498)" line carries the corrected breakdown (PM 501), and its head
   sentence no longer lists `dispatch.rs:998` (applied, PM 542 (4); re-check:
   `grep 'default-features-build-broken' memory/project_open-defer-slots.md | grep -c 'dispatch.rs:998'` → 0 on
-  2026-11-09; the slot id occurs on one line of the ledger).
+  2026-11-09; the slot id occurs on one line of the ledger). PMO item, via PM: the close, from PR-M1's landing list
+  once every row-fixing PR has landed.
 - `#11-elidex-js-no-default-features-support` — stays open, re-homed to the VM P4 lane, its defect restated as the
   language-core/host boundary being held only by `cfg` annotations that are themselves broken, and closed when the
   crate-split umbrella lands (PM 531; already so in the ledger). Its Re-eval-date 2026-11-30 is the interim's
-  re-evaluation (§5), whose input is §8.1. PMO items on it, via PM:
+  re-evaluation (§5), whose input is §8.1. It also carries, as a facet, the folded
+  `#11-no-engine-eventtarget-stubs-nonconforming` (PM 583; already in the ledger): the engine-less build keeps a
+  script-unreachable `EventTarget.prototype` and no-op stubs — dead code, since `vm/globals.rs:70` creates
+  `globalThis` with `prototype: None` and the chain is joined only by engine-gated code (the
+  `#[cfg(feature = "engine")]` match at `:532`, and the host modules that chain to `event_target_prototype`, §8.2);
+  connect or delete is decided by the F1 = c split plan. PMO items on it, via PM:
   - a pointer to §8.2 "Observation for the split umbrella", so the observation is reachable from the slot the split
     starts from (PM 545 P2). It is taken at this draft's commit; at landing, PMO re-measures it on the merge commit
     and repoints the slot to the heading's lines there (PM 559; squash merge leaves this branch's commits off `main`);
-  - at PR-M1's landing, an update of its "Cross-ref (2026-11-03, PM 265, at #585)", whose "Per-package /
+  - at PR-M1's landing, from its landing list, an update of its "Cross-ref (2026-11-03, PM 265, at #585)", whose "Per-package /
     per-feature checks (`cargo hack`) stay this slot's job" PR-M1 makes false: per-member, per-profile checks become
     the matrix's rows (PM 559).
 - `#11-private-intra-doc-links-unchecked` (CI/tools) — resolved by PR-M1 (PM 559): the matrix's rustdoc column
   carries `--document-private-items`, and the PR-D… prereq (§6) fixes the population first (PM 560 (a), PM 561).
-  Its Re-eval-date becomes PR-M1's landing; that ledger change is PMO's, applied from PR-M1's landing list
-  (PM 559). The slot closes when PR-M1 lands.
+  Its Re-eval re-point to PR-M1's landing is done (PM 585). The slot closes when PR-M1 lands; PMO applies the close,
+  via PM, from PR-M1's landing list (PM 559).
 - `#11-host-data-full-decomposition` — not this program's; coupled to PR-A1 by contract (3) of §6's PR-A1
-  hand-off (PM 564), so PR-A1's plan names it and it records what PR-A1 moved.
+  hand-off (PM 564), so PR-A1's plan names it and it records what PR-A1 moved. The ledger entry has no Owner
+  field (`memory/project_open-defer-slots.md:179`), so who receives that record and judges it against the
+  sub-struct boundary is unnamed. PM item: name the slot's owner (PMO records it, via PM).
+- `#11-vm-inbound-host-call-membership-test` (VM P4, `docs/plans/2026-07-vm-p4-slot-ledger.md:311`) — not this
+  program's; its membership test is the criterion PR-A1 (and an `elidex-js` PR-A3…) classifies (a) against (b) by
+  (§6 PR-A1 hand-off, PM 585). PR-A1 does not wait for it; an undecided slot at PR-A1's plan goes to PM.
 - `#11-test-only-feature-boundary-guard` — narrowed, not discharged, by PR-M2a (PM 545 P2): PR-M2a discharges
   remedies (i)–(iii) (§4.2) and moves the attach point from the retired #585 step to the matrix; the slot stays open
   narrowed to (iv) (product features no member enables) and is closed by PR-M2b. Ledger Re-eval 2026-12-15, so (iv)
-  keeps a dated open slot while PR-M2b waits for PR-A2.
+  keeps a dated open slot while PR-M2b waits for PR-A2. PMO items, via PM: from PR-M2a's landing list, the
+  narrowing, with the entry's remedy (i)–(ii) recipe annotated as replaced by §4.2 and to be confirmed by PR-M2a's
+  plan-review (the entry still states it as written, ledger `:735`); from PR-M2b's landing list, the close. The
+  entry attributes the attach point's retirement to "U0, PM 542"; U0's is PM 501 (ii) (§4.2), which PMO aligns.
 - `#11-ownerless-node-creation` (Layout) — its landing note says C0b's facet is "checked by
   `scripts/check-fixture-boundary.sh` in CI", which PR-M2a deletes; the property moves into I5. PMO updates the note,
   via PM, when PR-M2a lands (§4.4 coordination).
 - `#11-vm-typed-array-family-layering-and-gate` (VM P4, `docs/plans/2026-07-vm-p4-slot-ledger.md:310`) — not this
   program's; its "Until then" premise ends when PR-A1 lands (§8.1). PM routes it to VM P4.
-- `#11-no-engine-eventtarget-stubs-nonconforming` (VM P4; registered by PM 569) — the no-engine `EventTarget`
-  stubs fail DOM §2.7 (§6 PR-T). Not this program's: PR-T names it, and a PR-T0′ applies PM's ruling (§6).
-  **Constraint (PM 578)**: the no-engine resolution does not re-implement dispatch in `vm/host/` (Layering mandate;
-  One issue, one way — the canonical dispatch is `elidex-script-session`'s `script_dispatch_event_core`
-  (`event_dispatch/mod.rs:434`) / `EventListeners` (`event_listener.rs:131`), an engine-only optional dependency,
-  `crates/script/elidex-js/Cargo.toml:39-41`, `:77`; `git grep -n -e 'fn script_dispatch_event_core' -e 'pub struct
-  EventListeners' 69fbe61f -- crates/script/elidex-script-session/src`); the way is making the dependency
-  non-optional (fix kind (c)) or not exposing the interface, decided in the user's F1 = c crate-split plan. A PR of
-  the slot that touches `vm/host/event_target.rs` is ordered via PM with
-  `#11-vm-host-receiver-brand-check-unification` (L3); that slot's canonical `this_is_node_wrapper`
-  (`vm/host/event_target.rs:274`, under `#[cfg(feature = "engine")]` at `:273`; `git grep -n -B1 'fn
-  this_is_node_wrapper' 69fbe61f -- crates/script/elidex-js/src/vm/host/event_target.rs`) is engine-gated, so
-  whether the ordering premise holds on the no-engine side is checked at this slot's Re-eval. PMO item, via PM: the
-  ledger entry's text carries this constraint and the slot id.
+- `#11-no-engine-eventtarget-stubs-nonconforming` — folded and closed (PM 583) into
+  `#11-elidex-js-no-default-features-support` (its bullet above). Its premise (the stubs exposed, against DOM §2.7)
+  was false, and the constraints PM 578 (ii) and PM 581 placed on it are withdrawn with that premise.
 - Otherwise no new slot: PR-T and PR-D… are in this program, not deferred, and per-profile rustdoc is a column of
   PR-M1's matrix (PM 542 (1), PM 559, §4.3).
 
@@ -818,12 +871,15 @@ Recorded, not planned here; the re-homed slot points here (PM 545 P2). All count
   `abort_signal_prototype`, gated at `:81-82`), because the core GC roots those fields by position. Ungated
   prototype fields — `event_target_prototype` and `node_prototype` (`:76-77`) — are rooted in every configuration
   and produce no fill.
-- The no-engine configuration already holds DOM interface surface. `register_event_target_prototype()` runs ungated
-  (`vm/globals.rs:166`; `register_node_prototype()` is gated, `:174-175`). In that configuration
-  `EventTarget.prototype`'s `addEventListener` / `removeEventListener` / `dispatchEvent` are no-op stubs
-  (`vm/host/event_target.rs:82`, `:529`, `:633`), and the unhandled-rejection dispatch is a stub that returns `false`
-  (`vm/natives_promise.rs:632`). These 4 are the host-less behaviours among the 8 `cfg(not(feature = "engine"))`
-  sites outside `collect.rs`
+- The no-engine configuration compiles DOM interface code that script cannot reach. `register_event_target_prototype()`
+  runs ungated (`vm/globals.rs:166`; `register_node_prototype()` is gated, `:174-175`) and builds
+  `EventTarget.prototype` with no-op `addEventListener` / `removeEventListener` / `dispatchEvent` stubs
+  (`vm/host/event_target.rs:82`, `:529`, `:633`), but no global binds it, `globalThis` is created with
+  `prototype: None` (`vm/globals.rs:70`), and every chain to it is set by engine-gated code (the
+  `#[cfg(feature = "engine")]` match at `:532`; the other host modules, next bullet) — so the prototype and its stubs
+  are dead code, rooted by the GC (PM 583; `#11-elidex-js-no-default-features-support`'s facet, §8). The
+  unhandled-rejection dispatch is a stub that returns `false` (`vm/natives_promise.rs:632`). Those 4 are the
+  host-side stubs among the 8 `cfg(not(feature = "engine"))` sites outside `collect.rs`
   (`git grep -n 'not(feature = "engine")' 69fbe61f -- crates ':!crates/script/elidex-js/src/vm/gc/collect.rs'`); the
   other 4 are the `HostData` stub (`vm/host_data/mod.rs:697`), an unused-variable allow (`vm/init.rs:162`) and two
   match arms (`vm/gc/trace.rs:591`, `vm/object_kind.rs:1598`).
@@ -834,9 +890,8 @@ Recorded, not planned here; the re-homed slot points here (PM 545 P2). All count
   items; only `event_target.rs` compiles code into the no-engine build (checked file by file, verified 2026-11-09:
   `git show 69fbe61f:<file> | grep -c '^#!\[cfg(feature = "engine")\]$'` → 1 for 29 of the 31, 0 for `elements.rs`
   and `event_target.rs`).
-- A language/host crate split decides where those prototype roots, that module and those stubs live. The `EventTarget`
-  stubs also fail DOM §2.7 (PR-T's expected values, §6), so the split's plan also decides
-  `#11-no-engine-eventtarget-stubs-nonconforming`'s resolution, within that slot's constraint (§8, PM 578).
+- A language/host crate split decides where those prototype roots, that module and those stubs live, and whether
+  the unreachable `EventTarget` code is connected or deleted (PM 583, §8).
 
 ## §9 Brief claims found false or stale (measured at `69fbe61f`)
 
