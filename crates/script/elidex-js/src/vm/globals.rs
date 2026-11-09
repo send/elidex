@@ -527,7 +527,9 @@ impl VmInner {
         // Fork the global-scope-specific prototype + singletons. Window
         // (WHATWG HTML §7.2) installs `window` / `navigator` / `location` /
         // `history`; a dedicated worker (§10.2.1.1) installs the
-        // `WorkerGlobalScope` surface and never binds a document. The shared
+        // `WorkerGlobalScope` surface and installs no `document` global (it still
+        // binds an internal Document entity reachable via `Range`; slot
+        // `#11-worker-scope-exposes-window-only-interfaces`). The shared
         // `register_event_target_prototype` ran above and roots both chains.
         #[cfg(feature = "engine")]
         match self.global_scope_kind.clone() {

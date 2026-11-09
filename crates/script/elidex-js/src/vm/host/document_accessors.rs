@@ -46,6 +46,10 @@ use elidex_ecs::Entity;
 /// (`HostData::document`).  The one place the VM's single browsing-context
 /// ↔ Document association is read; its storage stays per-VM until B1
 /// (`#11-browsing-context-state-ecs-components`).
+///
+/// Reached only from `Document.prototype` natives, which exist only on Window
+/// VMs (G1).  On a worker / SW VM the internal bound document would wrongly
+/// answer `true`, so no non-Window path may call this.
 pub(super) fn document_has_browsing_context(ctx: &NativeContext<'_>, doc: Entity) -> bool {
     ctx.vm
         .host_data

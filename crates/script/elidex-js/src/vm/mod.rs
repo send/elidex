@@ -117,8 +117,11 @@ pub(crate) const MAX_BIND_CHAIN_DEPTH: usize = 10_000;
 /// Window VM (WHATWG HTML §7.2) installs `window` / `document` / `location` /
 /// `history`, whereas a dedicated worker VM (WHATWG HTML §10.2.1.1) installs
 /// the `WorkerGlobalScope` surface (`self` / `postMessage` / `close` /
-/// `importScripts` / `WorkerLocation` / `WorkerNavigator`) and never binds a
-/// document. Set once at construction, before `register_globals` runs.
+/// `importScripts` / `WorkerLocation` / `WorkerNavigator`) and installs no
+/// `document` global. (It still binds an internal Document entity, which
+/// script can reach through `Range`; its wrapper carries `Node.prototype`,
+/// not `Document.prototype` -- slot
+/// `#11-worker-scope-exposes-window-only-interfaces`.) Set once at construction, before `register_globals` runs.
 #[derive(Clone, Debug)]
 pub enum GlobalScopeKind {
     /// Main-thread Window scope (WHATWG HTML §7.2).
