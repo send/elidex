@@ -88,7 +88,10 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.7* (2026-11-10): C1-pre's record R-2 applied (T1, M3, edge c-pre, §4.1, §4.8, §5.3, R-C5,
+**Changelog.** *Rev 3.7.1* (2026-11-10, PM 604): Q-5 decided (a): T1 has three legs; T1's old legs 4–5 and M3's
+`URL` / `documentURI` legs are `#11-document-base-url`'s cells (record R-11); the umbrella changelog lines for C1-pre's
+and C1's §1.2 rows are a task of C1's PR (§9 item 11); §5.2's per-fn classification goes in C1's PR body; §10.4.
+*Rev 3.7* (2026-11-10): C1-pre's record R-2 applied (T1, M3, edge c-pre, §4.1, §4.8, §5.3, R-C5,
 Q-S10, H-C10, R-1); frame moved to `c7cce8c8`, where every prerequisite has landed, and every coordinate, population and
 "on the base" premise re-measured there; premise errors P-C17 to P-C27 (§0.3); open question Q-5 (§11); §10.3.
 *Rev 3.6.1* (2026-11-04, PM 337): T1's fixture sets the page URL, base column `[false, true, false, false, false]` (IMP-A); D-C3's clone post-pass → §4.4 `pair_owner` (MIN-B); A3×A6, D-C5's opening and P-C14's correction point to D-C5 (MIN-C); M3 / edge c-pre: I's URL is C1-pre's default, C1's `f` has no URL duty (MIN-D).
@@ -167,7 +170,7 @@ filter (path filter plus inline `#[cfg(test)] mod … {` blocks).
 | H-C13 | elidex has no XML document | `git grep -n 'is_html_document\|XmlDocument' -- 'crates/*.rs'` → only the forward-looking note `mod.rs:793`; DOMParser serves `text/html` only (umbrella §3 row §8.5.1) |
 | H-C14 | The clone-policy table enumerates every component | `tree_clone.rs:20-32` (module doc): `TemplateContents` row `:27`, "deliberate non-copy" row `:30`, out-of-domain `:31` |
 | H-C15 | The bind pass excludes template contents | slice a's bind walk `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:178` (`TemplateContentsWalk::Exclude`); umbrella D-11, K-5, K-6 |
-| H-C16 | Every Document wrapper is a Document (C1-pre, landed) | `create_element_wrapper` maps `PrototypeKind::Document` (`crates/script/elidex-js/src/vm/host_data/engine_feature/entity_kind.rs:188`) to `document_prototype` (`crates/script/elidex-js/src/vm/host/elements.rs:181`), registered once by `register_document_prototype` (`crates/script/elidex-js/src/vm/host/document.rs:295`); the path-specific installs are gone (`git grep -n 'install_document_methods\|document_methods_installed' -- crates` → 0). So `tpl.content.ownerDocument` (I) gets the Document members by construction. Members read `this` (C1-pre D-4 to D-8) except the URL pair: `document_url_value` `crates/script/elidex-js/src/vm/host/document_accessors.rs:157-169` brand-checks `this` and returns `navigation.current_url` (`:166`) for every Document (C1-pre R-10, `#11-document-base-url`; §0.3 P-C17). No DOM interface object exists (`git grep -n '=> "\(Document\|Node\|Element\|DocumentFragment\|ShadowRoot\|HTMLDocument\)"' -- crates/script/elidex-js/src` → 0; C1-pre H-9) |
+| H-C16 | Every Document wrapper is a Document (C1-pre, landed) | `create_element_wrapper` maps `PrototypeKind::Document` (`crates/script/elidex-js/src/vm/host_data/engine_feature/entity_kind.rs:188`) to `document_prototype` (`crates/script/elidex-js/src/vm/host/elements.rs:181`), registered once by `register_document_prototype` (`crates/script/elidex-js/src/vm/host/document.rs:295`); the path-specific installs are gone (`git grep -n 'install_document_methods\|document_methods_installed' -- crates` → 0). So `tpl.content.ownerDocument` (I) gets the Document members by construction. Members read `this` (C1-pre D-4 to D-8) except the URL pair: `document_url_value` `crates/script/elidex-js/src/vm/host/document_accessors.rs:157-169` brand-checks `this` and returns `navigation.current_url` (`:166`) for every Document (C1-pre R-10, `#11-document-base-url`; §0.3 P-C17; not asserted by C1, record R-11). No DOM interface object exists (`git grep -n '=> "\(Document\|Node\|Element\|DocumentFragment\|ShadowRoot\|HTMLDocument\)"' -- crates/script/elidex-js/src` → 0; C1-pre H-9) |
 | H-C17 | No contents-fragment host link | scout Q-S7: only `ShadowRoot.host` (`components.rs:284`); no slot |
 
 ### §0.3 Premise errors (reported)
@@ -237,7 +240,9 @@ New in rev 3.7 (re-measured at `c7cce8c8`; each with its evidence):
   (`document_url_value` `crates/script/elidex-js/src/vm/host/document_accessors.rs:157-169`) brand-check `this` and
   return the VM's `navigation.current_url` (`:166`) for **every** Document, so on C1's head `I.URL` and
   `I.documentURI` read the page URL until `#11-document-base-url` lands. C1-pre's record R-2 withdraws the edge c-pre
-  text (applied: edge c-pre, M3, T1). What T1's legs 4–5 and M3's URL legs then assert on C1's head is **Q-5 (§11)**.
+  text (applied: edge c-pre, M3, T1). What T1's legs 4–5 and M3's URL legs then assert on C1's head was **Q-5 (§11)**;
+  **decided by PM 604 (rev 3.7.1): option (a)** — C1 does not assert them; T1 has three legs, M3 has no URL legs, and
+  the four legs are `#11-document-base-url`'s cells (§8 R-11).
 - **P-C18 (rev 3.5–3.6.1, T1 leg 2 `I instanceof Document`).** Throws `ReferenceError` on any head: the VM has no
   DOM interface object (H-C16; C1-pre H-9, P-5). Replaced by C1-pre R-2's
   `Object.getPrototypeOf(I) === Object.getPrototypeOf(document)` (T1).
@@ -426,7 +431,7 @@ every row's elidex value is the HEAD column's except where §6's base column say
 |---|---|---|---|---|---|---|
 | M1 | `tpl.content.ownerDocument !== document` | `true` (§4.12.3 establishing step 1) | `false` | `true` | | |
 | M2 | `tpl.content.ownerDocument === document.createElement('template').content.ownerDocument` | `true` (one associated inert template document) | `true` | `true` | | |
-| M3 | `I = tpl.content.ownerDocument; [I.defaultView, I.URL, I.baseURI, I.documentURI, I.body, I.ownerDocument]` | `[null, 'about:blank', 'about:blank', 'about:blank', null, null]` (browsing context null; URL is the default; §2.4.3 fallback base URL) | n/a (I is `document`) | the non-URL legs (`defaultView`, `baseURI`, `body`, `ownerDocument`): the spec values, from C1-pre's `Document.prototype` and per-entity facts (edge c-pre) and I's `DocumentBaseUrl` (`about:blank` from `create_document_node`, H-C10); the `URL` / `documentURI` legs rest on `#11-document-base-url`, not C1-pre (C1-pre R-2, R-10): until it lands they read the page URL (H-C16, §0.3 P-C17), so this column's value for them is **Q-5 (§11)**. C1's `f` has no URL duty | | |
+| M3 | `I = tpl.content.ownerDocument; [I.defaultView, I.baseURI, I.body, I.ownerDocument]` | `[null, 'about:blank', null, null]` (browsing context null; §2.4.3 fallback base URL) | n/a (I is `document`) | the spec values, from C1-pre's `Document.prototype` and per-entity facts (edge c-pre) and I's `DocumentBaseUrl` (`about:blank` from `create_document_node`, H-C10). The `URL` / `documentURI` legs are not C1's (PM 604, Q-5 (a)): they are `#11-document-base-url`'s cells `DBU-I-URL-M` / `DBU-I-documentURI-M` (§8 R-11). C1's `f` has no URL duty | | |
 | M4 | `tpl.innerHTML = '<a href="x.html"></a>'; tpl.content.firstChild.href` | the `href` content attribute value `"x.html"` (base `about:blank`, §2.4.3; `x.html` fails URL §4.4 *basic URL parser* against it, so url is null and HTML §4.6.3's `href` getter step 4 returns "this's href content attribute's value") | absolute against the page base | `"x.html"` | | |
 | M5 | parser path: page markup `<template id=h><a id=a href="x.html"></a><img id=i src="y.png"></template>`; `[h.content.getElementById('a').href, h.content.getElementById('i').src]` | `["x.html", "y.png"]`-shaped (`href` as M4; `src` by HTML §2.6.1's URL-reflecting getter: step 3.3 returns urlString only if not failure, else step 4 the content attribute value) | absolute | as M4 | | |
 | M6 | `c = tpl.content.cloneNode(true)` with M4's `<a>`; `[c.ownerDocument === tpl.content.ownerDocument, c.firstChild.href]`; `document.body.append(c)`; `a.href` | `[true, "x.html"]`, then absolute | `[true, absolute]`, then absolute | spec | | |
@@ -565,8 +570,8 @@ M13). No path delivers author content to a document other than one it was parsed
   evidence). C0's new-node entry lives in `elidex-ecs` for the same reason (C0 draft D-10).
   `elidex-ecs` is engine-independent, so the Layering mandate holds. C1 adds no VM code: the VM wrapper work is
   C1-pre's (edge c-pre; H-C16) — I's wrapper gets `Document.prototype` at its first allocation (C1-pre D-1) and its
-  members answer from I's entity (C1-pre D-4 to D-8). The URL pair is neither's: `#11-document-base-url` (§0.3 P-C17,
-  Q-5).
+  members answer from I's entity (C1-pre D-4 to D-8). The URL pair is neither's: `#11-document-base-url` (§0.3 P-C17;
+  Q-5 decided (a), PM 604; §8 R-11).
 - Components (D-C1) in `crates/core/elidex-ecs/src/components.rs` beside `TemplateContents` (`:366`).
 - Realm: §4.12.3 step 1.1.1 creates I "given document's relevant realm". elidex has one realm per `EcsDom` (T3 draft
   H-T15); B1's multi-realm World must create I in D's realm (§8 H-3).
@@ -729,7 +734,7 @@ All outputs below are at `c7cce8c8`, run 2026-11-10.
   the getter `node_methods/core.rs:264`; `selection.rs:617`; `child_list.rs:454`; N1's gate `scripting.rs:83`. The
   production `owner_document(` callers are the getter and `selection.rs:617` only (C0b's P-3 result, re-found).
   Scout Q-S4's classification (2026-10-31) found no reader whose new value for a node in contents is not the spec's
-  except `documentURL` on I (now `#11-document-base-url`'s, §0.3 P-C17), href paths' `document_root()` fallback on I
+  except `documentURL` on I (now `#11-document-base-url`'s, §0.3 P-C17; its cells are §8 R-11's, not C1's), href paths' `document_root()` fallback on I
   (gone: `node_document_base_url` answers `about:blank` for a node without a node document, `document_base.rs:68-71`)
   and `focus/delegate.rs:86` (Q-S11); N1's gate is C0's (D-7 (a)).
 - **P-7 C2 statements** (property: a statement that template contents take the template's own document, or a pointer
@@ -783,7 +788,7 @@ two above and `fragment_template_content_documentless_context_is_unstamped_in_bo
 document, no `f`), `tests_node_document.rs` 6 (U8 ×4, U9 ×2); `elidex-js` `vm/tests/tests_insertion_adoption.rs` 3 (T4's
 control, T5, T18's control). Complement: a fixture built by a helper in another file, or a test that reaches contents
 by another spelling, is not counted. Each fn is classified (changes / value unchanged / not dependent) by the rule of
-the memo-cell list below, at C1's red-first run (§9 item 1); the memo cells named there are the ones this list's fn
+the memo-cell list below, at C1's red-first run (§9 item 1), and the result goes in C1's PR body (PM 604); the memo cells named there are the ones this list's fn
 names carry (`t5_…`, `u1_…`, `u8_…`, `u11_…`, `u13_…`, `u19_…`, `u21_…`).
 
 *C0 cells C1 changes (by property, not by a "C1 turns" phrase).* Population: every §6.1 / §6.2 cell of the C0a, C0b and
@@ -860,7 +865,8 @@ D-19). C1's diff touches none of them except the comment-only rewrite of the str
 - **R-C5 a new Document wrapper (I) is reachable from script.** Every Document wrapper has `Document.prototype`
   (C1-pre D-1), so I's does, with no C1 code; its per-entity facts (no browsing context: `defaultView` `null`,
   `hidden` `true`, …) are C1-pre's D-4 to D-8 (edge c-pre; §1.1 M3). Its `URL` / `documentURI` read the page URL until
-  `#11-document-base-url` lands (§0.3 P-C17; Q-5).
+  `#11-document-base-url` lands (§0.3 P-C17). C1 asserts neither (PM 604, Q-5 (a)); the defect and its cells are
+  record R-11 (§8).
 - **R-C6 I as a root.** Excluded (D-C9); cell U6.
 - **R-C7 lifetime.** No I for a throwaway (U4, U5); I per DOMParser document lives with it (D-C7, §7).
 - **R-C8 `adoptedCallback` arguments for custom elements in contents** → see D-C5 (T25, §1.1 M13).
@@ -877,7 +883,7 @@ after the measurement agrees (D-C11).
 
 | cell | kind | script | base | C1 = spec |
 |---|---|---|---|---|
-| T1 | red | fixture: page URL `http://example.com/page` (`vm.inner.navigation.current_url = url::Url::parse("http://example.com/page").unwrap()`, as `tests_forbidden_headers.rs:228`); `t = document.createElement('template'); I = t.content.ownerDocument; r = [I !== document, Object.getPrototypeOf(I) === Object.getPrototypeOf(document), I.defaultView === null, I.URL === 'about:blank', I.documentURI === 'about:blank']` (second leg: C1-pre R-2; no `Document` interface object exists, H-C16) | `[false, true, false, false, false]` | `[true, true, true, true, true]`: the second and third elements rest on C1-pre (edge c-pre), the third after §1.1 M3; the fourth and fifth rest on `#11-document-base-url`, not C1-pre (C1-pre R-2, R-10), and read `false` on a head without it (§0.3 P-C17): **Q-5 (§11)** |
+| T1 | red | `t = document.createElement('template'); I = t.content.ownerDocument; r = [I !== document, Object.getPrototypeOf(I) === Object.getPrototypeOf(document), I.defaultView === null]` (second leg: C1-pre R-2; no `Document` interface object exists, H-C16). Three legs (PM 604, Q-5 (a)): rev ≤ 3.7's legs 4–5 (`I.URL` / `I.documentURI === 'about:blank'`) are `#11-document-base-url`'s cells `DBU-I-URL` / `DBU-I-documentURI` (§8 R-11), not C1's, and rev 3.6.1's page-URL fixture (IMP-A), which only those legs read, goes with them | `[false, true, false]` | `[true, true, true]`: the second and third elements rest on C1-pre (edge c-pre), the third after §1.1 M3 |
 | T2 | guard | two `createElement('template')`: `t1.content.ownerDocument === t2.content.ownerDocument` (with T1's `!== document`) | `true` (both `document`) | `true` (same I) |
 | T3 | red (×2) | initial HTML `<template id=a><b id=b></b></template>`: `a.content.ownerDocument !== document`, `a.content.getElementById('b').ownerDocument === a.content.ownerDocument` | `[false, true]` | `[true, true]` |
 | T4 | red (×2) | `<template id=o><template id=i><p></p></template></template>`: `i.ownerDocument === o.content.ownerDocument`, `i.content.ownerDocument === o.content.ownerDocument`, `o.content.ownerDocument !== document` | `[true, true, false]` | `[true, true, true]` |
@@ -978,10 +984,11 @@ The other rows are pre-existing or another PR's scope.
   `Adopt` consumer — the per-segment (old, new) pairs whose `new` D-C5 sets (T25).
 - c-RC2a: **L3 RC-2a → C1** (code predecessor on `clone.rs`'s child-clone loop: D14 and RC-2a's cloneNode migration both
   rewrite it; PM decisions 215, 241, 249; C1 rebases on it). Landed #596 `17b2a84d`; C1's base has it (§4.4).
-- c-pre: **C1-pre → C1** (semantic, PM 328; landed #616 `c7cce8c8`): C1's T5, T1's second and third legs and M3's
-  non-URL legs need C1-pre's D-1 (every Document wrapper has `Document.prototype`) and D-4 to D-8 (members answer from
-  `this`'s entity) (header; §4.1; R-C5). T1's fourth / fifth legs and M3's `URL` / `documentURI` legs rest on
-  `#11-document-base-url`, not C1-pre (C1-pre R-2, R-10; §0.3 P-C17; Q-5); C1's `f` has no URL duty. C1's PR writes
+- c-pre: **C1-pre → C1** (semantic, PM 328; landed #616 `c7cce8c8`): C1's T5, T1's second and third legs and M3
+  need C1-pre's D-1 (every Document wrapper has `Document.prototype`) and D-4 to D-8 (members answer from
+  `this`'s entity) (header; §4.1; R-C5). The `URL` / `documentURI` legs that rev ≤ 3.7 put in T1 (legs 4–5) and M3
+  are not C1's: they rested on `#11-document-base-url`, not C1-pre (C1-pre R-2, R-10; §0.3 P-C17), and PM 604 (Q-5
+  (a)) hands them to that slot as its cells (R-11); C1's `f` has no URL duty. C1's PR writes
   this edge into the umbrella's §1.3 and lists C1-pre as its §1.2 row's prerequisite (R-1; C1-pre R-2, R-5).
 - c-E: **C0b** introduces the new-node entry (PM decisions 223 O-2 / 227; C0 draft D-10, §4.5 A11 / A12); L3 RC-4 (A11 / A12)
   reads it. RC-4 lands **after** C1: the Range program's definition of done ("RC-4 after N9, C0b and C1") and its §5
@@ -1003,7 +1010,7 @@ The other rows are pre-existing or another PR's scope.
 - H-5 to L3 (RC-2a incl. D14, RC-4): §4.4's per-pair document and §4.5's A11 / A12 contract.
 
 **Records (for the PM; exact texts).** Applied by C1's PR in place, with history (PM decisions 144 / 159): C1's PR
-applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223 O-1 / 232). This plan PR still does
+applies R-1 and R-3, and adds the umbrella changelog lines for the C1-pre and C1 rows of §1.2 (§9 item 11; PM 604); the umbrella revision number is assigned at landing (PM 223 O-1 / 232). This plan PR still does
 **not** edit the umbrella file.
 - **R-1 umbrella §1.2** — add the row (after the C1-pre row, which C1-pre's PR added; at `c7cce8c8` §1.2's rows are
   slice a, C0, C1-pre, T3, slice b):
@@ -1058,16 +1065,34 @@ applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223
   slice b; the C0 interface is §4.7, and C0's own memos carry it), and its order "N1 implementation → T3 → C0 → C1 →
   slice b" predates PM decision 153. Proposed text: "Requirements: the C0 program memo and its per-PR memos; C1 plan
   memo §4.7. Order (PM decision 153): N1 implementation → C0 → C1 → T3 → slice b."
+- **R-11 ledger `#11-document-base-url` (Apply, at C1's landing; PM 604, Q-5 (a))** — pmo copies the quoted text into
+  that slot's ledger row when C1 lands; the row's owner and Re-eval stay as they are. Text: "**Defect (C1, PM 604)**:
+  `document_url_value` returns `navigation.current_url` for every Document
+  (`crates/script/elidex-js/src/vm/host/document_accessors.rs:157-169` @ `c7cce8c8`) — an about:blank Document's
+  `URL` / `documentURI` read the page URL. From C1's landing the inert template document I (HTML §4.12.3
+  *appropriate template contents owner document*: a new Document, whose URL is DOM §4.5's default "about:blank") is
+  reachable as `tpl.content.ownerDocument`, so the defect is observable there. **Cells this program receives** (from
+  the C1 plan memo, rev ≤ 3.7's T1 legs 4–5 and §1.1 M3's URL legs; C1 does not assert them):
+  (1) `DBU-I-URL` (VM, red until this program lands): page URL `http://example.com/page`
+  (`vm.inner.navigation.current_url = url::Url::parse("http://example.com/page").unwrap()`, as
+  `crates/script/elidex-js/src/vm/tests/tests_forbidden_headers.rs:228` @ `c7cce8c8`); `I = document.createElement('template').content.ownerDocument; I.URL ===
+  'about:blank'` → `true` (on C1's head `false`: `I.URL` is `"http://example.com/page"`);
+  (2) `DBU-I-documentURI` (VM): the same fixture, `I.documentURI === 'about:blank'` → `true` (on C1's head `false`);
+  (3) `DBU-I-URL-M` (browser measurement, C1 §1.1 M3's form: a page served over `http://`): `I.URL` → spec
+  `'about:blank'`, recorded with engine and version before the cells are asserted;
+  (4) `DBU-I-documentURI-M`: the same for `I.documentURI`."
 
 ## §9. Definition of done
 
 1. Coordinates re-measured at C1's base (N1 implementation, C0a–C0c, RC-2a with D14, C1-pre landed): done at `c7cce8c8`
    by rev 3.7; if main has moved when the implementation branch is cut, §5.1's and §5.2's commands are re-run there and
-   any change recorded in the PR; §5.1 P-4 / P-5's base checks re-run; §5.2's population classified per test.
+   any change recorded in the PR; §5.1 P-4 / P-5's base checks re-run; §5.2's population classified per test at the
+   red-first run, the classification of each of the 36 fns recorded in C1's PR body (PM 604).
 2. `appropriate_template_contents_owner_document`, `is_inert_template_document` and both
    components exist in `elidex-ecs` with §4.9's citations; no other site computes a template contents' node document
    (P-1 re-run); C1's diff adds no `owner_document(` call (D-C10). C1's diff adds no new-node entry, no entry branch
-   and no creation-site change, and touches none of §5.3's "removed in rev 3" files beyond that comment (`git diff <base>..HEAD` on them
+   and no creation-site change, and touches none of §5.3's "removed in rev 3" files beyond the comment-only rewrite of
+   `tree_builder/shadow.rs:118-119` (§5.1 P-7; within this item, PM 604) (`git diff <base>..HEAD` on them
    shows comment lines only);
    C0's P-3 and P-8 ratchets (C0b memo §5.1) still hold at C1's head.
 3. D-C3 to D-C9 implemented; the clone-policy table has both rows.
@@ -1088,7 +1113,11 @@ applies R-1 and R-3; the umbrella revision number is assigned at landing (PM 223
    with T19 / T12 (parsed, both tiers, foreign and shadow content), T8 (appended), T9 / T10 (cloned) and T24 (cloned with
    a shadow host) as the per-route mutation guards. T3's target cells for R-A (T-17, EW-13, EW-14, XW-8) are T3's to
    assert on top of these facts (T3 lands after C1).
-10. The PM has applied R-1 to R-4 and R-6 to R-10 (or recorded why not), and decided O-3 and Q-5 (O-1 is decided: (a), PM 223 O-1 / 232; O-2 is decided: PM 223 O-2 / 227).
+10. The PM has applied R-1 to R-4 and R-6 to R-10 (or recorded why not), R-11 is applied at C1's landing (pmo), and
+    the PM has decided O-3 (O-1 is decided: (a), PM 223 O-1 / 232; O-2 is decided: PM 223 O-2 / 227; Q-5 is decided:
+    (a), PM 604).
+11. C1's PR adds the umbrella's changelog lines for §1.2's C1-pre row (missing since C1-pre's PR) and C1 row, one line
+    each, with R-1 (PM 604).
 
 ## §10. Revision history / dispositions
 
@@ -1128,6 +1157,20 @@ Why: (1) the C1-pre memo's record R-2 to this memo (C1-pre §8; it follows PM 33
   steps* 1 — re-read with `.claude/tools/webref body dom concept-node-adopt`, `body dom dom-document-adoptnode`,
   `body html the-template-element` and `heading dom 4.5`, 2026-11-10).
 
+### §10.4 Rev 3.7.1 (2026-11-10, PM 604)
+
+Why: PM 604 answers Q-5 with (a) and approves rev 3.7's two designer choices.
+- **Q-5 (a):** T1 loses legs 4–5 and the page-URL fixture only they read (script, base `[false, true, false]`, C1
+  `[true, true, true]`); M3 loses its `URL` / `documentURI` legs; the four legs become `#11-document-base-url`'s
+  cells through record R-11 (§8, Apply at C1's landing). Swept: header changelog; H-C16; §0.3 P-C17; §1.1 M3; §4.1;
+  §5.1 P-6; §5.4 R-C5; §6.1 T1; §8 edge c-pre; §9 item 10; §11 Q-5. §6.3's guards name T1 only for "caller passes the
+  template's document unmapped", which leg 1 still kills; no guard named legs 4–5. §1.1 M3's "reading" note (after the
+  table) concerns its non-URL members and is unchanged.
+- **Approved choices:** the comment-only edit to `tree_builder/shadow.rs:118-119` is within §9 item 2 (stated there);
+  §5.2's 36 fns are classified at C1's red-first run and the result goes in C1's PR body (§5.2, §9 item 1).
+- **Umbrella changelog:** the line for C1-pre's §1.2 row was missing; C1's PR adds it with C1's own (§8 *Records*
+  lead, §9 item 11). The umbrella is not edited by this plan PR.
+
 ## §11. Open questions
 
 **For the PM / user.**
@@ -1140,22 +1183,14 @@ Why: (1) the C1-pre memo's record R-2 to this memo (C1-pre §8; it follows PM 33
 - **O-3 Split.** If `mod.rs` is ≥ 990 lines at the base, the template-contents helpers move to `template_owner.rs` as a
   standalone pure-move PR first (the #537 precedent) or as a standalone first commit of C1's PR. At `c7cce8c8` it is
   949 (§5.3), so O-3 does not fire unless main grows it by 41 lines before the cut.
-- **Q-5 What T1's legs 4–5 and M3's `URL` / `documentURI` legs assert on C1's head (rev 3.7; §0.3 P-C17).** C1-pre
-  R-2 puts them on `#11-document-base-url`, not C1-pre (PM 339). That program has no plan and nothing on main
-  (at `c7cce8c8`, `git grep -ln 'document-base-url' -- docs/plans` lists five memos that cite the slot and no plan
-  of its own), so on C1's head `I.URL`
-  and `I.documentURI` read the page URL (H-C16): legs 4–5 give `false`, not the cell's `true`. This is not a K-0
-  regression (at the base `I` is `document`, whose URL is the page URL too; the base column is `false` already) but
-  a spec-wrong value C1 makes observable (C1-pre R-10 (a)). Options:
-  - **(a)** T1 keeps legs 1–3; legs 4–5 and M3's URL legs move to `#11-document-base-url` as its cells (a record text
-    for that slot, like C1-pre R-10). Changes: T1's script and both columns lose two elements; §1.1 M3's URL legs
-    become "not C1's"; C1's DoD unchanged; the URL defect stays visible only through the ledger row.
-  - **(b)** T1 keeps legs 4–5 asserting today's value (`false`: the page URL) as a known-defect pin naming
-    `#11-document-base-url`, flipped by that program's PR. Changes: T1's C1 column `[true, true, true, false, false]`;
-    a C1 test pins a value the spec contradicts until the program lands.
-  - **(c)** `#11-document-base-url`'s URL facet (a per-Document URL) becomes a prerequisite of C1. Changes: the order
-    line (C1, T3 and slice b wait for a program with no plan); T1 and M3 unchanged.
-  The memo states the legs as resting on the program (T1, M3, edge c-pre) and does not pick.
+- **Q-5 What T1's legs 4–5 and M3's `URL` / `documentURI` legs assert on C1's head (rev 3.7; §0.3 P-C17).**
+  **Answered by PM 604 (rev 3.7.1): (a).** T1 has three legs (`I !== document`, the prototype leg, `defaultView`);
+  T1's old legs 4–5 and M3's `URL` / `documentURI` legs are `#11-document-base-url`'s cells `DBU-I-URL`,
+  `DBU-I-documentURI`, `DBU-I-URL-M`, `DBU-I-documentURI-M`, handed over by record R-11 (§8), which states the
+  defect; the slot's owner and Re-eval stay as they are. Rejected: **(b)** (keep the legs asserting the page URL as a
+  known-defect pin) fixes a spec-wrong value as a test expectation, a control blessing the defect; **(c)** (the URL
+  facet as C1's prerequisite) binds C1, T3 and slice b to a program with no plan. The options as asked are in the
+  rev 3.7 text (`git show a36571e9:<memo>` §11).
 
 **For plan-review.**
 - **Q-1** (the entry's signature), **Q-2** (the adopt walk's shape) and **Q-3** (`adoptedCallback` arguments in
