@@ -112,12 +112,17 @@ fn w1_generic_path_document_wrapper_is_a_document() {
 #[test]
 fn w2_document_members_are_not_own_properties() {
     with_page(|vm| {
+        vm.eval(DP).unwrap();
         let got = eval_str(
             vm,
             "L(function () { return Object.getOwnPropertyNames(document).length; }, \
-               function () { return 'createElement' in Object.getPrototypeOf(document); });",
+               function () { return 'createElement' in Object.getPrototypeOf(document); }, \
+               function () { return Object.getOwnPropertyNames(dp).length; }, \
+               function () { return Object.getOwnPropertyNames(document.cloneNode()).length; });",
         );
-        assert_eq!(got, "0|true");
+        // Legs 3/4 (rev 2.6.2 R8): a DOMParser document and a clone carry no
+        // own installs either (before bd89a35f / 43e350c7: own installs, > 0).
+        assert_eq!(got, "0|true|0|0");
     });
 }
 
