@@ -106,9 +106,9 @@ impl LiveRangeBridge {
     /// Single-method dispatch entry point invoked by
     /// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`.  Pattern-matches the
     /// [`MutationEvent`] variant and forwards to the per-variant
-    /// helper below.  Variants not affecting Range live-tracking
-    /// (Insert handled by `after_insert`, AttributeChange ignored)
-    /// fall through the `_` arm.
+    /// helper below.  The match is exhaustive: variants not affecting
+    /// Range live-tracking (`AttributeChange`, `CloneCreated`, `Adopt`)
+    /// have explicit no-op arms.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Remove {
@@ -156,10 +156,15 @@ impl LiveRangeBridge {
                 parent,
                 merged_child_index,
             ),
-            MutationEvent::AttributeChange { .. } | MutationEvent::CloneCreated { .. } => {
+            MutationEvent::AttributeChange { .. }
+            | MutationEvent::CloneCreated { .. }
+            | MutationEvent::Adopt { .. } => {
                 // Range live-tracking does not depend on attribute
                 // mutations — Range boundaries are tree-positional.  A clone
                 // creates detached nodes no existing boundary refers to.
+                // `Adopt`: WHATWG DOM §4.5 *adopt* step 2 — the removal from
+                // the old parent already updated live ranges (its `Remove`
+                // event); re-homing the node document moves no boundary.
             }
         }
     }

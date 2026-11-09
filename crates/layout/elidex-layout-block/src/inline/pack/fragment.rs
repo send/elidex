@@ -1,4 +1,4 @@
-//! Fragmentation slice + continuation-rebase for [`LinePacker`](super::LinePacker).
+//! Fragmentation slice + continuation-rebase for [`LinePacker`].
 //!
 //! `slice_and_rebase_fragment` trims every recorded geometry to a paged/multicol
 //! fragment's kept lines and rebases the block axis so the first kept line sits at the

@@ -4,7 +4,7 @@
 //! are `pub(crate)` — not a public surface.
 //!
 //! Each operation dispatches on [`NamedCurve`] to the matching RustCrypto
-//! curve crate (`p256` / `p384` / `p521`) via the [`with_curve!`] macro:
+//! curve crate (`p256` / `p384` / `p521`) via the `with_curve!` macro:
 //! the curve crates re-export `PublicKey` / `SecretKey` / `Sec1Point`
 //! specialized to their curve, so one macro body type-checks for all three.
 //! The engine-independent [`crate::key::KeyMaterial::Ec`] stores the SEC1
@@ -166,7 +166,7 @@ fn import_pkcs8(curve: NamedCurve, der: &[u8]) -> Result<KeyMaterial, AlgorithmE
 }
 
 /// Import an EC `jwk` (WebCrypto §23.7.4 / §24.4.3 jwk branch + JWA §6.2):
-/// validate the JWK shape (kty / use / key_ops / ext / crv / [ECDSA] alg),
+/// validate the JWK shape (kty / use / key_ops / ext / crv / \[ECDSA\] alg),
 /// determine the key type from the `d` member, then reconstruct the point
 /// (and scalar) via the curve crate.  Returns the key type + material; the
 /// caller applies the generic empty-usages SyntaxError.
@@ -422,7 +422,7 @@ fn split_usages(algorithm: EcAlgorithm, key_type: KeyType, usages: &[KeyUsage]) 
 /// ECDSA `sign` (WebCrypto §23.7.1): hash `message` with `hash`, then sign the
 /// digest, returning the raw `r‖s` concatenation (each `coordinate_len` bytes,
 /// NOT DER).  The §14.3.3 name / `sign`-usage gate ran in [`crate::ops::sign`];
-/// this enforces step 1 ([[type]] must be private) + the signing.  Uses
+/// this enforces step 1 (`[[type]]` must be private) + the signing.  Uses
 /// `sign_prehash` (RFC 6979 deterministic — spec-acceptable, no RNG) so our
 /// `sha2 0.11` digest stays decoupled from ecdsa's digest generation.
 pub(crate) fn sign(
@@ -449,7 +449,7 @@ pub(crate) fn sign(
 
 /// ECDSA `verify` (WebCrypto §23.7.2): hash `message`, parse the raw `r‖s`
 /// signature, and verify.  The §14.3.4 name / `verify`-usage gate ran in
-/// [`crate::ops::verify`]; this enforces step 1 ([[type]] must be public),
+/// [`crate::ops::verify`]; this enforces step 1 (`[[type]]` must be public),
 /// returns **false** (not an error) when the signature is not `2n` bytes or
 /// `(r, s)` is out of range, and otherwise the verification result.
 pub(crate) fn verify(
@@ -726,7 +726,7 @@ fn ec_usage_message(algorithm: EcAlgorithm, key_type: KeyType) -> String {
     .to_string()
 }
 
-/// The §23.7.5 / §24.4.4 raw / spki "If [[type]] is not 'public' →
+/// The §23.7.5 / §24.4.4 raw / spki "If `[[type]]` is not 'public' →
 /// InvalidAccessError" gate.
 fn require_public(key: &CryptoKeyData) -> Result<(), AlgorithmError> {
     if key.key_type == KeyType::Public {
@@ -738,7 +738,7 @@ fn require_public(key: &CryptoKeyData) -> Result<(), AlgorithmError> {
     }
 }
 
-/// The §23.7.5 / §24.4.4 pkcs8 "If [[type]] is not 'private' →
+/// The §23.7.5 / §24.4.4 pkcs8 "If `[[type]]` is not 'private' →
 /// InvalidAccessError" gate, returning the private scalar.
 fn ec_private_scalar(key: &CryptoKeyData) -> Result<&[u8], AlgorithmError> {
     key.material

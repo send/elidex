@@ -208,7 +208,7 @@ pub struct WebStorageManager {
     /// origin → shared `Arc<Mutex<LocalStore>>`. Cross-VM tabs of the
     /// same origin share one entry.
     registry: Mutex<HashMap<String, Arc<Mutex<LocalStore>>>>,
-    /// Origins modified since last [`flush_dirty`] call.
+    /// Origins modified since last [`WebStorageManager::flush_dirty`] call.
     dirty_origins: Mutex<HashSet<String>>,
 }
 

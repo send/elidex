@@ -100,7 +100,7 @@ use super::{
 ///   **`vertical-align` within the line box** unimplemented. The governing
 ///   section is **`css-inline-3` §4.2 Transverse Box Alignment: the
 ///   vertical-align property** — `css-inline-3` §1.1 says the module *"replaces
-///   and extends the CSS inline layout model and features defined in [CSS2]
+///   and extends the CSS inline layout model and features defined in \[CSS2\]
 ///   section 10.8"*. **Inside this docstring, CSS 2 numbering is the
 ///   superseded origin, never the governing anchor.** **Where the two modules'
 ///   numbers collide, a bare §-number below means `css-inline-3`**; §10.8 and

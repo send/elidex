@@ -2,7 +2,7 @@
 //! [`AlgorithmName`] registry plus the per-family discriminators
 //! ([`AesVariant`] / [`NamedCurve`] / [`EcAlgorithm`] / [`RsaVariant`]).
 //! `recognize` / `as_hash` / `as_aes` are `pub(super)` so the
-//! [`super::registry`] resolver and the [`super::normalize`] procedure can
+//! [`super::registry`] resolver and the [`fn@super::normalize`] procedure can
 //! consult them while the rest of the crate sees only the public types.
 
 use crate::hash::HashAlgorithm;
@@ -208,7 +208,7 @@ impl AesVariant {
 /// `DOMString`).  Unlike a Web IDL `enum`, an unrecognized value is a
 /// `NotSupportedError` (prose-validated at the algorithm-specific step,
 /// §23.7.3 / §24.4.1 / §23.7.4), NOT a WebIDL `TypeError` — so the VM
-/// marshals the raw string and [`super::normalize`] recognizes it here.
+/// marshals the raw string and [`fn@super::normalize`] recognizes it here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NamedCurve {
     P256,

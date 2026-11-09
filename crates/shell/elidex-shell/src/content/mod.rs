@@ -76,7 +76,7 @@ struct ContentState {
     /// list/cursor BETWEEN the traversal's peek and its commit, committing a stale
     /// index against a mutated list. To close that window, such a message is
     /// BUFFERED here instead of dispatched, and re-delivered ONE per turn through
-    /// [`pump_turn`](super::event_loop::pump_turn)'s single buffer-first held-message
+    /// [`pump_turn`](event_loop::pump_turn)'s single buffer-first held-message
     /// intake (once `is_applying()` has cleared and the apply fully committed), so it
     /// inherits that turn's Phase-2 apply and R9 bottom drain. This is the bounded
     /// interim guard; the FULL canonical serialization (routing every nav-mutating

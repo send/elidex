@@ -1,7 +1,7 @@
 //! Runtime state types for Promise / Generator / async-function coroutines.
 //!
 //! Referenced by `ObjectKind` variants in `value.rs`, by the coroutine
-//! dispatch paths (`dispatch.rs` / `interpreter.rs`), and by the
+//! dispatch paths (`dispatch.rs` / `interpreter_call.rs`), and by the
 //! implementation modules (`natives_promise`, `natives_promise_combinator`,
 //! `natives_generator`).  `value.rs` re-exports everything here so
 //! external `vm::value::X` paths continue to work.

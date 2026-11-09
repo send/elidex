@@ -1,6 +1,6 @@
 //! The terminal-Z C-3 box-geometry seam — a phase-guarded projection of an
 //! entity's box geometry as its **sequence of box fragments**, so geometry
-//! consumers stop reading the raw [`LayoutBox`](elidex_plugin::LayoutBox)
+//! consumers stop reading the raw [`LayoutBox`]
 //! component directly (which C-4 makes a producer-internal detail).
 //!
 //! The common non-fragmented entity is a **1-fragment** sequence (the single
@@ -25,7 +25,7 @@
 //!    fold cannot be called on an unguarded store.
 //!
 //! `LayoutBox` and `BoxFragment` already both implement
-//! [`BoxModel`](elidex_plugin::BoxModel), and `impl From<&LayoutBox> for
+//! [`BoxModel`], and `impl From<&LayoutBox> for
 //! BoxFragment` is the single field correspondence, so the projection needs zero
 //! new type machinery (plan-memo §1).
 

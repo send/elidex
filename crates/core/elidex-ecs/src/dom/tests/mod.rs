@@ -10,6 +10,7 @@ fn elem(dom: &mut EcsDom, tag: &'static str) -> Entity {
     dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
+mod adopt_notification;
 mod adopt_on_insert;
 mod associated_document;
 mod attribute_reconcile;

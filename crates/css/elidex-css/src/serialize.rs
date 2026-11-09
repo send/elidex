@@ -7,7 +7,7 @@
 //! `EcsDom`-versioned write path).
 //!
 //! The serialisation is **source-text concatenation**, not AST round-trip:
-//! each [`CssRule`] carries a `source_text` captured at parse time so we
+//! each [`CssRule`](crate::parser::CssRule) carries a `source_text` captured at parse time so we
 //! avoid implementing selector / declaration serialisation. The captured
 //! text is the post-parse normalised form (the parser builds
 //! `format!("{selector_text} {{ {body_text} }}")` over the trimmed

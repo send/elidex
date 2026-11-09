@@ -8,7 +8,7 @@
 //! committed-next program generalizes this — anonymous line and block boxes are
 //! fragments with **no** entity at all. The N:M relation does not fit the ECS
 //! "one component per entity" model (§15.4.1, the same reason the layer tree is
-//! standalone), so the fragment tree is a sibling field of [`EcsDom`], built by
+//! standalone), so the fragment tree is a sibling field of [`EcsDom`](crate::EcsDom), built by
 //! layout as output and read by render.
 //!
 //! **Scope (Z-1a / Z-1b / C-1):** the tree is populated with multicol mid-break
@@ -19,7 +19,7 @@
 //! [`is_consumable`](FragmentTree::is_consumable) (a direct-child IFC mid-break) the
 //! paint walk reads its per-column box fragments and emits per-column chrome + clip +
 //! content. Still *dark data* (committed-next): the per-column inline-line fold
-//! ([`FragmentContent::InlineLines`], when it lands), block / flex / grid / table box
+//! (`FragmentContent::InlineLines`, when it lands), block / flex / grid / table box
 //! fragments, the entity-less line / anonymous-block nodes, and making render walk the
 //! tree as **primary** (C-1 consumes it as a per-entity router, not yet the walk root).
 //! The node types here are the Z-final shape (a tree of fragments); Z-1a populates it

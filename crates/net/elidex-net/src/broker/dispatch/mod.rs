@@ -114,7 +114,7 @@ struct NetworkProcessState {
     /// `(JoinHandle<()>, CancelHandle)` pairs whose grace +
     /// cancel + join sequence runs OFF the broker thread, so a
     /// renderer with slow-to-close realtime sockets cannot
-    /// inject the [`GRACEFUL_CLOSE_GRACE`] window's worth of
+    /// inject the `GRACEFUL_CLOSE_GRACE` window's worth of
     /// latency into fetch dispatch / event forwarding for
     /// other renderers (slot #10.6a Copilot R3 HX14).
     /// `cleanup_finished` reaps finished entries; the broker

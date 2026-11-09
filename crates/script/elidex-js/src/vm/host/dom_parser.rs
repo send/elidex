@@ -28,12 +28,11 @@
 //! 2. resolves the caller document's URL (HTML §8.5.1 step 2 base fallback),
 //! 3. calls [`elidex_form::parse_into_inert_document`] inside
 //!    `with_session_and_dom` to get the throwaway Document entity, and
-//! 4. wraps it with `create_element_wrapper` +
-//!    `install_document_methods_for_entity`, so the returned object gets
-//!    `querySelector` / `querySelectorAll` / `getElementById` / `body` /
-//!    `head` / `documentElement` for free (the per-entity Document
-//!    own-properties; `prototype_kind_for` routes `NodeKind::Document` →
-//!    `Node.prototype`).
+//! 4. wraps it with `create_element_wrapper`, which gives every Document
+//!    entity `Document.prototype` (`PrototypeKind::Document`), so the
+//!    returned object exposes `querySelector` / `querySelectorAll` /
+//!    `getElementById` / `body` / `head` / `documentElement` with no
+//!    path-specific install.
 //!
 //! `serializeToString` reuses the engine-indep
 //! [`elidex_dom_api::serialize_node_to_string`] node-kind-dispatching
@@ -296,13 +295,11 @@ fn native_dom_parser_parse_from_string(
             elidex_form::parse_into_inert_document(dom, &markup, &caller_url)
         });
 
-    // Wrap the Document entity + install the per-entity Document method
-    // suite (idempotent, entity-keyed) so the returned object exposes
+    // Wrap the Document entity: `create_element_wrapper` gives every
+    // Document entity `Document.prototype`, so the returned object exposes
     // querySelector / querySelectorAll / getElementById / body / head /
-    // documentElement.
+    // documentElement with no path-specific step.
     let wrapper = ctx.vm.create_element_wrapper(doc_entity);
-    ctx.vm
-        .install_document_methods_for_entity(doc_entity, wrapper);
     Ok(JsValue::Object(wrapper))
 }
 

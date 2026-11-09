@@ -45,7 +45,7 @@ pub(super) fn native_wasm_module_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // The historic `if !ctx.is_construct()` entry guard lives at
-    // `vm/interpreter.rs::call_dispatch` NativeFunction arm under the
+    // `vm/interpreter_call.rs::call_dispatch` NativeFunction arm under the
     // `CallShape::ConstructorOnly` discriminant (installed via
     // `create_constructor_only_function` in `register_wasm_namespace`).
     // Per slot `#11-vm-native-constructor-only-flag` this body trusts
