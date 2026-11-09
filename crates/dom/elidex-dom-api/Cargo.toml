@@ -20,5 +20,8 @@ elidex-style.workspace = true
 hecs.workspace = true
 url.workspace = true
 
+[dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
+
 [lints]
 workspace = true

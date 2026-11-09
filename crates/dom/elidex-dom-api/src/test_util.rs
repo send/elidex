@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent};
+use elidex_ecs::{Attributes, CloneScope, EcsDom, Entity, MutationDispatcher, MutationEvent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, JsObjectRef, SessionCore};
 
@@ -35,12 +35,41 @@ impl MutationDispatcher for AttrChangeCounter {
     }
 }
 
+/// A [`MutationDispatcher`] that records every
+/// [`MutationEvent::CloneCreated`] as `(root, scope)`, and — at dispatch —
+/// whether the root already had its shadow root and its light children (the
+/// "event fires after the whole copy exists" probe).
+#[derive(Default, Clone)]
+pub(crate) struct CloneCreatedProbe {
+    pub(crate) events: Arc<Mutex<Vec<(Entity, CloneScope)>>>,
+    /// `(root has a shadow root, root has light children)` per event.
+    pub(crate) shape_at_dispatch: Arc<Mutex<Vec<(bool, bool)>>>,
+    /// Child count of the root's shadow root at dispatch (0 when it has none).
+    pub(crate) shadow_children_at_dispatch: Arc<Mutex<Vec<usize>>>,
+}
+
+impl MutationDispatcher for CloneCreatedProbe {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
+        if let MutationEvent::CloneCreated { root, scope } = *event {
+            self.events.lock().unwrap().push((root, scope));
+            self.shape_at_dispatch.lock().unwrap().push((
+                dom.get_shadow_root(root).is_some(),
+                !dom.children(root).is_empty(),
+            ));
+            self.shadow_children_at_dispatch.lock().unwrap().push(
+                dom.get_shadow_root(root)
+                    .map_or(0, |sr| dom.children(sr).len()),
+            );
+        }
+    }
+}
+
 /// A `div` parent and a detached `span` child, both registered with the
 /// session so tests can pass them as `ObjectRef` arguments.
 pub(crate) fn setup() -> (EcsDom, Entity, Entity, SessionCore) {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
-    let child = dom.create_element("span", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
     let mut session = SessionCore::new();
     // Pre-register entities so we can pass ObjectRef args.
     session.get_or_create_wrapper(parent, ComponentKind::Element);

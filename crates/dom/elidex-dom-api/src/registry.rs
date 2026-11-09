@@ -76,6 +76,7 @@ pub fn create_dom_registry_with_policy(policy: SpecLevelPolicy) -> DomHandlerReg
     reg("getElementById", Box::new(super::GetElementById));
     reg("createElement", Box::new(super::CreateElement));
     reg("createTextNode", Box::new(super::CreateTextNode));
+    reg("adoptNode", Box::new(super::AdoptNode));
     reg(
         "createDocumentFragment",
         Box::new(super::char_data::CreateDocumentFragment),
@@ -543,6 +544,7 @@ mod tests {
             "getElementById",
             "createElement",
             "createTextNode",
+            "adoptNode",
             "createDocumentFragment",
             "createComment",
             "createAttribute",

@@ -379,7 +379,10 @@ impl Vm {
     /// entity so `self.addEventListener(...)` / `self.onmessage = fn` record
     /// against it and `dispatch_worker_message` fires there. The `document`
     /// entity is required only to satisfy `HostData::bind` (the worker creates
-    /// an empty document root) and is never surfaced to script.
+    /// an empty document root).  It is *not* hidden from script: `Range`
+    /// surfaces it (W26 / W27), as a wrapper with `Node.prototype` (no
+    /// Document members) -- the defect is slot
+    /// `#11-worker-scope-exposes-window-only-interfaces`.
     ///
     /// # Safety
     ///

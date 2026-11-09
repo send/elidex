@@ -15,8 +15,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -198,8 +198,9 @@ fn define_non_constructor_throws() {
 
 #[test]
 fn define_arrow_function_throws_not_constructor() {
-    // Arrow functions are callable but NOT constructable per ECMA-262
-    // §10.2.1 [[Construct]] — WebIDL CustomElementConstructor requires
+    // Arrow functions are callable but NOT constructable
+    // (InstantiateArrowFunctionExpression, ECMA-262 §15.3.4, never
+    // applies MakeConstructor) — WebIDL CustomElementConstructor requires
     // [[Construct]], so arrow functions must be rejected here.
     // (Copilot R2 #1: prior `is_callable` accepted them.)
     let err = run_throws("customElements.define('my-el', () => {});");
@@ -1051,8 +1052,8 @@ fn no_double_fire_vm_native_and_external_record_same_turn() {
     // Build the tree by hand so `body`'s entity is captured pre-bind for the
     // synthetic external record below.
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
 
@@ -1170,9 +1171,9 @@ fn record_leg_disconnected_gate_uses_captured_parent_connectedness() {
     // connectivity at record-delivery time is `false`, but a removal of its
     // child was captured while `p` was (hypothetically) connected.
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
-    let p = dom.create_element("div", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
+    let p = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     // NB: `p` is deliberately NOT attached to `body`.
@@ -1253,9 +1254,9 @@ fn record_leg_added_gate_uses_captured_parent_connectedness() {
     // connectivity at delivery is `false`, forcing the gate onto the captured
     // `parent_was_connected`.
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
-    let p = dom.create_element("div", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
+    let p = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     // NB: `p` is deliberately NOT attached to `body`.

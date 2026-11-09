@@ -5,6 +5,8 @@
 //! (CLAUDE.md 1000-line touch-time split; Codex R7). The re-exports keep every
 //! call site's path unchanged.
 
+use super::value::VmError;
+
 mod parse;
 mod stringify;
 
@@ -13,16 +15,49 @@ pub(in crate::vm) use stringify::{
     native_json_stringify, stringify_for_structured_shortcut, stringify_to_string,
 };
 
-/// Maximum nesting depth for `JSON.stringify` / `JSON.parse` recursion.
-/// Prevents Rust-stack exhaustion from attacker-crafted deep nesting
-/// (`"[[[[[...]]]]]"` etc.) — release builds match V8's ~1000 limit.
-/// Debug builds drop to 800: each `serialize_object` frame is larger
-/// without optimizer inlining, so 1000-deep inputs can outgrow the
-/// thread's stack budget; the
-/// `tests_string_complement::json_stringify_depth_cap` 2000-deep
-/// regression still trips the cap and surfaces a RangeError under
-/// either limit.
+/// Maximum nesting depth shared by the three recursive JSON walkers:
+/// `JSON.parse`'s parser (`parse_array` / `parse_object`), `JSON.stringify`'s
+/// serializer, and the reviver walk `internalize` (a reviver can install
+/// cyclic or arbitrarily deep graphs after the parser's own cap has passed).
+/// Exceeding it is a catchable `RangeError` ([`depth_exceeded`]) rather than a
+/// Rust-stack-overflow abort. This bounds each walker's *own* recursion only.
+/// Recursion through re-entry is not bounded here: a reviver that calls
+/// `JSON.parse` again with itself starts a fresh walk at depth 0. That is
+/// native -> JS -> native recursion, the same class as any recursive callback
+/// into JS (the VM has no call-depth guard: `#11-vm-call-depth-guard`), and out of scope for this constant.
+///
+/// Release matches V8's ~1000 and was verified to hold for all three walkers
+/// (depth 990 passes, 1000+ throws).
+///
+/// Debug builds use 600. The value applies to every consumer of the walkers:
+/// the parser, `JSON.stringify`, the reviver walk, and through them (among others)
+/// `stringify_for_structured_shortcut` (postMessage / history.state) and the
+/// Body mixin's `JSON.parse`. Debug and release therefore diverge at 600 vs
+/// 1000 for all of them. The binding constraint is `internalize`: measured
+/// 2026-11-05 at `c3965fdc` (re-measure by varying the `chain_reviver` depth in
+/// `tests_json.rs`) on a 2 MiB thread (the smallest stack any production VM thread
+/// gets), its debug frames use about 2.7 KiB/level: 760 levels pass, 770
+/// overflow. `stringify` passed 790 and the parser 800 on the same thread.
+/// 600 = 760 less >= 20% (608), rounded down to a multiple of 50. The
+/// `parse_reviver_*` cells in `tests_json.rs` (cap - 10 must pass) ratchet
+/// this against frame growth. An iterative `internalize` would remove the
+/// constraint; iterative walks for all three are `#11-vm-json-walkers-iterative`.
+///
+/// Thread survey: every VM thread in elidex-shell `app/tab.rs`,
+/// `app/sw_coordinator.rs`, `content/iframe/load.rs`, `content/mod.rs` and the
+/// worker spawn in `elidex-api-workers` is a plain `std::thread::spawn`, with
+/// no `stack_size` and no `RUST_MIN_STACK`; the event-loop main thread runs no
+/// content VM except the test-only inline `build_pipeline` path. Re-check when
+/// this goes stale: `git grep -n 'thread::spawn\|stack_size\|RUST_MIN_STACK' -- crates`.
 #[cfg(debug_assertions)]
-const MAX_JSON_DEPTH: usize = 800;
+pub(in crate::vm) const MAX_JSON_DEPTH: usize = 600;
 #[cfg(not(debug_assertions))]
-const MAX_JSON_DEPTH: usize = 1000;
+pub(in crate::vm) const MAX_JSON_DEPTH: usize = 1000;
+
+/// Message of the depth-cap `RangeError` (see [`depth_exceeded`]).
+pub(in crate::vm) const DEPTH_EXCEEDED_MSG: &str = "Maximum JSON nesting depth exceeded";
+
+/// The single error every walker raises past [`MAX_JSON_DEPTH`].
+pub(in crate::vm) fn depth_exceeded() -> VmError {
+    VmError::range_error(DEPTH_EXCEEDED_MSG)
+}

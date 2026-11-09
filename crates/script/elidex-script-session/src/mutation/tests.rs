@@ -2,7 +2,7 @@ use super::*;
 use elidex_ecs::{Attributes, CommentData};
 
 pub(super) fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 /// Assert a mutation produced exactly one record and return it (the common
@@ -228,7 +228,7 @@ fn apply_replace_child_cross_parent_move_source_plus_coalesced() {
 }
 
 #[test]
-fn apply_replace_child_move_step8_referencechild_adjustment() {
+fn apply_replace_child_move_step3_referencechild_adjustment() {
     // [A,B,C].replaceChild(C, B): newC (C) is oldC (B)'s next sibling.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
@@ -241,12 +241,12 @@ fn apply_replace_child_move_step8_referencechild_adjustment() {
 
     let records = super::apply_replace_child(&mut dom, parent, c, b);
     assert_eq!(records.len(), 2);
-    // Source-removal: C's siblings step over B (removed first) -> prev = A.
+    // Source-removal: adopt (step 6) removes C with B in place -> prev = B.
     assert_eq!(records[0].target, parent);
     assert_eq!(records[0].removed_nodes, vec![c]);
-    assert_eq!(records[0].previous_sibling, Some(a));
+    assert_eq!(records[0].previous_sibling, Some(b));
     assert_eq!(records[0].next_sibling, None);
-    // Coalesced: step-8 next = C's next (None), NOT C itself; prev = B's prev = A.
+    // Coalesced: step-3 next = C's next (None), NOT C itself; prev = B's prev = A.
     let coalesced = &records[1];
     assert_eq!(coalesced.added_nodes, vec![c]);
     assert_eq!(coalesced.removed_nodes, vec![b]);
@@ -256,9 +256,9 @@ fn apply_replace_child_move_step8_referencechild_adjustment() {
 }
 
 #[test]
-fn apply_replace_child_move_prev_may_equal_new_child() {
+fn apply_replace_child_move_step4_prev_may_equal_new_child() {
     // [A,B,C].replaceChild(A, B): coalesced previousSibling == A == newChild
-    // is spec-faithful (replace step 9 has no adjustment).
+    // is spec-faithful (replace step 4 has no adjustment).
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let a = elem(&mut dom, "span");
@@ -270,22 +270,80 @@ fn apply_replace_child_move_prev_may_equal_new_child() {
 
     let records = super::apply_replace_child(&mut dom, parent, a, b);
     assert_eq!(records.len(), 2);
-    // Source-removal: A's siblings step over B -> next = C, prev None.
+    // Source-removal: adopt (step 6) removes A with B in place -> next = B, prev None.
     assert_eq!(records[0].removed_nodes, vec![a]);
     assert_eq!(records[0].previous_sibling, None);
-    assert_eq!(records[0].next_sibling, Some(c));
+    assert_eq!(records[0].next_sibling, Some(b));
     // Coalesced: previousSibling = B's prev = A = newChild (spec-faithful).
     let coalesced = &records[1];
     assert_eq!(coalesced.added_nodes, vec![a]);
     assert_eq!(coalesced.removed_nodes, vec![b]);
     assert_eq!(coalesced.previous_sibling, Some(a));
     assert_eq!(coalesced.next_sibling, Some(c));
+    assert_eq!(dom.children(parent), vec![a, c]);
+}
+
+#[test]
+fn apply_replace_child_move_source_not_adjacent_to_old_child() {
+    // U14b guard: new_child (B) is not adjacent to old_child (A): [A, X, B].
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let a = elem(&mut dom, "span");
+    let x = elem(&mut dom, "span");
+    let b = elem(&mut dom, "span");
+    dom.append_child(parent, a);
+    dom.append_child(parent, x);
+    dom.append_child(parent, b); // [A, X, B]
+
+    let records = super::apply_replace_child(&mut dom, parent, b, a);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].removed_nodes, vec![b]);
+    assert_eq!(records[0].previous_sibling, Some(x));
+    assert_eq!(records[0].next_sibling, None);
+    // Coalesced (replace steps 2-4): referenceChild = A's next = X (not B, so no
+    // step-3 adjustment); previousSibling = A's prev = None.
+    let coalesced = &records[1];
+    assert_eq!(coalesced.added_nodes, vec![b]);
+    assert_eq!(coalesced.removed_nodes, vec![a]);
+    assert_eq!(coalesced.previous_sibling, None);
+    assert_eq!(coalesced.next_sibling, Some(x));
+    assert_eq!(dom.children(parent), vec![b, x]);
+}
+
+#[test]
+fn apply_mutation_replace_child_move_source_sees_old_child() {
+    // U14c: U14 (1) through the deferred flush (`Mutation::ReplaceChild`).
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let a = elem(&mut dom, "span");
+    let b = elem(&mut dom, "span");
+    let c = elem(&mut dom, "span");
+    dom.append_child(parent, a);
+    dom.append_child(parent, b);
+    dom.append_child(parent, c); // [A, B, C]
+
+    let m = Mutation::ReplaceChild {
+        parent,
+        new_child: c,
+        old_child: b,
+    };
+    let records = apply_mutation(&m, &mut dom);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].removed_nodes, vec![c]);
+    assert_eq!(records[0].previous_sibling, Some(b));
+    assert_eq!(records[0].next_sibling, None);
+    assert_eq!(records[1].added_nodes, vec![c]);
+    assert_eq!(records[1].removed_nodes, vec![b]);
+    assert_eq!(records[1].previous_sibling, Some(a));
+    assert_eq!(records[1].next_sibling, None);
+    assert_eq!(dom.children(parent), vec![a, c]);
 }
 
 #[test]
 fn apply_replace_child_self_replace_no_records() {
     // replaceChild(X, X): rejected by EcsDom::replace_child -> no record
-    // (pre-existing browser-parity no-op, unchanged by B1.2a).
+    // (elidex queues no record; the spec queues two -- `#11-replace-child-self-records`,
+    // Chromium unmeasured).
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let x = elem(&mut dom, "span");
@@ -358,7 +416,7 @@ fn apply_remove_attribute() {
 #[test]
 fn apply_set_text_content() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
 
     let m = Mutation::SetTextContent {
         entity: text,
@@ -527,7 +585,7 @@ fn apply_style_attribute_invalidates_inline_style_cache() {
 
 /// Build a detached `DocumentFragment` holding `children` (in order).
 pub(super) fn fragment_of(dom: &mut EcsDom, children: &[Entity]) -> Entity {
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     for &c in children {
         dom.append_child(frag, c);
     }
@@ -593,7 +651,7 @@ fn append_empty_fragment_no_record() {
     let parent = elem(&mut dom, "div");
     let existing = elem(&mut dom, "span");
     dom.append_child(parent, existing);
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
 
     let records = super::apply_append_child(&mut dom, parent, frag);
     assert!(records.is_empty(), "empty-fragment append yields no record");
@@ -632,7 +690,7 @@ fn insert_before_empty_fragment_no_record() {
     let parent = elem(&mut dom, "div");
     let r = elem(&mut dom, "r");
     dom.append_child(parent, r);
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
 
     let records = super::apply_insert_before(&mut dom, parent, frag, r);
     assert!(records.is_empty());
@@ -715,7 +773,7 @@ fn replace_child_fragment_at_end() {
 
 #[test]
 fn replace_child_empty_fragment() {
-    // §4.2.3 replace: even an empty fragment removes oldChild (step 11) and
+    // §4.2.3 replace: even an empty fragment removes oldChild (step 7) and
     // queues ONE coalesced record (added = «», removed = [old]) — no fragment
     // record (the nested insert returns at step 3).
     let mut dom = EcsDom::new();
@@ -726,7 +784,7 @@ fn replace_child_empty_fragment() {
     dom.append_child(parent, x);
     dom.append_child(parent, old);
     dom.append_child(parent, y);
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
 
     let records = super::apply_replace_child(&mut dom, parent, frag, old);
     assert_eq!(
@@ -750,7 +808,7 @@ fn append_fragment_that_is_ancestor_of_parent_rejects_atomically() {
     // (§4.2.1 step 2) — no partial move of the non-cyclic children, empty record
     // list (the handler maps it to a hierarchy error).
     let mut dom = EcsDom::new();
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     let ancestor = elem(&mut dom, "div");
     let other = elem(&mut dom, "span");
     dom.append_child(frag, ancestor);
@@ -775,7 +833,7 @@ fn append_self_fragment_returns_empty() {
     // apply returns empty (the handler then raises a hierarchy error rather than
     // the prior silent success).
     let mut dom = EcsDom::new();
-    let frag = dom.create_document_fragment();
+    let frag = dom.create_document_fragment_ownerless_fixture();
     let records = super::apply_append_child(&mut dom, frag, frag);
     assert!(records.is_empty());
 }
@@ -812,7 +870,7 @@ fn replace_child_fragment_old_not_child_is_failure() {
 #[test]
 fn apply_replace_data_text_records_old_value() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     let record = super::apply_replace_data(&mut dom, text, 0, 5, "X", "hello".to_string())
         .expect("Text node yields a record");
     assert_eq!(record.kind, MutationKind::CharacterData);
@@ -824,7 +882,7 @@ fn apply_replace_data_text_records_old_value() {
 #[test]
 fn apply_replace_data_comment_records_old_value() {
     let mut dom = EcsDom::new();
-    let comment = dom.create_comment("hello");
+    let comment = dom.create_comment_ownerless_fixture("hello");
     let record = super::apply_replace_data(&mut dom, comment, 0, 5, "X", "hello".to_string())
         .expect("Comment node yields a record");
     assert_eq!(record.kind, MutationKind::CharacterData);
@@ -836,7 +894,7 @@ fn apply_replace_data_comment_records_old_value() {
 #[test]
 fn apply_replace_data_mid_splice() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     let record = super::apply_replace_data(&mut dom, text, 1, 3, "XY", "hello".to_string())
         .expect("Text node yields a record");
     assert_eq!(record.old_value, Some("hello".to_string()));
@@ -846,7 +904,7 @@ fn apply_replace_data_mid_splice() {
 #[test]
 fn apply_replace_data_append_shape() {
     let mut dom = EcsDom::new();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     // appendData shape: (len, 0, "!").
     let record = super::apply_replace_data(&mut dom, text, 5, 0, "!", "hello".to_string())
         .expect("Text node yields a record");

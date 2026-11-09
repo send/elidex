@@ -42,7 +42,7 @@ use crate::app::App;
 /// `Option` on `App`), so the per-drain seams reach through
 /// [`App::inline_state`] / [`App::inline_state_mut`] — a bounded, provably-safe
 /// wrinkle (an unreachable panic, see
-/// [`INTERACTIVE_DRIVE_ONLY`](super::INTERACTIVE_DRIVE_ONLY)), not an ownership
+/// [`INTERACTIVE_DRIVE_ONLY`](crate::app::INTERACTIVE_DRIVE_ONLY)), not an ownership
 /// gap.
 ///
 /// **Layering.** The coordinator owns the phase ordering + the I1/I2/I3 invariants;
@@ -173,7 +173,7 @@ impl DrainHost for App {
     /// `#11-nav-supersede-window-vs-ongoing-navigation`. App-mode does not DROP the
     /// request on the floor, which narrows the superset back to "a traversal that
     /// really moved the cursor": the request is held on
-    /// [`InteractiveState::deferred_navigation`](super::InteractiveState) for the
+    /// [`InteractiveState::deferred_navigation`](crate::app::InteractiveState::deferred_navigation) for the
     /// turn; Phase 2's [`apply_traversal`](Self::apply_traversal) cancels it iff a
     /// traversal moves the cursor, and [`App::process_pending_navigation`] reinstates
     /// whatever survives before the drive returns (full rationale there). The `Some`

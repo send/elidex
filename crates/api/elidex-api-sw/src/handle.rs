@@ -10,7 +10,17 @@ use elidex_plugin::LocalChannel;
 use crate::registration::SwState;
 use crate::types::{ContentToSw, SwToContent};
 
-/// Default idle timeout before terminating an idle SW thread.
+/// The one home of the SW thread's time bounds (read by every consumer, never
+/// copied):
+/// - the idle-exit bound — an SW thread idle this long terminates;
+/// - the `respondWith` / `waitUntil` drain bound — SW §4.4 ExtendableEvent's
+///   "timed out flag" / §4.6.7 `event.respondWith(r)` (`elidex-js` `sw_thread`);
+/// - the browser-side fetch relay's pending-fetch timeout (`elidex-shell`
+///   `sw_fetch_relay`).
+///
+/// The content-side navigation wait (`elidex-shell` `content/navigation.rs`) is a
+/// separate deadline on the same round-trip; the ordering of the three is
+/// `#11-sw-fetch-relay-deadline-ordering`.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Handle to a running Service Worker thread.

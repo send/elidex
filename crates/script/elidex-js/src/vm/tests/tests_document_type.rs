@@ -13,8 +13,13 @@ use super::super::Vm;
 
 fn build_doctype_fixture(dom: &mut EcsDom, public_id: &str, system_id: &str) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let doctype = dom.create_document_type("html", public_id, system_id);
-    let html = dom.create_element("html", Attributes::default());
+    let doctype = dom.create_document_type(
+        "html",
+        public_id,
+        system_id,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     assert!(dom.append_child(doc, doctype));
     assert!(dom.append_child(doc, html));
     doc
@@ -22,33 +27,33 @@ fn build_doctype_fixture(dom: &mut EcsDom, public_id: &str, system_id: &str) -> 
 
 fn build_collections_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     // 2 forms
     for _ in 0..2 {
-        let form = dom.create_element("form", Attributes::default());
+        let form = dom.create_element_ownerless_fixture("form", Attributes::default());
         assert!(dom.append_child(body, form));
     }
     // 3 images
     for _ in 0..3 {
-        let img = dom.create_element("img", Attributes::default());
+        let img = dom.create_element_ownerless_fixture("img", Attributes::default());
         assert!(dom.append_child(body, img));
     }
     // 2 <a href> + 1 <a> without href (excluded) + 1 <area href>
-    let a_href = dom.create_element("a", {
+    let a_href = dom.create_element_ownerless_fixture("a", {
         let mut a = Attributes::default();
         a.set("href", "/one");
         a
     });
-    let a_nohref = dom.create_element("a", Attributes::default());
-    let a_href2 = dom.create_element("a", {
+    let a_nohref = dom.create_element_ownerless_fixture("a", Attributes::default());
+    let a_href2 = dom.create_element_ownerless_fixture("a", {
         let mut a = Attributes::default();
         a.set("href", "/two");
         a
     });
-    let area_href = dom.create_element("area", {
+    let area_href = dom.create_element_ownerless_fixture("area", {
         let mut a = Attributes::default();
         a.set("href", "/three");
         a

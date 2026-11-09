@@ -6,7 +6,7 @@
 # Post-PR the 66 per-ctor `if !ctx.is_construct() { ... }` guards (and the
 # 27 callers of the now-deleted `vm/host/events.rs::check_construct`
 # helper) collapse to a single dispatch-side gate at
-# `vm/interpreter.rs::call_dispatch` driven by the
+# `vm/interpreter_call.rs::call_dispatch` driven by the
 # `CallShape::ConstructorOnly` discriminant.  This wire catches any
 # regression that re-introduces either historic form:
 #
@@ -22,7 +22,7 @@
 #       guard idiom).
 #
 # Doc-comment mentions (//, ///, //!) describing the historic pattern in
-# `vm/interpreter.rs:318` (dispatch-gate doc), `vm/shape_ops.rs:291`
+# `vm/interpreter_call.rs::call_dispatch` (dispatch-gate doc), `vm/shape_ops.rs:291`
 # (`create_constructor_only_function` doc), and `vm/host/wasm/module.rs:47`
 # (D-16 site narrative) are excluded — they describe what the gate
 # replaced, they don't re-introduce it.
@@ -51,7 +51,7 @@ echo "trip-wire #1: per-ctor 'if !ctx.is_construct()' literal-guard reintroducti
 # not false-positive trip the wire.
 literal_hits=$(grep -rEn 'if !ctx\.is_construct\(\)' "$SRC" 2>/dev/null | strip_comments || true)
 if [ -n "$literal_hits" ]; then
-  red "FAIL (per-ctor literal guard returned — should be unified at vm/interpreter.rs::call_dispatch via CallShape::ConstructorOnly)"
+  red "FAIL (per-ctor literal guard returned — should be unified at vm/interpreter_call.rs::call_dispatch via CallShape::ConstructorOnly)"
   echo "$literal_hits"
   fail=1
 else
@@ -76,7 +76,7 @@ echo "trip-wire #3: 'let Some(... ) = ctx.new_target() else' body-guard re-intro
 # `CallShape::ConstructorOnly`.
 new_target_hits=$(grep -rEn 'let Some\(.*\) *= *ctx\.new_target\(\) *else' "$SRC" 2>/dev/null | strip_comments || true)
 if [ -n "$new_target_hits" ]; then
-  red "FAIL (per-ctor 'let Some = ctx.new_target() else' guard returned — should be unified at vm/interpreter.rs::call_dispatch via CallShape::ConstructorOnly + .expect() on the body's NewTarget read)"
+  red "FAIL (per-ctor 'let Some = ctx.new_target() else' guard returned — should be unified at vm/interpreter_call.rs::call_dispatch via CallShape::ConstructorOnly + .expect() on the body's NewTarget read)"
   echo "$new_target_hits"
   fail=1
 else
@@ -89,8 +89,8 @@ echo "trip-wire #4: per-ctor 'Illegal constructor' body-throw re-introduction"
 # collapsed their per-body `Err(VmError::type_error("Illegal constructor"))` /
 # `"Failed to construct '{X}': Illegal constructor"` throws to a single
 # both-mode gate driven by `CallShape::IllegalConstructor` (thrown via the
-# `VmError::illegal_constructor` SoT at `vm/ops.rs::do_new` +
-# `vm/interpreter.rs::call_dispatch`).  This wire catches any regression
+# `VmError::illegal_constructor` SoT at `VmInner::admit_construct` (`vm/construct_admission.rs`) +
+# `vm/interpreter_call.rs::call_dispatch`).  This wire catches any regression
 # that re-introduces a literal "Illegal constructor" TypeError in a ctor
 # body.  Excludes: (a) the `VmError::illegal_constructor` SoT definition in
 # `vm/error.rs` (the canonical builder), (b) doc-comments, (c) the

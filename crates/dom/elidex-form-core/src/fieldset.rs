@@ -83,8 +83,8 @@ mod tests {
     #[test]
     fn first_legend_child_found() {
         let mut dom = EcsDom::new();
-        let fs = dom.create_element("fieldset", Attributes::default());
-        let legend = dom.create_element("legend", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
+        let legend = dom.create_element_ownerless_fixture("legend", Attributes::default());
         let _ = dom.append_child(fs, legend);
         assert_eq!(first_legend_child(&dom, fs), Some(legend));
     }
@@ -92,8 +92,8 @@ mod tests {
     #[test]
     fn no_legend_returns_none() {
         let mut dom = EcsDom::new();
-        let fs = dom.create_element("fieldset", Attributes::default());
-        let div = dom.create_element("div", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(fs, div);
         assert_eq!(first_legend_child(&dom, fs), None);
     }
@@ -101,8 +101,8 @@ mod tests {
     #[test]
     fn is_in_first_legend_true() {
         let mut dom = EcsDom::new();
-        let legend = dom.create_element("legend", Attributes::default());
-        let input = dom.create_element("input", Attributes::default());
+        let legend = dom.create_element_ownerless_fixture("legend", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.append_child(legend, input);
         assert!(is_in_first_legend(&dom, input, legend));
     }
@@ -110,8 +110,8 @@ mod tests {
     #[test]
     fn is_in_first_legend_false() {
         let mut dom = EcsDom::new();
-        let legend = dom.create_element("legend", Attributes::default());
-        let other = dom.create_element("div", Attributes::default());
+        let legend = dom.create_element_ownerless_fixture("legend", Attributes::default());
+        let other = dom.create_element_ownerless_fixture("div", Attributes::default());
         assert!(!is_in_first_legend(&dom, other, legend));
     }
 }

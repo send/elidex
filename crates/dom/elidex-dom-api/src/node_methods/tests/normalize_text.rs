@@ -7,9 +7,9 @@ use super::*;
 #[test]
 fn normalize_merge() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("hello ");
-    let t2 = dom.create_text("world");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("hello ");
+    let t2 = dom.create_text_ownerless_fixture("world");
     dom.append_child(div, t1);
     dom.append_child(div, t2);
 
@@ -29,8 +29,8 @@ fn normalize_merge() {
 #[test]
 fn normalize_remove_empty() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("");
     dom.append_child(div, t);
 
     Normalize.invoke(div, &[], &mut session, &mut dom).unwrap();
@@ -41,9 +41,9 @@ fn normalize_remove_empty() {
 #[test]
 fn normalize_no_change() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
-    let t = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, span);
     dom.append_child(div, t);
 
@@ -55,10 +55,10 @@ fn normalize_no_change() {
 #[test]
 fn normalize_recursive() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
-    let t1 = dom.create_text("a");
-    let t2 = dom.create_text("b");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("a");
+    let t2 = dom.create_text_ownerless_fixture("b");
     dom.append_child(div, span);
     dom.append_child(span, t1);
     dom.append_child(span, t2);
@@ -83,9 +83,9 @@ fn normalize_recursive() {
 #[test]
 fn normalize_adjacent_merge() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("hello ");
-    let t2 = dom.create_text("world");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("hello ");
+    let t2 = dom.create_text_ownerless_fixture("world");
     dom.append_child(div, t1);
     dom.append_child(div, t2);
 
@@ -100,9 +100,9 @@ fn normalize_adjacent_merge() {
 #[test]
 fn normalize_removes_empty() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("");
-    let t2 = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("");
+    let t2 = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, t1);
     dom.append_child(div, t2);
 
@@ -117,10 +117,10 @@ fn normalize_removes_empty() {
 #[test]
 fn normalize_three_adjacent() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("a");
-    let t2 = dom.create_text("b");
-    let t3 = dom.create_text("c");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("a");
+    let t2 = dom.create_text_ownerless_fixture("b");
+    let t3 = dom.create_text_ownerless_fixture("c");
     dom.append_child(div, t1);
     dom.append_child(div, t2);
     dom.append_child(div, t3);
@@ -137,10 +137,10 @@ fn normalize_three_adjacent() {
 fn normalize_comment_boundary() {
     // Text nodes separated by a comment should NOT be merged.
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("before");
-    let comment = dom.create_comment("separator");
-    let t2 = dom.create_text("after");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("before");
+    let comment = dom.create_comment_ownerless_fixture("separator");
+    let t2 = dom.create_text_ownerless_fixture("after");
     dom.append_child(div, t1);
     dom.append_child(div, comment);
     dom.append_child(div, t2);
@@ -159,9 +159,9 @@ fn normalize_comment_boundary() {
 fn normalize_all_empty_text() {
     // All empty text nodes should be removed.
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t1 = dom.create_text("");
-    let t2 = dom.create_text("");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t1 = dom.create_text_ownerless_fixture("");
+    let t2 = dom.create_text_ownerless_fixture("");
     dom.append_child(div, t1);
     dom.append_child(div, t2);
 
@@ -177,8 +177,8 @@ fn normalize_all_empty_text() {
 #[test]
 fn text_content_get_element() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let t = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let t = dom.create_text_ownerless_fixture("hello");
     dom.append_child(div, t);
 
     let r = GetTextContentNodeKind
@@ -201,7 +201,12 @@ fn text_content_get_document_null() {
 #[test]
 fn text_content_get_doctype_null() {
     let (mut dom, mut session) = setup();
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
 
     let r = GetTextContentNodeKind
         .invoke(dt, &[], &mut session, &mut dom)
@@ -212,7 +217,7 @@ fn text_content_get_doctype_null() {
 #[test]
 fn text_content_get_comment() {
     let (mut dom, mut session) = setup();
-    let comment = dom.create_comment("test comment");
+    let comment = dom.create_comment_ownerless_fixture("test comment");
 
     let r = GetTextContentNodeKind
         .invoke(comment, &[], &mut session, &mut dom)
@@ -223,7 +228,7 @@ fn text_content_get_comment() {
 #[test]
 fn text_content_get_text_node() {
     let (mut dom, mut session) = setup();
-    let t = dom.create_text("direct text");
+    let t = dom.create_text_ownerless_fixture("direct text");
 
     let r = GetTextContentNodeKind
         .invoke(t, &[], &mut session, &mut dom)
@@ -234,7 +239,7 @@ fn text_content_get_text_node() {
 #[test]
 fn text_content_get_element_empty() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let r = GetTextContentNodeKind
         .invoke(div, &[], &mut session, &mut dom)
@@ -249,8 +254,8 @@ fn text_content_get_element_empty() {
 #[test]
 fn text_content_set_element() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
-    let old = dom.create_text("old");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let old = dom.create_text_ownerless_fixture("old");
     dom.append_child(div, old);
 
     SetTextContentNodeKind
@@ -279,7 +284,7 @@ fn text_content_set_element() {
 fn text_content_set_document_noop() {
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
-    let child = dom.create_element("html", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, child);
 
     SetTextContentNodeKind
@@ -298,7 +303,7 @@ fn text_content_set_document_noop() {
 #[test]
 fn text_content_set_comment() {
     let (mut dom, mut session) = setup();
-    let comment = dom.create_comment("old");
+    let comment = dom.create_comment_ownerless_fixture("old");
 
     SetTextContentNodeKind
         .invoke(
@@ -320,7 +325,7 @@ fn text_content_set_comment() {
 #[test]
 fn node_value_set_text() {
     let (mut dom, mut session) = setup();
-    let t = dom.create_text("old");
+    let t = dom.create_text_ownerless_fixture("old");
 
     SetNodeValue
         .invoke(t, &[JsValue::String("new".into())], &mut session, &mut dom)
@@ -333,7 +338,7 @@ fn node_value_set_text() {
 #[test]
 fn node_value_set_comment() {
     let (mut dom, mut session) = setup();
-    let c = dom.create_comment("old");
+    let c = dom.create_comment_ownerless_fixture("old");
 
     SetNodeValue
         .invoke(c, &[JsValue::String("new".into())], &mut session, &mut dom)
@@ -346,7 +351,7 @@ fn node_value_set_comment() {
 #[test]
 fn node_value_set_element_noop() {
     let (mut dom, mut session) = setup();
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
 
     let r = SetNodeValue
         .invoke(
@@ -382,7 +387,7 @@ fn node_value_set_document_noop() {
 #[test]
 fn text_content_text_node_direct() {
     let (mut dom, mut session) = setup();
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
 
     let result = GetTextContentNodeKind
         .invoke(text, &[], &mut session, &mut dom)
@@ -393,7 +398,7 @@ fn text_content_text_node_direct() {
 #[test]
 fn set_text_content_text_node_direct() {
     let (mut dom, mut session) = setup();
-    let text = dom.create_text("old");
+    let text = dom.create_text_ownerless_fixture("old");
 
     SetTextContentNodeKind
         .invoke(
@@ -411,7 +416,7 @@ fn set_text_content_text_node_direct() {
 #[test]
 fn set_node_value_text_node_direct() {
     let (mut dom, mut session) = setup();
-    let text = dom.create_text("old");
+    let text = dom.create_text_ownerless_fixture("old");
 
     SetNodeValue
         .invoke(

@@ -39,8 +39,8 @@ use super::super::Vm;
 
 pub(super) fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -93,7 +93,13 @@ fn build_root_tree(
     let body = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
         .unwrap();
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    // Created in `doc`: the Selection same-document check reads the node
+    // document (C0b), and production cannot create an ownerless node.
+    let root = dom.create_element_with_owner(
+        "div",
+        elidex_ecs::Attributes::default(),
+        dom.node_document_for_new_nodes(doc),
+    );
     assert!(dom.append_child(body, root));
     (doc, body, root)
 }
@@ -136,7 +142,12 @@ pub(super) fn setup_with_root_and_svg(
 
     let mut svg_attrs = elidex_ecs::Attributes::default();
     svg_attrs.set("viewBox", "0 0 10 10");
-    let svg = dom.create_element_ns("svg", elidex_ecs::Namespace::Svg, svg_attrs, None);
+    let svg = dom.create_element_ns(
+        "svg",
+        elidex_ecs::Namespace::Svg,
+        svg_attrs,
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     assert!(dom.append_child(body, svg));
 
     #[allow(unsafe_code)]
@@ -148,4 +159,57 @@ pub(super) fn setup_with_root_and_svg(
     let svg_wrapper = vm.inner.create_element_wrapper(svg);
     vm.set_global("svg", JsValue::Object(svg_wrapper));
     (doc, root, svg)
+}
+
+/// Shared body of the C0a T17 / T17b same-parent replace move tests (D-12):
+/// builds `P = [A, B]`, observes `P`, runs `mutating_call` (a JS statement
+/// that replaces `A` with `B` within `P`), and asserts the two records: r[0] the
+/// adopt step 2 source removal of `B` with `A` still in place, r[1] the coalesced
+/// replace record (step 10).
+pub(super) fn assert_same_parent_replace_move_records(mutating_call: &str) {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(&format!(
+        "globalThis.P = document.createElement('div'); \
+         globalThis.A = document.createElement('a'); \
+         globalThis.B = document.createElement('b'); \
+         P.append(A, B); \
+         var mo = new MutationObserver(function(){{}}); \
+         mo.observe(P, {{childList:true}}); \
+         {mutating_call}; \
+         globalThis.r = mo.takeRecords();"
+    ))
+    .unwrap();
+
+    assert_eq!(vm.eval("r.length").unwrap(), JsValue::Number(2.0));
+    // r[0]: adopt step 2's removal of B, with A (old child) still in place.
+    assert_eq!(
+        vm.eval("r[0].removedNodes.length === 1 && r[0].removedNodes[0] === B && r[0].addedNodes.length === 0")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("r[0].previousSibling === A").unwrap(),
+        JsValue::Boolean(true),
+        "source-removal previousSibling is A (replace step 6 adopts before step 7 removes A)"
+    );
+    assert_eq!(
+        vm.eval("r[0].nextSibling === null").unwrap(),
+        JsValue::Boolean(true)
+    );
+    // r[1]: the coalesced replace record (step 10).
+    assert_eq!(
+        vm.eval("r[1].addedNodes.length === 1 && r[1].addedNodes[0] === B && r[1].removedNodes.length === 1 && r[1].removedNodes[0] === A")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("r[1].previousSibling === null && r[1].nextSibling === null")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    vm.unbind();
 }

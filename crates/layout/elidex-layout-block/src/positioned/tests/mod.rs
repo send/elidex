@@ -11,7 +11,7 @@ fn approx_eq(a: f32, b: f32) -> bool {
 }
 
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 fn set_style(dom: &mut EcsDom, entity: Entity, pos: Position) {

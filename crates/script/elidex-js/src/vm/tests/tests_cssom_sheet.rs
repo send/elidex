@@ -25,11 +25,11 @@ use super::super::Vm;
 
 fn build_doc_with_style(dom: &mut EcsDom, css: &str) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    let style = dom.create_element("style", Attributes::default());
-    let text = dom.create_text(css.to_string());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+    let style = dom.create_element_ownerless_fixture("style", Attributes::default());
+    let text = dom.create_text_ownerless_fixture(css.to_string());
     assert!(dom.append_child(style, text));
     assert!(dom.append_child(head, style));
     assert!(dom.append_child(html, head));
@@ -562,8 +562,9 @@ fn document_style_sheets_indexed_returns_css_style_sheet() {
 #[test]
 fn style_element_sheet_matches_uppercase_tag_via_ascii_ci() {
     // R5 IMP regression: WHATWG DOM §4.2.6.2 mandates ASCII-CI tag
-    // matching for HTML documents.  `<STYLE>` (raw create_element with
-    // uppercase) must surface a `CSSStyleSheet` via `el.sheet` just like
+    // matching for HTML documents.  `<STYLE>` (raw
+    // `create_element_ownerless_fixture` with uppercase) must surface a
+    // `CSSStyleSheet` via `el.sheet` just like
     // lowercase `<style>` does.  Mirrors `tests_dom_collection.rs::
     // get_elements_by_tag_name_matches_uppercase_element_via_ascii_ci`.
     let mut vm = Vm::new();
@@ -574,8 +575,8 @@ fn style_element_sheet_matches_uppercase_tag_via_ascii_ci() {
     let head = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "head")
         .unwrap();
-    let upper_style = dom.create_element("STYLE", Attributes::default());
-    let upper_text = dom.create_text("p { color: red; }".to_string());
+    let upper_style = dom.create_element_ownerless_fixture("STYLE", Attributes::default());
+    let upper_text = dom.create_text_ownerless_fixture("p { color: red; }".to_string());
     assert!(dom.append_child(upper_style, upper_text));
     assert!(dom.append_child(head, upper_style));
 
@@ -611,8 +612,8 @@ fn document_style_sheets_includes_uppercase_style_via_ascii_ci() {
     let head = dom
         .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "head")
         .unwrap();
-    let upper_style = dom.create_element("STYLE", Attributes::default());
-    let upper_text = dom.create_text("p { color: red; }".to_string());
+    let upper_style = dom.create_element_ownerless_fixture("STYLE", Attributes::default());
+    let upper_text = dom.create_text_ownerless_fixture("p { color: red; }".to_string());
     assert!(dom.append_child(upper_style, upper_text));
     assert!(dom.append_child(head, upper_style));
 
@@ -704,11 +705,13 @@ fn document_style_sheets_non_host_receiver_returns_null() {
     // (the receiver isn't a HostObject — e.g. a plain `{}` after the
     // accessor is rebound, or any post-unbind retained wrapper), the
     // styleSheets getter must surface a safe-default `null` instead
-    // of `TypeError`, mirroring sibling Document accessors
-    // (`head` / `body` / etc.) that already follow this convention.
+    // of `TypeError`.  `styleSheets` is a DocumentOrShadowRoot
+    // shared-interface receiver, not routed via `document_receiver`
+    // (plan §7), so `{}` still gives null (unlike `head` / `body`,
+    // which throw now).
     let out = run_with_css(
         "div {}",
-        "var getter = Object.getOwnPropertyDescriptor(document, 'styleSheets').get; \
+        "var getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'styleSheets').get; \
          try { var r = getter.call({}); (r === null) ? 'null' : 'not-null'; } \
          catch (e) { 'threw: ' + e.name; }",
     );
@@ -767,13 +770,13 @@ fn build_doc_with_link(
     href: &str,
 ) -> (elidex_ecs::Entity, elidex_ecs::Entity) {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("rel", "stylesheet");
     attrs.set("href", href);
-    let link = dom.create_element("link", attrs);
+    let link = dom.create_element_ownerless_fixture("link", attrs);
     assert!(dom.append_child(head, link));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(html, body));
@@ -844,12 +847,12 @@ fn link_sheet_null_without_loaded_component() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("rel", "stylesheet");
     attrs.set("href", "a.css");
-    let link = dom.create_element("link", attrs);
+    let link = dom.create_element_ownerless_fixture("link", attrs);
     assert!(dom.append_child(head, link));
     assert!(dom.append_child(html, head));
     assert!(dom.append_child(doc, html));
@@ -938,15 +941,15 @@ fn document_style_sheets_link_and_style_in_document_order() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let head = dom.create_element("head", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("head", Attributes::default());
     let mut attrs = Attributes::default();
     attrs.set("rel", "stylesheet");
     attrs.set("href", "https://example.com/a.css");
-    let link = dom.create_element("link", attrs);
+    let link = dom.create_element_ownerless_fixture("link", attrs);
     assert!(dom.append_child(head, link));
-    let style = dom.create_element("style", Attributes::default());
-    let text = dom.create_text("p {}".to_string());
+    let style = dom.create_element_ownerless_fixture("style", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("p {}".to_string());
     assert!(dom.append_child(style, text));
     assert!(dom.append_child(head, style));
     assert!(dom.append_child(html, head));

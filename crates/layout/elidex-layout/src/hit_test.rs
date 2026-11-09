@@ -274,7 +274,7 @@ mod tests {
     use elidex_plugin::{EdgeSizes, Point, Position, Rect, Vector};
 
     fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-        dom.create_element(tag, Attributes::default())
+        dom.create_element_ownerless_fixture(tag, Attributes::default())
     }
 
     fn set_layout(dom: &mut EcsDom, entity: Entity, x: f32, y: f32, w: f32, h: f32) {

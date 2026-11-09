@@ -4,7 +4,7 @@ use elidex_plugin::Overflow;
 #[test]
 fn left_float_positioned_at_left_edge() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
 
@@ -21,7 +21,7 @@ fn left_float_positioned_at_left_edge() {
 #[test]
 fn right_float_positioned_at_right_edge() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let floated = make_float_child(&mut dom, parent, Float::Right, 200.0, 100.0);
 
@@ -37,11 +37,11 @@ fn right_float_positioned_at_right_edge() {
 #[test]
 fn float_excluded_from_normal_flow() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
 
-    let normal = dom.create_element("div", Attributes::default());
+    let normal = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, normal);
     dom.world_mut().insert_one(
         normal,
@@ -63,11 +63,11 @@ fn float_excluded_from_normal_flow() {
 #[test]
 fn clear_left_advances_past_float() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 100.0);
 
-    let cleared = dom.create_element("div", Attributes::default());
+    let cleared = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, cleared);
     dom.world_mut().insert_one(
         cleared,
@@ -91,7 +91,7 @@ fn clear_left_advances_past_float() {
 fn float_extends_bfc_parent_height() {
     // CSS 2.1 §10.6.7: BFC roots expand to contain floats.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -114,7 +114,7 @@ fn float_extends_bfc_parent_height() {
 fn float_overflows_non_bfc_parent() {
     // CSS 2.1 §10.6.7: Non-BFC blocks do NOT expand to contain floats.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let _floated = make_float_child(&mut dom, parent, Float::Left, 200.0, 150.0);
 
@@ -128,12 +128,12 @@ fn float_overflows_non_bfc_parent() {
 #[test]
 fn clear_both_advances_past_all_floats() {
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let _left_float = make_float_child(&mut dom, parent, Float::Left, 200.0, 80.0);
     let _right_float = make_float_child(&mut dom, parent, Float::Right, 200.0, 120.0);
 
-    let cleared = dom.create_element("div", Attributes::default());
+    let cleared = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, cleared);
     dom.world_mut().insert_one(
         cleared,
@@ -157,7 +157,7 @@ fn clear_both_advances_past_all_floats() {
 fn float_with_nonzero_parent_offset() {
     // Float X position must include the parent's content offset.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -198,7 +198,7 @@ fn float_auto_width_shrinks_to_content() {
     let font_db = FontDatabase::new();
 
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         parent,
         ComputedStyle {
@@ -210,7 +210,7 @@ fn float_auto_width_shrinks_to_content() {
     );
 
     // Create float with auto width containing short text.
-    let floated = dom.create_element("div", Attributes::default());
+    let floated = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(parent, floated);
     dom.world_mut().insert_one(
         floated,
@@ -222,7 +222,7 @@ fn float_auto_width_shrinks_to_content() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("Hi");
+    let text = dom.create_text_ownerless_fixture("Hi");
     dom.append_child(floated, text);
 
     let _parent_box = layout_block(&mut dom, parent, 800.0, Point::ZERO, &font_db);
@@ -255,7 +255,7 @@ fn float_auto_width_shrinks_to_content() {
 fn float_explicit_width_unchanged() {
     // A float with explicit width should use that width, not shrink.
     let mut dom = EcsDom::new();
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
     let floated = make_float_child(&mut dom, parent, Float::Left, 300.0, 50.0);
 
@@ -275,7 +275,7 @@ fn float_propagates_through_non_bfc() {
     // A float inside a non-BFC child should be visible to the ancestor
     // BFC for height containment.
     let mut dom = EcsDom::new();
-    let bfc_parent = dom.create_element("div", Attributes::default());
+    let bfc_parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut().insert_one(
         bfc_parent,
         ComputedStyle {
@@ -287,7 +287,7 @@ fn float_propagates_through_non_bfc() {
     );
 
     // Non-BFC intermediate block.
-    let wrapper = dom.create_element("div", Attributes::default());
+    let wrapper = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(bfc_parent, wrapper);
     dom.world_mut().insert_one(wrapper, block_style());
 

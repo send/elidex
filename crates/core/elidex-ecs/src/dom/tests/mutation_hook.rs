@@ -3,18 +3,18 @@
 //! Verifies that every mutation primitive
 //! (`append_child` / `insert_before` / `remove_child` / `replace_child` /
 //! `destroy_entity` / `set_text_data` / `replace_text_data` /
-//! `set_attribute` / `remove_attribute` / `fire_split_text` /
-//! `fire_normalize_merge`) fires the correct [`MutationEvent`] variant.
+//! `set_attribute` / `remove_attribute`) fires the correct [`MutationEvent`] variant
+//! (siblings: `mutation_hook_fire_helpers.rs`, `mutation_hook_specialised.rs`).
 //! Uses a mock `MutationDispatcher` impl that records each event into a
 //! `Vec<MockEvent>` (variant-equivalent shape).
 
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::dom::{MutationDispatcher, MutationEvent};
+use crate::dom::{CloneScope, MutationDispatcher, MutationEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum MockEvent {
+pub(super) enum MockEvent {
     Insert {
         node: Entity,
         parent: Entity,
@@ -48,6 +48,10 @@ enum MockEvent {
         prev_old_len: usize,
         parent: Option<Entity>,
         merged_child_index: Option<usize>,
+    },
+    CloneCreated {
+        root: Entity,
+        scope: CloneScope,
     },
 }
 
@@ -142,14 +146,21 @@ impl MutationDispatcher for MockHook {
                     merged_child_index,
                 });
             }
-            MutationEvent::AttributeChange { .. } => {
-                // Generic MockHook does not record attribute events.
+            MutationEvent::AttributeChange { .. } | MutationEvent::Adopt { .. } => {
+                // Generic MockHook does not record attribute events, nor
+                // `Adopt` (`adopt_notification.rs`'s `AdoptLog` does).
+            }
+            MutationEvent::CloneCreated { root, scope } => {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(MockEvent::CloneCreated { root, scope });
             }
         }
     }
 }
 
-fn install_mock(dom: &mut EcsDom) -> Arc<Mutex<Vec<MockEvent>>> {
+pub(super) fn install_mock(dom: &mut EcsDom) -> Arc<Mutex<Vec<MockEvent>>> {
     let hook = MockHook::default();
     let events = hook.events.clone();
     dom.set_mutation_dispatcher(Box::new(hook));
@@ -276,8 +287,8 @@ fn replace_child_fires_remove_then_insert_at_same_index() {
 fn replace_child_with_earlier_sibling_reports_post_shift_index() {
     // When new_child is an earlier sibling of old_child in the same parent,
     // detach(new_child) shifts old_child down by one. The hook MUST report
-    // the post-shift index for the old_child removal (WHATWG DOM §5.5
-    // "remove a node" step 4). The implicit detach of new_child also fires
+    // the post-shift index for the old_child removal (DOM §4.2.3 "remove"
+    // step 3 → live range pre-remove steps (DOM §5.6 Interface Range), step 3). The implicit detach of new_child also fires
     // its own after_remove at new_child's pre-detach index.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
@@ -361,7 +372,7 @@ fn destroy_entity_with_no_parent_does_not_fire() {
 fn set_text_data_fires_after_text_change() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -392,7 +403,7 @@ fn set_text_data_on_non_text_entity_returns_none_and_does_not_fire() {
 fn set_text_data_utf16_length_counts_surrogate_pair_as_two() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("a");
+    let text = dom.create_text_ownerless_fixture("a");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -414,7 +425,7 @@ fn set_text_data_utf16_length_counts_surrogate_pair_as_two() {
 fn set_text_data_empty_string() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -509,7 +520,7 @@ fn set_text_data_bumps_inclusive_descendants_version() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(doc, parent));
     assert!(dom.append_child(parent, text));
 
@@ -566,9 +577,10 @@ fn index_in_parent_returns_none_for_orphan() {
 #[test]
 fn append_child_fires_after_remove_for_old_parent_on_move() {
     // Moving a node between parents must fire `after_remove` on the
-    // implicit detach from the old parent (per WHATWG insert algorithm
-    // step "If node has a parent, then remove node") so Range live-
-    // tracking sees the §5.5 step 4-6 adjustment.
+    // implicit detach from the old parent (DOM §4.2.3 "insert" step 7.1
+    // adopts node; DOM §4.5 "adopt" step 2: "If node's parent is non-null,
+    // then remove node") so Range live-tracking sees the live range
+    // pre-remove steps 4–7 adjustment (DOM §5.6 Interface Range).
     let mut dom = EcsDom::new();
     let old_parent = elem(&mut dom, "section");
     let new_parent = elem(&mut dom, "article");
@@ -629,8 +641,9 @@ fn insert_before_fires_after_remove_for_old_parent_on_move() {
 
 #[test]
 fn replace_child_fires_after_remove_for_new_child_old_parent() {
-    // WHATWG "replace a child" step 4: "If node's parent is not null,
-    // remove node". This implicit removal must fire `after_remove` on
+    // WHATWG DOM §4.2.3 "replace" step 6 adopts node, and DOM §4.5
+    // "adopt" step 2: "If node's parent is non-null, then remove node".
+    // This implicit removal must fire `after_remove` on
     // the new_child's old parent, in addition to the
     // remove(old_child) + insert(new_child) pair on `parent`.
     let mut dom = EcsDom::new();
@@ -671,7 +684,7 @@ fn replace_child_fires_after_remove_for_new_child_old_parent() {
 fn attach_shadow_does_not_fire_hook_events() {
     // Light-tree-only contract: `attach_shadow` plumbs the shadow root
     // into the host's child list (via internal `append_child`), but per
-    // WHATWG §5.5 light-tree consumers (e.g. `LiveRangeRegistry`) must
+    // WHATWG DOM §5.6 Interface Range light-tree consumers (e.g. `LiveRangeRegistry`) must
     // NOT see `after_insert(shadow_root, host, ...)`. Asserting that the
     // event log stays empty here pins the suppression contract in tree.rs.
     use crate::ShadowRootMode;
@@ -788,7 +801,7 @@ fn append_child_after_attach_shadow_reports_light_tree_index() {
 fn replace_text_data_fires_after_replace_data_with_offset_count_replacement_len() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -819,7 +832,7 @@ fn replace_text_data_clamps_count_silently() {
     // offset > len) is the caller's responsibility.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("abcde");
+    let text = dom.create_text_ownerless_fixture("abcde");
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
@@ -863,7 +876,7 @@ fn replace_text_data_bumps_inclusive_descendants_version() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello");
+    let text = dom.create_text_ownerless_fixture("hello");
     assert!(dom.append_child(doc, parent));
     assert!(dom.append_child(parent, text));
 
@@ -881,71 +894,6 @@ fn replace_text_data_bumps_inclusive_descendants_version() {
         "doc-root version did not advance — live collections rooted at \
          document would miss the splice"
     );
-}
-
-#[test]
-fn fire_split_text_helper_routes_to_hook() {
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hello world");
-    let new_text = dom.create_text("");
-    assert!(dom.append_child(parent, text));
-    assert!(dom.append_child(parent, new_text));
-
-    let events = install_mock(&mut dom);
-    dom.fire_split_text(text, new_text, 5, Some(parent), Some(0));
-
-    let log = events.lock().unwrap().clone();
-    assert_eq!(
-        log,
-        vec![MockEvent::SplitText {
-            node: text,
-            new_node: new_text,
-            offset: 5,
-            parent: Some(parent),
-            node_index: Some(0),
-        }]
-    );
-}
-
-#[test]
-fn fire_normalize_merge_helper_routes_to_hook() {
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "p");
-    let prev = dom.create_text("hello");
-    let merged_child = dom.create_text("world");
-    assert!(dom.append_child(parent, prev));
-    assert!(dom.append_child(parent, merged_child));
-
-    let events = install_mock(&mut dom);
-    // prev_old_len = 5 (len of "hello" before absorbing "world").
-    dom.fire_normalize_merge(merged_child, prev, 5, Some(parent), Some(1));
-
-    let log = events.lock().unwrap().clone();
-    assert_eq!(
-        log,
-        vec![MockEvent::NormalizeMerge {
-            merged_child,
-            prev,
-            prev_old_len: 5,
-            parent: Some(parent),
-            merged_child_index: Some(1),
-        }]
-    );
-}
-
-#[test]
-fn fire_helpers_silent_when_no_hook_installed() {
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "p");
-    let text = dom.create_text("hi");
-    let new_text = dom.create_text("");
-    assert!(dom.append_child(parent, text));
-    assert!(dom.append_child(parent, new_text));
-
-    // No hook installed — helpers must be no-ops, not panic.
-    dom.fire_split_text(text, new_text, 1, Some(parent), Some(0));
-    dom.fire_normalize_merge(new_text, text, 2, Some(parent), Some(1));
 }
 
 #[test]

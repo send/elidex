@@ -417,7 +417,7 @@ fn percentage_height_in_stretched_row_item() {
     let (mut dom, c, items) = make_flex_dom(container, &[stretch_item]);
 
     // Add a grandchild with height: 50%
-    let grandchild = dom.create_element("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(items[0], grandchild);
     let grandchild_style = ComputedStyle {
         display: Display::Block,
@@ -468,7 +468,7 @@ fn percentage_width_in_stretched_column_item() {
     let (mut dom, c, items) = make_flex_dom(container, &[stretch_item]);
 
     // Add a grandchild with width: 50%
-    let grandchild = dom.create_element("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(items[0], grandchild);
     let grandchild_style = ComputedStyle {
         display: Display::Block,
@@ -521,7 +521,7 @@ fn non_stretch_remains_indefinite() {
     let (mut dom, c, items) = make_flex_dom(container, &[non_stretch_item]);
 
     // Add a grandchild with height: 50%
-    let grandchild = dom.create_element("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(items[0], grandchild);
     let grandchild_style = ComputedStyle {
         display: Display::Block,
@@ -567,7 +567,7 @@ fn explicit_cross_size_already_definite() {
     let (mut dom, c, items) = make_flex_dom(container, &[explicit_item]);
 
     // Add a grandchild with height: 50%
-    let grandchild = dom.create_element("div", Attributes::default());
+    let grandchild = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(items[0], grandchild);
     let grandchild_style = ComputedStyle {
         display: Display::Block,

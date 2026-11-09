@@ -11,7 +11,7 @@ use super::super::value::{
     PropertyValue, VmError,
 };
 use super::super::VmInner;
-use super::MAX_JSON_DEPTH;
+use super::{depth_exceeded, MAX_JSON_DEPTH};
 
 /// Recursive-descent JSON parser operating on WTF-16 code units.
 ///
@@ -278,7 +278,7 @@ impl<'a> JsonParser<'a> {
     fn parse_array(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
         self.depth += 1;
         if self.depth > MAX_JSON_DEPTH {
-            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            return Err(depth_exceeded());
         }
         let result = self.parse_array_inner(ctx);
         self.depth -= 1;
@@ -321,7 +321,7 @@ impl<'a> JsonParser<'a> {
     fn parse_object(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
         self.depth += 1;
         if self.depth > MAX_JSON_DEPTH {
-            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+            return Err(depth_exceeded());
         }
         let result = self.parse_object_inner(ctx);
         self.depth -= 1;
@@ -400,14 +400,25 @@ impl<'a> JsonParser<'a> {
 }
 
 /// §25.5.2.4 InternalizeJSONProperty — apply reviver function.
+///
+/// Recursion is bounded by [`MAX_JSON_DEPTH`] (`depth` counts object/array
+/// levels entered) because an earlier sibling's reviver call (§25.5.2.4
+/// step 6) can replace a later key's value before that key's step 1 `Get`
+/// reads it, building cycles (`this.b = o; o.self = o`) the spec walk never
+/// terminates on.
+/// See [`MAX_JSON_DEPTH`] for the failure mode and the cap's derivation.
 fn internalize(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
     reviver: ObjectId,
     index_buf: &mut String,
+    depth: usize,
 ) -> Result<JsValue, VmError> {
     match val {
         JsValue::Object(obj_id) => {
+            if depth >= MAX_JSON_DEPTH {
+                return Err(depth_exceeded());
+            }
             match &ctx.get_object(obj_id).kind {
                 ObjectKind::Array { elements } => {
                     let len = elements.len();
@@ -416,7 +427,7 @@ fn internalize(
                         let elem = ctx
                             .vm
                             .get_element(JsValue::Object(obj_id), JsValue::Number(i as f64))?;
-                        let new_val = internalize(ctx, elem, reviver, index_buf)?;
+                        let new_val = internalize(ctx, elem, reviver, index_buf, depth + 1)?;
                         index_buf.clear();
                         let _ = write!(index_buf, "{i}");
                         let key_str = ctx.intern(index_buf);
@@ -425,7 +436,7 @@ fn internalize(
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_str), new_val],
                         )?;
-                        // Spec §25.5.2.4: reviver returning undefined → [[Delete]].
+                        // Spec §25.5.2.4 step 5.b.iv.4.a: reviver returning undefined → [[Delete]].
                         // With JsValue::Empty this creates a proper sparse hole.
                         // JS code cannot produce Empty, so only check Undefined.
                         debug_assert!(!result.is_empty(), "reviver should never return Empty");
@@ -442,19 +453,19 @@ fn internalize(
                     }
                 }
                 ObjectKind::Ordinary | ObjectKind::Arguments { .. } => {
-                    // Snapshot keys in ES spec order (§25.5.2.4 step 5).
+                    // Snapshot keys in ES spec order (§25.5.2.4 step 5.c.i).
                     let keys = collect_own_keys_es_order(ctx.vm, obj_id)?;
 
                     for key_sid in keys {
                         let child = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;
-                        let new_val = internalize(ctx, child, reviver, index_buf)?;
+                        let new_val = internalize(ctx, child, reviver, index_buf, depth + 1)?;
                         let result = ctx.call_function(
                             reviver,
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_sid), new_val],
                         )?;
                         if matches!(result, JsValue::Undefined) {
-                            // §25.5.2.4 step 3.d: `? O.[[Delete]](P)`.
+                            // §25.5.2.4 step 5.c.ii.3.a: `? value.[[Delete]](propertyKey)`.
                             // Observable only via Proxy deleteProperty trap
                             // (not yet implemented), but propagate for spec
                             // conformance once Proxy lands.
@@ -543,7 +554,7 @@ pub(in crate::vm) fn native_json_parse(
             );
 
             let mut index_buf = String::with_capacity(8);
-            let internalized = internalize(ctx, result, rev_id, &mut index_buf)?;
+            let internalized = internalize(ctx, result, rev_id, &mut index_buf, 0)?;
             let final_val = ctx.call_function(
                 rev_id,
                 JsValue::Object(wrapper_id),

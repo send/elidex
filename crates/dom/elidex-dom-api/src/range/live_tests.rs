@@ -2,7 +2,7 @@ use super::*;
 use elidex_ecs::Attributes;
 
 fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-    dom.create_element(tag, Attributes::default())
+    dom.create_element_ownerless_fixture(tag, Attributes::default())
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn bridge_after_insert_increments_parent_offset() {
 fn bridge_after_text_change_clamps_boundary() {
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
 
     let mut r = Range::new(t);
     r.set_start(t, 2);
@@ -88,7 +88,7 @@ fn bridge_after_replace_data_with_overflow_count_uses_clamped_span() {
     let (mut reg, bridge) = LiveRangeRegistry::new_pair();
     dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
     let parent = elem(&mut dom, "p");
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
     let _ = dom.append_child(parent, t);
 
     let mut r = Range::new(t);
@@ -112,7 +112,7 @@ fn bridge_after_replace_data_with_overflow_count_uses_clamped_span() {
 fn bridge_after_replace_data_collapse_inside_splice() {
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
-    let t = dom.create_text("hello");
+    let t = dom.create_text_ownerless_fixture("hello");
 
     let mut r = Range::new(t);
     r.set_start(t, 2);
@@ -135,8 +135,8 @@ fn bridge_after_split_text_migrates_to_new_node() {
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let t = dom.create_text("hello world");
-    let new_t = dom.create_text("");
+    let t = dom.create_text_ownerless_fixture("hello world");
+    let new_t = dom.create_text_ownerless_fixture("");
     let _ = dom.append_child(parent, t);
     let _ = dom.append_child(parent, new_t);
 
@@ -169,7 +169,7 @@ fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let t = dom.create_text("hello world");
+    let t = dom.create_text_ownerless_fixture("hello world");
     let trailing = elem(&mut dom, "span");
     let _ = dom.append_child(parent, t);
     let _ = dom.append_child(parent, trailing);
@@ -187,7 +187,13 @@ fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
     r_before.set_end(parent, 0);
     let id_before = reg.register(r_before);
 
-    bridge.after_split_text(t, dom.create_text(""), 5, Some(parent), Some(0));
+    bridge.after_split_text(
+        t,
+        dom.create_text_ownerless_fixture(""),
+        5,
+        Some(parent),
+        Some(0),
+    );
 
     reg.with_range(id_gap, &dom, |range, _| {
         assert_eq!(range.start_offset, 2, "equal-slot boundary shifted +1");
@@ -211,8 +217,8 @@ fn bridge_after_split_text_node_side_equality_stays_on_original() {
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let t = dom.create_text("hello world");
-    let new_t = dom.create_text("");
+    let t = dom.create_text_ownerless_fixture("hello world");
+    let new_t = dom.create_text_ownerless_fixture("");
     let _ = dom.append_child(parent, t);
     let _ = dom.append_child(parent, new_t);
 
@@ -236,8 +242,8 @@ fn bridge_after_split_text_node_side_equality_stays_on_original() {
 fn bridge_after_normalize_merge_migrates_to_prev() {
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
-    let prev = dom.create_text("helloworld");
-    let merged = dom.create_text("");
+    let prev = dom.create_text_ownerless_fixture("helloworld");
+    let merged = dom.create_text_ownerless_fixture("");
 
     let mut r = Range::new(merged);
     r.set_start(merged, 2);
@@ -267,8 +273,8 @@ fn bridge_after_normalize_merge_parent_boundary_at_idx_migrates_to_splice_point(
     let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
-    let prev = dom.create_text("helloworld"); // post-merge state
-    let merged = dom.create_text(""); // post-merge empty, pre-detach
+    let prev = dom.create_text_ownerless_fixture("helloworld"); // post-merge state
+    let merged = dom.create_text_ownerless_fixture(""); // post-merge empty, pre-detach
     let trailing = elem(&mut dom, "span");
     let _ = dom.append_child(parent, prev);
     let _ = dom.append_child(parent, merged);
@@ -309,7 +315,7 @@ fn bridge_after_remove_queues_until_finalize() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let child = elem(&mut dom, "section");
-    let grandchild = dom.create_text("inner");
+    let grandchild = dom.create_text_ownerless_fixture("inner");
     let _ = dom.append_child(parent, child);
     let _ = dom.append_child(child, grandchild);
     // `child` is still in the tree (we did NOT actually remove it
@@ -369,7 +375,7 @@ fn destroy_entity_collapses_boundary_on_live_descendant() {
     dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
     let parent = elem(&mut dom, "div");
     let target = elem(&mut dom, "section");
-    let descendant = dom.create_text("hello");
+    let descendant = dom.create_text_ownerless_fixture("hello");
     let _ = dom.append_child(parent, target);
     let _ = dom.append_child(target, descendant);
 
@@ -411,7 +417,7 @@ fn dangling_collapse_redirects_to_owner_document() {
     let mut dom = EcsDom::new();
     let doc = elem(&mut dom, "html");
     let target = elem(&mut dom, "section");
-    let inner = dom.create_text("hello");
+    let inner = dom.create_text_ownerless_fixture("hello");
     let _ = dom.append_child(doc, target);
     let _ = dom.append_child(target, inner);
 
@@ -449,7 +455,7 @@ fn dangling_collapse_keeps_offset_if_owner_doc_also_destroyed() {
     let (mut reg, _bridge) = LiveRangeRegistry::new_pair();
     let mut dom = EcsDom::new();
     let doc = elem(&mut dom, "html");
-    let inner = dom.create_text("hello");
+    let inner = dom.create_text_ownerless_fixture("hello");
 
     let mut r = Range::new_with_owner(inner, doc);
     r.set_start(inner, 2);

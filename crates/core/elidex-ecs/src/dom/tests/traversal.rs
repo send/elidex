@@ -15,7 +15,7 @@ fn root_entities_excludes_detached_template_content_fragment() {
     let doc = dom.create_document_root();
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(doc, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let content_child = elem(&mut dom, "div");
     assert!(dom.append_child(fragment, content_child));
 
@@ -89,7 +89,7 @@ fn traverse_descendants_empty() {
 fn find_by_id_found() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
-    let child = dom.create_element("span", {
+    let child = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "target");
         a
@@ -114,7 +114,7 @@ fn find_by_id_nested() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let mid = elem(&mut dom, "section");
-    let deep = dom.create_element("p", {
+    let deep = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("id", "deep");
         a
@@ -130,7 +130,7 @@ fn find_by_id_ignores_non_descendants() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     // orphan is NOT a descendant of root
-    let _orphan = dom.create_element("span", {
+    let _orphan = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("id", "orphan");
         a
@@ -147,11 +147,11 @@ fn find_by_id_ignores_non_descendants() {
 fn first_and_last_element_child_skip_text() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
-    let text_head = dom.create_text("lead");
+    let text_head = dom.create_text_ownerless_fixture("lead");
     let a = elem(&mut dom, "a");
-    let text_mid = dom.create_text("middle");
+    let text_mid = dom.create_text_ownerless_fixture("middle");
     let b = elem(&mut dom, "b");
-    let text_tail = dom.create_text("trail");
+    let text_tail = dom.create_text_ownerless_fixture("trail");
     assert!(dom.append_child(root, text_head));
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, text_mid));
@@ -170,7 +170,7 @@ fn first_element_child_empty_and_text_only() {
     assert_eq!(dom.last_element_child(empty), None);
 
     let text_only = elem(&mut dom, "p");
-    let t = dom.create_text("x");
+    let t = dom.create_text_ownerless_fixture("x");
     assert!(dom.append_child(text_only, t));
     assert_eq!(dom.first_element_child(text_only), None);
     assert_eq!(dom.last_element_child(text_only), None);
@@ -185,8 +185,8 @@ fn element_siblings_skip_non_elements() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let a = elem(&mut dom, "a");
-    let t1 = dom.create_text("t1");
-    let t2 = dom.create_text("t2");
+    let t1 = dom.create_text_ownerless_fixture("t1");
+    let t2 = dom.create_text_ownerless_fixture("t2");
     let b = elem(&mut dom, "b");
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, t1));
@@ -363,7 +363,7 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     assert!(dom.append_child(doc, root));
     let template = elem(&mut dom, "template");
     assert!(dom.append_child(root, template));
-    let fragment = dom.attach_template_contents(template, Some(doc));
+    let fragment = dom.attach_template_contents(template, dom.node_document_for_new_nodes(doc));
     let inside = elem(&mut dom, "button");
     assert!(dom.append_child(fragment, inside));
     let after = elem(&mut dom, "p");
@@ -384,6 +384,80 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     let pos = |e: Entity| included.iter().position(|x| *x == e).expect("visited");
     assert!(pos(template) < pos(fragment) && pos(fragment) < pos(inside));
     assert_eq!(included.len(), 5);
+}
+
+/// C0c U18 fixture: `root` > (`tpl` [light `a`; contents `frag` > `inner`],
+/// `host` [shadow `sr` > `s1`; light `l`]).
+struct U18 {
+    dom: EcsDom,
+    root: Entity,
+    tpl: Entity,
+    a: Entity,
+    frag: Entity,
+    inner: Entity,
+    host: Entity,
+    sr: Entity,
+    s1: Entity,
+    l: Entity,
+}
+
+fn u18_fixture() -> U18 {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let root = elem(&mut dom, "div");
+    let tpl = elem(&mut dom, "template");
+    assert!(dom.append_child(root, tpl));
+    let a = elem(&mut dom, "a");
+    assert!(dom.append_child(tpl, a));
+    let frag = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(doc));
+    let inner = elem(&mut dom, "i");
+    assert!(dom.append_child(frag, inner));
+    let host = elem(&mut dom, "div");
+    assert!(dom.append_child(root, host));
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("div is a valid shadow host");
+    let s1 = elem(&mut dom, "b");
+    assert!(dom.append_child(sr, s1));
+    let l = elem(&mut dom, "p");
+    assert!(dom.append_child(host, l));
+    U18 {
+        dom,
+        root,
+        tpl,
+        a,
+        frag,
+        inner,
+        host,
+        sr,
+        s1,
+        l,
+    }
+}
+
+/// C0c U18 (red on the base; D-19): with `Include`, a template's contents
+/// come right after the template (DOM §4.5 *adopt* step 3.4 runs the
+/// template's adopting steps, HTML §4.12.3 step 2, inside the
+/// per-descendant loop), before its light children.
+#[test]
+fn u18_include_visits_contents_right_after_the_template() {
+    let f = u18_fixture();
+    assert_eq!(
+        uncapped_walk(&f.dom, f.root, TemplateContentsWalk::Include),
+        vec![f.root, f.tpl, f.frag, f.inner, f.a, f.host, f.sr, f.s1, f.l]
+    );
+}
+
+/// U18's control (green on the base; not changed by D-19): the host's
+/// shadow tree comes right after the host, before its light children.
+#[test]
+fn u18_control_shadow_tree_right_after_the_host() {
+    let f = u18_fixture();
+    let walk = uncapped_walk(&f.dom, f.root, TemplateContentsWalk::Include);
+    let pos = |e: Entity| walk.iter().position(|x| *x == e).expect("visited");
+    assert_eq!(pos(f.sr), pos(f.host) + 1);
+    assert_eq!(pos(f.s1), pos(f.host) + 2);
+    assert_eq!(pos(f.l), pos(f.host) + 3);
 }
 
 #[test]
@@ -410,4 +484,128 @@ fn w4_uncapped_walk_terminates_on_cyclic_links() {
     for e in [root, a, b] {
         assert!(visited.contains(&e));
     }
+}
+
+// ---------------------------------------------------------------------------
+// for_each_clone_created (RC-2a; plan `docs/plans/2026-11-range-rc2a-clone-created.md` §4.3, §6)
+// ---------------------------------------------------------------------------
+
+fn clone_created_walk(dom: &EcsDom, root: Entity, scope: CloneScope) -> Vec<Entity> {
+    let mut out = Vec::new();
+    dom.for_each_clone_created(root, scope, &mut |e| out.push(e));
+    out
+}
+
+/// host (light: `a` > `a1`, `b`; shadow: `s1` > `s1a`).
+struct CloneFixture {
+    dom: EcsDom,
+    host: Entity,
+    sr: Entity,
+    a: Entity,
+    a1: Entity,
+    b: Entity,
+    s1: Entity,
+    s1a: Entity,
+}
+
+fn clone_fixture() -> CloneFixture {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let a = elem(&mut dom, "p");
+    let a1 = elem(&mut dom, "span");
+    let b = elem(&mut dom, "p");
+    assert!(dom.append_child(host, a));
+    assert!(dom.append_child(a, a1));
+    assert!(dom.append_child(host, b));
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let s1 = elem(&mut dom, "i");
+    let s1a = elem(&mut dom, "b");
+    assert!(dom.append_child(sr, s1));
+    assert!(dom.append_child(s1, s1a));
+    CloneFixture {
+        dom,
+        host,
+        sr,
+        a,
+        a1,
+        b,
+        s1,
+        s1a,
+    }
+}
+
+#[test]
+fn clone_created_self_only_visits_root_and_shadow_tree_not_light_children() {
+    let f = clone_fixture();
+    assert_eq!(
+        clone_created_walk(&f.dom, f.host, CloneScope::SelfOnly),
+        vec![f.host, f.sr, f.s1, f.s1a],
+        "root, its ShadowRoot, then the shadow tree; never light children"
+    );
+}
+
+#[test]
+fn clone_created_subtree_is_creation_order_and_matches_capped_walk_on_shallow_tree() {
+    let f = clone_fixture();
+    let got = clone_created_walk(&f.dom, f.host, CloneScope::Subtree);
+    // Creation order: node, light subtrees (step 5), shadow children (step 6.7).
+    assert_eq!(got, vec![f.host, f.a, f.a1, f.b, f.s1, f.s1a]);
+    let mut capped = Vec::new();
+    f.dom
+        .for_each_shadow_inclusive_descendant(f.host, &mut |e| capped.push(e));
+    assert_eq!(got, capped);
+}
+
+#[test]
+fn clone_created_self_only_without_shadow_root_visits_root_only() {
+    let mut f = clone_fixture();
+    let plain = elem(&mut f.dom, "div");
+    let child = elem(&mut f.dom, "p");
+    assert!(f.dom.append_child(plain, child));
+    assert_eq!(
+        clone_created_walk(&f.dom, plain, CloneScope::SelfOnly),
+        vec![plain]
+    );
+}
+
+/// Negative control for the removed cap: a chain below `MAX_ANCESTOR_DEPTH`
+/// must still be visited (the capped walker stops at the cap).
+#[test]
+fn clone_created_subtree_reaches_past_max_ancestor_depth() {
+    let mut dom = EcsDom::new();
+    let deepest = elem(&mut dom, "div");
+    let mut root = deepest;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        let parent = elem(&mut dom, "div");
+        assert!(dom.append_child(parent, root));
+        root = parent;
+    }
+    let visited = clone_created_walk(&dom, root, CloneScope::Subtree);
+    assert_eq!(visited.len(), MAX_ANCESTOR_DEPTH + 6, "every chain node");
+    assert_eq!(visited.first(), Some(&root));
+    assert_eq!(visited.last(), Some(&deepest), "the deepest is visited");
+    // The capped walker, by contrast, stops short (the contrast this cell guards).
+    let mut capped = 0usize;
+    dom.for_each_shadow_inclusive_descendant(root, &mut |_| capped += 1);
+    assert!(capped < visited.len());
+}
+
+#[test]
+fn clone_created_self_only_reaches_past_max_ancestor_depth_in_shadow_tree() {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let deepest = elem(&mut dom, "div");
+    let mut top = deepest;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        let parent = elem(&mut dom, "div");
+        assert!(dom.append_child(parent, top));
+        top = parent;
+    }
+    assert!(dom.append_child(sr, top));
+    let visited = clone_created_walk(&dom, host, CloneScope::SelfOnly);
+    // host, ShadowRoot, then the whole chain.
+    assert_eq!(visited.len(), MAX_ANCESTOR_DEPTH + 8);
+    assert_eq!(&visited[..3], &[host, sr, top]);
+    assert_eq!(visited.last(), Some(&deepest));
 }

@@ -27,7 +27,7 @@ fn add_wrapping_text_block(dom: &mut EcsDom, parent: Entity, text: &str) -> (Ent
             ..ComputedStyle::default()
         },
     );
-    let tnode = dom.create_text(text);
+    let tnode = dom.create_text_ownerless_fixture(text);
     dom.append_child(div, tnode);
     (div, tnode)
 }
@@ -78,12 +78,12 @@ fn midbreak_ifc_with_atomic(dom: &mut EcsDom, ib_style: ComputedStyle) -> (Entit
             ..ComputedStyle::default()
         },
     );
-    let run_start = dom.create_text(LONG_TEXT);
+    let run_start = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, run_start);
     let ib = elem(dom, "span");
     let _ = dom.world_mut().insert_one(ib, ib_style);
     dom.append_child(div, ib);
-    let trailing = dom.create_text(LONG_TEXT);
+    let trailing = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, trailing);
     (container, ib, run_start)
 }
@@ -417,7 +417,7 @@ fn multicol_midbreak_ifc_with_atomic_repositions_box_to_its_column() {
             ..ComputedStyle::default()
         },
     );
-    let run_start = dom.create_text(LONG_TEXT);
+    let run_start = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, run_start);
     let ib = elem(&mut dom, "span");
     let _ = dom.world_mut().insert_one(
@@ -431,7 +431,7 @@ fn multicol_midbreak_ifc_with_atomic_repositions_box_to_its_column() {
         },
     );
     dom.append_child(div, ib);
-    let trailing = dom.create_text(LONG_TEXT);
+    let trailing = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, trailing);
 
     let input = make_input(&font_db);
@@ -638,7 +638,7 @@ fn multicol_midbreak_multigroup_probe_preserves_all_subflows() {
             ..ComputedStyle::default()
         },
     );
-    let prefix = dom.create_text(LONG_TEXT);
+    let prefix = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, prefix);
     let span = elem(&mut dom, "span");
     let _ = dom.world_mut().insert_one(
@@ -649,7 +649,8 @@ fn multicol_midbreak_multigroup_probe_preserves_all_subflows() {
             ..ComputedStyle::default()
         },
     );
-    let span_text = dom.create_text("relative positioned sub-flow trailing text content");
+    let span_text =
+        dom.create_text_ownerless_fixture("relative positioned sub-flow trailing text content");
     dom.append_child(span, span_text);
     dom.append_child(div, span);
 
@@ -798,7 +799,7 @@ fn multicol_midbreak_clipping_block_carriers_and_is_consumable() {
             div_style.overflow_x = elidex_plugin::Overflow::Hidden;
         }
         let _ = dom.world_mut().insert_one(div, div_style);
-        let tnode = dom.create_text(LONG_TEXT);
+        let tnode = dom.create_text_ownerless_fixture(LONG_TEXT);
         dom.append_child(div, tnode);
         let input = make_input(&font_db);
         layout_multicol(&mut dom, container, &input, layout_child_fn);
@@ -863,7 +864,7 @@ fn multicol_relay_collapsing_a_span_to_whole_drops_stale_store_fragments() {
             ..ComputedStyle::default()
         },
     );
-    let tnode = dom.create_text(LONG_TEXT);
+    let tnode = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, tnode);
 
     // Lay 1: short columns ⇒ the div spans both columns (mid-break, consumable).
@@ -918,7 +919,7 @@ fn multicol_with_direct_inline_midbreak_leaves_no_stale_carrier() {
         },
     );
     // Direct inline content (a text node child of the multicol container itself).
-    let text = dom.create_text(LONG_TEXT);
+    let text = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(container, text);
 
     let input = make_input(&font_db);
@@ -1182,7 +1183,7 @@ fn multicol_midbreak_atomic_in_column0_repositions_to_on_line_position() {
     let ib = elem(&mut dom, "span");
     let _ = dom.world_mut().insert_one(ib, inline_block_style());
     dom.append_child(div, ib);
-    let run_start = dom.create_text(LONG_TEXT);
+    let run_start = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, run_start);
 
     let input = make_input(&font_db);
@@ -1241,12 +1242,12 @@ fn multicol_midbreak_atomic_vertical_rl_projects_inline_axis() {
             ..ComputedStyle::default()
         },
     );
-    let run_start = dom.create_text(LONG_TEXT);
+    let run_start = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, run_start);
     let ib = elem(&mut dom, "span");
     let _ = dom.world_mut().insert_one(ib, inline_block_style());
     dom.append_child(div, ib);
-    let trailing = dom.create_text(LONG_TEXT);
+    let trailing = dom.create_text_ownerless_fixture(LONG_TEXT);
     dom.append_child(div, trailing);
 
     // Vertical: inline axis = physical Y (height 600 available for the text flow).

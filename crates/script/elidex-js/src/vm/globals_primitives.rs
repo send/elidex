@@ -4,10 +4,10 @@
 //! 1000-line convention.  Covers `String` / `Number` / `Boolean` /
 //! `RegExp` / `Symbol` / `BigInt` prototypes and globals, plus the
 //! `console` namespace.  `Object.prototype` / `Array.prototype` /
-//! `Function.prototype` and the Error constructor family stay in
-//! `globals.rs` because they bootstrap the prototype chain itself
-//! (Object.prototype must exist before any other prototype's
-//! `create_object_with_methods` call).
+//! `Function.prototype` live in `globals_fundamentals.rs` and the Error
+//! constructor family in `globals_errors.rs`; the former bootstrap the
+//! prototype chain itself (Object.prototype must exist before any other
+//! prototype's `create_object_with_methods` call).
 
 use super::natives::{
     native_console_error, native_console_log, native_console_warn, native_string_char_at,

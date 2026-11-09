@@ -164,7 +164,7 @@ pub(crate) fn assert_throws_preserves_bool(
 
 /// Assert that the bare-call expression `expr` throws the canonical
 /// `CallShape::ConstructorOnly` TypeError emitted at
-/// `vm/interpreter.rs::call_dispatch` (WebIDL §3.7.1 step 1.2 +
+/// `vm/interpreter_call.rs::call_dispatch` (WebIDL §3.7.1 step 1.2 +
 /// ECMA-262 §27.2.3.1 step 1).
 ///
 /// `interface` is the WebIDL Interface name (or core-VM ctor name —
@@ -198,8 +198,8 @@ pub(crate) fn assert_ctor_requires_new(expr: &str, interface: &str) {
 /// Assert that a [`CallShape::IllegalConstructor`] WebIDL interface
 /// object throws the canonical `"Failed to construct '{interface}':
 /// Illegal constructor"` TypeError in BOTH call modes — `new
-/// Interface()` (gated at `vm/ops.rs::do_new`) AND bare `Interface()`
-/// (gated at `vm/interpreter.rs::call_dispatch`).  Both messages come
+/// Interface()` (gated in `admit_construct`, which `[[Construct]]` reaches) AND bare `Interface()`
+/// (gated at `vm/interpreter_call.rs::call_dispatch`).  Both messages come
 /// from the single SoT `VmError::illegal_constructor`, so this verifies
 /// the two chokepoints stay in sync (WebIDL §3.7.1 (Interface object)
 /// creation algorithm step 1.1 — interface declares no constructor

@@ -115,13 +115,12 @@ impl TreeBuilder {
     /// appropriate-place redirect (HTML §4.12.3). Shared by the ordinary-template
     /// arm and the declarative-shadow graceful fallback (a failed DSD template
     /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
-    /// identical at both sites (One-issue-one-way). The owner doc is explicit
-    /// (see `node_document_for_new_nodes`), correct for a nested template whose
-    /// in-tree parent is an outer template's detached content fragment (where the
-    /// tree-root walk would dead-end). `None` leaves the fragment unstamped,
-    /// matching the tolerant backend.
+    /// identical at both sites (One-issue-one-way). The contents are created in
+    /// the template's node document (HTML §4.12.3 *template contents*, C2),
+    /// through [`EcsDom::node_document_for_new_nodes`], as in the tolerant
+    /// backend.
     fn attach_ordinary_template_contents(&mut self, template: Entity) {
-        let owner = self.node_document_for_new_nodes();
+        let owner = self.dom.node_document_for_new_nodes(template);
         let fragment = self.dom.attach_template_contents(template, owner);
         self.state
             .template_content_targets
@@ -150,7 +149,12 @@ impl TreeBuilder {
         for (name, value) in &token.attrs {
             attributes.set(name.as_str(), value.as_str());
         }
-        let template = self.dom.create_element("template", attributes);
+        // §13.2.6.1 *create an element for the token* step 6: targetParent
+        // is the fallback insertion location's parent.
+        let owner = self.dom.node_document_for_new_nodes(fallback_parent);
+        let template = self
+            .dom
+            .create_element_with_owner("template", attributes, owner);
         self.state.open_elements.push(template);
 
         // "Attach a shadow root" to the host. Any failure

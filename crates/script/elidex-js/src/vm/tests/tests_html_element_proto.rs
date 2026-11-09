@@ -26,8 +26,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -196,10 +196,11 @@ fn focus_on_element_in_non_bound_document_does_not_clobber_live_focus() {
 fn redundant_focus_does_not_reseed_change_snapshot() {
     // Codex R5 F1: `input.focus()` while the input is already focused must be a
     // no-op — in particular it must NOT re-seed the change-on-blur snapshot.
-    // Otherwise a redundant focus() after the user edits refreshes the baseline,
-    // so the later (shell) blur compares the edited value against itself and
-    // suppresses the §4.10.5.5 `change` event. Mirrors the shell `set_focus`
-    // reconciler's `old == Some(entity)` early return.
+    // Otherwise a redundant focus() after the user edits drops the mark, so the
+    // later (shell) blur suppresses the §4.10.5.5 `change` event. Mirrors the
+    // shell `set_focus` reconciler's `old == Some(entity)` early return. The user
+    // edit runs from Rust between two binds (a VM script write is not a user
+    // edit), so the snapshot is marked before the redundant focus().
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -209,18 +210,15 @@ fn redundant_focus_does_not_reseed_change_snapshot() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     vm.eval(
-        "var i = document.createElement('input'); \
+        "globalThis.i = document.createElement('input'); \
          document.body.appendChild(i); \
          i.value = 'V0'; \
-         i.focus(); \
-         i.value = 'V1'; \
          i.focus();",
     )
     .unwrap();
     vm.unbind();
 
-    // Exactly one element carries a FocusValueSnapshot (the input). Its value must
-    // be the focus-time 'V0', not the post-edit 'V1' that a re-seed would record.
+    // Exactly one element carries a FocusValueSnapshot: the input.
     let holder = dom
         .world()
         .query::<(elidex_ecs::Entity, &elidex_form::FocusValueSnapshot)>()
@@ -228,10 +226,20 @@ fn redundant_focus_does_not_reseed_change_snapshot() {
         .next()
         .map(|(e, _)| e)
         .expect("the focused text input carries a change-on-blur snapshot");
-    assert_eq!(
-        elidex_form::take_focus_snapshot(&mut dom, holder),
-        Some("V0".to_string()),
-        "redundant focus() must not refresh the snapshot baseline to the edited value"
+    let edit = elidex_form::apply_user_edit(&mut dom, holder, |f| f.insert_at_cursor("u"))
+        .expect("the input has a FormControlState");
+    assert!(edit.changed);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("i.focus();").unwrap();
+    vm.unbind();
+
+    assert!(
+        elidex_form::take_change_on_blur(&mut dom, holder),
+        "redundant focus() must not re-seed the snapshot and drop the user-edit mark"
     );
 }
 
@@ -359,13 +367,16 @@ fn focus_on_disconnected_element_is_noop() {
 #[test]
 fn hidden_visibility_getters_brand_check_receiver() {
     // Codex R1 F2: the page-visibility getters must not leak the bound tab's
-    // state to a non-Document receiver (`get.call({})`).
+    // state to a non-Document receiver (`get.call({})`); PM 556 D1: they throw
+    // `TypeError` (Web IDL *attribute getter* brand check).
     let out = run(
-        "var hg = Object.getOwnPropertyDescriptor(document, 'hidden').get; \
-         var vg = Object.getOwnPropertyDescriptor(document, 'visibilityState').get; \
-         (hg.call({}) === false && vg.call({}) === 'visible' \
+        "var hg = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'hidden').get; \
+         var vg = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'visibilityState').get; \
+         function name(f) { try { f(); return 'returned'; } catch (e) { return e.name; } } \
+         (name(function () { return hg.call({}); }) === 'TypeError' \
+            && name(function () { return vg.call({}); }) === 'TypeError' \
             && hg.call(document) === false && vg.call(document) === 'visible') \
-           ? 'ok' : ('fail:' + hg.call({}) + ',' + vg.call({}));",
+           ? 'ok' : 'fail';",
     );
     assert_eq!(out, "ok");
 }

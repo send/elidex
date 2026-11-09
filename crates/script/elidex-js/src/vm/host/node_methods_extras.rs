@@ -16,13 +16,11 @@
 //! `elidex-dom-api` / `elidex-ecs` handlers via
 //! [`super::dom_bridge::invoke_dom_api`] — the algorithm proper lives
 //! engine-independently per the CLAUDE.md Layering mandate.
-//! `cloneNode` carries one extra step VM-side: a Document clone gets
-//! the document-specific own-property suite installed onto its
-//! wrapper post-dispatch ([`install_document_methods_if_cloned_doc`]).
+//! A Document clone's wrapper gets `Document.prototype` from
+//! `create_element_wrapper` like every Document wrapper.
 
 #![cfg(feature = "engine")]
 
-use super::super::object_kind::ObjectKind;
 use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 use super::event_target::entity_from_this;
 use super::node_proto::require_node_arg;
@@ -34,10 +32,10 @@ use super::node_proto::require_node_arg;
 /// `Node.prototype.ownerDocument` — WHATWG §4.4.
 ///
 /// Dispatches to the `ownerDocument.get` handler in `elidex-dom-api`,
-/// which honours the per-entity `AssociatedDocument` component (so
-/// `clonedDoc.createElement(...)` reports the clone, not the bound
-/// global) and falls back to `EcsDom::document_root` for orphans whose
-/// tree-root walk does not land on a Document.
+/// which reads the node's stored node document (`EcsDom::node_document`:
+/// set at creation, re-homed by every insertion's adopt) — null for a
+/// Document and for a node without one; there is no bound-document
+/// fallback.
 pub(super) fn native_node_get_owner_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -186,18 +184,22 @@ pub(super) fn native_node_is_equal_node(
 ///   (DOM §4.4 clone-a-node step 6).
 /// - A cloned `<input>` / `<textarea>` carries its source's live form
 ///   state (value / dirty value flag / checkedness / indeterminateness)
-///   per the HTML §4.10.5 / §4.10.11 cloning steps, applied post-dispatch
-///   via [`elidex_form::apply_clone_form_state`].
+///   per the HTML §4.10.5 / §4.10.11 cloning steps, applied at clone
+///   time by `FormControlReconciler`'s `MutationEvent::CloneCreated` arm
+///   (dispatched inside the cloner, before `invoke_dom_api` returns).
+/// - A cloned custom element whose definition lookup is non-null has its
+///   clone-time `Upgrade` reaction enqueued by the custom-element
+///   consumer's `CloneCreated` arm, likewise at clone time; this native
+///   runs no clone step of its own.
 /// - The returned wrapper's entity has no parent or siblings (the
 ///   clone-a-node `parent` argument defaults to null — the clone is
 ///   an orphan).
 /// - Event listeners are not cloned: no clone-a-node step copies the
 ///   listener list (the algorithm gates only shadow replication
 ///   explicitly).
-/// - Cloned Document entities receive the full document-specific
-///   own-property suite via
-///   [`super::super::VmInner::install_document_methods_for_entity`]
-///   so `document.cloneNode(true).createElement(...)` works.
+/// - A cloned Document's wrapper has `Document.prototype` (chosen by
+///   `create_element_wrapper`), so `document.cloneNode(true).createElement(...)`
+///   works with no clone-specific step.
 pub(super) fn native_node_clone_node(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -208,60 +210,7 @@ pub(super) fn native_node_clone_node(
     };
     let deep_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let deep = super::super::coerce::to_boolean(ctx.vm, deep_arg);
-    let result =
-        super::dom_bridge::invoke_dom_api(ctx, "cloneNode", src, &[JsValue::Boolean(deep)])?;
-    install_document_methods_if_cloned_doc(ctx, result);
-    // DOM §4.4 "clone a single node": a clone whose definition lookup
-    // is non-null gets an Upgrade reaction enqueued at clone time
-    // (registry- and local-name-gated via `prepare_upgrade`); it
-    // drains at the standard checkpoints.
-    if let JsValue::Object(wrapper) = result {
-        if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(wrapper).kind {
-            if let Some(clone_root) = elidex_ecs::Entity::from_bits(entity_bits) {
-                super::custom_elements::upgrade::enqueue_subtree_upgrade_reactions(ctx, clone_root);
-                // Form-control cloning steps (HTML §4.10.5 `<input>` /
-                // §4.10.11 `<textarea>`): copy each cloned control's live
-                // value / dirty value flag / checkedness / indeterminateness
-                // from its source, synchronously at clone time (a detached
-                // clone must read correctly before any insertion). The
-                // algorithm is engine-indep (`elidex-form`); this is
-                // marshalling-only, mirroring the CE clone-upgrade seam above.
-                if let Some(host) = ctx.host_if_bound() {
-                    elidex_form::apply_clone_form_state(host.dom(), clone_root);
-                }
-            }
-        }
-    }
-    Ok(result)
-}
-
-/// Post-dispatch hook for `cloneNode`: when the cloned wrapper wraps
-/// a Document entity, install the per-Document own-property suite
-/// onto it.  The bridge's `create_element_wrapper` set up the
-/// prototype chain; this adds the document-specific method bag
-/// (`createElement`, `body`/`head` accessors, etc.) so
-/// `document.cloneNode(true).createElement('p')` works.
-///
-/// File-local single-use helper — only `cloneNode` produces
-/// Documents through the clone path.  Centralising this hook at the
-/// bridge layer is tracked under the deferred slot
-/// `#11-bridge-document-post-install`.
-fn install_document_methods_if_cloned_doc(ctx: &mut NativeContext<'_>, result: JsValue) {
-    let JsValue::Object(wrapper) = result else {
-        return;
-    };
-    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(wrapper).kind else {
-        return;
-    };
-    let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
-        return;
-    };
-    if matches!(
-        ctx.host().dom().node_kind(entity),
-        Some(elidex_ecs::NodeKind::Document)
-    ) {
-        ctx.vm.install_document_methods_for_entity(entity, wrapper);
-    }
+    super::dom_bridge::invoke_dom_api(ctx, "cloneNode", src, &[JsValue::Boolean(deep)])
 }
 
 // ---------------------------------------------------------------------------

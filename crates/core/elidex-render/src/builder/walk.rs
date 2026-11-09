@@ -804,7 +804,7 @@ mod frag_wm_tests {
         // wrapper. The fragmentation writing mode must come from the nearest
         // `MulticolInfo` ancestor (the real container), NOT the DOM parent.
         let mut dom = EcsDom::new();
-        let container = dom.create_element("div", Attributes::default());
+        let container = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.world_mut().insert_one(
             container,
             MulticolInfo {
@@ -815,10 +815,10 @@ mod frag_wm_tests {
             },
         );
         // A `display: contents` wrapper with a DIFFERENT writing mode, no MulticolInfo.
-        let wrapper = dom.create_element("div", Attributes::default());
+        let wrapper = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(container, wrapper);
         // The consumable mid-break child (its DOM parent is the wrapper).
-        let child = dom.create_element("div", Attributes::default());
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(wrapper, child);
 
         assert_eq!(
@@ -827,7 +827,7 @@ mod frag_wm_tests {
             "reads the multicol container's writing mode, skipping the display:contents wrapper"
         );
         // No multicol ancestor ⇒ None (the caller falls back to the child's own mode).
-        let orphan = dom.create_element("div", Attributes::default());
+        let orphan = dom.create_element_ownerless_fixture("div", Attributes::default());
         assert_eq!(multicol_container_writing_mode(&dom, orphan), None);
     }
 }

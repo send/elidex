@@ -95,6 +95,16 @@ impl Drop for ConstructionStackGuard {
     }
 }
 
+/// Phase 1 resolution outcome — bridges the registry-lock scope
+/// (where `prepare_upgrade` + `lookup_by_constructor` run) and the
+/// post-lock scope (where `ctx`-borrowing helpers like
+/// `finalize_failure_shim` can run). Local to `invoke_upgrade`.
+enum Phase1Outcome {
+    Skip,
+    Proceed(u64, Vec<String>, String),
+    LookupFailed,
+}
+
 /// Invoke the upgrade algorithm on `entity` per HTML §4.13.5.
 ///
 /// Returns:
@@ -114,57 +124,6 @@ impl Drop for ConstructionStackGuard {
 /// [`elidex_custom_elements::prepare_upgrade`] /
 /// [`enter_constructor`] / [`finalize_success`] /
 /// [`finalize_failure`].
-/// Clone-time upgrade-reaction seam (DOM §4.4 "clone a single node",
-/// Codex PR331 R13): every cloned element whose definition lookup is
-/// non-null gets an `Upgrade` reaction enqueued at clone time — it
-/// must not stay `Undefined` until a later insertion or
-/// `customElements.upgrade()` call. Candidacy is resolved through the
-/// engine-indep [`elidex_custom_elements::prepare_upgrade`] chokepoint
-/// (registry-association gate + `upgrade_matches_local_name`
-/// included), so null-registry clones and `is` mismatches are skipped
-/// by the same rule every other upgrade path uses. Reactions drain at
-/// the standard script-execution checkpoints (the spec enqueues, it
-/// does not upgrade synchronously here).
-pub(in crate::vm) fn enqueue_subtree_upgrade_reactions(ctx: &mut NativeContext<'_>, root: Entity) {
-    let Some(host) = ctx.host_if_bound() else {
-        return;
-    };
-    let candidates = {
-        // Arc-clone detaches the registry borrow from `host` so the
-        // `&mut` dom reborrow below can coexist with the lock guard.
-        let registry_arc = host.ce_registry.clone();
-        let registry = registry_arc
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Engine-indep clone-creation pass: collects the upgrade
-        // candidates AND applies DOM §4.9 step 5.2's async-autonomous
-        // null-is rule to the fresh copies (Codex PR331 R14).
-        elidex_custom_elements::apply_clone_creation_ce_semantics(host.dom(), &registry, root)
-    };
-    if candidates.is_empty() {
-        return;
-    }
-    let mut queue = host
-        .ce_reaction_queue
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    for entity in candidates {
-        queue.push_back(elidex_custom_elements::CustomElementReaction::Upgrade(
-            entity,
-        ));
-    }
-}
-
-/// Phase 1 resolution outcome — bridges the registry-lock scope
-/// (where `prepare_upgrade` + `lookup_by_constructor` run) and the
-/// post-lock scope (where `ctx`-borrowing helpers like
-/// `finalize_failure_shim` can run). Local to `invoke_upgrade`.
-enum Phase1Outcome {
-    Skip,
-    Proceed(u64, Vec<String>, String),
-    LookupFailed,
-}
-
 #[allow(clippy::too_many_lines)] // 5-phase orchestration (resolve / validate / pre-publish / construct / finalize)
 pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<(), VmError> {
     let Some(host) = ctx.host_if_bound() else {
@@ -311,9 +270,13 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // class) baked into the frame's `CallMode::Construct` +
     // `is_construct() == true` on the `NativeContext`. Routed via
     // the Stage 3 helper (single SoT for JS-side + native-side
-    // construct dispatch).
+    // construct dispatch), whose admission applies IsConstructor with
+    // the `New` entry: "upgrade an element" (HTML §4.13.5) step 10.3
+    // "constructing C" is WebIDL "construct a callback function"
+    // (§3.12), whose step 3 is IsConstructor(F).
     let result = ctx.vm.construct_synchronous(
-        constructor,
+        JsValue::Object(constructor),
+        super::super::super::construct_admission::ConstructEntry::New,
         JsValue::Object(wrapper_id),
         &[],
         super::super::super::value::CallMode::Construct {
@@ -326,10 +289,17 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // assertion lives in the guard's Drop body.
     match result {
         Ok(value) => {
-            // HTML §4.13.5 "upgrade an element" step 9.4 — if
+            // HTML §4.13.5 "upgrade an element" step 10.4 — if
             // SameValue(constructResult, element) is false, throw a
-            // "NotSupportedError" DOMException AND mark the element
-            // Failed. D-17b §5 routes the user ctor through
+            // TypeError. The spec's exception branch then sets the
+            // definition to null, empties the reaction queue and rethrows,
+            // so the state stays "precustomized" (set at step 10.2); it
+            // does NOT mark the element Failed. The Failed transition below
+            // is elidex's own behaviour, part of the divergence slot
+            // `#11-ce-upgrade-returned-object-typeerror` owns (together
+            // with throwing NotSupportedError instead of TypeError).
+            // Observable difference: `attachInternals()` accepts
+            // "precustomized" and rejects "failed". D-17b §5 routes the user ctor through
             // `construct_synchronous`, which DOES apply the
             // `[[Construct]]` return-substitution (non-Object return
             // → `Object(pre_alloc_instance)` — dispatch_class.rs
@@ -349,6 +319,7 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
             // `constructor() { return otherObj; }`.
             if matches!(value, JsValue::Object(id) if id != wrapper_id) {
                 finalize_failure_shim(ctx, entity);
+                // slot `#11-ce-upgrade-returned-object-typeerror`: spec throws TypeError.
                 let not_supported = ctx.vm.well_known.dom_exc_not_supported_error;
                 return Err(VmError::dom_exception(
                     not_supported,
@@ -407,7 +378,8 @@ mod tests {
         registry.lock().unwrap().define(def).unwrap();
 
         let mut dom = EcsDom::new();
-        let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
+        let entity =
+            dom.create_element_ownerless_fixture("test-el", elidex_ecs::Attributes::default());
 
         // Push BEFORE poisoning — this test pre-dates the R10 G10-2
         // push-side poison tolerance; for the post-poison push case
@@ -463,7 +435,8 @@ mod tests {
         assert!(registry.is_poisoned(), "registry mutex should be poisoned");
 
         let mut dom = EcsDom::new();
-        let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
+        let entity =
+            dom.create_element_ownerless_fixture("test-el", elidex_ecs::Attributes::default());
 
         // `push` MUST recover from poison (no panic) and successfully
         // record the entry. Drop then pops it.

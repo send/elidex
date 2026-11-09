@@ -7,8 +7,8 @@ use super::*;
 fn setup_dom() -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(doc, html);
     dom.append_child(html, body);
     (dom, doc)
@@ -18,7 +18,7 @@ fn setup_dom() -> (EcsDom, Entity) {
 fn by_tag_name_match() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -34,8 +34,8 @@ fn by_tag_name_match() {
 fn by_tag_name_wildcard() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, div);
     dom.append_child(body, span);
 
@@ -54,7 +54,7 @@ fn by_tag_name_parser_lowercase() {
     // that lowercase element tags match lowercase filters (exact match).
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -70,7 +70,7 @@ fn by_tag_name_filter_lowercased_at_creation() {
     // Even if caller passes uppercase filter, it is lowercased at creation.
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -86,11 +86,11 @@ fn by_tag_name_filter_lowercased_at_creation() {
 fn by_tag_name_uppercase_element_matches_via_ascii_ci() {
     // Per WHATWG DOM §4.2.6.2, tag matching for HTML documents is
     // ASCII case-insensitive. Elements with non-canonical TagType
-    // (`EcsDom::create_element("DIV", _)`) match a filter whose
+    // (`EcsDom::create_element_ownerless_fixture("DIV", _)`) match a filter whose
     // needle was constructor-lowercased to "div".
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("DIV", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("DIV", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -108,7 +108,7 @@ fn by_tag_name_mixed_case_element_matches_via_ascii_ci() {
     // ("div") via ASCII-CI comparison.
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let mixed = dom.create_element("Div", Attributes::default());
+    let mixed = dom.create_element_ownerless_fixture("Div", Attributes::default());
     dom.append_child(body, mixed);
 
     let mut coll = LiveCollection::new(
@@ -137,7 +137,7 @@ fn by_class_names_single() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut attrs = Attributes::default();
     attrs.set("class", "foo bar");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -155,7 +155,7 @@ fn by_class_names_multi() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut attrs = Attributes::default();
     attrs.set("class", "foo bar baz");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -172,7 +172,7 @@ fn by_class_names_partial_no_match() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut attrs = Attributes::default();
     attrs.set("class", "foo");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -189,7 +189,7 @@ fn by_class_names_empty_vec() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut attrs = Attributes::default();
     attrs.set("class", "foo");
-    let div = dom.create_element("div", attrs);
+    let div = dom.create_element_ownerless_fixture("div", attrs);
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -206,7 +206,7 @@ fn by_name() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut attrs = Attributes::default();
     attrs.set("name", "myfield");
-    let input = dom.create_element("input", attrs);
+    let input = dom.create_element_ownerless_fixture("input", attrs);
     dom.append_child(body, input);
 
     let mut coll = LiveCollection::new(
@@ -222,8 +222,8 @@ fn by_name() {
 fn images_filter() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let img = dom.create_element("img", Attributes::default());
-    let div = dom.create_element("div", Attributes::default());
+    let img = dom.create_element_ownerless_fixture("img", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, img);
     dom.append_child(body, div);
 
@@ -240,7 +240,7 @@ fn images_filter() {
 fn forms_filter() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let form = dom.create_element("form", Attributes::default());
+    let form = dom.create_element_ownerless_fixture("form", Attributes::default());
     dom.append_child(body, form);
 
     let mut coll =
@@ -255,9 +255,9 @@ fn links_filter() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut attrs = Attributes::default();
     attrs.set("href", "https://example.com");
-    let a = dom.create_element("a", attrs);
+    let a = dom.create_element_ownerless_fixture("a", attrs);
     // An <a> without href should NOT match.
-    let a_no_href = dom.create_element("a", Attributes::default());
+    let a_no_href = dom.create_element_ownerless_fixture("a", Attributes::default());
     dom.append_child(body, a);
     dom.append_child(body, a_no_href);
 
@@ -271,8 +271,8 @@ fn links_filter() {
 fn child_nodes_includes_text() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(body, div);
     dom.append_child(body, text);
 
@@ -288,8 +288,8 @@ fn child_nodes_includes_text() {
 fn element_children_excludes_text() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
-    let text = dom.create_text("hello");
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("hello");
     dom.append_child(body, div);
     dom.append_child(body, text);
 
@@ -306,7 +306,7 @@ fn element_children_excludes_text() {
 fn cache_invalidation_same_subtree() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -317,7 +317,7 @@ fn cache_invalidation_same_subtree() {
     assert_eq!(coll.length(&dom), 1);
 
     // Add another div — cache should invalidate.
-    let div2 = dom.create_element("div", Attributes::default());
+    let div2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div2);
     assert_eq!(coll.length(&dom), 2);
 }
@@ -326,7 +326,7 @@ fn cache_invalidation_same_subtree() {
 fn cache_preserved_different_subtree() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     // Collection rooted at div — mutations outside div should not invalidate.
@@ -341,7 +341,7 @@ fn cache_preserved_different_subtree() {
     let version_after_first = coll.cached_version;
 
     // Add a span as sibling of div (under body, not under div).
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, span);
 
     // The version on `div` should not have changed.
@@ -374,7 +374,7 @@ fn cache_uninitialized_state_distinct_from_any_real_version() {
 fn cache_reuse() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new(
@@ -409,18 +409,18 @@ fn shadow_tree_excluded() {
     let body = dom.children(dom.children(doc)[0])[0];
 
     // Create a shadow host and attach a shadow root.
-    let host = dom.create_element("div", Attributes::default());
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, host);
     let shadow_root = dom
         .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
 
     // Add a span inside the shadow tree.
-    let shadow_span = dom.create_element("span", Attributes::default());
+    let shadow_span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(shadow_root, shadow_span);
 
     // Add a span in the light DOM for comparison.
-    let light_span = dom.create_element("span", Attributes::default());
+    let light_span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, light_span);
 
     let mut coll = LiveCollection::new(
@@ -439,8 +439,8 @@ fn shadow_tree_excluded() {
 fn snapshot_returns_stored_entities() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
-    let span = dom.create_element("span", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, div);
     dom.append_child(body, span);
 
@@ -454,14 +454,14 @@ fn snapshot_returns_stored_entities() {
 fn snapshot_unaffected_by_dom_mutation() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let div = dom.create_element("div", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div);
 
     let mut coll = LiveCollection::new_snapshot(vec![div], CollectionKind::NodeList);
     assert_eq!(coll.length(&dom), 1);
 
     // Add another sibling and mutate the existing one.
-    let div2 = dom.create_element("div", Attributes::default());
+    let div2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, div2);
 
     // Snapshot stays fixed at the original capture.
@@ -503,8 +503,8 @@ fn snapshot_kind_is_node_list_per_spec() {
 fn forms_case_insensitive() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let upper = dom.create_element("FORM", Attributes::default());
-    let lower = dom.create_element("form", Attributes::default());
+    let upper = dom.create_element_ownerless_fixture("FORM", Attributes::default());
+    let lower = dom.create_element_ownerless_fixture("form", Attributes::default());
     dom.append_child(body, upper);
     dom.append_child(body, lower);
 
@@ -517,8 +517,8 @@ fn forms_case_insensitive() {
 fn images_case_insensitive() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let upper = dom.create_element("IMG", Attributes::default());
-    let mixed = dom.create_element("Img", Attributes::default());
+    let upper = dom.create_element_ownerless_fixture("IMG", Attributes::default());
+    let mixed = dom.create_element_ownerless_fixture("Img", Attributes::default());
     dom.append_child(body, upper);
     dom.append_child(body, mixed);
 
@@ -536,10 +536,10 @@ fn links_case_insensitive_a_and_area() {
     let body = dom.children(dom.children(doc)[0])[0];
     let mut href_attrs = Attributes::default();
     href_attrs.set("href", "https://example.com");
-    let a_upper = dom.create_element("A", href_attrs.clone());
-    let area_upper = dom.create_element("AREA", href_attrs);
+    let a_upper = dom.create_element_ownerless_fixture("A", href_attrs.clone());
+    let area_upper = dom.create_element_ownerless_fixture("AREA", href_attrs);
     // Without href — must NOT match even with case match.
-    let a_no_href = dom.create_element("A", Attributes::default());
+    let a_no_href = dom.create_element_ownerless_fixture("A", Attributes::default());
     dom.append_child(body, a_upper);
     dom.append_child(body, area_upper);
     dom.append_child(body, a_no_href);
@@ -553,10 +553,10 @@ fn links_case_insensitive_a_and_area() {
 fn forms_mixed_case_siblings() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let f1 = dom.create_element("form", Attributes::default());
-    let f2 = dom.create_element("FORM", Attributes::default());
-    let f3 = dom.create_element("Form", Attributes::default());
-    let div = dom.create_element("div", Attributes::default());
+    let f1 = dom.create_element_ownerless_fixture("form", Attributes::default());
+    let f2 = dom.create_element_ownerless_fixture("FORM", Attributes::default());
+    let f3 = dom.create_element_ownerless_fixture("Form", Attributes::default());
+    let div = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, f1);
     dom.append_child(body, f2);
     dom.append_child(body, f3);
@@ -578,12 +578,12 @@ fn clone_subtree_does_not_invalidate_external_collection() {
     // its append_child internals), not on the source's siblings.
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
-    let target = dom.create_element("div", Attributes::default());
-    let target_child = dom.create_element("span", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let target_child = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, target);
     dom.append_child(target, target_child);
 
-    let source = dom.create_element("section", Attributes::default());
+    let source = dom.create_element_ownerless_fixture("section", Attributes::default());
     dom.append_child(body, source);
 
     let mut coll = LiveCollection::new(
@@ -595,7 +595,11 @@ fn clone_subtree_does_not_invalidate_external_collection() {
     let pre_version = coll.cached_version;
 
     let _clone = dom
-        .clone_subtree(source, &mut Vec::new(), None)
+        .clone_subtree(
+            source,
+            &mut Vec::new(),
+            dom.node_document_for_new_nodes(source),
+        )
         .expect("source exists");
 
     // The orphan clone has not been attached anywhere — `target`'s
@@ -612,12 +616,12 @@ fn live_collection_sees_appended_clone_descendants() {
     let (mut dom, doc) = setup_dom();
     let body = dom.children(dom.children(doc)[0])[0];
 
-    let source = dom.create_element("section", Attributes::default());
-    let inner = dom.create_element("span", Attributes::default());
+    let source = dom.create_element_ownerless_fixture("section", Attributes::default());
+    let inner = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, source);
     dom.append_child(source, inner);
 
-    let target = dom.create_element("div", Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(body, target);
 
     let mut coll = LiveCollection::new(
@@ -628,7 +632,11 @@ fn live_collection_sees_appended_clone_descendants() {
     assert_eq!(coll.length(&dom), 0);
 
     let clone = dom
-        .clone_subtree(source, &mut Vec::new(), None)
+        .clone_subtree(
+            source,
+            &mut Vec::new(),
+            dom.node_document_for_new_nodes(source),
+        )
         .expect("source exists");
     dom.append_child(target, clone);
 
@@ -649,7 +657,7 @@ fn refresh_reuses_cache_buffer_capacity() {
 
     // Pre-populate with several divs so the buffer grows.
     for _ in 0..5 {
-        let d = dom.create_element("div", Attributes::default());
+        let d = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.append_child(body, d);
     }
 
@@ -664,7 +672,7 @@ fn refresh_reuses_cache_buffer_capacity() {
     assert!(cap_after_first >= 5);
 
     // Trigger a refresh that doesn't grow past the high-water mark.
-    let extra = dom.create_element("span", Attributes::default());
+    let extra = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(body, extra);
     assert_eq!(coll.length(&dom), 5); // div count unchanged
 
@@ -681,7 +689,7 @@ fn make_select(dom: &mut EcsDom, multiple: bool) -> Entity {
     if multiple {
         attrs.set("multiple", "");
     }
-    dom.create_element("select", attrs)
+    dom.create_element_ownerless_fixture("select", attrs)
 }
 
 fn make_option(dom: &mut EcsDom, selected: bool, disabled: bool) -> Entity {
@@ -692,7 +700,7 @@ fn make_option(dom: &mut EcsDom, selected: bool, disabled: bool) -> Entity {
     if disabled {
         attrs.set("disabled", "");
     }
-    dom.create_element("option", attrs)
+    dom.create_element_ownerless_fixture("option", attrs)
 }
 
 #[test]
@@ -753,7 +761,7 @@ fn selected_options_implicit_default_skips_optgroup_disabled() {
     let s = make_select(&mut dom, /*multiple=*/ false);
     let mut og_attrs = Attributes::default();
     og_attrs.set("disabled", "");
-    let og = dom.create_element("optgroup", og_attrs);
+    let og = dom.create_element_ownerless_fixture("optgroup", og_attrs);
     let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     let o2 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     dom.append_child(s, og);
@@ -816,7 +824,7 @@ fn selected_options_listbox_size_gt_one_no_implicit_default() {
     let mut dom = EcsDom::new();
     let mut s_attrs = Attributes::default();
     s_attrs.set("size", "3");
-    let s = dom.create_element("select", s_attrs);
+    let s = dom.create_element_ownerless_fixture("select", s_attrs);
     let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     dom.append_child(s, o1);
     let mut coll = LiveCollection::new(
@@ -837,7 +845,7 @@ fn selected_options_size_zero_falls_to_implicit_default() {
     let mut dom = EcsDom::new();
     let mut s_attrs = Attributes::default();
     s_attrs.set("size", "0");
-    let s = dom.create_element("select", s_attrs);
+    let s = dom.create_element_ownerless_fixture("select", s_attrs);
     let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     dom.append_child(s, o1);
     let mut coll = LiveCollection::new(
@@ -856,7 +864,7 @@ fn selected_options_size_one_implicit_default() {
     let mut dom = EcsDom::new();
     let mut s_attrs = Attributes::default();
     s_attrs.set("size", "1");
-    let s = dom.create_element("select", s_attrs);
+    let s = dom.create_element_ownerless_fixture("select", s_attrs);
     let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     dom.append_child(s, o1);
     let mut coll = LiveCollection::new(
@@ -880,8 +888,8 @@ fn selected_options_implicit_default_skips_nested_optgroup_disabled() {
     let s = make_select(&mut dom, /*multiple=*/ false);
     let mut og_attrs = Attributes::default();
     og_attrs.set("disabled", "");
-    let og = dom.create_element("optgroup", og_attrs);
-    let wrapper = dom.create_element("div", Attributes::default());
+    let og = dom.create_element_ownerless_fixture("optgroup", og_attrs);
+    let wrapper = dom.create_element_ownerless_fixture("div", Attributes::default());
     let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     let o2 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
     dom.append_child(s, og);
@@ -906,10 +914,10 @@ fn selected_options_implicit_default_skips_nested_optgroup_disabled() {
 #[test]
 fn direct_children_by_tag_name_single() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let tb1 = dom.create_element("tbody", Attributes::default());
-    let tb2 = dom.create_element("tbody", Attributes::default());
-    let caption = dom.create_element("caption", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let tb1 = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tb2 = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.append_child(table, caption);
     dom.append_child(table, tb1);
     dom.append_child(table, tb2);
@@ -927,10 +935,10 @@ fn direct_children_by_tag_name_single() {
 fn direct_children_by_tag_name_multi() {
     // <tr>'s cells: td and th.
     let mut dom = EcsDom::new();
-    let tr = dom.create_element("tr", Attributes::default());
-    let td1 = dom.create_element("td", Attributes::default());
-    let th = dom.create_element("th", Attributes::default());
-    let td2 = dom.create_element("td", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
+    let th = dom.create_element_ownerless_fixture("th", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.append_child(tr, td1);
     dom.append_child(tr, th);
     dom.append_child(tr, td2);
@@ -948,8 +956,8 @@ fn direct_children_by_tag_name_multi() {
 #[test]
 fn direct_children_by_tag_name_ascii_ci() {
     let mut dom = EcsDom::new();
-    let tr = dom.create_element("TR", Attributes::default());
-    let td = dom.create_element("TD", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("TR", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("TD", Attributes::default());
     dom.append_child(tr, td);
     let mut coll = LiveCollection::new(
         tr,
@@ -964,9 +972,9 @@ fn direct_children_by_tag_name_only_direct() {
     // Nested <tr> inside a <tbody> child must not appear in the
     // <table>.tBodies-style direct walk for the "tr" filter.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let tbody = dom.create_element("tbody", Attributes::default());
-    let nested_tr = dom.create_element("tr", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let nested_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.append_child(table, tbody);
     dom.append_child(tbody, nested_tr);
     let mut coll = LiveCollection::new(
@@ -981,8 +989,8 @@ fn direct_children_by_tag_name_only_direct() {
 #[test]
 fn direct_children_by_tag_name_empty_vec() {
     let mut dom = EcsDom::new();
-    let tr = dom.create_element("tr", Attributes::default());
-    let td = dom.create_element("td", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.append_child(tr, td);
     let mut coll = LiveCollection::new(
         tr,
@@ -995,13 +1003,13 @@ fn direct_children_by_tag_name_empty_vec() {
 #[test]
 fn table_rows_basic_thead_body_tfoot() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let thead = dom.create_element("thead", Attributes::default());
-    let tbody = dom.create_element("tbody", Attributes::default());
-    let tfoot = dom.create_element("tfoot", Attributes::default());
-    let h_tr = dom.create_element("tr", Attributes::default());
-    let b_tr = dom.create_element("tr", Attributes::default());
-    let f_tr = dom.create_element("tr", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let thead = dom.create_element_ownerless_fixture("thead", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tfoot = dom.create_element_ownerless_fixture("tfoot", Attributes::default());
+    let h_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let b_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let f_tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.append_child(table, thead);
     dom.append_child(table, tbody);
     dom.append_child(table, tfoot);
@@ -1022,7 +1030,7 @@ fn table_rows_basic_thead_body_tfoot() {
 #[test]
 fn table_rows_empty_table() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     let mut coll = LiveCollection::new(
         table,
         CollectionFilter::TableRows,
@@ -1035,8 +1043,8 @@ fn table_rows_empty_table() {
 fn table_rows_no_tbody_direct_tr() {
     // <table><tr>...</tr></table> — direct <tr> child of <table>.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let tr = dom.create_element("tr", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.append_child(table, tr);
     let mut coll = LiveCollection::new(
         table,
@@ -1050,11 +1058,11 @@ fn table_rows_no_tbody_direct_tr() {
 #[test]
 fn table_rows_multiple_tbodies_in_order() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let tb1 = dom.create_element("tbody", Attributes::default());
-    let tb2 = dom.create_element("tbody", Attributes::default());
-    let tr1 = dom.create_element("tr", Attributes::default());
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let tb1 = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tb2 = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.append_child(table, tb1);
     dom.append_child(table, tb2);
     dom.append_child(tb1, tr1);
@@ -1073,11 +1081,11 @@ fn table_rows_interleaved_direct_tr_and_tbody() {
     // <table><tr A></tr><tbody><tr B></tr></tbody><tr C></tr></table>
     // Result order: A, B, C (tree order; thead/tfoot absent).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let tr_a = dom.create_element("tr", Attributes::default());
-    let tbody = dom.create_element("tbody", Attributes::default());
-    let tr_b = dom.create_element("tr", Attributes::default());
-    let tr_c = dom.create_element("tr", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let tr_a = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tr_b = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let tr_c = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.append_child(table, tr_a);
     dom.append_child(table, tbody);
     dom.append_child(tbody, tr_b);
@@ -1094,10 +1102,10 @@ fn table_rows_interleaved_direct_tr_and_tbody() {
 fn table_rows_skips_non_tr_in_section() {
     // Stray non-<tr> children of <tbody> must not appear in rows.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let tbody = dom.create_element("tbody", Attributes::default());
-    let tr = dom.create_element("tr", Attributes::default());
-    let stray = dom.create_element("div", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let stray = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.append_child(table, tbody);
     dom.append_child(tbody, stray);
     dom.append_child(tbody, tr);
@@ -1113,10 +1121,10 @@ fn table_rows_skips_non_tr_in_section() {
 #[test]
 fn table_rows_thead_only() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
-    let thead = dom.create_element("thead", Attributes::default());
-    let tr1 = dom.create_element("tr", Attributes::default());
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
+    let thead = dom.create_element_ownerless_fixture("thead", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.append_child(table, thead);
     dom.append_child(thead, tr1);
     dom.append_child(thead, tr2);

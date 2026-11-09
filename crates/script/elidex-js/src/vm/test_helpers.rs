@@ -84,7 +84,8 @@ pub unsafe fn setup_with_element(
     doc: Entity,
     tag: &str,
 ) -> Entity {
-    let el = dom.create_element(tag, Attributes::default());
+    let owner = dom.node_document_for_new_nodes(doc);
+    let el = dom.create_element_with_owner(tag, Attributes::default(), owner);
     // SAFETY: forwarded from the caller — `bind_vm`'s contract is
     // identical to our own, and the two are documented together.
     unsafe {
@@ -115,9 +116,10 @@ pub unsafe fn setup_page(
     dom: &mut EcsDom,
     doc: Entity,
 ) -> Entity {
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    let el = dom.create_element("div", Attributes::default());
+    let owner = dom.node_document_for_new_nodes(doc);
+    let html = dom.create_element_with_owner("html", Attributes::default(), owner);
+    let body = dom.create_element_with_owner("body", Attributes::default(), owner);
+    let el = dom.create_element_with_owner("div", Attributes::default(), owner);
     assert!(dom.append_child(doc, html), "setup_page: append html");
     assert!(dom.append_child(html, body), "setup_page: append body");
     assert!(dom.append_child(body, el), "setup_page: append div");

@@ -273,7 +273,7 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     None
 }
 
-/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.1:
+/// WHATWG HTML §4.10.3 The form element, `requestSubmit(submitter?)` step 1.1:
 /// a non-null submitter must be a submit button — `<button type=submit>`,
 /// `<input type=submit>`, or `<input type=image>` (all classified as
 /// `FormControlKind::SubmitButton` by `from_element`).
@@ -286,10 +286,10 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
         .is_ok_and(|fcs| fcs.kind == FormControlKind::SubmitButton)
 }
 
-/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.2:
+/// WHATWG HTML §4.10.3 The form element, `requestSubmit(submitter?)` step 1.2:
 /// the submitter's form owner must be `form`.  Delegates to the
 /// canonical §4.10.18.3 form-owner resolution path
-/// ([`resolve_form_owner_public`](crate::radio::resolve_form_owner_public)),
+/// (`crate::radio::resolve_form_owner`),
 /// which combines the `form="..."` IDREF lookup with the tree-ancestor
 /// fallback.  The empty-id edge case (`form` has no `id` or `id=""`)
 /// is handled by `find_form_by_id`'s WHATWG DOM §4.2.5 / HTML §3.2.5
@@ -298,7 +298,7 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
 /// Caller maps `false` to `NotFoundError` `DOMException` per spec.
 #[must_use]
 pub fn is_form_owner(dom: &EcsDom, submitter: Entity, form: Entity) -> bool {
-    crate::radio::resolve_form_owner_public(dom, submitter) == Some(form)
+    crate::radio::resolve_form_owner(dom, submitter) == Some(form)
 }
 
 /// Collect form data from all submittable controls in a form.
@@ -523,7 +523,9 @@ fn replace_children_with_text(dom: &mut EcsDom, entity: Entity, text: &str) {
         let _ = dom.remove_child(entity, child);
     }
     if !text.is_empty() {
-        let text_node = dom.create_text(text);
+        // DOM §4.4 *node document*: the text is created in `entity`'s.
+        let owner = dom.node_document_for_new_nodes(entity);
+        let text_node = dom.create_text_with_owner(text, owner);
         let _ = dom.append_child(entity, text_node);
     }
 }

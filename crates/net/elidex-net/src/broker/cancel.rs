@@ -2,7 +2,7 @@
 //! RAII guards that keep the inflight counter and the cancel-token
 //! map bounded.
 //!
-//! Worker threads spawned by [`super::dispatch::NetworkProcessState::handle_fetch`]
+//! Worker threads spawned by `dispatch::NetworkProcessState::handle_fetch`
 //! own a [`FetchInflightGuard`] (decrements `inflight_fetches` on
 //! drop) and a [`CancelMapEntryGuard`] (removes the
 //! `(client_id, FetchId)` entry on drop, including unwind paths).

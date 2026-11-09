@@ -14,7 +14,6 @@
 //! radio / submit / select / fieldset push-propagation / value-mode
 //! migration) that need `&mut EcsDom` / `elidex-dom-api` / `elidex-script-session`.
 
-pub mod ancestor_cache;
 mod clone;
 mod fieldset;
 pub mod focus_snapshot;
@@ -26,6 +25,9 @@ mod reconciler;
 mod select;
 mod sizing;
 mod submit;
+#[cfg(test)]
+pub(crate) mod test_support;
+mod user_edit;
 mod value_mode;
 
 // --- Re-export the elidex-form-core leaf crate (Slice 0a carve) ---
@@ -42,18 +44,15 @@ pub use elidex_form_core::{
     SelectionDirection, StepError, ValidityState, ValueMode, ValueSetAction, MAX_PATTERN_LENGTH,
 };
 
-pub use ancestor_cache::AncestorCache;
-pub use clone::apply_clone_form_state;
 pub use fieldset::propagate_fieldset_disabled;
 pub use focus_snapshot::{
-    clear_focus_snapshot, record_focus_snapshot, take_focus_snapshot, FocusValueSnapshot,
+    clear_focus_snapshot, record_focus_snapshot, take_change_on_blur, FocusValueSnapshot,
 };
 pub use inert_document::parse_into_inert_document;
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};
 pub use radio::{
-    find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
-    toggle_radio,
+    find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate, toggle_radio,
 };
 pub use reconciler::FormControlReconciler;
 pub use select::{
@@ -67,3 +66,4 @@ pub use submit::{
     find_form_ancestor, is_form_owner, is_submit_button, read_form_attrs, reset_form, FormAttrs,
     FormDataEntry, FormSubmission,
 };
+pub use user_edit::{apply_user_edit, UserEdit};

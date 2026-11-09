@@ -112,7 +112,7 @@ fn remove_attribute() {
 #[test]
 fn text_content_get_set() {
     let (mut dom, parent, _, mut session) = setup();
-    let text_node = dom.create_text("original");
+    let text_node = dom.create_text_ownerless_fixture("original");
     dom.append_child(parent, text_node);
 
     // Get.
@@ -142,7 +142,7 @@ fn text_content_get_set() {
 fn replace_child_returns_old_node() {
     let (mut dom, parent, child, mut session) = setup();
     dom.append_child(parent, child);
-    let new_child = dom.create_element("h1", Attributes::default());
+    let new_child = dom.create_element_ownerless_fixture("h1", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_child, ComponentKind::Element)
         .to_raw();
@@ -170,8 +170,8 @@ fn replace_child_old_not_a_child_is_not_found_error() {
     let (mut dom, parent, _child, mut session) = setup();
     // `child` from setup is NOT appended to `parent`, so it counts
     // as a non-child for this test.
-    let other = dom.create_element("h1", Attributes::default());
-    let new_child = dom.create_element("section", Attributes::default());
+    let other = dom.create_element_ownerless_fixture("h1", Attributes::default());
+    let new_child = dom.create_element_ownerless_fixture("section", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(new_child, ComponentKind::Element)
         .to_raw();
@@ -223,7 +223,7 @@ fn replace_child_ancestor_cycle_is_hierarchy_request_error() {
     // check, §4.4 step 2). Layout: grand → parent → old_child.
     // Replace old_child with grand — must throw HierarchyRequestError.
     let (mut dom, parent, child, mut session) = setup();
-    let grand = dom.create_element("body", Attributes::default());
+    let grand = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(grand, parent);
     dom.append_child(parent, child);
     let grand_ref = session
@@ -249,8 +249,8 @@ fn replace_child_detaches_new_from_prior_parent() {
     // re-parented (the §4.4 "adopt" + reparent semantics).
     let (mut dom, parent, child, mut session) = setup();
     dom.append_child(parent, child);
-    let donor = dom.create_element("section", Attributes::default());
-    let new_child = dom.create_element("img", Attributes::default());
+    let donor = dom.create_element_ownerless_fixture("section", Attributes::default());
+    let new_child = dom.create_element_ownerless_fixture("img", Attributes::default());
     dom.append_child(donor, new_child);
     let new_ref = session
         .get_or_create_wrapper(new_child, ComponentKind::Element)
@@ -376,7 +376,7 @@ fn insert_before_ref_not_a_child_is_not_found_error() {
     // through the validator; before the fold the lax empty-`apply_*`-list path mapped
     // this to HierarchyRequestError (spec-wrong kind). Locks the spec-correct kind.
     let (mut dom, parent, child, mut session) = setup();
-    let orphan = dom.create_element("aside", Attributes::default());
+    let orphan = dom.create_element_ownerless_fixture("aside", Attributes::default());
     let new_ref = session
         .get_or_create_wrapper(child, ComponentKind::Element)
         .to_raw();
@@ -554,8 +554,8 @@ fn remove_attribute_invalid_name_is_noop() {
 fn append_child_into_text_parent_throws_hierarchy() {
     // §4.2.3 step 1: parent must be Document / DocumentFragment / Element.
     let (mut dom, _div, _span, mut session) = setup();
-    let text_parent = dom.create_text("data");
-    let el = dom.create_element("b", Attributes::default());
+    let text_parent = dom.create_text_ownerless_fixture("data");
+    let el = dom.create_element_ownerless_fixture("b", Attributes::default());
     let el_ref = session
         .get_or_create_wrapper(el, ComponentKind::Element)
         .to_raw();
@@ -591,10 +591,10 @@ fn append_child_document_node_throws_hierarchy() {
 
 #[test]
 fn append_child_text_into_document_throws_hierarchy() {
-    // §4.2.3 step 5: a Text node may not be inserted under a Document.
+    // §4.2.3 ensure pre-insert validity step 6: a Text node may not be inserted under a Document.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
-    let text = dom.create_text("x");
+    let text = dom.create_text_ownerless_fixture("x");
     let text_ref = session
         .get_or_create_wrapper(text, ComponentKind::TextNode)
         .to_raw();
@@ -606,12 +606,12 @@ fn append_child_text_into_document_throws_hierarchy() {
 
 #[test]
 fn append_child_second_element_into_document_throws_hierarchy() {
-    // §4.2.3 step 6 (Element branch): a Document may have at most one element child.
+    // §4.2.3 ensure pre-insert validity step 9.1 (Element branch): a Document may have at most one element child.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
-    let root = dom.create_element("html", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, root); // the documentElement
-    let second = dom.create_element("html", Attributes::default());
+    let second = dom.create_element_ownerless_fixture("html", Attributes::default());
     let second_ref = session
         .get_or_create_wrapper(second, ComponentKind::Element)
         .to_raw();
@@ -628,7 +628,7 @@ fn append_child_second_element_into_document_throws_hierarchy() {
 
 #[test]
 fn append_child_existing_document_element_throws_hierarchy() {
-    // §4.2.3 pre-insert step 6 (Element branch) has NO self-exclusion: it tests
+    // §4.2.3 ensure pre-insert validity step 9.1 (Element branch) has NO self-exclusion: it tests
     // "parent has an element child" counting ALL element children INCLUDING the node
     // being inserted, and runs BEFORE the pre-insert self-reference adjustment
     // (pre-insert step 3). So `document.appendChild(document.documentElement)` throws
@@ -639,7 +639,7 @@ fn append_child_existing_document_element_throws_hierarchy() {
     // B1.2b-3 R1 caught the plan's wrong "step-6 self-exclusion" framing.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
-    let root = dom.create_element("html", Attributes::default());
+    let root = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, root);
     let root_ref = session
         .get_or_create_wrapper(root, ComponentKind::Element)
@@ -658,7 +658,7 @@ fn replace_child_self_replace_orphan_throws_not_found() {
     // short-circuit, so replacing an orphan with itself throws §4.2.3 replace
     // step-3 NotFoundError (orphan is not a child of `this`), not a silent no-op.
     let (mut dom, parent, _span, mut session) = setup();
-    let orphan = dom.create_element("i", Attributes::default());
+    let orphan = dom.create_element_ownerless_fixture("i", Attributes::default());
     let orphan_ref = session
         .get_or_create_wrapper(orphan, ComponentKind::Element)
         .to_raw();

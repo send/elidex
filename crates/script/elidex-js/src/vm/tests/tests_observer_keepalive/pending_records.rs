@@ -30,9 +30,9 @@ fn pending_records_keep_mutation_observer_alive_across_despawn_and_still_deliver
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     assert!(dom.append_child(target, added));
     #[allow(unsafe_code)]
     unsafe {
@@ -106,9 +106,9 @@ fn drained_pending_observer_with_no_observation_is_collected() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    let target = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, target));
-    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    let added = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     assert!(dom.append_child(target, added));
     #[allow(unsafe_code)]
     unsafe {

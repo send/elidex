@@ -5,8 +5,9 @@
 //! synchronously at clone time so a detached clone reads correctly.
 //!
 //! Slot `#11-clone-cloning-steps-event`. The engine-indep copy lives in
-//! `elidex_form::apply_clone_form_state` (unit-tested there); these drive it
-//! through the real VM `cloneNode` marshalling shim.
+//! `FormControlReconciler`'s `MutationEvent::CloneCreated` arm (elidex-form,
+//! unit-tested there); these drive it through the real VM `cloneNode` native,
+//! whose dom-api clone entry fires the event.
 
 #![cfg(feature = "engine")]
 
@@ -19,8 +20,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc

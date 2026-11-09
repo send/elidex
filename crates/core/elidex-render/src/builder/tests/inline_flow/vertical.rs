@@ -24,7 +24,7 @@ fn consumes_inline_flow_vertical_columns() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("ABAB");
+    let text = dom.create_text_ownerless_fixture("ABAB");
     dom.append_child(div, text);
 
     // Vertical layout output: two columns. block_start = physical x of the column's

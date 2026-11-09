@@ -7,10 +7,10 @@
 //!
 //! Spec receivers are Element / Document / DocumentFragment.  Both
 //! installs run on `Element.prototype` and `DocumentFragment.prototype`
-//! (ShadowRoot inherits via the latter); Document has no shared
-//! prototype so its wrapper picks up the four RO accessors via
+//! (ShadowRoot inherits via the latter); Document is installed once on
+//! `Document.prototype`, which gets the four RO accessors via
 //! [`super::document::DOCUMENT_RO_ACCESSORS`] and keeps its existing
-//! `native_document_query_selector*` own-properties.
+//! `native_document_query_selector*` prototype methods.
 //!
 //! The mutation methods are **thin dispatchers** (B1.2b convergence): they
 //! brand-check the receiver and route to the engine-independent dom-api handler
@@ -34,7 +34,7 @@ use elidex_ecs::NodeKind;
 
 impl VmInner {
     /// Install `prepend` / `append` / `replaceChildren` on
-    /// `proto_id` (Element.prototype or a document wrapper).
+    /// `proto_id` (Element.prototype or Document.prototype).
     pub(in crate::vm) fn install_parent_node_mixin(&mut self, proto_id: ObjectId) {
         for (name_sid, func) in [
             (

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn grid_empty_container() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -93,7 +93,7 @@ fn column_track_sizing() {
 
     for (desc, tracks, container_w, expected) in cases {
         let mut dom = EcsDom::new();
-        let container = dom.create_element("div", Attributes::default());
+        let container = dom.create_element_ownerless_fixture("div", Attributes::default());
         dom.world_mut()
             .insert_one(
                 container,
@@ -142,7 +142,7 @@ fn column_track_sizing() {
 fn grid_auto_rows() {
     // 2-column grid with 4 items -> 2 auto rows.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -187,7 +187,7 @@ fn grid_auto_rows() {
 #[test]
 fn grid_explicit_rows() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -232,7 +232,7 @@ fn grid_explicit_rows() {
 #[test]
 fn grid_auto_track_size() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -275,7 +275,7 @@ fn grid_auto_track_size() {
 #[test]
 fn grid_container_auto_height() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -311,7 +311,7 @@ fn grid_container_auto_height() {
 #[test]
 fn grid_minmax_track() {
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -358,7 +358,7 @@ fn grid_percentage_row_indefinite_height() {
     // CSS Grid 7.2.1: percentage row tracks with indefinite container height
     // should behave like auto (use content size).
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -404,7 +404,7 @@ fn grid_minmax_min_content_uses_narrow_size() {
     // and max-content are the same, so we test with a small fixed child
     // to verify the base is not inflated.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -423,7 +423,7 @@ fn grid_minmax_min_content_uses_narrow_size() {
         .unwrap();
 
     // Child in first column has a small fixed width.
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -471,7 +471,7 @@ fn grid_minmax_min_content_uses_narrow_size() {
 fn grid_minmax_max_content_in_max() {
     // minmax(100px, max-content) should use max-content for the limit.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -490,7 +490,7 @@ fn grid_minmax_max_content_in_max() {
         .unwrap();
 
     // Child in first column has a medium fixed width (150px).
-    let c1 = dom.create_element("div", Attributes::default());
+    let c1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(container, c1);
     dom.world_mut()
         .insert_one(
@@ -537,7 +537,7 @@ fn grid_minmax_max_content_in_max() {
 fn auto_fill_200px_in_900px() {
     // repeat(auto-fill, 200px) in 900px container -> floor(900/200) = 4 tracks.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -588,7 +588,7 @@ fn auto_fill_200px_in_900px() {
 fn auto_fill_multi_pattern_in_900px() {
     // repeat(auto-fill, 100px 200px) in 900px -> floor(900/300) = 3 reps = 6 tracks.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -651,7 +651,7 @@ fn auto_fit_collapses_empty_tracks() {
     // repeat(auto-fit, 200px) with only 2 items in 900px -> 4 tracks,
     // but empty ones collapse their size to 0.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -697,7 +697,7 @@ fn auto_fit_collapses_empty_tracks() {
 fn auto_fill_minimum_one_repetition() {
     // repeat(auto-fill, 300px) in 250px container -> minimum 1 track.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,
@@ -741,7 +741,7 @@ fn auto_fill_with_fixed_before_after() {
     // Each 200px pattern with gap=0 -> floor(700/200) = 3 repetitions.
     // Total: 100 + 3*200 + 100 = 800.
     let mut dom = EcsDom::new();
-    let container = dom.create_element("div", Attributes::default());
+    let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             container,

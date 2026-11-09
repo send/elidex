@@ -33,7 +33,9 @@ pub(super) use lifecycle::{
 // synthesized `LoadedDocument`.
 #[cfg(test)]
 pub(super) use load::make_out_of_process_entry;
-pub(super) use render::{re_render_all_iframes, tick_iframe_timers};
+pub(super) use render::{
+    any_iframe_needs_render, next_iframe_timer_deadline, re_render_all_iframes, tick_iframe_timers,
+};
 pub(super) use thread::{click_event_types, mouse_event_init_from_click};
 pub use types::*;
 

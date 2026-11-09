@@ -35,6 +35,10 @@ No decision changes: no §8.1.3.4 check runs at invocation under either text, an
 the current step 3.2 text and D8's "scripting is disabled for *el's node document*" give the same outcome at N1, and which one is implemented is N4's, recorded on edge n3.
 Clerical: §5.1's *Closed* D2 × D8 entry names its means (N1's D-N3). The sweep (stating sections, DoD, downstream) and each hit's disposition: N1 memo §0.3 P-N1.
 
+**Amendment 2026-11-01** (PM decision 157; carried by the PR of the EH-attrs C0 program memo, `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` D-15 — the plan branch `layout-dom-c0-insert-adopt-plan`; made true by C0b, which lands `node_document`) — in place, an **exception** by PM decision 157 to the approval scope's rule (`:12-14`) and to §0.3's A114 idiom, like the 2026-10-25 erratum.
+The node-document derivation this memo planned as `effective_node_document` (NEW, N4, `dom/document_policy.rs`) — the parent's interim rule: a Document → itself, a node → its composed tree root if a Document, else its stored owner — is **replaced** by C0's `EcsDom::node_document` (NEW: C0, in `dom/mod.rs`): a Document → itself, a node → its `AssociatedDocument` (live Document, else `None`), which C0 sets at creation and re-homes at every insertion (slot `#11-cross-document-adopt-on-insert`, closed by C0).
+Unresolvable → the node clause is false, as before; every reader below names `node_document`; N4 calls it and adds no function. *Restated 2026-11-03* (C0 program memo rev 3, P-14): the node-clause paragraph below cited `scripting.rs:83-114` as "HEAD's order" for the stored-node-document rule; those lines are N1's composed-root proxy, which C0's `node_document` replaces — the sentence now says so. The program is C0a / C0b / C0c (PM 244); `node_document` lands in **C0b**. This amendment also **supersedes the N1 memo's n3 hand-off** (`docs/plans/2026-10-ibp-sandbox-handler-gates.md:961-962`: N4 "promotes the effective-node-document rule into `EcsDom::effective_node_document`"): N4 calls C0b's `node_document` instead; the N1 memo is landed and is not edited (C0 program D-15 (iv)). Edited: §0.4 D8 (subjects, the derivation paragraph, form submission, F10r, the N5 window note, the node clause), J13, §3's §8.1.3.4 row, §4's F10 and "Node document" lines, §5.1's N4 row, §5.2 n3, §5.4's N5 form-gate line, §6's idiom line, §8's residual (5). Not edited: the revision history, the parent's quoted cell text, and the recorded sweep commands.
+
 **Prerequisite outside the DAG** (clerical; PM decision 17 (i) — the PM's ruling of 2026-10-25 that the event-handler consumer's Insert arm, which turned every `on*` attribute raw again on every insertion including a move, is fixed by a standalone prerequisite, not in N1 — restated by PM decisions 21 and 23 as the program `EH-attrs-at-creation`, whose slice a is an approved interim required by dependency; PM decision 17 also ruled that D2's wording is neutral between the two step-3.2 readings, that `#11-unhandledrejection-dispatch-target` is registered, and that the §13.4 step number is N9's): N1 depends on `EH-attrs-at-creation` slice a (`docs/plans/2026-10-event-handler-attrs-at-creation.md`; contract K-1: creation-time handler content attributes are processed at most once, and no insertion, move or rebind writes handler state from them) landing first — that umbrella's §L shows that no landing order puts N1 first; slice a landed by #563 (`3cd84a04`). It is not a node of this program and adds no edge to §5.2. Like the erratum, this in-place paragraph is an **exception**, by PM decision 17 (i), to the approval scope's rule that a finding changes this memo only through a decision (`:12-14`) and to §0.3's A114 idiom; it edits nothing else (N1 memo §10.2).
 
 **Revision 12** (2026-10-01) folds Codex round 3 on #532 (`bb4b92cf`: 3 real) and a self-root-check. Rounds 1–3 kept
@@ -202,10 +206,10 @@ pass the realm resolution (today the bound realm's associated Document, J12; in 
 created) and a **subject** — the spec's object form at the reading step, `ScriptingSubject` (NEW):
 - `Node(el)` — "scripting is disabled for *el*" (the script-fetch gate, §4.12.1.1 step 18, D5; later F4/F16/F17 readers):
   settings clause over **el's relevant realm's** associated Document (HTML §8.1.3.3.4; §7.2.2); node clause over
-  `effective_node_document(el)`.
+  `node_document(el)` (C0; amendment 2026-11-01).
 - `NodeDocumentOf(el)` — "scripting is disabled for *el's node document*" (the compile gate, §8.1.8.1 *get the current
-  value of the event handler* 3.1–3.2, for an element target — erratum 2026-10-25: current step 3.2 reads document's browsing context and active sandboxing flag set directly (A16), equal to this reading in HEAD's single realm; which text the compile gate implements under this variant is N4's, edge n3; the fragment derivation, §13.4 step 10, contextDocument =
-  context's node document, step 5): document = `effective_node_document(el)`; settings clause over **that document's**
+  value of the event handler* 3.1–3.2, for an element target — erratum 2026-10-25: current step 3.2 reads document's browsing context and active sandboxing flag set directly (A16), equal to this reading in HEAD's single realm; which text the compile gate implements under this variant is N4's, edge n3; the fragment derivation, §13.4 *HTML fragment parsing algorithm* step 8 (scripting disabled when contextDocument's is), contextDocument =
+  context's node document, step 5): document = `node_document(el)`; settings clause over **that document's**
   relevant realm's associated Document; node clause over that document.
 - `Window(w)` (the compile gate for a Window target, whose *document* is the Window's associated Document; the Window
   clause), `OtherPlatformObject` (any other platform object — a worker global included: the settings clause alone,
@@ -225,17 +229,18 @@ route refuses before calling F10 (J2); an unresolvable node document has a bound
 adoption changes only its node document, so after an adopt into another realm's document the two variants read different
 settings documents. Today they agree (every object reachable from a VM's `EcsDom` was created in its one realm).
 
-`EcsDom::effective_node_document(node)` (NEW) — landed by N4 in `dom/document_policy.rs` — **is** the parent's interim rule
-(the node clause, below) and the one derivation — never `owner_document` alone: the stored owner is not re-homed on
-cross-document insert (that is `#11-cross-document-adopt-on-insert`, a record only, §8). It is called inside the
+`EcsDom::node_document(node)` (NEW: C0; amendment 2026-11-01 — it replaces this memo's planned `effective_node_document`)
+**is** the one derivation and carries the node clause's interim (below): C0 stores the node document at creation and
+re-homes it at every insertion (`#11-cross-document-adopt-on-insert`, closed by C0), so no tree-position rule is needed
+and no reader calls `owner_document` for it. It is called inside the
 composition and by the one F10r reader family that names a node document (two sites, both N5: `form_input.rs:129`,
 `vm/host/html_form_proto.rs:499`):
-- **Form submission** (§4.10.22.3 steps 3–4): the *form document* = `effective_node_document(form)`, its flags read
+- **Form submission** (§4.10.22.3 steps 3–4): the *form document* = `node_document(form)`, its flags read
   through F10r.
 
 **F10r over a node-derived document — unresolvable fails closed** (inside the parent's F10r cell: "flag absence can
 never fail open"). An F10r reader whose document is derived from a node and does not resolve
-(`effective_node_document(..) == None`) reads `all_represented()` — every flag set, so its gate refuses. The mapping lives
+(`node_document(..) == None`) reads `all_represented()` — every flag set, so its gate refuses. The mapping lives
 in F10r's one read path (§4 F10r), so no reader branches on `None`. This is the only F10r reader family that can see
 `None`: today two members, both reading the forms flag over the form document — the shell's submission
 (`form_input.rs:129`) and the VM's `form.requestSubmit()` (`vm/host/html_form_proto.rs:499`), which at HEAD fires `invalid`,
@@ -253,9 +258,9 @@ at `f1cf5d67`: `dispatch_event` of `mousedown`/`mouseup`/`click`, then `:155 han
 `handle_key_text` → `:580 handle_form_submit`), and `handle_form_submit` dispatches `submit` (`form_input.rs:137-139`)
 without re-checking. Two windows follow, and this node changes only which document the forms flag is read from, so every
 outcome is HEAD's or stricter: (i) a detach **before** activation (a `mousedown`/`mouseup`/`click`/`keydown` listener) —
-HEAD submits; from N5 the forms flag is read from `effective_node_document(form)`, so a form that still resolves to the
+HEAD submits; from N5 the forms flag is read from `node_document(form)`, so a form that still resolves to the
 live document submits as at HEAD, while one that no longer resolves (an owner-`None` parser-created form) or resolves to
-an F9-less throwaway document (a DOMParser form, never re-homed, `#11-cross-document-adopt-on-insert`) refuses (C34);
+an F9-less throwaway document (a DOMParser form not moved into the live document; C0 re-homes a moved one) refuses (C34);
 (ii) a detach **during** the `submit` event (the step 5.9 window) — N5's read precedes the dispatch, so the form submits
 at HEAD and after N5 alike (C35, the A96 record).
 
@@ -273,9 +278,11 @@ this purpose. Amendment (recorded, not edited) of the parent's F10 cell's "`docu
 
 **Node clause — the parent's ratified interim (not a new decision).** Parent F10 cell (`:1180`): "interim representation
 the effective-node-document rule … promoted unchanged (it fails **open** when the node's document cannot be resolved …);
-final representation the enriched `#11-domparser-full-document-parse-fidelity` marker". Promoted unchanged into `EcsDom`
-as `effective_node_document` (D8), HEAD's order (`elidex-script-session/src/scripting.rs:83-114`): a Document target →
-itself; a node → its composed tree root if that is a Document; otherwise `owner_document`; the result compared against the
+final representation the enriched `#11-domparser-full-document-parse-fidelity` marker". Replaced (amendment
+2026-11-01, restated 2026-11-03) by C0's stored node document, `EcsDom::node_document` (D8), which replaces HEAD's
+proxy — at this memo's frame `elidex-script-session/src/scripting.rs:83-114` derives a node's document from its composed
+tree root if that is a Document, else `owner_document` — with: a Document target → itself; a node → its
+`AssociatedDocument` (live Document, else `None`), which C0 sets at creation and re-homes at every insertion; the result compared against the
 subject's settings document (D8); unresolvable → the **node clause** is false, after the settings clause has been
 evaluated (D8; never a gate-scope skip). *Window clause* (the parent's cell): the same fact, read for the Window's
 associated Document. `OtherPlatformObject` and `Settings` → settings clause only. F9 is a creation fact and **nothing reads F9's
@@ -399,7 +406,7 @@ rule to its own PR; the parent's `:1377-1380` exception covers only IBP-layout a
 - **J12 One VM read route** — from **N4**: bound → (the relevant realm's document, `HostData::dom()`); unbound → refuse.
   At N4 the route's flag source is `HostData` (mapped per J14); from N5, F9 via F10r.
 - **J13 Settings identity and node document** — from **N4**: callers pass the realm resolution and the spec's subject form
-  (D8); the one composition derives every node document F10 reads through `EcsDom::effective_node_document`, derives the
+  (D8); the one composition derives every node document F10 reads through `EcsDom::node_document` (C0), derives the
   settings document per subject, and evaluates the settings clause first; no caller derives or branches on `None`. The
   one F10r reader family naming a node document (form submission: `form_input.rs:129` and
   `html_form_proto.rs:499`, both from N5) derives it with the same function; unresolvable → F10r
@@ -440,7 +447,7 @@ settings document; unresolvable → the node clause alone is false).
 | WHATWG HTML §7.5.1 Shared document creation infrastructure | *create and initialize a Document object* | F9, F19 at spawn | N5, N6 | ✓ | no |
 | WHATWG HTML §7.5.7 Loading a document for inline content that doesn't have a DOM | error page | load-error / framing-blocked fallbacks | N6 | ✓ | no |
 | WHATWG HTML §7.1.7 Policy containers | *create a policy container from a fetch response* 1–7; *determine navigation params policy container* 1–5 | step 1 of the former (blob) → `#11-worker-blob-script`; non-CSP members → slot | N6 | ✗ | yes |
-| WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings / node / Window clauses; the object forms (settings, *el*, *el's node document*, Window) | one composition owns derivation and clause order; node clause = the parent's interim (unresolvable → node clause false), one `effective_node_document` (D8) | N4, N5 | ✗ | yes |
+| WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings / node / Window clauses; the object forms (settings, *el*, *el's node document*, Window) | one composition owns derivation and clause order; node clause = the parent's interim (unresolvable → node clause false), one `node_document` (C0; D8) | N4, N5 | ✗ | yes |
 | WHATWG HTML §8.1.4.4 Calling scripts | *check if we can run script* step 2 | eval gate (`Settings`, D8) | N4 | ✓ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | getting the current value 3.1–3.2; processing algorithm 1–4 (`.claude/tools/webref body html the-event-handler-processing-algorithm`, 2026-10-25) | no §8.1.3.4 check at invocation; step 1 (WebDriver BiDi) vacuous; step 4 (not fully active) → slot (§8 B1 append (2)) — rev ≤ 12 read "1–3; step 3 → slot" (erratum 2026-10-25) | N1 | ✗ | yes |
 | WHATWG HTML §8.7 Timers | *timer initialization steps* step 9.5 | satisfied transitively; breaking conditions → slot (§8) | none | ✗ | no |
@@ -484,9 +491,9 @@ clause false; the settings clause is always evaluated (D8).
   route before the call (J2). It is the **realm → document resolution** — the one contract B1 replaces (today the bound
   realm's associated Document; under B1 the relevant realm's, §8 B1 append (5)). `ScriptingSubject = Node(Entity) |
   NodeDocumentOf(Entity) | Window(Entity) | OtherPlatformObject | Settings` (NEW), payloads non-`Option`, one variant per
-  spec object form (D8). In F10's interface the only `Option` is `effective_node_document`'s return, consumed inside the composition (F10r's
+  spec object form (D8). In F10's interface the only `Option` is `node_document`'s return, consumed inside the composition (F10r's
   `Option` is its own, below). Order: settings clause first — the subject's settings document derived (for `NodeDocumentOf` from
-  `effective_node_document`, falling back to the element's realm on `None`), then `WorkerGlobalRoot` on it → the sandbox
+  `node_document`, falling back to the element's realm on `None`), then `WorkerGlobalRoot` on it → the sandbox
   condition does not apply, else `!scripting_enabled(flags)`; then the node or Window clause: the parent's interim (§0.4),
   `None` → false. **At N4** the function takes one more argument, the flags, which the route fills from `HostData` (J14
   mapping) — an N4–N5 interim listed in J14 and deleted by N5 (`elidex-ecs` cannot see `HostData`, and reading F10r there
@@ -497,9 +504,9 @@ clause false; the settings clause is always evaluated (D8).
   to `EcsDom::scripting_disabled_for`. Readers: eval (`Settings`), compile (`NodeDocumentOf` / `Window`; which of the two step-3.2 readings it implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader, is N4's, edge n3 — D8's erratum note), D5 script-fetch
   (`Node`, N6), fragment derivation (`NodeDocumentOf`, N9); later F4/F16/F17 (`Node`). Invoke-time gate deleted (N1).
   *Timers*: no reader wired (§8 slot).
-- **Node document** (N4; N1 through HEAD's composition) — *Home/kind*: `EcsDom::effective_node_document(node)` (NEW) in
-  `dom/document_policy.rs`, the parent's interim rule (§0.4, D8); the one derivation, called inside F10's composition and by
-  form submission's F10r read (D8).
+- **Node document** (C0; N1 through HEAD's composition until C0) — *Home/kind*: `EcsDom::node_document(node)` (NEW: C0)
+  in `dom/mod.rs`, the stored node document (amendment 2026-11-01; §0.4, D8); the one derivation, called inside F10's
+  composition and by form submission's F10r read (D8).
 - **F10r** (N4 over `HostData`; N5 over F9) — *Home/kind*: `EcsDom::active_sandboxing_flags(document)` (NEW) → F9 or
   `all_represented()`; it takes the reader's document as resolved (`Option<Entity>`; readers holding a Document pass
   `Some`), so an unresolvable node-derived document (`None`) also reads
@@ -530,7 +537,7 @@ clause false; the settings clause is always evaluated (D8).
 | **N2a `IBP-sandbox-flagset`** | D1 (incl. the sandboxed navigation flag); the J14 interim stores |
 | **N2b `IBP-sandbox-nav-relation`** | D-a: `NavigableRelation`, its one derivation, the predicate (§7.4.2.4) and its callers |
 | **N3 `IBP-sandbox-csp-list`** | `elidex-plugin::csp` parse + `frame_ancestors_check`; `check_framing_allowed` marshals |
-| **N4 `IBP-sandbox-f10-route`** | F10 composition in `EcsDom`, owning derivation and clause order over `ScriptingSubject` (node clause = the parent's interim, `effective_node_document`); `WorkerGlobalRoot` stamped by `bind_worker`, with the worker-kind guard it adds; the VM route (unbound → refuse); every gate routed over the `HostData` store |
+| **N4 `IBP-sandbox-f10-route`** | F10 composition in `EcsDom`, owning derivation and clause order over `ScriptingSubject` (node clause = the parent's interim, `node_document` from C0); `WorkerGlobalRoot` stamped by `bind_worker`, with the worker-kind guard it adds; the VM route (unbound → refuse); every gate routed over the `HostData` store |
 | **N5 `IBP-sandbox-stamp`** | the store flip: F9, F10r over F9, every creation entry threaded, `HostData`'s copy deleted |
 | **N6 `IBP-sandbox-csp-sandbox`** | CSP-derived flags; F19 (D-h); `determine_origin`; frame-ancestors over F19; D5 |
 | **N7 `IBP-sandbox-embedder-union`** | `determine_creation_sandboxing_flags`' embedder branch |
@@ -585,7 +592,7 @@ runs from N1 (C8b) — the spec's outcome (A17), not a window.
 |---|---|---|
 | n1 | IBP-split-ecs → N4 | code predecessor (E1: N4 is the first to edit `dom/mod.rs`, adding `dom/document_policy.rs`) |
 | n2 | IBP-split-parser → N5 | code predecessor (E2: N5 is the first to edit `elidex-html-parser/src/lib.rs` — its parse entries take the input; measured: no N1–N4 scope touches that file) |
-| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and promotes its node-document rule; F10 takes `SandboxingFlagSet`; N4 decides which of the two step-3.2 readings — the current webref text or D8's "scripting is disabled for *el's node document*" — the compile gate implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader (P4); they give the same outcome at N1 (D8's erratum note; N1 memo §0.3 P-N1, O1)) |
+| n3 | N1 → N4; N2a → N4 | data flow (N4 routes N1's gate set and reads C0's `EcsDom::node_document` for its node document — amendment 2026-11-01; F10 takes `SandboxingFlagSet`; N4 decides which of the two step-3.2 readings — the current webref text or D8's "scripting is disabled for *el's node document*" — the compile gate implements, and with it whether it is an F10 or an F10r-plus-browsing-context reader (P4); they give the same outcome at N1 (D8's erratum note; N1 memo §0.3 P-N1, O1)) |
 | n4 | N4 → N5 | data flow (N5 re-sources N4's route and F10) |
 | n5 | N3 → N6 | data flow (`CspList`) |
 | n6a | N2a → N2b, N6, N7, N8 | data flow (the restriction-form set D-a reads; union-safe set; propagate flag) |
@@ -636,7 +643,7 @@ Input file §B defines populations (a)–(h) by property with counts at `f1cf5d6
   input; (c) per-file co-occurrence; (d) misses `engine.bind(ctx)`/`with_bound`; mapping residuals per input §C. N5 deletes
   the `HostData` surface the link path reads (`popups_allowed`, `sandbox_flags`), so it re-points `link_nav.rs:46`, `:57`
   to F10r on `pipeline.document` until N8. The form gate (`form_input.rs:129`) moves after the form lookup (`:132`),
-  because its document is the form's (`effective_node_document(form)`, D8); an unresolvable form document reads
+  because its document is the form's (`node_document(form)`, D8); an unresolvable form document reads
   `all_represented()` (C32). N5 adds the forms-flag read the VM's `form.requestSubmit()` lacks at HEAD
   (`vm/host/html_form_proto.rs:499`), at step 4's position — before the validation block (`:546`, which fires `invalid`) and
   the `submit` dispatch (`:563`) — through F10r on the form document (D8, C33). N5 implements no *cannot navigate* check (§4.10.22.3 steps 1, 5.9, 9 are `#11-form-navigation`'s, A96).
@@ -655,7 +662,7 @@ Input file §B defines populations (a)–(h) by property with counts at `f1cf5d6
 creation fact, never read as the node clause's fact); "node document's browsing context is null" → the parent's interim rule (unresolvable → the node clause alone false), final
 form the enriched `#11-domparser-full-document-parse-fidelity` marker; `Document.policyContainer.cspList` →
 `DocumentCspList`; Window/WorkerGlobalScope dispatch → `WorkerGlobalRoot` stamped by `Vm::bind_worker` + one `get`; "an element's node
-document" → `EcsDom::effective_node_document` (one function, called inside F10's one composition, D8); the spec's object
+document" → `EcsDom::node_document` (C0; one function, called inside F10's one composition, D8); the spec's object
 forms ("disabled for *el*" / "for *el's node document*" / Window / settings) → `ScriptingSubject` variants (D8); per-VM
 `HostData.sandbox_flags` → deleted; `BrowsingContext.popupSandboxingFlagSet` → `TraversableCreation` on the `Tab` + a
 required spawn input (I5 interim).
@@ -725,7 +732,7 @@ registration and re-eval date (2026-11-01) the parent ratified (§6 row); this n
   (user-disabled scripting, S5-4's `scripting_enabled` note) or cross-realm (`contentWindow.setTimeout`,
   `#11-windowproxy-browsing-context`); (4) the interim home of the source's depth (`iframe_depth`, D-a); (5) D8's
   per-reader settings documents — the relevant realm's, the entry global's, the form document — and
-  `effective_node_document` diverge once a World holds several realms.
+  `node_document` diverge once a World holds several realms.
 - `#11-worker-blob-script` (roadmap `m4-12-platform-gap-roadmap.md`, `#11-worker-blob-script` row) — registered in the
   open-slot ledger 2026-10-01 **ahead of approval** (records row "applied ahead of approval"), with the append of the
   policy container's blob arm (D-h) and the trigger "a blob URL store lands" (its old trigger had expired with no

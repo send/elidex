@@ -85,7 +85,7 @@ fn document_body() {
 fn document_body_missing() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
     let mut session = SessionCore::new();
     let result = GetBody.invoke(doc, &[], &mut session, &mut dom).unwrap();
@@ -97,8 +97,8 @@ fn title_get() {
     let (mut dom, doc, mut session) = setup_document();
     let html = find_child_element(&dom, doc, "html").unwrap();
     let head = find_child_element(&dom, html, "head").unwrap();
-    let title = dom.create_element("title", Attributes::default());
-    let text = dom.create_text("  Hello  World  ");
+    let title = dom.create_element_ownerless_fixture("title", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("  Hello  World  ");
     dom.append_child(head, title);
     dom.append_child(title, text);
 
@@ -123,8 +123,8 @@ fn title_get_preserves_non_ascii_whitespace() {
     let (mut dom, doc, mut session) = setup_document();
     let html = find_child_element(&dom, doc, "html").unwrap();
     let head = find_child_element(&dom, html, "head").unwrap();
-    let title = dom.create_element("title", Attributes::default());
-    let text = dom.create_text("a\u{00A0}b\u{3000}c");
+    let title = dom.create_element_ownerless_fixture("title", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("a\u{00A0}b\u{3000}c");
     dom.append_child(head, title);
     dom.append_child(title, text);
 
@@ -173,16 +173,17 @@ fn document_accessors_match_html_tags_case_insensitively() {
     // (matching HTML element identity rules — TagType stores the
     // raw tag, not the normalized localName).  After migration the
     // handlers must preserve that policy: `<HTML>` / `<HEAD>` /
-    // `<BODY>` / `<TITLE>` constructed via `dom.create_element` with
-    // upper-case tags must still resolve through
+    // `<BODY>` / `<TITLE>` constructed via
+    // `dom.create_element_ownerless_fixture` with upper-case tags must still
+    // resolve through
     // `document.{documentElement, head, body, title}` accessors.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("HTML", Attributes::default());
-    let head = dom.create_element("HEAD", Attributes::default());
-    let body = dom.create_element("BODY", Attributes::default());
-    let title = dom.create_element("TITLE", Attributes::default());
-    let title_text = dom.create_text("Mixed Case");
+    let html = dom.create_element_ownerless_fixture("HTML", Attributes::default());
+    let head = dom.create_element_ownerless_fixture("HEAD", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("BODY", Attributes::default());
+    let title = dom.create_element_ownerless_fixture("TITLE", Attributes::default());
+    let title_text = dom.create_text_ownerless_fixture("Mixed Case");
     dom.append_child(doc, html);
     dom.append_child(html, head);
     dom.append_child(html, body);
@@ -217,8 +218,8 @@ fn document_body_accepts_uppercase_frameset() {
     // GetBody.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("HTML", Attributes::default());
-    let frameset = dom.create_element("FRAMESET", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("HTML", Attributes::default());
+    let frameset = dom.create_element_ownerless_fixture("FRAMESET", Attributes::default());
     dom.append_child(doc, html);
     dom.append_child(html, frameset);
     let mut session = SessionCore::new();
@@ -236,22 +237,23 @@ fn title_set_anchors_synthesised_nodes_to_receiver_document() {
     // children to `target_doc`, NOT `other_doc` — directly verifies
     // the handler honours its `this` argument instead of falling
     // back to some hardcoded / first-allocated document.  Pre-fix,
-    // `SetTitle` used `create_element` / `create_text` (no owner)
-    // so the new nodes would inherit the tree-walk fallback rather
+    // `SetTitle` used the ownerless creators (today only the
+    // `*_ownerless_fixture` test creators) so the new nodes would
+    // inherit the tree-walk fallback rather
     // than the receiver's "node document" (WHATWG DOM §4.4).
     let mut dom = EcsDom::new();
 
     // Distractor doc that must remain untouched.
     let other_doc = dom.create_document_root();
-    let other_html = dom.create_element("html", Attributes::default());
-    let other_head = dom.create_element("head", Attributes::default());
+    let other_html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let other_head = dom.create_element_ownerless_fixture("head", Attributes::default());
     dom.append_child(other_doc, other_html);
     dom.append_child(other_html, other_head);
 
     // Target doc — receiver of the SetTitle call.
     let target_doc = dom.create_document_root();
-    let target_html = dom.create_element("html", Attributes::default());
-    let target_head = dom.create_element("head", Attributes::default());
+    let target_html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let target_head = dom.create_element_ownerless_fixture("head", Attributes::default());
     dom.append_child(target_doc, target_html);
     dom.append_child(target_html, target_head);
 
@@ -282,8 +284,8 @@ fn title_set_replaces_existing() {
     let (mut dom, doc, mut session) = setup_document();
     let html = find_child_element(&dom, doc, "html").unwrap();
     let head = find_child_element(&dom, html, "head").unwrap();
-    let title = dom.create_element("title", Attributes::default());
-    let text = dom.create_text("Old Title");
+    let title = dom.create_element_ownerless_fixture("title", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("Old Title");
     dom.append_child(head, title);
     dom.append_child(title, text);
 
@@ -356,13 +358,13 @@ fn title_child_text_only() {
         .children_iter(html_entity)
         .find(|e| dom.has_tag(*e, "head"))
         .unwrap();
-    let title = dom.create_element("title", Attributes::default());
+    let title = dom.create_element_ownerless_fixture("title", Attributes::default());
     dom.append_child(head, title);
-    let text = dom.create_text("Hello ");
+    let text = dom.create_text_ownerless_fixture("Hello ");
     dom.append_child(title, text);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     dom.append_child(title, span);
-    let inner_text = dom.create_text("World");
+    let inner_text = dom.create_text_ownerless_fixture("World");
     dom.append_child(span, inner_text);
 
     let result = GetTitle.invoke(doc, &[], &mut session, &mut dom).unwrap();
@@ -374,9 +376,9 @@ fn title_child_text_only() {
 fn body_frameset() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
-    let frameset = dom.create_element("frameset", Attributes::default());
+    let frameset = dom.create_element_ownerless_fixture("frameset", Attributes::default());
     dom.append_child(html, frameset);
     let mut session = SessionCore::new();
 

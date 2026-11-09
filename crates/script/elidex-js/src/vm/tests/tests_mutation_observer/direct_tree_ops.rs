@@ -15,7 +15,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::super::value::JsValue;
 use super::super::super::Vm;
-use super::setup_with_root;
+use super::{assert_same_parent_replace_move_records, setup_with_root};
 
 fn string_global(vm: &mut Vm, expr: &str) -> String {
     let v = vm.eval(expr).unwrap();
@@ -28,7 +28,7 @@ fn string_global(vm: &mut Vm, expr: &str) -> String {
 /// Append a fresh element child of `root` in Rust (no record) and expose its
 /// wrapper as the JS global `name`.
 fn seed_child(vm: &mut Vm, dom: &mut EcsDom, root: elidex_ecs::Entity, tag: &str, name: &str) {
-    let e = dom.create_element(tag, Attributes::default());
+    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
     assert!(dom.append_child(root, e));
     let wrapper = vm.inner.create_element_wrapper(e);
     vm.set_global(name, JsValue::Object(wrapper));
@@ -774,4 +774,10 @@ fn real_insert_adjacent_element_afterbegin_on_shadow_host_skips_shadow_root() {
         "x is the host's sole light child; the shadow root stays encapsulated"
     );
     vm.unbind();
+}
+
+#[test]
+fn real_replace_with_same_parent_move_source_removal_sees_old_child() {
+    // C0a T17b (D-12): `A.replaceWith(B)` with B a later sibling is *replace A with B within P* (same records as `P.replaceChild(B, A)`).
+    assert_same_parent_replace_move_records("A.replaceWith(B)");
 }

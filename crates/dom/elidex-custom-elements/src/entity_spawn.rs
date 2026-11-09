@@ -17,8 +17,7 @@
 //! custom elements — paralleling
 //! `elidex_api_canvas::spawn_offscreen_canvas_entity` and the
 //! D-24 OffscreenCanvas precedent: keeping the 5-component
-//! invariant by construction so future additions (e.g. attaching
-//! `AssociatedDocument`) have exactly one place to land.
+//! invariant by construction; the node document is decided here too.
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 
@@ -42,18 +41,21 @@ use crate::state::CustomElementState;
 /// the parent built-in and the registry key is the `is="..."`
 /// value).
 ///
-/// `owner` plumbs an [`AssociatedDocument`](elidex_ecs::AssociatedDocument)
-/// when the call site knows which Document the new element belongs
-/// to (the sync-construct path does, since `customElements` lives on
-/// a Window which lives on a Document). `None` mirrors the legacy
-/// `create_element` shape — used only by unit tests that spawn
-/// elements without a Document.
+/// `document` is the current global object's associated Document (HTML
+/// §3.2.3 *HTML element constructors* step 9.2, `#html-element-constructors`):
+/// the new element is created in its node document (DOM §4.4 *node
+/// document*, set upon creation), through
+/// [`EcsDom::node_document_for_new_nodes`]. `None` — an unbound VM, an
+/// elidex-only state with no spec counterpart — spawns nothing and returns
+/// `None` (fail-closed: production code cannot create an ownerless node); the
+/// caller throws.
 pub fn spawn_custom_element_entity(
     dom: &mut EcsDom,
     qualified_name: &str,
     definition_name: &str,
-    owner: Option<Entity>,
-) -> Entity {
+    document: Option<Entity>,
+) -> Option<Entity> {
+    let owner = dom.node_document_for_new_nodes(document?);
     let entity = dom.create_element_with_owner(qualified_name, Attributes::default(), owner);
     // `create_element_with_owner` returned a freshly-spawned entity;
     // `insert_one` only fails on `NoSuchEntity`, which is impossible
@@ -64,5 +66,5 @@ pub fn spawn_custom_element_entity(
     dom.world_mut()
         .insert_one(entity, CustomElementState::custom(definition_name))
         .expect("entity was just spawned by create_element_with_owner");
-    entity
+    Some(entity)
 }

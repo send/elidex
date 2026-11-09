@@ -19,6 +19,7 @@ wasmtime.workspace = true
 static_assertions.workspace = true
 
 [dev-dependencies]
+elidex-ecs = { workspace = true, features = ["fixtures"] }
 wat.workspace = true
 
 [lints]

@@ -80,8 +80,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut fs_attrs = Attributes::default();
         fs_attrs.set("disabled", "");
-        let fs = dom.create_element("fieldset", fs_attrs);
-        let input = dom.create_element("input", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", fs_attrs);
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let fcs = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input, fcs);
         let _ = dom.world_mut().insert_one(input, ElementState::default());
@@ -107,9 +107,9 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut fs_attrs = Attributes::default();
         fs_attrs.set("disabled", "");
-        let fs = dom.create_element("fieldset", fs_attrs);
-        let legend = dom.create_element("legend", Attributes::default());
-        let input_in_legend = dom.create_element("input", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", fs_attrs);
+        let legend = dom.create_element_ownerless_fixture("legend", Attributes::default());
+        let input_in_legend = dom.create_element_ownerless_fixture("input", Attributes::default());
         let fcs = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input_in_legend, fcs);
         let _ = dom
@@ -118,7 +118,7 @@ mod tests {
         let _ = dom.append_child(legend, input_in_legend);
         let _ = dom.append_child(fs, legend);
 
-        let input_outside = dom.create_element("input", Attributes::default());
+        let input_outside = dom.create_element_ownerless_fixture("input", Attributes::default());
         let fcs2 = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input_outside, fcs2);
         let _ = dom
@@ -147,8 +147,8 @@ mod tests {
     #[test]
     fn non_disabled_fieldset_no_effect() {
         let mut dom = EcsDom::new();
-        let fs = dom.create_element("fieldset", Attributes::default());
-        let input = dom.create_element("input", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let fcs = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input, fcs);
         let _ = dom.world_mut().insert_one(input, ElementState::default());
@@ -168,9 +168,9 @@ mod tests {
         let mut dom = EcsDom::new();
         let mut fs_attrs = Attributes::default();
         fs_attrs.set("disabled", "");
-        let fs = dom.create_element("fieldset", fs_attrs);
-        let div = dom.create_element("div", Attributes::default());
-        let input = dom.create_element("input", Attributes::default());
+        let fs = dom.create_element_ownerless_fixture("fieldset", fs_attrs);
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let fcs = FormControlState::from_element("input", &Attributes::default()).unwrap();
         let _ = dom.world_mut().insert_one(input, fcs);
         let _ = dom.world_mut().insert_one(input, ElementState::default());

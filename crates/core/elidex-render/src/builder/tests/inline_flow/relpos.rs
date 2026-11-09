@@ -33,9 +33,9 @@ fn consumes_relpos_inline_subflow_with_gap() {
     );
 
     // `a` — relpos span(`b`) — `c`.
-    let a_text = dom.create_text("a");
+    let a_text = dom.create_text_ownerless_fixture("a");
     dom.append_child(root, a_text);
-    let span = dom.create_element("span", Attributes::default());
+    let span = dom.create_element_ownerless_fixture("span", Attributes::default());
     let _ = dom.world_mut().insert_one(
         span,
         elidex_plugin::ComputedStyle {
@@ -51,10 +51,10 @@ fn consumes_relpos_inline_subflow_with_gap() {
             ..Default::default()
         },
     );
-    let b_text = dom.create_text("b");
+    let b_text = dom.create_text_ownerless_fixture("b");
     dom.append_child(span, b_text);
     dom.append_child(root, span);
-    let c_text = dom.create_text("c");
+    let c_text = dom.create_text_ownerless_fixture("c");
     dom.append_child(root, c_text);
 
     // Top-level flow on `a` (render's Layer-5 run[0]): `a` at x=0, `c` at x=40 —

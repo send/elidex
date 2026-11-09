@@ -9,6 +9,7 @@
 pub mod coerce;
 pub(crate) mod coerce_format;
 pub(crate) mod coerce_ops;
+mod construct_admission;
 #[cfg(feature = "engine")]
 pub mod consumer_dispatcher;
 mod coroutine_types;
@@ -23,6 +24,8 @@ pub(crate) mod gc;
 mod globals;
 mod globals_async;
 mod globals_errors;
+mod globals_fundamentals;
+mod globals_install;
 mod globals_primitives;
 mod host;
 pub mod host_data;
@@ -30,6 +33,7 @@ pub(crate) mod ic;
 mod init;
 mod inner;
 pub mod interpreter;
+mod interpreter_call;
 mod lifecycle;
 mod native_context;
 mod natives;
@@ -114,8 +118,11 @@ pub(crate) const MAX_BIND_CHAIN_DEPTH: usize = 10_000;
 /// Window VM (WHATWG HTML §7.2) installs `window` / `document` / `location` /
 /// `history`, whereas a dedicated worker VM (WHATWG HTML §10.2.1.1) installs
 /// the `WorkerGlobalScope` surface (`self` / `postMessage` / `close` /
-/// `importScripts` / `WorkerLocation` / `WorkerNavigator`) and never binds a
-/// document. Set once at construction, before `register_globals` runs.
+/// `importScripts` / `WorkerLocation` / `WorkerNavigator`) and installs no
+/// `document` global. (It still binds an internal Document entity, which
+/// script can reach through `Range`; its wrapper carries `Node.prototype`,
+/// not `Document.prototype` -- slot
+/// `#11-worker-scope-exposes-window-only-interfaces`.) Set once at construction, before `register_globals` runs.
 #[derive(Clone, Debug)]
 pub enum GlobalScopeKind {
     /// Main-thread Window scope (WHATWG HTML §7.2).
@@ -504,6 +511,14 @@ pub(crate) struct VmInner {
     /// Node prototype + ParentNode mixin natives are available.
     #[cfg(feature = "engine")]
     pub(crate) document_fragment_prototype: Option<ObjectId>,
+    /// `Document.prototype` — the one interface prototype object every
+    /// Document entity's wrapper shares (WebIDL §3.7.3, §3.8), chained to
+    /// `Node.prototype` and carrying the whole Document member suite.
+    /// Allocated once per Window VM by `register_document_prototype`
+    /// (`vm/host/document.rs`); chosen by `create_element_wrapper` via
+    /// `PrototypeKind::Document`.
+    #[cfg(feature = "engine")]
+    pub(crate) document_prototype: Option<ObjectId>,
     /// `HTMLSlotElement.prototype` — shared prototype for every
     /// `<slot>` element wrapper (WHATWG HTML §4.12.4).  Carries the
     /// `name` reflected attribute + `assign` / `assignedNodes` /

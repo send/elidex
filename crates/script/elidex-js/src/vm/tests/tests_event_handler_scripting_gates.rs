@@ -147,12 +147,11 @@ fn compile_gate_does_not_gate_bound_document_targets() {
 }
 
 // ---- C31: mirror of C8, production form — a DOMParser node APPENDED into the
-// bound document's tree has the bound document as its effective node document
-// (the composed tree root; elidex's insertion does not adopt, DOM §4.2.3
-// insert step 7.1, slot `#11-cross-document-adopt-on-insert`), so a raw handler
-// set on it compiles and runs ----
+// bound document's tree is adopted into the bound document (DOM §4.2.3
+// insert step 7.1), its node document, so a raw handler set on it compiles
+// and runs ----
 #[test]
-fn appended_domparser_node_raw_handler_runs_adopt_equivalent() {
+fn appended_domparser_node_raw_handler_runs_adopted() {
     with_page(|vm| {
         let got = run(
             vm,
@@ -169,8 +168,9 @@ fn appended_domparser_node_raw_handler_runs_adopt_equivalent() {
 }
 
 // ---- C8b (ii): a callback value runs wherever it moves — appended into the
-// live document, removed (back to the DOMParser owner), it still runs (nothing
-// gates the call; the value is a callback) ----
+// live document (adopted into it), then removed (its node document stays the
+// live document), it still runs (nothing gates the call; the value is a
+// callback) ----
 #[test]
 fn appended_then_removed_domparser_node_callback_still_runs() {
     with_el(|vm| {
@@ -190,9 +190,9 @@ fn appended_then_removed_domparser_node_callback_still_runs() {
 }
 
 // ---- C8b (iii): a node CREATED by the bound document, callback assigned, then
-// appended INTO a DOMParser document — the callback value runs (`append_child`
-// does not adopt; the effective node document is the foreign root, but a
-// callback value never meets the gate). C30 is the raw-form reverse case ----
+// appended INTO a DOMParser document — the callback value runs (the append
+// adopts the node into the DOMParser document, but a callback value never
+// meets the gate). C30 is the raw-form reverse case ----
 #[test]
 fn bound_created_node_appended_into_domparser_doc_callback_runs() {
     with_el(|vm| {

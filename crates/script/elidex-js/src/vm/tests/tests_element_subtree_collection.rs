@@ -14,40 +14,40 @@ use super::super::Vm;
 /// + sibling section > div > span (ignored by Element subtree queries)
 fn build_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
 
-    let root = dom.create_element("div", {
+    let root = dom.create_element_ownerless_fixture("div", {
         let mut a = Attributes::default();
         a.set("id", "root");
         a
     });
     assert!(dom.append_child(body, root));
-    let s1 = dom.create_element("span", Attributes::default());
-    let s2 = dom.create_element("span", {
+    let s1 = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let s2 = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("class", "x y");
         a
     });
-    let p = dom.create_element("p", {
+    let p = dom.create_element_ownerless_fixture("p", {
         let mut a = Attributes::default();
         a.set("class", "x");
         a
     });
-    let inner = dom.create_element("div", {
+    let inner = dom.create_element_ownerless_fixture("div", {
         let mut a = Attributes::default();
         a.set("id", "inner");
         a.set("class", "y x z");
         a
     });
-    let inner_s1 = dom.create_element("span", {
+    let inner_s1 = dom.create_element_ownerless_fixture("span", {
         let mut a = Attributes::default();
         a.set("class", "x");
         a
     });
-    let inner_s2 = dom.create_element("span", Attributes::default());
+    let inner_s2 = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(root, s1));
     assert!(dom.append_child(root, s2));
     assert!(dom.append_child(root, p));
@@ -56,9 +56,9 @@ fn build_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     assert!(dom.append_child(inner, inner_s2));
 
     // Sibling subtree that subtree-scoped queries on #root must ignore.
-    let section = dom.create_element("section", Attributes::default());
-    let stray_div = dom.create_element("div", Attributes::default());
-    let stray_span = dom.create_element("span", Attributes::default());
+    let section = dom.create_element_ownerless_fixture("section", Attributes::default());
+    let stray_div = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let stray_span = dom.create_element_ownerless_fixture("span", Attributes::default());
     assert!(dom.append_child(body, section));
     assert!(dom.append_child(section, stray_div));
     assert!(dom.append_child(stray_div, stray_span));
@@ -260,7 +260,7 @@ fn element_get_elements_by_class_name_skips_non_element_with_attributes() {
         )
         .unwrap();
     let hot_div = dom.first_child_with_tag(root, "div").unwrap();
-    let bogus_text = dom.create_text("x");
+    let bogus_text = dom.create_text_ownerless_fixture("x");
     assert!(dom.append_child(hot_div, bogus_text));
     let mut bogus_attrs = elidex_ecs::Attributes::default();
     bogus_attrs.set("class", "x");

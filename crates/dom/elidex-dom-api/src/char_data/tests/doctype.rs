@@ -44,7 +44,7 @@ fn get_doctype_system_id() {
 fn get_doctype_none() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     dom.append_child(doc, html);
     let mut session = SessionCore::new();
     let result = GetDoctype.invoke(doc, &[], &mut session, &mut dom).unwrap();
@@ -62,7 +62,12 @@ fn get_doctype_legacy_doc_type_data_without_node_kind() {
     // surfaces here rather than only via VM-level integration tests.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let dt = dom.create_document_type("html", "", "");
+    let dt = dom.create_document_type(
+        "html",
+        "",
+        "",
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     dom.append_child(doc, dt);
     let _ = dom.world_mut().remove_one::<NodeKind>(dt);
     assert!(dom.node_kind(dt).is_none());

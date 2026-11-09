@@ -1,3 +1,12 @@
+# Install settings for the interpreter pinned in `.tool-versions`: an attested prebuilt
+# install or nothing (no source build, no unverified archive). This table sits before every
+# task so no later header can capture the lines. mise reads neither this table nor
+# `[bootstrap.packages]` in an untrusted worktree (`mise trust`; `main` already refuses so
+# since #535). Rationale and the invariant (I6): the interpreter-pin umbrella plan memo (docs/plans).
+[settings]
+python.compile = false
+python.github_attestations = true
+
 [tasks.check]
 description = "Run cargo check"
 run = "cargo check --workspace --all-targets --all-features"
@@ -119,9 +128,9 @@ description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
 run = "bash scripts/trip-wires.sh"
 
 [tasks.tools-test]
-description = "Run every tracked Python suite (test_*.py), offline, on the `python3` first on PATH (floor: Python 3.9)."
+description = "Run every tracked suite (test_*.py), offline, on the pinned interpreter (`.tool-versions`; `mise run` installs it if missing)."
 # The procedure (the set, the complement checks, the derived roots, skip-is-red),
-# the offline regime, the interpreter floor and the wrapper contract for
+# the offline regime, the interpreter pin (Step 1) and the wrapper contract for
 # command-shaped self-tests all live in the header of `scripts/python-suites.sh` --
 # the same script the ungated `tools` job in `.github/workflows/ci.yml` runs, so
 # the two callers cannot diverge. No `sources` / `outputs`: mise would skip the

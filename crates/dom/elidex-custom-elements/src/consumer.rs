@@ -24,11 +24,29 @@
 //!   no-ops.
 //! - `AttributeChanged` enqueued only when the attribute name is in
 //!   the element's definition's `observed_attributes` (HTML §4.13.6
-//!   "attribute change steps" — "for each attribute in element's
-//!   attribute list that is in observedAttributes").
-//! - All three gates ALSO require the element to be Custom
+//!   "enqueue a custom element callback reaction" step 5.2: "If
+//!   definition's observed attributes does not contain attributeName,
+//!   then return").
+//! - `Upgrade` enqueued on `MutationEvent::CloneCreated` for every element
+//!   the clone created whose definition lookup is non-null (DOM §4.4
+//!   "clone a node" → "clone a single node"), in the clone's creation
+//!   order; the walk is `EcsDom::for_each_clone_created` and the registry-
+//!   dependent half is [`crate::upgrade`]'s `apply_clone_creation_ce_semantics`.
+//!   `handle_insert` enqueues `Upgrade` too (DOM "insert" step 7.7.3.3, "try
+//!   to upgrade"), not only the `CloneCreated` path. The clone path also
+//!   clears the retained `is` value of async-autonomous copies
+//!   (`CustomElementState.is_value`, which no other consumer reads).
+//! - `Adopted` enqueued on `MutationEvent::Adopt` for every Custom element
+//!   of the adopted subtree whose pair is `Some` (DOM §4.5 *adopt* step
+//!   3.3.3), each with its innermost contents segment's
+//!   `(oldDocument, document)`, in the adopt walk's order (template contents
+//!   right after their template).
+//! - The first four gates (`Connected` / `Disconnected` /
+//!   `AttributeChanged` / `Adopted`) ALSO require the element to be Custom
 //!   ([`CEState::Custom`]) — pre-upgrade elements (`Undefined` /
-//!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6.
+//!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6. The
+//!   `Upgrade` bullet is the exception: it enqueues for elements that are
+//!   neither Custom nor Failed.
 //!
 //! ## Subtree walk for Connected / Disconnected
 //!
@@ -41,11 +59,14 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{EcsDom, Entity, MutationEvent};
+use elidex_ecs::{
+    AdoptedContents, CloneScope, EcsDom, Entity, MutationEvent, TemplateContentsWalk,
+};
 
 use crate::reaction::CustomElementReaction;
 use crate::registry::CustomElementRegistry;
 use crate::state::{CEState, CustomElementState};
+use crate::upgrade::apply_clone_creation_ce_semantics;
 
 /// Mutation consumer maintaining the custom element reaction queue.
 ///
@@ -71,7 +92,8 @@ impl CustomElementReactionConsumer {
 
     /// Single-method dispatch entry invoked by the binding-crate
     /// `ConsumerDispatcher`. Pattern-matches `Insert` / `Remove` /
-    /// `AttributeChange`; other variants are no-ops.
+    /// `AttributeChange` / `CloneCreated` / `Adopt`; other variants are
+    /// no-ops.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Insert {
@@ -91,6 +113,14 @@ impl CustomElementReactionConsumer {
                 new_value,
                 ..
             } => self.handle_attribute_change(node, name, old_value, new_value, dom),
+            MutationEvent::CloneCreated { root, scope } => {
+                self.handle_clone_created(root, scope, dom);
+            }
+            MutationEvent::Adopt {
+                node,
+                documents,
+                contents,
+            } => self.handle_adopt(node, documents, contents, dom),
             _ => {}
         }
     }
@@ -98,7 +128,9 @@ impl CustomElementReactionConsumer {
     fn handle_insert(&mut self, node: Entity, _was_connected: bool, dom: &EcsDom) {
         // Skip when post-insert position is still disconnected
         // (orphan→orphan move): the insertion-steps loop only enqueues
-        // when "parent is connected" per WHATWG DOM §4.2.3 step 7.
+        // when the inclusive descendant is connected per WHATWG DOM §4.2.3
+        // "insert" step 7.7.2 ("If inclusiveDescendant is not connected, then
+        // continue").
         //
         // NOTE: we deliberately do NOT short-circuit on `was_connected`
         // — both Blink and Gecko fire connectedCallback on every
@@ -116,6 +148,105 @@ impl CustomElementReactionConsumer {
             let registry = self.registry.lock().expect("CE registry mutex poisoned");
             classify_connected_subtree(node, dom, &registry)
         };
+        if !enqueued.is_empty() {
+            let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
+            queue.extend(enqueued);
+        }
+    }
+
+    /// DOM §4.4 "clone a node": the copy now exists. Apply the registry-
+    /// dependent creation semantics (DOM §4.9 "create an element" step 5.2
+    /// null-is rule) to every created element and enqueue one `Upgrade`
+    /// reaction per upgrade candidate, in creation order
+    /// (`for_each_clone_created`'s order).
+    fn handle_clone_created(&mut self, root: Entity, scope: CloneScope, dom: &mut EcsDom) {
+        // Unlike the other arms, both locks recover from poison: this arm
+        // keeps the deleted VM seam's behaviour (`enqueue_subtree_upgrade_reactions`
+        // in `vm/host/custom_elements/upgrade.rs` recovered poisoned guards),
+        // so `cloneNode` of a detached tree does not panic, as in the base.
+        // The other arms' `.expect` policy is unchanged.
+        let candidates = {
+            let registry = self
+                .registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            apply_clone_creation_ce_semantics(dom, &registry, root, scope)
+        };
+        if !candidates.is_empty() {
+            let mut queue = self
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            queue.extend(candidates.into_iter().map(CustomElementReaction::Upgrade));
+        }
+    }
+
+    /// DOM §4.5 *adopt* step 3.3.3: for each shadow-including inclusive
+    /// descendant that is custom, "enqueue a custom element callback reaction
+    /// with inclusiveDescendant, callback name "adoptedCallback", and
+    /// « oldDocument, document »" (HTML §4.13.6 *enqueue a custom element
+    /// callback reaction*).
+    ///
+    /// One `Adopted` per `CEState::Custom` element whose pair is `Some`, in
+    /// DOM §4.8 *shadow-including tree order* with each template's contents
+    /// right after the template (adopt step 3.4; the walk's `Include` order).
+    /// An element's pair is its innermost segment's (see
+    /// [`MutationEvent::Adopt`]): the root's while every contents fragment
+    /// reached so far is a segment with the root's pair, else the lookup.
+    ///
+    /// Batch equivalence: the spec interleaves the stamp and the enqueue per
+    /// descendant; enqueueing runs no script (reactions run at the next
+    /// drain), so enqueueing after the walk, in the same order, is
+    /// unobservable.
+    fn handle_adopt(
+        &mut self,
+        node: Entity,
+        documents: Option<(Entity, Entity)>,
+        contents: &[AdoptedContents],
+        dom: &EcsDom,
+    ) {
+        // `is_custom` needs a `CustomElementState`: with none in the World the
+        // walk can enqueue nothing.
+        if dom
+            .world()
+            .query::<&CustomElementState>()
+            .iter()
+            .next()
+            .is_none()
+        {
+            return;
+        }
+        // A segment whose pair differs from the root's, or a reached
+        // fragment without a segment (one the walk skipped), needs the lookup.
+        let mut lookup = contents.iter().any(|s| s.documents != documents);
+        // `contents` is in the walk's template order, so while `lookup` is
+        // false the k-th template reached has its fragment at `contents[k]`;
+        // a skipped fragment breaks that correspondence and sets `lookup`.
+        let mut next = 0;
+        let mut enqueued = Vec::new();
+        dom.for_each_uncapped_shadow_inclusive(node, TemplateContentsWalk::Include, &mut |e| {
+            if !lookup {
+                if let Some(fragment) = dom.template_contents_fragment(e) {
+                    lookup = contents.get(next).map(|s| s.fragment) != Some(fragment);
+                    next += 1;
+                }
+            }
+            if !is_custom(e, dom) {
+                return;
+            }
+            let pair = if lookup {
+                adopt_pair(dom, e, node, documents, contents)
+            } else {
+                documents
+            };
+            if let Some((old_document, new_document)) = pair {
+                enqueued.push(CustomElementReaction::Adopted {
+                    entity: e,
+                    old_document,
+                    new_document,
+                });
+            }
+        });
         if !enqueued.is_empty() {
             let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
             queue.extend(enqueued);
@@ -236,8 +367,9 @@ pub fn classify_disconnected_subtree(
 
 /// Classify an attribute change into an `AttributeChanged` reaction,
 /// gated on `CEState::Custom` + the definition's `observed_attributes`
-/// (HTML §4.13.6 "attribute change steps" — "for each attribute … that
-/// is in observedAttributes"). Returns `None` when the target is not a
+/// (HTML §4.13.6 "enqueue a custom element callback reaction" step 5.2 —
+/// "If definition's observed attributes does not contain attributeName,
+/// then return"). Returns `None` when the target is not a
 /// Custom element or the attribute is not observed.
 #[must_use]
 pub fn classify_attribute_change(
@@ -262,6 +394,25 @@ pub fn classify_attribute_change(
         old_value: old_value.map(str::to_owned),
         new_value: new_value.map(str::to_owned),
     })
+}
+
+/// The pair of `entity`'s innermost adopt segment (C0c D-6's lookup, consumer
+/// side); the rule is stated on [`MutationEvent::Adopt`].
+fn adopt_pair(
+    dom: &EcsDom,
+    entity: Entity,
+    root: Entity,
+    documents: Option<(Entity, Entity)>,
+    contents: &[AdoptedContents],
+) -> Option<(Entity, Entity)> {
+    let r = dom.find_tree_root_composed(entity);
+    if r == root {
+        return documents;
+    }
+    contents
+        .iter()
+        .find(|s| s.fragment == r)
+        .and_then(|s| s.documents)
 }
 
 /// Returns `true` iff `entity` is a Custom element ready for lifecycle

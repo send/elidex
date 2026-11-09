@@ -659,7 +659,7 @@ fn reduce_impl(
     // `JsValue::Object` handles; held only as a Rust local those
     // would be invisible to the GC scanner.  Today GC is disabled
     // for the entire duration of a `NativeFunction` call —
-    // `interpreter.rs:81` sets `gc_enabled = false` before
+    // `interpreter_call.rs::call_dispatch`'s NativeFunction arm sets `gc_enabled = false` before
     // dispatching the native and restores `saved_gc` on return,
     // and that flag stays false through every re-entrant
     // `ctx.call_function` invocation — so the accumulator

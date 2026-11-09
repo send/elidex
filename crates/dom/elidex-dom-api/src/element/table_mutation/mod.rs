@@ -14,14 +14,13 @@
 //! call these helpers either directly (for the row/cell index
 //! getters) or via `invoke_dom_api` registry handlers (for the
 //! mutation methods).
+//!
+//! The `DomApiHandler` bindings (argument coercion + dispatch shims
+//! registered in `crate::registry`) live in the sibling `handlers.rs`
+//! and are re-exported here; this file holds the algorithms.
 
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
-use elidex_plugin::JsValue;
-use elidex_script_session::{
-    ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
-};
-
-use crate::util::not_found_error;
+use elidex_script_session::{DomApiError, DomApiErrorKind};
 
 /// Section discriminator for the shared
 /// [`find_table_section_insert_position`] helper.  Only `<thead>` /
@@ -106,6 +105,14 @@ pub fn first_section_child(table: Entity, dom: &EcsDom, tag: &str) -> Option<Ent
     dom.children_iter(table).find(|c| tag_eq_ci(dom, *c, tag))
 }
 
+/// HTML §4.9.1 *create a table element* (`#create-a-table-element`): "the
+/// result of creating an element given tableElement's node document,
+/// localName, and the HTML namespace".
+fn create_table_element(dom: &mut EcsDom, table: Entity, local_name: &str) -> Entity {
+    let owner = dom.node_document_for_new_nodes(table);
+    dom.create_element_with_owner(local_name, Attributes::default(), owner)
+}
+
 /// `<table>.createTHead()` — return existing `<thead>` direct child
 /// if any, else create + insert at the spec position.  Always returns
 /// the (possibly newly-created) `<thead>` Entity.
@@ -113,7 +120,7 @@ pub fn create_thead(table: Entity, dom: &mut EcsDom) -> Entity {
     if let Some(existing) = first_section_child(table, dom, "thead") {
         return existing;
     }
-    let new = dom.create_element("thead", Attributes::default());
+    let new = create_table_element(dom, table, "thead");
     insert_section_at_position(table, new, dom, SectionKind::THead);
     new
 }
@@ -124,7 +131,7 @@ pub fn create_tfoot(table: Entity, dom: &mut EcsDom) -> Entity {
     if let Some(existing) = first_section_child(table, dom, "tfoot") {
         return existing;
     }
-    let new = dom.create_element("tfoot", Attributes::default());
+    let new = create_table_element(dom, table, "tfoot");
     insert_section_at_position(table, new, dom, SectionKind::TFoot);
     new
 }
@@ -135,7 +142,7 @@ pub fn create_caption(table: Entity, dom: &mut EcsDom) -> Entity {
     if let Some(existing) = first_section_child(table, dom, "caption") {
         return existing;
     }
-    let new = dom.create_element("caption", Attributes::default());
+    let new = create_table_element(dom, table, "caption");
     insert_section_at_position(table, new, dom, SectionKind::Caption);
     new
 }
@@ -145,7 +152,7 @@ pub fn create_caption(table: Entity, dom: &mut EcsDom) -> Entity {
 /// immediately after the last existing `<tbody>` direct child if
 /// any, else at the end of the table.
 pub fn create_tbody(table: Entity, dom: &mut EcsDom) -> Entity {
-    let new = dom.create_element("tbody", Attributes::default());
+    let new = create_table_element(dom, table, "tbody");
     // Find the last <tbody> direct child; insert after it (i.e.
     // before the next sibling, or append if it's the last child).
     let last_tbody = dom
@@ -352,11 +359,11 @@ pub fn insert_row_into_table(
             "insertRow index {index} out of range (rows.length = {len})"
         )));
     }
-    let new_tr = dom.create_element("tr", Attributes::default());
+    let new_tr = create_table_element(dom, table, "tr");
     // Step 3: empty + no <tbody> → create implicit tbody, append tr to it.
     let has_tbody = dom.children_iter(table).any(|c| tag_eq_ci(dom, c, "tbody"));
     if rows.is_empty() && !has_tbody {
-        let tbody = dom.create_element("tbody", Attributes::default());
+        let tbody = create_table_element(dom, table, "tbody");
         let _ = dom.append_child(table, tbody);
         let _ = dom.append_child(tbody, new_tr);
         return Ok(new_tr);
@@ -445,7 +452,10 @@ pub fn insert_row_into_section(
             "insertRow index {index} out of range (section.rows.length = {len})"
         )));
     }
-    let new_tr = dom.create_element("tr", Attributes::default());
+    // HTML §4.9.5 `insertRow` step 2: a tr element "given this element's
+    // node document".
+    let owner = dom.node_document_for_new_nodes(section);
+    let new_tr = dom.create_element_with_owner("tr", Attributes::default(), owner);
     let append_idx = index == -1 || index == len_i32;
     if append_idx {
         let _ = dom.append_child(section, new_tr);
@@ -509,7 +519,10 @@ pub fn insert_cell_into_row(
             "insertCell index {index} out of range (row.cells.length = {len})"
         )));
     }
-    let new_td = dom.create_element("td", Attributes::default());
+    // HTML §4.9.8 `insertCell` step 2: a td element "given this tr
+    // element's node document".
+    let owner = dom.node_document_for_new_nodes(row);
+    let new_td = dom.create_element_with_owner("td", Attributes::default(), owner);
     let append_idx = index == -1 || index == len_i32;
     if append_idx {
         let _ = dom.append_child(row, new_td);
@@ -621,374 +634,13 @@ fn ancestor_table(row: Entity, dom: &EcsDom) -> Option<Entity> {
     None
 }
 
-// ---------------------------------------------------------------------------
-// DomApiHandler bindings
-//
-// VM-side per-tag prototype files invoke these via
-// `invoke_dom_api(ctx, "<name>", entity, &args)` in the standard
-// marshalling-only shape.  Algorithms above are the engine-independent
-// truth; handlers are thin coercion + dispatch shims.
-// ---------------------------------------------------------------------------
-
-fn require_long_arg(args: &[JsValue], index: usize) -> Result<i32, DomApiError> {
-    match args.get(index) {
-        Some(JsValue::Number(n)) => {
-            if n.is_nan() || n.is_infinite() {
-                return Ok(0);
-            }
-            #[allow(clippy::cast_possible_truncation)]
-            let truncated = n.trunc() as i64;
-            if truncated > i64::from(i32::MAX) {
-                Ok(i32::MAX)
-            } else if truncated < i64::from(i32::MIN) {
-                Ok(i32::MIN)
-            } else {
-                #[allow(clippy::cast_possible_truncation)]
-                Ok(truncated as i32)
-            }
-        }
-        Some(JsValue::Bool(b)) => Ok(i32::from(*b)),
-        Some(JsValue::Null) => Ok(0),
-        None | Some(JsValue::Undefined) => Err(DomApiError {
-            kind: DomApiErrorKind::TypeError,
-            message: format!("argument {index} is required"),
-        }),
-        Some(_) => Err(DomApiError {
-            kind: DomApiErrorKind::TypeError,
-            message: format!("argument {index} must be a number"),
-        }),
-    }
-}
-
-fn optional_long_arg(args: &[JsValue], index: usize, default: i32) -> Result<i32, DomApiError> {
-    match args.get(index) {
-        None | Some(JsValue::Undefined) => Ok(default),
-        _ => require_long_arg(args, index),
-    }
-}
-
-fn resolve_optional_entity_arg(
-    args: &[JsValue],
-    index: usize,
-    session: &SessionCore,
-) -> Result<Option<Entity>, DomApiError> {
-    match args.get(index) {
-        None | Some(JsValue::Undefined | JsValue::Null) => Ok(None),
-        Some(JsValue::ObjectRef(raw)) => {
-            let (entity, _kind) = session
-                .identity_map()
-                .get(JsObjectRef::from_raw(*raw))
-                .ok_or_else(|| not_found_error("argument is not a known node"))?;
-            Ok(Some(entity))
-        }
-        _ => Err(DomApiError {
-            kind: DomApiErrorKind::TypeError,
-            message: format!("argument {index} must be a Node or null"),
-        }),
-    }
-}
-
-fn entity_to_objectref(entity: Entity, session: &mut SessionCore, kind: ComponentKind) -> JsValue {
-    let obj_ref = session.get_or_create_wrapper(entity, kind);
-    JsValue::ObjectRef(obj_ref.to_raw())
-}
-
-/// `<table>.insertRow(index?)`.
-pub struct TableInsertRow;
-impl DomApiHandler for TableInsertRow {
-    fn method_name(&self) -> &str {
-        "table.insertRow"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let index = optional_long_arg(args, 0, -1)?;
-        let new = insert_row_into_table(this, dom, index)?;
-        Ok(entity_to_objectref(new, session, ComponentKind::Element))
-    }
-}
-
-/// `<table>.deleteRow(index)`.
-pub struct TableDeleteRow;
-impl DomApiHandler for TableDeleteRow {
-    fn method_name(&self) -> &str {
-        "table.deleteRow"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let index = require_long_arg(args, 0)?;
-        delete_row_from_table(this, dom, index)?;
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<thead>`/`<tbody>`/`<tfoot>`.insertRow(index?).
-pub struct SectionInsertRow;
-impl DomApiHandler for SectionInsertRow {
-    fn method_name(&self) -> &str {
-        "section.insertRow"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let index = optional_long_arg(args, 0, -1)?;
-        let new = insert_row_into_section(this, dom, index)?;
-        Ok(entity_to_objectref(new, session, ComponentKind::Element))
-    }
-}
-
-/// `<thead>`/`<tbody>`/`<tfoot>`.deleteRow(index).
-pub struct SectionDeleteRow;
-impl DomApiHandler for SectionDeleteRow {
-    fn method_name(&self) -> &str {
-        "section.deleteRow"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let index = require_long_arg(args, 0)?;
-        delete_row_from_section(this, dom, index)?;
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<tr>.insertCell(index?)`.
-pub struct RowInsertCell;
-impl DomApiHandler for RowInsertCell {
-    fn method_name(&self) -> &str {
-        "row.insertCell"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let index = optional_long_arg(args, 0, -1)?;
-        let new = insert_cell_into_row(this, dom, index)?;
-        Ok(entity_to_objectref(new, session, ComponentKind::Element))
-    }
-}
-
-/// `<tr>.deleteCell(index)`.
-pub struct RowDeleteCell;
-impl DomApiHandler for RowDeleteCell {
-    fn method_name(&self) -> &str {
-        "row.deleteCell"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let index = require_long_arg(args, 0)?;
-        delete_cell_from_row(this, dom, index)?;
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<table>.createTHead()` (idempotent).
-pub struct TableCreateTHead;
-impl DomApiHandler for TableCreateTHead {
-    fn method_name(&self) -> &str {
-        "table.createTHead"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let e = create_thead(this, dom);
-        Ok(entity_to_objectref(e, session, ComponentKind::Element))
-    }
-}
-
-/// `<table>.createTFoot()` (idempotent).
-pub struct TableCreateTFoot;
-impl DomApiHandler for TableCreateTFoot {
-    fn method_name(&self) -> &str {
-        "table.createTFoot"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let e = create_tfoot(this, dom);
-        Ok(entity_to_objectref(e, session, ComponentKind::Element))
-    }
-}
-
-/// `<table>.createCaption()` (idempotent).
-pub struct TableCreateCaption;
-impl DomApiHandler for TableCreateCaption {
-    fn method_name(&self) -> &str {
-        "table.createCaption"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let e = create_caption(this, dom);
-        Ok(entity_to_objectref(e, session, ComponentKind::Element))
-    }
-}
-
-/// `<table>.createTBody()` (NOT idempotent — always creates).
-pub struct TableCreateTBody;
-impl DomApiHandler for TableCreateTBody {
-    fn method_name(&self) -> &str {
-        "table.createTBody"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let e = create_tbody(this, dom);
-        Ok(entity_to_objectref(e, session, ComponentKind::Element))
-    }
-}
-
-/// `<table>.deleteTHead()` (no-op when absent).
-pub struct TableDeleteTHead;
-impl DomApiHandler for TableDeleteTHead {
-    fn method_name(&self) -> &str {
-        "table.deleteTHead"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        delete_thead(this, dom);
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<table>.deleteTFoot()`.
-pub struct TableDeleteTFoot;
-impl DomApiHandler for TableDeleteTFoot {
-    fn method_name(&self) -> &str {
-        "table.deleteTFoot"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        delete_tfoot(this, dom);
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<table>.deleteCaption()`.
-pub struct TableDeleteCaption;
-impl DomApiHandler for TableDeleteCaption {
-    fn method_name(&self) -> &str {
-        "table.deleteCaption"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        _args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        delete_caption(this, dom);
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<table>.tHead = <thead> | null` setter.
-pub struct TableSetTHead;
-impl DomApiHandler for TableSetTHead {
-    fn method_name(&self) -> &str {
-        "table.tHead.set"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let new = resolve_optional_entity_arg(args, 0, session)?;
-        set_thead(this, dom, new)?;
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<table>.tFoot = <tfoot> | null` setter.
-pub struct TableSetTFoot;
-impl DomApiHandler for TableSetTFoot {
-    fn method_name(&self) -> &str {
-        "table.tFoot.set"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let new = resolve_optional_entity_arg(args, 0, session)?;
-        set_tfoot(this, dom, new)?;
-        Ok(JsValue::Undefined)
-    }
-}
-
-/// `<table>.caption = <caption> | null` setter.
-pub struct TableSetCaption;
-impl DomApiHandler for TableSetCaption {
-    fn method_name(&self) -> &str {
-        "table.caption.set"
-    }
-    fn invoke(
-        &self,
-        this: Entity,
-        args: &[JsValue],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-    ) -> Result<JsValue, DomApiError> {
-        let new = resolve_optional_entity_arg(args, 0, session)?;
-        set_caption(this, dom, new)?;
-        Ok(JsValue::Undefined)
-    }
-}
+mod handlers;
+pub use handlers::{
+    RowDeleteCell, RowInsertCell, SectionDeleteRow, SectionInsertRow, TableCreateCaption,
+    TableCreateTBody, TableCreateTFoot, TableCreateTHead, TableDeleteCaption, TableDeleteRow,
+    TableDeleteTFoot, TableDeleteTHead, TableInsertRow, TableSetCaption, TableSetTFoot,
+    TableSetTHead,
+};
 
 #[cfg(test)]
 mod tests;

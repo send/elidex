@@ -7,11 +7,11 @@ use super::*;
 #[test]
 fn table_colspan() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Row 1: one cell spanning 2 columns.
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -23,7 +23,7 @@ fn table_colspan() {
 
     let mut attrs = Attributes::default();
     attrs.set("colspan", "2");
-    let td1 = dom.create_element("td", attrs);
+    let td1 = dom.create_element_ownerless_fixture("td", attrs);
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -35,7 +35,7 @@ fn table_colspan() {
     dom.append_child(tr1, td1);
 
     // Row 2: two cells.
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -45,7 +45,7 @@ fn table_colspan() {
     );
     dom.append_child(table, tr2);
 
-    let cell_r2c1 = dom.create_element("td", Attributes::default());
+    let cell_r2c1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         cell_r2c1,
         ComputedStyle {
@@ -55,7 +55,7 @@ fn table_colspan() {
         },
     );
     dom.append_child(tr2, cell_r2c1);
-    let cell_r2c2 = dom.create_element("td", Attributes::default());
+    let cell_r2c2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         cell_r2c2,
         ComputedStyle {
@@ -88,11 +88,11 @@ fn table_colspan() {
 #[test]
 fn table_rowspan() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Row 1: cell with rowspan=2 + normal cell.
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -104,7 +104,7 @@ fn table_rowspan() {
 
     let mut attrs = Attributes::default();
     attrs.set("rowspan", "2");
-    let td1 = dom.create_element("td", attrs);
+    let td1 = dom.create_element_ownerless_fixture("td", attrs);
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -115,7 +115,7 @@ fn table_rowspan() {
     );
     dom.append_child(tr1, td1);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -127,7 +127,7 @@ fn table_rowspan() {
     dom.append_child(tr1, td2);
 
     // Row 2: only one cell (col 0 occupied by rowspan).
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -137,7 +137,7 @@ fn table_rowspan() {
     );
     dom.append_child(table, tr2);
 
-    let td3 = dom.create_element("td", Attributes::default());
+    let td3 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td3,
         ComputedStyle {
@@ -167,11 +167,11 @@ fn table_rowspan() {
 #[test]
 fn table_colspan_and_rowspan() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Row 1: cell(colspan=2, rowspan=2) + cell.
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -184,7 +184,7 @@ fn table_colspan_and_rowspan() {
     let mut attrs = Attributes::default();
     attrs.set("colspan", "2");
     attrs.set("rowspan", "2");
-    let td_span = dom.create_element("td", attrs);
+    let td_span = dom.create_element_ownerless_fixture("td", attrs);
     dom.world_mut().insert_one(
         td_span,
         ComputedStyle {
@@ -195,7 +195,7 @@ fn table_colspan_and_rowspan() {
     );
     dom.append_child(tr1, td_span);
 
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -207,7 +207,7 @@ fn table_colspan_and_rowspan() {
     dom.append_child(tr1, td1);
 
     // Row 2: only one cell at col 2.
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -217,7 +217,7 @@ fn table_colspan_and_rowspan() {
     );
     dom.append_child(table, tr2);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -251,10 +251,10 @@ fn table_colspan_and_rowspan() {
 #[test]
 fn table_caption_top() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let caption = dom.create_element("caption", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.world_mut().insert_one(
         caption,
         ComputedStyle {
@@ -265,7 +265,7 @@ fn table_caption_top() {
     );
     dom.append_child(table, caption);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -275,7 +275,7 @@ fn table_caption_top() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -309,10 +309,10 @@ fn table_caption_bottom() {
     use elidex_plugin::CaptionSide;
 
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
-    let caption = dom.create_element("caption", Attributes::default());
+    let caption = dom.create_element_ownerless_fixture("caption", Attributes::default());
     dom.world_mut().insert_one(
         caption,
         ComputedStyle {
@@ -324,7 +324,7 @@ fn table_caption_bottom() {
     );
     dom.append_child(table, caption);
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -334,7 +334,7 @@ fn table_caption_bottom() {
     );
     dom.append_child(table, tr);
 
-    let td = dom.create_element("td", Attributes::default());
+    let td = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td,
         ComputedStyle {
@@ -375,11 +375,11 @@ fn table_caption_bottom() {
 #[test]
 fn table_header_body_footer() {
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // tbody
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -389,7 +389,7 @@ fn table_header_body_footer() {
     );
     dom.append_child(table, tbody);
 
-    let tr_body = dom.create_element("tr", Attributes::default());
+    let tr_body = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr_body,
         ComputedStyle {
@@ -399,7 +399,7 @@ fn table_header_body_footer() {
     );
     dom.append_child(tbody, tr_body);
 
-    let cell_body = dom.create_element("td", Attributes::default());
+    let cell_body = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         cell_body,
         ComputedStyle {
@@ -411,7 +411,7 @@ fn table_header_body_footer() {
     dom.append_child(tr_body, cell_body);
 
     // thead (added after tbody in DOM, but should be rendered first).
-    let thead = dom.create_element("thead", Attributes::default());
+    let thead = dom.create_element_ownerless_fixture("thead", Attributes::default());
     dom.world_mut().insert_one(
         thead,
         ComputedStyle {
@@ -421,7 +421,7 @@ fn table_header_body_footer() {
     );
     dom.append_child(table, thead);
 
-    let tr_head = dom.create_element("tr", Attributes::default());
+    let tr_head = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr_head,
         ComputedStyle {
@@ -431,7 +431,7 @@ fn table_header_body_footer() {
     );
     dom.append_child(thead, tr_head);
 
-    let cell_head = dom.create_element("td", Attributes::default());
+    let cell_head = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         cell_head,
         ComputedStyle {
@@ -469,11 +469,11 @@ fn table_header_body_footer() {
 fn table_tfoot_after_tbody() {
     // tfoot rows should appear after tbody rows even if tfoot is first in DOM.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // tfoot (first in DOM)
-    let tfoot = dom.create_element("tfoot", Attributes::default());
+    let tfoot = dom.create_element_ownerless_fixture("tfoot", Attributes::default());
     dom.world_mut().insert_one(
         tfoot,
         ComputedStyle {
@@ -482,7 +482,7 @@ fn table_tfoot_after_tbody() {
         },
     );
     dom.append_child(table, tfoot);
-    let tr_foot = dom.create_element("tr", Attributes::default());
+    let tr_foot = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr_foot,
         ComputedStyle {
@@ -491,7 +491,7 @@ fn table_tfoot_after_tbody() {
         },
     );
     dom.append_child(tfoot, tr_foot);
-    let cell_foot = dom.create_element("td", Attributes::default());
+    let cell_foot = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         cell_foot,
         ComputedStyle {
@@ -503,7 +503,7 @@ fn table_tfoot_after_tbody() {
     dom.append_child(tr_foot, cell_foot);
 
     // tbody (second in DOM)
-    let tbody = dom.create_element("tbody", Attributes::default());
+    let tbody = dom.create_element_ownerless_fixture("tbody", Attributes::default());
     dom.world_mut().insert_one(
         tbody,
         ComputedStyle {
@@ -512,7 +512,7 @@ fn table_tfoot_after_tbody() {
         },
     );
     dom.append_child(table, tbody);
-    let tr_body = dom.create_element("tr", Attributes::default());
+    let tr_body = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr_body,
         ComputedStyle {
@@ -521,7 +521,7 @@ fn table_tfoot_after_tbody() {
         },
     );
     dom.append_child(tbody, tr_body);
-    let cell_body = dom.create_element("td", Attributes::default());
+    let cell_body = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         cell_body,
         ComputedStyle {
@@ -602,11 +602,11 @@ fn table_direct_cells_anonymous_row() {
     // Direct table-cell children of a table (without a tr) should be
     // wrapped in an anonymous row per CSS 2.1 §17.2.1.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Add cells directly to the table (no <tr>).
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -617,7 +617,7 @@ fn table_direct_cells_anonymous_row() {
     );
     dom.append_child(table, td1);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -656,11 +656,11 @@ fn table_rowspan_height_extension() {
     // When a rowspan cell is taller than the combined spanned rows,
     // the last spanned row should be extended.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     // Row 1: td1 (rowspan=2, height=100) + td2 (height=20)
-    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr1 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr1,
         ComputedStyle {
@@ -672,7 +672,7 @@ fn table_rowspan_height_extension() {
 
     let mut td1_attrs = Attributes::default();
     td1_attrs.set("rowspan", "2");
-    let td1 = dom.create_element("td", td1_attrs);
+    let td1 = dom.create_element_ownerless_fixture("td", td1_attrs);
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -683,7 +683,7 @@ fn table_rowspan_height_extension() {
     );
     dom.append_child(tr1, td1);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {
@@ -695,7 +695,7 @@ fn table_rowspan_height_extension() {
     dom.append_child(tr1, td2);
 
     // Row 2: td3 (height=20)
-    let tr2 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr2,
         ComputedStyle {
@@ -705,7 +705,7 @@ fn table_rowspan_height_extension() {
     );
     dom.append_child(table, tr2);
 
-    let td3 = dom.create_element("td", Attributes::default());
+    let td3 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td3,
         ComputedStyle {
@@ -743,7 +743,7 @@ fn table_rowspan_height_extension() {
 fn table_empty_zero_children() {
     // Table with no children at all should produce a valid LayoutBox.
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(table, default_table_style());
 
     let font_db = FontDatabase::new();
@@ -768,7 +768,7 @@ fn table_display_none_cell_skipped() {
     // Row: [visible_cell] [display:none] [visible_cell]
     // Expected: 2 columns (not 3).
     let mut dom = EcsDom::new();
-    let table = dom.create_element("table", Attributes::default());
+    let table = dom.create_element_ownerless_fixture("table", Attributes::default());
     dom.world_mut().insert_one(
         table,
         ComputedStyle {
@@ -778,7 +778,7 @@ fn table_display_none_cell_skipped() {
         },
     );
 
-    let tr = dom.create_element("tr", Attributes::default());
+    let tr = dom.create_element_ownerless_fixture("tr", Attributes::default());
     dom.world_mut().insert_one(
         tr,
         ComputedStyle {
@@ -788,7 +788,7 @@ fn table_display_none_cell_skipped() {
     );
     dom.append_child(table, tr);
 
-    let td1 = dom.create_element("td", Attributes::default());
+    let td1 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td1,
         ComputedStyle {
@@ -799,7 +799,7 @@ fn table_display_none_cell_skipped() {
     );
     dom.append_child(tr, td1);
 
-    let td_hidden = dom.create_element("td", Attributes::default());
+    let td_hidden = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td_hidden,
         ComputedStyle {
@@ -809,7 +809,7 @@ fn table_display_none_cell_skipped() {
     );
     dom.append_child(tr, td_hidden);
 
-    let td2 = dom.create_element("td", Attributes::default());
+    let td2 = dom.create_element_ownerless_fixture("td", Attributes::default());
     dom.world_mut().insert_one(
         td2,
         ComputedStyle {

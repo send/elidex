@@ -27,7 +27,7 @@ fn converged_bidi_reorders_runs() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("אאב");
+    let text = dom.create_text_ownerless_fixture("אאב");
     dom.append_child(div, text);
 
     // Logical order: run0 "אא" (inline_start 0), run1 "ב" (inline_start 20).
@@ -86,7 +86,7 @@ fn converged_ltr_identity_no_reorder() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("AB");
+    let text = dom.create_text_ownerless_fixture("AB");
     dom.append_child(div, text);
 
     // Two LTR runs at far-apart baked positions; identity order → painted there.
@@ -146,7 +146,7 @@ fn converged_bidi_multi_line() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("אאבגגגד");
+    let text = dom.create_text_ownerless_fixture("אאבגגגד");
     dom.append_child(div, text);
 
     let flow = InlineFlow::single(
@@ -225,7 +225,7 @@ fn converged_bidi_vertical() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("אאב");
+    let text = dom.create_text_ownerless_fixture("אאב");
     dom.append_child(div, text);
 
     // inline_start = physical y (pen top); block_start/size give the column center x.
@@ -290,9 +290,9 @@ fn converged_bidi_line_with_atomic() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("אאב");
+    let text = dom.create_text_ownerless_fixture("אאב");
     dom.append_child(div, text);
-    let ib = dom.create_element("span", elidex_ecs::Attributes::default());
+    let ib = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         ib,
         elidex_plugin::ComputedStyle {
@@ -387,10 +387,10 @@ fn trailing_run_x_with_middle(middle_hidden: bool) -> Option<f32> {
             ..Default::default()
         },
     );
-    let text = dom.create_text("אמג");
+    let text = dom.create_text_ownerless_fixture("אמג");
     dom.append_child(div, text);
     // The middle run is a separate entity so it can carry its own visibility.
-    let mid = dom.create_element("span", elidex_ecs::Attributes::default());
+    let mid = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(
         mid,
         elidex_plugin::ComputedStyle {
@@ -485,7 +485,7 @@ fn converged_bidi_rtl_base_neutral_runs_reorder() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("!..");
+    let text = dom.create_text_ownerless_fixture("!..");
     dom.append_child(div, text);
 
     let flow = InlineFlow::single(

@@ -486,7 +486,7 @@ pub(crate) fn drive_async_coroutine(
     match result {
         Ok((yielded_value, false)) => {
             // Await: treat the yielded value as a Promise (auto-wrap).
-            // `AsyncDriverStep` dispatch in `interpreter.rs` does not
+            // `AsyncDriverStep` dispatch in `interpreter_call.rs` does not
             // save/restore `gc_enabled` (user JS inside the resumed body
             // needs GC to keep running), so the intervening allocations
             // below could observe a collection cycle between the first

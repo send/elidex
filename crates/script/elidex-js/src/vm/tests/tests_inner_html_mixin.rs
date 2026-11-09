@@ -1,6 +1,7 @@
 //! D-15 PR-B `#11-shadow-innerhtml-mixin` — JS-facing tests for
 //! `Element` / `ShadowRoot` `innerHTML`, `outerHTML`, `setHTMLUnsafe`,
-//! `getHTML` (WHATWG HTML §4.4.5 / §4.4.6 / §4.4.7) plus `cloneNode`
+//! `getHTML` (WHATWG HTML §8.5.4 `innerHTML` / §8.5.5 `outerHTML` / §8.5.2
+//! `setHTMLUnsafe` / §8.5.3 `getHTML`) plus `cloneNode`
 //! shadow-tree honouring (DOM §4.4 "clone a node" step 6).
 //!
 //! Shadow-encapsulation invariants (closed-mode opacity, default
@@ -20,8 +21,8 @@ use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
-    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
     doc
@@ -322,7 +323,7 @@ fn shadow_root_inner_html_getter_throws_on_element_receiver() {
 #[test]
 fn element_get_html_default_excludes_shadow_roots() {
     // `getHTML()` with no options behaves like `innerHTML` — shadow
-    // content is skipped per §4.4.6.
+    // content is skipped per HTML §8.5.3.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var sr = host.attachShadow({mode: 'open', serializable: true}); \
@@ -442,7 +443,7 @@ fn element_get_html_shadow_roots_plain_array_like_throws_typeerror() {
 
 #[test]
 fn element_get_html_shadow_roots_null_throws_typeerror() {
-    // PR201 Copilot R6 / F1 regression: per WebIDL §3.10.16, a
+    // PR201 Copilot R6 / F1 regression: per WebIDL §3.2.17, a
     // dictionary member's default is applied ONLY when the value is
     // `undefined`. `null` is passed through to the sequence converter,
     // which rejects it because `sequence<ShadowRoot>` is not nullable.
@@ -491,7 +492,7 @@ fn element_get_html_dense_array_shadow_roots_capped_safely() {
 
 #[test]
 fn element_get_html_shadow_roots_honours_array_iterator_override() {
-    // WebIDL §3.10.16 step 4: an Array whose `[Symbol.iterator]` is
+    // WebIDL §3.2.21 Sequences step 4: an Array whose `[Symbol.iterator]` is
     // overridden must use the override, not dense storage.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
@@ -558,7 +559,7 @@ fn element_get_html_huge_shadow_roots_length_is_capped_safely() {
 
 #[test]
 fn element_get_html_throws_typeerror_on_non_object_primitive_options() {
-    // PR201 Copilot R3 / F1 regression: WebIDL §3.10.16 dictionary
+    // PR201 Copilot R3 / F1 regression: WebIDL §3.2.17 dictionary
     // conversion throws TypeError for non-Object / non-null /
     // non-undefined arguments. The earlier draft silently fell back to
     // the default dictionary, which masked spec violations in caller
@@ -617,12 +618,11 @@ fn clone_node_deep_skips_shadow_tree_when_clonable_false() {
 }
 
 #[test]
-fn clone_node_shallow_clones_clonable_shadow_tree_shallowly() {
-    // Inverted from the pre-fix pin: DOM §4.4 "clone a node" step 6 is
-    // NOT gated on the subtree flag — a shallow clone of a clonable
-    // shadow host still replicates the shadow root; only the shadow
-    // children's own clone depth follows the flag (step 6.7), so the
-    // <p> appears but its descendants would not.
+fn clone_node_shallow_replicates_clonable_shadow_tree() {
+    // DOM §4.4 "clone a node" step 6 is NOT gated on the subtree flag — a
+    // shallow clone of a clonable shadow host still replicates the shadow
+    // root; step 6.7 clones the shadow children with subtree true, so the
+    // <p> appears (with its descendants, were there any).
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var sr = host.attachShadow({mode: 'open', clonable: true}); \

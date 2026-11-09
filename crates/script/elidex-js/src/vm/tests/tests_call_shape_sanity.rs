@@ -10,14 +10,14 @@
 //!   IsConstructor precondition).
 //! - [`Ordinary`] (Object): both bare-call and `new` succeed.
 //! - [`ConstructorOnly`] (Promise): bare-call throws the canonical
-//!   TypeError emitted at `vm/interpreter.rs::call_dispatch` (WebIDL
+//!   TypeError emitted at `vm/interpreter_call.rs::call_dispatch` (WebIDL
 //!   §3.7.1 (Interface object) creation algorithm step 1.2 + ECMA-262
 //!   §27.2.3.1 step 1); `new` returns a Promise instance.
 //! - [`IllegalConstructor`] (Crypto, FileList, …): BOTH bare-call and
 //!   `new` throw the canonical `"Failed to construct '{name}': Illegal
 //!   constructor"` (WebIDL §3.7.1 (Interface object) creation algorithm
-//!   step 1.1 — no ctor operation), gated at `do_new` (Construct) +
-//!   `call_dispatch` (Call)
+//!   step 1.1 — no ctor operation), gated in `admit_construct`
+//!   (which `[[Construct]]` reaches) + `call_dispatch` (Call)
 //!   with the shared `VmError::illegal_constructor` SoT.  Added by
 //!   `#11-vm-native-illegal-constructor-shape`.
 //!
@@ -61,10 +61,7 @@ fn symbol_construct_throws_not_a_constructor() {
 #[test]
 fn array_both_modes_work() {
     // Ordinary accepts both [[Call]] and [[Construct]].  Confirms the
-    // default `CallShape::Ordinary` is unchanged by Stage 2.  (Elidex
-    // does not surface `Object` as a callable constructor — see
-    // `vm/globals.rs::register_object_global` — so `Array` stands as
-    // the Ordinary witness.)
+    // default `CallShape::Ordinary` is unchanged by Stage 2.
     assert!(eval_bool(
         "Array().length === 0 && new Array().length === 0",
     ));
@@ -107,7 +104,7 @@ fn promise_construct_resolves() {
 fn illegal_constructor_both_modes_all_sites() {
     // Every WebIDL interface object that declares no constructor
     // operation throws `"Failed to construct '{name}': Illegal
-    // constructor"` for BOTH `new X()` (gated at `do_new`) and bare
+    // constructor"` for BOTH `new X()` (gated in `admit_construct`) and bare
     // `X()` (gated at `call_dispatch`).  `assert_illegal_constructor`
     // exercises both modes per name, so this single test is 32 checks
     // (16 sites × 2 modes) against the shared

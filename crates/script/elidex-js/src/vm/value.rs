@@ -732,22 +732,11 @@ pub enum CallShape {
     IllegalConstructor,
 }
 
-impl CallShape {
-    /// Whether `new` is accepted (i.e. the function is a constructor for
-    /// the purposes of `IsConstructor` / `[[Construct]]` admission).
-    /// `true` for [`Self::Ordinary`] and [`Self::ConstructorOnly`];
-    /// `false` for [`Self::CallableOnly`] and
-    /// [`Self::IllegalConstructor`].
-    #[inline]
-    pub const fn can_construct(self) -> bool {
-        matches!(self, Self::Ordinary | Self::ConstructorOnly)
-    }
-}
-
 /// The single, shared `func` body for every [`CallShape::IllegalConstructor`]
 /// native (a WebIDL interface object that declares no constructor operation).
 ///
-/// Both gate chokepoints — `do_new` (`[[Construct]]`) and `call_dispatch`
+/// Both gate chokepoints — `VmInner::admit_construct`
+/// (`vm/construct_admission.rs`, `[[Construct]]`) and `call_dispatch`
 /// (`[[Call]]`) — reject an `IllegalConstructor` native via
 /// [`VmError::illegal_constructor`] (keyed on the function's own
 /// [`NativeFunction::name`]) *before* its `func` is ever read, so this body
@@ -763,14 +752,14 @@ pub(crate) fn native_illegal_constructor_unreachable(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     unreachable!(
-        "CallShape::IllegalConstructor gate throws in do_new / call_dispatch \
+        "CallShape::IllegalConstructor gate throws in admit_construct / call_dispatch \
          before this body runs"
     )
 }
 
 /// A native function callable from JS.
 ///
-/// The signature takes `&mut Vm` (via a wrapper in interpreter.rs) so that
+/// The signature takes `&mut Vm` (via a wrapper in `interpreter_call.rs`) so that
 /// native functions can allocate objects, intern strings, etc.
 /// The `this` argument and positional args are passed as `JsValue`.
 pub struct NativeFunction {
@@ -778,7 +767,7 @@ pub struct NativeFunction {
     pub func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     /// Which call modes are accepted (see [`CallShape`]).  `[[Call]]` /
     /// `[[Construct]]` mismatches are detected and rejected at the
-    /// `vm/interpreter.rs::call_dispatch` NativeFunction arm, so per-ctor
+    /// `vm/interpreter_call.rs::call_dispatch` NativeFunction arm, so per-ctor
     /// bodies never need an entry-guard for the WebIDL §3.7.1 step 1.2
     /// mandate.
     pub shape: CallShape,

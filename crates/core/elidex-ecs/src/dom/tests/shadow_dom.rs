@@ -185,7 +185,7 @@ fn composed_children_slot_assigned() {
 fn composed_children_slot_fallback() {
     let mut dom = EcsDom::new();
     let slot = elem(&mut dom, "slot");
-    let fallback = dom.create_text("fallback");
+    let fallback = dom.create_text_ownerless_fixture("fallback");
     dom.append_child(slot, fallback);
 
     // Empty SlotAssignment — should return slot's own children (fallback).

@@ -419,7 +419,7 @@ fn document_replace_children_with_element_child_throws_hierarchy_error() {
     }
     // Seed the document with its single element child. This first
     // `document.appendChild` is the documentElement — valid even under the
-    // B1.2b-3 pre-insertion-validity fold (§4.2.3 step 6 allows ONE element child);
+    // B1.2b-3 pre-insertion-validity fold (ensure pre-insert validity step 9.1 allows ONE element child);
     // a *second* element via `document.appendChild` would now throw
     // HierarchyRequestError too, exactly like the `replaceChildren` below.
     vm.eval("document.appendChild(document.createElement('a'));")
@@ -450,7 +450,7 @@ fn document_replace_children_with_element_child_throws_hierarchy_error() {
 #[test]
 fn document_append_child_second_element_throws_hierarchy_error() {
     // B1.2b-3 (the headline JS-observable fix): `document.appendChild` now runs
-    // §4.2.3 ensure-pre-insertion-validity (step 6, Element branch: a Document may
+    // §4.2.3 ensure-pre-insertion-validity (step 9.1, Element branch: a Document may
     // have at most one element child), so a SECOND element throws
     // HierarchyRequestError. Before the validity fold the lax empty-record-list
     // path on the core Node method silently appended it (the mixins already threw).
@@ -626,7 +626,7 @@ fn template_content_query_selector_finds_descendant() {
 }
 
 // ---------------------------------------------------------------------------
-// Reader surface — Document wrapper (per-bind install via
+// Reader surface — Document wrapper (`Document.prototype`, installed from
 // `DOCUMENT_RO_ACCESSORS`).
 // ---------------------------------------------------------------------------
 
@@ -635,7 +635,7 @@ fn setup_with_html_root() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     (vm, session, dom, doc)
 }

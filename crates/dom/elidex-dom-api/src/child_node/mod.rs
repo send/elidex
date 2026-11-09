@@ -146,7 +146,7 @@ fn validate_document_element_constraint(
 ) -> Result<(), DomApiError> {
     match node_kind {
         Some(NodeKind::Element) => {
-            // §4.2.3 step 6 Element: "parent has an element child" (pre-insert,
+            // Ensure pre-insert validity step 9.1 (Element): "parent has an element child" (pre-insert,
             // `exclude` = «») / "...that is not child" (replace, `exclude` = «child»).
             // The node being inserted is NOT self-excluded — re-appending the existing
             // documentElement (`document.appendChild(document.documentElement)`)
@@ -225,7 +225,7 @@ fn validate_document_element_constraint(
             }
         }
         Some(NodeKind::DocumentType) => {
-            // §4.2.3 step 6 DocumentType: "parent has a doctype child" (pre-insert) /
+            // Ensure pre-insert validity step 11 (DocumentType): "parent has a doctype child" (pre-insert) /
             // "...that is not child" (replace, via `exclude`). No self-exclusion of the
             // inserted node (mirrors the Element branch) — re-appending an existing
             // doctype throws, same as the documentElement case above.
@@ -287,19 +287,23 @@ pub(crate) fn ensure_pre_insertion_validity(
 
 /// Convert `JsValue` arguments into entities.
 ///
-/// - `String` values are converted to new text nodes.
+/// - `String` values are converted to new text nodes, created in `this`'s
+///   node document (WHATWG DOM §4.2.6 *convert nodes into a node* step 1:
+///   "a new Text node whose data is node and node document is document").
 /// - `ObjectRef` values are resolved via the session identity map.
 /// - `Null` and `Undefined` values are skipped.
 pub(crate) fn collect_nodes(
+    this: Entity,
     args: &[JsValue],
     session: &mut SessionCore,
     dom: &mut EcsDom,
 ) -> Result<Vec<Entity>, DomApiError> {
+    let owner = dom.node_document_for_new_nodes(this);
     let mut entities = Vec::with_capacity(args.len());
     for arg in args {
         match arg {
             JsValue::String(s) => {
-                let text_node = dom.create_text(s.as_str());
+                let text_node = dom.create_text_with_owner(s.as_str(), owner);
                 entities.push(text_node);
             }
             JsValue::ObjectRef(id) => {
@@ -325,7 +329,7 @@ pub(crate) fn collect_nodes(
             JsValue::Null | JsValue::Undefined => {}
             other => {
                 // Coerce other primitives to string (matching DOMString IDL).
-                let text_node = dom.create_text(other.to_string());
+                let text_node = dom.create_text_with_owner(other.to_string(), owner);
                 entities.push(text_node);
             }
         }
@@ -354,6 +358,7 @@ pub(crate) fn collect_nodes(
 /// (The single-node case returns the arg directly and lets `apply_*` produce its
 /// records, so no source push is needed there.)
 pub(crate) fn convert_nodes_into_node(
+    this: Entity,
     nodes: Vec<Entity>,
     session: &mut SessionCore,
     dom: &mut EcsDom,
@@ -361,7 +366,10 @@ pub(crate) fn convert_nodes_into_node(
     if nodes.len() == 1 {
         return (nodes[0], false);
     }
-    let fragment = dom.create_document_fragment();
+    // §4.2.6 *convert nodes into a node* step 3: a new DocumentFragment whose
+    // node document is `this`'s node document.
+    let owner = dom.node_document_for_new_nodes(this);
+    let fragment = dom.create_document_fragment_with_owner(owner);
     for node in nodes {
         // Queue the unsuppressed source records (adopt removal / fragment record)
         // BEFORE the raw move detaches the arg (which would destroy the pre-move
@@ -447,7 +455,8 @@ pub(crate) fn ensure_replace_validity(
     let node_kind = validate_node_type(node, dom)?;
     validate_doctype_and_text(parent_kind, node_kind, node, dom)?;
 
-    // Step 6: Document parent constraints (excluding `child` from counts).
+    // Ensure pre-insert validity steps 9.1 and 11: Document parent constraints
+    // (excluding `child` from counts, `childrenToExclude` = « child »).
     if matches!(parent_kind, Some(NodeKind::Document)) {
         validate_document_element_constraint(parent, node, node_kind, Some(child), &[child], dom)?;
     }

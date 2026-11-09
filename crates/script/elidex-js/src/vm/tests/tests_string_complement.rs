@@ -1,6 +1,7 @@
 //! Tests for String.prototype P2 additions.
 
 use super::{eval_bool, eval_number, eval_string, eval_throws};
+use crate::vm::natives_json::DEPTH_EXCEEDED_MSG;
 
 // -- Generic this coercion (P2.5) ---------------------------------------------
 
@@ -664,11 +665,16 @@ fn new_array_reuses_preallocated_instance() {
 
 #[test]
 fn json_parse_depth_cap() {
-    // Deeply-nested JSON array must throw RangeError instead of causing
-    // a Rust-stack overflow (process abort).
+    // Deeply-nested JSON array must throw the depth-cap RangeError (see
+    // `MAX_JSON_DEPTH`), not abort via Rust-stack overflow.
     let deep = "[".repeat(2000) + &"]".repeat(2000);
-    let script = format!("JSON.parse('{deep}');");
-    eval_throws(&script);
+    assert_eq!(
+        eval_string(&format!(
+            "var __r; try {{ JSON.parse('{deep}'); __r = 'no-throw'; }} \
+             catch (e) {{ __r = e.name + '|' + e.message; }} __r"
+        )),
+        format!("RangeError|{DEPTH_EXCEEDED_MSG}")
+    );
 }
 
 #[test]

@@ -12,11 +12,11 @@
 //! `&mut PipelineResult` (each owns its own document `EcsDom`).
 
 use elidex_dom_api::focus::{
-    current_focus, focusing_steps, get_the_focusable_area, is_focusable_area, unfocusing_steps,
-    FocusEventKind, FocusEventSink, FocusTrigger,
+    current_focus, focus_fixup_steps, focusing_steps, get_the_focusable_area, is_focusable_area,
+    unfocusing_steps, FocusEventKind, FocusEventSink, FocusTrigger,
 };
 use elidex_ecs::Entity;
-use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlState};
+use elidex_form::{record_focus_snapshot, take_change_on_blur, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
 use elidex_script_session::DispatchEvent;
 
@@ -101,6 +101,17 @@ pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
     unfocusing_steps(&mut ShellFocusSink { pipeline }, old);
 }
 
+/// WHATWG HTML "update the rendering" step 17 — the render-time focus fixup for
+/// `pipeline`'s document: if its focused area is no longer a focusable area,
+/// run the focusing steps for the viewport through the shell sink
+/// ([`elidex_dom_api::focus::focus_fixup_steps`]), firing `change` (when the
+/// sink's change-on-blur judgement holds), `blur` and `focusout` at the holder.
+/// Needs only the pipeline, so every `crate::re_render` caller (parent,
+/// in-process and OOP iframes, the legacy `App`) runs the same fixup.
+pub(crate) fn focus_fixup(pipeline: &mut PipelineResult) {
+    focus_fixup_steps(&mut ShellFocusSink { pipeline });
+}
+
 /// The shell's [`FocusEventSink`] — adapts the engine-independent §6.6.4
 /// transition to the content pipeline: DOM access plus the engine-bound 3-phase
 /// event dispatch (`blur`/`focus` + the bubbling `focusout`/`focusin`, UI Events
@@ -121,14 +132,17 @@ impl FocusEventSink for ShellFocusSink<'_> {
     fn commit_change_on_blur(&mut self, old: Entity) {
         // §6.6.4 step 2.1 — fire `change` if the value was user-edited since
         // focus, consuming the snapshot (a no-op sink — the VM, PR-A2c — leaves it
-        // intact). `change` fires while the FOCUS bit is already cleared, so it
-        // runs before the new area is designated, per the losing-side ordering.
+        // intact). `change` fires while `old` is still the designated focused
+        // area (its FOCUS bit still set; elidex clears it after `change`, a
+        // deviation from the spec's steps 2.2-2.4 text),
+        // so a `change` listener still sees `old` as `activeElement` (cell C6).
         dispatch_change_on_blur(self.pipeline, old);
     }
 
     fn seed_focus_snapshot(&mut self, new: Entity) {
-        // §6.6.4 step 4.1 — record the focus-time value for change-on-blur (the
-        // canonical transition owns the seed timing; the `elidex-form` call lives
+        // After §6.6.4 focus update steps step 4.4 — seed the change-on-blur snapshot
+        // (unmarked; the baseline is the value before the first user value change,
+        // plan D-1) (the canonical transition owns the seed timing; the `elidex-form` call lives
         // here because the engine-independent crate has no form dependency).
         record_focus_snapshot(&mut self.pipeline.dom, new);
     }
@@ -171,19 +185,12 @@ fn dispatch_focus_event_with_related(
     pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch "change" on text-control blur when the value differs from the
-/// snapshot taken at focus (HTML §4.10.5.5). Consumes (reads + removes) the
-/// `FocusValueSnapshot`; absence ⇒ not a tracked text control ⇒ no change event.
+/// Dispatch "change" on text-control blur (HTML §6.6.4 focus update steps
+/// step 2.1; the `<input>` / `<textarea>` qualifier is at `elidex_form`'s
+/// `focus_snapshot` module doc). The verdict is `elidex_form::take_change_on_blur`'s, which
+/// consumes the `FocusValueSnapshot`; this sink only dispatches.
 fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
-    let Some(initial) = take_focus_snapshot(&mut pipeline.dom, entity) else {
-        return;
-    };
-    let changed = pipeline
-        .dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .is_ok_and(|fcs| fcs.value() != initial);
-    if changed {
+    if take_change_on_blur(&mut pipeline.dom, entity) {
         // "change" does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);
         event.cancelable = false;
@@ -220,7 +227,7 @@ mod tests {
     use elidex_ecs::{Attributes, EcsDom};
 
     fn text_input(dom: &mut EcsDom, doc: Entity) -> Entity {
-        let input = dom.create_element("input", Attributes::default());
+        let input = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.append_child(doc, input);
         // A default `<input>` becomes a text control via the form subsystem's own
         // constructor (`FormControlState`'s fields are private to `elidex-form`).
@@ -274,7 +281,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
 
-        let host = dom.create_element("div", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, host);
         // A plain `<div>` host is NOT itself focusable — the F1 case that the old
         // `is_focusable` pre-gate would have blurred before reaching the retarget.
@@ -294,7 +301,7 @@ mod tests {
             .expect("attach_shadow on <div>");
         let mut delegate_attrs = Attributes::default();
         delegate_attrs.set("tabindex".to_string(), "0".to_string());
-        let delegate = dom.create_element("div", delegate_attrs);
+        let delegate = dom.create_element_ownerless_fixture("div", delegate_attrs);
         let _ = dom.append_child(sr, delegate);
         assert_eq!(
             focus_target(&dom, host),
@@ -304,7 +311,7 @@ mod tests {
 
         let mut plain_attrs = Attributes::default();
         plain_attrs.set("tabindex".to_string(), "0".to_string());
-        let plain = dom.create_element("div", plain_attrs);
+        let plain = dom.create_element_ownerless_fixture("div", plain_attrs);
         let _ = dom.append_child(doc, plain);
         assert_eq!(
             focus_target(&dom, plain),
@@ -325,7 +332,7 @@ mod tests {
 
         let mut host_attrs = Attributes::default();
         host_attrs.set("tabindex".to_string(), "0".to_string());
-        let host = dom.create_element("div", host_attrs);
+        let host = dom.create_element_ownerless_fixture("div", host_attrs);
         let _ = dom.append_child(doc, host);
         let _sr = dom
             .attach_shadow_with_init(
@@ -362,7 +369,7 @@ mod tests {
         // slot #11-focusable-area-fieldset-inherited-disabled.)
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let host = dom.create_element("div", Attributes::default());
+        let host = dom.create_element_ownerless_fixture("div", Attributes::default());
         let _ = dom.append_child(doc, host);
         let sr = dom
             .attach_shadow_with_init(
@@ -374,7 +381,7 @@ mod tests {
                 },
             )
             .expect("attach_shadow on <div>");
-        let delegate = dom.create_element("input", Attributes::default());
+        let delegate = dom.create_element_ownerless_fixture("input", Attributes::default());
         let _ = dom.append_child(sr, delegate);
         assert!(elidex_form::create_form_control_state(&mut dom, delegate));
         // Sanity: the engine-independent retarget returns the (attr-focusable)

@@ -11,7 +11,7 @@
 //!   single trait method's match in each dispatcher impl needs at
 //!   most a new arm (or `_ => {}` to ignore).
 //! - **ECS-native**: event-as-data, single dispatch method per consumer.
-//!   Behavior-pluralization (7 trait methods) → data-pluralization (7
+//!   Behavior-pluralization (7 trait methods) → data-pluralization (9
 //!   enum variants).
 //! - **Synchronous drain at chokepoint**: preserves "next IDL read sees
 //!   adjusted state" semantics (LiveRangeBridge / NodeIterator
@@ -33,14 +33,56 @@
 //!
 //! ## Lifetime contract
 //!
-//! [`MutationEvent`] carries borrowed strings (only relevant for
-//! [`MutationEvent::AttributeChange`]); the dispatcher MUST NOT retain
-//! these references past the dispatch call. Borrows are released when
+//! [`MutationEvent`] carries borrows in two variants:
+//! [`MutationEvent::AttributeChange`]'s strings, and
+//! [`MutationEvent::Adopt`]'s `contents` slice, which borrows the adopt
+//! call's local `Vec`. The dispatcher MUST NOT retain these references
+//! past the dispatch call. Borrows are released when
 //! the chokepoint that fired the event returns.
 
 use hecs::Entity;
 
 use crate::EcsDom;
+
+/// Scope of a [`MutationEvent::CloneCreated`] event: which of the root's
+/// descendants were created by the same DOM §4.4 "clone a node" call.
+/// `Subtree`: step 5 ran (subtree true), so the light children and, under
+/// step 6.7, the shadow children of a clonable shadow host. `SelfOnly`: step 5
+/// did not run; the shadow children were still created when the root is a
+/// clonable shadow host (step 6 is not gated on subtree), each with subtree
+/// true (step 6.7), so their descendants exist too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloneScope {
+    Subtree,
+    SelfOnly,
+}
+
+/// One contents segment of a [`MutationEvent::Adopt`]: a `<template>`'s
+/// contents fragment that the adopt walk reached and re-homed, with the pair
+/// that fragment's own *adopt* runs with.
+///
+/// WHATWG DOM §4.5 *adopt* (`#concept-node-adopt`) step 3.4 runs each
+/// template's adopting steps inside the per-descendant loop; HTML §4.12.3
+/// template *adopting steps* (`#the-template-element`) 1–2 adopt the contents
+/// into the *appropriate template contents owner document*
+/// (`#appropriate-template-contents-owner-document`) of the template's new
+/// node document — a nested *adopt*, whose oldDocument is the contents' own
+/// node document, not the root's. `documents` is `(oldDocument, document)`
+/// of that nested adopt: `old` read before the walk writes the fragment,
+/// `new` the document it writes. It is `None` when `old` is `None` (a silent
+/// re-home) or the template lies in a `None` segment.
+///
+/// A fragment whose nested adopt would not run (step 3's guard, "If document
+/// is not oldDocument": its `old` equals `new`), or whose template lies in
+/// such a fragment, has no segment: the walk leaves it and its nodes as they
+/// are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdoptedContents {
+    /// The template's contents `DocumentFragment`.
+    pub fragment: Entity,
+    /// The nested adopt's `(oldDocument, document)`, or `None`.
+    pub documents: Option<(Entity, Entity)>,
+}
 
 /// One mutation event delivered to the dispatcher.
 ///
@@ -91,19 +133,35 @@ use crate::EcsDom;
 /// - [`Self::NormalizeMerge`] — fired by `EcsDom::fire_normalize_merge`
 ///   AFTER `prev` has absorbed `merged_child`'s data but BEFORE
 ///   `merged_child` is detached. Source spec: **WHATWG DOM §4.4**
-///   Interface Node `normalize()` step 6.4. Firing before detach lets
+///   Interface Node `normalize()` steps 6.1–6.4. Firing before detach lets
 ///   consumers migrate boundaries on `merged_child` to
 ///   `(prev, prev_old_len + off)` instead of collapsing via the
 ///   subsequent [`Self::Remove`].
 ///
 /// - [`Self::AttributeChange`] — fired AFTER an attribute write at the
 ///   `EcsDom::set_attribute` / `attr_remove` chokepoints. Source spec:
-///   **WHATWG DOM §4.3.2** "Queuing a mutation record" step 4.1 +
+///   **WHATWG DOM §4.3.2** "Queuing a mutation record" step 5.1 +
 ///   MutationRecord shape per **WHATWG DOM §4.3.3** Interface
 ///   MutationRecord (`attributeName` / `attributeNamespace` /
 ///   `oldValue`). Attribute name ASCII case-insensitivity per **WHATWG
 ///   DOM §4.9** Interface Element `getAttribute` (case-insens match
 ///   for HTML documents).
+///
+/// - [`Self::CloneCreated`] — fired by `EcsDom::fire_clone_created` once a
+///   "clone a node" call has created the whole copy, before the cloning
+///   entry returns. Source spec: **WHATWG DOM §4.4** Interface Node, "clone
+///   a node" (steps 2, 5 and 6.7 define the created set). [`CloneScope`]
+///   records exactly whether step 5 ran (subtree true): step 6.7 runs under
+///   both scopes. The `SelfOnly` walk visits the ShadowRoot entity created at
+///   step 6.4 and the `Subtree` walk does not; see
+///   `EcsDom::for_each_clone_created` for the visit set.
+///
+/// - [`Self::Adopt`] — fired by `EcsDom::adopt` (and the insertion
+///   primitives' adoption) after the adopt walk re-homed the subtree and
+///   before the primitive links it (so before [`Self::Insert`]). Source
+///   spec: **WHATWG DOM §4.5** Interface Document, *adopt* steps 3 (the
+///   guard), 3.3.3 (`adoptedCallback`) and 3.4 (template adopting steps,
+///   **HTML §4.12.3** adopting steps 1–2). See [`AdoptedContents`].
 pub enum MutationEvent<'a> {
     /// A node has been linked into a parent.
     ///
@@ -118,7 +176,7 @@ pub enum MutationEvent<'a> {
     ///   `+= 1` (strict comparison).
     /// - `was_connected`: connectedness of `node` BEFORE this mutation
     ///   began — captured by the dispatcher at the engine fire site
-    ///   prior to the implicit detach + re-link. Per WHATWG DOM §4.4
+    ///   prior to the implicit detach + re-link. Per WHATWG DOM §4.2.2
     ///   "connected" (= shadow-including root is a Document).
     ///   Consumers that don't need the pre-mutation snapshot ignore
     ///   the field via the `..` destructure. The Custom Elements
@@ -154,7 +212,7 @@ pub enum MutationEvent<'a> {
     /// - `was_connected`: connectedness of `node` BEFORE detach —
     ///   captured by the dispatcher at the engine fire site prior to
     ///   the `detach` call (so the `get_parent` walk still reaches
-    ///   the document root). Per WHATWG DOM §4.4 "connected" and HTML
+    ///   the document root). Per WHATWG DOM §4.2.2 "connected" and HTML
     ///   §4.13.6 Custom Element `disconnectedCallback` fires ONLY on
     ///   the connected → disconnected transition. Consumers that
     ///   don't need transition tracking ignore the field via the `..`
@@ -229,7 +287,7 @@ pub enum MutationEvent<'a> {
     /// - Boundary on `node` with `off > offset` →
     ///   migrate to `(new_node, off - offset)` (spec strict-greater).
     /// - Boundary on `parent` with `idx > node_idx` → `idx += 1`
-    ///   (spec §4.11 step 7.2; the [`Self::Insert`] fired by the
+    ///   (spec §4.11 steps 7.1 + 7.4–7.5; the [`Self::Insert`] fired by the
     ///   prior `insert_before` already handles `idx > node_idx + 1`
     ///   via strict-greater compare against the inserted-at index —
     ///   consumer MUST ONLY apply the missing `idx == node_idx + 1`
@@ -243,7 +301,7 @@ pub enum MutationEvent<'a> {
     },
 
     /// BEFORE the remove-merged-child step of `Node.normalize()`
-    /// (WHATWG DOM §4.4 Interface Node `normalize()` step 6.4) on
+    /// (WHATWG DOM §4.4 Interface Node `normalize()` steps 6.1–6.4) on
     /// adjacent Text-node merge.
     ///
     /// **Ordering invariant**: fired AFTER `prev` has absorbed
@@ -262,7 +320,7 @@ pub enum MutationEvent<'a> {
     /// - `merged_child_index`: pre-removal index of `merged_child` in
     ///   `parent`'s child list, or `None` matched with `parent: None`.
     ///
-    /// Range live-tracking boundary adjustment per §4.4 step 6.4:
+    /// Range live-tracking boundary adjustment per §4.4 `normalize()` steps 6.1–6.4:
     /// - Boundary on `merged_child` at `off` →
     ///   migrate to `(prev, prev_old_len + off)`.
     /// - Boundary on `parent` at exactly `child_idx` of `merged_child`
@@ -289,9 +347,9 @@ pub enum MutationEvent<'a> {
     ///   attribute was just removed.
     ///
     /// Source spec: WHATWG DOM §4.3.2 "Queuing a mutation record" step
-    /// 4.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
+    /// 5.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
     /// MutationRecord.  MutationRecord attribute-*namespace* tracking
-    /// (`attributeNamespace`, set per WHATWG DOM §4.3.2 step 4.1 and
+    /// (`attributeNamespace`, set per WHATWG DOM §4.3.2 step 5.1 and
     /// declared in §4.3.3 Interface MutationRecord) is a separate concern
     /// from element-namespace tracking and is deferred to the
     /// `#11-mutation-observer-extras` slot (sub-item (a)) — when it lands,
@@ -309,6 +367,33 @@ pub enum MutationEvent<'a> {
         old_value: Option<&'a str>,
         new_value: Option<&'a str>,
     },
+
+    /// A "clone a node" call completed: `root` and its `scope` were created.
+    /// Fired by `EcsDom::fire_clone_created` from the canonical cloner's
+    /// entry, after the whole copy exists and before the entry returns.
+    /// Walk the created set with `EcsDom::for_each_clone_created`.
+    CloneCreated { root: Entity, scope: CloneScope },
+
+    /// WHATWG DOM §4.5 *adopt* (`#concept-node-adopt`) re-homed `node`'s
+    /// shadow-including inclusive descendants: fired once per adopt call,
+    /// after the walk and before the primitive links `node`, iff `documents`
+    /// (the root's `(oldDocument, document)`, step 3's guard) is `Some`.
+    ///
+    /// `contents` lists, in walk order, each template contents fragment the
+    /// walk re-homed with its own pair (step 3.4; HTML §4.12.3 adopting steps
+    /// 1–2). A node's pair is its innermost segment's, found from the node's
+    /// shadow-including root (`EcsDom::find_tree_root_composed`: a contents
+    /// fragment has no parent and is not a shadow root, so the climb stops at
+    /// the nearest one): `node` → the root's `documents`; a recorded
+    /// segment's `fragment` → that segment's; anything else → `None`. That
+    /// includes a fragment the walk skipped and an interior node where the
+    /// `MAX_ANCESTOR_DEPTH` cap cut the climb short (a stated defect, C0c
+    /// memo §8).
+    Adopt {
+        node: Entity,
+        documents: Option<(Entity, Entity)>,
+        contents: &'a [AdoptedContents],
+    },
 }
 
 /// Synchronous mutation event dispatcher.
@@ -318,7 +403,9 @@ pub enum MutationEvent<'a> {
 ///
 /// Production impl: `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` (typed
 /// composer of `LiveRangeBridge` + `NodeIteratorAdjuster` +
-/// `BaseUrlMaintainer` + `FormControlReconciler`). Dispatch order =
+/// `BaseUrlMaintainer` + `FormControlReconciler` +
+/// `EventHandlerAttributeConsumer` + `CanvasReconciler` +
+/// `CustomElementReactionConsumer`). Dispatch order =
 /// composer field declaration order = compile-time-visible.
 ///
 /// New mutation kinds are added as [`MutationEvent`] variant additions;

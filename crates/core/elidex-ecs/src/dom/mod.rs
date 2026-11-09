@@ -21,6 +21,7 @@ mod classify;
 pub(crate) mod equality;
 mod geometry;
 mod mutation_event;
+mod node_document;
 pub mod shadow;
 mod text_data;
 mod text_util;
@@ -29,7 +30,8 @@ mod tree_clone;
 
 pub use attribute::AttributeWrite;
 pub use geometry::{FragmentView, ScreenGeometry};
-pub use mutation_event::{MutationDispatcher, MutationEvent};
+pub use mutation_event::{AdoptedContents, CloneScope, MutationDispatcher, MutationEvent};
+pub use node_document::NewNodeOwner;
 pub(crate) use text_util::splice_utf16;
 pub use tree::TemplateContentsWalk;
 
@@ -45,6 +47,16 @@ use std::borrow::Cow;
 /// Also used by `elidex-css` selector matching to cap descendant walks.
 pub const MAX_ANCESTOR_DEPTH: usize = 10_000;
 
+/// The mutation-dispatcher slot. `Taken` is a dispatcher handed out by
+/// `take_mutation_dispatcher` for a window (despawn / throwaway parse); the
+/// caller's restore is pending. `Absent` is "never installed", "cleared at
+/// unbind", or the slot during a dispatch (`dispatch_depth > 0` says which).
+enum DispatcherSlot {
+    Absent,
+    Installed(Box<dyn MutationDispatcher + Send + Sync>),
+    Taken,
+}
+
 /// ECS-backed DOM storage.
 ///
 /// Each DOM node is an `Entity` in the `hecs::World`, with component data
@@ -59,11 +71,11 @@ pub struct EcsDom {
     /// `append_child` / `insert_before` / `remove_child` /
     /// `replace_child` / `destroy_entity` / `set_text_data` /
     /// `replace_text_data` / `set_attribute` / `attr_remove` /
-    /// `fire_split_text` / `fire_normalize_merge`.  Single dispatcher
+    /// `fire_split_text` / `fire_normalize_merge` / `fire_clone_created`.  Single dispatcher
     /// per [`Self`] — multi-consumer composition is handled by a
     /// typed composer (`elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) impl'ing
     /// [`MutationDispatcher`] with typed consumer fields.
-    dispatcher: Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    dispatcher: DispatcherSlot,
     /// Re-entry detection counter — incremented at the start of every
     /// [`Self::dispatch_event`] invocation, decremented in
     /// [`RestoreDispatcher::drop`].  Used by [`Self::dispatch_event`]
@@ -86,7 +98,7 @@ pub struct EcsDom {
     /// walk.
     version_propagation_suppressed: bool,
     /// When set, [`destroy_entity`](Self::destroy_entity)'s no-dispatcher
-    /// §2.1.4 focused-area reset ([`clear_focus_if_disconnected`], a full
+    /// §2.1.4 focused-area reset ([`EcsDom::clear_focus_if_disconnected`], a full
     /// `ElementState` world query) is skipped. Scoped on by
     /// [`despawn_subtree`](Self::despawn_subtree) for the same reason as
     /// `version_propagation_suppressed`: that per-node global scan would turn a
@@ -94,6 +106,11 @@ pub struct EcsDom {
     /// `FOCUS` component with the entity, so the reset is run once after the
     /// walk instead of per node.
     focus_clear_suppressed: bool,
+    /// Runs of the DOM §4.5 *adopt* walk (C0b §6.2's walk counter): a
+    /// re-stamp with the node's own document changes no component, so a
+    /// counter is the only observation that a link did not walk.
+    #[cfg(any(test, feature = "fixtures"))]
+    adopt_walks: u64,
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
@@ -107,11 +124,13 @@ pub struct EcsDom {
 /// stays in `pending`, and `Drop` writes back through the same borrow
 /// afterwards.  Unwinding drops the guard, so the slot and the counter
 /// are restored on the panic path as well.  The callback can reach
-/// `dispatcher` / `dispatch_depth` itself.  A dispatcher *installed*
-/// from inside a dispatch would be overwritten by the restore; the debug
-/// assertion in `Drop` reports that.  A dispatcher *cleared* or taken
-/// from inside a dispatch cannot be told apart (the slot is already
-/// empty), so the restore silently puts the old one back.
+/// `dispatcher` / `dispatch_depth` itself.  `Drop` always restores the
+/// slot and the counter first, then reports: a dispatcher *installed* from
+/// inside a dispatch (the slot is `Installed` at drop) is displaced by the
+/// restore and trips the debug assertion, after the state is already
+/// consistent.  A dispatcher *cleared* or taken from inside a dispatch
+/// cannot be told apart (the slot is `Absent` either way), so the restore
+/// silently puts the old one back.
 struct RestoreDispatcher<'a> {
     dom: &'a mut EcsDom,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
@@ -119,13 +138,19 @@ struct RestoreDispatcher<'a> {
 
 impl Drop for RestoreDispatcher<'_> {
     fn drop(&mut self) {
-        debug_assert!(
-            self.dom.dispatcher.is_none() || std::thread::panicking(),
-            "a dispatcher was installed inside MutationDispatcher::dispatch; \
-             the take-and-restore would overwrite it"
+        let displaced = std::mem::replace(
+            &mut self.dom.dispatcher,
+            match self.pending.take() {
+                Some(d) => DispatcherSlot::Installed(d),
+                None => DispatcherSlot::Absent,
+            },
         );
-        self.dom.dispatcher = self.pending.take();
         self.dom.dispatch_depth = self.dom.dispatch_depth.saturating_sub(1);
+        debug_assert!(
+            !matches!(displaced, DispatcherSlot::Installed(_)) || std::thread::panicking(),
+            "a dispatcher was installed inside MutationDispatcher::dispatch; \
+             the take-and-restore overwrote it"
+        );
     }
 }
 
@@ -135,11 +160,13 @@ impl EcsDom {
         Self {
             world: World::new(),
             document_root: None,
-            dispatcher: None,
+            dispatcher: DispatcherSlot::Absent,
             dispatch_depth: 0,
             fragment_tree: crate::FragmentTree::default(),
             version_propagation_suppressed: false,
             focus_clear_suppressed: false,
+            #[cfg(any(test, feature = "fixtures"))]
+            adopt_walks: 0,
         }
     }
 
@@ -162,26 +189,44 @@ impl EcsDom {
 
     /// Install the (single) mutation event dispatcher.  Returns the
     /// previously-installed dispatcher (if any) for replace-then-
-    /// retrieve patterns.  Production caller: `Vm::bind` installs a
-    /// `ConsumerDispatcher` composing the mutation consumers.
+    /// retrieve patterns; a window's restore (slot `Taken`) returns `None`.
+    /// Production caller: `Vm::bind` installs a `ConsumerDispatcher`
+    /// composing the mutation consumers.
     pub fn set_mutation_dispatcher(
         &mut self,
         dispatcher: Box<dyn MutationDispatcher + Send + Sync>,
     ) -> Option<Box<dyn MutationDispatcher + Send + Sync>> {
-        self.dispatcher.replace(dispatcher)
+        match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Installed(dispatcher)) {
+            DispatcherSlot::Installed(previous) => Some(previous),
+            DispatcherSlot::Absent | DispatcherSlot::Taken => None,
+        }
     }
 
-    /// Drop the installed dispatcher, if any.
+    /// Drop the installed dispatcher, if any.  Also closes a pending
+    /// take-window (`Taken`): unbind is legitimate at any time.
     pub fn clear_mutation_dispatcher(&mut self) {
-        self.dispatcher = None;
+        self.dispatcher = DispatcherSlot::Absent;
     }
 
     /// Take the installed dispatcher out without dropping it.
-    /// Returns `None` if none was installed.
+    /// Returns `None` if none was installed (or one is already taken).
+    ///
+    /// **Contract**: a take that returned `Some` owes a restore
+    /// ([`Self::set_mutation_dispatcher`] with the box) or a
+    /// [`Self::clear_mutation_dispatcher`].  Until then the slot is
+    /// `Taken`, and a [`Self::fire_clone_created`] in that state asserts in
+    /// debug builds (the event would be dropped).  A take that finds nothing
+    /// returns `None` and opens no window.
     pub fn take_mutation_dispatcher(
         &mut self,
     ) -> Option<Box<dyn MutationDispatcher + Send + Sync>> {
-        self.dispatcher.take()
+        match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Taken) {
+            DispatcherSlot::Installed(d) => Some(d),
+            previous @ (DispatcherSlot::Absent | DispatcherSlot::Taken) => {
+                self.dispatcher = previous;
+                None
+            }
+        }
     }
 
     /// Dispatch one [`MutationEvent`] to the installed dispatcher (if
@@ -204,8 +249,13 @@ impl EcsDom {
              (see `MutationDispatcher::dispatch` docstring).  Queue the \
              work via per-consumer deferred state instead."
         );
-        let Some(dispatcher) = self.dispatcher.take() else {
-            return;
+        let dispatcher = match std::mem::replace(&mut self.dispatcher, DispatcherSlot::Absent) {
+            DispatcherSlot::Installed(d) => d,
+            // Absent / Taken: no dispatcher; the slot is left as it is.
+            other => {
+                self.dispatcher = other;
+                return;
+            }
         };
         self.dispatch_depth = self.dispatch_depth.saturating_add(1);
         let mut guard = RestoreDispatcher {
@@ -247,7 +297,7 @@ impl EcsDom {
     }
 
     /// Fire [`MutationEvent::NormalizeMerge`] from a caller in another
-    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` step 6.4.
+    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` steps 6.1–6.4.
     ///
     /// **Caller ordering contract**: MUST be invoked AFTER `prev` has
     /// absorbed `merged_child`'s data but BEFORE `merged_child` is
@@ -271,6 +321,23 @@ impl EcsDom {
             merged_child_index,
         };
         self.dispatch_event(&event);
+    }
+
+    /// Fire [`MutationEvent::CloneCreated`]: a DOM §4.4 "clone a node" call
+    /// created `root` and (per `scope`) its descendants.
+    ///
+    /// **Caller ordering contract**: MUST be invoked after the whole copy
+    /// exists and before the cloning entry returns.  Debug-asserts that the
+    /// dispatcher slot is not `Taken` (see [`Self::take_mutation_dispatcher`]).
+    pub fn fire_clone_created(&mut self, root: Entity, scope: CloneScope) {
+        debug_assert!(
+            !matches!(self.dispatcher, DispatcherSlot::Taken),
+            "fire_clone_created while the mutation dispatcher is taken out \
+             (take_mutation_dispatcher without its restore or clear): the CloneCreated \
+             event would be dropped and the clone's custom-element upgrade and form-state \
+             passes lost.  Restore the dispatcher before cloning."
+        );
+        self.dispatch_event(&MutationEvent::CloneCreated { root, scope });
     }
 
     /// Provides read-only access to the underlying `hecs::World`.
@@ -321,40 +388,37 @@ impl EcsDom {
         &mut self.world
     }
 
-    /// Create an element node with the given tag and attributes.
+    /// Create an ownerless element node with the given tag and attributes.
     ///
-    /// Shim over [`create_element_with_owner`](Self::create_element_with_owner)
-    /// with `owner = None`.  New callers that know which Document the
-    /// node belongs to should prefer the `_with_owner` variant so that
-    /// [`owner_document`](Self::owner_document) can report the correct
-    /// Document even for detached nodes (WHATWG §4.4 "node document").
-    pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
-        self.create_element_with_owner(tag, attrs, None)
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
+    pub fn create_element_ownerless_fixture(
+        &mut self,
+        tag: impl Into<String>,
+        attrs: Attributes,
+    ) -> Entity {
+        self.create_element_with_owner(tag, attrs, NewNodeOwner::NONE)
     }
 
-    /// Create an element node with an explicit owner `Document` entity.
-    ///
-    /// `owner = Some(doc)` attaches an [`AssociatedDocument`] component so
-    /// that [`owner_document`](Self::owner_document) returns `doc` before
-    /// the node is inserted into any tree.  `owner = None` mirrors legacy
-    /// [`create_element`](Self::create_element) behaviour.
+    /// Create an element node whose node document is `owner` (WHATWG DOM §4.4
+    /// *node document*, set upon creation), stamped in the spawn tuple.
     pub fn create_element_with_owner(
         &mut self,
         tag: impl Into<String>,
         attrs: Attributes,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self.world.spawn((
-            TagType(tag.into()),
-            attrs,
-            TreeRelation::default(),
-            NodeKind::Element,
-        ));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+        self.spawn_node(
+            (
+                TagType(tag.into()),
+                attrs,
+                TreeRelation::default(),
+                NodeKind::Element,
+            ),
+            owner,
+        )
     }
 
     /// Create a foreign-namespace element node (SVG / MathML).
@@ -363,16 +427,16 @@ impl EcsDom {
     /// but tags the element with an explicit [`Namespace`].  The
     /// [`Namespace`] component is attached **only** for non-HTML
     /// namespaces — an absent component means [`Namespace::Html`] by
-    /// construction — so HTML elements created via the plain
-    /// [`create_element`](Self::create_element) stay component-free and
-    /// unchanged.  Used by the strict HTML parser's foreign-content path
+    /// construction — so HTML elements created via
+    /// [`create_element_with_owner`](Self::create_element_with_owner) stay
+    /// component-free and unchanged.  Used by the strict HTML parser's foreign-content path
     /// (WHATWG HTML §13.2.6.5).
     pub fn create_element_ns(
         &mut self,
         tag: impl Into<String>,
         namespace: Namespace,
         attrs: Attributes,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
         let entity = self.create_element_with_owner(tag, attrs, owner);
         if namespace != Namespace::Html {
@@ -403,7 +467,7 @@ impl EcsDom {
     /// For transient / throwaway documents that must not clobber the
     /// persistent [`document_root()`](Self::document_root) cache — e.g. the
     /// WHATWG HTML §13.4 fragment parsing algorithm's throwaway document
-    /// (step 2), which exists only to own the fragment's nodes during the
+    /// (step 4), which exists only to own the fragment's nodes during the
     /// parse and is despawned afterwards. Sharing the spawn with
     /// [`create_document_root`](Self::create_document_root) keeps the
     /// `Document` node shape (`TreeRelation` + base URL) defined in one place.
@@ -423,7 +487,7 @@ impl EcsDom {
         self.document_root
     }
 
-    /// Create a Window root entity (WHATWG HTML §7.2).
+    /// Create a Window root entity (WHATWG HTML §7.2.2).
     ///
     /// The Window entity is **not** a Node and does **not** participate in
     /// the DOM tree: it carries only the [`NodeKind::Window`] component and
@@ -485,52 +549,46 @@ impl EcsDom {
         }
     }
 
-    /// Create a text node.
+    /// Create an ownerless text node.
     ///
-    /// Shim over [`create_text_with_owner`](Self::create_text_with_owner)
-    /// with `owner = None`.
-    pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
-        self.create_text_with_owner(text, None)
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
+    pub fn create_text_ownerless_fixture(&mut self, text: impl Into<String>) -> Entity {
+        self.create_text_with_owner(text, NewNodeOwner::NONE)
     }
 
-    /// Create a text node with an explicit owner `Document` entity.
+    /// Create a text node whose node document is `owner` (DOM §4.4).
     pub fn create_text_with_owner(
         &mut self,
         text: impl Into<String>,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self.world.spawn((
-            TextContent(text.into()),
-            TreeRelation::default(),
-            NodeKind::Text,
-        ));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+        self.spawn_node(
+            (
+                TextContent(text.into()),
+                TreeRelation::default(),
+                NodeKind::Text,
+            ),
+            owner,
+        )
     }
 
-    /// Create a document fragment node (WHATWG DOM 4.5).
+    /// Create an ownerless document fragment node.
     ///
-    /// Shim over
-    /// [`create_document_fragment_with_owner`](Self::create_document_fragment_with_owner)
-    /// with `owner = None`.
-    pub fn create_document_fragment(&mut self) -> Entity {
-        self.create_document_fragment_with_owner(None)
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
+    pub fn create_document_fragment_ownerless_fixture(&mut self) -> Entity {
+        self.create_document_fragment_with_owner(NewNodeOwner::NONE)
     }
 
-    /// Create a document fragment node with an explicit owner
-    /// `Document` entity.
-    pub fn create_document_fragment_with_owner(&mut self, owner: Option<Entity>) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self
-            .world
-            .spawn((TreeRelation::default(), NodeKind::DocumentFragment));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+    /// Create a document fragment node whose node document is `owner`
+    /// (DOM §4.4).
+    pub fn create_document_fragment_with_owner(&mut self, owner: NewNodeOwner) -> Entity {
+        self.spawn_node((TreeRelation::default(), NodeKind::DocumentFragment), owner)
     }
 
     /// HTML §4.12.3: give `template` its associated **template contents**
@@ -549,15 +607,14 @@ impl EcsDom {
     /// value is a separate inert *"template contents owner document"* (one per
     /// real document); this ships the **C2 approximation** `owner_doc =
     /// template's own node document` — the faithful inert owner document is
-    /// deferred to slot `#11-template-contents-owner-document`. Callers pass
-    /// the document they know at creation time (strict: post-insert
-    /// `owner_document(template)`; `createElement`: the receiver document;
-    /// tolerant: the conversion's threaded document), so the fragment's
-    /// `ownerDocument` is uniform across tiers.
+    /// deferred to slot `#11-template-contents-owner-document`. Every caller
+    /// passes [`node_document_for_new_nodes(template)`](Self::node_document_for_new_nodes)
+    /// (the clone post-pass: the clone operation's document), so the
+    /// fragment's `ownerDocument` is uniform across tiers.
     pub fn attach_template_contents(
         &mut self,
         template: Entity,
-        owner_doc: Option<Entity>,
+        owner_doc: NewNodeOwner,
     ) -> Entity {
         // Called exactly once per `<template>` creation (both parser tiers,
         // `createElement`, clone post-pass). Re-attaching would orphan the
@@ -586,60 +643,66 @@ impl EcsDom {
             .map(|t| t.fragment)
     }
 
-    /// Create a comment node.
+    /// Create an ownerless comment node.
     ///
-    /// Shim over [`create_comment_with_owner`](Self::create_comment_with_owner)
-    /// with `owner = None`.
-    pub fn create_comment(&mut self, data: impl Into<String>) -> Entity {
-        self.create_comment_with_owner(data, None)
+    /// Test fixture: an ownerless node, which production code cannot create
+    /// (production creators take a [`NewNodeOwner`] from
+    /// [`node_document_for_new_nodes`](Self::node_document_for_new_nodes)).
+    #[cfg(any(test, feature = "fixtures"))]
+    pub fn create_comment_ownerless_fixture(&mut self, data: impl Into<String>) -> Entity {
+        self.create_comment_with_owner(data, NewNodeOwner::NONE)
     }
 
-    /// Create a comment node with an explicit owner `Document` entity.
+    /// Create a comment node whose node document is `owner` (DOM §4.4).
     pub fn create_comment_with_owner(
         &mut self,
         data: impl Into<String>,
-        owner: Option<Entity>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        let owner = self.validate_owner_document(owner);
-        let entity = self.world.spawn((
-            CommentData(data.into()),
-            TreeRelation::default(),
-            NodeKind::Comment,
-        ));
-        if let Some(doc) = owner {
-            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
-        }
-        entity
+        self.spawn_node(
+            (
+                CommentData(data.into()),
+                TreeRelation::default(),
+                NodeKind::Comment,
+            ),
+            owner,
+        )
     }
 
-    /// Create a document type node.
+    /// Create a document type node whose node document is `owner` (WHATWG
+    /// DOM §4.4 *node document*, set upon creation).
     pub fn create_document_type(
         &mut self,
         name: impl Into<String>,
         public_id: impl Into<String>,
         system_id: impl Into<String>,
+        owner: NewNodeOwner,
     ) -> Entity {
-        self.world.spawn((
-            DocTypeData {
-                name: name.into(),
-                public_id: public_id.into(),
-                system_id: system_id.into(),
-            },
-            TreeRelation::default(),
-            NodeKind::DocumentType,
-        ))
+        let data = DocTypeData {
+            name: name.into(),
+            public_id: public_id.into(),
+            system_id: system_id.into(),
+        };
+        self.spawn_node(
+            (data, TreeRelation::default(), NodeKind::DocumentType),
+            owner,
+        )
     }
 
-    /// Create an attribute node (WHATWG DOM 4.9).
-    pub fn create_attribute(&mut self, local_name: impl Into<String>) -> Entity {
-        self.world.spawn((
-            AttrData {
-                local_name: local_name.into(),
-                value: String::new(),
-                owner_element: None,
-            },
-            NodeKind::Attribute,
-        ))
+    /// Create an attribute node whose node document is `owner` (WHATWG DOM
+    /// §4.5 `createAttribute`, `#dom-document-createattribute`: "creating an
+    /// attribute given this").
+    pub fn create_attribute(
+        &mut self,
+        local_name: impl Into<String>,
+        owner: NewNodeOwner,
+    ) -> Entity {
+        let data = AttrData {
+            local_name: local_name.into(),
+            value: String::new(),
+            owner_element: None,
+        };
+        self.spawn_node((data, NodeKind::Attribute), owner)
     }
 
     // ---- Version tracking ----
@@ -741,13 +804,14 @@ impl EcsDom {
 
     // ---- AssociatedDocument (WHATWG §4.4 "node document") ----
 
-    /// Validate an incoming `owner` argument passed to
-    /// `create_*_with_owner`.  Returns the entity unchanged when it
+    /// Validate the node document a spawn path is about to stamp
+    /// (`spawn_node` for the `create_*_with_owner` creators, and the
+    /// cloner).  Returns the entity unchanged when it
     /// still points at a live [`NodeKind::Document`]; returns `None`
     /// otherwise (destroyed / non-Document / never set).
     ///
     /// Write-time counterpart to the read-time validation in
-    /// [`owner_document`](Self::owner_document): both layers together
+    /// [`node_document`](Self::node_document): both layers together
     /// guarantee that an [`AssociatedDocument`] component in the
     /// world always points at a real Document as long as it persists.
     /// A `debug_assert!` fires when the caller passes a non-Document
@@ -755,12 +819,12 @@ impl EcsDom {
     /// release builds keep the silent-skip safety net.
     fn validate_owner_document(&self, owner: Option<Entity>) -> Option<Entity> {
         let doc = owner?;
-        if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
+        if self.is_live_document(doc) {
             Some(doc)
         } else {
             debug_assert!(
                 false,
-                "create_*_with_owner passed an owner that is not a live Document entity"
+                "a spawn path was given a node document that is not a live Document entity"
             );
             None
         }
@@ -769,12 +833,10 @@ impl EcsDom {
     /// Returns the [`AssociatedDocument`] component value for an
     /// entity, or `None` if absent.
     ///
-    /// Low-level accessor — callers that need WHATWG-compliant
-    /// `ownerDocument` semantics should use
-    /// [`owner_document`](Self::owner_document), which layers tree-root
-    /// fallback on top.
+    /// The raw component — readers use [`node_document`](Self::node_document),
+    /// which adds the Document self-case and the liveness check.
     #[must_use]
-    pub fn get_associated_document(&self, entity: Entity) -> Option<Entity> {
+    pub(crate) fn get_associated_document(&self, entity: Entity) -> Option<Entity> {
         self.world
             .get::<&AssociatedDocument>(entity)
             .ok()
@@ -786,7 +848,7 @@ impl EcsDom {
     ///
     /// Idempotent: inserts when absent, updates in place when present.
     /// Returns `false` if the entity has been destroyed.
-    pub fn set_associated_document(&mut self, entity: Entity, doc: Entity) -> bool {
+    pub(crate) fn set_associated_document(&mut self, entity: Entity, doc: Entity) -> bool {
         if !self.contains(entity) {
             return false;
         }
@@ -799,57 +861,18 @@ impl EcsDom {
             .is_ok()
     }
 
-    /// Resolve the owner `Document` entity for a node
-    /// (WHATWG §4.4 `Node.ownerDocument`).
-    ///
-    /// Returns `None` when:
-    /// - `entity` is itself a `Document` (per WHATWG, `Document.ownerDocument`
-    ///   is `null`), **or**
-    /// - no [`AssociatedDocument`] is set and the tree root is not a
-    ///   Document (orphan node / detached fragment / Window).
-    ///
-    /// Otherwise, prefers the explicit [`AssociatedDocument`] component
-    /// (set at node-creation time by `create_*_with_owner` and propagated
-    /// through `clone_subtree`) and falls back to the tree-root walk so
-    /// that legacy entities created without the component still resolve
-    /// to the bound document when inserted into the main tree.
+    /// WHATWG DOM §4.4 `ownerDocument` getter (`#dom-node-ownerdocument`):
+    /// `None` if `entity` is a Document, else its node document
+    /// ([`Self::node_document`]) — `None` too for a node without one (its
+    /// document was destroyed; it was created ownerless, i.e. on behalf of a
+    /// fragment-parse context or a non-node source that has no node document,
+    /// see [`Self::node_document_for_new_nodes`]; or a test fixture).
     #[must_use]
     pub fn owner_document(&self, entity: Entity) -> Option<Entity> {
-        if !self.contains(entity) {
-            return None;
-        }
         if matches!(self.node_kind(entity), Some(NodeKind::Document)) {
             return None;
         }
-        if let Some(doc) = self.get_associated_document(entity) {
-            // Guard against a dangling pointer OR a wrongly-typed
-            // component — callers expect an actual Document back.
-            // A stale entity (destroyed / recycled as a non-Document)
-            // must not leak through; fall through to the tree-root
-            // walk in that case so `ownerDocument` never hands out a
-            // ghost or off-kind receiver.
-            if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
-                return Some(doc);
-            }
-        }
-        let root = self.find_tree_root(entity);
-        match self.node_kind(root) {
-            Some(NodeKind::Document) => Some(root),
-            // A node whose tree root is a detached `DocumentFragment` inherits
-            // that fragment's node document. Parser-built `<template>` content
-            // (HTML §4.12.3) sets `AssociatedDocument` on the fragment but not
-            // on its parsed descendants (tolerant nodes rely on the tree-root
-            // walk, which dead-ends at the fragment), so without this
-            // `template.content.firstChild.ownerDocument` would be null while
-            // `template.content.ownerDocument` is the document. Same dangling
-            // guard as above (the fragment may carry a stale/destroyed owner —
-            // e.g. a fragment-parse throwaway document — in which case the
-            // `contains` + kind check yields `None` rather than a ghost).
-            Some(NodeKind::DocumentFragment) => self.get_associated_document(root).filter(|&doc| {
-                self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document))
-            }),
-            _ => None,
-        }
+        self.node_document(entity)
     }
 }
 

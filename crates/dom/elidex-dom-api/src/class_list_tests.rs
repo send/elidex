@@ -9,7 +9,7 @@ fn setup() -> (EcsDom, Entity, SessionCore) {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "foo bar");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let session = SessionCore::new();
     (dom, elem, session)
 }
@@ -222,7 +222,7 @@ fn add_normalizes_whitespace() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "  foo  bar  ");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
     CLASS_LIST_ADD
         .invoke(
@@ -429,7 +429,7 @@ fn length() {
 #[test]
 fn length_empty() {
     let mut dom = EcsDom::new();
-    let elem = dom.create_element("div", Attributes::default());
+    let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
     let result = CLASS_LIST_LENGTH
         .invoke(elem, &[], &mut session, &mut dom)
@@ -489,7 +489,7 @@ fn supports_throws() {
 fn supports_on(tag: &str, token: &str) -> Result<JsValue, DomApiError> {
     let mut dom = EcsDom::new();
     let mut session = SessionCore::new();
-    let elem = dom.create_element(tag, Attributes::default());
+    let elem = dom.create_element_ownerless_fixture(tag, Attributes::default());
     REL_LIST_SUPPORTS.invoke(
         elem,
         &[JsValue::String(token.into())],
@@ -551,7 +551,12 @@ fn rellist_supports_foreign_namespace_throws() {
     // (DOM §7.1), not a tag-name-only match against the HTML set.
     let mut dom = EcsDom::new();
     let mut session = SessionCore::new();
-    let svg_a = dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+    let svg_a = dom.create_element_ns(
+        "a",
+        elidex_ecs::Namespace::Svg,
+        Attributes::default(),
+        elidex_ecs::NewNodeOwner::ownerless_fixture(),
+    );
     let err = REL_LIST_SUPPORTS
         .invoke(
             svg_a,
@@ -593,7 +598,7 @@ fn linksizes_supports_throws() {
     // `<link>.sizes` defines no supported tokens → throws, even on a `<link>`.
     let mut dom = EcsDom::new();
     let mut session = SessionCore::new();
-    let elem = dom.create_element("link", Attributes::default());
+    let elem = dom.create_element_ownerless_fixture("link", Attributes::default());
     let err = LINK_SIZES_SUPPORTS
         .invoke(
             elem,
@@ -670,7 +675,7 @@ fn length_dedup() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "foo bar foo");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
     let result = CLASS_LIST_LENGTH
         .invoke(elem, &[], &mut session, &mut dom)
@@ -683,7 +688,7 @@ fn item_dedup() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "foo bar foo");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
     let result = CLASS_LIST_ITEM
         .invoke(elem, &[JsValue::Number(1.0)], &mut session, &mut dom)
@@ -696,7 +701,7 @@ fn replace_existing_new_token() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "foo bar baz");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
     // Replace "foo" with "bar" — Infra ordered set "replace":
     // "foo" at index 0 becomes "bar", then existing "bar" at index 1 is removed.
@@ -723,7 +728,7 @@ fn replace_infra_ordered_set_position() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "x foo y bar z");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
     // Infra "replace": foo→bar at position 1, remove existing bar at position 3.
     let result = CLASS_LIST_REPLACE
@@ -753,7 +758,7 @@ fn replace_infra_position_when_new_precedes_old() {
     let mut dom = EcsDom::new();
     let mut attrs = Attributes::default();
     attrs.set("class", "bar x foo");
-    let elem = dom.create_element("div", attrs);
+    let elem = dom.create_element_ownerless_fixture("div", attrs);
     let mut session = SessionCore::new();
     let result = CLASS_LIST_REPLACE
         .invoke(
@@ -830,7 +835,7 @@ fn remove_on_absent_attribute_is_noop() {
     use crate::test_util::AttrChangeCounter;
 
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
     let hook = AttrChangeCounter::default();
     let count = hook.count.clone();
@@ -882,7 +887,7 @@ fn variadic_add_remove_run_update_steps_once() {
     use crate::test_util::AttrChangeCounter;
 
     let mut dom = EcsDom::new();
-    let el = dom.create_element("div", Attributes::default());
+    let el = dom.create_element_ownerless_fixture("div", Attributes::default());
     let mut session = SessionCore::new();
     let hook = AttrChangeCounter::default();
     let count = hook.count.clone();
@@ -924,7 +929,7 @@ fn variadic_add_remove_run_update_steps_once() {
     // Validate-all-before-mutate: an invalid token aborts the whole call
     // (DOM §7.1 step 1 runs over every token first), leaving the attribute
     // untouched — no partial write of the valid prefix.
-    let fresh = dom.create_element("div", Attributes::default());
+    let fresh = dom.create_element_ownerless_fixture("div", Attributes::default());
     CLASS_LIST_ADD
         .invoke(
             fresh,

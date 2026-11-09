@@ -8,7 +8,7 @@ fn make_grid_container(
     cols: GridTrackList,
     rows: GridTrackList,
 ) -> elidex_ecs::Entity {
-    let entity = dom.create_element("div", Attributes::default());
+    let entity = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             entity,
@@ -35,7 +35,7 @@ fn make_subgrid_child(
     row_start: GridLine,
     row_end: GridLine,
 ) -> elidex_ecs::Entity {
-    let child = dom.create_element("div", Attributes::default());
+    let child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, child);
     dom.world_mut()
         .insert_one(
@@ -130,7 +130,7 @@ fn subgrid_content_contributes_to_parent_tracks() {
     );
 
     // Child 1: normal grid item in column 1
-    let child1 = dom.create_element("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, child1);
     dom.world_mut()
         .insert_one(
@@ -147,7 +147,7 @@ fn subgrid_content_contributes_to_parent_tracks() {
         .unwrap();
 
     // Child 2: normal grid item in column 2
-    let child2 = dom.create_element("div", Attributes::default());
+    let child2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, child2);
     dom.world_mut()
         .insert_one(
@@ -197,7 +197,7 @@ fn subgrid_uses_own_gap() {
     let font_db = FontDatabase::new();
 
     // Parent: 3 columns 100px each, gap 10px
-    let parent = dom.create_element("div", Attributes::default());
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
         .insert_one(
             parent,
@@ -218,7 +218,7 @@ fn subgrid_uses_own_gap() {
         .unwrap();
 
     // Subgrid child spanning all 3 columns with gap=20px
-    let subgrid_child = dom.create_element("div", Attributes::default());
+    let subgrid_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, subgrid_child);
     dom.world_mut()
         .insert_one(
@@ -273,7 +273,7 @@ fn subgrid_cols_only_rows_explicit() {
     );
 
     // Subgrid on cols only, explicit rows
-    let subgrid_child = dom.create_element("div", Attributes::default());
+    let subgrid_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, subgrid_child);
     dom.world_mut()
         .insert_one(
@@ -375,7 +375,7 @@ fn subgrid_auto_placement() {
     );
 
     // Subgrid with auto-placement (no explicit column/row placement)
-    let subgrid_child = dom.create_element("div", Attributes::default());
+    let subgrid_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, subgrid_child);
     dom.world_mut()
         .insert_one(
@@ -477,7 +477,7 @@ fn subgrid_mbp_affects_parent_tracks() {
     );
 
     // Normal child in col 1 with 30px width
-    let normal_child = dom.create_element("div", Attributes::default());
+    let normal_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, normal_child);
     dom.world_mut()
         .insert_one(
@@ -497,7 +497,7 @@ fn subgrid_mbp_affects_parent_tracks() {
 
     // Subgrid child spanning both columns with padding 10px left, 15px right.
     // CSS Grid L2 §2.5: m/b/p on subgridded axis contributes to first/last tracks.
-    let subgrid_child = dom.create_element("div", Attributes::default());
+    let subgrid_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, subgrid_child);
     dom.world_mut()
         .insert_one(
@@ -521,7 +521,7 @@ fn subgrid_mbp_affects_parent_tracks() {
         .unwrap();
 
     // Grandchild in the subgrid with 20px width
-    let gc = dom.create_element("div", Attributes::default());
+    let gc = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(subgrid_child, gc);
     dom.world_mut()
         .insert_one(
@@ -586,7 +586,7 @@ fn subgrid_intrinsic_sizing() {
         GridLine::Auto,
     );
 
-    let gc = dom.create_element("div", Attributes::default());
+    let gc = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(subgrid_child, gc);
     dom.world_mut()
         .insert_one(
@@ -637,7 +637,7 @@ fn convergence_two_passes() {
     );
 
     // Normal child in col 1
-    let child1 = dom.create_element("div", Attributes::default());
+    let child1 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, child1);
     dom.world_mut()
         .insert_one(
@@ -666,7 +666,7 @@ fn convergence_two_passes() {
     );
 
     // Grandchild with fixed width
-    let gc = dom.create_element("div", Attributes::default());
+    let gc = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(subgrid_child, gc);
     dom.world_mut()
         .insert_one(
@@ -738,7 +738,7 @@ fn nested_subgrid() {
     );
 
     // Nested subgrid inside first subgrid
-    let subgrid2 = dom.create_element("div", Attributes::default());
+    let subgrid2 = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(subgrid1, subgrid2);
     dom.world_mut()
         .insert_one(
@@ -789,7 +789,7 @@ fn subgrid_mbp_row_axis() {
     );
 
     // Subgrid on rows with margin-top=8, margin-bottom=12.
-    let subgrid_child = dom.create_element("div", Attributes::default());
+    let subgrid_child = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(parent, subgrid_child);
     dom.world_mut()
         .insert_one(
@@ -808,7 +808,7 @@ fn subgrid_mbp_row_axis() {
         )
         .unwrap();
 
-    let gc = dom.create_element("div", Attributes::default());
+    let gc = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(subgrid_child, gc);
     dom.world_mut()
         .insert_one(
@@ -870,7 +870,7 @@ fn subgrid_min_content_probe_with_parent_context() {
     );
 
     // Grandchild with auto width (should fill available space)
-    let gc = dom.create_element("div", Attributes::default());
+    let gc = dom.create_element_ownerless_fixture("div", Attributes::default());
     let _ = dom.append_child(subgrid_child, gc);
     dom.world_mut()
         .insert_one(

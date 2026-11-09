@@ -354,8 +354,6 @@ define_well_known_strings! {
         afterend => "afterend",
         get_elements_by_tag_name => "getElementsByTagName",
         get_elements_by_class_name => "getElementsByClassName",
-        // Document RO / RW accessors (PR4f C6 / C7).
-        css1_compat => "CSS1Compat",
         // Page visibility (WHATWG HTML §6.2): `document.visibilityState`
         // (`hidden` is interned below; macro order is irrelevant to interning).
         visible => "visible",

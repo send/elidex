@@ -36,15 +36,26 @@ pub(super) fn run_regexp(
     };
     let uses_last_index = is_global || is_sticky;
 
-    // §21.2.5.2.1 step 4: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
-    // Delegate to `get_regexp_last_index` so that accessor getters,
-    // prototype-chain lookups, and non-Number coercion are honored
-    // consistently with other call sites.
+    // RegExpBuiltinExec step 2: `lastIndex = ToLength(! Get(..))`, NOT
+    // clamped to the string length. Step 7: it is 0 for non-g/non-y. Step
+    // 13.a.i: for g/y, `lastIndex > length` resets the property to 0, and
+    // step 13.a.ii returns null (a clamp would make a zero-width match at
+    // the end repeat forever in the global replace/match loops). Known
+    // deviation: step 2's `? ToLength` coercion (observable via `valueOf` /
+    // a Symbol value) is not performed for non-g/y — owned by umbrella 8's
+    // RegExpBuiltinExec child. `subject` is a WTF-16 slice, so `length` and
+    // `lastIndex` are both in UTF-16 code units.
     let start = if uses_last_index {
         let raw = super::natives_string::get_regexp_last_index(ctx, obj_id)?;
+        #[allow(clippy::cast_precision_loss)]
+        if raw > subject.len() as f64 {
+            super::natives_string::set_regexp_last_index(ctx, obj_id, 0)?;
+            return Ok(None);
+        }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = (raw as usize).min(subject.len());
-        idx
+        {
+            raw as usize
+        }
     } else {
         0
     };
@@ -66,7 +77,7 @@ pub(super) fn run_regexp(
     // Update lastIndex (UTF-16 code unit index, no conversion needed).
     if uses_last_index {
         let new_idx = found.as_ref().map_or(0, regress::Match::end);
-        super::natives_string::set_regexp_last_index(ctx, obj_id, new_idx);
+        super::natives_string::set_regexp_last_index(ctx, obj_id, new_idx)?;
     }
 
     Ok(found)

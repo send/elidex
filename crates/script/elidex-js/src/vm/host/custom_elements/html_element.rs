@@ -61,7 +61,7 @@ impl VmInner {
 
         // Allocate the ConstructorOnly function object — bare
         // `HTMLElement()` (no `new`) is rejected by the dispatch-side
-        // gate at `vm/interpreter.rs::call_dispatch` (WebIDL §3.7.1
+        // gate at `vm/interpreter_call.rs::call_dispatch` (WebIDL §3.7.1
         // step 1.2 / [HTMLConstructor]).  The `name` slot is the
         // well-known interned "HTMLElement" so stack traces and
         // `func.name` reads stay coherent.
@@ -110,7 +110,7 @@ pub(crate) fn native_html_element_ctor(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Step 0: `new.target` is guaranteed present by the dispatch-side
-    // `CallShape::ConstructorOnly` gate at `vm/interpreter.rs::call_dispatch`
+    // `CallShape::ConstructorOnly` gate at `vm/interpreter_call.rs::call_dispatch`
     // (the bare-call rejection in WebIDL §3.7.1 step 1.2 fires before
     // this body runs).  The `expect` documents the invariant rather
     // than masking a real `None` branch.
@@ -223,18 +223,25 @@ pub(crate) fn native_html_element_ctor(
             // construct path. Spawn a fresh Element entity at the
             // definition's local name, allocate a wrapper around it,
             // splice the prototype from new.target.prototype. The
-            // `owner` argument plumbs the current document so the
-            // new element reports a non-null `ownerDocument` — same
-            // shape that `document.createElement('my-el')` produces.
-            // Without this, `new MyEl()` and `createElement('my-el')`
-            // diverge on the DOM §4.4 "node document" invariant.
-            let owner = ctx.host().document_entity_opt();
+            // document is the current global's associated Document
+            // (§3.2.3 step 9.2); the owner decision is the CE helper's.
+            // An unbound VM has none: marshal that to a TypeError
+            // before `ctx.host().dom()`, which an unbound host cannot
+            // answer.
+            let Some(document) = ctx.host().document_entity_opt() else {
+                return Err(VmError::type_error(
+                    "Failed to construct 'HTMLElement': no associated document",
+                ));
+            };
             let entity = elidex_custom_elements::spawn_custom_element_entity(
                 ctx.host().dom(),
                 &definition_name,
                 &definition_name,
-                owner,
-            );
+                Some(document),
+            )
+            .ok_or_else(|| {
+                VmError::type_error("Failed to construct 'HTMLElement': no associated document")
+            })?;
             // Allocate (or retrieve) the primary node wrapper via
             // the existing seam — matches how every other
             // sync-constructed Element is exposed to JS.

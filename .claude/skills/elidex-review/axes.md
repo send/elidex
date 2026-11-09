@@ -25,6 +25,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 - **Symptom-level patch when root fix is in-context** → Axis 3 専属 (Axis 2 で data-flow gap 検出 → Axis 3 が対応方法を評価)
 - **Past lesson 違反** (lesson #235 trait cascade 等) → Axis 5 (lesson #276 を除く)
 - **Host-side OO inheritance** → Axis 1 sub-check 1a + Axis 2 sub-check 2a 両 flag (genuine overlap、Step 3.5 で subsumption)
+- **ブラウザへの言及の根拠 (spec / ECS 原則 / 実測) と等級** → Axis 2 sub-check 2d 専属 (Axis 4 は citation の正しさだけを見る、Axis 3 は扱わない)
 - **docstring-stated 契約 ↔ body 違反** (promise-returning native の `Result` swallow 等) → **Axis 3 専属** (generic "wrong value on error" は /code-review、「自 file 契約違反 + ideal-over-pragmatic」design 角度が Axis 3 領分)
 
 ---
@@ -33,11 +34,11 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 **Purpose**: 2 つの layering 軸を扱う (Sub-check 1a + 1b、独立判定)。Axis 2 の 2a/2b と同じ shape。
 
-**Reference**: `CLAUDE.md` § "Layering mandate (2026-05-04 incident 由来)" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected) / `memory/reference_elidex-js-core-strict-only.md` (D-17b-r2 由来、core/compat split judgment axis)
+**Reference**: `CLAUDE.md` § "Layering mandate" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected) / `memory/reference_elidex-js-core-strict-only.md` (D-17b-r2 由来、core/compat split judgment axis)
 
 ### Sub-check 1a: Engine vs Host `[both]`
 
-Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "VM host/ は engine-bound 責務のみ" 段落 (DOM algorithm は engine-indep crate 経由)。
+Rule: CLAUDE.md § "Layering mandate" — "VM host/ は engine-bound 責務のみ" 段落 (DOM algorithm は engine-indep crate 経由)。
 
 - `[both]` `vm/host/*.rs` に 10+ LoC の loop / walker / state machine / coercion algorithm を新規追加または拡張 (diff: 該当行、plan: §Body/§Implementation 記述)
 - `[both]` `EcsDom::traverse_descendants` / `find_by_id` / `with_attribute` 等の direct call が marshalling 用途 (entity 取得 / 単純 attribute read / wrapper 生成) を超える
@@ -49,7 +50,7 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "VM host/
 
 ### Sub-check 1b: Core vs Compat `[both]` (design doc §14.1)
 
-Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs compat split" 段落 (elidex-js core = ES2020+ strict-only baseline、LegacySemantics は compat plugin 領域 = core VM 実装 NG)。
+Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-js core = ES2020+ strict-only baseline、LegacySemantics は compat plugin 領域 = core VM 実装 NG)。
 
 - `[both]` core VM (`crates/script/elidex-js/src/vm/` 内、`host/` 除く) で LegacySemantics 機能 (sloppy mode coercion / Annex B / sloppy direct-eval scope injection / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor / RegExp legacy / 文字列HTMLメソッド) を実装 → **CRIT/IMP** (compat plugin 領域に移管 OR drop)
 - `[plan]` plan-memo で **sloppy direct-eval の caller-env scope injection / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の legacy motivation で defer slot 立てる案 → **IMP** (core では不要、compat plugin 着手まで slot 不要)。direct/indirect eval 区別そのものは対象外: spec が strictness を経路ごとに別導出する (ECMA-262 PerformEval: 直接のみ `strictCaller` を継ぐ) ことを motivation とする区別は core が持つ (CLAUDE.md「Core vs compat split」の motivation test) → finding にしない
@@ -68,7 +69,7 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs 
 
 ## Axis 2 — ECS-native lens
 
-**Purpose**: OO browser engine pattern (inheritance + virtual dispatch + observer registry) を直訳しない。ECS first principles で設計。**component data-flow integrity (read/write balance) もこの axis 所属**。
+**Purpose**: OO browser engine pattern (inheritance + virtual dispatch + observer registry) を直訳しない。ECS first principles で設計。**component data-flow integrity (read/write balance) と、既存ブラウザを根拠にする判断の等級 (sub-check 2d) もこの axis 所属**。
 
 **Reference**: `CLAUDE.md` § "Design philosophy: ECS-native first" / `memory/feedback_ideal-over-pragmatic.md` / `memory/feedback_objectkind-resolution-uniformity.md` (lesson #276)
 
@@ -100,16 +101,39 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs 
 
 **例 (D-29 ケース)**: `[IMP] plan §E-8 — fcs.name read depends on input.name IDL setter sync which does not exist; root fix = mutation-driven FCS reconciliation, symptom fix = 個別 IDL setter patch (regression risk)`
 
+### Sub-check 2d: Authority source `[both]` (= CLAUDE.md の「authority-source sub-check」)
+
+`CLAUDE.md` 至上命題 (ECS ベースのブラウザの価値の検証) の review 側。**IMP/CRIT の等級はここが唯一の正** (CLAUDE.md・hook・ratchet は等級を持たない)。根拠の順位は (1) 仕様 → (2) 仕様が沈黙なら ECS ベースのブラウザとしてどうあるべきか (CLAUDE.md Design philosophy) → (3) それでも決まらない時だけ既存ブラウザの実測を「証拠」として記録。
+
+既存ブラウザへの言及 (エンジン名、または「全ブラウザがそうする」型の一般句。検出語彙は hook と `.claude/tools/ecs_mission_ratchet.py` が正) を 1 件ずつ次の class に分類し、class で等級を決める。tag は書き手の自己申告であって分類ではない — tag と中身が食い違えば中身の class で等級付けする:
+
+| class | 中身 | 等級 |
+|---|---|---|
+| S | 仕様が決めている点に、ブラウザ名が冗長に添えてある | MIN (名前を外す) |
+| E | 仕様が沈黙している点の実測を、証拠として label 付きで記録 | OK (`[evidence]`) |
+| C | 非標準の互換挙動を compat 層に置いている | OK (`[compat]`)。core crate / core の要件に置いていれば T |
+| T | ブラウザの「振る舞い」を core の要件・受け入れ条件・テスト期待値・defer slot の目標にしている。仕様が決める点でブラウザの実測を gate にする (「先に測ってから直す」) のも T | **CRIT** |
+| D | ブラウザの「構造」(パイプライン順・状態の置き場所・registry・プロセスモデル・定数) を設計の根拠にしている | **CRIT** |
+| X | `[contrast]` / `[history]`: elidex の設計を既存ブラウザと対比する、または来歴を記す (根拠にはしていない) | OK (tag 付きで)。中身が根拠になっていれば T / D |
+| N | ブラウザでない (UI の chrome、caret blink、UA 文字列、survey data 等) | — |
+
+1 件の等級 = max(下の bullet が付ける等級, その class の等級)。
+
+- 追加行のブラウザ言及に tag が無い → **IMP**。新規の tag 無し行は Write/Edit なら hook が止め、それ以外 (Bash 経由等) も `tools` job の ratchet が PR を赤にする (seed 済みの既存行は allowlist で通る。赤は merge を止めない — CLAUDE.md「買えるものの範囲」)。review でしか捕まらないのは、中身と食い違う tag、tracked でない plan 本文の引用、次の bullet の編集
+- ratchet の **捕捉範囲を縮める編集** → **IMP** (T/D 行に関わるなら CRIT)。ratchet 自身には見えない。例: `.claude/tools/ecs-mission-allowlist.tsv` への行の追加、既存行の class を軽い側へ書き換える (T/D → S/E/C/N) か T/D 行の slot を外す・閉じた / 無関係の slot へ移す (重い側への訂正と、より具体的な open slot への移動は等級を付けない)、`ecs_mission_ratchet.py` の `SELF_FILES` (scan しない file の列) への path の追加、分類器の語彙を狭める・例外 (`TOOL_NAMES` / `UA_STRIP` / N の分岐) を足す。allowlist は縮むだけ — 直し方は tag を付けるか名前を外すこと。分類器は hook と同時にしか変えない (parity test)
+- **再キーは追加ではない**: 行のキーは (path, 行全文) なので、同じ diff で消えた行と、ブラウザ名を含む文 (節) が同じで path か行の他の部分だけが変わった行の組 (分割・rename・同じ行の別の箇所の編集) は、新しい行を中身で分類し直して引き継いだ class と一致し、slot も引き継いでいれば、追加としての等級を付けない (class が変わるなら上の bullet、中身の class の等級は常に付く)。ratchet を入れた PR の seed も追加として等級付けしない (分類は sweep と PM の決定による)。seed では tag の無い X の行を N として記録している (allowlist の class は S/E/C/T/D/N)
+- `[plan]` 仕様が沈黙している判断で、(1)→(2)→(3) の順に何を引いたか (仕様の節 / ECS 原則 / 実測の label) が書かれていない → **IMP**
+
 ### Detect (top-level)
 
-- `[plan]` plan §"ECS-native check" / §"OO → ECS mapping" subsection の欠落 (MIN)
+- `[plan]` plan に ECS-native check (ECS first principles からの導出: state shape、OO → ECS mapping、既存ブラウザ構造を根拠にしていないこと — 最後の点の等級は 2d) が無い → **IMP**。節の名前でなく中身で判定する (見出しが「ECS-native lens」等でも中身があれば足りる)
 
 **Acceptable exceptions**: engine 内部 (boa_engine 等 self-implementation) / legacy code 変更無し
 
 ### Output format
 
 ```
-[CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <sub-check 2a/2b short label> in <context>
+[CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <sub-check 2a/2b/2d short label> in <context>
   ECS-native alternative: <component / system / query / marker / reconciliation infra>
   Reference: <lesson # or feedback memory>
 ```

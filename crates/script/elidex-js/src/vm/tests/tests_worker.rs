@@ -56,20 +56,20 @@ fn eval_bool_on(vm: &mut Vm, src: &str) -> bool {
     }
 }
 
-/// Receive the first matching `WorkerToParent` within `timeout`, polling the
-/// handle (the worker runs on its own thread).
-fn recv_within(
-    handle: &elidex_api_workers::WorkerHandle,
-    timeout: Duration,
-) -> Option<WorkerToParent> {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
+/// Receive the next `WorkerToParent`, blocking until it arrives; `None` = the
+/// worker thread exited (`TryRecvError::Disconnected`) without sending one.
+/// The sleep is a poll cadence, not a bound (rule + liveness:
+/// `.config/nextest.toml`).
+fn recv_next(handle: &elidex_api_workers::WorkerHandle) -> Option<WorkerToParent> {
+    loop {
         match handle.try_recv() {
             Ok(msg) => return Some(msg),
-            Err(_) => std::thread::sleep(Duration::from_millis(5)),
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
         }
     }
-    None
 }
 
 /// Run `f` against a bound dedicated-worker VM. `session` / `dom` are declared
@@ -115,6 +115,46 @@ fn worker_self_is_global() {
             "typeof self.addEventListener === 'function'"
         ));
     });
+}
+
+/// C1-pre G1: `Range` is installed in every scope (pre-existing
+/// over-exposure, slot `#11-worker-scope-exposes-window-only-interfaces`) and
+/// a worker VM binds an internal Document entity, so `new Range()` reaches it.
+/// The wrapper must not panic and must carry no Document members.
+const RANGE_CONTAINER_PROBE: &str = "\
+var x = new Range().startContainer; \
+[typeof x, typeof x.createElement, 'cookie' in x].join('|')";
+
+#[test]
+fn worker_range_start_container_is_not_a_document() {
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert_eq!(
+            eval_str_on(vm, RANGE_CONTAINER_PROBE),
+            "object|undefined|false"
+        );
+    });
+}
+
+#[test]
+fn service_worker_range_start_container_is_not_a_document() {
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut vm = Vm::new_service_worker(
+        Url::parse("https://example.com/").unwrap(),
+        Url::parse("https://example.com/sw.js").unwrap(),
+        true,
+        CredentialsMode::SameOrigin,
+        elidex_plugin::EngineMode::BrowserCompat,
+    );
+    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+    assert_eq!(
+        eval_str_on(&mut vm, RANGE_CONTAINER_PROBE),
+        "object|undefined|false"
+    );
+    drop(vm);
+    drop(session);
+    drop(dom);
 }
 
 #[test]
@@ -391,7 +431,7 @@ fn worker_thread_round_trip_echo() {
 
     handle.post_message("\"ping\"".to_string());
 
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"ping pong\""),
         other => panic!("expected echoed PostMessage, got {other:?}"),
     }
@@ -422,7 +462,7 @@ fn worker_thread_inbound_message_origin_is_empty() {
     });
 
     handle.post_message("\"ping\"".to_string());
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"string:empty\""),
         other => panic!("expected origin probe reply, got {other:?}"),
     }
@@ -454,7 +494,7 @@ fn worker_thread_accepts_sibling_network_handle() {
     });
 
     handle.post_message("\"probe\"".to_string());
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"function\""),
         other => panic!("expected `typeof fetch` reply, got {other:?}"),
     }
@@ -480,7 +520,7 @@ fn worker_data_url_non_js_mime_rejected() {
             &ch,
         );
     });
-    match recv_within(&handle, Duration::from_secs(5)) {
+    match recv_next(&handle) {
         Some(WorkerToParent::Error { .. } | WorkerToParent::Closed) => {}
         other => panic!("expected error/close for non-JS data: MIME, got {other:?}"),
     }
@@ -503,10 +543,7 @@ fn worker_thread_close_sends_closed_and_exits() {
     });
 
     assert!(
-        matches!(
-            recv_within(&handle, Duration::from_secs(5)),
-            Some(WorkerToParent::Closed)
-        ),
+        matches!(recv_next(&handle), Some(WorkerToParent::Closed)),
         "worker should report Closed after close()"
     );
 }

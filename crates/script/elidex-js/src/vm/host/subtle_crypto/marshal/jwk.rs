@@ -208,7 +208,7 @@ fn read_jwk_oth(
 ///
 /// The intermediate `obj` / `key_ops` array are not separately rooted
 /// across the inner `alloc_object` calls: GC is disabled for the whole
-/// duration of a `NativeFunction` call (`interpreter.rs` /
+/// duration of a `NativeFunction` call (`interpreter_call.rs` /
 /// `dispatch.rs` set `gc_enabled = false`; see `natives_array_hof.rs`),
 /// so `alloc_object` here never triggers a collection. Add temp-roots
 /// only if GC is ever permitted to run during native→JS callbacks.

@@ -18,8 +18,8 @@ fn get_layout(dom: &EcsDom, entity: Entity) -> LayoutBox {
 fn build_styled_dom() -> (EcsDom, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
     let root = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
+    let html = dom.create_element_ownerless_fixture("html", Attributes::default());
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     dom.append_child(root, html);
     dom.append_child(html, body);
 

@@ -2,9 +2,11 @@
 //! [`FormControlState`].
 //!
 //! Subscribes to [`MutationEvent::AttributeChange`] (per-attr partial
-//! reconciliation of FCS fields) and [`MutationEvent::Insert`]
+//! reconciliation of FCS fields), [`MutationEvent::Insert`]
 //! (FCS-absence-guarded attach for newly-inserted form-control
-//! elements) via the D-31 `ConsumerDispatcher` typed composer (plain
+//! elements) and [`MutationEvent::CloneCreated`] (the HTML §4.10.5 /
+//! §4.10.11 cloning steps over a fresh clone, run at dispatch inside the
+//! cloner) via the D-31 `ConsumerDispatcher` typed composer (plain
 //! `pub fn handle`, per sibling-consumer convention).
 //!
 //! ECS-native first: `FormControlState` is a derived component
@@ -48,6 +50,9 @@ impl FormControlReconciler {
                 new_value,
                 ..
             } => handle_attribute_change(node, name, new_value, dom),
+            MutationEvent::CloneCreated { root, scope } => {
+                crate::clone::apply_clone_form_state(dom, root, scope);
+            }
             _ => {}
         }
     }
@@ -139,7 +144,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             return;
         };
         // HTML §4.10.5 type-change steps 1–3: value-mode value migration.
-        // MUST run BEFORE the kind update + sanitization (steps 6–9).
+        // MUST run BEFORE the kind update + sanitization (steps 4–9).
         // Step 1 writes the `value` content attribute via the
         // non-dispatching primitive (re-entry contract — see fn docs).
         apply_type_change_value_migration(old_kind, new_kind, dom, node);
@@ -152,8 +157,8 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             sanitize_for_type_change(&mut state, old_kind);
         }
         // HTML §4.10.5.5 change-on-blur baseline: a `type` flip to a non-text
-        // kind while the control is focused must drop the focus-time text
-        // snapshot, else the eventual blur consumes the stale baseline and fires
+        // kind while the control is focused must drop the change-on-blur
+        // snapshot (unmarked seed; baseline = value before the first user change, plan D-1), else the eventual blur consumes the stale baseline and fires
         // a spurious `change`. `record_focus_snapshot` only re-evaluates at focus
         // time, so the mid-focus flip needs this clear at the `set_attribute`
         // chokepoint (mirrors the non-text clear inside `record_focus_snapshot`).
@@ -170,8 +175,10 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
     // `value` and `pattern` live outside the match because their
     // guard-conditional bodies create no-op branches that clippy's
     // match-arm-collapsing rule would flag as duplicate of the
-    // wildcard.  HTML §4.10.5.4 dirty-value-flag suppression / §4.10.5.3.6
-    // pattern same-value short-circuit.
+    // wildcard.  `value`: the dirty value flag (HTML §4.10.18.1) suppresses
+    // the IDL `value` update.  `pattern`: the same-value short-circuit below
+    // is elidex's own (it skips re-compiling an unchanged regex); the spec
+    // (§4.10.5.3.6) does not specify it.
     if name == "value" {
         let raw = new_value.unwrap_or("");
         // For `<input>`, `defaultValue` reflects the `value` content
@@ -207,7 +214,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             // Range must continuously correct that (§4.10.5.1.13).
             recorrect_range(&mut fcs);
         } else {
-            // HTML §4.10.5.1.18 (submit) / §4.10.5.1.19 (reset) default
+            // HTML §4.10.5.1.18 (submit) / §4.10.5.1.20 (reset) default
             // button label substitution — matches the `from_input_element`
             // path at createElement time.
             let displayed: &str = match fcs.kind {
@@ -253,7 +260,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
         // functionally equivalent for form association.
         "form" => fcs.form_owner = new_value.map(str::to_string),
 
-        // Boolean attributes (HTML §2.5.2 — presence ⇒ true).
+        // Boolean attributes (HTML §2.3.2 — presence ⇒ true).
         // HTML §4.10.19.5 disabled / §4.10.5.3.4 required /
         // §4.10.5.3.3 readonly / §6.6.7 autofocus /
         // §4.10.5.3.5 multiple.

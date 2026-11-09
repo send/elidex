@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn mock_handler_invoke() {
         let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
+        let div = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut session = SessionCore::new();
 
         let handler = MockGetTagName;

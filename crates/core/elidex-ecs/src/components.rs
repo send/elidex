@@ -342,7 +342,7 @@ pub struct SlottedMarker;
 /// `DocumentFragment` ("created when the template element is created") into
 /// which the parser inserts the template's children and which JS reads as
 /// `template.content`.  `fragment` is that fragment entity — a
-/// [`NodeKind::DocumentFragment`](crate::NodeKind::DocumentFragment) held
+/// [`NodeKind::DocumentFragment`] held
 /// **only** by this component, i.e. *detached* (never `append_child`'d into
 /// the template, unlike [`ShadowRoot`], which is in-tree-but-skipped). Being
 /// detached means no **light-tree** walk (style / render / `child_nodes`
@@ -355,10 +355,10 @@ pub struct SlottedMarker;
 ///
 /// The despawn / adopt traversal
 /// ([`despawn_subtree`](crate::EcsDom::despawn_subtree) /
-/// [`adopt_subtree`](crate::EcsDom::adopt_subtree)) reaches the fragment
-/// out-of-band (like a shadow root) so teardown leaves no orphan and the
-/// DOM §4.5 "adopt" of an HTML §13.4-fragment-parsed subtree re-homes the
-/// contents with the template. `clone a node`
+/// [`adopt`](crate::EcsDom::adopt)'s walk) reaches the fragment
+/// out-of-band (like a shadow root) so teardown leaves no orphan and DOM
+/// §4.5 *adopt* re-homes the contents with the template (its adopting
+/// steps, HTML §4.12.3). `clone a node`
 /// (DOM §4.4 + §4.12.3 cloning steps) relinks a freshly-cloned fragment —
 /// this component is in the deliberate-non-copy row, so a shallow clone
 /// never aliases the source fragment.
@@ -572,27 +572,36 @@ pub struct DocTypeData {
     pub system_id: String,
 }
 
-/// WHATWG DOM §4.4 node document pointer — the `Document` entity a
-/// node was created in.
+/// WHATWG DOM §4.4 *node document* (`#concept-node-document`) — the stored
+/// fact for every non-Document node.
 ///
-/// Component-based storage mirrors WHATWG's per-node "node document"
-/// slot: it is set by `document.createElement` / `createTextNode` /
-/// `createComment` / `createDocumentFragment` (and propagated through
-/// `cloneNode`) so that queries like `Node.prototype.ownerDocument`
-/// can report the *creating* document even while the node is still
-/// detached.  The tree-root walk used before this component was
-/// introduced returned the *bound* global document, which is wrong
-/// for nodes created by a secondary Document (e.g. `doc.cloneNode`).
-///
-/// Absence of the component on a given entity is still valid: the
-/// caller is expected to fall back to [`crate::EcsDom::find_tree_root`],
-/// which matches the pre-component behaviour exactly and keeps legacy
-/// fixtures (html5ever-produced trees, layout-only tests) working
-/// without migration.
-///
-/// See [`crate::EcsDom::owner_document`] for the fallback-aware accessor.
+/// Written at creation (every creator takes a [`crate::NewNodeOwner`], so the
+/// component is in the spawn tuple), by the cloners, and by DOM §4.5 *adopt*
+/// ([`crate::EcsDom::adopt`], which every insertion runs); read only through
+/// [`crate::EcsDom::node_document`]. Its absence means the node has no node
+/// document — no position is consulted. Crate-private: no code outside
+/// `elidex-ecs` can write or read it directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AssociatedDocument(pub Entity);
+pub(crate) struct AssociatedDocument(pub(crate) Entity);
+
+/// Marks the root of a WHATWG HTML §13.4 fragment build
+/// (*HTML fragment parsing algorithm*, `#html-fragment-parsing-algorithm`):
+/// *initialize an HTML fragment parser* (`#initialize-an-html-fragment-parser`)
+/// step 15 sets the parser's *insertion target redirection map*\[root\] to the
+/// insertion location (fragment, null), and the algorithm's step 2 creates
+/// that fragment in the target's node document. elidex keeps root as the build container and has no separate
+/// fragment object, so root stands for the redirect target: a node created on
+/// behalf of root, or linked under it, receives `redirect_document`
+/// ([`crate::EcsDom::node_document_for_new_nodes`]).
+///
+/// Transient: inserted by `begin_detached_fragment` and despawned with root by
+/// either teardown. Crate-private so no code outside `elidex-ecs` can write it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct FragmentParseRoot {
+    /// The fragment's node document: the context's node document, or `None`
+    /// for a documentless context.
+    pub(crate) redirect_document: Option<Entity>,
+}
 
 /// Scroll state for elements with `overflow: scroll | auto | hidden`.
 ///

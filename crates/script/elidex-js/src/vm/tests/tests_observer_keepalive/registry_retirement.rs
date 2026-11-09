@@ -115,7 +115,7 @@ fn observing_mutation_observer_keeps_registry_row() {
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
     let body = body_of(&dom, doc);
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    let root = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(body, root));
     #[allow(unsafe_code)]
     unsafe {

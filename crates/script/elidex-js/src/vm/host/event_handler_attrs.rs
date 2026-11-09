@@ -521,7 +521,7 @@ impl VmInner {
     /// executes the returned [`HandlerReconcile`] on the VM's listener store.
     /// The gate closure is HTML §8.1.3.4 *scripting is disabled for a
     /// platform object* through the session composition (settings clause
-    /// first, then the effective node document), given the handler's target
+    /// first, then the node document), given the handler's target
     /// `entity` and this realm's document and sandbox flags. A no-op for
     /// `Normal` (addEventListener) listeners.
     ///
