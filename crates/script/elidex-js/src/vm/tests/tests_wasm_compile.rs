@@ -128,7 +128,7 @@ fn module_ctor_throws_compile_error_on_invalid_bytes() {
 
 /// WebIDL §3.7.1 step 1.2 (NewTarget undefined → throw TypeError),
 /// enforced for native `[Constructor]` Interface objects at the
-/// `vm/interpreter.rs::call_dispatch` `NativeFunction` arm under
+/// `vm/interpreter_call.rs::call_dispatch` `NativeFunction` arm under
 /// `CallShape::ConstructorOnly` (#11-vm-native-constructor-only-flag
 /// Stage 2 pilot — Module is the first ctor migrated to validate the
 /// dispatch-side gate; Stage 3 will migrate the remaining 65 sites).

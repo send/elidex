@@ -879,7 +879,7 @@ pub(crate) fn native_typed_array_join(
 /// the wrapper between the lookup-time accessor (which `GetV`
 /// permits) and the call-time receiver dispatch, leaving
 /// `obj_id` dangling.  Today GC is disabled across native calls
-/// (`interpreter.rs:81`), so the pin is future-proofing —
+/// (`interpreter_call.rs::call_dispatch`'s NativeFunction arm), so the pin is future-proofing —
 /// matching the SP8c-A reduce-accumulator slot pattern.
 pub(crate) fn native_typed_array_to_locale_string(
     ctx: &mut NativeContext<'_>,
