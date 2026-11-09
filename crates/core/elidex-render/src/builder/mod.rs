@@ -867,7 +867,7 @@ fn emit_margin_box_text(
 /// Evaluate a `ContentValue` to a string using the counter state.
 ///
 /// Resolves `counter(name)` and `counters(name, sep)` via the document's
-/// [`CounterState`](elidex_style::counter::CounterState), which includes
+/// [`CounterState`], which includes
 /// the built-in `page`/`pages` counters as well as any document-defined
 /// custom counters (e.g. `counter(chapter)`).
 fn evaluate_content_value(

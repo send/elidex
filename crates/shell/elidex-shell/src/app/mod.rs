@@ -180,7 +180,7 @@ pub(super) struct RenderState {
 ///
 /// Built **only** by [`App::content_area_placement`] (the sole caller of
 /// `chrome_content_offset` + `chrome::content_size` + `window.scale_factor()`)
-/// and cached on [`App::placement`] so the three primitives are snapshotted
+/// and cached on [`ViewportProducer::placement`](viewport::ViewportProducer::placement) so the three primitives are snapshotted
 /// atomically once per frame / device-fact event. It is browser-process device
 /// state (not per-DOM-entity content state) → a shell-local value, not an ECS
 /// component.

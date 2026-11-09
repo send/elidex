@@ -106,7 +106,7 @@ impl EcsDom {
     /// the node itself being linked (mirrors [`is_element`](Self::is_element)).
     ///
     /// **ShadowRoot exclusion**: a shadow root is spawned with
-    /// [`NodeKind::DocumentFragment`](crate::NodeKind::DocumentFragment) (it
+    /// [`NodeKind::DocumentFragment`] (it
     /// inherits the `DocumentFragment` interface per DOM), but it is **not** an
     /// expandable fragment — it must never be moved/expanded into a tree (it
     /// violates the ShadowRoot non-move invariant + §4.2.3 host-including-ancestor

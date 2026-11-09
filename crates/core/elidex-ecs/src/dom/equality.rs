@@ -9,7 +9,7 @@
 //! are marshalling-only.
 //!
 //! Both functions walk iteratively (`Vec`-backed stack) so a
-//! malicious depth ≤ [`MAX_ANCESTOR_DEPTH`] cannot overflow the Rust
+//! malicious depth ≤ [`MAX_ANCESTOR_DEPTH`](super::MAX_ANCESTOR_DEPTH) cannot overflow the Rust
 //! call stack — same convention used by `clone_children_recursive`
 //! and `despawn_subtree`.
 

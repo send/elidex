@@ -98,7 +98,7 @@ pub struct EcsDom {
     /// walk.
     version_propagation_suppressed: bool,
     /// When set, [`destroy_entity`](Self::destroy_entity)'s no-dispatcher
-    /// §2.1.4 focused-area reset ([`clear_focus_if_disconnected`], a full
+    /// §2.1.4 focused-area reset ([`EcsDom::clear_focus_if_disconnected`], a full
     /// `ElementState` world query) is skipped. Scoped on by
     /// [`despawn_subtree`](Self::despawn_subtree) for the same reason as
     /// `version_propagation_suppressed`: that per-node global scan would turn a

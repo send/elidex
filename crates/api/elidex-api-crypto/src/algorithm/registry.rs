@@ -1,7 +1,7 @@
 //! The §18.4.4 step-5 registry: the [`resolve_registry`] oracle that maps a
 //! `(op, name)` pair to the IDL dictionary type it resolves to
 //! ([`DesiredType`]), and the public [`params_shape`] / [`is_supported`]
-//! views the VM marshalling layer consults. [`super::normalize`] routes
+//! views the VM marshalling layer consults. [`fn@super::normalize`] routes
 //! through the same oracle so membership and the normalized form cannot
 //! drift.
 
