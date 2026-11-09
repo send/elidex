@@ -54,7 +54,8 @@ migration to ECS components (B1 / `#11-browsing-context-state-ecs-components`); 
 (2026-11-04, PM 339 (user (A))): the URL part removed to `#11-document-base-url` (§10). *Rev 2.2* (2026-11-05):
 plan-review R1 fixes (§10). *Rev 2.5* (2026-11-08, PM 534): re-measured at `43e350c7`; H-13 rewritten (C0c's
 adopted-reaction flush), W22 added (§10). *Rev 2.6* (2026-11-09, PM 548): `readyState`'s two-way rule (D-8),
-the `getSelection` brand cell, P-6 redefined by property (§10).
+the `getSelection` brand cell, P-6 redefined by property (§10). *Rev 2.6.1* (2026-11-09, PM 556): every Document member
+throws `TypeError` on a failed brand check, in `document_receiver` (D-5, D-8, §6.1 W25, §7, §11 O-4 / O-5; §10).
 
 ## §0. Frame, premises, decisions
 
@@ -157,8 +158,8 @@ names `bd89a35f`, and a cite with no commit is still `43e350c7`'s. Rev 2.6's loo
   the tab-hidden check (HTML §6.6.4); Document `getSelection` gets its own native `native_document_get_selection`
   (NEW): brand-check `this` — a receiver that is not a Document platform object throws `TypeError` (Web IDL §3.7.7
   *create an operation function* step 2.1.2.3, "If jsValue does not implement the interface target, throw a
-  TypeError"), including a non-`HostObject` receiver, which needs the `this_is_node_wrapper` pre-check of D-8's table
-  (PM 548; cell W24) — then no browsing context → `null` (Selection API §4.1 returns `Selection?`), else the Window's
+  TypeError"), including a non-`HostObject` receiver, which needs the `this_is_node_wrapper` pre-check, which lives in
+  `document_receiver` itself for every Document member (D-8; PM 548, PM 556 D1; cells W24, W25) — then no browsing context → `null` (Selection API §4.1 returns `Selection?`), else the Window's
   selection (today's behaviour). `getSelection` on Window is unchanged. `hasFocus`'s step 1 is spec alignment with no
   script-reachable change: no script path focuses an element of a non-bound Document (`set_focus_bit`'s callers gate
   on bound-document membership, the contract stated at `crates/dom/elidex-dom-api/src/focus/sot.rs:100-103`), so W15
@@ -194,15 +195,17 @@ names `bd89a35f`, and a cite with no commit is still `43e350c7`'s. Rev 2.6's loo
 
   | receiver | `document_receiver` | answer at `bd89a35f` | C1-pre (PM 548) |
   |---|---|---|---|
-  | not an Object (`undefined`, a primitive) | `Ok(None)` (`entity_from_this`: not `JsValue::Object`, `:247-249`) | `""` | `TypeError`: the native pre-checks `this_is_node_wrapper` before `document_receiver` (the idiom of `dom_inner_html.rs:71`, `element_shadow.rs:97`, `html_slot_proto.rs:134`; `require_receiver`'s doc names it for this case) |
-  | an Object that is not a `HostObject` (`{}`, a function, `Object.getPrototypeOf(document)`) | `Ok(None)` (`:250-253`) | `""` | `TypeError` (the same pre-check) |
+  | not an Object (`undefined`, a primitive) | `Ok(None)` (`entity_from_this`: not `JsValue::Object`, `:247-249`) | `""` | `TypeError`: `document_receiver` pre-checks `this_is_node_wrapper` before `require_receiver` (PM 556 D1: in that one function, so every Document member has it; the idiom of `dom_inner_html.rs:71`, `element_shadow.rs:97`, `html_slot_proto.rs:134`; `require_receiver`'s doc names it for this case) |
+  | an Object that is not a `HostObject` (`{}`, a function, `Object.getPrototypeOf(document)`) | `Ok(None)` (`:250-253`) | `""` | `TypeError` (the same pre-check, in `document_receiver`) |
   | a `HostObject` whose entity is not in the DOM | `Err(TypeError)` "the node is detached (invalid entity)" (`:341-345`) | `TypeError` | unchanged |
   | a `HostObject` of another node kind (`document.body`, a Text) or of no inferrable kind | `Err(TypeError)` "Illegal invocation" (`:347-357`) | `TypeError` | unchanged |
   | the bound document | `Ok(Some(doc))` | `"complete"` | `"complete"`: HEAD's constant; the bound document's readiness has a second, unused source (H-6), slot proposal R-4 |
   | any other Document | `Ok(Some(doc))` | `"complete"` | its current document readiness. No per-Document store exists (§5.1 P-11), so the VM answers the initial value `"complete"`: the spec value for every kind below except a DOMParser document and a formerly bound one (R-4) |
 
-  While the VM is unbound, `entity_from_this` returns `None` for every receiver (`:244-246`), so a `HostObject` cannot
-  be told apart as a Document or not; what the native returns then is open (§11 O-4). Kinds of non-bound Document the
+  The pre-check lives in `document_receiver` for every Document member (PM 556 D1), not in `readyState` / `getSelection`
+  alone: the same two receiver classes throw for each member (W25). While the VM is unbound, `entity_from_this` returns
+  `None` for every receiver (`:244-246`), so a `HostObject` cannot be told apart as a Document or not; the answer then
+  is today's existing default (PM 556 D2; §11 O-4), while a non-`HostObject` receiver still throws. Kinds of non-bound Document the
   VM can produce, with the readiness the spec gives each:
 
   | kind | creation and the readiness writers that run (spec) | spec value | C1-pre answer |
@@ -253,7 +256,7 @@ Selection API row, a single member (`getSelection`), and M's rows are the spec h
 model), so a further split would separate a member from its prototype rather than shrink scope.
 
 **K-0 lens (no step worse than HEAD).** Every changed outcome moves from HEAD's value to the spec's: own-property
-enumeration of `document` (W2), brand checks (`readyState` W10, `getSelection` W24), non-bound Documents' `hidden` /
+enumeration of `document` (W2), brand checks (`readyState` W10, `getSelection` W24, every other member W25), non-bound Documents' `hidden` /
 `visibilityState` / `getSelection` (W6), and every member of a generic-path Document (`ownerDocument` or the adopted-reaction flush;
 reachable at `43e350c7` only through a Rust fixture, H-13; W1, W22). `URL` / `documentURI` keep HEAD's answer (the
 page's current URL) for every Document; a generic-path Document goes from `undefined`
@@ -287,7 +290,7 @@ Spec column from the cited steps; HEAD column from code reading at `fab44a1d`, r
 |---|---|
 | B1 shape | Every wrapper of a `NodeKind::Document` entity in a VM has `[[Prototype]]` = that VM's `Document.prototype`, chosen in `create_element_wrapper`; no other code decides a Document wrapper's shape |
 | B2 identity | One wrapper per Document entity per VM (wrapper cache); the prototype choice never allocates or replaces a wrapper |
-| B3 surface | `Document.prototype` carries exactly HEAD's member names in HEAD's order under HEAD's gates; no Document member is an own property of a wrapper; brand checks keep `document_receiver`'s contract (unbound / non-platform → fallback, wrong kind → `TypeError`), except `readyState` and `getSelection`, which throw `TypeError` for every receiver that is not a Document platform object (PM 548; D-5, D-8) |
+| B3 surface | `Document.prototype` carries exactly HEAD's member names in HEAD's order under HEAD's gates; no Document member is an own property of a wrapper; every Document member's brand check is `document_receiver`'s: a receiver that is not a `HostObject` throws `TypeError`, bound or not; a bound `HostObject` of the wrong kind throws `TypeError`; an unbound `HostObject` keeps the member's existing default (PM 548, PM 556 D1 / D2; D-5, D-8; W10, W24, W25) |
 | B4 facts | Each member except `URL` / `documentURI` answers from `this`: tree facts through dom-api with `this`; browsing-context facts through the one predicate (D-4); every other fact per §5.1 P-11 (`readyState`: the initial value for every non-bound Document, which is not `this`'s fact for a DOMParser or formerly bound one, R-4). The URL pair stays HEAD's (`#11-document-base-url`, R-10) |
 | B5 lifecycle | Bind / unbind / rebind change no wrapper's prototype and run no per-bind install; a newly bound document's wrapper gets the same prototype; no per-entity install state exists |
 | B6 consumers | DOMParser, `cloneNode`, C0c's `adoptNode` and adopted-reaction flush, C1's I carry no path-specific Document step; C1's T5, T1's third leg and M3's non-URL legs hold on C1's head (the URL legs are R-10's, R-2) |
@@ -377,8 +380,8 @@ html 4.12.3`.
 | WHATWG HTML §7.2.2 The Window object | `defaultView` getter step 1; `HTMLDocument` = the Document interface object | browsing context null → null | `native_document_get_default_view` `crates/script/elidex-js/src/vm/host/document_accessors.rs:217` via the predicate (D-4) | ✓ | no |
 | WHATWG HTML §7.3.2 Browsing contexts | a Document's browsing context | bound document ↔ the VM's browsing context; any other → null | `document_has_browsing_context` (NEW) (D-4) | ✓ | no |
 | WHATWG HTML §3.1.4 Resource metadata management | cookie-averse Document; `cookie` get / set; `referrer` | no browsing context → cookie-averse; the cookie URL stays HEAD's `current_url` (R-10) | `document_accessors.rs:262`, `:310`, `:356` via the predicate (D-4, D-6) | ✓ | yes |
-| Web IDL §3.7.6 Attributes | *attribute getter* steps 1.1.2.1–3 (brand check) | `this` not a Document → `TypeError` (no `[LegacyLenientThis]` on `readyState`) | `native_document_get_ready_state` `document_accessors.rs:144`: `this_is_node_wrapper` pre-check + `document_receiver` (D-8) | ✗ (unbound VM: O-4) | no |
-| Web IDL §3.7.7 Operations | *create an operation function* step 2.1.2.3 (brand check) | `this` not a Document → `TypeError` | `native_document_get_selection` (NEW): the same pre-check + `document_receiver` (D-5) | ✗ (unbound VM: O-4) | no |
+| Web IDL §3.7.6 Attributes | *attribute getter* steps 1.1.2.1–3 (brand check) | `this` not a Document → `TypeError` (no `[LegacyLenientThis]` on `readyState`) | `native_document_get_ready_state` `document_accessors.rs:144` through `document_receiver`, whose `this_is_node_wrapper` pre-check covers every member (D-8, PM 556 D1) | ✗ (unbound VM: PM 556 D2) | no |
+| Web IDL §3.7.7 Operations | *create an operation function* step 2.1.2.3 (brand check) | `this` not a Document → `TypeError` | `native_document_get_selection` (NEW) through `document_receiver` (D-5) | ✗ (unbound VM: PM 556 D2) | no |
 | WHATWG HTML §3.1.5 Reporting document loading status | current document readiness, initially "complete"; `readyState` getter steps "return this's current document readiness" | a non-bound Document → its readiness (the initial value, no store); the bound document → HEAD's constant | `native_document_get_ready_state` `document_accessors.rs:144` (D-8) | ✗ (the bound document's readiness and a formerly bound one's, R-4) | no |
 | WHATWG HTML §13.2.7 The end | step 4 readiness "interactive"; step 11.1 "complete" | runs for a DOMParser document's parser (D-8's table) | none: no per-Document readiness store | ✗ (missing per-Document fact, R-4) | yes |
 | WHATWG HTML §6.2 Page visibility | visibility state initially "hidden"; `hidden` / `visibilityState` getters | no browsing context → the initial "hidden" | `document_accessors.rs:506`, `:540` via the predicate (D-6) | ✓ | no |
@@ -423,9 +426,9 @@ html 4.12.3`.
 |---|---|---|
 | `defaultView`, `cookie` (get, set), `referrer`, `hidden`, `visibilityState` | own copy of `bound_doc != Some(doc)` (H-7) | `document_has_browsing_context` (D-4); `hidden` / `visibilityState` no-BC values → `true` / `"hidden"` (D-6); `cookie`'s URL stays `current_url` (R-10) |
 | `hasFocus` | tab-hidden (VM-global) then `this`'s focus | predicate first (step 1), then tab-hidden, then `this`'s focus (D-5) |
-| `getSelection` | Window's native, `_this` | `native_document_get_selection` (NEW): `this_is_node_wrapper` pre-check and `document_receiver` (non-Document → `TypeError`), predicate → `null`, else the Window's selection (D-5; W24) |
+| `getSelection` | Window's native, `_this` | `native_document_get_selection` (NEW): `document_receiver` (non-Document → `TypeError`, including its `this_is_node_wrapper` pre-check), predicate → `null`, else the Window's selection (D-5; W24) |
 | `compatMode` | VM constant after brand check | `GetCompatMode` through `invoke_document_accessor` (D-7) |
-| `readyState` | `_this`, constant | two-way rule (D-8): non-Document receiver → `TypeError` (pre-check + `document_receiver`; W10); a Document → its readiness: the bound one HEAD's constant (R-4), any other the initial `"complete"` (no store; wrong for DOMParser and formerly bound documents, R-4; W23) |
+| `readyState` | `_this`, constant | two-way rule (D-8): non-Document receiver → `TypeError` (`document_receiver`; W10); a Document → its readiness: the bound one HEAD's constant (R-4), any other the initial `"complete"` (no store; wrong for DOMParser and formerly bound documents, R-4; W23) |
 | `URL`, `documentURI` | `_this`, `current_url` | unchanged (moves to `Document.prototype` with the rest; `#11-document-base-url`, R-10) |
 | the other 29 members (§5.1 P-4, class T) | dom-api / engine-indep with `this` | unchanged |
 
@@ -605,15 +608,16 @@ Line counts `wc -l` at `43e350c7`; re-measured at the cut (§9 item 1). Every ro
 | `tests_cookie_referrer.rs` 900, `tests_document_members.rs` 210, `tests_cssom_sheet.rs` 984, `tests_html_element_proto.rs` 655, `tests_clone_node.rs` 296 (in `crates/script/elidex-js/src/vm/tests/`) | as listed | P-6 / P-7 rewrites, net 0 lines | < 1000 |
 | `crates/script/elidex-js/src/tests_webapi_gate.rs` 473, `crates/script/elidex-js/src/tests_engine_s2.rs` 267 (erratum, rev 2.6: P-6's missed sites) | as listed | P-6 rewrites | < 1000 |
 | `crates/script/elidex-js/src/vm/gc/roots.rs` (erratum, rev 2.6) | 619 (at `43e350c7` and at `bd89a35f`) | `GcRoots::proto_roots: [Option<ObjectId>; 197]` → `198` (`:36`) for the `Document.prototype` root; `git show <rev>:<path> \| /usr/bin/grep -n 'proto_roots: \['` | < 1000 |
-| `crates/script/elidex-js/src/vm/gc/collect.rs` (erratum, rev 2.6) | 2074 at `43e350c7`, 2078 at `bd89a35f` | the `proto_roots` array literal gains `self.document_prototype` (+4, after `self.document_fragment_prototype` `:237`) | **> 1000: open** (§11 O-5) |
+| `crates/script/elidex-js/src/vm/gc/collect.rs` (erratum, rev 2.6) | 2074 at `43e350c7`, 2078 at `bd89a35f` | the `proto_roots` array literal gains `self.document_prototype` (+4, after `self.document_fragment_prototype` `:237`) | **> 1000: exempt** (PM 556 D3, §11 O-5) |
 
 ### §5.4 Named risks (and the observable change each is)
 
 - **R-1 own-property enumeration of `document`** → empty (X1, W2).
 - **R-2 non-bound Documents' visibility and selection** → `hidden` `true`, `visibilityState` `"hidden"`,
   `getSelection()` `null` for DOMParser and cloned Documents (W6).
-- **R-3 brand checks** → the `readyState` getter and the Document `getSelection` called on any receiver that is not a
-  Document platform object — a non-Document node, `{}`, `undefined` — throw `TypeError` (W10, W24; D-5, D-8; W9 guards
+- **R-3 brand checks** → every Document member called on a receiver that is not a `HostObject` (`{}`, `undefined`)
+  throws `TypeError`, bound or not (PM 556 D1; W25); the `readyState` getter and the Document `getSelection` called on any
+  receiver that is not a Document platform object — a non-Document node, `{}`, `undefined` — throw `TypeError` (W10, W24; D-5, D-8; W9 guards
   the existing check on the moved getters); a genuine non-bound Document's `readyState` answers its readiness, never
   `""` (W23); the `URL` / `documentURI` getters keep no brand check (R-10).
 - **R-4 a Document wrapper allocated while unbound** would keep `Node.prototype` (B1×B2; D-3).
@@ -649,6 +653,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | W22 | red (fixture, C0c's flush; H-13) | W1's fixture (its Document entity, here D, and its element `p`); nothing wraps D before the script. `r = []; customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { r.push([o, n]); } }); x = document.createElement('x-a'); p.appendChild(x); document.adoptNode(x);` — two *adopt*s, (`document`, D) then (D, `document`); the flush allocates D's first wrapper as the first callback's newDocument. Then, in a second `eval`, with `a = r[1][0]` (the second callback's oldDocument): `[typeof a.createElement, 'createElement' in Object.getPrototypeOf(a), a.hidden, a.visibilityState, typeof a.getSelection == 'function' ? a.getSelection() : 'absent']`. **Control** (green on both; preconditions, same value on the base and after C1-pre, so they cannot fail the cell): `[r.length, a === r[0][1], r[1][1] === document, typeof r[1][1].createElement]` | `["undefined", false, undefined, undefined, "absent"]` (by code reading at `43e350c7`, not run); control `[2, true, true, "function"]` | `["function", true, true, "hidden", null]` (HTML §6.2 `hidden` / `visibilityState` getters with the initial "hidden"; Selection API §4.1 `Selection?`; D-6); control same |
 | W23 | red (fixture; rev 2.6: D-8 (b), PM 548) | W1's fixture (D, reached as `d = p.ownerDocument`): `[d.readyState, document.cloneNode().readyState]`. **Unasserted leg** (recorded, not tested): `dp.readyState`. **Control**: `document.readyState` | `43e350c7` (by code reading): `[undefined, "complete"]` (D's wrapper has `Node.prototype`); `bd89a35f` (by code reading): `["complete", "complete"]`; unasserted leg `"complete"` on both; control `"complete"` on both | `["complete", "complete"]` (HTML §3.1.5 initial value; no writer runs for D or a clone, D-8's table); unasserted leg: spec `"interactive"` (HTML §13.2.7 step 4), C1-pre `"complete"` — R-4's missing fact, so no C1-pre assertion; control `"complete"` (R-4) |
 | W24 | red (rev 2.6: D-5, PM 548) | `P = document.hasOwnProperty('getSelection') ? document : Object.getPrototypeOf(document)`; legs through `E(..)`: (1) `P.getSelection.call({})`, (2) `P.getSelection.call(document.body)`. **Control**: `P.getSelection.call(document) === getSelection()` | `43e350c7` (by code reading: the Window's native, `_this`): (1), (2) the Window's `Selection` (no throw); `bd89a35f` (by code reading): (1) `null` (`document_receiver` → `Ok(None)`), (2) `TypeError` "Failed to execute 'getSelection' on 'Document': Illegal invocation"; control `true` on both | (1), (2) `TypeError` "Illegal invocation" (Web IDL §3.7.7 *create an operation function* step 2.1.2.3); control `true` |
+| W25 | red (PM 556 D1) | `P = Object.getPrototypeOf(document)` (or `document` on the base); members: `getElementById` (a `document.rs` method), `hidden` and `compatMode` (accessor getters through their descriptors), `createElement` (a node factory), `createTreeWalker` (a traversal factory). Legs: bound, each member `.call({})` and `.call(undefined)` through `E(..)`; then after `vm.unbind()`, the same two receivers, and a retained Document wrapper (`dd = document`). **Control**: bound `.call(document)` of each member | base values by code reading (`document_receiver` → `Ok(None)` for a non-`HostObject`; `createTreeWalker` pre-checks in `require_document_factory_receiver`), at `43e350c7` and `bd89a35f`: bound `{}` / `undefined`: `getElementById` `returned:null`, `hidden` `returned:false`, `compatMode` `returned:""`, `createElement` `returned:null`, `createTreeWalker` `TypeError`; unbound `{}` / `undefined`: the same five; unbound `dd`: `null`, `false`, `""`, `null`, `null`; control `null\|false\|"CSS1Compat"\|object\|object` | bound and unbound, `{}` and `undefined`: all five `TypeError` "Illegal invocation" (Web IDL §3.7.6 *attribute getter* step 1.1.2.3.2, §3.7.7 *create an operation function* step 2.1.2.3); unbound `dd`: unchanged (`null`, `false`, `""`, `null`, `null`; PM 556 D2); control unchanged |
 
 ### §6.2 Mutation guards
 
@@ -666,6 +671,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | `readyState` / `getSelection` without the non-`HostObject` pre-check (`{}` / `undefined` fall back to `""` / `null`) | W10 legs (2), (3); W24 leg (1) |
 | Document `getSelection` without `document_receiver` (any receiver delegates) | W24 |
 | `readyState` answers a fallback (`""`, `undefined`) for a genuine non-bound Document | W23 |
+| the `this_is_node_wrapper` pre-check removed from `document_receiver`, or placed after a member's own early return | W25, W10 legs (2), (3), W24 leg (1) |
 
 ### §6.3 Kept green
 
@@ -686,7 +692,8 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | browsing-context facts as ECS components (the association, the bound document's visibility state and selection) | B1 / `#11-browsing-context-state-ecs-components` (R-11) | the predicate's input is per-VM `HostData::document`; visibility and selection are per-VM |
 | the per-Document custom element registry | `#11-document-null-registry-adopt-reset` | `I.createElement` / `dp.createElement` use the VM's registry |
 | `activeElement` for a Document without a navigable | §1.1 X7 (spec-silent; current behaviour kept) | spec-silent step 1 |
-| `document_receiver`'s silent fallback for non-platform receivers, on every Document member except `readyState` and `getSelection` (which throw, PM 548; D-5, D-8) | pre-existing elidex policy | Web IDL would throw `TypeError` |
+| every Document member throws `TypeError` on a failed brand check (PM 556 D1; in `document_receiver`; `readyState` and `getSelection` PM 548) | none: done in C1-pre | none for the members through `document_receiver`; members that do not go through it (the `URL` pair, `styleSheets`, the ParentNode members, the event-handler attributes) keep their receiver handling |
+| the unbound-VM `HostObject` receiver's answer (PM 556 D2) | `#11-vm-host-receiver-brand-check-unification` | an unbound VM cannot tell a retained Document wrapper from another `HostObject`, so each member keeps its existing default (the current behaviour is kept) |
 | a non-bound Document's readiness when it is not the initial value (DOMParser: "interactive" until *The end* step 11's task; a formerly bound document) | R-4 (missing per-Document fact; D-8) | `dp.readyState` answers `"complete"` |
 | multi-realm `Document.prototype` | B1 (H-1 below) | one prototype per VM |
 
@@ -912,21 +919,22 @@ over every VM-script test path of `elidex-js` and `elidex-shell`, with a re-runn
 test fns at `43e350c7`, both misses included; rev 2.5's command and its 10 kept as a row; §5.2 follows. **§5.3
 errata**: `vm/gc/roots.rs` (619 lines; `proto_roots` 197 → 198), `vm/gc/collect.rs` (2074 → 2078; the 1000-line
 decision is §11 O-5), and the two test files of P-6's misses.
+*Rev 2.6.1* (2026-11-09, PM 556). **D1**: every Document member throws `TypeError` "Illegal invocation" on a failed brand
+check, fixed once in `document_receiver` (the `this_is_node_wrapper` pre-check, then `require_receiver`); D-5 / D-8 say the
+pre-check lives there; §2.1 B3, §3 rows, §4.2, §5.4 R-3 and §7 follow; §6.1 W25 added (four kinds of member, bound and
+unbound legs, control) with a §6.2 row. **D2** (§7 row, §11 O-4): an unbound VM with a `HostObject` receiver keeps today's
+defaults (slot `#11-vm-host-receiver-brand-check-unification`). **D3** (§5.3, §11 O-5): `vm/gc/collect.rs` is exempt
+from the touch-time split. **D4**: no code consequence. No new spec lookups.
 
 ## §11. Open questions
 
 **For the PM / user.**
 - **O-3 Order with C0c (e-c0c).** Moot since rev 2.5: C0c landed first (#611 `0a5a77ba`) and D-14 (b) before both
   (#599).
-- **O-4 `readyState` / `getSelection` while the VM is unbound** (rev 2.6). `entity_from_this` returns `None` for every
-  receiver when the VM is unbound (`event_target.rs:244-246`), so after the bind-independent `this_is_node_wrapper`
-  pre-check (non-`HostObject` → `TypeError`) a `HostObject` receiver — a retained Document wrapper or a non-Document
-  one — cannot be classified. PM 548's two legs need the classification; the pre-existing unbound-receiver policy
-  (`require_receiver`'s doc: "silent no-op … post-unbind retained references must not panic") gave `""` / `null`,
-  and `readyState` no longer returns `""`. Open: what `readyState` returns, and whether `getSelection`'s `null` (the
-  spec value for any Document, since no Document has a browsing context while unbound, but not for a non-Document
-  `HostObject`) stands, for a `HostObject` receiver of an unbound VM.
-- **O-5 `vm/gc/collect.rs` is over 1000 lines** (rev 2.6, §5.3 erratum). 2074 at `43e350c7`; the implementation adds 4
-  lines to its `proto_roots` literal (its module doc keeps the 224-line literal inline by choice, `collect.rs:5-9`).
-  CLAUDE.md's touch-time split applies to a file C1-pre touches; whether it has a real cohesion seam (a standalone
-  prereq split before C1-pre) or is exempt is the PM's call.
+- **O-4 `readyState` / `getSelection` while the VM is unbound** (rev 2.6; decided by PM 556 D2). An unbound VM with a
+  `HostObject` receiver keeps today's behaviour: the member falls through to its existing default. A non-`HostObject`
+  receiver throws (PM 556 D1). The wider question (one brand check for every host receiver) is slot
+  `#11-vm-host-receiver-brand-check-unification`.
+- **O-5 `vm/gc/collect.rs` is over 1000 lines** (rev 2.6, §5.3 erratum; decided by PM 556 D3). 2074 at `43e350c7`; the
+  implementation adds 4 lines to its `proto_roots` literal (its module doc keeps the 224-line literal inline by choice,
+  `collect.rs:5-9`). Exempt from the touch-time split: a flat literal table, no cohesion seam. Not split.
