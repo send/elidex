@@ -58,8 +58,8 @@ The umbrella §2 table (I-1 coverage, I-2 fail-safe bound, I-3 state integrity, 
 I-5 hot-path cost, and each pair) is this PR's invariant set; PR-1 is where all five are realised for the choke points CP-1 / CP-2
 and the walkers. I-1 at the JS→wasm entries is PR-1b's (PR-1b §2); until PR-1b lands, I-1 does not
 hold there (the band of PR-1b §4), which is why PR-1 does not close `#11-vm-call-depth-guard`.
-**I-3** is the P0 program's: the placement of CP-1 / CP-2 inside `resource_limit::check_entry` (NEW: P0a) (P0a §4.3,
-cells and placement mutants P0a §7–§8) and the contract that no consumer turns the error into a definitive
+**I-3** is the P0 program's: the placement of CP-1 / CP-2 inside `resource_limit::check_entry` (NEW: P0a-1) (P0a-1 §4.3,
+cells and placement mutants P0a-1 §6–§7) and the contract that no consumer turns the error into a definitive
 fact (P0 umbrella §4, census §5). The custom-element upgrade and lazy event-handler cases are P0b-L3's, the
 async-resume case is P0 umbrella §6 item 5. PR-1's probes are that contract's producers (P0 umbrella §2
 C-1 × I-1).
@@ -67,13 +67,13 @@ C-1 × I-1).
 PR-local invariants:
 
 - **I-6 One error shape per channel.** *Runtime channel*: every probe failure is
-  `VmErrorKind::ResourceLimit` (NEW: P0a), materialised as a `RangeError` with `STACK_EXHAUSTED_MSG`
-  (NEW: P0a), whatever the walker; cap failures keep their own messages (`DEPTH_EXCEEDED_MSG`; the regexp
+  `VmErrorKind::ResourceLimit` (NEW: P0a-1), materialised as a `RangeError` with `STACK_EXHAUSTED_MSG`
+  (NEW: P0a-1), whatever the walker; cap failures keep their own messages (`DEPTH_EXCEEDED_MSG`; the regexp
   nesting message, §6.2). *Compile-time channel* (parser, scope analyser, compiler; no VM exists yet):
   every probe failure is one error kind, `JsParseErrorKind::StackExhausted` (NEW) in the parser and scope
-  analyser and `CompileErrorKind::ResourceLimit` (NEW: P0a) in the compiler (`From<StackExhausted> for
+  analyser and `CompileErrorKind::ResourceLimit` (NEW: P0a-1) in the compiler (`From<StackExhausted> for
   CompileError`); `compile_script` reports `CompileErrorKind::ResourceLimit` when any parse or scope error
-  is `StackExhausted` (P0a §4.1 item 4's rule; PR-1 adds the arm, cells `frontend_*` / `parser_*`). Cap
+  is `StackExhausted` (P0a-1 §4.1 item 4's rule; PR-1 adds the arm, cells `frontend_*` / `parser_*`). Cap
   failures are `JsParseErrorKind::NestingTooDeep` in the parser and (new, W-8) in the scope analyser. How §9 tells cap from probe: runtime cells compare the message; compile-time cells
   call `parse_script` / `analyze_scopes` / `compiler::compile` directly and compare the error
   **kind** (parser, scope) or the message (compiler), never the aggregated `compile_script` text.
@@ -170,7 +170,7 @@ All rows are script-controlled. Adjacent pre-existing code (measurements in umbr
 | `crate::stack_guard` module doc / `ensure_stack` | ECMA-262 §17 (no resource-limit deviation: the limit is elidex's, PM 424); I-2's fail-early rule; the stack-switching constraint (§4.4) |
 | `JsParseErrorKind::StackExhausted`, W-8's scope-analyser `NestingTooDeep` exit | ECMA-262 §17 paragraph 3: reported before evaluation, a stated resource-limit deviation (§4.1) |
 | `vm/regexp_compile.rs` / `compile_regexp` | ECMA-262 §22.2.3.3 RegExpInitialize steps 14–15 / 22 (what is parsed and compiled) and §22.2.3.4 ParsePattern (what the weight pass approximates); the resource-limit status of `TooDeep` / `Exhausted` (no spec step throws them) |
-| `From<StackExhausted> for VmError` / `CompileError`, `From<RegExpCompileError> for VmError` (`STACK_EXHAUSTED_MSG` and the kinds are P0a's) | none beyond the I-6 channel they belong to (they are mappings, not algorithms) |
+| `From<StackExhausted> for VmError` / `CompileError`, `From<RegExpCompileError> for VmError` (`STACK_EXHAUSTED_MSG` and the kinds are P0a-1's) | none beyond the I-6 channel they belong to (they are mappings, not algorithms) |
 | `MAX_REGEXP_DEPTH` (`crate::regexp`) | the semantic-cap role (I-4) and its two users; no spec section (no spec defines it) |
 | `REGEXP_GROUP_COST` / `REGEXP_ALT_COST` | the ratchet cells and the in-repo driver that re-derive them (§6.2) |
 | `clone_regexp` docstring (rewritten, its claims change) | HTML §2.7.4 StructuredSerializeInternal step 13 and §2.7.7 StructuredDeserialize step 12 (the matcher is copied; `lastIndex` is not among the copied slots) |
@@ -211,12 +211,12 @@ pub(crate) const WALKER_RESERVE: usize = 256 * 1024;    // (NEW)
 pub(crate) fn ensure_stack(need: usize) -> Result<(), StackExhausted>;  // (NEW)
 ```
 
-Conversions (all NEW): `From<StackExhausted> for VmError` → `VmError::resource_limit()` (NEW: P0a; message
-`STACK_EXHAUSTED_MSG`, P0a §4.1); `From<StackExhausted> for CompileError` → kind
-`CompileErrorKind::ResourceLimit` (NEW: P0a); a new `JsParseErrorKind::StackExhausted` (NEW) variant pushed
+Conversions (all NEW): `From<StackExhausted> for VmError` → `VmError::resource_limit()` (NEW: P0a-1; message
+`STACK_EXHAUSTED_MSG`, P0a-1 §4.1); `From<StackExhausted> for CompileError` → kind
+`CompileErrorKind::ResourceLimit` (NEW: P0a-1); a new `JsParseErrorKind::StackExhausted` (NEW) variant pushed
 by the parser / scope probe branches.
 There is exactly one primitive (PM 436 R1): walkers and choke points call
-`ensure_stack(WALKER_RESERVE)?` (CP-1 / CP-2 inside P0a's `check_entry`, §5.1); the regexp front door calls `ensure_stack(WALKER_RESERVE +
+`ensure_stack(WALKER_RESERVE)?` (CP-1 / CP-2 inside P0a-1's `check_entry`, §5.1); the regexp front door calls `ensure_stack(WALKER_RESERVE +
 weight_cost)` (§6.2). No second "check" function.
 
 **The compile-time channel and §17 paragraph 3.** `compile_script` turns any parse or scope error
@@ -331,8 +331,8 @@ non-test release build):
 
 ### §5.1 Choke points
 
-The check sites and their placement are P0a's (`check_entry(Call)` first in `with_call_mode`,
-`check_entry(Resume)` first in `resume_generator`; P0a §4.3). PR-1 adds `ensure_stack(WALKER_RESERVE)` for
+The check sites and their placement are P0a-1's (`check_entry(Call)` first in `with_call_mode`,
+`check_entry(Resume)` first in `resume_generator`; P0a-1 §4.3). PR-1 adds `ensure_stack(WALKER_RESERVE)` for
 `Call` / `Resume` inside `check_entry`.
 
 | Id | Site | Why this covers it |
@@ -477,9 +477,9 @@ debug aborts at N=300 on 2 MiB (`H/logs/rel-classext.log`, `H/logs/dbg-census-ho
 recursion, or a removed probe, turns CI red:
 
 - `.claude/tools/recursion_cutcheck.py` (NEW; the census and the cut check from
-  `H/scripts/recursion_census.py` + `H/scripts/cutcheck.py`, merged), built on P0a's shared lexer and call
+  `H/scripts/recursion_census.py` + `H/scripts/cutcheck.py`, merged), built on P0a-2's shared lexer and call
   graph `.claude/tools/_rust_callgraph.py` (one substrate for both checks). Each probe commit also deletes
-  its function's name from the Err census's `PLANNED_PRODUCERS` (P0a §5.3), which is red otherwise. Its probe set is **derived
+  its function's name from the Err census's `PLANNED_PRODUCERS` (P0a-2 §6), which is red otherwise. Its probe set is **derived
   from the code**, not listed: a function is a probe site iff its body calls `ensure_stack` or
   `enter_recursion`, or it is `with_call_mode` / `resume_generator`; the cut points that are not
   probes (`abort_signal` on A-1, `drain_microtasks` on its re-entry flag) are rows of the allowlist
@@ -702,7 +702,7 @@ for `VmError` for those two arms; `Syntax(e)` keeps each site's current message 
   throw, because a bad pattern was already an early error (§13.2.7.1). A cap or probe throw here is
   a resource-limit deviation from that `!`, stated in the site's comment; the `Syntax` → `TypeError`
   path is the pre-existing early-error gap (umbrella §3.2), not this one. The throw is catchable because
-  P0a routes `Op::PushConst`'s error through `throw_error` (P0a B-1); `TooDeep` stays the cap's answer.
+  P0a-1 routes `Op::PushConst`'s error through `throw_error` (P0a-1 §5.2 B-1); `TooDeep` stays the cap's answer.
 - **structuredClone** (`clone_regexp`, decision D-SC): **copy the matcher, do not re-compile.**
   HTML §2.7.4 StructuredSerializeInternal step 13 copies `[[RegExpMatcher]]` (with
   `[[OriginalSource]]` / `[[OriginalFlags]]`), and §2.7.7 StructuredDeserialize step 12 builds the
@@ -801,7 +801,7 @@ line. PR-1b's pre-push does the same.
 
 | Cell | Body | Expect |
 |---|---|---|
-| `rt_reviver_recursion` | `function r(k, v) { return k === '' ? JSON.parse('[1]', r) : v } JSON.parse('[1]', r)` (declaration: a named function expression has no self-binding in elidex today) | `RangeError` / `STACK_EXHAUSTED_MSG`, read from the thrown object's `name` / `message` (at the top the escape rule has made it `ThrowValue`, P0a §4.2; every `rt_*` cell reads it so) |
+| `rt_reviver_recursion` | `function r(k, v) { return k === '' ? JSON.parse('[1]', r) : v } JSON.parse('[1]', r)` (declaration: a named function expression has no self-binding in elidex today) | `RangeError` / `STACK_EXHAUSTED_MSG`, read from the thrown object's `name` / `message` (at the top the escape rule has made it `ThrowValue`, P0a-1 §4.2; every `rt_*` cell reads it so) |
 | `rt_map_recursion` | `function f() { [1].map(f) } f()` | same |
 | `rt_generator_resume` | `function* g() { g().next(); yield 1 } g().next()` | same |
 | `rt_inline_async` | `async function f() { await f() } f().catch(e => globalThis.r = e.name)`, then drain microtasks | `r === 'RangeError'` |
@@ -849,7 +849,7 @@ The comment at `tests_json.rs:594` ("Cells run on the libtest thread (2 MiB)") i
 
 Each row removes one probe (or reverts one structural fix) and names the cell that must die.
 Run on the final head only, debug and release. None has been run yet. Placement mutants (a check moved
-past the state it must precede) are P0a §8.
+past the state it must precede) are P0a-1 §7.
 
 | Mutant | Removed | Dies |
 |---|---|---|

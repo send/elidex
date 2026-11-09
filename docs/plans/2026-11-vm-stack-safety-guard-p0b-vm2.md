@@ -4,15 +4,16 @@ Status: **plan (pre-implementation)**, per-PR slice of the [P0 umbrella](2026-11
 (PM 509; split from the former P0b-VM by PM 513 (a), reason in
 [P0b-VM-1](2026-11-vm-stack-safety-guard-p0b-vm1.md)'s header); `/elidex-plan-review` required before code.
 Owner: VM P4 (PM 509 item 2). Base: `ce603c74`; every code anchor below is at that commit. Requires
-[P0a](2026-11-vm-stack-safety-guard-p0a.md). Sibling P0b-VM-1 is independent (disjoint files, disjoint
+[P0a-1](2026-11-vm-stack-safety-guard-p0a1.md) and [P0a-2](2026-11-vm-stack-safety-guard-p0a2.md) (the slice starts from
+P0a-2, whose prerequisite is P0a-1; P0 umbrella §1). Sibling P0b-VM-1 is independent (disjoint files, disjoint
 `# pending` rows). Edges and schedule: P0 umbrella §1.
 
 The contract C-1…C-5 is the P0 umbrella §4 (canonical); each fix below applies it at one site with
-`is_resource_limit()` (P0a §4.1) as the only test. This slice is a base case (c) under the P0 umbrella.
+`is_resource_limit()` (P0a-1 §4.1) as the only test. This slice is a base case (c) under the P0 umbrella.
 
 ## §0. Charter
 
-P0b-VM-2 fixes the definitive consumers D-8, D-9 and D-12 of P0a §5.4. D-9's fix also makes
+P0b-VM-2 fixes the definitive consumers D-8, D-9 and D-12 of P0a-2 §7.3. D-9's fix also makes
 `startMessages()`'s flush asynchronous, as the Service Workers spec has it (PM 509 item 6), through one
 delivery queue `PendingTask::SwMessage` (NEW); PM 513 (c) records that queue on
 `#11-sw-client-postmessage-inbound`, whose inbound work builds on it.
@@ -29,7 +30,7 @@ of §6; cells in `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host
 
 ## §2. Coupled invariants
 
-Elements: **IDB** (D-8), **SW** (D-9 and the task queue), **WC** (WebCrypto D-12), **ID** (P0a's predicate
+Elements: **IDB** (D-8), **SW** (D-9 and the task queue), **WC** (WebCrypto D-12), **ID** (P0a-1's predicate
 and injection points, consumed here), **PEND** (this slice's rows of `# pending`).
 
 | Pair | Intersection | Pinned by | Basis |
@@ -40,9 +41,9 @@ and injection points, consumed here), **PEND** (this slice's rows of `# pending`
 | SW × order | the flush and `deliver_message`'s enabled branch both queue the same task kind, so buffered messages stay ahead of a later one (FIFO on one queue) | `rl_sw_message_order_preserved`; M-SW2 | cell |
 | WC × spec fallback | a C-1 error from the primary normalisation returns without running step 3's fallback | `rl_wrap_key_resource_limit_skips_fallback`; M-WC | cell |
 | IDB × SW, IDB × WC, SW × WC | disjoint files and carriers; no shared state | — | structural |
-| ID × IDB, ID × WC | every fix tests only `is_resource_limit()`, and every cell uses only P0a's injection points | P0a M-ID kills the IDB and WebCrypto cells | cell |
+| ID × IDB, ID × WC | every fix tests only `is_resource_limit()`, and every cell uses only P0a-1's injection points | P0a-1 M-ID kills the IDB and WebCrypto cells | cell |
 | ID × SW | the SW change is a scheduling change (no predicate); its cells do not depend on the injection | M-SW, M-SW2 | cell |
-| PEND × ID | this PR deletes exactly its 4 pending rows (D-12 is 2 rows) and adds no pending row (P0a §5.2 rule 4 ceiling) | P0a control `census_pending_row_outside_ceiling` | check |
+| PEND × ID | this PR deletes exactly its 4 pending rows (D-12 is 2 rows) and adds no pending row (P0a-2 §5 rule 4 ceiling) | P0a-2 control `census_pending_row_outside_ceiling` | check |
 
 ## §3. Spec coverage map
 
@@ -102,18 +103,20 @@ fallback (step 3 is for errors the spec defines).
 
 ## §6. Census rows after the fix
 
-Deleted from `# pending`: D-8, D-9, D-12 (2) — 4 rows. Added as admissible (keys as in P0a §5.1):
+Deleted from `# pending`: D-8, D-9, D-12 (2) — 4 rows. Added as admissible (keys as in P0a-2 §7.3):
 
-| Site | Class | Reason |
+Codes are P0a-2 §5 rule 12's closed table; a row with no fitting code is not given an invented one.
+
+| Site | Class · code | Reason |
 |---|---|---|
-| `json_to_js` → `parse_json_str` | P | resource-limit arm propagates; other failures `Undefined` (`#11-idb-structured-clone-storage`) |
-| the seven `json_to_js` callers | R | request error (`DeferredOutcome::Error`) |
-| `fire_message` → `parse_json_str` | N | top-only (task drain), rule 5 |
-| `normalize_wrap_with_fallback` → `marshal_normalize` (2) | P | resource-limit arm propagates; fallback only for other errors |
+| `json_to_js` → `parse_json_str` | P · — (no code of rule 12 fits; open) | resource-limit arm propagates; other failures `Undefined` (`#11-idb-structured-clone-storage`) |
+| the seven `json_to_js` callers | R · `channel` | request error (`DeferredOutcome::Error`); channel function: the `DeferredOutcome::Error` construction |
+| `fire_message` → `parse_json_str` | N · `top-only` | top-only (task drain), rule 5 |
+| `normalize_wrap_with_fallback` → `marshal_normalize` (2) | P · — (no code of rule 12 fits; open) | resource-limit arm propagates; fallback only for other errors |
 
 ## §7. Cells (written first)
 
-New file `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NEW); P0a §4.4's injection,
+New file `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NEW); P0a-1 §4.4's injection,
 `n` from `resource_limit::count` on a dry run.
 
 | Cell | Body | Expect |
@@ -131,7 +134,7 @@ New file `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NE
 | M-SW | synchronous flush back | `rl_sw_start_messages_is_async` |
 | M-SW2 | `deliver_message`'s enabled branch fires synchronously | `rl_sw_message_order_preserved` |
 | M-WC | fallback runs on a resource limit | `rl_wrap_key_resource_limit_skips_fallback` |
-| M-ID (P0a) | `is_resource_limit` always false | the IDB and WebCrypto cells |
+| M-ID (P0a-1) | `is_resource_limit` always false | the IDB and WebCrypto cells |
 
 ## §9. Landing obligations
 
@@ -145,7 +148,7 @@ The ledger rows this slice triggers are rows of the P0 program's landing list, P
 
 1. Whether the SW cells run in the in-process VM harness or need their own module.
 2. That the SW task drain and `deliver_message`'s caller (`deliver.rs:50`) are not reachable from a native
-   (P0a §5.2 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
+   (P0a-2 §5 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
 3. Every exhaustive `match` on `PendingTask` besides `gc/roots.rs:557` and `pending_tasks.rs:287`.
 
 webref lookups behind §3 (2026-11-08): `dfn IndexedDB-3 'retrieve a value from an object store'` → §6.2;

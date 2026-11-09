@@ -3,7 +3,7 @@
 Status: **plan (pre-implementation)**, split out of [PR-1](2026-11-vm-stack-safety-guard-pr1.md) by
 the driver decision D-K (PM 483, umbrella §0.1); revised for PM 502 (S-4: the wasm stack overflow is a
 `RangeError`; S-5: the store layout; the shallow-depth regression) and for the P0 program (placement and
-conversions are P0a's). `/elidex-plan-review` required before code (edge-dense program, umbrella §2).
+conversions are P0a-1's). `/elidex-plan-review` required before code (edge-dense program, umbrella §2).
 Parent: [umbrella](2026-11-vm-stack-safety-guard.md). **Closes `#11-vm-call-depth-guard`** (the slot
 closes at this PR's landing, not PR-1's, PM 483). Base: `47b6c934` (anchors below are at that commit;
 re-derive each at PR-1b's own base with the command beside it). Rulings of umbrella §0.1 are ratified and
@@ -12,7 +12,7 @@ not re-opened here; D-W (CP-3 + `MAX_WASM_STACK`) is carried over from PR-1 and 
 Preconditions: **PR-1 has landed** (edge PR-1 → PR-1b, umbrella §4): PR-1b uses its primitive
 `crate::stack_guard::ensure_stack` (NEW: PR-1), `WALKER_RESERVE`, the test-only seams (PR-1 §4.5), the cell
 file `tests_stack_guard.rs`, the `on_thread` helper and the release CI leg (PR-1 §8). The CP-3a / CP-3b
-check sites, their placement and the CP-3b conversion are P0a's (P0a §4.3); PR-1b fills them.
+check sites, their placement and the CP-3b conversion are P0a-1's (P0a-1 §4.3); PR-1b fills them.
 
 **Why a PR of its own (D-K).** (1) A different crate: the constant, the `Config` call and the overflow
 classification live in `elidex-wasm-runtime`, while PR-1's Rust changes are all in `elidex-js`. (2) A
@@ -23,7 +23,7 @@ passes its own plan-review (CLAUDE.md edge-dense rule (c)).
 
 ## §1. Scope
 
-1. CP-3a / CP-3b: `ensure_stack(WALKER_RESERVE + MAX_WASM_STACK)` inside P0a's
+1. CP-3a / CP-3b: `ensure_stack(WALKER_RESERVE + MAX_WASM_STACK)` inside P0a-1's
    `check_entry(EntryKind::WasmCall | EntryKind::WasmInstantiate)` (§5).
 2. `elidex_wasm_runtime::MAX_WASM_STACK` (NEW, `pub const` = `512 * 1024`) and
    `config.max_wasm_stack(MAX_WASM_STACK)` set explicitly (§4.1).
@@ -37,12 +37,14 @@ L-2); the structural remedy of the entry band (§4.3, slot request §10 L-4).
 ## §2. Coupled invariants
 
 The umbrella's program invariants I-1…I-5 apply at CP-3 as at PR-1's choke points, and PR-1's I-6 (one
-error shape per channel) applies to CP-3 as a runtime-channel site. **I-3 at CP-3** is P0a §4.3 (the check
+error shape per channel) applies to CP-3 as a runtime-channel site. **I-3 at CP-3** is P0a-1 §4.3 (the check
 sits before the lazy `vm_wasm_runtime()` initialisation, `Store::new` and the start function for CP-3b, and
 before the `HostState` bind and the `set_fuel` reset for CP-3a; placement mutants M-P-CP3a / M-P-CP3b are
-P0a §8). The one VM field written before CP-3a, `call_dispatch`'s `gc_enabled = false` in the
+P0a-1 §7). The one VM field written before CP-3a, `call_dispatch`'s `gc_enabled = false` in the
 `WasmExportedFunction` arm (`interpreter.rs:501` at `47b6c934`; re-derive after the `interpreter.rs` prereq
 split), is restored by that arm on the `Err` return as on every other return.
+
+CP-3a / CP-3b set the entered mark (P0a-1 §4.2) after the check, before the first store mutation.
 
 PR-local invariants:
 
@@ -122,7 +124,7 @@ behaviour, not the spec's; home: slot request §10 L-5.
 |---|---|
 | `elidex_wasm_runtime::MAX_WASM_STACK` | wasmtime's `Config::max_wasm_stack` contract (wasm's own stack use, not the thread's); the CP-3 ask; the measurement that sizes it (§4.1); no spec section (§8 defines none for stack) |
 | `WasmErrorKind::StackOverflow` (NEW) | WebAssembly JS API §7.1 (same class as a JS stack overflow; elidex's is `RangeError`, PM 421 (a)) |
-| CP-3a / CP-3b site comments | the resource-limit status of CP-3's `RangeError` (§3); P0a §4.3's placement rule |
+| CP-3a / CP-3b site comments | the resource-limit status of CP-3's `RangeError` (§3); P0a-1 §4.3's placement rule |
 
 ## §4. The wasm entry
 
@@ -168,7 +170,7 @@ elidex's is `RangeError` "Maximum call stack size exceeded" (PM 421 (a)), so the
   `WasmErrorKind::StackOverflow` (NEW variant of the `#[non_exhaustive]` enum, `error.rs:32`; the
   `Runtime` docstring stops claiming stack overflow). Every other trap stays `Runtime`.
 - **Materialisation site** (`elidex-js`): `wasm_error_to_js_value` (`vm/host/wasm/errors.rs:179`) gains a
-  `StackOverflow` arm that builds a `RangeError` object with `STACK_EXHAUSTED_MSG` (NEW: P0a), the object
+  `StackOverflow` arm that builds a `RangeError` object with `STACK_EXHAUSTED_MSG` (NEW: P0a-1), the object
   `vm_error_to_thrown` builds for C-1's kind. It is a thrown value, **not** `VmErrorKind::ResourceLimit`:
   wasm had started (its effects stand), so P0's "did not start" kind does not apply (P0 umbrella §4 C-1).
 - **Other traps** (`unreachable`, out-of-bounds, fuel exhaustion, …) stay `WebAssembly.RuntimeError` (§5.6
@@ -213,12 +215,12 @@ structural remedy is the registered slot `#11-wasm-entry-depth-band` (§10 L-4).
 
 ## §5. Call sites
 
-| Id | Site | Placement (P0a §4.3) | Why this covers it |
+| Id | Site | Placement (P0a-1 §4.3) | Why this covers it |
 |---|---|---|---|
-| CP-3a | `call_wasm_exported_function` (`crates/script/elidex-js/src/vm/host/wasm/exported_func.rs:268`) | P0a's `check_entry(WasmCall)`, after the argument coercions (*call an Exported Function* step 7, which may run user JS through CP-1) and the bound-session check, immediately before `host_data.with_session_and_dom(… func.call …)` (`:306`) | the only caller of `WasmFunc::call` in `elidex-js` (its one caller is `call_dispatch`'s `WasmExportedFunction` arm, `interpreter.rs:511`); every exported function, however obtained, is an `ObjectKind::WasmExportedFunction` dispatched there |
-| CP-3b | `instantiate_module` (`crates/script/elidex-js/src/vm/host/wasm/instance.rs:151`) | P0a's `check_entry(WasmInstantiate)`, before `ctx.vm.vm_wasm_runtime()` (`:176`) and `runtime.instantiate` (`:180`); its `Err` converts by P0a §4.3's named conversion (`vm_error_to_thrown`, never `wasm_error_to_js_value`) | the only caller of `WasmRuntime::instantiate` in `elidex-js`; both the sync `new WebAssembly.Instance` (`instance.rs:69`) and the async `WebAssembly.instantiate` (`namespace.rs:578`, which turns the `Err` into a rejection) go through it |
+| CP-3a | `call_wasm_exported_function` (`crates/script/elidex-js/src/vm/host/wasm/exported_func.rs:268`) | P0a-1's `check_entry(WasmCall)`, after the argument coercions (*call an Exported Function* step 7, which may run user JS through CP-1) and the bound-session check, immediately before `host_data.with_session_and_dom(… func.call …)` (`:306`) | the only caller of `WasmFunc::call` in `elidex-js` (its one caller is `call_dispatch`'s `WasmExportedFunction` arm, `interpreter.rs:511`); every exported function, however obtained, is an `ObjectKind::WasmExportedFunction` dispatched there |
+| CP-3b | `instantiate_module` (`crates/script/elidex-js/src/vm/host/wasm/instance.rs:151`) | P0a-1's `check_entry(WasmInstantiate)`, before `ctx.vm.vm_wasm_runtime()` (`:176`) and `runtime.instantiate` (`:180`); its `Err` converts by P0a-1 §4.3's named conversion (`vm_error_to_thrown`, never `wasm_error_to_js_value`) | the only caller of `WasmRuntime::instantiate` in `elidex-js`; both the sync `new WebAssembly.Instance` (`instance.rs:69`) and the async `WebAssembly.instantiate` (`namespace.rs:578`, which turns the `Err` into a rejection) go through it |
 
-PR-1b's change at each site is the ask inside `check_entry` for its kind; the site itself is P0a's.
+PR-1b's change at each site is the ask inside `check_entry` for its kind; the site itself is P0a-1's.
 JS→wasm entries (re-derive: `git grep -nE 'func\.call\(|\.instantiate\(&' -- crates/script/elidex-js/src ':!**/tests/**'`):
 `exported_func.rs:307` and `instance.rs:180`; no other crate depends on `elidex-wasm-runtime`.
 
@@ -235,7 +237,7 @@ the error arm and no algorithm.
 
 | File | Change | Engine-bound reason |
 |---|---|---|
-| `crates/script/elidex-js/src/vm/host/wasm/exported_func.rs` | CP-3a ask (inside P0a's check) | a stack check at the JS→wasm boundary |
+| `crates/script/elidex-js/src/vm/host/wasm/exported_func.rs` | CP-3a ask (inside P0a-1's check) | a stack check at the JS→wasm boundary |
 | `crates/script/elidex-js/src/vm/host/wasm/instance.rs` | CP-3b ask (same) | same, for instantiation |
 | `crates/script/elidex-js/src/vm/host/wasm/errors.rs` | `StackOverflow` arm | maps a runtime error kind to a JS object |
 
@@ -263,7 +265,7 @@ standalone first commit, so neither file is duplicated nor grown.
 
 ## §7. Mutants
 
-Run on the final head only, debug and release. None has been run yet. (CP-3 placement mutants are P0a §8.)
+Run on the final head only, debug and release. None has been run yet. (CP-3 placement mutants are P0a-1 §7.)
 
 | Mutant | Removed | Dies |
 |---|---|---|

@@ -2,8 +2,8 @@
 
 Status: **plan (pre-implementation), revised after plan-review R1 and R2** (findings at `H/review/` and
 `H/review-r2/`, `axis1.md` … `axis5.md`, `aggregate.md`), the driver decisions D-W / D-SC and the split
-verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 517). Owner: VM P4 lane.
-PR-level plans: the [P0 program](2026-11-vm-stack-safety-guard-p0.md) (its slices P0a, P0b-VM-1, P0b-VM-2,
+verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 550). Owner: VM P4 lane.
+PR-level plans: the [P0 program](2026-11-vm-stack-safety-guard-p0.md) (its slices P0a-1, P0a-2, P0b-VM-1, P0b-VM-2,
 P0b-L3), [PR-1](2026-11-vm-stack-safety-guard-pr1.md), [PR-1b](2026-11-vm-stack-safety-guard-pr1b.md).
 
 **Provenance root.** `H` = `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/stackguard-census`
@@ -81,6 +81,7 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | PM 510 | The IteratorClose slot id is `#11-vm-iteratorclose-precedence-convention`. |
 | PM 513 | P0b-VM split into P0b-VM-1 / P0b-VM-2; `history_events.rs` is an L4 file; the SW delivery queue is recorded on `#11-sw-client-postmessage-inbound`; the P0 ledger rows form one landing list (P0 umbrella §7); the loop-`?` census rule and the single test-failure seam ratified (P0 umbrella §0.4). |
 | PM 517 | (1) `#11-wasm-entry-depth-band` registered, owner VM P4 (PR-1b §10 L-4). (2) `#11-wasm-user-import-host-fn-builder`: owner VM P4, trigger wasm→JS user imports accepted, Re-eval-date 2027-01-31 (PR-1b §10 L-2). (3) `#11-wasm-instantiate-sync-deviation` registered, owner VM P4 (PR-1b §10 L-5). (4) `#11-vm-inner-substruct-decomposition` registered, owner VM P4 (PR-1 §12 L-17). (5) The `interpreter.rs` prereq split is a standalone VM P4 split PR before PR-1; queue Slice F → `interpreter.rs` split → PR-1 (§4, its one home). (6) Re-eval-date 2026-12-15 (the date of guard PR-2's plan) for `#11-vm-proper-tail-calls` and `#11-vm-microtask-self-chaining-unbounded` (§5). (7) PR-1 does not wait for the CI/tools per-profile build matrix; whichever of the two `ci.yml` PRs lands second rebases (§4). (8) The `TypeError` sub-item of `#11-vm-regexp-constructor-and-flags` is struck by the PM; its home is `#11-vm-regexp-syntax-error-surface`, and the owner text belongs to 9b's replaceAll child (PM 471) (§3.1). (9) The P0 §7 landing table at `b7f03821` is registered in the landing list `vm-p0-program.md` (P0 umbrella §7). |
+| PM 550 | Clerical repoint of the memos from P0a to P0a-1 / P0a-2 (PM 544 split); CP-3a / CP-3b set the entered mark (P0a-1 §4.2) after the check (PR-1b §2); rule-12 reason codes on the P0b-VM-1 / P0b-VM-2 census rows; behaviour-preserving rewrites in P0a-2 (§7.4) only after the checker is extended, only when more readable on their own, with the reason per site and the tests unchanged. |
 
 ## §1. Scope
 
@@ -139,8 +140,8 @@ placement, nothing to measure).
   "never late" rests on an assumption (PR-1 §4.2): the first probe runs near the thread's top.
 - **I-3 State integrity** — a probe that fails leaves VM state as if the guarded operation never
   started, and no consumer turns the error into a definitive fact. Both halves are the P0 program's:
-  the contract (P0 umbrella §4), the census of every consumer (P0 umbrella §5, P0a §5) and the
-  choke-point placement (P0a §4.3). (Abort propagation carries no probe: after the W-11 slot it is
+  the contract (P0 umbrella §4), the census of every consumer (P0 umbrella §5; the check, P0a-2 §5) and the
+  choke-point placement (P0a-1 §4.3). (Abort propagation carries no probe: after the W-11 slot it is
   depth 1 by construction, PM 454.)
 - **I-4 Semantic caps unchanged** — `MAX_JSON_DEPTH` (cfg-split: 600 debug / 1000 release),
   `MAX_NESTING_DEPTH` (1024) and `MAX_REGEXP_DEPTH` (1024) keep their values and stay the semantic
@@ -152,7 +153,7 @@ placement, nothing to measure).
 | Pair | Intersection | Pinned by | Basis |
 |---|---|---|---|
 | I-1 × I-2 | Coverage is only as good as the bound: the reserve must exceed the largest **unprobed** stack segment between two probes, on the bound the OS reports. At CP-3 the segment after the probe is wasm's, so the ask is `WALKER_RESERVE + MAX_WASM_STACK`: an entry that runs to wasmtime's 512 KiB limit needs more than 512 KiB and at most ≈595 KiB (release) / ≈630 KiB (debug) of remaining stack (`H/logs/wasm-entry.log`, §8 M-11). | Minimum reserve with walker probes ~31 KiB debug / ~15 KiB release (16 KiB resolution, `H/logs/dbg-bisect.log`, `H/logs/rel-bisect.log`); 256 KiB chosen (PR-1 §4.3). macOS: a 2 MiB thread reports `requested + 12 KiB` and a C recursion faults 204 B below the reported low, so the reported low is the guard boundary (§8 M-5). Linux / Windows: asserted only, CI cell `stack_guard_bound_is_os_reported` + the 64 KiB ratchet (PR-1 §8). | measured (macOS); asserted (Linux, Windows) |
-| I-1 × I-3 | Each choke-point probe sits before the first VM state mutation of the guarded operation, so the failing path returns `Err` with nothing to unwind; for CP-3 also before the first wasm store / instance mutation. | P0a §4.3 (placement of all four checks), pinned by P0a's placement cells and mutants M-P-CP1 / M-P-CP2 / M-P-CP3a / M-P-CP3b (P0a §7–§8), planned, **not run**. | structural (placement); cells and mutants in P0a |
+| I-1 × I-3 | Each choke-point probe sits before the first VM state mutation of the guarded operation, so the failing path returns `Err` with nothing to unwind; for CP-3 also before the first wasm store / instance mutation. | P0a-1 §4.3 (placement of all four checks), pinned by P0a-1's placement cells and mutants M-P-CP1 / M-P-CP2 / M-P-CP3a / M-P-CP3b (P0a-1 §6–§7), planned, **not run**. | structural (placement); cells and mutants in P0a-1 |
 | I-1 × I-4 | A cap that the stack cannot reach on the target thread hides a missing probe; a probe that fires before the cap changes the semantic answer. | JSON walkers on a 2 MiB thread, guard OFF, need at cap−10: parse 1184 / 368 KiB, stringify 1472 / 480, internalize 1712 / 368, sc 1696 / 480 (debug / release, `H/logs/dbg-need.log`, `H/logs/rel-need.log`). With the probe ON (256 KiB) cap−10 still passes on 2 MiB in debug, the lowest remaining at a probe being 397 807 B (internalize; `H/logs/cap10-on-dbg.log`). So the cap cells run on 8 MiB (they test the cap), and separate cap−10 cells stay on 2 MiB with the probe on (they ratchet the cap's derivation, PR-1 §8). | measured (macOS, debug + release) |
 | I-1 × I-5 | Probing every walker level and every callback entry is what makes coverage local and auditable; it is affordable only if one probe is a TLS read + SP read + compare. | Release, lean probe vs probe compiled out, min of 7 on a loaded host, CP-1 / CP-2 / W-1…W-6 only (PR-1 §10 lists what is unmeasured; CP-3a's `wasmcall` workload is PR-1b §8's acceptance run). | measured (partial scope, macOS release) |
 | I-2 × I-3 | An unknown bound fails early, which surfaces as a `RangeError` from an operation that has not started; I-3 makes the early failure harmless. | Forced fallback (`SG_FORCE_UNKNOWN`, 2 MiB): `map` / `json` / `generator` stop with a catchable `RangeError` at d = 15 / 13 / 15 debug and 115 / 107 / 137 release, vs 34 / 31 / 36 and 267 / 250 / 320 on the OS bound; bound = first-probe SP − 1 MiB (`H/logs/force-unknown.log`). | measured (macOS) |
@@ -251,13 +252,13 @@ chains are the W-11 slot's, PM 454.) Adjacent pre-existing code whose exposure c
 
 | PR | Content | Depends on | Unblocks |
 |---|---|---|---|
-| P0 program (P0a, P0b-VM-1, P0b-VM-2, P0b-L3; PM 502, 509, 513) | the resource-limit `Err` contract, its census, choke-point placement, the definitive-consumer fixes; slices, edges and schedule: P0 umbrella §1 | P0a: the W-11 slot's PR | PR-1 (empty census `# pending`) |
+| P0 program (P0a-1, P0a-2, P0b-VM-1, P0b-VM-2, P0b-L3; PM 502, 509, 513) | the resource-limit `Err` contract, its census, choke-point placement, the definitive-consumer fixes; slices, edges and schedule: P0 umbrella §1 | P0a-1 / P0a-2: the W-11 slot's PR (P0 umbrella §1) | PR-1 (empty census `# pending`) |
 | W-11 slot (not part of this program's PRs; PM 454) | DOM "create a dependent abort signal" source flattening in an engine-independent crate; GC repair; `abort_statics.rs` citation drift fix (all seven cites, PM 458) | — | PR-1 |
 | `interpreter.rs` prereq split (a standalone VM P4 split PR before PR-1, CLAUDE.md 1000-line touch-time rule, not mixed into a feature PR; PR-1 §5.1; PM 517) | Move the in-file `mod tests` of `vm/interpreter.rs` out; split the entry half from the dispatch half | Slice F (queue: Slice F → `interpreter.rs` split → PR-1, PM 517) | PR-1 |
 | Slice F (`#11-vm-structured-clone-file-split`, standalone, touch-time split; PM 483 P2) | Split `structured_clone.rs` (1077 lines) before PR-1 touches it | — | PR-1 |
 | CI/tools `ci.yml` PRs (CI/tools lane; edge below) | their own `ci.yml` changes | — | PR-1 (the release leg only) |
 | PR-1 | Primitive; choke points CP-1, CP-2; walker probes (JSON ×5 sites — `parse.rs` lines 278/321/410, `stringify.rs` lines 144/223 — structuredClone, `flat_into` replacing `MAX_FLAT_DEPTH`, parser / scope / compiler entries, the scope cap's error exit, IndexedDB storable check); regexp front door + 5 compile sites routed + structuredClone's re-compile replaced by a matcher copy + trip-wire; PM 424 rewording; explicit-thread JSON cells; the tracked recursion cut check; the release test leg on the three CI OSes, described in the `check` job's comment, and the mise task `test-stack-guard-release` (NEW) (§7) | the P0 program; the W-11 slot; the `interpreter.rs` prereq split; Slice F (PM 483); the CI/tools `ci.yml` PRs (for the release leg) | PR-1b; PR-2; `#11-vm-frontend-left-spine-iterative`; the successor T3 slot |
-| PR-1b | CP-3a / CP-3b asks inside P0a's checks (`WALKER_RESERVE + MAX_WASM_STACK`); `elidex_wasm_runtime::MAX_WASM_STACK` (NEW) and the explicit `max_wasm_stack`; the wasm overflow as `RangeError`; the wasm cells and mutants (PR-1b) | PR-1 (the primitive, `WALKER_RESERVE`, `tests_stack_guard.rs`, the release leg) | closes `#11-vm-call-depth-guard` |
+| PR-1b | CP-3a / CP-3b asks inside P0a-1's checks (`WALKER_RESERVE + MAX_WASM_STACK`); `elidex_wasm_runtime::MAX_WASM_STACK` (NEW) and the explicit `max_wasm_stack`; the wasm overflow as `RangeError`; the wasm cells and mutants (PR-1b) | PR-1 (the primitive, `WALKER_RESERVE`, `tests_stack_guard.rs`, the release leg) | closes `#11-vm-call-depth-guard` |
 | PR-2 | Frame cap: `frames.len()` cap mapped to the same `RangeError`, for plain JS→JS recursion (heap `CallFrame`s, no Rust recursion). Relation to PTC: §0. The self-chaining-Promise facet is **not** PR-2's (`#11-vm-microtask-self-chaining-unbounded`, PM 483) | PR-1 (shares the error constructor and message) | — |
 
 Edges: **W-11 slot → PR-1 is a hard edge** (PM 454). PR-1 cannot land correctly without it:
