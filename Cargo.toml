@@ -231,7 +231,7 @@ elidex-api-ws = { path = "crates/api/elidex-api-ws" }
 elidex-api-canvas = { path = "crates/api/elidex-api-canvas" }
 elidex-custom-elements = { path = "crates/dom/elidex-custom-elements" }
 elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 egui = "0.34"
 egui-wgpu = "0.34"
 egui-winit = "0.34"
