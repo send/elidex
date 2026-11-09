@@ -156,7 +156,7 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   check (`exported_func.rs:284-289`), so a later failure was `NotStarted` → revert → the listener runs
   twice. Root: the mark was set at a hand-enumerated list of first-effect sites; an effect not in the list
   fell to `NotStarted`, the unsafe side. **Ruling, option (A)**: (1) the mark is set by structure, right
-  after the entry's own check, inside the one entry wrapper (P0a-1 §4.2 `resource_limit::enter`);
+  after the entry's own check, inside the one entry wrapper (P0a-1 §4.2 `resource_limit::enter` (NEW: P0a-1));
   `NotStarted` means exactly "this entry's own check failed"; every other failure after the check is
   `Threw`, including a nested entry's check failing before any effect of the outer entry. (2) Lens: the
   spec is silent on resource limits → elidex's principles decide: fail-safe direction (an unknown effect

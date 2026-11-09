@@ -285,7 +285,7 @@ the body (M-P-CP1s stays equivalent, §7).
 
 ### §4.3 The choke-point check: placement (I-3, VM half)
 
-`crate::vm::resource_limit::check_entry` (NEW; private, called only by `enter`, §4.2) takes an
+`crate::vm::resource_limit::check_entry` (NEW) — private, called only by `enter` (§4.2) — takes an
 `EntryKind` (NEW: `Call`, `Resume`, `WasmCall`, `WasmInstantiate`) and returns `Result<(), VmError>`.
 P0a-1 places it; PR-1 adds `ensure_stack(ask)` for `Call` / `Resume` inside it, PR-1b for `WasmCall` /
 `WasmInstantiate`. The function is the one place where the ask per kind is chosen. At P0a-1 its body is
