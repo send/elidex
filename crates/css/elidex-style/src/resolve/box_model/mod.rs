@@ -382,7 +382,7 @@ pub(super) fn resolve_overflow(
 
 // --- Content property resolution ---
 
-/// Resolve the `content` property to a [`ContentValue`].
+/// Resolve the `content` property to a [`ContentValue`](elidex_plugin::ContentValue).
 ///
 /// `content` is non-inherited. Keywords `normal` and `none` map directly;
 /// string values produce `ContentValue::Items`. `attr:name` convention

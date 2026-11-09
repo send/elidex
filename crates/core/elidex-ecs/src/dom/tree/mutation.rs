@@ -634,7 +634,7 @@ impl EcsDom {
     }
 
     /// Detach `child` from its current parent and fire
-    /// [`MutationEvent::Remove`](super::super::MutationEvent::Remove) on the
+    /// [`MutationEvent::Remove`] on the
     /// installed [`MutationDispatcher`](super::super::MutationDispatcher), if
     /// any.
     ///

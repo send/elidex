@@ -705,11 +705,13 @@ fn document_style_sheets_non_host_receiver_returns_null() {
     // (the receiver isn't a HostObject — e.g. a plain `{}` after the
     // accessor is rebound, or any post-unbind retained wrapper), the
     // styleSheets getter must surface a safe-default `null` instead
-    // of `TypeError`, mirroring sibling Document accessors
-    // (`head` / `body` / etc.) that already follow this convention.
+    // of `TypeError`.  `styleSheets` is a DocumentOrShadowRoot
+    // shared-interface receiver, not routed via `document_receiver`
+    // (plan §7), so `{}` still gives null (unlike `head` / `body`,
+    // which throw now).
     let out = run_with_css(
         "div {}",
-        "var getter = Object.getOwnPropertyDescriptor(document, 'styleSheets').get; \
+        "var getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'styleSheets').get; \
          try { var r = getter.call({}); (r === null) ? 'null' : 'not-null'; } \
          catch (e) { 'threw: ' + e.name; }",
     );

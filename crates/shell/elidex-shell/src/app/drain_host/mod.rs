@@ -97,7 +97,7 @@
 //!    never touch `InteractiveState`.
 //! 5. **Root invariant:** *no app-mode apply body synchronously drives the
 //!    coordinator's Phase-1 partition* (`run_synchronous_phase_body`). The Phase-2
-//!    apply chain ([`apply_traversal_delta`] → `traverse_to` →
+//!    apply chain ([`host::apply_traversal_delta`] → `traverse_to` →
 //!    `same_document_step` / `navigate_to_history_url`) never calls
 //!    [`App::process_pending_navigation`]. A popstate handler, or a freshly-rebuilt
 //!    page's initial scripts, may **stage** new history actions onto the VM

@@ -3,7 +3,7 @@
 //! selectors, on the pure-Rust `rsa` crate.
 //!
 //! Split from the key-management backend ([`super`]) as a cohesive vertical
-//! (parallel to the OAEP op-set in [`super::oaep`]): the signing families are
+//! (parallel to the OAEP op-set in [`oaep`]): the signing families are
 //! the only `rsa`-crate consumers of the `Pkcs1v15Sign` / `Pss` EMSA schemes
 //! and the digest OID marker types, so isolating them keeps the parent's key
 //! infrastructure (import / export / generate / reconstruct) clear of the
@@ -31,7 +31,7 @@ use super::{
 /// EMSA-PKCS1-v1_5 encoding (§9.2, deterministic); RSA-PSS (§8.1) applies
 /// EMSA-PSS + MGF1 over a random `salt_length`-byte salt (§9.1).  The §14.3.3
 /// name / `sign`-usage gate ran in
-/// [`crate::ops::sign`]; this enforces step 1 ([[type]] must be private — via
+/// [`crate::ops::sign`]; this enforces step 1 (`[[type]]` must be private — via
 /// the stored PKCS#8 DER).  `fill_random` is the VM entropy seam — both
 /// families consume it: RSA-PSS for the salt, and RSASSA-PKCS1-v1_5 to
 /// **blind** the private-key exponentiation (`sign_with_rng` masks the
@@ -114,7 +114,7 @@ where
 /// RSA `verify` (WebCrypto §20.8.2 RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS): digest
 /// `message`, then verify `signature` against the public key.  The §14.3.4 name
 /// / `verify`-usage gate ran in [`crate::ops::verify`]; this enforces step 1
-/// ([[type]] must be public) and returns **false** (not an error) on an invalid
+/// (`[[type]]` must be public) and returns **false** (not an error) on an invalid
 /// signature.  For RSA-PSS the `salt_length` is enforced (RFC 3447 §9.1.2 — a
 /// signature whose recovered salt length differs is invalid → false).
 pub(crate) fn verify(

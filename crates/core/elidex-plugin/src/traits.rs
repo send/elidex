@@ -81,7 +81,7 @@ impl PropertyDeclaration {
 /// Handler interface for CSS property parsing and resolution.
 ///
 /// Each handler covers one or more related CSS properties. Handlers
-/// are registered in a [`CssPropertyRegistry`](crate::CssPropertyRegistry)
+/// are registered in a [`CssPropertyRegistry`]
 /// and dispatched by property name during parsing and resolution.
 pub trait CssPropertyHandler: Send + Sync {
     /// Returns the CSS property names this handler covers.

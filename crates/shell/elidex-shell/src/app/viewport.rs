@@ -92,7 +92,7 @@ impl App {
     /// and [`chrome::chrome_content_offset`] (egui's own DPI read at render-init
     /// excepted) — the three primitives are snapshotted atomically (one
     /// `scale_factor` read per build). Callers cache the result in
-    /// [`App::placement`]; nothing else recomputes a content-area size/origin.
+    /// [`ViewportProducer::placement`]; nothing else recomputes a content-area size/origin.
     // Window dimensions (< 2^23 px) and the scale factor lose no meaningful
     // precision narrowing to the `f32` the layout/CSS coordinate space uses.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]

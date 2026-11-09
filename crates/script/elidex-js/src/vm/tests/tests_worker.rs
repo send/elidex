@@ -117,6 +117,46 @@ fn worker_self_is_global() {
     });
 }
 
+/// C1-pre G1: `Range` is installed in every scope (pre-existing
+/// over-exposure, slot `#11-worker-scope-exposes-window-only-interfaces`) and
+/// a worker VM binds an internal Document entity, so `new Range()` reaches it.
+/// The wrapper must not panic and must carry no Document members.
+const RANGE_CONTAINER_PROBE: &str = "\
+var x = new Range().startContainer; \
+[typeof x, typeof x.createElement, 'cookie' in x].join('|')";
+
+#[test]
+fn worker_range_start_container_is_not_a_document() {
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert_eq!(
+            eval_str_on(vm, RANGE_CONTAINER_PROBE),
+            "object|undefined|false"
+        );
+    });
+}
+
+#[test]
+fn service_worker_range_start_container_is_not_a_document() {
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut vm = Vm::new_service_worker(
+        Url::parse("https://example.com/").unwrap(),
+        Url::parse("https://example.com/sw.js").unwrap(),
+        true,
+        CredentialsMode::SameOrigin,
+        elidex_plugin::EngineMode::BrowserCompat,
+    );
+    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+    assert_eq!(
+        eval_str_on(&mut vm, RANGE_CONTAINER_PROBE),
+        "object|undefined|false"
+    );
+    drop(vm);
+    drop(session);
+    drop(dom);
+}
+
 #[test]
 fn worker_has_no_document_or_window() {
     with_worker_vm("", WORKER_URL, true, |vm| {

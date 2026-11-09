@@ -11,7 +11,7 @@
 //!    private key.  aws-lc-rs (a FIPS-family BoringSSL fork) performs the
 //!    private-key exponentiation + OAEP unpadding in constant time; the pure-Rust
 //!    `rsa` crate carries Marvin on its decryption and ships no constant-time
-//!    decrypt ([`super::sign`]'s blinding has no rsa-crate *decryption*
+//!    decrypt ([`signing`]'s blinding has no rsa-crate *decryption*
 //!    analogue).  This is the SOLE aws-lc-rs call site, isolated so a future swap
 //!    back to a constant-time pure-Rust `rsa` (RustCrypto/RSA#390) touches only
 //!    this file.
@@ -41,7 +41,7 @@ use super::{key_inaccessible, operation, require_public, rsa_private_der, rsa_pu
 
 /// RSA-OAEP `encrypt` (WebCrypto §22.4.1, RFC 3447 §7.1 RSAES-OAEP-ENCRYPT):
 /// OAEP-pad `plaintext` (the key's `hash` is both the label digest and the MGF1
-/// hash) then apply RSAEP under the public half.  §22.4.1 step 1 ([[type]] must
+/// hash) then apply RSAEP under the public half.  §22.4.1 step 1 (`[[type]]` must
 /// be public → InvalidAccessError) is enforced HERE via [`require_public`] — the
 /// stored SPKI DER is present even on a private key, so without this gate a
 /// private key would silently encrypt — NOT in [`crate::ops::encrypt`], whose
@@ -72,7 +72,7 @@ pub(crate) fn oaep_encrypt(
 }
 
 /// RSA-OAEP `decrypt` (WebCrypto §22.4.2, RFC 3447 §7.1 RSAES-OAEP-DECRYPT):
-/// RSADP under the private half then OAEP-decode.  §22.4.2 step 1 ([[type]] must
+/// RSADP under the private half then OAEP-decode.  §22.4.2 step 1 (`[[type]]` must
 /// be private → InvalidAccessError) is enforced HERE via the stored PKCS#8 DER
 /// ([`rsa_private_der`] → `None` ⇒ InvalidAccessError on a public-only key), NOT
 /// in [`crate::ops::decrypt`] (name + usage only).  **The sole constant-time

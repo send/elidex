@@ -511,19 +511,18 @@ fn referrer_clears_back_to_empty_on_none() {
 }
 
 // ---------------------------------------------------------------------------
-// document.cookie / referrer brand-bypass (Copilot R1)
+// document.cookie / referrer brand check (Copilot R1)
 // ---------------------------------------------------------------------------
 //
-// `document_receiver` returns `Ok(None)` when the receiver is a
+// `document_receiver` throws `TypeError` when the receiver is a
 // non-HostObject (e.g. a plain `{}` from
-// `getter.call({})` / `setter.call({}, '...')`).  The VM's other
-// document accessors short-circuit on that branch; the cookie /
-// referrer accessors must do the same so detached calls cannot leak
-// or mutate the bound document's storage.
+// `getter.call({})` / `setter.call({}, '...')`).  The cookie / referrer
+// accessors run it like every other Document member, so detached calls cannot
+// leak or mutate the bound document's storage.
 
 #[cfg(feature = "compat-webapi")]
 #[test]
-fn cookie_getter_call_with_plain_object_returns_empty_string() {
+fn cookie_getter_call_with_plain_object_throws_type_error() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -545,12 +544,12 @@ fn cookie_getter_call_with_plain_object_returns_empty_string() {
     );
 
     // Detached call: receiver is a plain object, not the bound
-    // Document.  The brand check must short-circuit before the jar
-    // is read.
+    // Document.  The brand check (Web IDL *attribute getter*, PM 556 D1)
+    // throws `TypeError` before the jar is read.
     let v = vm
         .eval(
-            "var get = Object.getOwnPropertyDescriptor(document, 'cookie').get;
-             get.call({});",
+            "var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').get;
+             try { 'returned:' + get.call({}); } catch (e) { e.name; }",
         )
         .unwrap();
     let JsValue::String(id) = v else {
@@ -558,8 +557,8 @@ fn cookie_getter_call_with_plain_object_returns_empty_string() {
     };
     assert_eq!(
         vm.get_string(id),
-        "",
-        "plain-object receiver must not leak the bound document's cookies"
+        "TypeError",
+        "plain-object receiver must throw, not leak the bound document's cookies"
     );
 
     vm.unbind();
@@ -567,7 +566,7 @@ fn cookie_getter_call_with_plain_object_returns_empty_string() {
 
 #[cfg(feature = "compat-webapi")]
 #[test]
-fn cookie_setter_call_with_plain_object_does_not_mutate_jar() {
+fn cookie_setter_call_with_plain_object_throws_and_does_not_mutate_jar() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -583,11 +582,16 @@ fn cookie_setter_call_with_plain_object_does_not_mutate_jar() {
         .expect("install_jar=true returns Some")
     };
 
-    vm.eval(
-        "var set = Object.getOwnPropertyDescriptor(document, 'cookie').set;
-         set.call({}, 'malicious=1');",
-    )
-    .unwrap();
+    let v = vm
+        .eval(
+            "var set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').set;
+             try { set.call({}, 'malicious=1'); 'returned'; } catch (e) { e.name; }",
+        )
+        .unwrap();
+    let JsValue::String(id) = v else {
+        panic!("expected string");
+    };
+    assert_eq!(vm.get_string(id), "TypeError", "brand check (PM 556 D1)");
 
     let url = url::Url::parse("https://example.com/").unwrap();
     let cookies = jar.cookies_for_script(&url);
@@ -630,7 +634,7 @@ fn cookie_getter_on_cloned_document_returns_empty_string() {
     let v = vm
         .eval(
             "var clone = document.cloneNode(true);
-             var get = Object.getOwnPropertyDescriptor(document, 'cookie').get;
+             var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').get;
              get.call(clone);",
         )
         .unwrap();
@@ -666,7 +670,7 @@ fn cookie_setter_on_cloned_document_does_not_mutate_jar() {
 
     vm.eval(
         "var clone = document.cloneNode(true);
-         var set = Object.getOwnPropertyDescriptor(document, 'cookie').set;
+         var set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'cookie').set;
          set.call(clone, 'leak=1');",
     )
     .unwrap();
@@ -703,7 +707,7 @@ fn referrer_getter_on_cloned_document_returns_empty_string() {
     let v = vm
         .eval(
             "var clone = document.cloneNode(true);
-             var get = Object.getOwnPropertyDescriptor(document, 'referrer').get;
+             var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'referrer').get;
              get.call(clone);",
         )
         .unwrap();
@@ -720,7 +724,7 @@ fn referrer_getter_on_cloned_document_returns_empty_string() {
 }
 
 #[test]
-fn referrer_getter_call_with_plain_object_returns_empty_string() {
+fn referrer_getter_call_with_plain_object_throws_type_error() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -740,8 +744,8 @@ fn referrer_getter_call_with_plain_object_returns_empty_string() {
 
     let v = vm
         .eval(
-            "var get = Object.getOwnPropertyDescriptor(document, 'referrer').get;
-             get.call({});",
+            "var get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'referrer').get;
+             try { 'returned:' + get.call({}); } catch (e) { e.name; }",
         )
         .unwrap();
     let JsValue::String(id) = v else {
@@ -749,8 +753,8 @@ fn referrer_getter_call_with_plain_object_returns_empty_string() {
     };
     assert_eq!(
         vm.get_string(id),
-        "",
-        "plain-object receiver must not leak NavigationState.referrer"
+        "TypeError",
+        "plain-object receiver must throw, not leak NavigationState.referrer"
     );
 
     vm.unbind();

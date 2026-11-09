@@ -331,7 +331,7 @@ pub(super) fn handle_redraw_with_tabs(
 ///
 /// When `chrome` is provided, the chrome UI is built and rendered on top of
 /// the Vello content using `LoadOp::Load` to preserve the blit output.
-/// Returns any [`ChromeAction`] requested by the user.
+/// Returns any [`ChromeAction`](crate::chrome::ChromeAction) requested by the user.
 pub(super) fn handle_redraw(
     state: &mut RenderState,
     display_list: &DisplayList,

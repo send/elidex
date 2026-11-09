@@ -19,7 +19,8 @@
 //! `crates/dom/elidex-dom-api/src/{document,char_data/document_props}.rs`
 //! (see [`super::dom_bridge::invoke_dom_api`]).  The shape of every
 //! migrated native is identical: brand-check the receiver via
-//! [`document_receiver`], short-circuit on unbound / non-Document,
+//! [`document_receiver`] (a non-Document receiver throws; an unbound VM with a
+//! retained `HostObject` returns the member's default),
 //! coerce the first arg if any, and dispatch by handler name.
 //!
 //! - `getElementById(id)` — handler `"getElementById"`; pre-order DFS
@@ -40,19 +41,20 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
-use super::super::Vm;
+use super::super::shape;
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::dom_bridge::{
     coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
-    query_selector_all_snapshot, wrap_entities_as_array,
+    query_selector_all_snapshot,
 };
 
 use super::document_accessors::{
     native_document_get_active_element, native_document_get_base_uri, native_document_get_body,
     native_document_get_compat_mode, native_document_get_default_view, native_document_get_doctype,
-    native_document_get_document_element, native_document_get_forms, native_document_get_head,
-    native_document_get_hidden, native_document_get_images, native_document_get_links,
-    native_document_get_ready_state, native_document_get_referrer, native_document_get_title,
+    native_document_get_document_element, native_document_get_document_uri,
+    native_document_get_forms, native_document_get_head, native_document_get_hidden,
+    native_document_get_images, native_document_get_links, native_document_get_ready_state,
+    native_document_get_referrer, native_document_get_selection, native_document_get_title,
     native_document_get_url, native_document_get_visibility_state, native_document_has_focus,
     native_document_set_title,
 };
@@ -73,23 +75,40 @@ use elidex_script_session::document_cookie_spec_level;
 // ---------------------------------------------------------------------------
 
 /// Resolve the target Document entity for a document-method call,
-/// with WebIDL branding.
+/// with WebIDL branding.  The one brand check of every Document-specific member; the shared-interface members listed in plan §7 keep their own receiver handling
+/// (PM 556 D1): Web IDL §3.7.6 *attribute getter* / §3.7.7 *create an
+/// operation function* throw `TypeError` when `this` is not a Document
+/// platform object, and no member of the Document partial interface but
+/// `onreadystatechange` has `[LegacyLenientThis]` (the GlobalEventHandlers
+/// mixin's `onmouseenter` / `onmouseleave` do; they are not routed here).
 ///
+/// - `Err(TypeError)`: `this` is not a `HostObject` (`{}`, `undefined`, a
+///   primitive, a function), bound or not — the `this_is_node_wrapper`
+///   pre-check (`require_receiver`'s doc names it for this case) — or a
+///   bound `HostObject` whose kind is NOT `Document` (e.g.
+///   `docMethod.call(element)`).  WebIDL "Illegal invocation" brand check.
 /// - `Ok(Some(entity))`: bound HostObject receiver whose kind is
 ///   `Document` — returned for the bound global and for cloned
 ///   Document wrappers (so `cloned.querySelector(...)` searches
 ///   the clone's subtree).
-/// - `Ok(None)`: unbound VM or non-HostObject `this` — silent
-///   no-op, matching the rest of elidex's unbound-receiver
-///   policy (post-unbind retained references must not panic).
-/// - `Err(TypeError)`: HostObject `this` whose kind is NOT
-///   `Document` (e.g. `docMethod.call(element)`).  WebIDL
-///   "Illegal invocation" brand check.
+/// - `Ok(None)`: unbound VM with a `HostObject` receiver — the member
+///   falls through to its existing default (PM 556 D2; a retained
+///   wrapper cannot be classified once unbound, and post-unbind retained
+///   references must not panic).
+///
+/// Callers must call this BEFORE any early return of their own (such as a
+/// bound check), so the non-`HostObject` `TypeError` also fires while
+/// unbound.
 pub(super) fn document_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
 ) -> Result<Option<Entity>, VmError> {
+    if !super::event_target::this_is_node_wrapper(ctx.vm, this) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Document': Illegal invocation"
+        )));
+    }
     super::event_target::require_receiver(ctx, this, "Document", method, |k| {
         k == NodeKind::Document
     })
@@ -104,9 +123,6 @@ pub(super) fn native_document_get_element_by_id(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     // WebIDL brand-check runs BEFORE argument ToString so an invalid
     // receiver does not trigger user-supplied toString.
     let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
@@ -129,9 +145,6 @@ pub(super) fn native_document_query_selector(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
@@ -147,9 +160,6 @@ pub(super) fn native_document_query_selector_all(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelectorAll")? else {
         return Ok(JsValue::Null);
@@ -171,11 +181,8 @@ pub(super) fn native_document_get_elements_by_tag_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "getElementsByTagName")? else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        return Ok(JsValue::Null);
     };
     let tag = coerce_first_arg_to_string(ctx, args)?;
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
@@ -191,11 +198,8 @@ pub(super) fn native_document_get_elements_by_class_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "getElementsByClassName")? else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        return Ok(JsValue::Null);
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
     // ASCII whitespace per WHATWG DOM §4.2.6.2 + HTML §2.4.5.3
@@ -223,11 +227,8 @@ pub(super) fn native_document_get_elements_by_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "getElementsByName")? else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        return Ok(JsValue::Null);
     };
     let name = coerce_first_arg_to_string(ctx, args)?;
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
@@ -255,9 +256,6 @@ pub(super) fn native_document_adopt_node(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "adoptNode")? else {
         return Ok(JsValue::Null);
     };
@@ -272,70 +270,40 @@ pub(super) fn native_document_adopt_node(
 }
 
 // ---------------------------------------------------------------------------
-// Installation — add the own-properties to the document wrapper at bind time.
+// Installation — the one `Document.prototype` (WebIDL §3.7.3, §3.7.6, §3.7.7).
 // ---------------------------------------------------------------------------
 
-impl Vm {
-    /// Re-install the document-only own-properties each bind cycle.
-    /// Called by `install_document_global` after the HostObject
-    /// wrapper has been refreshed.
-    ///
-    /// We re-install rather than once-at-VM-init because the
-    /// document wrapper is cached per-Entity in
-    /// `HostData::wrapper_cache` — successive binds with the same
-    /// document entity return the same wrapper ObjectId, so
-    /// properties survive without any work, but the first bind
-    /// *must* populate it.  The "already installed" check below
-    /// keeps rebind cycles O(1).
-    pub(in crate::vm) fn install_document_methods_if_needed(&mut self, doc_wrapper: ObjectId) {
-        // The bound document is the default target; cloned Document
-        // entities are installed separately via
-        // `VmInner::install_document_methods_for_entity` (invoked from
-        // `native_node_clone_node` after allocating the clone's
-        // wrapper).
-        let doc_entity = self
-            .host_data()
-            .expect("install_document_methods_if_needed requires HostData")
-            .document();
-        self.inner
-            .install_document_methods_for_entity(doc_entity, doc_wrapper);
-    }
-}
-
 impl super::super::VmInner {
-    /// Populate the document-specific own-property suite onto
-    /// `doc_wrapper`, keyed by `doc_entity` so repeated bind / clone
-    /// cycles skip the install.  Used by both
-    /// [`Vm::install_document_methods_if_needed`](super::super::Vm::install_document_methods_if_needed)
-    /// (bound document, each bind) and
-    /// `native_node_clone_node` (cloned Document entities).
+    /// Allocate `Document.prototype` (`[[Prototype]]` = `Node.prototype`,
+    /// WebIDL §3.7.3 step 3) and install the whole Document member suite on
+    /// it, once per Window VM.  `create_element_wrapper` chooses it for every
+    /// wrapper of a `NodeKind::Document` entity (`PrototypeKind::Document`),
+    /// so no path — the bound global, DOMParser, `cloneNode`,
+    /// `ownerDocument`, the adopted-reaction flush — installs anything
+    /// per wrapper.  Must run after `register_node_prototype`.
     ///
-    /// The per-entity idempotency set is load-bearing: a single VM
-    /// can host multiple Document entities over its lifetime (bound
-    /// document + clones), each with a distinct wrapper ObjectId, and
-    /// every one of them needs the install exactly once.
-    pub(in crate::vm) fn install_document_methods_for_entity(
-        &mut self,
-        doc_entity: elidex_ecs::Entity,
-        doc_wrapper: ObjectId,
-    ) {
-        let already_installed = self
-            .host_data
-            .as_deref()
-            .is_some_and(|hd| hd.document_methods_installed.contains(&doc_entity));
-        if already_installed {
-            return;
-        }
-        // The document own-methods install in three ordered slices so the gated
-        // live-collection getters land at their ORIGINAL ordinal position (between
-        // `querySelectorAll` and `createElement`). elidex installs document methods
-        // as the wrapper's OWN properties (no shared `Document.prototype`) and
-        // `install_methods` appends shape entries in call order, so install order IS
-        // the `Object.getOwnPropertyNames(document)` order — a single *trailing*
-        // gated install would reorder the live-collection names after `getSelection`,
-        // an observable enumeration-order change A1's no-behavior-change contract
-        // must not make (Codex R9).
-        self.install_methods(doc_wrapper, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
+    /// The members install in three ordered slices so the gated
+    /// live-collection getters land at their original ordinal position
+    /// (between `querySelectorAll` and `createElement`): `install_methods`
+    /// appends shape entries in call order, so install order IS the
+    /// `Object.getOwnPropertyNames(Object.getPrototypeOf(document))` order,
+    /// and a single trailing gated install would reorder the
+    /// live-collection names after `getSelection` (an observable
+    /// enumeration-order change; Codex R9).  The gates read
+    /// `spec_level_policy`, fixed at VM construction, so the gated set
+    /// equals the set a per-wrapper install would have produced.
+    pub(in crate::vm) fn register_document_prototype(&mut self) {
+        let node_proto = self
+            .node_prototype
+            .expect("register_document_prototype before register_node_prototype");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(node_proto),
+            extensible: true,
+        });
+        self.document_prototype = Some(proto_id);
+        self.install_methods(proto_id, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
         // Seam-1c (A1 core/compat gate): the live-collection getters route through
         // the general `installs_dom(level)` predicate reading the family's SINGLE
         // source `live_collection_spec_level()` (Codex R7). A1's source is `Living`
@@ -346,15 +314,15 @@ impl super::super::VmInner {
         // B0's, A0 §5 B0 row; this gate is the representative `Document` seam, not
         // the whole family).
         if self.installs_dom(live_collection_spec_level()) {
-            self.install_methods(doc_wrapper, DOCUMENT_LIVE_COLLECTION_METHODS);
+            self.install_methods(proto_id, DOCUMENT_LIVE_COLLECTION_METHODS);
         }
-        self.install_methods(doc_wrapper, DOCUMENT_METHODS_POST_LIVE_COLLECTION);
+        self.install_methods(proto_id, DOCUMENT_METHODS_POST_LIVE_COLLECTION);
         // WHATWG DOM §4.4 / §6.1 / §6.4 traversal factories.  Slot
         // `#11-traversal-and-range-pr-a2-bindings`.  Installed
         // separately to keep the document method tables stable.
-        self.install_methods(doc_wrapper, super::document_traversal::FACTORIES);
-        self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
-        self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
+        self.install_methods(proto_id, super::document_traversal::FACTORIES);
+        self.install_ro_accessors(proto_id, DOCUMENT_RO_ACCESSORS);
+        self.install_rw_accessors(proto_id, DOCUMENT_RW_ACCESSORS);
         // Seam-1b (A1 core/compat gate): `document.cookie` routes through the
         // general `installs(level)` predicate reading its single source
         // `document_cookie_spec_level()`; A3 demoted that one source to `Legacy`
@@ -364,48 +332,41 @@ impl super::super::VmInner {
         // `navigator.cookieEnabled` read it in every mode).
         #[cfg(feature = "compat-webapi")]
         if self.installs(document_cookie_spec_level()) {
-            self.install_rw_accessors(doc_wrapper, DOCUMENT_COOKIE_RW_ACCESSOR);
+            self.install_rw_accessors(proto_id, DOCUMENT_COOKIE_RW_ACCESSOR);
         }
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
-        self.install_parent_node_mixin(doc_wrapper);
+        self.install_parent_node_mixin(proto_id);
         // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1):
         // Document mixes in GlobalEventHandlers +
         // DocumentAndElementEventHandlers + the Document-specific
         // partial (`onreadystatechange` / `onvisibilitychange`).
-        // Installed per-entity on the wrapper (no shared
-        // `Document.prototype` in elidex), gated by the same
-        // idempotency set.
         self.install_event_handler_attrs(
-            doc_wrapper,
+            proto_id,
             &[
                 elidex_script_session::HandlerScope::Global,
                 elidex_script_session::HandlerScope::DocumentElement,
                 elidex_script_session::HandlerScope::DocumentOnly,
             ],
         );
-        if let Some(hd) = self.host_data.as_deref_mut() {
-            hd.document_methods_installed.insert(doc_entity);
-        }
     }
 }
 
-// Method + accessor tables are file-scope constants so they are not
-// rebuilt on every bind and so the `install_document_methods_if_needed`
-// body reads top-down.
-/// Document own-methods installed BEFORE the gated live-collection getters, kept
+// Method + accessor tables are file-scope constants so
+// `register_document_prototype`'s body reads top-down.
+/// `Document.prototype` methods installed BEFORE the gated live-collection getters, kept
 /// in their original `DOCUMENT_METHODS` order (id + selector lookups). Split from
 /// [`DOCUMENT_METHODS_POST_LIVE_COLLECTION`] so the gated
 /// [`DOCUMENT_LIVE_COLLECTION_METHODS`] install lands at its original ordinal
-/// position — own-property enumeration order = install order (see the install
-/// comment in `install_document_methods_for_entity`; Codex R9).
+/// position — property enumeration order = install order (see the install
+/// comment in `register_document_prototype`; Codex R9).
 const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
     ("querySelector", native_document_query_selector),
     ("querySelectorAll", native_document_query_selector_all),
 ];
 
-/// Document own-methods installed AFTER the gated live-collection getters (node
+/// `Document.prototype` methods installed AFTER the gated live-collection getters (node
 /// factories + focus / selection readers + `adoptNode`), kept in their original
 /// `DOCUMENT_METHODS` order — see [`DOCUMENT_METHODS_PRE_LIVE_COLLECTION`].
 const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
@@ -417,18 +378,19 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
         native_document_create_document_fragment,
     ),
     // Focus-management readers (WHATWG HTML §6.6.6).  `hasFocus()`
-    // returns whether some connected element in this Document carries
-    // the canonical `ElementState::FOCUS` bit (read via
-    // `elidex_dom_api::focus::current_focus`).  The spec defines
-    // hasFocus in terms of system focus — we approximate as "some
-    // element inside this Document has focus".
+    // implements the has-focus steps 1-2 (HTML §6.6.4: no navigable /
+    // hidden context -> false) and then reads whether some connected element
+    // in this Document carries the canonical `ElementState::FOCUS` bit (via
+    // `elidex_dom_api::focus::current_focus`).  Approximated: the spec's
+    // system-focus condition (another OS window focused) is not modelled;
+    // slot `#11-system-window-focus-events`.
     ("hasFocus", native_document_has_focus),
-    // Selection API §2: `getSelection()` on Document mirrors the
-    // Window-side binding; both resolve to the same singleton
-    // wrapper held in `HostData::selection_instance`.
-    ("getSelection", super::window::native_window_get_selection),
+    // Selection API §4.1: `native_document_get_selection` brand-checks the
+    // receiver; the Window's selection singleton (`HostData::selection_instance`)
+    // only when the Document has a browsing context, else `null`.
+    ("getSelection", native_document_get_selection),
     // DOM §4.5 `adoptNode(node)`; appended so the existing names keep
-    // their own-property order.
+    // their enumeration order.
     ("adoptNode", native_document_adopt_node),
 ];
 
@@ -464,8 +426,9 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("documentElement", native_document_get_document_element),
     ("head", native_document_get_head),
     ("body", native_document_get_body),
-    // ParentNode mixin (WHATWG §4.2.6) RO accessors — Document has
-    // no shared prototype; selector pair stays in `DOCUMENT_METHODS`.
+    // ParentNode mixin (WHATWG §4.2.6) RO accessors — installed on
+    // `Document.prototype` directly; the selector pair stays in
+    // `DOCUMENT_METHODS_PRE_LIVE_COLLECTION`.
     (
         "firstElementChild",
         super::parentnode::native_pn_first_element_child,
@@ -480,14 +443,13 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
         super::parentnode::native_pn_child_element_count,
     ),
     ("URL", native_document_get_url),
-    ("documentURI", native_document_get_url),
+    ("documentURI", native_document_get_document_uri),
     ("baseURI", native_document_get_base_uri),
     ("readyState", native_document_get_ready_state),
     ("compatMode", native_document_get_compat_mode),
     ("defaultView", native_document_get_default_view),
     ("doctype", native_document_get_doctype),
-    // PR4f C7 stubs / snapshots — see native-fn docstrings for defer
-    // targets (PR6 / PR5b).
+    // `referrer` / `forms` / `images` / `links` — see the native-fn docstrings.
     ("referrer", native_document_get_referrer),
     ("forms", native_document_get_forms),
     ("images", native_document_get_images),

@@ -410,7 +410,7 @@ pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
 /// Compute the intersection ratio from a pre-resolved target area and
 /// overlap rect.  Single canonical formula shared by
 /// `gather_observations` (production hot path) and the
-/// `#[cfg(test)]` wrapper [`compute_intersection_ratio`], so unit
+/// `#[cfg(test)]` wrapper `compute_intersection_ratio`, so unit
 /// tests and production can never diverge.
 ///
 /// IO §3.2.10 step 12: when `target_area == 0` the area-ratio is undefined (0/0);

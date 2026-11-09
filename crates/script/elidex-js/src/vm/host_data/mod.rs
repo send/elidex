@@ -34,7 +34,7 @@ mod engine_feature {
     // A2: the Web Storage backends are `Legacy`-only — dropped from `App` builds.
     #[cfg(feature = "compat-webapi")]
     use elidex_storage_core::{SessionStorageState, WebStorageManager};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
@@ -79,9 +79,8 @@ mod engine_feature {
         ///
         /// # Single-world invariant
         ///
-        /// This entity, along with `wrapper_cache`,
-        /// `document_methods_installed`, and `listener_store`, are
-        /// meaningful only within the `EcsDom` world that allocated
+        /// This entity, along with `wrapper_cache` and
+        /// `listener_store`, is meaningful only within the `EcsDom` world that allocated
         /// them.  **Callers must not rebind a `HostData` to a
         /// different `EcsDom` world.**  Doing so would thread stale
         /// `Entity` bits into `globalThis` and the wrapper cache.
@@ -103,21 +102,6 @@ mod engine_feature {
         /// by construction. The caller contract stays the interim
         /// invariant; the full removal lands with the B1 implementation.
         window_entity: Option<Entity>,
-        /// Document entities whose wrapper has already had the
-        /// document-specific own-property suite (`getElementById` /
-        /// `createElement` / `body` accessor / ...) installed.
-        ///
-        /// Tracked **per-entity** because a single `Vm` can be bound
-        /// to multiple document entities over its lifetime (shell
-        /// navigation: unbind doc1 → bind doc2 produces a fresh
-        /// wrapper via `wrapper_cache`, and that wrapper needs its
-        /// own method install).  A single VM-wide boolean would skip
-        /// the install on every document after the first — see
-        /// `vm/host/document.rs::install_document_methods_if_needed`.
-        ///
-        /// Bounded by the number of distinct documents a VM observes
-        /// (typically 1 — at most a handful).
-        pub(crate) document_methods_installed: HashSet<Entity>,
         /// Monotonic bind-cycle counter — incremented on every
         /// `unbind()`.  Used by `StaticRange.isValid()` to detect
         /// retained instances whose captured `Entity` bits became
@@ -614,7 +598,6 @@ mod engine_feature {
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
                 window_entity: None,
-                document_methods_installed: HashSet::new(),
                 bind_epoch: 0,
                 listener_store: HashMap::new(),
                 wrapper_store: HashMap::new(),

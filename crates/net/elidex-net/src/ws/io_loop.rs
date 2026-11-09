@@ -2,7 +2,7 @@
 //!
 //! Split out of `ws.rs` in slot #10.6a Copilot R6 HX26 once the
 //! file crossed the project's 1000-line convention.  All items
-//! are `pub(super)` so the [`super::tests`] module can exercise
+//! are `pub(super)` so the `tests` module can exercise
 //! the cancel / timeout arms directly without exposing them
 //! outside the crate.
 

@@ -598,11 +598,9 @@ fn document_url_reflects_navigation_state() {
 }
 
 #[test]
-fn document_methods_install_per_document_entity() {
-    // Regression: `document_methods_installed` must track *which*
-    // document entity has been patched.  A VM-wide boolean would
-    // leave `getElementById` absent on every document bound after
-    // the first — observable as a missing method on the new wrapper.
+fn document_methods_reach_every_bound_document() {
+    // Every document's wrapper reaches `getElementById` through the shared
+    // `Document.prototype` (no per-document install), including later binds.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -627,11 +625,14 @@ fn document_methods_install_per_document_entity() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc2);
     }
-    // The new wrapper must also have `getElementById` installed.
-    // Before the per-entity fix, this would evaluate to `"undefined"`.
     assert_eq!(
         vm.eval("typeof document.getElementById;").unwrap(),
         JsValue::String(vm.inner.well_known.function_type),
+    );
+    assert_eq!(
+        vm.eval("document.hasOwnProperty('getElementById');")
+            .unwrap(),
+        JsValue::Boolean(false),
     );
     // And be usable — document.documentElement must resolve to html2.
     let JsValue::Object(id) = vm.eval("document.documentElement;").unwrap() else {
