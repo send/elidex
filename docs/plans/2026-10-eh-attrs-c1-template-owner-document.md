@@ -91,7 +91,9 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.10* (2026-11-10, PM 619 / 618): plan-review R3 fixes — D-C6's per-pair document is guarded by
+**Changelog.** *Rev 3.10.1* (2026-11-10, PM 621): final clerical fixes — §2.1 A2 / A5 reference INV-C (b); INV-C (a)
+scoped to an F with a node document; R-2's quote; T29's path; U12 / U14 homes; H-6 to T3 (§10.9).
+*Rev 3.10* (2026-11-10, PM 619 / 618): plan-review R3 fixes — D-C6's per-pair document is guarded by
 a new unit cell U14 (no adopt during a clone; T10 / T24 cannot see it, base observed 0 / 0, §10.8); DOMParser red cell
 T29 and R-C2 scoped to the bound document; INV-C (b) covers the ownerless template; every §6.1 cell reaches its
 elements without bare ids; §8's landing-condition reading (PM 618 (2)), record R-14 (PM 618 (1)), Re-eval-dates
@@ -467,10 +469,10 @@ in reverse). The prerequisite 1000-line split is none (§5.3).
 | axis | invariant |
 |---|---|
 | A1 rule | For every Document D, `f(D)` is one Document I carrying `InertTemplateDocument`, the same entity on every call; `f(I) = I`. No site computes a template contents' node document except through `f` (D-C2, D-C3) |
-| A2 creation | At every template creation the contents fragment's node document is `f(template's node document)` (INV-C (b)). Every node a parser creates takes its owner at creation from C0's new-node entry (C0 draft D-10, D-11), whose value inside template contents is INV-C's, in both tiers, in document, fragment and DOMParser parses (D-C3, D-C4) |
+| A2 creation | Template creation establishes the contents fragment (its node document: INV-C (b)). Every node a parser creates takes its owner at creation from C0's new-node entry (C0 draft D-10, D-11), whose value inside template contents is INV-C's, in both tiers, in document, fragment and DOMParser parses (D-C3, D-C4) |
 | A3 nesting | A template at any depth inside contents has the node document INV-C gives it, and its own contents `f` of that (`f(I) = I`); there is one I per non-inert Document, never an I of I |
 | A4 shadow | A shadow root inside template contents (declarative or `attachShadow`) and its content are in F's tree and report the contents' node document (INV-C (a); C0's host-link stamp, A2's entry); the adopt and clone walks reach them under the contents' document |
-| A5 clone | The copy's contents are established in `f(pair document)`; their children, and every pass for a pair among them, use `f(pair document)`; a clone of contents is in the document it is cloned with (INV-C); a clone of D or of I is a non-inert Document with no link |
+| A5 clone | The copy's contents are established as at creation (their node document: INV-C (b)); their children, and every pass for a pair among them, use `f(pair document)`; a clone of contents is in the document it is cloned with (INV-C); a clone of D or of I is a non-inert Document with no link |
 | A6 adopt | Adopting a template into X (C0's insertion adopt or `adoptNode`) re-homes the template and its shadow-including descendants to X; contents: see D-C5. Adopting a contents fragment itself (`X.adoptNode(tpl.content)`) re-homes it and its descendants to X, not `f(X)`: it is the walk's root, not a segment (INV-C (c)) |
 | A7 lifetime | I is created on first need and destroyed exactly when D is; no fragment parse, strict parse error or clone creates an I for a throwaway document |
 | A8 consumers | Every reader of a node's document reads, for a node in template contents, the value INV-C gives it, through `node_document` (the `ownerDocument` getter, the base URL, N1's compile gate, T3's step 3 after C1); no render / layout / hit-test root discovery visits I |
@@ -678,8 +680,13 @@ crates/dom/elidex-form/src/clone.rs` → one hit, the inline test `upgrade.rs:46
 1. **INV-C — the contents-document invariant (rev 3.9: the one statement; every other site of this memo cites it by
    this ID and does not restate it).** Let F be a template's contents fragment and "F's tree" its descendants with their
    shadow-including descendants (the contents of a nested template are that template's own F).
-   (a) Every node of F's tree has F's node document: created there through the new-node entry (D-C4), placed there by
-   C0's insertion adoption (DOM §4.2.3 *insert* step 7.1), or cloned there with the document of its pair (D-C6).
+   (a) For an F that has a node document, every node of F's tree has F's node document: created there through the
+   new-node entry (D-C4), placed there by C0's insertion adoption (DOM §4.2.3 *insert* step 7.1), or cloned there with
+   the document of its pair (D-C6). (rev 3.10.1: an F with no node document, (b)'s ownerless case, is outside (a):
+   `adopt_for_insert` gets target `None` and `adopt_into` returns without a walk,
+   `crates/core/elidex-ecs/src/dom/tree/mutation.rs:271-274`, `:288-292` at `c7cce8c8`, so a node appended into that F
+   keeps its stamp — elidex-only state with no spec counterpart, reachable only from fixtures or a despawned
+   fragment-parse context.)
    (b) F's node document is `f(the template's node document)` from F's establishment (D-C3) and after every adopt that
    reaches F as a segment of its template (D-C5), so it is an inert template document. A template with no node
    document (D-C3's `None`: a documentless context or an orphan clone) gets an orphan F with no node document, and `f`
@@ -917,7 +924,7 @@ moves (§9 item 1). C1 touches no VM host file: the VM wrapper work for I is C1-
 | `crates/dom/elidex-html-parser/src/tests.rs` | 884 (875) | two expectations (§5.2) | < 1000 |
 | `crates/dom/elidex-dom-api/src/node_methods/tests/clone.rs` | 731 (992; RC-0a #587 split it, adding `tests/clone_shadow.rs`) | one expectation rewritten in place (`:216`); **no new tests** (they go to a new file) | < 1000 |
 | the §5.2 population's files (C0's tests) | 183–721 each (`wc -l` of the six files) | expectations rewritten in place per §5.2's classification | re-checked at the cut |
-| `crates/core/elidex-ecs/src/dom/tests/template_owner.rs` (NEW) | — | unit cells U-* (§6) | new file |
+| `crates/core/elidex-ecs/src/dom/tests/template_owner.rs` (NEW) | — | §6.2's unit cells except U12 and U14 (rev 3.10.1: U12 is in `crates/dom/elidex-html-parser`, the lowest crate that reaches both tiers — it depends on `elidex-html-parser-strict` — and `elidex-ecs`'s `MutationDispatcher`, file chosen at implementation; U14 is in the next row's file) | new file |
 | `crates/dom/elidex-dom-api/src/node_methods/tests/clone_template_owner.rs` (NEW, rev 3.10) | — | unit cell U14 (§6.2; the clone post-pass is `elidex-dom-api`'s, which `elidex-ecs`'s tests cannot reach) | new file |
 | `crates/dom/elidex-dom-api/src/node_methods/tests/mod.rs` | 29 | `mod clone_template_owner;` | < 1000 |
 | `crates/script/elidex-js/src/vm/tests/tests_template_owner_document.rs` (NEW) | — | VM cells T-* (§6) | new file |
@@ -1054,9 +1061,9 @@ existing scripts unchanged.
 | T26 | red (D-C5's `f(target)` on first use) | `dp = new DOMParser().parseFromString('<p></p>','text/html')` (no template, so no I yet); `tpl.content.append(document.createElement('i')); dp.body.append(tpl); x = tpl.content.ownerDocument; [x !== dp, x !== document, tpl.content.firstChild.ownerDocument === x, dp.createElement('template').content.ownerDocument === x]` | `[false, true, true, true]` (`x` is `dp`) | `[true, true, true, true]` (`x` = `dp`'s new I, created by the adopt) |
 | T27 | red (C0c skip on the mapped `new`, forward) | `x-a` as T25; `tpl.innerHTML = '<template id=n></template>'; n = tpl.content.firstChild; e = document.createElement('x-a'); n.content.append(e)` ‖ `log = []; document.body.append(n)` ‖ `[log, e.ownerDocument !== document, n.ownerDocument === document]` | `[[], false, true]` (same-document move) | `[[], true, true]`: `n.content`'s old `I` equals `f(document) = I`, so the segment is skipped and no `adoptedCallback(I, I)` fires |
 | T28 | red (C0c skip on the mapped `new`, reverse) | `x-a` as T25; `dp = new DOMParser().parseFromString('<template id=t></template>','text/html'); I_dp = dp.getElementById('t').content.ownerDocument`; `t = document.createElement('template'); e = document.createElement('x-a'); t.content.append(e); dp.adoptNode(t.content)` ‖ `log = []; dp.body.append(t)` ‖ `[log, t.content.ownerDocument !== dp, e.ownerDocument === t.content.ownerDocument]` | `[[], false, true]` (contents' old `dp` equals the target: skipped) | `[[(dp, I_dp)], true, true]`: old `dp` ≠ `f(dp)`, so the contents and `e` go to `I_dp` |
-| T29 | red (R-C2, DOMParser; rev 3.10) | fixture: page URL `http://example.com/dir/page` (`vm.inner.navigation.current_url = url::Url::parse("http://example.com/dir/page").unwrap()`, as `tests_forbidden_headers.rs:228`; without it the VM's `current_url` is `about:blank`, `navigation.rs:201`, and the cell cannot go red). Script: `dp = new DOMParser().parseFromString('<a id=b href=x.html></a><template id=t><a href=x.html></a></template>','text/html'); [dp.getElementById('b').href, dp.getElementById('t').content.firstChild.href]` (the first leg is the control: an `<a>` in `dp`'s own tree) | `["http://example.com/dir/x.html", "http://example.com/dir/x.html"]` (the contents `<a>`'s node document is `dp`, whose `DocumentBaseUrl` is the page URL, R-C2) | `["http://example.com/dir/x.html", "x.html"]`: `dp`'s URL is the page URL (HTML §8.5.1 `parseFromString()` step 3) and it has no `<base href>`, so its document base URL is its fallback base URL, its URL (HTML §2.4.3 *document base URL* step 3, *fallback base URL* step 2); the contents `<a>`'s node document is INV-C's, `f(dp)`, whose document base URL is `about:blank` (R-C2), so `x.html` does not parse and the getter returns the attribute (HTML §4.6.3 step 4) |
+| T29 | red (R-C2, DOMParser; rev 3.10) | fixture: page URL `http://example.com/dir/page` (`vm.inner.navigation.current_url = url::Url::parse("http://example.com/dir/page").unwrap()`, as `tests_forbidden_headers.rs:228`; without it the VM's `current_url` is `about:blank`, `crates/script/elidex-js/src/vm/host/navigation.rs:201`, and the cell cannot go red). Script: `dp = new DOMParser().parseFromString('<a id=b href=x.html></a><template id=t><a href=x.html></a></template>','text/html'); [dp.getElementById('b').href, dp.getElementById('t').content.firstChild.href]` (the first leg is the control: an `<a>` in `dp`'s own tree) | `["http://example.com/dir/x.html", "http://example.com/dir/x.html"]` (the contents `<a>`'s node document is `dp`, whose `DocumentBaseUrl` is the page URL, R-C2) | `["http://example.com/dir/x.html", "x.html"]`: `dp`'s URL is the page URL (HTML §8.5.1 `parseFromString()` step 3) and it has no `<base href>`, so its document base URL is its fallback base URL, its URL (HTML §2.4.3 *document base URL* step 3, *fallback base URL* step 2); the contents `<a>`'s node document is INV-C's, `f(dp)`, whose document base URL is `about:blank` (R-C2), so `x.html` does not parse and the getter returns the attribute (HTML §4.6.3 step 4) |
 
-### §6.2 Unit (`crates/core/elidex-ecs/src/dom/tests/template_owner.rs`, NEW)
+### §6.2 Unit (`crates/core/elidex-ecs/src/dom/tests/template_owner.rs`, NEW; except U12, in `crates/dom/elidex-html-parser` (file chosen at implementation), and U14, in `crates/dom/elidex-dom-api/src/node_methods/tests/clone_template_owner.rs` (NEW); §5.3)
 
 | cell | kind | shape | expected |
 |---|---|---|---|
@@ -1168,6 +1175,9 @@ rows are pre-existing or another PR's scope.
   rev 2 (P-C11): base "N1 and C0", edge c4 (C1 → T3) replaces rev 1's c2, T18 is a guard, R-C4 unchanged at C1. T3's
   R-1 note ("done by this PR (umbrella rev 8.5)") conflicts with PM decisions 144 / 159; resolved by O-1 (a): T3 drops its C0 / C1 rows (T3 rev 4's job, not this memo's).
 - H-5 to L3 (RC-2a incl. D14, RC-4): §4.4's per-pair document and §4.5's A11 / A12 contract.
+- H-6 to T3 (rev 3.10.1, PM 621): at T3's next revision, T3's author replaces the universal wording in the T3 draft
+  (`docs/plans/2026-10-eh-attrs-t3-target-determination.md` at `d15a141c`: R-A `:400`, A3×A11 `:446`, class I `:463`)
+  with a reference to this memo's INV-C (§4.6 item 1). Wording only: T3's mechanism reads the node document (`:217`).
 
 **Records (for the PM; exact texts).** Who applies each, and when (§9 item 10 is the same list as a DoD item):
 - **by C1's PR, in place, with history** (PM decisions 144 / 159): R-1 and R-3 (umbrella), and the umbrella changelog
@@ -1198,7 +1208,7 @@ that pmo's application right after that merge always includes — no registratio
   123)", keeping the old wording in the changelog entry (the lead already carries rev 8.4's "decided, branch A"). §8.1's `#11-template-contents-owner-document` bullet: "Owner
   TBD …" → "Owner: Layout lane (PM decision 123); C1, after C0 (PM decisions 143, 153); plan
   `docs/plans/2026-10-eh-attrs-c1-template-owner-document.md`".
-- **R-2 ledger `#11-template-contents-owner-document`** (pmo, at C1's landing): "C1 plan-memo rev 3.9 (2026-11-10).
+- **R-2 ledger `#11-template-contents-owner-document`** (pmo, at C1's landing): "C1 plan memo as merged.
   Order (PM decisions 153, 244, 328): N1 implementation → C0a → C0b → C0c → C1-pre → C1 → T3 → slice b (supersedes this
   slot's 'N1 implementation → T3 → C1 → slice b'). C1's prerequisites: N1's implementation, C0a–C0c, L3 RC-2a, which
   carries D14 (PM decisions 215, 241), and C1-pre (PM 328). **Closed by C1** (#<n>, `<sha>`); with it T3's R-A, in the
@@ -1521,9 +1531,17 @@ PM 618 three ledger points. Every reviewer coordinate was re-read at `c7cce8c8` 
   Q-S11. **G13** §5.3 `dom/mod.rs` row, §4.9 two rows. **G15** §4.1, §5.3, R-C5. **G16** R-11, §11 Q-5. **G17** R-8's
   trigger is B1's landing.
 - **PM 618.** (1) = G7 (R-14); (2) = G1; (3) R-11's date already applied (G16), R-6 / R-8 dates marked approved.
-- **Reviewer claims corrected:** G4's "no fixture needed" — T29 needs the page URL set (`navigation.rs:201` defaults
+- **Reviewer claims corrected:** G4's "no fixture needed" — T29 needs the page URL set (`crates/script/elidex-js/src/vm/host/navigation.rs:201` defaults
   `current_url` to `about:blank`, under which base and C1 both give `"x.html"`). Every other G1–G17 coordinate held
   at `c7cce8c8`.
+
+### §10.9 Rev 3.10.1 (2026-11-10, PM 621)
+
+Clerical, PM 621: (IMP) §2.1 rows A2 and A5 no longer copy INV-C (b)'s establishment clause; they reference it.
+(MIN 1) §4.6 item 1 INV-C (a) is scoped to an F that has a node document (coordinates re-read at `c7cce8c8`).
+(MIN 2) §8 R-2's quote names "the C1 plan memo as merged", not a revision. (MIN 3) §6.1 T29 and §10.8: full path
+`crates/script/elidex-js/src/vm/host/navigation.rs:201` (`current_url: parse_about_blank()` at `c7cce8c8`).
+(MIN 4) §5.3 and §6.2 name where U12 and U14 live. (MIN 5) §8 H-6 to T3 (coordinates at `d15a141c`).
 
 ## §11. Open questions
 
