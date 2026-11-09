@@ -147,7 +147,7 @@ names `bd89a35f`, and a cite with no commit is still `43e350c7`'s. Rev 2.6's loo
 - **D-3 — identity unchanged; no wrap while unbound (rev 2.6.4, PM 574).** One wrapper per Document entity per VM
   through `HostData`'s wrapper cache (CLAUDE.md side-store rule (a), interim; no migration). The prototype is fixed at
   first allocation from `NodeKind`, which is unreadable while unbound. So the invariant is **`create_element_wrapper`
-  allocates only while bound** (`vm/host/elements.rs:112`, a hard `assert!` that also fires in release: "create_element_wrapper
+  allocates only while bound** (`vm/host/elements.rs:112` at `e5e93176`, a hard `assert!` that also fires in release: "create_element_wrapper
   allocates only while bound; the prototype is chosen from NodeKind once, at first allocation (C1-pre D-3)"). A cache
   HIT while unbound stays allowed (wrappers retained across `unbind` keep working, PM 556 D2). The unbound `OtherNode`
   fallback of `prototype_kind_for` is removed (it asserts bound; signature unchanged). This applies to every node
@@ -459,7 +459,7 @@ wrapper has `Document.prototype` (C1-pre D-1)" (R-2).
 - **P-1 wrapper allocations** (property: a VM object whose kind is `HostObject` is created):
   `git grep -nE '(kind: |\.kind = )ObjectKind::HostObject' -- 'crates/script/elidex-js/src/*.rs' | /usr/bin/grep -v "$NT"`
   → 7 at `43e350c7`: `vm/globals.rs:68` (globalThis), `vm/host/canvas/mod.rs:334`, `:829` (2D contexts via
-  `intern_wrapper`), `vm/host/elements.rs:159` at `43e350c7`, `:189` now (DOM nodes), `vm/host/offscreen_canvas/mod.rs:365`, `:405`,
+  `intern_wrapper`), `vm/host/elements.rs:159` at `43e350c7`, `:189` at `e5e93176` (DOM nodes), `vm/host/offscreen_canvas/mod.rs:365`, `:405`,
   `vm/host/worker.rs:395`. Only `elements.rs` (`:189`) wraps DOM node entities, so it is the only Document wrapper
   allocator. One-time DoD grep (§9 item 2): the count of DOM-node allocators is 1.
 - **P-2 path-specific installs**: `git grep -n 'install_document_methods\|document_methods_installed' -- crates` →
@@ -716,7 +716,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | cookie gate evaluated per wrapper / dropped | W12 |
 | live-collection gate evaluated per wrapper / dropped | none: equivalent today (`live_collection_spec_level()` is `Living`, `event_handler_consumer.rs:307-309`, and `SpecLevelPolicy::installs_dom` returns `true` for `Living` under every policy, `spec_level.rs:174`); observable once B0/B1 demote the family, which adds the cell |
 | DOMParser or clone install left behind | W2 legs 3 (DOMParser document) and 4 (`document.cloneNode()`): own-name count 0 (before `bd89a35f` / `43e350c7`, by code reading: > 0). Mutation: an own `getElementById` on the DOMParser wrapper gives `0\|true\|1\|0`, on the clone `0\|true\|0\|1`, both red; P-2's DoD grep is a name grep only |
-| the worker / SW scope rule removed from the `PrototypeKind::Document` arm (rev 2.6.3, PM 570 G1; run once: the guard replaced by `if false`) | W26, W27 (both red: panic at `elements.rs:173`) |
+| the worker / SW scope rule removed from the `PrototypeKind::Document` arm (rev 2.6.3, PM 570 G1; run once: the guard replaced by `if false`) | W26, W27 (both red: panic at `elements.rs:173` at `03e2eb60` with the mutation applied) |
 | `URL` / `documentURI` without `document_receiver` (rev 2.6.3, PM 570 G3) | W25 (`ALL({})` count 17 → 15) |
 | the assert dropped and the unbound `OtherNode` path restored (rev 2.6.4, PM 574; run once) | W28 (red: the should_panic cell fails, no panic; the cache-hit cell stays green) |
 | `readyState` without brand check | W10 |
