@@ -889,7 +889,7 @@ item 6's stale markers, edge e-rc2a and R-12, R-13, R-14, the rooting-branch not
 *Rev 2.3* (2026-11-05): plan-review re-check N1–N8 (PM 372); plan-review closed. R-5 leaves §1.3 alone (edge c-pre
 → R-2); W15 back to red; §4.1 item 6 gains five stale comment sites; R-6 trigger clause; R-8 why-deferred clause; e-rc2a
 path and version; the X7 gate removed from §1.1; §5.3 `vm/globals.rs` row points to the rooting PR.
-*Rev 2.4* (2026-11-06, PM 422): no browser measurement; §1.1's Chromium and other-engine columns and DoD item 3
+*Rev 2.4* (2026-11-06, PM 422): no browser measurement; §1.1's Chromium and other-engine columns and DoD item 3 [history]
 deleted (C1-pre implements the spec column; X7 is spec-silent, current behaviour kept).
 *Rev 2.5* (2026-11-08, PM 534): re-measured at `43e350c7` (`0a5a77ba`'s code: D-14 (b) #599, RC-2a #596, C0b #608,
 #603 and C0c #611 landed since `f9cf8c40`). §0.1's frame and every cite re-pinned; cites into the code D-14 (b) moved
