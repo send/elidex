@@ -37,6 +37,7 @@ F7, M10, M11), the driver's scope ruling on the citation family (PR-A keeps 23 l
 renumber sweep, §9.2), the PR body's defect statement (§9.1); changelog at the end.
 **Rev 2.2** (2026-11-08) — Rev 2.1 attestation fixes (PM 538: deletion or replacement only) and their attestation's
 MINs; changelog at the end.
+**Rev 2.3** (2026-11-09) — Codex P2: each set keeps hashed membership beside its order (D-2, D-6, §4.1).
 
 ## §0. Frame, premises, decisions
 
@@ -284,7 +285,7 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
   does not justify one; CLAUDE.md "新しい型を足す前に既存の抽象で解決できないか"). The module depends on nothing in
   the crate (no `World`, no `EcsDom`): it is generic over a handle type.
 - **D-2 Representation: the spec record, generic over the handle; the VM keeps the rows.** The module defines
-  `DependentLinks<H>` (NEW) = `{ dependent: bool, source_signals: Vec<H>, dependent_signals: Vec<H> }` — **all three
+  `DependentLinks<H>` (NEW) = `{ dependent: bool, source_signals: OrderedSet<H>, dependent_signals: OrderedSet<H> }` — **all three
   fields private**, read through `is_dependent()` / `source_signals()` / `dependent_signals()`, written only by the
   module's algorithms (so a host cannot set `dependent` or push a handle; DoD 3 checks the reads, the compiler the
   writes) — ordered and deduplicated (an Infra set) — and a trait `AbortSignalGraph` (NEW) with associated
@@ -374,7 +375,8 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
   (unobservable). PR-A sets the reason through the graph and does not run abort steps; the result of step 2 is **not**
   dependent (`dependent` stays false, `source_signals` empty — step 3 is not reached), which §3.2.1 (PR-B) relies on.
 - **D-6 Sets are ordered and deduplicated; a signal's `dependent_signals` is emptied after planning.** "Append" to an
-  Infra set is a no-op for a present member, so `any([a, a])` records one source and one dependent (today the map
+  Infra set is a no-op for a present member (membership is a hashed lookup, so an append stays O(1) like today's
+  `push`), so `any([a, a])` records one source and one dependent (today the map
   holds two entries and the latch hides it, `tests_abort_statics.rs:304-321`). After `signal_abort` has planned a
   signal's dependents they are all aborted (step 4) and the set is never read again (step 1 returns on the next
   call), so it is emptied — the weak set has no observable content, and this is today's `remove(&signal_id)`
@@ -623,9 +625,10 @@ dependent abort signal step 4.2"), not a bare `§3.2 step N`.
 //! "signal abort" steps 1-4). Engine-independent: generic over the host's
 //! handle (`H`) and reason (`R`) types; runs no abort step (the host's).
 
+#[derive(Default)] struct OrderedSet<H> { order: Vec<H>, members: HashSet<H> }   // module-private; every write updates both halves
 #[derive(Default)]
-pub struct DependentLinks<H> { dependent: bool, source_signals: Vec<H>, dependent_signals: Vec<H> }   // all private (M2)
-impl<H: Copy + Eq> DependentLinks<H> {
+pub struct DependentLinks<H> { dependent: bool, source_signals: OrderedSet<H>, dependent_signals: OrderedSet<H> }   // all private (M2)
+impl<H: Copy + Eq + core::hash::Hash> DependentLinks<H> {
     pub fn is_dependent(&self) -> bool;
     pub fn source_signals(&self) -> &[H];           pub fn dependent_signals(&self) -> &[H];
     fn set_dependent(&mut self);                    // step 3; module-private
