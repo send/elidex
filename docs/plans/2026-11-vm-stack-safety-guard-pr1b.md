@@ -41,13 +41,14 @@ error shape per channel) applies to CP-3 as a runtime-channel site. **I-3 at CP-
 sits before the lazy `vm_wasm_runtime()` initialisation, `Store::new` and the start function for CP-3b, and
 before the `HostState` bind and the `set_fuel` reset for CP-3a; placement mutants M-P-CP3a / M-P-CP3b are
 P0a-1 §7). The one VM field written before CP-3a, `call_dispatch`'s `gc_enabled = false` in the
-`WasmExportedFunction` arm (`interpreter.rs:501` at `47b6c934`; re-derive after the `interpreter.rs` prereq
-split), is restored by that arm on the `Err` return as on every other return.
+`WasmExportedFunction` arm (`interpreter_call.rs:240`; the prereq split is discharged by #615), is restored by
+that arm on the `Err` return as on every other return.
 
-CP-3a / CP-3b are entries of P0a-1 §4.2's structural rule (PM 557): each is written as `resource_limit::enter(kind, body)`,
-the check is the wrapper's first statement and everything after it is the entered step; no per-site mark is set.
-A failure of the argument coercions before CP-3a (nested CP-1 entries, step 7) is a body error of the enclosing CP-1
-entry and is `Threw` at the boundary (P0a-1 §4.2 (v)); CP-3a's position is unchanged by that.
+CP-3a / CP-3b call `resource_limit::check_entry` (P0a-1 §4.2, the one check site) and propagate its error
+(CP-3b through the named conversion of P0a-1 §4.3); there is no wrapper and no per-site mark (option β,
+PM 590). A failure of the argument coercions before CP-3a (nested CP-1 entries, step 7) reaches the
+enclosing CP-1 entry's caller as `ResourceLimit` and is reported or thrown there like any other probe
+failure (P0 umbrella §4 C-4); CP-3a's position is unchanged by that.
 
 PR-local invariants:
 
@@ -175,7 +176,8 @@ elidex's is `RangeError` "Maximum call stack size exceeded" (PM 421 (a)), so the
 - **Materialisation site** (`elidex-js`): `wasm_error_to_js_value` (`vm/host/wasm/errors.rs:179`) gains a
   `StackOverflow` arm that builds a `RangeError` object with `STACK_EXHAUSTED_MSG` (NEW: P0a-1), the object
   `vm_error_to_thrown` builds for C-1's kind. It is a thrown value, **not** `VmErrorKind::ResourceLimit`:
-  wasm had started (its effects stand), so P0's "did not start" kind does not apply (P0 umbrella §4 C-1).
+  the overflow is wasmtime's own fixed per-call budget (`MAX_WASM_STACK`), the same for the same module and
+  input at any host depth, so it is a cap in P0's sense (P0 umbrella D-P0-6), not a probe failure (C-1).
 - **Other traps** (`unreachable`, out-of-bounds, fuel exhaustion, …) stay `WebAssembly.RuntimeError` (§5.6
   *call an Exported Function* step 10, *instantiate the core* step 3; §7 maps only stack overflow and
   out-of-memory). §7.2 Out of Memory is not changed by this PR.
@@ -220,7 +222,7 @@ structural remedy is the registered slot `#11-wasm-entry-depth-band` (§10 L-4).
 
 | Id | Site | Placement (P0a-1 §4.3) | Why this covers it |
 |---|---|---|---|
-| CP-3a | `call_wasm_exported_function` (`crates/script/elidex-js/src/vm/host/wasm/exported_func.rs:268`) | P0a-1's `check_entry(WasmCall)`, after the argument coercions (*call an Exported Function* step 7, which may run user JS through CP-1) and the bound-session check, immediately before `host_data.with_session_and_dom(… func.call …)` (`:306`) | the only caller of `WasmFunc::call` in `elidex-js` (its one caller is `call_dispatch`'s `WasmExportedFunction` arm, `interpreter.rs:511`); every exported function, however obtained, is an `ObjectKind::WasmExportedFunction` dispatched there |
+| CP-3a | `call_wasm_exported_function` (`crates/script/elidex-js/src/vm/host/wasm/exported_func.rs:268`) | P0a-1's `check_entry(WasmCall)`, after the argument coercions (*call an Exported Function* step 7, which may run user JS through CP-1) and the bound-session check, immediately before `host_data.with_session_and_dom(… func.call …)` (`:306`) | the only caller of `WasmFunc::call` in `elidex-js` (its one caller is `call_dispatch`'s `WasmExportedFunction` arm, `interpreter_call.rs:248`); every exported function, however obtained, is an `ObjectKind::WasmExportedFunction` dispatched there |
 | CP-3b | `instantiate_module` (`crates/script/elidex-js/src/vm/host/wasm/instance.rs:151`) | P0a-1's `check_entry(WasmInstantiate)`, before `ctx.vm.vm_wasm_runtime()` (`:176`) and `runtime.instantiate` (`:180`); its `Err` converts by P0a-1 §4.3's named conversion (`vm_error_to_thrown`, never `wasm_error_to_js_value`) | the only caller of `WasmRuntime::instantiate` in `elidex-js`; both the sync `new WebAssembly.Instance` (`instance.rs:69`) and the async `WebAssembly.instantiate` (`namespace.rs:578`, which turns the `Err` into a rejection) go through it |
 
 PR-1b's change at each site is the ask inside `check_entry` for its kind; the site itself is P0a-1's.

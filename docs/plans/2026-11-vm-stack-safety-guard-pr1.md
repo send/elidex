@@ -11,7 +11,7 @@ of umbrella §0.1 are ratified and not re-opened here. Provenance root `H` is de
 every measurement names its log under `H/logs/`.
 **Preconditions** (edges and their state: umbrella §4, the one home): the W-11 slot
 `#11-abort-signal-any-dependent-flattening` (§2 A-1); the P0 program with an empty census `# pending`
-section (P0 umbrella §7 L-1); the `interpreter.rs` prereq split (§5.1; queue and ordering: umbrella §4, PM 517); Slice F (§5.5); the CI/tools
+section (P0 umbrella §7 L-1); the `interpreter.rs` prereq split (§5.1; discharged by #615); Slice F (§5.5); the CI/tools
 `ci.yml` PRs, for the release leg (satisfied). NativeError E1 is not ordered against PR-1 (PM 490).
 
 **Base-case reason (single PR).** PR-1 is a narrowly scoped per-PR slice under the approved
@@ -94,7 +94,7 @@ Pairs of I-6, I-7 and A-1 with every other invariant (18):
 |---|---|
 | I-6 × I-1 | Each probe site belongs to exactly one channel (VM present → runtime; front end → compile-time), so the coverage audit (§5.3) can check site → channel mechanically. |
 | I-6 × I-2 | A fallback-bound trip produces the same message as a real one; script cannot tell them apart, by design. Only the test-only bound-source accessor (§4.5) does, in the bound cell. |
-| I-6 × I-3 | The kind's meaning ("did not start") and where it is materialised are P0's (P0 umbrella §2 C-1 × C-3, C-3 × I-1); PR-1's part is that building it runs inside the reserve (I-1 × I-2). |
+| I-6 × I-3 | The kind's meaning (a probe failure, P0 umbrella §4 C-1) and where it is materialised are P0's (P0 umbrella §2 C-1 × C-3, C-3 × I-1); PR-1's part is that building it runs inside the reserve (I-1 × I-2). |
 | I-6 × I-4 | Per channel, a cap and the probe give different messages / kinds, which is what lets the M-RX2 and M-W7 / M-W8a mutants (§9) see a cap silently answered by the probe. |
 | I-6 × I-5 | The message is a `&'static str` constant; nothing is formatted unless the probe fails. |
 | I-6 × I-7 | The front door's `TooDeep` / `Exhausted` arms map to the runtime channel's two messages; its `Syntax` arm keeps each site's current class and message (§6.3), so I-6 does not reach it. |
@@ -337,13 +337,15 @@ The check sites and their placement are P0a-1's (`check_entry(Call)` first in `w
 
 | Id | Site | Why this covers it |
 |---|---|---|
-| CP-1 | `VmInner::with_call_mode` (`crates/script/elidex-js/src/vm/interpreter.rs:160`) | every native→JS call (`call`, `call_construct_native`, `run_function`) and `construct_synchronous` (`crates/script/elidex-js/src/vm/dispatch_class.rs:323`) enter through it; the nested `run()` sites at `interpreter.rs:740` and `dispatch_class.rs:364` are inside it |
+| CP-1 | `VmInner::with_call_mode` (`crates/script/elidex-js/src/vm/interpreter.rs:160`) | every native→JS call (`call`, `call_construct_native`, `run_function`) and `construct_synchronous` (`crates/script/elidex-js/src/vm/dispatch_class.rs:323`) enter through it; the nested `run()` sites at `interpreter_call.rs:477` and `dispatch_class.rs:364` are inside it |
 | CP-2 | `VmInner::resume_generator` (`crates/script/elidex-js/src/vm/natives_generator.rs:114`) | the nested `run()` at `natives_generator.rs:276`; reached both from the generator natives (`natives_generator.rs:374/404/432`) and, outside `with_call_mode`, from inline async calls (`push_js_call_frame` → `drive_async_coroutine` → `natives_generator.rs:472`) |
 
-Enumeration of nested `run()` (re-derive at PR-1's base: `git grep -nE '(self|vm|inner|ctx\.vm)\.run\(' -- crates/script/elidex-js/src/vm ':!**/tests/**'`): 3 sites, lines `dispatch_class.rs:364` / `interpreter.rs:740` / `natives_generator.rs:276`; each is behind CP-1 or CP-2.
-Callers of `with_call_mode` outside tests (`git grep -n 'with_call_mode(' -- crates/script/elidex-js/src/vm`): `interpreter.rs` lines 82/102/1010 and `dispatch_class.rs:323`.
+Enumeration of nested `run()` (re-derive at PR-1's base: `git grep -nE '(self|vm|inner|ctx\.vm)\.run\(' -- crates/script/elidex-js/src/vm ':!**/tests/**'`): 3 sites, lines `dispatch_class.rs:364` / `interpreter_call.rs:477` / `natives_generator.rs:276`; each is behind CP-1 or CP-2.
+Callers of `with_call_mode` outside tests (`git grep -n 'with_call_mode(' -- crates/script/elidex-js/src/vm ':!**/tests/**'`): `interpreter.rs` lines 82/102/298 and `dispatch_class.rs:323`.
 
-**`interpreter.rs` cohesion verdict (CLAUDE.md 1000-line rule).** 1367 lines: source 1–1043, then an
+**`interpreter.rs` cohesion verdict (CLAUDE.md 1000-line rule; the split is discharged by #615: the
+`with_call_mode` tests are `vm/tests/tests_with_call_mode.rs`, the call-op dispatch is
+`vm/interpreter_call.rs`, and `interpreter.rs` keeps the entry half, 330 lines).** At the base: 1367 lines: source 1–1043, then an
 in-file `#[cfg(test)] mod tests` (1044–1367, six cells all about `with_call_mode`'s panic safety).
 Two real seams: (1) the test module, a single subject, moves to `vm/tests/`; (2) the remaining
 source splits between the Rust-side entry points (`eval`, `run_script`, `call`,

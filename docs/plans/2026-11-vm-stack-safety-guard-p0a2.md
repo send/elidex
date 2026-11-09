@@ -14,8 +14,11 @@ The prototypes are not the deliverable: P0a-2 ships the tracked check of §4–�
 re-derived by that check at P0a-2's base.
 
 The contract C-1…C-5 is the P0 umbrella §4; the census definition (populations, classes) is the P0
-umbrella §5; the semantics the check tests against (the entered mark, `ScriptFailure`, the kind-bearing
-boundaries) are [P0a-1](2026-11-vm-stack-safety-guard-p0a1.md) §4. This memo does not restate them.
+umbrella §5; the semantics the check tests against (the one check site, `ScriptFailure`, the
+failure-carrying boundaries) are [P0a-1](2026-11-vm-stack-safety-guard-p0a1.md) §4. This memo does not restate them.
+**Option β (PM 590)** retired the W population and its reason code `reverted-on-not-started` (rule 7),
+renamed S's code to `dropped-top-only`, added the codes `surfaced-across-boundary` and the `channel`
+sink of D-16, and took D-3 / D-4 and the two W rows out of `# pending` (§7.3 "D-1…D-12 under β").
 Edges, schedule and the other slices: P0 umbrella §1. P0a-2 lands after P0a-1 and before every P0b slice.
 
 ## §0. Charter
@@ -55,16 +58,17 @@ Elements: **CEN** (rules; §5), **REA** (checked reasons; §5 rule 12), **RES** 
 | REA × CEN | a row is admissible only through a reason code with a predicate; an unknown code, a failed predicate and a missing predicate are each red | controls `census_rejects_unknown_reason`, `census_rejects_failed_reason`, `census_reason_without_predicate_is_red` | check |
 | REA × RES | every reachability predicate (top-only, collision, drain-consumed, closure-literal) runs on the resolved graph (rule 0); an occurrence the resolver cannot resolve is an edge to every definition of that name (over-approximation stays fail-safe) | control `census_unresolved_call_is_every_definition` | check |
 | RES × rule 10 | a collision cut is keyed by (caller definition, call occurrence), never by (name, name); a cut that names an occurrence whose callee is not a colliding name is red | controls `census_collision_cut_by_occurrence`, `census_collision_row_other_path` | check |
-| REA × rule 5 | top-only is one predicate for every class that claims it (N, S, W, boundary), not an N-only check | control `census_top_only_reachable_from_native` (fixtures on an S row and a W row) | check |
+| REA × rule 5 | top-only is one predicate for every class that claims it (N, S, boundary), not an N-only check | control `census_top_only_reachable_from_native` (fixtures on an N row and an S row) | check |
 | REA × rule 9 | std-trait impls are scanned like every foreign trait; a `Drop` / `Iterator::next` that reaches a producer is a member and needs a row | control `census_boundary_std_trait_member` | check |
 | REA × rule 11 | kind-bearing is by containment (`Vec<EvalResult>` qualifies); a listed type whose definition does not name `ScriptFailure` is red | controls `census_boundary_kind_bearing_container`, `census_kind_bearing_type_without_failure` | check |
 | REA × rule 8 | the loop rule's admissible reason is a predicate (no durable write and no durable-store drain before the `?`), not the spec class the prototype named by hand | control `census_loop_question_mark_member` (and its admissible fixture) | check |
-| ID × CEN | producer derivation keys on calls to `resource_limit::enter` (P0a-1 §4.2; `check_entry` is private inside it) and on constructions of the two kinds | control `census_planned_producer_already_derived` | check |
+| ID × CEN | producer derivation keys on calls to `resource_limit::check_entry` (P0a-1 §4.2, the one check site) and on constructions of the two kinds | control `census_planned_producer_already_derived` | check |
 | CP × CEN | the four enclosing functions of CP-1…CP-3b are the derived producers at P0a-2; carriers are closed over them | §6 | check |
 | INJ × CEN | the boundary hooks are `#[cfg(test)]` statements; the lexer excludes `#[cfg(test)]`-attributed items **and statements**, so a hook does not make its function a derived producer | control `census_cfg_test_hook_not_producer` | check |
-| OUT × CEN | rule 11 makes `ScriptFailure`-bearing types kind-bearing, so P0a-1's fixed boundaries leave the population; rule 7 keeps D-14's and D-15's writes W rows (admissible: reverted on `NotStarted`) | controls `census_kind_bearing_type_without_failure`, `census_w_across_boundary` | check |
+| OUT × CEN | rule 11 makes `ScriptFailure`-bearing types failure-carrying, so P0a-1's fixed boundaries leave the population; an engine-independent caller's use of a boundary's `Err(ScriptFailure)` is admissible only as `surfaced-across-boundary`, whose predicate checks the engine-side row | controls `census_kind_bearing_type_without_failure`, `census_rejects_failed_reason` (the `surfaced-across-boundary` fixture) | check |
+| SINK × CEN | a `channel` row holds only when **every** `Err` arm reaches a channel function; `run_reaction`'s row (`natives_promise.rs:689`) passed the prototype on its `Some` arm while its `None` arm dropped (D-16, P0a-1 §5.5); after P0a-1 both arms reach a channel (`settle_promise`, `fail_reaction_owner`) | control `census_rejects_failed_reason` (a `channel` fixture with one dropping arm) | check |
 | CEN × PEND | a D row is red outside `# pending`; a pending row outside the frozen ceiling is red, so the section only shrinks; a row that loses its reason under rule 12 is **not** a pending row (it is an instrument or legibility defect, fixed in this slice), so the ceiling is unchanged | controls `census_rejects_definitive_row`, `census_pending_row_outside_ceiling` | check |
-| ID × PEND | D-13, D-14, D-15 are fixed in P0a-1, so they are admissible rows at P0a-2's landing, never pending | §7 | structural |
+| ID × PEND | D-13…D-16 are fixed in P0a-1, so they are admissible rows at P0a-2's landing, never pending | §7 | structural |
 | CEN (rule 6) × B | at base, B-1 / B-2 are rule 6 members; after P0a-1 they are pure throw arms (auto-recognised), leaving only the "throw-routed" P rows; rule 6 guards catchability (P0a-1 §5.2) | §5 rule 6 | check |
 
 ## §3. Spec coverage map
@@ -75,7 +79,7 @@ classes rest on (the rest are P0 umbrella §3 and P0a-1 §3).
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | ECMA-262 §17 Error Handling and Language Extensions | paragraph 3 (no other kinds of errors as early errors) | no spec step yields the error, so every admission reason is a property of the code, checkable by the tool, never a spec branch | rule 12 (§5) | ✓ | no |
-| WHATWG DOM §2.9 Dispatching events | *inner invoke* step 2.5 (once: remove before the call) | the canonical durable write the W population detects (rule 7); its admissible reason is "reverted on `NotStarted`" (P0a-1 §4.5) | rule 7, the W rows of §7 | ✓ | yes |
+| WHATWG DOM §2.9 Dispatching events | *inner invoke* step 2.5 (once: remove before the call), 2.13.1 (report on a throw) | the write stands on every outcome (P0 umbrella §4 C-4, β); what the check verifies is that the call's error is reported, not dropped | rule 12 `channel` / `dropped-top-only`, the D-5 / D-14 / D-15 rows of §7 | ✓ | yes |
 
 **Breadth**: K=2 specs (ECMA-262, WHATWG DOM), M=2 entries (verified 2026-11-08 by `python3
 .claude/skills/elidex-plan-review/preflight.py` on this memo; rc and K / M as printed in the PR body, P0
@@ -107,7 +111,7 @@ umbrella §7 L-13). Below the split thresholds.
    definition of the name (the over-approximation is kept on the fail-safe side; it costs rows, never
    silence). Edges are (caller definition → callee definition); every reachability predicate below runs on
    this graph. Rule 10's cut is an occurrence of this graph.
-1. Populations per P0 umbrella §5.1 (Err, boundary, W), recomputed from the code on every run; test files
+1. Populations per P0 umbrella §5.1 (Err, boundary), recomputed from the code on every run; test files
    and `#[cfg(test)]` code are excluded by the lexer (§4), not by a list. The crates scanned are derived:
    `elidex-js`, every workspace crate whose Cargo.toml depends on it (the shell), and every crate whose
    non-test source names a kind-bearing type (rule 11) or declares a trait that `elidex-js` implements.
@@ -120,7 +124,7 @@ umbrella §7 L-13). Below the split thresholds.
    (`P0b-VM-1` / `P0b-VM-2` / `P0b-L3`) and lie inside the frozen ceiling (§7); PR-1's precondition is an
    empty section (P0 umbrella §7 L-1).
 5. **Top-only (generalised, PM 544).** Any row of any class whose reason is or includes top-only (reason
-   codes `top-only`, `thread-entry`; the `dropped-nothing-written` code includes it) is red if the reverse
+   codes `top-only`, `thread-entry`; the `dropped-top-only` code includes it) is red if the reverse
    graph (rule 0) reaches it from a native function (signature `(ctx: &mut NativeContext<'_>, ..)`); edges
    into a function that is the body, or a callee of the body, of a `std::thread::Builder::spawn` /
    `std::thread::spawn` / `spawn_worker` closure are cut. At the base this check is what PM 533 (c) rejected
@@ -131,12 +135,11 @@ umbrella §7 L-13). Below the split thresholds.
    `dispatch.rs` 91 (B-1), 842 / 845 (B-2), and 674 / 677 / 885 / 941, whose callees route their own errors
    through `throw_error` (`dispatch_objects.rs:40`, `:72`; `dispatch_class.rs:47`, `:73`) (verified
    2026-11-08 by the prototype filtered to `run` and by reading each callee).
-7. W population: every function of P0 umbrella §5.1's W population has a row (class D pending, or
-   admissible with a reason of rule 12: `reverted-on-not-started`, or `top-only` with `no-durable-write`
-   failing — see rule 12). The callee set is the carriers **and the boundary members** (rule 9), and the
-   function may sit in any scanned crate (W across the boundary): `script_dispatch_event_core`'s write at
-   `:499` before `call_listener` is how D-14 is seen; `dispatch_unhandled_rejection_event`'s at `:565`
-   before `call` is how D-15 is seen.
+7. **W markers (the W population is retired, PM 590).** Under β a durable write before a carrier or
+   boundary call stands on every outcome (P0 umbrella §4 C-4), so a function with such a write is not a
+   member by that fact and has no row. D-14 and D-15 are seen by their drops (rule 5 on the S claim),
+   not by their writes. The marker kinds — an ECS component write, a custom-element state transition, a
+   listener removal — stay defined here because rule 8's predicate reads them.
 8. **Loop rule (fail-safe; ratified PM 513).** A carrier call propagated by `?` (or `.map_err(..)?`, or a
    binding later propagated so) whose position lies inside a `for` / `while` / `while let` / `loop` body of
    the enclosing function is a **member**, not auto-propagation: the `?` is correct for the trigger but may
@@ -181,11 +184,11 @@ umbrella §7 L-13). Below the split thresholds.
 | P · `throw-routed` (rule 6) | the callee's Err path passes `throw-arm` | — |
 | P · `pass-through` (B1) | the return type is the method's own generic parameter | — |
 | P · `loop-no-write-no-drain` (rule 8) | no W marker (rule 7's kinds) and no durable-store drain (`take` / `drain` / `pop` / `pop_front` / `remove` on a field of the VM, `HostData` or the world — never on a local) in the body before the `?` | — |
-| P · `reverted-on-not-started` (W rows) | the write precedes a boundary or carrier call whose `NotStarted` / `is_resource_limit()` arm calls the reinsert / restore named by the row before the next statement that can run script | the revert call |
 | T · `throw-arm` | the Err path calls `throw_error(` or `vm_error_to_thrown(` and `handle_exception(`; or the function returns `VmError` and yields the error as a value for its caller's throw | — |
-| R · `channel` | the Err path, or the function the binding is passed to (one level), calls the named channel function with the error or its materialisation; the channel set is the C-3 list (promise / request rejection, `settle_promise`, the report stand-in `eprintln!` / `report_*`, stream error, `EvalResult` construction); a channel not on the list is red | the channel function |
+| R · `channel` | **every** arm of the Err path (each `Err` arm, each branch inside it), or the function the binding is passed to (one level), calls a named channel function with the error or its materialisation; an arm that reaches none is red (the D-16 shape); the channel set is the C-3 list (promise / request rejection, `settle_promise`, the report stand-in `eprintln!` / `report_*`, stream error, `EvalResult` construction, the internal-reaction sink `fail_reaction_owner` (NEW: P0a-1 §5.5)); a channel not on the list is red | the channel function(s) |
+| R · `surfaced-across-boundary` | the call is to a B1 boundary method (rule 9) whose return type carries `ScriptFailure` (rule 11), and the implementing method's own use of its carrier passes `channel` (the engine reported before returning `Err`) | the implementing method |
 | R · `drain-consumed` (B1) | with every consuming row's edge cut ((function, callee) of the R / T / S / E / N / X rows and the `# pending` rows), the method reaches no producer; the row lists the consuming rows its paths hit (PM 540 (3): the report path) | the consuming rows |
-| S · `dropped-nothing-written` | no W marker in the body before the call, no W row for the function in any scanned crate (rule 7), and `top-only` holds (rule 5) | — |
+| S · `dropped-top-only` | `top-only` holds (rule 5); under β a write before the call does not bear on the drop (rule 7) | — |
 | E · `replaced-both-surfaced` | the use is `.err()` or `.is_err()`-tested and, after it, the original or the replacement leaves as `Err(..)` or as the value of a `-> VmError` function | — |
 | N · `top-only` | rule 5 | — |
 | N · `thread-entry` | the function is the body, or a callee of the body, of a `spawn*` closure (rule 5's cut) | — |
@@ -199,15 +202,15 @@ The predicate texts above are the specification of the check; the check's docstr
 
 ## §6. Producers and the planned list
 
-Producers are derived: functions that call `resource_limit::enter` (the wrapper of the private `check_entry`,
-P0a-1 §4.2), `ensure_stack` (NEW: PR-1), or construct
+Producers are derived: functions that call `resource_limit::check_entry` (the one check site, P0a-1 §4.2),
+`ensure_stack` (NEW: PR-1), or construct
 `VmError::resource_limit` / `CompileErrorKind::ResourceLimit`. Until PR-1 / PR-1b land, the check also
 reads `PLANNED_PRODUCERS`, a constant listing PR-1 §5.2's walker functions, the compile front end's entry
 (`compile_script`), the regexp compile sites of PR-1 §6.1 (`load_constant`, `native_string_match`,
 `native_string_search`) and PR-1b's `call_wasm_exported_function` / `instantiate_module`. A planned name
 that is also derived is red ("remove it"), so the list only shrinks and is empty after PR-1b. At P0a-2's
 landing `call_wasm_exported_function` and `instantiate_module` are already derived (they call
-`resource_limit::enter`, P0a-1 §4.2–§4.3), so they are not in the list P0a-2 ships.
+`resource_limit::check_entry`, P0a-1 §4.2–§4.3), so they are not in the list P0a-2 ships.
 
 ## §7. The allowlist at P0a-2's landing
 
@@ -224,7 +227,7 @@ sites). **Rule 8 adds 120 members** (verified 2026-11-08 via `LOOPQ=1 python3 -I
 H/scripts/err_loop_question_proto.py <wt> crates/script/elidex-js`, log
 `H/logs/err-loop-question-p0a.log`: 99 `for`, 9 `while let`, 5 `loop`, 4 `for` inside `while`, 3 `while`),
 hand-classified P (`H/logs/err-loop-question-p0a-classified.tsv`). Total at the base: 322 Err rows. W
-population: 5 functions (`python3 -I H/scripts/err_write_before_call_proto.py <wt>
+population (retired by PM 590): 5 functions (`python3 -I H/scripts/err_write_before_call_proto.py <wt>
 crates/script/elidex-js`, log `H/logs/err-write-before-call-p0.log`).
 
 **Boundary population (rule 9; PM 533 (2)).** Prototype at `02386ec9` (code identical to `ce603c74`),
@@ -236,7 +239,7 @@ graph (pre-rule-0): the producer closure over every function reaches 3244 of 430
 | B1 foreign-trait methods (`ScriptEngine` 7, `HostDriver` 53, `FilterAction` 1, `MutationDispatcher` 1; std traits skipped by the prototype) | 62 | 27 | **D 1** (D-14, `call_listener`); **boundary collapse 3** (BC-1 `eval`, BC-2 `drain_timers`, BC-3 `FilterAction::accept`), all fixed in P0a-1; R 13 (12 drains + `set_history_state`, P0a-1 §4.5); N 9 (collision); P 1 (`with_bound`) |
 | B2 `pub` `elidex-js` fns called by the shell (the only dependent crate) | 8 calls | 2 new | 6 are the shell's calls of B1 `HostDriver` methods by name (no new row); N 2: `finish` (collision with `finish` in `compiler/function.rs`, `app/render.rs:296`), `sw_thread_main` (`app/sw_coordinator.rs:214`, a fresh thread's top, rule 5's thread-entry cut) |
 | B3 closure / fn-pointer parameters called from `elidex-js` | 21 calls | 21 | N 21: Rust-only closures (`with_range` 7, `with_range_mut` 3, `reconcile_event_handler`'s scripting gate 1, `for_each_shadow_inclusive_descendant` 1 in `custom_elements/lookup.rs:159`, `ws_keepalive` / `es_keepalive` 2, the WebCrypto RNG of `sign` / `generate_key` 2), and 5 name collisions with `sign` (the BigInt `.sign()` in `coerce.rs:23`, `coerce_ops.rs` 58 / 64 / 70, `pools.rs:142`); `range_proto.rs:361` passes a parameter, not a literal |
-| W across the boundary (rule 7) | 80 calls, from another crate, of a B1 / B2 member's name (8 of them are `finish` collisions) | 3 with a write before the call | **D 1** (`script_dispatch_event_core` → `call_listener`, the write at `:499`: D-14); P 1 (the same write before `run_microtasks` at `:513`); N 1 (`layout_inline_context_fragmented` → `finish`, the B2 collision) |
+| W across the boundary (Rev 2's rule 7; retired, PM 590) | 80 calls, from another crate, of a B1 / B2 member's name (8 of them are `finish` collisions) | 3 with a write before the call | **D 1** (`script_dispatch_event_core` → `call_listener`, the write at `:499`: D-14); P 1 (the same write before `run_microtasks` at `:513`); N 1 (`layout_inline_context_fragmented` → `finish`, the B2 collision) |
 
 ### §7.2 The checked-reason re-run (PM 544; prototype `H/scripts/err_reason_check_proto.py` at `d7ec4761`)
 
@@ -257,13 +260,18 @@ by occurrence and why the collision rows below are red until their occurrences a
 | B1 (62; std skipped) | 62 | 31 not members on the resolved graph; 4 BC / D-14 (kind-bearing after P0a-1); 13 `drain-consumed` (12 drains + `set_history_state`, each with its consuming rows listed in the log); 1 `pass-through` | 13 `collision` (the 9 of §7.1 plus `remove_listener`, `sync_dirty_canvases`, `has_pending_session_history_work`, `MutationDispatcher::dispatch`, which the wider scan makes reach a producer through std-method names): no occurrences named yet | 0 | 0 | 0 |
 | B1 std traits (rule 9 as written, `-nostdskip`) | +45 | +31 not members | +14 `collision` (`Drop::drop` ×4: `engine.rs:427`, `:800`, `temp_root.rs:101`, `:204`; `next` of two `Iterator` impls: `typed_array_hof.rs:85`, `value.rs:250`; `Default::default` ×7; `Display::fmt` 1 — none runs script, R4 Axis 1 MIN-2) | 0 | 0 | 0 |
 | B3 (12 detected by this prototype; §7.1's detector counted 21, §11 item 2) | 12 | 10 `closure-literal` | 2 (`range_proto.rs:361` passes a parameter; `dom_bridge.rs:492` passes a non-literal) | 0 | 0 | 0 |
-| W across | 3 | 2 (`call_listener`: `reverted-on-not-started` after P0a-1; `run_microtasks`: step 2.5 of a started call or already reverted); the `finish` N row is stale on the resolved graph (the resolved `finish` is not the VM's) | 0 | 0 | 0 | 0 |
+| W across (retired with the W population, PM 590; the re-run's verdicts are kept as history) | 3 | 2 (`call_listener`, `run_microtasks`, as admissible under Rev 2's revert); the `finish` N row is stale on the resolved graph (the resolved `finish` is not the VM's) | 0 | 0 | 0 | 0 |
 
 **Rows that lose their reason, and who fixes them.**
 
 - **One consumer defect**: D-15 (`natives_promise.rs:565` / `:591`), the S row's "nothing written" is false
   (a listener removal precedes the call) and its "top-only" is false (rule 5 generalised finds the
   `dispatchEvent` path, P0a-1 §3.1). Fixed in **P0a-1** (§5.4), like D-14; never pending.
+- **A second consumer defect, found after the re-run** (P0a-1 Rev 2 re-review, Axis 2 IMP-2): D-16,
+  `run_reaction` → `call` (`natives_promise.rs:689`). The prototype gave it R `channel` OK on its
+  `Some(capability)` arm (`settle_promise`); its `None` arm, taken by every internal subscriber, calls no
+  channel. The `channel` predicate now requires every arm (rule 12). Fixed in **P0a-1** (§5.5); never
+  pending.
 - **Instrument debt (this slice)**: 37 UNFOLLOWED + 1 RED (T) + 2 RED (rule 8) = 40 Err rows, 13 (+14 std)
   B1 collision rows, 2 B3 rows. None is a consumer defect; each is a shape the tracked check must follow,
   a cut the row must name, or a predicate that must be typed. P0a-2's acceptance is **rc 0 with every row
@@ -279,7 +287,7 @@ by occurrence and why the collision rows below are red until their occurrences a
   `to_number`; the row leaves the population); `range_proto.rs:361` and `dom_bridge.rs:492` (pass the closure
   literal at the call, or name the enclosing function's closure parameter per rule 12's transitive clause);
   the BC-3 null arms are already removed by P0a-1.
-- **`# pending`: unchanged — 15 keys** (§7.3). No row of this re-run enters it: D-14 and D-15 are fixed in
+- **`# pending`: unchanged — 15 keys** (§7.3; 11 after PM 590). No row of this re-run enters it: D-14 and D-15 are fixed in
   P0a-1, and instrument debt is not a consumer defect. The ceiling is the same frozen key set.
 
 **PM 540 (3), the drains.** Each of the 12 drains and `set_history_state` names its consuming rows (the
@@ -300,12 +308,12 @@ its slice's admissible row; a drain that reaches a producer through no row is re
 
 ### §7.3 Composition at landing
 
-Boundary side (after P0a-1): BC-1…BC-3 and `call_listener` are no longer B1 members (their return types are
-kind-bearing, rule 11); the W rows of `script_dispatch_event_core` (`:499`) and
-`dispatch_unhandled_rejection_event` (`:565`) are admissible P `reverted-on-not-started`. Err side, the
-deltas P0a-1 causes: `engine.rs:275` is R `channel:report`; `natives_promise.rs:591` is R `channel:report`
-(its revert is the W row's); `script_dispatch_event_core`'s use of `call_listener`'s result is R
-(reported by the engine, reverted here); the two traversal protos' uses of the `FilterError::Script` (NEW: P0a-1) arm are
+Boundary side (after P0a-1): BC-1…BC-3 and `call_listener` are no longer B1 members (their return types
+carry `ScriptFailure`, rule 11). Err side, the deltas P0a-1 causes: `engine.rs:275` is R `channel:report`;
+`natives_promise.rs:591` is R `channel:report`; `natives_promise.rs:689` is R `channel` on both arms
+(`settle_promise`, `fail_reaction_owner`; D-16); `script_dispatch_event_core`'s use of `call_listener`'s
+result is R `surfaced-across-boundary` (implementing method `call_listener`, whose `:275` row is R
+`channel:report`); the two traversal protos' uses of the `FilterError::Script` (NEW: P0a-1) arm are
 auto-recognised or P `propagates`; D-13's row (`vm/interpreter.rs` `eval` → `compile_script`) is P
 `propagates` (kind-preserving `map_err`). The exact counts are the tracked check's at P0a-2's head (§10),
 not these.
@@ -344,13 +352,13 @@ each with its rule-12 code at landing):
 - **P (80 + 120 by rule 8) and T (44):** listed in `H/logs/err-census-p0-classified.tsv` and
   `H/logs/err-loop-question-p0a-classified.tsv`; T = `vm/dispatch.rs` (40), `dispatch_objects.rs` 48 / 80,
   `dispatch_class.rs:110`, `dispatch_helpers.rs:383` (`throw-arm`; `:383` by the `-> VmError` clause).
-- **W, admissible (5 after P0a-1):** `custom_elements/creation.rs:238` (the `is_value` reset is derived
-  from the registry, not from the upgrade's outcome: it precedes the call and is not undone by its failure
-  — admissible only if rule 12's `reverted-on-not-started` or `top-only` + `no-durable-write` holds; the
-  prototype did not decide it, §11 item 3); `html_input_value.rs:353` (the carrier is `to_number` on a
-  Number: the legibility rewrite of §7.2 applies, the row leaves); `natives_promise.rs:565`
-  (`reverted-on-not-started`, P0a-1 §5.4); across the boundary `script_dispatch_event_core` `:499`
-  (`reverted-on-not-started`) and `:513` (step 2.5 of a started call or already reverted).
+- **W: none (the population is retired, PM 590).** The five functions the prototype listed
+  (`custom_elements/creation.rs:238`, `html_input_value.rs:353`, `natives_promise.rs:565`,
+  `script_dispatch_event_core` `:499` / `:513`) have no W row; their calls' uses are Err rows like any
+  other. `html_input_value.rs:353`'s legibility rewrite (§7.2) stays.
+- **P, from `# pending` (D-3, D-4; PM 590):** `vm/host/custom_elements/upgrade.rs` `invoke_upgrade` →
+  `get_property_value` (`:216`) and → `construct_synchronous` (`:277`, via the binding `result`): each `Err`
+  arm runs `finalize_failure_shim` and returns `Err`, class P `propagates` (below).
 
 - **`AbortSignal` abort steps (PM, 11-08; L3's `#11-abort-signal-any-dependent-flattening`; corrected per
   L3's attestation N-6, verified against the code).** *At `ce603c74`:* `abort_signal`
@@ -378,19 +386,37 @@ each with its rule-12 code at landing):
   lists the call, keyed on the names as they stand at P0a-2's base (§11 item 1). If L3's PR lands after
   P0a-2, P0a-2 ships no row and L3's PR adds it if the check asks for it.
 
-**`# pending` (15 rows; this key set is the frozen ceiling of §5 rule 4; restated after PM 544: unchanged,
-because D-14 and D-15 are fixed in P0a-1 like D-13, and instrument debt is not pending).** Keys (path,
-function, callee, shape):
+**D-1…D-12 under β (PM 590).** Each judgement re-made on the contract as β states it (P0 umbrella §4):
+
+- **D-1, D-2 — unchanged, D-state.** The listener removal after a failed compile (`ensure_event_handler_current`,
+  `event_handler_attrs.rs:548-552`) and the source taken before it (`take_uncompiled`) are writes the spec
+  does not make for that failure (it writes the value only at HTML §8.1.8.1 step 3.7.1 or 3.12): C-2 (c).
+- **D-3, D-4 — no longer definitive; they leave `# pending`.** On a failure of the `prototype` read or of
+  the construct, `invoke_upgrade` runs `finalize_failure_shim` (state Failed) and returns the error. HTML
+  §4.13.5 *upgrade an element* sets the state to "failed" at step 3, before the construct, and step 11's
+  exception branch keeps a non-"custom" state and rethrows: under β (C-4) that is the branch every failure
+  takes, the error surfaces through the callers' reports (class R), and nothing is reverted. Their rows
+  become P `propagates` at P0a-2's landing. Where elidex's Failed differs from the spec's
+  "precustomized" (a failure after step 11.2), that is `#11-ce-upgrade-returned-object-typeerror` (L3's CE
+  bundle), not P0's.
+- **D-5 — stays D, with a different defect.** Under β the `once` removal at `:460` and the prune after the
+  call stand (DOM *inner invoke* steps 2.5, 2.13). What remains wrong is that the error is dropped:
+  `.is_err()` sets `threw` and nothing reports it (step 2.13.1), at a script-controlled depth, so no S
+  admission holds. P0b-L3 reports it (hand-off §4).
+- **D-6…D-12 — unchanged.** Each converts the error into a success value or another class (C-2 (a) /
+  (b)); none involved a revert. Under β the kind also reaches them when user code of the step ran before
+  the failure (no rewrite, P0a-1 §4.2), which widens what their `is_resource_limit()` arm propagates and
+  changes no fix.
+
+**`# pending` (11 rows; this key set is the frozen ceiling of §5 rule 4; restated after PM 544: unchanged,
+because D-14 and D-15 are fixed in P0a-1 like D-13, and instrument debt is not pending; restated after PM
+590: D-3, D-4 and the two W rows leave, D-16 is fixed in P0a-1).** Keys (path, function, callee, shape):
 
 | Rows | Key | Fixing slice |
 |---|---|---|
 | D-1 | `vm/host/event_handler_attrs.rs`, `lazy_compile_handler`, `compile_script`, `.ok` | P0b-L3 |
 | D-2 | `vm/host/event_handler_attrs.rs`, `lazy_compile_handler`, `run_script`, match | P0b-L3 |
-| D-3 | `vm/host/custom_elements/upgrade.rs`, `invoke_upgrade`, `get_property_value`, match | P0b-L3 |
-| D-4 | `vm/host/custom_elements/upgrade.rs`, `invoke_upgrade`, `construct_synchronous`, match via binding | P0b-L3 |
 | D-5 | `vm/host/event_target_dispatch.rs`, `invoke_listeners_shared`, `call_value`, `.is_err` | P0b-L3 |
-| W | `vm/host/custom_elements/upgrade.rs`, `invoke_upgrade` (W population) | P0b-L3 |
-| W | `vm/host/event_target_dispatch.rs`, `invoke_listeners_shared` (W population) | P0b-L3 |
 | D-6 | `vm/host/structured_serialize.rs`, `structured_serialize_for_storage`, `stringify_for_structured_shortcut`, match | P0b-VM-1 |
 | D-7 | `vm/host/structured_serialize.rs`, `structured_deserialize`, `parse_json_str`, `.unwrap_or` | P0b-VM-1 |
 | D-8 | `vm/host/indexeddb/value.rs`, `json_to_js`, `parse_json_str`, `.unwrap_or` | P0b-VM-2 |
@@ -416,9 +442,9 @@ tree (§11 item 4).
 Controls (tempfile fixtures), each red: `census_rejects_unknown_member` (an added `.ok()` on a carrier
 call); `census_rejects_stale_row`; `census_rejects_definitive_row` (a D row outside `# pending`);
 `census_pending_row_outside_ceiling`; `census_planned_producer_already_derived`;
-`census_top_only_reachable_from_native` (fixtures: an N row, an S row and a W row claiming top-only, each
+`census_top_only_reachable_from_native` (fixtures: an N row and an S row claiming top-only, each
 reached from a native); `census_run_question_mark_on_carrier` (a new `?` on a carrier in `run()`);
-`census_w_function_without_row`; `census_cfg_test_hook_not_producer` (a fixture whose only producer edge is
+`census_cfg_test_hook_not_producer` (a fixture whose only producer edge is
 a `#[cfg(test)]` statement must not derive a producer; red when it does); `census_loop_question_mark_member`
 (a fixture with `for x in xs { carrier(x)?; }` and no row → red; the same `?` outside the loop → auto; with a
 `loop-no-write-no-drain` row and a `self.queue.pop()` before the `?` → red); for the boundary (rules 7,
@@ -429,9 +455,7 @@ returning `Result<(), ScriptFailure>` → not a member); `census_boundary_kind_b
 (`Vec<ScriptFailureBearing>` → not a member; `Vec<u8>` → member); `census_boundary_unparsed_impl_member` (an
 `impl` header the lexer cannot parse → member); `census_boundary_closure_param_member` (a call passing a
 closure to another crate's `impl FnMut` parameter, no row → red; with a `closure-literal` row and a closure
-literal that calls a producer → red; with a non-literal argument → red); `census_w_across_boundary` (a
-fixture in another crate that writes `get::<&mut EventListeners>` and then calls a boundary member, no row
-→ red); `census_collision_row_other_path` (a `collision` row whose member still reaches a producer once the
+literal that calls a producer → red; with a non-literal argument → red); `census_collision_row_other_path` (a `collision` row whose member still reaches a producer once the
 named occurrences are cut → red); `census_collision_cut_by_occurrence` (a `collision` row naming an
 occurrence of a name with one definition → red; a cut that would remove another caller's edge of the same
 name must not make a red member green); `census_unresolved_call_is_every_definition` (an occurrence the
@@ -440,8 +464,10 @@ such a call stays red); `census_kind_bearing_type_without_failure` (a `KIND_BEAR
 does not name `ScriptFailure` → red); for rule 12: `census_rejects_unknown_reason` (a row with a code not in
 the table → red), `census_rejects_failed_reason` (one fixture per code whose predicate fails: a `propagates`
 row whose Err arm is `_ => None`; a `throw-arm` row with no throw; a `channel` row naming a function the Err
-path does not call, and one naming a function outside the channel list; a `dropped-nothing-written` row
-with a W marker before the call; a `replaced-both-surfaced` row with no `Err` after the use; a
+path does not call, one naming a function outside the channel list, and one whose second `Err` arm calls
+no channel (`if let Some(cap) = .. { settle } ` with no `else`: the D-16 shape); a `dropped-top-only` row
+reached from a native; a `surfaced-across-boundary` row whose implementing method's row is not `channel`;
+a `replaced-both-surfaced` row with no `Err` after the use; a
 `drain-consumed` row with a producer path through no row; a `closure-literal` row with a parameter
 argument; a `test-support` row with a production caller), `census_reason_without_predicate_is_red` (a row
 whose code is `argument-class` → red). `--mutants` runs the check with each rule and each predicate
@@ -456,11 +482,11 @@ only because its body is in the caller); across crates, foreign-trait impls and 
 boundary population (rule 9, PM 533 (2)), and a trait object of a foreign trait is covered through its
 impls; receiver types (rule 0 resolves by `self`-ness, module and file, not by the receiver's type, so a
 std-method name shared by several types stays a collision until a row cuts its occurrences); writes
-performed inside a callee before the carrier call (D-1's `take_uncompiled` sat in
-`reconcile_event_handler`, another crate); macros; a straight-line `?` that returns before a fan-out over
-other subjects (the `:592` shape of §7.3; rule 8 covers a `?` inside the fan-out's loop, not one before
-it); durable writes to a side table (the `abort_signal_states` latch) rather than an ECS component, which
-the W population's three kinds do not include. Owner VM P4; re-evaluated with PR-1's cut-check limits when
+performed inside a callee before the carrier call (rule 8's markers are lexical; D-1's `take_uncompiled`
+sat in `reconcile_event_handler`, another crate); macros; a straight-line `?` that returns before a
+fan-out over other subjects (the `:592` shape of §7.3; rule 8 covers a `?` inside the fan-out's loop, not
+one before it); durable writes to a side table (the `abort_signal_states` latch) rather than an ECS
+component, which rule 7's three marker kinds do not include. Owner VM P4; re-evaluated with PR-1's cut-check limits when
 `#11-vm-native-callback-reentry-single-loop` is designed; ledger row P0 umbrella §7 L-7.
 
 ## §10. Landing obligations
@@ -473,7 +499,7 @@ PM 513 (d)): L-4 (E rows) and L-7 (census limits). Slice-local:
 
 - **L-a2. Counts and ceiling**: P0a-2's PR body records the tracked check's counts per class and per
   rule-12 code at its head (rule 8's members, the boundary population by section, and the std-trait members
-  separately), the legibility rewrites of §7.4 with their rows, and the 15 `# pending` keys of §7.3.
+  separately), the legibility rewrites of §7.4 with their rows, and the 11 `# pending` keys of §7.3.
 
 ## §11. Unverified facts (each decided at implementation, before its control is written)
 
@@ -483,9 +509,7 @@ PM 513 (d)): L-4 (E rows) and L-7 (census limits). Slice-local:
 2. The B3 population: `err_boundary_census_proto.py` counted 21 calls, `err_reason_check_proto.py` 12
    (the two detectors differ on which other-crate functions take a closure); the tracked check's rule-9 B3
    derivation decides, and the PR body records the count (L-a2).
-3. `custom_elements/creation.rs:238`'s W row: whether its write (`is_value = None` before `invoke_upgrade`)
-   is admissible under `reverted-on-not-started` (P0b-L3's `abandon_upgrade` path) or under `top-only` with
-   no durable write of the subject; decided with P0b-L3's hand-off (`H/p0b-l3-handoff.md` §4 D-3 / D-4).
+3. *(Dissolved by PM 590: `custom_elements/creation.rs:238` had a W row only; the W population is retired.)*
 4. Which rows beyond §7.2's three need a legibility rewrite once the tracked check runs on the tree (§7.4).
 5. Whether `dispatch.rs:430`'s `let old = match …` throw arm and the other UNFOLLOWED shapes of §7.2 are
    followed by the check's statement analysis or are rewritten (§7.4).
