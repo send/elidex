@@ -259,7 +259,7 @@ enumerates the pairs of its own elements in its §2.
 | C-2 × C-5 | A D row is not admissible in the allowlist (after the P0b slices; before them only in `# pending`); a row admitted under a reason the check cannot verify is a D row (PM 544) | P0a-2 controls `census_rejects_definitive_row`, `census_rejects_failed_reason` | check |
 | C-3 × C-4 | Taking the exception branch must surface the error on the trigger's channel, or the branch is a silent drop | P0a-1 D-14 / D-15 / D-16 cells; P0b-L3 D-5's report | cell |
 | C-3 × C-5 | The census classifies the channel each row uses; a row that drops the error is class S, admissible but recorded (§6 item 2) only when it is top-only, and top-only is checked, not asserted (D-14, D-15, D-16 failed it) | P0a-2 §7.3 S rows; rule 12 `dropped-top-only` | check |
-| C-4 × C-5 | Under β a write before the call is the spec's own and stands on every outcome, so the census has no W population (removed, PM 590); what C-4 needs from the census is that the error is not dropped, which the Err and boundary populations check | P0a-2 §5 rule 7 (retired), rule 12 | check |
+| C-4 × C-5 | Under β a write before the call is the spec's own and stands on every outcome, so the census has no W population (removed, PM 590); what C-4 needs from the census is that the error is not dropped, which the Err and boundary populations check | P0a-2 "The W retirement" (rule 7 deleted, PM 595), rule 12 | check |
 | C-1 × I-1 | PR-1 / PR-1b's probes are C-1's producers: the choke-point probes sit inside P0a-1's check, and every walker / front-end / front-door probe converts through `From<StackExhausted>` to `VmError::resource_limit` (NEW: P0a-1) or `CompileErrorKind::ResourceLimit`, so every probe failure has C-1's kind by construction | P0a-1 §4.3; PR-1 §4.1 | structural |
 | C-2 × I-1 | Before a producer exists a definitive consumer is latent; I-1 makes it live, which is the order of §0.3 | §7 L-1 | ledger |
 | C-3 × I-1 | Surfacing runs inside the reserve: building a `RangeError` and reporting it must fit in `WALKER_RESERVE` (PR-1 §4.3) | PR-1 `stack_guard_reserve_margin_ratchet` | PR-1 cell |
@@ -379,7 +379,8 @@ test.
 **The property.** A member is every place where a fallible result can lose its kind: a use that does not
 propagate it (Err population) and a boundary whose type cannot carry it (boundary population). (The W
 population of durable writes before a call existed to find the subjects C-4 reverted; under β nothing is
-reverted, a write before the call stands on every outcome, and the population is retired, PM 590.) The type vocabulary
+reverted, a write before the call stands on every outcome, and the population is retired, PM 590; its rule
+is deleted by PM 595, for the two reasons in P0a-2's paragraph "The W retirement".) The type vocabulary
 below (carriers, kind-bearing types) is the check's instrument for that property, not its definition;
 where the instrument cannot decide, the place is a member (fail-safe, C-5).
 
@@ -388,7 +389,8 @@ where the error is not propagated. A carrier is a function whose return type car
 (`Result<_, E>` with `E` ∈ {`VmError`, `CompileError`, `JsValue`, `StackExhausted` (NEW: PR-1),
 `RegExpCompileError` (NEW: PR-1), `ScriptFailure` (NEW: P0a-1)}, or a type that carries `ScriptFailure`:
 `EvalResult`, `FilterError` after P0a-1 §4.5) **and** that reaches a producer in the call graph.
-Producers: functions that call `resource_limit::check_entry` (derived), plus the planned list of PR-1 / PR-1b probe
+Producers: derived from the code (P0a-2 §6: calls of `resource_limit::check_entry` and `ensure_stack`, and
+every mention of the kind that is not a predicate), plus the planned list of PR-1 / PR-1b probe
 functions until they land (P0a-2 §6). A use is outside the population only when it propagates in a shape
 the check recognises (P0a-2 §5 rule 2: `?`, `.map_err(<kind-preserving>)?`, `return` / tail in a carrier
 function, a pure throw or `Err(e)` arm); every other use is a member and is classified (§5.2), and a

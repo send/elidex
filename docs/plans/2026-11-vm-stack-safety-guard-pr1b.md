@@ -77,11 +77,11 @@ Pairs of W-1, W-2 and A-W with each other and with I-1…I-6 (21):
 | W-1 × I-3 | The constant is static; it adds no state. |
 | W-1 × I-4 | 512 KiB is wasmtime's default, so wasm's own recursion depth at the top of the thread is unchanged; its overflow now surfaces as `RangeError` (§4.2); cell `wasm_start_recursion_overflow_at_top`. |
 | W-1 × I-5 | The ask is a constant sum; the probe is the same TLS read + SP read + compare. |
-| W-1 × I-6 | Both of CP-3's possible answers have I-6's runtime shape: CP-3's own failure (`VmError::resource_limit()`, C-1's kind, nothing started) and wasm's overflow trap (`RangeError` / `STACK_EXHAUSTED_MSG`, wasm started; §4.2). |
+| W-1 × I-6 | Both of CP-3's possible answers have I-6's runtime shape: CP-3's own failure (`VmError::resource_limit()`, C-1's kind, before the store is entered) and wasm's overflow trap (`RangeError` / `STACK_EXHAUSTED_MSG`, after wasm ran; §4.2). Under β no consumer tells the two apart: each is a throw completion of the step (P0 umbrella §4 C-4). |
 | W-2 × I-1 | Under the interim layout nested entries into different stores each get 512 KiB; only a CP-3 at every JS→wasm entry bounds the total. Not constructible today (A-W); stated for the imports slot (§10 L-2). |
 | W-2 × I-2 | wasmtime's limit is SP-relative from the entry and independent of the thread bound; the thread bound is only the guard's. |
 | W-2 × I-3 | CP-3 runs before the store's outermost entry, so on `Err` wasmtime has set no limit and bound no `HostState`. |
-| W-2 × I-4 | The per-store trap is wasm's own answer; CP-3 must not pre-empt it where the thread has room. At the top both surface as `RangeError`, but only the trap follows started wasm (I-6 pair above). |
+| W-2 × I-4 | The per-store trap is wasm's own answer; CP-3 must not pre-empt it where the thread has room. At the top both surface as `RangeError`; the trap is the one that follows wasm execution (I-6 pair above), which changes which bound fired, not how the failure is consumed. |
 | W-2 × I-5 | wasmtime's own stack check is unchanged; CP-3 adds one probe per entry, not per wasm call frame. |
 | W-2 × I-6 | Under either layout, an overflow anywhere on a JS→wasm→JS→wasm chain is a `RangeError` (wasm's trap by §7.1, CP-1 or CP-3 by I-6), so the layout changes which bound fires, not the class. |
 | A-W × I-1 | With no wasm → JS path, CP-1 is on no wasm path and CP-3 alone covers the wasm entries. |

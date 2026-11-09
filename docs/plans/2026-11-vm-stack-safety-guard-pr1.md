@@ -803,7 +803,7 @@ line. PR-1b's pre-push does the same.
 
 | Cell | Body | Expect |
 |---|---|---|
-| `rt_reviver_recursion` | `function r(k, v) { return k === '' ? JSON.parse('[1]', r) : v } JSON.parse('[1]', r)` (declaration: a named function expression has no self-binding in elidex today) | `RangeError` / `STACK_EXHAUSTED_MSG`, read from the thrown object's `name` / `message` (at the top the escape rule has made it `ThrowValue`, P0a-1 §4.2; every `rt_*` cell reads it so) |
+| `rt_reviver_recursion` | `function r(k, v) { return k === '' ? JSON.parse('[1]', r) : v } JSON.parse('[1]', r)` (declaration: a named function expression has no self-binding in elidex today) | kind `ResourceLimit` / `STACK_EXHAUSTED_MSG`: uncaught, the `Err` reaches the cell's top with its kind (`throw_error` returns the original error, P0a-1 §4.2), so the cell reads `is_resource_limit()` and the message, the rule P0a-1's `rl_nested_failure_keeps_kind` pins. Every `rt_*` cell, and every Rust-side `RangeError` expectation below, reads it so; a JS-side observation (`rt_inline_async`'s `.catch`) reads the name `vm_error_to_thrown` gives, `RangeError` |
 | `rt_map_recursion` | `function f() { [1].map(f) } f()` | same |
 | `rt_generator_resume` | `function* g() { g().next(); yield 1 } g().next()` | same |
 | `rt_inline_async` | `async function f() { await f() } f().catch(e => globalThis.r = e.name)`, then drain microtasks | `r === 'RangeError'` |

@@ -72,7 +72,7 @@ SINK × CEN) are P0a-2 §2.
 
 | Pair | Intersection | Pinned by | Basis |
 |---|---|---|---|
-| ID × CHK | `check_entry` is the only producer at P0a-1; nothing rewrites its error, so `is_resource_limit()` holds wherever the error travels until a consumer surfaces it (C-3) — also when user code of the step ran before the failure | `rl_nested_failure_keeps_kind`; M-REWRITE | cell |
+| ID × CHK | `check_entry` is the one check site for the four entries; the other producers are the `Vm::eval` conversion (§4.1 item 3) and, from PR-1, the direct `ensure_stack` probes (P0 umbrella §4 C-1, P0a-2 §6); nothing rewrites the error, so `is_resource_limit()` holds wherever the error travels until a consumer surfaces it (C-3) — also when user code of the step ran before the failure | `rl_nested_failure_keeps_kind`; M-REWRITE | cell |
 | CHK × CP | the check is the entry function's first statement; a failed check returns before anything of the entry ran, so the VM state the entry guards (frames, the generator's Running state, the wasm store) is untouched | `rl_cp1_entry_failure_no_callee_effect`, `rl_cp2_generator_resumable_after_entry_failure`, `rl_cp3*`; M-P-CP1, M-P-CP2, M-P-CP3a/b | cell |
 | CHK × I-5 | the check is one call per entry; the `Ok` path gains nothing else (no wrapper, no rewrite) | PR-1 §10's I-5 bench (umbrella I-5) | measured (PR-1) |
 | ID × CP | each check returns `VmError::resource_limit()`; CP-3b alone materialises it (`vm_error_to_thrown`), at a C-3 channel | `rl_cp3b_instantiate_entry_failure`, `rl_cp3a_wasm_call_entry_failure_retry` | cell |
@@ -163,8 +163,10 @@ D-11 P0b-VM-1).
 ### §4.2 The check site, and the kind's propagation (Rev 3, PM 590)
 
 **The check site.** `crate::vm::resource_limit::check_entry(kind: EntryKind) -> Result<(), VmError>`
-(NEW, `pub(crate)`) is the one check site: the injection of §4.4 at P0a-1, the probe that PR-1 / PR-1b add,
-and the one place where the ask per kind is chosen. Each of the four entries of §4.3 calls it as its first
+(NEW, `pub(crate)`) is the one check site for the four entries: the injection of §4.4 at P0a-1, the probe
+that PR-1 / PR-1b add, and the one place where the ask per kind is chosen. It is not the only producer: the
+`Vm::eval` conversion (§4.1 item 3) and PR-1's direct `ensure_stack` probes also produce the kind (P0
+umbrella §4 C-1, P0a-2 §6). Each of the four entries of §4.3 calls it as its first
 statement and propagates its error with `?` (CP-3b converts it, §4.3). There is no wrapper around the
 entry and no rewrite of the entry's result.
 
@@ -204,8 +206,9 @@ getter reached from `Object.assign`) reaches the native's caller as `ResourceLim
 
 - CP-1: the caller of `call` / `call_construct_native` / `run_function` / `construct_synchronous`. An engine
   boundary reports it and returns `Err(ScriptFailure)` (§4.5); `run_reaction` hands it to the reaction's
-  target (§5.5); a native body propagates it with `?` to its own caller; `run()` materialises it through
-  `throw_error`.
+  target (§5.5); a native body propagates it with `?` to its own caller; `run()` routes it through
+  `throw_error`, which materialises it for a handler and, when none catches it, returns the original `Err`
+  with its kind (`vm/ops.rs:155-165`), so the top of an uncaught evaluation reads `is_resource_limit()`.
 - CP-2: the three generator natives (the script sees a catchable `RangeError`; the generator stays
   suspended and the next `.next()` resumes it, `rl_cp2_generator_resumable_after_entry_failure`), and
   `drive_async_coroutine` (`natives_generator.rs:520-522`: it materialises the error and rejects the
@@ -501,8 +504,29 @@ once (`vm_error_to_thrown`) and settles the owner on its own channel, running no
 | Owner | Settles | Same as | After |
 |---|---|---|---|
 | `AsyncFunction { gen }` (the async driver) | rejects `gen`'s wrapper with the `RangeError` | `drive_async_coroutine`'s `Err` arm (`natives_generator.rs:520-523`), factored into one function both call | the generator stays suspended and is never resumed; a `finally` in the body does not run: P0 umbrella §6 item 5, whose R row and slot `#11-vm-async-resume-failure-skips-finally` now cover the step's CP-1 as well as its CP-2 |
-| `Stream(stream_id)` (start, pull) | errors the stream with the `RangeError` (`error_stream`), and clears `pull_in_flight` for pull | the `Err` arm after the pull call (`controller.rs:179-183`); Streams *SetUpReadableStreamDefaultController* step 12 / *CallPullIfNeeded* step 8 for a rejection | the stream is errored; readers reject (§3.2) |
+| `Stream(stream_id)` (start, pull) | `readable_stream::fail_step` (NEW: P0a-1, below): errors the stream with the `RangeError` (`error_stream`) and clears `pull_in_flight` | the `Err` arm after the pull call (`controller.rs:179-183`); Streams *SetUpReadableStreamDefaultController* step 12 / *CallPullIfNeeded* step 8 for a rejection | the stream is errored; readers reject (§3.2) |
 | `Promise(p)` (cancel; combinator result) | rejects `p` with the `RangeError` | the `Err` arm after the cancel call (`readable_stream/mod.rs:671-674`); `Promise.all` step 8.b's IfAbruptRejectPromise for the combinator | `cancel()`'s promise rejects; `Promise.all` / `allSettled` / `any` / `race` reject. Later element settlements are ignored by the existing already-resolved gate (`settle_promise`) |
+
+**The stream arm lives in the stream module (Axis 1 MIN-2, MIN-3).** `error_stream`
+(`controller.rs:294`) is `pub(super)` and `pull_in_flight` is host-private stream state. So the arm goes
+through a new host entry, `vm/host/readable_stream::fail_step` (NEW: P0a-1; `pub(crate)`, signature
+`(vm, stream_id, reason)`), beside `run_start_step` / `run_pull_step` / `run_cancel_step` (`mod.rs:473`, `:498`,
+`:538`). It owns both writes: `error_stream`, and the `pull_in_flight` clear. Core `fail_reaction_owner`
+calls it the way `call_dispatch` calls the `run_*_step` functions. The Streams algorithm stays in its
+module (Layering mandate), and core does not widen `error_stream`. **No start / pull discriminator.** The
+two existing reject branches are the same call (`run_start_step` and `run_pull_step` each run
+`error_stream(vm, stream_id, value)` on `is_reject`). The clear is a no-op for a start failure: pull never
+fires before `start_called` (`pull_should_fire`, `controller.rs:77-83`), so `pull_in_flight` is false
+then. Cancel needs no stream target either: `ReadableStreamCancelStep` carries the cancel promise, not the
+stream (`interpreter_call.rs` `run_cancel_step(self, promise, ..)`), so its owner is `Promise(p)` (the
+table's third row). **cfg gate.** `ReactionOwner::Stream` (NEW: P0a-1), its arm in `fail_reaction_owner` and its GC trace arm are
+`#[cfg(feature = "engine")]`, like the `ObjectKind::ReadableStream*Step` variants (`object_kind.rs:872-891`) and their trace
+arms (`gc/trace.rs:969-977`); the `readable_stream` module itself is `#[cfg(feature = "engine")]`
+(`host/mod.rs:312-313`). **Inbound host call (`#11-vm-inbound-host-call-membership-test`,
+`docs/plans/2026-07-vm-p4-design-invariants.md:120`).** It rides the `run_*_step` mechanism (the same cfg
+gate and the same call shape: a core free-function call into `host::readable_stream` with the stream id),
+so it is not a new kind of core → host call; that slot's audit counts it with the three `run_*_step`
+calls (`interpreter_call.rs:191-227`).
 
 The rejection reaches *notify about rejected promises* if unhandled (D-15's loop), so the `RangeError` is
 visible in every case. The async driver's answer to the brief's two questions: the `RangeError` goes to
