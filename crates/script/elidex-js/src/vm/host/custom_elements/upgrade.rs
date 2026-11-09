@@ -1,5 +1,5 @@
 //! Custom element prototype-chain upgrade — VM-side glue around the
-//! engine-indep state machine in [`elidex_custom_elements::upgrade`]
+//! engine-indep state machine in [`elidex_custom_elements::upgrade`](elidex_custom_elements)
 //! (HTML §4.13.5 "upgrade an element").
 //!
 //! `invoke_upgrade` returns `Result<(), VmError>` so each caller picks
@@ -32,7 +32,7 @@ use super::super::super::value::{JsValue, NativeContext, VmError};
 /// entry that would poison subsequent upgrades of the same
 /// definition name. The HTMLElement constructor's upgrade branch
 /// also replaces the top with an `AlreadyConstructed` marker
-/// ([C1] §3.2.3 step 15) before this guard drops, so the popped
+/// (\[C1\] §3.2.3 step 15) before this guard drops, so the popped
 /// entry can be either the marker (normal path) or the original
 /// `Element` (failure path before the user-ctor body reached
 /// `super()`). The debug-assert below distinguishes only "popped
@@ -122,8 +122,9 @@ enum Phase1Outcome {
 /// engine-bound steps (constructor.prototype Object validation,
 /// element-wrapper allocation, `ctx.vm.call`) between
 /// [`elidex_custom_elements::prepare_upgrade`] /
-/// [`enter_constructor`] / [`finalize_success`] /
-/// [`finalize_failure`].
+/// [`enter_constructor`](elidex_custom_elements::enter_constructor) /
+/// [`finalize_success`](elidex_custom_elements::finalize_success) /
+/// [`finalize_failure`](elidex_custom_elements::finalize_failure).
 #[allow(clippy::too_many_lines)] // 5-phase orchestration (resolve / validate / pre-publish / construct / finalize)
 pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<(), VmError> {
     let Some(host) = ctx.host_if_bound() else {

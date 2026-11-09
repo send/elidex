@@ -227,7 +227,7 @@ pub(super) fn native_node_clone_node(
 /// other Node method here; Window wrappers never reach this native
 /// because `Window.prototype` does not chain through `Node.prototype`.
 ///
-/// Live [`Range`] offset adjustment (spec steps 6.1-6.4) is still
+/// Live `Range` offset adjustment (spec steps 6.1-6.4) is still
 /// out of scope — `Range` is not yet implemented; `PR-Range` will
 /// re-visit when it lands.
 pub(super) fn native_node_normalize(

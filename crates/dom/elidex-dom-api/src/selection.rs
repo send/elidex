@@ -593,7 +593,7 @@ impl SelectionState {
 
 /// `true` when `node` is a `DocumentType` per WHATWG DOM `length of a
 /// node` exception list. Mirrors the private helper in
-/// [`crate::range::boundary`]; duplicated here to keep that one
+/// `range::boundary`; duplicated here to keep that one
 /// file-scoped (lesson #228 — write primitives self-contained).
 fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
     matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))

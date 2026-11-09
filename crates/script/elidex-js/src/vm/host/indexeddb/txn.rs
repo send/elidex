@@ -25,7 +25,7 @@ use super::{
 /// request list is processed" — only does the durable write when the request
 /// list is already empty.  When explicit `commit()` is called with requests
 /// still queued, the write is DEFERRED to [`finalize_commit`], driven from
-/// [`request::run_post_dispatch`] when the last delivery empties the list; an
+/// [`request::run_post_dispatch`](super::request::run_post_dispatch) when the last delivery empties the list; an
 /// uncanceled error in that window still aborts + rolls back (the writes are
 /// not yet committed).  No-op if already committing / finished (idempotent
 /// under the two commit triggers — §5.9 step 8.3 and the sweep).

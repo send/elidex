@@ -23,7 +23,7 @@
 //!   — `HashMap<u64, ObserverBinding>` from observer ID to the
 //!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
 //!   each binding are rooted by the keepalive seam's predicate
-//!   ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c — ≥1
+//!   (`keepalive_survivors`, S5-3c — ≥1
 //!   active observation OR ≥1 pending undelivered record, the full
 //!   statement lives at the seam) so they survive GC while the observer
 //!   observes ≥1 target or still has a record to deliver, and the
@@ -53,7 +53,7 @@
 //!   `HostData`-owned side tables (no DOM pointer access during
 //!   construction).  Pre-`install_host_data` calls return a
 //!   `TypeError` rather than panicking via
-//!   [`super::super::native_context::NativeContext::host`].
+//!   [`NativeContext::host`](crate::vm::value::NativeContext::host).
 //! - **Method natives** (`observe` / `disconnect` / `takeRecords`)
 //!   check `ctx.host_if_bound()` first and return a safe no-op
 //!   (empty array / `undefined`) so a retained `mo` reference
@@ -394,7 +394,7 @@ fn mutation_record_to_js(
 /// Build a JS Array of node wrappers for the given entity slice.
 /// `addedNodes` / `removedNodes` may carry non-Element nodes (Text /
 /// Comment / ProcessingInstruction / CDATA) per WHATWG DOM §4.3.3,
-/// and the underlying [`super::elements::create_element_wrapper`]
+/// and the underlying [`create_element_wrapper`](crate::vm::VmInner::create_element_wrapper)
 /// dispatches to the right prototype per
 /// [`super::super::host_data::HostData::prototype_kind_for`]
 /// (Element / Text / CharacterData / Node) — the helper name is

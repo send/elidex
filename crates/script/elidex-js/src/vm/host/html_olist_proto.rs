@@ -12,7 +12,7 @@
 //!   §4.4.5: keywords `1` / `a` / `A` / `i` / `I` are case-sensitive
 //!   (`a` and `A` are distinct list-marker styles).  Routes through
 //!   [`elidex_dom_api::element::enumerated_reflect::canonicalize_limited_to_known_values`]
-//!   which is distinct from the ASCII-CI [`canonicalize_enumerated_attr`]
+//!   which is distinct from the ASCII-CI `canonicalize_enumerated_attr`
 //!   used by the T2a `referrerPolicy` family (those keywords differ
 //!   only by spelling).
 //!

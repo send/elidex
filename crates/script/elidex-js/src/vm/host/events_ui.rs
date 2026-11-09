@@ -19,8 +19,8 @@
 //! Init-dict coercion follows Chrome's invocation order verified via a
 //! userland getter probe (matches the pattern established in
 //! [`super::events::parse_event_init`]).  Numeric fields use
-//! [`coerce::to_number`]; boolean modifier flags use
-//! [`coerce::to_boolean`]; relatedTarget / view accept only nullish
+//! [`coerce::to_number`](crate::vm::coerce::to_number); boolean modifier flags use
+//! [`coerce::to_boolean`](crate::vm::coerce::to_boolean); relatedTarget / view accept only nullish
 //! values + Window (for `view`) or HostObject with a bound DOM entity
 //! (for `relatedTarget`) — otherwise TypeError per WebIDL
 //! `EventTarget?` / `Window?` interface coercion.

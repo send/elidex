@@ -288,9 +288,9 @@ pub(super) fn this_is_node_wrapper(vm: &super::super::VmInner, this: JsValue) ->
 /// Use this whenever code needs to distinguish a shadow-root wrapper
 /// from any other DOM wrapper — both are `HostObject { entity_bits }`
 /// now, only the ECS component differentiates them.  Delegates to
-/// [`HostData::is_shadow_root_entity`] which encapsulates the
+/// [`HostData::is_shadow_root_entity`](crate::vm::host_data::HostData::is_shadow_root_entity) which encapsulates the
 /// unsafe `dom_ptr` deref + aliasing contract (sibling of
-/// [`HostData::is_element_entity`]).
+/// [`HostData::is_element_entity`](crate::vm::host_data::HostData::is_element_entity)).
 #[cfg(feature = "engine")]
 pub(super) fn is_shadow_root_entity(
     vm: &super::super::VmInner,

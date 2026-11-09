@@ -39,7 +39,7 @@
 //! (`ListenerKind::EventHandler { uncompiled: Some(..) }`) by the
 //! engine-independent consumer, which never compiles (layering). The
 //! source is compiled lazily — at first read (getter) or first dispatch
-//! ([`lazy_compile_handler`]) — and an `uncompiled = Some` source always
+//! ([`lazy_compile_handler`](crate::vm::VmInner::lazy_compile_handler)) — and an `uncompiled = Some` source always
 //! takes precedence over any stale compiled callable (last-write-wins,
 //! §8.1.8.1 "getting the current value of the event handler").
 

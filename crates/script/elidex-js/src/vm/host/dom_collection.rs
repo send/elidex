@@ -2,8 +2,8 @@
 //! §4.2.10 / §4.2.10.1).
 //!
 //! Both interfaces are implemented as payload-free `ObjectKind`
-//! variants ([`ObjectKind::HtmlCollection`](super::super::value::ObjectKind::HtmlCollection)
-//! / [`ObjectKind::NodeList`](super::super::value::ObjectKind::NodeList))
+//! variants ([`ObjectKind::HtmlCollection`]
+//! / [`ObjectKind::NodeList`])
 //! with their filter state held in
 //! [`VmInner::live_collection_states`](super::super::VmInner::live_collection_states)
 //! as engine-independent

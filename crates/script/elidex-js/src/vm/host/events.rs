@@ -546,10 +546,10 @@ fn receiver_chains_to(
 /// `proto_id.constructor = ctor` with METHOD attrs, expose on
 /// `globals[name]`.
 ///
-/// `shape` selects the [`CallShape`] for the underlying NativeFunction:
-/// [`CallShape::ConstructorOnly`] for WebIDL Interface ctors (`new`-only,
+/// `shape` selects the [`CallShape`](crate::vm::value::CallShape) for the underlying NativeFunction:
+/// [`CallShape::ConstructorOnly`](crate::vm::value::CallShape::ConstructorOnly) for WebIDL Interface ctors (`new`-only,
 /// bare-call rejected at dispatch via the WebIDL §3.7.1 (Interface object)
-/// creation algorithm step 1.2), or [`CallShape::IllegalConstructor`] for the
+/// creation algorithm step 1.2), or [`CallShape::IllegalConstructor`](crate::vm::value::CallShape::IllegalConstructor) for the
 /// illegal-ctor wrappers reused for IDL types with no public constructor
 /// (`TouchList` / `FileList` / `DataTransferItem` / `DataTransferItemList`
 /// / `CanvasRenderingContext2D` / `OffscreenCanvasRenderingContext2D`)

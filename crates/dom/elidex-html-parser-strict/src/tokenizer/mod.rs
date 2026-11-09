@@ -1,6 +1,6 @@
 //! The strict HTML tokenizer (WHATWG HTML §13.2.5 "Tokenization").
 //!
-//! Internal to the crate: [`Tokenizer`] produces a stream of [`Token`]
+//! Internal to the crate: [`Tokenizer`](states::Tokenizer) produces a stream of [`Token`](token::Token)
 //! values consumed by the tree builder, driven by the public
 //! [`crate::parse_strict`] entry point.
 //!

@@ -17,7 +17,7 @@
 //! the entity — SameObject = component get, despawn = automatic drop). The JS
 //! context wrapper's *identity* (`canvas.getContext('2d') === …`) is interned
 //! through the wrapper-identity seam under
-//! [`WrapperKind::Canvas2dContext`](super::super::wrapper_intern::WrapperKind::Canvas2dContext);
+//! [`WrapperKind::Canvas2dContext`];
 //! that seam entry doubles as the **brand**: a `HostObject` is a 2D context iff
 //! it is the interned `Canvas2dContext` wrapper for its entity. The wrapper
 //! shares the canvas entity in its `entity_bits`, so the entity alone cannot

@@ -16,7 +16,7 @@
 //! touches — `elidex_script_session::apply_set_inner_html` (the §11.3
 //! strict-first fragment parse), `elidex_dom_api::initialize_base_url_for_document`
 //! (the §2.4.3 base-URL finalizer), and this crate's own
-//! [`create_form_control_state`](crate::create_form_control_state) (the §4.10
+//! [`create_form_control_state`] (the §4.10
 //! form-control-state attach). The crate DAG is
 //! `form → dom-api → script-session → ecs`, so none of these calls inverts
 //! layering (script-session / dom-api do not depend on form — no cycle).

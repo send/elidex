@@ -421,7 +421,7 @@ fn sync_flags_from_event(
 /// so this loop carries no `match target kind` and no `Entity` read.
 ///
 /// Shared by the Node walk ([`walk_phase`]) and the VM walk
-/// ([`super::event_target_dispatch_vm::vm_walk_phase`]).
+/// (`super::event_target_dispatch_vm::vm_walk_phase`).
 ///
 /// Returns whether any listener threw an uncaught exception (swallowed per
 /// the §2.9 report-an-exception step so the walk advances, but surfaced for
@@ -527,7 +527,7 @@ pub(super) fn invoke_listeners_shared(
 /// `form.reset()` fires `reset` (bubbles=true, cancelable=true),
 /// `checkValidity()` fires `invalid` (bubbles=false,
 /// cancelable=true).  Lifecycle bracket matches
-/// [`super::pending_tasks::deliver_post_message`]: alloc the
+/// `super::pending_tasks::deliver_post_message`: alloc the
 /// Event, install core-9 own-data slots immediately so a GC
 /// triggered by the slot install cannot collect the freshly-
 /// returned id, register in `dispatched_events` for the dispatch

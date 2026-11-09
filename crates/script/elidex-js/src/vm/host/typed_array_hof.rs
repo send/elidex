@@ -18,7 +18,7 @@
 //!   user-supplied `compareFn` insertion sort)
 //!
 //! Install-time wiring lives in
-//! [`super::typed_array::install_typed_array_prototype_members`].
+//! `super::typed_array::install_typed_array_prototype_members`.
 //!
 //! Section numbers in the per-method docstrings track the **ES2024
 //! (15th edition)** numbering for `%TypedArray%.prototype` —

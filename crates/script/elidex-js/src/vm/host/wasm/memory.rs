@@ -13,9 +13,9 @@
 //! ArrayBuffer per `refresh the Memory buffer` step 5.1.
 //! `.buffer` is wrapper-identity-stable (DR-11 elidex impl choice;
 //! IDL has no `[SameObject]`) — first access allocates a fresh
-//! ArrayBuffer wrapper backed by a live [`WasmMemoryView`] stashed
+//! ArrayBuffer wrapper backed by a live `WasmMemoryView` stashed
 //! on the payload, and inserts the
-//! [`VmInner::wasm_backed_buffers`] reverse-lookup entry so the
+//! [`VmInner::wasm_backed_buffers`](crate::vm::VmInner::wasm_backed_buffers) reverse-lookup entry so the
 //! ArrayBuffer hot-path routing in `byte_io::*_with_routing` +
 //! `array_buffer_*` accessors can dispatch through the view.
 //!
@@ -84,7 +84,7 @@ pub(super) fn native_wasm_memory_constructor(
 ///
 /// Per plan-memo DR-11 the wrapper is wrapper-identity-stable until
 /// detach (elidex impl choice — IDL has no `[SameObject]`).  The
-/// stashed [`WasmMemoryView`] (in
+/// stashed `WasmMemoryView` (in
 /// [`WasmMemoryPayload::view`]) carries the live alias used by the
 /// `byte_io::*_with_routing` + extended `array_buffer_*` accessors
 /// to route ArrayBuffer reads/writes through the underlying wasm

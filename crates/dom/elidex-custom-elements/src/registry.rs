@@ -63,7 +63,7 @@ pub struct CustomElementRegistry {
     /// Name → definition mapping.
     definitions: HashMap<String, CustomElementDefinition>,
     /// Reverse index: `constructor_id` → registered name. Maintained
-    /// alongside `definitions` for O(1) reverse lookup ([C1] §3.2.3
+    /// alongside `definitions` for O(1) reverse lookup (\[C1\] §3.2.3
     /// step 5 reverse-mapping is on the hot path of every CE
     /// `[[Construct]]` — the prior O(N) `values()` scan would scale
     /// poorly on CE-heavy pages (e.g. SSR rehydration with hundreds

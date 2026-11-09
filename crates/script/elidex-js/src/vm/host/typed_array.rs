@@ -39,7 +39,7 @@
 //! TypedArraySetElement invoke §25.1.3.16 GetValueFromBuffer / §25.1.3.18
 //! SetValueInBuffer with `isLittleEndian = true`, so engines must use
 //! little-endian for TypedArray indexed access regardless of host platform.
-//! [`super::data_view::DataView`] (PR5-typed-array §C5) exposes both
+//! `DataView` (PR5-typed-array §C5) exposes both
 //! endiannesses to JS via its `littleEndian` argument on the prototype
 //! getters / setters (ECMA-262 §25.3.4, default `false` = big-endian).
 //!

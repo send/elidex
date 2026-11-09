@@ -44,7 +44,7 @@ use super::typed_array_methods::subclass_prototype_for;
 /// to pick the destination [`ElementKind`].
 ///
 /// Called once from
-/// [`super::typed_array::register_typed_array_prototype_global`]
+/// [`register_typed_array_prototype_global`](crate::vm::VmInner::register_typed_array_prototype_global)
 /// after the abstract ctor + the 11 subclass ctors are wired up
 /// (so the registry that this module's `ctor_to_element_kind`
 /// scans is fully populated).

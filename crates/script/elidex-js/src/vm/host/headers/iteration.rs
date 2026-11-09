@@ -18,7 +18,7 @@ use super::ObjectId;
 /// Join every `StringId` in `values` with `", "` into a single
 /// interned `StringId` (WHATWG Fetch §5.2 `combine` algorithm).
 /// Used by `Headers.get` for multi-valued headers and by
-/// [`super::super::body_mixin::content_type_of`] so `Blob.type` and
+/// `super::super::body_mixin::content_type_of` so `Blob.type` and
 /// `resp.headers.get('content-type')` always agree on the
 /// combined form — visibility is `pub(in crate::vm::host)`
 /// (re-exported via [`super`] so external callers stay at

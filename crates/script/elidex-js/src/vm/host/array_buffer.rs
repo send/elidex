@@ -293,7 +293,7 @@ pub(crate) fn array_buffer_require_attached(vm: &VmInner, id: ObjectId) -> Resul
 ///
 /// **DR-11 routing extension** (D-16 `#11-wasm-vm` plan §5 Stage
 /// 4.1): wasm-backed ArrayBuffers route through the live
-/// [`WasmMemoryView::read`] so consumers (BlobInit / fetch /
+/// `WasmMemoryView::read` so consumers (BlobInit / fetch /
 /// TextDecoder / ImageData) observe actual wasm bytes rather than
 /// silently reading from an empty `body_data` entry.
 pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Vec<u8> {

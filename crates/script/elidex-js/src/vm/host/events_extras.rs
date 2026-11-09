@@ -13,7 +13,7 @@
 //!
 //! Each ctor goes through the shared
 //! [`VmInner::create_fresh_event_object`] entry point with an explicit
-//! `shape_id` drawn from [`PrecomputedEventShapes`] — shape selection
+//! `shape_id` drawn from [`PrecomputedEventShapes`](super::event_shapes::PrecomputedEventShapes) — shape selection
 //! is detached from `EventPayload`, letting ctors pick any terminal
 //! shape without round-tripping through the UA dispatch payload.
 //! Prototype selection is intentionally left to the normal

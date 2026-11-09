@@ -675,7 +675,7 @@ fn native_blob_slice(
     Ok(JsValue::Object(new_id))
 }
 
-/// `Blob.prototype.text()` → Promise<string> (File API §3.2.5).
+/// `Blob.prototype.text()` → `Promise<string>` (File API §3.2.5).
 /// Synchronously decodes the bytes as UTF-8 (lossy) and resolves
 /// the returned Promise — spec calls for an async read, but our
 /// Blob storage is already in memory so a microtask-free settle
@@ -702,7 +702,7 @@ fn native_blob_text(
     Ok(JsValue::Object(promise))
 }
 
-/// `Blob.prototype.stream()` → ReadableStream<Uint8Array>
+/// `Blob.prototype.stream()` → `ReadableStream<Uint8Array>`
 /// (File API §3.2.6).  Returns a fresh stream on every call —
 /// Blob is immutable so re-streaming the bytes is always safe.
 fn native_blob_stream(
@@ -716,7 +716,7 @@ fn native_blob_stream(
     Ok(JsValue::Object(stream_id))
 }
 
-/// `Blob.prototype.arrayBuffer()` → Promise<ArrayBuffer>
+/// `Blob.prototype.arrayBuffer()` → `Promise<ArrayBuffer>`
 /// (File API §3.2.5).
 fn native_blob_array_buffer(
     ctx: &mut NativeContext<'_>,

@@ -293,7 +293,7 @@ pub(crate) fn resolve_validated_prototype(
 /// algorithm (HTML §4.13.4 step 10 verifies the constructor extends
 /// HTMLElement).
 ///
-/// Bounded by the VM-wide [`coerce::PROTO_CHAIN_LIMIT`] — the same
+/// Bounded by the VM-wide [`PROTO_CHAIN_LIMIT`](crate::vm::coerce::PROTO_CHAIN_LIMIT) — the same
 /// cap used by property lookup, `instanceof`, and the canvas
 /// `ImageData` brand walk (`host/canvas/image_data.rs::prototype_chain_has_image_data`).
 /// Reusing the shared constant keeps brand-check surfaces consistent:

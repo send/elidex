@@ -11,7 +11,7 @@
 //! 1. [`native_fetch`] parses arguments, builds an
 //!    [`elidex_net::Request`], and calls
 //!    [`elidex_net::broker::NetworkHandle::fetch_async`] which
-//!    returns a [`elidex_net::FetchId`] immediately.
+//!    returns a `elidex_net::FetchId` immediately.
 //! 2. The Promise is created Pending and stored in
 //!    [`super::super::VmInner::pending_fetches`] keyed by `FetchId`.
 //!    If `init.signal` is set, the fetch_id is also pushed to
