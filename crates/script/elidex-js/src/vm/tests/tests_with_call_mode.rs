@@ -2,8 +2,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use super::super::value::CallMode;
-use super::super::value::JsValue;
+use super::super::value::{CallMode, JsValue};
 use super::super::Vm;
 
 /// D-17b-r1 Phase 0b/Phase 7 positive assertion: a panic inside
