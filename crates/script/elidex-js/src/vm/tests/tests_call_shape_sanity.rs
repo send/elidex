@@ -10,7 +10,7 @@
 //!   IsConstructor precondition).
 //! - [`Ordinary`] (Object): both bare-call and `new` succeed.
 //! - [`ConstructorOnly`] (Promise): bare-call throws the canonical
-//!   TypeError emitted at `vm/interpreter.rs::call_dispatch` (WebIDL
+//!   TypeError emitted at `vm/interpreter_call.rs::call_dispatch` (WebIDL
 //!   §3.7.1 (Interface object) creation algorithm step 1.2 + ECMA-262
 //!   §27.2.3.1 step 1); `new` returns a Promise instance.
 //! - [`IllegalConstructor`] (Crypto, FileList, …): BOTH bare-call and

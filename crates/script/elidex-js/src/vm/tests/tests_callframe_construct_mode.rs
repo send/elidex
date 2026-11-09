@@ -220,7 +220,7 @@ fn ensure_instance_or_alloc_call_always_allocates() {
 // `with_call_mode` boundary — panic-safety positive assertions
 // ---------------------------------------------------------------------------
 //
-// These mirror the regression tests in `vm/interpreter.rs::tests`
+// These mirror the regression tests in `vm/tests/tests_with_call_mode.rs`
 // (frame + value stack truncate-on-panic). Kept here too as the
 // public-API surface that future maintainers will reach for when
 // chasing CallMode regressions: this file is the one cross-linked
