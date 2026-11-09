@@ -1,4 +1,4 @@
-# Umbrella U0 — per-feature-profile build matrix (draft 5.1, 2026-11-09)
+# Umbrella U0 — per-feature-profile build matrix (draft 5.2, 2026-11-09)
 
 ## §0 Status
 
@@ -32,9 +32,9 @@ compile under `clippy -D warnings` and document under `rustdoc -D warnings` with
 link from any item, public or private, to an item the configuration compiles out is red) — **cfg hygiene**, of the
 code and of its docs (the two **compile columns**, §4.3). A row does not assert that the configuration is
 ES-complete, nor that the code is in the right layer (§2 I2, §8.1). Behaviour in the configuration — its tests and
-doc-tests, the two **test columns** — is PR-T's. A member's **test-only doc row** (§2 I2) is not a configuration: it
-runs the rustdoc column only, with the member's declared test-only features on, so that the code those features gate
-has a rustdoc reader too (PM 569).
+doc-tests, the two **test columns** — is PR-T's. A member's **doc row** (§2 I2) is not a configuration: it runs the
+rustdoc column only, with every feature of the member that some row turns on, plus the member's declared test-only
+features, so that the code those features gate has a rustdoc reader too (PM 569, PM 573).
 
 **Terminology.** In this memo a **feature profile** is a named set of Cargo features of one workspace member that the
 member declares as a supported configuration. It is not a Cargo *build* profile (`[profile.*]`, Cargo Book §3.5
@@ -87,7 +87,7 @@ Eight invariants; the pair table holds all 28 pairs.
   which returns it as `packages[].metadata` (Cargo Book §4.3.5 #json-format), always called with
   `--format-version 1` (§4.3.5: "It is recommended to include the --format-version flag"). A member's `default`
   feature set is its implicit `default` profile and needs no entry. Test-only features are declared in the same
-  table — by PR-M1, which reads them for the test-only doc rows (I2), and read by I5 from PR-M2a on. The prose
+  table — by PR-M1, which reads them for the doc rows (I2), and read by I5 from PR-M2a on (PM 573). The prose
   comments that describe profiles today become pointers to the declaration, not restatements.
 - **I2 — derived population; what a row asserts.** The rows are `workspace_members` (from `cargo metadata`) ×
   ({`default`} ∪ declared profiles) × OS legs. Never a list in YAML or a script. A row asserts cfg hygiene (§0) in
@@ -95,17 +95,27 @@ Eight invariants; the pair table holds all 28 pairs.
   constructors, §8.1), not layer correctness (§8.1), not behaviour (PR-T's). A member cannot opt its `default` out: a
   default that should not be a declared configuration is a feature-shape question (PM 498, ruled for elidex-js by PM 520), not a skipped row. An unparseable declaration, an
   unknown key, or a profile or `test-only` entry naming a feature the member does not have is red, never skipped.
-  **Test-only doc rows** (PM 569): each member whose `test-only` list is non-empty also gets one row with the
-  member's `default` plus that list (`-p <member> --features <test-only list>`), which runs the rustdoc column only.
-  Test-only features are never product (I5), so no row of the population above turns them on, and without this row
-  the code they gate would have no rustdoc reader once the `doc` job is retired (I6). It runs no clippy column (the
-  `check` job's `--all-features` clippy compiles that code, the test configuration) and no test column; it is not a
-  supported configuration, so I4 does not count its resolve and I5 does not apply to it (I5). Non-vacuity: the run
-  asserts it produced at least one row per workspace member, and one test-only doc row per member with a non-empty
-  `test-only` list.
+  **Doc rows** (PM 569, PM 573): each member also gets one **doc row**, which runs the rustdoc column only. Its
+  feature set is the union of (a) the member's `[features]` entries (as `cargo metadata` lists them) that are active
+  for that member in the resolve of some row of the population above — a row of any member, its `default` or a
+  declared profile — and (b) the member's declared `test-only` list; it is passed in the flag form a profile is
+  (I1×I3). The set is derived from those rows' own resolves (I3×I4), so nothing new is declared and the
+  declaration is still read in one place (I1). Why it exists: the rustdoc column documents only the row's member
+  (`--no-deps`, §4.3) under that row's flags, so without it two kinds of code would have no rustdoc reader once the
+  `doc` job is retired (I6) — code gated on a feature of the member that only another member's row turns on (a; at
+  the base, both `web-storage` features, §4.1), and code gated on a test-only feature, which no row turns on because
+  test-only features are never product (b; I5). The clippy column needs no such row: a row's clippy lints the
+  workspace path dependencies it compiles, at that row's resolved features, under `-D warnings` (§7 Q10, measured),
+  so (a)'s code is linted in the row that turns it on, and (b)'s by the `check` job's `--all-features` clippy (the
+  test configuration). It runs no test column either. **Emission** is I2×I3's de-duplication applied to it: when its
+  resolved feature set equals that of one of the member's rows, that row's rustdoc column already reads it, and the
+  run reports the doc row with that row. A feature that no row turns on and that is not test-only is in no doc row's
+  set — at the base, `elidex-style/parallel` (§10). It is not a supported configuration: I4 does not count its resolve
+  (I4) and I5 does not apply to it (I5). Non-vacuity: the run asserts it produced at least one row per workspace
+  member, and one doc row per member, run or reported as de-duplicated.
 - **I3 — isolation.** Every Cargo invocation of a row selects that row's member alone (`-p <member>`; named
   profiles via `--no-default-features --features <list>`), and no invocation selects two members; separate
-  invocations are what the Cargo Book names as the way to avoid cross-package unification (a test-only doc row too:
+  invocations are what the Cargo Book names as the way to avoid cross-package unification (a doc row too:
   `-p <member>` alone, I2). A row has one invocation per column, and its columns come in two pairs:
   - the **compile columns** (PR-M1) build lib + bin targets only — `clippy -- -D warnings` and
     `doc --no-deps --document-private-items` with `RUSTDOCFLAGS=-D warnings` (§4.3, PM 542 (1), PM 559). Under
@@ -129,8 +139,11 @@ Eight invariants; the pair table holds all 28 pairs.
   `cargo metadata` shows one (measured); the Cargo Book does not define the representation, and an explicit feature
   written `k = ["dep:k"]` would look the same — at `69fbe61f` no manifest writes one
   (`git grep -n '"dep:' 69fbe61f -- '*Cargo.toml'` → 1 line, `elidex-script-session`'s two-element `web-storage`).
-  Measured on each row's own resolve, never on the workspace resolve, and never on a test-only doc row's (I2): that
-  row turns test-only features on, and whatever they enable must not count as covered. This also makes every
+  Measured on each row's own resolve, never on the workspace resolve, and never on a doc row's (I2): that row turns
+  test-only features on, and whatever they enable must not count as covered; every other feature it turns on is
+  active in some row's resolve already (its set is derived from them), so counting it could add only what must not
+  count — what test-only features enable, or what only the doc row's combination enables (a `?/` value whose
+  dependency another feature of its set pulls in), which no supported configuration has. This also makes every
   unclassified feature that no row activates red.
 - **I5 — forbidden and unknown features (fail-safe).** Each feature of a workspace member is classified from
   `cargo metadata` (manifest data, exact): **product** = reachable from some member's declared profiles (its
@@ -147,9 +160,16 @@ Eight invariants; the pair table holds all 28 pairs.
   failure, an output with no feature nodes (the non-vacuity check `scripts/check-fixture-boundary.sh:23-28` does
   today), or a line the reader cannot parse is red. It asserts what Cargo's resolver reports as activated for that
   row's compile columns' invocations; the row's compile (I3) remains the authority for what builds. **I5 does not
-  apply to a test-only doc row** (I2): its test-only features are on by design, and what reaches it through a normal
-  edge is what the member's `default` row already reads; a feature enabled only through a test-only feature's
-  definition is active in no row's resolve, so I4 is red on it unless it is declared test-only. **I5 does not
+  apply to a doc row** (I2, PM 573), not even with its test-only features excluded, because each of I5's three rules
+  there is either a false red or a re-check: (1) an active test-only feature is the doc row's purpose (I2 (b)), so
+  that rule is red on every doc row with one; (2) declared absences belong to a profile, and a doc row is no profile:
+  its set is the union of what rows of different profiles turn on, so a profile's absence can be active in it by
+  construction — `elidex-storage-core`'s doc row turns `web-storage` on because the browser row does, while the App
+  row forbids it, and both hold (I4×I5); (3) under the unknown rule, a feature active in a doc row is either active in
+  some row's resolve, where I5 already reads it, or reached only through `[features]` definitions from the doc row's
+  set (a test-only feature's, or a `?/` value whose dependency another feature of the set pulls in), which makes it
+  active in no row's resolve, so I4 is red on it unless a row covers it or it is declared test-only. Nothing is left
+  unchecked. **I5 does not
   apply to the test columns** (PR-T): a test build turns on the member's own dev edges by design (I3), so a test-only
   feature active there (`elidex-ecs/fixtures`) is the intended case, and reading the test build's resolve would be
   red on every member with a `fixtures` dev-dependency (the false red of I3×I5). Applying it with dev edges excluded
@@ -163,9 +183,9 @@ Eight invariants; the pair table holds all 28 pairs.
   吸収して同じ PR で廃止"); the `doc` job and its local mirrors are retired in the same PR on the same line (PM 559);
   `scripts/check-fixture-boundary.sh` is absorbed into I5 (PR-M2a). The `check` job's `--all-features` steps stay:
   they are the test configuration (dev-only features on, `--all-targets`), a different property. Of what the `doc`
-  job read under `--all-features`, the code gated on test-only features is read by the test-only doc rows (I2,
-  PM 569), in the same rustdoc column; `elidex-style/parallel`'s is not read until PR-A2, and code gated on a
-  feature that only another member's profile turns on is read by no row (both §10).
+  job read under `--all-features`, the code gated on test-only features, and a member's code gated on a feature that
+  only another member's row turns on, are read by the doc rows (I2, PM 569, PM 573), in the same rustdoc column;
+  `elidex-style/parallel`'s is not read until PR-A2 (§10).
 - **I7 — CI shape, parity, cost.** A dedicated job `feature-profiles` (NEW) on the same three OS as `check`, rows
   (every column the job runs at that point) run serially inside one entry point; `mise run check-profiles` (NEW)
   runs the same entry point (host OS only); `timeout-minutes` derived from the job's own run, every column included
@@ -184,10 +204,10 @@ Eight invariants; the pair table holds all 28 pairs.
 | I1×I7 | The declaration lives in `Cargo.toml` files, already inside ci.yml's `rust` path filter (`ci.yml:34-48`, `crates/**`). |
 | I1×I8 | Declaring a profile adds rows on three OS; the declaring PR owns their green. |
 | I2×I3 | Population × isolation = invocation count = cost; the only permitted reduction is de-duplicating rows whose (member, resolved feature set, OS) is identical, computed per run, never listed. De-duplication is not a skip: the configuration is still compiled and documented, once, and the run reports the de-duplicated row with the row whose result it shares, so a redundant declaration stays visible. |
-| I2×I4 | Completeness is only as strong as the population; the non-vacuity assertion (≥ 1 row per member) stops a silently shrinking derivation from making I4 vacuous. Test-only doc rows are outside I4's count (I4), so they cannot satisfy it either. |
+| I2×I4 | Completeness is only as strong as the population; the non-vacuity assertion (≥ 1 row per member) stops a silently shrinking derivation from making I4 vacuous. Doc rows are outside I4's count (I4), so they cannot satisfy it either. |
 | I2×I5 | Forbidden checks run per row on each OS leg; `cargo tree`'s `--target` defaults to the host platform (Cargo Book §4.3.8 #option-cargo-tree---target), so the three legs see three hosts' target-specific edges (the fixture script today sees one host per leg too, but through a workspace union). |
 | I2×I6 | The workspace-union configuration is not a row (§4.2 says what that gives up). |
-| I2×I7 | Row count (test-only doc rows included) × three legs drives the timeout; a PR adding members or profiles re-derives it (§4.3). |
+| I2×I7 | Row count after de-duplication (doc rows included) × three legs drives the timeout; a PR adding members or profiles re-derives it (§4.3). |
 | I2×I8 | The census (C0, §7) is the population evaluated on the base before PR-M1; PR-M1's own three-OS run is the land-green evidence. |
 | I3×I4 | Each row's resolve is read from that row's own invocation (`cargo tree -p <member> -e normal,build,features` with the row's feature flags); reading the workspace resolve (`cargo metadata`'s `resolve` is "for the entire workspace", §4.3.5 #json-format) would re-hide what unification hides. |
 | I3×I5 | Same reader. Edge kinds are explicit: `cargo tree`'s default is `normal,build,dev` (§4.3.8 #option-cargo-tree---edges), and `-e features` alone adds the other kinds; measured on the pinned 1.99.1: `cargo tree -p elidex-js --features engine,compat-webapi -e features` is byte-identical to `-e normal,build,dev,features` and contains an `elidex-ecs feature "fixtures"` node (dev edge), `-e normal,build,features` contains none — so a row reading `-e features` would be falsely red on every member with a `fixtures` dev-dependency. The fixture script already uses `-e normal,build,features` (`scripts/check-fixture-boundary.sh:17`). The same fact is why I5 reads the compile columns' resolve only and does not apply to the test columns (I5). |
@@ -203,7 +223,7 @@ Eight invariants; the pair table holds all 28 pairs.
 | I5×I8 | At PR-M2a's base the App row must satisfy both A2 absences (census C0 includes it), and no active feature may be unknown. At `69fbe61f` no member's dependency declaration or `[features]` value names another member's implicit feature, and `engine` lists all 25 of `elidex-js`'s implicit features (`cargo metadata --no-deps --format-version 1`, `packages[].dependencies[].features` and `packages[].features`; 26 implicit features in total by I4's counting rule: `elidex-js` 25, `elidex-style` `rayon`)
 , so the unknown rule is green there by measurement of the manifests; C0 confirms it on the resolves. |
 | I6×I7 | `[tasks.ci]` (`mise.toml:142`) replaces `check-default` and `doc` with `check-profiles` in the same PR. |
-| I6×I8 | Retiring #585's step and the `doc` job and adding the rows, test-only doc rows included, are one PR: no commit on `main` has neither, or both. That is why the `test-only` declaration is PR-M1's (I1): with it in PR-M2a, the code gated on test-only features would have no rustdoc reader from PR-M1 to PR-M2a. |
+| I6×I8 | Retiring #585's step and the `doc` job and adding the rows, doc rows included, are one PR: no commit on `main` has neither, or both. That is why the `test-only` declaration is PR-M1's (I1, PM 573): with it in PR-M2a, the code gated on test-only features would have no rustdoc reader from PR-M1 to PR-M2a. |
 | I7×I8 | PR-M1's own three-OS run is both its land-green evidence and its timeout measurement. |
 
 ## §3. Spec coverage map
@@ -225,7 +245,7 @@ holds an anchor id, "Branch" the behaviour the design relies on.
 | Cargo Book §3.3.3 Dependency Resolution | #features | `--workspace` / several `-p` unify; separate invocations do not | I3, I6 (#585's step is a union) | ✓ | no |
 | Cargo Book §3.4 Features | #feature-resolver-version-2 | dev-dependencies activate no feature for lib/bin targets, and do for a target that needs them (tests) | I3 (compile vs test columns), I5 (not on test columns) | ✓ | no |
 | Cargo Book §3.1.1 Cargo Targets | #the-required-features-field | "If any of the required features are not enabled, the target will be skipped" | PR-T acceptance (exclusion paths) | ✓ | no |
-| Cargo Book §3.4 Features | #resolver-version-2-command-line-flags | `--features` / `--no-default-features` apply to the `-p` selection | row invocation shape; the test-only doc row's `--features` on top of `default` (I2) | ✓ | no |
+| Cargo Book §3.4 Features | #resolver-version-2-command-line-flags | `--features` / `--no-default-features` apply to the `-p` selection | row invocation shape, the doc row's included (I2) | ✓ | no |
 | Cargo Book §3.4 Features | #optional-dependencies | an optional dep without `dep:` defines an implicit feature | I4 population, I5 unknown rule | ✓ | no |
 | Cargo Book §3.4 Features | #feature-combinations | full coverage is exponential; the book encourages each project to choose its configurations | I1/I2 (declared profiles, not a powerset) | ✓ | no |
 | Cargo Book §3.1 The Manifest Format | #the-metadata-table | `package.metadata` "completely ignored by Cargo", for tools | I1 (declaration home) | ✓ | no |
@@ -262,8 +282,9 @@ PM 536 (ordering against Python-pin PR-2, citation form), PM 255 / PM 261 / PM 2
 PM 542 (rustdoc column, per-profile doc-tests), PM 543 / PM 545 (PR-A1′ acceptance, the PR-A2 and PR-A3… owners,
 the guard slot's narrowing), PM 547 / PM 559 (§5's form), PM 558 (pre-matrix three-OS evidence), PM 559 / PM 560 /
 PM 561 (the rustdoc column's private items, the `doc` job, the PR-D… prereq), PM 562 (PR-T0…, PR-A3′, the test
-columns), PM 564 (no per-PR design in U0; PR-T's expected values), PM 569 (the test-only doc rows, PR-A2's stop
-rule and deadline, `#11-no-engine-eventtarget-stubs-nonconforming`).
+columns), PM 564 (no per-PR design in U0; PR-T's expected values), PM 569 (rustdoc coverage of test-only code in
+the matrix, PR-A2's stop rule and deadline, `#11-no-engine-eventtarget-stubs-nonconforming`), PM 573 (the
+`test-only` declaration is PR-M1's; one doc row per member).
 
 
 ### §3.1 User-input touch audit
@@ -278,7 +299,7 @@ code fixes PR-A* make (whose own plans run this audit).
 - **Declaration**: `[package.metadata.elidex.feature-profiles]` (NEW) in the member's own `Cargo.toml`, next to its
   `[features]`. One entry per named profile: its feature list and, optionally, its declared absences (I5); plus one
   `test-only` list of the member's test-only features. Exact TOML schema is PR-M1's plan (PR-M1 adds the `test-only`
-  key, which its test-only doc rows read, I2 and I6×I8; PR-M2a adds the absence key). Co-location is the reason: the
+  key, which its doc rows read, I2 and I6×I8, PM 573; PR-M2a adds the absence key). Co-location is the reason: the
   features and their supported combinations change in the same diff,
   and a workspace-level table would be a second place a feature author must remember.
 - **What gets declared at the base** (by PR-M1):
@@ -293,9 +314,20 @@ code fixes PR-A* make (whose own plans run this audit).
     {web-storage}, elidex-storage-core {web-storage}, elidex-net {test-hooks}, elidex-style {parallel, rayon},
     elidex-js) need no named profile: both `web-storage` features are product through `elidex-js`'s browser profile
     (`compat-webapi`'s `"…?/web-storage"` values, I5), and `fixtures` / `test-hooks` are test-only: PR-M1 declares
-    them so, which gives `elidex-ecs` and `elidex-net` one test-only doc row each (I2). Each of the two members has
-    no other feature, so its test-only doc row is the member's whole `[features]` on — the same set of the member's
-    own features the `doc` job's `--all-features` turns on.
+    them so (PM 573). The doc rows (I2) that this gives, at `69fbe61f`: `elidex-ecs` {`fixtures`} and `elidex-net`
+    {`test-hooks`} by (b); `elidex-storage-core` {`web-storage`} and `elidex-script-session` {`web-storage`} by (a),
+    each on in two rows' resolves, `elidex-js`'s browser row and `elidex-shell`'s `default` row (which enables
+    `elidex-js`'s `engine` + `compat-webapi`, `crates/shell/elidex-shell/Cargo.toml:31`). None of the four members has
+    another feature, so each doc row is the member's whole `[features]` on — the same set of the member's own
+    features the `doc` job's `--all-features` turns on. Every other member's doc row is de-duplicated (I2×I3):
+    `elidex-js`'s set equals its browser row's, `elidex-style`'s is empty (`parallel` and `rayon` are on in no row),
+    and a member with no feature has only its `default`. Measured by reading, for each of the 56 rows (54 `default`
+    rows, `app`, `browser`), `cargo tree -p <member> <row flags> -e normal,build -f '{p} {f}' --prefix none` (each
+    package's activated features) and keeping, per member, the entries of its `cargo metadata --no-deps
+    --format-version 1` `features` keys. The `-f '{f}'` reading, not the `feature "…"` nodes of `-e features`: the
+    browser row's `cargo tree -p elidex-js --no-default-features --features engine,compat-webapi -e
+    normal,build,features --prefix none` has no `elidex-storage-core feature "web-storage"` node, while
+    `-i elidex-storage-core` on the same flags shows it active.
 - **Derivation**: at run time, by one tracked entry point that reads `cargo metadata --format-version 1`
   (`workspace_members`, `packages[].metadata.elidex`, `packages[].features`), emits the rows, and runs them serially.
   No row list is ever checked in (ci.yml carries no per-row YAML). **Implementation home**: PR-M1's plan's choice,
@@ -376,16 +408,16 @@ are what that review is asked to confirm.
   (`cargo doc` with no target selection "will document all binary and library targets of the selected package",
   Cargo Book §4.2.6 #target-selection); `--document-private-items` ("Include non-public items in the
   documentation", §4.2.6 #option-cargo-doc---document-private-items) makes a private item's broken doc link red
-  too, which is what §0 asserts. A test-only doc row (I2) runs this column alone, with the same flags. This column is
+  too, which is what §0 asserts. A doc row (I2) runs this column alone, with the same flags. This column is
   the only place rustdoc is checked (PM 559): it is in this matrix,
   not a second job, because a second job would be a second reader of the declaration and a second place deciding
   rustdoc's flags (One issue, one way). Per-profile doc-tests run code, so they are PR-T's test columns.
 - **The `doc` job** (`ci.yml:120-136`, `--all-features`, Ubuntu) and its local mirrors (mise `doc`, `doc-full`,
   `scripts/doc-changed.sh`; `mise.toml:52-81`) are absorbed into the rustdoc column and retired in PR-M1, on the
   line PM 501 (ii) drew for #585's step ("#585 の step を matrix に吸収して同じ PR で廃止"; PM 559). Code gated
-  on a test-only feature is not a reason to keep it (PM 569): the test-only doc rows read it in the rustdoc column
-  (I2). `elidex-style/parallel`'s code stays unread until PR-A2, a §10 gap with PR-A2's deadline; §10 also states the
-  code gated on a feature that only another member's profile turns on, which no row's rustdoc reads (open, for PM).
+  on a test-only feature, or on a feature of a member that only another member's row turns on, is not a reason to
+  keep it (PM 569, PM 573): the doc rows read it in the rustdoc column (I2). `elidex-style/parallel`'s code stays
+  unread until PR-A2, a §10 gap with PR-A2's deadline.
   The private-item warnings the flag turns red at the base are fixed before PR-M1 by the PR-D… prereq (§6,
   PM 560 (a)).
 - **OS legs**: `ubuntu-latest`, `macos-latest`, `windows-latest`, `fail-fast: false` — the same set as `check`
@@ -402,7 +434,7 @@ are what that review is asked to confirm.
   raise-only rule is program-scoped ("raise-only for the program, PM 353", `ci.yml:267`; #586's plan §7), not a general rule. The `check` job's `timeout-minutes: 20`
   (`ci.yml:60`) is not touched.
 - **Cost**: unmeasured (Q8). Each row is an incremental clippy plus a `--no-deps --document-private-items` rustdoc of
-one member (a test-only doc row, the rustdoc only), whose
+one member (a doc row, the rustdoc only), whose
   dependency artifacts are shared whenever the feature set matches (PR-M1 measures that reuse, I3×I7); only members
   whose resolve differs from rows already built pay. PR-M1's plan measures it on the census; it is judgment input,
   not a reason to shrink the population (I2).
@@ -540,8 +572,8 @@ parser-only consumer appears") had fired: `elidex-shell` depends on `elidex-js` 
 | **PR-A3…** | Per row of C0's list (PM 545 P1): the lane owning the module, if that lane has a driver (L3 / Layout / VM P4 files stay with their lane); CI/tools if it has none — gate fixes only, a site needing another fix kind returns to PM, and the site list is recorded via PM | One PR per owner. Fix kinds (a)/(b)/(c) and contracts (1)–(2) of the PR-A1 hand-off, read in the member's own terms; (a)'s destination is the place the Layering mandate, or the crate's own existing feature/non-feature seam, assigns in that crate, chosen by the PR's own plan. **Stop rule**: a site that needs a fix kind its owner may not apply — for CI/tools anything but a gate fix, for every owner (c) — is not fixed: it is named in the PR body and returned to PM, and the rest of the PR proceeds. | Same form as PR-A1: relative to C0's named diagnostics, both compile columns, three OS by the pre-matrix evidence (below), each fix listed with its kind. A returned-to-PM site does not land open: the PR-A3… lands only after PM has ruled on it and the ruling is applied — in that PR-A3… if PM names it, otherwise in PR-A3′, which lands first. **Deadline**: when PR-M1's implementation is ready (§4.4 step 4), the driver raises to PM every returned site still without an applied ruling; PM's ruling names the applying PR and a date, and that date bounds PR-M1's wait for the row — PR-M1 never lands over a red row (I8). | C0 |
 | **PR-A3′, PR-T0′** | Named by PM | Exist only if PM rules a site that a PR-A3… (→ PR-A3′) or a PR-T0… (→ PR-T0′) returned and names a PR other than the returning one to apply it. Apply that ruling — for PR-T0′, a behaviour fix of a subject or of a test (PM 562). PR-A1′'s shape. | Relative, so it can land before the returning PR (PM 336, PM 543): the returned site's diagnostic, or its failing test, is gone in its row, and the member's other rows gain no diagnostic in any column the PR runs, on three OS by the pre-matrix evidence (below). | PM's ruling; landed by the date that ruling sets (PR-A3…'s deadline) |
 | **PR-D…** (private-doc prereq) | One per lane, by file (PM 560 (a), PM 561; PM 545 P1's rule): L3 136, VM P4 81, Layout 2, CI/tools 58 — CI/tools takes the files of lanes with no driver, doc-comment fixes only, and sends any behaviour judgment to PM | Fix-only: one standalone, doc-comment-only PR per lane that makes the private-item rustdoc warnings in the lane's files go away (population below), so that PR-M1's rustdoc column lands with `--document-private-items` on (PM 560 (a)). L3's `vm/host/document.rs` share lands after Layout's C1-pre (PM 561). | The lane's entries of the population, re-measured on the PR's own base, are gone; the diff touches doc comments only (`///`, `//!`); a site whose fix is not a doc-comment edit is named in the PR body and returned to PM, not fixed here. | none; deadline = when PR-M1's implementation is ready (PM 561); a PR-D… not landed then is raised to PM (§4.4 step 4) |
-| **PR-M1** | CI/tools | Declaration (I1) for the base, the `test-only` lists included (`elidex-ecs` `fixtures`, `elidex-net` `test-hooks`; §4.1, I6×I8); the deriver (entry point inside the `rust` filter, §4.1); job `feature-profiles` on three OS, each row run in the two compile columns, `clippy -D warnings` and `rustdoc --document-private-items -D warnings` (I3, PM 542 (1), PM 559), and each test-only doc row in the rustdoc column (I2, PM 569), which resolves `#11-private-intra-doc-links-unchecked` (§8); `mise run check-profiles`; retire #585's step and `check-default`, and the `doc` job and its local mirrors (mise `doc` / `doc-full`, `scripts/doc-changed.sh`) (I6, §4.3; PM 559), and replace them at every instruction-file site that names them — at `69fbe61f` (`git grep -n 'check-default'`; `git grep -n -e 'default-features clippy' -e 'clippy --workspace -- -D warnings' -- ':!docs/plans'`; `git grep -n -e 'doc-full' -e 'mise run doc' -e 'doc-changed' -e 'cargo doc --workspace' -- ':!docs/plans' ':!crates'`): `.claude/skills/pre-push/SKILL.md:28`, `:30`, `:34` (`:34`'s serial fallback would otherwise call deleted tasks and skip the rows), `.claude/skills/external-review/project.md:17`, `.claude/skills/external-converge/project.md:13`, `README.md:85`, `CONTRIBUTING.md:46`, `:54`, `:55`, and the comment at `scripts/trip-wires.sh:12-13` that cites `[tasks.doc]`'s delegation as its precedent, re-grepped on PR-M1's own base. Each of these lists what CI or `mise run ci` runs (CONTRIBUTING.md's `## CI` list is `:50-58`), so deleting the entry would leave the list incomplete: each names `check-profiles` / `feature-profiles` in its place — the #585 precedent (PM 262 "[1] 3 more instruction-file places"; PM 265 fixed them in the same PR); rewrite the fixture step's comment and the profile prose in the three Cargo.toml comments into pointers (incl. the stale `crates/script/elidex-js/Cargo.toml:20-22`, §9); timeout derived from its run, both columns included. CLAUDE.md needs no edit: its `## CI` lists no jobs (CLAUDE.md:93-95) and it names no `check-default`. | Every row green in both compile columns, and every test-only doc row green in the rustdoc column, on the PR's own three-OS run; the run produced ≥ 1 row per workspace member and one test-only doc row per member with a non-empty `test-only` list (I2); three controls, each a scratch commit recorded in the PR body and not merged: one that breaks one profile only (e.g. an ungated engine-only import) turns exactly that row's clippy column red while `check` stays green, and one that adds, to a private item's doc comment, an intra-doc link to an item one profile compiles out turns exactly that row's rustdoc column red while every other row's rustdoc column stays green; and one that adds, to the doc comment of an item gated on a test-only feature, an intra-doc link to an item that exists in no configuration turns exactly that member's test-only doc row red while every declared row stays green (the declared rows compile that item out, so the test-only doc row is its only rustdoc reader); the greps above return no live instruction site naming a retired step, job or task; the merged deriver has no mode that skips a row or reports a red row as green (C0's report-only setting is never merged, §7), and a de-duplicated row is reported with the row whose result it shares (I2×I3). | every row-fixing PR (PR-A1, PR-A1′, PR-A3…, PR-A3′); every PR-D… (PM 560 (a)); Python-pin PR-2 (PM 536) |
-| **PR-M2a** | CI/tools (consult: Layout lane for the fixture script, A2 owner for the absence) | I5: per-profile absence declarations (App: both `web-storage` features), reading the `test-only` declarations PR-M1 made; the classification and the forbidden / unknown checks per row with `-e normal,build,features`; absorb and delete `scripts/check-fixture-boundary.sh` (+ step, filter line); discharge remedies (i)–(iii) of `#11-test-only-feature-boundary-guard`, which stays open narrowed to (iv) (§4.2, §8; PM 545 P2). | Controls, each recorded: a normal edge enabling `fixtures` → red; `elidex-storage-core/web-storage` reached in the App row → red, and `elidex-script-session/web-storage` likewise; an undeclared implicit optional-dependency feature enabled from a normal edge (the slot's `foo-test-support`) → red; a `cargo tree` output with no feature node → red; the `fixtures` dev edges of the base → green. Timeout re-derived. | PR-M1 |
+| **PR-M1** | CI/tools | Declaration (I1) for the base, the `test-only` lists included (`elidex-ecs` `fixtures`, `elidex-net` `test-hooks`; §4.1, I6×I8, PM 573); the deriver (entry point inside the `rust` filter, §4.1); job `feature-profiles` on three OS, each row run in the two compile columns, `clippy -D warnings` and `rustdoc --document-private-items -D warnings` (I3, PM 542 (1), PM 559), and each member's doc row in the rustdoc column (I2, PM 569, PM 573), which resolves `#11-private-intra-doc-links-unchecked` (§8); `mise run check-profiles`; retire #585's step and `check-default`, and the `doc` job and its local mirrors (mise `doc` / `doc-full`, `scripts/doc-changed.sh`) (I6, §4.3; PM 559), and replace them at every instruction-file site that names them — at `69fbe61f` (`git grep -n 'check-default'`; `git grep -n -e 'default-features clippy' -e 'clippy --workspace -- -D warnings' -- ':!docs/plans'`; `git grep -n -e 'doc-full' -e 'mise run doc' -e 'doc-changed' -e 'cargo doc --workspace' -- ':!docs/plans' ':!crates'`): `.claude/skills/pre-push/SKILL.md:28`, `:30`, `:34` (`:34`'s serial fallback would otherwise call deleted tasks and skip the rows), `.claude/skills/external-review/project.md:17`, `.claude/skills/external-converge/project.md:13`, `README.md:85`, `CONTRIBUTING.md:46`, `:54`, `:55`, and the comment at `scripts/trip-wires.sh:12-13` that cites `[tasks.doc]`'s delegation as its precedent, re-grepped on PR-M1's own base. Each of these lists what CI or `mise run ci` runs (CONTRIBUTING.md's `## CI` list is `:50-58`), so deleting the entry would leave the list incomplete: each names `check-profiles` / `feature-profiles` in its place — the #585 precedent (PM 262 "[1] 3 more instruction-file places"; PM 265 fixed them in the same PR); rewrite the fixture step's comment and the profile prose in the three Cargo.toml comments into pointers (incl. the stale `crates/script/elidex-js/Cargo.toml:20-22`, §9); timeout derived from its run, both columns included. CLAUDE.md needs no edit: its `## CI` lists no jobs (CLAUDE.md:93-95) and it names no `check-default`. | Every row green in both compile columns, and every doc row green in the rustdoc column, on the PR's own three-OS run; the run produced ≥ 1 row per workspace member and one doc row per member, run or reported as de-duplicated (I2); three controls, each a scratch commit recorded in the PR body and not merged: one that breaks one profile only (e.g. an ungated engine-only import) turns exactly that row's clippy column red while `check` stays green, and one that adds, to a private item's doc comment, an intra-doc link to an item one profile compiles out turns exactly that row's rustdoc column red while every other row's rustdoc column stays green; and one that adds, to the doc comment of an item gated on a test-only feature and to that of an item gated on a feature only another member's row turns on (e.g. `elidex-storage-core/web-storage`), an intra-doc link to an item that exists in no configuration turns exactly those two members' doc rows red while every other row stays green (each member's own rows compile those items out, so its doc row is their only rustdoc reader); the greps above return no live instruction site naming a retired step, job or task; the merged deriver has no mode that skips a row or reports a red row as green (C0's report-only setting is never merged, §7), and a de-duplicated row is reported with the row whose result it shares (I2×I3). | every row-fixing PR (PR-A1, PR-A1′, PR-A3…, PR-A3′); every PR-D… (PM 560 (a)); Python-pin PR-2 (PM 536) |
+| **PR-M2a** | CI/tools (consult: Layout lane for the fixture script, A2 owner for the absence) | I5: per-profile absence declarations (App: both `web-storage` features), reading the `test-only` declarations PR-M1 made (PM 573); the classification and the forbidden / unknown checks per row with `-e normal,build,features`; absorb and delete `scripts/check-fixture-boundary.sh` (+ step, filter line); discharge remedies (i)–(iii) of `#11-test-only-feature-boundary-guard`, which stays open narrowed to (iv) (§4.2, §8; PM 545 P2). | Controls, each recorded: a normal edge enabling `fixtures` → red; `elidex-storage-core/web-storage` reached in the App row → red, and `elidex-script-session/web-storage` likewise; an undeclared implicit optional-dependency feature enabled from a normal edge (the slot's `foo-test-support`) → red; a `cargo tree` output with no feature node → red; the `fixtures` dev edges of the base → green. Timeout re-derived. | PR-M1 |
 | **PR-M2b** | CI/tools | I4 completeness per row; closes `#11-test-only-feature-boundary-guard` (its remaining remedy (iv), PM 545 P2). | Controls, each recorded: a feature no row activates → red (incl. an implicit one); the browser row covering both `web-storage` features while App forbids them → green. Timeout re-derived. | PR-M2a, PR-A2 or PR-A2′ |
 | **PR-T0…** (fix-first) | By file, PR-A3…'s owner rule (PM 545 P1): the owning lane if it has a driver; CI/tools if not — test-gate fixes only, any behaviour fix returns to PM (PM 562) | Every test PR-T's Q7 census finds red in a row that compiles the test's subject, in one of two cases: (1) the test compiles there and fails — a behaviour defect, of the subject or of the test, judged against PR-T's expected-value rule; (2) the subject compiles there but the test does not (it names an item the profile compiles out — e.g. a `#[cfg(test)]` helper that takes an engine-only type, Q7): the test is gated in place or rewritten to name only what its configuration compiles (kind (b), applied to test code), never excluded, because its subject is in the profile. A test whose subject the row compiles out is not here: PR-T excludes it under its exclusion rule. One PR per owner; stop rule as PR-A3…'s. | Each test the census names compiles and passes in its row on three OS by the pre-matrix evidence (below); each fix is listed with its case (1)/(2) and, for (1), whether the subject or the test was wrong and by which authority. A returned site does not land open: it is applied in PR-T0′, under PR-A3…'s deadline rule with PR-T in place of PR-M1. | PR-T's Q7 census |
 | **PR-T** | CI/tools (the test columns in the job and the entry point); test gating and exclusions per file by PR-A3…'s owner rule (PM 545 P1) | Defect: a non-full profile's own behaviour is executed by no test in that profile — in the `default` row the no-engine `EventTarget` method stubs (`vm/host/event_target.rs:82`, `:529`, `:633`) and the unhandled-rejection fallback (`vm/natives_promise.rs:632`); in the `app` row the compat ceiling with `compat-webapi` off (`vm/init.rs:184-185`). Run each declared row's tests and doc-tests under that row's flags — the two test columns (I3; per-profile doc-tests are PR-T's, PM 542 (1)); its plan first runs the test-target census (Q7). **Expected values come from the governing spec, never from the configuration's current behaviour** (PM 564): `addEventListener` / `removeEventListener` from DOM §2.7 Interface EventTarget ("add an event listener" step 5 appends the listener to the event listener list; `.claude/tools/webref dfn dom 'add an event listener'`), `dispatchEvent` from its method steps, which return "the result of dispatching" — false only if the event's canceled flag is set (DOM §2.9 Dispatching events, step 13) — and the unhandled-rejection path from ECMA-262 HostPromiseRejectionTracker (host-defined; "The default implementation of HostPromiseRejectionTracker is to return unused", so a host-less configuration owes script no observable report, and the fallback's stderr line is not asserted). The no-engine `EventTarget` stubs do not meet DOM §2.7 (`addEventListener` records nothing; `dispatchEvent` returns `false` for an event nobody canceled): that defect is `#11-no-engine-eventtarget-stubs-nonconforming` (VM P4, §8). PR-T names it; its tests stay red against the stubs until a PR-T0′ applies PM's ruling — which may also be that the no-engine configuration does not expose `EventTarget` at all (the split's question, §8) — and are never made green by asserting the stubs. A test that fails in a profile goes to PR-T0…. | Every declared row's test targets compile and pass, and its doc-tests pass, under the row's flags on three OS, run by the same entry point (per row one `cargo nextest run -p <member>` and one `cargo test -p <member> --doc`); per row, the executed-test count is > 0 for every member whose `--all-features` run has tests, and every test target of the member is either built in the row or named as excluded, so a silently skipped target is red (non-vacuity). **Exclusion paths**: a test may be excluded from a profile only when its subject is compiled out of that profile, by a `cfg` on the test or by a `[[test]]` target's `required-features` (Cargo skips such a target without a diagnostic, Cargo Book §3.1.1 #the-required-features-field; 0 `[[test]]` targets use it at `69fbe61f`, `git grep -n -B3 'required-features' 69fbe61f -- '*Cargo.toml'` shows only two `[[bench]]`s), each named in the PR body with its mechanism and the cfg that removes its subject. A doc-test fence's `ignore` / `no_run` is not a per-profile exclusion — it removes the example from every configuration — so PR-T and PR-T0… add none (base: 10 `ignore`, 0 `no_run`; `` git grep -n -P '```[a-z_0-9,]*ignore' 69fbe61f -- crates | wc -l ``, and the same with `no_run`). No test is skipped by name; the Q7 census is in the PR body. Timeout re-derived; the test columns' artifact reuse measured (I3×I7). | PR-M2b (PM 501 (iv), PM 559); every PR-T0… and PR-T0′ |
@@ -567,12 +599,15 @@ Re-run: `run.sh` then `agg.py` in `elidex-pm-trial/handoff/ci-tools-u0/r2-run/r3
 row, where rustdoc stops at E0432 `elidex_plugin::EngineMode` (`vm/init.rs:11`, the §9 diagnostic;
 `cargo doc -p elidex-js --no-deps --document-private-items`) — re-measured after PR-A1, and each increment is split
 by the same owner rule (PM 561); and Linux / Windows, whose `cfg(target_os)` items C0's rustdoc column reaches —
-sites found there are split the same way. The two test-only doc rows (I2) add nothing to it: measured separately on
-the same code and toolchain, `cargo doc -p elidex-ecs --no-deps --document-private-items --features fixtures
---message-format=json` reports 12 distinct (file, line, message) warnings and the same with `-p elidex-net
---features test-hooks` reports 3, each set identical to that member's entries in `list-lanes.tsv`
-(`grep -c 'crates/core/elidex-ecs/' list-lanes.tsv` → 12; the same with `crates/net/elidex-net/` → 3), which are
-already in CI/tools' share. So for the rustdoc column, every row (test-only doc rows included) but
+sites found there are split the same way. The four doc rows that are not de-duplicated (I2, §4.1) add nothing to
+it: measured separately on the same code and toolchain, `cargo doc -p elidex-ecs --no-deps --document-private-items
+--features fixtures --message-format=json` reports 12 distinct (file, line, message) warnings, the same with
+`-p elidex-net --features test-hooks` reports 3, with `-p elidex-storage-core --features web-storage` 1 and with
+`-p elidex-script-session --features web-storage` 2, each set identical to that member's entries in
+`list-lanes.tsv` (`grep -c 'crates/core/elidex-ecs/' list-lanes.tsv` → 12; the same with `crates/net/elidex-net/`
+→ 3, `crates/storage/elidex-storage-core/` → 1, `crates/script/elidex-script-session/` → 2), which are already in
+its owners' shares (CI/tools for the first three members, VM P4 for `elidex-script-session`; the `lane` column). So
+for the rustdoc column, every row (doc rows included) but
 `elidex-js`'s `default` has been measured on one OS; the clippy column has been measured only for `elidex-js`'s three
 rows (§9, §7).
 
@@ -618,7 +653,7 @@ the slice.
 **C0** (measurement, not a PR; permitted by PM 501, "空き 50G を切ったら止める" — it stops when free disk falls under
 50 GB): on the base PR-M1 will be cut from, every row of §4.1's declaration, on macOS locally and on Linux/Windows
 through a draft CI run of PR-M1's branch, both compile columns (§4.3, the rustdoc column with
-`--document-private-items`) and each test-only doc row's rustdoc column (I2); plus I4/I5 over each row's resolve.
+`--document-private-items`) and each doc row's rustdoc column (I2); plus I4/I5 over each row's resolve.
 Report-only is a setting of that unmerged draft run (e.g. `continue-on-error` on a scratch commit), never a flag of
 the tracked deriver. Output: the
 red rows with their diagnostics → the PR-A3… list, each row with its owning lane and whether that lane has a driver
@@ -627,7 +662,8 @@ beyond the PR-D… population go to the owning lane's PR-D… by the same rule. 
 been measured only on elidex-js's three rows (§9) — **1 of 54 members** — and the rustdoc column on every row but
 elidex-js's `default`, on macOS only (§6, PR-D… population).
 
-Questions (for scout / PM; Q3 and Q5 are retired by PM 520 and Q4 is answered, kept so the numbering holds):
+Questions (for scout / PM; Q3 and Q5 are retired by PM 520, and Q4 and Q10 are answered, kept so the numbering
+holds):
 
 - **Q1** C0 itself (above).
 - **Q2** (PM) Where PR-A1 (F1-b shape, §6) sits in the VM P4 lane's queue (guard memo, S1, call-depth guard, …), and
@@ -648,9 +684,19 @@ Questions (for scout / PM; Q3 and Q5 are retired by PM 520 and Q4 is answered, k
 - **Q8** (PR-M1) Row cost per OS leg on the census base.
 - **Q9** (PM) Who owns the A2 absence guarantee today (`docs/plans/2026-06-web-api-compat-a2-storage-demotion-plan.md`
   §4 (C), `:261`) and is encoding it as a declared absence acceptable to them?
-- **Q10** (scout) Does `cargo clippy -p <A> <flags> -- -D warnings` lint, and deny warnings in, a workspace-member
-  dependency B compiled in that build (e.g. `elidex-storage-core` with `web-storage` in `elidex-js`'s browser row)?
-  If not, the §10 cross-member gap is the clippy column's too.
+- **Q10** — answered (measured 2026-11-09 on the `69fbe61f` code, rustc 1.99.1, macOS): yes. A row's
+  `cargo clippy -p <A> <row flags> -- -D warnings` lints the workspace path dependencies it compiles, at the row's
+  resolved features, with `-D warnings` applied; so the clippy column already reaches a feature of B that only A's
+  row turns on, and only the rustdoc column (`--no-deps`) misses it, which is why the doc row (I2) runs the rustdoc
+  column only. Re-runnable probe (append, run, restore; no probe stays in the tree):
+  1. append to `crates/storage/elidex-storage-core/src/lib.rs` the line
+     `#[cfg(feature = "web-storage")] pub fn q10_probe() -> bool { let v: Vec<u8> = Vec::new(); v.len() == 0 }`;
+  2. `cargo clippy -p elidex-js --no-default-features --features engine,compat-webapi --lib --bins -- -D warnings`
+     → rc 101, `error: length comparison to zero` and `` error: could not compile `elidex-storage-core` (lib) ``;
+  3. controls: `cargo clippy -p elidex-storage-core --features web-storage --lib` reports the same `len_zero`, and
+     the App row (`--features engine` in step 2's command) exits 0 — the probe is compiled out there, so step 2's red
+     comes from the row's resolved features;
+  4. `git checkout -- crates/storage/elidex-storage-core/src/lib.rs`, then `git status --porcelain` → empty.
 
 ## §8 Slots
 
@@ -775,7 +821,8 @@ Recorded, not planned here; the re-homed slot points here (PM 545 P2). All count
 - Third-party crates' features (outside I4/I5's population, §2 I5).
 - **Rustdoc of `elidex-style/parallel`'s code, from PR-M1 until PR-A2** — read by the `doc` job and by no row once
   that job is retired (PM 559, PM 569). `parallel` is not test-only and is enabled by no member, so no row turns it
-  on before PR-A2: `git grep -n 'feature = "parallel"' 69fbe61f -- crates | wc -l` → 5 lines in 2 files (by
+  on before PR-A2, and so it is in no doc row's set either (I2, PM 573: the doc row unions what rows turn on, plus
+  test-only features): `git grep -n 'feature = "parallel"' 69fbe61f -- crates | wc -l` → 5 lines in 2 files (by
   `git grep -l`): 4 `cfg(feature = "parallel")` and 1 `cfg(not(feature = "parallel"))` (`walk.rs:135`), whose branch
   `elidex-style`'s `default` row does read. The `check` job's `--all-targets --all-features` clippy still compiles it;
   only its
@@ -786,17 +833,13 @@ Recorded, not planned here; the re-homed slot points here (PM 545 P2). All count
   `elidex-ecs/fixtures` (`git grep -n 'feature = "fixtures"' 69fbe61f -- crates | wc -l` → 11 lines in 3 files: 10
   `cfg(any(test, feature = "fixtures"))` and 1 doc-comment line, `node_document.rs:21`) and on
   `elidex-net/test-hooks` (`git grep -n 'feature = "test-hooks"' 69fbe61f -- crates | wc -l` → 21 lines in 2 files,
-  all `cfg(feature = "test-hooks")`) — the test-only doc rows read it from PR-M1 on (I2).
-- **Rustdoc of a member's code gated on a feature that only another member's profile turns on** — open, not covered
-  by this draft (found in draft 5.1; PM's). The rustdoc column documents only the row's member (`--no-deps`), under
-  that member's own row flags; a feature of member B that only member A's profile enables is on in A's row's resolve
-  (I4 counts it there) but in none of B's rows, so no rustdoc reads the code it gates once the `doc` job is retired.
-  At `69fbe61f` this is the two `web-storage` features — of the six feature-declaring members (§4.1), the only
-  features that are neither test-only, nor the member's own row's, nor enabled by no member; product through
-  `elidex-js`'s browser profile (§4.1): `git grep -n -E 'feature *= *"web-storage"' 69fbe61f -- crates
-  ':!*Cargo.toml'` → 4 lines in 2 files, the whole `web_storage` module of `elidex-storage-core` (`src/lib.rs:14-15`,
-  its re-export `:26-27` and the doc line `:12`) and one item of `elidex-script-session` (`src/engine.rs:715`).
-  Whether the clippy column reaches that code through A's row (B is a workspace member compiled in A's build) is
-  unmeasured (Q10).
+  all `cfg(feature = "test-hooks")`) — their members' doc rows read it from PR-M1 on (I2 (b)); and the code of a
+  member gated on a feature that only another member's row turns on — at `69fbe61f` the two `web-storage`
+  features, of the six feature-declaring members (§4.1) the only features that are neither test-only, nor on in one
+  of the member's own rows, nor enabled by no member (`git grep -n -E 'feature *= *"web-storage"' 69fbe61f -- crates
+  ':!*Cargo.toml'` → 4 lines in 2 files: the whole `web_storage` module of `elidex-storage-core`,
+  `src/lib.rs:14-15`, its re-export `:26-27` and the doc line `:12`, and one item of `elidex-script-session`,
+  `src/engine.rs:715`) — read by those members' doc rows from PR-M1 on (I2 (a), PM 573; §4.1). Its clippy is not a
+  gap either: the rows that turn those features on lint it (§7 Q10, measured).
 - Merge blocking: `main-protection` has no required status check, so a red `feature-profiles` job is red, not
   blocking — the eyeball-before-squash convention remains the final gate.
