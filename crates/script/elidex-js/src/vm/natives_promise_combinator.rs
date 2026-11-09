@@ -30,7 +30,7 @@ use super::VmInner;
 /// the GC were to run before the step is wired up, the state object would
 /// be collected while still logically in use, leading to use-after-free
 /// when a later step dereferences its `state` field.  The
-/// `interpreter.rs::call` paths that drive combinator execution already
+/// `interpreter_call.rs::call_dispatch` paths that drive combinator execution already
 /// save/restore `gc_enabled`; the `debug_assert` below catches any future
 /// caller that skips that dance.
 fn alloc_combinator_state(

@@ -33,6 +33,7 @@ pub(crate) mod ic;
 mod init;
 mod inner;
 pub mod interpreter;
+mod interpreter_call;
 mod lifecycle;
 mod native_context;
 mod natives;

@@ -30,7 +30,7 @@
 //! Every ctor in this file is installed via `events::install_ctor` with
 //! `CallShape::ConstructorOnly`, so the WebIDL §3.7.1 step 1.2 bare-call
 //! TypeError (`UIEvent('x')` etc.) fires at the dispatch-side gate in
-//! `vm/interpreter.rs::call_dispatch` — no per-body guard is needed.
+//! `vm/interpreter_call.rs::call_dispatch` — no per-body guard is needed.
 
 #![cfg(feature = "engine")]
 

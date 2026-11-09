@@ -128,7 +128,7 @@ pub(super) fn build_exports_namespace(
 ///
 /// The returned JS object's `ObjectKind::WasmExportedFunction`
 /// brand causes the standard call path (see
-/// `vm/interpreter.rs::call_dispatch`) to route through
+/// `vm/interpreter_call.rs::call_dispatch`) to route through
 /// [`call_wasm_exported_function`] — no NativeFunction trampoline
 /// indirection.  Wasm exports cannot be `new`-called (per WASM JS
 /// API §5.6 + Chrome/Firefox behaviour); `new` on a
@@ -254,7 +254,7 @@ fn wrap_exported_global(
 }
 
 /// Call adapter for exported wasm functions per WASM JS API §5.6.
-/// Invoked by `vm/interpreter.rs::call_dispatch`'s
+/// Invoked by `vm/interpreter_call.rs::call_dispatch`'s
 /// [`ObjectKind::WasmExportedFunction`] arm.
 ///
 /// Resolves the `WasmFunc` + cached params via the brand-checked

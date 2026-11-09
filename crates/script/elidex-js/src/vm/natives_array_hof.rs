@@ -142,7 +142,7 @@ pub(super) fn native_array_some(
 /// `ctx.call_function` invocation.  Held only as a Rust local,
 /// such handles would be invisible to the GC scanner.  Today GC
 /// is disabled for the entire duration of a `NativeFunction`
-/// call (`interpreter.rs:81` sets `gc_enabled = false` and that
+/// call (`interpreter_call.rs::call_dispatch`'s NativeFunction arm sets `gc_enabled = false` and that
 /// flag stays false through every re-entrant `ctx.call_function`
 /// invocation), so the accumulator **cannot currently be
 /// collected** mid-loop.  The rooted-slot shape is future-proofing
