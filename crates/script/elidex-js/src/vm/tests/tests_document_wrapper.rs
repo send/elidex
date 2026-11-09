@@ -12,12 +12,13 @@
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_script_session::SessionCore;
 
-use super::super::test_helpers::bind_vm;
+use super::super::test_helpers::{bind_vm, eval_str, with_bound_vm};
 use super::super::value::JsValue;
 use super::super::Vm;
 
 /// JS preamble: `F` formats one value, `T` formats a thunk's value or the
-/// error name it throws, `L` joins formatted legs.
+/// error name it throws, `L` joins formatted legs, `E` gives the name and
+/// message of the error thunk `f` throws, or `returned:<value>`.
 const PRE: &str = "\
 globalThis.F = function (v) { \
   return v === undefined ? 'undefined' : v === null ? 'null' \
@@ -26,37 +27,37 @@ globalThis.F = function (v) { \
 globalThis.T = function (f) { \
   try { return F(f()); } catch (e) { return 'throws:' + e.name; } }; \
 globalThis.L = function (...fs) { \
-  return fs.map(function (f) { return T(f); }).join('|'); };";
+  return fs.map(function (f) { return T(f); }).join('|'); }; \
+globalThis.E = function (f) { \
+  try { return 'returned:' + F(f()); } catch (e) { return e.name + ': ' + e.message; } };";
 
 fn page(dom: &mut EcsDom) -> Entity {
     let doc = dom.create_document_root();
+    populate_page(dom, doc);
+    doc
+}
+
+fn populate_page(dom: &mut EcsDom, doc: Entity) {
     let html = dom.create_element_ownerless_fixture("html", Attributes::default());
     let body = dom.create_element_ownerless_fixture("body", Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
-    doc
-}
-
-fn eval_str(vm: &mut Vm, src: &str) -> String {
-    match vm.eval(src).expect("eval failed") {
-        JsValue::String(sid) => vm.inner.strings.get_utf8(sid),
-        other => panic!("expected string from `{src}`, got {other:?}"),
-    }
 }
 
 /// Run `body` on a VM bound to a page, with `L` & co. defined.
 fn with_page(body: impl FnOnce(&mut Vm)) {
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = page(&mut dom);
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    vm.eval(PRE).expect("preamble");
-    body(&mut vm);
-    vm.unbind();
+    with_bound_vm(
+        |vm, session, dom, doc| {
+            populate_page(dom, doc);
+            #[allow(unsafe_code)]
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            unsafe {
+                bind_vm(vm, session, dom, doc);
+            }
+            vm.eval(PRE).expect("preamble");
+        },
+        body,
+    );
 }
 
 /// The W1 / W15 / W22 fixture: a second, unbound Document `D` in the page
@@ -64,31 +65,32 @@ fn with_page(body: impl FnOnce(&mut Vm)) {
 /// a global; nothing wraps `D` before the script. `focus` sets
 /// `ElementState::FOCUS` on `p` from Rust.
 fn with_second_document(focus: bool, body: impl FnOnce(&mut Vm)) {
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = page(&mut dom);
-    let d = dom.create_document_node();
-    let owner = dom.node_document_for_new_nodes(d);
-    let p = dom.create_element_with_owner("div", Attributes::default(), owner);
-    assert!(dom.append_child(d, p));
-    if focus {
-        elidex_dom_api::focus::set_focus_bit(&mut dom, Some(p));
-        assert_eq!(
-            elidex_dom_api::focus::current_focus(&dom, d),
-            Some(p),
-            "fixture precondition: D's focused area is p"
-        );
-    }
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    let w = vm.inner.create_element_wrapper(p);
-    vm.set_global("p", JsValue::Object(w));
-    vm.eval(PRE).expect("preamble");
-    body(&mut vm);
-    vm.unbind();
+    with_bound_vm(
+        |vm, session, dom, doc| {
+            populate_page(dom, doc);
+            let d = dom.create_document_node();
+            let owner = dom.node_document_for_new_nodes(d);
+            let p = dom.create_element_with_owner("div", Attributes::default(), owner);
+            assert!(dom.append_child(d, p));
+            if focus {
+                elidex_dom_api::focus::set_focus_bit(dom, Some(p));
+                assert_eq!(
+                    elidex_dom_api::focus::current_focus(dom, d),
+                    Some(p),
+                    "fixture precondition: D's focused area is p"
+                );
+            }
+            #[allow(unsafe_code)]
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            unsafe {
+                bind_vm(vm, session, dom, doc);
+            }
+            let w = vm.inner.create_element_wrapper(p);
+            vm.set_global("p", JsValue::Object(w));
+            vm.eval(PRE).expect("preamble");
+        },
+        body,
+    );
 }
 
 const DP: &str = "globalThis.dp = new DOMParser().parseFromString('<p></p>', 'text/html');";
@@ -246,14 +248,9 @@ fn w8_bound_document_unchanged_guard() {
     });
 }
 
-/// Name and message of the error `src` throws, or `returned:<value>`.
-const ERR: &str = "globalThis.E = function (f) { \
-  try { return 'returned:' + F(f()); } catch (e) { return e.name + ': ' + e.message; } };";
-
 #[test]
 fn w9_accessor_brand_check_rejects_a_non_document() {
     with_page(|vm| {
-        vm.eval(ERR).unwrap();
         let got = eval_str(
             vm,
             "var P = Object.getOwnPropertyDescriptor(document, 'body') ? document \
@@ -273,22 +270,17 @@ fn w9_accessor_brand_check_rejects_a_non_document() {
 #[test]
 fn w10_ready_state_getter_brand_check() {
     with_page(|vm| {
-        vm.eval(ERR).unwrap();
         vm.eval(
             "globalThis.P = Object.getOwnPropertyDescriptor(document, 'readyState') ? document \
                       : Object.getPrototypeOf(document); \
              globalThis.g = Object.getOwnPropertyDescriptor(P, 'readyState').get;",
         )
         .unwrap();
-        for (leg, recv) in [
-            ("document.body", "document.body"),
-            ("{}", "{}"),
-            ("undefined", "undefined"),
-        ] {
+        for recv in ["document.body", "{}", "undefined"] {
             let got = eval_str(vm, &format!("E(function () {{ return g.call({recv}); }});"));
             assert!(
                 got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
-                "W10 leg {leg}: got {got:?}"
+                "W10 leg {recv}: got {got:?}"
             );
         }
         let control = eval_str(vm, "E(function () { return g.call(document); });");
@@ -330,20 +322,19 @@ fn w23_non_bound_document_ready_state_is_its_readiness() {
 #[test]
 fn w24_get_selection_brand_check() {
     with_page(|vm| {
-        vm.eval(ERR).unwrap();
         vm.eval(
             "globalThis.P = document.hasOwnProperty('getSelection') ? document \
                       : Object.getPrototypeOf(document);",
         )
         .unwrap();
-        for (leg, recv) in [("{}", "{}"), ("document.body", "document.body")] {
+        for recv in ["{}", "document.body"] {
             let got = eval_str(
                 vm,
                 &format!("E(function () {{ return P.getSelection.call({recv}); }});"),
             );
             assert!(
                 got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
-                "W24 leg {leg}: got {got:?}"
+                "W24 leg {recv}: got {got:?}"
             );
         }
         let control = eval_str(
@@ -384,7 +375,6 @@ const W25_COUNT: usize = 15;
 #[test]
 fn w25_every_document_member_brand_checks_its_receiver() {
     with_page(|vm| {
-        vm.eval(ERR).unwrap();
         vm.eval(W25_MEMBERS).unwrap();
         vm.eval("globalThis.dd = document; globalThis.bodyEl = document.body;")
             .unwrap();

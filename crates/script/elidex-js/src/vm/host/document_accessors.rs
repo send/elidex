@@ -54,6 +54,20 @@ pub(super) fn document_has_browsing_context(ctx: &NativeContext<'_>, doc: Entity
         == Some(doc)
 }
 
+/// Whether `doc`'s visibility state is "hidden" (WHATWG HTML §6.2): a Document
+/// without a browsing context keeps its initial "hidden" (*set the initial
+/// visibility state* runs only for a navigable's document); the bound one
+/// follows the tab (`HostData::is_tab_hidden`).
+fn document_is_hidden(ctx: &NativeContext<'_>, doc: Entity) -> bool {
+    if !document_has_browsing_context(ctx, doc) {
+        return true;
+    }
+    ctx.vm
+        .host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden)
+}
+
 /// Locate the `<html>` root child of `doc_entity`.  Returns `None`
 /// if the document has no `<html>` child (e.g. empty tree).
 fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
@@ -483,15 +497,7 @@ pub(super) fn native_document_has_focus(
     };
     // HTML §6.6.4 has-focus steps 1-2: no node navigable -> false; then a
     // hidden top-level browsing context has no system focus.
-    if !document_has_browsing_context(ctx, doc) {
-        return Ok(JsValue::Boolean(false));
-    }
-    if ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_tab_hidden)
-    {
+    if document_is_hidden(ctx, doc) {
         return Ok(JsValue::Boolean(false));
     }
     let has = elidex_dom_api::focus::current_focus(ctx.host().dom(), doc).is_some();
@@ -517,15 +523,7 @@ pub(super) fn native_document_get_hidden(
     let Some(doc) = document_receiver(ctx, this, "hidden")? else {
         return Ok(JsValue::Boolean(false));
     };
-    if !document_has_browsing_context(ctx, doc) {
-        return Ok(JsValue::Boolean(true));
-    }
-    let hidden = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_tab_hidden);
-    Ok(JsValue::Boolean(hidden))
+    Ok(JsValue::Boolean(document_is_hidden(ctx, doc)))
 }
 
 /// `document.visibilityState` (WHATWG HTML §6.2 `#dom-document-visibilitystate`).
@@ -544,15 +542,7 @@ pub(super) fn native_document_get_visibility_state(
     let Some(doc) = document_receiver(ctx, this, "visibilityState")? else {
         return Ok(JsValue::String(ctx.vm.well_known.visible));
     };
-    if !document_has_browsing_context(ctx, doc) {
-        return Ok(JsValue::String(ctx.vm.well_known.hidden));
-    }
-    let hidden = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_tab_hidden);
-    let sid = if hidden {
+    let sid = if document_is_hidden(ctx, doc) {
         ctx.vm.well_known.hidden
     } else {
         ctx.vm.well_known.visible
@@ -587,7 +577,7 @@ pub(super) fn native_document_get_links(
 pub(super) fn native_document_get_selection(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    args: &[JsValue],
+    _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let Some(doc) = document_receiver(ctx, this, "getSelection")? else {
         return Ok(JsValue::Null);
@@ -595,5 +585,5 @@ pub(super) fn native_document_get_selection(
     if !document_has_browsing_context(ctx, doc) {
         return Ok(JsValue::Null);
     }
-    super::window::native_window_get_selection(ctx, JsValue::Undefined, args)
+    Ok(JsValue::Object(ctx.vm.alloc_or_cached_selection()))
 }

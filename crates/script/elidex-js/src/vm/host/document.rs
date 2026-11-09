@@ -74,7 +74,7 @@ use elidex_script_session::document_cookie_spec_level;
 // ---------------------------------------------------------------------------
 
 /// Resolve the target Document entity for a document-method call,
-/// with WebIDL branding.  The one brand check of every Document member
+/// with WebIDL branding.  The one brand check of every Document-specific member; the shared-interface members listed in plan §7 keep their own receiver handling
 /// (PM 556 D1): Web IDL §3.7.6 *attribute getter* / §3.7.7 *create an
 /// operation function* throw `TypeError` when `this` is not a Document
 /// platform object, and no Document member but `onreadystatechange` has
@@ -294,14 +294,14 @@ impl super::super::VmInner {
         let node_proto = self
             .node_prototype
             .expect("register_document_prototype before register_node_prototype");
-        let doc_wrapper = self.alloc_object(Object {
+        let proto_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(node_proto),
             extensible: true,
         });
-        self.document_prototype = Some(doc_wrapper);
-        self.install_methods(doc_wrapper, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
+        self.document_prototype = Some(proto_id);
+        self.install_methods(proto_id, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
         // Seam-1c (A1 core/compat gate): the live-collection getters route through
         // the general `installs_dom(level)` predicate reading the family's SINGLE
         // source `live_collection_spec_level()` (Codex R7). A1's source is `Living`
@@ -312,15 +312,15 @@ impl super::super::VmInner {
         // B0's, A0 §5 B0 row; this gate is the representative `Document` seam, not
         // the whole family).
         if self.installs_dom(live_collection_spec_level()) {
-            self.install_methods(doc_wrapper, DOCUMENT_LIVE_COLLECTION_METHODS);
+            self.install_methods(proto_id, DOCUMENT_LIVE_COLLECTION_METHODS);
         }
-        self.install_methods(doc_wrapper, DOCUMENT_METHODS_POST_LIVE_COLLECTION);
+        self.install_methods(proto_id, DOCUMENT_METHODS_POST_LIVE_COLLECTION);
         // WHATWG DOM §4.4 / §6.1 / §6.4 traversal factories.  Slot
         // `#11-traversal-and-range-pr-a2-bindings`.  Installed
         // separately to keep the document method tables stable.
-        self.install_methods(doc_wrapper, super::document_traversal::FACTORIES);
-        self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
-        self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
+        self.install_methods(proto_id, super::document_traversal::FACTORIES);
+        self.install_ro_accessors(proto_id, DOCUMENT_RO_ACCESSORS);
+        self.install_rw_accessors(proto_id, DOCUMENT_RW_ACCESSORS);
         // Seam-1b (A1 core/compat gate): `document.cookie` routes through the
         // general `installs(level)` predicate reading its single source
         // `document_cookie_spec_level()`; A3 demoted that one source to `Legacy`
@@ -330,17 +330,17 @@ impl super::super::VmInner {
         // `navigator.cookieEnabled` read it in every mode).
         #[cfg(feature = "compat-webapi")]
         if self.installs(document_cookie_spec_level()) {
-            self.install_rw_accessors(doc_wrapper, DOCUMENT_COOKIE_RW_ACCESSOR);
+            self.install_rw_accessors(proto_id, DOCUMENT_COOKIE_RW_ACCESSOR);
         }
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
-        self.install_parent_node_mixin(doc_wrapper);
+        self.install_parent_node_mixin(proto_id);
         // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1):
         // Document mixes in GlobalEventHandlers +
         // DocumentAndElementEventHandlers + the Document-specific
         // partial (`onreadystatechange` / `onvisibilitychange`).
         self.install_event_handler_attrs(
-            doc_wrapper,
+            proto_id,
             &[
                 elidex_script_session::HandlerScope::Global,
                 elidex_script_session::HandlerScope::DocumentElement,
@@ -350,9 +350,8 @@ impl super::super::VmInner {
     }
 }
 
-// Method + accessor tables are file-scope constants so they are not
-// rebuilt on every bind and so `register_document_prototype`'s
-// body reads top-down.
+// Method + accessor tables are file-scope constants so
+// `register_document_prototype`'s body reads top-down.
 /// `Document.prototype` methods installed BEFORE the gated live-collection getters, kept
 /// in their original `DOCUMENT_METHODS` order (id + selector lookups). Split from
 /// [`DOCUMENT_METHODS_POST_LIVE_COLLECTION`] so the gated
@@ -383,9 +382,9 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
     // hasFocus in terms of system focus — we approximate as "some
     // element inside this Document has focus".
     ("hasFocus", native_document_has_focus),
-    // Selection API §2: `getSelection()` on Document mirrors the
-    // Window-side binding; both resolve to the same singleton
-    // wrapper held in `HostData::selection_instance`.
+    // Selection API §4.1: `native_document_get_selection` brand-checks the
+    // receiver; the Window's selection singleton (`HostData::selection_instance`)
+    // only when the Document has a browsing context, else `null`.
     ("getSelection", native_document_get_selection),
     // DOM §4.5 `adoptNode(node)`; appended so the existing names keep
     // their enumeration order.
