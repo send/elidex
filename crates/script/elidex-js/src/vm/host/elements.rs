@@ -154,6 +154,23 @@ impl VmInner {
                 .or(self.document_fragment_prototype)
                 .or(self.node_prototype)
                 .expect("create_element_wrapper called before register_shadow_root_prototype"),
+            // Scope rule (not a silent fallback): `Document.prototype` is
+            // `[Exposed=Window]`, so only the Window global scope has one.
+            // A worker / SW VM binds an internal Document entity that
+            // script must not see as a Document; its wrapper keeps
+            // `Node.prototype` so no Document members (`cookie`,
+            // `createElement`, ...) reach a worker (slot
+            // `#11-worker-scope-exposes-window-only-interfaces`).  On
+            // Window the prototype MUST be registered (no fallback).
+            super::super::host_data::PrototypeKind::Document
+                if !matches!(
+                    self.global_scope_kind,
+                    super::super::GlobalScopeKind::Window
+                ) =>
+            {
+                self.node_prototype
+                    .expect("create_element_wrapper called before register_node_prototype")
+            }
             super::super::host_data::PrototypeKind::Document => self
                 .document_prototype
                 .expect("create_element_wrapper called before register_document_prototype"),

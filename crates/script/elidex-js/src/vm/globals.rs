@@ -536,7 +536,10 @@ impl VmInner {
                 self.get_object_mut(self.global_object).prototype = self.window_prototype;
                 // `Document.prototype` — the one prototype every Document
                 // entity's wrapper gets (chosen in `create_element_wrapper`).
-                // A worker VM binds no document.
+                // Window-only: `Document` is `[Exposed=Window]`.  Worker / SW
+                // VMs bind an internal Document entity (never exposed as a
+                // global) whose wrapper keeps `Node.prototype` — see the scope
+                // rule in `create_element_wrapper`.
                 self.register_document_prototype();
                 // `navigator.serviceWorker` client surface (WHATWG SW §3.4;
                 // D-19 PR-3) — builds the ServiceWorkerContainer singleton that
