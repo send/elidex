@@ -75,7 +75,7 @@ pub use cssom_sheet::{
 };
 pub use dialog::close_the_dialog;
 pub use document::{
-    query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
+    query_selector_all, AdoptNode, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };
 pub use element::document_base::{
     compute_frozen_url, initialize_base_url_for_document, BaseUrlMaintainer,

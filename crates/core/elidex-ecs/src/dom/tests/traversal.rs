@@ -386,6 +386,80 @@ fn w3_template_contents_excluded_or_included_by_mode() {
     assert_eq!(included.len(), 5);
 }
 
+/// C0c U18 fixture: `root` > (`tpl` [light `a`; contents `frag` > `inner`],
+/// `host` [shadow `sr` > `s1`; light `l`]).
+struct U18 {
+    dom: EcsDom,
+    root: Entity,
+    tpl: Entity,
+    a: Entity,
+    frag: Entity,
+    inner: Entity,
+    host: Entity,
+    sr: Entity,
+    s1: Entity,
+    l: Entity,
+}
+
+fn u18_fixture() -> U18 {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let root = elem(&mut dom, "div");
+    let tpl = elem(&mut dom, "template");
+    assert!(dom.append_child(root, tpl));
+    let a = elem(&mut dom, "a");
+    assert!(dom.append_child(tpl, a));
+    let frag = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(doc));
+    let inner = elem(&mut dom, "i");
+    assert!(dom.append_child(frag, inner));
+    let host = elem(&mut dom, "div");
+    assert!(dom.append_child(root, host));
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("div is a valid shadow host");
+    let s1 = elem(&mut dom, "b");
+    assert!(dom.append_child(sr, s1));
+    let l = elem(&mut dom, "p");
+    assert!(dom.append_child(host, l));
+    U18 {
+        dom,
+        root,
+        tpl,
+        a,
+        frag,
+        inner,
+        host,
+        sr,
+        s1,
+        l,
+    }
+}
+
+/// C0c U18 (red on the base; D-19): with `Include`, a template's contents
+/// come right after the template (DOM §4.5 *adopt* step 3.4 runs the
+/// template's adopting steps, HTML §4.12.3 step 2, inside the
+/// per-descendant loop), before its light children.
+#[test]
+fn u18_include_visits_contents_right_after_the_template() {
+    let f = u18_fixture();
+    assert_eq!(
+        uncapped_walk(&f.dom, f.root, TemplateContentsWalk::Include),
+        vec![f.root, f.tpl, f.frag, f.inner, f.a, f.host, f.sr, f.s1, f.l]
+    );
+}
+
+/// U18's control (green on the base; not changed by D-19): the host's
+/// shadow tree comes right after the host, before its light children.
+#[test]
+fn u18_control_shadow_tree_right_after_the_host() {
+    let f = u18_fixture();
+    let walk = uncapped_walk(&f.dom, f.root, TemplateContentsWalk::Include);
+    let pos = |e: Entity| walk.iter().position(|x| *x == e).expect("visited");
+    assert_eq!(pos(f.sr), pos(f.host) + 1);
+    assert_eq!(pos(f.s1), pos(f.host) + 2);
+    assert_eq!(pos(f.l), pos(f.host) + 3);
+}
+
 #[test]
 fn w4_uncapped_walk_terminates_on_cyclic_links() {
     let mut dom = EcsDom::new();

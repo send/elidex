@@ -11,7 +11,7 @@
 //!   single trait method's match in each dispatcher impl needs at
 //!   most a new arm (or `_ => {}` to ignore).
 //! - **ECS-native**: event-as-data, single dispatch method per consumer.
-//!   Behavior-pluralization (7 trait methods) → data-pluralization (8
+//!   Behavior-pluralization (7 trait methods) → data-pluralization (9
 //!   enum variants).
 //! - **Synchronous drain at chokepoint**: preserves "next IDL read sees
 //!   adjusted state" semantics (LiveRangeBridge / NodeIterator
@@ -33,9 +33,11 @@
 //!
 //! ## Lifetime contract
 //!
-//! [`MutationEvent`] carries borrowed strings (only relevant for
-//! [`MutationEvent::AttributeChange`]); the dispatcher MUST NOT retain
-//! these references past the dispatch call. Borrows are released when
+//! [`MutationEvent`] carries borrows in two variants:
+//! [`MutationEvent::AttributeChange`]'s strings, and
+//! [`MutationEvent::Adopt`]'s `contents` slice, which borrows the adopt
+//! call's local `Vec`. The dispatcher MUST NOT retain these references
+//! past the dispatch call. Borrows are released when
 //! the chokepoint that fired the event returns.
 
 use hecs::Entity;
@@ -53,6 +55,33 @@ use crate::EcsDom;
 pub enum CloneScope {
     Subtree,
     SelfOnly,
+}
+
+/// One contents segment of a [`MutationEvent::Adopt`]: a `<template>`'s
+/// contents fragment that the adopt walk reached and re-homed, with the pair
+/// that fragment's own *adopt* runs with.
+///
+/// WHATWG DOM §4.5 *adopt* (`#concept-node-adopt`) step 3.4 runs each
+/// template's adopting steps inside the per-descendant loop; HTML §4.12.3
+/// template *adopting steps* (`#the-template-element`) 1–2 adopt the contents
+/// into the *appropriate template contents owner document*
+/// (`#appropriate-template-contents-owner-document`) of the template's new
+/// node document — a nested *adopt*, whose oldDocument is the contents' own
+/// node document, not the root's. `documents` is `(oldDocument, document)`
+/// of that nested adopt: `old` read before the walk writes the fragment,
+/// `new` the document it writes. It is `None` when `old` is `None` (a silent
+/// re-home) or the template lies in a `None` segment.
+///
+/// A fragment whose nested adopt would not run (step 3's guard, "If document
+/// is not oldDocument": its `old` equals `new`), or whose template lies in
+/// such a fragment, has no segment: the walk leaves it and its nodes as they
+/// are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdoptedContents {
+    /// The template's contents `DocumentFragment`.
+    pub fragment: Entity,
+    /// The nested adopt's `(oldDocument, document)`, or `None`.
+    pub documents: Option<(Entity, Entity)>,
 }
 
 /// One mutation event delivered to the dispatcher.
@@ -126,6 +155,13 @@ pub enum CloneScope {
 ///   both scopes. The `SelfOnly` walk visits the ShadowRoot entity created at
 ///   step 6.4 and the `Subtree` walk does not; see
 ///   `EcsDom::for_each_clone_created` for the visit set.
+///
+/// - [`Self::Adopt`] — fired by `EcsDom::adopt` (and the insertion
+///   primitives' adoption) after the adopt walk re-homed the subtree and
+///   before the primitive links it (so before [`Self::Insert`]). Source
+///   spec: **WHATWG DOM §4.5** Interface Document, *adopt* steps 3 (the
+///   guard), 3.3.3 (`adoptedCallback`) and 3.4 (template adopting steps,
+///   **HTML §4.12.3** adopting steps 1–2). See [`AdoptedContents`].
 pub enum MutationEvent<'a> {
     /// A node has been linked into a parent.
     ///
@@ -337,6 +373,27 @@ pub enum MutationEvent<'a> {
     /// entry, after the whole copy exists and before the entry returns.
     /// Walk the created set with `EcsDom::for_each_clone_created`.
     CloneCreated { root: Entity, scope: CloneScope },
+
+    /// WHATWG DOM §4.5 *adopt* (`#concept-node-adopt`) re-homed `node`'s
+    /// shadow-including inclusive descendants: fired once per adopt call,
+    /// after the walk and before the primitive links `node`, iff `documents`
+    /// (the root's `(oldDocument, document)`, step 3's guard) is `Some`.
+    ///
+    /// `contents` lists, in walk order, each template contents fragment the
+    /// walk re-homed with its own pair (step 3.4; HTML §4.12.3 adopting steps
+    /// 1–2). A node's pair is its innermost segment's, found from the node's
+    /// shadow-including root (`EcsDom::find_tree_root_composed`: a contents
+    /// fragment has no parent and is not a shadow root, so the climb stops at
+    /// the nearest one): `node` → the root's `documents`; a recorded
+    /// segment's `fragment` → that segment's; anything else → `None`. That
+    /// includes a fragment the walk skipped and an interior node where the
+    /// `MAX_ANCESTOR_DEPTH` cap cut the climb short (a stated defect, C0c
+    /// memo §8).
+    Adopt {
+        node: Entity,
+        documents: Option<(Entity, Entity)>,
+        contents: &'a [AdoptedContents],
+    },
 }
 
 /// Synchronous mutation event dispatcher.
