@@ -231,7 +231,16 @@ elidex-api-ws = { path = "crates/api/elidex-api-ws" }
 elidex-api-canvas = { path = "crates/api/elidex-api-canvas" }
 elidex-custom-elements = { path = "crates/dom/elidex-custom-elements" }
 elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
-rusqlite = { version = "0.40", features = ["bundled"] }
+# `"0.41.1"` is a security floor, not an ordinary bump: libsqlite3-sys < 0.39
+# bundles SQLite < 3.54.0 (RUSTSEC-2026-0459 / CVE-2026-119375), and rusqlite
+# 0.41 is the line that ships libsqlite3-sys 0.39 (0.41.1 = SQLite 3.54.1), so do
+# not lower it. rusqlite 0.41 needs rustc 1.89 (`rust-toolchain.toml`).
+#
+# Default features are off: the defaults are `cache` (no consumer calls
+# `prepare_cached`) and `ffi-sqlite-wasm-rs`, whose sqlite-wasm-rs bundles its
+# own SQLite that this advisory does not name. Add a feature here when a
+# consumer uses it.
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled"] }
 egui = "0.34"
 egui-wgpu = "0.34"
 egui-winit = "0.34"
