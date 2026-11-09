@@ -649,7 +649,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | cell | kind | script | HEAD | C1-pre = spec |
 |---|---|---|---|---|
 | W1 | red (fixture) | `d = p.ownerDocument;` then separately `typeof d.createElement`, `d.defaultView === null`, `'createElement' in Object.getPrototypeOf(d)`, `d.createElement('i').ownerDocument === d`, `d.body` | `"undefined"`, `false`, `false`, throws `TypeError`, `undefined` | `"function"`, `true`, `true`, `true`, `null` |
-| W2 | red | `[Object.getOwnPropertyNames(document).length, 'createElement' in Object.getPrototypeOf(document)]` | `[N > 0, false]` | `[0, true]` |
+| W2 | red | `[Object.getOwnPropertyNames(document).length, 'createElement' in Object.getPrototypeOf(document), Object.getOwnPropertyNames(dp).length, Object.getOwnPropertyNames(document.cloneNode()).length]` (legs 3–4 rev 2.6.2, R8) | `[N > 0, false, N > 0, N > 0]` (legs 3–4 by code reading) | `[0, true, 0, 0]` |
 | W3 | red (order transfer) | `Object.getOwnPropertyNames(Object.getPrototypeOf(document))` equals the list `Object.getOwnPropertyNames(document)` printed on the base (pinned as a literal; on a base at or after `0a5a77ba` it has `adoptNode` right after `getSelection`, `document.rs:429-432`) | `Node.prototype`'s names | the pinned list |
 | W4 | guard | `p.ownerDocument === p.ownerDocument`; `dp.documentElement.parentNode === dp`; `document.documentElement.parentNode === document` | all `true` | all `true` |
 | W5 | guard | `[Object.getPrototypeOf(dp), Object.getPrototypeOf(document.cloneNode(true))].every(x => x === Object.getPrototypeOf(document))`; `typeof dp.createElement`, `typeof document.cloneNode(true).createElement` | `true`; `"function"` ×2 | same |
