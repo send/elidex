@@ -7,7 +7,7 @@
 //! edges' border + padding zeroed), the square-the-broken-corners radius transform,
 //! and the cumulative background-position offset that keeps a sliced background's
 //! tiling phase continuous across column breaks. The single paint walk
-//! ([`super::walk`]) calls them; keeping them here keeps the central walk under the
+//! ([`fn@super::walk`]) calls them; keeping them here keeps the central walk under the
 //! 1000-line file budget.
 
 use elidex_plugin::{BoxModel, EdgeSizes, Rect, Vector, WritingMode};

@@ -19,7 +19,7 @@ use elidex_plugin::{CssColor, Point, Rect, Size, Vector};
 
 use crate::display_list::{DisplayItem, DisplayList};
 
-/// Convert an elidex [`Rect`] to a Vello [`kurbo::Rect`].
+/// Convert an elidex [`Rect`] to a Vello [`kurbo::Rect`](VelloRect).
 #[must_use]
 fn to_vello_rect(r: &Rect) -> VelloRect {
     let (x0, y0, x1, y1) = r.to_f64_bounds();

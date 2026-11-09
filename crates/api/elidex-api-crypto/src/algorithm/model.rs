@@ -2,7 +2,7 @@
 //! VM-marshalled [`RawAlgorithm`] input (plus its [`EcdhPeer`] member) and
 //! the validated [`NormalizedAlgorithm`] output. The [`super::registry`]
 //! resolver decides which `RawAlgorithm` members are populated and the
-//! [`super::normalize`] procedure builds the `NormalizedAlgorithm`.
+//! [`fn@super::normalize`] procedure builds the `NormalizedAlgorithm`.
 
 use crate::hash::HashAlgorithm;
 use crate::key::KeyType;

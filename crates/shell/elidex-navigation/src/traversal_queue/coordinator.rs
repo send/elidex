@@ -86,14 +86,14 @@ impl DrainCoordinator {
     /// and **NO ship**. Returns the raw Phase-1a/1b [`DrainOutcome`].
     ///
     /// The shared core of two callers that differ ONLY in whether Phase 1c runs:
-    /// - [`run_synchronous_phase_body`] appends Phase 1c → the FULL drain
-    ///   ([`drain_synchronous_phase`] / [`drain_same_turn`]).
-    /// - [`drain_synchronous_updates`] ships this body as-is → the **top-drain seam**
+    /// - [`Self::run_synchronous_phase_body`] appends Phase 1c → the FULL drain
+    ///   ([`Self::drain_synchronous_phase`] / [`Self::drain_same_turn`]).
+    /// - [`Self::drain_synchronous_updates`] ships this body as-is → the **top-drain seam**
     ///   that MUST settle only the same-document sync intent (`pending_history`) and
     ///   window-opens, and MUST NOT apply a same-turn cross-document
     ///   `pending_navigation` (that defers to the bottom full drain, so a held input
     ///   dispatched between the two drains hits the pre-navigation document — see
-    ///   [`drain_synchronous_updates`]).
+    ///   [`Self::drain_synchronous_updates`]).
     ///
     /// Honors the Phase-1 slice of the plan §4.5 invariants (I1 ordering — this body
     /// runs no Phase 2; I2 partition — the history FIFO defers from the first
@@ -173,7 +173,7 @@ impl DrainCoordinator {
         outcome
     }
 
-    /// The **full Phase-1 body** — [`run_synchronous_updates_body`] (1a + 1b) plus
+    /// The **full Phase-1 body** — [`Self::run_synchronous_updates_body`] (1a + 1b) plus
     /// **Phase 1c** (§7.4.2 last-wins own-context navigation, in-task), with **NO
     /// ship logic**. Returns the raw Phase-1 [`DrainOutcome`]; the caller
     /// ([`drain_synchronous_phase`] / [`drain_same_turn`](Self::drain_same_turn))

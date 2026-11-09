@@ -374,7 +374,7 @@ impl EcsDom {
     /// depth-first.  Uses an explicit `(src_parent, dst_parent)` stack
     /// rather than Rust recursion so trees up to `MAX_ANCESTOR_DEPTH`
     /// (10 000) deep can be cloned without risk of a thread-stack
-    /// overflow.  [`ShadowRoot`] children are skipped (matches
+    /// overflow.  [`ShadowRoot`](crate::ShadowRoot) children are skipped (matches
     /// `children_iter` semantics — the shadow root is not part of
     /// the light tree).  Every cloned `(src, dst)` pair is appended
     /// to `pairs` for the caller's post-passes.

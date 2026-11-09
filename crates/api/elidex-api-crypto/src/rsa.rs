@@ -772,7 +772,7 @@ fn usage_message(variant: RsaVariant, key_type: KeyType) -> String {
     format!("{} {}", variant.canonical_name(), kind)
 }
 
-/// The §20.8.5 spki "If [[type]] is not 'public' → InvalidAccessError" gate.
+/// The §20.8.5 spki "If `[[type]]` is not 'public' → InvalidAccessError" gate.
 fn require_public(key: &CryptoKeyData) -> Result<(), AlgorithmError> {
     if key.key_type == KeyType::Public {
         Ok(())
@@ -791,7 +791,7 @@ fn rsa_public_der(key: &CryptoKeyData) -> &[u8] {
 }
 
 /// The stored canonical PKCS#8 DER of an RSA **private** key — the §20.8.5
-/// pkcs8 "If [[type]] is not 'private' → InvalidAccessError" gate.
+/// pkcs8 "If `[[type]]` is not 'private' → InvalidAccessError" gate.
 fn rsa_private_der(key: &CryptoKeyData) -> Result<&[u8], AlgorithmError> {
     key.material
         .rsa_private_der()

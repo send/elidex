@@ -376,8 +376,8 @@ impl App {
 
     /// Handle `MouseWheel` in threaded mode.
     ///
-    /// Converts winit scroll deltas to CSS px ([`scroll_delta_to_css`]) and sends
-    /// to the content thread at the [`wheel_target_point`] (skipped only when a
+    /// Converts winit scroll deltas to CSS px ([`Self::scroll_delta_to_css`]) and sends
+    /// to the content thread at the [`Self::wheel_target_point`] (skipped only when a
     /// known cursor is over chrome).
     fn handle_mouse_wheel_threaded(
         &mut self,

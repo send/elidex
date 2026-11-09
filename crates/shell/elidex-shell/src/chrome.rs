@@ -157,7 +157,7 @@ pub fn build_tab_bar(
     }
 }
 
-/// Render a single tab button (label + close [x]) and return any action.
+/// Render a single tab button (label + close \[x\]) and return any action.
 fn render_tab_button(
     ui: &mut egui::Ui,
     tab: &TabBarInfo,

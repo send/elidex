@@ -342,7 +342,7 @@ pub struct SlottedMarker;
 /// `DocumentFragment` ("created when the template element is created") into
 /// which the parser inserts the template's children and which JS reads as
 /// `template.content`.  `fragment` is that fragment entity — a
-/// [`NodeKind::DocumentFragment`](crate::NodeKind::DocumentFragment) held
+/// [`NodeKind::DocumentFragment`] held
 /// **only** by this component, i.e. *detached* (never `append_child`'d into
 /// the template, unlike [`ShadowRoot`], which is in-tree-but-skipped). Being
 /// detached means no **light-tree** walk (style / render / `child_nodes`
@@ -587,7 +587,7 @@ pub(crate) struct AssociatedDocument(pub(crate) Entity);
 /// Marks the root of a WHATWG HTML §13.4 fragment build
 /// (*HTML fragment parsing algorithm*, `#html-fragment-parsing-algorithm`):
 /// *initialize an HTML fragment parser* (`#initialize-an-html-fragment-parser`)
-/// step 15 sets the parser's *insertion target redirection map*[root] to the
+/// step 15 sets the parser's *insertion target redirection map*\[root\] to the
 /// insertion location (fragment, null), and the algorithm's step 2 creates
 /// that fragment in the target's node document. elidex keeps root as the build container and has no separate
 /// fragment object, so root stands for the redirect target: a node created on

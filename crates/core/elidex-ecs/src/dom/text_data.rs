@@ -11,7 +11,7 @@
 //! fires [`MutationEvent::ReplaceData`]), and
 //! [`replace_comment_data`](EcsDom::replace_comment_data) (Comment UTF-16
 //! splice, no event). All splice math delegates to the canonical
-//! [`splice_utf16`](super::splice_utf16) helper. Rust permits the
+//! [`splice_utf16`] helper. Rust permits the
 //! inherent `impl EcsDom` to be split across files in the same module.
 
 use hecs::Entity;
