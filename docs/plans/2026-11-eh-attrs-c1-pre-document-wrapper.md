@@ -683,7 +683,7 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | Document `getSelection` without `document_receiver` (any receiver delegates) | W24 |
 | `readyState` answers a fallback (`""`, `undefined`) for a genuine non-bound Document | W23 |
 | the `this_is_node_wrapper` pre-check removed from `document_receiver` | W25, W10 legs (2), (3), W24 leg (1) |
-| a member's own early return (`host_if_bound()`) put back before `document_receiver`, for any one of the 11 natives `getElementById`, `querySelector`, `querySelectorAll`, `getElementsByTagName`, `getElementsByClassName`, `getElementsByName`, `adoptNode`, `createElement`, `createTextNode`, `createComment`, `createDocumentFragment` | W25's unbound `{}` / `undefined` legs (one native at a time; each of the 11 run, §9 item 8) |
+| a member's own early return (`host_if_bound()`) put back before `document_receiver`, for any one of the 11 natives `getElementById`, `querySelector`, `querySelectorAll`, `getElementsByTagName`, `getElementsByClassName`, `getElementsByName`, `adoptNode`, `createElement`, `createTextNode`, `createComment`, `createDocumentFragment` | W25's unbound `{}` / `undefined` legs (one native at a time; each of the 11 is run) |
 | an unbound `HostObject` receiver's `readyState` answers `""` (`bd89a35f`'s value) instead of `"complete"` (D-8, PM 556 D2) | W25's retained-document leg |
 
 ### §6.3 Kept green
