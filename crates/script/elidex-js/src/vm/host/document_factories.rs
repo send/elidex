@@ -20,12 +20,11 @@ use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
 // createElement / createTextNode
 // ---------------------------------------------------------------------------
 //
-// Unbound callers get `null` (not a throw) to match the no-op
-// behaviour of `getElementById` / `body` / `head` etc.  In practice
-// the only way to reach these natives while unbound is to retain a
-// `document` reference across an `unbind()` boundary; throwing
-// TypeError would crash the listener instead of producing the same
-// "document is detached" semantics that other methods already surface.
+// A receiver that is not a Document platform object throws `TypeError`
+// (`document_receiver`, bound or not).  An unbound VM cannot classify a
+// retained `HostObject`, so a `document` reference kept across an
+// `unbind()` boundary gets the default (`null`) instead of a throw, the
+// same as the other Document members.
 
 pub(super) fn native_document_create_element(
     ctx: &mut NativeContext<'_>,
@@ -137,7 +136,8 @@ pub(super) fn native_document_create_comment(
 
 /// `document.createDocumentFragment()` — WHATWG DOM §4.5.  Allocates
 /// a `DocumentFragment` entity that is **not** linked into any tree
-/// and returns its wrapper.  Unbound / non-Document receiver → `null`.
+/// and returns its wrapper.  A non-Document receiver throws `TypeError`;
+/// an unbound VM with a retained `HostObject` returns `null`.
 pub(super) fn native_document_create_document_fragment(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

@@ -303,12 +303,16 @@ fn w23_non_bound_document_ready_state_is_its_readiness() {
         let got = eval_str(
             vm,
             "var d = p.ownerDocument; \
-             L(function () { return d.readyState; }, \
+             L(function () { return d.readyState; });",
+        );
+        assert_eq!(got, "\"complete\"");
+        // Control (same value at 43e350c7, bd89a35f and after, so it cannot fail the cell).
+        let control = eval_str(
+            vm,
+            "L(function () { return document.readyState; }, \
                function () { return document.cloneNode().readyState; });",
         );
-        assert_eq!(got, "\"complete\"|\"complete\"");
-        let control = eval_str(vm, "T(function () { return document.readyState; });");
-        assert_eq!(control, "\"complete\"");
+        assert_eq!(control, "\"complete\"|\"complete\"");
         // Unasserted leg (R-4): the spec value is "interactive".
         let _unasserted = eval_str(vm, "T(function () { return dp.readyState; });");
     });
@@ -345,26 +349,33 @@ fn w24_get_selection_brand_check() {
     });
 }
 
-/// The W25 members: one method of `document.rs`, two accessors (browsing-context
-/// `hidden`, `compatMode`), one node factory, one traversal factory. Each is
-/// called through its prototype descriptor.
+/// The W25 members: the eleven natives whose own bound early return PM 556 D1
+/// folded into `document_receiver` (so a mutation putting any of them back in
+/// front of the check is visible), plus the accessors `hidden`, `compatMode`
+/// and `readyState` and the traversal factory `createTreeWalker`. Each is called
+/// through its prototype descriptor.
 const W25_MEMBERS: &str = "\
 globalThis.P = document.hasOwnProperty('getElementById') ? document \
               : Object.getPrototypeOf(document); \
-globalThis.M = { \
-  getElementById: P.getElementById, \
-  hidden: Object.getOwnPropertyDescriptor(P, 'hidden').get, \
-  compatMode: Object.getOwnPropertyDescriptor(P, 'compatMode').get, \
-  createElement: P.createElement, \
-  createTreeWalker: P.createTreeWalker }; \
+globalThis.M = {}; \
+['getElementById', 'querySelector', 'querySelectorAll', 'getElementsByTagName', \
+ 'getElementsByClassName', 'getElementsByName', 'adoptNode', 'createElement', \
+ 'createTextNode', 'createComment', 'createDocumentFragment', \
+ 'createTreeWalker'].forEach(function (k) { M[k] = P[k]; }); \
+['hidden', 'compatMode', 'readyState'].forEach(function (k) { \
+  M[k] = Object.getOwnPropertyDescriptor(P, k).get; }); \
 globalThis.ALL = function (recv) { \
   return Object.keys(M).map(function (k) { \
     return k + '=' + E(function () { return M[k].call(recv, 'x'); }); }).join(' ; '); };";
 
+/// Number of members in [`W25_MEMBERS`].
+const W25_COUNT: usize = 15;
+
 /// W25 (PM 556 D1): every Document member throws `TypeError` "Illegal
 /// invocation" on a failed brand check, bound or not; the fix is in
 /// `document_receiver`. Legs: `{}` and `undefined`, bound; then the same
-/// unbound; an unbound retained Document wrapper keeps today's defaults (D2).
+/// unbound; an unbound retained Document wrapper keeps today's defaults (D2),
+/// `readyState` included (`"complete"`, not `""`).
 #[test]
 fn w25_every_document_member_brand_checks_its_receiver() {
     with_page(|vm| {
@@ -373,7 +384,8 @@ fn w25_every_document_member_brand_checks_its_receiver() {
         vm.eval("globalThis.dd = document; globalThis.bodyEl = document.body;")
             .unwrap();
         let illegal = |s: &str| {
-            s.matches("TypeError: ").count() == 5 && s.matches("Illegal invocation").count() == 5
+            s.matches("TypeError: ").count() == W25_COUNT
+                && s.matches("Illegal invocation").count() == W25_COUNT
         };
         for recv in ["{}", "undefined"] {
             let got = eval_str(vm, &format!("ALL({recv});"));
@@ -385,10 +397,14 @@ fn w25_every_document_member_brand_checks_its_receiver() {
             "L(function () { return M.getElementById.call(document, 'zz'); }, \
                function () { return M.hidden.call(document); }, \
                function () { return M.compatMode.call(document); }, \
+               function () { return M.readyState.call(document); }, \
                function () { return M.createElement.call(document, 'i'); }, \
                function () { return M.createTreeWalker.call(document, document.body); });",
         );
-        assert_eq!(control, "null|false|\"CSS1Compat\"|object|object");
+        assert_eq!(
+            control,
+            "null|false|\"CSS1Compat\"|\"complete\"|object|object"
+        );
         vm.unbind();
         // Unbound: a non-HostObject receiver throws; a retained HostObject keeps today's defaults.
         for recv in ["{}", "undefined"] {
@@ -398,8 +414,13 @@ fn w25_every_document_member_brand_checks_its_receiver() {
         let retained = eval_str(vm, "ALL(dd);");
         assert_eq!(
             retained,
-            "getElementById=returned:null ; hidden=returned:false ; compatMode=returned:\"\" ; \
-             createElement=returned:null ; createTreeWalker=returned:null"
+            "getElementById=returned:null ; querySelector=returned:null ; \
+             querySelectorAll=returned:null ; getElementsByTagName=returned:null ; \
+             getElementsByClassName=returned:null ; getElementsByName=returned:null ; \
+             adoptNode=returned:null ; createElement=returned:null ; \
+             createTextNode=returned:null ; createComment=returned:null ; \
+             createDocumentFragment=returned:null ; createTreeWalker=returned:null ; \
+             hidden=returned:false ; compatMode=returned:\"\" ; readyState=returned:\"complete\""
         );
     });
 }

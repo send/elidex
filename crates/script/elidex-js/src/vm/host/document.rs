@@ -19,7 +19,8 @@
 //! `crates/dom/elidex-dom-api/src/{document,char_data/document_props}.rs`
 //! (see [`super::dom_bridge::invoke_dom_api`]).  The shape of every
 //! migrated native is identical: brand-check the receiver via
-//! [`document_receiver`], short-circuit on unbound / non-Document,
+//! [`document_receiver`] (a non-Document receiver throws; an unbound VM with a
+//! retained `HostObject` returns the member's default),
 //! coerce the first arg if any, and dispatch by handler name.
 //!
 //! - `getElementById(id)` — handler `"getElementById"`; pre-order DFS
