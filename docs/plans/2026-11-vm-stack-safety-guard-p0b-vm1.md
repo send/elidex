@@ -4,14 +4,15 @@ Status: **plan (pre-implementation)**, per-PR slice of the [P0 umbrella](2026-11
 (PM 509; split from the former P0b-VM by PM 513 (a)); `/elidex-plan-review` required before code. Owner:
 VM P4 (PM 509 item 2). Base: `ce603c74`; every code anchor below is at that commit. Requires
 [P0a-1](2026-11-vm-stack-safety-guard-p0a1.md) (the error identity, the injection points) and
-[P0a-2](2026-11-vm-stack-safety-guard-p0a2.md) (the census check); the slice starts from P0a-2, whose
-prerequisite is P0a-1 (P0 umbrella §1).
-Sibling: [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md) (independent: disjoint files, disjoint
-`# pending` rows). Edges and schedule: P0 umbrella §1.
+[P0a-2a](2026-11-vm-stack-safety-guard-p0a2a.md) (the census check) and
+[P0a-2b](2026-11-vm-stack-safety-guard-p0a2b.md) (the allowlist and `# pending`); the slice starts from P0a-2b
+(P0 umbrella §1).
+Sibling: [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md) (independent: disjoint `# pending` rows;
+disjoint files except two UA-fire drop class members in this slice's files, P0b-VM-2 §10 item 4). Edges and schedule: P0 umbrella §1.
 
 The contract C-1…C-5 is the P0 umbrella §4 (canonical); each fix below applies it at one site with
 `is_resource_limit()` (P0a-1 §4.1) as the only test. This slice is a base case (c) under the P0 umbrella: in
-the census it only removes its rows from `# pending` (P0a-2 §7.3) and adds the admissible rows of §6.
+the census it only removes its rows from `# pending` (P0a-2b §7.3) and adds the admissible rows of §6.
 
 **Why two slices, not one (PM 513 (a)).** The former single memo appealed for one PR because its four
 specs came from four independent consumer sites. PM 513 ruled the other way: four independent sites are a
@@ -21,7 +22,7 @@ IndexedDB, Service Workers and WebCrypto.
 
 ## §0. Charter
 
-P0b-VM-1 fixes the definitive consumers D-6, D-7, D-10 and D-11 of P0a-2 §7.3.
+P0b-VM-1 fixes the definitive consumers D-6, D-7, D-10 and D-11 of P0a-2b §7.3.
 
 **L4 sites (L4 has no driver; VM P4 edits them in this PR).** `history_events.rs` counts as an L4 file and
 this site list is sufficient (PM 513 (b)). Every L4 site this PR touches:
@@ -51,14 +52,14 @@ predicate and injection points, consumed here), **PEND** (this slice's rows of `
 | Pair | Intersection | Pinned by | Basis |
 |---|---|---|---|
 | HS-ser × HS-de | push/replace deserialises the bytes right after step 3 and before any commit (the `current_url` write at `history.rs:248` and step 10), and uses that value at *URL and history update steps* step 8 (no second deserialise); a C-1 error at either propagates with nothing committed | `rl_push_state_resource_limit_throws_no_entry`; M-HS1, M-HS2 | cell |
-| HS-de × traversal | `structured_deserialize` returns `Result`; its remaining callers (`seed_history_state` from `engine.rs:609`, `reconstruct_history_state` in the traversal drain) take step 2's catch-null and must be top-only | rows N, P0a-2 §5 rule 5 | check |
+| HS-de × traversal | `structured_deserialize` returns `Result`; its remaining callers (`seed_history_state` from `engine.rs:609`, `reconstruct_history_state` in the traversal drain) take step 2's catch-null and must be top-only | rows N, P0a-2a §5 rule 5 | check |
 | HS × WK | disjoint files; `stringify_for_structured_shortcut` is a carrier both reach, but each consumer applies its own arm | — | structural |
 | HS × PEND | the D-6 / D-7 rows leave `# pending`; D-6 and D-7 come back as P rows, the two callers as N rows | §6 | check |
 | WK × ThrowValue | D-10's resource-limit arm sits beside the existing `ThrowValue` arm, both before the DataCloneError arm | `rl_worker_post_message_resource_limit_is_range_error`; M-W1 | cell |
 | WK × ID | D-11's `map_err` is kind-preserving (P0a-1 §4.1 item 3), before the `TypeError` mapping | `rl_import_scripts_compile_resource_limit_is_range_error`; M-W2 | cell |
 | WK × PEND | D-10 / D-11 leave `# pending` and come back as P rows | §6 | check |
 | ID × HS, ID × WK | every fix tests only `is_resource_limit()`, and every cell uses only P0a-1's injection points (`Entry(Call, n)`, `Compile`, `JsonParse`, `JsonStringify`) | P0a-1 M-ID kills each cell of §7 | cell |
-| PEND × ID | this PR deletes exactly its 4 pending rows and adds no pending row (P0a-2 §5 rule 4 ceiling) | P0a-2 control `census_pending_row_outside_ceiling` | check |
+| PEND × ID | this PR deletes exactly its 4 pending rows and adds no pending row (P0a-2a §5 rule 4 ceiling) | P0a-2a control `census_pending_row_outside_ceiling` | check |
 
 ## §3. Spec coverage map
 
@@ -115,9 +116,9 @@ deserialise). After this, `seed_history_state` has one production caller, the em
 
 ## §6. Census rows after the fix
 
-Deleted from `# pending`: D-6, D-7, D-10, D-11 — 4 rows. Added as admissible (keys as in P0a-2 §7.3):
+Deleted from `# pending`: D-6, D-7, D-10, D-11 — 4 rows. Added as admissible (keys as in P0a-2b §7.3):
 
-Codes are P0a-2 §5 rule 12's closed table; a row with no fitting code is not given an invented one.
+Codes are P0a-2a §5 rule 12's closed table; a row with no fitting code is not given an invented one.
 
 | Site | Class · code | Reason |
 |---|---|---|
@@ -162,7 +163,7 @@ Slice-local:
 1. Whether the worker test harness can run `importScripts` against a served script, and whether the worker
    cells run in the in-process VM harness or need their own module.
 2. That `seed_history_state` (after §5.1) and `reconstruct_history_state` are not reachable from a native
-   (P0a-2 §5 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
+   (P0a-2a §5 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
 
 webref lookups behind §3 (2026-11-08): `dfn html 'shared history push/replace state steps'` → §7.2.5;
 `dfn html 'restore the history object state'` → §7.4.6.2; `body html url-and-history-update-steps`

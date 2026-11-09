@@ -5,11 +5,12 @@ Status: **plan (pre-implementation)**, per-PR slice of the [P0 umbrella](2026-11
 code. Owner: VM P4. Base: `ce603c74` for every code anchor below except those in `vm/interpreter.rs` /
 `vm/interpreter_call.rs`, which are read after the `interpreter.rs` prereq split (discharged by #615) on this
 branch's merge of main, and the §5.5 anchors, re-verified on the same merge. Provenance root `H` is the P0
-umbrella's. The sibling slice [P0a-2](2026-11-vm-stack-safety-guard-p0a2.md) is the census checker; it is
-written against this memo's contract and lands after it (P0 umbrella §1).
+umbrella's. The sibling slices [P0a-2a](2026-11-vm-stack-safety-guard-p0a2a.md) (the census checker) and
+[P0a-2b](2026-11-vm-stack-safety-guard-p0a2b.md) (its allowlist and `# pending`) are written against this
+memo's contract and land after it (P0 umbrella §1).
 
 The contract C-1…C-5 is the P0 umbrella §4 (canonical); this memo does not restate it. Edges, schedule
-and the other slices: P0 umbrella §1. The census rules, the allowlist and `# pending`: P0a-2 §5–§7.
+and the other slices: P0 umbrella §1. The census rules and the measured population: P0a-2a §5–§7; the allowlist and `# pending`: P0a-2b §6–§7.
 
 ## §0. Charter
 
@@ -36,6 +37,7 @@ to the owner of the subscription.
 | Rev 2 | PM 557 | the mark set by structure, inside one entry wrapper `enter`; `NotStarted` = the entry's own check failed |
 | Rev 3 | PM 590 | option β: no revert anywhere, every probe failure is `Threw`; `NotStarted`, the mark, `enter`, the escape rule and the revert API deleted; IMP-2 fixed as D-16 (§5.5) |
 | Rev 3c | PM 603 | the D-16 sink reports when the owner is already final (decided by the gate's result); `fail_step` keeps the stream-entry guard; where the kind ends (a user handler); two L3 intersection notes |
+| Rev 3d | PM 608, PM 609 | the census population is P0a-2a's / P0a-2b's and P0a-1's ratification does not wait on it (§1); the P0a-2 split into P0a-2a / P0a-2b repointed; four SINK pair rows (§2); the thenable-assimilation note on `settle_promise` (§5.5) |
 
 ## §1. Scope
 
@@ -59,9 +61,14 @@ its cell onto that hook (§4.4; L3's files, site list via PM, P0 umbrella §7 L-
 `content/iframe/thread.rs`) and the tests that read `EvalResult`'s `success` field or call `call_listener`.
 The session-crate and `elidex-dom-api` files are not VM P4's; the PM routes the notice (P0 umbrella §7 L-14).
 
-**Out.** The census checker, its allowlist, `# pending`, the controls and mutants of the check (P0a-2);
-the consumer fixes D-1, D-2, D-5…D-12 (P0b-VM-1, P0b-VM-2, P0b-L3; P0 umbrella §1); `native_import_scripts`'s
-kind mapping (D-11, P0b-VM-1) although §4.1 item 3 states the rule; the deviations of P0 umbrella §6.
+**Out.** The census checker with its controls and mutants (P0a-2a); its allowlist and `# pending`
+(P0a-2b); the consumer fixes D-1, D-2, D-5…D-12 and the UA-fire drop class (P0b-VM-1, P0b-VM-2, P0b-L3;
+P0 umbrella §1); `native_import_scripts`'s kind mapping (D-11, P0b-VM-1) although §4.1 item 3 states the
+rule; the deviations of P0 umbrella §6.
+
+**The census population is not this slice's (PM 608).** P0a-1's scope is the contract and the entries;
+the population those entries reach is measured by P0a-2a and classified before P0a-2b's review (P0a-2b
+§6). P0a-1's ratification does not wait on that classification.
 
 ## §2. Coupled invariants
 
@@ -69,11 +76,11 @@ Elements: **ID** (error kinds, predicates, `Vm::eval` boundary; §4.1), **CHK** 
 the kind's propagation; §4.2), **CP** (choke-point placement; §4.3), **INJ** (test-only injection; §4.4),
 **OUT** (the boundary's `ScriptFailure`; §4.5), **B** (B-1 / B-2 routing; §5.2), **SINK** (the
 internal-reaction sink; §5.5). The census-side pairs (ID × CEN, CP × CEN, INJ × CEN, OUT × CEN,
-SINK × CEN) are P0a-2 §2.
+SINK × CEN) are P0a-2a §2.
 
 | Pair | Intersection | Pinned by | Basis |
 |---|---|---|---|
-| ID × CHK | `check_entry` is the one check site for the four entries; the other producers are the `Vm::eval` conversion (§4.1 item 3) and, from PR-1, the direct `ensure_stack` probes (P0 umbrella §4 C-1, P0a-2 §6); nothing rewrites the error, so `is_resource_limit()` holds wherever the error travels until a consumer surfaces it (C-3) — also when user code of the step ran before the failure | `rl_nested_failure_keeps_kind`; M-REWRITE | cell |
+| ID × CHK | `check_entry` is the one check site for the four entries; the other producers are the `Vm::eval` conversion (§4.1 item 3) and, from PR-1, the direct `ensure_stack` probes (P0 umbrella §4 C-1, P0a-2a §6); nothing rewrites the error, so `is_resource_limit()` holds wherever the error travels until a consumer surfaces it (C-3) — also when user code of the step ran before the failure | `rl_nested_failure_keeps_kind`; M-REWRITE | cell |
 | CHK × CP | the check is the entry function's first statement; a failed check returns before anything of the entry ran, so the VM state the entry guards (frames, the generator's Running state, the wasm store) is untouched | `rl_cp1_entry_failure_no_callee_effect`, `rl_cp2_generator_resumable_after_entry_failure`, `rl_cp3*`; M-P-CP1, M-P-CP2, M-P-CP3a/b | cell |
 | CHK × I-5 | the check is one call per entry; the `Ok` path gains nothing else (no wrapper, no rewrite) | PR-1 §10's I-5 bench (umbrella I-5) | measured (PR-1) |
 | ID × CP | each check returns `VmError::resource_limit()`; CP-3b alone materialises it (`vm_error_to_thrown`), at a C-3 channel | `rl_cp3b_instantiate_entry_failure`, `rl_cp3a_wasm_call_entry_failure_retry` | cell |
@@ -86,7 +93,11 @@ SINK × CEN) are P0a-2 §2.
 | OUT × D-15 | the `unhandledrejection` loop reports the listener's error like the session loop's engine half | `rl_unhandledrejection_once_listener_entry_failure_consumed`, `rl_unhandledrejection_once_listener_threw_is_removed` | cell |
 | SINK × C-3 | an internal subscription names its owner by type; a failed handler call (the step's CP-1, or any other `Err`) settles the owner on its own channel; when the owner's gate reports it already final, the error goes to the report instead (§5.5 "An owner already final"); no arm drops it | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_combinator_step_entry_failure_rejects_result`, `rl_stream_pull_step_entry_failure_errors_stream`, `rl_combinator_step_failure_after_result_settled_reports`, `rl_stream_step_failure_after_close_reports`; M-SINK, M-SINK-FINAL | cell + structural |
 | SINK × CP-2 | an async step fails either at the step's CP-1 (D-16's sink) or at the resume's CP-2 (`drive_async_coroutine`'s `Err` arm); both call one function, so the wrapper's outcome is the same | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_async_step_entry_failure_rejects_wrapper` | cell |
-| INJ × L3 seam | one test-failure mechanism: `SimpleEventDispatch(n)` replaces L3's `fail_next_abort_dispatch`, and as a `#[cfg(test)]` statement it does not make `dispatch_vm_simple_event` a producer (P0a-2 rule 1) | cell (o) after the move; P0a-2 control `census_cfg_test_hook_not_producer` | cell + check |
+| SINK × C-4 | the sink takes the exception branch on the owner's channel and leaves the durable facts that branch leaves: the async wrapper rejected and the generator left suspended (its `finally` does not run, P0 umbrella §6 item 5); the stream errored with `pull_in_flight` cleared; the cancel / combinator promise rejected. Nothing is reverted (β) | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_stream_pull_step_entry_failure_errors_stream`, `rl_combinator_step_entry_failure_rejects_result` | cell (measured by the cells' assertions on the owner's state) |
+| SINK × GC trace | the ids in `ReactionTarget` / `ReactionOwner` are traced (`gc/roots.rs`, `gc/trace.rs`, §5.5) | the trace's `match` on the two enums is exhaustive, so a new variant does not compile without an arm | structural for presence; **not pinned** for content: every owner id is also held by its handler object (`AsyncDriverStep { gen }`, the `ReadableStream*Step`s, the combinator's steps and resolving functions; §5.5 "Facts"), so a missing trace of the target's id is masked by that redundant root and no cell can observe it |
+| SINK × cfg gate | `ReactionOwner::Stream`, its `fail_reaction_owner` arm and its trace arm are `#[cfg(feature = "engine")]`, like the `readable_stream` module they call (§5.5 "cfg gate") | a mismatch does not compile in a profile without `engine`; the per-feature-profile build matrix (`docs/plans/2026-11-per-profile-build-matrix-umbrella.md`, U0) builds such a profile once it lands | structural; **not pinned in CI** until U0's matrix lands |
+| SINK × I-5 | the reaction record carries `ReactionTarget` in place of `Option<ObjectId>`, and the gated `settle_promise` core returns `Settle` on the microtask path; the `Ok` path of `run_reaction` reads the target only in its `Err` arm, and `Settle` is a fieldless two-variant enum returned by value (no allocation) | — | structural; **not pinned**: PR-1 §10's I-5 bench measures the probes, not the reaction record's size or the microtask path, so the record's possible growth (an enum discriminant beside the id) is unmeasured |
+| INJ × L3 seam | one test-failure mechanism: `SimpleEventDispatch(n)` replaces L3's `fail_next_abort_dispatch`, and as a `#[cfg(test)]` statement it does not make `dispatch_vm_simple_event` a producer (P0a-2a rule 1) | cell (o) after the move; P0a-2a control `census_cfg_test_hook_not_producer` | cell + check |
 
 ## §3. Spec coverage map
 
@@ -169,7 +180,7 @@ D-11 P0b-VM-1).
 (NEW, `pub(crate)`) is the one check site for the four entries: the injection of §4.4 at P0a-1, the probe
 that PR-1 / PR-1b add, and the one place where the ask per kind is chosen. It is not the only producer: the
 `Vm::eval` conversion (§4.1 item 3) and PR-1's direct `ensure_stack` probes also produce the kind (P0
-umbrella §4 C-1, P0a-2 §6). Each of the four entries of §4.3 calls it as its first
+umbrella §4 C-1, P0a-2a §6). Each of the four entries of §4.3 calls it as its first
 statement and propagates its error with `?` (CP-3b converts it, §4.3). There is no wrapper around the
 entry and no rewrite of the entry's result.
 
@@ -255,8 +266,8 @@ rejects it on a throw completion, and even a failure of FunctionDeclarationInsta
 and the `RangeError` reaches HTML *notify about rejected promises* (D-15's loop, §5.4), then the stderr
 stand-in if unhandled. The inline dispatch path (`interpreter_call.rs:631`) has the same `Ok` from
 `make_async_coroutine_and_drive`; its `Err(_e)` arm stays unreachable (`drive_async_coroutine` returns
-`Err` only for a generator without a wrapper, which that path never creates) and is a row of P0a-2's census
-(P0a-2 §7.3).
+`Err` only for a generator without a wrapper, which that path never creates) and is a row of the census allowlist
+(P0a-2b §7.3).
 
 **Cost (I-5).** One call per entry, no field, no store, no rewrite. PR-1 §10's I-5 bench covers
 `with_call_mode` and the call path; no separate measurement.
@@ -300,7 +311,7 @@ the n-th `check_entry` of that kind on this thread return `VmError::resource_lim
 derives its `n` from a dry run instead of guessing. The four boundary points are not production probe
 sites: they let a cell deliver C-1's kind to a consumer through the consumer's real call path before PR-1's
 walker and front-end probes exist, and they stay after PR-1 so the consumer cells do not depend on stack
-sizes. Each boundary hook is a `#[cfg(test)]`-attributed statement (P0a-2 rule 1 excludes such statements
+sizes. Each boundary hook is a `#[cfg(test)]`-attributed statement (P0a-2a rule 1 excludes such statements
 from producer derivation). They are the only injection points; a consumer cell in any slice that needs
 another is a design change to this section. The P0b slices use them as they are.
 
@@ -312,7 +323,7 @@ so the cell can show that every dependent's abort steps still run. That is a sec
 beside this one, temporary by plan. **Expected order (PR-A first, then P0a-1 rebased on it):** P0a-1
 deletes `fail_next_abort_dispatch` and rewrites cell (o) to arm `InjectAt::SimpleEventDispatch(n)` (the
 general form, at the same call) with `n` from `resource_limit::count`, same assertion; its error is C-1's
-kind, which is also the only `Err` that can reach this call once P0's error exists (P0a-2 §7). **Inverted
+kind, which is also the only `Err` that can reach this call once P0's error exists (P0a-2b §7.3). **Inverted
 order (P0a-1 first):** there is no seam to move; PR-A arms `InjectAt::SimpleEventDispatch(n)` from the
 start and adds no field. Either way L3's contract is unchanged, and after both PRs exactly one seam exists.
 P0 umbrella §1 points here.
@@ -334,7 +345,7 @@ the boundary reads one. **What reads it** (the reason it stays without the rever
 `EvalResult` readers, which read whether the script failed (today's `success`); (2) the traversal protos,
 whose `FilterError::Script` arm takes `pending_error` and propagates it (BC-3 below); (3) P0b-L3's
 session-side handler completion (PM 533 (iii), hand-off §4), which chooses the no-write arm on `Err`; (4)
-P0a-2's rule 11, which recognises a boundary that carries the failure, so a collapsing boundary stays a
+P0a-2a's rule 11, which recognises a boundary that carries the failure, so a collapsing boundary stays a
 census member. `call_listener`'s caller reads it as "surfaced; step 2.5 stands". **Home**:
 `elidex-script-session`, the sole Script↔ECS boundary (CLAUDE.md, Design philosophy); every crate that names
 it already depends on it (`elidex-dom-api` → `elidex-script-session`, `Cargo.toml:16`; the shell;
@@ -342,19 +353,19 @@ it already depends on it (`elidex-dom-api` → `elidex-script-session`, `Cargo.t
 the boundary.
 
 **Enumeration (every method of a trait declared outside `elidex-js` and implemented in it; census B1,
-P0a-2 §7).**
+P0a-2a §7).**
 
 | Boundary (declaration; impl) | Today | P0a-1 |
 |---|---|---|
 | `ScriptEngine::call_listener` (session `engine.rs:78`; impl `elidex-js/src/engine.rs:203`) | `()`; the impl drops the result (`:275`) | `-> Result<(), ScriptFailure>`, `#[must_use]`; the impl reports the error; D-14 (§5.3) |
 | `ScriptEngine::eval` (`:59`; impl `:176`) | `EvalResult { success: bool, error: Option<String> }` | `EvalResult { outcome: Result<(), ScriptFailure>, error: Option<String> }`; `success` is removed, no shim; BC-1 |
-| `ScriptEngine::drain_timers` (`:101`; impl `:332`) | `Vec<EvalResult>` | each `EvalResult` carries the outcome (BC-1's type); the container carries the failure by containment (P0a-2 rule 11); BC-2 |
+| `ScriptEngine::drain_timers` (`:101`; impl `:332`) | `Vec<EvalResult>` | each `EvalResult` carries the outcome (BC-1's type); the container carries the failure by containment (P0a-2a rule 11); BC-2 |
 | `FilterAction::accept` (`crates/dom/elidex-dom-api/src/traversal.rs:401`; impl `vm/host/node_filter_dispatch.rs:51`) | `Err(FilterError::Throw)`; the value travels out of band in `JsFilter`'s `pending_error` field | `FilterError::Throw` → `FilterError::Script(ScriptFailure)` (NEW: P0a-1); the value stays in `pending_error`; BC-3, with the null arms removed (below) |
-| `ScriptEngine`: `run_microtasks`, `drain_reactions`; `HostDriver`: `deliver_mutation_records`, `deliver_resize_observations`, `deliver_intersection_observations`, `tick_network`, `deliver_sw_client_update`, `deliver_idb_versionchange`, `drain_worker_messages`, `deliver_history_step_events`, `deliver_media_query_changes`, `deliver_visual_viewport_events` (12) | `()` | unchanged; class R "drain": the method has no step of its own, each item's failure is consumed on that item's own channel inside the engine at a site that is its own Err-population row, and no caller holds a subject across the call; **the consuming rows are named per drain and checked** (PM 540 (3); P0a-2 §5 reason `drain-consumed`) |
+| `ScriptEngine`: `run_microtasks`, `drain_reactions`; `HostDriver`: `deliver_mutation_records`, `deliver_resize_observations`, `deliver_intersection_observations`, `tick_network`, `deliver_sw_client_update`, `deliver_idb_versionchange`, `drain_worker_messages`, `deliver_history_step_events`, `deliver_media_query_changes`, `deliver_visual_viewport_events` (12) | `()` | unchanged; class R "drain": the method has no step of its own, each item's failure is consumed on that item's own channel inside the engine at a site that is its own Err-population row, and no caller holds a subject across the call; **the consuming rows are named per drain and checked** (PM 540 (3); P0a-2a §5 reason `drain-consumed`) |
 | `HostDriver::set_history_state` (`:469`; impl `:605`) | `()` | unchanged; **not a drain** (R4 Axis 1 MIN-3): it has a step of its own (`seed_history_state` → `structured_deserialize` → `parse_json_str`). Class N top-only, the reason P0b-VM-1 §5.1 gives its inner chain: the embedder's document-construction entry, HTML §7.4.6.2 *restore the history object state* step 2's catch-null is the spec branch; the consuming row the checker names is `structured_deserialize` → `parse_json_str` (D-7 until P0b-VM-1, then the N rows `seed_history_state` → `structured_deserialize`) |
-| `HostDriver::bind`, `unbind`, `teardown_document`, `seed_sw_client`, `take_pending_storage_changes`, `sw_controller_scope`, `storage_origin_key`, `install_network_handle`, `install_idb_backend` (9) | `()` / a value | unchanged; class N "name-graph collision": no script runs; the name graph reaches a producer only through a colliding name (`new`, `to_string`, `bind`); the cut is keyed per call occurrence (P0a-2 rule 10) |
+| `HostDriver::bind`, `unbind`, `teardown_document`, `seed_sw_client`, `take_pending_storage_changes`, `sw_controller_scope`, `storage_origin_key`, `install_network_handle`, `install_idb_backend` (9) | `()` / a value | unchanged; class N "name-graph collision": no script runs; the name graph reaches a producer only through a colliding name (`new`, `to_string`, `bind`); the cut is keyed per call occurrence (P0a-2a rule 10) |
 | `HostDriver::with_bound` | `R`, the closure's value | unchanged; class P "pass-through": it returns the closure's own value |
-| `ScriptEngine`'s `remove_listener`, `bound_dom_mut`; the other 32 `HostDriver` methods; `MutationDispatcher::dispatch` (`Send + Sync`, no VM); the std-trait impls (`Drop`, `Iterator`, `Default`, …) | — | members or not as P0a-2's resolved graph decides (rule 9 scans every foreign trait, std included); none runs script (R4 Axis 1 MIN-2 read the 7 std impls at the base) |
+| `ScriptEngine`'s `remove_listener`, `bound_dom_mut`; the other 32 `HostDriver` methods; `MutationDispatcher::dispatch` (`Send + Sync`, no VM); the std-trait impls (`Drop`, `Iterator`, `Default`, …) | — | members or not as P0a-2a's resolved graph decides (rule 9 scans every foreign trait, std included); none runs script (R4 Axis 1 MIN-2 read the 7 std impls at the base) |
 
 No other implementor exists in non-test code (`git grep -nE 'impl(<[^>]*>)? (\w+::)*(ScriptEngine|HostDriver) for' -- crates`
 → `elidex-js/src/engine.rs:175`, `:373` only, verified 2026-11-08). Test implementors and test callers adapt
@@ -386,14 +397,14 @@ result. Nothing is reinserted and the listener is not invoked again by the contr
 reachable only because every `FilterError::Throw` construction (`node_filter_dispatch.rs:51-98`) sets
 `pending_error` first and the proto returns that error before the match (`tree_walker_proto.rs:340-347`).
 A failure → null arm that is unreachable by an invariant is the C-2 (a) shape guarded by review, and under
-P0a-2's checked-reason rule "unreachable by construction" has no mechanical form (it would be a D row). So
+P0a-2a's checked-reason rule "unreachable by construction" has no mechanical form (it would be a D row). So
 P0a-1 removes the arm: the `Err(FilterError::Script(ScriptFailure))` arm **propagates** — it takes
 `pending_error` and returns `Err(value)`; with no pending value it returns an internal error (never null; a
 debug assertion names the breach). No error is rebuilt from the boundary type (Rev 2 A1 MIN-3: the second
 inverse mapping is gone with `NotStarted`). The **`pending_error` invariant**, stated once: `accept`
 returns `Err(FilterError::Script(_))` only after `pending_error = Some(value)`; the proto consumes
 `pending_error` in the `Script` arm of the traversal result and nowhere else. After this the two sites are
-auto-recognised propagation (P0a-2 rule 2) or P rows, not N. `pending_error` holds the `VmError`
+auto-recognised propagation (P0a-2a rule 2) or P rows, not N. `pending_error` holds the `VmError`
 (R1 Axis 2), so the kind reaches the script's `throw_error` unchanged.
 
 **Rejected (PM 533).** (b) Removing the `once` entry after the call: DOM §2.9 *inner invoke* removes before
@@ -419,7 +430,7 @@ Fix: §4.1 item 3.
 
 Fix: `Op::PushConst` matches `load_constant`'s result, and `op_define_computed_accessor` matches
 `make_property_key`'s, and each sends an error through `throw_error`, like every other fallible op in
-`run()`. These are catchability fixes. P0a-2 rule 6 (a `?` on a carrier in `run()` is a member) stays as
+`run()`. These are catchability fixes. P0a-2a rule 6 (a `?` on a carrier in `run()` is a member) stays as
 the census-side guard of catchability.
 
 **B-1's test vehicle (R5 Axis 1 MIN-3).** [spec] A regexp literal whose pattern is invalid is an early
@@ -444,7 +455,7 @@ and PR-1's regexp cells pin that class there.
 
 Fix: §4.5. D-14 is fixed here (the trait change is P0a-1's, PM 533 (a)), so it is never pending; BC-1…BC-3
 carry the failure and leave the boundary population. The S row `engine.rs:275` of the census at
-`ce603c74` was D-14's engine half (PM 533 item 3; P0a-2 §7).
+`ce603c74` was D-14's engine half (PM 533 item 3; P0a-2b §7.3).
 
 ### §5.4 D-15: the `unhandledrejection` loop (R4 Axis 2 IMP-2; PM 544)
 
@@ -475,7 +486,7 @@ adapts to the earlier one's form (L3 brand-check Rev 4).
 
 | Id | Site | What the error becomes today | Class | Governing step |
 |---|---|---|---|---|
-| D-16 | `vm/natives_promise.rs` `run_reaction` (`:665`): `vm.call(handler, …)` at `:689` (CP-1); the `Err` arm (`:695-703`) settles only `if let Some(cap) = capability` | with `capability == None` the error is dropped: no report, the owner never settles | D (C-3: dropped at a script-controlled depth, §3.1; P0a-2 §7.3 had it as R on the `Some` arm only) | ECMA-262 NewPromiseReactionJob, the job's step 6 |
+| D-16 | `vm/natives_promise.rs` `run_reaction` (`:665`): `vm.call(handler, …)` at `:689` (CP-1); the `Err` arm (`:695-703`) settles only `if let Some(cap) = capability` | with `capability == None` the error is dropped: no report, the owner never settles | D (C-3: dropped at a script-controlled depth, §3.1; P0a-2a §7.2's re-run had it as R on the `Some` arm only) | ECMA-262 NewPromiseReactionJob, the job's step 6 |
 
 The id D-16 is the P0 census series (D-1…D-16); the code comment `D-16 #11-wasm-vm` in
 `interpreter_call.rs` is another series.
@@ -573,6 +584,17 @@ result, not by a list of owner states, so a new owner kind or a new final state 
 async wrapper and the cancel promise are always Pending when their step runs, so for them the fallback is
 structural and unobserved.
 
+**`settle_promise` stays Ok-only today; thenable assimilation would change that (Axis 3 MIN-4 on Rev 3c).**
+`settle_promise`'s doc comment says arbitrary thenables are not yet assimilated (`natives_promise.rs:121` at
+`658cc302`, and the module doc above it). That gap's home is VM P4 slice-plan row **9da**, under umbrella
+**9d** (`docs/plans/2026-07-vm-p4-slice-plan.md`; both rows cite slot `#11-vm-builtin-prototype-static-sweep`);
+row 9da measures the same `:121` comment. When assimilation lands, `settle_promise` performs
+`Get(resolution, "then")` (ECMA-262 CreateResolvingFunctions, the resolve function's step that reads
+`then`), which runs a getter, so a producer is reached beneath it. The 60 uses of `settle_promise` that are
+Ok-only at the base (P0a-2a §7.1) then become members of the census. The ratchet catches it: P0a-2a §5
+rule 1 recomputes the reach on every run, and a member without a row is red (rule 3), so the PR that adds
+assimilation must classify them.
+
 The rejection reaches *notify about rejected promises* if unhandled (D-15's loop). With the report for a
 final owner, the `RangeError` is surfaced in every case. The async driver's answer to the brief's two questions: the `RangeError` goes to
 the wrapper's rejection; the generator's state stays suspended (one outcome for the step's CP-1 and its
@@ -655,15 +677,15 @@ obligations (PR-1 precondition, breadth record, slots) are P0 umbrella §7.
 
 The ledger and notice rows this slice triggers are rows of the P0 program's landing list (P0 umbrella §7,
 PM 513 (d)): L-2, L-3 (now also D-15's report), L-5, L-6 (now also D-16's cell), L-12 (L3 notice) and L-14
-(boundary notice). Slice-local: none; the census counts are P0a-2's (P0a-2 §10).
+(boundary notice). Slice-local: none; the census counts are P0a-2a's and P0a-2b's (P0a-2a §10, P0a-2b §10).
 
 ## §9. Unverified facts (each decided at implementation, before its cell is written)
 
 1. The `regress` 0.11.1 pattern for `rl_regexp_literal_error_is_catchable`.
 2. Whether M-P-CP3a / M-P-CP3b are observable.
 3. The post-L3 function and callee names of the `AbortSignal` abort loop and of cell (o), read at P0a-1's
-   base once L3's `#11-abort-signal-any-dependent-flattening` PR has landed; the allowlist row is P0a-2's
-   (P0a-2 §7).
+   base once L3's `#11-abort-signal-any-dependent-flattening` PR has landed; the allowlist row is P0a-2b's
+   (P0a-2b §7.3).
 4. Whether the stderr report of a listener error (§4.5, engine side; D-15 likewise) is observable in a
    cell; if not, it is recorded as not pinned (the report channel is `#11-embedder-diagnostic-channel`'s).
 5. `#11-event-path-window-missing` PR-A's schedule against P0a-1's (PM 540 (2): P0a-1 first; if P0a-1 is

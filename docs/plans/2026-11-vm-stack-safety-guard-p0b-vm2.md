@@ -1,36 +1,76 @@
-# VM stack-safety guard — P0b-VM-2 plan (IndexedDB, service-worker messages, WebCrypto consumers)
+# VM stack-safety guard — P0b-VM-2 plan (IndexedDB, service-worker messages, WebCrypto consumers, the UA-fire drop class)
 
 Status: **plan (pre-implementation)**, per-PR slice of the [P0 umbrella](2026-11-vm-stack-safety-guard-p0.md)
 (PM 509; split from the former P0b-VM by PM 513 (a), reason in
 [P0b-VM-1](2026-11-vm-stack-safety-guard-p0b-vm1.md)'s header); `/elidex-plan-review` required before code.
 Owner: VM P4 (PM 509 item 2). Base: `ce603c74`; every code anchor below is at that commit. Requires
-[P0a-1](2026-11-vm-stack-safety-guard-p0a1.md) and [P0a-2](2026-11-vm-stack-safety-guard-p0a2.md) (the slice starts from
-P0a-2, whose prerequisite is P0a-1; P0 umbrella §1). Sibling P0b-VM-1 is independent (disjoint files, disjoint
-`# pending` rows). Edges and schedule: P0 umbrella §1.
+[P0a-1](2026-11-vm-stack-safety-guard-p0a1.md), [P0a-2a](2026-11-vm-stack-safety-guard-p0a2a.md) (the check) and
+[P0a-2b](2026-11-vm-stack-safety-guard-p0a2b.md) (the allowlist and `# pending`); the slice starts from
+P0a-2b (P0 umbrella §1). Sibling P0b-VM-1 is independent (disjoint `# pending` rows; disjoint files except
+two UA-fire drop class members, §10 item 4). Edges and schedule: P0 umbrella §1.
 
 The contract C-1…C-5 is the P0 umbrella §4 (canonical); each fix below applies it at one site with
 `is_resource_limit()` (P0a-1 §4.1) as the only test. This slice is a base case (c) under the P0 umbrella.
 
 ## §0. Charter
 
-P0b-VM-2 fixes the definitive consumers D-8, D-9 and D-12 of P0a-2 §7.3. D-9's fix also makes
+P0b-VM-2 fixes the definitive consumers D-8, D-9 and D-12 of P0a-2b §7.3, and the UA-fire drop class
+(§1; PM 608 item 3, PM 609 item 2). D-9's fix also makes
 `startMessages()`'s flush asynchronous, as the Service Workers spec has it (PM 509 item 6), through one
 delivery queue `PendingTask::SwMessage` (NEW); PM 513 (c) records that queue on
 `#11-sw-client-postmessage-inbound`, whose inbound work builds on it.
+
+**Why the drop class is here (PM 608).** The defect is specific to the resource limit (at the base no `Err`
+flows on these dispatch paths; P0's error is what would make one flow), so it belongs inside the P0
+program. Every member has the shape of `deliver.rs:341`, a file already in this slice, so one mechanism
+fixes all of them. It is a different problem from L3's dispatch path (D-5, the listener call's own error),
+and keeping the class in one lane keeps one decision surface.
+
+**Priority.** First: `indexeddb/dispatch.rs:194`. It turns the dispatch's error into `threw: true` and
+reports nothing, the silent-drop shape that PM 590 made mandatory to fix (a converted error with no
+report); the transaction then aborts with no trace of the cause. Then the rest of the class, then D-8,
+D-9, D-12.
+
+**If the slice stops fitting one PR (PM 609 item 2).** When this slice touches more than 15 files, or is
+not expected to finish in one review round, the driver proposes to the PM a cut of P0b-VM-3 by class (the
+drop class on one side, D-8 / D-9 / D-12 on the other). The count is taken when the classification
+(P0a-2b §6) has fixed the class's members.
 
 ## §1. Scope
 
 **In.** `crates/script/elidex-js/src/vm/host/indexeddb/value.rs` and its callers in `indexeddb/cursor.rs`,
 `index.rs`, `object_store.rs`; `vm/host/service_worker/deliver.rs`, `vm/host/pending_tasks.rs` (one task
-variant), `vm/gc/roots.rs` (its exhaustive arm); `vm/host/subtle_crypto/ops.rs`; the census allowlist rows
-of §6; cells in `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NEW).
+variant), `vm/gc/roots.rs` (its exhaustive arm); `vm/host/subtle_crypto/ops.rs`; the files of the UA-fire
+drop class below; the census allowlist rows of §6; cells in
+`crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NEW).
+
+**The UA-fire drop class.** A UA-fired event's dispatch whose `Result` is dropped (`let _ =`, an unused
+binding) or converted without a report. Its members are reached by P0's error only under PM 603's reach
+(P0a-2a §5 rule 1); at the base `dispatch_vm_event` returns only `Ok`, so nothing flows yet. The fix is one
+mechanism for the class: the dropped `Err` is reported (C-3), and the dispatch's own outcome is otherwise
+unchanged. Members (paths under `crates/script/elidex-js/src/`):
+
+- **The seven named drops (PM 603; lines at `ce603c74`):** `vm/host/service_worker/deliver.rs:341`
+  (`fire_simple`); `vm/host/event_source_dispatch.rs` 82 (`dispatch_sse_connected`) / 187
+  (`fire_sse_error`); `vm/host/websocket_dispatch.rs` 79 (`dispatch_ws_connected`) / 114
+  (`fire_vm_close_event`) / 177 (`fire_vm_message_event`) / 212 (`dispatch_ws_error`).
+- **The sample's members (P0a-1 Rev 3c re-review, Axis 3; lines at `01d2f535`):**
+  `vm/host/indexeddb/dispatch.rs:194` (`dispatch_vm_event`'s `Err(_)` becomes `threw: true`, nothing is
+  reported: first, above); `vm/host/history_events.rs:187`; `vm/host/worker.rs:278`;
+  `vm/host/worker_scope.rs:333`; `vm/sw_thread.rs:376`; `vm/host/media_query.rs:539` (inside a drain);
+  `vm/host/visual_viewport.rs:350`; `vm/host/dom_selection_proto.rs:740`; `vm/host/html_slot_proto.rs:427`;
+  `vm/host/file_reader.rs:660`; `vm/host/pending_tasks.rs:461`. `vm/sw_thread.rs:339` is probably an N
+  `thread-entry` row, not a member; the classification pass confirms it.
+- **Every further member the classification pass finds** (P0a-2b §6), added to this list before this
+  memo's review.
 
 **Out.** Every non-resource failure at these sites keeps its present behaviour, owned by the slots named in
 §5; D-6, D-7, D-10, D-11 (P0b-VM-1).
 
 ## §2. Coupled invariants
 
-Elements: **IDB** (D-8), **SW** (D-9 and the task queue), **WC** (WebCrypto D-12), **ID** (P0a-1's predicate
+Elements: **IDB** (D-8), **SW** (D-9 and the task queue), **WC** (WebCrypto D-12), **DROP** (the UA-fire drop
+class), **ID** (P0a-1's predicate
 and injection points, consumed here), **PEND** (this slice's rows of `# pending`).
 
 | Pair | Intersection | Pinned by | Basis |
@@ -43,7 +83,9 @@ and injection points, consumed here), **PEND** (this slice's rows of `# pending`
 | IDB × SW, IDB × WC, SW × WC | disjoint files and carriers; no shared state | — | structural |
 | ID × IDB, ID × WC | every fix tests only `is_resource_limit()`, and every cell uses only P0a-1's injection points | P0a-1 M-ID kills the IDB and WebCrypto cells | cell |
 | ID × SW | the SW change is a scheduling change (no predicate); its cells do not depend on the injection | M-SW, M-SW2 | cell |
-| PEND × ID | this PR deletes exactly its 4 pending rows (D-12 is 2 rows) and adds no pending row (P0a-2 §5 rule 4 ceiling) | P0a-2 control `census_pending_row_outside_ceiling` | check |
+| PEND × ID | this PR deletes exactly its 4 pending rows (D-12 is 2 rows) and adds no pending row (P0a-2a §5 rule 4 ceiling) | P0a-2a control `census_pending_row_outside_ceiling` | check |
+| DROP × report | every member of the UA-fire drop class reports a dispatch `Err` (C-3) and keeps its outcome otherwise; `indexeddb/dispatch.rs:194` also stops presenting the error as a listener throw without a report | `rl_ua_fire_drop_reports` (per member file); M-DROP | cell |
+| DROP × census | the class's rows change from `drain-consumed` to R `channel` (the report); a member added later by the census is red until it gets the same fix | P0a-2a control `census_reach_dispatch_drops` | check |
 
 ## §3. Spec coverage map
 
@@ -53,9 +95,10 @@ and injection points, consumed here), **PEND** (this slice's rows of `# pending`
 | Service Workers §3.4.6 startMessages() | enable the client message queue; §3.4: an enabled queue is a task source | buffered messages are delivered as tasks, not synchronously | `enable_sw_messages`, `deliver_message`, `fire_message` (`deliver.rs:287`, `:263`, `:359`) | ✓ | yes |
 | Web Cryptography API §14.3.11 The wrapKey method | steps 2–4 (normalize for "wrapKey"; on error normalize for "encrypt"; on error reject) | step 3 is not taken; rejects with the `RangeError` | `normalize_wrap_with_fallback` (`subtle_crypto/ops.rs:66`, caller `:655`) | ✓ | yes |
 | Web Cryptography API §14.3.12 The unwrapKey method | steps 2–4 (same, "unwrapKey" / "decrypt") | same | same helper (`ops.rs:720` caller) | ✓ | yes |
+| WHATWG HTML §8.1.4.6 Runtime script errors | *report an exception* | a dispatch `Err` of a UA-fired event is reported, not dropped (C-3) | the UA-fire drop class (§1) | ✓ | yes |
 
-**Breadth**: K=3 specs (IndexedDB-3, Service Workers, Web Cryptography API), M=4 entries
-(`python3 .claude/skills/elidex-plan-review/preflight.py` on this memo; `IndexedDB-3` and `Service Workers`
+**Breadth**: K=4 specs (IndexedDB-3, Service Workers, Web Cryptography API, WHATWG HTML), M=5 entries
+(verified 2026-11-10 by `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo; `IndexedDB-3` and `Service Workers`
 are labels preflight does not map, so their two rows were looked up by hand, §10). Below the split
 thresholds.
 
@@ -103,9 +146,9 @@ fallback (step 3 is for errors the spec defines).
 
 ## §6. Census rows after the fix
 
-Deleted from `# pending`: D-8, D-9, D-12 (2) — 4 rows. Added as admissible (keys as in P0a-2 §7.3):
+Deleted from `# pending`: D-8, D-9, D-12 (2) — 4 rows. Added as admissible (keys as in P0a-2b §7.3):
 
-Codes are P0a-2 §5 rule 12's closed table; a row with no fitting code is not given an invented one.
+Codes are P0a-2a §5 rule 12's closed table; a row with no fitting code is not given an invented one.
 
 | Site | Class · code | Reason |
 |---|---|---|
@@ -113,6 +156,7 @@ Codes are P0a-2 §5 rule 12's closed table; a row with no fitting code is not gi
 | the seven `json_to_js` callers | R · `channel` | request error (`DeferredOutcome::Error`); channel function: the `DeferredOutcome::Error` construction |
 | `fire_message` → `parse_json_str` | N · `top-only` | top-only (task drain), rule 5 |
 | `normalize_wrap_with_fallback` → `marshal_normalize` (2) | P · — (no code of rule 12 fits; open) | resource-limit arm propagates; fallback only for other errors |
+| each UA-fire drop class member (§1) | R · `channel` (was `drain-consumed`) | the dispatch `Err` is reported; channel function: the report stand-in (`report_*`) |
 
 ## §7. Cells (written first)
 
@@ -125,6 +169,7 @@ New file `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NE
 | `rl_sw_start_messages_is_async` | buffered client messages; `navigator.serviceWorker.startMessages()` | no `message` event during the call; events fire after the task drain |
 | `rl_sw_message_order_preserved` | messages A, B buffered; `startMessages()`; message C delivered before the drain | events in the order A, B, C |
 | `rl_wrap_key_resource_limit_skips_fallback` | `wrapKey` / `unwrapKey` with `{ get name() { k++; return 'AES-KW' } }` and `Entry(Call, 1)` | rejects `RangeError`; `k === 1` |
+| `rl_ua_fire_drop_reports` (one per member file) | a listener on the UA-fired event; `InjectAt::SimpleEventDispatch(1)` (P0a-1 §4.4) | the `RangeError` is reported once; the UA algorithm continues as on an ordinary listener throw; for `indexeddb/dispatch.rs:194`, the report precedes the transaction's abort |
 
 ## §8. Mutants (run on the final head, debug)
 
@@ -134,6 +179,7 @@ New file `crates/script/elidex-js/src/vm/tests/tests_resource_limit_host.rs` (NE
 | M-SW | synchronous flush back | `rl_sw_start_messages_is_async` |
 | M-SW2 | `deliver_message`'s enabled branch fires synchronously | `rl_sw_message_order_preserved` |
 | M-WC | fallback runs on a resource limit | `rl_wrap_key_resource_limit_skips_fallback` |
+| M-DROP | the report removed from one member (each member in turn) | that member's `rl_ua_fire_drop_reports` |
 | M-ID (P0a-1) | `is_resource_limit` always false | the IDB and WebCrypto cells |
 
 ## §9. Landing obligations
@@ -148,9 +194,20 @@ The ledger rows this slice triggers are rows of the P0 program's landing list, P
 
 1. Whether the SW cells run in the in-process VM harness or need their own module.
 2. That the SW task drain and `deliver_message`'s caller (`deliver.rs:50`) are not reachable from a native
-   (P0a-2 §5 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
+   (P0a-2a §5 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
 3. Every exhaustive `match` on `PendingTask` besides `gc/roots.rs:557` and `pending_tasks.rs:287`.
+4. **Open with the PM: file overlap with P0b-VM-1.** Two members of the drop class are in P0b-VM-1's files:
+   `history_events.rs:187` (an L4 file, P0b-VM-1 §0) and `worker_scope.rs:333` (D-10 / D-11's file). The
+   P0 umbrella §1 statement that the P0b slices touch disjoint files does not hold for them. No edge is
+   invented here; the PM decides between an order of the two slices for these files and moving the two
+   members' fixes to P0b-VM-1. `history_events.rs` is also an L4 file, so its edit needs the L4 notice
+   (P0 umbrella §7 L-11's form).
+5. Whether `InjectAt::SimpleEventDispatch(n)` reaches every member's dispatch entry
+   (`dispatch_script_event`, `fire_vm_event`, `dispatch_vm_event`, `dispatch_event_at_sw_scope`,
+   `fire_vm_progress_event`); a member it does not reach needs a P0a-1 injection point, which is a design
+   change back to P0a-1's review.
 
 webref lookups behind §3 (2026-11-08): `dfn IndexedDB-3 'retrieve a value from an object store'` → §6.2;
 `dfn service-workers 'startMessages()'` → §3.4.6, `body service-workers dfn-client-message-queue`;
-`dfn webcrypto 'wrapKey()'` → §14.3.11, `dfn webcrypto-2 'unwrapKey()'` → §14.3.12.
+`dfn webcrypto 'wrapKey()'` → §14.3.11, `dfn webcrypto-2 'unwrapKey()'` → §14.3.12; (2026-11-10)
+`dfn html 'report an exception'` → §8.1.4.6.

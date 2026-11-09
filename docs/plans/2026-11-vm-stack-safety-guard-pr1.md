@@ -479,9 +479,9 @@ debug aborts at N=300 on 2 MiB (`H/logs/rel-classext.log`, `H/logs/dbg-census-ho
 recursion, or a removed probe, turns CI red:
 
 - `.claude/tools/recursion_cutcheck.py` (NEW; the census and the cut check from
-  `H/scripts/recursion_census.py` + `H/scripts/cutcheck.py`, merged), built on P0a-2's shared lexer and call
+  `H/scripts/recursion_census.py` + `H/scripts/cutcheck.py`, merged), built on P0a-2a's shared lexer and call
   graph `.claude/tools/_rust_callgraph.py` (one substrate for both checks). Each probe commit also deletes
-  its function's name from the Err census's `PLANNED_PRODUCERS` (P0a-2 §6), which is red otherwise. Its probe set is **derived
+  its function's name from the Err census's `PLANNED_PRODUCERS` (P0a-2a §6), which is red otherwise. Its probe set is **derived
   from the code**, not listed: a function is a probe site iff its body calls `ensure_stack` or
   `enter_recursion`, or it is `with_call_mode` / `resume_generator`; the cut points that are not
   probes (`abort_signal` on A-1, `drain_microtasks` on its re-entry flag) are rows of the allowlist

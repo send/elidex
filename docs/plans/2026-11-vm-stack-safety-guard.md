@@ -3,7 +3,7 @@
 Status: **plan (pre-implementation), revised after plan-review R1 and R2** (findings at `H/review/` and
 `H/review-r2/`, `axis1.md` … `axis5.md`, `aggregate.md`), the driver decisions D-W / D-SC and the split
 verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 590). Owner: VM P4 lane.
-PR-level plans: the [P0 program](2026-11-vm-stack-safety-guard-p0.md) (its slices P0a-1, P0a-2, P0b-VM-1, P0b-VM-2,
+PR-level plans: the [P0 program](2026-11-vm-stack-safety-guard-p0.md) (its slices P0a-1, P0a-2a, P0a-2b, P0b-VM-1, P0b-VM-2,
 P0b-L3), [PR-1](2026-11-vm-stack-safety-guard-pr1.md), [PR-1b](2026-11-vm-stack-safety-guard-pr1b.md).
 
 **Provenance root.** `H` = `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/stackguard-census`
@@ -81,7 +81,7 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | PM 510 | The IteratorClose slot id is `#11-vm-iteratorclose-precedence-convention`. |
 | PM 513 | P0b-VM split into P0b-VM-1 / P0b-VM-2; `history_events.rs` is an L4 file; the SW delivery queue is recorded on `#11-sw-client-postmessage-inbound`; the P0 ledger rows form one landing list (P0 umbrella §7); the loop-`?` census rule and the single test-failure seam ratified (P0 umbrella §0.4). |
 | PM 517 | (1) `#11-wasm-entry-depth-band` registered, owner VM P4 (PR-1b §10 L-4). (2) `#11-wasm-user-import-host-fn-builder`: owner VM P4, trigger wasm→JS user imports accepted, Re-eval-date 2027-01-31 (PR-1b §10 L-2). (3) `#11-wasm-instantiate-sync-deviation` registered, owner VM P4 (PR-1b §10 L-5). (4) `#11-vm-inner-substruct-decomposition` registered, owner VM P4 (PR-1 §12 L-17). (5) The `interpreter.rs` prereq split is a standalone VM P4 split PR before PR-1; queue Slice F → `interpreter.rs` split → PR-1 (§4, its one home). (6) Re-eval-date 2026-12-15 (the date of guard PR-2's plan) for `#11-vm-proper-tail-calls` and `#11-vm-microtask-self-chaining-unbounded` (§5). (7) PR-1 does not wait for the CI/tools per-profile build matrix; whichever of the two `ci.yml` PRs lands second rebases (§4). (8) The `TypeError` sub-item of `#11-vm-regexp-constructor-and-flags` is struck by the PM; its home is `#11-vm-regexp-syntax-error-surface`, and the owner text belongs to 9b's replaceAll child (PM 471) (§3.1). (9) The P0 §7 landing table at `b7f03821` is registered in the landing list `vm-p0-program.md` (P0 umbrella §7). |
-| PM 550 | Clerical repoint of the memos from P0a to P0a-1 / P0a-2 (PM 544 split); CP-3a / CP-3b set the entered mark (P0a-1 §4.2) after the check (PR-1b §2); rule-12 reason codes on the P0b-VM-1 / P0b-VM-2 census rows; behaviour-preserving rewrites in P0a-2 (§7.4) only after the checker is extended, only when more readable on their own, with the reason per site and the tests unchanged. |
+| PM 550 | Clerical repoint of the memos from P0a to P0a-1 / P0a-2 (PM 544 split); CP-3a / CP-3b set the entered mark (P0a-1 §4.2) after the check (PR-1b §2); rule-12 reason codes on the P0b-VM-1 / P0b-VM-2 census rows; behaviour-preserving rewrites in P0a-2b (§7.4; P0a-2 before the PM 609 split) only after the checker is extended, only when more readable on their own, with the reason per site and the tests unchanged. |
 | PM 557 | P0a-1 Rev 2 (R5 at `34a6ae8f`): the entered mark is set by structure, right after the entry's own check, in the one entry wrapper; `NotStarted` = the entry's own check failed, everything after is `Threw`; the C-4 reading is narrowed to match; opt-in to a finer `NotStarted` only with a checked reason code. Supersedes PM 550's CP-3 clause (no per-site store exists). One home: P0 umbrella §0.4 and §4 C-4; the rule's text is P0a-1 §4.2. |
 | PM 590 | P0a-1 Rev 3, option β (the user's choice): no revert anywhere; every probe failure is `Threw`, consumed and reported as a `RangeError`; `NotStarted`, the entered mark, `enter` and the escape rule deleted, the census W population retired; IMP-2 (internal reactions drop a failed call) fixed as D-16. One home: P0 umbrella §0.4 and §4 C-4. |
 
@@ -142,7 +142,7 @@ placement, nothing to measure).
   "never late" rests on an assumption (PR-1 §4.2): the first probe runs near the thread's top.
 - **I-3 State integrity** — a probe that fails leaves VM state as if the guarded operation never
   started, and no consumer turns the error into a definitive fact. Both halves are the P0 program's:
-  the contract (P0 umbrella §4), the census of every consumer (P0 umbrella §5; the check, P0a-2 §5) and the
+  the contract (P0 umbrella §4), the census of every consumer (P0 umbrella §5; the check, P0a-2a §5) and the
   choke-point placement (P0a-1 §4.3). (Abort propagation carries no probe: after the W-11 slot it is
   depth 1 by construction, PM 454.)
 - **I-4 Semantic caps unchanged** — `MAX_JSON_DEPTH` (cfg-split: 600 debug / 1000 release),
@@ -254,7 +254,7 @@ chains are the W-11 slot's, PM 454.) Adjacent pre-existing code whose exposure c
 
 | PR | Content | Depends on | Unblocks |
 |---|---|---|---|
-| P0 program (P0a-1, P0a-2, P0b-VM-1, P0b-VM-2, P0b-L3; PM 502, 509, 513) | the resource-limit `Err` contract, its census, choke-point placement, the definitive-consumer fixes; slices, edges and schedule: P0 umbrella §1 | P0a-1 / P0a-2: the W-11 slot's PR (P0 umbrella §1) | PR-1 (empty census `# pending`) |
+| P0 program (P0a-1, P0a-2a, P0a-2b, P0b-VM-1, P0b-VM-2, P0b-L3; PM 502, 509, 513, 609) | the resource-limit `Err` contract, its census, choke-point placement, the definitive-consumer fixes; slices, edges and schedule: P0 umbrella §1 | P0a-1 / P0a-2a / P0a-2b: the W-11 slot's PR (P0 umbrella §1) | PR-1 (empty census `# pending`) |
 | W-11 slot (not part of this program's PRs; PM 454) | DOM "create a dependent abort signal" source flattening in an engine-independent crate; GC repair; `abort_statics.rs` citation drift fix (all seven cites, PM 458) | — | PR-1 |
 | `interpreter.rs` prereq split (a standalone VM P4 split PR before PR-1, CLAUDE.md 1000-line touch-time rule, not mixed into a feature PR; PR-1 §5.1; PM 517; **discharged by #615**) | Move the in-file `mod tests` of `vm/interpreter.rs` out (`vm/tests/tests_with_call_mode.rs`); split the entry half from the dispatch half (`vm/interpreter_call.rs`) | Slice F (queue: Slice F → `interpreter.rs` split → PR-1, PM 517) | PR-1 |
 | Slice F (`#11-vm-structured-clone-file-split`, standalone, touch-time split; PM 483 P2) | Split `structured_clone.rs` (1077 lines) before PR-1 touches it | — | PR-1 |
