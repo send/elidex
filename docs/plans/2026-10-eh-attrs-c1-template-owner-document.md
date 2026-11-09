@@ -92,7 +92,8 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.8* (2026-11-10, PM 607): plan-review R1 fixes — the pre-implementation measurement step is
+**Changelog.** *Rev 3.8.1* (2026-11-10): Q-S13 closed — §13.2.6.1 step 10 unreachable (§3, §11, §10.6).
+*Rev 3.8* (2026-11-10, PM 607): plan-review R1 fixes — the pre-implementation measurement step is
 gone (PM 145 withdrawn by PM 607; §1.1, D-C11 and their dependants removed, T20 asserts the spec value); every
 § ↔ title pair and step re-looked-up (four drifted); the contents-document invariant is conditional on the contents
 fragment's node document (T23 route (v)); records R-2, R-4, R-8 to R-10 restated, R-12 added; §10.5.
@@ -551,7 +552,7 @@ temporary document, 15 "Set parser's insertion target redirection map[root] to i
 | WHATWG DOM §4.2.3 Mutation algorithms | *insert* step 7.1; *replace* step 6 | adopt node into parent's node document | C0 (C0 D-4); not touched by C1 | ✗ | yes |
 | WHATWG DOM §4.4 Interface Node | *clone a node* steps 2, 3, 5, 6.7 | 2 copy created in document (runs the establishing steps); 3 cloning steps; 5 children with the same document; 6.7 shadow children with the same document, subtree true | `clone_node_with_shadow_honor` `clone.rs:235` (D-C6, on D14), `clone_subtree` `tree_clone.rs:179` (unchanged by C1; its document is a `NewNodeOwner`, C0b D-11) | ✓ | yes |
 | WHATWG DOM §4.4 Interface Node | *node document*; `ownerDocument` getter | a node's node document; a document's is itself; getter null for a document | C0b's `EcsDom::node_document` `crates/core/elidex-ecs/src/dom/node_document.rs:89` and `owner_document` `mod.rs:871`; getter `crates/dom/elidex-dom-api/src/node_methods/core.rs:264` (unchanged by C1; new values) | ✓ | no |
-| WHATWG HTML §13.2.6.1 Creating and inserting nodes | *appropriate place for inserting a node* / *adjusted insertion location*; *create an element for a token* steps 6, 10; text and comment insertion | a template target → its template contents; 6 document = targetParent's node document; 10 sanitizer action not "Keep" or isDropped → document's appropriate template contents owner document; text / comment = targetParent's node document | C0b's `EcsDom::node_document_for_new_nodes` `node_document.rs:66` and its parser call sites (C0 draft D-10, D-11, §4.4; H-C3, H-C4); C1 changes no site, only the value inside contents (D-C4). Step 10 is not modelled: neither parser has a sanitizer or a fragment-parser abort flag (`git grep -n -i 'sanitiz\|abort_requested' -- crates/dom/elidex-html-parser/src crates/dom/elidex-html-parser-strict/src` → 0); whether isDropped's other half (referenceChild moved out of targetParent during the parse) is reachable is Q-S13 | ✗ (step 10) | yes |
+| WHATWG HTML §13.2.6.1 Creating and inserting nodes | *appropriate place for inserting a node* / *adjusted insertion location*; *create an element for a token* steps 6, 10; text and comment insertion | a template target → its template contents; 6 document = targetParent's node document; 10 sanitizer action not "Keep" or isDropped → document's appropriate template contents owner document; text / comment = targetParent's node document | C0b's `EcsDom::node_document_for_new_nodes` `node_document.rs:66` and its parser call sites (C0 draft D-10, D-11, §4.4; H-C3, H-C4); C1 changes no site, only the value inside contents (D-C4). Step 10 is not modelled because it is unreachable: no sanitizer and no fragment-parser abort flag in either parser (`git grep -n -i 'sanitiz\|abort_requested' -- crates/dom/elidex-html-parser/src crates/dom/elidex-html-parser-strict/src` → 0), and isDropped's referenceChild half is structurally false in both tiers — strict has no referenceChild (`appropriate_place` returns a parent only, `tree_builder/insert.rs:30-38`; create and append are one step, `:61-66`, `:106-117`; no foster parenting / adoption agency, `lib.rs:4-5`), tolerant creates nodes only after html5ever has finished the `RcDom` (`lib.rs:49-50`, `convert.rs:1-4`, `:244`) (Q-S13, closed rev 3.8.1) | ✗ (step 10, unreachable) | yes |
 | WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | start tag "template", the declarative branch ("Keep") | the declarative shadow root attaches when the parser's allow-declarative-shadow-roots flag is true, inside template contents too | strict `attach_declarative_shadow` `tree_builder/shadow.rs:135`, `attach_ordinary_template_contents` `:122` (D-C3); tolerant `try_attach_declarative_shadow` `convert.rs:119` | ✗ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* steps 2, 6, 7 (sanitizerConfig null); *initialize an HTML fragment parser* steps 12–13, 15 | 2 the fragment is created in target's node document; init 12–13 the root `html` element in the temporary document; init 15 the insertion target redirection map sends insertions at the root to the fragment, so nodes are created in its node document (step 6 of *create an element for a token*) and templates parsed in the build get the context's inert document (D-C4); 6 adopt the fragment into target's node document; 7 return it | `begin_detached_fragment` `teardown.rs:286` (`FragmentParseRoot` on the root `:301-304`, C0 draft D-10), `finish_detached_fragment` `teardown.rs:331` (no re-home, D-8); the tolerant tier's own choice is gone (D-20; H-C4); C1: D-C4's value | ✗ | yes |
 | WHATWG HTML §8.5.5 The innerHTML property | setter on a template: the target is its template contents | parsed nodes replace the contents' children (inserted, so adopted into I by C0) | `crates/script/elidex-script-session/src/mutation/html_fragment.rs` (unchanged; C0 adopts) | ✗ | yes |
@@ -1289,6 +1290,11 @@ withdrawn by PM 607.
 - **Reviewer coordinates corrected:** the non-template `lookup` call is `mutation.rs:392` (not `:391`); `lookup`
   itself is `:719-724`.
 
+### §10.6 Rev 3.8.1 (2026-11-10)
+
+- Q-S13 closed (PM): isDropped is structurally false in both tiers and there is no sanitizer, so step 10 is
+  unreachable; §3 row §13.2.6.1 keeps ✗ with that reason, no slot (§11 Q-S13 has the commands).
+
 ## §11. Open questions
 
 **For the PM / user.**
@@ -1329,13 +1335,18 @@ withdrawn by PM 607.
   base it is the document, but a target in contents cannot be a host-including inclusive ancestor of the focused
   element (contents are not connected and the walk does not climb from a contents fragment). Both reach step 6.3, the
   focus delegate.
-- **Q-S13** (rev 3.8, F3) HTML §13.2.6.1 *create an element for a token* step 3's isDropped is true when the
-  fragment parser abort is requested (no such flag in elidex's parsers, §3) **or** when referenceChild is non-null and
-  its parent is no longer targetParent. Can the second half occur in either elidex parser tier — can a node's parent
-  change between the *appropriate place* computation and the creation (script run during the parse, or a tree-builder
-  step that moves the reference child)? If it can, step 10 then puts the new element in the inert template document,
-  and the gap is a defect to record; if not, step 10 is unreachable in elidex until a sanitizer or streaming parse
-  lands.
+- **Q-S13** Closed (rev 3.8.1, PM): not reachable, no slot. The question (rev 3.8, F3) was whether HTML §13.2.6.1
+  *create an element for a token* step 3's isDropped ("true if the parser's fragment parser abort requested is true,
+  or if referenceChild is non-null and referenceChild's parent is not targetParent") can be true, making step 10 put
+  the element in the inert template document. Both halves are false in both tiers at `c7cce8c8`: no abort flag
+  (`git grep -n -iE 'fragment.*abort|abort.*fragment' -- crates` → 0); strict computes no referenceChild
+  (`crates/dom/elidex-html-parser-strict/src/tree_builder/insert.rs:30-38` returns a parent only), creates and appends
+  in one step (`insert.rs:61-66`, `:106-117`), has no foster parenting or adoption agency (`src/lib.rs:4-5`,
+  `tree_builder/mod.rs:12-13`, `modes/in_body.rs:5-8`) and runs no script during the parse; tolerant converts only a
+  finished html5ever `RcDom` (`crates/dom/elidex-html-parser/src/lib.rs:49-50`, `convert.rs:1-4`, `convert_node`
+  `:244`), so nothing moves between placement and creation at elidex's layer. The step-10 sanitizer clause has no
+  input either (`git grep -n -i sanitiz -- crates/dom/elidex-html-parser-strict crates/dom/elidex-html-parser` → 0).
+  §3 row §13.2.6.1 states the reason.
 - **Q-S12** Closed. First half: a tolerant **document** parse attaches no declarative shadow root
   (`#11-tolerant-document-declarative-shadow-roots`; the fragment path passes the flag), so T12's DSD legs are strict
   only. Second half: answered in rev 3 (§4.4).
