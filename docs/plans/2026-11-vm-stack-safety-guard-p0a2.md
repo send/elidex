@@ -9,7 +9,9 @@ Provenance root `H` and the census prototypes are as in the P0 umbrella header; 
 `H/scripts/err_reason_check_proto.py` (the checked-reason re-run, PM 544); their logs are under `H/logs/`
 (`err-census-p0.log`, `err-census-p0-shell.log`, `err-census-p0-classified.tsv`,
 `err-write-before-call-p0.log`, `err-boundary-census-p0.log`, `err-loop-question-p0a.log`,
-`err-loop-question-p0a-classified.tsv`, `err-reason-check-p0a2.log`, `err-reason-check-p0a2-nostdskip.log`).
+`err-loop-question-p0a-classified.tsv`, `err-reason-check-p0a2.log`, `err-reason-check-p0a2-nostdskip.log`,
+and, for PM 603, `err-census-p0-allfn.log`, `err-census-p0-newpop.tsv`, `err-census-p0-newpop-consumed.log`
+from `H/scripts/err_consumer_census_allfn_proto.py` and `err_census_consumed_beneath_proto.py`).
 The prototypes are not the deliverable: P0a-2 ships the tracked check of §4–§5, and every number below is
 re-derived by that check at P0a-2's base.
 
@@ -19,7 +21,11 @@ failure-carrying boundaries) are [P0a-1](2026-11-vm-stack-safety-guard-p0a1.md) 
 **Option β (PM 590)** retired the W population and its reason code `reverted-on-not-started`,
 renamed S's code to `dropped-top-only`, added the codes `surfaced-across-boundary` and the `channel`
 sink of D-16, and took D-3 / D-4 and the two W rows out of `# pending` (§7.3 "D-1…D-12 under β").
-PM 595 deleted rule 7 (the W markers) with it; the number stays retired (§5).
+PM 595 deleted rule 7 (the W markers) with it; the number stays retired (§5). PM 598 deleted rule 8
+(`loop-no-write-no-drain`) the same way and replaced it by property: RL-only propagation is rule 13, and
+report-and-continue loops go to a proposed slot (§5 "(α)", §9). PM 603 redefined the Err population's
+reach: a producer reached through **any** function makes a carrier's use a member (rule 1), so the
+population is "can receive a `ResourceLimit` once PR-1's probes are in", not "returns `Err` today" (§7.1).
 Edges, schedule and the other slices: P0 umbrella §1. P0a-2 lands after P0a-1 and before every P0b slice.
 
 **The W retirement (PM 595).** Two statements, kept apart. (1) *The violation W detected does not exist
@@ -73,7 +79,8 @@ Elements: **CEN** (rules; §5), **REA** (checked reasons; §5 rule 12), **RES** 
 | REA × rule 5 | top-only is one predicate for every class that claims it (N, S, boundary), not an N-only check | control `census_top_only_reachable_from_native` (fixtures on an N row and an S row) | check |
 | REA × rule 9 | std-trait impls are scanned like every foreign trait; a `Drop` / `Iterator::next` that reaches a producer is a member and needs a row | control `census_boundary_std_trait_member` | check |
 | REA × rule 11 | kind-bearing is by containment (`Vec<EvalResult>` qualifies); a listed type whose definition does not name `ScriptFailure` is red | controls `census_boundary_kind_bearing_container`, `census_kind_bearing_type_without_failure` | check |
-| REA × rule 8 | the loop rule's admissible reason is a predicate (no durable write and no durable-store drain before the `?`), not the spec class the prototype named by hand | control `census_loop_question_mark_member` (and its admissible fixture) | check |
+| RES × rule 1 (reach) | a carrier's use is a member when a producer (derived or planned, §6) runs beneath the call through **any** function, not only through carrier-typed ones; an occurrence the resolver cannot place reaches every definition (rule 0), so its call falls in; the five `dispatch_vm_simple_event` drops, which the carrier-typed closure missed, are the positive control (PM 603) | controls `census_reach_through_non_carrier`, `census_reach_dispatch_drops`; mutant M-REACH | check |
+| REA × rule 13 | a propagating use of an RL-only carrier is a member; a carrier is RL-only unless an ordinary witness exists whose every hop is uniquely resolved, so the unknown falls to the member side; admissible only through `drain-consumed` or `rl-only-pinned` | controls `census_rl_only_propagation_member`, `census_rejects_failed_reason` (the `rl-only-pinned` fixture) | check |
 | ID × CEN | producer derivation keys on calls to `resource_limit::check_entry` (P0a-1 §4.2, the one check site for the four entries) and `ensure_stack`, and on **every mention of the two kinds that the check cannot classify as a predicate** (a struct literal included); the unknown falls to the producer side (§6) | controls `census_planned_producer_already_derived`, `census_resource_limit_literal_is_producer` | check |
 | CP × CEN | the four enclosing functions of CP-1…CP-3b are the derived producers at P0a-2; carriers are closed over them | §6 | check |
 | INJ × CEN | the boundary hooks are `#[cfg(test)]` statements; the lexer excludes `#[cfg(test)]`-attributed items **and statements**, so a hook does not make its function a derived producer | control `census_cfg_test_hook_not_producer` | check |
@@ -127,6 +134,15 @@ umbrella §7 L-13). Below the split thresholds.
    and `#[cfg(test)]` code are excluded by the lexer (§4), not by a list. The crates scanned are derived:
    `elidex-js`, every workspace crate whose Cargo.toml depends on it (the shell), and every crate whose
    non-test source names a kind-bearing type (rule 11) or declares a trait that `elidex-js` implements.
+   **Reach (PM 603).** A carrier reaches a producer when the resolved graph (rule 0), closed over **every**
+   function, has a path from it to a derived producer or a `PLANNED_PRODUCERS` name (§6). The closure is
+   not restricted to carrier-typed functions. Whether an intermediate function absorbs the error is a
+   property of its body, so the next edit can change it without turning anything red
+   (`memory/feedback_derived-populations-shrink-in-silence.md`); the absorbing use is a member at its own
+   site anyway. The prototype's carrier-typed closure is how the five `dispatch_vm_simple_event` drops fell
+   outside (measured: §7.1). The over-approximation costs rows, never silence: `drain-consumed` (rule 12)
+   admits a use whose error is consumed beneath it. Rule 3 makes the allowlist the ratchet: a member that
+   vanishes leaves a stale row, which is red.
 2. Auto-recognised shapes are narrow: `?`; `.map_err(f)?` where `f` is `vm_error_to_thrown` or a `From` /
    `Into` conversion; `return` / tail in a carrier function; an arm (or an `if let Err(e) = ..`
    block) whose whole body is `self.throw_error(e, ..)?` or `return Err(e)` or `Err(e)`. Anything else is a member.
@@ -148,33 +164,18 @@ umbrella §7 L-13). Below the split thresholds.
    through `throw_error` (`dispatch_objects.rs:40`, `:72`; `dispatch_class.rs:47`, `:73`) (verified
    2026-11-08 by the prototype filtered to `run` and by reading each callee).
 7. *(Retired, PM 595: the W markers. The number is not reused. Why: the W retirement paragraph at the
-   top of this memo. D-14 and D-15 are seen by their drops (rule 5 on the S claim), not by their writes.
-   The write kinds rule 8's predicate reads are defined in rule 8.)*
-8. **Loop rule (fail-safe; ratified PM 513).** A carrier call propagated by `?` (or `.map_err(..)?`, or a
-   binding later propagated so) whose position lies inside a `for` / `while` / `while let` / `loop` body of
-   the enclosing function is a **member**, not auto-propagation: the `?` is correct for the trigger but may
-   leave the loop's remaining subjects unprocessed, the shape of P0 umbrella §5.1's C-2 (c) that rule 2
-   would otherwise accept unseen. The rule does not try to tell "several subjects" from "elements of one
-   operation"; every such `?` is a member, and **its one admissible reason is rule 12's
-   `loop-no-write-no-drain`** (the prototype's hand classes *loop-spec-abrupt* / *loop-conversion* /
-   *loop-graph* are commentary, not reasons). `run()` is excluded (rule 6 already makes its `?` uses members).
-   **Loop writes (the predicate's write half; moved here from the retired rule 7, PM 595).** A *loop
-   write* is progress recorded on one of the loop's subjects in a durable store, in the loop body, before
-   the `?`: an ECS component write, a custom-element state transition, or a listener removal. These are
-   the three lexical kinds the check recognises. A `?` after a loop write leaves that record in place
-   while the remaining subjects are abandoned.
-   **Does `loop-no-write-no-drain` still detect a contract violation under β? (PM 595 question; open,
-   with the PM.)** No, as far as this memo can show. *Write half:* a loop write precedes the call, so
-   it is the spec's order or bookkeeping (the W retirement paragraph, statements (1) and (2)); it is not
-   a fact derived from the error (C-2 (c)). *Drain half:* items taken from a durable store before the `?`
-   and abandoned by it are lost the same way on an ordinary exception. The take precedes the call, so it
-   is not derived from the error either, and the trigger's own error still surfaces through the `?` (C-3).
-   *What the membership is for* is a loop whose spec algorithm continues past a failing subject (report
-   and continue), where the `?` abandons the rest. That is not the spec's exception branch (C-4), and once
-   P0's error makes a so-far-infallible call fail, it is exposed (the `abort_signal` `:610` shape, §7.3).
-   The predicate admits that shape whenever the body has no loop write and no drain, so it certifies
-   nothing about it. The code is therefore a candidate for the same tidy-up as rule 7. It stays in the
-   table until the PM rules on it.
+   top of this memo. D-14 and D-15 are seen by their drops (rule 5 on the S claim), not by their writes.)*
+8. *(Retired, PM 598: the loop rule and its code `loop-no-write-no-drain`. The number is not reused.
+   Why: its admission was the symptom's vocabulary, a write or a drain before the `?`
+   (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`). Under β neither half
+   detected a contract violation. A write before the call is the spec's order or bookkeeping (the W
+   retirement paragraph). A take before the call is lost the same way on an ordinary exception, except
+   where the carrier has no ordinary exception, which is rule 13's property. The property the rule was
+   meant to protect splits in two, each defined by the property: (β′) RL-only propagation, rule 13, in
+   this slice; (α) a report-and-continue loop that ends on one iteration's `Err`, which is not specific to
+   the resource limit (§5 "(α)", proposed slot). A `?` inside a loop is rule 2's like any other `?`; the
+   120 members leave the allowlist (§7.1). The "loop write" definition went with the rule, because nothing
+   else read it.)*
 9. **Boundary population (PM 533 (2); fail-safe).** Members, each needing a row:
    (B1) every method of an `impl Trait for T` in `elidex-js` non-test code whose trait is not declared in
    `elidex-js` — **std / core / alloc traits included** (`Drop`, `Iterator`, `Default`, `Display`, …; R4
@@ -210,11 +211,11 @@ umbrella §7 L-13). Below the split thresholds.
 | P · `propagates` | the Err path of the use ends in a propagating sink: every `Err` arm (or `else` branch / `let … else` body) of the match on the call or on its binding ends in `return Err(..)` / `Err(..)` tail / `?` / `Some(Err(..))`; a method chain uses only kind-preserving combinators (`map`, `and_then`, `inspect_err`, kind-preserving `map_err`) and ends in a sink; a binding has a sinking use and no use that collapses it (`.ok()`, `unwrap_or*`, `map_or*`, `expect`, `unwrap`); the call is an arm value or `Some(..)` / `Ok(..)`-wrapped in tail / return position; or it is the argument of a `Result`-taking function whose own result sinks | — |
 | P · `throw-routed` (rule 6) | the callee's Err path passes `throw-arm` | — |
 | P · `pass-through` (B1) | the return type is the method's own generic parameter | — |
-| P · `loop-no-write-no-drain` (rule 8) | no loop write (rule 8's three kinds) and no durable-store drain (`take` / `drain` / `pop` / `pop_front` / `remove` on a field of the VM, `HostData` or the world — never on a local) in the body before the `?` | — |
+| P · `rl-only-pinned` (rule 13) | the row names a `#[test]` function in a tracked test file of `elidex-js` whose raw text carries the marker `// census: <path>::<function>` of the member's key; a missing function or marker is red | the cell |
 | T · `throw-arm` | the Err path calls `throw_error(` or `vm_error_to_thrown(` and `handle_exception(`; or the function returns `VmError` and yields the error as a value for its caller's throw | — |
 | R · `channel` | **every** arm of the Err path (each `Err` arm, each branch inside it), or the function the binding is passed to (one level), calls a named channel function with the error or its materialisation; an arm that reaches none is red (the D-16 shape); the channel set is the C-3 list (promise / request rejection, `settle_promise`, the report stand-in `eprintln!` / `report_*`, stream error, `EvalResult` construction, the internal-reaction sink `fail_reaction_owner` (NEW: P0a-1 §5.5)); a channel not on the list is red | the channel function(s) |
 | R · `surfaced-across-boundary` | the call is to a B1 boundary method (rule 9) whose return type carries `ScriptFailure` (rule 11), and the implementing method's own use of its carrier passes `channel` (the engine reported before returning `Err`) | the implementing method |
-| R · `drain-consumed` (B1) | with every consuming row's edge cut ((function, callee) of the R / T / S / E / N / X rows and the `# pending` rows), the method reaches no producer; the row lists the consuming rows its paths hit (PM 540 (3): the report path) | the consuming rows |
+| R · `drain-consumed` (B1; Err rows and rule 13 members, PM 603) | with every consuming row's edge cut ((function, callee) of the R / T / S / E / N / X rows and the `# pending` rows), the method (for an Err row, the callee) reaches no producer; the row lists the consuming rows its paths hit (PM 540 (3): the report path) | the consuming rows |
 | S · `dropped-top-only` | `top-only` holds (rule 5); under β a write before the call does not bear on the drop (the W retirement paragraph at the top of this memo) | — |
 | E · `replaced-both-surfaced` | the use is `.err()` or `.is_err()`-tested and, after it, the original or the replacement leaves as `Err(..)` or as the value of a `-> VmError` function | — |
 | N · `top-only` | rule 5 | — |
@@ -226,6 +227,52 @@ umbrella §7 L-13). Below the split thresholds.
 
 The predicate texts above are the specification of the check; the check's docstring quotes this table and
 `test_err_consumer_census.py` has one red control per code (§8).
+
+13. **RL-only propagation (β′; PM 598, PM 603; NEW).** A carrier is **RL-only** when it reaches a
+    producer (rule 1's reach) and has no **ordinary witness**. An ordinary witness is a path along *Err-flow*
+    edges (a call whose use is auto-recognised propagation, rule 2, or a P `propagates` row) from the
+    carrier to an *ordinary source*, every hop of which is an occurrence that rule 0 resolves to exactly one
+    definition. An ordinary source yields an `Err` of another kind: a `VmError` constructor whose
+    definition names one kind other than `ResourceLimit` (derived from the constructors' bodies, as §6
+    derives the producers), a `VmError { kind: <other kind>, .. }` literal, `CompileErrorKind::Syntax` (NEW: P0a-1), or
+    the interpreter's `Op::Throw` / `Op::EndFinally` re-raise (a script's own throw). Fail-safe: an unknown
+    kind, a constructor that names more than one kind, a hop through an unresolved or colliding occurrence
+    and a hop the check cannot classify each count as no witness, so the carrier is RL-only. **Every use of
+    an RL-only carrier is a member, the propagating ones included.** Rule 2's auto-recognition rests on
+    "an early exit leaves the state an ordinary exception leaves on the same path". On an RL-only path no
+    ordinary exception exists, so whatever the exit abandons is new under P0: a fan-out's remaining
+    subjects, items taken from a store, a latch already set (Axis 2 IMP-2 on Rev 3b: `abort_signal`
+    `:592` / `:610`). Its admissible codes are `drain-consumed` (nothing flows: the error is consumed
+    beneath) and `rl-only-pinned` (a cell injects the failure at this use and asserts the state the
+    spec's exception branch leaves, C-4). A non-propagating use keeps its rule-2 class. **Derivability.**
+    The RL side is §6's derivation, total since Rev 3b MIN-4 (every non-predicate mention of the kind).
+    The ordinary side needs no totality: a missed ordinary source only makes more carriers RL-only, which
+    costs rows and never hides one. Both are computed on the same resolved graph. At the base every derived
+    and planned producer is also an ordinary source on its own path (a call runs user code; the JSON,
+    clone and regexp walkers have their own `SyntaxError` / `DataCloneError` / `TypeError`). So RL-only
+    carriers arise in two places: where the ordinary error is consumed on the path and the resource limit
+    is not (the `is_resource_limit()` arms that P0a-1 and the P0b slices add), and where nothing returns
+    `Err` today (`dispatch_vm_simple_event`, whose only return is `Ok`, §7.3). The count is the tracked
+    check's (§11 item 6).
+
+**(α) Report-and-continue loops (PM 598 items 2–3).** The property: where the spec's algorithm reports an
+iteration's exception and continues (DOM *inner invoke* step 2.13.1 inside the listener loop; HTML *report
+an exception* in the custom-element reaction, microtask and observer loops), one iteration's `Err` must not
+end the loop (P0 umbrella §4 C-4, "what the branch does not skip"). **Form: (ii), a per-row C-4 cell, not
+(i).** Whether the governing algorithm continues past a failure is a fact of the spec, not of the code. A
+loop of `get_property_value` calls in `JSON.stringify` and a loop of listener calls have the same Rust
+shape and opposite spec branches (ReturnIfAbrupt; report and continue). A predicate on the code could only
+key on the callback's name (`call_listener`, `invoke_callback`, …) or on the loop's report calls, and both
+are the symptom's vocabulary: a new report-and-continue loop that calls through another name would fall
+outside. It could not be made fail-safe without admitting by a hand-written spec class, which PM 544
+forbids. The population can still be derived by property: a loop whose body reaches a script entry (CP-1
+/ CP-2) on the resolved graph. Each member is then pinned by a cell that fails iteration 1 and asserts
+that iteration 2 ran and that iteration 1's error was reported. **Scope: a separate slot, not P0a-2.**
+Under β a resource limit is an ordinary `Err` (C-4), so a `?` that ends such a loop is as wrong for a
+script's own throw as for a resource limit. That is a spec-conformance defect of the loop, and P0's census
+is the census of what P0's error makes newly reachable. The part that is new under P0, an iteration whose
+carrier never failed before, is rule 13's (β′) and stays here. (α) and (β′) do not fit one check: (β′) is
+a property of the code, (α) a property of the spec. Slot draft: §9.
 
 ## §6. Producers and the planned list
 
@@ -258,12 +305,30 @@ producer; 1575 uses propagate by `?` and 188 by return / tail, auto-recognised; 
 `elidex-js` and 6 in the shell (`H/logs/err-census-p0-shell.log`, seeds `eval drain_timers eval_script`),
 202 rows, each hand-classified (`H/scripts/err_census_classify.py`, output
 `H/logs/err-census-p0-classified.tsv`: P 80, T 44, R 32, S 4, E 10, N 8 + 6 shell, X 4, D 14 rows at 13
-sites). **Rule 8 adds 120 members** (verified 2026-11-08 via `LOOPQ=1 python3 -I
-H/scripts/err_loop_question_proto.py <wt> crates/script/elidex-js`, log
-`H/logs/err-loop-question-p0a.log`: 99 `for`, 9 `while let`, 5 `loop`, 4 `for` inside `while`, 3 `while`),
-hand-classified P (`H/logs/err-loop-question-p0a-classified.tsv`). Total at the base: 322 Err rows. W
+sites). **Rule 8's 120 members leave with the rule (PM 598).** They were verified 2026-11-08 via `LOOPQ=1
+python3 -I H/scripts/err_loop_question_proto.py <wt> crates/script/elidex-js` (log
+`H/logs/err-loop-question-p0a.log`: 99 `for`, 9 `while let`, 5 `loop`, 4 `for` inside `while`, 3 `while`) and
+hand-classified P (`H/logs/err-loop-question-p0a-classified.tsv`: 82 *loop-spec-abrupt*, 17
+*loop-conversion*, 21 *loop-graph*). Each is a `?`, auto-recognised by rule 2 now, unless rule 13 makes its
+callee RL-only (§11 item 6). Total at the base under the old reach: 202 Err rows (was 322). W
 population (retired by PM 590): 5 functions (`python3 -I H/scripts/err_write_before_call_proto.py <wt>
 crates/script/elidex-js`, log `H/logs/err-write-before-call-p0.log`).
+
+**The population under PM 603's reach.** `ALLFN=1 python3 -I H/scripts/err_consumer_census_allfn_proto.py
+<tree> crates/script/elidex-js` (the census prototype with its closure over every function; `<tree>` is
+`git archive ce603c74`, committed into a scratch repository), log `H/logs/err-census-p0-allfn.log`. Without
+`ALLFN` the same script reproduces §7.1's 196 rows. The closure reaches 3244 names (1042 before) and 2135 of
+the 2236 carrier-typed functions (1042 before); 3115 uses propagate by `?`. **770 non-propagating uses in
+`elidex-js` (196 before), 574 of them only under the new reach** (`H/logs/err-census-p0-newpop.tsv`; no row
+leaves). The shell is unchanged: its 3 carrier names reach under both closures, 6 rows. Shapes of the 770:
+binding with another use 313, `let _ =` 128, argument / arm / other 108, `if let` 62, `match` 58, the rest
+≤ 16 each. The five `dispatch_vm_simple_event` drops are among the 574, with two more of the same shape
+(`websocket_dispatch.rs:114` `fire_vm_close_event`, `:177` `fire_vm_message_event`). The 574 are not
+hand-classified. `drain-consumed` decides most of them, and it needs rule 0's resolved graph: on the name
+graph, with every consuming row's edge cut, all 574 callees still reach a producer through std-method names
+(`H/scripts/err_census_consumed_beneath_proto.py`, log `H/logs/err-census-p0-newpop-consumed.log`). So
+their classes, and what they add to `# pending`, are the tracked check's (§11 item 7). Total at the base
+under PM 603's reach: 776 Err rows (770 + 6).
 
 **Boundary population (rule 9; PM 533 (2)).** Prototype at `02386ec9` (code identical to `ce603c74`),
 `python3 -I H/scripts/err_boundary_census_proto.py <wt>`, log `H/logs/err-boundary-census-p0.log`, name
@@ -291,7 +356,7 @@ by occurrence and why the collision rows below are red until their occurrences a
 | Population | Rows | OK | RED | UNFOLLOWED | NOCHECK | Pending D |
 |---|---|---|---|---|---|---|
 | Err (202) | 202 | 148 (E 10, N 6, shell 6, P 56, R 22, S 3, T 43, X 2) | 2 (S `natives_promise.rs:591` = **D-15**; T `dispatch.rs:430`, the analyser's `let x = match` gap) | 37 (P 24, R 10, N 1, X 2 — the X rows are in a `#[cfg(test)] mod differential;` file, so they leave the population) | 1 (N `ops_element.rs:134`, `argument-class`) | 14 |
-| rule 8 (120) | 120 | 118 | 2 (`natives_json/stringify.rs:192`, `:204`: the marker `self.stack.pop(` is the serializer's cycle stack, a field, so the prototype's receiver-syntax predicate cannot tell it from a durable store) | 0 | 0 | 0 |
+| rule 8 (120; retired, PM 598) | — | the rows leave the allowlist (rule 2's `?`) | the 2 RED (`natives_json/stringify.rs:192`, `:204`) leave with them | — | — | 0 |
 | B1 (62; std skipped) | 62 | 31 not members on the resolved graph; 4 BC / D-14 (kind-bearing after P0a-1); 13 `drain-consumed` (12 drains + `set_history_state`, each with its consuming rows listed in the log); 1 `pass-through` | 13 `collision` (the 9 of §7.1 plus `remove_listener`, `sync_dirty_canvases`, `has_pending_session_history_work`, `MutationDispatcher::dispatch`, which the wider scan makes reach a producer through std-method names): no occurrences named yet | 0 | 0 | 0 |
 | B1 std traits (rule 9 as written, `-nostdskip`) | +45 | +31 not members | +14 `collision` (`Drop::drop` ×4: `engine.rs:427`, `:800`, `temp_root.rs:101`, `:204`; `next` of two `Iterator` impls: `typed_array_hof.rs:85`, `value.rs:250`; `Default::default` ×7; `Display::fmt` 1 — none runs script, R4 Axis 1 MIN-2) | 0 | 0 | 0 |
 | B3 (12 detected by this prototype; §7.1's detector counted 21, §11 item 2) | 12 | 10 `closure-literal` | 2 (`range_proto.rs:361` passes a parameter; `dom_bridge.rs:492` passes a non-literal) | 0 | 0 | 0 |
@@ -307,15 +372,14 @@ by occurrence and why the collision rows below are red until their occurrences a
   `Some(capability)` arm (`settle_promise`); its `None` arm, taken by every internal subscriber, calls no
   channel. The `channel` predicate now requires every arm (rule 12). Fixed in **P0a-1** (§5.5); never
   pending.
-- **Instrument debt (this slice)**: 37 UNFOLLOWED + 1 RED (T) + 2 RED (rule 8) = 40 Err rows, 13 (+14 std)
+- **Instrument debt (this slice)**: 37 UNFOLLOWED + 1 RED (T) = 38 Err rows (rule 8's 2 RED left with it, PM 598), 13 (+14 std)
   B1 collision rows, 2 B3 rows. None is a consumer defect; each is a shape the tracked check must follow,
   a cut the row must name, or a predicate that must be typed. P0a-2's acceptance is **rc 0 with every row
   verified**: the check follows the shapes the prototype did not (`let x = match …` with a throw arm; `if let
   Some(r) = f() { return r }` fall-through on `Option<Result>`; an arm value of a bound match; a closure
   argument to an iteration helper (`validate_pair_entry` ×2); a binding passed to a function whose body is
-  the channel (`finish` ×9, `settle` inside `make_async_coroutine_and_drive`); a `.map(closure)` chain), the
-  durable-store set of `loop-no-write-no-drain` is defined by type (fields of `VmInner`, `HostData`, the
-  world) not by receiver syntax, and each collision row names its occurrences. Where a shape resists, the
+  the channel (`finish` ×9, `settle` inside `make_async_coroutine_and_drive`); a `.map(closure)` chain), and
+  each collision row names its occurrences. Where a shape resists, the
   code is rewritten into one the check recognises (§7.4).
 - **Legibility rewrites (this slice, no behaviour change)**: `ops_element.rs:134`
   (`classify_typed_array_string_key`: call the String → Number conversion directly, not the generic
@@ -384,8 +448,7 @@ each with its rule-12 code at landing):
 - **X (2):** `engine.rs` 63 / 78 (embedder-test helpers, `test-support`). `vm/host/subtle_crypto/differential.rs`
   32 / 36 are in a `#[cfg(test)] mod differential;` file (`subtle_crypto/mod.rs:62-63`), excluded by rule 1:
   not members.
-- **P (80 + 120 by rule 8) and T (44):** listed in `H/logs/err-census-p0-classified.tsv` and
-  `H/logs/err-loop-question-p0a-classified.tsv`; T = `vm/dispatch.rs` (40), `dispatch_objects.rs` 48 / 80,
+- **P (80) and T (44):** listed in `H/logs/err-census-p0-classified.tsv` (rule 8's 120 left, PM 598); T = `vm/dispatch.rs` (40), `dispatch_objects.rs` 48 / 80,
   `dispatch_class.rs:110`, `dispatch_helpers.rs:383` (`throw-arm`; `:383` by the `-> VmError` clause).
 - **W: none (the population is retired, PM 590).** The five functions the prototype listed
   (`custom_elements/creation.rs:238`, `html_input_value.rs:353`, `natives_promise.rs:565`,
@@ -402,30 +465,46 @@ each with its rule-12 code at landing):
   `dispatch_vm_simple_event` → `fire_vm_event` → `fire_vm_event_unchecked` → `dispatch_vm_event`
   (`event_target_dispatch_vm.rs:271-347`, no `?` in its body), whose only return is `Ok` (listener exceptions
   are absorbed inside dispatch), and those two `?` are `abort_signal`'s only error sources, so `:610` can
-  fail only if `:592` can. The graph agrees: `abort_signal` reaches no producer, so it is not in the
-  population and rule 8 does not fire on `:610`. The shape is **latent definitive**: once P0's error can
+  fail only if `:592` can. Under the carrier-typed closure `abort_signal` reached no producer. Under PM 603's
+  reach it does (through the listener calls beneath `dispatch_vm_simple_event`), and
+  `dispatch_vm_simple_event` has no ordinary witness (its only return is `Ok`), so the `:592` / `:610` `?`
+  are rule 13 members. The shape is **latent definitive**: once P0's error can
   surface through this dispatch (a check or probe on the dispatch path, e.g. a PR-1 walker probe in event
   construction), an `Err` at `:592` would return after the latch and before the composite and fetch
   fan-outs, and one at `:610` after `any_composite_map.remove` (`:607`), so the remaining dependents would
-  never abort (C-2 (c)). No input reaches it today. *After L3's PR:* DOM §3.2 *signal abort* (`dfn dom
+  never abort (C-4). No input reaches it today. *After L3's PR:* DOM §3.2 *signal abort* (`dfn dom
   'signal abort'`, for AbortSignal) step 4 fixes every dependent's reason and steps 5–6 run for all of
   them; the loop runs `run_abort_steps` for every entry, keeps the first `Err`, and returns it after the
   loop, with no `?` inside the loop (L3's contract, unchanged). If the call is then in the population, it is
   a member (its result is stored, not propagated in place) of class **P**, code `propagates` (the stored
   first `Err` is returned after the loop: the binding's sinking use), reason "deferred propagation: the
   first `Err` is returned after every dependent's abort steps ran (DOM *signal abort* steps 4–6); later
-  `Err`s of the same trigger are not surfaced separately, one surfacing per trigger suffices (C-3)". Rule 8
-  stays the fail-safe for the class: a `?` put back inside that loop is a member the moment the call joins
-  the population. **Which PR writes the row:** L3's PR is expected first (edge, P0 umbrella §1); P0a-1 is
+  `Err`s of the same trigger are not surfaced separately, one surfacing per trigger suffices (C-3)". While the
+  callee stays RL-only, rule 13 makes the row's code `rl-only-pinned` (the cell that fails one dependent's
+  abort steps and asserts every other dependent aborted, through P0a-1's `SimpleEventDispatch(n)` injection)
+  or `drain-consumed`, and it is the fail-safe for the class: a `?` put back inside that loop is a member. **Which PR writes the row:** L3's PR is expected first (edge, P0 umbrella §1); P0a-1 is
   rebased on it (the seam, P0a-1 §4.4) and P0a-2's allowlist carries the post-L3 row if the tracked check
   lists the call, keyed on the names as they stand at P0a-2's base (§11 item 1). If L3's PR lands after
   P0a-2, P0a-2 ships no row and L3's PR adds it if the check asks for it.
+
+- **The `dispatch_vm_simple_event` drops (Axis 2 on Rev 3b; PM 603).** `event_source_dispatch.rs` 82
+  (`dispatch_sse_connected`) / 187 (`fire_sse_error`), `websocket_dispatch.rs` 79 (`dispatch_ws_connected`)
+  / 212 (`dispatch_ws_error`), `service_worker/deliver.rs:341` (`fire_simple`), each `let _ =`, and
+  `websocket_dispatch.rs` 114 / 177 (`fire_vm_close_event`, `fire_vm_message_event`), are members only under
+  PM 603's reach. At the base `dispatch_vm_event` has no `?` and returns only `Ok` (above), so nothing flows.
+  The rows' code is `drain-consumed` if the tracked check finds every producer path consumed (the listener
+  calls' rows; D-5 is pending → P0b-L3). They turn red the moment a probe or a `?` makes the dispatch path
+  carry an `Err`, and each then needs a report (C-3). Proposed owners, by file: `service_worker/deliver.rs`
+  → P0b-VM-2 (the file is in its scope). `event_source_dispatch.rs` and `websocket_dispatch.rs` are in no P0b
+  slice's scope; the candidates are P0b-VM-2 (the same network-event delivery shape as `deliver.rs:341`) and
+  P0b-L3 (the owner of the dispatch path whose change would make them fail). The slices do not settle it, so
+  the PM does (§11 item 8).
 
 **D-1…D-12 under β (PM 590).** Each judgement re-made on the contract as β states it (P0 umbrella §4):
 
 - **D-1, D-2 — unchanged, D-state.** The listener removal after a failed compile (`ensure_event_handler_current`,
   `event_handler_attrs.rs:548-552`) and the source taken before it (`take_uncompiled`) are writes the spec
-  does not make for that failure (it writes the value only at HTML §8.1.8.1 step 3.7.1 or 3.12): C-2 (c).
+  does not make for that failure (it writes the value only at HTML §8.1.8.1 step 3.7.1 or 3.12): C-4.
 - **D-3, D-4 — no longer definitive; they leave `# pending`.** On a failure of the `prototype` read or of
   the construct, `invoke_upgrade` runs `finalize_failure_shim` (state Failed) and returns the error. HTML
   §4.13.5 *upgrade an element* sets the state to "failed" at step 3, before the construct, and step 11's
@@ -485,10 +564,20 @@ control turns green);
 `census_top_only_reachable_from_native` (fixtures: an N row and an S row claiming top-only, each
 reached from a native); `census_run_question_mark_on_carrier` (a new `?` on a carrier in `run()`);
 `census_cfg_test_hook_not_producer` (a fixture whose only producer edge is
-a `#[cfg(test)]` statement must not derive a producer; red when it does); `census_loop_question_mark_member`
-(a fixture with `for x in xs { carrier(x)?; }` and no row → red; the same `?` outside the loop → auto; with a
-`loop-no-write-no-drain` row and a `self.queue.pop()` before the `?` → red; the same row with a listener
-removal before the `?` → red, the write half); for the boundary (rules 9–11): `census_boundary_unit_return_member` (a fixture `impl ForeignTrait for T` whose method returns `()`
+a `#[cfg(test)]` statement must not derive a producer; red when it does); for the reach (rule 1, PM 603):
+`census_reach_through_non_carrier` (a fixture `fn g() { let _ = producer(); }` returning `()`, `fn f() ->
+Result<(), VmError> { g(); Ok(()) }`, and a caller `let _ = f();` with no row → red: the reach passes
+through `g`, which is not carrier-typed), `census_reach_dispatch_drops` (on the tree: the seven occurrences
+of §7.3, the five PM 603 names and two of the same shape, keyed by (path, function, callee), are members
+whatever their rows; a fix that removes a call updates
+the control in the same commit), and mutant **M-REACH** (the closure restricted to carrier-typed functions,
+the prototype's: both controls fail because the members vanish); for rule 13:
+`census_rl_only_propagation_member` (a carrier `f` whose only `Err` source is a producer, and `g` with
+`f()?` inside a `for` and no row → red; the same with `f` also returning `Err(VmError::type_error(..))`
+through a uniquely resolved hop → auto; that hop through a name with two definitions → red again; with an
+`rl-only-pinned` row naming a `#[test]` function that carries the marker → green), with the mutants "rule 13
+disabled" and "the witness's uniqueness requirement dropped" (the colliding-hop fixture turns green); for
+the boundary (rules 9–11): `census_boundary_unit_return_member` (a fixture `impl ForeignTrait for T` whose method returns `()`
 and calls a producer, no row → red); `census_boundary_std_trait_member` (the same for `impl Iterator for T`
 whose `next` calls a producer → red; a `Drop` likewise); `census_boundary_kind_bearing_auto` (the same method
 returning `Result<(), ScriptFailure>` → not a member); `census_boundary_kind_bearing_container`
@@ -508,7 +597,8 @@ path does not call, one naming a function outside the channel list, and one whos
 no channel (`if let Some(cap) = .. { settle } ` with no `else`: the D-16 shape); a `dropped-top-only` row
 reached from a native; a `surfaced-across-boundary` row whose implementing method's row is not `channel`;
 a `replaced-both-surfaced` row with no `Err` after the use; a
-`drain-consumed` row with a producer path through no row; a `closure-literal` row with a parameter
+`drain-consumed` row with a producer path through no row; an `rl-only-pinned` row naming a test function
+without the marker; a `closure-literal` row with a parameter
 argument; a `test-support` row with a production caller), `census_reason_without_predicate_is_red` (a row
 whose code is `argument-class` → red). `--mutants` runs the check with each rule and each predicate
 disabled and asserts the matching control turns green, so a rule that stops working is seen (the
@@ -521,13 +611,19 @@ functions **inside one crate** (the `NativeFn` table; `fire_vm_message_event`'s 
 only because its body is in the caller); across crates, foreign-trait impls and closure parameters are the
 boundary population (rule 9, PM 533 (2)), and a trait object of a foreign trait is covered through its
 impls; receiver types (rule 0 resolves by `self`-ness, module and file, not by the receiver's type, so a
-std-method name shared by several types stays a collision until a row cuts its occurrences); writes
-performed inside a callee before the carrier call (rule 8's markers are lexical; D-1's `take_uncompiled`
-sat in `reconcile_event_handler`, another crate); macros; a straight-line `?` that returns before a
-fan-out over other subjects (the `:592` shape of §7.3; rule 8 covers a `?` inside the fan-out's loop, not
-one before it); durable writes to a side table (the `abort_signal_states` latch) rather than an ECS
-component, which rule 8's three loop-write kinds do not include. Owner VM P4; re-evaluated with PR-1's cut-check limits when
+std-method name shared by several types stays a collision until a row cuts its occurrences); macros;
+whether a loop's or a fan-out's governing algorithm continues past a failing subject (α, §5: a `?` that
+ends it is rule 2's unless rule 13 makes it a member). Owner VM P4; re-evaluated with PR-1's cut-check limits when
 `#11-vm-native-callback-reentry-single-loop` is designed; ledger row P0 umbrella §7 L-7.
+
+**(α) slot draft: `#11-report-and-continue-loop-census` (proposed; the driver takes it to the PM, it is
+not in the ledger).** *Defect:* a loop whose governing algorithm reports an iteration's exception and
+continues can end on the first failing iteration through `?` or `return Err`, leaving the remaining
+callbacks unrun. Since rule 8's retirement (PM 598) no check enumerates such loops, and rule 2
+auto-recognises the `?`. The defect holds for a script's own throw as much as for a resource limit. No
+instance is confirmed today. *Owner:* VM P4 (the census substrate); each loop's fix goes to its file's owner.
+*Trigger:* P0a-2's landing (the resolved call graph that derives the population exists). *Re-eval:*
+2026-12-15. *Form:* (ii) of §5 "(α)".
 
 ## §10. Landing obligations
 
@@ -538,8 +634,8 @@ The ledger and notice rows this slice triggers are rows of the P0 program's land
 PM 513 (d)): L-4 (E rows) and L-7 (census limits). Slice-local:
 
 - **L-a2. Counts and ceiling**: P0a-2's PR body records the tracked check's counts per class and per
-  rule-12 code at its head (rule 8's members, the boundary population by section, and the std-trait members
-  separately), the legibility rewrites of §7.4 with their rows, and the 11 `# pending` keys of §7.3.
+  rule-12 code at its head (rule 13's members; the Err population under PM 603's reach, with the members
+  that only it admits listed; the boundary population by section; and the std-trait members separately), the legibility rewrites of §7.4 with their rows, and the 11 `# pending` keys of §7.3.
 
 ## §11. Unverified facts (each decided at implementation, before its control is written)
 
@@ -553,3 +649,10 @@ PM 513 (d)): L-4 (E rows) and L-7 (census limits). Slice-local:
 4. Which rows beyond §7.2's three need a legibility rewrite once the tracked check runs on the tree (§7.4).
 5. Whether `dispatch.rs:430`'s `let old = match …` throw arm and the other UNFOLLOWED shapes of §7.2 are
    followed by the check's statement analysis or are rewritten (§7.4).
+6. Rule 13's population at the base: the RL-only carriers and their uses. Expected small at the base
+   (§5 rule 13 "Derivability"); it grows with the `is_resource_limit()` arms of P0a-1 / P0b and with
+   PR-1's probes, each of which re-runs the check.
+7. The classes of the 574 members that only PM 603's reach admits (§7.1), and what they add to `# pending`.
+   P0a-2 adds no pending row (the ceiling is frozen, rule 4). A new row that fails every code and is a
+   consumer defect stops the implementation and goes to the PM with its proposed owner (PM 557 (4)).
+8. The owners of the `dispatch_vm_simple_event` drops' fixes if `drain-consumed` fails for them (§7.3).

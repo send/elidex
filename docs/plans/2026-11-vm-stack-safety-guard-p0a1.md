@@ -35,6 +35,7 @@ to the owner of the subscription.
 | Rev 1 | PM 544 | P0a re-sliced; "did it start" decided by an entered mark set at a list of first-effect sites |
 | Rev 2 | PM 557 | the mark set by structure, inside one entry wrapper `enter`; `NotStarted` = the entry's own check failed |
 | Rev 3 | PM 590 | option β: no revert anywhere, every probe failure is `Threw`; `NotStarted`, the mark, `enter`, the escape rule and the revert API deleted; IMP-2 fixed as D-16 (§5.5) |
+| Rev 3c | PM 603 | the D-16 sink reports when the owner is already final (decided by the gate's result); `fail_step` keeps the stream-entry guard; where the kind ends (a user handler); two L3 intersection notes |
 
 ## §1. Scope
 
@@ -83,7 +84,7 @@ SINK × CEN) are P0a-2 §2.
 | OUT × C-4 | a once listener is removed before the call (DOM *inner invoke* step 2.5) and stays removed on every failure, the probe's included; the error is reported (step 2.13.1) | `rl_ua_dispatch_once_listener_entry_failure_consumed`, `rl_unhandledrejection_once_listener_entry_failure_consumed`, `rl_bound_native_once_listener_consumed_not_rerun` | cell |
 | OUT × INJ | the UA dispatch path is reached through `script_dispatch_event` with `Entry(Call, n)`; no new injection point | same cells | cell |
 | OUT × D-15 | the `unhandledrejection` loop reports the listener's error like the session loop's engine half | `rl_unhandledrejection_once_listener_entry_failure_consumed`, `rl_unhandledrejection_once_listener_threw_is_removed` | cell |
-| SINK × C-3 | an internal subscription names its owner by type; a failed handler call (the step's CP-1, or any other `Err`) settles the owner on its own channel; no arm drops it | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_combinator_step_entry_failure_rejects_result`, `rl_stream_pull_step_entry_failure_errors_stream`; M-SINK | cell + structural |
+| SINK × C-3 | an internal subscription names its owner by type; a failed handler call (the step's CP-1, or any other `Err`) settles the owner on its own channel; when the owner's gate reports it already final, the error goes to the report instead (§5.5 "An owner already final"); no arm drops it | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_combinator_step_entry_failure_rejects_result`, `rl_stream_pull_step_entry_failure_errors_stream`, `rl_combinator_step_failure_after_result_settled_reports`, `rl_stream_step_failure_after_close_reports`; M-SINK, M-SINK-FINAL | cell + structural |
 | SINK × CP-2 | an async step fails either at the step's CP-1 (D-16's sink) or at the resume's CP-2 (`drive_async_coroutine`'s `Err` arm); both call one function, so the wrapper's outcome is the same | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_async_step_entry_failure_rejects_wrapper` | cell |
 | INJ × L3 seam | one test-failure mechanism: `SimpleEventDispatch(n)` replaces L3's `fail_next_abort_dispatch`, and as a `#[cfg(test)]` statement it does not make `dispatch_vm_simple_event` a producer (P0a-2 rule 1) | cell (o) after the move; P0a-2 control `census_cfg_test_hook_not_producer` | cell + check |
 
@@ -140,6 +141,8 @@ combinator's own algorithm rejects its capability through IfAbruptRejectPromise)
 3. Boundaries keep the kind: `Vm::eval` (`interpreter.rs:36`) maps `CompileErrorKind::ResourceLimit` to
    `VmError::resource_limit()` and `Syntax` to today's `VmErrorKind::CompileError` (D-13, §5.1). The same
    rule binds `native_import_scripts` (`worker_scope.rs:481`), implemented by P0b-VM-1 as D-11.
+   L3's brand-check program also changes this native: whichever lands first, the later PR adapts to the
+   earlier one's form (L3 brand-check Rev 4).
 4. **Compile-channel aggregation (rule here, implementation in PR-1).** `compile_script` reports
    `CompileErrorKind::ResourceLimit` when any parse or scope error is a probe failure, whatever else the
    lists hold: a parse that hit the probe is not a verdict about the source. PR-1 adds
@@ -178,6 +181,25 @@ entry's failure inside a native body (a bound `forEach`'s second callback, a was
 getter reached from `Object.assign`) reaches the native's caller as `ResourceLimit`. So a C-2 consumer
 (P0b) recognises every probe failure by `is_resource_limit()` and never mistakes one for a script's own
 `RangeError` (D-P0-1).
+
+**Where the kind ends (Axis 2 MIN-1 on Rev 3b).** Entering a user handler is the C-3 surfacing. When
+`throw_error` hands the materialised `RangeError` to a `catch` or a `finally`, the script has seen it, and
+the kind ends there. A `catch` that rethrows, or a `finally` that completes and re-raises the pending
+exception (`Op::Throw`'s uncaught path and `Op::EndFinally`'s `ThrowUncaught` in `vm/dispatch.rs`), raises
+a `ThrowValue` of that `RangeError`, not a `ResourceLimit`. This is the script's own exception from then on,
+and every consumer takes its script-throw branch. `rl_nested_failure_keeps_kind` deliberately has no
+`finally`, so it pins the kind up to the first handler and no further. No consumer's **spec** branch for
+a script throw is catch-to-default. Measured on the census's converting rows (`awk -F'\t' '$1 ~ /^(D|E|S)/'
+H/logs/err-census-p0-classified.tsv`, 28 rows), the callees that can run user code are:
+`get_property_value` / `construct_synchronous` (D-3, D-4: the upgrade's exception branch rethrows);
+`call_value` (D-5: report); `run_script` (D-2: report); `marshal_normalize` (D-12: WebCrypto §14.3.11
+*wrapKey* step 3 normalises again with op "encrypt", and step 4 rejects on a second error, so it retries and
+does not default); and `stringify_for_structured_shortcut` (D-6, D-10: its getters and `toJSON`). The E rows
+keep the original completion (IteratorClose), and the S rows drop without converting. One **code** branch
+does default a script throw: D-6 (`structured_serialize.rs:78-85`) maps a user exception to `None`, where
+HTML §7.2.5 *shared history push/replace state steps* step 3 rethrows. That is D-6's existing deviation
+(P0b-VM-1 gives it the resource-limit arm; the script-throw half is
+`#11-history-state-structured-serialize-fidelity`'s), not a consequence of the kind ending.
 
 **What β removed (each with what read it).**
 
@@ -445,7 +467,9 @@ session loop (`event_dispatch/mod.rs:499`, D-14), the VM dispatch loop (`event_t
 `remove_listener_entry`, D-5, P0b-L3) and the `unhandledrejection` loop (`natives_promise.rs:565`, D-15).
 Under β the shape's defect is the unreported error after the call, not the removal: D-14 and D-15 report
 here; D-5's report is P0b-L3's (hand-off §4). The other hits are `removeEventListener` / abort-steps
-removals and test assertions, none followed by a call of the removed entry.
+removals and test assertions, none followed by a call of the removed entry. L3's brand-check program
+changes how `remove_listener_entry` receives its `DispatchTarget`: whichever lands first, the later PR
+adapts to the earlier one's form (L3 brand-check Rev 4).
 
 ### §5.5 D-16: internal promise reactions drop a failed handler call (Rev 2 Axis 2 IMP-2; PM 590)
 
@@ -505,13 +529,16 @@ once (`vm_error_to_thrown`) and settles the owner on its own channel, running no
 |---|---|---|---|
 | `AsyncFunction { gen }` (the async driver) | rejects `gen`'s wrapper with the `RangeError` | `drive_async_coroutine`'s `Err` arm (`natives_generator.rs:520-523`), factored into one function both call | the generator stays suspended and is never resumed; a `finally` in the body does not run: P0 umbrella §6 item 5, whose R row and slot `#11-vm-async-resume-failure-skips-finally` now cover the step's CP-1 as well as its CP-2 |
 | `Stream(stream_id)` (start, pull) | `readable_stream::fail_step` (NEW: P0a-1, below): errors the stream with the `RangeError` (`error_stream`) and clears `pull_in_flight` | the `Err` arm after the pull call (`controller.rs:179-183`); Streams *SetUpReadableStreamDefaultController* step 12 / *CallPullIfNeeded* step 8 for a rejection | the stream is errored; readers reject (§3.2) |
-| `Promise(p)` (cancel; combinator result) | rejects `p` with the `RangeError` | the `Err` arm after the cancel call (`readable_stream/mod.rs:671-674`); `Promise.all` step 8.b's IfAbruptRejectPromise for the combinator | `cancel()`'s promise rejects; `Promise.all` / `allSettled` / `any` / `race` reject. Later element settlements are ignored by the existing already-resolved gate (`settle_promise`) |
+| `Promise(p)` (cancel; combinator result) | rejects `p` with the `RangeError` | the `Err` arm after the cancel call (`readable_stream/mod.rs:671-674`); `Promise.all` step 8.b's IfAbruptRejectPromise for the combinator | `cancel()`'s promise rejects; `Promise.all` / `allSettled` / `any` / `race` reject. Later element settlements are ignored by the existing already-resolved gate (`settle_promise`); a later step's own failure is reported (below) |
 
 **The stream arm lives in the stream module (Axis 1 MIN-2, MIN-3).** `error_stream`
 (`controller.rs:294`) is `pub(super)` and `pull_in_flight` is host-private stream state. So the arm goes
 through a new host entry, `vm/host/readable_stream::fail_step` (NEW: P0a-1; `pub(crate)`, signature
 `(vm, stream_id, reason)`), beside `run_start_step` / `run_pull_step` / `run_cancel_step` (`mod.rs:473`, `:498`,
-`:538`). It owns both writes: `error_stream`, and the `pull_in_flight` clear. Core `fail_reaction_owner`
+`:538`). It owns both writes: `error_stream`, and the `pull_in_flight` clear. Like `run_*_step`, it
+first checks `vm.readable_stream_states.contains_key(&stream_id)` (`mod.rs:479`, `:504`), because
+`error_stream` expects the entry (`stream_state_mut`); a missing entry is the gate's "already final"
+answer (below). Core `fail_reaction_owner`
 calls it the way `call_dispatch` calls the `run_*_step` functions. The Streams algorithm stays in its
 module (Layering mandate), and core does not widen `error_stream`. **No start / pull discriminator.** The
 two existing reject branches are the same call (`run_start_step` and `run_pull_step` each run
@@ -528,8 +555,26 @@ gate and the same call shape: a core free-function call into `host::readable_str
 so it is not a new kind of core → host call; that slot's audit counts it with the three `run_*_step`
 calls (`interpreter_call.rs:191-227`).
 
-The rejection reaches *notify about rejected promises* if unhandled (D-15's loop), so the `RangeError` is
-visible in every case. The async driver's answer to the brief's two questions: the `RangeError` goes to
+**An owner already final (Axis 2 IMP-1 on Rev 3b; PM 603).** Each owner's channel has a gate that makes
+the settle a no-op when the owner is already final: `settle_promise`'s AlreadyResolved check
+(`natives_promise.rs:129-139`), `reject_promise` on a non-Pending promise (`:204-206`), `error_stream` on a
+non-Readable stream (`controller.rs:295-297`), and `fail_step`'s missing-entry guard. A combinator element's
+step can fail after the result has settled, and a stream's start or pull step can fail after the stream
+closed, errored or was cancelled. The state is then correct, but the `RangeError` would be lost without a
+report. PM 590's rule is that a failure is never dropped silently, so this is a silent failure. So every
+owner sink goes through its gate and returns the gate's answer, `Settle { Applied, AlreadyFinal }` (NEW:
+P0a-1): `settle_promise` is split into the gated core, which returns it, and today's native-facing wrapper;
+`error_stream` returns it; `fail_step` returns `AlreadyFinal` on a missing entry. The promise owners
+(`AsyncFunction`'s wrapper and `Promise(p)`) are settled through `settle_promise`, never through
+`reject_promise` directly, so the resolver's AlreadyResolved record is honoured. On `AlreadyFinal`,
+`fail_reaction_owner` reports the materialised error through HTML *report an exception*, whose stand-in is
+stderr (P0 umbrella §4 C-3; the same report `call_listener` uses, §4.5). The branch is decided by the gate's
+result, not by a list of owner states, so a new owner kind or a new final state needs no new arm. The
+async wrapper and the cancel promise are always Pending when their step runs, so for them the fallback is
+structural and unobserved.
+
+The rejection reaches *notify about rejected promises* if unhandled (D-15's loop). With the report for a
+final owner, the `RangeError` is surfaced in every case. The async driver's answer to the brief's two questions: the `RangeError` goes to
 the wrapper's rejection; the generator's state stays suspended (one outcome for the step's CP-1 and its
 CP-2, so a cell cannot tell which check failed).
 
@@ -563,6 +608,8 @@ injection with an `n` taken from `resource_limit::count` on a dry run of the sam
 | `rl_async_step_entry_failure_rejects_wrapper` | an async function awaiting a resolved promise; inject `Entry(Resume, n)` for the step's resume | the wrapper rejects with `RangeError`; the body's `finally` did not run (P0 umbrella §6 item 5) |
 | `rl_async_step_call_entry_failure_rejects_wrapper` | the same async function; inject `Entry(Call, n)` for the reaction job's call of the `AsyncDriverStep` (D-16) | the same outcome as the cell above: the wrapper rejects with `RangeError`, `finally` did not run; nothing on stderr from the reaction job |
 | `rl_combinator_step_entry_failure_rejects_result` | `Promise.all([p1, p2])` with `p1`, `p2` resolved; inject `Entry(Call, n)` for `p1`'s element step; then the same for `Promise.race` | each result promise rejects with `RangeError` (D-16, owner `Promise`) |
+| `rl_combinator_step_failure_after_result_settled_reports` | `Promise.race([p1, p2])` with `p1` resolved before `p2`; inject `Entry(Call, n)` for `p2`'s element step, after the result has settled | the result keeps `p1`'s value; the `RangeError` is reported (§9 item 4), not dropped |
+| `rl_stream_step_failure_after_close_reports` | a `ReadableStream` whose `start` calls `controller.close()` and returns a resolved promise; inject `Entry(Call, n)` for the start step's call | the stream stays closed (reads resolve `done`); the `RangeError` is reported (§9 item 4) |
 | `rl_stream_pull_step_entry_failure_errors_stream` | a `ReadableStream` whose `pull` returns a resolved promise; inject `Entry(Call, n)` for the pull step's call; `reader.read()`; also the start step and `cancel()`'s step | the stream is errored with `RangeError` and the read rejects; `cancel()`'s promise rejects with `RangeError` (D-16, owners `Stream` / `Promise`) |
 | `rl_async_start_entry_failure_rejects_wrapper_once_consumed` | `let c = 0; async function A() { c++ }`; `t.addEventListener('x', A, { once: true })`; `document.addEventListener('unhandledrejection', e => { r = e.reason.name })`; inject `Entry(Resume, 1)` (the initial drive); dispatch through the session loop, run the microtask checkpoint, dispatch again | first: `call_listener` returned `Ok(())`, A is gone, `c === 0`, `r === 'RangeError'`; second: `c === 0`, A not run. §4.2 "The async start" |
 | `rl_nested_failure_keeps_kind` | `function f() { [1].forEach(x => x) }`; from Rust `vm.call(f)` with `Entry(Call, 2)`, then with `Entry(Call, 1)`; also `vm.call(Object.assign.bind(null, {}, { get a() { return [1].forEach(x => x) } }))` with `n` for the arrow | every `Err` is kind `ResourceLimit` (`is_resource_limit()`), whether the failing check was the outer call's own or a nested one after user code ran |
@@ -596,6 +643,7 @@ injection with an `n` taken from `resource_limit::count` on a dry run of the sam
 | M-D14 | `call_listener` drops the error again (`Ok(())`, no report) | `rl_ua_dispatch_once_listener_entry_failure_consumed` (`Ok` for A); the report half is §9 item 4's |
 | M-D15 | the `unhandledrejection` loop drops the error again | `rl_unhandledrejection_once_listener_threw_is_removed` if the report is observable (§9 item 4); otherwise recorded as not pinned |
 | M-SINK | `fail_reaction_owner` does nothing (the old `None` arm) | `rl_async_step_call_entry_failure_rejects_wrapper`, `rl_combinator_step_entry_failure_rejects_result`, `rl_stream_pull_step_entry_failure_errors_stream` |
+| M-SINK-FINAL | `fail_reaction_owner` ignores `AlreadyFinal` (no report) | `rl_combinator_step_failure_after_result_settled_reports`, `rl_stream_step_failure_after_close_reports` if the report is observable (§9 item 4); otherwise recorded as not pinned |
 | M-SINK2 | the async driver's owner sink resumes the generator with a throw instead of rejecting the wrapper (rejected option (d)) | `rl_async_step_call_entry_failure_rejects_wrapper` (`finally` runs) |
 | M-OUT | `outcome` always `Ok` | `rl_eval_result_outcome_kind` |
 | M-BC3 | the null arm restored for `FilterError::Script` | `rl_tree_walker_filter_throw_propagates_not_null` |
@@ -628,6 +676,10 @@ PM 513 (d)): L-2, L-3 (now also D-15's report), L-5, L-6 (now also D-16's cell),
    `result`; the subscribing call already holds `result` at `natives_promise_combinator.rs:359` / `:412`, so
    the owner is passed there), and that every `ReactionOwner` id is traced by the GC from the queued
    reaction until it runs.
+
+webref lookups behind §4.2 "Where the kind ends" (2026-11-10): `body webcrypto SubtleCrypto-method-wrapKey`
+→ §14.3.11 (steps 3–4); `dfn html 'shared history push/replace state steps'` → §7.2.5 (step 3 read by
+`body html shared-history-push/replace-state-steps`).
 
 webref lookups behind §4.2 and §5.2 (2026-11-09): `aoid ecma262 EvaluateAsyncFunctionBody` → §15.8.4
 (steps 3, 5 read by `body`); `aoid ecma262 AsyncBlockStart` → §27.10.5.2 (step 1.h read by `body`);

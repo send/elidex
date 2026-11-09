@@ -110,8 +110,8 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   is sufficient. (c) The single SW delivery queue (`PendingTask::SwMessage` (NEW: P0b-VM-2)) is recorded on
   `#11-sw-client-postmessage-inbound` (§7 L-10). (d) The ledger rows of this memo and of the slices form the
   P0 program's landing list (§7), copied mechanically by the PMO from the merge commit's memo text.
-  **Ratified driver decisions**: the census rule "a `?` inside a loop body is a member" (P0a-2 §5 rule 8)
-  and the single test-failure seam (L3's `fail_next_abort_dispatch` moved onto P0a-1's injection, P0a-1 §4.4).
+  **Ratified driver decisions**: the census rule "a `?` inside a loop body is a member" (P0a-2 §5 rule 8;
+  retired by PM 598, replaced by property: P0a-2 §5 rule 13) and the single test-failure seam (L3's `fail_next_abort_dispatch` moved onto P0a-1's injection, P0a-1 §4.4).
 - **PM 533 (R3 Axis 1 IMP-1 / IMP-2).** (a) **Fix**: the `ScriptEngine` boundary, and every other
   engine-facing boundary, keeps the failure kind: a method that returns `()` / `Option` / a value with the
   failure collapsed returns a result that carries it, and the engine-independent caller applies the
@@ -181,6 +181,12 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   EvaluateAsyncFunctionBody step 5; AsyncBlockStart step 1.h), the once listener is consumed and the
   `RangeError` reaches *notify about rejected promises* — §6 item 5's R row covers the start path too.
 - **PM 590 (P0a-1 Rev 2 re-review at `b64546fc`; terminator on Axis 2 IMP-1; the user chose β).** No revert anywhere: every probe failure is `Threw`, consumed and reported as a `RangeError` (§4 C-4); IMP-2 is mandatory under any option (P0a-1 §5.5, D-16).
+- **PM 598 / PM 603 (P0a-1 Rev 3b re-review).** Rule 8 `loop-no-write-no-drain` is deleted and replaced
+  by property: RL-only propagation (β′) is P0a-2 §5 rule 13; for report-and-continue loops (α), which are
+  not specific to the resource limit, P0a-2 proposes a separate slot (P0a-2 §9; open with the PM). The Err population's reach is closed over every
+  function, not only carrier-typed ones (§5.1); the five `dispatch_vm_simple_event` drops are its positive
+  control. The D-16 sink reports when the owner is already final (P0a-1 §5.5). Durable facts derived from
+  the error are C-4's, under one name (§4).
 
 ### §0.5 Decisions
 
@@ -255,11 +261,11 @@ enumerates the pairs of its own elements in its §2.
 | C-1 × C-4 | Under β the kind decides no revert: every consumer takes the step's exception branch whether or not anything of the step ran, so no "did it start" fact exists to get wrong; a half-run step is not re-run (D-P0-2) | P0a-1 `rl_bound_native_once_listener_consumed_not_rerun`, `rl_ua_dispatch_once_listener_entry_failure_consumed`; P0b-L3 `rl_ce_upgrade_after_constructor_started_takes_threw_branch` | cell |
 | C-1 × C-5 | The census population is "can receive C-1's kind"; its producers are derived from the code (fns that call the check) plus a planned list that only shrinks (P0a-2 §6) | P0a-2 census controls | check |
 | C-2 × C-3 | C-2 forbids, C-3 prescribes; together every consumer has exactly one admissible shape per subject class (§5.2 classes P/T/R; D is the forbidden one), and each admissible shape is a checked reason (P0a-2 §5 rule 12) | §5.2 class table; P0a-2 rule 12 | structural |
-| C-2 × C-4 | C-4 says which writes stand (the spec's own writes for the step's exception branch); C-2 (c) forbids every other durable fact derived from the error. A write the spec makes before the step is not derived from the error | D-3 / D-4 (P0a-2 §7.3: the threw branch, no longer D) vs D-1 / D-2 (P0b-L3: a listener removal the spec never makes) | structural |
+| C-2 × C-4 | C-2 forbids converting the error (a success value, another class); C-4 says which writes stand (the spec's own writes for the step's exception branch) and forbids every other durable fact derived from the error. A write the spec makes before the step is not derived from the error | D-3 / D-4 (P0a-2 §7.3: the threw branch, no longer D) vs D-1 / D-2 (P0b-L3: a listener removal the spec never makes) | structural |
 | C-2 × C-5 | A D row is not admissible in the allowlist (after the P0b slices; before them only in `# pending`); a row admitted under a reason the check cannot verify is a D row (PM 544) | P0a-2 controls `census_rejects_definitive_row`, `census_rejects_failed_reason` | check |
 | C-3 × C-4 | Taking the exception branch must surface the error on the trigger's channel, or the branch is a silent drop | P0a-1 D-14 / D-15 / D-16 cells; P0b-L3 D-5's report | cell |
 | C-3 × C-5 | The census classifies the channel each row uses; a row that drops the error is class S, admissible but recorded (§6 item 2) only when it is top-only, and top-only is checked, not asserted (D-14, D-15, D-16 failed it) | P0a-2 §7.3 S rows; rule 12 `dropped-top-only` | check |
-| C-4 × C-5 | Under β a write before the call is the spec's own and stands on every outcome, so the census has no W population (removed, PM 590); what C-4 needs from the census is that the error is not dropped, which the Err and boundary populations check | P0a-2 "The W retirement" (rule 7 deleted, PM 595), rule 12 | check |
+| C-4 × C-5 | Under β a write before the call is the spec's own and stands on every outcome, so the census has no W population (removed, PM 590); what C-4 needs from the census is that the error is not dropped, which the Err and boundary populations check, and, on an RL-only path, that what an early exit abandons is pinned by a cell | P0a-2 "The W retirement" (rule 7 deleted, PM 595), rules 12 and 13 (rule 8 deleted, PM 598) | check |
 | C-1 × I-1 | PR-1 / PR-1b's probes are C-1's producers: the choke-point probes sit inside P0a-1's check, and every walker / front-end / front-door probe converts through `From<StackExhausted>` to `VmError::resource_limit` (NEW: P0a-1) or `CompileErrorKind::ResourceLimit`, so every probe failure has C-1's kind by construction | P0a-1 §4.3; PR-1 §4.1 | structural |
 | C-2 × I-1 | Before a producer exists a definitive consumer is latent; I-1 makes it live, which is the order of §0.3 | §7 L-1 | ledger |
 | C-3 × I-1 | Surfacing runs inside the reserve: building a `RangeError` and reporting it must fit in `WALKER_RESERVE` (PR-1 §4.3) | PR-1 `stack_guard_reserve_margin_ratchet` | PR-1 cell |
@@ -313,10 +319,8 @@ boundary returns `()`, `Option` or a value in which the failure is collapsed.
 (a) a success value: no `.ok()`, `unwrap_or(..)`, `_ => None` / default, no fallback that answers in its
 place;
 (b) another error class: no `DataCloneError`, `TypeError`, `NotSupportedError`, `CompileError` string in its
-place;
-(c) a durable fact about a subject, derived from the error, that the spec's exception branch for the step
-does not write: no listener or handler removal, no null value, no negative cache, no stored record or
-session-history state derived from it. The writes the spec itself makes for the step stand (C-4).
+place.
+(Durable facts derived from the error are C-4's, "what the branch does not write", PM 598.)
 
 **C-3 Surfacing.** The error leaves the consumer by the trigger's own channel: `?`; a throw into the
 running script (`throw_error`); rejection of the promise or request the trigger returned; or a report
@@ -337,6 +341,14 @@ that is not a parse error (HTML §8.1.8.1 *get the current value of the event ha
 only at step 3.7.1 and step 3.12) — nothing is written, and the spec's own later trigger re-attempts it;
 that is the absence of a write, not a revert. This is the one statement of the rule; §0.4 and the slice
 memos point here.
+
+*What the branch does not write.* No consumer writes a durable fact about a subject,
+derived from the error, that the spec's exception branch for the step does not write: no listener or
+handler removal, no null value, no negative cache, no stored record or session-history state derived from
+it. *What the branch does not skip.* Where the spec's algorithm reports an iteration's exception and
+continues, one iteration's failure does not end the loop: the remaining subjects are processed. The census
+checks the second half only where the loss is new under P0 (RL-only propagation, P0a-2 §5 rule 13); a
+loop that ends early on any exception is not specific to the resource limit (P0a-2 §5 "(α)").
 
 *Authority (PM 590).* (1) The spec is silent on resource limits: ECMA-262 §17's fourth paragraph permits
 two kinds of extension (syntax; additional types, values, objects, properties and functions), neither a
@@ -363,7 +375,7 @@ error, so every spec branch that would consume it was written for a different co
 PM 424). (2) ECS-native: a component write is a durable fact; reconcile a component only from a
 definitive outcome (R2 A2's alternative), never from a transient condition of the Rust stack. (3) Security
 by structure: the stack depth at which a page's handler first compiles is under the control of any script
-on the page; without C-2 (c) one script can permanently disable another's handlers (a custom element's
+on the page; without C-4's "what the branch does not write" one script can permanently disable another's handlers (a custom element's
 upgrade and a `once` listener are consumed as the spec consumes them on any throw: C-4, accepted cost). (4) Fail-safe direction: an unknown consumer is red (C-5), not trusted.
 
 **What the contract does not say.** It does not make a resource limit invisible: the script sees a
@@ -388,7 +400,10 @@ where the instrument cannot decide, the place is a member (fail-safe, C-5).
 where the error is not propagated. A carrier is a function whose return type carries the error
 (`Result<_, E>` with `E` ∈ {`VmError`, `CompileError`, `JsValue`, `StackExhausted` (NEW: PR-1),
 `RegExpCompileError` (NEW: PR-1), `ScriptFailure` (NEW: P0a-1)}, or a type that carries `ScriptFailure`:
-`EvalResult`, `FilterError` after P0a-1 §4.5) **and** that reaches a producer in the call graph.
+`EvalResult`, `FilterError` after P0a-1 §4.5) **and** that reaches a producer in the call graph, closed
+over **every** function, not only carrier-typed ones (PM 603): the population is "can receive a
+`ResourceLimit` once PR-1's probes are in", not "returns `Err` today". An edge the graph cannot resolve
+goes to every definition, so its call falls in, never out (P0a-2 §5 rules 0 and 1).
 Producers: derived from the code (P0a-2 §6: calls of `resource_limit::check_entry` and `ensure_stack`, and
 every mention of the kind that is not a predicate), plus the planned list of PR-1 / PR-1b probe
 functions until they land (P0a-2 §6). A use is outside the population only when it propagates in a shape
@@ -398,7 +413,9 @@ member may still propagate (class P: a match-arm tail, `return Some(Err(e))`, cl
 (derived, P0a-2 §5 rule 1): `crates/script/elidex-js/src`; the crates that depend on it (the shell); every
 crate that names a kind-bearing type or declares a trait `elidex-js` implements
 (`elidex-script-session`, `elidex-dom-api`, `elidex-ecs` at `02386ec9`). The call graph is resolved by
-definition, not by name (P0a-2 §5 rule 0).
+definition, not by name (P0a-2 §5 rule 0). A propagating use of a carrier with no ordinary error on its
+path (RL-only) is also a member: rule 2's "propagates" assumes an ordinary exception leaves the same state,
+and on that path there is none (P0a-2 §5 rule 13).
 
 **Boundary population.** Every place where the kind crosses out of `elidex-js` in a type that cannot carry
 it: (B1) a method of a trait declared outside `elidex-js` and implemented in it whose body reaches a
@@ -419,7 +436,7 @@ pointer to another crate (opaque to the call graph, so always a member). At `ce6
 | E | replaced by another error, both surfaced | yes, row, with §6 home |
 | N | not reachable by a script-controlled depth (a fresh thread's top, an embedder entry), or a name-graph collision | yes, row; top-only and the collision cut are checked (P0a-2 §5 rules 5, 10); "argument class" and "unreachable by construction" have no predicate and are not admissible (the code is made legible instead, P0a-2 §7.4) |
 | X | test support (panics by design) | yes, row |
-| D | definitive: D-state (C-2 c), D-sub (C-2 a), D-cls (C-2 b); a drop whose admission (S) does not hold (D-14, D-15, D-16); **a row admitted under a reason the check cannot verify** (PM 544) | **no** (only in `# pending` until its P0b slice, P0a-2 §5 rule 4; an unverifiable reason is never pending: it is an instrument or legibility defect fixed in P0a-2) |
+| D | definitive: D-state (C-4), D-sub (C-2 a), D-cls (C-2 b); a drop whose admission (S) does not hold (D-14, D-15, D-16); **a row admitted under a reason the check cannot verify** (PM 544) | **no** (only in `# pending` until its P0b slice, P0a-2 §5 rule 4; an unverifiable reason is never pending: it is an instrument or legibility defect fixed in P0a-2) |
 
 Every admissible row carries a reason code with a predicate (P0a-2 §5 rule 12). The rows, the counts and
 the `# pending` composition are P0a-2 §7 (the allowlist is P0a-2's deliverable).
