@@ -469,7 +469,7 @@ fn finalize_start(vm: &mut VmInner, stream_id: ObjectId, start_result: JsValue) 
 }
 
 /// Dispatcher for `ObjectKind::ReadableStreamStartStep` — called
-/// from `interpreter.rs` when the start promise settles.
+/// from `interpreter_call.rs` when the start promise settles.
 pub(crate) fn run_start_step(
     vm: &mut VmInner,
     stream_id: ObjectId,

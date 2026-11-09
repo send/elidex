@@ -759,7 +759,7 @@ pub(crate) fn native_illegal_constructor_unreachable(
 
 /// A native function callable from JS.
 ///
-/// The signature takes `&mut Vm` (via a wrapper in interpreter.rs) so that
+/// The signature takes `&mut Vm` (via a wrapper in `interpreter_call.rs`) so that
 /// native functions can allocate objects, intern strings, etc.
 /// The `this` argument and positional args are passed as `JsValue`.
 pub struct NativeFunction {
@@ -767,7 +767,7 @@ pub struct NativeFunction {
     pub func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     /// Which call modes are accepted (see [`CallShape`]).  `[[Call]]` /
     /// `[[Construct]]` mismatches are detected and rejected at the
-    /// `vm/interpreter.rs::call_dispatch` NativeFunction arm, so per-ctor
+    /// `vm/interpreter_call.rs::call_dispatch` NativeFunction arm, so per-ctor
     /// bodies never need an entry-guard for the WebIDL §3.7.1 step 1.2
     /// mandate.
     pub shape: CallShape,

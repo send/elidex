@@ -61,7 +61,7 @@ impl VmInner {
 
         // Allocate the ConstructorOnly function object — bare
         // `HTMLElement()` (no `new`) is rejected by the dispatch-side
-        // gate at `vm/interpreter.rs::call_dispatch` (WebIDL §3.7.1
+        // gate at `vm/interpreter_call.rs::call_dispatch` (WebIDL §3.7.1
         // step 1.2 / [HTMLConstructor]).  The `name` slot is the
         // well-known interned "HTMLElement" so stack traces and
         // `func.name` reads stay coherent.
@@ -110,7 +110,7 @@ pub(crate) fn native_html_element_ctor(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Step 0: `new.target` is guaranteed present by the dispatch-side
-    // `CallShape::ConstructorOnly` gate at `vm/interpreter.rs::call_dispatch`
+    // `CallShape::ConstructorOnly` gate at `vm/interpreter_call.rs::call_dispatch`
     // (the bare-call rejection in WebIDL §3.7.1 step 1.2 fires before
     // this body runs).  The `expect` documents the invariant rather
     // than masking a real `None` branch.
