@@ -180,9 +180,10 @@ pub(super) struct RenderState {
 ///
 /// Built **only** by [`App::content_area_placement`] (the sole caller of
 /// `chrome_content_offset` + `chrome::content_size` + `window.scale_factor()`)
-/// and cached on [`ViewportProducer::placement`](viewport::ViewportProducer::placement) so the three primitives are snapshotted
-/// atomically once per frame / device-fact event. It is browser-process device
-/// state (not per-DOM-entity content state) → a shell-local value, not an ECS
+/// and cached on [`ViewportProducer::placement`](viewport::ViewportProducer::placement)
+/// so the three primitives are snapshotted atomically once per frame /
+/// device-fact event. It is browser-process device state (not per-DOM-entity
+/// content state) → a shell-local value, not an ECS
 /// component.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ContentAreaPlacement {

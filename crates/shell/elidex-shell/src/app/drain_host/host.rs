@@ -173,7 +173,7 @@ impl DrainHost for App {
     /// `#11-nav-supersede-window-vs-ongoing-navigation`. App-mode does not DROP the
     /// request on the floor, which narrows the superset back to "a traversal that
     /// really moved the cursor": the request is held on
-    /// [`InteractiveState::deferred_navigation`](crate::app::InteractiveState) for the
+    /// [`InteractiveState::deferred_navigation`](crate::app::InteractiveState::deferred_navigation) for the
     /// turn; Phase 2's [`apply_traversal`](Self::apply_traversal) cancels it iff a
     /// traversal moves the cursor, and [`App::process_pending_navigation`] reinstates
     /// whatever survives before the drive returns (full rationale there). The `Some`

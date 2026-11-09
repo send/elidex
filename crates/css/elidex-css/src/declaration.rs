@@ -160,7 +160,8 @@ fn skip_to_semicolon(input: &mut Parser) {
 /// `important` after checking for `!important`.
 ///
 /// When `registry` is `Some`, properties not handled by the built-in match
-/// are dispatched to the matching [`CssPropertyHandler`](elidex_plugin::CssPropertyHandler) for parsing.
+/// are dispatched to the matching [`CssPropertyHandler`](elidex_plugin::CssPropertyHandler)
+/// for parsing.
 ///
 /// **Contract:** Returns an empty `Vec` for both unknown properties and
 /// known properties with unparseable values. The caller (e.g.
