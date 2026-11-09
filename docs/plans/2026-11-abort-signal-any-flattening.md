@@ -625,9 +625,10 @@ dependent abort signal step 4.2"), not a bare `§3.2 step N`.
 //! "signal abort" steps 1-4). Engine-independent: generic over the host's
 //! handle (`H`) and reason (`R`) types; runs no abort step (the host's).
 
-#[derive(Default)] struct OrderedSet<H> { order: Vec<H>, members: HashSet<H> }   // module-private; every write updates both halves
-#[derive(Default)]
+struct OrderedSet<H> { order: Vec<H>, members: HashSet<H> }   // module-private; every write updates both halves
+impl<H> Default for OrderedSet<H> { fn default() -> Self { Self { order: Vec::new(), members: HashSet::new() } } }
 pub struct DependentLinks<H> { dependent: bool, source_signals: OrderedSet<H>, dependent_signals: OrderedSet<H> }   // all private (M2)
+impl<H> Default for DependentLinks<H> { fn default() -> Self { Self { dependent: false, source_signals: OrderedSet::default(), dependent_signals: OrderedSet::default() } } }
 impl<H: Copy + Eq + core::hash::Hash> DependentLinks<H> {
     pub fn is_dependent(&self) -> bool;
     pub fn source_signals(&self) -> &[H];           pub fn dependent_signals(&self) -> &[H];
