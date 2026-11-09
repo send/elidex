@@ -131,13 +131,13 @@ fn w2_document_members_are_not_own_properties() {
 /// `Object.getOwnPropertyNames(document)` on the base (`0a5a77ba`), in
 /// enumeration order: the A1 contract "install order = enumeration order"
 /// now stated on `Document.prototype`.
-const PINNED_NAMES: &str = "\
+const PINNED_TEMPLATE: &str = "\
     getElementById,querySelector,querySelectorAll,getElementsByTagName,getElementsByClassName,\
     getElementsByName,createElement,createTextNode,createComment,createDocumentFragment,\
     hasFocus,getSelection,adoptNode,createRange,createTreeWalker,createNodeIterator,\
     documentElement,head,body,firstElementChild,lastElementChild,children,childElementCount,\
     URL,documentURI,baseURI,readyState,compatMode,defaultView,doctype,referrer,forms,images,\
-    links,activeElement,hidden,visibilityState,styleSheets,title,cookie,prepend,append,\
+    links,activeElement,hidden,visibilityState,styleSheets,title,@COOKIE@prepend,append,\
     replaceChildren,onabort,onauxclick,onbeforeinput,onbeforematch,onbeforetoggle,onblur,\
     oncancel,oncanplay,oncanplaythrough,onchange,onclick,onclose,oncontextlost,oncontextmenu,\
     oncontextrestored,oncuechange,ondblclick,ondrag,ondragend,ondragenter,ondragleave,\
@@ -150,7 +150,7 @@ const PINNED_NAMES: &str = "\
     onsecuritypolicyviolation,onseeked,onseeking,onselect,onslotchange,onstalled,onsubmit,\
     onsuspend,ontimeupdate,ontoggle,ontransitioncancel,ontransitionend,ontransitionrun,\
     ontransitionstart,onvolumechange,onwaiting,onwheel,oncopy,oncut,onpaste,onreadystatechange,\
-    onvisibilitychange,__a1LegacyHandlerProbe";
+    onvisibilitychange@PROBE@";
 
 #[test]
 fn w3_prototype_member_order_is_the_pinned_list() {
@@ -159,7 +159,17 @@ fn w3_prototype_member_order_is_the_pinned_list() {
             vm,
             "Object.getOwnPropertyNames(Object.getPrototypeOf(document)).join(',');",
         );
-        assert_eq!(got, PINNED_NAMES);
+        // `cookie` and the A1 probe are installed only under `compat-webapi`
+        // (Legacy spec level, BrowserCompat policy) — the same gate as W7 / W12.
+        let (cookie, probe) = if cfg!(feature = "compat-webapi") {
+            ("cookie,", ",__a1LegacyHandlerProbe")
+        } else {
+            ("", "")
+        };
+        let pinned = PINNED_TEMPLATE
+            .replace("@COOKIE@", cookie)
+            .replace("@PROBE@", probe);
+        assert_eq!(got, pinned);
     });
 }
 
@@ -253,8 +263,7 @@ fn w9_accessor_brand_check_rejects_a_non_document() {
     with_page(|vm| {
         let got = eval_str(
             vm,
-            "var P = Object.getOwnPropertyDescriptor(document, 'body') ? document \
-                      : Object.getPrototypeOf(document); \
+            "var P = Object.getPrototypeOf(document); \
              E(function () { return Object.getOwnPropertyDescriptor(P, 'body').get.call(document.body); });",
         );
         assert!(
@@ -271,8 +280,7 @@ fn w9_accessor_brand_check_rejects_a_non_document() {
 fn w10_ready_state_getter_brand_check() {
     with_page(|vm| {
         vm.eval(
-            "globalThis.P = Object.getOwnPropertyDescriptor(document, 'readyState') ? document \
-                      : Object.getPrototypeOf(document); \
+            "globalThis.P = Object.getPrototypeOf(document); \
              globalThis.g = Object.getOwnPropertyDescriptor(P, 'readyState').get;",
         )
         .unwrap();
@@ -310,8 +318,8 @@ fn w23_non_bound_document_ready_state_is_its_readiness() {
                function () { return document.cloneNode().readyState; });",
         );
         assert_eq!(control, "\"complete\"|\"complete\"");
-        // Unasserted leg (R-4): the spec value is "interactive".
-        let _unasserted = eval_str(vm, "T(function () { return dp.readyState; });");
+        // A DOMParser document's spec value ("interactive") has no assertion
+        // here: the VM has no per-Document readiness store (memo R-4 / §7).
     });
 }
 
@@ -322,11 +330,8 @@ fn w23_non_bound_document_ready_state_is_its_readiness() {
 #[test]
 fn w24_get_selection_brand_check() {
     with_page(|vm| {
-        vm.eval(
-            "globalThis.P = document.hasOwnProperty('getSelection') ? document \
-                      : Object.getPrototypeOf(document);",
-        )
-        .unwrap();
+        vm.eval("globalThis.P = Object.getPrototypeOf(document);")
+            .unwrap();
         for recv in ["{}", "document.body"] {
             let got = eval_str(
                 vm,
@@ -351,21 +356,20 @@ fn w24_get_selection_brand_check() {
 /// and `readyState` and the traversal factory `createTreeWalker`. Each is called
 /// through its prototype descriptor.
 const W25_MEMBERS: &str = "\
-globalThis.P = document.hasOwnProperty('getElementById') ? document \
-              : Object.getPrototypeOf(document); \
+globalThis.P = Object.getPrototypeOf(document); \
 globalThis.M = {}; \
 ['getElementById', 'querySelector', 'querySelectorAll', 'getElementsByTagName', \
  'getElementsByClassName', 'getElementsByName', 'adoptNode', 'createElement', \
  'createTextNode', 'createComment', 'createDocumentFragment', \
  'createTreeWalker'].forEach(function (k) { M[k] = P[k]; }); \
-['hidden', 'compatMode', 'readyState'].forEach(function (k) { \
+['hidden', 'compatMode', 'readyState', 'URL', 'documentURI'].forEach(function (k) { \
   M[k] = Object.getOwnPropertyDescriptor(P, k).get; }); \
 globalThis.ALL = function (recv) { \
   return Object.keys(M).map(function (k) { \
     return k + '=' + E(function () { return M[k].call(recv, 'x'); }); }).join(' ; '); };";
 
 /// Number of members in [`W25_MEMBERS`].
-const W25_COUNT: usize = 15;
+const W25_COUNT: usize = 17;
 
 /// W25 (PM 556 D1): every Document member throws `TypeError` "Illegal
 /// invocation" on a failed brand check, bound or not; the fix is in
@@ -415,16 +419,42 @@ fn w25_every_document_member_brand_checks_its_receiver() {
              adoptNode=returned:null ; createElement=returned:null ; \
              createTextNode=returned:null ; createComment=returned:null ; \
              createDocumentFragment=returned:null ; createTreeWalker=returned:null ; \
-             hidden=returned:false ; compatMode=returned:\"\" ; readyState=returned:\"complete\""
+             hidden=returned:false ; compatMode=returned:\"\" ; readyState=returned:\"complete\" ; \
+             URL=returned:\"about:blank\" ; documentURI=returned:\"about:blank\""
         );
     });
 }
 
+/// Unbinds the VM when dropped, so a failing assert cannot drop the `EcsDom` /
+/// `SessionCore` (declared before the guard, dropped after it) while the VM
+/// still holds raw pointers into them.
+struct UnbindOnDrop<'a>(&'a mut Vm);
+
+impl std::ops::Deref for UnbindOnDrop<'_> {
+    type Target = Vm;
+    fn deref(&self) -> &Vm {
+        self.0
+    }
+}
+
+impl std::ops::DerefMut for UnbindOnDrop<'_> {
+    fn deref_mut(&mut self) -> &mut Vm {
+        self.0
+    }
+}
+
+impl Drop for UnbindOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.unbind();
+    }
+}
+
 #[test]
 fn w11_rebind_keeps_the_prototype_and_installs_no_own_members() {
-    let mut vm = Vm::new();
+    let mut vm0 = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
+    let mut vm = UnbindOnDrop(&mut vm0);
     let doc1 = page(&mut dom);
     #[allow(unsafe_code)]
     unsafe {
@@ -465,9 +495,10 @@ fn w12_gates_guard() {
     });
 
     // An App-mode VM: `document.cookie` is not installed.
-    let mut vm = Vm::new_with_mode(elidex_plugin::EngineMode::App);
+    let mut vm0 = Vm::new_with_mode(elidex_plugin::EngineMode::App);
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
+    let mut vm = UnbindOnDrop(&mut vm0);
     let doc = page(&mut dom);
     #[allow(unsafe_code)]
     unsafe {

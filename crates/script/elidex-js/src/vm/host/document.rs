@@ -51,11 +51,12 @@ use super::dom_bridge::{
 use super::document_accessors::{
     native_document_get_active_element, native_document_get_base_uri, native_document_get_body,
     native_document_get_compat_mode, native_document_get_default_view, native_document_get_doctype,
-    native_document_get_document_element, native_document_get_forms, native_document_get_head,
-    native_document_get_hidden, native_document_get_images, native_document_get_links,
-    native_document_get_ready_state, native_document_get_referrer, native_document_get_selection,
-    native_document_get_title, native_document_get_url, native_document_get_visibility_state,
-    native_document_has_focus, native_document_set_title,
+    native_document_get_document_element, native_document_get_document_uri,
+    native_document_get_forms, native_document_get_head, native_document_get_hidden,
+    native_document_get_images, native_document_get_links, native_document_get_ready_state,
+    native_document_get_referrer, native_document_get_selection, native_document_get_title,
+    native_document_get_url, native_document_get_visibility_state, native_document_has_focus,
+    native_document_set_title,
 };
 #[cfg(feature = "compat-webapi")]
 use super::document_accessors::{native_document_get_cookie, native_document_set_cookie};
@@ -439,7 +440,7 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
         super::parentnode::native_pn_child_element_count,
     ),
     ("URL", native_document_get_url),
-    ("documentURI", native_document_get_url),
+    ("documentURI", native_document_get_document_uri),
     ("baseURI", native_document_get_base_uri),
     ("readyState", native_document_get_ready_state),
     ("compatMode", native_document_get_compat_mode),

@@ -50,7 +50,7 @@ pub(super) fn document_has_browsing_context(ctx: &NativeContext<'_>, doc: Entity
     ctx.vm
         .host_data
         .as_deref()
-        .map(super::super::host_data::HostData::document)
+        .and_then(super::super::host_data::HostData::document_entity_opt)
         == Some(doc)
 }
 
@@ -147,17 +147,37 @@ pub(super) fn native_document_get_title(
     invoke_document_accessor(ctx, this, "title", "document.title.get", empty)
 }
 
-pub(super) fn native_document_get_url(
+/// `URL` / `documentURI` share one value (`VmInner::navigation.current_url`,
+/// R-10 in the C1-pre memo); the brand check is independent of that store, so
+/// each attribute getter runs `document_receiver` under its own name.
+fn document_url_value(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
+    this: JsValue,
+    name: &str,
 ) -> Result<JsValue, VmError> {
-    // `current_url` is now a `Url`; `as_str()` produces the
-    // canonical WHATWG serialisation (what `document.URL` /
-    // `documentURI` returns per WHATWG DOM §4.5).
+    document_receiver(ctx, this, name)?;
+    // `current_url` is a `Url`; `as_str()` produces the canonical WHATWG
+    // serialisation (what `document.URL` / `documentURI` returns per WHATWG
+    // DOM §4.5).
     let url = ctx.vm.navigation.current_url.as_str().to_string();
     let sid = ctx.vm.strings.intern(&url);
     Ok(JsValue::String(sid))
+}
+
+pub(super) fn native_document_get_url(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    document_url_value(ctx, this, "URL")
+}
+
+pub(super) fn native_document_get_document_uri(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    document_url_value(ctx, this, "documentURI")
 }
 
 /// `document.baseURI` getter (D-31; WHATWG DOM §4.4 Interface Node
