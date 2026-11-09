@@ -357,9 +357,8 @@ slice's checker. Total at the base under PM 603's reach: 776 Err rows (770 + 6).
 
 **A measured hint, scoped to its sample (P0a-1 Rev 3c re-review, Axis 3).** A hand sample of **46** of the
 574 rows found **0** consumer defects: **35** admissible and **11** latent. The latent ones are all UA-fire
-`let _` drops of the shape of the seven `dispatch_vm_simple_event` drops (the UA-fire drop class, owned by
-P0b-VM-2, PM 608 / PM 609; its members are listed in [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md)
-§1). The sample says nothing about the other 528 rows. **Callee breakdown of the 574, an input to the
+`let _` drops of the shape of the seven `dispatch_vm_simple_event` drops (the UA-fire drop class; its owners: P0 umbrella §1, PM 608 / PM 609 / PM 615; its members: [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md)
+§1 and [P0b-VM-1](2026-11-vm-stack-safety-guard-p0b-vm1.md) §5.3). The sample says nothing about the other 528 rows. **Callee breakdown of the 574, an input to the
 classification and not a classification:** 413 rows whose callee is an `expect` name collision, 60 uses of
 the Ok-only `settle_promise` (no `Err` flows at the base; P0a-1 §5.5 names what would change that), and
 about 101 left to check by hand. The report at P0a-2a's head prints the same breakdown from the resolved
@@ -485,8 +484,8 @@ whether a loop's or a fan-out's governing algorithm continues past a failing sub
 ends it is rule 2's unless rule 13 makes it a member). Owner VM P4; re-evaluated with PR-1's cut-check limits when
 `#11-vm-native-callback-reentry-single-loop` is designed; ledger row P0 umbrella §7 L-7.
 
-**(α) slot: `#11-report-and-continue-loop-census` (approved, PM 608; registered in the VM-P4 slot
-ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` by P0a-1's PR, P0 umbrella §7 L-15).** *Defect:* a loop
+**(α) slot: `#11-report-and-continue-loop-census` (approved, PM 608; P0a-1's PR adds the row to the
+VM-P4 slot ledger `docs/plans/2026-07-vm-p4-slot-ledger.md`; the PMO registers it, P0 umbrella §7 L-15).** *Defect:* a loop
 whose governing algorithm reports an iteration's exception and continues can end on the first failing
 iteration through `?` or `return Err`, leaving the remaining callbacks unrun. Since rule 8's retirement
 (PM 598) no check enumerates such loops, and rule 2 auto-recognises the `?`. The defect holds for a
@@ -499,8 +498,8 @@ substrate); each loop's fix goes to its file's owner. *Trigger:* **P0a-2a's land
 choice between 2a and 2b). The slot's population is "a loop whose body reaches a script entry on the
 resolved graph" (§5 "(α)"); that needs only the resolved call graph, which P0a-2a ships. No (α) member is an
 Err-census row, so the allowlist and `# pending` of P0a-2b neither derive it nor gate it, and waiting for
-P0a-2b would delay the derivation by the classification pass for nothing. *Re-eval:* the ledger row's (one
-home; PM 608 approved 2026-12-15, carried by P0 umbrella §7 L-15). *Form:* (ii) of §5 "(α)".
+P0a-2b would delay the derivation by the classification pass for nothing. *Re-eval:* P0 umbrella §7 L-15 (its one
+home). *Form:* (ii) of §5 "(α)".
 
 ## §10. Landing obligations
 
@@ -528,4 +527,4 @@ PM 513 (d)): L-7 (census limits). Slice-local:
    PR-1's probes, each of which re-runs the check.
 
 (The former P0a-2 §11 items: 1, 4 and 7 are P0a-2b §11 / §6; 3 was dissolved by PM 590; 8 was settled by
-PM 608 / PM 609, the UA-fire drop class is P0b-VM-2's.)
+PM 608 / PM 609 / PM 615: the UA-fire drop class's owners are P0 umbrella §1's.)

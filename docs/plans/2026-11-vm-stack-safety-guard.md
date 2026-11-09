@@ -2,7 +2,7 @@
 
 Status: **plan (pre-implementation), revised after plan-review R1 and R2** (findings at `H/review/` and
 `H/review-r2/`, `axis1.md` … `axis5.md`, `aggregate.md`), the driver decisions D-W / D-SC and the split
-verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 590). Owner: VM P4 lane.
+verdicts (PR-1 §6.3, §5.1; PR-1b §4), and the PM rulings of §0.1 (through PM 615; the P0-internal ones are P0 umbrella §0.4's). Owner: VM P4 lane.
 PR-level plans: the [P0 program](2026-11-vm-stack-safety-guard-p0.md) (its slices P0a-1, P0a-2a, P0a-2b, P0b-VM-1, P0b-VM-2,
 P0b-L3), [PR-1](2026-11-vm-stack-safety-guard-pr1.md), [PR-1b](2026-11-vm-stack-safety-guard-pr1b.md).
 
@@ -84,6 +84,10 @@ one error kind at parse / compile time (PR-1 §2 I-6). This is **elidex's own re
 | PM 550 | Clerical repoint of the memos from P0a to P0a-1 / P0a-2 (PM 544 split); CP-3a / CP-3b set the entered mark (P0a-1 §4.2) after the check (PR-1b §2); rule-12 reason codes on the P0b-VM-1 / P0b-VM-2 census rows; behaviour-preserving rewrites in P0a-2b (§7.4; P0a-2 before the PM 609 split) only after the checker is extended, only when more readable on their own, with the reason per site and the tests unchanged. |
 | PM 557 | P0a-1 Rev 2 (R5 at `34a6ae8f`): the entered mark is set by structure, right after the entry's own check, in the one entry wrapper; `NotStarted` = the entry's own check failed, everything after is `Threw`; the C-4 reading is narrowed to match; opt-in to a finer `NotStarted` only with a checked reason code. Supersedes PM 550's CP-3 clause (no per-site store exists). One home: P0 umbrella §0.4 and §4 C-4; the rule's text is P0a-1 §4.2. |
 | PM 590 | P0a-1 Rev 3, option β (the user's choice): no revert anywhere; every probe failure is `Threw`, consumed and reported as a `RangeError`; `NotStarted`, the entered mark, `enter` and the escape rule deleted, the census W population retired; IMP-2 (internal reactions drop a failed call) fixed as D-16. One home: P0 umbrella §0.4 and §4 C-4. |
+| PM 595 / 598 / 603 / 615 | P0-internal (the census's W population and rule 8 retired, rule 13; the census reach closed over every function; the D-16 sink's already-final report; the P0b file overlap and P0b-L3's date). U is not affected; one home: P0 umbrella §0.4. |
+| PM 605 | CI/tools C0 census: PR-A1 (VM P4; the `elidex-js` default-profile build error) lands after P0a-1's plan is ratified and before Slice F. VM P4's queue only; the edge Slice F → PR-1 (§4) is unchanged. |
+| PM 608 | The (α) slot `#11-report-and-continue-loop-census` approved, owner VM P4 (§5, the P0 program's row); the UA-fire drop class goes to the P0 program (P0b-VM-2, and since PM 615 two members P0b-VM-1). One home: P0 umbrella §0.4. |
+| PM 609 | P0a-2 split into P0a-2a / P0a-2b (§4's P0 program row). One home: P0 umbrella §0.4. |
 
 ## §1. Scope
 
@@ -320,7 +324,7 @@ redesign.
 | `#11-dom-walkers-iterative-over-ecs-links` | Open (PM 436 R2); depends on PR-1's reserve until it lands (PR-1 §12 L-6, PR-1b §10 L-3; soft edge PR-1 → the slot, not a PR-1 precondition). Schedule: P0 umbrella §1 | L3 |
 | `#11-render-pipeline-recursion-depth-abort` | Open (PM 436 R3); one-primitive note in §1.2 | L2 |
 | `#11-vm-frontend-left-spine-iterative` | **Registered** (PM 483; PR-1 §5.4), scheduled immediately after PR-1 | VM P4 |
-| P0 program's slots (`#11-worker-toplevel-error-closes-worker`, `#11-vm-iteratorclose-precedence-convention`, `#11-embedder-diagnostic-channel`, `#11-vm-async-resume-failure-skips-finally`, `#11-sw-client-postmessage-inbound`) | the homes of the deviations the census found; P0 umbrella §6 (one home), ledger rows P0 umbrella §7 | VM P4 / per slot |
+| P0 program's slots (`#11-worker-toplevel-error-closes-worker`, `#11-vm-iteratorclose-precedence-convention`, `#11-embedder-diagnostic-channel`, `#11-vm-async-resume-failure-skips-finally`, `#11-sw-client-postmessage-inbound`; `#11-report-and-continue-loop-census`; `#11-event-dispatch-inner-invoke-dual-implementation`) | the first five: the homes of the deviations the census found, P0 umbrella §6 (one home); the (α) slot: P0a-2a §9 (PM 608); the *inner invoke* slot: a layering deviation P0a-1 §5.4 cites (PM 540 (5)); ledger rows P0 umbrella §7 | VM P4 / per slot |
 | `#11-vm-regexp-v-flag-dropped` | **Open** (PM 502): `regress_flags_from_str` drops `v`. Obligation on umbrella 8's `v` child: cap and probe nested classes before `v` is honoured (PR-1 §6.2, S-3) | VM P4 (umbrella 8) |
 | `#11-structured-clone-accessor-get` | Open; its entry names `#11-vm-call-depth-guard` (the getter adds a native→JS re-entry). Covered: the getter passes CP-1, each level W-6; pointer at the closure (PR-1b §10 L-1) | VM P4 |
 | `#11-wasm-entry-depth-band` | **Registered** (PM 517; PR-1b §4.3, §10 L-4): a JS→wasm entry with 256–768 KiB left gets `RangeError` even when wasm would use little stack. Catchable, never aborts | VM P4 |

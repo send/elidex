@@ -90,7 +90,7 @@ under two conditions:
 
 Its inputs are P0a-2a §7.1's sample (a hint scoped to its 46 rows) and callee breakdown (413 `expect`
 collisions, 60 Ok-only `settle_promise`, about 101 to check by hand). Its output is one class and reason
-code per member, the members of the UA-fire drop class (owner P0b-VM-2, [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md) §1), and
+code per member, the members of the UA-fire drop class (owners: P0 umbrella §1; members: [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md) §1, P0b-VM-1 §5.3), and
 every member that fails every code. A member that fails every code and is a consumer defect goes to the PM
 with a proposed owner (PM 557 (4)) and, with the PM's owner, becomes a `# pending` key.
 
@@ -205,9 +205,9 @@ each with its rule-12 code at landing; the classification re-derives them, §6):
   lists the call, keyed on the names as they stand at P0a-2b's base (§11 item 1). If L3's PR lands after
   P0a-2b, P0a-2b ships no row and L3's PR adds it if the check asks for it.
 
-- **The UA-fire drop class (Axis 2 on Rev 3b; PM 603; owner P0b-VM-2, PM 608 / PM 609).** A UA-fired
+- **The UA-fire drop class (Axis 2 on Rev 3b; PM 603; owners: P0 umbrella §1, PM 608 / PM 609 / PM 615).** A UA-fired
   event's dispatch whose result is dropped with `let _ =`, or converted without a report. Its members are
-  P0b-VM-2 §1's list: the seven named drops (the five `dispatch_vm_simple_event` drops and
+  P0b-VM-2 §1's list and P0b-VM-1 §5.3's two: the seven named drops (the five `dispatch_vm_simple_event` drops and
   `websocket_dispatch.rs` 114 / 177), the sites P0a-2a §7.1's sample found, and every member the
   classification adds (§6). They are members only under PM 603's reach. At the base `dispatch_vm_event` has
   no `?` and returns only `Ok` (above), so nothing flows. A row's code is `drain-consumed` if the tracked

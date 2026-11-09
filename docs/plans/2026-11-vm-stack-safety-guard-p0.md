@@ -116,7 +116,8 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
 - **PM 533 (R3 Axis 1 IMP-1 / IMP-2).** (a) **Fix**: the `ScriptEngine` boundary, and every other
   engine-facing boundary, keeps the failure kind: a method that returns `()` / `Option` / a value with the
   failure collapsed returns a result that carries it, and the engine-independent caller applies the
-  contract (for the `once` case, C-4: put the entry back). The type is engine-independent; the trait change
+  contract (for the `once` case, C-4: put the entry back; superseded by PM 590 (below): nothing is put
+  back, the removal stands, §4 C-4). The type is engine-independent; the trait change
   is in P0a-1's scope (P0a-1 §4.5: `ScriptFailure`, D-14, BC-1…BC-3). (b) **Rejected**: moving the `once`
   removal after the call (DOM §2.9 *inner invoke* removes before the call, step 2.5 before 2.13). (c)
   **Rejected**: a top-only N row for `call_listener` (a collapsing boundary is the defect itself; watching it
@@ -160,13 +161,15 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   the P0 contract; L3's CE bundle (TypeError, read-once, `#11-ce-upgrade-reaction-enqueue-order`) rebases
   onto it afterwards.
 - **PM 557 (R5: the P0a-1 plan-review at `34a6ae8f`; Axis 1 CRIT 0 / IMP 0 / MIN 3; Axis 2 CRIT 0 / IMP 2 /
-  MIN 2, terminator on IMP-1).** IMP-1: the async start consumes a once listener whose step never ran
+  MIN 2, terminator on IMP-1). Superseded by PM 590 (below): the mark, the entry wrapper and `NotStarted`
+  are gone, nothing is reverted (§4 C-4; P0a-1 §4.2 "What β removed"); kept as history.** IMP-1: the async start consumes a once listener whose step never ran
   (`interpreter.rs:630-660` pushes no frame; `natives_generator.rs:520-522` rejects the wrapper and the
   call returns `Ok`). IMP-2: the wasm adapter runs user `valueOf` in its argument coercion before its own
   check (`exported_func.rs:284-289`), so a later failure was `NotStarted` → revert → the listener runs
   twice. Root: the mark was set at a hand-enumerated list of first-effect sites; an effect not in the list
   fell to `NotStarted`, the unsafe side. **Ruling, option (A)**: (1) the mark is set by structure, right
-  after the entry's own check, inside the one entry wrapper (P0a-1 §4.2 `resource_limit::enter` (NEW: P0a-1));
+  after the entry's own check, inside the one entry wrapper (Rev 2's wrapper `enter`, never implemented and
+  deleted by PM 590);
   `NotStarted` means exactly "this entry's own check failed"; every other failure after the check is
   `Threw`, including a nested entry's check failing before any effect of the outer entry. (2) Lens: the
   spec is silent on resource limits → elidex's principles decide: fail-safe direction (an unknown effect
@@ -192,8 +195,9 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   ratification does not wait on it (P0a-1 §1). The 574 members only PM 603's reach admits are classified
   before the allowlist's review, measured again at the then-current main, with the resolved call graph
   built as the first part of the checker itself; until then the unclassified rows count as pending
-  (P0a-2b §6). (2) The (α) slot `#11-report-and-continue-loop-census` is approved (owner VM P4, Re-eval
-  2026-12-15); P0a-1's PR registers it in the VM-P4 slot ledger (§7 L-15). (3) The drops of the
+  (P0a-2b §6). (2) The (α) slot `#11-report-and-continue-loop-census` is approved (owner VM P4; its
+  Re-eval: §7 L-15, the one home); P0a-1's PR adds the row to the VM-P4 slot ledger; the PMO registers it
+  (§7 L-15). (3) The drops of the
   `dispatch_vm_simple_event` shape go to P0b-VM-2 (P0b-VM-2 §0 gives the reason). (4) D-6's script-throw
   half stays `#11-history-state-structured-serialize-fidelity`'s.
 - **PM 609 (after Axis 3 on Rev 3c).** P0a-2 is split into **P0a-2a** (the rules, the resolved call
@@ -203,8 +207,18 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   substrate → classification → ratification of the allowlist; the split maps it onto slices and takes the
   data-dependent part out of the substrate's review (the edge-dense multi-PR rule). The classification runs
   after P0a-2a lands, with P0a-2a's checker, and is P0a-2b's review precondition. The (α) slot triggers on
-  P0a-2a's landing (P0a-2a §9). P0b-VM-2 owns the whole UA-fire drop class, with its conditions (P0b-VM-2 §0:
+  P0a-2a's landing (P0a-2a §9). P0b-VM-2 owns the whole UA-fire drop class (narrowed by PM 615, below: two members are P0b-VM-1's), with its conditions (P0b-VM-2 §0:
   `indexeddb/dispatch.rs:194` first; a P0b-VM-3 cut proposed to the PM past 15 files or one review round).
+- **PM 615 (after Axes 4 and 5 on Rev 3d).** (1) **File overlap.** The two UA-fire drop class members in
+  P0b-VM-1's files (`history_events.rs:187`, `worker_scope.rs:333`) are fixed by the slice that owns the
+  file, P0b-VM-1 (P0b-VM-1 §5.3). The class's fix shape is defined once, in §4 C-3 ("The UA-fire drop
+  class"), as contract prose, not in P0b-VM-2: a shape P0b-VM-2 introduced as code would make P0b-VM-1
+  depend on it, the landing-order edge PM 615 excludes. Each slice implements it at its own sites, so no
+  shared helper and no edge exists (§1). P0b-VM-2 §10 item 4 is closed. (2) The new slot's Re-eval ("at
+  registration" in the repo row, the date at §7 L-15 only) is accepted; the repo row and the slice memos
+  point to L-15 (Axis 5 MIN-3). (3) **P0b-L3's date**: the plan
+  starts after P0a-2b lands, target P0a-2b's landing + 7 days, a relative date (§1 Schedule; "around 11-12"
+  withdrawn).
 
 ### §0.5 Decisions
 
@@ -234,8 +248,8 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
 | P0a-2a | The census checker: the shared resolved call graph, the rules with every admission reason checked by a predicate (rule 12), rule 13, controls, mutants, the measured population report (PM 609) | VM P4 | [P0a-2a](2026-11-vm-stack-safety-guard-p0a2a.md) | none (it ships the rules over the section, not the section) |
 | *(classification)* | Every member of the population that P0a-1's and P0a-2a's rows do not admit gets a class and a reason code, with P0a-2a's checker at the then-current main (PM 608, PM 609); not a PR | VM P4 | [P0a-2b](2026-11-vm-stack-safety-guard-p0a2b.md) §6 | decides the D rows the section will hold |
 | P0a-2b | The allowlist with `# pending` (D-1, D-2, D-5…D-12, plus the D rows the classification finds; D-3 / D-4 leave under β as P rows), the gate on the tree, legibility rewrites (PM 609) | VM P4 | [P0a-2b](2026-11-vm-stack-safety-guard-p0a2b.md) | creates the section (P0a-2b §7.3) |
-| P0b-VM-1 | D-6, D-7 (history; L4 files, no driver), D-10, D-11 (worker); WHATWG HTML only | VM P4 | [P0b-VM-1](2026-11-vm-stack-safety-guard-p0b-vm1.md) | removes its 4 rows |
-| P0b-VM-2 | D-8 (IndexedDB), D-9 (SW `startMessages()`, made asynchronous), D-12 (WebCrypto), the UA-fire drop class (PM 608, PM 609) | VM P4 | [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md) | removes its 4 rows |
+| P0b-VM-1 | D-6, D-7 (history; L4 files, no driver), D-10, D-11 (worker), and the two UA-fire drop class members in its files (PM 615); WHATWG HTML only | VM P4 | [P0b-VM-1](2026-11-vm-stack-safety-guard-p0b-vm1.md) | removes its 4 rows |
+| P0b-VM-2 | D-8 (IndexedDB), D-9 (SW `startMessages()`, made asynchronous), D-12 (WebCrypto), the UA-fire drop class except its two members in P0b-VM-1's files (PM 608, PM 609, PM 615) | VM P4 | [P0b-VM-2](2026-11-vm-stack-safety-guard-p0b-vm2.md) | removes its 4 rows |
 | P0b-L3 | D-1, D-2, D-5 and HTML §8.1.8.1 step 3.7's not-parsable arm (D-3 / D-4 are no longer definitive under β, P0a-2b §7.3) | L3 | L3's own plan; P0's input is `H/p0b-l3-handoff.md` | removes its 3 D rows |
 
 **Edges.** P0a-1 → P0a-2a (the checker is written against P0a-1's contract); P0a-2a → classification →
@@ -243,9 +257,11 @@ P0a-2b (the classification runs P0a-2a's landed checker, and P0a-2b's review wai
 P0a-2b's allowlist records P0a-1's fixes); P0a-2b → P0b-VM-1; P0a-2b → P0b-VM-2; P0a-2b → P0b-L3 (each P0b
 slice edits the allowlist and needs P0a-1's API through P0a-2b: P0b-L3 uses `ScriptFailure` and the
 injection of P0a-1 §4.4; P0b-VM-1 / P0b-VM-2 use the predicates and the injection); P0b-VM-1 → PR-1;
-P0b-VM-2 → PR-1; P0b-L3 → PR-1. The three P0b slices are independent of each other (each touches only its
-own rows of `# pending`; disjoint files, except two UA-fire drop class members in P0b-VM-1's files, open
-with the PM, P0b-VM-2 §10 item 4). L3's `#11-abort-signal-any-dependent-flattening` PR → P0a-1 (the test
+P0b-VM-2 → PR-1; P0b-L3 → PR-1. The three P0b slices are independent of each other: each touches only its
+own rows of `# pending`, and their files are disjoint, except `history_events.rs` and `worker_scope.rs`,
+where P0b-VM-1 fixes the two UA-fire drop class members as the file's owner (PM 615); the class's fix shape
+is contract prose (§4 C-3), not a shared helper, so no edge between P0b-VM-1 and P0b-VM-2 exists and the
+two land in either order. This is the one statement of the overlap; the slice memos point here. L3's `#11-abort-signal-any-dependent-flattening` PR → P0a-1 (the test
 seam) and → P0a-2b (the allowlist row of its abort loop) and → P0b-L3: P0a-1 is rebased on it. What each order means is stated once, in P0a-1 §4.4
 (the seam) and P0a-2b §7.3 (the row); this memo does not restate it (PM 538). P0b-L3 → L3's CE bundle (§0.4,
 CE bundle order).
@@ -266,8 +282,8 @@ here for edges and dates and does not restate them.
 - P0a-1: first of the P0 slices, after that PR; then P0a-2a, the classification, P0a-2b (each slice with
   its own plan-review, PM 544, PM 609).
   P0b-VM-1 and P0b-VM-2: after P0a-2b, in either order.
-- P0b-L3: after P0a-2b and after that PR; with a per-PR plan-review. Its earlier "PR around 11-12" was set
-  before PM 609 put the classification ahead of P0a-2b; the PM re-dates it.
+- P0b-L3: its plan starts after P0a-2b lands (and after that PR); target: P0a-2b's landing + 7 days, a
+  relative date (PM 615); with a per-PR plan-review.
 - L3's `#11-dom-walkers-iterative-over-ecs-links` umbrella (with the capped-walker slot): start ≈11-11,
   slice 1 (`elidex-ecs` `tree/walkers.rs` + the capped walker's 8 callers) landing ≈11-14, the whole
   umbrella ≈end of November, i.e. after PR-1 (the soft edge PR-1 → that slot, umbrella §1.2).
@@ -351,6 +367,15 @@ running script (`throw_error`); rejection of the promise or request the trigger 
 (HTML *report an exception*, whose stand-in is stderr until `#11-embedder-diagnostic-channel`). The
 script-visible class is `RangeError` with `STACK_EXHAUSTED_MSG` (NEW: P0a-1; "Maximum call stack size
 exceeded", PM 421 (a)).
+
+*The UA-fire drop class (PM 608, PM 615; the one definition of its fix shape).* A UA-fired event's
+dispatch whose `Result` is dropped (`let _ =`, an unused binding) or converted without a report is fixed
+by this shape: the site that receives the `Result` reports an `Err` once, through the report channel above
+(the stderr stand-in, as `observer_common.rs` and P0a-1's `call_listener` use it), and the UA algorithm then continues exactly as after an
+ordinary listener throw; a site that maps the `Err` to a fact the UA algorithm reads (`threw: true` at
+`indexeddb/dispatch.rs:194`) keeps the mapping and reports first. The shape is contract prose, not a shared
+helper: each slice implements it at the members in its own files (P0b-VM-2 §1; the two in P0b-VM-1's
+files, P0b-VM-1 §5.3), so the slices share no code and need no edge (§1).
 
 **C-4 Spec exception branches (option β, PM 590; supersedes PM 509 item 5 and PM 557's narrowing).** A
 probe failure is a throw completion of the step it interrupts. Every consumer takes the spec's exception
@@ -468,6 +493,12 @@ deliverable).
 
 ## §6. Pre-existing deviations seen, and their homes
 
+**Scope.** This section lists the pre-existing spec deviations the census found that P0 does not fix,
+each with its home. It is not the list of every slot the program names: the (α) slot
+`#11-report-and-continue-loop-census` is P0a-2a §9's (a class the census does not enumerate, §7 L-15), and
+`#11-event-dispatch-inner-invoke-dual-implementation` is a layering deviation P0a-1 §5.4 cites (PM 540
+(5)); the umbrella's slot table lists them all (umbrella §5, the P0 program's row).
+
 1. **IteratorClose precedence.** ECMA-262 §7.4.11 step 5 returns the original throw completion before
    step 6 considers the `return` method's throw; the ten E rows (P0a-2b §7.3) let the `return` method's
    error win (comments: `dispatch_iter.rs:54-55`, `typed_array_static.rs` at 743, `webidl_sequence.rs` at
@@ -518,22 +549,22 @@ merge commit** of the PR named in each row: one row = target, exact sentence, so
 ledger outside this repo; the one repo ledger they edit is the VM-P4 slot ledger, by row L-15 (PM 608). Rows
 marked *PR* are done by that PR itself; rows marked *PM* are notices.
 
-This table "at `b7f03821`" is registered in the landing list `vm-p0-program.md` (PM 517). The PM 533 revision changed L-3 and L-7 and added L-14; the PM 544 revision moved every P0a source to P0a-1 / P0a-2 and changed L-3's sentence; the PM 557 revision (P0a-1 Rev 2) changed no row's sentence and re-derived every `<path>:<lines>` cell; the PM 590 revision (β) changed L-6's and L-14's sentences and re-derived every `<path>:<lines>` cell of this memo and of P0a-1 / P0a-2. The PM 609 revision (Rev 3d) moved the P0a-2 sources to P0a-2a / P0a-2b, added L-15, changed L-1's, L-3's, L-4's and L-12's sentences to the split names, and re-derived every `<path>:<lines>` cell. The `<path>:<lines>` source cells are exact at this revision's commit; the registration is refreshed after R4 converges, from the head's table with `<path>:<lines> @ <sha>` cells (PM 540 (1)).
+This table "at `b7f03821`" is registered in the landing list `vm-p0-program.md` (PM 517). The PM 533 revision changed L-3 and L-7 and added L-14; the PM 544 revision moved every P0a source to P0a-1 / P0a-2 and changed L-3's sentence; the PM 557 revision (P0a-1 Rev 2) changed no row's sentence and re-derived every `<path>:<lines>` cell; the PM 590 revision (β) changed L-6's and L-14's sentences and re-derived every `<path>:<lines>` cell of this memo and of P0a-1 / P0a-2. The PM 609 revision (Rev 3d) moved the P0a-2 sources to P0a-2a / P0a-2b, added L-15, changed L-1's, L-3's, L-4's and L-12's sentences to the split names, and re-derived every `<path>:<lines>` cell. The PM 615 revision (Rev 3e) changed L-15's sentence (the PMO's registration and the Re-eval flip; the date's one home) and re-derived every `<path>:<lines>` cell. The `<path>:<lines>` source cells are exact at this revision's commit; the registration is refreshed after R4 converges, from the head's table with `<path>:<lines> @ <sha>` cells (PM 540 (1)).
 
 | Row | When | Executor | Target (kind) | Exact sentence to append | Source |
 |---|---|---|---|---|---|
-| L-1 | PR-1's PR | PR | PR-1's PR body | "P0a-1, P0a-2a, P0a-2b, P0b-VM-1, P0b-VM-2 and P0b-L3 landed (`git merge-base --is-ancestor <sha> HEAD` → 0 for each); the census `# pending` section is empty." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:256-257` |
-| L-2 | P0a-1's merge | PM | L3 lane notice | "P0b-L3's input is `H/p0b-l3-handoff.md`; the P0 contract is P0 umbrella §4 on P0a-1's merge commit." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:239` |
+| L-1 | PR-1's PR | PR | PR-1's PR body | "P0a-1, P0a-2a, P0a-2b, P0b-VM-1, P0b-VM-2 and P0b-L3 landed (`git merge-base --is-ancestor <sha> HEAD` → 0 for each); the census `# pending` section is empty." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:272-273` |
+| L-2 | P0a-1's merge | PM | L3 lane notice | "P0b-L3's input is `H/p0b-l3-handoff.md`; the P0 contract is P0 umbrella §4 on P0a-1's merge commit." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:253` |
 | L-3 | P0a-1's merge | PMO | `#11-embedder-diagnostic-channel` (pointer row → `memory/m4-12-pr-d22-observer-pair-landing.md:71`; append there) | "Facet (stack-safety P0, P0a-2b §7.3 S rows): listener / callback errors are dropped without a report at `custom_elements/flush.rs:70` and `coerce.rs:246` (paths under `crates/script/elidex-js/src/`, lines at `ce603c74`); `engine.rs:275` (`call_listener`) and `natives_promise.rs:591` (`dispatch_unhandled_rejection_event`) report from P0a-1 on (P0a-1 §4.5, §5.4)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2b.md:152-154` |
 | L-4 | P0a-2b's merge | PMO | `#11-vm-iteratorclose-precedence-convention` (live entry) | "Further sites of the same inversion (stack-safety P0a-2b §7.3 E rows, lines at `ce603c74`, under `crates/script/elidex-js/src/`): `vm/dispatch_iter.rs` 52 / 309; `vm/ops.rs:60`; `vm/host/typed_array_static.rs` 743 / 801; `vm/natives_array_hof.rs:485`; `vm/webidl_sequence.rs` 141 / 149; `vm/host/url_search_params.rs:318`; `vm/host/structured_clone.rs:1064`. No new slot." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2b.md:155-159` |
-| L-5 | P0a-1's merge | PMO | `#11-worker-toplevel-error-closes-worker` (live entry) | "Found by the stack-safety P0 census (P0 umbrella §6 item 3): `worker_thread.rs:200-204` closes the worker where HTML §10.2.4 reports and keeps running." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:482-484` |
-| L-6 | P0a-1's merge | PMO | `#11-vm-async-resume-failure-skips-finally` (live entry) | "Outcome pinned by stack-safety P0a-1 cells `rl_async_step_entry_failure_rejects_wrapper` (the resume's check) and `rl_async_step_call_entry_failure_rejects_wrapper` (the reaction job's call of the step, D-16): the wrapper rejects with `RangeError`; the body's `finally` does not run." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:488-500` |
-| L-7 | P0a-2a's merge | PMO | `#11-vm-native-callback-reentry-single-loop` (live entry) | "Stated limits of the stack-safety P0 Err-consumer census (P0a-2a §9), re-evaluated with PR-1's cut-check limits when this slot is designed: calls through function pointers, trait objects and closures passed across functions inside one crate (across crates they are the census's boundary population, PM 533); receiver types (the resolver keys on `self`-ness, module and file); writes inside a callee before the carrier call; macros; a straight-line `?` that returns before a fan-out; durable writes to a side table. Re-eval-date: 2026-12-31." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2a.md:478-486` |
-| L-8 | P0b-VM-1's PR | PR | `#11-history-state-structured-serialize-fidelity` (pointer row → repo memo; append to `docs/plans/2026-07-s5-5c-history-state-traversal.md:868`, the D1 bullet) | "Resource-limit errors propagate from the interim serializer and from the push/replace deserialise (stack-safety P0b-VM-1 §5.1); the degrade for other failures remains this slot's." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm1.md:99-107` |
-| L-9 | P0b-VM-2's merge | PMO | `#11-idb-structured-clone-storage` (live entry) | "`json_to_js` is fallible: a resource-limit error fails the request; other parse failures keep `undefined` (stack-safety P0b-VM-2 §5.1)." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm2.md:124-130` |
-| L-10 | P0b-VM-2's merge | PMO | `#11-sw-client-postmessage-inbound` (live entry; the PM 513 (c) queue note is already on it) | "`fire_message`'s `unwrap_or(Undefined)` for a non-resource deserialise failure is a pre-existing substitution (spec: `messageerror`), left to this slot (stack-safety P0b-VM-2 §5.2)." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm2.md:134-140` |
-| L-11 | P0b-VM-1's merge | PM | L4 notice | "VM P4 edited the L4 sites listed in stack-safety P0b-VM-1 §0 (`structured_serialize.rs`, `history.rs`, `history_events.rs`) in P0b-VM-1's PR." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm1.md:30-36` |
-| L-12 | P0a-1's merge | PM | L3 notice (site list via PM, PM 502) | "P0a-1 edited L3's AbortSignal files after rebasing on `#11-abort-signal-any-dependent-flattening`: the `#[cfg(test)]` seam `fail_next_abort_dispatch` is removed and its cell uses `InjectAt::SimpleEventDispatch` (NEW: P0a-1) (P0a-1 §4.4); the allowlist row of the abort loop is P0a-2b's (P0a-2b §7.3)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:318-329` |
-| L-13 | each P0 PR | PR | that PR's body | "`python3 .claude/skills/elidex-plan-review/preflight.py` on this umbrella and on the slice memo at the PR's head: rc and K / M as printed." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:318-319` |
-| L-14 | P0a-1's merge | PM | notice to the owners of `elidex-script-session` and `elidex-dom-api` (site list via PM) | "P0a-1 changed the engine boundary (stack-safety P0a-1 §4.5, PM 533): `ScriptFailure` (NEW, `elidex-script-session/src/outcome.rs`); `ScriptEngine::call_listener` returns `Result<(), ScriptFailure>`; `EvalResult` carries `outcome` in place of `success`; `script_dispatch_event_core` consumes `call_listener`'s result (no revert: a `once` listener stays removed on every failure, PM 590); `FilterError::Throw` became `FilterError::Script(ScriptFailure)` and the traversal protos' failure → null arms are gone." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:44-62` |
-| L-15 | P0a-1's PR (done on this plan branch at Rev 3d) and P0a-1's merge | PR, then PMO | the repo's VM-P4 slot ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` §8 table (row `#11-report-and-continue-loop-census`, done by the PR); then the live ledger `project_open-defer-slots.md` (a pointer line, by the PMO at P0a-1's merge) | the repo row as committed (owner VM P4; Trigger: P0a-2a's landing; Re-eval *at registration*). The PMO's pointer line: "`#11-report-and-continue-loop-census` → `docs/plans/2026-07-vm-p4-slot-ledger.md` (VM-P4 slot ledger §8); Re-eval-date: 2026-12-15 (PM 608)." Until the PMO adds it, the slot-homing check (`slot_homing_check.py`, which reads the PM-side ledger) prints this id as unhomed; that is expected. | `docs/plans/2026-11-vm-stack-safety-guard-p0a2a.md:488-503` |
+| L-5 | P0a-1's merge | PMO | `#11-worker-toplevel-error-closes-worker` (live entry) | "Found by the stack-safety P0 census (P0 umbrella §6 item 3): `worker_thread.rs:200-204` closes the worker where HTML §10.2.4 reports and keeps running." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:513-515` |
+| L-6 | P0a-1's merge | PMO | `#11-vm-async-resume-failure-skips-finally` (live entry) | "Outcome pinned by stack-safety P0a-1 cells `rl_async_step_entry_failure_rejects_wrapper` (the resume's check) and `rl_async_step_call_entry_failure_rejects_wrapper` (the reaction job's call of the step, D-16): the wrapper rejects with `RangeError`; the body's `finally` does not run." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:519-531` |
+| L-7 | P0a-2a's merge | PMO | `#11-vm-native-callback-reentry-single-loop` (live entry) | "Stated limits of the stack-safety P0 Err-consumer census (P0a-2a §9), re-evaluated with PR-1's cut-check limits when this slot is designed: calls through function pointers, trait objects and closures passed across functions inside one crate (across crates they are the census's boundary population, PM 533); receiver types (the resolver keys on `self`-ness, module and file); writes inside a callee before the carrier call; macros; a straight-line `?` that returns before a fan-out; durable writes to a side table. Re-eval-date: 2026-12-31." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2a.md:477-485` |
+| L-8 | P0b-VM-1's PR | PR | `#11-history-state-structured-serialize-fidelity` (pointer row → repo memo; append to `docs/plans/2026-07-s5-5c-history-state-traversal.md:868`, the D1 bullet) | "Resource-limit errors propagate from the interim serializer and from the push/replace deserialise (stack-safety P0b-VM-1 §5.1); the degrade for other failures remains this slot's." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm1.md:109-117` |
+| L-9 | P0b-VM-2's merge | PMO | `#11-idb-structured-clone-storage` (live entry) | "`json_to_js` is fallible: a resource-limit error fails the request; other parse failures keep `undefined` (stack-safety P0b-VM-2 §5.1)." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm2.md:128-134` |
+| L-10 | P0b-VM-2's merge | PMO | `#11-sw-client-postmessage-inbound` (live entry; the PM 513 (c) queue note is already on it) | "`fire_message`'s `unwrap_or(Undefined)` for a non-resource deserialise failure is a pre-existing substitution (spec: `messageerror`), left to this slot (stack-safety P0b-VM-2 §5.2)." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm2.md:138-144` |
+| L-11 | P0b-VM-1's merge | PM | L4 notice | "VM P4 edited the L4 sites listed in stack-safety P0b-VM-1 §0 (`structured_serialize.rs`, `history.rs`, `history_events.rs`) in P0b-VM-1's PR." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm1.md:32-39` |
+| L-12 | P0a-1's merge | PM | L3 notice (site list via PM, PM 502) | "P0a-1 edited L3's AbortSignal files after rebasing on `#11-abort-signal-any-dependent-flattening`: the `#[cfg(test)]` seam `fail_next_abort_dispatch` is removed and its cell uses `InjectAt::SimpleEventDispatch` (NEW: P0a-1) (P0a-1 §4.4); the allowlist row of the abort loop is P0a-2b's (P0a-2b §7.3)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:338-349` |
+| L-13 | each P0 PR | PR | that PR's body | "`python3 .claude/skills/elidex-plan-review/preflight.py` on this umbrella and on the slice memo at the PR's head: rc and K / M as printed." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:334-335` |
+| L-14 | P0a-1's merge | PM | notice to the owners of `elidex-script-session` and `elidex-dom-api` (site list via PM) | "P0a-1 changed the engine boundary (stack-safety P0a-1 §4.5, PM 533): `ScriptFailure` (NEW, `elidex-script-session/src/outcome.rs`); `ScriptEngine::call_listener` returns `Result<(), ScriptFailure>`; `EvalResult` carries `outcome` in place of `success`; `script_dispatch_event_core` consumes `call_listener`'s result (no revert: a `once` listener stays removed on every failure, PM 590); `FilterError::Throw` became `FilterError::Script(ScriptFailure)` and the traversal protos' failure → null arms are gone." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:45-63` |
+| L-15 | P0a-1's PR (done on this plan branch at Rev 3d) and P0a-1's merge | PR, then PMO | the repo's VM-P4 slot ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` §8 table: P0a-1's PR adds the row `#11-report-and-continue-loop-census`; then the PMO registers it in the live ledger `project_open-defer-slots.md` at P0a-1's merge, and flips the repo row's Re-eval cell to *per live ledger* | the repo row as committed (owner VM P4; Trigger: P0a-2a's landing; Re-eval *at registration: per the stack-safety P0 umbrella §7 L-15*). The PMO's registration line: "`#11-report-and-continue-loop-census` → `docs/plans/2026-07-vm-p4-slot-ledger.md` (VM-P4 slot ledger §8); Re-eval-date: 2026-12-15 (PM 608)." This row is the date's one home: the ledger's Re-eval rule admits no absolute date in a repo row (PM 615 (2)); P0 §0.4 PM 608 and P0a-2a §9 point here. Until the PMO registers it, the slot-homing check (`slot_homing_check.py`, which reads the PM-side ledger) prints this id as unhomed; that is expected. | `docs/plans/2026-11-vm-stack-safety-guard-p0a2a.md:487-502` |

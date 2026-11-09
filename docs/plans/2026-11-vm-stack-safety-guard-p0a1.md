@@ -38,6 +38,7 @@ to the owner of the subscription.
 | Rev 3 | PM 590 | option β: no revert anywhere, every probe failure is `Threw`; `NotStarted`, the mark, `enter`, the escape rule and the revert API deleted; IMP-2 fixed as D-16 (§5.5) |
 | Rev 3c | PM 603 | the D-16 sink reports when the owner is already final (decided by the gate's result); `fail_step` keeps the stream-entry guard; where the kind ends (a user handler); two L3 intersection notes |
 | Rev 3d | PM 608, PM 609 | the census population is P0a-2a's / P0a-2b's and P0a-1's ratification does not wait on it (§1); the P0a-2 split into P0a-2a / P0a-2b repointed; four SINK pair rows (§2); the thenable-assimilation note on `settle_promise` (§5.5) |
+| Rev 3e | PM 615 | D-16's spec grounding per owner: where the spec has a destination and where the principle decides (§3, §3.2, §5.5, Axis 4 IMP-1 / IMP-2); NewPromiseReactionJob cited in absolute step numbers; the spec counterparts of the new items (§5.6); a §3 row for *report an exception* |
 
 ## §1. Scope
 
@@ -110,9 +111,10 @@ No spec defines a resource limit (P0 umbrella §3). The rows are the clauses thi
 | WHATWG DOM §2.9 Dispatching events | *inner invoke* step 2 (listeners whose removed is false), 2.5 (once: remove before the call), 2.13 (call; on a throw, report and continue) | every failure: 2.5 stands, 2.13.1 report | `call_listener` (D-14); `dispatch_unhandled_rejection_event` (D-15) | ✓ | yes |
 | WHATWG HTML §8.1.4.7 Unhandled promise rejections | *notify about rejected promises* step 4.1.2 (fire `unhandledrejection` at the global) | the firing is a DOM §2.9 dispatch; D-15's loop is its elidex form (target: the Document, `#11-unhandledrejection-dispatch-target`) | `dispatch_unhandled_rejection_event` (`natives_promise.rs:565`, `:591`) | ✓ | yes |
 | WHATWG DOM §6 Traversal | *filter* step 6 (on a throw: unset the active flag, rethrow) | every failure propagates, nothing written | `FilterAction::accept` (BC-3) | ✓ | yes |
-| ECMA-262 §27.5.2.1 NewPromiseReactionJob | the job's step 5.a (call the handler), step 6 (no capability: step 6.a asserts the handler's completion is not abrupt) | a resource limit makes the call abrupt with no capability: the failure goes to the subscription's owner (D-16) | `run_reaction` (`natives_promise.rs:665`, call `:689`, `Err` arm `:695-703`) | ✓ | yes |
+| ECMA-262 §27.5.2.1 NewPromiseReactionJob | step 1.e.i (call the handler); 1.f (no capability: 1.f.i asserts the handler's completion is not abrupt); 1.h.i (a capability: an abrupt completion rejects it) | the async driver's reaction has no capability in the spec (Await step 7), so 1.f is spec-exact and a resource limit breaks its assert; the stream and combinator reactions have one in the spec (a derived promise elidex omits), so the spec's branch is 1.h.i on a discarded promise. Where each failure goes is the principle's choice per owner (§5.5 "The spec's position"): D-16 | `run_reaction` (`natives_promise.rs:665`, call `:689`, `Err` arm `:695-703`) | ✓ | yes |
+| WHATWG HTML §8.1.4.6 Runtime script errors | *report an exception* | the report channel (stderr stand-in, P0 umbrella §4 C-3) of `call_listener` (D-14), the `unhandledrejection` loop (D-15) and `fail_reaction_owner`'s `AlreadyFinal` arm (D-16, §5.5 "An owner already final") | `call_listener` (`engine.rs:275`), `dispatch_unhandled_rejection_event` (`natives_promise.rs:591`), `fail_reaction_owner` (NEW) | ✓ | no |
 
-**Breadth**: K=3 specs (ECMA-262, WHATWG HTML, WHATWG DOM), M=6 entries (verified 2026-11-10 by `python3
+**Breadth**: K=3 specs (ECMA-262, WHATWG HTML, WHATWG DOM), M=7 entries (verified 2026-11-10, Rev 3e, by `python3
 .claude/skills/elidex-plan-review/preflight.py` on this memo: rc 0, K=3, M=6; rc and K / M as printed in the
 PR body, P0 umbrella §7 L-13). Below the split thresholds.
 
@@ -132,12 +134,30 @@ step's CP-1 meets a script-controlled depth (Rev 2 Axis 2 IMP-2).
 
 ### §3.2 Cited, not touched
 
-The D-16 sinks deliver to algorithms that already exist; their steps are not changed. WHATWG Streams
-§4.9.4 *SetUpReadableStreamDefaultController* step 12 and *ReadableStreamDefaultControllerCallPullIfNeeded*
-step 8 (a rejected start / pull promise errors the stream); §4.9.2 *ReadableStreamCancel* step 8 (the
-returned promise reacts to the source's cancel promise). ECMA-262 AsyncBlockStart step 1.h (a throw
-completion rejects the async function's promise); `Promise.all` step 8.b (an abrupt completion of the
-combinator's own algorithm rejects its capability through IfAbruptRejectPromise).
+The D-16 sinks deliver to algorithms that already exist; their steps are not changed. Per owner, where
+the spec sends a failed reaction step, and where the spec stops and the elidex principle decides (§5.5
+"The spec's position"):
+
+- **Async driver.** ECMA-262 Await step 7 calls PerformPromiseThen with no capability, so
+  NewPromiseReactionJob step 1.f applies and its assert (1.f.i) says the step never fails: the spec has no
+  destination. AsyncBlockStart step 1.h (a throw completion rejects the async function's promise) is the
+  existing channel the sink uses.
+- **Cancel.** WHATWG Streams §4.9.2 *ReadableStreamCancel* step 8 returns the result of WebIDL §3.2.24.1
+  *react* to the source's cancel promise, which is that reaction's capability (react steps 6–8): a failed
+  step rejects the promise `cancel()` returned. Spec-exact.
+- **Start and pull.** Streams §4.9.4 *SetUpReadableStreamDefaultController* steps 11–12 and
+  *ReadableStreamDefaultControllerCallPullIfNeeded* steps 7–8 react to the start / pull promise; the
+  capability *react* creates (steps 6–8) is discarded (react's Note allows omitting it, as elidex does), so
+  in the spec a failed step rejects a promise nobody reads. Erroring the stream is the principle's choice
+  (C-3, fail-safe), through the existing *ReadableStreamDefaultControllerError* (step 2: a stream that is
+  not "readable" is left as it is).
+- **Combinators.** ECMA-262 PerformPromiseAll step 5.k (PerformPromiseAllSettled 5.p, PerformPromiseAny
+  5.k, PerformPromiseRace 1.d) Invokes `then` on each element, and Promise.prototype.then step 4 creates
+  the derived capability the element's reaction carries; elidex's combinator `subscribe` omits it. In the
+  spec a failed element step rejects that derived promise (NewPromiseReactionJob step 1.h.i) and the
+  result promise stays pending. Rejecting `result` is the principle's choice (P0 umbrella §4 C-4
+  authority (2), fail-safe), through the result capability's existing reject channel (`Promise.all` step
+  8.b's IfAbruptRejectPromise is that channel; it is not the spec's branch for this failure).
 
 ## §4. Types and seams
 
@@ -486,7 +506,7 @@ adapts to the earlier one's form (L3 brand-check Rev 4).
 
 | Id | Site | What the error becomes today | Class | Governing step |
 |---|---|---|---|---|
-| D-16 | `vm/natives_promise.rs` `run_reaction` (`:665`): `vm.call(handler, …)` at `:689` (CP-1); the `Err` arm (`:695-703`) settles only `if let Some(cap) = capability` | with `capability == None` the error is dropped: no report, the owner never settles | D (C-3: dropped at a script-controlled depth, §3.1; P0a-2a §7.2's re-run had it as R on the `Some` arm only) | ECMA-262 NewPromiseReactionJob, the job's step 6 |
+| D-16 | `vm/natives_promise.rs` `run_reaction` (`:665`): `vm.call(handler, …)` at `:689` (CP-1); the `Err` arm (`:695-703`) settles only `if let Some(cap) = capability` | with `capability == None` the error is dropped: no report, the owner never settles | D (C-3: dropped at a script-controlled depth, §3.1; P0a-2a §7.2's re-run had it as R on the `Some` arm only) | ECMA-262 NewPromiseReactionJob step 1.f (async driver) and 1.h.i on the omitted derived capability (stream start / pull, combinators); per owner, §3.2 |
 
 The id D-16 is the P0 census series (D-1…D-16); the code comment `D-16 #11-wasm-vm` in
 `interpreter_call.rs` is another series.
@@ -514,12 +534,21 @@ If that check fails (or the internal handler returns any other `Err`), the `None
 stays suspended, the wrapper never settles and nothing is reported. The stream and combinator owners stay
 pending the same way.
 
-**The spec's position.** NewPromiseReactionJob's job step 6 handles an undefined capability, and its step
-6.a asserts that the handler's completion is not abrupt: the spec's internal handlers (Await's closures)
-always return normally. A resource limit at the handler's call breaks that assert. The spec is silent on
-what then happens (P0 umbrella §4 C-4, authority chain item 1), so the elidex principles decide: the
-failure must surface (C-3; fail-safe: an unknown falls to a visible failure), and the place it surfaces
-must be decided by structure, not by a list of handler kinds (Security by structure).
+**The spec's position, per owner (§3.2 has the steps).** *Async driver*: Await step 7 subscribes with no
+capability, so NewPromiseReactionJob step 1.f applies, and its assert (1.f.i) says the handler's completion
+is not abrupt: Await's closures always return normally. A resource limit at the handler's call breaks that
+assert, and the spec is silent on what then happens (P0 umbrella §4 C-4, authority chain item 1).
+*Cancel*: the reaction's capability is the promise `cancel()` returned (ReadableStreamCancel step 8, WebIDL
+*react* steps 6–8), so rejecting it is spec-exact. *Start / pull and combinators*: the spec's reaction has a
+capability, a derived promise that nobody reads (WebIDL *react*'s discarded `newCapability`; the promise
+`then` returns inside PerformPromiseAll step 5.k and its siblings); elidex omits it. The spec's branch,
+step 1.h.i, rejects that derived promise and leaves the stream readable and the result promise pending.
+**Where the spec stops**: at the async driver's assert, and at the discarded
+derived promise for start / pull and combinators. From there the elidex principles decide: the failure
+must surface on the owner's channel (C-3; fail-safe: an unknown falls to a visible failure), and the place
+it surfaces must be decided by structure, not by a list of handler kinds (Security by structure). Erroring
+the stream and rejecting `result` are those choices, not spec branches; only cancel's rejection is the
+spec's own.
 
 **Recommended design: the subscription names its owner, by type.** `Reaction::capability: Option<ObjectId>`
 becomes `target: ReactionTarget` (NEW):
@@ -538,9 +567,9 @@ once (`vm_error_to_thrown`) and settles the owner on its own channel, running no
 
 | Owner | Settles | Same as | After |
 |---|---|---|---|
-| `AsyncFunction { gen }` (the async driver) | rejects `gen`'s wrapper with the `RangeError` | `drive_async_coroutine`'s `Err` arm (`natives_generator.rs:520-523`), factored into one function both call | the generator stays suspended and is never resumed; a `finally` in the body does not run: P0 umbrella §6 item 5, whose R row and slot `#11-vm-async-resume-failure-skips-finally` now cover the step's CP-1 as well as its CP-2 |
-| `Stream(stream_id)` (start, pull) | `readable_stream::fail_step` (NEW: P0a-1, below): errors the stream with the `RangeError` (`error_stream`) and clears `pull_in_flight` | the `Err` arm after the pull call (`controller.rs:179-183`); Streams *SetUpReadableStreamDefaultController* step 12 / *CallPullIfNeeded* step 8 for a rejection | the stream is errored; readers reject (§3.2) |
-| `Promise(p)` (cancel; combinator result) | rejects `p` with the `RangeError` | the `Err` arm after the cancel call (`readable_stream/mod.rs:671-674`); `Promise.all` step 8.b's IfAbruptRejectPromise for the combinator | `cancel()`'s promise rejects; `Promise.all` / `allSettled` / `any` / `race` reject. Later element settlements are ignored by the existing already-resolved gate (`settle_promise`); a later step's own failure is reported (below) |
+| `AsyncFunction { gen }` (the async driver) | rejects `gen`'s wrapper with the `RangeError` | `drive_async_coroutine`'s `Err` arm (`natives_generator.rs:520-523`), factored into one function both call; the spec has no destination (Await step 7, NewPromiseReactionJob 1.f.i), and the wrapper is AsyncBlockStart step 1.h's channel: the principle's choice (§3.2) | the generator stays suspended and is never resumed; a `finally` in the body does not run: P0 umbrella §6 item 5, whose R row and slot `#11-vm-async-resume-failure-skips-finally` now cover the step's CP-1 as well as its CP-2 |
+| `Stream(stream_id)` (start, pull) | `readable_stream::fail_step` (NEW: P0a-1, below): errors the stream with the `RangeError` (`error_stream`) and clears `pull_in_flight` | the `Err` arm after the pull call (`controller.rs:179-183`); the channel is the one Streams *SetUpReadableStreamDefaultController* step 12 / *CallPullIfNeeded* step 8 use for a rejected start / pull promise, but the spec does not take it for a failed reaction step: the principle's choice (§3.2) | the stream is errored; readers reject (§3.2) |
+| `Promise(p)` (cancel; combinator result) | rejects `p` with the `RangeError` | the `Err` arm after the cancel call (`readable_stream/mod.rs:671-674`). Cancel: spec-exact (ReadableStreamCancel step 8, §3.2). Combinator: the result capability's existing reject channel; the spec would reject the omitted derived promise (NewPromiseReactionJob step 1.h.i), so rejecting `result` is the principle's choice (P0 umbrella §4 C-4 authority (2), fail-safe; §3.2) | `cancel()`'s promise rejects; `Promise.all` / `allSettled` / `any` / `race` reject. Later element settlements are ignored by the existing already-resolved gate (`settle_promise`); a later step's own failure is reported (below) |
 
 **The stream arm lives in the stream module (Axis 1 MIN-2, MIN-3).** `error_stream`
 (`controller.rs:294`) is `pub(super)` and `pull_in_flight` is host-private stream state. So the arm goes
@@ -568,8 +597,11 @@ calls (`interpreter_call.rs:191-227`).
 
 **An owner already final (Axis 2 IMP-1 on Rev 3b; PM 603).** Each owner's channel has a gate that makes
 the settle a no-op when the owner is already final: `settle_promise`'s AlreadyResolved check
-(`natives_promise.rs:129-139`), `reject_promise` on a non-Pending promise (`:204-206`), `error_stream` on a
-non-Readable stream (`controller.rs:295-297`), and `fail_step`'s missing-entry guard. A combinator element's
+(`natives_promise.rs:129-139`; ECMA-262 §27.5.1.3 CreateResolvingFunctions, the resolve function's step
+2.a and the reject function's step 4.a, "If promiseOrEmpty.[[Value]] is empty, return undefined" — the code
+comment's "[[AlreadyResolved]]" is the older spec's name for that record), `reject_promise` on a
+non-Pending promise (`:204-206`), `error_stream` on a non-Readable stream (`controller.rs:295-297`; Streams
+§4.9.4 *ReadableStreamDefaultControllerError* step 2), and `fail_step`'s missing-entry guard. A combinator element's
 step can fail after the result has settled, and a stream's start or pull step can fail after the stream
 closed, errored or was cancelled. The state is then correct, but the `RangeError` would be lost without a
 report. PM 590's rule is that a failure is never dropped silently, so this is a silent failure. So every
@@ -589,8 +621,8 @@ structural and unobserved.
 `658cc302`, and the module doc above it). That gap's home is VM P4 slice-plan row **9da**, under umbrella
 **9d** (`docs/plans/2026-07-vm-p4-slice-plan.md`; both rows cite slot `#11-vm-builtin-prototype-static-sweep`);
 row 9da measures the same `:121` comment. When assimilation lands, `settle_promise` performs
-`Get(resolution, "then")` (ECMA-262 CreateResolvingFunctions, the resolve function's step that reads
-`then`), which runs a getter, so a producer is reached beneath it. The 60 uses of `settle_promise` that are
+`Get(resolution, "then")` (ECMA-262 §27.5.1.3 CreateResolvingFunctions, the resolve function's step 2.f;
+an abrupt `Get` rejects the promise at step 2.g), which runs a getter, so a producer is reached beneath it. The 60 uses of `settle_promise` that are
 Ok-only at the base (P0a-2a §7.1) then become members of the census. The ratchet catches it: P0a-2a §5
 rule 1 recomputes the reach on every run, and a member without a row is red (rule 3), so the PR that adds
 assimilation must classify them.
@@ -616,6 +648,17 @@ failed.
 
 **Does it fork?** No. (a)–(d) each lose to one principle stated above; the recommendation follows from C-3
 and Security by structure without a second reading.
+
+### §5.6 Spec counterparts of the new functions and types (Axis 4 MIN-2 on Rev 3d)
+
+| New item | Spec algorithm it stands in for |
+|---|---|
+| `resource_limit::check_entry` (NEW: P0a-1, §4.2) | elidex-internal, no spec counterpart: no spec defines a resource limit (ECMA-262 §17's fourth paragraph permits no such extension and §9.4 bounds no stack; P0 umbrella §4 C-4 authority (1)) |
+| `ReactionTarget` (NEW: P0a-1) | `Capability` is the PromiseReaction Record's [[Capability]] (NewPromiseReactionJob step 1.a, rejected at 1.h.i); `Internal` has no spec counterpart: it stands where the spec has no capability (Await step 7, NewPromiseReactionJob 1.f) or a derived one elidex omits (§3.2) |
+| `ReactionOwner` (NEW: P0a-1) | elidex-internal, no spec counterpart: the owner a failed internal step goes to is the principle's choice per owner (§5.5 "The spec's position") |
+| `fail_reaction_owner` (NEW: P0a-1) | elidex-internal routing; each arm calls an existing channel: AsyncBlockStart step 1.h's rejection, `fail_step` (below), or the capability's reject (ReadableStreamCancel step 8 for cancel, spec-exact; the result capability for a combinator, the principle's choice); its `AlreadyFinal` arm is HTML §8.1.4.6 *report an exception* (§3) |
+| `readable_stream::fail_step` (NEW: P0a-1) | Streams §4.9.4 *ReadableStreamDefaultControllerError* (its `error_stream` call; the missing-entry guard answers like that algorithm's step 2 for a stream that is gone); the `pull_in_flight` clear is elidex-internal state with no spec step (CallPullIfNeeded step 8 leaves [[pulling]] set and errors the stream) |
+| `Settle { Applied, AlreadyFinal }` (NEW: P0a-1) | elidex-internal: it returns as a value the early return of the gates it reports — CreateResolvingFunctions' resolve step 2.a / reject step 4.a (`promiseOrEmpty` empty) and *ReadableStreamDefaultControllerError* step 2 (state not "readable") |
 
 ## §6. Cells (written first)
 
@@ -715,9 +758,15 @@ sec-error-handling-and-language-extensions`; `dfn html 'create a classic script'
 'inner invoke'` → §2.9 (steps read by `body dom concept-event-listener-inner-invoke`); `dfn dom 'filter'`
 → §6 `#concept-node-filter` (step 6 read by `body dom concept-node-filter`); `dfn html 'notify about
 rejected promises'` → §8.1.4.7 (step 4.1.2 read by `body html notify-about-rejected-promises`); `dfn html
-'restore the history object state'` → §7.4.6.2; `aoid ecma262 NewPromiseReactionJob` → §27.5.2.1 (the job's
-steps 5–6 read by `body`); `aoid ecma262 Await` → §27.10.5.3 (its closures return normally); `aoid ecma262
-PerformPromiseAll` → §27.5.4.1.2 and `body ecma262 sec-promise.all` (step 8.b); `dfn streams
-SetUpReadableStreamDefaultController` → §4.9.4 (step 12 read by `body streams
+'restore the history object state'` → §7.4.6.2; `aoid ecma262 NewPromiseReactionJob` → §27.5.2.1 (steps
+1.a, 1.e.i, 1.f, 1.f.i, 1.h.i read by `body`, 2026-11-10); `aoid ecma262 Await` → §27.10.5.3 (step 7 and its
+closures read by `body`); `aoid ecma262 PerformPromiseAll` → §27.5.4.1.2 (step 5.k read by `body`),
+`PerformPromiseAllSettled` → §27.5.4.2.1 (5.p), `PerformPromiseAny` → §27.5.4.3.1 (5.k),
+`PerformPromiseRace` → §27.5.4.5.1 (1.d); `body ecma262 sec-promise.prototype.then` → §27.5.5.4 (step 4);
+`body ecma262 sec-promise.all` → §27.5.4.1 (step 8.b); `aoid ecma262 CreateResolvingFunctions` → §27.5.1.3
+(steps 2.a, 2.f, 2.g, 4.a read by `body`); `dfn webidl react` → §3.2.24.1 (steps 6–8 and the Note read by
+`body webidl dfn-perform-steps-once-promise-is-settled`); `dfn streams ReadableStreamDefaultControllerError`
+→ §4.9.4 (step 2); `dfn html 'report an exception'` → §8.1.4.6; `dfn streams
+SetUpReadableStreamDefaultController` → §4.9.4 (steps 11–12 read by `body streams
 set-up-readable-stream-default-controller`); `dfn streams ReadableStreamDefaultControllerCallPullIfNeeded`
-→ §4.9.4 (step 8); `dfn streams ReadableStreamCancel` → §4.9.2 (step 8).
+→ §4.9.4 (steps 7–8); `dfn streams ReadableStreamCancel` → §4.9.2 (step 8).

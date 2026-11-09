@@ -6,24 +6,26 @@ Status: **plan (pre-implementation)**, per-PR slice of the [P0 umbrella](2026-11
 Owner: VM P4 (PM 509 item 2). Base: `ce603c74`; every code anchor below is at that commit. Requires
 [P0a-1](2026-11-vm-stack-safety-guard-p0a1.md), [P0a-2a](2026-11-vm-stack-safety-guard-p0a2a.md) (the check) and
 [P0a-2b](2026-11-vm-stack-safety-guard-p0a2b.md) (the allowlist and `# pending`); the slice starts from
-P0a-2b (P0 umbrella §1). Sibling P0b-VM-1 is independent (disjoint `# pending` rows; disjoint files except
-two UA-fire drop class members, §10 item 4). Edges and schedule: P0 umbrella §1.
+P0a-2b (P0 umbrella §1). Sibling P0b-VM-1; independence, the file overlap (two UA-fire drop class members
+in P0b-VM-1's files, fixed there, PM 615), edges and schedule: P0 umbrella §1.
 
-The contract C-1…C-5 is the P0 umbrella §4 (canonical); each fix below applies it at one site with
-`is_resource_limit()` (P0a-1 §4.1) as the only test. This slice is a base case (c) under the P0 umbrella.
+The contract C-1…C-5 is the P0 umbrella §4 (canonical); each fix of D-8, D-9 and D-12 applies it at one
+site with `is_resource_limit()` (P0a-1 §4.1) as the only test, and the drop-class fixes apply the C-3 class
+shape, which tests no predicate. This slice is a base case (c) under the P0 umbrella.
 
 ## §0. Charter
 
 P0b-VM-2 fixes the definitive consumers D-8, D-9 and D-12 of P0a-2b §7.3, and the UA-fire drop class
-(§1; PM 608 item 3, PM 609 item 2). D-9's fix also makes
+except its two members in P0b-VM-1's files (§1; PM 608 item 3, PM 609 item 2, PM 615). D-9's fix also makes
 `startMessages()`'s flush asynchronous, as the Service Workers spec has it (PM 509 item 6), through one
 delivery queue `PendingTask::SwMessage` (NEW); PM 513 (c) records that queue on
 `#11-sw-client-postmessage-inbound`, whose inbound work builds on it.
 
 **Why the drop class is here (PM 608).** The defect is specific to the resource limit (at the base no `Err`
 flows on these dispatch paths; P0's error is what would make one flow), so it belongs inside the P0
-program. Every member has the shape of `deliver.rs:341`, a file already in this slice, so one mechanism
-fixes all of them. It is a different problem from L3's dispatch path (D-5, the listener call's own error),
+program. Every member has the shape of `deliver.rs:341`, a file already in this slice, so one fix shape
+covers all of them; that shape is defined once, in the P0 umbrella §4 C-3 ("The UA-fire drop class"), and
+each slice implements it at the members in its own files (PM 615). It is a different problem from L3's dispatch path (D-5, the listener call's own error),
 and keeping the class in one lane keeps one decision surface.
 
 **Priority.** First: `indexeddb/dispatch.rs:194`. It turns the dispatch's error into `threw: true` and
@@ -34,7 +36,8 @@ D-9, D-12.
 **If the slice stops fitting one PR (PM 609 item 2).** When this slice touches more than 15 files, or is
 not expected to finish in one review round, the driver proposes to the PM a cut of P0b-VM-3 by class (the
 drop class on one side, D-8 / D-9 / D-12 on the other). The count is taken when the classification
-(P0a-2b §6) has fixed the class's members.
+(P0a-2b §6) has fixed the class's members. The two members in P0b-VM-1's files (PM 615) are not this
+slice's and do not count toward the 15 files.
 
 ## §1. Scope
 
@@ -46,9 +49,9 @@ drop class below; the census allowlist rows of §6; cells in
 
 **The UA-fire drop class.** A UA-fired event's dispatch whose `Result` is dropped (`let _ =`, an unused
 binding) or converted without a report. Its members are reached by P0's error only under PM 603's reach
-(P0a-2a §5 rule 1); at the base `dispatch_vm_event` returns only `Ok`, so nothing flows yet. The fix is one
-mechanism for the class: the dropped `Err` is reported (C-3), and the dispatch's own outcome is otherwise
-unchanged. Members (paths under `crates/script/elidex-js/src/`):
+(P0a-2a §5 rule 1); at the base `dispatch_vm_event` returns only `Ok`, so nothing flows yet. The fix is
+the class shape of the P0 umbrella §4 C-3, implemented at each member below. Members of this slice (paths
+under `crates/script/elidex-js/src/`):
 
 - **The seven named drops (PM 603; lines at `ce603c74`):** `vm/host/service_worker/deliver.rs:341`
   (`fire_simple`); `vm/host/event_source_dispatch.rs` 82 (`dispatch_sse_connected`) / 187
@@ -56,11 +59,12 @@ unchanged. Members (paths under `crates/script/elidex-js/src/`):
   (`fire_vm_close_event`) / 177 (`fire_vm_message_event`) / 212 (`dispatch_ws_error`).
 - **The sample's members (P0a-1 Rev 3c re-review, Axis 3; lines at `01d2f535`):**
   `vm/host/indexeddb/dispatch.rs:194` (`dispatch_vm_event`'s `Err(_)` becomes `threw: true`, nothing is
-  reported: first, above); `vm/host/history_events.rs:187`; `vm/host/worker.rs:278`;
-  `vm/host/worker_scope.rs:333`; `vm/sw_thread.rs:376`; `vm/host/media_query.rs:539` (inside a drain);
+  reported: first, above); `vm/host/worker.rs:278`; `vm/sw_thread.rs:376`; `vm/host/media_query.rs:539` (inside a drain);
   `vm/host/visual_viewport.rs:350`; `vm/host/dom_selection_proto.rs:740`; `vm/host/html_slot_proto.rs:427`;
   `vm/host/file_reader.rs:660`; `vm/host/pending_tasks.rs:461`. `vm/sw_thread.rs:339` is probably an N
-  `thread-entry` row, not a member; the classification pass confirms it.
+  `thread-entry` row, not a member; the classification pass confirms it. The sample's two other members,
+  `vm/host/history_events.rs:187` and `vm/host/worker_scope.rs:333`, are P0b-VM-1's (PM 615; P0b-VM-1
+  §5.3) and are listed there only.
 - **Every further member the classification pass finds** (P0a-2b §6), added to this list before this
   memo's review.
 
@@ -84,7 +88,7 @@ and injection points, consumed here), **PEND** (this slice's rows of `# pending`
 | ID × IDB, ID × WC | every fix tests only `is_resource_limit()`, and every cell uses only P0a-1's injection points | P0a-1 M-ID kills the IDB and WebCrypto cells | cell |
 | ID × SW | the SW change is a scheduling change (no predicate); its cells do not depend on the injection | M-SW, M-SW2 | cell |
 | PEND × ID | this PR deletes exactly its 4 pending rows (D-12 is 2 rows) and adds no pending row (P0a-2a §5 rule 4 ceiling) | P0a-2a control `census_pending_row_outside_ceiling` | check |
-| DROP × report | every member of the UA-fire drop class reports a dispatch `Err` (C-3) and keeps its outcome otherwise; `indexeddb/dispatch.rs:194` also stops presenting the error as a listener throw without a report | `rl_ua_fire_drop_reports` (per member file); M-DROP | cell |
+| DROP × report | every member of this slice applies the P0 umbrella §4 C-3 class shape (for `indexeddb/dispatch.rs:194`, the mapping-site clause: report first, keep `threw: true`) | `rl_ua_fire_drop_reports` (per member file); M-DROP | cell |
 | DROP × census | the class's rows change from `drain-consumed` to R `channel` (the report); a member added later by the census is red until it gets the same fix | P0a-2a control `census_reach_dispatch_drops` | check |
 
 ## §3. Spec coverage map
@@ -196,12 +200,10 @@ The ledger rows this slice triggers are rows of the P0 program's landing list, P
 2. That the SW task drain and `deliver_message`'s caller (`deliver.rs:50`) are not reachable from a native
    (P0a-2a §5 rule 5 decides; if reachable, the N row is wrong and this is a design change back to review).
 3. Every exhaustive `match` on `PendingTask` besides `gc/roots.rs:557` and `pending_tasks.rs:287`.
-4. **Open with the PM: file overlap with P0b-VM-1.** Two members of the drop class are in P0b-VM-1's files:
-   `history_events.rs:187` (an L4 file, P0b-VM-1 §0) and `worker_scope.rs:333` (D-10 / D-11's file). The
-   P0 umbrella §1 statement that the P0b slices touch disjoint files does not hold for them. No edge is
-   invented here; the PM decides between an order of the two slices for these files and moving the two
-   members' fixes to P0b-VM-1. `history_events.rs` is also an L4 file, so its edit needs the L4 notice
-   (P0 umbrella §7 L-11's form).
+4. **Closed, PM 615: file overlap with P0b-VM-1.** The two members in P0b-VM-1's files
+   (`history_events.rs:187`, `worker_scope.rs:333`) are fixed by P0b-VM-1 (P0b-VM-1 §5.3), with the shape
+   of the P0 umbrella §4 C-3; no landing-order edge (P0 umbrella §1). The L4 notice for
+   `history_events.rs` is P0b-VM-1's (P0 umbrella §7 L-11).
 5. Whether `InjectAt::SimpleEventDispatch(n)` reaches every member's dispatch entry
    (`dispatch_script_event`, `fire_vm_event`, `dispatch_vm_event`, `dispatch_event_at_sw_scope`,
    `fire_vm_progress_event`); a member it does not reach needs a P0a-1 injection point, which is a design
