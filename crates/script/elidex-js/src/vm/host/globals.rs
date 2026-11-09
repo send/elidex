@@ -42,14 +42,6 @@ impl Vm {
             .expect("install_document_global requires bound HostData")
             .document();
         let wrapper = self.inner.create_element_wrapper(entity);
-        // A Document wrapper created while unbound would keep
-        // `Node.prototype` for the VM's life (no per-bind fix-up exists any
-        // more); no production path wraps the document before bind (memo R-4).
-        debug_assert!(
-            self.inner.get_object(wrapper).prototype
-                == self.inner.document_prototype.or(self.inner.node_prototype),
-            "document wrapper was created before bind with the wrong prototype"
-        );
         // Use the pre-interned StringId from `WellKnownStrings`
         // instead of `set_global("document", …)` (which interns the
         // literal each call) — `Vm::bind` runs this on every JS

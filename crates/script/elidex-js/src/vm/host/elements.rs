@@ -49,17 +49,21 @@ impl VmInner {
     /// # Panics
     ///
     /// Panics if `HostData` has not been *installed* via
-    /// `Vm::install_host_data` (the cache lives on `HostData` so
-    /// nowhere to cache the result), or if `event_target_prototype`
-    /// has not been initialised (`register_globals` not yet run —
-    /// should be impossible after `Vm::new` returns).
+    /// `Vm::install_host_data` (the cache lives on `HostData`), or if
+    /// `event_target_prototype` has not been initialised
+    /// (`register_globals` not yet run — impossible after `Vm::new`).
     ///
-    /// Bind state is **irrelevant** here: the wrapper cache is a
-    /// HashMap on `HostData`, not a session/dom dereference, so this
-    /// function works after `Vm::unbind()` too — useful for code
-    /// paths that build wrappers as part of pre-eval setup.  Calling
-    /// methods on the returned wrapper that touch `dom()` does still
-    /// require a bound HostData; see the per-native checks in
+    /// **Invariant: allocation happens only while bound.**  A *cache miss*
+    /// while unbound panics (hard `assert!`, also in release).  The
+    /// prototype is chosen from `NodeKind` exactly once, at first
+    /// allocation; unbound, `NodeKind` is unreadable, so any answer would
+    /// be a silent, permanent wrong prototype cached for the VM's life.  A
+    /// loud failure is fail-safe; "do not cache while unbound" is rejected
+    /// because a later bound wrap would return a different object and
+    /// break SameObject (C1-pre D-3 / R-4).  A cache *hit* while unbound
+    /// is allowed: wrappers retained across `Vm::unbind()` keep working.
+    /// Calling methods on the returned wrapper that touch `dom()` still
+    /// requires a bound HostData; see the per-native checks in
     /// `vm/host/event_target.rs`.
     ///
     /// # GC safety
@@ -95,25 +99,28 @@ impl VmInner {
         // - Document            → `Document.prototype`
         //                         (→ Node.prototype), the one place a
         //                         Document wrapper's shape is decided.
-        // - DocumentFragment / DocumentType / unbound
-        //                       → `Node.prototype` directly.
+        // - other node kinds    → `Node.prototype` directly.
         //
-        // Pre-bind / unbound wrapper allocation falls through to the
-        // OtherNode branch (Node.prototype); method calls on that
-        // wrapper route through `entity_from_this`, which
-        // short-circuits to a no-op while unbound.
+        // Allocation is bound-only (asserted below); there is no
+        // unbound fallback.
         //
         // `Window` is NOT wrapped via this path — it gets an
         // independent `HostObject` allocated in `register_globals`
         // whose prototype chain skips `Node.prototype` so Node
         // members do not appear on `window` (WHATWG: Window is an
         // EventTarget but not a Node).
+        assert!(
+            self.host_data
+                .as_deref()
+                .is_some_and(super::super::host_data::HostData::is_bound),
+            "create_element_wrapper allocates only while bound; the prototype is chosen from \
+             NodeKind once, at first allocation (C1-pre D-3)"
+        );
         let kind = self
             .host_data
             .as_deref()
-            .map_or(super::super::host_data::PrototypeKind::OtherNode, |hd| {
-                hd.prototype_kind_for(entity)
-            });
+            .expect("create_element_wrapper requires installed HostData")
+            .prototype_kind_for(entity);
         let proto = match kind {
             super::super::host_data::PrototypeKind::Element => {
                 // Tag-specific secondary lookup.  Each known tag
