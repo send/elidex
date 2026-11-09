@@ -49,6 +49,14 @@ two roots: **P0a-1** decides "did it start" with a per-entry entered mark owned 
 fixes every site of D-14's shape (D-14, D-15); **P0a-2** checks every admission reason mechanically, so a row
 the checker cannot verify is a D row (P0a-2 §5 rule 12).
 
+R5 (the P0a-1 plan-review at `34a6ae8f`, Axis 2) found two effects outside P0a-1's hand-enumerated list of
+"first effect" sites — the async start (no frame is pushed) and the wasm adapter's argument coercion (user
+`valueOf` before the adapter's own check) — each leaving an entry unentered, i.e. `NotStarted`, i.e. revert
+and re-run. The same class as R4's IMP-1. PM 557: the mark is set **by structure**, right after the entry's
+own check, inside the one wrapper every entry is written with; `NotStarted` means exactly "this entry's own
+check failed", everything after the check is `Threw` (P0a-1 §4.2; the C-4 reading is narrowed to match,
+§0.4).
+
 ### §0.2 What P0 owns, and what it does not
 
 P0 owns: the contract C-1…C-5 (§4); the error identity types, the entered mark and the escape rule; the
@@ -81,7 +89,8 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
 - **Step 3.7's not-parsable arm (PM 509 item 3)** is in P0b-L3's scope (§6 item 4).
 - **Slots (PM 509 item 4).** §6 records each home; the ledger writes are rows of §7.
 - **C-4 reading ratified (PM 509 item 5).** Spec-retried (re-entry) subjects are reverted; the rest take
-  the spec's exception branch with the `RangeError` (§4 C-4, D-P0-4).
+  the spec's exception branch with the `RangeError` (§4 C-4, D-P0-4). Narrowed by PM 557 (below): reverted
+  only when the entry's own check failed.
 - **D-9 → P0b-VM-2 (PM 509 item 6, PM 513 (a))**, including making `startMessages()`'s flush asynchronous.
 - **D-P0-2 ratified (PM 509 item 7).** A custom-element constructor that started and then ran out of
   stack takes the threw branch, because its side effects have already happened.
@@ -122,7 +131,7 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   `set_history_state` out of the drains, R4 Axis 1 MIN-3). (4) The session-crate / `elidex-dom-api` site
   list goes to L3 via the PM (§7 L-14). (5) Slot `#11-event-dispatch-inner-invoke-dual-implementation`
   registered (owner VM P4, re-eval 2026-12-15; out of P0a's scope): the *inner invoke* loop is implemented
-  more than once; P0a-1 §4.5 cites it and counts three loops (PM item: the slot text says two).
+  more than once; P0a-1 §4.5 cites it and counts three loops (the slot text was corrected to three, PM 550).
 - **PM 544 (R4 at `d7ec4761`: Axis 1 CRIT 0 / IMP 0 / MIN 3; Axis 2 CRIT 0 / IMP 3 (one uncertain) / MIN 3;
   the R3 terminator fired on Axis 2).** IMP-2: `natives_promise.rs:565` / `:591` is D-14's shape, admitted by
   hand as "S: nothing written / top-only", both false (D-15). IMP-1: `NotStarted` did not guarantee "nothing
@@ -140,6 +149,28 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
 - **CE bundle order (PM, 11-08).** Where P0b-L3 overlaps `custom_elements/upgrade.rs`, P0b-L3 stays limited to
   the P0 contract; L3's CE bundle (TypeError, read-once, `#11-ce-upgrade-reaction-enqueue-order`) rebases
   onto it afterwards.
+- **PM 557 (R5: the P0a-1 plan-review at `34a6ae8f`; Axis 1 CRIT 0 / IMP 0 / MIN 3; Axis 2 CRIT 0 / IMP 2 /
+  MIN 2, terminator on IMP-1).** IMP-1: the async start consumes a once listener whose step never ran
+  (`interpreter.rs:630-660` pushes no frame; `natives_generator.rs:520-522` rejects the wrapper and the
+  call returns `Ok`). IMP-2: the wasm adapter runs user `valueOf` in its argument coercion before its own
+  check (`exported_func.rs:284-289`), so a later failure was `NotStarted` → revert → the listener runs
+  twice. Root: the mark was set at a hand-enumerated list of first-effect sites; an effect not in the list
+  fell to `NotStarted`, the unsafe side. **Ruling, option (A)**: (1) the mark is set by structure, right
+  after the entry's own check, inside the one entry wrapper (P0a-1 §4.2 `resource_limit::enter`);
+  `NotStarted` means exactly "this entry's own check failed"; every other failure after the check is
+  `Threw`, including a nested entry's check failing before any effect of the outer entry. (2) Lens: the
+  spec is silent on resource limits → elidex's principles decide: fail-safe direction (an unknown effect
+  falls to a visible `Threw`, not to a silent double execution) and Security by structure (the mark's
+  position is decided by structure, not by a list's completeness). (B) enumerate more sites and (C) a
+  local fix at the async start are rejected: each adds "the next site", the shape R3 / R4 / R5 took.
+  (3) PM 509 item 5's C-4 reading is narrowed: "spec-retried subjects are reverted" applies only when
+  the entry's own check failed (§4 C-4). (4) An entry may opt in to a finer `NotStarted` only with a
+  rule-12 reason code P0a-2's checker verifies (P0a-1 §4.2; none added). (5) Everything that rested on the
+  old mark is re-derived in P0a-1 Rev 2 (the once revert, D-P0-2, M-D14b, §4.2's table, §4.6, I-5, the
+  async start and resume paths, the wasm coercion). The async start under (A): the call's check passed, the
+  nested CP-2 failure rejects the wrapper, the call returns the rejected wrapper (ECMA-262
+  EvaluateAsyncFunctionBody step 5; AsyncBlockStart step 1.h), the once listener is consumed and the
+  `RangeError` reaches *notify about rejected promises* — §6 item 5's R row covers the start path too.
 
 ### §0.5 Decisions
 
@@ -147,10 +178,11 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
   (P0a-1 §4.1). A message compare or a `RangeError` kind cannot be told apart from a script's own
   `RangeError` (`new Array(-1)`).
 - **D-P0-2 "Did not start" semantics with an escape rule (ratified, PM 509 item 7; restated on the entered
-  mark, PM 544).** The kind means the guarded step never began. The entry that received the step records
-  whether anything of it began (a frame pushed or a native body entered: the entered mark, P0a-1 §4.2);
-  once it has, a resource-limit error leaving that entry is that step's exception (`ThrowValue`), whether the
-  step was a script frame or a native body. No hidden marker on the error object: a marker would make a
+  mark, PM 544; the mark set by structure, PM 557).** The kind means the guarded step never began, and
+  "began" is decided by structure: the step began when the entry that received it passed its own check
+  (the entered mark, P0a-1 §4.2). From then on a resource-limit error leaving that entry is that step's
+  exception (`ThrowValue`), whatever ran or did not run inside it — a script frame, a native body, a nested
+  entry's failed check. No hidden marker on the error object: a marker would make a
   constructor that ran halfway "retryable", and re-running a half-run constructor is worse than the spec's
   threw branch.
 - **D-P0-3 One choke-point check, placed by P0a-1, filled by PR-1 / PR-1b** (P0a-1 §4.3).
@@ -215,7 +247,7 @@ enumerates the pairs of its own elements in its §2.
 | C-1 × C-2 | C-2's predicate is `is_resource_limit()`; a consumer cannot apply C-2 to an error it cannot recognise, so C-1 must hold at every boundary the error crosses (`Vm::eval`, `native_import_scripts`, the CP-3 conversions, and the engine-facing traits as `ScriptFailure::NotStarted`, P0a-1 §4.5) | P0a-1 `rl_vm_eval_compile_resource_limit_kind`, `rl_cp3b_instantiate_entry_failure`, `rl_eval_result_outcome_kind`; P0b-VM-1 `rl_import_scripts_compile_resource_limit_is_range_error` | cell |
 | C-1 × C-4 (across a crate boundary) | the crate that holds a re-entry subject may not be the crate that sees the error: it applies C-4 from the boundary's `ScriptFailure`, and the engine surfaces the error (C-3), because only the engine holds the value | P0a-1 `rl_ua_dispatch_once_listener_survives_entry_failure` (D-14), `rl_unhandledrejection_once_listener_survives_entry_failure` (D-15) | cell |
 | C-1 × C-3 | Surfacing materialises the error (a thrown or rejected `RangeError`); after materialisation it is no longer C-1's kind, so C-3 is the last place C-1 applies | P0a-1 escape rule §4.2; `rl_escape_rule_materializes_in_started_frame` | cell |
-| C-1 × C-4 | "Not started" is what makes a revert correct: nothing of the trigger ran, so leaving the subject as before is exact; the entry that received the step records it (the entered mark, P0a-1 §4.2), so a step that began in a native body is `Threw` like one that began in a script frame. A half-run step arrives as a thrown value and takes the spec branch | P0a-1 `rl_escape_rule_materializes_in_started_frame`, `rl_entered_bound_native_listener_is_threw`; P0b-L3 `rl_ce_upgrade_after_constructor_started_takes_threw_branch` | cell |
+| C-1 × C-4 | "Not started" is what makes a revert correct: nothing of the trigger ran, so leaving the subject as before is exact; "not started" is decided by structure — the entry's own check failed (the entered mark, P0a-1 §4.2) — so a step that began in a native body, at an async start or in an argument coercion is `Threw` like one that began in a script frame. A half-run step arrives as a thrown value and takes the spec branch | P0a-1 `rl_escape_rule_materializes_in_started_frame`, `rl_entered_bound_native_listener_is_threw`, `rl_wasm_once_listener_second_coercion_failure_is_threw`; P0b-L3 `rl_ce_upgrade_after_constructor_started_takes_threw_branch` | cell |
 | C-1 × C-5 | The census population is "can receive C-1's kind"; its producers are derived from the code (fns that call the check) plus a planned list that only shrinks (P0a-2 §6) | P0a-2 census controls | check |
 | C-2 × C-3 | C-2 forbids, C-3 prescribes; together every consumer has exactly one admissible shape per subject class (§5.2 classes P/T/R; D is the forbidden one), and each admissible shape is a checked reason (P0a-2 §5 rule 12) | §5.2 class table; P0a-2 rule 12 | structural |
 | C-2 × C-4 | A spec exception branch that writes a durable fact is C-2(c) at a re-entry subject and C-3 elsewhere; C-4 is the rule that tells them apart | D-3/D-4 (P0b-L3) vs the stream rows (P0a-2 §7.3, class R) | structural |
@@ -263,15 +295,15 @@ slice's §3 (§7 L-13 records them).
 
 **C-1 Identity.** The guard's error is `VmErrorKind::ResourceLimit` (NEW: P0a-1). It is produced only by
 the choke-point check (P0a-1 §4.3) and, after PR-1, by the walker and front-end probes and the regexp front
-door (PR-1 §5–§6). It means: the step the probe guards did not start — a fact the entry that received the
-step records (the entered mark, P0a-1 §4.2), not one inferred from the error's path. At the compile
+door (PR-1 §5–§6). It means: the step the probe guards did not start — exactly, the entry that received
+the step failed its own check (the entered mark, set by structure right after that check, P0a-1 §4.2),
+not a fact inferred from the error's path or recorded at a site. At the compile
 boundary it is `CompileErrorKind::ResourceLimit` (NEW: P0a-1). Every boundary that converts the error keeps
 the kind (`Vm::eval`, `native_import_scripts`, the CP-3 conversions of P0a-1 §4.3). At an engine-facing
 boundary into an engine-independent crate (the `ScriptEngine` methods, `FilterAction::accept`) the kind is
 `ScriptFailure::NotStarted` (NEW: P0a-1; P0a-1 §4.5): no such boundary returns `()`, `Option` or a value
-in which the failure is collapsed. Once an entry has entered — a script frame pushed or a native body
-begun — a resource-limit error leaving that entry is that entry's exception (escape rule, P0a-1 §4.2) and
-leaves the contract.
+in which the failure is collapsed. Once an entry's own check has passed, a resource-limit error leaving
+that entry is that entry's exception (escape rule, P0a-1 §4.2) and leaves the contract.
 
 **C-2 No conversion.** No consumer turns a C-1 error into
 (a) a success value: no `.ok()`, `unwrap_or(..)`, `_ => None` / default, no fallback that answers in its
@@ -298,7 +330,12 @@ because in the spec's model the step ran (no spec step yields a resource limit, 
 and 3). At a subject without a re-entry (a promise, a stream, an IndexedDB request or transaction, a
 worker's or service worker's top-level evaluation) the spec branch is the error channel and is taken with
 the `RangeError`. The crate that holds the subject applies C-4, from the boundary's kind when the error
-arose in the engine (C-1 × C-4, §2); the engine surfaces the error.
+arose in the engine (C-1 × C-4, §2); the engine surfaces the error. **Narrowed (PM 557):** a re-entry
+subject is reverted only when the entry that received the step failed its own check (`NotStarted`,
+P0a-1 §4.2). A step whose check passed takes the spec's exception branch with the `RangeError` — or, for
+an async function, completes with its rejected promise — whatever ran or did not run inside it; the
+subject is consumed as the spec consumes it. This is the one statement of the narrowed reading; §0.4 and
+the slice memos point here.
 
 **C-5 Census.** Every consumer a resource-limit error can reach, and every place where its kind can be
 lost, is in the census; the population is derived from the code by that property (§5.1); an unknown
@@ -320,7 +357,7 @@ handlers and custom elements. (4) Fail-safe direction: an unknown consumer is re
 spec's own re-entry. It does not cover caps (D-P0-6).
 
 **Applying it.** Each fix applies C-2 / C-3 / C-4 at one site, with `is_resource_limit()` as the only
-test; its exactness is the entered mark's (P0a-1 §4.2).
+test; its exactness is the entered mark's (P0a-1 §4.2: `NotStarted` ⇔ the entry's own check failed).
 
 ## §5. The census definition
 
@@ -398,7 +435,13 @@ the `# pending` composition are P0a-2 §7 (the allowlist is P0a-2's deliverable)
    (`natives_generator.rs:520-525`), the generator stays suspended, a `finally` in the body does not run.
    The row is R (the wrapper is the trigger's channel); P0a-1 pins the outcome
    (`rl_async_step_entry_failure_rejects_wrapper`). Home (PM 502): `#11-vm-async-resume-failure-skips-finally`.
-   This item is the program's one statement of the case (PR-1 §2 points here).
+   This item is the program's one statement of the case (PR-1 §2 points here). **The async start (PM 557)**
+   meets CP-2 at the same site through `make_async_coroutine_and_drive`: the wrapper is rejected and handed
+   out, the once listener that called it is consumed (its own check passed: `Threw` by the structural rule,
+   P0a-1 §4.2 (iv)). That is the spec's own shape (EvaluateAsyncFunctionBody step 5, AsyncBlockStart step
+   1.h), not a deviation — no `finally` can have been entered at the start — so the item's deviation and
+   slot are unchanged; the same R row covers both paths, and P0a-1 pins the start
+   (`rl_async_start_entry_failure_rejects_wrapper_once_consumed`).
 6. **Synchronous `startMessages()` flush** (Service Workers §3.4: an enabled client message queue is a task
    source). Removed by P0b-VM-2 as D-9's fix (PM 509 item 6); the one queue is recorded on
    `#11-sw-client-postmessage-inbound` (PM 513 (c), §7 L-10).
@@ -418,21 +461,21 @@ slices' landing sections point here) and is copied mechanically by the PMO from 
 merge commit** of the PR named in each row: one row = target, exact sentence, source. The P0 PRs edit no
 ledger. Rows marked *PR* are done by that PR itself; rows marked *PM* are notices.
 
-This table "at `b7f03821`" is registered in the landing list `vm-p0-program.md` (PM 517). The PM 533 revision changed L-3 and L-7 and added L-14; the PM 544 revision moved every P0a source to P0a-1 / P0a-2 and changed L-3's sentence. The `<path>:<lines>` source cells are exact at this revision's commit; the registration is refreshed after R4 converges, from the head's table with `<path>:<lines> @ <sha>` cells (PM 540 (1)).
+This table "at `b7f03821`" is registered in the landing list `vm-p0-program.md` (PM 517). The PM 533 revision changed L-3 and L-7 and added L-14; the PM 544 revision moved every P0a source to P0a-1 / P0a-2 and changed L-3's sentence; the PM 557 revision (P0a-1 Rev 2) changed no row's sentence and re-derived every `<path>:<lines>` cell. The `<path>:<lines>` source cells are exact at this revision's commit; the registration is refreshed after R4 converges, from the head's table with `<path>:<lines> @ <sha>` cells (PM 540 (1)).
 
 | Row | When | Executor | Target (kind) | Exact sentence to append | Source |
 |---|---|---|---|---|---|
-| L-1 | PR-1's PR | PR | PR-1's PR body | "P0a-1, P0a-2, P0b-VM-1, P0b-VM-2 and P0b-L3 landed (`git merge-base --is-ancestor <sha> HEAD` → 0 for each); the census `# pending` section is empty." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:190-191` |
-| L-2 | P0a-1's merge | PM | L3 lane notice | "P0b-L3's input is `H/p0b-l3-handoff.md`; the P0 contract is P0 umbrella §4 on P0a-1's merge commit." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:174` |
-| L-3 | P0a-1's merge | PMO | `#11-embedder-diagnostic-channel` (pointer row → `memory/m4-12-pr-d22-observer-pair-landing.md:71`; append there) | "Facet (stack-safety P0, P0a-2 §7.3 S rows): listener / callback errors are dropped without a report at `custom_elements/flush.rs:70` and `coerce.rs:246` (paths under `crates/script/elidex-js/src/`, lines at `ce603c74`); `engine.rs:275` (`call_listener`) and `natives_promise.rs:591` (`dispatch_unhandled_rejection_event`) report from P0a-1 on (P0a-1 §4.5, §5.4)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2.md:326-328` |
-| L-4 | P0a-2's merge | PMO | `#11-vm-iteratorclose-precedence-convention` (live entry) | "Further sites of the same inversion (stack-safety P0a-2 §7.3 E rows, lines at `ce603c74`, under `crates/script/elidex-js/src/`): `vm/dispatch_iter.rs` 52 / 309; `vm/ops.rs:60`; `vm/host/typed_array_static.rs` 743 / 801; `vm/natives_array_hof.rs:485`; `vm/webidl_sequence.rs` 141 / 149; `vm/host/url_search_params.rs:318`; `vm/host/structured_clone.rs:1064`. No new slot." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2.md:329-333` |
-| L-5 | P0a-1's merge | PMO | `#11-worker-toplevel-error-closes-worker` (live entry) | "Found by the stack-safety P0 census (P0 umbrella §6 item 3): `worker_thread.rs:200-204` closes the worker where HTML §10.2.4 reports and keeps running." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:391-393` |
-| L-6 | P0a-1's merge | PMO | `#11-vm-async-resume-failure-skips-finally` (live entry) | "Outcome pinned by stack-safety P0a-1 cell `rl_async_step_entry_failure_rejects_wrapper` (the wrapper rejects with `RangeError`; the body's `finally` does not run)." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:397-401` |
-| L-7 | P0a-2's merge | PMO | `#11-vm-native-callback-reentry-single-loop` (live entry) | "Stated limits of the stack-safety P0 Err-consumer census (P0a-2 §9), re-evaluated with PR-1's cut-check limits when this slot is designed: calls through function pointers, trait objects and closures passed across functions inside one crate (across crates they are the census's boundary population, PM 533); receiver types (the resolver keys on `self`-ness, module and file); writes inside a callee before the carrier call; macros; a straight-line `?` that returns before a fan-out; durable writes to a side table. Re-eval-date: 2026-12-31." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2.md:450-463` |
+| L-1 | PR-1's PR | PR | PR-1's PR body | "P0a-1, P0a-2, P0b-VM-1, P0b-VM-2 and P0b-L3 landed (`git merge-base --is-ancestor <sha> HEAD` → 0 for each); the census `# pending` section is empty." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:222-223` |
+| L-2 | P0a-1's merge | PM | L3 lane notice | "P0b-L3's input is `H/p0b-l3-handoff.md`; the P0 contract is P0 umbrella §4 on P0a-1's merge commit." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:206` |
+| L-3 | P0a-1's merge | PMO | `#11-embedder-diagnostic-channel` (pointer row → `memory/m4-12-pr-d22-observer-pair-landing.md:71`; append there) | "Facet (stack-safety P0, P0a-2 §7.3 S rows): listener / callback errors are dropped without a report at `custom_elements/flush.rs:70` and `coerce.rs:246` (paths under `crates/script/elidex-js/src/`, lines at `ce603c74`); `engine.rs:275` (`call_listener`) and `natives_promise.rs:591` (`dispatch_unhandled_rejection_event`) report from P0a-1 on (P0a-1 §4.5, §5.4)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2.md:327-329` |
+| L-4 | P0a-2's merge | PMO | `#11-vm-iteratorclose-precedence-convention` (live entry) | "Further sites of the same inversion (stack-safety P0a-2 §7.3 E rows, lines at `ce603c74`, under `crates/script/elidex-js/src/`): `vm/dispatch_iter.rs` 52 / 309; `vm/ops.rs:60`; `vm/host/typed_array_static.rs` 743 / 801; `vm/natives_array_hof.rs:485`; `vm/webidl_sequence.rs` 141 / 149; `vm/host/url_search_params.rs:318`; `vm/host/structured_clone.rs:1064`. No new slot." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2.md:330-334` |
+| L-5 | P0a-1's merge | PMO | `#11-worker-toplevel-error-closes-worker` (live entry) | "Found by the stack-safety P0 census (P0 umbrella §6 item 3): `worker_thread.rs:200-204` closes the worker where HTML §10.2.4 reports and keeps running." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:428-430` |
+| L-6 | P0a-1's merge | PMO | `#11-vm-async-resume-failure-skips-finally` (live entry) | "Outcome pinned by stack-safety P0a-1 cell `rl_async_step_entry_failure_rejects_wrapper` (the wrapper rejects with `RangeError`; the body's `finally` does not run)." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:434-444` |
+| L-7 | P0a-2's merge | PMO | `#11-vm-native-callback-reentry-single-loop` (live entry) | "Stated limits of the stack-safety P0 Err-consumer census (P0a-2 §9), re-evaluated with PR-1's cut-check limits when this slot is designed: calls through function pointers, trait objects and closures passed across functions inside one crate (across crates they are the census's boundary population, PM 533); receiver types (the resolver keys on `self`-ness, module and file); writes inside a callee before the carrier call; macros; a straight-line `?` that returns before a fan-out; durable writes to a side table. Re-eval-date: 2026-12-31." | `docs/plans/2026-11-vm-stack-safety-guard-p0a2.md:451-464` |
 | L-8 | P0b-VM-1's PR | PR | `#11-history-state-structured-serialize-fidelity` (pointer row → repo memo; append to `docs/plans/2026-07-s5-5c-history-state-traversal.md:868`, the D1 bullet) | "Resource-limit errors propagate from the interim serializer and from the push/replace deserialise (stack-safety P0b-VM-1 §5.1); the degrade for other failures remains this slot's." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm1.md:96-104` |
 | L-9 | P0b-VM-2's merge | PMO | `#11-idb-structured-clone-storage` (live entry) | "`json_to_js` is fallible: a resource-limit error fails the request; other parse failures keep `undefined` (stack-safety P0b-VM-2 §5.1)." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm2.md:80-86` |
 | L-10 | P0b-VM-2's merge | PMO | `#11-sw-client-postmessage-inbound` (live entry; the PM 513 (c) queue note is already on it) | "`fire_message`'s `unwrap_or(Undefined)` for a non-resource deserialise failure is a pre-existing substitution (spec: `messageerror`), left to this slot (stack-safety P0b-VM-2 §5.2)." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm2.md:90-96` |
 | L-11 | P0b-VM-1's merge | PM | L4 notice | "VM P4 edited the L4 sites listed in stack-safety P0b-VM-1 §0 (`structured_serialize.rs`, `history.rs`, `history_events.rs`) in P0b-VM-1's PR." | `docs/plans/2026-11-vm-stack-safety-guard-p0b-vm1.md:27-33` |
-| L-12 | P0a-1's merge | PM | L3 notice (site list via PM, PM 502) | "P0a-1 edited L3's AbortSignal files after rebasing on `#11-abort-signal-any-dependent-flattening`: the `#[cfg(test)]` seam `fail_next_abort_dispatch` is removed and its cell uses `InjectAt::SimpleEventDispatch` (NEW: P0a-1) (P0a-1 §4.4); the allowlist row of the abort loop is P0a-2's (P0a-2 §7.3)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:250-261` |
-| L-13 | each P0 PR | PR | that PR's body | "`python3 .claude/skills/elidex-plan-review/preflight.py` on this umbrella and on the slice memo at the PR's head: rc and K / M as printed." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:251-252` |
-| L-14 | P0a-1's merge | PM | notice to the owners of `elidex-script-session` and `elidex-dom-api` (site list via PM) | "P0a-1 changed the engine boundary (stack-safety P0a-1 §4.5, PM 533): `ScriptFailure` (NEW, `elidex-script-session/src/outcome.rs`); `ScriptEngine::call_listener` returns `Result<(), ScriptFailure>`; `EvalResult` carries `outcome` in place of `success`; `EventListeners::remove_with_position` / `reinsert` (NEW) and the `once` revert in `script_dispatch_event_core`; `FilterError::Throw` became `FilterError::Script(ScriptFailure)` and the traversal protos' failure → null arms are gone." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:32-49` |
+| L-12 | P0a-1's merge | PM | L3 notice (site list via PM, PM 502) | "P0a-1 edited L3's AbortSignal files after rebasing on `#11-abort-signal-any-dependent-flattening`: the `#[cfg(test)]` seam `fail_next_abort_dispatch` is removed and its cell uses `InjectAt::SimpleEventDispatch` (NEW: P0a-1) (P0a-1 §4.4); the allowlist row of the abort loop is P0a-2's (P0a-2 §7.3)." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:333-344` |
+| L-13 | each P0 PR | PR | that PR's body | "`python3 .claude/skills/elidex-plan-review/preflight.py` on this umbrella and on the slice memo at the PR's head: rc and K / M as printed." | `docs/plans/2026-11-vm-stack-safety-guard-p0.md:283-284` |
+| L-14 | P0a-1's merge | PM | notice to the owners of `elidex-script-session` and `elidex-dom-api` (site list via PM) | "P0a-1 changed the engine boundary (stack-safety P0a-1 §4.5, PM 533): `ScriptFailure` (NEW, `elidex-script-session/src/outcome.rs`); `ScriptEngine::call_listener` returns `Result<(), ScriptFailure>`; `EvalResult` carries `outcome` in place of `success`; `EventListeners::remove_with_position` / `reinsert` (NEW) and the `once` revert in `script_dispatch_event_core`; `FilterError::Throw` became `FilterError::Script(ScriptFailure)` and the traversal protos' failure → null arms are gone." | `docs/plans/2026-11-vm-stack-safety-guard-p0a1.md:44-61` |

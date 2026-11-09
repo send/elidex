@@ -59,7 +59,7 @@ Elements: **CEN** (rules; §5), **REA** (checked reasons; §5 rule 12), **RES** 
 | REA × rule 9 | std-trait impls are scanned like every foreign trait; a `Drop` / `Iterator::next` that reaches a producer is a member and needs a row | control `census_boundary_std_trait_member` | check |
 | REA × rule 11 | kind-bearing is by containment (`Vec<EvalResult>` qualifies); a listed type whose definition does not name `ScriptFailure` is red | controls `census_boundary_kind_bearing_container`, `census_kind_bearing_type_without_failure` | check |
 | REA × rule 8 | the loop rule's admissible reason is a predicate (no durable write and no durable-store drain before the `?`), not the spec class the prototype named by hand | control `census_loop_question_mark_member` (and its admissible fixture) | check |
-| ID × CEN | producer derivation keys on calls to `check_entry` and on constructions of the two kinds | control `census_planned_producer_already_derived` | check |
+| ID × CEN | producer derivation keys on calls to `resource_limit::enter` (P0a-1 §4.2; `check_entry` is private inside it) and on constructions of the two kinds | control `census_planned_producer_already_derived` | check |
 | CP × CEN | the four enclosing functions of CP-1…CP-3b are the derived producers at P0a-2; carriers are closed over them | §6 | check |
 | INJ × CEN | the boundary hooks are `#[cfg(test)]` statements; the lexer excludes `#[cfg(test)]`-attributed items **and statements**, so a hook does not make its function a derived producer | control `census_cfg_test_hook_not_producer` | check |
 | OUT × CEN | rule 11 makes `ScriptFailure`-bearing types kind-bearing, so P0a-1's fixed boundaries leave the population; rule 7 keeps D-14's and D-15's writes W rows (admissible: reverted on `NotStarted`) | controls `census_kind_bearing_type_without_failure`, `census_w_across_boundary` | check |
@@ -199,14 +199,15 @@ The predicate texts above are the specification of the check; the check's docstr
 
 ## §6. Producers and the planned list
 
-Producers are derived: functions that call `check_entry`, `ensure_stack` (NEW: PR-1), or construct
+Producers are derived: functions that call `resource_limit::enter` (the wrapper of the private `check_entry`,
+P0a-1 §4.2), `ensure_stack` (NEW: PR-1), or construct
 `VmError::resource_limit` / `CompileErrorKind::ResourceLimit`. Until PR-1 / PR-1b land, the check also
 reads `PLANNED_PRODUCERS`, a constant listing PR-1 §5.2's walker functions, the compile front end's entry
 (`compile_script`), the regexp compile sites of PR-1 §6.1 (`load_constant`, `native_string_match`,
 `native_string_search`) and PR-1b's `call_wasm_exported_function` / `instantiate_module`. A planned name
 that is also derived is red ("remove it"), so the list only shrinks and is empty after PR-1b. At P0a-2's
 landing `call_wasm_exported_function` and `instantiate_module` are already derived (they call
-`check_entry`, P0a-1 §4.3), so they are not in the list P0a-2 ships.
+`resource_limit::enter`, P0a-1 §4.2–§4.3), so they are not in the list P0a-2 ships.
 
 ## §7. The allowlist at P0a-2's landing
 

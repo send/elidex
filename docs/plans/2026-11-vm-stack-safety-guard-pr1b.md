@@ -44,7 +44,10 @@ P0a-1 §7). The one VM field written before CP-3a, `call_dispatch`'s `gc_enabled
 `WasmExportedFunction` arm (`interpreter.rs:501` at `47b6c934`; re-derive after the `interpreter.rs` prereq
 split), is restored by that arm on the `Err` return as on every other return.
 
-CP-3a / CP-3b set the entered mark (P0a-1 §4.2) after the check, before the first store mutation.
+CP-3a / CP-3b are entries of P0a-1 §4.2's structural rule (PM 557): each is written as `resource_limit::enter(kind, body)`,
+the check is the wrapper's first statement and everything after it is the entered step; no per-site mark is set.
+A failure of the argument coercions before CP-3a (nested CP-1 entries, step 7) is a body error of the enclosing CP-1
+entry and is `Threw` at the boundary (P0a-1 §4.2 (v)); CP-3a's position is unchanged by that.
 
 PR-local invariants:
 
