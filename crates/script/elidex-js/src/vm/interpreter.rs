@@ -2,13 +2,15 @@
 //!
 //! The main dispatch loop lives in `dispatch.rs`; this module provides the
 //! entry points (`eval`, `run_script`, `call`, `call_construct_native`,
-//! `with_call_mode`) and the shared stack helpers.  Call dispatch and frame
-//! entry (`call_dispatch`, `call_internal`, `push_js_call_frame`,
-//! `run_function`) live in `interpreter_call.rs`.
+//! `with_call_mode`, and `run_function` for the initial `Eval` frame) and the
+//! shared stack helpers.  Call dispatch and frame entry (`call_dispatch`,
+//! `call_internal`, `push_js_call_frame`) live in `interpreter_call.rs`.
 
 use crate::bytecode::compiled::CompiledScript;
 
-use super::value::{JsValue, ObjectId, VmError, VmErrorKind};
+use std::sync::Arc;
+
+use super::value::{FrameKind, FuncId, JsValue, ObjectId, VmError, VmErrorKind};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -272,6 +274,39 @@ impl VmInner {
             Ok(r) => r,
             Err(payload) => resume_unwind(payload),
         }
+    }
+
+    /// Run a function as the initial (or only) frame.
+    ///
+    /// Sole [`FrameKind::Eval`] push site: top-level script or `eval`
+    /// body invoked via [`Self::eval`] / [`Self::run_script`].
+    /// Wrapping in [`Self::with_call_mode`] (with
+    /// [`super::value::CallMode::Call`]) makes the entry an outer
+    /// save/restore boundary for `completion_value`, so nested
+    /// `Vm::eval` / native re-entry preserves the outer Eval frame's
+    /// script-completion value across the inner body's
+    /// [`super::value::FrameKind::Eval`] writes (ECMA-262 §16.1.6
+    /// step 13.a + 17 / §19.2.1.1 step 29.a + 33). Mirrors `Vm::call`
+    /// / `Vm::call_construct_native`'s panic-safety contract for the
+    /// Eval entry path.
+    fn run_function(
+        &mut self,
+        func_id: FuncId,
+        this: JsValue,
+        args: &[JsValue],
+    ) -> Result<JsValue, VmError> {
+        self.with_call_mode(super::value::CallMode::Call, |vm, _mode| {
+            // ECMA-262 §16.1.6 ScriptEvaluation step 13.b — the body's
+            // initial completion is `empty`, surfaced as
+            // `NormalCompletion(undefined)` when no entry-frame
+            // `Op::PopCompletion` write fires (empty source, or last statement
+            // is not an ExpressionStatement). The outer caller's
+            // value is already preserved on `saved_completion_stack`
+            // by `with_call_mode`'s entry push, so resetting here
+            // does not corrupt nested re-entry.
+            vm.completion_value = JsValue::Undefined;
+            vm.call_internal(func_id, this, args, Arc::from([]), FrameKind::Eval)
+        })
     }
 }
 
