@@ -6,7 +6,7 @@
 //! Each factory:
 //!
 //! 1. Brand-checks `this` as Document (handled by call-site of
-//!    `DOCUMENT_METHODS` table — `native_*` entries already see a
+//!    `Document.prototype` method table — `native_*` entries already see a
 //!    `document_receiver`-validated entity).
 //! 2. Coerces args via WebIDL `to_uint32` / `require_node_arg`.
 //! 3. Allocates engine-side state (`Range` / `TreeWalkerState` /
@@ -194,9 +194,9 @@ fn parse_filter(arg: Option<JsValue>, method: &str) -> Result<Option<u64>, VmErr
     }
 }
 
-/// Wrapper helpers — these are wired into the `DOCUMENT_METHODS`
-/// table in `document.rs` so call routing happens through the
-/// existing `document_receiver` brand check.
+/// Wrapper helpers — these are installed on `Document.prototype` by
+/// `register_document_prototype` in `document.rs`, so call routing happens
+/// through the existing `document_receiver` brand check.
 pub(super) const FACTORIES: &[(&str, super::super::NativeFn)] = &[
     ("createRange", native_document_create_range),
     ("createTreeWalker", native_document_create_tree_walker),

@@ -239,7 +239,7 @@ pub(super) fn native_document_set_title(
     )
 }
 
-/// `document.compatMode` — WHATWG §4.5 accessor, routed to the engine-independent
+/// `document.compatMode` — WHATWG DOM §4.5 accessor, routed to the engine-independent
 /// `GetCompatMode` handler (the mode is not modelled, so every Document is
 /// `"CSS1Compat"`; slot proposal `#11-document-mode`).  An unbound
 /// `HostObject` receiver answers the empty string rather than leaking a
@@ -254,7 +254,7 @@ pub(super) fn native_document_get_compat_mode(
     invoke_document_accessor(ctx, this, "compatMode", "document.compatMode.get", empty)
 }
 
-/// `document.defaultView` — WHATWG §4.5.  Returns the Window
+/// `document.defaultView` — WHATWG HTML §7.2.2 The Window object.  Returns the Window
 /// (`globalThis`) wrapper for the bound VM; a Document that is not
 /// currently the bound document (e.g. a detached clone) has no
 /// associated `Window` and therefore returns `null` per spec.
@@ -526,10 +526,13 @@ pub(super) fn native_document_has_focus(
 
 /// `document.hidden` (WHATWG HTML §6.2 `#dom-document-hidden`).
 ///
-/// `true` when this document's top-level browsing context is hidden
-/// (background tab / minimized / occluded), driven by the embedding
-/// shell via `HostData::set_visibility`.  Defaults `false` (visible)
-/// when no host context is installed.
+/// For the bound document: `true` when its top-level browsing context is
+/// hidden (background tab / minimized / occluded), driven by the embedding
+/// shell via `HostData::set_visibility`.  A Document without a browsing
+/// context (a DOMParser / `cloneNode` document) answers its initial state,
+/// `true`.  A retained wrapper called while the VM is unbound keeps the
+/// default `false` (visible).  A receiver that is not a Document throws
+/// `TypeError`.
 pub(super) fn native_document_get_hidden(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

@@ -78,8 +78,9 @@ use elidex_script_session::document_cookie_spec_level;
 /// with WebIDL branding.  The one brand check of every Document-specific member; the shared-interface members listed in plan §7 keep their own receiver handling
 /// (PM 556 D1): Web IDL §3.7.6 *attribute getter* / §3.7.7 *create an
 /// operation function* throw `TypeError` when `this` is not a Document
-/// platform object, and no Document member but `onreadystatechange` has
-/// `[LegacyLenientThis]`.
+/// platform object, and no member of the Document partial interface but
+/// `onreadystatechange` has `[LegacyLenientThis]` (the GlobalEventHandlers
+/// mixin's `onmouseenter` / `onmouseleave` do; they are not routed here).
 ///
 /// - `Err(TypeError)`: `this` is not a `HostObject` (`{}`, `undefined`, a
 ///   primitive, a function), bound or not — the `this_is_node_wrapper`
@@ -377,11 +378,12 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
         native_document_create_document_fragment,
     ),
     // Focus-management readers (WHATWG HTML §6.6.6).  `hasFocus()`
-    // returns whether some connected element in this Document carries
-    // the canonical `ElementState::FOCUS` bit (read via
-    // `elidex_dom_api::focus::current_focus`).  The spec defines
-    // hasFocus in terms of system focus — we approximate as "some
-    // element inside this Document has focus".
+    // implements the has-focus steps 1-2 (HTML §6.6.4: no navigable /
+    // hidden context -> false) and then reads whether some connected element
+    // in this Document carries the canonical `ElementState::FOCUS` bit (via
+    // `elidex_dom_api::focus::current_focus`).  Approximated: the spec's
+    // system-focus condition (another OS window focused) is not modelled;
+    // slot `#11-system-window-focus-events`.
     ("hasFocus", native_document_has_focus),
     // Selection API §4.1: `native_document_get_selection` brand-checks the
     // receiver; the Window's selection singleton (`HostData::selection_instance`)
@@ -424,8 +426,9 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("documentElement", native_document_get_document_element),
     ("head", native_document_get_head),
     ("body", native_document_get_body),
-    // ParentNode mixin (WHATWG §4.2.6) RO accessors — Document has
-    // no shared prototype; selector pair stays in `DOCUMENT_METHODS`.
+    // ParentNode mixin (WHATWG §4.2.6) RO accessors — installed on
+    // `Document.prototype` directly; the selector pair stays in
+    // `DOCUMENT_METHODS_PRE_LIVE_COLLECTION`.
     (
         "firstElementChild",
         super::parentnode::native_pn_first_element_child,

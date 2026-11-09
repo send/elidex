@@ -167,10 +167,10 @@ fn clone_node_document_methods_operate_on_clone_not_bound_doc() {
 
 #[test]
 fn clone_node_document_wrapper_has_document_methods() {
-    // A cloned Document must carry the same own-property suite as
-    // the bound document — `createElement`, `getElementById`,
-    // `body` accessor, etc.  Without the post-clone install these
-    // would silently be `undefined` on the clone.
+    // A cloned Document is wrapped with `Document.prototype` like the bound
+    // document — `createElement`, `getElementById`, the `body` accessor, etc.
+    // resolve through it.  A wrapper that kept `Node.prototype` would leave
+    // them `undefined` on the clone.
     let (mut vm, mut session, mut dom, doc) = setup();
     // Seed the bound document with a bit of structure so the deep
     // clone has something to traverse.

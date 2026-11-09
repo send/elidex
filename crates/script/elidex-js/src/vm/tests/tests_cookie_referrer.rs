@@ -511,15 +511,14 @@ fn referrer_clears_back_to_empty_on_none() {
 }
 
 // ---------------------------------------------------------------------------
-// document.cookie / referrer brand-bypass (Copilot R1)
+// document.cookie / referrer brand check (Copilot R1)
 // ---------------------------------------------------------------------------
 //
-// `document_receiver` returns `Ok(None)` when the receiver is a
+// `document_receiver` throws `TypeError` when the receiver is a
 // non-HostObject (e.g. a plain `{}` from
-// `getter.call({})` / `setter.call({}, '...')`).  The VM's other
-// document accessors short-circuit on that branch; the cookie /
-// referrer accessors must do the same so detached calls cannot leak
-// or mutate the bound document's storage.
+// `getter.call({})` / `setter.call({}, '...')`).  The cookie / referrer
+// accessors run it like every other Document member, so detached calls cannot
+// leak or mutate the bound document's storage.
 
 #[cfg(feature = "compat-webapi")]
 #[test]

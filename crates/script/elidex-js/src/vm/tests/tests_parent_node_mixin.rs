@@ -626,7 +626,7 @@ fn template_content_query_selector_finds_descendant() {
 }
 
 // ---------------------------------------------------------------------------
-// Reader surface — Document wrapper (per-bind install via
+// Reader surface — Document wrapper (`Document.prototype`, installed from
 // `DOCUMENT_RO_ACCESSORS`).
 // ---------------------------------------------------------------------------
 
