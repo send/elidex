@@ -44,7 +44,7 @@ use super::super::shape;
 use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::dom_bridge::{
     coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
-    query_selector_all_snapshot, wrap_entities_as_array,
+    query_selector_all_snapshot,
 };
 
 use super::document_accessors::{
@@ -73,23 +73,39 @@ use elidex_script_session::document_cookie_spec_level;
 // ---------------------------------------------------------------------------
 
 /// Resolve the target Document entity for a document-method call,
-/// with WebIDL branding.
+/// with WebIDL branding.  The one brand check of every Document member
+/// (PM 556 D1): Web IDL §3.7.6 *attribute getter* / §3.7.7 *create an
+/// operation function* throw `TypeError` when `this` is not a Document
+/// platform object, and no Document member but `onreadystatechange` has
+/// `[LegacyLenientThis]`.
 ///
+/// - `Err(TypeError)`: `this` is not a `HostObject` (`{}`, `undefined`, a
+///   primitive, a function), bound or not — the `this_is_node_wrapper`
+///   pre-check (`require_receiver`'s doc names it for this case) — or a
+///   bound `HostObject` whose kind is NOT `Document` (e.g.
+///   `docMethod.call(element)`).  WebIDL "Illegal invocation" brand check.
 /// - `Ok(Some(entity))`: bound HostObject receiver whose kind is
 ///   `Document` — returned for the bound global and for cloned
 ///   Document wrappers (so `cloned.querySelector(...)` searches
 ///   the clone's subtree).
-/// - `Ok(None)`: unbound VM or non-HostObject `this` — silent
-///   no-op, matching the rest of elidex's unbound-receiver
-///   policy (post-unbind retained references must not panic).
-/// - `Err(TypeError)`: HostObject `this` whose kind is NOT
-///   `Document` (e.g. `docMethod.call(element)`).  WebIDL
-///   "Illegal invocation" brand check.
+/// - `Ok(None)`: unbound VM with a `HostObject` receiver — the member
+///   falls through to its existing default (PM 556 D2; a retained
+///   wrapper cannot be classified once unbound, and post-unbind retained
+///   references must not panic).
+///
+/// Callers must call this BEFORE any early return of their own (such as a
+/// bound check), so the non-`HostObject` `TypeError` also fires while
+/// unbound.
 pub(super) fn document_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
 ) -> Result<Option<Entity>, VmError> {
+    if !super::event_target::this_is_node_wrapper(ctx.vm, this) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Document': Illegal invocation"
+        )));
+    }
     super::event_target::require_receiver(ctx, this, "Document", method, |k| {
         k == NodeKind::Document
     })
@@ -104,9 +120,6 @@ pub(super) fn native_document_get_element_by_id(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     // WebIDL brand-check runs BEFORE argument ToString so an invalid
     // receiver does not trigger user-supplied toString.
     let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
@@ -129,9 +142,6 @@ pub(super) fn native_document_query_selector(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
@@ -147,9 +157,6 @@ pub(super) fn native_document_query_selector_all(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelectorAll")? else {
         return Ok(JsValue::Null);
@@ -171,11 +178,8 @@ pub(super) fn native_document_get_elements_by_tag_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "getElementsByTagName")? else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        return Ok(JsValue::Null);
     };
     let tag = coerce_first_arg_to_string(ctx, args)?;
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
@@ -191,11 +195,8 @@ pub(super) fn native_document_get_elements_by_class_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "getElementsByClassName")? else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        return Ok(JsValue::Null);
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
     // ASCII whitespace per WHATWG DOM §4.2.6.2 + HTML §2.4.5.3
@@ -223,11 +224,8 @@ pub(super) fn native_document_get_elements_by_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "getElementsByName")? else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        return Ok(JsValue::Null);
     };
     let name = coerce_first_arg_to_string(ctx, args)?;
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
@@ -255,9 +253,6 @@ pub(super) fn native_document_adopt_node(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc) = document_receiver(ctx, this, "adoptNode")? else {
         return Ok(JsValue::Null);
     };

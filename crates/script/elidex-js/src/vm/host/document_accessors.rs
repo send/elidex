@@ -68,8 +68,9 @@ fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<
 /// - `this` is the bound Document (or any other HostObject whose
 ///   `NodeKind` is `Document`, e.g. a cloned doc) → dispatch to
 ///   `handler_name`.
-/// - `this` is unbound / non-HostObject → return `fallback` (silent
-///   no-op, matches the rest of the document accessor family).
+/// - `this` is a HostObject while the VM is unbound → return `fallback`
+///   (the existing default, PM 556 D2).  A non-HostObject `this` throws
+///   `TypeError` (PM 556 D1), bound or not.
 /// - `this` is a HostObject of a different `NodeKind` (e.g.
 ///   `Document.documentElement.get.call(element)`) → propagates
 ///   the WebIDL "Illegal invocation" `TypeError` from
@@ -163,13 +164,15 @@ pub(super) fn native_document_get_ready_state(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Brand check, then HEAD's constant for every Document: "complete" is the
-    // spec default for a Document without a browsing context (HTML §3.1.5)
-    // and today's answer for the bound one (its readiness has a second source,
-    // slot proposal `#11-document-readiness-one-source`).
-    if document_receiver(ctx, this, "readyState")?.is_none() {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    }
+    // Web IDL *attribute getter* brand check (no `[LegacyLenientThis]` on
+    // `readyState`): `document_receiver` throws `TypeError` for a receiver
+    // that is not a Document platform object.  A Document answers its current
+    // document readiness (HTML §3.1.5): HEAD's constant for the bound one (its
+    // readiness has a second source, slot `#11-document-readiness-one-source`),
+    // the initial value `"complete"` for any other (no per-Document store; a
+    // DOMParser document's spec value is "interactive", the same slot).  The
+    // native never returns `""`.
+    document_receiver(ctx, this, "readyState")?;
     Ok(JsValue::String(ctx.vm.well_known.complete))
 }
 
@@ -204,10 +207,10 @@ pub(super) fn native_document_set_title(
 
 /// `document.compatMode` — WHATWG §4.5 accessor, routed to the engine-independent
 /// `GetCompatMode` handler (the mode is not modelled, so every Document is
-/// `"CSS1Compat"`; slot proposal `#11-document-mode`).  A brand-bypass receiver
-/// (unbound / non-HostObject) answers the empty string rather than leaking a
-/// plausible "CSS1Compat" from a detached call site; a wrong-kind receiver
-/// throws `TypeError`.
+/// `"CSS1Compat"`; slot proposal `#11-document-mode`).  An unbound
+/// `HostObject` receiver answers the empty string rather than leaking a
+/// plausible "CSS1Compat" from a detached call site; a non-`HostObject` or
+/// wrong-kind receiver throws `TypeError`.
 pub(super) fn native_document_get_compat_mode(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -273,9 +276,9 @@ pub(super) fn native_document_get_cookie(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `document_receiver` returns `Ok(None)` for unbound VMs and
-    // non-HostObject receivers (e.g. `getter.call({})`); the
-    // brand-bypass cases must observe the cookie-averse fallback.
+    // `document_receiver` returns `Ok(None)` for an unbound VM's HostObject
+    // receiver (a non-HostObject such as `getter.call({})` throws); that case
+    // must observe the cookie-averse fallback.
     // `Ok(Some(doc))` for a non-bound Document (e.g. a clone made
     // by `document.cloneNode(true)`) must also fall back, because
     // browsing-context cookie state belongs to the active Document
@@ -358,7 +361,7 @@ pub(super) fn native_document_get_referrer(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Two-stage guard, matching the cookie accessors and
-    // `defaultView`: brand-bypass (non-HostObject `this`) and
+    // `defaultView`: an unbound VM's HostObject `this` and
     // detached Document clones must both fall back to the empty
     // string.  `NavigationState::referrer` is browsing-context
     // state, owned by the bound Document alone.
@@ -506,8 +509,8 @@ pub(super) fn native_document_get_hidden(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Two-stage guard (matching `cookie` / `referrer` / `defaultView`): a
-    // brand-bypass (`get.call({})`) falls back to the default (visible); a
+    // Two-stage guard (matching `cookie` / `referrer` / `defaultView`): an
+    // unbound VM's HostObject receiver falls back to the default (visible); a
     // Document without a browsing context answers its initial visibility state,
     // "hidden" (HTML §6.2 *set the initial visibility state* runs only for a
     // navigable's document), never the bound tab's state.
@@ -536,8 +539,8 @@ pub(super) fn native_document_get_visibility_state(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Two-stage guard (see `native_document_get_hidden`): a Document without a
-    // browsing context answers the initial "hidden"; a brand-bypass receiver
-    // defaults to "visible".
+    // browsing context answers the initial "hidden"; an unbound VM's HostObject
+    // receiver defaults to "visible".
     let Some(doc) = document_receiver(ctx, this, "visibilityState")? else {
         return Ok(JsValue::String(ctx.vm.well_known.visible));
     };

@@ -32,9 +32,6 @@ pub(super) fn native_document_create_element(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc_entity) = document_receiver(ctx, this, "createElement")? else {
         return Ok(JsValue::Null);
     };
@@ -105,9 +102,6 @@ pub(super) fn native_document_create_text_node(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc_entity) = document_receiver(ctx, this, "createTextNode")? else {
         return Ok(JsValue::Null);
     };
@@ -129,9 +123,6 @@ pub(super) fn native_document_create_comment(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc_entity) = document_receiver(ctx, this, "createComment")? else {
         return Ok(JsValue::Null);
     };
@@ -152,9 +143,6 @@ pub(super) fn native_document_create_document_fragment(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
     let Some(doc_entity) = document_receiver(ctx, this, "createDocumentFragment")? else {
         return Ok(JsValue::Null);
     };

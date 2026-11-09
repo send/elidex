@@ -216,10 +216,9 @@ fn w7_domparser_document_no_browsing_context_values_guard() {
                function () { return (dp.cookie = 'a=b', dp.cookie); }, \
                function () { return dp.referrer; }, \
                function () { return dp.hasFocus(); }, \
-               function () { return dp.readyState; }, \
                function () { return dp.compatMode; });",
         );
-        assert_eq!(got, "null|\"\"|\"\"|\"\"|false|\"complete\"|\"CSS1Compat\"");
+        assert_eq!(got, "null|\"\"|\"\"|\"\"|false|\"CSS1Compat\"");
     });
 }
 
@@ -263,19 +262,144 @@ fn w9_accessor_brand_check_rejects_a_non_document() {
     });
 }
 
+/// W10 (D-8 (a), PM 548): the `readyState` getter throws `TypeError` for every
+/// receiver that is not a Document platform object: a non-Document node, a
+/// plain object, `undefined`. Control: `g.call(document)`.
 #[test]
 fn w10_ready_state_getter_brand_check() {
     with_page(|vm| {
         vm.eval(ERR).unwrap();
+        vm.eval(
+            "globalThis.P = Object.getOwnPropertyDescriptor(document, 'readyState') ? document \
+                      : Object.getPrototypeOf(document); \
+             globalThis.g = Object.getOwnPropertyDescriptor(P, 'readyState').get;",
+        )
+        .unwrap();
+        for (leg, recv) in [
+            ("document.body", "document.body"),
+            ("{}", "{}"),
+            ("undefined", "undefined"),
+        ] {
+            let got = eval_str(vm, &format!("E(function () {{ return g.call({recv}); }});"));
+            assert!(
+                got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
+                "W10 leg {leg}: got {got:?}"
+            );
+        }
+        let control = eval_str(vm, "E(function () { return g.call(document); });");
+        assert_eq!(control, "returned:\"complete\"");
+    });
+}
+
+/// W23 (D-8 (b), PM 548): a genuine Document that is not the bound one answers
+/// its current document readiness, the initial `"complete"`, never `""` or
+/// `undefined`. The DOMParser document's spec value is `"interactive"` (HTML
+/// §13.2.7 step 4): R-4's missing per-Document fact, so `dp.readyState` is
+/// recorded but not asserted.
+#[test]
+fn w23_non_bound_document_ready_state_is_its_readiness() {
+    with_second_document(false, |vm| {
+        vm.eval(DP).unwrap();
         let got = eval_str(
             vm,
-            "var P = Object.getOwnPropertyDescriptor(document, 'readyState') ? document \
-                      : Object.getPrototypeOf(document); \
-             E(function () { return Object.getOwnPropertyDescriptor(P, 'readyState').get.call(document.body); });",
+            "var d = p.ownerDocument; \
+             L(function () { return d.readyState; }, \
+               function () { return document.cloneNode().readyState; });",
         );
-        assert!(
-            got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
-            "got {got:?}"
+        assert_eq!(got, "\"complete\"|\"complete\"");
+        let control = eval_str(vm, "T(function () { return document.readyState; });");
+        assert_eq!(control, "\"complete\"");
+        // Unasserted leg (R-4): the spec value is "interactive".
+        let _unasserted = eval_str(vm, "T(function () { return dp.readyState; });");
+    });
+}
+
+/// W24 (D-5, PM 548): Document `getSelection` called on a receiver that is not
+/// a Document platform object throws `TypeError` (Web IDL §3.7.7 *create an
+/// operation function* step 2.1.2.3). Control: the bound document's selection
+/// is the Window's.
+#[test]
+fn w24_get_selection_brand_check() {
+    with_page(|vm| {
+        vm.eval(ERR).unwrap();
+        vm.eval(
+            "globalThis.P = document.hasOwnProperty('getSelection') ? document \
+                      : Object.getPrototypeOf(document);",
+        )
+        .unwrap();
+        for (leg, recv) in [("{}", "{}"), ("document.body", "document.body")] {
+            let got = eval_str(
+                vm,
+                &format!("E(function () {{ return P.getSelection.call({recv}); }});"),
+            );
+            assert!(
+                got.starts_with("TypeError: ") && got.contains("Illegal invocation"),
+                "W24 leg {leg}: got {got:?}"
+            );
+        }
+        let control = eval_str(
+            vm,
+            "E(function () { return P.getSelection.call(document) === getSelection(); });",
+        );
+        assert_eq!(control, "returned:true");
+    });
+}
+
+/// The W25 members: one method of `document.rs`, two accessors (browsing-context
+/// `hidden`, `compatMode`), one node factory, one traversal factory. Each is
+/// called through its prototype descriptor.
+const W25_MEMBERS: &str = "\
+globalThis.P = document.hasOwnProperty('getElementById') ? document \
+              : Object.getPrototypeOf(document); \
+globalThis.M = { \
+  getElementById: P.getElementById, \
+  hidden: Object.getOwnPropertyDescriptor(P, 'hidden').get, \
+  compatMode: Object.getOwnPropertyDescriptor(P, 'compatMode').get, \
+  createElement: P.createElement, \
+  createTreeWalker: P.createTreeWalker }; \
+globalThis.ALL = function (recv) { \
+  return Object.keys(M).map(function (k) { \
+    return k + '=' + E(function () { return M[k].call(recv, 'x'); }); }).join(' ; '); };";
+
+/// W25 (PM 556 D1): every Document member throws `TypeError` "Illegal
+/// invocation" on a failed brand check, bound or not; the fix is in
+/// `document_receiver`. Legs: `{}` and `undefined`, bound; then the same
+/// unbound; an unbound retained Document wrapper keeps today's defaults (D2).
+#[test]
+fn w25_every_document_member_brand_checks_its_receiver() {
+    with_page(|vm| {
+        vm.eval(ERR).unwrap();
+        vm.eval(W25_MEMBERS).unwrap();
+        vm.eval("globalThis.dd = document; globalThis.bodyEl = document.body;")
+            .unwrap();
+        let illegal = |s: &str| {
+            s.matches("TypeError: ").count() == 5 && s.matches("Illegal invocation").count() == 5
+        };
+        for recv in ["{}", "undefined"] {
+            let got = eval_str(vm, &format!("ALL({recv});"));
+            assert!(illegal(&got), "W25 bound {recv}: {got}");
+        }
+        // Control: a genuine Document works.
+        let control = eval_str(
+            vm,
+            "L(function () { return M.getElementById.call(document, 'zz'); }, \
+               function () { return M.hidden.call(document); }, \
+               function () { return M.compatMode.call(document); }, \
+               function () { return M.createElement.call(document, 'i'); }, \
+               function () { return M.createTreeWalker.call(document, document.body); });",
+        );
+        assert_eq!(control, "null|false|\"CSS1Compat\"|object|object");
+        vm.unbind();
+        // Unbound: a non-HostObject receiver throws; a retained HostObject keeps today's defaults.
+        for recv in ["{}", "undefined"] {
+            let got = eval_str(vm, &format!("ALL({recv});"));
+            assert!(illegal(&got), "W25 unbound {recv}: {got}");
+        }
+        let retained = eval_str(vm, "ALL(dd);");
+        assert_eq!(
+            retained,
+            "getElementById=returned:null ; hidden=returned:false ; compatMode=returned:\"\" ; \
+             createElement=returned:null ; createTreeWalker=returned:null"
         );
     });
 }

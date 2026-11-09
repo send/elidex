@@ -367,13 +367,16 @@ fn focus_on_disconnected_element_is_noop() {
 #[test]
 fn hidden_visibility_getters_brand_check_receiver() {
     // Codex R1 F2: the page-visibility getters must not leak the bound tab's
-    // state to a non-Document receiver (`get.call({})`).
+    // state to a non-Document receiver (`get.call({})`); PM 556 D1: they throw
+    // `TypeError` (Web IDL *attribute getter* brand check).
     let out = run(
         "var hg = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'hidden').get; \
          var vg = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'visibilityState').get; \
-         (hg.call({}) === false && vg.call({}) === 'visible' \
+         function name(f) { try { f(); return 'returned'; } catch (e) { return e.name; } } \
+         (name(function () { return hg.call({}); }) === 'TypeError' \
+            && name(function () { return vg.call({}); }) === 'TypeError' \
             && hg.call(document) === false && vg.call(document) === 'visible') \
-           ? 'ok' : ('fail:' + hg.call({}) + ',' + vg.call({}));",
+           ? 'ok' : 'fail';",
     );
     assert_eq!(out, "ok");
 }
