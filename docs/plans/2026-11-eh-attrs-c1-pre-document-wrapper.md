@@ -662,9 +662,38 @@ corrected by the figures above.
   → `engine.rs:44`, `:100` (constructors, no wrap), `sw_thread.rs:189` and `worker_thread.rs:184` (each followed by `bind_worker`, then eval),
   `vm/test_helpers.rs:51` (test-only, followed by bind), `vm_api.rs:136` (definition); (2) `git grep -n 'create_element_wrapper' -- crates | /usr/bin/grep -v tests` → every non-test
   caller runs from a native (bound) or a dispatch path; `natives_promise.rs:526` is behind `host.is_bound()` (`:459-461`),
-  `engine.rs:254` is in listener dispatch on a bound VM, the benches (`event_dispatch.rs:50-57`, `dom_collection.rs:111-114`) bind first;
+  `engine.rs:254` is in listener dispatch on a bound VM, the bench `event_dispatch.rs:50-57` binds first (`dom_collection.rs:111-114` binds and never wraps);
   no crate outside `elidex-js` calls `install_host_data`. The only unbound miss in the suite was one test
-  (`tests_shadow_dom/events.rs`), now the should_panic cell W28. L3's slot `#11-vm-host-receiver-brand-check-unification`
+  (`tests_shadow_dom/events.rs`), now the should_panic cell W28.
+  **Caller classification** (PM 584 / the PM rule: an internal invariant may be asserted when script cannot reach its
+  failure, shown with commands). Population, re-runnable: `git grep -n 'create_element_wrapper' 3452b19c -- crates |
+  /usr/bin/grep -v -E '/tests/|tests_|_tests\.rs' | wc -l` → 129 lines (definitions, comments and `test_helpers`
+  included; code identical at `4e6fa2b0`, `git diff --stat 3452b19c 4e6fa2b0 -- crates` empty). `prototype_kind_for`'s only
+  code caller is `elements.rs:123` at `e5e93176`, after the assert; the cache hit (`:82-88`) returns before it. Classified
+  by an independent reviewer (Step 4.5, 11-09), read-only, at `3452b19c`:
+
+  | caller (at `3452b19c`) | why it is bound there |
+  |---|---|
+  | natives that find the entity through the DOM: `dom_bridge.rs:75/86/521`, `ops_element.rs:332`, `dom_collection.rs`, the `html_form` / `output` / `table` / `slot` / `template` protos, `element_shadow.rs:73/127`, `text_proto.rs:145`, `range_proto_mutation.rs:126`, `dom_parser.rs:302`, `attr_proto.rs:340`, `cssom_sheet.rs:390`, `shadow_root_proto.rs:207` | the entity comes from `dom()` (asserts bound) or behind `host_if_bound()`; unbound they return null / default before the wrap |
+  | natives that read the entity from VM-side state: `range_proto.rs:379/400/434`, `tree_walker_proto.rs`, `node_iterator_proto.rs`, `dom_selection_proto.rs:497/522` | `Vm::unbind` clears `range_instances`, `tree_walker_states`, `node_iterator_states_shared`, `selection_state` → detached / null branch |
+  | `static_range_proto.rs:303/323` | the constructor takes node wrappers only (already cached); the cache is strong (`remove_wrapper` only for Worker entities, `worker.rs:194/212/528`) → a hit |
+  | `canvas/mod.rs:711` (`ctx.canvas`) | reachable only through `canvas.getContext` → the canvas wrapper is cached → a hit |
+  | `mutation_observer.rs:312-317/407` | `takeRecords` behind `host_if_bound()` (`:272`); delivery returns early unbound (`:433`); the notify microtask is cleared at unbind |
+  | `resize_observer.rs:306`, `intersection_observer.rs:538` | delivery returns early unbound (`:379`, `:451`) |
+  | `events.rs:191`, `event_shapes.rs:451`, `event_target_dispatch.rs`, `engine.rs:254-255` | dispatch only: `call_listener` debug-asserts bound (`engine.rs:219`); `dispatchEvent` reads `ctx.host().dom()` |
+  | `custom_elements/flush.rs:143/144/242`, `upgrade.rs:243`, `html_element.rs:248` | behind `is_bound()` / `host_if_bound()` (`flush.rs:43/56/89/162`, `upgrade.rs:129`, `html_element.rs:146`) |
+  | `natives_promise.rs:526` | behind `host.is_bound()` (`:459-461`) |
+  | `host/globals.rs:44` (`install_document_global`) | called from `Vm::bind`, after binding |
+  | `node_filter_dispatch.rs:60` | inside a TreeWalker / NodeIterator traversal, which reads the DOM |
+  | `vm_api.rs:441` (public, bench-only), `benches/event_dispatch.rs:57`, `test_helpers.rs:94/130` | each binds just before the wrap |
+  | GC, finalizers, `Vm::unbind`, `teardown_document` | none calls it (`collect.rs:232` is a comment); `teardown_document` binds first (`engine.rs:407-416`); the worker drain uses `get_cached_wrapper` only (`worker.rs:133`) |
+  | worker / SW VMs (`worker_thread.rs:184`, `sw_thread.rs:189`) | bound by `bind_worker`, never unbound (`worker_thread.rs:171`) |
+  | the shell embedder | every drain / deliver (`drain_worker_messages`, `tick_network`, `deliver_sw_client_update`, `deliver_history_step_events`, …; `elidex-shell/src/lib.rs:425-515`) runs inside `with_bound`; timers and microtasks run inside the batch bracket |
+
+  The one remaining route to an unbound cache miss is direct `Vm` API use (e.g. `eval` after `unbind` on a never-wrapped
+  entity), which only tests do. **Unverified by the classification**: that none of the 34 test files containing both
+  `unbind()` and `create_element_wrapper` makes an unbound cache miss; that is decided by `test-all` at `3452b19c`
+  (13143 / 13143 green), not by the table. L3's slot `#11-vm-host-receiver-brand-check-unification`
   handles unbind (bound-handle comparison) on the same surface; C1-pre's shape must not diverge from it.
 - **R-5 registration order** — a missing `register_document_prototype` panics at the first Document wrap (loud;
   §4.1 items 3, 5).
@@ -1001,6 +1030,7 @@ Rev 2.6.2 addendum (mutation pass): W2 gains legs 3 and 4 (DOMParser document, c
 *Rev 2.6.3* (2026-11-09, PM 570, pre-push gate at `501fd938`; PM 548 / 556 as above). **G1**: `Document.prototype` is Window-scope only (§4.1 items 3 and 5; worker and SW VMs bind a Document entity, so "a worker VM binds no document" was false), W26 / W27, a §6.2 row (mutation run once), a §7 row (slot `#11-worker-scope-exposes-window-only-interfaces`). **G2**: R-4's bind-time `debug_assert!` and the production-path finding with its commands. **G3**: `URL` / `documentURI` brand-check `this`; W25 has 17 members; P-5 0 (was 1); R-3, §2.2, §7, DoD item 2 follow. **F1** (R-5 applied: the umbrella's §1.2 row and Order line). **F8**: W23's unasserted leg dropped from the test (the gap stays in R-4 / §7); the cells use the prototype only, no base-compat branch. **F9**: §5.3 re-measured; R-13 / R-14 given defect, why deferred, trigger, re-eval, owner. No new spec lookups.
 
 *Rev 2.6.4* (2026-11-09, PM 574; PM 570 / 556 / 548 as above). **G2 revised**: the invariant "no wrap while unbound" is asserted at `create_element_wrapper`'s allocation (hard `assert!`, release included; D-3, R-4), replacing rev 2.6.3's bind-time `debug_assert!`; the unbound `OtherNode` fallback of `prototype_kind_for` is removed; W28 and a §6.2 row (mutation run once); R-4 keeps its commands plus `test_helpers.rs:51`, and points at L3's `#11-vm-host-receiver-brand-check-unification`. **MIN**: §2.1 B1 Window-scope qualifier; `elements.rs:159` cites re-pinned; W9 / W10 / W24 / W25 lose their base-compat selectors (recorded base values kept). No new spec lookups.
+*Rev 2.6.5* (2026-11-09, PM 584): R-4 gains the caller classification of `create_element_wrapper` (129 lines at `3452b19c`, re-runnable population command, one row per caller group with why it is bound; the unverified point kept as unverified), so the ground for asserting the invariant sits in the memo; the bench row corrected (`dom_collection.rs` binds and never wraps).
 
 ## §11. Open questions
 
