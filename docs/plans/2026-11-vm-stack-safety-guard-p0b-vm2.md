@@ -103,8 +103,9 @@ and injection points, consumed here), **PEND** (this slice's rows of `# pending`
 
 **Breadth**: K=4 specs (IndexedDB-3, Service Workers, Web Cryptography API, WHATWG HTML), M=5 entries
 (verified 2026-11-10 by `python3 .claude/skills/elidex-plan-review/preflight.py` on this memo; `IndexedDB-3` and `Service Workers`
-are labels preflight does not map, so their two rows were looked up by hand, §10). Below the split
-thresholds.
+are labels preflight does not map, so their two rows were looked up by hand, §10). Preflight reports K=4
+SPLIT-RECOMMENDED, as it has since Rev 3d; the split is decided in this slice's own plan-review, together
+with the §0 condition "If the slice stops fitting one PR (PM 609 item 2)".
 
 ### §3.1 User-input touch audit
 
