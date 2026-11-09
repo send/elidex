@@ -676,8 +676,9 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | a class-B native keeps a private copy of the check / the predicate inverted | W6, W7, W8 |
 | `hasFocus` without step 1 | W15 |
 | Document `getSelection` delegates unconditionally | W6 |
-| gate evaluated per wrapper / dropped | W12 |
-| DOMParser or clone install left behind | P-2's DoD grep, W11 |
+| cookie gate evaluated per wrapper / dropped | W12 |
+| live-collection gate evaluated per wrapper / dropped | none: equivalent today (`live_collection_spec_level()` is `Living`, `event_handler_consumer.rs:307-309`, and `SpecLevelPolicy::installs_dom` returns `true` for `Living` under every policy, `spec_level.rs:174`); observable once B0/B1 demote the family, which adds the cell |
+| DOMParser or clone install left behind | W2 legs 3 (DOMParser document) and 4 (`document.cloneNode()`): own-name count 0 (before `bd89a35f` / `43e350c7`, by code reading: > 0). Mutation: an own `getElementById` on the DOMParser wrapper gives `0\|true\|1\|0`, on the clone `0\|true\|0\|1`, both red; P-2's DoD grep is a name grep only |
 | `readyState` without brand check | W10 |
 | `readyState` / `getSelection` without the non-`HostObject` pre-check (`{}` / `undefined` fall back to `""` / `null`) | W10 legs (2), (3); W24 leg (1) |
 | Document `getSelection` without `document_receiver` (any receiver delegates) | W24 |
@@ -947,6 +948,7 @@ O-4 state that an unbound retained `HostObject`'s `readyState` is `"complete"` (
 `document.cloneNode().readyState` leg moved to its Control tuple. §5.2 records D1's 5 tests (4 renamed, 1 changed in place);
 §5.1's old name updated. §7 gains two rows (members outside `document_receiver`; unbound non-nullable `null` returns). Three stale comments in
 `document_factories.rs` and `document.rs` rewritten.
+Rev 2.6.2 addendum (mutation pass): W2 gains legs 3 and 4 (DOMParser document, clone: own-name count 0) closing the R8 mutant; the live-collection gate row is marked equivalent today (every policy installs `Living`), only the cookie gate stays with W12.
 
 ## §11. Open questions
 
